@@ -1760,7 +1760,12 @@ impl CodexThreadEcho {
     ) -> Option<PreSessionRefusal> {
         self.resolve();
         let path = self.path.as_ref()?;
-        let (_, announced) = self.announced.as_ref()?;
+        // `resolve` sets a path only from an announced thread, so there
+        // is one here; a guard would be an unreachable branch.
+        let (_, announced) = self
+            .announced
+            .as_ref()
+            .expect("a resolved codex thread path has an announced thread");
         let (cwd, started) = thread_header(path, Some(announced.as_str()))?;
         if cwd != workdir || started < since_nanos {
             return None;

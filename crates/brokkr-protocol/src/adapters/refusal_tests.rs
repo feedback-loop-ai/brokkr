@@ -1003,8 +1003,18 @@ fn a_single_foreign_rollout_is_not_this_invocations_refusal() {
     // but empty, no cwd, no start, and a body this process may not read.
     std::fs::write(day.join("rollout-broken.jsonl"), "not json\n").unwrap();
     std::fs::write(day.join("rollout-empty.jsonl"), "").unwrap();
-    rollout(&day, "rollout-no-cwd.jsonl", "", "2026-11-08T10:00:01Z");
-    rollout(&day, "rollout-no-start.jsonl", "/this-seat", "");
+    rollout(
+        &day,
+        &format!("rollout-no-cwd-{THREAD}.jsonl"),
+        "",
+        "2026-11-08T10:00:01Z",
+    );
+    rollout(
+        &day,
+        &format!("rollout-no-start-{THREAD}.jsonl"),
+        "/this-seat",
+        "",
+    );
     let unreadable = day.join("rollout-unreadable.jsonl");
     std::fs::write(&unreadable, "not json\n").unwrap();
     {
@@ -1377,26 +1387,26 @@ fn a_session_meta_missing_a_required_header_field_is_no_header() {
     let root = dir.path().join("sessions");
     let day = root.join("2026/11/08");
     std::fs::create_dir_all(&day).unwrap();
-    for (name, payload) in [
+    for (tag, payload) in [
         (
-            "rollout-no-cwd.jsonl",
+            "no-cwd",
             json!({"id": THREAD, "timestamp": "2026-11-08T10:00:00Z"}),
         ),
+        ("no-timestamp", json!({"id": THREAD, "cwd": "/this-seat"})),
         (
-            "rollout-no-timestamp.jsonl",
-            json!({"id": THREAD, "cwd": "/this-seat"}),
-        ),
-        (
-            "rollout-no-id.jsonl",
+            "no-id",
             json!({"timestamp": "2026-11-08T10:00:00Z", "cwd": "/this-seat"}),
         ),
         (
-            "rollout-non-string-id.jsonl",
+            "non-string-id",
             json!({"id": 7, "timestamp": "2026-11-08T10:00:00Z",
                    "cwd": "/this-seat"}),
         ),
     ] {
-        let path = day.join(name);
+        // The name carries the id the header holds, so each missing field
+        // is what makes this no header rather than a name mismatch (R2).
+        let name = format!("rollout-{tag}-{THREAD}.jsonl");
+        let path = day.join(&name);
         let body = record(&[
             json!({"type": "session_meta", "payload": payload}),
             task_complete(json!({"message": "quota",
@@ -1601,26 +1611,6 @@ fn review_chief_1037f_recovered_non_quota_error_keeps_the_lost_path() {
     ] {
         let dir = tempfile::tempdir().unwrap();
         let rows = two_start_rows(dir.path(), middle, "9999-12-31T00:00:04Z");
-        assert_lost_on_both_paths(dir.path(), &rows, label);
-    }
-}
-
-/// F4: an empty id and an id the file name does not carry correlate nothing.
-#[cfg(unix)]
-#[test]
-fn review_chief_1037f_record_header_id_must_be_the_records_own() {
-    for (label, id) in [
-        ("an empty id is no record's own", ""),
-        (
-            "an id the file name does not carry is no record's own",
-            "not-this-thread",
-        ),
-    ] {
-        let dir = tempfile::tempdir().unwrap();
-        let mut header = correlated_header(dir.path());
-        header["payload"]["id"] = json!(id);
-        let [started, complete] = started_and_quota_complete();
-        let rows = [header, started, complete];
         assert_lost_on_both_paths(dir.path(), &rows, label);
     }
 }
@@ -1992,3 +1982,5 @@ fn a_second_whose_year_does_not_fit_has_no_local_time() {
     let _env = EnvGuard::lock();
     assert_eq!(local_time(i64::MAX), None);
 }
+
+mod thread_tests;

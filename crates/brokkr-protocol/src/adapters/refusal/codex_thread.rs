@@ -161,8 +161,9 @@ fn row_in_invocation(row: &Value, since_nanos: Option<i128>) -> bool {
         .is_none_or(|at| at >= since_nanos)
 }
 
-/// The error a rollout row names, or nothing: the last one after the
-/// current turn began is the refusal the early exit left behind.
+/// The error a rollout row names, or nothing. The caller keeps the last
+/// usage- or rate-limit error it names as the refusal the early exit left
+/// behind; an error of any other kind is only the H3 notice.
 fn thread_error(row: &Value) -> Option<Value> {
     let payload = match row.get("type").and_then(Value::as_str)? {
         "error" => return Some(row.clone()),
@@ -283,7 +284,8 @@ fn names_codex_thread(name: &str, thread_id: &str) -> bool {
 /// The cwd and session start a rollout's header names, only when its first
 /// row is a `session_meta` with string `cwd`, `timestamp` and `id` in its
 /// payload, and the id is this record's own (F4): the announced thread when
-/// one is known, else the id its file name carries.
+/// one is known, else the full id at the end of its `rollout-…-<id>.jsonl`
+/// file name.
 pub(crate) fn thread_header(path: &Path, announced: Option<&str>) -> Option<(String, i128)> {
     let body = std::fs::read_to_string(path).ok()?;
     let first = body.lines().next()?;
@@ -298,9 +300,10 @@ pub(crate) fn thread_header(path: &Path, announced: Option<&str>) -> Option<(Str
     names_own_record(path, id, announced).then_some((cwd, started))
 }
 
-/// Whether `id` is the record's own: the announced thread when one is
-/// known, else an id its file name carries as a whole token. A mismatch,
-/// including an empty id, correlates nothing.
+/// Whether `id` is the record's own: equal to the announced thread when
+/// one is known, else equal to the full id the file name carries. A
+/// mismatch, including an empty id or a fragment of the real id,
+/// correlates nothing.
 fn names_own_record(path: &Path, id: &str, announced: Option<&str>) -> bool {
     if id.is_empty() {
         return false;
@@ -309,8 +312,33 @@ fn names_own_record(path: &Path, id: &str, announced: Option<&str>) -> bool {
         || {
             path.file_name()
                 .and_then(|name| name.to_str())
-                .is_some_and(|name| names_codex_thread(name, id))
+                .and_then(record_id_from_name)
+                .is_some_and(|own| own == id)
         },
         |announced| announced == id,
     )
+}
+
+/// The length of the full id [`is_codex_thread_id`] accepts.
+const CODEX_THREAD_ID_LEN: usize = 36;
+
+/// The id a codex rollout's file name carries: the full-shape id at the
+/// end of `rollout-<timestamp>-<id>.jsonl`. A name that does not end in
+/// one carries no id, so a fixed word, a leading or middle fragment, or a
+/// trailing group of the real id never stands in for it.
+fn record_id_from_name(name: &str) -> Option<&str> {
+    let stem = name.strip_suffix(".jsonl")?.strip_prefix("rollout-")?;
+    let at = stem.len().checked_sub(CODEX_THREAD_ID_LEN)?;
+    let id = stem.get(at..)?;
+    is_codex_thread_id(id).then_some(id)
+}
+
+/// Codex's thread id as it writes it: 8-4-4-4-12 lowercase hex groups,
+/// read at their fixed byte positions. The caller hands 36 bytes, so a
+/// multibyte character cannot sit at a hyphen's position and pass.
+fn is_codex_thread_id(id: &str) -> bool {
+    id.char_indices().all(|(at, c)| match at {
+        8 | 13 | 18 | 23 => c == '-',
+        _ => c.is_ascii_digit() || matches!(c, 'a'..='f'),
+    })
 }
