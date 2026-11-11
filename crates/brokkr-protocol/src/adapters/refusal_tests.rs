@@ -4,8 +4,9 @@
 //! and, when it exits before its first turn, the error in the thread
 //! record the adapter already locates; dsh reads its session record's
 //! `turn/end`; claude's status-only 429 is the one shape it was missing.
-//! Every other error keeps `api_error`, class `Other`, with its words
-//! unchanged.
+//! Every other error on the stream keeps `api_error`, class `Other`, with
+//! its words unchanged; the thread-record fallback refuses only on a
+//! usage- or rate-limit error and otherwise leaves the result lost.
 
 use super::refusal::{
     claude_refusal_at, codex_thread_refusal, codex_thread_refusal_since, dsh_refusal, epoch_now,
@@ -1211,6 +1212,19 @@ fn assert_lost_on_both_paths(dir: &std::path::Path, rows: &[Value], why: &str) {
     }
 }
 
+/// The two rows the H1 header cases share after their first row: a turn
+/// starts and then the zero-stdout fake's usage-limit completion.
+fn started_and_quota_complete() -> [Value; 2] {
+    [
+        json!({"timestamp": "9999-12-31T00:00:01Z", "type": "event_msg",
+               "payload": {"type": "task_started", "turn_id": "t"}}),
+        json!({"timestamp": "9999-12-31T00:00:02Z", "type": "event_msg",
+               "payload": {"type": "task_complete", "turn_id": "t",
+                           "error": {"message": "quota",
+                                     "codex_error_info": "usage_limit_exceeded"}}}),
+    ]
+}
+
 fn correlated_header(dir: &std::path::Path) -> Value {
     json!({"timestamp": "9999-12-31T00:00:00Z", "type": "session_meta",
            "payload": {"id": THREAD,
@@ -1349,6 +1363,11 @@ fn a_session_meta_missing_a_required_header_field_is_no_header() {
             "rollout-no-id.jsonl",
             json!({"timestamp": "2026-11-08T10:00:00Z", "cwd": "/this-seat"}),
         ),
+        (
+            "rollout-non-string-id.jsonl",
+            json!({"id": 7, "timestamp": "2026-11-08T10:00:00Z",
+                   "cwd": "/this-seat"}),
+        ),
     ] {
         let path = day.join(name);
         let body = record(&[
@@ -1395,24 +1414,60 @@ fn a_codex_thread_record_reads_rate_limit_exceeded_and_429_as_refusals() {
 /// H1 (the chief's high finding): only a real `session_meta` header
 /// correlates a record. A `turn_context` first row names a turn's time,
 /// not this session's, so neither the announced nor the unannounced path
-/// may read its usage-limit completion. The zero-stdout fake writes its
-/// work marker, exits 0 and leaves no result: no result, no refusal.
+/// may read its usage-limit completion. The type check is its own guard,
+/// not a side effect of the payload fields: a `turn_context` carrying the
+/// same string `cwd`, `timestamp` and `id` is still no session header. The
+/// zero-stdout fake writes its work marker, exits 0 and leaves no result:
+/// no result, no refusal.
 #[cfg(unix)]
 #[test]
 fn review_chief_1037d_non_session_meta_is_not_a_session_header() {
     let dir = tempfile::tempdir().unwrap();
-    let rows = [
-        json!({"timestamp": "9999-12-31T00:00:00Z", "type": "turn_context",
-               "payload": {"cwd": dir.path().to_string_lossy(), "model": "m",
-                           "reasoning_effort": "high"}}),
-        json!({"timestamp": "9999-12-31T00:00:01Z", "type": "event_msg",
-               "payload": {"type": "task_started", "turn_id": "t"}}),
-        json!({"timestamp": "9999-12-31T00:00:02Z", "type": "event_msg",
-               "payload": {"type": "task_complete", "turn_id": "t",
-                           "error": {"message": "quota",
-                                     "codex_error_info": "usage_limit_exceeded"}}}),
-    ];
-    assert_lost_on_both_paths(dir.path(), &rows, "a turn_context is no session header");
+    let cwd = dir.path().to_string_lossy();
+    for (why, payload) in [
+        (
+            "a turn_context is no session header",
+            json!({"cwd": cwd.as_ref(), "model": "m",
+                   "reasoning_effort": "high"}),
+        ),
+        (
+            "a turn_context carrying the header fields is still no session header",
+            json!({"id": THREAD, "timestamp": "9999-12-31T00:00:00Z",
+                   "cwd": cwd.as_ref(), "model": "m"}),
+        ),
+    ] {
+        let [started, complete] = started_and_quota_complete();
+        let rows = [
+            json!({"timestamp": "9999-12-31T00:00:00Z", "type": "turn_context",
+                   "payload": payload}),
+            started,
+            complete,
+        ];
+        assert_lost_on_both_paths(dir.path(), &rows, why);
+    }
+}
+
+/// H1's removed envelope-timestamp fallback: a `session_meta` first row
+/// whose payload carries `cwd` and `id` but no `timestamp` is no header,
+/// even when the row's own top-level `timestamp` could supply one. The
+/// record is not correlated on either path, so the usage-limit completion
+/// it holds is never read and the lost-result path stands.
+#[cfg(unix)]
+#[test]
+fn review_chief_1037d_session_meta_without_payload_timestamp_is_no_header() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut header = correlated_header(dir.path());
+    header["payload"]
+        .as_object_mut()
+        .unwrap()
+        .remove("timestamp");
+    let [started, complete] = started_and_quota_complete();
+    let rows = [header, started, complete];
+    assert_lost_on_both_paths(
+        dir.path(),
+        &rows,
+        "a session_meta without a payload timestamp is no session header",
+    );
 }
 
 /// H2 (the chief's high finding): the record fallback refuses only on a
