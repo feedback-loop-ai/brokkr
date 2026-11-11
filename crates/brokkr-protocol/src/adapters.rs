@@ -2365,8 +2365,10 @@ impl DshFold<'_> {
             // Decision 0053's boundary: only an error before the first
             // counted turn is a refusal to start. The restored history
             // below a resumed root's boundary is not this invocation's.
-            if refusal.is_none() && *self.turns == 0 && dsh_row_is_current(&event, self.first_seq) {
-                refusal = dsh_refusal(&event);
+            // The first refusal is latched: a later error row is not the
+            // reason the session never started.
+            if *self.turns == 0 && dsh_row_is_current(&event, self.first_seq) {
+                refusal = refusal.or_else(|| dsh_refusal(&event));
             }
             let answer_event = self.probe.requested() && probe::is_answer(AdapterKind::Dsh, &event);
             let mut emitted: Vec<Value> = Vec::new();
@@ -4907,9 +4909,7 @@ fn invoke_dsh_shipped(
                 probe,
             }
             .drain(launch, bindings, emit);
-            if refusal.is_none() {
-                refusal = read;
-            }
+            refusal = refusal.take().or(read);
             probe.answered()
         },
     )?;

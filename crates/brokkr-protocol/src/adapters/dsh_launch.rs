@@ -209,9 +209,7 @@ impl DshStreamState<'_> {
                 probe: &mut *self.probe,
             }
             .drain(self.launch, self.bindings, emit);
-            if self.refusal.is_none() {
-                self.refusal = read;
-            }
+            self.refusal = self.refusal.take().or(read);
         }
         self.probe.answered()
     }
