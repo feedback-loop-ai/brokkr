@@ -621,13 +621,26 @@ fn endpoint_scheme(value: &str) -> Option<(bool, &str)> {
 }
 
 /// The host grammar. Under `https://` it is today's dotted labels; under
-/// the local `http://` scheme the host must be ONE DNS label — a name with
-/// no dot, so never an IPv4 literal, a dotted name or `localhost.` —
-/// because a single-label name resolves only on the operator's own
-/// network, never a public host (#953 option (a), AS3; decision 0065
+/// the local `http://` scheme the host must be ONE DNS label that is not an
+/// IP literal, because a single-label name resolves only on the operator's
+/// own network, never a public host (#953 option (a), AS3; decision 0065
 /// slice two).
 fn endpoint_host(host: &str, local: bool) -> bool {
-    !host.is_empty() && host.split('.').all(host_label) && (!local || !host.contains('.'))
+    !host.is_empty() && host.split('.').all(host_label) && (!local || local_http_host(host))
+}
+
+/// The local `http://` host: one DNS label that is not a legacy IPv4
+/// literal. `inet_aton` and WHATWG URL readers take an all-decimal label
+/// (`134744072`) or a `0x` hex label (`0x08080808`) as a 32-bit address, so
+/// either would name the public 8.8.8.8 instead of a host on the operator's
+/// own network (#953 option (a), AS3). `host` has already passed
+/// `host_label`, so it is ASCII.
+fn local_http_host(host: &str) -> bool {
+    if host.contains('.') || host.chars().all(|c| c.is_ascii_digit()) {
+        return false;
+    }
+    let hex = host.strip_prefix("0x").or_else(|| host.strip_prefix("0X"));
+    !hex.is_some_and(|digits| !digits.is_empty() && digits.chars().all(|c| c.is_ascii_hexdigit()))
 }
 
 /// `https://<host>[:<port>][/<segment>...]`, or an `http://` endpoint whose

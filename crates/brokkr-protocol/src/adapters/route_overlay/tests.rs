@@ -663,6 +663,28 @@ fn an_http_ipv6_literal_userinfo_or_bad_port_is_refused() {
     }
 }
 
+/// `http://` is local-only because a single label resolves on the
+/// operator's own network, but a dotless label can still be a legacy IPv4
+/// literal: `inet_aton` and WHATWG URL readers take the decimal integer
+/// `134744072` and the `0x` hex integer `0x08080808` as 8.8.8.8, a public
+/// address. Those are IP literals, not names (#953 option (a)).
+#[test]
+fn an_http_numeric_host_is_an_ip_literal_and_is_refused() {
+    for base in [
+        "http://134744072:8888/v1",
+        "http://2130706433/v1",
+        "http://0x08080808:8888/v1",
+        "http://0X08080808/v1",
+    ] {
+        let body = MEASURED.replace("http://host:8888/v1", base);
+        assert_eq!(
+            validate(body.as_bytes(), SPARK_PIN),
+            Err(Refused(Overlay::Endpoint)),
+            "{base:?}"
+        );
+    }
+}
+
 /// A model's window and output cap: a positive decimal of at most nine
 /// digits, so no zero, sign, leading zero, fraction, exponent or tenth
 /// digit. The removal control for the digit bound is the ten-digit case.
