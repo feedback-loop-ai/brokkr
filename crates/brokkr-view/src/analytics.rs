@@ -20,8 +20,37 @@ mod ranked;
 mod recipes;
 mod words;
 
-pub(crate) use facts::{in_range, is_open, shipped, Finished, Window};
-pub use figures::analytics;
+pub(crate) use facts::{in_range, is_open, shipped, Finished};
+pub use facts::{
+    realm_in_scope, FactSource, FactUnion, ParkFact, Reviews, RunFacts, RunOrder, SiteFact,
+    SiteOrder, SpendFact, WholeRead, Window,
+};
+pub use figures::{analytics, analytics_with};
+
+/// Today's whole read over `query` for `window`: the source the whole-read
+/// entry folds, and the fallback a migrated journal's reader falls back to
+/// (decision 0089 ruling 8).
+pub fn whole_read(query: &Query, window: Window) -> WholeRead {
+    WholeRead::read(query, window)
+}
+
+/// The range's window and the equal window before it, from the query's
+/// clock (decision 0089 ruling 7): the two spans every figure bounds
+/// itself by.
+pub fn windows(query: &Query) -> Result<(Window, Window), AnalyticsError> {
+    let now = brokkr_core::stamp::parse_millis(query.now)
+        .ok_or_else(|| AnalyticsError::Clock(query.now.to_string()))?;
+    let reach = query.range.millis();
+    let window = Window {
+        from: now - reach,
+        to: now,
+    };
+    let before = Window {
+        from: window.from - reach,
+        to: window.from,
+    };
+    Ok((window, before))
+}
 pub(crate) use figures::{cost_figure, middle, span, total};
 pub(crate) use ledger::judged_unshipped;
 pub use ledger::Ledger;
@@ -365,7 +394,7 @@ pub struct RecipeRow {
     pub on_frontier: Option<bool>,
 }
 
-#[derive(Serialize, Debug, PartialEq)]
+#[derive(Clone, Serialize, Debug, PartialEq)]
 pub struct QuarantinedHearth {
     pub realm: String,
     pub journal: String,

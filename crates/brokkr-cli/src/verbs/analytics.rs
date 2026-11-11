@@ -9,9 +9,14 @@ use std::process::ExitCode;
 
 use anyhow::Result;
 use brokkr_runtime::realms::Hearth;
-use brokkr_view::{Analytics, AnalyticsError, AnalyticsHearth, AnalyticsRun, Query, Range};
+use brokkr_store::Store;
+use brokkr_view::{
+    Analytics, AnalyticsError, AnalyticsHearth, AnalyticsRun, FactSource, Query, Range,
+};
 
 use crate::{fleet, hearths_of, now_rfc3339, Exit};
+
+mod rows;
 
 #[derive(clap::Args)]
 #[group(skip)]
@@ -95,17 +100,38 @@ pub(crate) fn printed<T: serde::Serialize>(
 }
 
 /// Every hearth read, quarantining what does not load, and the view
-/// derived over them at `now`.
+/// derived over them at `now`: a migrated hearth's figures from its rows,
+/// the rest from today's whole read (decision 0089 ruling 8).
 fn derive(hearths: &[Hearth], range: Range, realm: Option<&str>, now: &str) -> Result<Analytics> {
-    let view = read_hearths(hearths, |grouped| {
-        brokkr_view::analytics(&Query {
+    read_hearths(hearths, |grouped| -> Result<Analytics> {
+        let query = Query {
             hearths: grouped,
             range,
             realm,
             now,
-        })
-    });
-    view.map_err(|error| anyhow::Error::msg(error.to_string()))
+        };
+        let (window, before) =
+            brokkr_view::windows(&query).map_err(|error| anyhow::Error::msg(error.to_string()))?;
+        let stores: Vec<Option<Store>> = hearths
+            .iter()
+            .map(|hearth| Store::open_read_only(&hearth.journal).ok())
+            .collect();
+        let mut sources: Vec<Box<dyn FactSource>> = Vec::new();
+        for index in 0..hearths.len() {
+            sources.push(Box::new(rows::HearthSource::read(
+                &grouped[index],
+                range,
+                realm,
+                now,
+                window,
+                before,
+                stores[index].as_ref(),
+            )?));
+        }
+        let source = brokkr_view::FactUnion::new(sources);
+        brokkr_view::analytics_with(&source, &query)
+            .map_err(|error| anyhow::Error::msg(error.to_string()))
+    })
 }
 
 /// Every hearth read, quarantining what does not load, handed to `view`
