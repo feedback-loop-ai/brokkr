@@ -26,8 +26,10 @@ const SHIPPED: &str = "\
 const PIN: &str = "dashscope/qwen3.8-max";
 
 /// The operator's measured local route entry for `spark-glm` (#953),
-/// names and endpoint only. It is a file beside the tests so the bytes the
-/// grammar admits are the bytes that were measured.
+/// names and endpoint shape only. The endpoint's host is the #532
+/// placeholder `host`: the measured host is private and cannot ship in a
+/// tracked file, because the repository is public. It is a file beside the
+/// tests so the bytes the grammar admits are read, not retyped in a string.
 const MEASURED: &str = include_str!("spark_glm_route.yml");
 const SPARK_PIN: &str = "spark-glm/GLM-5.3-Flash-EXL3";
 
@@ -620,7 +622,7 @@ fn the_local_http_endpoint_admits_a_single_label_host() {
         // from `Endpoint` to admitted.
         "http://host/x",
     ] {
-        let body = MEASURED.replace("http://spark:8888/v1", base);
+        let body = MEASURED.replace("http://host:8888/v1", base);
         assert_eq!(validate(body.as_bytes(), SPARK_PIN), Ok(()), "{base:?}");
     }
 }
@@ -635,7 +637,7 @@ fn an_http_host_with_a_dot_such_as_spark_lan_is_refused() {
         "http://localhost./v1",
         "http://127.0.0.1:8888/v1",
     ] {
-        let body = MEASURED.replace("http://spark:8888/v1", base);
+        let body = MEASURED.replace("http://host:8888/v1", base);
         assert_eq!(
             validate(body.as_bytes(), SPARK_PIN),
             Err(Refused(Overlay::Endpoint)),
@@ -652,7 +654,7 @@ fn an_http_ipv6_literal_userinfo_or_bad_port_is_refused() {
         "http://spark:abc/v1",
         "http://spark:123456/v1",
     ] {
-        let body = MEASURED.replace("http://spark:8888/v1", base);
+        let body = MEASURED.replace("http://host:8888/v1", base);
         assert_eq!(
             validate(body.as_bytes(), SPARK_PIN),
             Err(Refused(Overlay::Endpoint)),
