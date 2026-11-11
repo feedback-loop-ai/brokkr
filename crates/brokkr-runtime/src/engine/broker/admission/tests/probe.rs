@@ -272,29 +272,17 @@ fn chief_colon_member_cleanup_names_the_reserved_route() {
 #[cfg(target_os = "linux")]
 #[test]
 fn chief_siteless_wait_does_not_name_an_unrelated_reserved_route() {
-    let host = Host::new();
-    let work = host.worktree("work");
-    let (repo, _at) = standing_with(&host, &work, "run-a", &["work:x:b"]);
-    let refused = settle_orphaned(&host.root, [&repo, "run-a"], "work", &[], &[wait()], soon())
-        .expect_err("an unsettled driver was passed over");
-    assert_eq!(refused.provider, None, "{refused:?}");
-    assert_eq!(refused.route, None, "{refused:?}");
-    let said = refused.to_string();
-    assert!(
-        said.contains("a cool-down probe did not prove its process tree gone"),
-        "{said}"
-    );
-    assert!(!said.contains("claude/first"), "{said}");
+    uncased_cleanup("work:x:b", &[wait()]);
 }
 
 /// The cleanup refusal of a run whose one standing driver is
 /// `driver_site`, read against `waits`.
 #[cfg(target_os = "linux")]
-fn cased_cleanup(driver_site: &str, waits: &[brokkr_core::ProviderWait]) {
+fn cased_cleanup(label: &str, driver_site: &str, waits: &[brokkr_core::ProviderWait]) {
     let host = Host::new();
     let work = host.worktree("work");
     let (repo, _at) = standing_with(&host, &work, "run-a", &[driver_site]);
-    let refused = settle_orphaned(&host.root, [&repo, "run-a"], "work", &[], waits, soon())
+    let refused = settle_orphaned(&host.root, [&repo, "run-a"], label, &[], waits, soon())
         .expect_err("an unsettled driver was passed over");
     assert_eq!(refused.provider.as_deref(), Some("claude"), "{refused:?}");
     assert_eq!(refused.route.as_deref(), Some("first"), "{refused:?}");
@@ -306,7 +294,7 @@ fn cased_cleanup(driver_site: &str, waits: &[brokkr_core::ProviderWait]) {
 #[cfg(target_os = "linux")]
 #[test]
 fn a_cased_seats_siteless_wait_names_its_reserved_route() {
-    cased_cleanup("work:fast", &[wait()]);
+    cased_cleanup("work:fast", "work:fast", &[wait()]);
 }
 
 /// A selector-cased single step's wait still names its own reserved route:
@@ -314,5 +302,47 @@ fn a_cased_seats_siteless_wait_names_its_reserved_route() {
 #[cfg(target_os = "linux")]
 #[test]
 fn a_cased_steps_wait_names_its_reserved_route() {
-    cased_cleanup("work:fast:draft", &[wait_at("draft", "claude", "first")]);
+    cased_cleanup(
+        "work:fast",
+        "work:fast:draft",
+        &[wait_at("draft", "claude", "first")],
+    );
+}
+
+/// The cleanup refusal of an uncased seat whose one standing driver is
+/// `driver_site`, read against `waits`: nothing matches, so the refusal
+/// stays neutral rather than borrowing a route.
+#[cfg(target_os = "linux")]
+fn uncased_cleanup(driver_site: &str, waits: &[brokkr_core::ProviderWait]) {
+    let host = Host::new();
+    let work = host.worktree("work");
+    let (repo, _at) = standing_with(&host, &work, "run-a", &[driver_site]);
+    let refused = settle_orphaned(&host.root, [&repo, "run-a"], "work", &[], waits, soon())
+        .expect_err("an unsettled driver was passed over");
+    assert_eq!(refused.provider, None, "{refused:?}");
+    assert_eq!(refused.route, None, "{refused:?}");
+    let said = refused.to_string();
+    assert!(
+        said.contains("a cool-down probe did not prove its process tree gone"),
+        "{said}"
+    );
+    assert!(!said.contains("claude/first"), "{said}");
+}
+
+/// The chief's first case: an uncased seat's wait at `draft` does not name
+/// a driver at `work:review:draft`, where `review` is a step segment, not
+/// a selector case. The cleanup refusal stays neutral.
+#[cfg(target_os = "linux")]
+#[test]
+fn chief_uncased_seat_does_not_name_a_wait_beyond_its_label() {
+    uncased_cleanup("work:review:draft", &[wait_at("draft", "claude", "first")]);
+}
+
+/// The chief's second case: an uncased seat's site-less wait does not name
+/// a driver at `work:b`; the refusal stays neutral instead of borrowing
+/// claude/first.
+#[cfg(target_os = "linux")]
+#[test]
+fn chief_uncased_seat_siteless_wait_does_not_name_a_cased_driver() {
+    uncased_cleanup("work:b", &[wait()]);
 }

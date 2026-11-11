@@ -24,9 +24,7 @@ use crate::engine::broker::{observed, settlement};
 use crate::engine::carry::record::Tag;
 use crate::engine::dispatch::Dispatch;
 use crate::engine::sequence::{step_allowed_results, step_driver_input, StepComposition};
-use crate::engine::{
-    chain_index, copy_secret_binding_facts, phase_of, spawn_site, Door, Selection, Site, SiteSpawn,
-};
+use crate::engine::{chain_index, phase_of, spawn_site, Door, Selection, Site, SiteSpawn};
 
 /// The seat a probe composes under, selected once: the body's form, the
 /// case and site label, and the gate class. One selection serves both the
@@ -59,6 +57,20 @@ enum ProbeForm {
     Single(Vec<Candidate>),
     Panel(Vec<PanelMember>, Aggregate),
     Sequence(Vec<SequenceStep>),
+}
+
+impl Engine {
+    /// The selected site label (`<seat>` or `<seat>:<case>`) this run's
+    /// strategy names, as every attempt and probe composes it: the exact
+    /// identity a cleanup refusal matches a reserved driver by (decision
+    /// 0103 ruling 4).
+    pub(in crate::engine) fn selected_label(&self, seat: &str, strategy: Option<&str>) -> String {
+        let case = self.bundle.seats[seat]
+            .body
+            .selected(strategy)
+            .and_then(|(_, case)| case);
+        site_name(seat, case)
+    }
 }
 
 impl ProbeSeat {
@@ -408,7 +420,7 @@ impl Engine {
                 Ok(admitted) => admitted,
                 Err(parked) => return Ok(parked),
             };
-        let mut input = step_driver_input(
+        let input = step_driver_input(
             &prepared.input,
             index,
             &driver_seat,
@@ -416,10 +428,6 @@ impl Engine {
             &prepared.input["steps"][index]["role_path"],
             &context,
         );
-        if !prepared.input["spec_dialect"].is_null() {
-            input["spec_dialect"] = prepared.input["spec_dialect"].clone();
-        }
-        copy_secret_binding_facts(&mut input, &prepared.input);
         let composition = StepComposition {
             label: &driver_seat,
             attempt_id: &prepared.attempt,

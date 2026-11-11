@@ -129,7 +129,7 @@ pub(super) fn step_driver_input(
     role_path: &Value,
     context: &Value,
 ) -> Value {
-    json!({
+    let mut input = json!({
         "feature": seat_input["feature"],
         "phase": seat_input["phase"],
         "seat": label,
@@ -139,7 +139,12 @@ pub(super) fn step_driver_input(
         "allowed_results": step_allowed_results(seat_input, index, last),
         "house_rules": seat_input["house_rules"],
         "context": context,
-    })
+    });
+    if !seat_input["spec_dialect"].is_null() {
+        input["spec_dialect"] = seat_input["spec_dialect"].clone();
+    }
+    copy_secret_binding_facts(&mut input, seat_input);
+    input
 }
 
 impl SequenceRun<'_> {
@@ -313,11 +318,7 @@ impl Engine {
         command: &[String],
     ) -> Result<StepRun, EngineError> {
         let site = Some(at.step.name.clone());
-        let mut input = run.driver_input(at, &at.meta["role_path"]);
-        if !run.input["spec_dialect"].is_null() {
-            input["spec_dialect"] = run.input["spec_dialect"].clone();
-        }
-        copy_secret_binding_facts(&mut input, run.input);
+        let input = run.driver_input(at, &at.meta["role_path"]);
         let gate = at.step.class == SeatClass::Gate;
         let composition = StepComposition {
             label: &at.label,
@@ -452,7 +453,6 @@ impl Engine {
             "state": execution.state.as_ref().map(|state| expand_dialect_argv(state, change)),
             "change": if change.is_empty() { Value::Null } else { Value::String(change.to_string()) },
         });
-        copy_secret_binding_facts(&mut input, run.input);
         self.mark_hands(&at.label, &mut input);
         // A dialect step composes under a boxed boundary only:
         // the compiler refuses it under `harness` and `open`

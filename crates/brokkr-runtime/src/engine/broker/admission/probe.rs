@@ -119,7 +119,7 @@ impl Engine {
     /// again.
     pub(in crate::engine) fn recovered_probe(
         &self,
-        seat: &str,
+        label: &str,
         events: &[EventEnvelope],
         waits: &[ProviderWait],
         observed: &Observed,
@@ -130,7 +130,7 @@ impl Engine {
         let (_, repo) =
             keyed(&self.workdir()).map_err(|source| Recovery::at(None, Held::Unlocated(source)))?;
         let deadline = startup(Instant::now(), Duration::MAX);
-        settle_orphaned(&root, [&repo, &self.run_id], seat, events, waits, deadline)
+        settle_orphaned(&root, [&repo, &self.run_id], label, events, waits, deadline)
     }
 }
 
@@ -149,50 +149,35 @@ fn orphans(attempts: impl Iterator<Item = String>, events: &[EventEnvelope]) -> 
 }
 
 /// Whether the reserved driver `driver` is exactly the one the wait at
-/// `site` named under `seat`: `<seat>[:<case>]:<site>` for a tagged wait,
-/// `<seat>` or `<seat>:<case>` alone for a site-less single seat. A suffix
-/// match is not identity: the members `b` and `x:b` both name `work:x:b` by
-/// suffix, and the cleanup refusal would then name the wrong member's
-/// provider and route. An ambiguous or absent match leaves the refusal
-/// neutral (decision 0103 ruling 4).
-fn names_site(site: Option<&str>, driver: &str, seat: &str) -> bool {
-    let Some(rest) = driver.strip_prefix(seat) else {
-        return false;
-    };
-    let Some(rest) = rest.strip_prefix(':') else {
-        return rest.is_empty() && site.is_none();
-    };
+/// `site` named under `label`: `<label>` itself for a site-less wait, and
+/// `<label>:<site>` for a tagged one. A suffix match is not identity: the
+/// members `b` and `x:b` both name `work:x:b` by suffix, and the cleanup
+/// refusal would then name the wrong member's provider and route. The
+/// label is the selected site label (`<seat>` or `<seat>:<case>`), so a
+/// driver that merely shares the seat's prefix is not a match either. An
+/// absent match leaves the refusal neutral (decision 0103 ruling 4).
+fn names_site(site: Option<&str>, driver: &str, label: &str) -> bool {
     match site {
-        None => !rest.is_empty() && !rest.contains(':'),
-        Some(site) => {
-            let Some(head) = rest.strip_suffix(site) else {
-                return false;
-            };
-            head.is_empty()
-                || head
-                    .strip_suffix(':')
-                    .is_some_and(|case| !case.is_empty() && !case.contains(':'))
-        }
+        None => driver == label,
+        Some(site) => driver == format!("{label}:{site}"),
     }
 }
 
-/// The wait the standing attempt's own driver names: the member a panel
-/// probe reserved at `<seat>[:<case>]:<member>` matches the wait at
-/// `<member>`, and a single seat's site-less wait (`recorded_waits` refuses
-/// one beside another) is its own. The longest matching site wins, so a
-/// driver at `work:x:b` names the wait at `x:b`, not the shorter `b`. No
-/// exact match leaves the refusal neutral rather than borrowing another
-/// member's route (decision 0103 ruling 4).
+/// The wait the standing attempt's own driver names: a driver at
+/// `<label>:<site>` names the wait at `<site>`, and a driver at `<label>`
+/// names the site-less wait (`recorded_waits` refuses one beside another).
+/// The label is the selected site label (`<seat>` or `<seat>:<case>`), so
+/// an unrelated driver leaves the refusal neutral rather than borrowing
+/// another member's route (decision 0103 ruling 4).
 fn attempt_wait<'a>(
     waits: &'a [ProviderWait],
     reserved: &Reserved,
-    seat: &str,
+    label: &str,
 ) -> Option<&'a ProviderWait> {
     reserved.drivers.iter().find_map(|driver| {
         waits
             .iter()
-            .filter(|wait| names_site(wait.site.as_deref(), &driver.site, seat))
-            .max_by_key(|wait| wait.site.as_deref().map_or(0, str::len))
+            .find(|wait| names_site(wait.site.as_deref(), &driver.site, label))
     })
 }
 
@@ -205,7 +190,7 @@ fn attempt_wait<'a>(
 pub(super) fn settle_orphaned(
     root: &Root,
     [repo, run]: [&str; 2],
-    seat: &str,
+    label: &str,
     events: &[EventEnvelope],
     waits: &[ProviderWait],
     deadline: Instant,
@@ -240,7 +225,7 @@ pub(super) fn settle_orphaned(
         let reserved = &reservation.attempts[attempt];
         if !recorded_settled(reserved) {
             return Err(Recovery::at(
-                attempt_wait(waits, reserved, seat),
+                attempt_wait(waits, reserved, label),
                 Held::Unsettled {
                     at: at.clone(),
                     attempt: attempt.clone(),
@@ -253,7 +238,7 @@ pub(super) fn settle_orphaned(
     // through a pass over them: a key lookup would have a miss nothing
     // can reach, the branch the exact gate counted (decision 0071
     // ruling 9).
-    let wait = attempt_wait(waits, &reservation.attempts[first.as_str()], seat);
+    let wait = attempt_wait(waits, &reservation.attempts[first.as_str()], label);
     let held = reservation
         .attempts
         .iter_mut()
@@ -390,14 +375,22 @@ mod tests {
     #[test]
     fn names_site_matches_a_seat_case_and_site_exactly() {
         assert!(names_site(None, "work", "work"));
-        assert!(names_site(None, "work:fast", "work"));
+        assert!(!names_site(None, "work:fast", "work"));
         assert!(!names_site(None, "work:fast:draft", "work"));
         assert!(!names_site(Some("draft"), "work", "work"));
         assert!(names_site(Some("draft"), "work:draft", "work"));
-        assert!(names_site(Some("draft"), "work:fast:draft", "work"));
+        assert!(!names_site(Some("draft"), "work:fast:draft", "work"));
         assert!(!names_site(Some("draft"), "other:draft", "work"));
         assert!(!names_site(Some("draft"), "work:other", "work"));
         assert!(!names_site(Some("draft"), "work:a:b:draft", "work"));
+        // The label is exact: a segment between the seat and the site is
+        // not a selector case.
+        assert!(!names_site(Some("draft"), "work:review:draft", "work"));
+        assert!(!names_site(None, "work:b", "work"));
+        // A cased seat's label carries its case.
+        assert!(names_site(None, "work:fast", "work:fast"));
+        assert!(names_site(Some("draft"), "work:fast:draft", "work:fast"));
+        assert!(!names_site(Some("draft"), "work:draft", "work:fast"));
     }
 
     /// Why a crashed probe is not proven settled is said in words: an

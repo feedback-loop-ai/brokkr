@@ -6,6 +6,7 @@
 use brokkr_core::fold::Cursor;
 use brokkr_core::ProviderWait;
 
+use super::panel::member;
 use super::*;
 #[cfg(target_os = "linux")]
 use crate::engine::broker::admission::tests::reservation_path;
@@ -14,6 +15,47 @@ use crate::engine::cooldown::Waited;
 use crate::engine::tests::in_its_own_engine;
 use crate::engine::tests::{fail_event, state};
 use crate::engine::EngineError;
+
+/// The wait these rows probe for claude/first, at `site`.
+fn rate_limit_wait(site: Option<&str>) -> ProviderWait {
+    ProviderWait {
+        site: site.map(str::to_string),
+        provider: "claude".into(),
+        route: "first".into(),
+        words: "rate_limit: slow down".into(),
+        retry_after_seconds: None,
+        seconds: 1,
+        until: base() + time::Duration::seconds(1),
+        rounds: 1,
+    }
+}
+
+/// A seat-level panel member's probe with no phase refuses the engine
+/// invariant rather than admitting: `phase_of` fails before the probe and
+/// `probe_member` propagates that error arm.
+#[test]
+fn a_probe_member_without_a_phase_refuses_the_invariant() {
+    let dir = tempfile::tempdir().unwrap();
+    let body = SeatBody::Invocation(Invocation::Panel {
+        members: vec![member("m", Vec::new())],
+        aggregate: Aggregate::ReviewPanel,
+    });
+    let mut engine = started(dir.path(), body, work(2));
+    engine.cooldown.host = Some(host(dir.path(), 1, 10));
+    request_effect(&mut engine);
+    let events = engine.store.load(&engine.run_id).unwrap();
+    let mut current = fold(&events).unwrap();
+    current.phase = None;
+    let wait = rate_limit_wait(Some("m"));
+    let error = match engine.probe_member(&events, &current, "effect", "work", &wait, "m") {
+        Err(error) => error,
+        Ok(_) => panic!("a phase-less probe was admitted"),
+    };
+    assert!(
+        matches!(error, EngineError::Invariant("cursor has phase", _)),
+        "{error}"
+    );
+}
 
 /// A second run in the same store: another engine's start appends its
 /// `run/started`, whose row moves the store-wide high water.
@@ -206,16 +248,7 @@ fn the_probe_names_a_cased_site_as_the_attempt_does() {
     );
     current.strategy = Some("chore".into());
     let events = engine.store.load(&engine.run_id).unwrap();
-    let wait = ProviderWait {
-        site: None,
-        provider: "claude".into(),
-        route: "first".into(),
-        words: "rate_limit: slow down".into(),
-        retry_after_seconds: None,
-        seconds: 1,
-        until: base() + time::Duration::seconds(1),
-        rounds: 1,
-    };
+    let wait = rate_limit_wait(None);
     match engine
         .probe(&events, &current, "effect", "work", &wait)
         .unwrap()

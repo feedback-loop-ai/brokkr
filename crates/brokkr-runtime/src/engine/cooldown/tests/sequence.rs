@@ -11,6 +11,8 @@ use brokkr_core::{EventEnvelope, ProviderWait};
 use serde_json::{json, Value};
 use time::format_description::well_known::Rfc3339;
 
+#[cfg(target_os = "linux")]
+use super::lease::Claimed;
 use super::panel::{indeterminate_once, last_terminal, member};
 use super::*;
 use crate::bundle::{
@@ -158,6 +160,10 @@ fn a_step_probe_context_reads_only_the_failed_attempts_finished_steps() {
         checkpoint("other", "a1", json!({"step": "sequence-step-finished"})),
         checkpoint("effect", "a0", json!({"step": "sequence-step-finished"})),
         checkpoint("effect", "a1", Value::Null),
+        crate::engine::tests::event(
+            EventType::EffectCheckpointed,
+            json!({"effect_id": "effect", "attempt_id": "a1"}),
+        ),
         checkpoint("effect", "a1", json!({"step": "answer"})),
         checkpoint("effect", "a1", finished),
         checkpoint(
@@ -320,16 +326,40 @@ fn a_single_steps_rate_limit_records_its_site_and_restarts_at_step_one() {
     assert_eq!(started[1]["probes"][0]["site"], "draft");
 }
 
-/// A step panel whose member `m` refuses: the wait is tagged
-/// `<step>:<member>`, m's probe is derived through `member_runs` at
-/// `work:review:m` with the step's own allowed results, and the whole step
-/// re-runs from step 1.
+/// A sequence-probe row with a dialect prompt: the step's attempt and its
+/// cool-down probe both derive the one step input, so both carry the
+/// seat's spec_dialect and the probe asks exactly the input the attempt
+/// ran.
 #[test]
-fn a_step_panels_refused_member_records_its_tag_and_probes_its_own_spawn() {
+fn a_step_probe_carries_the_seats_dialect_prompt_the_attempt_did() {
     let dir = tempfile::tempdir().unwrap();
-    let m = refusing_m(dir.path());
+    let command = draft_driver(dir.path());
+    let body = draft_body(dir.path(), command, &["drafted", "complete"]);
+    let mut engine = sequence_engine(dir.path(), body, 2);
+    engine
+        .bundle
+        .dialect_prompts
+        .insert("work".into(), "Write the dialect change.".into());
+    engine.drive().unwrap();
+    single_step_facts(dir.path(), &engine);
+    let inputs = start_inputs(dir.path(), "draft");
+    assert_eq!(inputs.len(), 3, "{inputs:?}");
+    assert_eq!(
+        inputs[0]["input"]["spec_dialect"], "Write the dialect change.",
+        "the attempt lost the seat's dialect prompt: {inputs:?}"
+    );
+    assert_eq!(
+        inputs[1]["input"]["spec_dialect"], "Write the dialect change.",
+        "the probe lost the seat's dialect prompt: {inputs:?}"
+    );
+}
+
+/// The `review` panel step of a refusing `m` and a succeeding `n`, with
+/// `publish` after it: the step-panel rows' shared body.
+fn refusing_panel_sequence(dir: &Path) -> SeatBody {
+    let m = refusing_m(dir);
     let n = driver(
-        dir.path(),
+        dir,
         "n",
         &["succeed", "succeed"],
         Probed::Answer,
@@ -337,7 +367,36 @@ fn a_step_panels_refused_member_records_its_tag_and_probes_its_own_spawn() {
         "codex",
         "second",
     );
-    let engine = driven_members(dir.path(), two_member_panel(m, n));
+    sequence(vec![
+        panel_step("review", two_member_panel(m, n), &["reviewed", "complete"]),
+        publish_step(dir),
+    ])
+}
+
+/// The `draft` single step that refuses once with an eleven-second
+/// retry-after, past the test host's ten-second maximum, followed by
+/// `publish`: the park rows' shared body.
+fn past_maximum_body(dir: &Path) -> SeatBody {
+    let draft = driver(
+        dir,
+        "draft",
+        &["refuse"],
+        Probed::Answer,
+        Some(11),
+        "claude",
+        "first",
+    );
+    draft_body(dir, draft, &["complete"])
+}
+
+/// A step panel whose member `m` refuses: the wait is tagged
+/// `<step>:<member>`, m's probe is derived through `member_runs` at
+/// `work:review:m` with the step's own allowed results, and the whole step
+/// re-runs from step 1.
+#[test]
+fn a_step_panels_refused_member_records_its_tag_and_probes_its_own_spawn() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = driven(dir.path(), refusing_panel_sequence(dir.path()), 2);
     let waits = one_wait(&engine);
     assert_eq!(waits[0]["site"], "review:m");
     assert_eq!(waits[0]["provider"], "claude");
@@ -523,6 +582,81 @@ fn a_dialect_step_writes_no_wait() {
     no_wait(&failed[0]);
 }
 
+/// The failed arm's park is written in the attempt's own turn: one
+/// `drive_once` from the requested effect leaves the failed event and its
+/// park adjacent, before the cursor could park through the refused record.
+#[test]
+fn the_failed_steps_park_lands_in_the_attempts_own_turn() {
+    let dir = tempfile::tempdir().unwrap();
+    let body = past_maximum_body(dir.path());
+    let mut engine = sequence_engine(dir.path(), body, 2);
+    request_effect(&mut engine);
+    engine.drive_once().unwrap();
+    let events = engine.store.load(&engine.run_id).unwrap();
+    let failed = events
+        .iter()
+        .position(|event| event.event_type == EventType::EffectFailed)
+        .expect("the failed step of the one turn");
+    assert_eq!(
+        events.get(failed + 1).map(|event| &event.event_type),
+        Some(&EventType::RunParked),
+        "the failed arm did not park in its own turn: {events:?}"
+    );
+    let reason = park_reason(&engine);
+    assert!(reason.contains("past the declared 10s maximum"), "{reason}");
+}
+
+/// The sequence engine `body` whose first wait slice admits a competing
+/// claim: its probe's admission is refused, and the run parks naming it.
+#[cfg(target_os = "linux")]
+fn refused_probe(dir: &Path, body: SeatBody) -> Engine {
+    let mut engine = started(dir, body, work(2));
+    engine.cooldown.host = Some(host(dir, 1, 10));
+    let (mut engine, now) = with_clock(engine);
+    let Claimed { _stand, clock } =
+        super::lease::claim_after_first_slice(super::lease::home(dir), dir.join("work"), &now);
+    engine.cooldown.clock = clock;
+    engine.drive().unwrap();
+    engine
+}
+
+/// The park a refused probe admission leaves: the competing run's hold is
+/// named and `tag` ran only its refused attempt.
+#[cfg(target_os = "linux")]
+fn assert_refused_probe(engine: &Engine, dir: &Path, tag: &str) {
+    let reason = park_reason(engine);
+    assert!(reason.contains("not admitted"), "{reason}");
+    assert!(
+        reason.contains("run 'run-p' holds this worktree"),
+        "{reason}"
+    );
+    assert_eq!(logs(dir, tag), ["attempt:refuse"]);
+}
+
+/// A single step's probe admission refused at the root parks naming the
+/// refusal before any probe or retry: `admit_step` and `probe_step_single`
+/// return the parked probe.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_single_steps_refused_probe_admission_parks_before_it_spawns() {
+    let dir = tempfile::tempdir().unwrap();
+    let command = draft_driver(dir.path());
+    let body = draft_body(dir.path(), command, &["complete"]);
+    let engine = refused_probe(dir.path(), body);
+    assert_refused_probe(&engine, dir.path(), "draft");
+}
+
+/// A step member's probe admission refused at the root parks the same way:
+/// `probe_step_member` returns the parked probe and no driver runs.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_step_members_refused_probe_admission_parks_before_it_spawns() {
+    let dir = tempfile::tempdir().unwrap();
+    let body = refusing_panel_sequence(dir.path());
+    let engine = refused_probe(dir.path(), body);
+    assert_refused_probe(&engine, dir.path(), "m");
+}
+
 /// A fresh engine over a journal whose last `effect/failed` carries a
 /// `review:m` wait waits the remainder, probes m, and restarts from step 1.
 #[test]
@@ -657,16 +791,7 @@ fn an_inline_single_steps_probe_uses_its_own_command() {
 #[test]
 fn a_wait_past_the_maximum_parks_the_sequence_without_a_probe() {
     let dir = tempfile::tempdir().unwrap();
-    let draft = driver(
-        dir.path(),
-        "draft",
-        &["refuse"],
-        Probed::Answer,
-        Some(11),
-        "claude",
-        "first",
-    );
-    let body = draft_body(dir.path(), draft, &["complete"]);
+    let body = past_maximum_body(dir.path());
     let mut engine = sequence_engine(dir.path(), body, 2);
     engine.drive().unwrap();
     let failed = failed_here(&engine);
