@@ -44,6 +44,7 @@
 //! body off the page is read, so the read takes the kept way.
 
 use std::cmp::Reverse;
+use std::sync::LazyLock;
 
 use brokkr_core::envelope::EventEnvelope;
 use brokkr_core::seat::row::Datum;
@@ -101,7 +102,22 @@ const NEXT: &str = "SELECT member FROM event_index INDEXED BY event_index_stream
 /// greatest `started_seq` below the checkpoint's `seq` among the site rows
 /// of its run, attempt and member, its `opened` key read through the site
 /// index alone. A checkpoint whose attempt and member opened no site before
-/// it finds none. U3's window reads consume it; no readout reads it yet.
+/// it finds none. `alias` names the seat row; `run`, `attempt`, `member`
+/// and `seq` are the checkpoint's expressions. The one home of the rule:
+/// U3's window reads fold it into their one streaming statement, so no
+/// checkpoint costs a query of its own.
+pub(crate) fn site_of(alias: &str, run: &str, attempt: &str, member: &str, seq: &str) -> String {
+    format!(
+        "SELECT {alias}.opened FROM seat_summary AS {alias} INDEXED BY seat_summary_site
+     WHERE {alias}.run_id = {run} AND {alias}.attempt_id IS {attempt}
+       AND {alias}.member IS {member} AND {alias}.started_seq < {seq}
+       AND {alias}.site IS NOT NULL
+     ORDER BY {alias}.started_seq DESC LIMIT 1"
+    )
+}
+
+/// [`site_of`] for one checkpoint, its four values bound in order. U3's
+/// window reads consume the rule; no readout reads this statement yet.
 #[cfg_attr(
     not(test),
     expect(
@@ -109,10 +125,8 @@ const NEXT: &str = "SELECT member FROM event_index INDEXED BY event_index_stream
         reason = "U3's aggregate window reads consume it; #753 keeps them out of this unit"
     )
 )]
-pub(crate) const SITE_OF: &str = "SELECT opened FROM seat_summary INDEXED BY seat_summary_site
-     WHERE run_id = ?1 AND attempt_id = ?2 AND member IS ?3 AND started_seq < ?4
-       AND site IS NOT NULL
-     ORDER BY started_seq DESC LIMIT 1";
+pub(crate) static SITE_OF: LazyLock<String> =
+    LazyLock::new(|| site_of("s", "?1", "?2", "?3", "?4"));
 
 /// The most streams a page keeps (ruling 9): a page and one more
 /// checkpoints, each of an attempt of its own, the stream a page's cursor
@@ -694,7 +708,7 @@ impl Store {
     ) -> Result<Option<u64>, StoreError> {
         let found = self
             .conn
-            .prepare_cached(SITE_OF)?
+            .prepare_cached(SITE_OF.as_str())?
             .query_row(params![run_id, attempt_id, member, seq as i64], |row| {
                 row.get(0)
             })

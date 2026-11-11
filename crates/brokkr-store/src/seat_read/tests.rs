@@ -806,13 +806,13 @@ fn a_checkpoints_site_is_found_through_the_site_index() {
     let (_dir, store) = store();
     let plan = plan(
         &store,
-        super::SITE_OF,
+        super::SITE_OF.as_str(),
         params!["r", "a", Option::<&str>::None, 8_i64],
     )
     .unwrap();
     assert_eq!(
         plan,
-        ["SEARCH seat_summary USING INDEX seat_summary_site \
+        ["SEARCH s USING INDEX seat_summary_site \
              (run_id=? AND attempt_id=? AND member=? AND started_seq<?)"]
     );
 }

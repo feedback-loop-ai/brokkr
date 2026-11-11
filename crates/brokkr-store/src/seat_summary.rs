@@ -104,7 +104,7 @@ const PROJECTION: u32 = 2;
 /// columns and the [`PROJECTION`] that derived them, which every seat head
 /// it writes names: a head that names another, or none, is another
 /// build's, and its rows lag for this one.
-static SHAPE: LazyLock<String> =
+pub(crate) static SHAPE: LazyLock<String> =
     LazyLock::new(|| sha256_bytes(format!("{PROJECTION}\n{}", declared()).as_bytes()));
 
 /// The two tables, made anew: a journal that lost one loses the other
@@ -234,14 +234,23 @@ const HEAD: &str = "INSERT OR REPLACE INTO seat_head (run_id, folded_seq, folded
 /// A run's seat head, and whether it names this build's shape (`?2`).
 const FOLDED: &str = "SELECT folded_seq, folded_hash, shape IS ?2 FROM seat_head WHERE run_id = ?1";
 
-/// Whether a run's seat head `h` lags its summary row `s`: none, not the
-/// row's head, which the summary's trigger keeps at the run's last event,
-/// or written by a build of another shape than this one's (`?1`).
-const LAGS: &str = "(h.run_id IS NULL OR h.folded_seq <> s.head_seq
-     OR h.folded_hash <> s.head_hash OR h.shape IS NOT ?1)";
+/// Whether a run's seat head `head` lags its summary row `run` (decision
+/// 0089 ruling 8): no head, a head at another head than the row names,
+/// which the summary's trigger keeps at the run's last event, or a head
+/// written by a build of another shape than the one `shape` names. The
+/// one home of the seat-currentness rule; the aggregate window reads call
+/// it too, so a run they would serve is left whole exactly when this
+/// summary reads its rows stale.
+pub(crate) fn lags(run: &str, head: &str, shape: &str) -> String {
+    format!(
+        "({head}.run_id IS NULL OR {head}.folded_seq <> {run}.head_seq
+     OR {head}.folded_hash <> {run}.head_hash OR {head}.shape IS NOT {shape})"
+    )
+}
 
 /// The first run past `after` (`?2`), or the first of all, whose seat
-/// head lags ([`LAGS`]): one search of each key a run.
+/// head lags ([`lags`] with this build's shape, `?1`): one search of each
+/// key a run.
 static LAGGING: LazyLock<String> = LazyLock::new(|| lagging("s.run_id > ?2 AND"));
 
 static FIRST_LAGGING: LazyLock<String> = LazyLock::new(|| lagging(""));
@@ -250,8 +259,9 @@ fn lagging(after: &str) -> String {
     format!(
         "SELECT s.run_id FROM run_summary AS s
          LEFT JOIN seat_head AS h ON h.run_id = s.run_id
-         WHERE {after} {LAGS}
-         ORDER BY s.run_id LIMIT 1"
+         WHERE {after} {}
+         ORDER BY s.run_id LIMIT 1",
+        lags("s", "h", "?1")
     )
 }
 

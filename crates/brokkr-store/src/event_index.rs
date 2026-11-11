@@ -83,6 +83,10 @@ pub(crate) const CHECKPOINT_PAGE: usize = 50;
 /// The one type a run's trail skips and a seat's stream reads.
 pub(crate) const CHECKPOINTED: &str = EventType::EffectCheckpointed.as_str();
 
+/// Whether a checkpoint row's facts are not current (decision 0089 ruling 8).
+pub(crate) const CHECKPOINT_STALE: &str =
+    "(facts IS NULL OR turn IS NULL OR repeat IS NULL OR facts_seq IS NOT seq)";
+
 /// The type a park's row is (decision 0089 ruling 7).
 pub(crate) const PARKED: &str = EventType::RunParked.as_str();
 
@@ -240,8 +244,7 @@ fn migration() -> String {
         DROP INDEX IF EXISTS event_index_checkpoint_stale;
         CREATE INDEX IF NOT EXISTS event_index_checkpoint_stale
             ON event_index (run_id)
-            WHERE type = '{CHECKPOINTED}'
-              AND (facts IS NULL OR turn IS NULL OR repeat IS NULL OR facts_seq IS NOT seq);
+            WHERE type = '{CHECKPOINTED}' AND {CHECKPOINT_STALE};
         CREATE INDEX IF NOT EXISTS event_index_checkpoint_session
             ON event_index (run_id, attempt_id, member, seq)
             WHERE type = '{CHECKPOINTED}' AND session = 1;

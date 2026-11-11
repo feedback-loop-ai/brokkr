@@ -58,7 +58,6 @@
 //! processes, each driving its own run, appending into one journal. A
 //! worktree-local `.forge/forge.db` remains entirely legal — it is
 //! emergency isolation now, not the assumed steady state.
-
 #![forbid(unsafe_code)]
 
 use std::path::{Path, PathBuf};
@@ -76,6 +75,7 @@ pub mod backup;
 mod chain;
 mod event_index;
 mod import;
+pub mod metered;
 mod opening;
 mod origin;
 mod page;
