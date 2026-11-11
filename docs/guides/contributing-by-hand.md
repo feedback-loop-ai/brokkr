@@ -239,7 +239,7 @@ and skip hosted cache transfers.
 requests and macOS always use hosted runners.
 
 CI spreads the shards over machines (operator rulings 2026-11-01,
-2026-11-03 and 2026-11-04): five Linux runners and four macOS runners, each running the shards the script
+2026-11-03, 2026-11-04 and 2026-11-11): five Linux runners and four macOS runners, each running the shards the script
 lays on it, still one after another, while the machines run at once. The
 `engine-machines` job names each runner's machine in `BROKKR_TEST_MACHINE`
 (`linux/2`, `macos/1`), and the script's `machines` mode prints each

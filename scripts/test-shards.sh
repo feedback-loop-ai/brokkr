@@ -98,7 +98,17 @@ usage() {
 # moved to a third macOS machine (operator ruling 2026-11-03). On 2026-11-03 a
 # slow runner took macos/2's three heap views 1,124, 875 and 264 s, past its
 # limit, so the run and seat views moved to a fourth (operator ruling
-# 2026-11-04). The broker's
+# 2026-11-04). On 2026-11-11 macos/1's libraries took 2,390 s, 1,480 of
+# them brokkr-cli's, three quarters of whose test time is run_pages's
+# large-journal reads, and two merge-queue runs that day ran past its
+# 45-minute limit while macos/2 to 4 took 15 to 18 minutes. The operator
+# ruled the macOS limit 60 and the layout rebalanced (2026-11-11): the
+# libraries' run_pages tests are their own shard, on macos/2 with the heap
+# measurements; the fleet heap view joins the it binaries on macos/3; and
+# the other own-process binaries join the run and seat views on macos/4.
+# A libtest filter is a substring of a test's whole path, so `run_pages::`
+# selects the tests under brokkr-cli's run_pages module and no other
+# library's. Linux runs both halves on linux/1, as it ran the one. The broker's
 # enabled suite is Linux's alone (`#![cfg(target_os = "linux")]`), so macOS
 # never runs its shard, whose filter would match nothing there.
 shard_name=()
@@ -112,13 +122,14 @@ shard() {
   shift 3
   shard_selectors+=("$*")
 }
-shard 'every library' 1 1 lib
+shard 'every library, run_pages skipped' 1 1 lib skip:run_pages::
+shard "the libraries' run_pages tests" 1 2 lib only:run_pages::
 shard "the it binaries, capability_broker skipped" 2 3 test:it skip:capability_broker::
-shard 'the heap measurements' 2 3 test:heap_claude test:heap_codex test:heap_dsh
-shard 'the other own-process binaries' 2 2 bin:brokkr test:driver_conformance test:transcript_surfaces \
+shard 'the heap measurements' 2 2 test:heap_claude test:heap_codex test:heap_dsh
+shard 'the other own-process binaries' 2 4 bin:brokkr test:driver_conformance test:transcript_surfaces \
   test:hands_exits test:secret_drop test:capability_launch test:operated_repo test:queued_launch \
   test:seatbelt_lifetime_probe test:summary_heap test:heap_open test:heap_costs
-shard 'the fleet heap view' 3 2 test:heap_fleet
+shard 'the fleet heap view' 3 3 test:heap_fleet
 shard 'the run and seat heap views' 3 4 test:heap_run_view test:heap_seat_view
 shard 'the doctests' 2 1 doc
 shard "capability_broker's enabled suite, alone" 4 - test:it only:capability_broker::enabled::

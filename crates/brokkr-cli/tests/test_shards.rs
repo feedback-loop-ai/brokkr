@@ -19,6 +19,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::workspace_root::workspace;
 
+mod machines;
+
 const SCRIPT: &str = "scripts/test-shards.sh";
 
 /// The part of `cargo metadata --format-version 1` the script reads, so a
@@ -448,8 +450,9 @@ const MODES: [(&[&str], &str, &str); 2] = [
 ];
 
 /// The shards' names, in plan order.
-const NAMES: [&str; 9] = [
-    "every library",
+const NAMES: [&str; 10] = [
+    "every library, run_pages skipped",
+    "the libraries' run_pages tests",
     "the it binaries, capability_broker skipped",
     "the heap measurements",
     "the other own-process binaries",
@@ -461,8 +464,9 @@ const NAMES: [&str; 9] = [
 ];
 
 /// The test mode's shard commands after `cargo`, as the plan prints them.
-const SHARDS: [&str; 9] = [
-    "--lib",
+const SHARDS: [&str; 10] = [
+    "--lib -- --skip run_pages::",
+    "--lib -- run_pages::",
     "--test it -- --skip capability_broker::",
     "--test heap_claude --test heap_codex --test heap_dsh",
     "--bin brokkr --test driver_conformance --test transcript_surfaces --test hands_exits \
@@ -476,11 +480,20 @@ const SHARDS: [&str; 9] = [
 ];
 
 /// Where [`NAMES`] holds the doctests, which the coverage mode never runs.
-const DOCTESTS: usize = 6;
+const DOCTESTS: usize = 7;
+
+/// Where [`NAMES`] holds the heap measurements, the one shard
+/// `--parallel-heaps` runs through its own launcher.
+const HEAPS: usize = 3;
+
+/// The word the cargo stub knows the first shard by: its `run_pages::`
+/// skip, which no other shard's command holds, though the second runs the
+/// libraries too.
+const FIRST: &str = "--skip run_pages::";
 
 /// Where [`NAMES`] holds the broker's enabled suite, which only Linux
 /// compiles, so a macOS host never runs it.
-const LINUX_ONLY: usize = 7;
+const LINUX_ONLY: usize = 8;
 
 /// The real tree's shards are its whole suite, each target once: the
 /// plan passes the partition check in both modes and prints each shard's
@@ -739,8 +752,8 @@ fn a_failed_shard_or_an_empty_filter_fails_the_run_after_every_shard() {
     let real = metadata();
     for (env, refusal) in [
         (
-            ("STUB_FAIL", "--lib"),
-            "test shards: every library failed with exit 101\n",
+            ("STUB_FAIL", FIRST),
+            "test shards: every library, run_pages skipped failed with exit 101\n",
         ),
         (
             ("STUB_EMPTY", "-- capability_broker::"),
@@ -783,12 +796,17 @@ fn every_shards_summaries_are_read_and_an_unread_or_missing_one_refuses() {
         (SKIPPED, [UNREAD, ONE_TEST].concat(), skipped, unread),
         (SKIPPED, [ONE_TEST, UNKNOWN].concat(), skipped, unread),
         (
-            "--lib",
+            FIRST,
             "running the library\n".to_string(),
-            "every library",
+            "every library, run_pages skipped",
             "printed no test result: summary, so no test is shown to have run",
         ),
-        ("--lib", UNREAD.to_string(), "every library", unread),
+        (
+            FIRST,
+            UNREAD.to_string(),
+            "every library, run_pages skipped",
+            unread,
+        ),
     ] {
         let env = [("STUB_PLANT", word), ("STUB_LINES", lines.as_str())];
         refused_after_every_shard(&real, &env, &format!("test shards: {shard} {refusal}\n"));
@@ -832,12 +850,15 @@ fn kept_work(scratch: &Scratch) -> std::path::PathBuf {
 fn a_shard_whose_runner_dies_unrecorded_is_refused_and_its_logs_are_kept() {
     let scratch = Scratch::new(&metadata(), &script());
     let run = scratch.run(&["test"], &[("STUB_KILL", "heap_claude")]);
-    let ran = one_after_another(TEST, &SHARDS[..3]);
+    let ran = one_after_another(TEST, &SHARDS[..=HEAPS]);
     let running = scratch.events();
-    let finally = after_release(&scratch, &ran[5]);
-    assert_eq!((running.as_slice(), finally), (&ran[..5], ran.clone()));
+    let finally = after_release(&scratch, &ran[2 * HEAPS + 1]);
+    assert_eq!(
+        (running.as_slice(), finally),
+        (&ran[..=2 * HEAPS], ran.clone())
+    );
     assert_eq!(run.status.code(), Some(1), "{run:?}");
-    let unstarted = not_started(&NAMES[3..]);
+    let unstarted = not_started(&NAMES[HEAPS + 1..]);
     assert_eq!(
         String::from_utf8_lossy(&run.stderr),
         format!(
@@ -847,7 +868,7 @@ fn a_shard_whose_runner_dies_unrecorded_is_refused_and_its_logs_are_kept() {
     );
     let calls: Vec<String> = ["--no-run"]
         .iter()
-        .chain(&SHARDS[..3])
+        .chain(&SHARDS[..=HEAPS])
         .map(|shard| format!("{TEST} {shard}"))
         .collect();
     assert_eq!(scratch.calls(), calls);
@@ -860,7 +881,7 @@ fn a_shard_whose_runner_dies_unrecorded_is_refused_and_its_logs_are_kept() {
     );
     for line in [
         shown.as_str(),
-        "\n==> every library: exit 0 after ",
+        "\n==> every library, run_pages skipped: exit 0 after ",
         "test shards: the heap measurements: no exit status recorded\n",
         "test shards: capability_broker, its enabled suite skipped, alone: not started\n",
     ] {
@@ -892,7 +913,7 @@ fn a_bound_status_with_an_unreadable_record_is_refused_by_name() {
     assert_eq!(
         String::from_utf8_lossy(&run.stderr),
         format!(
-            "test shards: the bound record of every library could not be read, so it is not \
+            "test shards: the bound record of every library, run_pages skipped could not be read, so it is not \
              shown to have passed\n{unstarted}"
         )
     );
@@ -900,7 +921,9 @@ fn a_bound_status_with_an_unreadable_record_is_refused_by_name() {
     assert_eq!(scratch.events(), Vec::<String>::new());
     let stdout = String::from_utf8_lossy(&run.stdout);
     assert!(
-        stdout.contains("test shards: the bound record of every library could not be read\n"),
+        stdout.contains(
+            "test shards: the bound record of every library, run_pages skipped could not be read\n"
+        ),
         "{stdout}"
     );
 }
@@ -915,7 +938,7 @@ fn a_record_that_cannot_be_written_still_ends_the_group_and_loses_the_shard() {
     let run = scratch.run_within(
         &["test"],
         &[
-            ("STUB_UNWRITABLE", "--lib"),
+            ("STUB_UNWRITABLE", FIRST),
             ("BROKKR_TEST_SHARD_BOUND_SECONDS", "1"),
         ],
         Duration::from_secs(25),
@@ -936,13 +959,13 @@ fn a_record_that_cannot_be_written_still_ends_the_group_and_loses_the_shard() {
     assert_eq!(
         String::from_utf8_lossy(&run.stderr),
         format!(
-            "test shards: every library recorded no exit status (its runner ended with exit 1), \
+            "test shards: every library, run_pages skipped recorded no exit status (its runner ended with exit 1), \
              so it is not shown to have passed\n{unstarted}"
         )
     );
     assert_eq!(
         scratch.events(),
-        vec![format!("start {TEST} --lib")],
+        vec![format!("start {TEST} {}", SHARDS[0])],
         "the bounded shard recorded an end after its record failed"
     );
     let work = kept_work(&scratch);
@@ -982,7 +1005,7 @@ fn a_shard_status_record_that_is_not_one_line_byte_for_byte_is_refused() {
         for record in ["exit 0\0\n", "exit 0\n\n", "exit 0\0", "exit 0\n"] {
             let scratch = Scratch::new(&real, &script());
             std::fs::write(scratch.dir.path().join("record"), record).expect("record");
-            let run = scratch.run(args, &[("STUB_RECORD", "--lib")]);
+            let run = scratch.run(args, &[("STUB_RECORD", FIRST)]);
             let stderr = String::from_utf8_lossy(&run.stderr);
             if record == "exit 0\n" {
                 assert_eq!(
@@ -996,7 +1019,7 @@ fn a_shard_status_record_that_is_not_one_line_byte_for_byte_is_refused() {
             assert_eq!(
                 stderr,
                 format!(
-                    "test shards: every library recorded no exit status (its runner ended with \
+                    "test shards: every library, run_pages skipped recorded no exit status (its runner ended with \
                      exit 137), so it is not shown to have passed\n{}",
                     not_started(&later)
                 ),
@@ -1004,7 +1027,10 @@ fn a_shard_status_record_that_is_not_one_line_byte_for_byte_is_refused() {
             );
             assert_eq!(
                 scratch.calls(),
-                [format!("{prefix} {build}"), format!("{prefix} --lib")],
+                [
+                    format!("{prefix} {build}"),
+                    format!("{prefix} {}", SHARDS[0])
+                ],
                 "{args:?} {record:?}"
             );
         }
@@ -1167,7 +1193,9 @@ fn the_shards_wait_after_the_build_for_the_system_sets_preparation() {
         .and_then(|(_, rest)| rest.split_once("s\n"))
         .map_or("", |(_, log)| log);
     assert!(
-        shown.starts_with("server system set: 10 entries\ntest shards: runs every library:"),
+        shown.starts_with(
+            "server system set: 10 entries\ntest shards: runs every library, run_pages skipped:"
+        ),
         "{stdout}"
     );
 }
@@ -1226,7 +1254,7 @@ fn parallel_heap_opt_in_replaces_only_the_heap_command_in_both_modes() {
             if args[0] == "coverage" && *shard == "--doc" {
                 continue;
             }
-            commands.push(if index == 2 {
+            commands.push(if index == HEAPS {
                 if args[0] == "coverage" {
                     "scripts/parallel-heaps.py --nightly nightly-2026-09-05 --binary-bound 2400 \
                      --bound-record <path>"
@@ -1316,212 +1344,6 @@ fn a_narrower_skip_must_extend_its_filter_and_its_part_keep_a_shard() {
     );
 }
 
-/// Each machine of each system's layout, and the shards it runs, by their
-/// place in [`NAMES`]: every shard sits on exactly one machine of each.
-const MACHINES: [(&str, &[usize]); 9] = [
-    ("linux/1", &[0]),
-    ("linux/2", &[1, 2, 3, 6]),
-    ("linux/3", &[4, 5]),
-    ("linux/4", &[7]),
-    ("linux/5", &[8]),
-    ("macos/1", &[0, 6, 8]),
-    ("macos/2", &[3, 4]),
-    ("macos/3", &[1, 2]),
-    ("macos/4", &[5]),
-];
-
-/// A run whose BROKKR_TEST_MACHINE names a machine builds every binary and
-/// runs that machine's shards alone, one after another in plan order, and
-/// no shard's command inherits the variable.
-#[test]
-fn a_machine_runs_only_its_shards_one_after_another_in_plan_order() {
-    let real = metadata();
-    for (machine, indices) in MACHINES {
-        let shards: Vec<&str> = indices.iter().map(|&at| SHARDS[at]).collect();
-        let scratch = Scratch::new(&real, &script());
-        let run = scratch.run(&["test"], &[("BROKKR_TEST_MACHINE", machine)]);
-        assert_eq!(run.status.code(), Some(0), "{machine}: {run:?}");
-        assert_eq!(
-            scratch.events(),
-            one_after_another(TEST, &shards),
-            "{machine}"
-        );
-        let calls: Vec<String> = ["--no-run"]
-            .iter()
-            .chain(&shards)
-            .map(|shard| format!("{TEST} {shard}"))
-            .collect();
-        assert_eq!(scratch.calls(), calls, "{machine}");
-        assert_eq!(
-            scratch.lines("machine"),
-            vec!["unset"; shards.len()],
-            "{machine}: a shard inherited the machine"
-        );
-        let stdout = String::from_utf8_lossy(&run.stdout);
-        assert!(
-            stdout.contains(&format!(
-                "test shards: machine {machine} runs {} of the {} shards\n",
-                shards.len(),
-                NAMES.len()
-            )),
-            "{stdout}"
-        );
-    }
-    for (system, never) in [("linux", None), ("macos", Some(LINUX_ONLY))] {
-        let mut placed: Vec<usize> = MACHINES
-            .iter()
-            .filter(|(machine, _)| machine.starts_with(system))
-            .flat_map(|(_, indices)| indices.iter().copied())
-            .collect();
-        placed.sort_unstable();
-        let compiled: Vec<usize> = (0..NAMES.len()).filter(|&at| Some(at) != never).collect();
-        assert_eq!(
-            placed, compiled,
-            "{system} runs every shard it compiles once"
-        );
-    }
-}
-
-/// A machine named in a form the layouts do not use, or one no shard runs
-/// on, is refused before anything is built or run.
-#[test]
-fn a_machine_no_shard_runs_on_or_one_not_named_so_is_refused() {
-    let real = metadata();
-    for (machine, refusal) in [
-        (
-            "linux/6",
-            "test shards: BROKKR_TEST_MACHINE names linux/6, which runs no shard\n",
-        ),
-        (
-            "windows/1",
-            "test shards: BROKKR_TEST_MACHINE 'windows/1' is not linux/<n> or macos/<n>\n",
-        ),
-        (
-            "linux/0",
-            "test shards: BROKKR_TEST_MACHINE 'linux/0' is not linux/<n> or macos/<n>\n",
-        ),
-        (
-            "linux/1 ",
-            "test shards: BROKKR_TEST_MACHINE 'linux/1 ' is not linux/<n> or macos/<n>\n",
-        ),
-    ] {
-        let scratch = Scratch::new(&real, &script());
-        let run = scratch.run(&["test"], &[("BROKKR_TEST_MACHINE", machine)]);
-        assert_eq!(run.status.code(), Some(1), "{machine:?}: {run:?}");
-        assert_eq!(String::from_utf8_lossy(&run.stderr), refusal, "{machine:?}");
-        assert_eq!(scratch.calls(), Vec::<String>::new(), "{machine:?}");
-    }
-}
-
-/// A layout that leaves a machine empty, or names a machine by anything
-/// but a number from 1, is refused by name in every mode, before anything
-/// is built or run.
-#[test]
-fn a_layout_with_an_empty_machine_or_an_unnumbered_one_is_refused() {
-    let real = metadata();
-    let table = script();
-    let line = "skipped, alone\" 5 1 test:it";
-    assert_eq!(table.matches(line).count(), 1, "the last shard's line");
-    for (planted, refusal) in [
-        (
-            "skipped, alone\" 6 1 test:it",
-            "test shards: the linux layout leaves machine 5 with no shard\n",
-        ),
-        (
-            "skipped, alone\" 5 x test:it",
-            "test shards: capability_broker, its enabled suite skipped, alone names the macos \
-             machine 'x', which is not a number from 1\n",
-        ),
-    ] {
-        let scratch = Scratch::new(&real, &table.replace(line, planted));
-        for args in [
-            &["test"][..],
-            &["plan", "test"][..],
-            &["machines", "test"][..],
-        ] {
-            let run = scratch.run(args, &[]);
-            assert_eq!(run.status.code(), Some(1), "{planted} {args:?}: {run:?}");
-            assert_eq!(
-                String::from_utf8_lossy(&run.stderr),
-                refusal,
-                "{planted} {args:?}"
-            );
-        }
-        assert_eq!(scratch.calls(), Vec::<String>::new(), "{planted}");
-    }
-}
-
-/// The test job runs exactly the layouts' machines: ci.yml's
-/// `engine-machines` matrix names each machine the script lays out, in
-/// order, each on its own system's runner, and the script prints each
-/// machine's shards as [`MACHINES`] holds them.
-#[test]
-fn the_test_jobs_machines_are_the_layouts() {
-    let run = Command::new("bash")
-        .args([SCRIPT, "machines", "test"])
-        .current_dir(workspace())
-        .env_remove("BROKKR_TEST_MACHINE")
-        .output()
-        .expect("the machines print");
-    assert_eq!(run.status.code(), Some(0), "{run:?}");
-    let expected: String = MACHINES
-        .iter()
-        .map(|(machine, indices)| {
-            let names: Vec<&str> = indices.iter().map(|&at| NAMES[at]).collect();
-            format!("{machine}: {}\n", names.join(" | "))
-        })
-        .collect();
-    assert_eq!(String::from_utf8_lossy(&run.stdout), expected);
-
-    let workflow =
-        std::fs::read_to_string(workspace().join(".github/workflows/ci.yml")).expect("ci.yml");
-    let body = crate::workflow::jobs(&workflow)
-        .into_iter()
-        .find_map(|(id, body)| (id == "engine-machines").then_some(body))
-        .expect("ci.yml's engine-machines job");
-    let lines: Vec<&str> = body.lines().map(str::trim).collect();
-    let listed: Vec<(&str, &str)> = lines
-        .windows(2)
-        .filter_map(|pair| {
-            let os = pair[0].strip_prefix("- os: ")?;
-            Some((os, pair[1].strip_prefix("machine: ")?))
-        })
-        .collect();
-    let laid_out: Vec<(&str, &str)> = MACHINES
-        .iter()
-        .map(|(machine, _)| match machine.starts_with("linux/") {
-            true => ("ubuntu-latest", *machine),
-            false => ("macos-latest", *machine),
-        })
-        .collect();
-    assert_eq!(listed, laid_out);
-}
-
-/// A run on a macOS host, naming no machine, runs every shard but the one
-/// macOS never compiles, which its layout marks `-`; a Linux host runs them
-/// all.
-#[test]
-fn a_host_runs_every_shard_its_system_compiles() {
-    let real = metadata();
-    for (host, shards) in [
-        ("Linux", SHARDS.to_vec()),
-        (
-            "Darwin",
-            SHARDS
-                .iter()
-                .enumerate()
-                .filter(|&(at, _)| at != LINUX_ONLY)
-                .map(|(_, shard)| *shard)
-                .collect(),
-        ),
-    ] {
-        let scratch = Scratch::new(&real, &script());
-        let run = scratch.run(&["test"], &[("STUB_UNAME", host)]);
-        assert_eq!(run.status.code(), Some(0), "{host}: {run:?}");
-        assert_eq!(scratch.events(), one_after_another(TEST, &shards), "{host}");
-    }
-}
-
 /// Whether process `pid` is still there, read by the null signal.
 fn process_alive(pid: i32) -> bool {
     rustix::process::test_kill_process(rustix::process::Pid::from_raw(pid).expect("a pid")).is_ok()
@@ -1581,7 +1403,7 @@ fn assert_bounded_hang(stub: &str, word: &str, pid_file: &str, binary: &str) -> 
 /// The events of a run whose first `--lib` shard started but never ended,
 /// followed by every later shard in its turn.
 fn bounded_first_shard_events() -> Vec<String> {
-    let mut expected = vec![format!("start {TEST} --lib")];
+    let mut expected = vec![format!("start {TEST} {}", SHARDS[0])];
     expected.extend(one_after_another(TEST, &SHARDS[1..]));
     expected
 }
@@ -1606,12 +1428,12 @@ fn assert_bounded_first_shard(scratch: &Scratch, started: Instant) {
     assert_bounded_first_shard_ran(scratch);
 }
 
-/// `scratch`'s `--lib` shard run as `stub` under `bound` seconds, refused by
+/// `scratch`'s first shard run as `stub` under `bound` seconds, refused by
 /// name for `binary`; the whole run is held to 25 s.
 fn bounded_by_name(scratch: &Scratch, stub: &str, bound: &str, binary: &str) -> Output {
     let run = scratch.run_within(
         &["test"],
-        &[(stub, "--lib"), ("BROKKR_TEST_SHARD_BOUND_SECONDS", bound)],
+        &[(stub, FIRST), ("BROKKR_TEST_SHARD_BOUND_SECONDS", bound)],
         Duration::from_secs(25),
     );
     assert_eq!(run.status.code(), Some(1), "{run:?}");
@@ -1641,11 +1463,13 @@ fn real_python3() -> String {
 #[test]
 fn a_binary_past_the_bound_fails_by_name_and_the_next_shard_runs() {
     let started = Instant::now();
-    let (scratch, run) = assert_bounded_hang("STUB_HANG", "--lib", "hang.pid", "hang-0123abcd");
+    let (scratch, run) = assert_bounded_hang("STUB_HANG", FIRST, "hang.pid", "hang-0123abcd");
     assert_bounded_first_shard(&scratch, started);
     let stdout = String::from_utf8_lossy(&run.stdout);
     assert!(
-        stdout.contains("test shards: every library: hang-0123abcd ran past 2 s\n"),
+        stdout.contains(
+            "test shards: every library, run_pages skipped: hang-0123abcd ran past 2 s\n"
+        ),
         "{stdout}"
     );
 }
@@ -1688,7 +1512,7 @@ fn a_binary_that_keeps_printing_is_still_bounded() {
 /// shard runs.
 #[test]
 fn a_deps_path_with_parentheses_is_named_and_bounded() {
-    let (scratch, _) = assert_bounded_hang("STUB_PARENS", "--lib", "parens.pid", "hang-0123abcd");
+    let (scratch, _) = assert_bounded_hang("STUB_PARENS", FIRST, "parens.pid", "hang-0123abcd");
     assert_bounded_first_shard_ran(&scratch);
 }
 
@@ -1697,8 +1521,7 @@ fn a_deps_path_with_parentheses_is_named_and_bounded() {
 /// shard runs.
 #[test]
 fn a_test_binary_that_prints_no_start_line_is_still_bounded() {
-    let (scratch, _) =
-        assert_bounded_hang("STUB_QUIET_HANG", "--lib", "quiet.pid", "quiet-0123abcd");
+    let (scratch, _) = assert_bounded_hang("STUB_QUIET_HANG", FIRST, "quiet.pid", "quiet-0123abcd");
     assert_bounded_first_shard_ran(&scratch);
 }
 
@@ -1707,7 +1530,7 @@ fn a_test_binary_that_prints_no_start_line_is_still_bounded() {
 /// interval and a loaded host cannot eat.
 #[test]
 fn a_binary_under_the_bound_passes_untouched() {
-    assert_bounded_pass("STUB_SLOW", "--lib", "3");
+    assert_bounded_pass("STUB_SLOW", FIRST, "3");
 }
 
 /// Two binaries in one shard, each under the bound, whose sum passes it:
@@ -1715,14 +1538,14 @@ fn a_binary_under_the_bound_passes_untouched() {
 /// 2 s under a 3 s bound, and their sum passes it.
 #[test]
 fn two_binaries_each_under_the_bound_pass_because_the_bound_is_per_binary() {
-    assert_bounded_pass("STUB_PAIR", "--lib", "3");
+    assert_bounded_pass("STUB_PAIR", FIRST, "3");
 }
 
 /// A hang in cargo's own tail, after every `deps` binary is gone, is not a
 /// test binary and is not bounded: nothing is named and the shard passes.
 #[test]
 fn a_hang_in_cargos_own_tail_is_not_bounded() {
-    assert_bounded_pass("STUB_CARGO_TAIL", "--lib", "2");
+    assert_bounded_pass("STUB_CARGO_TAIL", FIRST, "2");
 }
 
 /// A `deps` binary that prints a passing result at 0.2 s and then lives
@@ -1808,7 +1631,7 @@ fn a_bound_that_is_not_a_positive_whole_number_refuses_and_no_shard_inherits_it(
 /// group. The recorded pid is the helper, and the bound names the parent.
 #[test]
 fn a_stopped_group_member_ended_by_the_kills_kill_is_not_a_survivor() {
-    let (scratch, _) = assert_bounded_hang("STUB_STOPPED", "--lib", "stopped.pid", "stopped-0456");
+    let (scratch, _) = assert_bounded_hang("STUB_STOPPED", FIRST, "stopped.pid", "stopped-0456");
     assert_bounded_first_shard_ran(&scratch);
 }
 
@@ -1885,7 +1708,7 @@ fn recorded_pair(scratch: &Scratch, file: &str) -> (i32, i32) {
 #[test]
 fn a_group_that_is_not_shown_ended_is_lost_and_names_its_members() {
     let scratch = Scratch::new(&metadata(), &script());
-    let run = scratch.run(&["test"], &[("STUB_LEAVE", "--lib")]);
+    let run = scratch.run(&["test"], &[("STUB_LEAVE", FIRST)]);
     assert_eq!(run.status.code(), Some(1), "{run:?}");
     let (leader, member) = recorded_pair(&scratch, "leave.pid");
     let later: String = NAMES[1..]
@@ -1904,7 +1727,7 @@ fn a_group_that_is_not_shown_ended_is_lost_and_names_its_members() {
         String::new()
     };
     let expected = format!(
-        "test shards: could not show every library's process group ended: process group \
+        "test shards: could not show every library, run_pages skipped's process group ended: process group \
          {leader} still has members{named}\n{later}"
     );
     assert_eq!(String::from_utf8_lossy(&run.stderr), expected);
@@ -1915,7 +1738,7 @@ fn a_group_that_is_not_shown_ended_is_lost_and_names_its_members() {
     );
     let stdout = String::from_utf8_lossy(&run.stdout);
     assert!(
-        stdout.contains("test shards: every library: could not show its process group ended\n"),
+        stdout.contains("test shards: every library, run_pages skipped: could not show its process group ended\n"),
         "{stdout}"
     );
     let work = kept_work(&scratch);
@@ -1961,8 +1784,8 @@ fn a_heap_child_past_the_bound_reaches_the_shards_record_and_summary() {
         stdout.contains("test shards: the heap measurements: heap_claude-0123abcd ran past 1 s\n"),
         "{stdout}"
     );
-    let mut expected = one_after_another(TEST, &SHARDS[..2]);
-    expected.extend(one_after_another(TEST, &SHARDS[3..]));
+    let mut expected = one_after_another(TEST, &SHARDS[..HEAPS]);
+    expected.extend(one_after_another(TEST, &SHARDS[HEAPS + 1..]));
     assert_eq!(scratch.events(), expected, "a later shard did not run");
     for heap in ["heap_claude", "heap_codex", "heap_dsh"] {
         let pid = recorded_pid(&scratch, &format!("{heap}-0123abcd.pid"));
