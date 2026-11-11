@@ -17,6 +17,8 @@ use crate::bundle::{
     Aggregate, DialectExecution, Invocation, PanelMember, SeatBody, SeatClass, SequenceStep,
     StepBody,
 };
+use crate::engine::cooldown::refused_members;
+use crate::engine::start_failure_sites;
 use crate::engine::Engine;
 
 /// One sequence step in `body`, with its own results vocabulary.
@@ -50,7 +52,7 @@ fn panel_step(name: &str, members: Vec<PanelMember>, results: &[&str]) -> Sequen
         name,
         StepBody::Invocation(Invocation::Panel {
             members,
-            aggregate: Aggregate::UnanimousPass,
+            aggregate: Aggregate::ReviewPanel,
         }),
         results,
     )
@@ -75,6 +77,123 @@ fn sequence_engine(dir: &Path, body: SeatBody, attempts: u64) -> Engine {
     let mut engine = started(dir, body, work(attempts));
     engine.cooldown.host = Some(host(dir, 1, 10));
     with_clock(engine).0
+}
+
+/// A driver that always succeeds, so a test's later step can follow the
+/// step under test and the sequence completes.
+fn succeeding(dir: &Path, tag: &str) -> Vec<String> {
+    driver(
+        dir,
+        tag,
+        &["succeed", "succeed"],
+        Probed::Answer,
+        None,
+        "claude",
+        "first",
+    )
+}
+
+/// The final `publish` step every sequence test runs after its refusing
+/// step, so the sequence is a shape a compiled bundle has (two steps or
+/// more).
+fn publish_step(dir: &Path) -> SequenceStep {
+    single_step(
+        "publish",
+        vec![candidate(
+            "claude",
+            "claude/first",
+            succeeding(dir, "publish"),
+        )],
+        &["complete"],
+    )
+}
+
+/// A member `m` driver on claude/first that refuses once and then answers.
+fn refusing_m(dir: &Path) -> Vec<String> {
+    driver(
+        dir,
+        "m",
+        &["refuse", "succeed"],
+        Probed::Answer,
+        None,
+        "claude",
+        "first",
+    )
+}
+
+/// A `draft` single step followed by `publish`, so every refusing step is
+/// non-final and the sequence is a shape a compiled bundle has.
+fn draft_body(dir: &Path, draft: Vec<String>, results: &[&str]) -> SeatBody {
+    sequence(vec![
+        single_step(
+            "draft",
+            vec![candidate("claude", "claude/first", draft)],
+            results,
+        ),
+        publish_step(dir),
+    ])
+}
+
+/// A terminal event that carries neither a wait nor a refusal record.
+fn no_wait(event: &EventEnvelope) {
+    assert!(event.payload.get("waits").is_none(), "{event:?}");
+    assert!(event.payload.get("refused").is_none(), "{event:?}");
+}
+
+/// The probe's context reads only the failed attempt's finished steps: a
+/// non-checkpoint event, another effect's checkpoint, another attempt's,
+/// a missing checkpoint, a member checkpoint, and a finished step without
+/// its name are all skipped, and the valid one is kept.
+#[test]
+fn a_step_probe_context_reads_only_the_failed_attempts_finished_steps() {
+    let checkpoint = |effect: &str, attempt: &str, checkpoint: Value| {
+        crate::engine::tests::event(
+            EventType::EffectCheckpointed,
+            json!({"effect_id": effect, "attempt_id": attempt, "checkpoint": checkpoint}),
+        )
+    };
+    let finished = json!({"step": "sequence-step-finished"});
+    let events = vec![
+        crate::engine::tests::event(EventType::RunStarted, json!({})),
+        checkpoint("other", "a1", json!({"step": "sequence-step-finished"})),
+        checkpoint("effect", "a0", json!({"step": "sequence-step-finished"})),
+        checkpoint("effect", "a1", Value::Null),
+        checkpoint("effect", "a1", json!({"step": "answer"})),
+        checkpoint("effect", "a1", finished),
+        checkpoint(
+            "effect",
+            "a1",
+            json!({"step": "sequence-step-finished", "step_name": "draft",
+                   "result": {"result": "complete"}}),
+        ),
+        crate::engine::tests::event(
+            EventType::EffectFailed,
+            json!({"effect_id": "effect", "attempt_id": "a1"}),
+        ),
+    ];
+    let context = crate::engine::cooldown::probe::step_context(
+        &events,
+        "effect",
+        &json!({"context": {"run_id": "r"}}),
+    );
+    assert_eq!(context["run_id"], "r");
+    assert_eq!(
+        context["prior_results"]["draft"]["result"], "complete",
+        "{context}"
+    );
+}
+
+/// A requested sequence engine with its journal and folded state, for the
+/// probe-level rows.
+fn requested_sequence(
+    dir: &Path,
+    body: SeatBody,
+) -> (Engine, Vec<EventEnvelope>, brokkr_core::fold::RunState) {
+    let mut engine = sequence_engine(dir, body, 2);
+    request_effect(&mut engine);
+    let events = engine.store.load(&engine.run_id).unwrap();
+    let state = brokkr_core::fold::fold(&events).unwrap();
+    (engine, events, state)
 }
 
 /// The single draft step's driver: refuses once, then answers.
@@ -130,16 +249,21 @@ fn failed_here(engine: &Engine) -> Vec<EventEnvelope> {
         .collect()
 }
 
-/// The driven panel-step engine the two member tests share.
-fn driven_panel(dir: &Path, m: Vec<String>, n: Vec<String>) -> Engine {
-    let body = sequence(vec![panel_step(
-        "review",
-        two_member_panel(m, n),
-        &["complete"],
-    )]);
+/// The driven panel-step engine the two member tests share: `review` is a
+/// non-final step, so its probe exercises the step-input arm a compiled
+/// multi-step sequence always has.
+fn driven_members(dir: &Path, members: Vec<PanelMember>) -> Engine {
+    let body = sequence(vec![
+        panel_step("review", members, &["reviewed", "complete"]),
+        publish_step(dir),
+    ]);
     let mut engine = sequence_engine(dir, body, 2);
     engine.drive().unwrap();
     engine
+}
+
+fn driven_panel(dir: &Path, m: Vec<String>, n: Vec<String>) -> Engine {
+    driven_members(dir, two_member_panel(m, n))
 }
 
 /// The one wait the first effect's terminal event carries.
@@ -162,16 +286,13 @@ fn shared(dir: &Path) -> Vec<String> {
 }
 
 /// A sequence whose single `draft` step refuses once, then succeeds: one
-/// `<step>` wait, draft's own probe, and a retry from step 1.
+/// `<step>` wait, draft's own probe with the step's own input, and a retry
+/// from step 1.
 #[test]
 fn a_single_steps_rate_limit_records_its_site_and_restarts_at_step_one() {
     let dir = tempfile::tempdir().unwrap();
     let command = draft_driver(dir.path());
-    let body = sequence(vec![single_step(
-        "draft",
-        vec![candidate("claude", "claude/first", command)],
-        &["complete"],
-    )]);
+    let body = draft_body(dir.path(), command, &["drafted", "complete"]);
     let engine = driven(dir.path(), body, 2);
     single_step_facts(dir.path(), &engine);
     let waits = one_wait(&engine);
@@ -179,11 +300,21 @@ fn a_single_steps_rate_limit_records_its_site_and_restarts_at_step_one() {
     assert_eq!(waits[0]["route"], "first");
     assert_eq!(waits[0]["seconds"], 1);
     assert_eq!(waits[0]["rounds"], 1);
-    // The probe is the step's own spawn, under the step's driver seat.
+    // The probe is the step's own spawn, under the step's driver seat, with
+    // the step's own allowed results (not the seat's final-step vocabulary).
     assert_eq!(
         std::fs::read_to_string(dir.path().join("draft.seat")).unwrap(),
         "work:draft"
     );
+    let inputs = start_inputs(dir.path(), "draft");
+    assert_eq!(inputs.len(), 3, "{inputs:?}");
+    assert_eq!(inputs[1]["input"]["seat"], "work:draft");
+    assert_eq!(
+        inputs[1]["input"]["allowed_results"],
+        json!(["drafted", "complete"]),
+        "{inputs:?}"
+    );
+    assert_eq!(inputs[1]["input"]["context"]["prior_results"], json!({}));
     let started = starts(&engine);
     assert_eq!(started.len(), 2, "{started:?}");
     assert_eq!(started[1]["probes"][0]["site"], "draft");
@@ -191,19 +322,12 @@ fn a_single_steps_rate_limit_records_its_site_and_restarts_at_step_one() {
 
 /// A step panel whose member `m` refuses: the wait is tagged
 /// `<step>:<member>`, m's probe is derived through `member_runs` at
-/// `work:review:m`, and the whole step re-runs from step 1.
+/// `work:review:m` with the step's own allowed results, and the whole step
+/// re-runs from step 1.
 #[test]
 fn a_step_panels_refused_member_records_its_tag_and_probes_its_own_spawn() {
     let dir = tempfile::tempdir().unwrap();
-    let m = driver(
-        dir.path(),
-        "m",
-        &["refuse", "succeed"],
-        Probed::Answer,
-        None,
-        "claude",
-        "first",
-    );
+    let m = refusing_m(dir.path());
     let n = driver(
         dir.path(),
         "n",
@@ -213,7 +337,7 @@ fn a_step_panels_refused_member_records_its_tag_and_probes_its_own_spawn() {
         "codex",
         "second",
     );
-    let engine = driven_panel(dir.path(), m, n);
+    let engine = driven_members(dir.path(), two_member_panel(m, n));
     let waits = one_wait(&engine);
     assert_eq!(waits[0]["site"], "review:m");
     assert_eq!(waits[0]["provider"], "claude");
@@ -231,13 +355,22 @@ fn a_step_panels_refused_member_records_its_tag_and_probes_its_own_spawn() {
         std::fs::read_to_string(dir.path().join("m.seat")).unwrap(),
         "work:review:m"
     );
+    let inputs = start_inputs(dir.path(), "m");
+    assert_eq!(inputs.len(), 3, "{inputs:?}");
+    assert_eq!(inputs[1]["input"]["seat"], "work:review:m");
+    assert_eq!(
+        inputs[1]["input"]["allowed_results"],
+        json!(["reviewed", "complete"]),
+        "{inputs:?}"
+    );
     let started = starts(&engine);
     assert_eq!(started.len(), 2, "{started:?}");
     assert_eq!(started[1]["probes"][0]["site"], "review:m");
 }
 
-/// A later step's refusal: one wait at `review`, and the retry runs `draft`
-/// again before `review`.
+/// A later, non-final step's refusal: one wait at `review`, a probe with
+/// the step's own allowed results and the earlier steps' results, and the
+/// retry runs `draft` again before `review`.
 #[test]
 fn a_later_steps_refusal_restarts_the_sequence_from_step_one() {
     let dir = tempfile::tempdir().unwrap();
@@ -268,8 +401,9 @@ fn a_later_steps_refusal_restarts_the_sequence_from_step_one() {
         single_step(
             "review",
             vec![candidate("claude", "claude/first", review)],
-            &["complete"],
+            &["reviewed", "complete"],
         ),
+        publish_step(dir.path()),
     ]);
     let engine = driven(dir.path(), body, 2);
     let waits = one_wait(&engine);
@@ -282,7 +416,19 @@ fn a_later_steps_refusal_restarts_the_sequence_from_step_one() {
             "review:probe",
             "draft:attempt:succeed",
             "review:attempt:succeed",
+            "publish:attempt:succeed",
         ]
+    );
+    let inputs = start_inputs(dir.path(), "review");
+    assert_eq!(inputs.len(), 3, "{inputs:?}");
+    assert_eq!(
+        inputs[1]["input"]["allowed_results"],
+        json!(["reviewed", "complete"]),
+        "the probe did not ask with the step's own vocabulary: {inputs:?}"
+    );
+    assert_eq!(
+        inputs[1]["input"]["context"]["prior_results"]["draft"]["result"], "complete",
+        "the probe did not carry the earlier step's result: {inputs:?}"
     );
 }
 
@@ -325,15 +471,18 @@ fn an_indeterminate_step_carries_the_refused_members_wait_and_probes_nothing() {
 #[test]
 fn a_spawn_failure_writes_its_start_failure_site_and_no_wait() {
     let dir = tempfile::tempdir().unwrap();
-    let body = sequence(vec![single_step(
-        "draft",
-        vec![candidate(
-            "claude",
-            "claude/first",
-            vec!["/nonexistent/brokkr-test-driver".into()],
-        )],
-        &["complete"],
-    )]);
+    let body = sequence(vec![
+        single_step(
+            "draft",
+            vec![candidate(
+                "claude",
+                "claude/first",
+                vec!["/nonexistent/brokkr-test-driver".into()],
+            )],
+            &["complete"],
+        ),
+        publish_step(dir.path()),
+    ]);
     let engine = driven(dir.path(), body, 2);
     let failed = failed_here(&engine);
     assert!(!failed.is_empty(), "the spawn failure journaled nothing");
@@ -364,15 +513,14 @@ fn a_dialect_step_writes_no_wait() {
             },
         },
     };
-    let engine = driven(dir.path(), sequence(vec![step]), 1);
+    let engine = driven(
+        dir.path(),
+        sequence(vec![step, publish_step(dir.path())]),
+        1,
+    );
     let failed = failed_here(&engine);
     assert_eq!(failed.len(), 1, "{failed:?}");
-    assert!(failed[0].payload.get("waits").is_none(), "{:?}", failed[0]);
-    assert!(
-        failed[0].payload.get("refused").is_none(),
-        "{:?}",
-        failed[0]
-    );
+    no_wait(&failed[0]);
 }
 
 /// A fresh engine over a journal whose last `effect/failed` carries a
@@ -485,19 +633,218 @@ fn a_resume_waits_the_recorded_remainder_probes_the_member_and_restarts() {
 fn an_inline_single_steps_probe_uses_its_own_command() {
     let dir = tempfile::tempdir().unwrap();
     let command = draft_driver(dir.path());
-    let body = sequence(vec![step(
-        "draft",
-        StepBody::Invocation(Invocation::Single {
-            role_path: "role.md".into(),
-            command,
-            candidates: Vec::new(),
-            written: Vec::new(),
-            class: (),
-        }),
-        &["complete"],
-    )]);
+    let body = sequence(vec![
+        step(
+            "draft",
+            StepBody::Invocation(Invocation::Single {
+                role_path: "role.md".into(),
+                command,
+                candidates: Vec::new(),
+                written: Vec::new(),
+                class: (),
+            }),
+            &["complete"],
+        ),
+        publish_step(dir.path()),
+    ]);
     let engine = driven(dir.path(), body, 2);
     single_step_facts(dir.path(), &engine);
+}
+
+/// A wait whose retry-after is past the host maximum parks the sequence at
+/// its failing step: the failed event carries the refused record, no probe
+/// runs and no retry follows.
+#[test]
+fn a_wait_past_the_maximum_parks_the_sequence_without_a_probe() {
+    let dir = tempfile::tempdir().unwrap();
+    let draft = driver(
+        dir.path(),
+        "draft",
+        &["refuse"],
+        Probed::Answer,
+        Some(11),
+        "claude",
+        "first",
+    );
+    let body = draft_body(dir.path(), draft, &["complete"]);
+    let mut engine = sequence_engine(dir.path(), body, 2);
+    engine.drive().unwrap();
+    let failed = failed_here(&engine);
+    assert_eq!(failed.len(), 1, "{failed:?}");
+    assert_eq!(failed[0].payload["refused"]["site"], "draft");
+    assert_eq!(failed[0].payload["refused"]["cause"], "past-maximum");
+    // 4c2a's panel writer keeps the computable wait beside the record.
+    assert_eq!(waits(&failed[0])[0]["site"], "draft");
+    assert_eq!(logs(dir.path(), "draft"), ["attempt:refuse"]);
+    assert_eq!(starts(&engine).len(), 1, "a parked step retried");
+    let reason = park_reason(&engine);
+    assert!(reason.contains("past the declared 10s maximum"), "{reason}");
+    assert!(reason.contains("rate_limit: slow down"), "{reason}");
+}
+
+/// A rate-limit refusal whose cool-down is not declared writes no wait and
+/// follows decision 0006: the failed event's note names the absence, and
+/// the attempt retries without a probe.
+#[test]
+fn a_missing_declaration_writes_no_wait_and_retries() {
+    let dir = tempfile::tempdir().unwrap();
+    let draft = draft_driver(dir.path());
+    let body = draft_body(dir.path(), draft, &["complete"]);
+    let mut engine = sequence_engine(dir.path(), body, 2);
+    engine.cooldown.host = Some(v1_host(dir.path()));
+    engine.drive().unwrap();
+    let failed = failed_here(&engine);
+    assert_eq!(failed.len(), 1, "{failed:?}");
+    no_wait(&failed[0]);
+    let error = failed[0].payload["error"].as_str().unwrap();
+    assert!(
+        error.contains("no cool-down is declared for claude/first"),
+        "{error}"
+    );
+    assert_eq!(
+        logs(dir.path(), "draft"),
+        ["attempt:refuse", "attempt:succeed"]
+    );
+    assert_eq!(starts(&engine).len(), 2);
+}
+
+/// Another member's non-rate-limit refusal beside a rate limit gets no wait
+/// and no probe: only the rate-limited member's site is cooled down.
+#[test]
+fn another_refusal_beside_a_rate_limit_gets_no_wait_and_no_probe() {
+    let dir = tempfile::tempdir().unwrap();
+    let m = refusing_m(dir.path());
+    let mut n = driver(
+        dir.path(),
+        "n",
+        &["refuse"],
+        Probed::Answer,
+        None,
+        "codex",
+        "second",
+    );
+    let script = n
+        .pop()
+        .unwrap()
+        .replace("\"class\":\"rate_limit\"", "\"class\":\"other\"");
+    n.push(script);
+    let n_second = succeeding(dir.path(), "n-second");
+    let members = vec![
+        member("m", vec![candidate("claude", "claude/first", m)]),
+        member(
+            "n",
+            vec![
+                candidate("codex", "codex/second", n),
+                candidate("codex", "codex/third", n_second),
+            ],
+        ),
+    ];
+    let engine = driven_members(dir.path(), members);
+    let waits = one_wait(&engine);
+    assert_eq!(waits[0]["site"], "review:m");
+    assert_eq!(
+        logs(dir.path(), "m"),
+        ["attempt:refuse", "probe", "attempt:succeed"]
+    );
+    assert_eq!(
+        logs(dir.path(), "n"),
+        ["attempt:refuse"],
+        "n was probed for a refusal that is not a rate limit"
+    );
+    assert_eq!(
+        logs(dir.path(), "n-second"),
+        ["attempt:succeed"],
+        "n's chain did not advance to its next link"
+    );
+    let started = starts(&engine);
+    assert_eq!(started.len(), 2, "{started:?}");
+    assert_eq!(
+        started[1]["probes"].as_array().map(Vec::len),
+        Some(1),
+        "{started:?}"
+    );
+    assert_eq!(started[1]["probes"][0]["site"], "review:m");
+}
+
+/// A wait at `a:b:c` resolves the declared step `a:b` and its member `c`,
+/// not step `a`'s member `b:c`: a step name may contain a colon.
+#[test]
+fn a_member_wait_resolves_the_declared_step_and_member_pair() {
+    let dir = tempfile::tempdir().unwrap();
+    let c = succeeding(dir.path(), "c");
+    let body = sequence(vec![
+        panel_step(
+            "a",
+            vec![member("m", Vec::new()), member("n", Vec::new())],
+            &["complete"],
+        ),
+        panel_step(
+            "a:b",
+            vec![member("c", vec![candidate("claude", "claude/first", c)])],
+            &["complete"],
+        ),
+    ]);
+    let (mut engine, events, state) = requested_sequence(dir.path(), body);
+    let wait = ProviderWait {
+        site: Some("a:b:c".into()),
+        provider: "claude".into(),
+        route: "first".into(),
+        words: "rate_limit: slow down".into(),
+        retry_after_seconds: None,
+        seconds: 1,
+        until: base(),
+        rounds: 1,
+    };
+    let probe = engine
+        .probe_member(&events, &state, "effect", "work", &wait, "a:b:c")
+        .unwrap();
+    match probe {
+        crate::engine::cooldown::probe::Probe::Answered(_) => {}
+        crate::engine::cooldown::probe::Probe::Parked(reason) => {
+            panic!("a:b:c was not a:b's member c: {reason}")
+        }
+    }
+    assert_eq!(logs(dir.path(), "c"), ["probe"]);
+}
+
+/// A refused site is a wait even when its cleanup made the step
+/// indeterminate: the wait assembly reads every report's typed refusal,
+/// while the start-failure fact keeps only a failure to start.
+#[test]
+fn a_refused_site_is_a_wait_even_when_its_cleanup_makes_the_step_indeterminate() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = sequence_engine(dir.path(), sequence(vec![publish_step(dir.path())]), 2);
+    let rate: brokkr_protocol::PreSessionRefusal = serde_json::from_value(json!({
+        "class": "rate_limit", "provider": "claude", "route": "first",
+        "words": "rate_limit: slow down"
+    }))
+    .unwrap();
+    let unsettled = || brokkr_protocol::Cleanup::Unresolved {
+        reason: brokkr_protocol::process::Unsettled::Stdout,
+    };
+    let refused_report = report(Some(Box::new(rate)), unsettled(), Vec::new());
+    let indeterminate_report = report(None, unsettled(), Vec::new());
+    let reports = vec![
+        ("m".to_string(), refused_report),
+        ("n".to_string(), indeterminate_report),
+    ];
+    assert!(
+        start_failure_sites(&reports, "review:").is_empty(),
+        "a cleanup-indeterminate report is not a failure to start"
+    );
+    let refused = refused_members(&reports, "review:");
+    assert_eq!(refused.len(), 1, "{refused:?}");
+    assert_eq!(refused[0].site, "review:m");
+    let terminal = engine
+        .step_terminal(
+            "effect",
+            json!({"effect_id": "effect", "attempt_id": "a1", "reason": "indeterminate"}),
+            &refused,
+            false,
+        )
+        .unwrap();
+    assert_eq!(terminal.payload["waits"][0]["site"], "review:m");
+    assert!(terminal.park.is_none(), "{:?}", terminal.park);
 }
 
 /// A sequence wait that names no step, names a panel step without a member,
@@ -514,10 +861,7 @@ fn a_sequence_wait_at_a_form_it_does_not_name_parks_by_name() {
             &["complete"],
         ),
     ]);
-    let mut engine = sequence_engine(dir.path(), body, 2);
-    request_effect(&mut engine);
-    let events = engine.store.load(&engine.run_id).unwrap();
-    let state = brokkr_core::fold::fold(&events).unwrap();
+    let (mut engine, events, state) = requested_sequence(dir.path(), body);
     let wait = |site: &str| ProviderWait {
         site: Some(site.into()),
         provider: "claude".into(),

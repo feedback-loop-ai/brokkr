@@ -18,10 +18,11 @@ use super::carry::{
     outcome_under,
     record::{settled_members, PanelRecord, PanelSpan},
 };
-use super::cooldown::{failed_sites, FailedSite};
+use super::cooldown::{refused_members, RefusedMember};
 use super::{
     argv_for, copy_secret_binding_facts, failed_to_start, git_head, stamp_boundary,
-    start_failure_fields, DriverRun, Engine, EngineError, Indeterminate, Selection, Unproven,
+    start_failure_fields, start_failure_sites, DriverRun, Engine, EngineError, Indeterminate,
+    Selection, Site, Unproven,
 };
 use crate::bundle::{
     dialect_results, Aggregate, DialectExecution, Invocation, PanelMember, SeatClass, SequenceStep,
@@ -87,15 +88,58 @@ struct StepAt<'a> {
     context: Value,
 }
 
-/// A step form's outcome, and which of its sites failed to start, should
-/// the step be the one that fails the attempt.
+/// A step form's outcome, the sites that failed to start should the step
+/// be the one that fails the attempt, and the sites whose reports carried
+/// a typed rate-limit refusal.
 struct StepRun {
     record: Option<PanelRecord>,
     outcome: AttemptOutcome,
-    start_failures: Vec<FailedSite>,
+    /// The chain-advance fact, unchanged from today: a site failed to
+    /// start, in declared order.
+    start_failures: Vec<Site>,
+    /// The wait fact: every site whose report carried a typed rate-limit
+    /// refusal, in declared order, whether or not its cleanup made the
+    /// step indeterminate (decision 0103 ruling 2(a)).
+    refused: Vec<RefusedMember>,
     /// What the step's terminal event carries when its tree is not
     /// proven over (#403).
     unproven: Unproven,
+}
+
+/// The results a step may report: the seat's own for the final step, which
+/// is the seat's boundary, and the step's own for any other (decision 0002:
+/// the one rule the attempt and the cool-down probe both read).
+pub(super) fn step_allowed_results(seat_input: &Value, index: usize, last: bool) -> Value {
+    if last {
+        seat_input["allowed_results"].clone()
+    } else {
+        seat_input["steps"][index]["allowed_results"].clone()
+    }
+}
+
+/// A step driver's input: the fields a single step and a dialect step
+/// share, with the step's own metadata and the context its attempt (or its
+/// probe) derived. The step's attempt and its cool-down probe both build
+/// this one shape (decision 0103 slice 4c2b).
+pub(super) fn step_driver_input(
+    seat_input: &Value,
+    index: usize,
+    label: &str,
+    last: bool,
+    role_path: &Value,
+    context: &Value,
+) -> Value {
+    json!({
+        "feature": seat_input["feature"],
+        "phase": seat_input["phase"],
+        "seat": label,
+        "role_path": role_path,
+        "workdir": seat_input["workdir"],
+        "result_path": seat_input["steps"][index]["result_path"],
+        "allowed_results": step_allowed_results(seat_input, index, last),
+        "house_rules": seat_input["house_rules"],
+        "context": context,
+    })
 }
 
 impl SequenceRun<'_> {
@@ -105,16 +149,6 @@ impl SequenceRun<'_> {
 
     fn phase(&self) -> &str {
         self.input["phase"].as_str().unwrap_or("")
-    }
-
-    /// The results a step may report: the seat's own for the final step,
-    /// which is the seat's boundary, and the step's own for any other.
-    fn allowed_results<'s>(&'s self, at: &StepAt<'s>) -> &'s Value {
-        if self.is_last(at) {
-            &self.input["allowed_results"]
-        } else {
-            &at.meta["allowed_results"]
-        }
     }
 
     fn step_at<'s>(
@@ -140,35 +174,28 @@ impl SequenceRun<'_> {
         }
     }
 
-    /// A step driver's input: the fields a single step and a dialect step
-    /// share, with the step's own role path.
+    /// A step driver's input, through the one derivation the step's attempt
+    /// and its cool-down probe share.
     fn driver_input(&self, at: &StepAt, role_path: &Value) -> Value {
-        json!({
-            "feature": self.input["feature"],
-            "phase": self.input["phase"],
-            "seat": at.label,
-            "role_path": role_path,
-            "workdir": self.input["workdir"],
-            "result_path": at.meta["result_path"],
-            "allowed_results": self.allowed_results(at),
-            "house_rules": self.input["house_rules"],
-            "context": at.context,
-        })
+        step_driver_input(
+            self.input,
+            at.index,
+            &at.label,
+            self.is_last(at),
+            role_path,
+            &at.context,
+        )
     }
 
     /// The `effect/failed` payload for a step: its problem, and the sites
     /// that failed to start.
-    fn failed_payload(&self, at: &StepAt, problem: &str, start_failures: &[FailedSite]) -> Value {
+    fn failed_payload(&self, at: &StepAt, problem: &str, start_failures: &[Site]) -> Value {
         let mut payload = json!({
             "effect_id": self.effect_id,
             "attempt_id": self.attempt_id,
             "error": format!("sequence step '{}': {problem}", at.step.name),
         });
-        start_failure_fields(
-            &mut payload,
-            self.selection,
-            start_failures.iter().map(FailedSite::site).collect(),
-        );
+        start_failure_fields(&mut payload, self.selection, start_failures.to_vec());
         payload
     }
 
@@ -321,25 +348,28 @@ impl Engine {
             DriverRun::SpawnFailed(error) => StepRun {
                 record: None,
                 outcome: AttemptOutcome::Failed { error },
-                start_failures: vec![FailedSite {
-                    site: at.step.name.clone(),
-                    refusal: None,
-                }],
+                start_failures: vec![Some(at.step.name.clone())],
+                refused: Vec::new(),
                 unproven: Unproven::Proven,
             },
-            DriverRun::Ran(report) => StepRun {
-                record: None,
-                start_failures: if failed_to_start(&report) {
-                    vec![FailedSite {
-                        site: at.step.name.clone(),
-                        refusal: report.refusal.as_deref().cloned(),
-                    }]
+            DriverRun::Ran(report) => {
+                let start_failures = if failed_to_start(&report) {
+                    vec![Some(at.step.name.clone())]
                 } else {
                     Vec::new()
-                },
-                unproven: Unproven::seat(&report),
-                outcome: tailed_outcome(&report),
-            },
+                };
+                let refused = refused_members(
+                    std::slice::from_ref(&(at.step.name.clone(), report.clone())),
+                    "",
+                );
+                StepRun {
+                    record: None,
+                    start_failures,
+                    refused,
+                    unproven: Unproven::seat(&report),
+                    outcome: tailed_outcome(&report),
+                }
+            }
         })
     }
 
@@ -355,7 +385,7 @@ impl Engine {
         let mut span = PanelSpan::open(&self.repo);
         let tag_prefix = format!("{}:", at.step.name);
         let mut step_input = run.input.clone();
-        step_input["allowed_results"] = run.allowed_results(at).clone();
+        step_input["allowed_results"] = step_allowed_results(run.input, at.index, run.is_last(at));
         let runs = self.member_runs(
             run.attempt_id,
             &at.label,
@@ -378,12 +408,14 @@ impl Engine {
         let plan = (at.index == 0)
             .then_some(run.selection.carry.as_ref())
             .flatten();
-        let start_failures = failed_sites(&reports, &tag_prefix);
+        let start_failures = start_failure_sites(&reports, &tag_prefix);
+        let refused = refused_members(&reports, &tag_prefix);
         let unproven = Unproven::panel(&reports);
         let outcome = outcome_under(aggregate, plan, reports, &record.span, run.attempt_id)?;
         Ok(StepRun {
             record: Some(record),
             start_failures,
+            refused,
             unproven,
             outcome,
         })
@@ -455,6 +487,7 @@ impl Engine {
             record: None,
             outcome: dialect_attempt_outcome(driven, &mut unproven),
             start_failures: Vec::new(),
+            refused: Vec::new(),
             unproven,
         }))
     }
@@ -517,13 +550,8 @@ impl Engine {
                 if let Some(record) = ran.record {
                     record.stamp(&mut payload);
                 }
-                let terminal =
-                    self.step_terminal(run.effect_id, payload, &ran.start_failures, true)?;
-                self.append(
-                    EventType::EffectFailed,
-                    terminal.payload,
-                    Some(run.attempt_id.to_owned()),
-                )?;
+                let terminal = self.step_terminal(run.effect_id, payload, &ran.refused, true)?;
+                let _ = self.end_failed::<()>(run, terminal.payload)?;
                 if let Some(reason) = terminal.park {
                     self.park_with_reason(reason)?;
                 }
@@ -539,8 +567,7 @@ impl Engine {
                 if let Some(record) = ran.record {
                     record.stamp(&mut payload);
                 }
-                let terminal =
-                    self.step_terminal(run.effect_id, payload, &ran.start_failures, false)?;
+                let terminal = self.step_terminal(run.effect_id, payload, &ran.refused, false)?;
                 self.append(
                     EventType::EffectIndeterminate,
                     terminal.payload,
@@ -560,7 +587,7 @@ impl Engine {
         at: &StepAt,
         result: &Value,
         carried: &mut Carried,
-        start_failures: &[FailedSite],
+        start_failures: &[Site],
     ) -> Result<StepVerdict<()>, EngineError> {
         if let Some(problem) = vocabulary_problem(at.step, result) {
             return self.end_failed(run, run.failed_payload(at, &problem, &[]));
@@ -691,7 +718,7 @@ impl Engine {
         at: &StepAt,
         result: &Value,
         why: &'static str,
-        start_failures: &[FailedSite],
+        start_failures: &[Site],
         carried: &Carried,
     ) -> Result<StepVerdict<()>, EngineError> {
         if let StepVerdict::Ended = self.refuse_contradiction(run, at, result, carried)? {

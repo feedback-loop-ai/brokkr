@@ -182,6 +182,7 @@ case "$start" in *'"type":"start"'*) ;; *) exit 0 ;; esac
 eid=$(printf '%s' "$start" | sed -n 's/.*"effect_id":"\([^"]*\)".*/\1/p')
 aid=$(printf '%s' "$start" | sed -n 's/.*"attempt_id":"\([^"]*\)".*/\1/p')
 base='{"proto":"forge-driver/v1","msg_id":"m"'
+printf '%s\n' "$start" >> '@INPUTLOG@'
 glog() { printf '%s:%s\n' '@TAG@' "$1" >> '@GLOG@'; }
 case "$start" in
   *'"probe":true'*)
@@ -211,6 +212,10 @@ read -r bye
         ("@COUNT@", count.display().to_string()),
         ("@CAPABILITIES@", capabilities),
         ("@LOG@", log.display().to_string()),
+        (
+            "@INPUTLOG@",
+            dir.join(format!("{tag}.input")).display().to_string(),
+        ),
         (
             "@SEATLOG@",
             dir.join(format!("{tag}.seat")).display().to_string(),
@@ -267,6 +272,15 @@ fn logs(dir: &Path, tag: &str) -> Vec<String> {
         .unwrap_or_default()
         .lines()
         .map(str::to_string)
+        .collect()
+}
+
+/// The `Start` documents a driver's attempts and probes received, in order.
+fn start_inputs(dir: &Path, tag: &str) -> Vec<Value> {
+    std::fs::read_to_string(dir.join(format!("{tag}.input")))
+        .unwrap_or_default()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
         .collect()
 }
 

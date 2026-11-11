@@ -6,11 +6,12 @@
 
 use std::time::{Duration, Instant};
 
+use brokkr_core::envelope::EventType;
 use brokkr_core::fold::RunState;
 use brokkr_core::{EventEnvelope, ProbeAnswer, ProviderWait};
 use brokkr_protocol::hands::HandsSpec;
 use brokkr_protocol::{AttemptOutcome, AttemptReport, Cleanup, RefusalClass};
-use serde_json::{json, Value};
+use serde_json::{Map, Value};
 use uuid::Uuid;
 
 use super::{terminal, Engine, EngineError};
@@ -22,7 +23,7 @@ use crate::bundle::{
 use crate::engine::broker::{observed, settlement};
 use crate::engine::carry::record::Tag;
 use crate::engine::dispatch::Dispatch;
-use crate::engine::sequence::StepComposition;
+use crate::engine::sequence::{step_allowed_results, step_driver_input, StepComposition};
 use crate::engine::{
     chain_index, copy_secret_binding_facts, phase_of, spawn_site, Door, Selection, Site, SiteSpawn,
 };
@@ -351,6 +352,27 @@ impl Engine {
         )
     }
 
+    /// Admit a sequence site's probe body and derive the facts both a step's
+    /// probe and a step member's share: the admitted attempt, whether the
+    /// step is final, and the step's attempt-time context.
+    fn admit_step(
+        &mut self,
+        at: &ProbeSite<'_>,
+        index: usize,
+        steps: &[SequenceStep],
+        picked: &ProbeSeat,
+        body: ExecutableBody<'_>,
+        selection: &Selection,
+    ) -> Result<Result<(AdmittedProbe, bool, Value), Probe>, EngineError> {
+        let prepared = match self.admit_site(at, picked, body, selection)? {
+            Ok(prepared) => prepared,
+            Err(parked) => return Ok(Err(parked)),
+        };
+        let last = index + 1 == steps.len();
+        let context = step_context(at.events, at.effect_id, &prepared.input);
+        Ok(Ok((prepared, last, context)))
+    }
+
     /// A `<step>` wait's probe: the step's own command, the link the refusal
     /// named, and its model pin, effort, boundary and credential facts,
     /// through the same composition the step's attempt used.
@@ -381,12 +403,19 @@ impl Engine {
         }
         let one = std::slice::from_ref(step);
         let body = ExecutableBody::Sequence { steps: one };
-        let prepared = match self.admit_site(at, at.picked, body, &selection)? {
-            Ok(prepared) => prepared,
-            Err(parked) => return Ok(parked),
-        };
-        let last = index + 1 == steps.len();
-        let mut input = step_driver_input(&prepared.input, index, &driver_seat, last);
+        let (prepared, last, context) =
+            match self.admit_step(at, index, steps, at.picked, body, &selection)? {
+                Ok(admitted) => admitted,
+                Err(parked) => return Ok(parked),
+            };
+        let mut input = step_driver_input(
+            &prepared.input,
+            index,
+            &driver_seat,
+            last,
+            &prepared.input["steps"][index]["role_path"],
+            &context,
+        );
         if !prepared.input["spec_dialect"].is_null() {
             input["spec_dialect"] = prepared.input["spec_dialect"].clone();
         }
@@ -445,21 +474,20 @@ impl Engine {
         let driver_seat = format!("{}:{}", at.picked.site, step.name);
         let mut picked = at.picked.clone();
         picked.site = driver_seat.clone();
-        let prepared = match self.admit_site(at, &picked, body, &selection)? {
-            Ok(prepared) => prepared,
-            Err(parked) => return Ok(parked),
-        };
+        let (prepared, last, context) =
+            match self.admit_step(at, index, steps, &picked, body, &selection)? {
+                Ok(admitted) => admitted,
+                Err(parked) => return Ok(parked),
+            };
         let mut step_input = prepared.input.clone();
-        if index + 1 == steps.len() {
-            step_input["allowed_results"] = prepared.input["allowed_results"].clone();
-        }
+        step_input["allowed_results"] = step_allowed_results(&prepared.input, index, last);
         let runs = self.member_runs(
             &prepared.attempt,
             &driver_seat,
             std::slice::from_ref(member_def),
             &step_input["steps"][index]["members"],
             &step_input,
-            &step_input["context"],
+            &context,
             &selection,
             &tag_prefix,
             step.class == SeatClass::Gate,
@@ -590,9 +618,12 @@ impl Engine {
 }
 
 /// The sequence step and member a wait's site names. An exact step name is
-/// a single step; otherwise the first `<step>:` prefix is that step's
-/// member. Exact first, so a step whose own name contains a colon is not
-/// mistaken for a member of an earlier one.
+/// a single step; otherwise a member is resolved by the declared
+/// `(<step>, <member>)` pair, so a wait at `a:b:c` is `a:b`'s member `c`
+/// even when `a` also declares a member `b:c`. The prefix walk that follows
+/// is only for the diagnostic a site naming neither: exact first, so a step
+/// whose own name contains a colon is not mistaken for a member of an
+/// earlier one.
 fn step_site<'a>(
     steps: &'a [SequenceStep],
     site: &'a str,
@@ -600,32 +631,70 @@ fn step_site<'a>(
     if let Some((index, step)) = steps.iter().enumerate().find(|(_, step)| step.name == site) {
         return Some((index, step, None));
     }
+    if let Some((index, step, member)) = declared_member(steps, site) {
+        return Some((index, step, Some(member)));
+    }
     steps.iter().enumerate().find_map(|(index, step)| {
         site.strip_prefix(&format!("{}:", step.name))
             .map(|member| (index, step, Some(member)))
     })
 }
 
-/// A single sequence step's driver input, derived exactly as the step's
-/// attempt derives it: the step's own metadata, the seat's fields, and the
-/// same `allowed_results` rule (the final step takes the seat's).
-fn step_driver_input(seat_input: &Value, index: usize, label: &str, last: bool) -> Value {
-    let meta = &seat_input["steps"][index];
-    json!({
-        "feature": seat_input["feature"],
-        "phase": seat_input["phase"],
-        "seat": label,
-        "role_path": meta["role_path"],
-        "workdir": seat_input["workdir"],
-        "result_path": meta["result_path"],
-        "allowed_results": if last {
-            seat_input["allowed_results"].clone()
-        } else {
-            meta["allowed_results"].clone()
-        },
-        "house_rules": seat_input["house_rules"],
-        "context": seat_input["context"],
+/// The step and member whose declared tag is exactly `site`, in declaration
+/// order.
+fn declared_member<'a>(
+    steps: &'a [SequenceStep],
+    site: &str,
+) -> Option<(usize, &'a SequenceStep, &'a str)> {
+    steps.iter().enumerate().find_map(|(index, step)| {
+        let StepBody::Invocation(Invocation::Panel { members, .. }) = &step.body else {
+            return None;
+        };
+        members
+            .iter()
+            .find(|member| Tag::new(Some(&step.name), &member.name).0 == site)
+            .map(|member| (index, step, member.name.as_str()))
     })
+}
+
+/// The context a step's attempt had: the seat's context with the earlier
+/// steps' checkpointed results of the failed attempt beside it, so the
+/// probe's input derives exactly as the attempt's did (decision 0103 slice
+/// 4c2b).
+pub(super) fn step_context(events: &[EventEnvelope], effect_id: &str, seat_input: &Value) -> Value {
+    let mut context = seat_input["context"]
+        .as_object()
+        .cloned()
+        .unwrap_or_default();
+    let attempt = terminal(events, effect_id)
+        .and_then(|event| event.payload.get("attempt_id"))
+        .and_then(Value::as_str);
+    let mut prior = Map::new();
+    for event in events {
+        if event.event_type != EventType::EffectCheckpointed
+            || event.payload.get("effect_id").and_then(Value::as_str) != Some(effect_id)
+            || attempt.is_some_and(|attempt| {
+                event.payload.get("attempt_id").and_then(Value::as_str) != Some(attempt)
+            })
+        {
+            continue;
+        }
+        let Some(checkpoint) = event.payload.get("checkpoint") else {
+            continue;
+        };
+        if checkpoint.get("step").and_then(Value::as_str) != Some("sequence-step-finished") {
+            continue;
+        }
+        let (Some(name), Some(result)) = (
+            checkpoint.get("step_name").and_then(Value::as_str),
+            checkpoint.get("result"),
+        ) else {
+            continue;
+        };
+        prior.insert(name.to_string(), result.clone());
+    }
+    context.insert("prior_results".into(), Value::Object(prior));
+    Value::Object(context)
 }
 
 /// The selection and one-member body a panel member's probe admits: its
