@@ -1366,3 +1366,101 @@ fn a_fallback_run_that_will_not_open_reads_its_hearth_whole() {
         },
     );
 }
+
+/// A day in milliseconds: the span a Day readout reads its parks over.
+const DAY_MILLIS: i64 = 24 * 60 * 60 * 1000;
+
+/// `journal` opened read-only with its rows ready, so a test that plants
+/// one broken shape is not passed by a hearth read whole for another.
+fn ready(journal: &std::path::Path) -> brokkr_store::Store {
+    let store = brokkr_store::Store::open_read_only(journal).unwrap();
+    assert!(store.aggregates_ready().unwrap(), "the rows are ready");
+    store
+}
+
+/// `journal`'s Day readout through the row path, which reads its rows when
+/// `reads_rows` says so and the whole read otherwise, asserted equal to
+/// the whole read and handed back.
+fn day_through_rows(journal: &std::path::Path, reads_rows: bool, context: &str) -> Analytics {
+    let hearths = [hearth(Vec::new(), journal)];
+    with_rows(
+        &hearths,
+        Range::Day,
+        None,
+        GENERATED_NOW,
+        || {},
+        |query, source| {
+            assert_eq!(source.reads_rows(), reads_rows, "{context}: the rows read");
+            let source = brokkr_view::FactUnion::new(vec![Box::new(source)]);
+            let rows = brokkr_view::analytics_with(&source, query).unwrap();
+            assert_same(&rows, &brokkr_view::analytics(query).unwrap(), context);
+            rows
+        },
+    )
+}
+
+/// A run the store leaves whole keeps its park out of the rows. Here its
+/// row stands behind its head while its park's dated facts still stand,
+/// so the store's park read still yields the park; the whole fallback
+/// counts it, and the rows must not count it again.
+#[test]
+fn a_park_of_a_run_read_whole_is_counted_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let base = parse_millis(GENERATED_NOW).unwrap();
+    let journal = same_phase_park(dir.path(), "whole-park", "whole-park-run", base);
+    let conn = rusqlite::Connection::open(&journal).unwrap();
+    let behind = conn
+        .execute(
+            "UPDATE run_summary SET folded_seq = folded_seq - 1 WHERE run_id = 'whole-park-run'",
+            [],
+        )
+        .unwrap();
+    assert_eq!(behind, 1, "the row is set behind its head");
+    drop(conn);
+
+    let store = ready(&journal);
+    assert_eq!(lane(&store, "whole-park-run").as_deref(), Some("behind"));
+    let mut parks = Vec::new();
+    store
+        .window_parks(base - DAY_MILLIS, base, base, None, |park| {
+            parks.push(park.run_id.to_string());
+        })
+        .unwrap();
+    assert_eq!(parks, ["whole-park-run"], "the park's row still stands");
+    drop(store);
+
+    let rows = day_through_rows(&journal, true, "a park of a run read whole");
+    assert_eq!(
+        serde_json::to_value(&rows.waiting_by_step).unwrap(),
+        json!([{
+            "phase": "same",
+            "waiting_millis": 3_600_000,
+            "runs": 1,
+            "text": "1.0h · 1",
+        }]),
+        "the park is counted once"
+    );
+}
+
+/// A park row that will not read fails the row read at its parks, after
+/// its spends and runs have read: the hearth is read whole.
+#[test]
+fn a_park_row_that_will_not_read_reads_its_hearth_whole() {
+    let dir = tempfile::tempdir().unwrap();
+    let base = parse_millis(GENERATED_NOW).unwrap();
+    let journal = same_phase_park(dir.path(), "park-error", "park-error-run", base);
+    let conn = rusqlite::Connection::open(&journal).unwrap();
+    let broken = conn
+        .execute(
+            "UPDATE event_index SET phase = X'00'
+              WHERE run_id = 'park-error-run' AND type = ?1",
+            [EventType::RunParked.as_str()],
+        )
+        .unwrap();
+    assert_eq!(broken, 1, "the park's phase is no longer text");
+    drop(conn);
+
+    let refused = ready(&journal).window_parks(base - DAY_MILLIS, base, base, None, |_| {});
+    assert!(refused.is_err(), "the park row will not read");
+    day_through_rows(&journal, false, "a park row that will not read");
+}

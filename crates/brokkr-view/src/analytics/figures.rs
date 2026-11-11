@@ -316,13 +316,11 @@ pub(crate) fn cost_figure<'a>(
 }
 
 /// The whole read's cost: its spends and provider groups, one at a time.
-fn cost(source: &dyn FactSource, window: Window) -> CostFigure {
+/// A source's spends are already its window's ([`FactSource`]), as its
+/// sites are.
+fn cost(source: &dyn FactSource) -> CostFigure {
     let mut accumulator = ProviderAcc::default();
-    source.spends(&mut |spend| {
-        if window.holds(spend.at) {
-            accumulator.spend(spend.usd);
-        }
-    });
+    source.spends(&mut |spend| accumulator.spend(spend.usd));
     provider_groups(source, ProviderGroup::Whole, |_, provider, reported| {
         accumulator.provider(provider, reported);
     });
@@ -536,20 +534,14 @@ fn realm_waiting(
     waiting
 }
 
-fn realm_costs(
-    source: &dyn FactSource,
-    window: Window,
-    realms: &[String],
-) -> BTreeMap<String, ProviderAcc> {
+fn realm_costs(source: &dyn FactSource, realms: &[String]) -> BTreeMap<String, ProviderAcc> {
     let mut costs: BTreeMap<String, ProviderAcc> = realms
         .iter()
         .map(|realm| (realm.clone(), ProviderAcc::default()))
         .collect();
     source.spends(&mut |spend| {
         if let Some(cost) = costs.get_mut(name_key(&spend.realm)) {
-            if window.holds(spend.at) {
-                cost.spend(spend.usd);
-            }
+            cost.spend(spend.usd);
         }
     });
     provider_groups(
@@ -572,7 +564,7 @@ fn realm_rows(
 ) -> Vec<RealmRow> {
     let mut counts = realm_counts(source, window, realms);
     let mut waiting = realm_waiting(source, window, realms);
-    let mut costs = realm_costs(source, window, realms);
+    let mut costs = realm_costs(source, realms);
     realms
         .iter()
         .enumerate()
@@ -641,7 +633,7 @@ pub fn analytics_with(source: &dyn FactSource, query: &Query) -> Result<Analytic
             median: span(medians[0]),
             waiting: waiting(source, window),
             stopped_by_rule: stopped_by_rule(source, window),
-            cost: cost(source, window),
+            cost: cost(source),
             ledger: ledger_in(source, window),
         },
         per_day: per_day(source, window),

@@ -157,3 +157,38 @@ fn a_site_row_needs_the_start_and_provider_a_whole_read_opens_it_by() {
         )
     );
 }
+
+/// A run's span is the median's only when the run finished inside the
+/// window, which holds its first moment and not its last: the rows read
+/// for the window before it are the previous window's, and an open run
+/// has no span.
+#[test]
+fn a_span_is_the_windows_only_for_a_finish_inside_it() {
+    let spends = BTreeMap::new();
+    let whole = BTreeSet::new();
+    let facts = |run_id: &str, finished_ms: Option<i64>| {
+        let mut ran = row(run_id);
+        ran.finished_ms = finished_ms;
+        run_facts(&ran, "label", &spends, None, &whole).unwrap()
+    };
+    let rows = RowOnly {
+        window: Window { from: 10, to: 20 },
+        runs: vec![
+            facts("before", Some(9)),
+            facts("first", Some(10)),
+            facts("last", Some(20)),
+            facts("open", None),
+        ],
+        by_rule: Vec::new(),
+        by_recipe: Vec::new(),
+        parks: Vec::new(),
+        spends: Vec::new(),
+        model: Vec::new(),
+        provider: Vec::new(),
+        realm_provider: Vec::new(),
+        recipe_provider: Vec::new(),
+    };
+    let mut spans = Vec::new();
+    rows.durations(&mut |realm, span| spans.push((realm.to_string(), span)));
+    assert_eq!(spans, [("alpha".to_string(), 9)]);
+}
