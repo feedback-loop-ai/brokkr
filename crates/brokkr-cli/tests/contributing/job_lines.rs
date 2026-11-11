@@ -23,7 +23,7 @@ const JOB_LINES: [(&str, &str); 13] = [
         r#"
     name: delivered by brokkr
     if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: read
@@ -62,7 +62,7 @@ const JOB_LINES: [(&str, &str); 13] = [
         "msrv",
         r#"
     name: MSRV (1.89)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
 <checkout>
@@ -123,7 +123,7 @@ const JOB_LINES: [(&str, &str); 13] = [
             machine: macos/3
           - os: macos-latest
             machine: macos/4
-    runs-on: ${{ fromJSON(matrix.os == 'ubuntu-latest' && vars.BROKKR_LOCAL_CI == 'true' && github.event_name != 'merge_group' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && '["self-hosted", "Linux", "X64", "brokkr-engine"]' || format('["{0}"]', matrix.os)) }}
+    runs-on: ${{ fromJSON(matrix.os == 'ubuntu-latest' && vars.BROKKR_LOCAL_CI == 'true' && github.event_name != 'merge_group' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && '["self-hosted", "Linux", "X64", "brokkr-engine"]' || format('["{0}"]', matrix.os == 'ubuntu-latest' && 'ubuntu-24.04' || matrix.os)) }}
     timeout-minutes: 45
     steps:
 <local checkout>
@@ -168,7 +168,7 @@ const JOB_LINES: [(&str, &str); 13] = [
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - name: every machine ran its shards and passed
@@ -185,7 +185,7 @@ const JOB_LINES: [(&str, &str); 13] = [
       fail-fast: false
       matrix:
         machine: [linux/1, linux/2, linux/3, linux/4, linux/5]
-    runs-on: ${{ fromJSON(vars.BROKKR_LOCAL_CI == 'true' && github.event_name != 'merge_group' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && '["self-hosted", "Linux", "X64", "brokkr-coverage"]' || '["ubuntu-latest"]') }}
+    runs-on: ${{ fromJSON(vars.BROKKR_LOCAL_CI == 'true' && github.event_name != 'merge_group' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && '["self-hosted", "Linux", "X64", "brokkr-coverage"]' || '["ubuntu-24.04"]') }}
     timeout-minutes: 45
     steps:
 <local checkout>
@@ -218,7 +218,7 @@ const JOB_LINES: [(&str, &str); 13] = [
     name: exact coverage gate
     needs: coverage-machines
     if: always()
-    runs-on: ${{ fromJSON(vars.BROKKR_LOCAL_CI == 'true' && github.event_name != 'merge_group' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && '["self-hosted", "Linux", "X64", "brokkr-coverage"]' || '["ubuntu-latest"]') }}
+    runs-on: ${{ fromJSON(vars.BROKKR_LOCAL_CI == 'true' && github.event_name != 'merge_group' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && '["self-hosted", "Linux", "X64", "brokkr-coverage"]' || '["ubuntu-24.04"]') }}
     timeout-minutes: 30
     steps:
       - name: every machine measured its shards
@@ -257,7 +257,7 @@ const JOB_LINES: [(&str, &str); 13] = [
         "license-compliance",
         r#"
     name: dependency licenses (cargo-deny)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: read
@@ -272,7 +272,7 @@ const JOB_LINES: [(&str, &str); 13] = [
         "lint-non-rust",
         r#"
     name: non-Rust lints
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
 <checkout>
@@ -301,7 +301,7 @@ const JOB_LINES: [(&str, &str); 13] = [
         "ratchets",
         r#"
     name: baseline ratchets
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
       contents: read
@@ -331,7 +331,7 @@ const JOB_LINES: [(&str, &str); 13] = [
         "dependency-audit",
         r#"
     name: RustSec dependency audit
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: read
@@ -370,7 +370,7 @@ const JOB_LINES: [(&str, &str); 13] = [
         r#"
     name: 'mutants in the diff: brokkr-core'
     if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -415,7 +415,7 @@ fn keys_at<'a>(lines: &[&'a str], indent: &str) -> Vec<(&'a str, &'a str)> {
 const SHARED_STEPS: [(&str, &str); 6] = [
     (
         "<local build runner>",
-        r#"    runs-on: ${{ fromJSON(vars.BROKKR_LOCAL_CI == 'true' && github.event_name != 'merge_group' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && '["self-hosted", "Linux", "X64", "brokkr-build"]' || '["ubuntu-latest"]') }}"#,
+        r#"    runs-on: ${{ fromJSON(vars.BROKKR_LOCAL_CI == 'true' && github.event_name != 'merge_group' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && '["self-hosted", "Linux", "X64", "brokkr-build"]' || '["ubuntu-24.04"]') }}"#,
     ),
     (
         "<local checkout>",

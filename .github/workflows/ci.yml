@@ -40,7 +40,7 @@ jobs:
   delivered-by-brokkr:
     name: delivered by brokkr
     if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: read
@@ -103,7 +103,7 @@ jobs:
 
   msrv:
     name: MSRV (1.89)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -124,7 +124,7 @@ jobs:
       - run: cargo +1.89.0 check --workspace --all-targets --all-features --locked
   quality:
     name: format, clippy, contracts
-    runs-on: ${{ fromJSON(vars.BROKKR_LOCAL_CI == 'true' && github.event_name != 'merge_group' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && '["self-hosted", "Linux", "X64", "brokkr-build"]' || '["ubuntu-latest"]') }}
+    runs-on: ${{ fromJSON(vars.BROKKR_LOCAL_CI == 'true' && github.event_name != 'merge_group' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && '["self-hosted", "Linux", "X64", "brokkr-build"]' || '["ubuntu-24.04"]') }}
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -169,7 +169,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.os == 'ubuntu-latest' && 'ubuntu-24.04' || matrix.os }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -213,7 +213,7 @@ jobs:
             machine: macos/3
           - os: macos-latest
             machine: macos/4
-    runs-on: ${{ fromJSON(matrix.os == 'ubuntu-latest' && vars.BROKKR_LOCAL_CI == 'true' && github.event_name != 'merge_group' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && '["self-hosted", "Linux", "X64", "brokkr-engine"]' || format('["{0}"]', matrix.os)) }}
+    runs-on: ${{ fromJSON(matrix.os == 'ubuntu-latest' && vars.BROKKR_LOCAL_CI == 'true' && github.event_name != 'merge_group' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && '["self-hosted", "Linux", "X64", "brokkr-engine"]' || format('["{0}"]', matrix.os == 'ubuntu-latest' && 'ubuntu-24.04' || matrix.os)) }}
     # 45, not the usual 20 (operator rulings 2026-10-09 to 2026-11-01): a
     # machine's shards took about 20 minutes on a hosted runner, and its
     # build and setup 3 to 5, and a slow hosted runner is a third slower.
@@ -316,7 +316,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - name: every machine ran its shards and passed
@@ -383,7 +383,7 @@ jobs:
       fail-fast: false
       matrix:
         machine: [linux/1, linux/2, linux/3, linux/4, linux/5]
-    runs-on: ${{ fromJSON(vars.BROKKR_LOCAL_CI == 'true' && github.event_name != 'merge_group' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && '["self-hosted", "Linux", "X64", "brokkr-coverage"]' || '["ubuntu-latest"]') }}
+    runs-on: ${{ fromJSON(vars.BROKKR_LOCAL_CI == 'true' && github.event_name != 'merge_group' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && '["self-hosted", "Linux", "X64", "brokkr-coverage"]' || '["ubuntu-24.04"]') }}
     # 45, not the usual 20: a machine's instrumented shards took up to about
     # 20 minutes on a hosted runner, its build and setup about 5, and a slow
     # hosted runner is a third slower (operator rulings 2026-10-07 to
@@ -470,7 +470,7 @@ jobs:
     name: exact coverage gate
     needs: coverage-machines
     if: always()
-    runs-on: ${{ fromJSON(vars.BROKKR_LOCAL_CI == 'true' && github.event_name != 'merge_group' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && '["self-hosted", "Linux", "X64", "brokkr-coverage"]' || '["ubuntu-latest"]') }}
+    runs-on: ${{ fromJSON(vars.BROKKR_LOCAL_CI == 'true' && github.event_name != 'merge_group' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && '["self-hosted", "Linux", "X64", "brokkr-coverage"]' || '["ubuntu-24.04"]') }}
     # 30, not the usual 20: it rebuilds the instrumented binaries, about 5
     # minutes on a hosted runner, then runs the ratchets.
     timeout-minutes: 30
@@ -554,7 +554,7 @@ jobs:
 
   license-compliance:
     name: dependency licenses (cargo-deny)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: read
@@ -575,7 +575,7 @@ jobs:
   # 2026-09-26.
   lint-non-rust:
     name: non-Rust lints
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -629,7 +629,7 @@ jobs:
   # the operator's ruling of 2026-09-26.
   ratchets:
     name: baseline ratchets
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
       contents: read
@@ -668,7 +668,7 @@ jobs:
 
   dependency-audit:
     name: RustSec dependency audit
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: read
@@ -710,7 +710,7 @@ jobs:
   bootstrap-budgets:
     name: bootstrap budgets (60s install / 5min first run, ubuntu-latest)
     needs: release-binary
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -753,7 +753,7 @@ jobs:
   packaging:
     name: packaging channels
     needs: release-binary
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -814,7 +814,7 @@ jobs:
   # the channels job renders after the tag (see packaging/README.md).
   flake:
     name: nix flake check
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -828,7 +828,7 @@ jobs:
 
   release-binary:
     name: release binary artifact
-    runs-on: ${{ fromJSON(vars.BROKKR_LOCAL_CI == 'true' && github.event_name != 'merge_group' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && '["self-hosted", "Linux", "X64", "brokkr-build"]' || '["ubuntu-latest"]') }}
+    runs-on: ${{ fromJSON(vars.BROKKR_LOCAL_CI == 'true' && github.event_name != 'merge_group' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && '["self-hosted", "Linux", "X64", "brokkr-build"]' || '["ubuntu-24.04"]') }}
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -865,7 +865,7 @@ jobs:
   cpu-budgets:
     name: CPU budgets (Callgrind, against the base)
     if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     permissions:
       contents: read

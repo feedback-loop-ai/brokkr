@@ -19,7 +19,7 @@ permissions:
 jobs:
   sweep:
     name: the researcher reads the week
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 150
     env:
       DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
