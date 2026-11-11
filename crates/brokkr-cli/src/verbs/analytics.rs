@@ -110,8 +110,7 @@ fn derive(hearths: &[Hearth], range: Range, realm: Option<&str>, now: &str) -> R
             realm,
             now,
         };
-        let (window, before) =
-            brokkr_view::windows(&query).map_err(|error| anyhow::Error::msg(error.to_string()))?;
+        let (window, before) = brokkr_view::windows(&query).map_err(refused)?;
         let stores: Vec<Option<Store>> = hearths
             .iter()
             .map(|hearth| Store::open_read_only(&hearth.journal).ok())
@@ -129,9 +128,15 @@ fn derive(hearths: &[Hearth], range: Range, realm: Option<&str>, now: &str) -> R
             )));
         }
         let source = brokkr_view::FactUnion::new(sources);
-        brokkr_view::analytics_with(&source, &query)
-            .map_err(|error| anyhow::Error::msg(error.to_string()))
+        brokkr_view::analytics_with(&source, &query).map_err(refused)
     })
+}
+
+/// The view's refusal in its own words. Both of `derive`'s reads refuse
+/// only on the query's windows, so the clock the first one refuses is the
+/// one that names it.
+fn refused(error: AnalyticsError) -> anyhow::Error {
+    anyhow::Error::msg(error.to_string())
 }
 
 /// Every hearth read, quarantining what does not load, handed to `view`
