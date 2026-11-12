@@ -627,7 +627,15 @@ fn stop_fixture() -> (
 ) {
     let dir = tempfile::tempdir().unwrap();
     let command = standard_command(dir.path());
-    let mut engine = started(dir.path(), single_body(command), work(2));
+    // The wait is the host's 2s; the seat's attempt deadline is generous so
+    // a loaded host cannot turn this cooldown fixture's shell driver
+    // indeterminate before it refuses (it measures the driver's start, not
+    // the wait).
+    let limits = Limits {
+        max_attempts: 2,
+        timeout_seconds: 30,
+    };
+    let mut engine = started(dir.path(), single_body(command), limits);
     engine.cooldown.host = Some(host(dir.path(), 2, 10));
     let (engine, now) = with_clock(engine);
     let db = dir.path().join("forge.db");
