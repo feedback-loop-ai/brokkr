@@ -37,8 +37,9 @@ bindings at the end were run by the seat.
 ## The composition diff
 
 `dsh --profile headless --dump-config` makes no model call. Its plain dump
-composed 99 top-level rows; 0.2.1's plain dump was 98, and its measured 99
-includes the seat overlay's `brokkr-hands` insert. A 0.2.2-rc.1 seat's
+composed 99 top-level rows. 0.2.1's plain dump is inferred to have been 98 —
+its measured 99 less the overlay's `brokkr-hands` insert — and that figure is
+an inference from the measured set, not a measured dump. A 0.2.2-rc.1 seat's
 composed tree is therefore 100 rows. The deltas against the measured 0.2.1
 set:
 
@@ -120,8 +121,12 @@ controller can follow this procedure.
    both lists and every tool that changed.
 5. Check the sandbox rows: `sandbox`, `sandbox-policy`, `bash-sandbox`,
    `pwsh-sandbox`, `permission` and `fs-sandbox` keep their ids and
-   packages, and the `sandbox-policy` mode still refuses anything but
-   `read-only` and `workspace-write`.
+   packages, and the hands overlay's `sandbox-policy` row carries the
+   seat's own mode, `read-only` or `workspace-write`. Brokkr writes only
+   those two words into that row. dsh's third mode (`danger-full-access`)
+   is neither written by Brokkr's overlay nor admitted by the composed-tree
+   check, so a hands seat is never launched under it; this step does not
+   measure what dsh itself does with that mode.
 6. Add the release and its set here, then in `MEASURED_VERSIONS` and the
    release's composition delta table. Add a `Release` variant with its own
    exact versions in `Release::versions` (and its `Release::label`), and

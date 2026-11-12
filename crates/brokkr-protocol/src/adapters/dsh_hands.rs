@@ -85,7 +85,9 @@ impl Release {
 
     /// The exact versions this release family covers, each matched whole.
     /// Each variant names its own versions, so a version appended to
-    /// [`MEASURED_VERSIONS`] alone is measured nowhere and refuses.
+    /// [`MEASURED_VERSIONS`] alone is measured nowhere and refuses. The
+    /// two tables are held to each other both ways by
+    /// `the_version_tables_name_the_same_measured_releases_both_ways`.
     fn versions(self) -> &'static [&'static str] {
         match self {
             Release::V0_2_1 => &[V0_2_1_RC_2, V0_2_1_RC_3],
@@ -106,6 +108,16 @@ impl Release {
         match self {
             Release::V0_2_1 => V0_2_1_RC_2,
             Release::V0_2_2 => V0_2_2_RC_1,
+        }
+    }
+
+    /// The rows this release's hands overlay pins disabled, in the order
+    /// the overlay writes them. One table per release; [`disabled`] and
+    /// [`hands_rows`] both read this one (decision 0071 rulings 2 and 5).
+    fn pinned_rows(self) -> PinnedRows {
+        match self {
+            Release::V0_2_1 => V0_2_1_PINNED,
+            Release::V0_2_2 => V0_2_2_PINNED,
         }
     }
 }
@@ -134,15 +146,44 @@ pub(super) const DISABLED_ROWS: [&str; 10] = [
 /// is not a 0.2.1 row, so 0.2.1's overlay does not name it.
 pub(super) const PTC_ROW: &str = "tool-executor-ptc";
 
-/// Whether `id` is one of the effectful rows `release`'s hands overlay
-/// disables. 0.2.1 is the ten common rows; 0.2.2-rc.1 adds the
-/// programmatic executor. Its native executor is the tool calling the
-/// model is still offered, so it stays enabled.
-pub(super) fn disabled(release: Release, id: &str) -> bool {
-    match release {
-        Release::V0_2_1 => DISABLED_ROWS.contains(&id),
-        Release::V0_2_2 => DISABLED_ROWS.contains(&id) || id == PTC_ROW,
+/// The rows one release's hands overlay pins disabled, split where dsh's
+/// sandbox row sits: `before` it and `after` it. The bounded reader knows
+/// the ten common rows and the sandbox row as the prefix it validates
+/// ([`route_overlay::hands`]), so 0.2.2-rc.1's added row follows the
+/// sandbox row exactly as measured.
+#[derive(Debug, Clone, Copy)]
+struct PinnedRows {
+    before: &'static [&'static str],
+    after: &'static [&'static str],
+}
+
+impl PinnedRows {
+    /// Whether `id` is one of the rows this table pins disabled.
+    fn contains(&self, id: &str) -> bool {
+        self.before.contains(&id) || self.after.contains(&id)
     }
+}
+
+/// 0.2.1's overlay pins the ten common rows before its sandbox row.
+const V0_2_1_PINNED: PinnedRows = PinnedRows {
+    before: &DISABLED_ROWS,
+    after: &[],
+};
+
+/// 0.2.2-rc.1's overlay pins the ten common rows, the sandbox row, then
+/// the programmatic executor that release adds, in the controller's order.
+const V0_2_2_PINNED: PinnedRows = PinnedRows {
+    before: &DISABLED_ROWS,
+    after: &[PTC_ROW],
+};
+
+/// Whether `id` is one of the effectful rows `release`'s hands overlay
+/// disables, read from that release's one pinned table. 0.2.1 is the ten
+/// common rows; 0.2.2-rc.1 adds the programmatic executor. Its native
+/// executor is the tool calling the model is still offered, so it stays
+/// enabled.
+pub(super) fn disabled(release: Release, id: &str) -> bool {
+    release.pinned_rows().contains(id)
 }
 
 /// The row whose `mode` is dsh's own sandbox.
@@ -318,11 +359,12 @@ fn measured(observed: Option<String>) -> Result<Release, Refusal> {
 }
 
 /// The hands rows for a seat on `release` under `mode` and Brokkr's
-/// workspace server `command` and `args`: every tool row that release's
-/// measured set disables and the sandbox mode, checked by the bounded
-/// reader against the one shape they may take ([`route_overlay::hands`]),
-/// then the server row. A 0.2.2-rc.1 seat also pins the programmatic
-/// executor disabled; a 0.2.1 seat names no such row.
+/// workspace server `command` and `args`: every row that release's own
+/// [`Release::pinned_rows`] table names, in its order, with the sandbox
+/// mode, checked by the bounded reader against the one shape they may take
+/// ([`route_overlay::hands`]), then the server row. 0.2.2-rc.1's added
+/// programmatic executor follows the sandbox row, where the controller
+/// measured it; 0.2.1 names no such row.
 fn hands_rows(
     release: Release,
     mode: Mode,
@@ -334,7 +376,8 @@ fn hands_rows(
          # every effectful tool row disabled, dsh's own sandbox under the box,\n\
          # and Brokkr's workspace server as the seat's only effectful tool.\n",
     );
-    for row in DISABLED_ROWS {
+    let pinned = release.pinned_rows();
+    for row in pinned.before {
         rows.push_str(&format!("- id: {row}\n  disabled: true\n"));
     }
     rows.push_str(&format!(
@@ -342,8 +385,8 @@ fn hands_rows(
         mode.word()
     ));
     route_overlay::hands(rows.as_bytes())?;
-    if release == Release::V0_2_2 {
-        rows.push_str(&format!("- id: {PTC_ROW}\n  disabled: true\n"));
+    for row in pinned.after {
+        rows.push_str(&format!("- id: {row}\n  disabled: true\n"));
     }
     rows.push_str(&format!(
         "- insert:\n\
