@@ -1,0 +1,12 @@
+- id: llm-pi-ai
+  config:
+    providers:
+      spark-glm:
+        displayName: DGX Spark vLLM (GLM)
+        apiKeyEnv: SPARK_API_KEY
+        api: openai-completions
+        baseURL: http://host:8888/v1
+        models:
+          - id: GLM-5.3-Flash-EXL3
+            contextWindow: 200000
+            maxTokens: 32768

@@ -247,20 +247,47 @@ pub(super) fn validate(bytes: &[u8], model: &str) -> Result<(), Refused> {
     };
     let model_item = Part::ModelItem;
     let item = mapping(item, model_item)?;
-    expect_only(item, &[Field::Id, Field::ReasoningEfforts], model_item)?;
-    let model_id = scalar_field(item, Field::Id, model_item)?;
-    if model_id != pinned.model {
+    validate_model_item(item, pinned.model)?;
+    Ok(())
+}
+
+/// The one model item the route may name: the pinned id, an optional
+/// reasoning-effort mapping, and an optional `contextWindow` and
+/// `maxTokens`, each at most once. Every other field is outside the closed
+/// set.
+fn validate_model_item(item: &[(String, Node)], model: &str) -> Result<(), Refused> {
+    let part = Part::ModelItem;
+    expect_only(
+        item,
+        &[
+            Field::Id,
+            Field::ReasoningEfforts,
+            Field::ContextWindow,
+            Field::MaxTokens,
+        ],
+        part,
+    )?;
+    if scalar_field(item, Field::Id, part)? != model {
         return Err(Overlay::UnpinnedModel.into());
     }
-    // Read for its shape alone. A mapping cannot be empty here: a block
-    // with no lines and a bare `key:` are both refused while parsing, so
-    // "names at least one level" is already true of anything that
-    // reaches this point. The guard that used to restate it could not
-    // fire, and a test proves the parser's refusal instead.
-    let _ = mapping(
-        field(item, Field::ReasoningEfforts, model_item)?,
-        Part::Named(Field::ReasoningEfforts),
-    )?;
+    for field in [Field::ContextWindow, Field::MaxTokens] {
+        if let Some(value) = optional_scalar(item, field, part)? {
+            if !positive_decimal(value) {
+                return Err(Overlay::ModelNumber(field).into());
+            }
+        }
+    }
+    // Absent is the non-reasoning entry the effortless route measured
+    // (#953); present is the same non-empty mapping as before. A bare
+    // `reasoningEfforts:` and an empty block are both refused while
+    // parsing, so "names at least one level" is already true of anything
+    // that reaches this point.
+    if count(item, Field::ReasoningEfforts.spelling()) > 0 {
+        let _ = mapping(
+            field(item, Field::ReasoningEfforts, part)?,
+            Part::Named(Field::ReasoningEfforts),
+        )?;
+    }
     Ok(())
 }
 
@@ -522,10 +549,16 @@ fn optional_scalar(
     key: Field,
     part: Part,
 ) -> Result<Option<&str>, Overlay> {
-    match pairs.iter().find(|(name, _)| name == key.spelling()) {
-        None => Ok(None),
-        Some((_, Node::Scalar(value))) => Ok(Some(value)),
-        Some(_) => Err(Overlay::NonScalar { part, field: key }),
+    let mut found = pairs.iter().filter(|(name, _)| name == key.spelling());
+    let Some((_, value)) = found.next() else {
+        return Ok(None);
+    };
+    if found.next().is_some() {
+        return Err(Overlay::Repeats { part, field: key });
+    }
+    match value {
+        Node::Scalar(value) => Ok(Some(value)),
+        _ => Err(Overlay::NonScalar { part, field: key }),
     }
 }
 
@@ -565,19 +598,64 @@ fn environment_name(value: &str) -> bool {
     characters.all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
-/// `https://<host>[:<port>][/<segment>...]`, exactly: lowercase scheme,
-/// dotted host labels that do not begin or end with `-`, an optional
-/// one-to-five-digit port, and segments of letters, digits, `-`, `.`, `_`
-/// or `~`. Nothing else — no userinfo, query, fragment, percent escape,
-/// backslash, whitespace, brackets, empty segment, other scheme or
-/// schemeless value.
-fn endpoint(value: &str) -> bool {
-    let Some(rest) = value.strip_prefix("https://") else {
-        return false;
-    };
-    if rest.is_empty() || rest.contains('@') || rest.contains('?') || rest.contains('#') {
+/// A model's window or output cap: one to nine ASCII digits with no
+/// leading zero, so no sign, fraction, exponent or zero reaches the
+/// harness (#953 option (a)).
+fn positive_decimal(value: &str) -> bool {
+    let mut digits = value.chars();
+    match digits.next() {
+        Some(first) if first.is_ascii_digit() && first != '0' => {}
+        _ => return false,
+    }
+    value.len() <= 9 && digits.all(|c| c.is_ascii_digit())
+}
+
+/// The one place the two admitted schemes are read: `https://` is public,
+/// `http://` is local-only (#953 option (a)). Returns whether the scheme
+/// is the local one, and the authority and path that follow it.
+fn endpoint_scheme(value: &str) -> Option<(bool, &str)> {
+    if let Some(rest) = value.strip_prefix("https://") {
+        return Some((false, rest));
+    }
+    value.strip_prefix("http://").map(|rest| (true, rest))
+}
+
+/// The host grammar. Under `https://` it is today's dotted labels; under
+/// the local `http://` scheme the host must be ONE DNS label that is not an
+/// IP literal, because a single-label name resolves only on the operator's
+/// own network, never a public host (#953 option (a), AS3; decision 0065
+/// slice two).
+fn endpoint_host(host: &str, local: bool) -> bool {
+    !host.is_empty() && host.split('.').all(host_label) && (!local || local_http_host(host))
+}
+
+/// The local `http://` host: one DNS label that is not a legacy IPv4
+/// literal. `inet_aton` and WHATWG URL readers take an all-decimal label
+/// (`134744072`) or a `0x`/`0X` hex label (`0x08080808`) as a 32-bit
+/// address, and read the empty hex payload (`0x`, `0X`) as zero, the
+/// unspecified 0.0.0.0. Each is an IP literal, not a host on the operator's
+/// own network (#953 option (a), AS3). `host` has already passed
+/// `host_label`, so it is ASCII.
+fn local_http_host(host: &str) -> bool {
+    if host.contains('.') || host.chars().all(|c| c.is_ascii_digit()) {
         return false;
     }
+    let hex = host.strip_prefix("0x").or_else(|| host.strip_prefix("0X"));
+    !hex.is_some_and(|digits| digits.chars().all(|c| c.is_ascii_hexdigit()))
+}
+
+/// `https://<host>[:<port>][/<segment>...]`, or an `http://` endpoint whose
+/// host is one DNS label, exactly: lowercase scheme, dotted host labels that
+/// do not begin or end with `-`, an optional one-to-five-digit port, and
+/// segments of letters, digits, `-`, `.`, `_` or `~`. Nothing else — no
+/// userinfo, query, fragment, percent escape, backslash, whitespace,
+/// brackets, empty segment, other scheme or schemeless value.
+fn endpoint(value: &str) -> bool {
+    let Some((local, rest)) = endpoint_scheme(value) else {
+        return false;
+    };
+    // Userinfo, a query and a fragment are refused by the host and path
+    // grammars below: `@`, `?` and `#` are in neither label nor segment.
     let (authority, path) = match rest.split_once('/') {
         Some((authority, path)) => (authority, Some(path)),
         None => (rest, None),
@@ -591,7 +669,7 @@ fn endpoint(value: &str) -> bool {
     }) {
         return false;
     }
-    if host.is_empty() || !host.split('.').all(host_label) {
+    if !endpoint_host(host, local) {
         return false;
     }
     match path {

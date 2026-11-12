@@ -19,6 +19,8 @@ pub(in crate::adapters) enum Field {
     Models,
     ApiKeyEnv,
     ReasoningEfforts,
+    ContextWindow,
+    MaxTokens,
 }
 
 impl Field {
@@ -35,6 +37,8 @@ impl Field {
             Field::Models => "models",
             Field::ApiKeyEnv => "apiKeyEnv",
             Field::ReasoningEfforts => "reasoningEfforts",
+            Field::ContextWindow => "contextWindow",
+            Field::MaxTokens => "maxTokens",
         }
     }
 }
@@ -148,6 +152,8 @@ pub(in crate::adapters) enum Overlay {
     ModelsNotASequence,
     #[error("the route names a model the seat did not pin")]
     UnpinnedModel,
+    #[error("{0} is not a positive decimal integer of at most 9 digits")]
+    ModelNumber(Field),
     #[error("route overlay exceeds the reader's byte bound")]
     TextOverBound,
     #[error("route overlay line {0} carries a tab or control character")]

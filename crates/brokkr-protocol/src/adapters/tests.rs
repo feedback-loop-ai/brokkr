@@ -12652,7 +12652,9 @@ fn dsh_route_grammar_matrix_refuses_before_staging_on_every_planner_path() {
         ),
         (
             "http endpoint",
-            with_line("        baseURL: http://host/x"),
+            // A dotted http host stays outside the local-only scheme; a
+            // single-label host is admitted by #953 option (a).
+            with_line("        baseURL: http://host.lan/x"),
             "endpoint",
         ),
         (
@@ -12919,7 +12921,7 @@ fn dsh_route_binding_matrix_refuses_before_staging_on_every_planner_path() {
         .unwrap()
         .replace("DEEPSEEK_API_KEY", "9LIVE")
         .into_bytes();
-    let shaped = b"- id: llm-pi-ai\n  config:\n    providers:\n      deepseek:\n        apiKeyEnv: DEEPSEEK_API_KEY\n        baseURL: http://host/x\n        models:\n          - id: deepseek-v4-flash\n";
+    let shaped = b"- id: llm-pi-ai\n  config:\n    providers:\n      deepseek:\n        apiKeyEnv: DEEPSEEK_API_KEY\n        baseURL: http://host.lan/x\n        models:\n          - id: deepseek-v4-flash\n";
     /// One binding-relationship vector: the argv, the named value (empty
     /// when no binding is supplied), the bytes on disk and the bound digest.
     struct Case {
