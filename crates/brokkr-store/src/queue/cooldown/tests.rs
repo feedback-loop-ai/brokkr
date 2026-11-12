@@ -277,6 +277,18 @@ fn a_rows_bearing_append_on_an_unknown_version_writes_no_row() {
     assert_eq!(present, 1, "a newer binary's table was dropped");
 }
 
+/// A rows-bearing append refuses a journal whose `meta` is gone: the
+/// queue's version cannot be read, so neither the event nor a row lands.
+#[test]
+fn an_append_with_rows_refuses_a_journal_whose_meta_is_gone() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = journal(dir.path());
+    store.conn.execute_batch("DROP TABLE meta").unwrap();
+    let error = append(&mut store, "run-a", &[row("a", "claude", "first", at(60))]).unwrap_err();
+    assert_eq!(error.to_string(), "sqlite: no such table: meta");
+    assert_eq!(store.load("run-a").unwrap().len(), 1, "the event landed");
+}
+
 /// A fenced append whose head moved writes neither the event nor a row.
 #[test]
 fn a_moved_head_writes_neither_the_event_nor_a_row() {

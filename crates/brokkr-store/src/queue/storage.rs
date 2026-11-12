@@ -489,13 +489,10 @@ pub(super) fn cool_downs_held(conn: &Connection) -> Result<bool, StoreError> {
 }
 
 /// Does the queue hold the cool-down table a rows-bearing append writes?
-/// A version this binary does not know is a newer binary's queue: its
-/// table is left as found and only the event lands.
+/// Version 4 is the only one this binary writes. A version 1, 2 or 3
+/// queue is from before the table, no queue at all holds none, and a
+/// version this binary does not know is a newer binary's queue, left as
+/// found: in each case only the event lands.
 pub(super) fn cool_downs_writable(conn: &Connection) -> Result<bool, StoreError> {
-    match queue_stored(conn) {
-        Ok(Some(Stored::V4)) => Ok(true),
-        Ok(Some(Stored::V1 | Stored::V2 | Stored::V3)) | Ok(None) => Ok(false),
-        Err(StoreError::Queue(QueueRefusal::SchemaMismatch { .. })) => Ok(false),
-        Err(error) => Err(error),
-    }
+    Ok(queue_schema(conn)? == Some(QUEUE_SCHEMA))
 }
