@@ -117,23 +117,29 @@ controller can follow this procedure.
    top-level `(id, name)` pairs against the measured set of the release it
    replaces. Record every added, removed and changed row.
 4. Ask the model for its tool list in one session, once with the overlay's
-   `agent-default-model` row alone and once with the ten hands rows. Record
-   both lists and every tool that changed.
+   `agent-default-model` row alone and once with the release's hands rows
+   (`Release::pinned_rows`: the ten common rows, and on 0.2.2-rc.1 the
+   `tool-executor-ptc` pin as well). Record both lists and every tool that
+   changed.
 5. Check the sandbox rows: `sandbox`, `sandbox-policy`, `bash-sandbox`,
    `pwsh-sandbox`, `permission` and `fs-sandbox` keep their ids and
    packages, and the hands overlay's `sandbox-policy` row carries the
    seat's own mode, `read-only` or `workspace-write`. Brokkr writes only
-   those two words into that row. dsh's third mode (`danger-full-access`)
-   is neither written by Brokkr's overlay nor admitted by the composed-tree
-   check, so a hands seat is never launched under it; this step does not
-   measure what dsh itself does with that mode.
+   those two words into that row: the overlay's bounded reader
+   (`route_overlay::hands`, through `Mode::named`) refuses any other word
+   in the overlay Brokkr writes. So dsh's third mode (`danger-full-access`)
+   is never written by Brokkr's overlay. The composed-tree check does not
+   read the composed mode, which it judges by row id and `disabled` alone,
+   so it is not what keeps that mode out. This step does not measure what
+   dsh itself does with that mode.
 6. Add the release and its set here, then in `MEASURED_VERSIONS` and the
    release's composition delta table. Add a `Release` variant with its own
    exact versions in `Release::versions` (and its `Release::label`), and
    add the version string once, to the const the variant names. Add a test
    that a seat on the new release is admitted and that another release's
    row is refused. Pin any newly added effectful row disabled in the
-   overlay.
+   overlay, by adding it to that release's `Release::pinned_rows`, the
+   one table the judge and the overlay writer both read.
 
 ## Offline bindings (this change)
 
