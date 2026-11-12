@@ -167,20 +167,68 @@ controller can follow this procedure.
      refuses: a second key (no last-wins), a quoted or spaced key
      (`  "disabled": false`, `  disabled : false`), `  ? `, `  <<:`, a
      flow-style value on `config:`/`inject:`, and an unknown key. The
-     `sandbox-policy` row admits `inject:` too, unread: the real
-     0.2.2-rc.1 composed tree carries `  inject:`/`    - headlessStartup`
-     on it. (1052g3 and 1052g4 admitted no `inject:` there and would have
-     refused that measured tree; this round admits it because the real
-     tree bounds the grammar.)
+     `sandbox-policy` row admits `inject:` too, but only as the one
+     measured block described below.
    - **Blocks.** `  config:` or `  inject:` opens the row's block.
      `  name:`, `  disabled:` and the next row close it; a skipped line
      leaves it as it is. A line indented three or more spaces is admitted
      only while a block is open. In `sandbox-policy` only the `config:`
      block is read by the span grammar: one `    mode: <w>` line. Its
-     `inject:` block, and every other row's blocks, stay unread. A deeper
-     line with no open block refuses:
-     directly after `- id:`, `  name:` or `  disabled:` it is a plain- or
-     quoted-scalar continuation that would change the value the gate read.
+     `inject:` block is admitted only as the measured
+     `    - headlessStartup` line, once: any other line, a second item, a
+     quoted item, a wrongly indented item and an empty block all refuse
+     `Unreadable`, so a mode-looking line under `inject:` is not the
+     composed mode. Every other row's blocks are unread. A deeper line
+     with no open block refuses: directly after `- id:`, `  name:` or
+     `  disabled:` it is a plain- or quoted-scalar continuation that would
+     change the value the gate read.
+   - **An unread block is read as js-yaml's dump language, not as YAML.**
+     Every deeper line of an unread block must be a line js-yaml's dump
+     writes, so no quoted scalar, flow collection, anchor or alias can
+     carry a later row's keys away. The bound is the measured serializer,
+     not a general YAML reader: `dsh --dump-config` is
+     `renderConfigDump` → `groupedDump` in `@deepseek-ai/dsh-app-boot`,
+     which prints the `# == <label>` lines and then
+     `yaml.dump(group, { schema: entryListSchema, noRefs: true })` with
+     js-yaml 4.3.2, the version installed for 0.2.1-rc.2 and 0.2.2-rc.1.
+     That dump writes no quoted scalar that spans lines (a break or a
+     foldable long line becomes a block scalar), no non-empty flow
+     collection (`[]` and `{}` only), and with `noRefs` no anchor or
+     alias; it writes no comment of its own. A future dsh that changes its
+     serializer or its options is refused until it is measured here.
+     - **Block-scalar content.** A line whose value is a block-scalar
+       header (`|`, `|-`, `|+`, `>`, `>-` or `>+`, optionally after a tag
+       such as `!!js `) opens content: every following blank line, or line
+       indented more than the header's line, is skipped unread, with only
+       the break-and-control rule applied. The content ends at the first
+       non-blank line indented at or under the header's line, which is
+       then read normally. The measured trees' only headers are `>-`, `>`
+       and `!!js >-`. A header with an indentation indicator (`|2`,
+       `>1-`) refuses `Unreadable`, since no real tree carries one.
+     - **Every other line is read for structure.** Strip the indentation
+       and any `- ` sequence markers. If what remains starts with a quote,
+       the quoted scalar must close on the line, followed by nothing but
+       ASCII spaces (a sequence item) or by `:` and a value (a quoted
+       key). A plain `key:` is followed by end of line or `: ` and a
+       value. After one optional tag (`!` and non-spaces, then a space),
+       a value is empty; a block-scalar header; exactly `[]` or `{}`; a
+       single- or double-quoted scalar that closes on the line, followed
+       by nothing but ASCII spaces; or a plain scalar starting with none
+       of `'`, `"`, `[`, `{`, `&`, `*`, `|`, `>`, `?`, `!`, `%`, `@` or a
+       backquote. Quote scanning follows YAML: in single quotes `''` is an
+       escaped quote, in double quotes `\` escapes the next character, and
+       a double-quoted scalar whose line ends inside it (a `\`
+       continuation included) is open. Quotes inside a plain scalar
+       (`it's`, `echo "hi"`, `!!js a ?? 'b'`) are plain content and are
+       not scanned.
+     - **Every other line refuses `Unreadable`.** An open quote, an open
+       flow collection, an anchor (`&`), an alias (`*`), `? `, a
+       directive, a reserved indicator, a block-scalar indentation
+       indicator, a tab or double-space separator that a lenient YAML
+       reader takes for structure, and a quoted scalar followed by junk
+       are all refused.
+     - The block's lines stay unread in meaning: no other row's config
+       value is judged, and the rule bounds only where the block ends.
    - **One space and tabs.** A one-space line, and a non-skip line whose
      first character is a tab, refuse `Unreadable`.
    - **Values.** Other rows' `disabled:` keeps its reading: exactly `true`
@@ -197,9 +245,9 @@ controller can follow this procedure.
    whose composed mode is not the seat's own and a tree that names no
    mode. It reads nothing else about the composed tree's sandbox. This
    step does not measure what dsh itself does with that mode. A future dsh
-   release that adds a two-space key or a deeper line outside a block is
-   refused by this grammar until it is measured here and the row grammar
-   admits it.
+   release that adds a two-space key or an unread-block line this dump
+   language does not write is refused by this grammar until it is measured
+   here and the row grammar admits it.
 6. Add the release and its set here, then in `MEASURED_VERSIONS` and the
    release's composition delta table. Add a `Release` variant with its own
    exact versions in `Release::versions` (and its `Release::label`), and
@@ -269,18 +317,36 @@ Run by the implementing seat with
   `the_s7_shapes_on_another_row_refuse`,
   `a_line_before_the_first_row_that_is_not_a_skip_is_refused`,
   `an_unadmitted_two_space_key_is_refused`,
-  `the_policy_inject_block_is_unread`,
+  `the_policy_inject_block_is_only_the_measured_one`,
+  `an_unread_block_refuses_a_quoted_scalar_that_does_not_close`,
+  `a_quote_in_the_policy_or_preceding_sandbox_block_refuses`,
+  `an_unread_block_refuses_an_open_flow_collection`,
+  `an_unread_block_refuses_every_other_non_dump_line`,
+  `an_unread_block_admits_every_dump_line_it_reads`,
   `a_repeated_two_space_key_is_refused`,
   `a_deeper_line_is_admitted_only_while_a_block_is_open`,
   `a_one_space_tab_or_column_zero_line_is_refused` and
   `another_rows_disabled_keeps_its_reading`: the
   #1052 part 1 follow-ups F4, F5 and the composed-mode finding, fix
   round 1052g2's C1, C2, C4 and C6, fix round 1052g3's F1 to F3, fix
-  round 1052g4's S1, S2 and S4, and fix round 1052g5's C1, C2, C3 and
-  the whole-dump row grammar. Each was made to fail by the removal
+  round 1052g4's S1, S2 and S4, fix round 1052g5's C1, C2, C3 and
+  the whole-dump row grammar, and fix round 1052g6's F1 to F4. The F1
+  suite binds the unread-block dump language: every quoted-scalar,
+  flow, anchor, alias, indicator, tab or double-space shape above
+  refuses `Unreadable`, and the admitted shapes (balanced quoted value
+  and key, `!!js '!ctx.get(''p'')'`, a plain scalar with quotes, empty
+  flow collections, and `>-` content holding an open quote and bracket
+  before a two-space key is read again) pass. The F2 test binds the
+  policy `inject:` block to the one measured `    - headlessStartup`
+  line: the measured block passes and a mode-looking line, a second
+  item, a quoted item, a wrongly indented item, an empty block and a
+  repeated `inject:` refuse. Each test was made to fail by the removal
   control recorded in the commit that added it and then restored; the
   class test's controls remove one arm of the break-and-control refusal
-  set at a time, and each removal makes its class's cases fail.
+  set at a time, and each removal makes its class's cases fail. F3 is
+  the corrected comment in `composed_rows.rs`; F4 is `read_deep`'s
+  spelled admitting arms, so a new `Block` variant is not admitted by a
+  wildcard.
 
 ## A real seat tree, judged (controller, 2026-11-12)
 
@@ -345,18 +411,47 @@ the measured
 block. The plain 0.2.2-rc.1 dump carries that same inject block (its
 `config:` block also names `workspaceRoot` and
 `additionalWritableRoots`, which the seat overlay replaces with the one
-mode). The policy row's config block is the only one read by the span
-grammar; its inject block is unread, as every other row's is. 1052g3 and
-1052g4 admitted no `inject:` on the policy row and would have refused
-this real tree as `Unreadable`; commit `270f7fe98` admits it unread
-because the measured tree bounds the grammar. The 0.2.1 committed
-fixture still passes: its `sandbox-policy` row has no inject block, and
-the measured 99 rows are unchanged.
+mode). At `270f7fe98` the policy row's config block was the only one read
+by the span grammar and its inject block was unread, as every other
+row's was. Fix round 1052g6 narrows that: the policy `inject:` block is
+now admitted only as the one measured `    - headlessStartup` line, and
+any other content refuses. 1052g3 and 1052g4 admitted no `inject:` on the
+policy row and would have refused this real tree as `Unreadable`; the
+measured tree bounds the grammar, and the measured block is what 1052g6
+admits. The 0.2.1 committed fixture still passes: its `sandbox-policy`
+row has no inject block, and the measured 99 rows are unchanged.
 
 The 17096db85 table above measures a different head, before 1052g3
 closed the policy span; its dumps carry the same composed rows. This
 round did not re-run that head, so the byte-count difference is not
 compared here.
+
+## A real 0.2.2-rc.1 composed tree at 1052g6's head (2026-11-13)
+
+Fix round 1052g6 re-ran the method on `git archive` of its code commit
+`be0a9aa9a`, never committed. The throwaway test built both overlays with
+`hands_rows(Release::V0_2_2, mode, "/bin/brokkr", ["hands", "serve"])`,
+ran `dsh --profile headless --patch <overlay> --dump-config` from the
+isolated `/var/tmp/dsh-0.2.2-rc.1` prefix (dsh 0.2.2-rc.1, js-yaml
+4.3.2) under the controller's scratch home, and handed that same command
+to `composition_gate`. This box's `/var/tmp` is read-only, so the
+prepared home was copied byte-for-byte to `/tmp` inside the one measuring
+call and used as `DSH_HOME` there; the prepared home was not modified.
+The test ran each mode twice, once capturing the dump for its bytes and
+digest and once handing the command to the gate.
+
+| Mode | Overlay bytes | Dump | Rows | Gate |
+| --- | --- | --- | --- | --- |
+| `read-only` | 913 | exit 0, 16,821 bytes, sha256 `abf29929512fdfd1…` | 100 | `Ok(())` |
+| `workspace-write` | 919 | exit 0, 16,875 bytes, sha256 `012c2b655d415036…` | 100 | `Ok(())` |
+
+Both dumps are 0.2.2's plain 99 plus the `brokkr-hands` insert, and both
+pass the gate under the new unread-block rule and the measured policy
+`inject:` rule. Their `sandbox-policy` row carries the seat's mode in its
+`config:` block and the measured `inject:`/`- headlessStartup` block; the
+0.2.1 committed fixture still passes with its own 99 rows. This round did
+not compare its byte counts with the 1052g5 table above, which measured a
+different head and working directory.
 
 ## Pending
 
