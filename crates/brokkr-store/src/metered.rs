@@ -409,10 +409,12 @@ static FALLBACKS: LazyLock<String> = LazyLock::new(|| {
 });
 
 /// The fallback for a journal whose stale-seat set is absent or damaged:
-/// the statement U3d replaced, the `run_summary` scan with the
-/// seat-currentness rule. A reader that cannot write cannot repair the set
-/// (decision 0014), so it reads the rule itself: exact, and costing a visit
-/// a run only where no writer has repaired the journal yet.
+/// the `run_summary` scan under the seat-currentness rule. It is not the
+/// statement U3d replaced byte for byte: `lags` carries the checkpoint
+/// arm's condition as well, and the statement unions the checkpoint arm
+/// too, so a reader that cannot write cannot repair the set (decision
+/// 0014) and still names every lagging run exactly, costing a visit a run
+/// only where no writer has repaired the journal yet.
 static FALLBACKS_BY_RULE: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT r.run_id

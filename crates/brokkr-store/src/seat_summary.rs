@@ -74,7 +74,7 @@ mod stale;
 use seal::{digest, value, Cell, Seal};
 #[cfg(test)]
 pub(crate) use stale::SHAPE_INDEX;
-pub(crate) use stale::{migrate_stale, stale_intact, stale_runs};
+pub(crate) use stale::{forget_summary_triggers, migrate_stale, stale_intact, stale_runs};
 
 /// The meta key that records the backfill finished (ruling 8): its own,
 /// so keeping seat rows sends no run's summary behind (#753 ruling 4a).

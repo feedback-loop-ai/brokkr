@@ -9,7 +9,9 @@ use crate::acknowledgement::{acknowledgements_intact, migrate_acknowledgements};
 use crate::event_index::{index_intact, migrate_index};
 use crate::queue::{migrate_queue, queue_intact};
 use crate::run_select;
-use crate::seat_summary::{mark_seated, migrate_seats, migrate_stale, seats_intact, stale_intact};
+use crate::seat_summary::{
+    forget_summary_triggers, mark_seated, migrate_seats, migrate_stale, seats_intact, stale_intact,
+};
 use crate::summary::{mark_backfilled, migrate_summary, summary_intact};
 use crate::{patiently, Store, StoreError, BUSY_TIMEOUT};
 
@@ -247,6 +249,10 @@ fn repair_tables(conn: &mut Connection) -> Result<(), StoreError> {
 /// decision 0089's run summary, event index, seat summary and stale-seat
 /// set.
 fn repair_projections(conn: &mut Connection) -> Result<(), StoreError> {
+    // A summary write prepares the set's triggers, so a table they name
+    // must stand before the fifth repair seeds: drop them when it does
+    // not, and the eighth repair remakes and refills them.
+    forget_summary_triggers(conn)?;
     // Fifth: a journal from before the run summary (decision 0089), or
     // one that lost its table, index or a trigger, gets them, and a row
     // for every run it carries, kept at its head and folded by the

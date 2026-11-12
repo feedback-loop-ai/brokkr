@@ -7,6 +7,7 @@ use brokkr_core::canonical::ZERO_HASH;
 use rusqlite::{params, Connection};
 
 use super::*;
+use crate::seat_summary::lags;
 use crate::test_support::plant_run;
 use crate::Store;
 
@@ -72,6 +73,26 @@ fn shape_only(conn: &Connection) -> Vec<String> {
             AND h.shape IS NOT ?1 ORDER BY h.run_id",
         rusqlite::params![SHAPE.as_str()],
     )
+}
+
+/// The rule's seq-and-hash half: the runs [`lags`] names less the ones
+/// only the shape arm supplies.
+fn seq_and_hash_half(conn: &Connection) -> Vec<String> {
+    let shape = shape_only(conn);
+    rule(conn)
+        .into_iter()
+        .filter(|run_id| !shape.contains(run_id))
+        .collect()
+}
+
+/// Write `run_id`'s seat head as another build did, at the summary's own
+/// seq and hash: a shape lag only the read-time arm names.
+fn shape_lag(conn: &Connection, run_id: &str) {
+    conn.execute(
+        "UPDATE seat_head SET shape = 'another-build' WHERE run_id = ?1",
+        [run_id],
+    )
+    .unwrap();
 }
 
 /// `run_id`'s seat head, written as the writer writes it.
@@ -313,21 +334,10 @@ fn the_set_matches_the_rule_over_every_lag_shape() {
         )
         .unwrap();
     current(&store.conn, "shape-lag");
-    store
-        .conn
-        .execute(
-            "UPDATE seat_head SET shape = 'another-build' WHERE run_id = 'shape-lag'",
-            [],
-        )
-        .unwrap();
+    shape_lag(&store.conn, "shape-lag");
 
     let named = rule(&store.conn);
-    let shape = shape_only(&store.conn);
-    let expected: Vec<String> = named
-        .iter()
-        .filter(|run_id| !shape.contains(run_id))
-        .cloned()
-        .collect();
+    let expected = seq_and_hash_half(&store.conn);
     assert_eq!(set(&store.conn), expected, "the triggers keep one half");
     assert_eq!(stale(&store.conn), named, "with the shape arm, the rule");
     assert_eq!(
@@ -349,6 +359,7 @@ fn drop_set(conn: &Connection) {
         "DROP TRIGGER IF EXISTS {SUMMARY_INSERT};
          DROP TRIGGER IF EXISTS {SUMMARY_MOVED};
          DROP TRIGGER IF EXISTS {SEAT_HEAD};
+         DROP TRIGGER IF EXISTS {SEAT_HEAD_UPDATED};
          DROP TRIGGER IF EXISTS {SEAT_HEAD_DROPPED};
          DROP INDEX IF EXISTS {SHAPE_INDEX};
          DROP TABLE IF EXISTS {STALE};"
@@ -357,8 +368,9 @@ fn drop_set(conn: &Connection) {
 }
 
 /// A journal from before the set is repaired by the open's repair path,
-/// and the set then names exactly what the rule names now, shape lag
-/// included: the fill reads the rule, not the triggers it just made.
+/// and the fill names the rule's seq-and-hash half, not the shape lag the
+/// triggers never keep: with the shape arm, the fallback still names
+/// exactly what the rule names.
 #[test]
 fn the_repair_fills_the_set_from_the_rule() {
     let (dir, store) = crate::tests::store();
@@ -368,14 +380,9 @@ fn the_repair_fills_the_set_from_the_rule() {
     current(&store.conn, "current");
     headless(&store.conn, "headless");
     current(&store.conn, "shape-lag");
-    store
-        .conn
-        .execute(
-            "UPDATE seat_head SET shape = 'another-build' WHERE run_id = 'shape-lag'",
-            [],
-        )
-        .unwrap();
+    shape_lag(&store.conn, "shape-lag");
     let named = rule(&store.conn);
+    let expected = seq_and_hash_half(&store.conn);
 
     drop_set(&store.conn);
     assert!(!stale_intact(&store.conn).unwrap(), "the set is gone");
@@ -383,8 +390,8 @@ fn the_repair_fills_the_set_from_the_rule() {
 
     let conn = repaired(&dir.path().join("forge.db"));
     assert!(stale_intact(&conn).unwrap(), "the repair restored the set");
-    assert_eq!(set(&conn), named, "the fill names every run that lags now");
-    assert_eq!(stale(&conn), named, "and the fallback's rule agrees");
+    assert_eq!(set(&conn), expected, "the fill names the seq-and-hash half");
+    assert_eq!(stale(&conn), named, "with the shape arm, the rule");
 }
 
 /// A lost trigger is repaired, and the fill removes an entry the lost
@@ -546,4 +553,204 @@ fn a_read_only_reader_with_a_damaged_set_reads_the_rule() {
         ["run".to_string()],
         "the fallback reads the rule, not the damaged set"
     );
+}
+
+/// A summary repair whose seed writes `run_summary` while `seat_head` or
+/// `seat_lag` is gone: SQLite compiles the set's summary triggers on that
+/// write, so the open drops them first and the eighth repair remakes them.
+/// The open is `Ok` and the set afterwards equals the rule.
+#[test]
+fn a_summary_repair_without_a_seat_table_reseeds() {
+    for lost in ["seat_head", STALE] {
+        let (dir, store) = current_store();
+        store
+            .conn
+            .execute_batch(&format!(
+                "DROP INDEX run_summary_page;
+                 DROP TABLE {lost};"
+            ))
+            .unwrap();
+        drop(store);
+
+        let store = Store::open(&dir.path().join("forge.db"))
+            .unwrap_or_else(|error| panic!("open with {lost} gone: {error}"));
+        assert!(stale_intact(&store.conn).unwrap(), "{lost} is repaired");
+        assert_eq!(set(&store.conn), rule(&store.conn), "{lost}");
+    }
+}
+
+/// The statement that fires a trigger may declare any conflict policy,
+/// and an upsert its own: the body's join never meets a duplicate, so no
+/// write fails on `seat_lag` and the run stays named.
+#[test]
+fn a_firing_conflict_policy_does_not_replace_the_body() {
+    // `UPDATE OR ABORT run_summary` overrides the body's old `OR IGNORE`.
+    let (_dir, store) = crate::tests::store();
+    plant_run(&store.conn, "a", "{}").unwrap();
+    store
+        .conn
+        .execute(
+            "UPDATE OR ABORT run_summary SET head_seq = 5 WHERE run_id = 'a'",
+            [],
+        )
+        .unwrap();
+    assert_eq!(set(&store.conn), ["a".to_string()], "the update succeeded");
+    assert_eq!(set(&store.conn), rule(&store.conn));
+
+    // An upsert that moves the summary head.
+    let (_dir, store) = crate::tests::store();
+    plant_run(&store.conn, "a", "{}").unwrap();
+    store
+        .conn
+        .execute(
+            "INSERT INTO run_summary (run_id, head_seq, head_hash)
+             VALUES ('a', 6, 'h')
+             ON CONFLICT(run_id) DO UPDATE
+                 SET head_seq = excluded.head_seq, head_hash = excluded.head_hash",
+            [],
+        )
+        .unwrap();
+    assert_eq!(set(&store.conn), ["a".to_string()], "the upsert succeeded");
+    assert_eq!(set(&store.conn), rule(&store.conn));
+
+    // An upsert on an existing seat head that does not match the summary.
+    let (_dir, store) = crate::tests::store();
+    plant_run(&store.conn, "a", "{}").unwrap();
+    store
+        .conn
+        .execute(
+            "INSERT OR IGNORE INTO seat_head (run_id, folded_seq, folded_hash, shape)
+             VALUES ('a', 5, 'h', ?1)",
+            [SHAPE.as_str()],
+        )
+        .unwrap();
+    store
+        .conn
+        .execute(
+            "INSERT INTO seat_head (run_id, folded_seq, folded_hash, shape)
+             VALUES ('a', 7, 'h2', ?1)
+             ON CONFLICT(run_id) DO UPDATE
+                 SET folded_seq = excluded.folded_seq, folded_hash = excluded.folded_hash",
+            [SHAPE.as_str()],
+        )
+        .unwrap();
+    assert_eq!(set(&store.conn), ["a".to_string()], "the upsert succeeded");
+    assert_eq!(set(&store.conn), rule(&store.conn));
+
+    // A plain insert into the seat head of a run already in the set.
+    let (_dir, store) = crate::tests::store();
+    plant_run(&store.conn, "a", "{}").unwrap();
+    store
+        .conn
+        .execute(
+            "INSERT OR ABORT INTO seat_head (run_id, folded_seq, folded_hash, shape)
+             VALUES ('a', 5, 'h', ?1)",
+            [SHAPE.as_str()],
+        )
+        .unwrap();
+    assert_eq!(set(&store.conn), ["a".to_string()], "the insert succeeded");
+    assert_eq!(set(&store.conn), rule(&store.conn));
+}
+
+/// The fill uses the rule's seq-and-hash half alone: a run that lags by
+/// shape is not put in the set, so a later shape update cannot leave it
+/// named. The shape arm reads it at read time.
+#[test]
+fn a_shape_only_lag_is_not_filled_into_the_set() {
+    let (dir, store) = crate::tests::store();
+    plant_run(&store.conn, "run", "{}").unwrap();
+    current(&store.conn, "run");
+    shape_lag(&store.conn, "run");
+    drop_set(&store.conn);
+    drop(store);
+
+    let conn = repaired(&dir.path().join("forge.db"));
+    assert_eq!(
+        set(&conn),
+        Vec::<String>::new(),
+        "the seq and hash match, so the fill leaves it out"
+    );
+    conn.execute(
+        "UPDATE seat_head SET shape = ?1 WHERE run_id = 'run'",
+        [SHAPE.as_str()],
+    )
+    .unwrap();
+    drop(conn);
+
+    let store = Store::open(&dir.path().join("forge.db")).unwrap();
+    assert_eq!(
+        fallback(&store),
+        Vec::<String>::new(),
+        "once the shape matches, nothing names the run"
+    );
+}
+
+/// A seat head's `run_id` moved in place: the run it moved from has no
+/// head and joins the set, and the run it moved to is judged as an insert
+/// is, so a matching head still leaves it.
+#[test]
+fn a_moved_run_id_joins_the_old_run_and_judges_the_new() {
+    let (_dir, store) = crate::tests::store();
+    plant_run(&store.conn, "from", "{}").unwrap();
+    plant_run(&store.conn, "to", "{}").unwrap();
+    current(&store.conn, "from");
+    headless(&store.conn, "to");
+    assert_eq!(set(&store.conn), ["to".to_string()], "to has no head");
+
+    store
+        .conn
+        .execute(
+            "UPDATE seat_head SET run_id = 'to' WHERE run_id = 'from'",
+            [],
+        )
+        .unwrap();
+    assert_eq!(
+        set(&store.conn),
+        ["from".to_string()],
+        "from lost its head and to gained a matching one"
+    );
+    assert_eq!(set(&store.conn), rule(&store.conn));
+}
+
+/// A run whose seat head is deleted joins the set by its own trigger,
+/// whatever removed the head.
+#[test]
+fn a_dropped_seat_head_joins_the_set() {
+    let (_dir, store) = current_store();
+    assert_eq!(set(&store.conn), Vec::<String>::new(), "the run is current");
+
+    store
+        .conn
+        .execute("DELETE FROM seat_head WHERE run_id = 'run'", [])
+        .unwrap();
+    assert_eq!(
+        set(&store.conn),
+        ["run".to_string()],
+        "a dropped head joins"
+    );
+    assert_eq!(set(&store.conn), rule(&store.conn));
+}
+
+/// A `seat_lag` of another shape is not this build's, and the open remakes
+/// it: a table with another column, one with `run_id` but no key, and one
+/// whose `run_id` is not the key all fail `stale_intact` and are repaired.
+#[test]
+fn a_seat_lag_of_another_shape_is_not_intact_and_is_repaired() {
+    for remake in [
+        "CREATE TABLE seat_lag (other TEXT PRIMARY KEY);",
+        "CREATE TABLE seat_lag (run_id TEXT);",
+        "CREATE TABLE seat_lag (run_id TEXT, other TEXT PRIMARY KEY);",
+    ] {
+        let (dir, store) = current_store();
+        store
+            .conn
+            .execute_batch(&format!("DROP TABLE {STALE}; {remake}"))
+            .unwrap();
+        assert!(!stale_intact(&store.conn).unwrap(), "{remake}");
+        drop(store);
+
+        let store = Store::open(&dir.path().join("forge.db")).unwrap();
+        assert!(stale_intact(&store.conn).unwrap(), "{remake} is repaired");
+        assert_eq!(set(&store.conn), rule(&store.conn), "{remake}");
+    }
 }
