@@ -16,6 +16,7 @@ use crate::native_controls::{SealedBoundary, SealedDialect, ARTIFACT_ROOT, SERVI
 
 mod composed;
 mod composed_controls;
+mod composed_rows;
 mod launch_order;
 mod releases;
 

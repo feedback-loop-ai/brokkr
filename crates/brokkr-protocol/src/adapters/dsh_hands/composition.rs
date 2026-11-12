@@ -15,12 +15,23 @@
 //! package, and so does a second MCP client, a repeated id, a hands row
 //! left disabled or a dump that cannot be read. A hands seat is never
 //! served a composition nobody measured.
+//!
+//! The whole dump is read by one closed row grammar, not only the one
+//! `sandbox-policy` row: every line is refused for a break or control
+//! before anything else, every row's two-space keys are closed to `name:`,
+//! `disabled:`, `config:` and `inject:` each at most once, and a deeper
+//! line is admitted only while `config:` or `inject:` opened a block. The
+//! grammar's one home is [`rows`].
 
 use std::process::{Command, Stdio};
 
 use thiserror::Error;
 
 use super::{Mode, Release, HANDS_ID, MCP_CLIENT, SANDBOX_POLICY};
+
+mod rows;
+
+pub(crate) use self::rows::rows;
 
 /// A dump larger than this is not the measured shape, and is refused
 /// before it is parsed.
@@ -143,268 +154,6 @@ pub(super) fn composed_with(
     let rows = rows(&output.stdout)?;
     judge(release, &rows)?;
     judge_mode(&rows, mode)
-}
-
-/// Every row of a `--dump-config` sequence. dsh writes `- id:` at column
-/// zero and the row's `name:` directly beneath it; any other shape is not
-/// read as a row. The `sandbox-policy` row's own `config:` block carries
-/// the mode the gate judges, read here with the same bounded rules rather
-/// than by a general YAML reader.
-pub(crate) fn rows(bytes: &[u8]) -> Result<Vec<Row>, Composition> {
-    let text = std::str::from_utf8(bytes).map_err(|_| Composition::Unreadable)?;
-    let mut rows = Vec::new();
-    let mut awaiting: Option<Row> = None;
-    let mut state = ReadState::default();
-    for line in text.lines() {
-        if let Some(rest) = line.strip_prefix("- id: ") {
-            if let Some(row) = awaiting.take() {
-                rows.push(row);
-            }
-            awaiting = Some(Row {
-                id: unquote(ascii_trim(rest)),
-                name: String::new(),
-                disabled: false,
-                mode: None,
-            });
-            state = ReadState::default();
-            continue;
-        }
-        let Some(row) = awaiting.as_mut() else {
-            continue;
-        };
-        read_row_line(row, line, &mut state)?;
-    }
-    if let Some(row) = awaiting.take() {
-        rows.push(row);
-    }
-    if rows.is_empty() {
-        return Err(Composition::Unreadable);
-    }
-    for row in &rows {
-        if row.name.is_empty() {
-            return Err(Composition::Unreadable);
-        }
-    }
-    Ok(rows)
-}
-
-/// One YAML single-quoted scalar's body, or the bare text as written.
-fn unquote(value: &str) -> String {
-    match value
-        .strip_prefix('\'')
-        .and_then(|rest| rest.strip_suffix('\''))
-    {
-        Some(body) => body.replace("''", "'"),
-        None => value.to_string(),
-    }
-}
-
-/// The reader's state for the row it is inside. `in_config` tracks
-/// whether another row's unread `config:` block is still open, so a line
-/// indented less than four spaces closes it. The `sandbox-policy` row's
-/// own state has its one home in [`PolicyState`].
-#[derive(Default)]
-struct ReadState {
-    in_config: bool,
-    policy: PolicyState,
-}
-
-/// The `sandbox-policy` span's state: its at-most-once flags and the
-/// three states of its one config block. Keeping them together means the
-/// span has one home, and `ReadState.in_config` means only another row's
-/// open unread block.
-#[derive(Default)]
-struct PolicyState {
-    name_seen: bool,
-    disabled_seen: bool,
-    config: ConfigBlock,
-}
-
-/// Where the `sandbox-policy` row's one `config:` block stands. A skipped
-/// line leaves the state as it is; an admitted two-space key after the
-/// block closes it.
-#[derive(Default, PartialEq, Eq)]
-enum ConfigBlock {
-    /// No `config:` line has been read.
-    #[default]
-    Absent,
-    /// `config:` was read and no admitted two-space key has followed it.
-    Open,
-    /// A two-space key followed `config:`, so a `mode:` no longer sits
-    /// under the block.
-    Closed,
-}
-
-/// One line of the row being read. The `sandbox-policy` row's whole span
-/// is read by its own closed grammar ([`read_policy_line`]), so a line the
-/// old reader refused is never swallowed and no line in the span goes
-/// unread. Every other row keeps the old reading: the column-zero shape is
-/// refused first, its `name:` and `disabled:` are read, and its config
-/// block stays unread and closes on any line indented less than four
-/// spaces.
-fn read_row_line(row: &mut Row, line: &str, state: &mut ReadState) -> Result<(), Composition> {
-    if row.id == SANDBOX_POLICY {
-        return read_policy_line(row, line, &mut state.policy);
-    }
-    if column_zero(line) {
-        return Err(Composition::Unreadable);
-    }
-    if state.in_config && !line.starts_with("    ") {
-        state.in_config = false;
-    }
-    if let Some(rest) = line.strip_prefix("  name: ") {
-        if !row.name.is_empty() {
-            return Err(Composition::Unreadable);
-        }
-        row.name = unquote(ascii_trim(rest));
-    } else if line.starts_with("  disabled:") {
-        read_disabled(row, line)?;
-    } else if line == "  config:" {
-        state.in_config = true;
-    }
-    Ok(())
-}
-
-/// One line of the `sandbox-policy` row's whole span: from its `- id:`
-/// line to the next column-zero `- id:` or the end of the dump.
-///
-/// The tests run in one order. A line holding a character a YAML reader
-/// may break on refuses [`Composition::Unreadable`] before anything else:
-/// a C0 control other than tab, DEL, a C1 control, LS, PS or a BOM. Then
-/// only an empty line, a line of ASCII spaces and tabs, or a line whose
-/// first character after those is `#` is skipped; any other white space
-/// is not skip material. The span admits, each at most once, `  name:
-/// <name>`, `  disabled: <word>`, `  config:` and, only while its config
-/// block is open, `    mode: <word>`. Every other line refuses: a second
-/// `config:` or `mode:`, any other key at any indent, a flow-style
-/// `config: {...}`, a quoted or spaced key, and a `mode:` before
-/// `config:` or after a two-space key closed the block.
-fn read_policy_line(row: &mut Row, line: &str, state: &mut PolicyState) -> Result<(), Composition> {
-    if has_break_or_control(line) {
-        return Err(Composition::Unreadable);
-    }
-    if is_skipped(line) {
-        return Ok(());
-    }
-    if let Some(rest) = line.strip_prefix("  name: ") {
-        if state.name_seen {
-            return Err(Composition::Unreadable);
-        }
-        state.name_seen = true;
-        close_config(state);
-        row.name = unquote(ascii_trim(rest));
-        return Ok(());
-    }
-    if line.starts_with("  disabled:") {
-        if state.disabled_seen {
-            return Err(Composition::Unreadable);
-        }
-        state.disabled_seen = true;
-        close_config(state);
-        return read_disabled(row, line);
-    }
-    if line == "  config:" {
-        if state.config != ConfigBlock::Absent {
-            return Err(Composition::Unreadable);
-        }
-        state.config = ConfigBlock::Open;
-        return Ok(());
-    }
-    if line.starts_with("    mode:") {
-        if state.config != ConfigBlock::Open {
-            return Err(Composition::Unreadable);
-        }
-        return read_mode(row, line);
-    }
-    Err(Composition::Unreadable)
-}
-
-/// Close an open config block when an admitted two-space key follows it.
-/// A key before the block leaves the state absent.
-fn close_config(state: &mut PolicyState) {
-    if state.config == ConfigBlock::Open {
-        state.config = ConfigBlock::Closed;
-    }
-}
-
-/// Whether `line` holds a character a YAML reader may read as a line
-/// break or that the gate will not read as text: a C0 control other than
-/// tab, DEL, a C1 control, LS, PS or a BOM. A bare CR is a YAML break,
-/// NEL, LS and PS are YAML 1.1 breaks, and none of them is skip material.
-fn has_break_or_control(line: &str) -> bool {
-    line.chars().any(|c| {
-        matches!(
-            c,
-            '\u{0000}'..='\u{0008}'
-                | '\u{000a}'..='\u{001f}'
-                | '\u{007f}'
-                | '\u{0080}'..='\u{009f}'
-                | '\u{2028}'
-                | '\u{2029}'
-                | '\u{feff}'
-        )
-    })
-}
-
-/// Whether the span skips `line`: it is empty, it holds only ASCII spaces
-/// and tabs, or its first character after those is `#`. Text after the
-/// `#` is comment content, non-ASCII characters included. No other white
-/// space is skip material, so a line of only NBSP, or NBSP then `#`,
-/// is refused rather than skipped.
-fn is_skipped(line: &str) -> bool {
-    let rest = line.trim_start_matches([' ', '\t']);
-    rest.is_empty() || rest.starts_with('#')
-}
-
-/// The one trim of a value read from the dump: ASCII spaces and tabs
-/// only. Unicode white space is not trimmed, so a padded word cannot be
-/// read as the word the gate compares.
-fn ascii_trim(value: &str) -> &str {
-    value.trim_matches([' ', '\t'])
-}
-
-/// One `disabled:` line of the row being read. The other rows keep the
-/// judge's reading: only the exact word `true` is disabled, as before. The
-/// `sandbox-policy` row's flag changes meaning — the gate reads its mode,
-/// so the row must be in force — and it is admitted only when absent or
-/// exactly `false`; `true`, a `!!js` expression the bounded parse cannot
-/// evaluate and a spelling with no readable value all refuse. The word is
-/// taken with [`ascii_trim`], so a non-ASCII-padded `false` is not the
-/// word the gate compares.
-fn read_disabled(row: &mut Row, line: &str) -> Result<(), Composition> {
-    let word = line
-        .strip_prefix("  disabled: ")
-        .map(ascii_trim)
-        .unwrap_or_default();
-    row.disabled = word == "true";
-    if row.id == SANDBOX_POLICY && word != "false" {
-        return Err(Composition::PolicyDisabled { id: row.id.clone() });
-    }
-    Ok(())
-}
-
-/// Whether `line` is the column-zero shape the old reader refused: a
-/// non-empty, non-comment line that is not indented beneath a row. The
-/// `sandbox-policy` span is bounded by its own grammar instead.
-fn column_zero(line: &str) -> bool {
-    !line.is_empty() && !line.starts_with('#') && !line.starts_with("  ")
-}
-
-/// The one `    mode: <word>` line a `sandbox-policy` `config` block may
-/// carry, read only while its `config:` block is open. A missing space, a
-/// deeper indent, a `Mode:` spelling or a second mode is not that shape
-/// and refuses the tree; the span's other lines are refused by
-/// [`read_policy_line`]. The word is taken with [`ascii_trim`], so a
-/// non-ASCII-padded mode is not the word the gate compares.
-fn read_mode(row: &mut Row, line: &str) -> Result<(), Composition> {
-    let Some(rest) = line.strip_prefix("    mode: ") else {
-        return Err(Composition::Unreadable);
-    };
-    if row.mode.is_some() {
-        return Err(Composition::Unreadable);
-    }
-    row.mode = Some(unquote(ascii_trim(rest)));
-    Ok(())
 }
 
 /// Judge the rows against `release`'s measured composition.

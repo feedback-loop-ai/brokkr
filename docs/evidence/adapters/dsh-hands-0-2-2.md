@@ -128,37 +128,73 @@ controller can follow this procedure.
    those two words into that row: the overlay's bounded reader
    (`route_overlay::hands`, through `Mode::named`) refuses any other word
    in the overlay Brokkr writes. So dsh's third mode (`danger-full-access`)
-   is never written by Brokkr's overlay. The composed-tree check reads the
-   whole span of the composed `sandbox-policy` row, from its `- id:` line
-   to the next column-zero `- id:` or the end of the dump, as a closed
-   grammar. It refuses first, before any other test, a line holding a C0
-   control other than tab (U+0000–U+0008 and U+000A–U+001F, so a bare CR
-   or VT), DEL (U+007F), a C1 control (U+0080–U+009F, so NEL), LS
-   (U+2028), PS (U+2029) or a BOM (U+FEFF): a YAML reader breaks on
-   several of these and treats none as white space, so such a line is
-   never skipped or read. It then skips only an empty line, a line of
-   ASCII spaces and tabs, and a line whose first character after leading
-   ASCII spaces and tabs is `#`; text after the `#` is comment content,
-   non-ASCII characters included, while a line of any other white space
-   (such as NBSP, or NBSP then `#`) is refused. It admits, each at most
-   once, `  name: <name>`, `  disabled: <word>` (only absent or exactly
-   `false` is admitted), `  config:` and, only while the config block is
-   open, `    mode: <word>`. The block has three states: `  config:` opens
-   it, a second `  config:` refuses, an admitted two-space key (`  name:`
-   or `  disabled:`) after it closes it, and a skipped line leaves it as
-   it is. Every other line in the span refuses `Unreadable`: a second
-   `config:` or `mode:`, any other key at any indent, a line indented
-   three spaces, a flow-style `config: {...}`, a quoted or spaced key, and
-   a `mode:` before `config:` or after a two-space key closed the block.
+   is never written by Brokkr's overlay.
+
+   The composed-tree check reads **the whole dump**, every row and every
+   line, by one closed row grammar, not only the `sandbox-policy` span.
+   Fix round 1052g4 claimed the ASCII trim "only narrows" the rows other
+   than `sandbox-policy`; that was false for one row and this round
+   corrects it. A `brokkr-hands` row's `disabled:` padded with NBSP, an
+   em space or an ideographic space was trimmed to `true` and passed on
+   1052g4's head, where 51cd6014c, d048d02d8 and 01d5ffb41 refused it.
+   The hands row's `disabled:` is now admitted only when absent or exactly
+   `false` after the ASCII trim, as the policy row's is.
+
+   The grammar, in order:
+   - **Breaks and controls first, on every line of the dump.** Any line
+     holding a C0 control other than tab (U+0000–U+0008 and
+     U+000A–U+001F, so a bare CR or VT), DEL (U+007F), a C1 control
+     (U+0080–U+009F, so NEL), LS (U+2028), PS (U+2029), a BOM (U+FEFF),
+     U+FFFE or U+FFFF refuses `Unreadable` before any other test, wherever
+     it sits: before the first row, in any row, inside a comment, or
+     inside any row's unread block. A YAML reader breaks on several of
+     these and treats none as white space, and U+FFFE/U+FFFF are outside
+     YAML's printable set.
+   - **Skips everywhere.** Only an empty line, a line of ASCII spaces and
+     tabs, or a line whose first character after those is `#` is skipped.
+     Text after the `#` is comment content, non-ASCII characters
+     included. No other white space is skip material, so a line of NBSP,
+     or NBSP then `#`, is refused. (A CRLF dump is still normalized by
+     `str::lines` before this grammar; that is pre-existing, S6.)
+   - **Column zero.** `- id: <v>` starts a row, its value taken with the
+     ASCII trim. Any other non-skip column-zero line refuses:
+     `-   id:`, `---`, a bare key. Before the first row only skip lines
+     are admitted.
+   - **Every row's two-space level is closed.** A line of exactly two
+     spaces then a non-space is admitted only as `  name: <v>`,
+     `  disabled: <v>`, `  config:` or `  inject:`, each at most once per
+     row. `config:` and `inject:` are bare. Every other two-space line
+     refuses: a second key (no last-wins), a quoted or spaced key
+     (`  "disabled": false`, `  disabled : false`), `  ? `, `  <<:`, a
+     flow-style value on `config:`/`inject:`, and an unknown key. The
+     `sandbox-policy` row admits no `inject:`.
+   - **Blocks.** `  config:` or `  inject:` opens the row's block.
+     `  name:`, `  disabled:` and the next row close it; a skipped line
+     leaves it as it is. A line indented three or more spaces is admitted
+     only while a block is open. In `sandbox-policy` the block is read by
+     the span grammar: only one `    mode: <w>` line. In every other row
+     the block stays unread. A deeper line with no open block refuses:
+     directly after `- id:`, `  name:` or `  disabled:` it is a plain- or
+     quoted-scalar continuation that would change the value the gate read.
+   - **One space and tabs.** A one-space line, and a non-skip line whose
+     first character is a tab, refuse `Unreadable`.
+   - **Values.** Other rows' `disabled:` keeps its reading: exactly `true`
+     after the ASCII trim is disabled, and `false` and `!!js …` are not,
+     so a row that must be disabled refuses `Enabled`. The
+     `sandbox-policy` row's and the hands row's `disabled:` are admitted
+     only when absent or exactly `false`; any other word refuses
+     `PolicyDisabled` or `HandsDisabled` with the unchanged text.
+
    Every value the reader takes from the dump — every row's `- id:`, and
    `  name:`, `  disabled:` and `    mode:` — is trimmed with ASCII spaces
    and tabs only: Unicode white space is not trimmed, so a padded word
-   cannot be read as the word the gate compares. Other rows' config blocks
-   are not read. It refuses a tree whose composed mode is not the seat's
-   own, a tree that names no mode, and a `sandbox-policy` row whose
-   `disabled:` is present and not exactly `false`. It reads nothing else
-   about the composed tree's sandbox. This step does not measure what dsh
-   itself does with that mode.
+   cannot be read as the word the gate compares. The gate refuses a tree
+   whose composed mode is not the seat's own and a tree that names no
+   mode. It reads nothing else about the composed tree's sandbox. This
+   step does not measure what dsh itself does with that mode. A future dsh
+   release that adds a two-space key or a deeper line outside a block is
+   refused by this grammar until it is measured here and the row grammar
+   admits it.
 6. Add the release and its set here, then in `MEASURED_VERSIONS` and the
    release's composition delta table. Add a `Release` variant with its own
    exact versions in `Release::versions` (and its `Release::label`), and
@@ -218,12 +254,27 @@ Run by the implementing seat with
   `a_policy_span_refuses_a_mode_after_a_two_space_key_closed_config`,
   `a_policy_span_admits_a_mode_before_a_later_two_space_key`,
   `a_policy_span_still_skips_ascii_space_and_a_non_ascii_comment`,
-  `a_policy_span_refuses_a_non_ascii_padded_value` and
-  `a_policy_span_trims_ascii_padding`: the
+  `a_policy_span_refuses_a_non_ascii_padded_value`,
+  `a_policy_span_trims_ascii_padding`,
+  `the_hands_row_disabled_is_admitted_only_absent_or_exactly_false`,
+  `the_hands_row_refuses_a_break_or_control_before_its_word`,
+  `the_whole_dump_refuses_a_break_or_control_on_every_line`,
+  `a_non_ascii_padded_name_is_not_trimmed`,
+  `a_mode_after_the_name_closed_the_policy_config_is_refused`,
+  `the_s7_shapes_on_another_row_refuse`,
+  `a_line_before_the_first_row_that_is_not_a_skip_is_refused`,
+  `an_unadmitted_two_space_key_is_refused`,
+  `a_repeated_two_space_key_is_refused`,
+  `a_deeper_line_is_admitted_only_while_a_block_is_open`,
+  `a_one_space_tab_or_column_zero_line_is_refused` and
+  `another_rows_disabled_keeps_its_reading`: the
   #1052 part 1 follow-ups F4, F5 and the composed-mode finding, fix
-  round 1052g2's C1, C2, C4 and C6, fix round 1052g3's F1 to F3, and fix
-  round 1052g4's S1, S2 and S4. Each was made to fail by the removal
-  control recorded in the commit that added it and then restored.
+  round 1052g2's C1, C2, C4 and C6, fix round 1052g3's F1 to F3, fix
+  round 1052g4's S1, S2 and S4, and fix round 1052g5's C1, C2, C3 and
+  the whole-dump row grammar. Each was made to fail by the removal
+  control recorded in the commit that added it and then restored; the
+  class test's controls remove one arm of the break-and-control refusal
+  set at a time, and each removal makes its class's cases fail.
 
 ## A real seat tree, judged (controller, 2026-11-12)
 
