@@ -21,6 +21,7 @@ use super::broker::fold::Begun;
 use super::broker::{admission, observed, settlement, Held, Observed};
 use super::carry::{CarryPlan, CarryRefusal};
 use super::panel::PanelAt;
+use super::sequence::SequenceAt;
 use super::{
     argv_for, arms_effect_gate_head, git_head, phase_of, select_candidates, verify_record, Engine,
     EngineError, Selection, SiteSpawn, RESULTS,
@@ -399,9 +400,7 @@ impl Engine {
                     selection,
                 ),
             ExecutableBody::Sequence { steps } => self.execute_sequence_named(
-                at.effect_id,
-                at.attempt_id,
-                at.site_name,
+                &SequenceAt::new(at.effect_id, at.attempt_id, at.site_name),
                 steps,
                 &input,
                 deadline::AttemptBound::new(deadline, remaining),

@@ -52,6 +52,29 @@ enum StepVerdict<T> {
     Ended,
 }
 
+/// One sequence attempt's identity: the effect, the attempt and the seat
+/// its steps run for, passed as a parameter object so the entry point
+/// stays within ruling 4's seven parameters.
+pub(in crate::engine) struct SequenceAt<'a> {
+    effect_id: &'a str,
+    attempt_id: &'a str,
+    seat_name: &'a str,
+}
+
+impl<'a> SequenceAt<'a> {
+    pub(in crate::engine) fn new(
+        effect_id: &'a str,
+        attempt_id: &'a str,
+        seat_name: &'a str,
+    ) -> Self {
+        Self {
+            effect_id,
+            attempt_id,
+            seat_name,
+        }
+    }
+}
+
 /// One sequence attempt's facts, the same for every step.
 struct SequenceRun<'a> {
     effect_id: &'a str,
@@ -265,9 +288,7 @@ impl Engine {
         let remaining = deadline;
         let deadline = Deadline::unchanged(remaining.as_secs());
         self.execute_sequence_named(
-            effect_id,
-            attempt_id,
-            seat_name,
+            &SequenceAt::new(effect_id, attempt_id, seat_name),
             steps,
             seq_input,
             AttemptBound::new(&deadline, remaining),
@@ -285,21 +306,18 @@ impl Engine {
     /// single typed result — decide() validates it exactly as today. Each
     /// step's outcome names the attempt's deadline where it is built, so
     /// only the step that ends the attempt reaches the terminal words.
-    #[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]
     pub(super) fn execute_sequence_named(
         &mut self,
-        effect_id: &str,
-        attempt_id: &str,
-        seat_name: &str,
+        at: &SequenceAt<'_>,
         steps: &[SequenceStep],
         seq_input: &Value,
         bound: AttemptBound<'_>,
         selection: &Selection,
     ) -> Result<(), EngineError> {
         let run = SequenceRun {
-            effect_id,
-            attempt_id,
-            seat_name,
+            effect_id: at.effect_id,
+            attempt_id: at.attempt_id,
+            seat_name: at.seat_name,
             steps,
             input: seq_input,
             bound,
@@ -307,7 +325,7 @@ impl Engine {
             declares_change: self
                 .bundle
                 .seats
-                .get(seat_name)
+                .get(at.seat_name)
                 .is_some_and(|seat| seat.inputs.iter().any(|input| input == "change")),
         };
         let mut carried = Carried {
