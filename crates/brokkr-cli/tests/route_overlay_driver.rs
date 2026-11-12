@@ -25,6 +25,16 @@ const OVERLAY: &[u8] =
 
 const CONCRETE: &str = "spark-glm/GLM-5.3-Flash-EXL3";
 
+/// Whether this test runs in an engine of its own (#403). Starting an engine
+/// makes the process its attempts' child subreaper, so an in-process engine
+/// would make the whole `it` binary one. The stray orphans other tests leave
+/// on purpose (test_shards' leak stubs) would then stay this binary's
+/// zombies, and read as still running. Each test here re-executes the
+/// binary on its own full path, alone.
+fn own_engine(test: &str) -> bool {
+    brokkr_protocol::process::in_its_own_engine(&format!("route_overlay_driver::{test}"))
+}
+
 fn brokkr_bin() -> &'static str {
     env!("CARGO_BIN_EXE_brokkr")
 }
@@ -261,6 +271,9 @@ fn failure(events: &[brokkr_core::envelope::EventEnvelope]) -> String {
 
 #[test]
 fn a_compiled_declaring_adapter_binds_its_route_overlay_at_the_private_context() {
+    if !own_engine("a_compiled_declaring_adapter_binds_its_route_overlay_at_the_private_context") {
+        return;
+    }
     let (_home, root, bundle) = shim_fixture();
     let _ = run(&root, bundle);
     assert_eq!(
@@ -277,6 +290,10 @@ fn a_compiled_declaring_adapter_binds_its_route_overlay_at_the_private_context()
 /// digest the driver's one read must reproduce.
 #[test]
 fn a_declared_overlay_changed_after_the_compile_still_carries_the_declared_digest() {
+    if !own_engine("a_declared_overlay_changed_after_the_compile_still_carries_the_declared_digest")
+    {
+        return;
+    }
     let (_home, root, bundle) = shim_fixture();
     let declared = sha256_bytes(OVERLAY);
     let changed = b"- id: llm-pi-ai\n  config:\n    providers: {}\n";
@@ -292,6 +309,9 @@ fn a_declared_overlay_changed_after_the_compile_still_carries_the_declared_diges
 
 #[test]
 fn a_changed_declared_overlay_is_refused_by_the_drivers_digest_check() {
+    if !own_engine("a_changed_declared_overlay_is_refused_by_the_drivers_digest_check") {
+        return;
+    }
     let (_home, root, bundle) = real_fixture();
     std::fs::write(
         root.join("adapters/overlays/spark_glm_route.yml"),
@@ -307,6 +327,9 @@ fn a_changed_declared_overlay_is_refused_by_the_drivers_digest_check() {
 
 #[test]
 fn a_library_outside_the_run_tree_refuses_the_start_with_patch_unbound() {
+    if !own_engine("a_library_outside_the_run_tree_refuses_the_start_with_patch_unbound") {
+        return;
+    }
     let home = tempfile::tempdir().unwrap();
     let root = home.path().canonicalize().unwrap();
     let (run_root, library) = (root.join("run"), root.join("library"));
