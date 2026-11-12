@@ -110,7 +110,7 @@ fn the_hands_rows_are_the_measured_overlay_and_the_workspace_server() {
         (Mode::WorkspaceWrite, "workspace-write"),
     ] {
         assert_eq!(
-            hands_rows(mode, "/bin/brokkr", &args).unwrap(),
+            hands_rows(Release::V0_2_1, mode, "/bin/brokkr", &args).unwrap(),
             format!(
                 "{MEASURED_HEAD}{word}\n{}",
                 server_row("/bin/brokkr", &args)
@@ -119,11 +119,16 @@ fn the_hands_rows_are_the_measured_overlay_and_the_workspace_server() {
         );
     }
     assert_eq!(
-        hands_rows(Mode::ReadOnly, "/bin/brokkr", &s(&["a\nb"])),
+        hands_rows(
+            Release::V0_2_1,
+            Mode::ReadOnly,
+            "/bin/brokkr",
+            &s(&["a\nb"])
+        ),
         Err(Refusal::Multiline)
     );
     assert_eq!(
-        hands_rows(Mode::ReadOnly, "/bin/\rbrokkr", &[]),
+        hands_rows(Release::V0_2_1, Mode::ReadOnly, "/bin/\rbrokkr", &[]),
         Err(Refusal::Multiline)
     );
     assert_eq!(
@@ -146,7 +151,13 @@ fn the_writer_the_composition_and_the_report_spell_one_hands_identity() {
     assert_eq!(HANDS_ID, "brokkr-hands");
     assert_eq!(MCP_CLIENT, "@deepseek-ai/dsh-mcp-client");
 
-    let rows = hands_rows(Mode::ReadOnly, "/bin/brokkr", &s(&["hands"])).unwrap();
+    let rows = hands_rows(
+        Release::V0_2_1,
+        Mode::ReadOnly,
+        "/bin/brokkr",
+        &s(&["hands"]),
+    )
+    .unwrap();
     assert!(rows.contains(&format!("- id: {HANDS_ID}\n")), "{rows}");
     assert!(rows.contains(&format!("name: '{MCP_CLIENT}'\n")), "{rows}");
 
@@ -155,7 +166,7 @@ fn the_writer_the_composition_and_the_report_spell_one_hands_identity() {
         name: MCP_CLIENT.to_string(),
         disabled: false,
     };
-    assert_eq!(judge(&[row]), Ok(()));
+    assert_eq!(judge(Release::V0_2_1, &[row]), Ok(()));
     assert_eq!(
         checked(&format!(
             "{HANDS_ID} ({MCP_CLIENT}): Error: initial connection or tool synchronization failed\n"
@@ -255,25 +266,89 @@ fn without(dropped: &str) -> String {
     rows
 }
 
-/// The drift check binds the rows to the releases they were measured on:
-/// any other release, or none readable, is refused by name.
+/// The drift check binds the rows to the releases they were measured on,
+/// each matched whole: any other release, or none readable, is refused by
+/// name, and the refusal names every measured release.
 #[test]
 fn only_a_measured_release_is_served_the_hands_rows() {
+    // Each measured version names its own release exactly: rc.3 is not
+    // classified by the position it happens to hold in the table.
+    for (version, release) in [
+        ("0.2.1-rc.2", Release::V0_2_1),
+        ("0.2.1-rc.3", Release::V0_2_1),
+        ("0.2.2-rc.1", Release::V0_2_2),
+    ] {
+        assert_eq!(measured(Some(version.into())), Ok(release), "{version}");
+    }
+    // Every version the refusal names is named by one variant: a version
+    // appended to the table alone is measured nowhere, never inherited by
+    // the variant it happens to sit beside.
     for version in MEASURED_VERSIONS {
-        assert_eq!(measured(Some(version.to_string())), Ok(()));
+        assert!(Release::named(version).is_some(), "{version}");
     }
     let tail = " is not a dsh release its hands rows were measured on (0.2.1-rc.2, \
-         0.2.1-rc.3), and a tool row nobody measured could stay enabled beside the box, so \
-         the seat is not served its native tools (#896)";
+         0.2.1-rc.3, 0.2.2-rc.1), and a tool row nobody measured could stay enabled beside the \
+         box, so the seat is not served its native tools (#896)";
     let other = measured(Some("0.2.1-rc.4".into())).unwrap_err();
     assert_eq!(
         other.to_string(),
         format!("refusing to invoke the dsh driver: dsh '0.2.1-rc.4'{tail}")
     );
+    // Exact, not a prefix: the release candidate must be named whole.
+    assert_eq!(
+        measured(Some("0.2.2".into())).unwrap_err().to_string(),
+        format!("refusing to invoke the dsh driver: dsh '0.2.2'{tail}")
+    );
     assert_eq!(
         measured(None).unwrap_err().to_string(),
         format!("refusing to invoke the dsh driver: an unreadable dsh version{tail}")
     );
+}
+
+/// The programmatic tool-calling executor is pinned disabled on 0.2.2-rc.1,
+/// and is not a 0.2.1 row at all, so that release's overlay never names it.
+#[test]
+fn the_0_2_2_overlay_disables_the_programmatic_tool_row() {
+    let args = s(&["hands"]);
+    let newer = hands_rows(Release::V0_2_2, Mode::ReadOnly, "/bin/brokkr", &args).unwrap();
+    assert!(
+        newer.contains("- id: tool-executor-ptc\n  disabled: true\n"),
+        "{newer}"
+    );
+    let older = hands_rows(Release::V0_2_1, Mode::ReadOnly, "/bin/brokkr", &args).unwrap();
+    assert!(!older.contains(PTC_ROW), "{older}");
+    assert!(disabled(Release::V0_2_2, PTC_ROW));
+    assert!(!disabled(Release::V0_2_1, PTC_ROW));
+}
+
+/// 0.2.2-rc.1 is a measured release, and a seat on it is served its own
+/// overlay: the ten common rows, the sandbox, the pinned programmatic
+/// executor, and Brokkr's server.
+#[cfg(unix)]
+#[test]
+fn a_0_2_2_release_is_measured_and_its_seat_is_served_its_rows() {
+    assert_eq!(measured(Some("0.2.2-rc.1".into())), Ok(Release::V0_2_2));
+    let dir = tempfile::tempdir().unwrap();
+    let workdir = dir.path().to_str().unwrap();
+    let facts = GitFacts::default();
+    let dsh = dsh_version_shim(dir.path(), "dsh", "0.2.2-rc.1");
+    let brokkr = std::env::current_exe().unwrap();
+    let brokkr = brokkr.to_str().unwrap();
+    let input = sealed(SealedBoundary::Namespace, Some("read-only"));
+    let selection = sandbox(dsh.to_str().unwrap(), workdir, &facts, &input).unwrap();
+    let server = server_row(brokkr, &bound(workdir));
+    assert_eq!(
+        selection.rows(),
+        Some(
+            format!(
+                "{MEASURED_HEAD}read-only\n- id: tool-executor-ptc\n  disabled: true\n{server}"
+            )
+            .as_str()
+        )
+    );
+    let (staged, mode) = selection.into_parts();
+    assert!(staged.is_none());
+    assert_eq!(mode, Some(Mode::ReadOnly));
 }
 
 /// A read-only office runs dsh's sandbox read-only and a writing office
@@ -431,7 +506,13 @@ fn a_dsh_launch_carries_the_hands_rows_only_where_its_office_declares_them() {
 /// `transport` never started on 0.2.1-rc.2 and dsh said nothing.
 #[test]
 fn the_workspace_server_row_carries_the_measured_transport_and_startup_policy() {
-    let rows = hands_rows(Mode::ReadOnly, "/bin/brokkr", &s(&["hands"])).unwrap();
+    let rows = hands_rows(
+        Release::V0_2_1,
+        Mode::ReadOnly,
+        "/bin/brokkr",
+        &s(&["hands"]),
+    )
+    .unwrap();
     let server = rows
         .split("- insert:")
         .nth(1)
@@ -768,7 +849,7 @@ fn the_composed_tree_is_the_measured_dump_and_refuses_an_ambient_row() {
     assert_eq!(parsed.len(), 99);
     // The measured dump itself is admitted: every effectful row is disabled
     // and the one MCP client is Brokkr's.
-    assert_eq!(judge(&parsed), Ok(()));
+    assert_eq!(judge(Release::V0_2_1, &parsed), Ok(()));
 
     let base = "- id: brokkr-hands\n  name: '@deepseek-ai/dsh-mcp-client'\n";
     let cases = [
@@ -777,6 +858,7 @@ fn the_composed_tree_is_the_measured_dump_and_refuses_an_ambient_row() {
             Some(Composition::Unmeasured {
                 id: "ambient-tool".into(),
                 name: "@deepseek-ai/dsh-tool-bash".into(),
+                release: "0.2.1-rc.2",
             }),
         ),
         (
@@ -801,12 +883,190 @@ fn the_composed_tree_is_the_measured_dump_and_refuses_an_ambient_row() {
     ];
     for (dump, expected) in cases {
         assert_eq!(
-            judge(&rows(dump.as_bytes()).unwrap()).err(),
+            judge(Release::V0_2_1, &rows(dump.as_bytes()).unwrap()).err(),
             expected,
             "{dump}"
         );
     }
     assert_eq!(rows(b"not a dump\n").err(), Some(Composition::Unreadable));
+}
+
+/// 0.2.2-rc.1's measured composition is its own set: 0.2.1's 99, less the
+/// removed list-agents row, plus its native and programmatic executors. The
+/// programmatic row is disabled by default; the native one is enabled.
+#[cfg(unix)]
+#[test]
+fn the_0_2_2_measured_composition_is_admitted() {
+    use super::composition::{judge, rows, ADDED_0_2_2, REMOVED_0_2_2};
+
+    assert_eq!(
+        ADDED_0_2_2,
+        [
+            (
+                "tool-executor-native",
+                "@deepseek-ai/dsh-tool-executor-native"
+            ),
+            ("tool-executor-ptc", "@deepseek-ai/dsh-tool-executor-ptc"),
+        ]
+    );
+    assert_eq!(
+        REMOVED_0_2_2,
+        [(
+            "tool-subagent-list-agents",
+            "@deepseek-ai/dsh-tool-subagent-control/list-agents",
+        )]
+    );
+    let parsed = rows(measured_dump_0_2_2().as_bytes()).unwrap();
+    assert_eq!(parsed.len(), 100);
+    assert!(parsed
+        .iter()
+        .any(|row| row.id == "tool-executor-native" && !row.disabled));
+    assert!(parsed
+        .iter()
+        .any(|row| row.id == "tool-executor-ptc" && row.disabled));
+    assert!(!parsed
+        .iter()
+        .any(|row| row.id == "tool-subagent-list-agents"));
+    assert_eq!(judge(Release::V0_2_2, &parsed), Ok(()));
+}
+
+/// A 0.2.2-rc.1 tree carrying 0.2.1's removed row is refused by its id and
+/// package: each release admits only its own measured set.
+#[cfg(unix)]
+#[test]
+fn a_0_2_2_tree_carrying_the_removed_row_is_refused() {
+    use super::composition::{judge, rows, Composition};
+
+    let mut dump = measured_dump_0_2_2();
+    dump.push_str(
+        "- id: tool-subagent-list-agents\n  \
+         name: '@deepseek-ai/dsh-tool-subagent-control/list-agents'\n",
+    );
+    assert_eq!(
+        judge(Release::V0_2_2, &rows(dump.as_bytes()).unwrap()).err(),
+        Some(Composition::Unmeasured {
+            id: "tool-subagent-list-agents".into(),
+            name: "@deepseek-ai/dsh-tool-subagent-control/list-agents".into(),
+            release: "0.2.2-rc.1",
+        })
+    );
+}
+
+/// A 0.2.1 tree carrying either 0.2.2-rc.1 executor row is refused: the
+/// 0.2.1 set is the measured 99 and nothing another release added.
+#[cfg(unix)]
+#[test]
+fn a_0_2_1_tree_carrying_an_executor_row_is_refused() {
+    use super::composition::{judge, rows, Composition};
+
+    for (id, name) in [
+        (
+            "tool-executor-native",
+            "@deepseek-ai/dsh-tool-executor-native",
+        ),
+        ("tool-executor-ptc", "@deepseek-ai/dsh-tool-executor-ptc"),
+    ] {
+        let mut dump = measured_dump();
+        dump.push_str(&format!("- id: {id}\n  name: '{name}'\n"));
+        assert_eq!(
+            judge(Release::V0_2_1, &rows(dump.as_bytes()).unwrap()).err(),
+            Some(Composition::Unmeasured {
+                id: id.into(),
+                name: name.into(),
+                release: "0.2.1-rc.2",
+            }),
+            "{id}"
+        );
+    }
+}
+
+/// An unmeasured row is still refused on 0.2.2-rc.1, by its id and
+/// package.
+#[cfg(unix)]
+#[test]
+fn an_unmeasured_row_is_refused_on_0_2_2() {
+    use super::composition::{judge, rows, Composition};
+
+    let mut dump = measured_dump_0_2_2();
+    dump.push_str("- id: ambient-tool\n  name: '@deepseek-ai/dsh-tool-bash'\n");
+    assert_eq!(
+        judge(Release::V0_2_2, &rows(dump.as_bytes()).unwrap()).err(),
+        Some(Composition::Unmeasured {
+            id: "ambient-tool".into(),
+            name: "@deepseek-ai/dsh-tool-bash".into(),
+            release: "0.2.2-rc.1",
+        })
+    );
+}
+
+/// A 0.2.2-rc.1 tree whose programmatic executor is left enabled is
+/// refused by its id: the gate is the check that a profile which enables
+/// the code-running executor cannot survive the overlay.
+#[cfg(unix)]
+#[test]
+fn a_0_2_2_tree_with_the_programmatic_executor_enabled_is_refused() {
+    use super::composition::{judge, rows, Composition};
+
+    let mut parsed = rows(measured_dump_0_2_2().as_bytes()).unwrap();
+    let ptc = parsed
+        .iter_mut()
+        .find(|row| row.id == PTC_ROW)
+        .expect("the measured 0.2.2 set names the programmatic executor");
+    assert!(ptc.disabled, "the fixture starts with the row disabled");
+    ptc.disabled = false;
+    assert_eq!(
+        judge(Release::V0_2_2, &parsed).err(),
+        Some(Composition::Enabled {
+            id: "tool-executor-ptc".into(),
+        })
+    );
+}
+
+/// The launch's composed-tree gate reads the release its own binary
+/// answers, so the same dump is judged against that release's set: 0.2.2's
+/// dump is admitted under 0.2.2 and refused under 0.2.1, and an unmeasured
+/// release's dump is read and then refused against no set.
+#[cfg(unix)]
+#[test]
+fn the_composition_gate_keys_on_the_release_it_reads() {
+    use super::composition::Composition;
+
+    let dir = tempfile::tempdir().unwrap();
+    let dump = dir.path().join("dump.yml");
+    std::fs::write(&dump, measured_dump_0_2_2()).unwrap();
+    let shim = |version: &str| {
+        super::super::tests::executable(
+            dir.path(),
+            &format!("dsh-{version}"),
+            &format!(
+                "#!/bin/sh\ncase \"$1\" in --version|-V|-v) printf '{version}\\n'; exit 0 ;; \
+                 esac\ncat '{}'\n",
+                dump.display()
+            ),
+        )
+    };
+    let gate = |version: &str| {
+        let mut command = std::process::Command::new(shim(version));
+        command.arg("--dump-config");
+        composition_gate(command)
+    };
+    assert_eq!(gate("0.2.2-rc.1"), Ok(()));
+    assert_eq!(
+        gate("0.2.1-rc.2").err(),
+        Some(Composition::Unmeasured {
+            id: "tool-executor-native".into(),
+            name: "@deepseek-ai/dsh-tool-executor-native".into(),
+            release: "0.2.1-rc.2",
+        })
+    );
+    let unknown = gate("0.3.0").unwrap_err();
+    assert_eq!(unknown, Composition::UnknownRelease);
+    assert_eq!(
+        unknown.to_string(),
+        "refusing to invoke the dsh driver: the composed dsh tree's release cannot be read as \
+         one the hands rows were measured on (0.2.1-rc.2, 0.2.1-rc.3, 0.2.2-rc.1), so the seat \
+         is admitted on no measured composition (#896 D1)"
+    );
 }
 
 /// A fake dsh that records the environment and directory it was handed,
@@ -1233,6 +1493,7 @@ fn the_composed_tree_judge_refuses_by_its_full_words() {
             Composition::Unmeasured {
                 id: "ambient".into(),
                 name: "@deepseek-ai/dsh-ambient".into(),
+                release: "0.2.1-rc.2",
             },
             "refusing to invoke the dsh driver: the composed dsh tree carries row 'ambient' of \
              package '@deepseek-ai/dsh-ambient', which the measured hands composition (dsh \
@@ -1281,13 +1542,16 @@ fn the_composed_tree_judge_refuses_by_its_full_words() {
         ),
     ];
     for (dump, expected, text) in cases {
-        let refusal = judge(&rows(dump.as_bytes()).unwrap()).unwrap_err();
+        let refusal = judge(Release::V0_2_1, &rows(dump.as_bytes()).unwrap()).unwrap_err();
         assert_eq!(refusal, expected, "{dump}");
         assert_eq!(refusal.to_string(), text, "{dump}");
     }
     let admitted =
         format!("{hands}- id: tool-bash\n  name: '@deepseek-ai/dsh-tool-bash'\n  disabled: true\n");
-    assert_eq!(judge(&rows(admitted.as_bytes()).unwrap()), Ok(()));
+    assert_eq!(
+        judge(Release::V0_2_1, &rows(admitted.as_bytes()).unwrap()),
+        Ok(())
+    );
 }
 
 /// The reader refuses a row it cannot read as one id and one name, printing
@@ -1316,7 +1580,7 @@ fn the_composed_tree_check_refuses_a_failed_or_oversized_dump() {
     use std::process::{Command, ExitStatus, Output};
 
     let run = |status: ExitStatus, stdout: Vec<u8>| {
-        composed_with(Command::new("dsh"), |_| {
+        composed_with(Command::new("dsh"), Some(Release::V0_2_1), |_| {
             Ok(Output {
                 status,
                 stdout,
@@ -1382,13 +1646,35 @@ const SPARK_GLM_ROUTE: &str = "\
 /// The measured 99 rows as `--dump-config` writes them, with the ten
 /// effectful rows disabled, so the composed-tree gate reads the measured
 /// composition.
-#[cfg(target_os = "linux")]
+#[cfg(unix)]
 fn measured_dump() -> String {
     use super::composition::MEASURED_COMPOSITION;
     MEASURED_COMPOSITION
         .iter()
         .map(|(id, name)| {
-            let disabled = super::DISABLED_ROWS.contains(id);
+            let disabled = super::disabled(Release::V0_2_1, id);
+            format!(
+                "- id: {id}\n  name: '{name}'\n{}",
+                if disabled { "  disabled: true\n" } else { "" }
+            )
+        })
+        .collect()
+}
+
+/// 0.2.2-rc.1's measured 100 rows as `--dump-config` writes them: 0.2.1's
+/// set less its removed row, plus the two executors, with every effectful
+/// row that release's overlay disables marked disabled.
+#[cfg(unix)]
+fn measured_dump_0_2_2() -> String {
+    use super::composition::{ADDED_0_2_2, MEASURED_COMPOSITION, REMOVED_0_2_2};
+    let mut rows: Vec<(&str, &str)> = MEASURED_COMPOSITION
+        .into_iter()
+        .filter(|row| !REMOVED_0_2_2.contains(row))
+        .collect();
+    rows.extend(ADDED_0_2_2);
+    rows.iter()
+        .map(|(id, name)| {
+            let disabled = super::disabled(Release::V0_2_2, id);
             format!(
                 "- id: {id}\n  name: '{name}'\n{}",
                 if disabled { "  disabled: true\n" } else { "" }

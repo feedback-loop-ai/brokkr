@@ -3,20 +3,24 @@
 //!
 //! `dsh --profile headless --patch <the seat's overlay> --dump-config` runs
 //! under the seat's own environment and home (0.06–0.07 s, about 64 MB, no
-//! model call). Every row it names must be one the controller measured on
-//! 0.2.1-rc.2 (`docs/evidence/adapters/dsh-hands-round2/dump-stdio.txt`),
-//! and the one `dsh-mcp-client` row must be Brokkr's `brokkr-hands`. An
-//! extra row — an operator home's own `dsh-mcp-client` insert or any
-//! `dsh-tool-*` a profile patch adds — refuses by its id and package, and
-//! so does a second MCP client, a repeated id, a hands row left disabled or
-//! a dump that cannot be read. A hands seat is never served a composition
-//! nobody measured.
+//! model call). Every row it names must be one the controller measured for
+//! the release it observed: the 99 rows of 0.2.1-rc.2 and rc.3
+//! (`docs/evidence/adapters/dsh-hands-round2/dump-stdio.txt`), or
+//! 0.2.2-rc.1's 100, that set minus `tool-subagent-list-agents` and plus
+//! `tool-executor-native` and `tool-executor-ptc`
+//! (`docs/evidence/adapters/dsh-hands-0-2-2.md`). The one
+//! `dsh-mcp-client` row must be Brokkr's `brokkr-hands`. An extra row — an
+//! operator home's own `dsh-mcp-client` insert, any `dsh-tool-*` a profile
+//! patch adds, or another measured release's row — refuses by its id and
+//! package, and so does a second MCP client, a repeated id, a hands row
+//! left disabled or a dump that cannot be read. A hands seat is never
+//! served a composition nobody measured.
 
 use std::process::{Command, Stdio};
 
 use thiserror::Error;
 
-use super::{HANDS_ID, MCP_CLIENT};
+use super::{Release, HANDS_ID, MCP_CLIENT};
 
 /// A dump larger than this is not the measured shape, and is refused
 /// before it is parsed.
@@ -27,10 +31,21 @@ const MAX_DUMP_BYTES: usize = 1 << 20;
 pub(crate) enum Composition {
     #[error(
         "refusing to invoke the dsh driver: the composed dsh tree carries row '{id}' of package \
-         '{name}', which the measured hands composition (dsh 0.2.1-rc.2) does not name, so a \
+         '{name}', which the measured hands composition (dsh {release}) does not name, so a \
          seat would be served a row nobody measured (#896 D1)"
     )]
-    Unmeasured { id: String, name: String },
+    Unmeasured {
+        id: String,
+        name: String,
+        release: &'static str,
+    },
+    #[error(
+        "refusing to invoke the dsh driver: the composed dsh tree's release cannot be read as \
+         one the hands rows were measured on ({}), so the seat is admitted on no measured \
+         composition (#896 D1)",
+        super::MEASURED_VERSIONS.join(", ")
+    )]
+    UnknownRelease,
     #[error(
         "refusing to invoke the dsh driver: the composed dsh tree carries no '{HANDS_ID}' row, \
          so the seat's one effectful tool would not be served (#896 D1)"
@@ -79,14 +94,28 @@ pub(crate) struct Row {
     pub(crate) disabled: bool,
 }
 
-/// Judge what `run` makes of `command`. `run` is the one substitutable
-/// function — a closure seam (decision 0071 ruling 10) — so a test reads
-/// the exact argv and environment the seat's tree is composed under, and
-/// feeds rows to judge, without spawning anything. The command itself is
-/// built by the one spawn builder, so the probe and the session share
-/// their working directory, environment, secret bindings and removals.
+/// The release the composed tree's own binary answers, through the same
+/// bounded `--version` probe the launch used. The gate reads it again
+/// rather than threading it through the launch's mode carrier, which is
+/// outside this unit's files. An unreadable answer is no release; the gate
+/// still runs the dump first, so a driver the probe cannot start keeps
+/// today's unreadable-tree refusal.
+pub(super) fn release(command: &Command) -> Option<Release> {
+    let program = command.get_program().to_string_lossy().into_owned();
+    let observed = super::super::observed_version(&[program, "--version".to_string()]);
+    observed.as_deref().and_then(Release::named)
+}
+
+/// Judge what `run` makes of `command` under `release`. `run` is the one
+/// substitutable function — a closure seam (decision 0071 ruling 10) — so
+/// a test reads the exact argv and environment the seat's tree is composed
+/// under, and feeds rows to judge, without spawning anything. The command
+/// itself is built by the one spawn builder, so the probe and the session
+/// share their working directory, environment, secret bindings and
+/// removals.
 pub(super) fn composed_with(
     mut command: Command,
+    release: Option<Release>,
     run: impl FnOnce(&mut Command) -> std::io::Result<std::process::Output>,
 ) -> Result<(), Composition> {
     command
@@ -105,7 +134,8 @@ pub(super) fn composed_with(
     if output.stdout.len() > MAX_DUMP_BYTES {
         return Err(Composition::Unreadable);
     }
-    judge(&rows(&output.stdout)?)
+    let rows = rows(&output.stdout)?;
+    judge(release.ok_or(Composition::UnknownRelease)?, &rows)
 }
 
 /// Every row of a `--dump-config` sequence. dsh writes `- id:` at column
@@ -166,8 +196,8 @@ fn unquote(value: &str) -> String {
     }
 }
 
-/// Judge the rows against the measured composition.
-pub(crate) fn judge(rows: &[Row]) -> Result<(), Composition> {
+/// Judge the rows against `release`'s measured composition.
+pub(crate) fn judge(release: Release, rows: &[Row]) -> Result<(), Composition> {
     let mut seen: Vec<&str> = Vec::new();
     for row in rows {
         if seen.contains(&row.id.as_str()) {
@@ -181,13 +211,14 @@ pub(crate) fn judge(rows: &[Row]) -> Result<(), Composition> {
             if row.disabled {
                 return Err(Composition::HandsDisabled { id: row.id.clone() });
             }
-        } else if !MEASURED_COMPOSITION.contains(&(row.id.as_str(), row.name.as_str())) {
+        } else if !measured(release, &row.id, &row.name) {
             return Err(Composition::Unmeasured {
                 id: row.id.clone(),
                 name: row.name.clone(),
+                release: release.label(),
             });
         }
-        if super::DISABLED_ROWS.contains(&row.id.as_str()) && !row.disabled {
+        if super::disabled(release, &row.id) && !row.disabled {
             return Err(Composition::Enabled { id: row.id.clone() });
         }
     }
@@ -197,6 +228,42 @@ pub(crate) fn judge(rows: &[Row]) -> Result<(), Composition> {
     }
 }
 
+/// Whether `(id, name)` is one of `release`'s measured top-level rows.
+/// 0.2.2-rc.1's set is 0.2.1's 99 minus the removed row and plus the two
+/// executor rows; the delta tables keep the 99 measured once (decision
+/// 0071 ruling 5).
+fn measured(release: Release, id: &str, name: &str) -> bool {
+    match release {
+        Release::V0_2_1 => MEASURED_COMPOSITION.contains(&(id, name)),
+        Release::V0_2_2 => {
+            ADDED_0_2_2.contains(&(id, name))
+                || (MEASURED_COMPOSITION.contains(&(id, name))
+                    && !REMOVED_0_2_2.contains(&(id, name)))
+        }
+    }
+}
+
+/// The rows 0.2.2-rc.1 adds to 0.2.1's measured set (2026-11-11): its
+/// native tool executor, enabled, and the programmatic tool-calling
+/// executor, disabled by default.
+pub(crate) const ADDED_0_2_2: [(&str, &str); 2] = [
+    (
+        "tool-executor-native",
+        "@deepseek-ai/dsh-tool-executor-native",
+    ),
+    ("tool-executor-ptc", "@deepseek-ai/dsh-tool-executor-ptc"),
+];
+
+/// The one 0.2.1 measured row 0.2.2-rc.1 no longer carries.
+pub(crate) const REMOVED_0_2_2: [(&str, &str); 1] = [(
+    "tool-subagent-list-agents",
+    "@deepseek-ai/dsh-tool-subagent-control/list-agents",
+)];
+
+/// The 99 top-level rows measured on 0.2.1-rc.2 and rc.3, in the
+/// controller's dump order (`dsh-hands-round2/dump-stdio.txt`). The
+/// 0.2.2-rc.1 set is this table minus [`REMOVED_0_2_2`] plus
+/// [`ADDED_0_2_2`].
 pub(crate) const MEASURED_COMPOSITION: [(&str, &str); 99] = [
     (
         "tool-plugin-manager",
