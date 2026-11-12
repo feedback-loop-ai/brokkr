@@ -19,6 +19,7 @@
 
 use super::tests::{bundle, single_body};
 use super::*;
+use crate::engine::dispatch::deadline::{AttemptBound, Deadline};
 use brokkr_core::fold::Status;
 use brokkr_store::StoreError;
 
@@ -1067,7 +1068,7 @@ fn a_member_checkpointing_after_a_peers_refusal_parks_the_panel() {
             &members,
             Aggregate::UnanimousPass,
             &input,
-            deadline,
+            AttemptBound::new(&Deadline::seat(deadline.as_secs()), deadline),
             &Selection::new(),
         )
         .unwrap();

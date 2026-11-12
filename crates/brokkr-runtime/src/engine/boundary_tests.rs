@@ -11,6 +11,8 @@ use super::tests::{
 use super::*;
 use crate::agents::{Adapters, Availability, HarnessHands, Library, ResultDoor};
 use crate::bundle::{HandsState, McpIntent, SiteFacts};
+use crate::engine::dispatch::deadline::{AttemptBound, Deadline};
+use crate::engine::sequence::SequenceAt;
 use crate::realms::World;
 use brokkr_core::canonical::sha256_bytes;
 use brokkr_protocol::hands::network_prefix;
@@ -3525,12 +3527,10 @@ fn a_panels_members_and_a_sequences_steps_carry_their_own_word() {
     });
     engine
         .execute_sequence(
-            "effect",
-            "attempt",
-            "work",
+            &SequenceAt::new("effect", "attempt", "work"),
             &steps,
             &input,
-            std::time::Duration::from_secs(5),
+            AttemptBound::new(&Deadline::seat(5), std::time::Duration::from_secs(5)),
             &Selection::new(),
         )
         .unwrap();
@@ -4111,12 +4111,10 @@ fn a_sequence_panel_cannot_continue_when_its_member_marker_cannot_be_journaled()
     super::tests::fail_event(&dir.path().join("forge.db"), "panel-member-finished");
     let error = engine
         .execute_sequence(
-            "effect",
-            "attempt",
-            "work",
+            &SequenceAt::new("effect", "attempt", "work"),
             &steps,
             &input,
-            std::time::Duration::from_secs(5),
+            AttemptBound::new(&Deadline::seat(5), std::time::Duration::from_secs(5)),
             &Selection::new(),
         )
         .unwrap_err();

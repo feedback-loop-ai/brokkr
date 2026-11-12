@@ -10,6 +10,7 @@
 //! use.
 
 use super::*;
+use crate::engine::dispatch::deadline::{AttemptBound, Deadline};
 use brokkr_protocol::adapters::capability_calls::{Format, Observation, Tool, OBSERVATION_KEY};
 
 const DEADLINE: std::time::Duration = std::time::Duration::from_secs(10);
@@ -421,7 +422,7 @@ fn a_panel_member_is_attributed_by_its_own_holding_never_its_siblings() {
             &members,
             aggregate,
             &input,
-            DEADLINE,
+            AttemptBound::new(&Deadline::seat(DEADLINE.as_secs()), DEADLINE),
             &selection,
         )
         .unwrap();

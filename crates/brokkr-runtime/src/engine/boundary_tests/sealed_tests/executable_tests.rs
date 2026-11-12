@@ -11,6 +11,8 @@ use super::super::*;
 use super::REACH;
 use crate::argv::Executable;
 use crate::engine::boxed::Unnamed;
+use crate::engine::dispatch::deadline::{AttemptBound, Deadline};
+use crate::engine::sequence::SequenceAt;
 
 fn strings(parts: &[&str]) -> Vec<String> {
     parts.iter().map(|part| part.to_string()).collect()
@@ -164,12 +166,10 @@ fn dialect_step_through(
     let at = ("effect", "attempt", "work");
     engine
         .execute_sequence(
-            at.0,
-            at.1,
-            at.2,
+            &SequenceAt::new(at.0, at.1, at.2),
             &[step],
             &input,
-            deadline,
+            AttemptBound::new(&Deadline::seat(deadline.as_secs()), deadline),
             &Selection::new(),
         )
         .unwrap();

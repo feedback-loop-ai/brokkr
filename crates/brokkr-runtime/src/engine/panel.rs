@@ -25,8 +25,6 @@ use super::carry::{
 };
 use super::cooldown::refused_members;
 use super::dispatch::deadline::AttemptBound;
-#[cfg(test)]
-use super::dispatch::deadline::Deadline;
 use super::{
     argv_for, checkpoints, copy_secret_binding_facts, failed_to_start, resume, spawn_site,
     stamp_boundary, start_failure_fields, tag_member, Calls, Checkpoints, Door, DriverRun, Engine,
@@ -58,31 +56,6 @@ impl<'a> PanelAt<'a> {
 }
 
 impl Engine {
-    /// A panel run directly by a test, on a bare bound with no deadline
-    /// source to name. Dispatch reaches [`Self::execute_panel_named`] with
-    /// the attempt's own bound.
-    #[cfg(test)]
-    pub(super) fn execute_panel(
-        &mut self,
-        at: &PanelAt<'_>,
-        members: &[PanelMember],
-        aggregate: Aggregate,
-        panel_input: &Value,
-        deadline: std::time::Duration,
-        selection: &Selection,
-    ) -> Result<(), EngineError> {
-        let remaining = deadline;
-        let deadline = Deadline::seat(remaining.as_secs());
-        self.execute_panel_named(
-            at,
-            members,
-            aggregate,
-            panel_input,
-            AttemptBound::new(&deadline, remaining),
-            selection,
-        )
-    }
-
     /// Run a parallel panel INSIDE one effect (decision 0002): members
     /// execute concurrently, join as a barrier in declared order, each
     /// member's outcome is journaled as checkpoint evidence, and the
@@ -91,7 +64,7 @@ impl Engine {
     /// attempt indeterminate (park); otherwise any failed member fails
     /// the attempt (retryable under 0006). A panel's terminal words name
     /// the attempt's deadline once, at the joined outcome.
-    pub(super) fn execute_panel_named(
+    pub(super) fn execute_panel(
         &mut self,
         at: &PanelAt<'_>,
         members: &[PanelMember],

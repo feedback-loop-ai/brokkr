@@ -7,6 +7,7 @@ use brokkr_core::envelope::EventType;
 use brokkr_protocol::AttemptOutcome;
 use serde_json::{json, Value};
 
+use crate::engine::dispatch::deadline::{AttemptBound, Deadline};
 use crate::engine::tests::{checkpointing_command, engine, member, panel_input, single_body};
 use crate::engine::{Aggregate, DriverRun, Engine, Selection, SiteSpawn};
 
@@ -102,7 +103,7 @@ fn a_panel_member_cannot_journal_capability_call_attribution() {
         &members,
         aggregate,
         &input,
-        DEADLINE,
+        AttemptBound::new(&Deadline::seat(DEADLINE.as_secs()), DEADLINE),
         &selection,
     );
     panel.unwrap();

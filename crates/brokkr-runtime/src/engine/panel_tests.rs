@@ -1,5 +1,6 @@
 //! The unanimous panel invocation shared by terminal and storage tests.
 use super::*;
+use crate::engine::dispatch::deadline::{AttemptBound, Deadline};
 
 pub(super) fn unanimous(
     engine: &mut Engine,
@@ -13,7 +14,10 @@ pub(super) fn unanimous(
         members,
         Aggregate::UnanimousPass,
         input,
-        std::time::Duration::from_secs(seconds),
+        AttemptBound::new(
+            &Deadline::seat(seconds),
+            std::time::Duration::from_secs(seconds),
+        ),
         &Selection::new(),
     )
 }

@@ -6,9 +6,6 @@
 //! attempt go on or journals its terminal event and ends it:
 //! [`StepVerdict`] is that answer, matched at every stage.
 
-#[cfg(test)]
-use std::time::Duration;
-
 use brokkr_core::envelope::EventType;
 use brokkr_core::realms::Boundary;
 use brokkr_protocol::AttemptOutcome;
@@ -21,8 +18,6 @@ use super::carry::{
 };
 use super::cooldown::{refused_members, RefusedMember};
 use super::dispatch::deadline::AttemptBound;
-#[cfg(test)]
-use super::dispatch::deadline::Deadline;
 use super::{
     copy_secret_binding_facts, failed_to_start, git_head, stamp_boundary, start_failure_fields,
     start_failure_sites, DriverRun, Engine, EngineError, Indeterminate, Selection, Site, Unproven,
@@ -270,32 +265,6 @@ impl SequenceRun<'_> {
 }
 
 impl Engine {
-    /// A sequence run directly by a test, on a bare bound with no deadline
-    /// source to name. Dispatch reaches [`Self::execute_sequence_named`]
-    /// with the attempt's own bound.
-    #[cfg(test)]
-    #[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]
-    pub(super) fn execute_sequence(
-        &mut self,
-        effect_id: &str,
-        attempt_id: &str,
-        seat_name: &str,
-        steps: &[SequenceStep],
-        seq_input: &Value,
-        deadline: Duration,
-        selection: &Selection,
-    ) -> Result<(), EngineError> {
-        let remaining = deadline;
-        let deadline = Deadline::seat(remaining.as_secs());
-        self.execute_sequence_named(
-            &SequenceAt::new(effect_id, attempt_id, seat_name),
-            steps,
-            seq_input,
-            AttemptBound::new(&deadline, remaining),
-            selection,
-        )
-    }
-
     /// Run named steps one after another INSIDE one attempt (decision
     /// 0002's serial form). Per-step driver inputs are derived
     /// deterministically from the requested-time seat input; earlier
@@ -306,7 +275,7 @@ impl Engine {
     /// single typed result — decide() validates it exactly as today. Each
     /// step's outcome names the attempt's deadline where it is built, so
     /// only the step that ends the attempt reaches the terminal words.
-    pub(super) fn execute_sequence_named(
+    pub(super) fn execute_sequence(
         &mut self,
         at: &SequenceAt<'_>,
         steps: &[SequenceStep],
