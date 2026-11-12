@@ -792,7 +792,7 @@ Usage: brokkr evidence retire [OPTIONS] --root <ROOT> --reason <REASON> <--archi
 | Argument | Default | Selector | Description |
 | --- | --- | --- | --- |
 | `--root <ROOT>` |  |  | The artifact root the historical record names, as `evidence list` prints it |
-| `--archived-to <ARCHIVED_TO>` |  |  | Archive every artifact into this absent or empty directory, write the inventory last, and keep the root. The destination is resolved by the filesystem, so a link is followed before `..`, and it must resolve outside the coordination root and the root being retired; the resolved path is the one recorded |
+| `--archived-to <ARCHIVED_TO>` |  |  | Archive every artifact into this absent or empty directory, write the inventory last, and keep the root. The destination is resolved by the filesystem, so a link is followed before `..`, and it must resolve outside the coordination root and the root being retired; the resolved path is the one recorded. A root that does not stand cannot be archived: `--discarded` is the record for an absent root |
 | `--discarded` |  |  | Discard the evidence: remove the artifact root by a walk that follows no link and crosses no filesystem |
 | `--reason <REASON>` |  |  | Why the operator retires it, in their words |
 | `--json` |  |  | Print the retirement as JSON |

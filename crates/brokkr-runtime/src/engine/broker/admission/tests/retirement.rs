@@ -28,6 +28,15 @@ fn historical_root(host: &Host, work: &Path, ids: [&str; 2]) -> PathBuf {
     artifacts(work)
 }
 
+/// The host's `kept` worktree, and its historical root made absent: the
+/// artifact root its record names is removed.
+fn absent_root(host: &Host) -> (PathBuf, PathBuf) {
+    let kept = host.worktree("kept");
+    let root = historical_root(host, &kept, ["run-a", "a1"]);
+    std::fs::remove_dir(&root).unwrap();
+    (kept, root)
+}
+
 /// The retirement request for `root` with `action`.
 /// An unboxed writer of another worktree refused by the historical root
 /// `host` holds.
@@ -74,6 +83,27 @@ fn archive(host: &Host, root: &Path, to: &Path) -> Result<evidence::Retirement, 
 /// The refusal archiving `root` into `to` earns in `host`.
 fn archive_refused(host: &Host, root: &Path, to: &Path) -> EvidenceError {
     archive(host, root, to).expect_err("the archive must refuse")
+}
+
+/// The root an `Absent` refusal names, archiving `root` into `to` in
+/// `host`; any other answer is a failure.
+fn absent_refused(host: &Host, root: &Path, to: &Path) -> PathBuf {
+    match archive(host, root, to) {
+        Err(EvidenceError::Absent(at)) => at,
+        other => panic!("an absent root cannot be archived: {other:?}"),
+    }
+}
+
+/// Archive the absent `root` into a fresh destination and assert the
+/// refusal wrote nothing and sealed no retirement for the worktree `kept`.
+fn a_refused_absent_archive_writes_nothing(host: &Host, kept: &Path, root: &Path) {
+    let to = host.dir.path().join("archive");
+    assert_eq!(absent_refused(host, root, &to), root);
+    assert!(!to.exists(), "nothing was written");
+    assert!(
+        !retirement_path(host, kept, "run-a", root).exists(),
+        "no retirement was sealed"
+    );
 }
 
 /// Two digest-named artifacts under `root`, and what they hold.
@@ -229,6 +259,123 @@ fn discarding_a_root_removes_it_and_records_an_absent_one() {
         !gone.exists(),
         "an already-absent root is recorded as absent"
     );
+}
+
+/// Ruling 2/1020b: an absent root cannot be archived; `--discarded` is its
+/// record, and nothing is written at the destination.
+#[test]
+fn archiving_an_absent_root_refuses_and_writes_nothing() {
+    let host = Host::new();
+    let (kept, root) = absent_root(&host);
+    a_refused_absent_archive_writes_nothing(&host, &kept, &root);
+}
+
+/// Ruling 2/1020b: the chief's `kept/.forge` case — the destination is the
+/// absent root's own parent — refuses the archive as well, so no empty
+/// archive is written there.
+#[test]
+fn archiving_an_absent_root_into_its_own_parent_refuses_and_writes_nothing() {
+    let host = Host::new();
+    let (kept, root) = absent_root(&host);
+    let to = root.parent().unwrap().to_path_buf();
+    assert_eq!(absent_refused(&host, &root, &to), root);
+    assert!(!to.join("inventory.json").exists(), "no inventory");
+    assert!(!to.join(DIGESTS).exists(), "no empty archive");
+    assert!(!retirement_path(&host, &kept, "run-a", &root).exists());
+}
+
+/// Ruling 2/1020b: a dangling link at the artifact root does not stand, so
+/// it refuses as absent rather than archiving an empty retirement, and the
+/// link is left where it was.
+#[test]
+fn archiving_a_dangling_root_link_refuses_as_absent() {
+    let host = Host::new();
+    let (kept, root) = absent_root(&host);
+    let nowhere = host.dir.path().join("nowhere");
+    std::os::unix::fs::symlink(&nowhere, &root).unwrap();
+    a_refused_absent_archive_writes_nothing(&host, &kept, &root);
+    assert!(root.is_symlink(), "the link is left where it was");
+}
+
+/// Ruling 2/1020b: `--discarded` of an absent root still records it as
+/// absent, unchanged.
+#[test]
+fn discarding_an_absent_root_still_records_it_as_absent() {
+    let host = Host::new();
+    let (_kept, root) = absent_root(&host);
+    let retired = evidence::retire_in(
+        &host.root,
+        options(&root, RetireAction::Discarded, "already absent"),
+        soon(),
+    )
+    .unwrap();
+    assert_eq!(retired.cause, Cause::Discarded);
+    assert!(retired.archive.is_none());
+    assert!(!root.exists());
+    let listed = evidence::list_in(&host.root, soon()).unwrap();
+    let row = listed.iter().find(|held| held.artifacts == root).unwrap();
+    assert!(!row.exists, "the record says the root is absent");
+    assert_eq!(row.retirement.as_ref(), Some(&retired));
+}
+
+/// 12(e)/1020b: the record takes the operator's words, so an empty or
+/// whitespace-only reason refuses before anything is written.
+#[test]
+fn an_empty_reason_refuses_before_anything_is_written() {
+    let host = Host::new();
+    let (_kept, root) = published_root(&host);
+    let to = host.dir.path().join("archive");
+    let refused = evidence::retire_in(
+        &host.root,
+        options(&root, RetireAction::Archived { to: &to }, "  "),
+        soon(),
+    );
+    assert!(matches!(refused, Err(EvidenceError::Reason)));
+    assert!(!to.exists(), "nothing was written");
+    assert!(root.exists(), "the root stands");
+}
+
+/// 1020b: a stat of the root that fails for another reason than absence is
+/// named as the io error, before the destination is opened.
+#[test]
+fn archiving_a_root_whose_stat_is_denied_names_the_io_error() {
+    let host = Host::new();
+    let kept = host.worktree("kept");
+    let root = historical_root(&host, &kept, ["run-a", "a1"]);
+    let forge = kept.join(".forge");
+    std::fs::set_permissions(&forge, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let to = host.dir.path().join("archive");
+    let refused = archive(&host, &root, &to);
+    std::fs::set_permissions(&forge, std::fs::Permissions::from_mode(0o700)).unwrap();
+    assert!(
+        matches!(&refused, Err(EvidenceError::Io(error)) if error.kind() == std::io::ErrorKind::PermissionDenied),
+        "{refused:?}"
+    );
+    assert!(!to.exists(), "nothing was written");
+}
+
+/// 1020b: retire finds a root through admission's `beside`, so a worktree
+/// named through a link retires the root inspect finds.
+#[test]
+fn retiring_through_a_symlinked_worktree_finds_the_root() {
+    let host = Host::new();
+    let kept = host.worktree("kept");
+    let root = historical_root(&host, &kept, ["run-a", "a1"]);
+    published(&root);
+    let link = host.dir.path().join("link");
+    std::os::unix::fs::symlink(&kept, &link).unwrap();
+    let spelled = link.join(".forge/artifacts");
+    let retired = evidence::retire_in(
+        &host.root,
+        options(&spelled, RetireAction::Discarded, "given up"),
+        soon(),
+    )
+    .unwrap();
+    assert_eq!(
+        retired.artifacts, root,
+        "the record's resolved root is named"
+    );
+    assert!(!root.exists(), "the root inspect finds was retired");
 }
 
 #[test]
@@ -587,8 +734,10 @@ fn a_retired_root_that_protects_evidence_again_stakes_and_refuses_an_unboxed_wri
 /// H1: a crash between sealing the superseded record and removing the
 /// retirement leaves both; the next admission finishes the move and writes
 /// no second copy of the same retirement. The first supersede is a real
-/// one, interrupted at its seal ([`Late::Unstage`]), so a mutation that
-/// removes the retirement before the seal is substantiated fails here.
+/// one, interrupted at its seal ([`Late::UnstageSuperseded`]), so a
+/// mutation that removes the retirement before the seal is substantiated
+/// fails here. Since R7 the supersede runs after the reservation is sealed,
+/// so the interrupted attempt's reservation stands.
 #[test]
 fn a_crash_between_superseding_steps_finishes_with_one_copy() {
     let host = Host::new();
@@ -599,6 +748,11 @@ fn a_crash_between_superseding_steps_finishes_with_one_copy() {
     LATE.set(Some(Late::UnstageSuperseded));
     let again = claim(&kept, ["run-a", "a2"], Protects::Evidence, &[]);
     assert_eq!(host.admit(&again), mb3(Unknown::Unsealed));
+    let (standing, settled) = host.attempts(&kept, "run-a");
+    assert!(
+        standing.contains(&"a2".to_string()),
+        "the attempt's reservation stands: {standing:?} settled {settled:?}"
+    );
     assert!(
         retirement_path(&host, &kept, "run-a", &root).exists(),
         "the retirement still stands after the interrupted seal"
@@ -853,19 +1007,52 @@ fn a_sequence_with_no_next_refuses_with_a_typed_cause() {
     );
 }
 
-/// S7: a superseded record with a field its closed shape does not know
-/// refuses with CR2's cause.
+/// S7: a superseded record with a field its outer closed shape does not
+/// know refuses with CR2's cause.
 #[test]
 fn a_superseded_record_with_an_unknown_field_refuses_with_cr2s_cause() {
+    unknown_field_refused(false);
+}
+
+/// S7/1020b: an unknown field inside the retirement a superseded record
+/// nests refuses too, closed at both levels.
+#[test]
+fn a_nested_retirement_with_an_unknown_field_refuses_with_cr2s_cause() {
+    unknown_field_refused(true);
+}
+
+/// A superseded record with an unknown field at its own level or, where
+/// `nested`, inside the retirement it nests, refuses with CR2's cause.
+fn unknown_field_refused(nested: bool) {
     let host = Host::new();
     let (kept, other) = (host.worktree("kept"), host.worktree("other"));
     let (root, retirement) = retired_discarded(&host, &kept, "given up");
-    let at = superseded_path(&host, &kept, "run-a", &root);
-    let record = superseded::Superseded::of(&retirement, "run-b", "2026-11-08T00:00:01Z");
-    let mut value = serde_json::to_value(&record).unwrap();
-    value["extra"] = serde_json::json!(true);
-    written(&at, &serde_json::to_vec(&value).unwrap());
+    let at = superseded_with_extra(&host, &kept, &root, &retirement, |value| {
+        if nested {
+            value["retirement"]["extra"] = serde_json::json!(true);
+        } else {
+            value["extra"] = serde_json::json!(true);
+        }
+    });
     refused_with(&host, &other, Conflict::Retirement(at));
+}
+
+/// The superseded record `retirement` of `root` in `kept`, changed by
+/// `edit` and written under the host's coordination root: the path it was
+/// written at.
+fn superseded_with_extra(
+    host: &Host,
+    kept: &Path,
+    root: &Path,
+    retirement: &evidence::Retirement,
+    edit: impl Fn(&mut serde_json::Value),
+) -> PathBuf {
+    let at = superseded_path(host, kept, "run-a", root);
+    let record = superseded::Superseded::of(retirement, "run-b", "2026-11-08T00:00:01Z");
+    let mut value = serde_json::to_value(&record).unwrap();
+    edit(&mut value);
+    written(&at, &serde_json::to_vec(&value).unwrap());
+    at
 }
 
 /// A host with two worktrees and a retirement that reads but names no

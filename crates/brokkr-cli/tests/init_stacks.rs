@@ -242,17 +242,20 @@ pub(crate) fn brokkr_with(
     configure: impl Fn(&mut Command),
 ) -> (Option<i32>, String, String) {
     let stubs = tempfile::tempdir().unwrap();
-    std::fs::write(stubs.path().join("claude"), "").unwrap();
+    // Canonical once, at creation: the coordination root's walk follows no
+    // link from `/`, so a HOME below macOS's `/var -> /private/var` reads
+    // as linked (#1064's macos/3). `stubs` keeps the directory for cleanup.
+    let dir = stubs.path().canonicalize().unwrap();
+    std::fs::write(dir.join("claude"), "").unwrap();
     let mut path = std::env::var_os("PATH").unwrap();
     if args.first() == Some(&"init") {
-        path = std::env::join_paths(
-            std::iter::once(stubs.path().to_path_buf()).chain(std::env::split_paths(&path)),
-        )
-        .unwrap();
+        path =
+            std::env::join_paths(std::iter::once(dir.clone()).chain(std::env::split_paths(&path)))
+                .unwrap();
     }
     // A HOME of its own, beside the stubs, unless `configure` gives it
     // another (decision 0065 slice two, U8a2a).
-    let home = crate::engine::toolchain_home_in(stubs.path());
+    let home = crate::engine::toolchain_home_in(&dir);
     let mut command = Command::new(env!("CARGO_BIN_EXE_brokkr"));
     command.args(args).env("PATH", path).env("HOME", home);
     command.current_dir(cwd);

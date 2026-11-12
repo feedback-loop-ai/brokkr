@@ -4,10 +4,9 @@
 
 use std::path::PathBuf;
 
-use brokkr_core::canonical;
 use brokkr_runtime::engine::evidence::{Cause, EvidenceRoot, Retirement, Superseded};
 
-use super::{painted, run, run_in, EvidenceCmd, ListArgs, RetireArgs};
+use super::{fixture, painted, run, run_in, EvidenceCmd, ListArgs, RetireArgs};
 use crate::fleet::page::tests::Refusing;
 
 /// A retirement with `cause` and `archive`.
@@ -84,7 +83,10 @@ fn retire_driven_without_a_cause_refuses_by_name() {
 
 #[test]
 fn an_empty_host_lists_nothing_and_json_prints_an_empty_array() {
-    let home = tempfile::tempdir().unwrap();
+    // TMPDIR canonical, as admission's fixtures are, so the protected walk
+    // reaches this HOME on macOS, where TMPDIR sits under a link.
+    let base = std::fs::canonicalize(std::env::temp_dir()).unwrap();
+    let home = tempfile::tempdir_in(base).unwrap();
     let mut out = Vec::new();
     run_in(
         EvidenceCmd::List(ListArgs { json: false }),
@@ -156,46 +158,15 @@ fn a_host_that_names_no_home_refuses_the_verb() {
     );
 }
 
-/// A HOME of this test's own, owner-only, with the coordination root and
-/// the historical record for `artifacts`: the HOME, the artifact root, the
-/// worktree's directory under the root, and the historical key.
-fn recorded_home() -> (tempfile::TempDir, PathBuf, PathBuf, PathBuf, String) {
-    use std::fs;
-    use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
-
-    let dir = tempfile::tempdir().unwrap();
-    let base = fs::canonicalize(dir.path()).unwrap();
-    let home = base.join("home");
-    let work = base.join("work");
-    let artifacts = base.join("artifacts");
-    fs::create_dir(&home).unwrap();
-    fs::create_dir(&work).unwrap();
-    fs::create_dir(&artifacts).unwrap();
-    let capabilities = home.join(".local/state/brokkr/capabilities");
-    let mut made = fs::DirBuilder::new();
-    made.recursive(true)
-        .mode(0o700)
-        .create(&capabilities)
-        .unwrap();
-    let repo = canonical::sha256_bytes(work.as_os_str().as_encoded_bytes());
-    let key = canonical::sha256_bytes(artifacts.as_os_str().as_encoded_bytes());
-    let at = capabilities.join(&repo);
-    made.mode(0o700).create(&at).unwrap();
-    let record = at.join(format!("historical-{key}.json"));
-    fs::write(
-        &record,
-        serde_json::json!({"artifacts": &artifacts}).to_string(),
-    )
-    .unwrap();
-    fs::set_permissions(&record, fs::Permissions::from_mode(0o600)).unwrap();
-    (dir, home, artifacts, at, key)
-}
-
 /// `retire`'s text row ends the verb's output and answers completed: the
 /// root is gone, and the retirement is sealed beside its historical record.
 #[test]
 fn a_discarded_retirement_prints_its_row_and_completes() {
-    let (_dir, home, artifacts, at, key) = recorded_home();
+    let host = fixture::Host::new();
+    let artifacts = host.artifacts();
+    std::fs::create_dir_all(&artifacts).unwrap();
+    host.record(None);
+    let (at, key) = host.at();
     let args = RetireArgs {
         root: artifacts.clone(),
         archived_to: None,
@@ -206,7 +177,7 @@ fn a_discarded_retirement_prints_its_row_and_completes() {
     let mut out = Vec::new();
     run_in(
         EvidenceCmd::Retire(args),
-        &home,
+        &host.home,
         "2026-11-08T00:00:00Z",
         "operator",
         &mut out,
@@ -230,7 +201,10 @@ fn a_discarded_retirement_prints_its_row_and_completes() {
 /// never as a retirement that failed.
 #[test]
 fn a_retired_row_that_cannot_be_written_refuses() {
-    let (_dir, home, artifacts, _at, _key) = recorded_home();
+    let host = fixture::Host::new();
+    let artifacts = host.artifacts();
+    std::fs::create_dir_all(&artifacts).unwrap();
+    host.record(None);
     let args = RetireArgs {
         root: artifacts,
         archived_to: None,
@@ -240,7 +214,7 @@ fn a_retired_row_that_cannot_be_written_refuses() {
     };
     let refused = run_in(
         EvidenceCmd::Retire(args),
-        &home,
+        &host.home,
         "2026-11-08T00:00:00Z",
         "operator",
         &mut Refusing::default(),

@@ -1207,6 +1207,7 @@ pub enum brokkr_runtime::engine::evidence::Cause
 pub brokkr_runtime::engine::evidence::Cause::Archived
 pub brokkr_runtime::engine::evidence::Cause::Discarded
 pub enum brokkr_runtime::engine::evidence::EvidenceError
+pub brokkr_runtime::engine::evidence::EvidenceError::Absent(std::path::PathBuf)
 pub brokkr_runtime::engine::evidence::EvidenceError::AlreadyRetired(std::path::PathBuf)
 pub brokkr_runtime::engine::evidence::EvidenceError::ArchiveInsideCoordination(std::path::PathBuf)
 pub brokkr_runtime::engine::evidence::EvidenceError::ArchiveInsideRoot(std::path::PathBuf)
@@ -1216,11 +1217,13 @@ pub brokkr_runtime::engine::evidence::EvidenceError::Corrupt(std::path::PathBuf)
 pub brokkr_runtime::engine::evidence::EvidenceError::DestinationNotDirectory(std::path::PathBuf)
 pub brokkr_runtime::engine::evidence::EvidenceError::DestinationNotEmpty(std::path::PathBuf)
 pub brokkr_runtime::engine::evidence::EvidenceError::Device(std::path::PathBuf)
+pub brokkr_runtime::engine::evidence::EvidenceError::Digests(std::path::PathBuf)
 pub brokkr_runtime::engine::evidence::EvidenceError::Expired
 pub brokkr_runtime::engine::evidence::EvidenceError::Format(alloc::string::String)
 pub brokkr_runtime::engine::evidence::EvidenceError::Inventory(serde_json::error::Error)
 pub brokkr_runtime::engine::evidence::EvidenceError::Io(core::io::error::Error)
 pub brokkr_runtime::engine::evidence::EvidenceError::Link(std::path::PathBuf)
+pub brokkr_runtime::engine::evidence::EvidenceError::Linked(std::path::PathBuf)
 pub brokkr_runtime::engine::evidence::EvidenceError::Lock
 pub brokkr_runtime::engine::evidence::EvidenceError::NotDirectory(std::path::PathBuf)
 pub brokkr_runtime::engine::evidence::EvidenceError::NotRecorded(std::path::PathBuf)
@@ -1229,6 +1232,7 @@ pub brokkr_runtime::engine::evidence::EvidenceError::Participant(std::path::Path
 pub brokkr_runtime::engine::evidence::EvidenceError::Protected
 pub brokkr_runtime::engine::evidence::EvidenceError::Protected::root: std::path::PathBuf
 pub brokkr_runtime::engine::evidence::EvidenceError::Protected::run: alloc::string::String
+pub brokkr_runtime::engine::evidence::EvidenceError::Reason
 pub brokkr_runtime::engine::evidence::EvidenceError::Refused(alloc::boxed::Box<(dyn core::error::Error + core::marker::Send + core::marker::Sync)>)
 pub brokkr_runtime::engine::evidence::EvidenceError::Replaced(std::path::PathBuf)
 pub brokkr_runtime::engine::evidence::EvidenceError::Retirement(std::path::PathBuf)

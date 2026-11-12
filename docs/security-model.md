@@ -446,12 +446,15 @@ before anything is written, that the root has a historical record and no
 retirement, that no standing attempt's artifact root is this one, and that
 no standing attempt's writer can reach it; a root still in use refuses
 "evidence root '<path>' is protected by run '<run>'s standing attempt".
-`--archived-to` takes an absent or empty directory. The destination is made
+`--archived-to` takes an absent or empty directory. A root whose artifact
+root does not stand refuses an archive before anything is written:
+`--discarded` is the record for an absent root. The destination is made
 absolute and resolved once by the filesystem: the deepest ancestor that
 stands is canonicalized through the links it holds, the components below it
-that do not stand yet are appended one plain name at a time, and a `.` or
-`..` below that ancestor refuses, because nothing can resolve it before what
-it names exists. The resolved path is compared with the canonical
+that do not stand yet are appended one plain name at a time, a `.` below
+that ancestor names the directory it follows and is dropped from the
+resolved path, and a `..` there refuses, because nothing can resolve it
+before what it names exists. The resolved path is compared with the canonical
 coordination root and the canonical root being retired: a destination at or
 inside either refuses by name before anything is written, and the resolved
 path, never the spelling, is the one recorded. The archive is then made
@@ -466,7 +469,10 @@ archiving it would launder evidence that is not what its name says.
 link and crosses no filesystem, and records an already-absent root as
 absent. The sealed `retired-<key>.json` is written only after the archive or
 the discard is complete, beside the historical record, which is never
-deleted. Admission reads a readable retirement as the root no longer
+deleted. An archive whose retirement seal then fails stays in place with its
+inventory, and a retry into the same directory refuses `DestinationNotEmpty`:
+the retry takes a fresh destination. Admission reads a readable retirement
+as the root no longer
 guarding evidence, so it no longer stakes the host or refuses unboxed
 writers; a retirement that does not read refuses with CR2's cause, never as
 absent and never as retired. Only the coordination root's or the lock file's
@@ -497,7 +503,9 @@ from a root — its path, its current retirement, each history row and its
 problem — is escaped for the terminal, so a reason cannot start or forge a
 line or carry a raw escape. `brokkr doctor` also names an
 absent historical root that is not retired as still staking the host, and
-a coordination root that stands but is not this user's alone. `brokkr
+a coordination root that is not protected: the root itself or an ancestor
+on the way that is not this user's alone, or a link on the way, which a
+readout never follows. `brokkr
 inspect --capability-call` names a response retained before a retirement,
 current or superseded, as "archived at <dir>" or "discarded", never as
 corrupt, chosen by the response's own recorded time against `retired_at`; a
@@ -539,6 +547,14 @@ binary does not stop an engine already running. Before a run that
 retains evidence, let every older Brokkr engine finish, and stop any
 other writer whose reach could overlap a server's sources or an
 artifact root: a different worktree does not rule that overlap out.
+
+Once a `retired-<key>.json` or `superseded-<key>-<n>.json` stands in a
+worktree's directory, an engine with writer admission that predates
+decision 0105 refuses every admission that reads that coordination root
+with "the protected inventory holds an unknown participant" until it is
+upgraded. An archived root keeps its bytes, so the next admission that
+protects evidence there supersedes its retirement at once, and the root
+stakes the host again.
 
 **Startup budgets.** A broker's start, its host survey included, has
 one 30 s bound; observing its sources is bounded at 1,000,000 entries,

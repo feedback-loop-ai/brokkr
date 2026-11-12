@@ -18,6 +18,7 @@ use std::path::{Component, Path, PathBuf};
 
 use brokkr_core::canonical;
 use rustix::fs::{mkdirat, openat, unlinkat, AtFlags, Dir, Mode, OFlags, CWD};
+use rustix::io::Errno;
 use sha2::{Digest, Sha256};
 
 use super::super::historical::{self, regular};
@@ -57,11 +58,14 @@ struct Made {
 
 /// Every name an archive wrote, and the digest directory it wrote the
 /// copies in, so a refusal removes exactly those names through the
-/// descriptors that wrote them.
+/// descriptors that wrote them. `inventory` is set only once `create` made
+/// the inventory: a name another writer put there is never this verb's to
+/// remove.
 #[derive(Debug, Default)]
 struct Written {
     shas: Option<OwnedFd>,
     names: Vec<String>,
+    inventory: bool,
 }
 
 impl Destination {
@@ -141,16 +145,21 @@ impl Destination {
         written: &mut Written,
     ) -> Result<String, EvidenceError> {
         historical::verified(root, budget).map_err(unadmitted)?;
-        between();
         let found = super::digests(root)?;
         written.shas = Some(self.sha256_dir()?);
+        between();
         for (name, _) in &found {
-            let shas = written
-                .shas
-                .as_ref()
-                .expect("the digest directory was just opened");
+            let mut out = create(
+                written
+                    .shas
+                    .as_ref()
+                    .expect("the digest directory was just opened"),
+                name,
+            )?;
+            // Only a name this verb created is one a refusal removes: a
+            // raced-in name is never unlinked (0105, 1020b).
             written.names.push(name.clone());
-            copied(&root.join(DIGESTS).join(name), shas, name)?;
+            written_into(&root.join(DIGESTS).join(name), &mut out, name)?;
         }
         let shas = written
             .shas
@@ -174,7 +183,7 @@ impl Destination {
             total_bytes,
         };
         let bytes = serde_json::to_vec_pretty(&inventory)?;
-        let mut file = self.inventory(&bytes)?;
+        let mut file = self.inventory(&bytes, written)?;
         super::sync_dir(&self.dir)?;
         // The bytes written are the bytes the inventory names: a reader
         // parses them back through this build's one reader, from the very
@@ -201,9 +210,15 @@ impl Destination {
     }
 
     /// `bytes` written as the archive's inventory, created new beneath the
-    /// resolved destination without following a link, and synced.
-    fn inventory(&self, bytes: &[u8]) -> Result<std::fs::File, EvidenceError> {
+    /// resolved destination without following a link, and synced. `written`
+    /// learns it was created only once creation succeeded.
+    fn inventory(
+        &self,
+        bytes: &[u8],
+        written: &mut Written,
+    ) -> Result<std::fs::File, EvidenceError> {
         let mut file = create(&self.dir, INVENTORY_FILE)?;
+        written.inventory = true;
         file.write_all(bytes)?;
         file.sync_all()?;
         Ok(file)
@@ -211,9 +226,12 @@ impl Destination {
 
     /// Everything this archive wrote removed through the descriptors that
     /// wrote it: the copies, the digest directory, the inventory, and the
-    /// destination directories where this verb made them.
+    /// destination directories where this verb made them. A name this verb
+    /// did not create is left where it was (0105, 1020b).
     fn removed(&self, written: &Written) {
-        let _ = unlinkat(&self.dir, INVENTORY_FILE, AtFlags::empty());
+        if written.inventory {
+            let _ = unlinkat(&self.dir, INVENTORY_FILE, AtFlags::empty());
+        }
         if let Some(shas) = &written.shas {
             for name in written.names.iter().rev() {
                 let _ = unlinkat(shas, OsStr::new(name), AtFlags::empty());
@@ -221,6 +239,18 @@ impl Destination {
             let _ = unlinkat(&self.dir, DIGESTS, AtFlags::REMOVEDIR);
         }
         remove_dirs(&self.made);
+    }
+}
+
+#[cfg(test)]
+impl Destination {
+    /// The archive's inventory written through this destination and then
+    /// removed by the refusal path: the one test that an inventory this verb
+    /// created is the one `removed` unlinks (0105, 1020b).
+    pub(super) fn wrote_inventory(&self) {
+        let mut written = Written::default();
+        self.inventory(b"{}", &mut written).unwrap();
+        self.removed(&written);
     }
 }
 
@@ -244,8 +274,10 @@ struct Resolved {
 /// [`resolved`] with the deepest standing ancestor, the plain names below
 /// it and that ancestor's identity (device and inode) kept apart, so the
 /// archive can be made under that one descriptor and checked to be the
-/// directory that was compared. A `..` below the deepest standing ancestor
-/// refuses: nothing can resolve it before what it names exists.
+/// directory that was compared. A `.` names the same directory and is
+/// dropped by the components walk, so the resolved path never carries one;
+/// a `..` below the deepest standing ancestor refuses, because nothing can
+/// resolve it before what it names exists.
 fn resolve(to: &Path) -> Result<Resolved, EvidenceError> {
     let absolute = std::path::absolute(to)?;
     let mut base = PathBuf::new();
@@ -281,11 +313,21 @@ fn resolve(to: &Path) -> Result<Resolved, EvidenceError> {
 /// The directory `at` opened without following a link, then checked by
 /// `fstat` to be the very directory whose identity [`resolve`] captured:
 /// a component swapped between the comparison and the open refuses rather
-/// than writing somewhere never compared.
+/// than writing somewhere never compared. A name that is not a directory
+/// or is a link refuses as [`DestinationNotDirectory`]; any other open
+/// error, a permission denied among them, is the io error it is (0105,
+/// 1020b).
+///
+/// [`DestinationNotDirectory`]: EvidenceError::DestinationNotDirectory
 pub(super) fn directory(at: &Path, identity: (u64, u64)) -> Result<OwnedFd, EvidenceError> {
     let flags = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC;
-    let dir = openat(CWD, at, flags, Mode::empty())
-        .map_err(|_| EvidenceError::DestinationNotDirectory(at.to_path_buf()))?;
+    let dir = match openat(CWD, at, flags, Mode::empty()) {
+        Ok(dir) => dir,
+        Err(Errno::NOTDIR) | Err(Errno::LOOP) => {
+            return Err(EvidenceError::DestinationNotDirectory(at.to_path_buf()))
+        }
+        Err(error) => return Err(std::io::Error::from(error).into()),
+    };
     // Read through std's metadata of the same descriptor, whose device is a
     // u64 on every platform: rustix's `st_dev` is an i32 on macOS.
     let found = std::fs::File::from(dir.try_clone()?).metadata()?;
@@ -295,11 +337,20 @@ pub(super) fn directory(at: &Path, identity: (u64, u64)) -> Result<OwnedFd, Evid
 }
 
 /// The directory `name` in `dir`, at `at`, opened without following a
-/// link.
+/// link. A name that is not a directory or is a link refuses as
+/// [`DestinationNotDirectory`]; any other open error is the io error it is
+/// (0105, 1020b).
+///
+/// [`DestinationNotDirectory`]: EvidenceError::DestinationNotDirectory
 fn child(dir: &OwnedFd, name: &OsStr, at: &Path) -> Result<OwnedFd, EvidenceError> {
     let flags = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC;
-    openat(dir, name, flags, Mode::empty())
-        .map_err(|_| EvidenceError::DestinationNotDirectory(at.to_path_buf()))
+    match openat(dir, name, flags, Mode::empty()) {
+        Ok(dir) => Ok(dir),
+        Err(Errno::NOTDIR) | Err(Errno::LOOP) => {
+            Err(EvidenceError::DestinationNotDirectory(at.to_path_buf()))
+        }
+        Err(error) => Err(std::io::Error::from(error).into()),
+    }
 }
 
 /// Every plain name of `rest` made beneath `base` one at a time, each
@@ -368,11 +419,21 @@ fn create(dir: &OwnedFd, name: &str) -> Result<std::fs::File, EvidenceError> {
 /// `source` copied to the new file `name` in `dir`, both digests named
 /// `name`: the source read as one regular file of one link, its bytes
 /// hashed as they are written, and the copy read back from the same
-/// descriptor and hashed. A mismatch refuses by the source's name.
+/// descriptor and hashed. A mismatch refuses by the source's name. The
+/// archive records its own names as it creates them ([`written_into`]); a
+/// test drives this one whole.
+#[cfg(test)]
 pub(super) fn copied(source: &Path, dir: &OwnedFd, name: &str) -> Result<(), EvidenceError> {
+    let mut out = create(dir, name)?;
+    written_into(source, &mut out, name)
+}
+
+/// [`copied`] into the file `out` that `create` already made: the copy's
+/// digest checked as it is written and read back. Kept apart so the caller
+/// records the name only once creation succeeded (0105, 1020b).
+fn written_into(source: &Path, out: &mut std::fs::File, name: &str) -> Result<(), EvidenceError> {
     let refused = || EvidenceError::Corrupt(source.to_path_buf());
     let mut source = std::fs::File::from(regular(source).ok_or_else(refused)?);
-    let mut out = create(dir, name)?;
     let (mut hasher, mut chunk, mut total) = (Sha256::new(), vec![0; CHUNK], 0_u64);
     loop {
         let read = source.read(&mut chunk)?;
