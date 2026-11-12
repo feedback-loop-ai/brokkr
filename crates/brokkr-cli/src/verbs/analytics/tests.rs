@@ -819,6 +819,16 @@ fn every_figure_is_its_whole_read_on_the_generated_journal() {
             "the long provider and model reach the row read at their bounds"
         );
     });
+    // The figures above are the rows' own: the hearth reads its rows, so a
+    // silent fall back to the whole read cannot pass them as equal.
+    with_rows(
+        &hearths,
+        Range::Day,
+        None,
+        GENERATED_NOW,
+        || {},
+        |_, source| assert!(source.reads_rows(), "the generated journal reads its rows"),
+    );
 }
 
 /// A journal of `count` stopped runs, each a realm and recipe of its own.
