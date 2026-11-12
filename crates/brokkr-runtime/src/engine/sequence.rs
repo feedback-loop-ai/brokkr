@@ -471,13 +471,10 @@ impl Engine {
             at.step.class == SeatClass::Gate,
         );
         let (effect_id, attempt_id) = (run.effect_id, run.attempt_id);
-        let reports = self.run_panel(
-            effect_id,
-            attempt_id,
-            &runs,
-            run.bound.remaining,
-            &tag_prefix,
-        )?;
+        // One line, as panel.rs's callsites: the exact-coverage gate reads a
+        // multi-line call's `?` edge as its own region.
+        let remaining = run.bound.remaining;
+        let reports = self.run_panel(effect_id, attempt_id, &runs, remaining, &tag_prefix)?;
         self.journal_panel_members(effect_id, attempt_id, &reports, &runs, &tag_prefix)?;
         span.close(&self.repo);
         let record = PanelRecord {
