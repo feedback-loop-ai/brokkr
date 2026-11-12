@@ -15,12 +15,14 @@ use brokkr_protocol::AttemptOutcome;
 use brokkr_store::StoreError;
 use serde_json::{json, Map, Value};
 
-use super::carry::record::{settled_members, PanelRecord, PanelSpan};
+use super::carry::{
+    outcome_under,
+    record::{settled_members, PanelRecord, PanelSpan},
+};
 use super::cooldown::{refused_members, RefusedMember};
 use super::dispatch::deadline::AttemptBound;
 #[cfg(test)]
 use super::dispatch::deadline::Deadline;
-use super::panel::named_panel_outcome;
 use super::{
     copy_secret_binding_facts, failed_to_start, git_head, stamp_boundary, start_failure_fields,
     start_failure_sites, DriverRun, Engine, EngineError, Indeterminate, Selection, Site, Unproven,
@@ -488,14 +490,9 @@ impl Engine {
         let start_failures = start_failure_sites(&reports, &tag_prefix);
         let refused = refused_members(&reports, &tag_prefix);
         let unproven = Unproven::panel(&reports);
-        let outcome = named_panel_outcome(
-            run.bound.deadline,
-            aggregate,
-            plan,
-            reports,
-            &record.span,
-            run.attempt_id,
-        )?;
+        let name = run.bound.deadline.panel_namer(&reports);
+        let mut outcome = outcome_under(aggregate, plan, reports, &record.span, run.attempt_id)?;
+        name(&mut outcome);
         Ok(StepRun {
             record: Some(record),
             start_failures,

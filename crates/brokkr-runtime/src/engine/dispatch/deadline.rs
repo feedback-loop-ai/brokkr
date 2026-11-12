@@ -27,7 +27,7 @@ use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use brokkr_protocol::AttemptOutcome;
+use brokkr_protocol::{AttemptOutcome, AttemptReport};
 
 use super::super::{site_label, DriverRun, Selection};
 use crate::admission::{read_host, HostError, Hosting};
@@ -266,6 +266,18 @@ impl Deadline {
         killed: bool,
     ) {
         self.name_outcome(outcome, killed, OutcomeWords::Panel);
+    }
+
+    /// The one namer a panel's joined outcome uses: the watchdog's fact is
+    /// read from `reports` now, so the outcome can be built after they are
+    /// consumed and then named once. A seat-level panel and a sequence's
+    /// panel step share it, so neither can name the deadline differently.
+    pub(in crate::engine) fn panel_namer<'a>(
+        &'a self,
+        reports: &[(String, AttemptReport)],
+    ) -> impl FnOnce(&mut AttemptOutcome) + 'a {
+        let killed = reports.iter().any(|(_, report)| report.deadline_killed);
+        move |outcome| self.name_joined_outcome(outcome, killed)
     }
 
     /// Name an unreadable or invalid host in terminal words a sequence
