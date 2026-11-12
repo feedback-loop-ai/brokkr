@@ -66,7 +66,10 @@ use mcp::served;
 use probe::{pinned_model, seat_row, ProbeAnswer};
 #[cfg(test)]
 use refusal::refusal_reason;
-use refusal::{bounded_wire_line, claude_refusal, codex_refusal, REFUSAL_TOKEN_LIMIT};
+use refusal::{
+    bounded_wire_line, claude_refusal, codex_refusal, codex_thread_refusal, dsh_refusal,
+    epoch_now_nanos, find_codex_thread, thread_header, Now, REFUSAL_TOKEN_LIMIT,
+};
 #[cfg(test)]
 use start::serve_io;
 use start::{start_prompt, Confine};
@@ -1607,8 +1610,10 @@ fn fold_result_meta(
 /// filesystem scan.
 const CODEX_THREAD_DEPTH: usize = 6;
 
-/// The codex thread record, followed to read the one fact codex does
-/// NOT put on the stream its adapter folds: the effort it applied.
+/// The codex thread record, followed for the facts codex does NOT put on
+/// the stream its adapter folds: the model and effort it applied, and —
+/// since decision 0103 ruling 1(a) — the refusal an early exit left in
+/// its `task_complete.error` or `error` row.
 ///
 /// Decision 0032 already retains the locator that reaches this file, so
 /// decision 0035 needed no new mechanism — only for something to open
@@ -1616,10 +1621,23 @@ const CODEX_THREAD_DEPTH: usize = 6;
 /// by "the newest file" under the home: a concurrent seat's thread must
 /// not be able to lend this one its effort.
 ///
-/// Same trust boundary as the dsh tail, and answered the same way: the
-/// value taken is one clamped word, nothing executable is derived from
-/// it, and a file that cannot be read or does not name an effort leaves
-/// the record saying `not reported` rather than guessing.
+/// TRUST BOUNDARY, weaker than claude's and the same as the dsh tail's.
+/// This is an ordinary file in a directory the seat's own agent can write
+/// to, and the driver publishes its relative path in the shared
+/// transcript locator. An agent with filesystem tools can therefore
+/// append lines this reader will believe. Since decision 0103 ruling
+/// 1(a) that is not only telemetry: a `task_complete.error` or an `error`
+/// row can become this invocation's typed pre-session refusal, whose
+/// class can hold the provider's route for the reset it states. A forged
+/// row can therefore make Brokkr wait; it executes nothing. The read is
+/// correlated to this invocation — by the announced thread id, or by the
+/// zero-event fallback's cwd and session start — and a successful
+/// completion, a last message, a started turn or an item activity after
+/// the error makes it a notice, never a refusal. That is accepted on the
+/// same reasoning as dsh: an agent with the working tree is already
+/// trusted, every value taken is bounded and nothing executable is
+/// derived from any of it. A driver whose harness offers a real stdout
+/// stream should use it rather than inherit this.
 #[derive(Default)]
 struct CodexThreadEcho {
     /// The sessions root and the thread id codex announced, held
@@ -1722,53 +1740,66 @@ impl CodexThreadEcho {
         }
         (model, effort)
     }
-}
 
-/// `name` carries `thread_id` as a WHOLE token — bounded at both ends by
-/// a non-alphanumeric or by the ends of the name — rather than merely as
-/// a substring. A bare `contains` would let a short or degenerate id
-/// match a longer id's file, which is the "never by the newest file"
-/// rule lost by another route: a fragment is not an announcement.
-fn names_codex_thread(name: &str, thread_id: &str) -> bool {
-    name.match_indices(thread_id).any(|(at, _)| {
-        let before = name[..at].chars().next_back();
-        let after = name[at + thread_id.len()..].chars().next();
-        !before.is_some_and(|c| c.is_ascii_alphanumeric())
-            && !after.is_some_and(|c| c.is_ascii_alphanumeric())
-    })
-}
+    /// The refusal the thread record's own error states, read on the way
+    /// out of a process that ended before its first turn with no refusal
+    /// on the stream. It is the same locator and the same bounded read as
+    /// [`CodexThreadEcho::echo`]; a file that cannot be read, or that
+    /// names no usage- or rate-limit error, answers nothing rather than
+    /// guessing (decision 0053's boundary, decision 0103 ruling 1(a)).
+    /// Correlation is the same on the announced path as the unannounced
+    /// one: the header's own id must be the announced thread, its cwd must
+    /// be this seat's, and its session start at or after this
+    /// invocation's, so an announced foreign or older record is never
+    /// read (decision 0035).
+    fn refusal(
+        &mut self,
+        since_nanos: i128,
+        workdir: &str,
+        now: Option<&Now>,
+    ) -> Option<PreSessionRefusal> {
+        self.resolve();
+        let path = self.path.as_ref()?;
+        // `resolve` sets a path only from an announced thread, so there
+        // is one here; a guard would be an unreachable branch.
+        let (_, announced) = self
+            .announced
+            .as_ref()
+            .expect("a resolved codex thread path has an announced thread");
+        let (cwd, started) = thread_header(path, Some(announced.as_str()))?;
+        if cwd != workdir || started < since_nanos {
+            return None;
+        }
+        let body = std::fs::read_to_string(path).ok()?;
+        codex_thread_refusal(&body, Some(since_nanos), now)
+    }
 
-/// The thread record whose file name carries `thread_id`, anywhere in a
-/// bounded walk below `root`.
-fn find_codex_thread(
-    root: &std::path::Path,
-    thread_id: &str,
-    depth: usize,
-) -> Option<std::path::PathBuf> {
-    let mut directories = Vec::new();
-    for entry in std::fs::read_dir(root).ok()?.flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-            directories.push(path);
-            continue;
+    /// The same read where the CLI never announced its thread, so the
+    /// locator is empty. A zero-event exit still leaves its rollout under
+    /// `CODEX_HOME/sessions`; exactly one file written since this
+    /// invocation began is this invocation's, and more than one is
+    /// ambiguous (a concurrent seat's thread), so it answers nothing
+    /// rather than borrowing another seat's failure. Every candidate is
+    /// correlated by its cwd and its session's start before either count
+    /// is taken, so a singleton gets the same check (decision 0035).
+    fn unannounced_refusal(
+        &mut self,
+        home: &std::path::Path,
+        since_nanos: i128,
+        workdir: &str,
+        now: Option<&Now>,
+    ) -> Option<PreSessionRefusal> {
+        if self.announced.is_some() {
+            return None;
         }
-        let named = path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .is_some_and(|name| name.ends_with(".jsonl") && names_codex_thread(name, thread_id));
-        if named {
-            return Some(path);
-        }
+        refusal::codex_thread_refusal_since(
+            &home.join("sessions"),
+            since_nanos,
+            workdir,
+            now,
+            CODEX_THREAD_DEPTH,
+        )
     }
-    if depth == 0 {
-        return None;
-    }
-    // Deterministic order: two seats under one home must not disagree
-    // about which file a shared prefix names.
-    directories.sort();
-    directories
-        .into_iter()
-        .find_map(|dir| find_codex_thread(&dir, thread_id, depth - 1))
 }
 
 /// Fold Codex's stable `exec --json` JSONL into bounded live telemetry.
@@ -1970,6 +2001,22 @@ fn dsh_echoed_effort(session_meta: &Map<String, Value>) -> String {
         .unwrap_or_else(|| EFFORT_NOT_REPORTED.to_string())
 }
 
+/// Whether a dsh row is this invocation's own work: a resumed session's
+/// file holds its restored history beside the new work, and only events
+/// past the owned pre-followup sequence are this invocation's (design D8;
+/// task 9.6). The boundary exists only when a root was rejoined; a cold
+/// launch carries none, so its file is read from its first event. The
+/// fold and the refusal classifier ask here, so neither can read the
+/// other's rows.
+fn dsh_row_is_current(event: &Value, first_seq: Option<u64>) -> bool {
+    first_seq.is_none_or(|first_seq| {
+        !event
+            .get("seq")
+            .and_then(Value::as_u64)
+            .is_some_and(|seq| seq <= first_seq)
+    })
+}
+
 /// One dsh session-log line folded into bounded live telemetry.
 ///
 /// dsh 0.1.0-rc.6's headless profile offers no machine-readable stdout
@@ -2027,14 +2074,8 @@ fn fold_dsh_event(
     // carries none, so its file is folded from its first event: dsh's
     // log index IS the sequence and starts at 0, and a cold boundary of
     // 0 would silently drop that first event on the shipped route.
-    if let Some(first_seq) = first_seq {
-        if event
-            .get("seq")
-            .and_then(Value::as_u64)
-            .is_some_and(|seq| seq <= first_seq)
-        {
-            return;
-        }
+    if !dsh_row_is_current(event, first_seq) {
+        return;
     }
     match event.get("type").and_then(Value::as_str) {
         Some("session") => {
@@ -2286,31 +2327,49 @@ impl DshFold<'_> {
     /// turn and token counts. That is accepted, not overlooked: such an
     /// agent is already trusted with the working tree, the fold clamps every
     /// value it takes (≤80-char tool names and u64 counts) and derives
-    /// nothing executable from any of them, so the worst case is wrong
-    /// telemetry in the journal, never an injection or a control-flow
-    /// decision. A driver whose harness offers a real stdout stream should
-    /// use it rather than inherit this.
+    /// nothing executable from any of them. One thing here is NOT only
+    /// telemetry: since decision 0103 ruling 1(a), a `turn/end` error
+    /// before the first turn is this invocation's typed pre-session
+    /// refusal, and its class can hold the provider's route for the reset
+    /// it states, bounded by the declared maximum. A forged row can
+    /// therefore make Brokkr wait; it cannot execute anything, and it
+    /// still binds to this invocation's sequence and first turn. That is
+    /// accepted on the same reasoning — an agent with the working tree is
+    /// already trusted — but it is control data, not telemetry. A driver
+    /// whose harness offers a real stdout stream should use it rather
+    /// than inherit this.
     ///
     /// The probe bound (decision 0103 ruling 4(a)): an `assistant/message`
     /// is dsh's model-output answer, and the first one is admitted while a
     /// later one is not.
-    fn drain(&mut self, emit: &mut impl FnMut(&Value)) {
+    ///
+    /// A `turn/end` naming an error before the first `assistant/message`
+    /// is dsh's pre-session refusal (decision 0053), typed from the row's
+    /// machine fields by `dsh_refusal` and returned to the caller to latch.
+    fn drain(&mut self, emit: &mut impl FnMut(&Value)) -> Option<PreSessionRefusal> {
         if self.tail.file.is_none() {
             self.tail.file =
                 find_dsh_transcript(self.root).and_then(|path| std::fs::File::open(path).ok());
         }
-        let Some(file) = self.tail.file.as_mut() else {
-            return;
-        };
+        let file = self.tail.file.as_mut()?;
         let mut chunk = Vec::new();
         let _ = file.read_to_end(&mut chunk);
         self.tail.pending.extend_from_slice(&chunk);
+        let mut refusal = None;
         while let Some(index) = self.tail.pending.iter().position(|byte| *byte == b'\n') {
             let line: Vec<u8> = self.tail.pending.drain(..=index).collect();
             let Ok(mut event) = serde_json::from_slice::<Value>(&line) else {
                 continue;
             };
             secret::mask_json(&mut event, self.bindings);
+            // Decision 0053's boundary: only an error before the first
+            // counted turn is a refusal to start. The restored history
+            // below a resumed root's boundary is not this invocation's.
+            // The first refusal is latched: a later error row is not the
+            // reason the session never started.
+            if *self.turns == 0 && dsh_row_is_current(&event, self.first_seq) {
+                refusal = refusal.or_else(|| dsh_refusal(&event));
+            }
             let answer_event = self.probe.requested() && probe::is_answer(AdapterKind::Dsh, &event);
             let mut emitted: Vec<Value> = Vec::new();
             let mut capture = |data: &Value| {
@@ -2328,6 +2387,7 @@ impl DshFold<'_> {
             );
             self.probe.admit(AdapterKind::Dsh, &event, &emitted);
         }
+        refusal
     }
 }
 
@@ -3616,10 +3676,22 @@ fn invoke_codex(
     emit: &mut impl FnMut(&Value),
 ) -> Result<Invocation, String> {
     let mut transcript = Transcript::resolve(TranscriptKind::CodexThread)?;
+    // A rejoin already knows the thread it is writing to, so the locator
+    // is held before the first byte arrives. A cold spawn hands an empty
+    // id, which locates nothing.
+    let mut echo = CodexThreadEcho::default();
+    echo.locate(
+        transcript.home(),
+        hold.plan.rejoining.as_deref().unwrap_or_default(),
+    );
+    // The zero-event fallback's lower bound, at the full precision a
+    // rollout row and file time carry: a turn written at `…:00.100Z`
+    // before this invocation's `…:00.900Z` start is history, not this
+    // seat's refusal (decision 0053's boundary).
+    let started = epoch_now_nanos();
     let (mut child, stderr_thread) = spawn_fed(command, prompt, workdir, bindings)?;
     let mut session_meta = Map::new();
     let mut turn = 0;
-    let mut echo = CodexThreadEcho::default();
     // Decision 0053: codex's wire protocol DOES carry the distinction —
     // a machine-readable `error`/`turn.failed` before the first
     // `turn.started` is a refusal to start. After a turn it is 0016's
@@ -3706,6 +3778,13 @@ fn invoke_codex(
             session_meta.insert("model".into(), Value::String(model));
         }
     }
+    // Decision 0103 ruling 1(a): a codex that ended before its first turn
+    // with no refusal on the stream is read from the thread record's own
+    // error, through the locator decision 0035 already holds. It is read
+    // here alone, on that early exit, so a normal seat pays nothing.
+    if refusal.is_none() && turn == 0 {
+        refusal = codex_early_refusal(&mut echo, transcript.home(), started, workdir);
+    }
     transcript.finish(&mut session_meta, &mut |data: &Value| {
         hold.observe(data, emit)
     });
@@ -3719,6 +3798,23 @@ fn invoke_codex(
         answer: probe_bound.take(),
         launch: LaunchTerminal::Cold,
     })
+}
+
+/// The chain's last resort for a codex that ended before its first turn
+/// with no stream refusal: its announced thread, else the one rollout
+/// this invocation wrote and correlated to it. One clock reading serves
+/// both reads; `started_nanos` is the invocation's start at nanosecond
+/// precision, the boundary the record's rows and file time are held to.
+fn codex_early_refusal(
+    echo: &mut CodexThreadEcho,
+    home: &std::path::Path,
+    started_nanos: Option<i128>,
+    workdir: &str,
+) -> Option<PreSessionRefusal> {
+    let started_nanos = started_nanos?;
+    let now = Now::read();
+    echo.refusal(started_nanos, workdir, now.as_ref())
+        .or_else(|| echo.unannounced_refusal(home, started_nanos, workdir, now.as_ref()))
 }
 
 /// The dsh headless invocation. It does NOT converge on `run_cli`'s
@@ -4801,23 +4897,32 @@ fn invoke_dsh_shipped(
         spawn_dsh(command, &launch.workdir, Stdio::null(), launch, bindings)?;
     let mut turns = 0u64;
     let mut tail = DshTail::default();
+    let mut refusal = None;
     let exit_code = poll_until_exit(
         &mut child,
         |child| wait(child),
         || {
-            dsh_launch::DshFoldState {
+            let read = dsh_launch::DshFoldState {
                 tail: &mut tail,
                 turns: &mut turns,
                 session_meta,
                 probe,
             }
             .drain(launch, bindings, emit);
+            refusal = refusal.take().or(read);
             probe.answered()
         },
     )?;
     let stopped = probe.answered();
     let captured = stderr_thread.take(stopped);
-    finish_dsh(session_meta, exit_code, captured, probe.take(), bindings)
+    finish_dsh(
+        session_meta,
+        exit_code,
+        captured,
+        refusal,
+        probe.take(),
+        bindings,
+    )
 }
 
 /// One line of the plugin's stream-json envelope. The init event names the
@@ -5296,19 +5401,17 @@ fn finish_dsh(
     session_meta: &mut Map<String, Value>,
     exit_code: i32,
     captured: CapturedStderr,
+    refusal: Option<PreSessionRefusal>,
     answer: Option<Value>,
     bindings: &[secret::BoundSecret],
 ) -> Result<DshRun, String> {
     session_meta.insert("harness".into(), Value::String("deepseek".into()));
     session_meta.insert("profile".into(), Value::String("headless".into()));
-    // Decision 0053: dsh's headless profile makes no machine-readable
-    // pre-session refusal available. Its stdout is the final answer or
-    // nothing, and a provider rejection reaches this driver only as
-    // stderr prose plus a non-zero exit — sniffing that prose to make a
-    // control decision is exactly the repair decision 0001 forbids. So
-    // dsh classifies nothing here and a refusal before its first turn
-    // follows decision 0006 unchanged; the guide says so beside claude
-    // and codex.
+    // Decision 0053: dsh's headless profile puts no refusal on stdout,
+    // but its session record's `turn/end` carries the error's machine
+    // fields, and the transcript fold reads them (`dsh_refusal`). The
+    // stderr prose is never sniffed; a refusal before the first turn
+    // with no such row follows decision 0006 unchanged.
     // Classified ONCE, from the child's own bytes, before masking or
     // reasoning redaction can rewrite the marker words the gate reads
     // (#896 H1; decision 0098 ruling 4). The raw text goes no further.
@@ -5326,7 +5429,7 @@ fn finish_dsh(
             stdout: String::new(),
             stderr,
             state: None,
-            refusal: None,
+            refusal,
             launch: LaunchTerminal::Cold,
         },
         startup,
@@ -6855,3 +6958,6 @@ mod dsh_v4_tests;
 
 #[cfg(test)]
 mod dsh_effort_tests;
+
+#[cfg(test)]
+mod refusal_tests;

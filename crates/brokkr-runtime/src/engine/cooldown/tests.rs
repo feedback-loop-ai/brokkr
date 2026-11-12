@@ -1947,4 +1947,5 @@ mod panel;
 // root holds, and only Linux's workspace box protects one.
 #[cfg(target_os = "linux")]
 mod crash;
+mod quota;
 mod refusal_cap;
