@@ -312,8 +312,51 @@ fn an_append_with_rows_refuses_a_journal_whose_meta_is_gone() {
     let mut store = journal(dir.path());
     store.conn.execute_batch("DROP TABLE meta").unwrap();
     let error = append(&mut store, "run-a", &[row("a", "claude", "first", at(60))]).unwrap_err();
+    assert!(matches!(error, StoreError::Sqlite(_)), "{error:?}");
     assert_eq!(error.to_string(), "sqlite: no such table: meta");
     assert_eq!(store.load("run-a").unwrap().len(), 1, "the event landed");
+}
+
+/// A version 4 journal whose cool-down table is lost under an open store.
+/// An append with no rows still lands: it never prepares the table's
+/// statement, and on a version 4 queue the empty-rows guard alone is what
+/// keeps it from doing so. A rows-bearing append refuses on SQLite's own
+/// text and rolls its event back, and the reader refuses the same way:
+/// both fail closed, and neither answers from a table that is not there.
+#[test]
+fn a_lost_cool_down_table_refuses_only_what_reads_or_writes_rows() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = journal(dir.path());
+    store
+        .conn
+        .execute_batch("DROP TABLE provider_cooldowns")
+        .unwrap();
+
+    let event = store
+        .append_next(
+            "run-a",
+            EventType::EffectRequested,
+            json!({"effect_id": "effect"}),
+            None,
+            None,
+        )
+        .unwrap();
+    assert_eq!(event.seq, 2);
+
+    let error = append(&mut store, "run-a", &[row("a", "claude", "first", at(60))]).unwrap_err();
+    assert!(matches!(error, StoreError::Sqlite(_)), "{error:?}");
+    assert_eq!(
+        error.to_string(),
+        "sqlite: no such table: provider_cooldowns"
+    );
+    assert_eq!(store.load("run-a").unwrap().len(), 2, "the event landed");
+
+    let error = store.cooldowns_in_force(at(0)).unwrap_err();
+    assert!(matches!(error, StoreError::Sqlite(_)), "{error:?}");
+    assert_eq!(
+        error.to_string(),
+        "sqlite: no such table: provider_cooldowns"
+    );
 }
 
 /// A fenced append whose head moved writes neither the event nor a row.
