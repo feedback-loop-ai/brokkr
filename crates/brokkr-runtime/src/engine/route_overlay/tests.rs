@@ -100,3 +100,27 @@ fn a_library_outside_the_working_directory_binds_nothing() {
         "a file outside the run's tree has no working-directory-relative value"
     );
 }
+
+#[test]
+fn a_declared_binding_refuses_an_absolute_or_traversing_value() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("adapters/overlays")).unwrap();
+    std::fs::write(dir.path().join("adapters/overlays/spark.yml"), "a: b\n").unwrap();
+    let declared = declared(dir.path(), "adapters/overlays/spark.yml", "a: b\n");
+    let bundle = bundle(dir.path(), single_body(vec!["missing-driver".into()]));
+    let valid = vec![
+        "--patch".to_string(),
+        "adapters/overlays/spark.yml".to_string(),
+    ];
+    assert!(
+        super::route_overlay_binding(&bundle, &valid, dir.path(), Some(&declared)).is_some(),
+        "the declared overlay binds before the path checks are exercised"
+    );
+    for value in ["/etc/passwd", "../outside.yml"] {
+        let command = vec!["--patch".to_string(), value.to_string()];
+        assert!(
+            super::route_overlay_binding(&bundle, &command, dir.path(), Some(&declared)).is_none(),
+            "{value}"
+        );
+    }
+}

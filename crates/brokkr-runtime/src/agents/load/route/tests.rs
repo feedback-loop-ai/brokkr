@@ -1,6 +1,8 @@
 //! The routes declaration's overlay form: one valid object and every
 //! refusal, each pinned to the adapter, the route and the field.
 
+use std::path::Path;
+
 use brokkr_core::canonical::sha256_bytes;
 use serde_json::{json, Value};
 
@@ -196,5 +198,50 @@ fn a_provider_that_does_not_admit_a_route_overlay_refuses() {
     assert!(
         !error.contains(&digest),
         "the refusal names a value: {error}"
+    );
+}
+
+#[test]
+fn the_object_form_requires_its_two_fields_and_reads_the_same_egress_vocabulary() {
+    let tree = Tree::new();
+    let digest = "a".repeat(64);
+    with_route(
+        &tree,
+        dsh_body(),
+        json!({"overlay": declared("overlays/spark.yml", &digest)}),
+    );
+    let error = tree.adapters_error();
+    assert!(error.contains("needs 'egress'"), "{error}");
+
+    let tree = Tree::new();
+    with_route(&tree, dsh_body(), json!({"egress": "local"}));
+    let error = tree.adapters_error();
+    assert!(error.contains("needs 'overlay'"), "{error}");
+
+    let tree = Tree::new();
+    with_route(
+        &tree,
+        dsh_body(),
+        json!({"egress": "lokal", "overlay": declared("overlays/spark.yml", &digest)}),
+    );
+    let error = tree.adapters_error();
+    assert!(error.contains("is not one of"), "{error}");
+
+    let tree = Tree::new();
+    with_route(&tree, dsh_body(), json!(7));
+    let error = tree.adapters_error();
+    assert!(error.contains("must be a string egress class"), "{error}");
+}
+
+#[test]
+fn a_routes_declaration_whose_directory_cannot_be_resolved_refuses() {
+    let map = json!({"routes": {"spark": "local"}});
+    let absent = Path::new("/nonexistent/forge-1052b/adapters/dsh.json");
+    let error = super::declarations(map.as_object().unwrap(), "adapter 'dsh'", absent, "dsh")
+        .unwrap_err()
+        .to_string();
+    assert!(
+        error.contains("cannot resolve the adapter file's own directory"),
+        "{error}"
     );
 }

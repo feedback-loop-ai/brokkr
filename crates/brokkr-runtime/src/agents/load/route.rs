@@ -44,6 +44,7 @@ const OVERLAY_KEYS: [&str; 2] = ["file", "sha256"];
 
 /// Both maps one adapter's `routes` declaration produces: the classes its
 /// existing readers take, and the route overlays the engine composes.
+#[derive(Debug)]
 pub(super) struct Declared {
     pub(super) routes: BTreeMap<String, EgressClass>,
     pub(super) overlays: BTreeMap<String, DeclaredRouteOverlay>,

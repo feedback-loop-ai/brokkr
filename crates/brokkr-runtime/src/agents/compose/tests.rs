@@ -3,6 +3,8 @@
 //! directory-relative value, and the two-overlay refusal.
 
 use brokkr_core::canonical::sha256_bytes;
+use std::path::Path;
+
 use brokkr_core::realms::Boundary;
 use serde_json::{json, Value};
 
@@ -50,7 +52,7 @@ fn tree(adapter: Value, overlay: &str) -> Tree {
     tree
 }
 
-fn composed(tree: &Tree, concrete: &str) -> Vec<String> {
+fn composed_in(tree: &Tree, concrete: &str, workdir: &std::path::Path) -> Vec<String> {
     let adapters = tree.adapters();
     let adapter = adapters.adapter("dsh").unwrap();
     let declared = adapters.route_overlay("dsh", concrete);
@@ -63,10 +65,33 @@ fn composed(tree: &Tree, concrete: &str) -> Vec<String> {
         concrete,
         Boundary::Namespace,
         declared,
-        &tree.root,
+        workdir,
     )
     .expect("the composition succeeds")
     .argv()
+}
+
+fn composed(tree: &Tree, concrete: &str) -> Vec<String> {
+    composed_in(tree, concrete, &tree.root)
+}
+
+/// The composition of a seat carrying both overlays, refused.
+fn conflict_error(tree: &Tree) -> crate::agents::ResolveError {
+    let adapters = tree.adapters();
+    let adapter = adapters.adapter("dsh").unwrap();
+    let declared = adapters.route_overlay("dsh", "dashscope/qwen3.8-max");
+    let library = tree.library();
+    let agent = library.agent("tester").unwrap();
+    super::compose(
+        agent,
+        adapter,
+        "qwen",
+        "dashscope/qwen3.8-max",
+        Boundary::Namespace,
+        declared,
+        &tree.root,
+    )
+    .expect_err("two overlays refuse")
 }
 
 fn patches(argv: &[String]) -> Vec<&str> {
@@ -110,21 +135,7 @@ fn a_seat_with_both_a_declared_overlay_and_an_authored_patch_refuses() {
         ),
         "a: b\n",
     );
-    let adapters = tree.adapters();
-    let adapter = adapters.adapter("dsh").unwrap();
-    let declared = adapters.route_overlay("dsh", "dashscope/qwen3.8-max");
-    let library = tree.library();
-    let agent = library.agent("tester").unwrap();
-    let error = super::compose(
-        agent,
-        adapter,
-        "qwen",
-        "dashscope/qwen3.8-max",
-        Boundary::Namespace,
-        declared,
-        &tree.root,
-    )
-    .expect_err("two overlays refuse");
+    let error = conflict_error(&tree);
     assert_eq!(
         error,
         ResolveError::RouteOverlayConflict {
@@ -169,4 +180,28 @@ fn the_resolved_candidate_carries_the_declared_overlay_and_its_relative_patch() 
             .map(|overlay| overlay.file.as_str()),
         Some("overlays/spark.yml")
     );
+}
+
+#[test]
+fn a_declared_overlay_outside_the_run_tree_keeps_its_adapter_relative_spelling() {
+    let tree = tree(
+        body(json!(["{brokkr}", "driver", "dsh", "--"]), json!({})),
+        "a: b\n",
+    );
+    let argv = composed_in(&tree, "dashscope/qwen3.8-max", Path::new("/nonexistent"));
+    assert_eq!(patches(&argv), vec!["overlays/spark.yml"], "{argv:?}");
+}
+
+#[test]
+fn an_equals_joined_authored_patch_is_named_whole_in_the_refusal() {
+    let tree = tree(
+        body(
+            json!(["{brokkr}", "driver", "dsh", "--", "--patch=authored.yml"]),
+            json!({}),
+        ),
+        "a: b\n",
+    );
+    let error = conflict_error(&tree);
+    let message = error.to_string();
+    assert!(message.contains("--patch=authored.yml"), "{message}");
 }
