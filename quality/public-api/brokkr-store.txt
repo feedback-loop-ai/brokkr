@@ -199,6 +199,7 @@ pub brokkr_store::QueueRefusal::Carried(brokkr_store::Claim, alloc::vec::Vec<all
 pub brokkr_store::QueueRefusal::Claimed
 pub brokkr_store::QueueRefusal::Claimed::entry: brokkr_store::EntryId
 pub brokkr_store::QueueRefusal::Claimed::run: alloc::string::String
+pub brokkr_store::QueueRefusal::CooldownDuplicate(alloc::boxed::Box<(alloc::string::String, i64, alloc::string::String, i64)>)
 pub brokkr_store::QueueRefusal::CooldownTime
 pub brokkr_store::QueueRefusal::CooldownTime::seq: i64
 pub brokkr_store::QueueRefusal::Dropped(brokkr_store::EntryId)

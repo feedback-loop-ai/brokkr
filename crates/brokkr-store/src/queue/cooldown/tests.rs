@@ -122,6 +122,33 @@ fn raw(conn: &Connection) -> Vec<Raw> {
         .unwrap()
 }
 
+/// A journal whose version 4 table holds one row on run-a's terminal
+/// event and whose unique index is gone, ready for a repair or a duplicate:
+/// the path to reopen it with, and the store still holding it.
+fn index_lost(dir: &Path) -> (std::path::PathBuf, Store) {
+    let path = dir.join("forge.db");
+    let mut store = journal(dir);
+    append(&mut store, "run-a", &[row("a", "claude", "first", at(60))]).unwrap();
+    store
+        .conn
+        .execute_batch("DROP INDEX provider_cooldowns_once")
+        .unwrap();
+    (path, store)
+}
+
+/// Insert a second row of the first row's key: run-a's terminal event 2,
+/// site `a`, round 1, under another provider and route — the raw statement
+/// the repaired index refuses and the lost index's duplicate test writes.
+fn insert_second_row(conn: &Connection) -> rusqlite::Result<usize> {
+    conn.execute(
+        "INSERT INTO provider_cooldowns
+            (run_id, event_seq, site, provider, route, until_at, reason,
+             retry_after_seconds, rounds, recorded_at)
+         VALUES ('run-a', 2, 'a', 'codex', 'second', ?1, 'words', NULL, 1, 0)",
+        params![at(60).unix_timestamp()],
+    )
+}
+
 /// A run the journal holds, planted as a journal an earlier binary left
 /// would hold it: these tests write no summary, so no fold is carried.
 fn planted(store: &Store, run: &str) {
@@ -530,33 +557,48 @@ fn the_cool_downs_are_append_only() {
 #[test]
 fn a_lost_unique_index_is_repaired_and_refuses_a_second_row() {
     let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("forge.db");
-    let mut store = journal(dir.path());
-    append(&mut store, "run-a", &[row("a", "claude", "first", at(60))]).unwrap();
+    let (path, store) = index_lost(dir.path());
     assert_eq!(raw(&store.conn)[0].2, 2, "the row is on the terminal event");
-    store
-        .conn
-        .execute_batch("DROP INDEX provider_cooldowns_once")
-        .unwrap();
     assert!(!crate::queue::queue_intact(&store.conn).unwrap());
     drop(store);
 
     let store = Store::open(&path).unwrap();
     assert!(crate::queue::queue_intact(&store.conn).unwrap());
-    let second = "INSERT INTO provider_cooldowns
-        (run_id, event_seq, site, provider, route, until_at, reason,
-         retry_after_seconds, rounds, recorded_at)
-        VALUES ('run-a', 2, 'a', 'codex', 'second', ?1, 'words', NULL, 1, 0)";
-    let error = store
-        .conn
-        .execute(second, params![at(60).unix_timestamp()])
-        .expect_err("the repaired index admits a second row");
+    let error = insert_second_row(&store.conn).expect_err("the repaired index admits a second row");
     assert_eq!(
         error.to_string(),
         "UNIQUE constraint failed: provider_cooldowns.run_id, \
          provider_cooldowns.event_seq, provider_cooldowns.site, provider_cooldowns.rounds"
     );
     assert_eq!(raw(&store.conn).len(), 1);
+}
+
+/// A lost unique index is not rebuilt over rows that already hold a
+/// duplicate: the open refuses by the duplicate's key, not by SQLite's own
+/// constraint text, and refuses the same journal again on the next open.
+#[test]
+fn a_lost_unique_index_over_a_duplicate_refuses_by_its_key() {
+    let dir = tempfile::tempdir().unwrap();
+    let (path, store) = index_lost(dir.path());
+    insert_second_row(&store.conn).unwrap();
+    assert_eq!(raw(&store.conn).len(), 2);
+    drop(store);
+
+    for _ in 0..2 {
+        let refusal = match Store::open(&path).err().expect("refused") {
+            StoreError::Queue(refusal) => refusal,
+            other => panic!("not a queue refusal: {other}"),
+        };
+        assert_eq!(
+            refusal,
+            QueueRefusal::CooldownDuplicate(Box::new(("run-a".into(), 2, "a".into(), 1)))
+        );
+        assert_eq!(
+            refusal.to_string(),
+            "the journal's provider cool-downs hold run 'run-a' event 2 site 'a' round 1 \
+             more than once; the lost unique index is not rebuilt over them"
+        );
+    }
 }
 
 /// A journal over two planted runs, each recording one row: `a`'s for
@@ -664,6 +706,29 @@ fn a_wait_ending_inside_its_recording_second_writes_its_row() {
     );
 }
 
+/// The last whole second RFC 3339 can name is the last this reader can
+/// spell: an end in its fraction rounds back to that second, not one
+/// second past it into a value no reader could read and every claim would
+/// refuse.
+#[test]
+fn a_wait_in_the_last_second_is_stored_at_the_last_second() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = journal(dir.path());
+    let last = OffsetDateTime::from_unix_timestamp(LAST_SECOND).unwrap();
+    let until = last + Duration::milliseconds(500);
+    append(&mut store, "run-a", &[row("a", "claude", "first", until)]).unwrap();
+    let rows = store.cooldowns_in_force(at(0)).unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].until_at, last);
+    assert_eq!(
+        store.cooldown("claude", "first", at(0)).unwrap(),
+        Some(CooldownAggregate {
+            until: last,
+            reason: "rate_limit: slow down".into(),
+        })
+    );
+}
+
 /// A stored instant this reader cannot spell is refused by name, never
 /// read as expired (which would release the route) and never guessed at.
 #[test]
@@ -719,25 +784,35 @@ fn a_cool_down_reader_refuses_an_unknown_queue_version() {
     }
 }
 
-/// A version 3 journal holds no cool-down table, and both readers answer
-/// none rather than failing on it.
+/// A version 1, 2 or 3 journal holds no cool-down table, and both readers
+/// answer none rather than failing on it.
 #[test]
-fn a_cool_down_reader_answers_none_on_a_version_3_journal() {
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("forge.db");
-    let store = Store::open(&path).unwrap();
-    store
-        .conn
-        .execute_batch(
-            "UPDATE meta SET value = '3' WHERE key = 'queue_schema';
-             DROP TABLE provider_cooldowns;",
-        )
-        .unwrap();
-    drop(store);
-    let store = Store::open_read_only(&path).unwrap();
-    let now = at(0);
-    assert_eq!(store.cooldown("claude", "first", now).unwrap(), None);
-    assert_eq!(store.cooldowns_in_force(now).unwrap(), vec![]);
+fn a_cool_down_reader_answers_none_before_a_version_4_journal() {
+    for version in ["1", "2", "3"] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("forge.db");
+        let store = Store::open(&path).unwrap();
+        store
+            .conn
+            .execute_batch(&format!(
+                "UPDATE meta SET value = '{version}' WHERE key = 'queue_schema';
+                 DROP TABLE provider_cooldowns;"
+            ))
+            .unwrap();
+        drop(store);
+        let store = Store::open_read_only(&path).unwrap();
+        let now = at(0);
+        assert_eq!(
+            store.cooldown("claude", "first", now).unwrap(),
+            None,
+            "version {version}"
+        );
+        assert_eq!(
+            store.cooldowns_in_force(now).unwrap(),
+            vec![],
+            "version {version}"
+        );
+    }
 }
 
 /// The claim reads the rows in force inside its own transaction: a row

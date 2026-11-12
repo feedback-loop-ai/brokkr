@@ -124,16 +124,26 @@ pub(crate) fn insert(
     Ok(())
 }
 
-/// `at`'s whole second, rounded UP: a stored end never falls before the
-/// instant it names, so a reader that floors `now` never sees a wait end
-/// early. A wait is lengthened by under a second, never shortened.
+/// The last whole second an RFC 3339 instant can name:
+/// `9999-12-31T23:59:59Z`. A stored end is bounded here, not by whatever
+/// range `time` happens to be built with: `large-dates` moves that range
+/// from build to build, and a row this reader cannot spell refuses.
+const LAST_SECOND: i64 = 253_402_300_799;
+
+/// `at`'s whole second, rounded UP, and never past [`LAST_SECOND`]: a
+/// stored end never falls before the instant it names, so a reader that
+/// floors `now` never sees a wait end early. A wait is lengthened by under
+/// a second, never shortened. An end in the last second's fraction rounds
+/// to that second, the latest this binary can spell, rather than past it
+/// into a value no reader can name.
 fn until_second(at: OffsetDateTime) -> i64 {
     let seconds = at.unix_timestamp();
-    if at.nanosecond() == 0 {
+    let rounded = if at.nanosecond() == 0 {
         seconds
     } else {
         seconds + 1
-    }
+    };
+    rounded.min(LAST_SECOND)
 }
 
 /// Every row in force at `now`, in the order it was written: the claim's

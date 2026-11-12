@@ -5,7 +5,7 @@
 use rusqlite::{params, Connection, OptionalExtension};
 
 use super::{EntryId, Latch, QueueRefusal, Wait};
-use crate::schema::objects;
+use crate::schema::{all_present, objects};
 use crate::StoreError;
 
 /// The launch an entry stands for: the one it was last re-pinned to,
@@ -342,11 +342,17 @@ const QUEUE_TRIGGERS: [&str; 23] = [
     "provider_cooldowns_append_only_delete",
 ];
 
+/// The version 4 table and the unique index on it, by name beyond the
+/// migration's DDL: the intact check asks for both, and a lost index over
+/// rows that already hold a duplicate is refused by its key.
+const COOLDOWN_TABLE: &str = "provider_cooldowns";
+const COOLDOWN_INDEX: &str = "provider_cooldowns_once";
+
 /// The indexes the migrations install, by name, so an open can ask whether
 /// a journal still carries every one. A table's guards go with it when it
 /// is dropped, and so does its unique index, which no trigger can stand in
 /// for: without it two rows of one site and round both commit.
-const QUEUE_INDEXES: [&str; 1] = ["provider_cooldowns_once"];
+const QUEUE_INDEXES: [&str; 1] = [COOLDOWN_INDEX];
 
 /// The queue's tables, in the order the migrations create them: version
 /// 1's three, then version 2's latches and pins, then version 3's claims,
@@ -361,7 +367,7 @@ const QUEUE_TABLES: [&str; 10] = [
     "queue_refusals",
     "dispatch_holders",
     "dispatch_settings",
-    "provider_cooldowns",
+    COOLDOWN_TABLE,
 ];
 
 /// How many of [`QUEUE_TABLES`] version 3 held: all but the version 4
@@ -420,15 +426,10 @@ pub(crate) fn queue_intact(conn: &Connection) -> Result<bool, StoreError> {
     {
         return Err(QueueRefusal::TableLost { table }.into());
     }
-    // An older queue has not every guard or index: migrated.
-    let triggers = objects(conn, "trigger")?;
-    let indexes = objects(conn, "index")?;
-    Ok(QUEUE_TRIGGERS
-        .iter()
-        .all(|guard| triggers.iter().any(|name| name == guard))
-        && QUEUE_INDEXES
-            .iter()
-            .all(|index| indexes.iter().any(|name| name == index)))
+    // An older queue has not every guard or index: migrated. The presence
+    // question is `schema::all_present`'s, as it is for every other repair.
+    Ok(all_present(conn, "trigger", &QUEUE_TRIGGERS)?
+        && all_present(conn, "index", &QUEUE_INDEXES)?)
 }
 
 /// Create the queue's tables and guards and record its version, on a
@@ -438,6 +439,7 @@ pub(crate) fn migrate_queue(conn: &Connection) -> Result<(), StoreError> {
     conn.execute_batch(MIGRATION_QUEUE_V1)?;
     conn.execute_batch(MIGRATION_QUEUE_V2)?;
     conn.execute_batch(MIGRATION_QUEUE_V3)?;
+    refuse_cool_down_duplicates(conn)?;
     conn.execute_batch(MIGRATION_QUEUE_V4)?;
     conn.execute(
         "INSERT INTO meta (key, value) VALUES (?1, ?2)
@@ -451,6 +453,37 @@ pub(crate) fn migrate_queue(conn: &Connection) -> Result<(), StoreError> {
         ],
     )?;
     Ok(())
+}
+
+/// Refuse to rebuild [`COOLDOWN_INDEX`] over rows that already hold a
+/// duplicate of its key: the index can be put back only where every key is
+/// still unique, and a journal that lost it and gained a second row is
+/// named by that key rather than failing on SQLite's own constraint text.
+/// A table that is absent is not yet a duplicate, and an index that is
+/// present already refuses one, so neither is read.
+fn refuse_cool_down_duplicates(conn: &Connection) -> Result<(), StoreError> {
+    if !objects(conn, "table")?
+        .iter()
+        .any(|name| name == COOLDOWN_TABLE)
+        || objects(conn, "index")?
+            .iter()
+            .any(|name| name == COOLDOWN_INDEX)
+    {
+        return Ok(());
+    }
+    let duplicate: Option<(String, i64, String, i64)> = conn
+        .query_row(
+            "SELECT run_id, event_seq, site, rounds FROM provider_cooldowns
+             GROUP BY run_id, event_seq, site, rounds HAVING COUNT(*) > 1
+             ORDER BY run_id, event_seq, site, rounds LIMIT 1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )
+        .optional()?;
+    let Some((run_id, event_seq, site, rounds)) = duplicate else {
+        return Ok(());
+    };
+    Err(QueueRefusal::CooldownDuplicate(Box::new((run_id, event_seq, site, rounds))).into())
 }
 
 /// The queue storage a journal records, or `None` for one that never held

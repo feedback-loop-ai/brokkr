@@ -380,6 +380,11 @@ pub enum QueueRefusal {
     /// seconds outside `time`'s range is never read as a wait.
     #[error("the journal's provider cool-down {seq} records a time it cannot read")]
     CooldownTime { seq: i64 },
+    /// A lost unique cool-down index over duplicated rows (0103, slice 4d1):
+    /// the run, event seq, site and round of the duplicate, boxed so the
+    /// error stays small as the store's callers carry it.
+    #[error("the journal's provider cool-downs hold run '{}' event {} site '{}' round {} more than once; the lost unique index is not rebuilt over them", .0.0, .0.1, .0.2, .0.3)]
+    CooldownDuplicate(Box<(String, i64, String, i64)>),
     /// A command on an entry the dispatcher has claimed and not yet
     /// linked, returned or held (decision 0095 ruling 1).
     #[error("queue entry {0} is launching; the dispatcher links, returns or holds it first")]
