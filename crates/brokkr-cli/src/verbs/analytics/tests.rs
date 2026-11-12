@@ -122,38 +122,32 @@ fn assert_rows_are_whole(journal: &std::path::Path, context: &str) -> Analytics 
     rows
 }
 
-/// Read `hearths`'s one migrated journal from its rows, with `before` run
-/// between the fleet read and the store's open, and hand the query and the
-/// source to `inspect` while both are live.
-fn with_rows<T>(
+/// [`derive`] with every fleet read counted through its closure seam, and
+/// the count handed back: a test asks whether a hearth is loaded run by run
+/// (decision 0089 ruling 8's boundary, U3c2).
+fn derive_counting(
     hearths: &[Hearth],
     range: Range,
     realm: Option<&str>,
     now: &str,
-    before: impl FnOnce(),
-    inspect: impl FnOnce(&Query<'_>, super::rows::HearthSource) -> T,
-) -> T {
-    read_hearths(hearths, |grouped| {
-        before();
-        let query = Query {
-            hearths: grouped,
-            range,
-            realm,
-            now,
-        };
-        let (window, before_window) = brokkr_view::windows(&query).unwrap();
-        let store = brokkr_store::Store::open_read_only(&hearths[0].journal).unwrap();
-        let source = super::rows::HearthSource::read(
-            &grouped[0],
-            range,
-            realm,
-            now,
-            window,
-            before_window,
-            Some(&store),
-        );
-        inspect(&query, source)
+) -> (Analytics, usize) {
+    let reads = std::cell::Cell::new(0usize);
+    let rows = derive_with(hearths, range, realm, now, |journal| {
+        reads.set(reads.get() + 1);
+        crate::fleet::read_journal(journal)
     })
+    .unwrap();
+    (rows, reads.get())
+}
+
+/// One journal's Day readout with its fleet reads counted.
+fn day_read_counting(journal: &std::path::Path) -> (Analytics, usize) {
+    derive_counting(
+        &[hearth(Vec::new(), journal)],
+        Range::Day,
+        None,
+        GENERATED_NOW,
+    )
 }
 
 /// The same, for one journal at a time.
@@ -861,14 +855,21 @@ fn every_figure_is_its_whole_read_on_the_generated_journal() {
     });
     // The figures above are the rows' own: the hearth reads its rows, so a
     // silent fall back to the whole read cannot pass them as equal.
-    with_rows(
-        &hearths,
-        Range::Day,
-        None,
-        GENERATED_NOW,
-        || {},
-        |_, source| assert!(source.reads_rows(), "the generated journal reads its rows"),
-    );
+    assert_reads_rows(&journal, "the generated journal reads its rows");
+}
+
+/// A migrated, ready hearth takes no fleet read at all: the per-hearth
+/// decision `derive` makes before any fleet read (decision 0089 ruling 8's
+/// boundary, slice 4's unit U3c2). Its figures still equal the whole read.
+#[test]
+fn a_migrated_ready_hearth_loads_no_run_whole() {
+    let dir = tempfile::tempdir().unwrap();
+    let journal = generated_journal(dir.path());
+    let hearths = [hearth(Vec::new(), &journal)];
+    let (rows, reads) = derive_counting(&hearths, Range::Day, None, GENERATED_NOW);
+    assert_eq!(reads, 0, "no hearth is loaded run by run");
+    let whole = view(&hearths, Range::Day, None, GENERATED_NOW);
+    assert_same(&rows, &whole, "a migrated, ready hearth loads no run whole");
 }
 
 /// A journal of `count` stopped runs, each a realm and recipe of its own.
@@ -935,6 +936,18 @@ fn an_unmigrated_hearth_and_an_unfinished_backfill_are_read_whole() {
     drop(conn);
 
     assert_journals_are_their_whole_read(&[&unmigrated, &unfinished]);
+    // R1 keeps the fleet read exactly for a hearth that is not migrated or
+    // not ready: the decision is per hearth, before any fleet read.
+    for journal in [&unmigrated, &unfinished] {
+        let hearths = [hearth(Vec::new(), journal)];
+        let (rows, reads) = derive_counting(&hearths, Range::Day, None, GENERATED_NOW);
+        assert_eq!(
+            reads, 1,
+            "{journal:?}: not migrated or not ready takes the fleet read"
+        );
+        let whole = view(&hearths, Range::Day, None, GENERATED_NOW);
+        assert_same(&rows, &whole, &format!("{journal:?}: the whole read"));
+    }
 }
 
 #[test]
@@ -944,18 +957,7 @@ fn a_behind_run_and_a_stale_seat_run_are_each_read_whole_alone() {
     let journal = small_journal(dir.path(), "migrated", 2);
 
     // The run a writer from before the summary left behind its head.
-    let behind = stopped_run(
-        base,
-        RunCase {
-            realm: Some("behind-realm"),
-            recipe: "behind-recipe",
-            rule: LastRuling::Named("behind-rule"),
-            provider: "claude",
-            model: "behind-model",
-            usd: 0.5,
-            finish: -19 * 60,
-        },
-    );
+    let behind = behind_run(base, Some("behind-realm"));
     let behind = sealed("behind-run", &behind);
     let mut store = brokkr_store::Store::open(&journal).unwrap();
     plant(&mut store, "open-run", &open_run(base));
@@ -1057,16 +1059,16 @@ fn assert_rows_paint(journal: &std::path::Path, expected: &[&str], context: &str
         .collect();
     assert_eq!(painted, expected, "{context}: the painted realm list");
     assert_same(&rows, &whole, context);
-    with_rows(
-        &hearths,
-        Range::Day,
-        None,
-        GENERATED_NOW,
-        || {},
-        |_, source| {
-            assert!(source.reads_rows(), "{context}: the hearth reads its rows");
-        },
-    );
+    assert_reads_rows(journal, context);
+}
+
+/// `journal`'s Day hearth reads its rows, taking no fleet read at all, and
+/// `context` names the shape that asked (decision 0089 ruling 8's boundary,
+/// U3c2).
+fn assert_reads_rows(journal: &std::path::Path, context: &str) {
+    let hearths = [hearth(Vec::new(), journal)];
+    let (_, reads) = derive_counting(&hearths, Range::Day, None, GENERATED_NOW);
+    assert_eq!(reads, 0, "{context}: the hearth reads its rows");
 }
 
 /// A behind run that names no realm stands under the hearth's label in the
@@ -1184,16 +1186,31 @@ fn a_world_of_two_hearths_one_migrated_and_one_not_is_its_whole_read() {
 fn a_hearth_the_fleet_refuses_contributes_no_rows() {
     let dir = tempfile::tempdir().unwrap();
     let journal = small_journal(dir.path(), "refused", 2);
-    let conn = rusqlite::Connection::open(&journal).unwrap();
-    conn.execute("UPDATE runs SET created_at = x'00'", [])
-        .unwrap();
-    drop(conn);
-    let rows = assert_rows_are_whole(&journal, "a refused hearth");
+    // A journal the store will not open: it has no record to read, so the
+    // whole read stays exactly (decision 0089 ruling 8's boundary, R1's
+    // "what stays").
+    std::fs::write(&journal, b"not a journal").unwrap();
+    let fleet = crate::fleet::read_journal(&journal);
+    let refusal = fleet.detail.expect("the fleet refuses the journal");
+    let hearths = [hearth(Vec::new(), &journal)];
+    let (rows, reads) = derive_counting(&hearths, Range::Day, None, GENERATED_NOW);
+    assert_eq!(
+        reads, 1,
+        "the store will not open, so the fleet read is kept"
+    );
+    assert_same(
+        &rows,
+        &view(&hearths, Range::Day, None, GENERATED_NOW),
+        "a refused hearth",
+    );
     assert_eq!(rows.quarantined.len(), 1, "the refusal is reported");
     assert_eq!(rows.quarantined[0].realm, "world");
     assert_eq!(
-        rows.quarantined[0].refusal,
-        "sqlite: Invalid column type Blob at index: 2, name: created_at",
+        rows.quarantined[0].refusal, refusal,
+        "the store's refusal, the same text the fleet read states"
+    );
+    assert_eq!(
+        rows.quarantined[0].refusal, "sqlite: file is not a database",
         "the refusal's whole text, so a rewrite of it is a decision"
     );
     assert!(rows.realms.is_empty(), "no realm is listed");
@@ -1208,6 +1225,41 @@ fn a_hearth_the_fleet_refuses_contributes_no_rows() {
     );
     assert!(rows.models.is_empty(), "no model is counted");
     assert!(rows.recipes.is_empty(), "no recipe is counted");
+
+    // A store that opens and whose rows are ready, but whose run listing
+    // refuses: the row path states no quarantine, so the fleet read stays
+    // and its refusal is the hearth's own (decision 0089 ruling 8's
+    // boundary, R1's "what stays").
+    let listed = small_journal(dir.path(), "listed", 2);
+    let conn = rusqlite::Connection::open(&listed).unwrap();
+    let blobbed = conn
+        .execute("UPDATE runs SET created_at = x'00'", [])
+        .unwrap();
+    assert_eq!(blobbed, 2, "both listings no longer read");
+    drop(conn);
+    let fleet = crate::fleet::read_journal(&listed);
+    let refusal = fleet.detail.expect("the fleet refuses the listing");
+    let hearths = [hearth(Vec::new(), &listed)];
+    let (rows, reads) = derive_counting(&hearths, Range::Day, None, GENERATED_NOW);
+    assert_eq!(reads, 1, "the listing refuses, so the whole read stays");
+    assert_same(
+        &rows,
+        &view(&hearths, Range::Day, None, GENERATED_NOW),
+        "a listing refusal",
+    );
+    assert_eq!(rows.quarantined.len(), 1, "the listing refusal is reported");
+    assert_eq!(rows.quarantined[0].realm, "world");
+    assert_eq!(
+        rows.quarantined[0].refusal, refusal,
+        "the listing refusal, the same text the fleet read states"
+    );
+    assert_eq!(
+        rows.quarantined[0].refusal,
+        "sqlite: Invalid column type Blob at index: 2, name: created_at",
+        "the listing refusal's whole text, so a rewrite of it is a decision"
+    );
+    assert!(rows.realms.is_empty(), "no realm is listed");
+    assert!(rows.models.is_empty(), "no model is counted");
 }
 
 #[test]
@@ -1400,12 +1452,14 @@ fn a_row_read_that_fails_reads_its_hearth_whole() {
     );
 }
 
-/// A run the whole read cannot load is counted from no row (S2, security).
-/// Its summary row stands at its head with current projections, so neither
-/// `behind_runs` nor `window_fallbacks` names it; the rows must leave it
-/// out exactly as the whole read does, while still counting it unreadable.
+/// R1's limit (decision 0089 ruling 8's boundary, slice 4's unit U3c2): a
+/// chain broken behind the store's back after its row stood at its head is
+/// out of the row path's reach. The row path counts the run from its row,
+/// so it paints the stop and the cost; the whole read cannot load it, so
+/// it counts it unreadable and paints neither. Both are stated here, named
+/// as R1's boundary, never asserted equal.
 #[test]
-fn a_run_the_whole_read_cannot_load_is_counted_from_no_row() {
+fn a_run_the_whole_read_cannot_load_is_counted_from_its_row() {
     let dir = tempfile::tempdir().unwrap();
     let journal = small_journal(dir.path(), "corrupt", 2);
     // Corrupt corrupt-0's first envelope in place, leaving its `event_hash`,
@@ -1445,24 +1499,38 @@ fn a_run_the_whole_read_cannot_load_is_counted_from_no_row() {
     );
     drop(store);
 
-    let rows = assert_rows_are_whole(&journal, "a run the whole read cannot load");
+    let hearths = [hearth(Vec::new(), &journal)];
+    let (rows, reads) = day_read_counting(&journal);
+    assert_eq!(reads, 0, "a migrated, ready hearth loads no run whole");
+    // R1's limit: the row path counts the run from its row.
     assert_eq!(
-        serde_json::to_value(&rows.headline.stopped_by_rule).unwrap(),
-        json!({
-            "count": 1,
-            "top": {"rule_id": "corrupt-rule-1", "count": 1},
-            "text": "1 by corrupt-rule-1",
-        }),
-        "the unreadable run's stop is counted from no row"
+        rows.headline.stopped_by_rule.count, 2,
+        "the row path counts both stops"
     );
-    assert_eq!(rows.headline.cost.text, "$0.25");
-    assert_eq!(rows.models.len(), 1, "one model, from the readable run");
-    let world = rows
-        .realms
-        .iter()
-        .find(|realm| realm.realm == "world")
-        .expect("the unreadable run is named by the hearth's label");
-    assert_eq!(world.unreadable_runs, 1);
+    assert_eq!(rows.headline.cost.text, "$0.50");
+    assert_eq!(
+        rows.realms
+            .iter()
+            .map(|realm| (realm.realm.as_str(), realm.unreadable_runs))
+            .collect::<Vec<_>>(),
+        [("world", 0), ("corrupt-realm-0", 0), ("corrupt-realm-1", 0)],
+        "the row path trusts the row, so no run is unreadable"
+    );
+
+    // The whole read cannot load the run: it counts it unreadable under
+    // the hearth's label and paints neither its stop nor its cost.
+    let whole = view(&hearths, Range::Day, None, GENERATED_NOW);
+    assert_eq!(whole.headline.stopped_by_rule.count, 1);
+    assert_eq!(whole.headline.cost.text, "$0.25");
+    assert_eq!(
+        whole
+            .realms
+            .iter()
+            .map(|realm| (realm.realm.as_str(), realm.unreadable_runs))
+            .collect::<Vec<_>>(),
+        [("world", 1), ("corrupt-realm-1", 0)],
+        "R1's boundary: the whole read counts it unreadable under the label"
+    );
 }
 
 /// A run stopped before it entered any phase is a valid row: status
@@ -1483,19 +1551,9 @@ fn a_stopped_run_with_no_phase_is_read_from_its_row() {
         "a stop that entered no phase is no hard stop"
     );
 
-    let hearths = [hearth(Vec::new(), &journal)];
-    with_rows(
-        &hearths,
-        Range::Day,
-        None,
-        GENERATED_NOW,
-        || {},
-        |_, source| {
-            assert!(
-                source.reads_rows(),
-                "the no-phase stopped row loads, so its hearth reads from rows"
-            );
-        },
+    assert_reads_rows(
+        &journal,
+        "the no-phase stopped row loads, so its hearth reads from rows",
     );
 }
 
@@ -1522,30 +1580,31 @@ fn a_fallback_run_that_will_not_open_reads_its_hearth_whole() {
     let store = brokkr_store::Store::open(&journal).unwrap();
     plant_older_writer(&store, "behind-run", &events);
     drop(store);
+    // Break the behind run's chain behind the store's back, so the row
+    // path's one-run opening refuses it.
+    let conn = rusqlite::Connection::open(&journal).unwrap();
+    plant_broken_link(&conn, &events[0], 99).unwrap();
+    drop(conn);
 
     let hearths = [hearth(Vec::new(), &journal)];
-    with_rows(
-        &hearths,
-        Range::Day,
-        None,
-        GENERATED_NOW,
-        || {
-            // The fleet read loaded the run; break its chain behind its
-            // back, so only the fallback's one-run opening fails.
-            let conn = rusqlite::Connection::open(&journal).unwrap();
-            plant_broken_link(&conn, &events[0], 99).unwrap();
-            drop(conn);
-        },
-        |query, source| {
-            let source = brokkr_view::FactUnion::new(vec![Box::new(source)]);
-            let rows = brokkr_view::analytics_with(&source, query).unwrap();
-            let whole = brokkr_view::analytics(query).unwrap();
-            assert_same(&rows, &whole, "a fallback run that will not open");
-            assert_eq!(
-                rows.headline.shipped.count, whole.headline.shipped.count,
-                "the run the fleet read still paints"
-            );
-        },
+    let (rows, reads) = derive_counting(&hearths, Range::Day, None, GENERATED_NOW);
+    assert_eq!(
+        reads, 1,
+        "the one-run opening refuses, so the hearth is read whole"
+    );
+    let whole = view(&hearths, Range::Day, None, GENERATED_NOW);
+    assert_same(&rows, &whole, "a fallback run that will not open");
+    assert_eq!(
+        rows.realms
+            .iter()
+            .map(|realm| (realm.realm.as_str(), realm.unreadable_runs))
+            .collect::<Vec<_>>(),
+        [
+            ("world", 1),
+            ("fallback-realm-0", 0),
+            ("fallback-realm-1", 0)
+        ],
+        "the fleet read cannot open the run and counts it under the label"
     );
 }
 
@@ -1558,27 +1617,6 @@ fn ready(journal: &std::path::Path) -> brokkr_store::Store {
     let store = brokkr_store::Store::open_read_only(journal).unwrap();
     assert!(store.aggregates_ready().unwrap(), "the rows are ready");
     store
-}
-
-/// `journal`'s Day readout through the row path, which reads its rows when
-/// `reads_rows` says so and the whole read otherwise, asserted equal to
-/// the whole read and handed back.
-fn day_through_rows(journal: &std::path::Path, reads_rows: bool, context: &str) -> Analytics {
-    let hearths = [hearth(Vec::new(), journal)];
-    with_rows(
-        &hearths,
-        Range::Day,
-        None,
-        GENERATED_NOW,
-        || {},
-        |query, source| {
-            assert_eq!(source.reads_rows(), reads_rows, "{context}: the rows read");
-            let source = brokkr_view::FactUnion::new(vec![Box::new(source)]);
-            let rows = brokkr_view::analytics_with(&source, query).unwrap();
-            assert_same(&rows, &brokkr_view::analytics(query).unwrap(), context);
-            rows
-        },
-    )
 }
 
 /// A run the store leaves whole keeps its park out of the rows. Here its
@@ -1611,7 +1649,17 @@ fn a_park_of_a_run_read_whole_is_counted_once() {
     assert_eq!(parks, ["whole-park-run"], "the park's row still stands");
     drop(store);
 
-    let rows = day_through_rows(&journal, true, "a park of a run read whole");
+    let hearths = [hearth(Vec::new(), &journal)];
+    let (rows, reads) = day_read_counting(&journal);
+    assert_eq!(
+        reads, 0,
+        "the behind run's one-run opening reads it, not the fleet"
+    );
+    assert_same(
+        &rows,
+        &view(&hearths, Range::Day, None, GENERATED_NOW),
+        "a park of a run read whole",
+    );
     assert_eq!(
         serde_json::to_value(&rows.waiting_by_step).unwrap(),
         json!([{
@@ -1644,16 +1692,24 @@ fn a_park_row_that_will_not_read_reads_its_hearth_whole() {
 
     let refused = ready(&journal).window_parks(base - DAY_MILLIS, base, base, None, |_| {});
     assert!(refused.is_err(), "the park row will not read");
-    day_through_rows(&journal, false, "a park row that will not read");
+    let hearths = [hearth(Vec::new(), &journal)];
+    let (rows, reads) = derive_counting(&hearths, Range::Day, None, GENERATED_NOW);
+    assert_eq!(
+        reads, 1,
+        "the row read fails at its parks, so the hearth is read whole"
+    );
+    assert_same(
+        &rows,
+        &view(&hearths, Range::Day, None, GENERATED_NOW),
+        "a park row that will not read",
+    );
 }
 
-/// A writer-recorded fold refusal contributes no figure, and the same run
-/// acknowledged stays out: the rows are not trusted for a hearth the whole
-/// read cannot fold (decision 0089 slice 4, unit U3c; R1 held).
-#[test]
-fn a_writer_recorded_refusal_is_its_whole_read_and_the_acknowledged_one_too() {
-    let dir = tempfile::tempdir().unwrap();
-    let journal = dir.path().join("refused-journal.db");
+/// A journal holding a spend run and a parked run the writer will refuse:
+/// each enters a phase after its run stopped, so its row is in the
+/// `refused` lane with its spend and park still recorded.
+fn refused_journal(dir: &std::path::Path) -> std::path::PathBuf {
+    let journal = dir.join("refused-journal.db");
     let base = parse_millis(GENERATED_NOW).unwrap();
     let mut store = brokkr_store::Store::open(&journal).unwrap();
     plant(
@@ -1693,9 +1749,29 @@ fn a_writer_recorded_refusal_is_its_whole_read_and_the_acknowledged_one_too() {
     for run in ["refused-spend", "refused-park"] {
         assert_eq!(lane(&store, run).as_deref(), Some("refused"), "{run}");
     }
-    drop(store);
+    journal
+}
 
-    let rows = assert_rows_are_whole(&journal, "a writer-recorded refusal");
+/// A writer-recorded fold refusal contributes no figure, and the same run
+/// acknowledged stays out: the store's record, not a fleet read, is what
+/// leaves the run out of the rows and counts it unreadable (decision 0089
+/// slice 4, unit U3c2; R1).
+#[test]
+fn a_writer_recorded_refusal_is_its_whole_read_and_the_acknowledged_one_too() {
+    let dir = tempfile::tempdir().unwrap();
+    let journal = refused_journal(dir.path());
+
+    let hearths = [hearth(Vec::new(), &journal)];
+    let (rows, reads) = derive_counting(&hearths, Range::Day, None, GENERATED_NOW);
+    assert_same(
+        &rows,
+        &view(&hearths, Range::Day, None, GENERATED_NOW),
+        "a writer-recorded refusal",
+    );
+    assert_eq!(
+        reads, 0,
+        "the store records both refusals, so no fleet read is taken"
+    );
     assert_eq!(
         rows.realms
             .iter()
@@ -1711,19 +1787,9 @@ fn a_writer_recorded_refusal_is_its_whole_read_and_the_acknowledged_one_too() {
         rows.headline.cost.text, "not reported",
         "a refused run's spend reaches no figure"
     );
-    let hearths = [hearth(Vec::new(), &journal)];
-    with_rows(
-        &hearths,
-        Range::Day,
-        None,
-        GENERATED_NOW,
-        || {},
-        |_, source| {
-            assert!(
-                !source.reads_rows(),
-                "the fleet read cannot fold either run, so the hearth is whole"
-            );
-        },
+    assert_reads_rows(
+        &journal,
+        "a refused run is counted from its row, not disabled by a fleet read",
     );
 
     let mut store = brokkr_store::Store::open(&journal).unwrap();
@@ -1752,12 +1818,71 @@ fn a_writer_recorded_refusal_is_its_whole_read_and_the_acknowledged_one_too() {
     );
 }
 
+/// A behind run whose one-run opening succeeds but whose fold refuses is
+/// unreadable under the realm its events name, exactly as the whole read
+/// counts it: the row path does not lose the count it took the run out of
+/// the rows for (decision 0089 ruling 9, unit U3c2; R1).
+#[test]
+fn a_behind_runs_fold_refusal_is_counted_under_its_realm() {
+    let dir = tempfile::tempdir().unwrap();
+    let base = parse_millis(GENERATED_NOW).unwrap();
+    let journal = small_journal(dir.path(), "probe", 2);
+    let mut steps = behind_run(base, Some("behind-realm"));
+    // A phase after the terminal one: the chain verifies and loads, and
+    // the fold refuses.
+    steps.push((
+        EventType::PhaseEntered,
+        json!({"phase": "after-terminal"}),
+        stamp(base, -19 * 60 + 1),
+    ));
+    let events = sealed("behind-bad", &steps);
+    let store = brokkr_store::Store::open(&journal).unwrap();
+    plant_older_writer(&store, "behind-bad", &events);
+    drop(store);
+    let store = ready(&journal);
+    assert_eq!(lane(&store, "behind-bad").as_deref(), Some("behind"));
+    assert!(
+        brokkr_core::fold::fold(&events).is_err(),
+        "the planted run's fold refuses"
+    );
+    drop(store);
+
+    let hearths = [hearth(Vec::new(), &journal)];
+    for realm in [None, Some("behind-realm")] {
+        let (rows, reads) = derive_counting(&hearths, Range::Day, realm, GENERATED_NOW);
+        let whole = view(&hearths, Range::Day, realm, GENERATED_NOW);
+        assert_eq!(
+            reads, 0,
+            "the behind run's one-run opening reads it, not the fleet"
+        );
+        assert_same(&rows, &whole, &format!("a behind fold refusal {realm:?}"));
+        let expected: &[(&str, usize)] = match realm {
+            None => &[
+                ("world", 0),
+                ("behind-realm", 1),
+                ("probe-realm-0", 0),
+                ("probe-realm-1", 0),
+            ],
+            Some(_) => &[("behind-realm", 1)],
+        };
+        assert_eq!(
+            rows.realms
+                .iter()
+                .map(|realm| (realm.realm.as_str(), realm.unreadable_runs))
+                .collect::<Vec<_>>(),
+            expected,
+            "the refused fold is counted under its realm"
+        );
+    }
+}
+
 /// A rows-read hearth takes its realm list and unreadable counts from the
 /// store's index, a NULL realm named by the label and filtered by the
 /// query's cut (decision 0089 ruling A4, unit U3c's R5). The store row is
 /// set inconsistent here to exercise the wiring: a real refused lane comes
-/// with a fold the fleet read refuses, so that hearth is read whole instead
-/// (the oracle above).
+/// with a fold the writer refused, and R1 makes the store's record the one
+/// that decides, so the row path reads this hearth (decision 0089 ruling
+/// 8's boundary, unit U3c2).
 #[test]
 fn a_rows_read_hearth_takes_its_unreadable_counts_from_the_store() {
     let dir = tempfile::tempdir().unwrap();
@@ -1777,21 +1902,20 @@ fn a_rows_read_hearth_takes_its_unreadable_counts_from_the_store() {
     .unwrap();
     drop(conn);
     let hearths = [hearth(Vec::new(), &journal)];
-    with_rows(
-        &hearths,
-        Range::Day,
-        Some("stored-realm"),
-        GENERATED_NOW,
-        || {},
-        |_, source| {
-            assert!(source.reads_rows(), "the fleet read folds both runs");
-            let (realms, unreadable) = brokkr_view::FactSource::scope(&source);
-            assert_eq!(unreadable.get("stored-realm"), Some(&1), "{unreadable:?}");
-            assert!(
-                !unreadable.contains_key("world"),
-                "the NULL realm names the label, which this cut keeps out: {unreadable:?}"
-            );
-            assert!(realms.contains(&"stored-realm".to_string()), "{realms:?}");
-        },
+    let (rows, reads) = derive_counting(&hearths, Range::Day, Some("stored-realm"), GENERATED_NOW);
+    assert_eq!(
+        reads, 0,
+        "the store records both rows, so no fleet read is taken"
+    );
+    let realms: Vec<&str> = rows
+        .realms
+        .iter()
+        .map(|realm| realm.realm.as_str())
+        .collect();
+    assert_eq!(realms, ["stored-realm"], "the cut names one realm");
+    assert_eq!(rows.realms[0].unreadable_runs, 1);
+    assert!(
+        !rows.realms.iter().any(|realm| realm.realm == "world"),
+        "the NULL realm names the label, which this cut keeps out"
     );
 }

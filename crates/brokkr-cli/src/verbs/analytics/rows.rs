@@ -2,19 +2,28 @@
 //! ruling 7, slice 4's unit U4): each hearth read over its own journal,
 //! one row at a time, in the order its figure folds.
 //!
-//! A migrated hearth's figures come from [`RowOnly`]; a hearth whose rows
-//! are not ready, a hearth holding a run the whole read could not load or
-//! fold, and a run whose row is behind its head or whose seat facts are
-//! stale, come from [`brokkr_view::WholeRead`] instead (ruling 8). The two
-//! are merged in a figure's own key order, so a group never straddles the
-//! row stream and the runs read whole. A rows-read hearth takes its realm
-//! list and unreadable-run counts from the store's covering index, and
-//! every other keeps the whole read's (decision 0089 ruling A4, slice 4's
-//! unit U3c).
+//! A migrated, ready hearth's figures come from [`RowOnly`]; a hearth whose
+//! rows are not ready, and a run whose row is behind its head or whose seat
+//! facts are stale, come from [`brokkr_view::WholeRead`] instead (ruling
+//! 8). The two are merged in a figure's own key order, so a group never
+//! straddles the row stream and the runs read whole. A rows-read hearth
+//! takes its realm list and unreadable-run counts from the store's covering
+//! index, and every other keeps the whole read's (decision 0089 ruling A4,
+//! slice 4's unit U3c).
 //!
 //! This module reads a migrated journal only; `brokkr-store`'s window
 //! reads are its one source of rows, and nothing here writes (decision
 //! 0014).
+//!
+//! R1's limit (decision 0089 ruling 8's boundary, slice 4's unit U3c2): a
+//! migrated, ready hearth is not loaded run by run, and "unreadable" is
+//! what the store records — the `refused` and `acknowledged` lanes, and a
+//! behind run whose one-run opening refuses, which sends the hearth whole
+//! (U4). A run the store leaves whole whose opening succeeds and whose fold
+//! refuses is counted under the realm its events name, exactly as the whole
+//! read counts it. A chain broken behind the store's back after its row
+//! stood at its head is out of this path's reach: the row path trusts the
+//! row, and the journal and integrity checks find it (`doctor`, #1000).
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -316,7 +325,7 @@ struct BehindRealm {
 /// One rows-read hearth: the facts its figures fold, and the realm list and
 /// unreadable counts its rows state (decision 0089 ruling A4, slice 4's
 /// unit U3c).
-struct RowSource {
+pub(super) struct RowSource {
     facts: FactUnion,
     scope: Scope,
 }
@@ -428,9 +437,14 @@ fn read_whole(
 /// One rows-read hearth's realm list and unreadable counts: configured
 /// realms or the label first, then every run's realm in first-`created_at`
 /// order through the store's covering index, the behind runs' realms placed
-/// by their one-run stamp, and the refused and acknowledged counts (decision
-/// 0089 ruling A4, slice 4's unit U3c).
-fn store_scope(rows: &Rows<'_>, behind: &[BehindRealm]) -> Result<Scope, brokkr_store::StoreError> {
+/// by their one-run stamp, the refused and acknowledged counts, and the
+/// runs the one-run fallback opened and could not fold (decision 0089
+/// ruling A4, slice 4's units U3c and U3c2).
+fn store_scope(
+    rows: &Rows<'_>,
+    behind: &[BehindRealm],
+    unfolded: &BTreeMap<String, usize>,
+) -> Result<Scope, brokkr_store::StoreError> {
     let mut scope = Scope::default();
     if rows.configured.is_empty() {
         scope.name(rows.realm, rows.label);
@@ -467,6 +481,12 @@ fn store_scope(rows: &Rows<'_>, behind: &[BehindRealm]) -> Result<Scope, brokkr_
     rows.store.refused_counts(wanted, |named, count| {
         scope.unreadable(rows.realm, named.unwrap_or(rows.label), count);
     })?;
+    // A run the store leaves whole whose one-run opening succeeds and whose
+    // fold refuses is unreadable exactly as the whole read counts it: the
+    // fallback's count, under the realm its events name (U3c2).
+    for (named, count) in unfolded {
+        scope.unreadable(rows.realm, named, *count as u64);
+    }
     Ok(scope)
 }
 
@@ -498,137 +518,144 @@ fn read_rows(rows: &Rows<'_>) -> Result<RowSource, brokkr_store::StoreError> {
         FactUnion::new(vec![Box::new(row)])
     } else {
         let (fallback, behind) = read_whole(rows, &whole, &behind)?;
-        let scope = store_scope(rows, &behind)?;
+        let scope = store_scope(rows, &behind, fallback.scope().1)?;
         return Ok(RowSource {
             facts: FactUnion::new(vec![Box::new(row), Box::new(fallback)]),
             scope,
         });
     };
-    let scope = store_scope(rows, &[])?;
+    let scope = store_scope(rows, &[], &BTreeMap::new())?;
     Ok(RowSource { facts, scope })
 }
 
-/// One hearth's facts as the readout folds them: the rows when the store is
-/// ready, the whole read when it is not and for the quarantined hearths; a
-/// hearth whose rows are read takes its realm list and unreadable counts
-/// from the store's index, every other keeps today's whole-read scope
-/// (decision 0089 ruling A4, slice 4's unit U3c).
-pub(super) struct HearthSource {
-    whole: WholeRead,
-    rows: Option<RowSource>,
+/// One hearth's facts as the readout folds them: the whole read for a
+/// hearth that is not migrated, not ready or not openable, and the store's
+/// rows for a migrated, ready one (decision 0089 ruling 8).
+pub(super) enum HearthSource {
+    Whole(WholeRead),
+    Rows(RowSource),
 }
 
 impl HearthSource {
-    /// Read one hearth: the whole read for the fields that still need
-    /// every run, and the store's rows when its model is ready. A hearth
-    /// the fleet refused, a hearth holding a run the whole read could not
-    /// load or fold, and any failure on the row path leave the rows
-    /// unread, so the whole read in hand states every figure: a refusal
-    /// never contributes figures, an unreadable run is counted from no
-    /// row, and a row read's error never fails the fleet's readout
-    /// (decision 0089 rulings 7 and 8).
-    ///
-    /// A run the store cannot load reaches the hand-over with no events,
-    /// so its id is not there to exclude from the rows; the whole read is
-    /// the only exact reading left for its hearth, and it already leaves
-    /// that run out.
+    /// One hearth read whole: the fleet's runs folded as today, and every
+    /// figure, realm name and unreadable count the whole read's (decision
+    /// 0089 rulings 7 and 8). R1's limit belongs to the row path alone:
+    /// see [`HearthSource::from_store`].
     pub(super) fn read(
         grouped: &brokkr_view::AnalyticsHearth<'_>,
         range: brokkr_view::Range,
         realm: Option<&str>,
         now: &str,
         window: Window,
-        before: Window,
-        store: Option<&Store>,
     ) -> HearthSource {
-        let query = Query {
-            hearths: std::slice::from_ref(grouped),
-            range,
-            realm,
-            now,
-        };
-        let whole = brokkr_view::whole_read(&query, window);
-        let ready = store.is_some_and(|store| store.aggregates_ready().unwrap_or(false));
-        let readable = grouped.runs.iter().all(|run| run.state.is_some());
-        let rows = match (ready, store) {
-            (true, Some(store)) if grouped.refusal.is_none() && readable => read_rows(&Rows {
-                store,
-                label: grouped.label,
-                configured: grouped.realms,
-                window,
-                before,
-                realm,
-                range,
-                now,
-            })
-            .ok(),
-            _ => None,
-        };
-        HearthSource { whole, rows }
+        HearthSource::Whole(whole_of(grouped, range, realm, now, window))
     }
 
-    /// Whether this hearth's figures come from its rows rather than the
-    /// whole read in hand: a test asks so a silent fallback cannot hide.
-    #[cfg(test)]
-    pub(super) fn reads_rows(&self) -> bool {
-        self.rows.is_some()
+    /// One migrated, ready hearth's rows alone, with no fleet read behind
+    /// it: the caller has already opened the store read-only and found its
+    /// aggregates ready and its listing readable (decision 0089 ruling 8's
+    /// boundary, slice 4's unit U3c2). A refusal is the caller's to answer
+    /// with the whole read; a behind run's one-run opening is still read,
+    /// and its refusal is returned here.
+    ///
+    /// R1's limit, as the module doc states it: this path trusts the row.
+    /// A chain broken behind the store's back after its row stood at its
+    /// head is out of its reach, and the journal and integrity checks find
+    /// it (`doctor`, #1000).
+    pub(super) fn from_store(
+        grouped: &brokkr_view::AnalyticsHearth<'_>,
+        range: brokkr_view::Range,
+        realm: Option<&str>,
+        now: &str,
+        window: Window,
+        before: Window,
+        store: &Store,
+    ) -> Result<HearthSource, brokkr_store::StoreError> {
+        let rows = read_rows(&Rows {
+            store,
+            label: grouped.label,
+            configured: grouped.realms,
+            window,
+            before,
+            realm,
+            range,
+            now,
+        })?;
+        Ok(HearthSource::Rows(rows))
     }
+}
+
+/// The whole read of one hearth, for the caller that holds it whole.
+fn whole_of(
+    grouped: &brokkr_view::AnalyticsHearth<'_>,
+    range: brokkr_view::Range,
+    realm: Option<&str>,
+    now: &str,
+    window: Window,
+) -> WholeRead {
+    let query = Query {
+        hearths: std::slice::from_ref(grouped),
+        range,
+        realm,
+        now,
+    };
+    brokkr_view::whole_read(&query, window)
 }
 
 impl FactSource for HearthSource {
     fn scope(&self) -> (&[String], &BTreeMap<String, usize>) {
-        match &self.rows {
-            Some(rows) => (&rows.scope.realms, &rows.scope.unreadable),
-            None => self.whole.scope(),
+        match self {
+            HearthSource::Whole(whole) => whole.scope(),
+            HearthSource::Rows(rows) => (&rows.scope.realms, &rows.scope.unreadable),
         }
     }
 
     fn quarantined(&self) -> Vec<brokkr_view::QuarantinedHearth> {
-        match &self.rows {
-            Some(rows) => rows.facts.quarantined(),
-            None => self.whole.quarantined(),
+        match self {
+            HearthSource::Whole(whole) => whole.quarantined(),
+            HearthSource::Rows(rows) => rows.facts.quarantined(),
         }
     }
 
     fn runs(&self, visit: &mut dyn FnMut(RunFacts)) {
-        match &self.rows {
-            Some(rows) => rows.facts.runs(visit),
-            None => self.whole.runs(visit),
+        match self {
+            HearthSource::Whole(whole) => whole.runs(visit),
+            HearthSource::Rows(rows) => rows.facts.runs(visit),
         }
     }
 
     fn runs_in(&self, order: RunOrder, visit: &mut dyn FnMut(RunFacts)) {
-        match &self.rows {
-            Some(rows) => rows.facts.runs_in(order, visit),
-            None => self.whole.runs_in(order, visit),
+        match self {
+            HearthSource::Whole(whole) => whole.runs_in(order, visit),
+            HearthSource::Rows(rows) => rows.facts.runs_in(order, visit),
         }
     }
 
     fn durations(&self, visit: &mut dyn FnMut(&str, i64)) {
-        match &self.rows {
-            Some(rows) => rows.facts.durations(visit),
-            None => self.whole.durations(visit),
+        match self {
+            HearthSource::Whole(whole) => whole.durations(visit),
+            HearthSource::Rows(rows) => rows.facts.durations(visit),
         }
     }
 
     fn parks(&self, visit: &mut dyn FnMut(ParkFact)) {
-        match &self.rows {
-            Some(rows) => rows.facts.parks(visit),
-            None => self.whole.parks(visit),
+        match self {
+            HearthSource::Whole(whole) => whole.parks(visit),
+            HearthSource::Rows(rows) => rows.facts.parks(visit),
         }
     }
 
     fn spends(&self, visit: &mut dyn FnMut(SpendFact)) {
-        match &self.rows {
-            Some(rows) => rows.facts.spends(visit),
-            None => self.whole.spends(visit),
+        match self {
+            HearthSource::Whole(whole) => whole.spends(visit),
+            HearthSource::Rows(rows) => rows.facts.spends(visit),
         }
     }
 
     fn sites_in(&self, order: SiteOrder, visit: &mut dyn FnMut(SiteFact)) {
-        match &self.rows {
-            Some(rows) => rows.facts.sites_in(order, visit),
-            None => self.whole.sites_in(order, visit),
+        match self {
+            HearthSource::Whole(whole) => whole.sites_in(order, visit),
+            HearthSource::Rows(rows) => rows.facts.sites_in(order, visit),
         }
     }
 }
