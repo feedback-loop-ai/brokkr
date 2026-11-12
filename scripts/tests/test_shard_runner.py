@@ -11,7 +11,9 @@ unit-tested against planted /proc trees and a stub ps, since a test cannot
 make the host's own table unreadable.
 """
 
+import contextlib
 import importlib.util
+import io
 import os
 from pathlib import Path
 import shutil
@@ -125,7 +127,9 @@ class ShardRunner(unittest.TestCase):
         started = time.monotonic()
         result = self.launch(argv, bound=1)
         elapsed = time.monotonic() - started
-        self.assertLess(elapsed, 5, result.stdout + result.stderr)
+        # Under the bound plus the 10 s TERM grace a group that ignored TERM
+        # would take, with room for a loaded host (#1054).
+        self.assertLess(elapsed, 9, result.stdout + result.stderr)
         self.assertGreaterEqual(elapsed, 1.0, "judged before its bound")
         self.assertEqual(result.returncode, 124, result.stdout + result.stderr)
         self.assertEqual(self.status.read_text(), "bound\n")
@@ -282,7 +286,7 @@ class ShardRunner(unittest.TestCase):
             "tail",
             "printf 'test result: ok. 1 passed; 0 failed; 0 ignored; "
             "0 measured; 0 filtered out; finished in 0.20s\\n'\n"
-            "sleep 2; :\n")
+            "sleep 10; :\n")
         result = self.launch(argv, bound=1)
         self.assertEqual(result.returncode, 124, result.stdout + result.stderr)
         self.assertEqual(self.status.read_text(), "bound\n")
@@ -292,13 +296,13 @@ class ShardRunner(unittest.TestCase):
         argv = self.deps_argv(
             "chatty",
             "count=0\n"
-            "while [ \"$count\" -lt 10 ]; do\n"
+            "while [ \"$count\" -lt 20 ]; do\n"
             "  sleep 0.3\n"
             "  printf 'test still running...\\n'\n"
             "  count=$((count + 1))\n"
             "done\n"
             "printf 'test result: ok. 1 passed; 0 failed; 0 ignored; "
-            "0 measured; 0 filtered out; finished in 3.00s\\n'\n"
+            "0 measured; 0 filtered out; finished in 6.00s\\n'\n"
             "sleep 1; :\n")
         started = time.monotonic()
         result = self.launch(argv, bound=1)
@@ -306,12 +310,14 @@ class ShardRunner(unittest.TestCase):
         self.assertEqual(result.returncode, 124, result.stdout + result.stderr)
         self.assertEqual(self.status.read_text(), "bound\n")
         self.assertEqual(self.record.read_text(), "chatty-0123abcd\n1\n")
-        self.assertLess(elapsed, 2.5, result.stdout + result.stderr)
+        # Progress for 6 s: a deadline it moved would fire at 7 s at the
+        # earliest, well past this ceiling and a loaded host's lag (#1054).
+        self.assertLess(elapsed, 5, result.stdout + result.stderr)
 
     def test_a_deps_path_with_parentheses_is_named_and_bounded(self):
         pidfile = self.root / "parens.pid"
         argv = self.deps_argv(
-            "hang", 'printf "%s\\n" "$$" > "$1"; sleep 5; :', pidfile,
+            "hang", 'printf "%s\\n" "$$" > "$1"; sleep 30; :', pidfile,
             folder="target/ctd (y)/debug/deps")
         started = time.monotonic()
         result = self.launch(argv, bound=2)
@@ -319,7 +325,7 @@ class ShardRunner(unittest.TestCase):
         self.assertEqual(result.returncode, 124, result.stdout + result.stderr)
         self.assertEqual(self.status.read_text(), "bound\n")
         self.assertEqual(self.record.read_text(), "hang-0123abcd\n2\n")
-        self.assertLess(elapsed, 4.5, result.stdout + result.stderr)
+        self.assertLess(elapsed, 9, result.stdout + result.stderr)
         self.assertTrue(self.killed_after(self.pid("parens.pid")))
 
     def test_a_test_binary_that_prints_no_start_line_is_still_bounded(self):
@@ -348,7 +354,7 @@ class ShardRunner(unittest.TestCase):
             "  printf 'test result: ok. 1 passed; 0 failed; 0 ignored; "
             "0 measured; 0 filtered out; finished in 4.80s\\n'\n"
             ") &\n"
-            "\"$deps\" -c 'printf \"%s\\n\" \"$$\" > \"$1\"; sleep 4; :' hang \"$2\"\n"
+            "\"$deps\" -c 'printf \"%s\\n\" \"$$\" > \"$1\"; sleep 10; :' hang \"$2\"\n"
             "wait\n", "cargo")
         started = time.monotonic()
         result = self.launch([cargo, dep, pidfile], bound=1)
@@ -357,7 +363,8 @@ class ShardRunner(unittest.TestCase):
         self.assertEqual(self.status.read_text(), "bound\n")
         self.assertEqual(self.record.read_text(), "hang-0123abcd\n1\n")
         self.assertGreaterEqual(elapsed, 1.0, "judged before its bound")
-        self.assertLess(elapsed, 2.5, result.stdout + result.stderr)
+        # A clock the last Running line reset would fire at 5.4 s (#1054).
+        self.assertLess(elapsed, 4, result.stdout + result.stderr)
         self.assertTrue(self.killed_after(self.pid("hang.pid")))
 
     def test_an_ansi_decorated_start_line_starts_no_clock(self):
@@ -365,7 +372,7 @@ class ShardRunner(unittest.TestCase):
         cargo = self.child(
             "printf '\\033[1m\\033[92m     Running\\033[0m unittests src/lib.rs "
             "(target/debug/deps/color-0123abcd)\\n'\n"
-            "\"$1\" -c 'sleep 2; :'\n", "cargo-color")
+            "\"$1\" -c 'sleep 10; :'\n", "cargo-color")
         result = self.launch([cargo, dep], bound=1)
         self.assertEqual(result.returncode, 124, result.stdout + result.stderr)
         self.assertEqual(self.status.read_text(), "bound\n")
@@ -379,7 +386,8 @@ class ShardRunner(unittest.TestCase):
             "\"$1\" -c 'sleep 0.2; :'\n"
             "exit 0\n", "cargo-slow")
         started = time.monotonic()
-        result = self.launch([cargo, dep], bound=1)
+        # 2 s: under cargo's own 3 s, over the 0.2 s binary on a loaded host.
+        result = self.launch([cargo, dep], bound=2)
         elapsed = time.monotonic() - started
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(self.status.read_text(), "exit 0\n")
@@ -392,14 +400,14 @@ class ShardRunner(unittest.TestCase):
         rustdoc.chmod(0o755)
         started = time.monotonic()
         result = self.launch(
-            [rustdoc, "-c", "sleep 3; :", "rustdoc", "--crate-name", "brokkr_core",
+            [rustdoc, "-c", "sleep 30; :", "rustdoc", "--crate-name", "brokkr_core",
              self.runner.DOCTEST_FLAG], bound=2)
         elapsed = time.monotonic() - started
         self.assertEqual(result.returncode, 124, result.stdout + result.stderr)
         self.assertEqual(self.status.read_text(), "bound\n")
         self.assertEqual(self.record.read_text(), "Doc-tests brokkr_core\n2\n")
         self.assertGreaterEqual(elapsed, 2.0, "judged before its bound")
-        self.assertLess(elapsed, 5, result.stdout + result.stderr)
+        self.assertLess(elapsed, 9, result.stdout + result.stderr)
 
     def test_test_binary_names_follow_the_process_rules(self):
         member = self.runner.Member
@@ -513,14 +521,69 @@ class ShardRunner(unittest.TestCase):
         shutil.rmtree(proc / "42")
         (proc / "41" / "exe").unlink()
         (proc / "41" / "exe").mkdir()
+        (proc / "41" / "cmdline").mkdir()
         self.assertEqual(
             self.runner.proc_group(7, root=proc),
-            ([self.runner.Member(41, 12345, None, "a member's executable could not be read")],
+            ([self.runner.Member(
+                41, 12345, None,
+                "a member's executable could not be read, nor its arguments "
+                "(EINVAL; stat state S, comm member)")],
              None))
         shutil.rmtree(proc)
         proc.mkdir()
         self.assertEqual(self.runner.proc_group(7, root=proc),
                          (None, "the process table read was empty"))
+
+    def test_a_member_whose_exe_refuses_is_judged_by_its_first_argument(self):
+        # #1054: the kernel can refuse a live member's exe link while its
+        # arguments stay readable, so the member is judged by the path it
+        # was started as; empty arguments still fail, and arguments that
+        # are gone mean the member is gone.
+        proc = self.root / "proc"
+        (proc / "41").mkdir(parents=True)
+        (proc / "41" / "stat").write_text(stat_line(41, 7, 12345))
+        (proc / "41" / "exe").mkdir()
+        dep = "/tmp/target/debug/deps/abc-1234"
+        (proc / "41" / "cmdline").write_bytes(dep.encode() + b"\0--nocapture\0")
+        why = "(EINVAL; stat state S, comm member)"
+        judged = self.runner.Member(
+            41, 12345, dep, None, f"its first argument, its executable unreadable {why}")
+        self.assertEqual(self.runner.proc_group(7, root=proc), ([judged], None))
+        self.assertEqual(self.runner.judged_name(judged), ("abc-1234", None))
+        (proc / "41" / "cmdline").write_bytes(b"")
+        self.assertEqual(
+            self.runner.proc_group(7, root=proc),
+            ([self.runner.Member(
+                41, 12345, None,
+                f"a member's executable could not be read, and its arguments are empty {why}")],
+             None))
+        # Empty arguments from a process that exited between the reads: gone.
+        (proc / "41" / "stat").write_text(
+            stat_line(41, 7, 12345).replace("(member) S", "(member) Z", 1))
+        self.assertEqual(self.runner.exited(proc / "41"), True)
+        self.assertEqual(self.runner.proc_group(7, root=proc), ([], None))
+        (proc / "41" / "stat").write_text(stat_line(41, 7, 12345))
+        (proc / "41" / "cmdline").unlink()
+        self.assertEqual(self.runner.proc_group(7, root=proc), ([], None))
+
+    def test_a_member_judged_by_its_argument_takes_a_clock_and_is_noted_once(self):
+        runner = self.runner.Runner(["unused"], 4, str(self.record), str(self.status))
+        clocks = {}
+        judged = self.runner.Member(41, "start-a", "/tmp/deps/abc-1234", None,
+                                    "its first argument, its executable unreadable (EACCES)")
+        other = self.runner.Member(42, "start-b", "bwrap", None,
+                                   "its first argument, its executable unreadable (EACCES)")
+        noted = io.StringIO()
+        with contextlib.redirect_stderr(noted):
+            self.assertIsNone(runner.start_clocks([judged, other], clocks, 100.0))
+            self.assertIsNone(runner.start_clocks([judged, other], clocks, 101.0))
+        self.assertEqual(clocks, {(41, "start-a"): (104.0, "abc-1234")})
+        self.assertEqual(noted.getvalue().splitlines(), [
+            "shard runner: pid 41 is judged by its first argument, its executable "
+            "unreadable (EACCES): /tmp/deps/abc-1234",
+            "shard runner: pid 42 is judged by its first argument, its executable "
+            "unreadable (EACCES): bwrap",
+        ])
 
     def test_a_proc_entry_that_vanishes_mid_read_is_skipped(self):
         proc = self.root / "proc"
@@ -613,7 +676,7 @@ class ShardRunner(unittest.TestCase):
             def poll_interval(self):
                 return 60.0
 
-        argv = self.deps_argv("sleepy", "sleep 1.5; :")
+        argv = self.deps_argv("sleepy", "sleep 4; :")
         runner = LongPoll(argv, 1, str(self.record), str(self.status))
         started = time.monotonic()
         code = runner.run()
@@ -622,7 +685,7 @@ class ShardRunner(unittest.TestCase):
         self.assertEqual(self.status.read_text(), "bound\n")
         self.assertEqual(self.record.read_text(), "sleepy-0123abcd\n1\n")
         self.assertGreaterEqual(elapsed, 1.0)
-        self.assertLess(elapsed, 5.0)
+        self.assertLess(elapsed, 9.0)
 
     def test_a_read_at_the_deadline_sees_a_binary_the_poll_would_skip(self):
         # The poll is 60 s away and cargo outlives the binary, so only a read
@@ -638,7 +701,7 @@ class ShardRunner(unittest.TestCase):
         pidfile = self.root / "pollgap.pid"
         dep = self.deps("pollgap")
         cargo = self.child(
-            "\"$1\" -c 'printf \"%s\\n\" \"$$\" > \"$1\"; sleep 1.5; :' "
+            "\"$1\" -c 'printf \"%s\\n\" \"$$\" > \"$1\"; sleep 4; :' "
             "pollgap-0123abcd \"$2\" &\n"
             "wait\n"
             "sleep 0.6\n", "pollgap-cargo")
@@ -679,7 +742,7 @@ class ShardRunner(unittest.TestCase):
         dep = self.deps("early")
         cargo = self.child(
             "sleep 0.6\n"
-            "\"$1\" -c 'sleep 3; :' early-0123abcd &\n"
+            "\"$1\" -c 'sleep 10; :' early-0123abcd &\n"
             "printf '%s\\n' \"$!\" > \"$2\"\n"
             "wait\n", "early-cargo")
         original = self.runner.group_members

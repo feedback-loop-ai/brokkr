@@ -51,7 +51,9 @@ name = pathlib.Path(sys.argv[0]).name
 if os.environ.get('IGNORE_TERM') == name: signal.signal(signal.SIGTERM, signal.SIG_IGN)
 (root / (name + '.started')).write_text(str(os.getpid()))
 # Every child must start before any can finish. A serial launcher fails.
-deadline = time.monotonic() + 5
+# 30 s, not 5: a loaded host can take longer than 5 s to start all three,
+# and a serial launcher still never lets the first see the third (#1054).
+deadline = time.monotonic() + 30
 while len(list(root.glob('*.started'))) != 3:
     if time.monotonic() > deadline: sys.exit(90)
     time.sleep(.01)
@@ -100,7 +102,7 @@ class Launcher(unittest.TestCase):
     def launch(self, *args, bound=True):
         if bound:
             args = ('--binary-bound', '1800', *args)
-        return subprocess.run(self.command(*args), env=self.env, text=True, capture_output=True, timeout=20)
+        return subprocess.run(self.command(*args), env=self.env, text=True, capture_output=True, timeout=60)
 
     def assert_reaped(self):
         for path in self.root.glob('*.started'):
@@ -168,7 +170,7 @@ class Launcher(unittest.TestCase):
                 self.env['HANG'] = '1'
                 process = subprocess.Popen(self.command('--binary-bound', '1800'), env=self.env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
                 try:
-                    deadline = time.monotonic() + 5
+                    deadline = time.monotonic() + 30
                     while len(list(self.root.glob('*.started'))) != 3:
                         self.assertIsNone(process.poll())
                         self.assertLess(time.monotonic(), deadline)
