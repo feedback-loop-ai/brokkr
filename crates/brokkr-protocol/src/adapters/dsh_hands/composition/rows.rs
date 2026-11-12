@@ -12,9 +12,10 @@
 //! closed to `  name: <v>`, `  disabled: <v>`, `  config:` and `  inject:`,
 //! each at most once. `config:` or `inject:` opens a block; a line indented
 //! three or more spaces is admitted only while a block is open, the
-//! `sandbox-policy` block reads only one `    mode: <w>`, and every other
-//! row's block stays unread. A one-space line and a non-skip line led by a
-//! tab refuse.
+//! `sandbox-policy` config block reads only one `    mode: <w>`, its
+//! `inject:` block (which the measured 0.2.2-rc.1 tree carries) is unread
+//! like every other row's, and every other row's blocks stay unread. A
+//! one-space line and a non-skip line led by a tab refuse.
 
 use super::super::{HANDS_ID, SANDBOX_POLICY};
 use super::{Composition, Row};
@@ -123,7 +124,9 @@ fn read_line(row: &mut Row, state: &mut RowState, line: &str) -> Result<(), Comp
 
 /// One two-space line. Only the four keys the dump writes are admitted,
 /// each at most once, and `config:`/`inject:` are bare. A quoted or spaced
-/// key, a flow-style value, an unknown key and a second key refuse.
+/// key, a flow-style value, an unknown key and a second key refuse. The
+/// `sandbox-policy` row's `inject:` block is admitted and unread, as the
+/// measured 0.2.2-rc.1 tree carries it; only its `config:` block is read.
 fn read_key(row: &mut Row, state: &mut RowState, key: &str) -> Result<(), Composition> {
     if let Some(value) = key.strip_prefix("name: ") {
         state.admit(Key::Name)?;
@@ -142,9 +145,6 @@ fn read_key(row: &mut Row, state: &mut RowState, key: &str) -> Result<(), Compos
         return Ok(());
     }
     if key == "inject:" {
-        if row.id == SANDBOX_POLICY {
-            return Err(Composition::Unreadable);
-        }
         state.admit(Key::Inject)?;
         state.block = Block::Inject;
         return Ok(());
@@ -153,24 +153,25 @@ fn read_key(row: &mut Row, state: &mut RowState, key: &str) -> Result<(), Compos
 }
 
 /// One line deeper than the row's two-space level. It is admitted only
-/// while a block is open; the `sandbox-policy` block reads only its one
-/// `    mode: <w>` line, and every other row's block stays unread.
+/// while a block is open; the `sandbox-policy` `config:` block reads only
+/// its one `    mode: <w>` line, its `inject:` block and every other row's
+/// blocks stay unread.
 fn read_deep(
     row: &mut Row,
     state: &RowState,
     line: &str,
     spaces: usize,
 ) -> Result<(), Composition> {
-    if state.block == Block::None {
-        return Err(Composition::Unreadable);
+    match (row.id == SANDBOX_POLICY, state.block) {
+        (_, Block::None) => Err(Composition::Unreadable),
+        (true, Block::Config) => {
+            if spaces != 4 {
+                return Err(Composition::Unreadable);
+            }
+            read_mode(row, &line[4..])
+        }
+        _ => Ok(()),
     }
-    if row.id != SANDBOX_POLICY {
-        return Ok(());
-    }
-    if spaces != 4 {
-        return Err(Composition::Unreadable);
-    }
-    read_mode(row, &line[4..])
 }
 
 /// The one `    mode: <word>` line a `sandbox-policy` `config` block may

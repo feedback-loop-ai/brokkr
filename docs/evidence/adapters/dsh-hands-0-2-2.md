@@ -167,13 +167,18 @@ controller can follow this procedure.
      refuses: a second key (no last-wins), a quoted or spaced key
      (`  "disabled": false`, `  disabled : false`), `  ? `, `  <<:`, a
      flow-style value on `config:`/`inject:`, and an unknown key. The
-     `sandbox-policy` row admits no `inject:`.
+     `sandbox-policy` row admits `inject:` too, unread: the real
+     0.2.2-rc.1 composed tree carries `  inject:`/`    - headlessStartup`
+     on it. (1052g3 and 1052g4 admitted no `inject:` there and would have
+     refused that measured tree; this round admits it because the real
+     tree bounds the grammar.)
    - **Blocks.** `  config:` or `  inject:` opens the row's block.
      `  name:`, `  disabled:` and the next row close it; a skipped line
      leaves it as it is. A line indented three or more spaces is admitted
-     only while a block is open. In `sandbox-policy` the block is read by
-     the span grammar: only one `    mode: <w>` line. In every other row
-     the block stays unread. A deeper line with no open block refuses:
+     only while a block is open. In `sandbox-policy` only the `config:`
+     block is read by the span grammar: one `    mode: <w>` line. Its
+     `inject:` block, and every other row's blocks, stay unread. A deeper
+     line with no open block refuses:
      directly after `- id:`, `  name:` or `  disabled:` it is a plain- or
      quoted-scalar continuation that would change the value the gate read.
    - **One space and tabs.** A one-space line, and a non-skip line whose

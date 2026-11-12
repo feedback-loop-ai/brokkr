@@ -315,13 +315,38 @@ fn an_unadmitted_two_space_key_is_refused() {
             "{what}"
         );
     }
-    let injected = dump.replacen("  config:\n", "  inject:\n  config:\n", 1);
-    assert_ne!(injected, dump);
-    assert_eq!(
-        gate(injected, Release::V0_2_1, Mode::ReadOnly),
-        Err(Composition::Unreadable),
-        "the policy row admits no inject"
-    );
+}
+
+/// Rule 5, with the measured 0.2.2-rc.1 shape: the `sandbox-policy` row
+/// carries an `inject:` block (`    - headlessStartup`), which is admitted
+/// and unread like every other row's inject block. Only its `config:`
+/// block is span-read, so a mode-looking line under `inject:` is not the
+/// composed mode.
+#[test]
+fn the_policy_inject_block_is_unread() {
+    let dump = policy_dump();
+    for (what, planted) in [
+        (
+            "the measured inject list",
+            "  inject:\n    - headlessStartup\n  config:\n    mode: read-only\n",
+        ),
+        (
+            "a mode-looking line under inject",
+            "  inject:\n    mode: danger-full-access\n  config:\n    mode: read-only\n",
+        ),
+        (
+            "an inject block after config",
+            "  config:\n    mode: read-only\n  inject:\n    - headlessStartup\n",
+        ),
+    ] {
+        let mutated = dump.replacen("  config:\n    mode: read-only\n", planted, 1);
+        assert_ne!(mutated, dump, "{what}");
+        assert_eq!(
+            gate(mutated, Release::V0_2_1, Mode::ReadOnly),
+            Ok(()),
+            "{what}"
+        );
+    }
 }
 
 /// Rule 4: each two-space key is admitted at most once per row, so no
