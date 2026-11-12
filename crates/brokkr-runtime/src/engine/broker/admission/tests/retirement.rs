@@ -94,6 +94,18 @@ fn absent_refused(host: &Host, root: &Path, to: &Path) -> PathBuf {
     }
 }
 
+/// Archive the absent `root` into a fresh destination and assert the
+/// refusal wrote nothing and sealed no retirement for the worktree `kept`.
+fn a_refused_absent_archive_writes_nothing(host: &Host, kept: &Path, root: &Path) {
+    let to = host.dir.path().join("archive");
+    assert_eq!(absent_refused(host, root, &to), root);
+    assert!(!to.exists(), "nothing was written");
+    assert!(
+        !retirement_path(host, kept, "run-a", root).exists(),
+        "no retirement was sealed"
+    );
+}
+
 /// Two digest-named artifacts under `root`, and what they hold.
 fn published(root: &Path) -> Vec<(String, Vec<u8>)> {
     let digests = root.join(DIGESTS);
@@ -255,13 +267,7 @@ fn discarding_a_root_removes_it_and_records_an_absent_one() {
 fn archiving_an_absent_root_refuses_and_writes_nothing() {
     let host = Host::new();
     let (kept, root) = absent_root(&host);
-    let to = host.dir.path().join("archive");
-    assert_eq!(absent_refused(&host, &root, &to), root);
-    assert!(!to.exists(), "nothing was written");
-    assert!(
-        !retirement_path(&host, &kept, "run-a", &root).exists(),
-        "no retirement was sealed"
-    );
+    a_refused_absent_archive_writes_nothing(&host, &kept, &root);
 }
 
 /// Ruling 2/1020b: the chief's `kept/.forge` case — the destination is the
@@ -276,6 +282,19 @@ fn archiving_an_absent_root_into_its_own_parent_refuses_and_writes_nothing() {
     assert!(!to.join("inventory.json").exists(), "no inventory");
     assert!(!to.join(DIGESTS).exists(), "no empty archive");
     assert!(!retirement_path(&host, &kept, "run-a", &root).exists());
+}
+
+/// Ruling 2/1020b: a dangling link at the artifact root does not stand, so
+/// it refuses as absent rather than archiving an empty retirement, and the
+/// link is left where it was.
+#[test]
+fn archiving_a_dangling_root_link_refuses_as_absent() {
+    let host = Host::new();
+    let (kept, root) = absent_root(&host);
+    let nowhere = host.dir.path().join("nowhere");
+    std::os::unix::fs::symlink(&nowhere, &root).unwrap();
+    a_refused_absent_archive_writes_nothing(&host, &kept, &root);
+    assert!(root.is_symlink(), "the link is left where it was");
 }
 
 /// Ruling 2/1020b: `--discarded` of an absent root still records it as

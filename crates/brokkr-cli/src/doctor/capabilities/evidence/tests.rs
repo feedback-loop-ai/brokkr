@@ -85,7 +85,10 @@ fn doctor_says_none_and_says_so_when_the_host_names_no_home_or_no_root() {
         .contains("no historical evidence root"));
     let report = reported(None);
     assert!(report.lines.join("\n").contains("names no HOME"));
-    let absent = tempfile::tempdir().unwrap();
+    // TMPDIR canonical, as admission's fixtures are, so the protected walk
+    // reaches this HOME on macOS, where TMPDIR sits under a link.
+    let base = fs::canonicalize(std::env::temp_dir()).unwrap();
+    let absent = tempfile::tempdir_in(base).unwrap();
     let report = reported(Some(absent.path()));
     assert!(report
         .lines

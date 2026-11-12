@@ -22,7 +22,10 @@ impl Host {
     /// The host, its coordination root and the worktree, owner-only, with
     /// the admission lock that makes its inventory readable.
     pub(crate) fn new() -> Host {
-        let dir = tempfile::tempdir().unwrap();
+        // TMPDIR canonical, as admission's fixtures are: a HOME under the
+        // link macOS spells `/var` as cannot pass the protected walk.
+        let base = fs::canonicalize(std::env::temp_dir()).unwrap();
+        let dir = tempfile::tempdir_in(base).unwrap();
         let home = dir.path().join("home");
         let work = dir.path().join("work");
         fs::create_dir(&home).unwrap();

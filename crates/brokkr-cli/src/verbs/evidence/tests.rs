@@ -83,7 +83,10 @@ fn retire_driven_without_a_cause_refuses_by_name() {
 
 #[test]
 fn an_empty_host_lists_nothing_and_json_prints_an_empty_array() {
-    let home = tempfile::tempdir().unwrap();
+    // TMPDIR canonical, as admission's fixtures are, so the protected walk
+    // reaches this HOME on macOS, where TMPDIR sits under a link.
+    let base = std::fs::canonicalize(std::env::temp_dir()).unwrap();
+    let home = tempfile::tempdir_in(base).unwrap();
     let mut out = Vec::new();
     run_in(
         EvidenceCmd::List(ListArgs { json: false }),

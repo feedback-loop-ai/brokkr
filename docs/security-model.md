@@ -503,7 +503,9 @@ from a root — its path, its current retirement, each history row and its
 problem — is escaped for the terminal, so a reason cannot start or forge a
 line or carry a raw escape. `brokkr doctor` also names an
 absent historical root that is not retired as still staking the host, and
-a coordination root that stands but is not this user's alone. `brokkr
+a coordination root that is not protected: the root itself or an ancestor
+on the way that is not this user's alone, or a link on the way, which a
+readout never follows. `brokkr
 inspect --capability-call` names a response retained before a retirement,
 current or superseded, as "archived at <dir>" or "discarded", never as
 corrupt, chosen by the response's own recorded time against `retired_at`; a

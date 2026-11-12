@@ -414,6 +414,9 @@ pub fn retire(
     options: RetireOptions<'_>,
     deadline: Instant,
 ) -> Result<Retirement, EvidenceError> {
+    // The reason is the record's own words: check it before the protected
+    // walk makes a directory, so the refusal wrote nothing (0105, 1020b).
+    required_reason(options.reason)?;
     let root = Root::of(home).ok_or(EvidenceError::Coordination)?;
     retire_in(&root, options, deadline)
 }
@@ -438,9 +441,7 @@ pub(in crate::engine) fn retire_in_with(
     deadline: Instant,
     between: &dyn Fn(),
 ) -> Result<Retirement, EvidenceError> {
-    if options.reason.trim().is_empty() {
-        return Err(EvidenceError::Reason);
-    }
+    required_reason(options.reason)?;
     let _lock = locked(root.dir(), deadline)?;
     let mut budget = Budget::new(deadline);
     let found = inventory(root.dir(), root.path(), ["", ""], &mut budget)?;
@@ -450,13 +451,7 @@ pub(in crate::engine) fn retire_in_with(
         return Err(EvidenceError::AlreadyRetired(held.artifacts.clone()));
     }
     if matches!(options.action, RetireAction::Archived { .. }) {
-        match std::fs::symlink_metadata(&held.artifacts) {
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                return Err(EvidenceError::Absent(held.artifacts.clone()))
-            }
-            Err(error) => return Err(error.into()),
-            Ok(_) => {}
-        }
+        archived_root(&held.artifacts)?;
     }
     protected(&found.standing, &held.artifacts)?;
     let destination = destination(root.path(), &held.artifacts, options.action)?;
@@ -468,6 +463,30 @@ pub(in crate::engine) fn retire_in_with(
         }
     };
     committed(root, &held.repo, retirement, &budget)
+}
+
+/// The operator's reason, which a retirement records in their words: an
+/// empty or whitespace-only one refuses before anything is made or written
+/// (decision 0105 ruling 1; 1020b).
+fn required_reason(reason: &str) -> Result<(), EvidenceError> {
+    match reason.trim().is_empty() {
+        true => Err(EvidenceError::Reason),
+        false => Ok(()),
+    }
+}
+
+/// Whether the artifact root `artifacts` stands, by a stat that follows a
+/// link: a root that does not stand cannot be archived, and a dangling
+/// link does not stand, where `--discarded` is the record for an absent
+/// root (decision 0105 ruling 2; 1020b).
+fn archived_root(artifacts: &Path) -> Result<(), EvidenceError> {
+    match std::fs::metadata(artifacts) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            Err(EvidenceError::Absent(artifacts.to_path_buf()))
+        }
+        Err(error) => Err(error.into()),
+        Ok(_) => Ok(()),
+    }
 }
 
 /// Where an archived retirement writes, in the one place its resolution

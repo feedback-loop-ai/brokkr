@@ -17,9 +17,12 @@ use crate::engine::broker::inventory::Unread;
 use crate::engine::broker::root::Step;
 use crate::engine::broker::sources::observed;
 
-/// A fresh directory of this test's own.
+/// A fresh directory of this test's own, in TMPDIR canonical, as
+/// admission's fixtures are: a HOME handed to the protected walk must not
+/// sit under the link macOS spells `/var` as (`/private/var`).
 fn fresh() -> tempfile::TempDir {
-    tempfile::tempdir().unwrap()
+    let base = fs::canonicalize(std::env::temp_dir()).unwrap();
+    tempfile::tempdir_in(base).unwrap()
 }
 
 /// A fresh canonical base with a coordination root and a retired root
@@ -491,6 +494,29 @@ fn the_new_refusals_keep_their_words() {
         EvidenceError::Unprotected(at).to_string(),
         "the coordination root is not protected: '/evidence/root' is not this user's alone"
     );
+}
+
+/// 12(e)/1020b: the public verb checks the reason before it makes the
+/// coordination root, so its "nothing was written" is true of a fresh HOME
+/// too, which a test of `retire_in` on an opened root cannot see.
+#[test]
+fn the_public_retire_refuses_an_empty_reason_before_making_the_root() {
+    let dir = fresh();
+    let home = dir.path().join("home");
+    fs::create_dir(&home).unwrap();
+    let refused = retire(
+        &home,
+        RetireOptions {
+            artifacts: &home.join("missing"),
+            action: RetireAction::Discarded,
+            operator: "operator",
+            reason: "   ",
+            now: "2026-11-08T00:00:00Z",
+        },
+        soon(),
+    );
+    assert!(matches!(refused, Err(EvidenceError::Reason)), "{refused:?}");
+    assert!(!home.join(".local").exists(), "the refusal made nothing");
 }
 
 /// I1: a standing attempt with an unbounded writer refuses a retirement by
