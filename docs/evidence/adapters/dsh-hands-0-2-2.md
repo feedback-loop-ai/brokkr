@@ -128,12 +128,14 @@ controller can follow this procedure.
    those two words into that row: the overlay's bounded reader
    (`route_overlay::hands`, through `Mode::named`) refuses any other word
    in the overlay Brokkr writes. So dsh's third mode (`danger-full-access`)
-   is never written by Brokkr's overlay. The composed-tree check now reads
-   the composed `sandbox-policy` mode too, and refuses a tree whose mode is
-   not the seat's own or that names no mode at all, so a later overlay or
-   the profile cannot leave the seat in `danger-full-access` (or the other
-   allowed word) while every row and `disabled` flag still looks measured.
-   This step does not measure what dsh itself does with that mode.
+   is never written by Brokkr's overlay. The composed-tree check reads
+   only the composed `sandbox-policy` row's `config` block: exactly one
+   `    mode: <word>` line, and no other line inside it. It refuses a tree
+   whose composed mode is not the seat's own, a tree that names no mode, a
+   `sandbox-policy` block in any other shape, and a `sandbox-policy` row
+   whose `disabled:` is present and not exactly `false`. It reads nothing
+   else about the composed tree's sandbox. This step does not measure what
+   dsh itself does with that mode.
 6. Add the release and its set here, then in `MEASURED_VERSIONS` and the
    release's composition delta table. Add a `Release` variant with its own
    exact versions in `Release::versions` (and its `Release::label`), and
@@ -141,7 +143,8 @@ controller can follow this procedure.
    that a seat on the new release is admitted and that another release's
    row is refused. Pin any newly added effectful row disabled in the
    overlay, by adding it to that release's `Release::pinned_rows`, the
-   one table the judge and the overlay writer both read.
+   one table the judge, the overlay writer and the bounded reader all
+   read.
 
 ## Offline bindings (this change)
 
@@ -170,16 +173,21 @@ Run by the implementing seat with
   composed-tree gate judges the same dump against the release the launch
   threaded in from its one `--version` read; the gate itself probes
   nothing. (A driver the launch's read cannot name is refused by the rows
-  path, before the gate; an unthreaded release keeps `UnknownRelease`.)
+  path, before the gate.)
 - `a_hands_launch_reads_its_release_exactly_once`,
+  `a_hands_resume_reads_its_release_from_the_launch_not_a_second_probe`,
   `the_bounded_reader_admits_the_0_2_2_ptc_pin_it_writes`,
   `a_malformed_0_2_2_ptc_pin_is_refused_by_the_bounded_reader`,
   `a_composed_mode_that_is_not_the_seats_is_refused`,
   `a_composed_tree_with_no_mode_is_refused`,
   `the_measured_trees_still_pass_their_own_mode`,
-  `a_tree_with_no_threaded_release_keeps_the_unknown_release_words` and
+  `a_column_zero_line_after_the_mode_is_refused_as_the_old_gate_refused_it`,
+  `a_sandbox_config_is_one_mode_line_and_closes_on_a_lower_indent`,
+  `a_disabled_sandbox_policy_row_is_refused`,
+  `a_hands_seat_reports_its_sandbox_refusal_before_a_later_root_refusal` and
   `a_launch_refuses_a_composed_mode_that_differs_from_the_seats`: the
-  #1052 part 1 follow-ups F4, F5 and the composed-mode finding. Each was
+  #1052 part 1 follow-ups F4, F5 and the composed-mode finding, and fix
+  round 1052g2's C1, C2, C4 and C6. Each was
   made to fail by the removal control recorded in the commit that added
   it and then restored.
 

@@ -40,13 +40,6 @@ pub(crate) enum Composition {
         release: &'static str,
     },
     #[error(
-        "refusing to invoke the dsh driver: the composed dsh tree's release cannot be read as \
-         one the hands rows were measured on ({}), so the seat is admitted on no measured \
-         composition (#896 D1)",
-        super::MEASURED_VERSIONS.join(", ")
-    )]
-    UnknownRelease,
-    #[error(
         "refusing to invoke the dsh driver: the composed dsh tree carries no '{HANDS_ID}' row, \
          so the seat's one effectful tool would not be served (#896 D1)"
     )]
@@ -68,6 +61,12 @@ pub(crate) enum Composition {
          so the seat's one effectful tool would not be served (#896 D1)"
     )]
     HandsDisabled { id: String },
+    #[error(
+        "refusing to invoke the dsh driver: the composed dsh tree carries the \
+         '{id}' row disabled, so dsh's own sandbox policy is not in force and the \
+         mode the gate reads is not the mode the seat runs under (#896 D1)"
+    )]
+    PolicyDisabled { id: String },
     #[error(
         "refusing to invoke the dsh driver: the composed dsh tree's '{SANDBOX_POLICY}' mode is \
          '{composed}', not the seat's '{expected}', so dsh's own sandbox would not be the mode \
@@ -121,7 +120,7 @@ pub(crate) struct Row {
 /// removals.
 pub(super) fn composed_with(
     mut command: Command,
-    release: Option<Release>,
+    release: Release,
     mode: Mode,
     run: impl FnOnce(&mut Command) -> std::io::Result<std::process::Output>,
 ) -> Result<(), Composition> {
@@ -142,7 +141,7 @@ pub(super) fn composed_with(
         return Err(Composition::Unreadable);
     }
     let rows = rows(&output.stdout)?;
-    judge(release.ok_or(Composition::UnknownRelease)?, &rows)?;
+    judge(release, &rows)?;
     judge_mode(&rows, mode)
 }
 
@@ -202,30 +201,69 @@ fn unquote(value: &str) -> String {
 
 /// One line of the row being read: its `name:` and `disabled:`, the
 /// `config:` block a `sandbox-policy` row carries, and the mode inside it.
-/// A line outside those shapes is unread, as it was before the mode was
-/// read; the helper keeps the row loop under the complexity ceiling.
+/// The column-zero shape is refused FIRST, in or out of `config`, so a
+/// line the old reader refused is never swallowed by the block; a line
+/// indented less than four spaces closes the block; and the
+/// `sandbox-policy` block admits exactly one `    mode:` line. Another
+/// row's block is unread, as it was before the mode was read. The helper
+/// keeps the row loop under the complexity ceiling.
 fn read_row_line(row: &mut Row, line: &str, in_config: &mut bool) -> Result<(), Composition> {
+    if column_zero(line) {
+        return Err(Composition::Unreadable);
+    }
+    if *in_config && !line.starts_with("    ") {
+        *in_config = false;
+    }
     if let Some(rest) = line.strip_prefix("  name: ") {
         if !row.name.is_empty() {
             return Err(Composition::Unreadable);
         }
         row.name = unquote(rest.trim());
-        *in_config = false;
-    } else if let Some(rest) = line.strip_prefix("  disabled: ") {
-        row.disabled = rest.trim() == "true";
-        *in_config = false;
+    } else if line.starts_with("  disabled:") {
+        read_disabled(row, line)?;
     } else if line == "  config:" {
         *in_config = true;
     } else if *in_config && row.id == SANDBOX_POLICY {
-        if let Some(rest) = line.strip_prefix("    mode: ") {
-            if row.mode.is_some() {
-                return Err(Composition::Unreadable);
-            }
-            row.mode = Some(unquote(rest.trim()));
-        }
-    } else if !line.is_empty() && !line.starts_with('#') && !line.starts_with("  ") {
+        read_mode(row, line)?;
+    }
+    Ok(())
+}
+
+/// One `disabled:` line of the row being read. The other rows keep the
+/// judge's reading: only the exact word `true` is disabled, as before. The
+/// `sandbox-policy` row's flag changes meaning — the gate reads its mode,
+/// so the row must be in force — and it is admitted only when absent or
+/// exactly `false`; `true`, a `!!js` expression the bounded parse cannot
+/// evaluate and a spelling with no readable value all refuse.
+fn read_disabled(row: &mut Row, line: &str) -> Result<(), Composition> {
+    let word = line
+        .strip_prefix("  disabled: ")
+        .map(str::trim)
+        .unwrap_or_default();
+    row.disabled = word == "true";
+    if row.id == SANDBOX_POLICY && word != "false" {
+        return Err(Composition::PolicyDisabled { id: row.id.clone() });
+    }
+    Ok(())
+}
+
+/// Whether `line` is the column-zero shape the old reader refused: a
+/// non-empty, non-comment line that is not indented beneath a row.
+fn column_zero(line: &str) -> bool {
+    !line.is_empty() && !line.starts_with('#') && !line.starts_with("  ")
+}
+
+/// The one `    mode: <word>` line a `sandbox-policy` `config` block may
+/// carry. A second mode, another key, a deeper line or a `Mode:` spelling
+/// is not that shape and refuses the tree.
+fn read_mode(row: &mut Row, line: &str) -> Result<(), Composition> {
+    let Some(rest) = line.strip_prefix("    mode: ") else {
+        return Err(Composition::Unreadable);
+    };
+    if row.mode.is_some() {
         return Err(Composition::Unreadable);
     }
+    row.mode = Some(unquote(rest.trim()));
     Ok(())
 }
 
@@ -264,9 +302,10 @@ pub(crate) fn judge(release: Release, rows: &[Row]) -> Result<(), Composition> {
 /// Judge the composed `sandbox-policy` mode against the mode the seat's
 /// office selected. A tree with no such row, or a row naming no mode, is
 /// refused: an unread mode cannot be shown to be the seat's own, and
-/// `danger-full-access` must never reach a hands seat (F4/#1052). This is
-/// a sibling of [`judge`] so the row judge keeps its one signature and
-/// every existing exact-text test stays as it was.
+/// `danger-full-access` must never reach a hands seat (1052f's chief
+/// finding, #1052 c-6821890847). This is a sibling of [`judge`] so the row
+/// judge keeps its one signature and every existing exact-text test stays
+/// as it was.
 pub(crate) fn judge_mode(rows: &[Row], expected: Mode) -> Result<(), Composition> {
     let composed = rows
         .iter()

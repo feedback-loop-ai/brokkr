@@ -15,6 +15,7 @@ use crate::hands::{HandsSpec, SEALED_REACH};
 use crate::native_controls::{SealedBoundary, SealedDialect, ARTIFACT_ROOT, SERVING_INPUTS};
 
 mod composed;
+mod launch_order;
 mod releases;
 
 /// The full text an unreadable composed dsh tree prints.
@@ -1585,18 +1586,13 @@ fn the_composed_tree_check_refuses_a_failed_or_oversized_dump() {
     use std::process::{Command, ExitStatus, Output};
 
     let run = |status: ExitStatus, stdout: Vec<u8>| {
-        composed_with(
-            Command::new("dsh"),
-            Some(Release::V0_2_1),
-            Mode::ReadOnly,
-            |_| {
-                Ok(Output {
-                    status,
-                    stdout,
-                    stderr: Vec::new(),
-                })
-            },
-        )
+        composed_with(Command::new("dsh"), Release::V0_2_1, Mode::ReadOnly, |_| {
+            Ok(Output {
+                status,
+                stdout,
+                stderr: Vec::new(),
+            })
+        })
     };
     let exit = run(ExitStatus::from_raw(2 << 8), Vec::new()).unwrap_err();
     assert_eq!(

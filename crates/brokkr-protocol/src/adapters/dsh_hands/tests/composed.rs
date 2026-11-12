@@ -9,7 +9,10 @@ use std::os::unix::process::ExitStatusExt;
 use std::path::PathBuf;
 use std::process::{Command, Output};
 
-use super::super::super::route_overlay;
+use serde_json::json;
+
+use super::super::super::tests::{dsh_enabled_input, synthetic_dsh_composite};
+use super::super::super::{dsh_launch_with, route_overlay};
 use super::super::composition::{composed_with, judge_mode, rows, Composition};
 use super::super::{hands_rows, Mode, Release, Selection, PTC_ROW, SANDBOX_POLICY};
 use super::{invoke_hands, measured_dump, measured_dump_0_2_2, s, sealed};
@@ -50,7 +53,7 @@ fn pinned_block(release: Release, mode: Mode) -> String {
 
 /// Judge a dump as the composed-tree gate would, through its closure seam.
 fn gate(dump: String, release: Release, mode: Mode) -> Result<(), Composition> {
-    composed_with(Command::new("dsh"), Some(release), mode, move |_| {
+    composed_with(Command::new("dsh"), release, mode, move |_| {
         Ok(Output {
             status: std::process::ExitStatus::from_raw(0),
             stdout: dump.into_bytes(),
@@ -130,6 +133,37 @@ fn a_hands_seat_qualifies_a_resume_from_its_one_read() {
     assert_eq!(
         selection.resume_version("/nonexistent/dsh"),
         Some("0.2.1-rc.3".to_string())
+    );
+}
+
+/// C6: the resume path's read is the same read. A hands seat with an offer
+/// and a declared composite spawns `--version` exactly once — the rows'
+/// read, reused to qualify the offer — never a second probe.
+#[test]
+fn a_hands_resume_reads_its_release_from_the_launch_not_a_second_probe() {
+    let (_env, _dir, root, log) = probe_home();
+    let dsh = super::super::super::tests::executable(&root, "dsh-resume", ONE_READ_DSH);
+    let digest = "0".repeat(64);
+    let enabled = dsh_enabled_input("0.2.1-rc.2", &digest, &root);
+    let mut input = sealed(SealedBoundary::Namespace, Some("read-only"));
+    input["workdir"] = json!(root);
+    for key in ["boundary", "hands", "resume_context"] {
+        input[key] = enabled[key].clone();
+    }
+    dsh_launch_with(
+        dsh.to_str().unwrap(),
+        &[],
+        root.to_str().unwrap(),
+        Some("session-019c4b7e"),
+        &input,
+        |_| Ok(synthetic_dsh_composite(&digest)),
+    )
+    .expect("the resume-capable hands launch is planned");
+    let probes = std::fs::read_to_string(&log).expect("the fake recorded its invocations");
+    assert_eq!(
+        probes.lines().filter(|line| *line == "--version").count(),
+        1,
+        "the resume reuses the one read: {probes}"
     );
 }
 
@@ -249,28 +283,120 @@ fn a_composed_tree_with_no_mode_is_refused() {
     );
 }
 
-/// A `sandbox-policy` `config` block is read for exactly one `mode`: a
-/// block carrying another key and no mode reads as no mode, and a second
-/// mode is refused as an unreadable row.
+/// C1 (a and a2): the column-zero rule runs FIRST, in or out of the
+/// `sandbox-policy` block, so a line 8daf25b66's reader refused is never
+/// swallowed by the block. The same lines before the row refuse as before.
 #[test]
-fn a_sandbox_config_reads_one_mode_and_refuses_a_second() {
+fn a_column_zero_line_after_the_mode_is_refused_as_the_old_gate_refused_it() {
     let dump = with_sandbox_mode(&measured_dump(), "read-only");
-    let other = dump.replace("    mode: read-only\n", "    timeout: 1\n");
-    let parsed = rows(other.as_bytes()).unwrap();
-    let row = parsed
-        .iter()
-        .find(|row| row.id == SANDBOX_POLICY)
-        .expect("the fixture names the sandbox row");
-    assert_eq!(row.mode, None);
+    for planted in [
+        "- insert:\nstray: line\n",
+        "- name: '@evil/unmeasured'\n  disabled: false\n",
+    ] {
+        let after = dump.replace(
+            "    mode: read-only\n",
+            &format!("    mode: read-only\n{planted}"),
+        );
+        assert_ne!(after, dump, "{planted}");
+        assert_eq!(
+            gate(after, Release::V0_2_1, Mode::ReadOnly),
+            Err(Composition::Unreadable),
+            "{planted} after the mode"
+        );
+        let before = dump.replace(
+            "- id: sandbox-policy\n",
+            &format!("{planted}- id: sandbox-policy\n"),
+        );
+        assert_ne!(before, dump, "{planted}");
+        assert_eq!(
+            gate(before, Release::V0_2_1, Mode::ReadOnly),
+            Err(Composition::Unreadable),
+            "{planted} before the row"
+        );
+    }
+}
+
+/// C1 (b): the `sandbox-policy` `config` block closes on any line not
+/// indented four spaces, so a `mode:` under a later sibling is not read as
+/// the composed mode; and it holds exactly one `    mode:` line, so
+/// another key, a deeper line or a `Mode:` spelling refuses the tree. A
+/// second `mode:` still refuses.
+#[test]
+fn a_sandbox_config_is_one_mode_line_and_closes_on_a_lower_indent() {
+    let dump = with_sandbox_mode(&measured_dump(), "read-only");
+    // The block ends at `  other:`: the `mode:` beneath it is outside.
+    let closed = dump.replace("    mode: read-only\n", "  other:\n    mode: read-only\n");
+    assert_ne!(closed, dump);
     assert_eq!(
-        judge_mode(&parsed, Mode::ReadOnly),
+        gate(closed, Release::V0_2_1, Mode::ReadOnly),
         Err(Composition::NoMode)
     );
+    // Another key inside the block is not the one line it may hold.
+    let other_key = dump.replace("    mode: read-only\n", "    timeout: 1\n");
+    assert_ne!(other_key, dump);
+    assert_eq!(
+        gate(other_key, Release::V0_2_1, Mode::ReadOnly),
+        Err(Composition::Unreadable)
+    );
+    for planted in ["      mode: read-only\n", "    Mode: danger-full-access\n"] {
+        let mutated = dump.replace(
+            "    mode: read-only\n",
+            &format!("    mode: read-only\n{planted}"),
+        );
+        assert_ne!(mutated, dump, "{planted}");
+        assert_eq!(
+            gate(mutated, Release::V0_2_1, Mode::ReadOnly),
+            Err(Composition::Unreadable),
+            "{planted}"
+        );
+    }
     let twice = dump.replace(
         "    mode: read-only\n",
         "    mode: read-only\n    mode: workspace-write\n",
     );
     assert_eq!(rows(twice.as_bytes()).err(), Some(Composition::Unreadable));
+}
+
+/// C2: the `sandbox-policy` row is refused unless its `disabled:` is absent
+/// or exactly `false`, whatever order the flag takes and whether or not the
+/// bounded parse can evaluate it; an explicit `false` passes.
+#[test]
+fn a_disabled_sandbox_policy_row_is_refused() {
+    let dump = with_sandbox_mode(&measured_dump(), "read-only");
+    let expected = Composition::PolicyDisabled {
+        id: SANDBOX_POLICY.into(),
+    };
+    for (anchor, planted) in [
+        (
+            "    mode: read-only\n",
+            "    mode: read-only\n  disabled: true\n",
+        ),
+        ("  config:\n", "  disabled: true\n  config:\n"),
+        (
+            "    mode: read-only\n",
+            "    mode: read-only\n  disabled: !!js process.platform === 'win32'\n",
+        ),
+    ] {
+        let mutated = dump.replace(anchor, planted);
+        assert_ne!(mutated, dump, "{planted}");
+        assert_eq!(
+            gate(mutated, Release::V0_2_1, Mode::ReadOnly),
+            Err(expected.clone()),
+            "{planted}"
+        );
+    }
+    assert_eq!(
+        expected.to_string(),
+        "refusing to invoke the dsh driver: the composed dsh tree carries the 'sandbox-policy' \
+         row disabled, so dsh's own sandbox policy is not in force and the mode the gate reads \
+         is not the mode the seat runs under (#896 D1)"
+    );
+    let explicit = dump.replace(
+        "    mode: read-only\n",
+        "    mode: read-only\n  disabled: false\n",
+    );
+    assert_ne!(explicit, dump);
+    assert_eq!(gate(explicit, Release::V0_2_1, Mode::ReadOnly), Ok(()));
 }
 
 /// The measured trees still pass when the seat's own mode is written into
@@ -286,28 +412,6 @@ fn the_measured_trees_still_pass_their_own_mode() {
         let dump = with_sandbox_mode(&dump, mode.word());
         assert_eq!(gate(dump, release, mode), Ok(()), "{mode:?}");
     }
-}
-
-/// A tree with no threaded release keeps the old `UnknownRelease` refusal,
-/// byte for byte: the variant is retained for the gate's own unread case.
-#[test]
-fn a_tree_with_no_threaded_release_keeps_the_unknown_release_words() {
-    let dump = with_sandbox_mode(&measured_dump(), "read-only");
-    let refused = composed_with(Command::new("dsh"), None, Mode::ReadOnly, move |_| {
-        Ok(Output {
-            status: std::process::ExitStatus::from_raw(0),
-            stdout: dump.into_bytes(),
-            stderr: Vec::new(),
-        })
-    })
-    .unwrap_err();
-    assert_eq!(refused, Composition::UnknownRelease);
-    assert_eq!(
-        refused.to_string(),
-        "refusing to invoke the dsh driver: the composed dsh tree's release cannot be read as \
-         one the hands rows were measured on (0.2.1-rc.2, 0.2.1-rc.3, 0.2.2-rc.1), so the seat \
-         is admitted on no measured composition (#896 D1)"
-    );
 }
 
 /// The launch itself carries the seat's mode to the gate: a read-only seat

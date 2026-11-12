@@ -112,20 +112,15 @@ impl Release {
     }
 
     /// The rows this release's hands overlay pins disabled, in the order
-    /// the overlay writes them. One table per release; [`disabled`] and
-    /// [`hands_rows`] both read this one (decision 0071 rulings 2 and 5).
-    fn pinned_rows(self) -> PinnedRows {
+    /// the overlay writes them, split where the sandbox row sits. One
+    /// table per release; [`disabled`], [`hands_rows`] and the bounded
+    /// reader in [`route_overlay::hands`] all read this one (decision 0071
+    /// rulings 2 and 5).
+    pub(super) fn pinned_rows(self) -> PinnedRows {
         match self {
             Release::V0_2_1 => V0_2_1_PINNED,
             Release::V0_2_2 => V0_2_2_PINNED,
         }
-    }
-
-    /// The rows this release's overlay pins after the sandbox row. The
-    /// bounded reader requires them, so the one reader sees every row the
-    /// release's writer emits (0.2.2's programmatic executor).
-    pub(super) fn pinned_after(self) -> &'static [&'static str] {
-        self.pinned_rows().after
     }
 }
 
@@ -154,20 +149,26 @@ pub(super) const DISABLED_ROWS: [&str; 10] = [
 pub(super) const PTC_ROW: &str = "tool-executor-ptc";
 
 /// The rows one release's hands overlay pins disabled, split where dsh's
-/// sandbox row sits: `before` it and `after` it. The bounded reader knows
-/// the ten common rows and the sandbox row as the prefix it validates
-/// ([`route_overlay::hands`]), so 0.2.2-rc.1's added row follows the
-/// sandbox row exactly as measured.
+/// sandbox row sits: `before` it and `after` it. The bounded reader and
+/// the overlay writer both read this one table ([`Release::pinned_rows`]),
+/// so the ten common rows and 0.2.2-rc.1's added row are named once. The
+/// `- insert:` row the writer appends last is Brokkr's server, outside
+/// this table and outside that reader.
 #[derive(Debug, Clone, Copy)]
-struct PinnedRows {
+pub(super) struct PinnedRows {
     before: &'static [&'static str],
     after: &'static [&'static str],
 }
 
 impl PinnedRows {
     /// Whether `id` is one of the rows this table pins disabled.
-    fn contains(&self, id: &str) -> bool {
+    pub(super) fn contains(&self, id: &str) -> bool {
         self.before.contains(&id) || self.after.contains(&id)
+    }
+
+    /// Every row this table pins, in the order the overlay writes them.
+    pub(super) fn ids(&self) -> impl Iterator<Item = &'static str> {
+        self.before.iter().chain(self.after).copied()
     }
 }
 
@@ -331,22 +332,13 @@ impl Selection {
         }
     }
 
-    /// The exact version a hands seat's one read answered, `None` for a
-    /// runner seat, which reads no version of its own.
-    pub(super) fn observed(&self) -> Option<&str> {
-        match self {
-            Selection::Hands { observed, .. } => Some(observed),
-            Selection::Runner(_) => None,
-        }
-    }
-
     /// The version a resume offer is qualified against. A hands seat
     /// already read its release once, for its rows; that read is reused so
     /// the launch never probes the same binary twice. A runner seat probes
     /// here, as it did before the hands rows had a read of their own.
     pub(super) fn resume_version(&self, bin: &str) -> Option<String> {
         match self {
-            Selection::Hands { .. } => self.observed().map(str::to_string),
+            Selection::Hands { observed, .. } => Some(observed.clone()),
             Selection::Runner(_) => observed_version(&[bin.to_string(), "--version".to_string()]),
         }
     }
@@ -408,7 +400,9 @@ fn measured(observed: Option<String>) -> Result<Release, Refusal> {
 /// mode, checked by the bounded reader against the one shape they may take
 /// ([`route_overlay::hands`]), then the server row. The reader runs over
 /// the WHOLE pinned block, 0.2.2-rc.1's programmatic executor included, so
-/// no row Brokkr writes goes unread; 0.2.1 names no such row.
+/// no pinned row Brokkr writes goes unread; 0.2.1 names no such row. The
+/// `- insert:` row appended after that check is Brokkr's workspace server
+/// and is outside the reader, as it was before the mode was read.
 fn hands_rows(
     release: Release,
     mode: Mode,
@@ -471,7 +465,7 @@ pub(crate) fn composition_gate(
     release: Release,
     mode: Mode,
 ) -> Result<(), Composition> {
-    composition::composed_with(command, Some(release), mode, |command| command.output())
+    composition::composed_with(command, release, mode, |command| command.output())
 }
 
 /// dsh's startup outcome, classified once from the RAW captured stderr

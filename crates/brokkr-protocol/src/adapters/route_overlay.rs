@@ -27,7 +27,7 @@ use sha2::{Digest, Sha256};
 
 mod refusal;
 
-use super::dsh_hands::{Mode, Release, DISABLED_ROWS, SANDBOX_POLICY};
+use super::dsh_hands::{Mode, Release, SANDBOX_POLICY};
 pub(super) use refusal::Refused;
 use refusal::{Field, Overlay, Part};
 
@@ -314,10 +314,7 @@ pub(super) fn hands(bytes: &[u8], release: Release) -> Result<(), Refused> {
         }
         seen.push(row);
     }
-    let mut owed = DISABLED_ROWS
-        .into_iter()
-        .chain(release.pinned_after().iter().copied())
-        .chain([SANDBOX_POLICY]);
+    let mut owed = release.pinned_rows().ids().chain([SANDBOX_POLICY]);
     match owed.find(|row| !seen.contains(row)) {
         Some(missing) => Err(Overlay::HandsRowMissing(missing).into()),
         None => Ok(()),
@@ -334,7 +331,7 @@ fn hands_row(pairs: &[(String, Node)], release: Release) -> Result<&str, Overlay
         .filter(|(key, _)| key != Field::Id.spelling())
         .map(|(key, value)| (key.as_str(), value))
         .collect();
-    let pinned = DISABLED_ROWS.contains(&id) || release.pinned_after().contains(&id);
+    let pinned = release.pinned_rows().contains(id);
     let shaped = match rest[..] {
         [("disabled", Node::Scalar(flag))] => pinned && flag == "true",
         [("config", Node::Mapping(config))] => {
