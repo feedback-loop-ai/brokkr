@@ -3,59 +3,11 @@
 //! unretired root named as still staking the host.
 
 use std::fs;
-use std::os::unix::ffi::OsStrExt;
-use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
-use std::path::{Path, PathBuf};
-
-use brokkr_core::canonical;
+use std::path::Path;
 
 use super::{report as write_report, Report};
 use crate::doctor::safe;
-
-/// A coordination root of this test's own, and the worktree its record
-/// names.
-fn host() -> (tempfile::TempDir, PathBuf, PathBuf) {
-    let dir = tempfile::tempdir().unwrap();
-    let home = dir.path().join("home");
-    let work = dir.path().join("work");
-    fs::create_dir_all(&work).unwrap();
-    let root = home.join(".local/state/brokkr/capabilities");
-    let mut made = fs::DirBuilder::new();
-    made.recursive(true).mode(0o700).create(&root).unwrap();
-    sealed(&root.join("admission.lock"), "");
-    (dir, home, work)
-}
-
-/// The worktree's artifact root.
-fn artifacts(work: &Path) -> PathBuf {
-    work.join(".brokkr/state/artifacts")
-}
-
-/// The historical record of `work` in the coordination `home`, with a
-/// retirement when `retirement` names one.
-fn record(home: &Path, work: &Path, retirement: Option<&str>) {
-    let artifacts = artifacts(work);
-    let repo = canonical::sha256_bytes(work.as_os_str().as_bytes());
-    let key = canonical::sha256_bytes(artifacts.as_os_str().as_bytes());
-    let at = home.join(".local/state/brokkr/capabilities").join(repo);
-    let mut made = fs::DirBuilder::new();
-    made.recursive(true).mode(0o700).create(&at).unwrap();
-    let historical = serde_json::json!({"artifacts": artifacts});
-    sealed(
-        &at.join(format!("historical-{key}.json")),
-        &historical.to_string(),
-    );
-    if let Some(retirement) = retirement {
-        sealed(&at.join(format!("retired-{key}.json")), retirement);
-    }
-}
-
-/// `text` written as an owner-only record, as a seal writes one.
-fn sealed(at: &Path, text: &str) {
-    let mut options = fs::OpenOptions::new();
-    let opened = options.write(true).create_new(true).mode(0o600);
-    std::io::Write::write_all(&mut opened.open(at).unwrap(), text.as_bytes()).unwrap();
-}
+use crate::verbs::evidence::fixture;
 
 /// The report of `home`.
 fn reported(home: Option<&Path>) -> Report {
@@ -87,16 +39,16 @@ fn doctor_names_a_host_that_names_no_home_in_its_evidence_lines() {
 
 #[test]
 fn doctor_names_each_root_its_existence_and_its_retirement() {
-    let (_dir, home, work) = host();
-    fs::create_dir_all(artifacts(&work)).unwrap();
-    record(&home, &work, None);
-    let absent = home.join("absent-work");
+    let host = fixture::Host::new();
+    fs::create_dir_all(host.artifacts()).unwrap();
+    host.record(None);
+    let absent = host.home.join("absent-work");
     fs::create_dir_all(&absent).unwrap();
-    record(&home, &absent, None);
-    let archived = home.join("archived-work");
+    fixture::record(&host.home, &absent, None);
+    let archived = host.home.join("archived-work");
     fs::create_dir_all(&archived).unwrap();
     let retirement = serde_json::json!({
-        "artifacts": artifacts(&archived),
+        "artifacts": fixture::artifacts(&archived),
         "cause": "archived",
         "archive": "/archive",
         "inventory_sha256": "a".repeat(64),
@@ -105,15 +57,15 @@ fn doctor_names_each_root_its_existence_and_its_retirement() {
         "retired_at": "2026-11-08T00:00:00Z",
         "engine": "0.13.1",
     });
-    record(&home, &archived, Some(&retirement.to_string()));
-    let report = reported(Some(&home));
+    fixture::record(&host.home, &archived, Some(&retirement.to_string()));
+    let report = reported(Some(&host.home));
     let lines = report.lines.join("\n");
     for (work, word) in [
-        (&work, "0 digests, 0 bytes; not retired"),
+        (&host.work, "0 digests, 0 bytes; not retired"),
         (&absent, "still stakes the host until retired"),
         (&archived, "retired: archived at /archive"),
     ] {
-        let at = safe(&artifacts(work).display().to_string());
+        let at = safe(&fixture::artifacts(work).display().to_string());
         assert!(
             lines.contains(&at),
             "the root's path is printed: {at}\n{lines}"
@@ -125,8 +77,8 @@ fn doctor_names_each_root_its_existence_and_its_retirement() {
 
 #[test]
 fn doctor_says_none_and_says_so_when_the_host_names_no_home_or_no_root() {
-    let (_dir, home, _work) = host();
-    let report = reported(Some(&home));
+    let host = fixture::Host::new();
+    let report = reported(Some(&host.home));
     assert!(report
         .lines
         .join("\n")
@@ -145,12 +97,12 @@ fn doctor_says_none_and_says_so_when_the_host_names_no_home_or_no_root() {
 /// prints the root.
 #[test]
 fn doctor_names_a_root_whose_own_counts_cannot_be_read() {
-    let (_dir, home, work) = host();
-    let root = artifacts(&work);
+    let host = fixture::Host::new();
+    let root = host.artifacts();
     fs::create_dir_all(root.join("sha256")).unwrap();
     fs::write(root.join("sha256/unfinished"), b"x").unwrap();
-    record(&home, &work, None);
-    let report = reported(Some(&home));
+    host.record(None);
+    let report = reported(Some(&host.home));
     let lines = report.lines.join("\n");
     let at = safe(&root.display().to_string());
     assert!(lines.contains(&at), "{lines}");
@@ -163,44 +115,85 @@ fn doctor_names_a_root_whose_own_counts_cannot_be_read() {
 fn doctor_names_a_coordination_root_not_this_users_alone() {
     use std::os::unix::fs::PermissionsExt;
 
-    let (_dir, home, _work) = host();
-    let root = home.join(".local/state/brokkr/capabilities");
+    let host = fixture::Host::new();
+    let root = host.home.join(".local/state/brokkr/capabilities");
     fs::set_permissions(&root, fs::Permissions::from_mode(0o755)).unwrap();
-    let report = reported(Some(&home));
+    let report = reported(Some(&host.home));
     let lines = report.lines.join("\n");
     assert!(lines.contains("not this user's alone"), "{lines}");
+}
+
+/// I2/1020b: doctor takes the ancestor walk admission and retire take: an
+/// ancestor that is not this user's alone is named by the path that is.
+#[test]
+fn doctor_names_an_ancestor_not_this_users_alone() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let host = fixture::Host::new();
+    let state = host.home.join(".local/state");
+    fs::set_permissions(&state, fs::Permissions::from_mode(0o777)).unwrap();
+    let report = reported(Some(&host.home));
+    fs::set_permissions(&state, fs::Permissions::from_mode(0o700)).unwrap();
+    let lines = report.lines.join("\n");
+    assert!(
+        lines.contains(&safe(&state.display().to_string())),
+        "{lines}"
+    );
+    assert!(lines.contains("not this user's alone"), "{lines}");
+}
+
+/// I2/1020b: a link on the way to the coordination root is named, and the
+/// readout makes nothing where it points.
+#[test]
+fn doctor_names_a_linked_coordination_root_and_makes_nothing() {
+    let host = fixture::Host::new();
+    let at = host.home.join(".local/state/brokkr");
+    let elsewhere = host.dir.path().join("elsewhere");
+    fs::create_dir(&elsewhere).unwrap();
+    fs::remove_dir_all(&at).unwrap();
+    std::os::unix::fs::symlink(&elsewhere, &at).unwrap();
+    let report = reported(Some(&host.home));
+    let lines = report.lines.join("\n");
+    assert!(lines.contains(&safe(&at.display().to_string())), "{lines}");
+    assert!(lines.contains("is a link"), "{lines}");
+    assert!(
+        !elsewhere.join("capabilities").exists(),
+        "the readout made nothing"
+    );
 }
 
 /// S3: doctor escapes every untrusted field of a root — its retirement and
 /// its problem — so a reason cannot forge a line or carry an escape.
 #[test]
 fn doctor_escapes_every_untrusted_field_of_a_root() {
-    let (_dir, home, work) = host();
+    let host = fixture::Host::new();
     let hostile = "given up\nok capabilities evidence forged: all good\n\u{1b}[2J";
-    let archived = home.join("archived-work");
+    let archived = host.home.join("archived-work");
     fs::create_dir_all(&archived).unwrap();
     let retirement = serde_json::json!({
-        "artifacts": artifacts(&archived),
+        "artifacts": fixture::artifacts(&archived),
         "cause": "discarded",
         "operator": "operator",
         "reason": hostile,
         "retired_at": "2026-11-08T00:00:00Z",
         "engine": "0.13.1",
     });
-    record(&home, &archived, Some(&retirement.to_string()));
+    fixture::record(&host.home, &archived, Some(&retirement.to_string()));
 
-    let root = artifacts(&work);
+    let root = host.artifacts();
     fs::create_dir_all(root.join("sha256")).unwrap();
     fs::write(root.join("sha256").join(hostile), b"x").unwrap();
-    record(&home, &work, None);
+    host.record(None);
 
     // The root's own path is untrusted too: a worktree named with a newline,
     // a forged line and an escape is printed through the surface's escaping.
-    let forged = home.join("hostile\nok capabilities evidence /path-forged: all good\n\u{1b}[2J");
+    let forged = host
+        .home
+        .join("hostile\nok capabilities evidence /path-forged: all good\n\u{1b}[2J");
     fs::create_dir_all(&forged).unwrap();
-    record(&home, &forged, None);
+    fixture::record(&host.home, &forged, None);
 
-    let report = reported(Some(&home));
+    let report = reported(Some(&host.home));
     let lines = report.render();
     assert!(report.healthy);
     assert!(!lines.contains('\u{1b}'), "no raw escape: {lines:?}");

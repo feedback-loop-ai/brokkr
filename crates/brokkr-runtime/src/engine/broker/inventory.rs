@@ -132,14 +132,16 @@ pub(super) struct Found {
 }
 
 impl Found {
-    /// The historical roots that still guard evidence: every one the
-    /// operator has not retired (decision 0105 ruling 2).
+    /// Whether a historical record names `artifacts`, retired or not: the
+    /// record a retirement or a later admission reads.
     pub(super) fn records(&self, artifacts: &Path) -> bool {
         self.historical
             .iter()
             .any(|root| root.artifacts == artifacts)
     }
 
+    /// The historical roots that still guard evidence: every one the
+    /// operator has not retired (decision 0105 ruling 2).
     pub(super) fn guarded(&self) -> Vec<PathBuf> {
         self.historical
             .iter()

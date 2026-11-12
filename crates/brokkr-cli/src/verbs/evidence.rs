@@ -56,7 +56,8 @@ pub(crate) struct RetireArgs {
     /// the inventory last, and keep the root. The destination is resolved
     /// by the filesystem, so a link is followed before `..`, and it must
     /// resolve outside the coordination root and the root being retired;
-    /// the resolved path is the one recorded.
+    /// the resolved path is the one recorded. A root that does not stand
+    /// cannot be archived: `--discarded` is the record for an absent root.
     #[arg(long, group = "cause")]
     pub(crate) archived_to: Option<PathBuf>,
     /// Discard the evidence: remove the artifact root by a walk that
@@ -196,5 +197,7 @@ fn deadline() -> Instant {
     Instant::now() + DEADLINE
 }
 
+#[cfg(test)]
+pub(crate) mod fixture;
 #[cfg(test)]
 mod tests;

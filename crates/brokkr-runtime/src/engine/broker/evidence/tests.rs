@@ -14,6 +14,8 @@ use super::*;
 use crate::engine::boxed::Unrooted;
 use crate::engine::broker::admission::{Conflict, Unadmitted, Unknown};
 use crate::engine::broker::inventory::Unread;
+use crate::engine::broker::root::Step;
+use crate::engine::broker::sources::observed;
 
 /// A fresh directory of this test's own.
 fn fresh() -> tempfile::TempDir {
@@ -65,12 +67,39 @@ fn a_file(dir: &Path) -> PathBuf {
     file
 }
 
+/// `text` written as an owner-only record, as a seal writes one.
+fn record(at: &Path, text: &str) {
+    use std::os::unix::fs::OpenOptionsExt;
+
+    let mut options = fs::OpenOptions::new();
+    let opened = options.write(true).create_new(true).mode(0o600);
+    std::io::Write::write_all(&mut opened.open(at).unwrap(), text.as_bytes()).unwrap();
+}
+
+/// The historical record of `artifacts` in the worktree directory `at`, as
+/// admission seals one.
+fn historical(at: &Path, artifacts: &Path) {
+    let key = super::historical::key(artifacts);
+    record(
+        &at.join(format!("historical-{key}.json")),
+        &serde_json::json!({"artifacts": artifacts}).to_string(),
+    );
+}
+
 /// Whether `refused` is the io error a path through a file earns: not
 /// absent, and not a directory.
 fn not_a_directory<T>(refused: Result<T, EvidenceError>) -> bool {
     matches!(
         refused,
         Err(EvidenceError::Io(error)) if error.kind() == std::io::ErrorKind::NotADirectory
+    )
+}
+
+/// Whether `refused` is the io error a permission the runner lacks earns.
+fn denied<T>(refused: &Result<T, EvidenceError>) -> bool {
+    matches!(
+        refused,
+        Err(EvidenceError::Io(error)) if error.kind() == std::io::ErrorKind::PermissionDenied
     )
 }
 
@@ -258,6 +287,19 @@ fn a_destination_is_resolved_made_and_taken_only_where_it_is_empty() {
     ));
 }
 
+/// S1/1020b: a `.` below the deepest standing ancestor names the directory
+/// it follows; the components walk drops it, so the recorded path is the
+/// resolved one, and the directory is made.
+#[test]
+fn a_dot_below_the_standing_ancestor_is_dropped() {
+    let (_dir, base, coordination, retired) = roots();
+    let spelled = base.join("missing/./archive");
+    let opened = destination::Destination::open(&spelled, &coordination, &retired).unwrap();
+    let resolved = base.join("missing/archive");
+    assert_eq!(opened.at, resolved, "`.` names the same directory");
+    assert!(resolved.is_dir(), "the resolved directory stands");
+}
+
 #[test]
 fn discarded_removes_a_no_follow_walk_and_an_absent_root() {
     let dir = fresh();
@@ -416,6 +458,41 @@ fn every_internal_refusal_keeps_its_cause_or_its_words() {
     );
 }
 
+/// 1020b: each new refusal states its case in the operator's words.
+#[test]
+fn the_new_refusals_keep_their_words() {
+    let at = PathBuf::from("/evidence/root");
+    assert_eq!(
+        EvidenceError::Absent(at.clone()).to_string(),
+        concat!(
+            "refused: the evidence root '/evidence/root' does not stand, so it cannot be archived; ",
+            "--discarded is the record for an absent root"
+        )
+    );
+    assert_eq!(
+        EvidenceError::Reason.to_string(),
+        concat!(
+            "refused: a retirement needs the operator's reason, and the one given is empty; ",
+            "nothing was written"
+        )
+    );
+    assert_eq!(
+        EvidenceError::Linked(at.clone()).to_string(),
+        "the coordination root's path '/evidence/root' is a link, which is never followed"
+    );
+    assert_eq!(
+        EvidenceError::Digests(at.clone()).to_string(),
+        concat!(
+            "the digest directory '/evidence/root' is a link or is not a directory, which a ",
+            "readout never follows"
+        )
+    );
+    assert_eq!(
+        EvidenceError::Unprotected(at).to_string(),
+        "the coordination root is not protected: '/evidence/root' is not this user's alone"
+    );
+}
+
 /// I1: a standing attempt with an unbounded writer refuses a retirement by
 /// name, through `protected`'s `Reaching::Unbounded` arm.
 #[test]
@@ -517,6 +594,96 @@ fn a_coordination_root_not_this_users_alone_is_named() {
     }
 }
 
+/// I2/1020b: the readouts take admission's ancestor walk. An ancestor that
+/// is not this user's alone is named by its own path, the same problem
+/// `retire` refuses with, and nothing is made.
+#[test]
+fn an_ancestor_not_this_users_alone_is_named_and_nothing_is_made() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let (_dir, home, root) = coordination_root();
+    let state = home.join(".local/state");
+    fs::set_permissions(&state, fs::Permissions::from_mode(0o777)).unwrap();
+    let listed = list(&home, soon());
+    let retired = retire(
+        &home,
+        RetireOptions {
+            artifacts: &root,
+            action: RetireAction::Discarded,
+            operator: "operator",
+            reason: "given up",
+            now: "2026-11-08T00:00:00Z",
+        },
+        soon(),
+    );
+    fs::set_permissions(&state, fs::Permissions::from_mode(0o700)).unwrap();
+    match listed {
+        Err(EvidenceError::Unprotected(at)) => assert_eq!(at, state),
+        other => panic!("an ancestor not this user's alone must be named: {other:?}"),
+    }
+    assert!(
+        matches!(retired, Err(EvidenceError::Coordination)),
+        "retire refuses the same walk: {retired:?}"
+    );
+    assert!(
+        !root.join("admission.lock").exists(),
+        "the readout made no lock"
+    );
+}
+
+/// I2/1020b: a link on the way to the coordination root is named, not read
+/// as no history, and the readout makes nothing where it points.
+#[test]
+fn a_linked_coordination_root_is_named_and_nothing_is_made() {
+    let (dir, home, _root) = coordination_root();
+    let at = home.join(".local/state/brokkr");
+    let elsewhere = dir.path().join("elsewhere");
+    fs::create_dir(&elsewhere).unwrap();
+    fs::remove_dir_all(&at).unwrap();
+    symlink(&elsewhere, &at).unwrap();
+    let listed = list(&home, soon());
+    let retired = retire(
+        &home,
+        RetireOptions {
+            artifacts: &home.join("missing"),
+            action: RetireAction::Discarded,
+            operator: "operator",
+            reason: "given up",
+            now: "2026-11-08T00:00:00Z",
+        },
+        soon(),
+    );
+    match listed {
+        Err(EvidenceError::Linked(refused)) => assert_eq!(refused, at),
+        other => panic!("a linked coordination root must be named: {other:?}"),
+    }
+    assert!(
+        matches!(retired, Err(EvidenceError::Coordination)),
+        "retire refuses the same walk: {retired:?}"
+    );
+    assert!(
+        !elsewhere.join("capabilities").exists(),
+        "the readout made nothing"
+    );
+}
+
+/// I2/1020b: a name on the way that is a file, not a link, is unreadable
+/// with its kind rather than named as a link.
+#[test]
+fn a_file_on_the_way_to_the_coordination_root_is_unreadable() {
+    let (_dir, home, _root) = coordination_root();
+    let at = home.join(".local/state/brokkr");
+    fs::remove_dir_all(&at).unwrap();
+    fs::write(&at, b"not a directory").unwrap();
+    match list(&home, soon()) {
+        Err(EvidenceError::Unreadable(refused, kind)) => {
+            assert_eq!(refused, coordination(&home));
+            assert_eq!(kind, std::io::ErrorKind::NotADirectory);
+        }
+        other => panic!("a file on the way must be unreadable: {other:?}"),
+    }
+}
+
 /// S2: a coordination root that cannot be opened is a named problem, never
 /// read as no history.
 #[test]
@@ -577,6 +744,55 @@ fn a_bad_root_carries_its_own_problem() {
         problem.contains(&unfinished.display().to_string()),
         "{problem}"
     );
+}
+
+/// M4/1020b: a `sha256` that is a link is a problem on that root's row, and
+/// every other root still prints. A digest directory is read without
+/// following a link, as the archive refuses it.
+#[test]
+fn a_linked_digest_directory_is_a_problem_on_its_own_row() {
+    use std::os::unix::fs::DirBuilderExt;
+
+    let (dir, home, root) = coordination_root();
+    let base = fs::canonicalize(dir.path()).unwrap();
+    let work = base.join("work");
+    let repo = canonical::sha256_bytes(work.as_os_str().as_bytes());
+    let at = root.join(&repo);
+    let mut made = fs::DirBuilder::new();
+    made.mode(0o700).create(&at).unwrap();
+    let linked = base.join("linked");
+    let elsewhere = base.join("elsewhere");
+    fs::create_dir(&linked).unwrap();
+    fs::create_dir(&elsewhere).unwrap();
+    symlink(&elsewhere, linked.join(DIGESTS)).unwrap();
+    let good = base.join("good");
+    fs::create_dir(&good).unwrap();
+    let (_, bytes) = published(&good, b"one");
+    historical(&at, &linked);
+    historical(&at, &good);
+    record(&root.join("admission.lock"), "");
+
+    let listed = list(&home, soon()).unwrap();
+    assert_eq!(listed.len(), 2, "both rows print");
+    let row = |artifacts: &Path| {
+        listed
+            .iter()
+            .find(|row| row.artifacts == artifacts)
+            .expect("the root is listed")
+    };
+    let bad = row(&linked);
+    let problem = bad
+        .problem
+        .as_deref()
+        .expect("the linked sha256 is a problem");
+    assert!(
+        problem.contains(&linked.join(DIGESTS).display().to_string()),
+        "{problem}"
+    );
+    let ok = row(&good);
+    assert_eq!(ok.problem, None);
+    assert_eq!(ok.digests, 1);
+    assert_eq!(ok.bytes, bytes);
 }
 
 /// H1: a superseded record's name carries its key and its sequence, and a
@@ -670,16 +886,34 @@ fn a_destination_resolves_through_a_link_before_it_is_compared() {
     );
 }
 
-/// M2: a directory that cannot be opened refuses by name, before any
-/// sync.
+/// M2: an absent directory cannot be opened, and the io error names it
+/// before any sync.
 #[test]
 fn a_directory_that_cannot_be_opened_refuses_the_sync() {
     let dir = fresh();
     let absent = dir.path().join("absent");
-    match destination::directory(&absent, (0, 0)) {
-        Err(EvidenceError::DestinationNotDirectory(at)) => assert_eq!(at, absent),
-        other => panic!("an absent directory must refuse by name: {other:?}"),
-    }
+    let refused = destination::directory(&absent, (0, 0));
+    assert!(
+        matches!(&refused, Err(EvidenceError::Io(error)) if error.kind() == std::io::ErrorKind::NotFound),
+        "{refused:?}"
+    );
+}
+
+/// M2/1020b: only a name that is not a directory or is a link refuses as
+/// `DestinationNotDirectory`; a permission denied opening one is the io
+/// error it is.
+#[test]
+fn an_open_error_that_is_not_missing_or_a_link_is_named_as_io() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = fresh();
+    let shut = dir.path().join("shut");
+    fs::create_dir(&shut).unwrap();
+    fs::set_permissions(&shut, fs::Permissions::from_mode(0o600)).unwrap();
+    let below = shut.join("below");
+    let refused = destination::directory(&below, (0, 0));
+    fs::set_permissions(&shut, fs::Permissions::from_mode(0o700)).unwrap();
+    assert!(denied(&refused), "{refused:?}");
 }
 
 /// S1/R3: the directory opened is the one that was resolved; one swapped
@@ -777,11 +1011,77 @@ fn a_destination_that_cannot_be_made_refuses_and_keeps_nothing() {
     let at = locked.join("made/nested");
     let refused = destination::Destination::open(&at, &coordination, &retired);
     writable(&locked);
-    assert!(
-        matches!(&refused, Err(EvidenceError::Io(error)) if error.kind() == std::io::ErrorKind::PermissionDenied),
-        "{refused:?}"
-    );
+    assert!(denied(&refused), "{refused:?}");
     assert!(!locked.join("made").exists(), "nothing was made");
+}
+
+/// M2/1020b: a component this verb made before `mkdirat` refused the next
+/// is removed, so the refusal leaves the destination as it found it.
+#[test]
+fn a_component_made_before_a_mkdir_refusal_is_removed() {
+    let (_dir, base, coordination, retired) = roots();
+    let too_long = "n".repeat(300);
+    let at = base.join("made").join(&too_long);
+    let refused = destination::Destination::open(&at, &coordination, &retired);
+    assert!(matches!(&refused, Err(EvidenceError::Io(_))), "{refused:?}");
+    assert!(!base.join("made").exists(), "the component made is gone");
+}
+
+/// The role a parent plays: this binary re-executed with `env` set and one
+/// exact ignored test, which must run and pass. libtest's `--exact` with no
+/// match exits 0 with nothing run, so the "1 passed" line is the proof it
+/// ran (1020b).
+fn ran(env: &str, exact: &str) {
+    let seen = std::process::Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", exact, "--ignored"])
+        .env(env, "1")
+        .output()
+        .unwrap();
+    assert!(
+        seen.status.success(),
+        "{}",
+        String::from_utf8_lossy(&seen.stderr)
+    );
+    let out = String::from_utf8_lossy(&seen.stdout);
+    assert!(out.contains("1 passed"), "the role ran: {out}");
+}
+
+/// `run` with the process umask at 0o777, restored before returning, so a
+/// directory made under it lacks the bits `child` needs.
+fn under_hostile_umask<T>(run: impl FnOnce() -> T) -> T {
+    let previous = rustix::process::umask(rustix::fs::Mode::from_bits_truncate(0o777));
+    let out = run();
+    rustix::process::umask(previous);
+    out
+}
+
+/// M2/1020b: a component this verb made before `child` refused the next is
+/// removed too. Played in a child process under a umask that leaves a fresh
+/// directory unreadable, so no parallel test reads the process umask.
+#[test]
+fn a_component_made_before_a_child_refusal_is_removed() {
+    ran(
+        CHILD_ROLE,
+        "engine::broker::evidence::tests::a_component_made_before_a_child_refusal_under_a_hostile_umask",
+    );
+}
+
+/// The role the child-arm control plays: this binary re-executed, so the
+/// process-wide umask is changed where no parallel test reads it.
+const CHILD_ROLE: &str = "BROKKR_EVIDENCE_CHILD_ROLE";
+
+#[test]
+#[ignore = "played only when a test re-executes this binary"]
+fn a_component_made_before_a_child_refusal_under_a_hostile_umask() {
+    if std::env::var_os(CHILD_ROLE).is_none() {
+        return;
+    }
+    let (_dir, base, coordination, retired) = roots();
+    let at = base.join("made/nested");
+    let refused =
+        under_hostile_umask(|| destination::Destination::open(&at, &coordination, &retired));
+    assert!(denied(&refused), "{refused:?}");
+    assert!(!base.join("made").exists(), "the component made is gone");
 }
 
 /// M2: the digest directory this verb makes is removed when it cannot be
@@ -789,19 +1089,9 @@ fn a_destination_that_cannot_be_made_refuses_and_keeps_nothing() {
 /// Played in a child process, whose umask no parallel test reads.
 #[test]
 fn a_digest_directory_that_cannot_be_opened_is_removed() {
-    let seen = std::process::Command::new("sh")
-        .args([
-            "-c",
-            "exec \"$0\" --exact engine::broker::evidence::tests::a_digest_directory_is_removed_under_a_hostile_umask --ignored",
-            std::env::current_exe().unwrap().to_str().unwrap(),
-        ])
-        .env(UMASK_ROLE, "1")
-        .output()
-        .unwrap();
-    assert!(
-        seen.status.success(),
-        "{}",
-        String::from_utf8_lossy(&seen.stderr)
+    ran(
+        UMASK_ROLE,
+        "engine::broker::evidence::tests::a_digest_directory_is_removed_under_a_hostile_umask",
     );
 }
 
@@ -819,18 +1109,15 @@ fn a_digest_directory_is_removed_under_a_hostile_umask() {
     }
     let (_dir, base, coordination, retired) = roots();
     let (to, opened, evidence) = opened_archive(&base, &coordination, &retired);
-    let previous = rustix::process::umask(rustix::fs::Mode::from_bits_truncate(0o777));
-    let refused = opened.archive(
-        &evidence,
-        &mut Budget::new(soon()),
-        &|| {},
-        "2026-11-08T00:00:00Z",
-    );
-    rustix::process::umask(previous);
-    assert!(
-        matches!(&refused, Err(EvidenceError::DestinationNotDirectory(at)) if *at == to.join(DIGESTS)),
-        "{refused:?}"
-    );
+    let refused = under_hostile_umask(|| {
+        opened.archive(
+            &evidence,
+            &mut Budget::new(soon()),
+            &|| {},
+            "2026-11-08T00:00:00Z",
+        )
+    });
+    assert!(denied(&refused), "{refused:?}");
     assert!(!to.join(DIGESTS).exists(), "the digest directory is gone");
 }
 
@@ -848,10 +1135,7 @@ fn a_digest_directory_that_cannot_be_made_refuses() {
         "2026-11-08T00:00:00Z",
     );
     writable(&to);
-    assert!(
-        matches!(&refused, Err(EvidenceError::Io(error)) if error.kind() == std::io::ErrorKind::PermissionDenied),
-        "{refused:?}"
-    );
+    assert!(denied(&refused), "{refused:?}");
     assert!(!to.join(DIGESTS).exists());
 }
 
@@ -875,17 +1159,136 @@ fn an_inventory_that_already_stands_refuses() {
     assert!(!to.join(DIGESTS).exists(), "the digest directory is gone");
 }
 
+/// M2/1020b: an inventory this verb created is the one its refusal removes.
+#[test]
+fn a_refusal_removes_an_inventory_this_verb_wrote() {
+    let (_dir, base, coordination, retired) = roots();
+    let (to, opened, _evidence) = opened_archive(&base, &coordination, &retired);
+    opened.wrote_inventory();
+    assert!(
+        !to.join("inventory.json").exists(),
+        "the inventory this verb wrote is removed"
+    );
+}
+
+/// M2/1020b: a refusal removes only what this verb wrote. A name another
+/// writer planted after the destination was verified empty — the inventory
+/// and a digest of the root's own name — survives, and the refusal still
+/// stands. Played through `archive`'s `between` seam, after `sha256/` is
+/// made and before the copies.
+#[test]
+fn an_archive_refusal_removes_only_what_the_verb_wrote() {
+    let (_dir, base, coordination, retired) = roots();
+    let (to, opened, evidence) = opened_archive(&base, &coordination, &retired);
+    let (name, _) = published(&evidence, b"one");
+    let between = || {
+        fs::write(to.join("inventory.json"), b"raced").unwrap();
+        fs::write(to.join(DIGESTS).join(&name), b"raced").unwrap();
+    };
+    let refused = opened.archive(
+        &evidence,
+        &mut Budget::new(soon()),
+        &between,
+        "2026-11-08T00:00:00Z",
+    );
+    assert!(
+        matches!(&refused, Err(EvidenceError::Io(error)) if error.kind() == std::io::ErrorKind::AlreadyExists),
+        "{refused:?}"
+    );
+    assert_eq!(
+        fs::read(to.join("inventory.json")).unwrap(),
+        b"raced",
+        "the planted inventory survives"
+    );
+    assert!(
+        to.join(DIGESTS).join(&name).exists(),
+        "the planted digest survives"
+    );
+}
+
+/// `hook` for a root whose every seal fails: the archive is written, then
+/// its retirement cannot be sealed.
+fn unsealed(_: Step, _: &std::os::fd::OwnedFd, _: &str) -> std::io::Result<()> {
+    Err(std::io::Error::other("the seal fails"))
+}
+
+/// M2/1020b: an archive whose retirement seal then fails stays in place,
+/// and a retry into the same directory refuses `DestinationNotEmpty`; the
+/// retry takes a fresh destination.
+#[test]
+fn an_archive_whose_seal_fails_stays_and_a_retry_needs_a_fresh_destination() {
+    use std::os::unix::fs::DirBuilderExt;
+
+    let (dir, _home, root_path) = coordination_root();
+    let base = fs::canonicalize(dir.path()).unwrap();
+    let work = base.join("work");
+    let artifacts = work.join(".forge/artifacts");
+    let (name, _) = published(&artifacts, b"one");
+    let repo = canonical::sha256_bytes(work.as_os_str().as_bytes());
+    let at = root_path.join(&repo);
+    let mut made = fs::DirBuilder::new();
+    made.mode(0o700).create(&at).unwrap();
+    historical(&at, &artifacts);
+    record(&root_path.join("admission.lock"), "");
+    let root = Root::opened(opened(&root_path), root_path, (unsealed, observed)).unwrap();
+    let to = base.join("archive");
+    let refused = retire_in_with(
+        &root,
+        RetireOptions {
+            artifacts: &artifacts,
+            action: RetireAction::Archived { to: &to },
+            operator: "operator",
+            reason: "archived",
+            now: "2026-11-08T00:00:00Z",
+        },
+        soon(),
+        &|| {},
+    );
+    assert_eq!(
+        refused.unwrap_err().to_string(),
+        Unknown::Unsealed.to_string()
+    );
+    assert!(
+        to.join("inventory.json").exists(),
+        "the archive stays in place"
+    );
+    assert!(to.join(DIGESTS).join(&name).exists(), "its copy stays");
+    let again = retire_in(
+        &root,
+        RetireOptions {
+            artifacts: &artifacts,
+            action: RetireAction::Archived { to: &to },
+            operator: "operator",
+            reason: "archived",
+            now: "2026-11-08T00:00:00Z",
+        },
+        soon(),
+    );
+    assert!(
+        matches!(&again, Err(EvidenceError::DestinationNotEmpty(at)) if *at == to),
+        "{again:?}"
+    );
+}
+
 /// M4: a root whose metadata cannot be read, and a digest directory that is
 /// not a directory, refuse with the io error rather than as absent.
 #[test]
 fn counts_and_digests_name_a_root_they_cannot_read() {
+    use std::os::unix::fs::PermissionsExt;
+
     let dir = fresh();
     let below = a_file(dir.path()).join("below");
     assert!(not_a_directory(counts(&below)));
     let root = dir.path().join("root");
     fs::create_dir(&root).unwrap();
-    fs::write(root.join(DIGESTS), b"not a directory").unwrap();
-    assert!(not_a_directory(digests(&root)));
+    let at = root.join(DIGESTS);
+    fs::write(&at, b"not a directory").unwrap();
+    assert!(matches!(digests(&root), Err(EvidenceError::Digests(refused)) if refused == at));
+    fs::remove_file(&at).unwrap();
+    fs::set_permissions(&root, fs::Permissions::from_mode(0o000)).unwrap();
+    let refused = digests(&root);
+    fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
+    assert!(denied(&refused), "{refused:?}");
 }
 
 /// M2: a discard refuses a stat that fails for a reason other than absence,

@@ -103,13 +103,14 @@ pub(in crate::engine) struct Root {
 }
 
 /// Why the coordination root a readout looks for is not one it may read:
-/// it does not stand, it stands and is not this user's alone, or it cannot
-/// be opened at all — which only its absence is not (decision 0105, the
-/// controller's S2 ruling on #1020).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// it does not stand, a path on the way is a link or is not this user's
+/// alone, or it cannot be opened at all — which only its absence is not
+/// (decision 0105, the controller's S2 ruling on #1020; 1020b).
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum Existing {
     Absent,
-    NotAlone,
+    NotAlone(PathBuf),
+    Linked(PathBuf),
     Unreadable(std::io::ErrorKind),
 }
 
@@ -138,28 +139,24 @@ impl Root {
         })
     }
 
-    /// The root under `home` where it already stands, opened and judged
-    /// this user's alone, nothing made: the read a verb that only lists or
-    /// reads a retirement takes, so a readout writes no directory. Absent,
-    /// not this user's alone, and unreadable are told apart, so a readout
-    /// can name the last two as a problem rather than as no history.
+    /// The root under `home` where it already stands, reached by the walk
+    /// [`Root::of`] takes — from `/`, one plain name at a time, never
+    /// through a link, every ancestor judged by `owned` and the last one as
+    /// this user's alone — and opened, nothing made: the read a verb that
+    /// only lists or reads a retirement takes, so a readout writes no
+    /// directory. Absent, a link or a path not this user's alone, and
+    /// unreadable are told apart, so a readout can name the problem rather
+    /// than as no history (decision 0105; 1020b).
     pub(super) fn existing(home: &Path) -> Result<Root, Existing> {
+        let dir = walked(home)?;
         let path = coordination(home);
-        let dir = match openat(CWD, &path, directory(), Mode::empty()) {
-            Ok(dir) => dir,
-            Err(Errno::NOENT) => return Err(Existing::Absent),
-            Err(error) => return Err(Existing::Unreadable(std::io::Error::from(error).kind())),
-        };
-        let stat = fstat(&dir).or(Err(Existing::NotAlone))?;
         let (hook, mounts) = (unhooked, observed as Mounts);
-        owned(&stat, user(), true)
-            .then_some(Root {
-                dir,
-                path,
-                hook,
-                mounts,
-            })
-            .ok_or(Existing::NotAlone)
+        Ok(Root {
+            dir,
+            path,
+            hook,
+            mounts,
+        })
     }
 
     /// The root `dir` already opened at `path`, where it is this user's
@@ -227,6 +224,59 @@ impl Root {
 /// Production's hook: nothing.
 fn unhooked(_: Step, _: &OwnedFd, _: &str) -> std::io::Result<()> {
     Ok(())
+}
+
+/// The coordination root under `home` where it already stands, reached from
+/// `/` one plain name at a time without following a link and judged as
+/// [`super::protected`] judges every ancestor: this user's or root's and
+/// writable by no one else for each ancestor, and this user's alone for the
+/// root itself. Nothing is made.
+fn walked(home: &Path) -> Result<OwnedFd, Existing> {
+    let names: Vec<&OsStr> = home
+        .iter()
+        .skip(1)
+        .chain(PROTECTED_ROOT.iter().map(OsStr::new))
+        .collect();
+    let private = names.len() - 1;
+    let mut at = PathBuf::from("/");
+    // `/` and an `fstat` of an open descriptor cannot fail on a supported
+    // host; their fallback is unreadable rather than a guess at a kind.
+    let mut held = openat(CWD, "/", directory(), Mode::empty())
+        .or(Err(Existing::Unreadable(std::io::ErrorKind::Other)))?;
+    for (index, name) in names.into_iter().enumerate() {
+        at.push(name);
+        held = step_existing(&held, name, &at, index == private)?;
+    }
+    Ok(held)
+}
+
+/// One plain name `name` on the way to the coordination root, at `at`,
+/// opened in `parent` without following a link and judged [`owned`]'s way:
+/// absent, a link, not this user's alone, or another open error.
+fn step_existing(
+    parent: &OwnedFd,
+    name: &OsStr,
+    at: &Path,
+    private: bool,
+) -> Result<OwnedFd, Existing> {
+    let held = match openat(parent, name, directory(), Mode::empty()) {
+        Ok(held) => held,
+        Err(Errno::NOENT) => return Err(Existing::Absent),
+        Err(Errno::NOTDIR | Errno::LOOP) => {
+            let linked =
+                std::fs::symlink_metadata(at).is_ok_and(|stat| stat.file_type().is_symlink());
+            return Err(if linked {
+                Existing::Linked(at.to_path_buf())
+            } else {
+                Existing::Unreadable(std::io::ErrorKind::NotADirectory)
+            });
+        }
+        Err(error) => return Err(Existing::Unreadable(std::io::Error::from(error).kind())),
+    };
+    let stat = fstat(&held).or(Err(Existing::Unreadable(std::io::ErrorKind::Other)))?;
+    owned(&stat, user(), private)
+        .then_some(held)
+        .ok_or_else(|| Existing::NotAlone(at.to_path_buf()))
 }
 
 /// The directory `name` in `parent`: one plain name, made owner-only where

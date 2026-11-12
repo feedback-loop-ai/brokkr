@@ -19,7 +19,7 @@ use std::time::Instant;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use super::admission::{Conflict, Unadmitted, Unknown};
+use super::admission::{beside, Conflict, Unadmitted, Unknown};
 use super::exclusion::{covers, Guarded};
 use super::historical::retired;
 pub use super::historical::retired::{Cause, Retirement};
@@ -134,10 +134,17 @@ pub enum EvidenceError {
     #[error("{0}")]
     Refused(#[source] Box<dyn std::error::Error + Send + Sync>),
     #[error(
-        "the coordination root '{}' is not this user's alone",
+        "the coordination root is not protected: '{}' is not this user's alone",
         .0.display()
     )]
     Unprotected(PathBuf),
+    /// A component on the way to the coordination root is a link, which a
+    /// readout never follows; the path that stands there is named.
+    #[error(
+        "the coordination root's path '{}' is a link, which is never followed",
+        .0.display()
+    )]
+    Linked(PathBuf),
     /// The root cannot be opened at all: only its absence is read as no
     /// root (decision 0105, the controller's S2 ruling on #1020).
     #[error("the coordination root '{}' cannot be read: {}", .0.display(), .1)]
@@ -146,6 +153,21 @@ pub enum EvidenceError {
     Retirement(PathBuf),
     #[error("no historical evidence root is recorded at '{}'", .0.display())]
     NotRecorded(PathBuf),
+    /// `--archived-to` for a root that does not stand: `--discarded` is the
+    /// record for an absent root (decision 0105 ruling 2; 1020b).
+    #[error(
+        "refused: the evidence root '{}' does not stand, so it cannot be archived; --discarded is \
+         the record for an absent root",
+        .0.display()
+    )]
+    Absent(PathBuf),
+    /// The operator's reason is empty or whitespace: the record takes their
+    /// words (decision 0105 ruling 1; 1020b).
+    #[error(
+        "refused: a retirement needs the operator's reason, and the one given is empty; nothing \
+         was written"
+    )]
+    Reason,
     #[error("the evidence root '{}' is already retired", .0.display())]
     AlreadyRetired(PathBuf),
     #[error(
@@ -198,6 +220,13 @@ pub enum EvidenceError {
     Corrupt(PathBuf),
     #[error("the artifact '{}' is not one regular file named by a digest; nothing was written", .0.display())]
     Unfinished(PathBuf),
+    /// `sha256/` is a link or is not a directory, which a readout never
+    /// follows (decision 0105, M4; 1020b).
+    #[error(
+        "the digest directory '{}' is a link or is not a directory, which a readout never follows",
+        .0.display()
+    )]
+    Digests(PathBuf),
     #[error("the evidence root '{}' is a link, which a discard never follows", .0.display())]
     Link(PathBuf),
     #[error("the evidence root '{}' is not a directory", .0.display())]
@@ -271,7 +300,8 @@ fn existing(home: &Path) -> Result<Option<Root>, EvidenceError> {
     match Root::existing(home) {
         Ok(root) => Ok(Some(root)),
         Err(Existing::Absent) => Ok(None),
-        Err(Existing::NotAlone) => Err(EvidenceError::Unprotected(coordination(home))),
+        Err(Existing::NotAlone(at)) => Err(EvidenceError::Unprotected(at)),
+        Err(Existing::Linked(at)) => Err(EvidenceError::Linked(at)),
         Err(Existing::Unreadable(kind)) => Err(EvidenceError::Unreadable(coordination(home), kind)),
     }
 }
@@ -345,15 +375,19 @@ fn counts(root: &Path) -> Result<(bool, u64, u64), EvidenceError> {
 }
 
 /// Every digest in `root`'s `sha256/` directory and its bytes, sorted by
-/// name; empty where the directory does not stand. A name that is not a
-/// digest, or an entry that is not one regular file, refuses.
+/// name; empty where the directory does not stand. `sha256/` is read
+/// without following a link: a link, or anything that is not a directory,
+/// is a problem on that root's row. A name that is not a digest, or an
+/// entry that is not one regular file, refuses.
 fn digests(root: &Path) -> Result<Vec<(String, u64)>, EvidenceError> {
     let at = root.join(DIGESTS);
-    let entries = match std::fs::read_dir(&at) {
+    match std::fs::symlink_metadata(&at) {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
         Err(error) => return Err(error.into()),
-        Ok(entries) => entries,
-    };
+        Ok(stat) if !stat.file_type().is_dir() => return Err(EvidenceError::Digests(at)),
+        Ok(_) => {}
+    }
+    let entries = std::fs::read_dir(&at)?;
     let mut found = Vec::new();
     for entry in entries {
         let path = entry?.path();
@@ -393,16 +427,20 @@ pub(in crate::engine) fn retire_in(
     retire_in_with(root, options, deadline, &|| {})
 }
 
-/// [`retire_in`], `between` run after the root's artifacts are verified
-/// and before they are archived: the house `_with` seam a test changes a
-/// source under, so the copy's own digest check is the one that fails;
-/// nothing in production.
+/// [`retire_in`], `between` run after the root's artifacts are verified and
+/// its `sha256/` is made, before they are copied: the house `_with` seam a
+/// test changes a source under, so the copy's own digest check is the one
+/// that fails, or plants a name under the destination, so nothing this verb
+/// did not write is removed; nothing in production.
 pub(in crate::engine) fn retire_in_with(
     root: &Root,
     options: RetireOptions<'_>,
     deadline: Instant,
     between: &dyn Fn(),
 ) -> Result<Retirement, EvidenceError> {
+    if options.reason.trim().is_empty() {
+        return Err(EvidenceError::Reason);
+    }
     let _lock = locked(root.dir(), deadline)?;
     let mut budget = Budget::new(deadline);
     let found = inventory(root.dir(), root.path(), ["", ""], &mut budget)?;
@@ -410,6 +448,15 @@ pub(in crate::engine) fn retire_in_with(
         .ok_or_else(|| EvidenceError::NotRecorded(options.artifacts.to_path_buf()))?;
     if held.retirement.is_some() {
         return Err(EvidenceError::AlreadyRetired(held.artifacts.clone()));
+    }
+    if matches!(options.action, RetireAction::Archived { .. }) {
+        match std::fs::symlink_metadata(&held.artifacts) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Err(EvidenceError::Absent(held.artifacts.clone()))
+            }
+            Err(error) => return Err(error.into()),
+            Ok(_) => {}
+        }
     }
     protected(&found.standing, &held.artifacts)?;
     let destination = destination(root.path(), &held.artifacts, options.action)?;
@@ -455,13 +502,13 @@ fn committed(
     Ok(retirement)
 }
 
-/// The historical root `artifacts` in the inventory, matched as the
-/// record names it.
+/// The historical root `artifacts` in the inventory, matched as admission
+/// records and inspect finds it: by the path as recorded, or through
+/// [`beside`] so a root named by a symlinked worktree is the same root
+/// (decision 0105, the controller's R2 ruling on #1020; 1020b).
 fn find<'f>(found: &'f Found, artifacts: &Path) -> Option<&'f HistoricalRoot> {
-    found
-        .historical
-        .iter()
-        .find(|held| held.artifacts == artifacts)
+    let by = |at: &Path| found.historical.iter().find(|held| held.artifacts == at);
+    by(artifacts).or_else(|| by(&beside(artifacts)))
 }
 
 /// Whether a standing attempt protects `artifacts`, by its reservation's
