@@ -154,7 +154,7 @@ pub(crate) fn rows(bytes: &[u8]) -> Result<Vec<Row>, Composition> {
     let text = std::str::from_utf8(bytes).map_err(|_| Composition::Unreadable)?;
     let mut rows = Vec::new();
     let mut awaiting: Option<Row> = None;
-    let mut in_config = false;
+    let mut state = ReadState::default();
     for line in text.lines() {
         if let Some(rest) = line.strip_prefix("- id: ") {
             if let Some(row) = awaiting.take() {
@@ -166,13 +166,13 @@ pub(crate) fn rows(bytes: &[u8]) -> Result<Vec<Row>, Composition> {
                 disabled: false,
                 mode: None,
             });
-            in_config = false;
+            state = ReadState::default();
             continue;
         }
         let Some(row) = awaiting.as_mut() else {
             continue;
         };
-        read_row_line(row, line, &mut in_config)?;
+        read_row_line(row, line, &mut state)?;
     }
     if let Some(row) = awaiting.take() {
         rows.push(row);
@@ -199,20 +199,37 @@ fn unquote(value: &str) -> String {
     }
 }
 
-/// One line of the row being read: its `name:` and `disabled:`, the
-/// `config:` block a `sandbox-policy` row carries, and the mode inside it.
-/// The column-zero shape is refused FIRST, in or out of `config`, so a
-/// line the old reader refused is never swallowed by the block; a line
-/// indented less than four spaces closes the block; and the
-/// `sandbox-policy` block admits exactly one `    mode:` line. Another
-/// row's block is unread, as it was before the mode was read. The helper
-/// keeps the row loop under the complexity ceiling.
-fn read_row_line(row: &mut Row, line: &str, in_config: &mut bool) -> Result<(), Composition> {
+/// The reader's state for the row it is inside. For every row but
+/// `sandbox-policy`, `in_config` tracks whether another row's unread
+/// `config:` block is still open, so a line indented less than four spaces
+/// closes it. For the `sandbox-policy` row the span, not the indent,
+/// bounds the block: `in_config` records that its one `config:` line was
+/// read, and the seen flags refuse a second `name:`, `disabled:` or
+/// `config:` line. The state keeps the per-line helpers under the
+/// complexity ceiling.
+#[derive(Default)]
+struct ReadState {
+    in_config: bool,
+    name_seen: bool,
+    disabled_seen: bool,
+}
+
+/// One line of the row being read. The `sandbox-policy` row's whole span
+/// is read by its own closed grammar ([`read_policy_line`]), so a line the
+/// old reader refused is never swallowed and no line in the span goes
+/// unread. Every other row keeps the old reading: the column-zero shape is
+/// refused first, its `name:` and `disabled:` are read, and its config
+/// block stays unread and closes on any line indented less than four
+/// spaces.
+fn read_row_line(row: &mut Row, line: &str, state: &mut ReadState) -> Result<(), Composition> {
+    if row.id == SANDBOX_POLICY {
+        return read_policy_line(row, line, state);
+    }
     if column_zero(line) {
         return Err(Composition::Unreadable);
     }
-    if *in_config && !line.starts_with("    ") {
-        *in_config = false;
+    if state.in_config && !line.starts_with("    ") {
+        state.in_config = false;
     }
     if let Some(rest) = line.strip_prefix("  name: ") {
         if !row.name.is_empty() {
@@ -222,11 +239,53 @@ fn read_row_line(row: &mut Row, line: &str, in_config: &mut bool) -> Result<(), 
     } else if line.starts_with("  disabled:") {
         read_disabled(row, line)?;
     } else if line == "  config:" {
-        *in_config = true;
-    } else if *in_config && row.id == SANDBOX_POLICY {
-        read_mode(row, line)?;
+        state.in_config = true;
     }
     Ok(())
+}
+
+/// One line of the `sandbox-policy` row's whole span: from its `- id:`
+/// line to the next column-zero `- id:` or the end of the dump. A blank,
+/// whitespace-only or comment line is skipped, so it never closes the
+/// `config:` block. The span admits, each at most once, `  name: <name>`,
+/// `  disabled: <word>`, `  config:` and, only after it, `    mode:
+/// <word>`. Every other line refuses [`Composition::Unreadable`]: a second
+/// `config:` or `mode:`, any other key at any indent, a flow-style
+/// `config: {...}`, a quoted or spaced key, and a `mode:` before
+/// `config:`.
+fn read_policy_line(row: &mut Row, line: &str, state: &mut ReadState) -> Result<(), Composition> {
+    if line.trim().is_empty() || line.trim_start().starts_with('#') {
+        return Ok(());
+    }
+    if let Some(rest) = line.strip_prefix("  name: ") {
+        if state.name_seen {
+            return Err(Composition::Unreadable);
+        }
+        state.name_seen = true;
+        row.name = unquote(rest.trim());
+        return Ok(());
+    }
+    if line.starts_with("  disabled:") {
+        if state.disabled_seen {
+            return Err(Composition::Unreadable);
+        }
+        state.disabled_seen = true;
+        return read_disabled(row, line);
+    }
+    if line == "  config:" {
+        if state.in_config {
+            return Err(Composition::Unreadable);
+        }
+        state.in_config = true;
+        return Ok(());
+    }
+    if line.starts_with("    mode:") {
+        if !state.in_config {
+            return Err(Composition::Unreadable);
+        }
+        return read_mode(row, line);
+    }
+    Err(Composition::Unreadable)
 }
 
 /// One `disabled:` line of the row being read. The other rows keep the
@@ -248,14 +307,16 @@ fn read_disabled(row: &mut Row, line: &str) -> Result<(), Composition> {
 }
 
 /// Whether `line` is the column-zero shape the old reader refused: a
-/// non-empty, non-comment line that is not indented beneath a row.
+/// non-empty, non-comment line that is not indented beneath a row. The
+/// `sandbox-policy` span is bounded by its own grammar instead.
 fn column_zero(line: &str) -> bool {
     !line.is_empty() && !line.starts_with('#') && !line.starts_with("  ")
 }
 
 /// The one `    mode: <word>` line a `sandbox-policy` `config` block may
-/// carry. A second mode, another key, a deeper line or a `Mode:` spelling
-/// is not that shape and refuses the tree.
+/// carry, read only after its `config:`. A missing space, a deeper indent,
+/// a `Mode:` spelling or a second mode is not that shape and refuses the
+/// tree; the span's other lines are refused by [`read_policy_line`].
 fn read_mode(row: &mut Row, line: &str) -> Result<(), Composition> {
     let Some(rest) = line.strip_prefix("    mode: ") else {
         return Err(Composition::Unreadable);

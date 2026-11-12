@@ -129,7 +129,7 @@ impl Release {
 /// (`bash`, `pwsh`, the `job_*` tools), files (`read`, `write`, `edit`,
 /// `read_image`, `glob`, `grep`), skills, subagent and fork spawns,
 /// workflows and the web (`web_fetch`, `web_search`).
-pub(super) const DISABLED_ROWS: [&str; 10] = [
+const DISABLED_ROWS: [&str; 10] = [
     "tool-bash",
     "tool-pwsh",
     "tool-jobs",

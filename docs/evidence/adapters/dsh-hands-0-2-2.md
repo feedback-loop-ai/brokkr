@@ -128,14 +128,22 @@ controller can follow this procedure.
    those two words into that row: the overlay's bounded reader
    (`route_overlay::hands`, through `Mode::named`) refuses any other word
    in the overlay Brokkr writes. So dsh's third mode (`danger-full-access`)
-   is never written by Brokkr's overlay. The composed-tree check reads
-   only the composed `sandbox-policy` row's `config` block: exactly one
-   `    mode: <word>` line, and no other line inside it. It refuses a tree
-   whose composed mode is not the seat's own, a tree that names no mode, a
-   `sandbox-policy` block in any other shape, and a `sandbox-policy` row
-   whose `disabled:` is present and not exactly `false`. It reads nothing
-   else about the composed tree's sandbox. This step does not measure what
-   dsh itself does with that mode.
+   is never written by Brokkr's overlay. The composed-tree check reads the
+   whole span of the composed `sandbox-policy` row, from its `- id:` line
+   to the next column-zero `- id:` or the end of the dump, as a closed
+   grammar. It skips a blank line, a whitespace-only line and a comment
+   line (whose first non-space character is `#`). It admits, each at most
+   once, `  name: <name>`, `  disabled: <word>` (only absent or exactly
+   `false` is admitted), `  config:` and, only after `  config:`,
+   `    mode: <word>`. Every other line in the span refuses `Unreadable`: a
+   second `config:` or `mode:`, any other key at any indent, a line
+   indented three spaces, a flow-style `config: {...}`, a quoted or spaced
+   key, and a `mode:` before `config:`. Other rows' config blocks are not
+   read. It refuses a tree whose composed mode is not the seat's own, a
+   tree that names no mode, and a `sandbox-policy` row whose `disabled:` is
+   present and not exactly `false`. It reads nothing else about the
+   composed tree's sandbox. This step does not measure what dsh itself does
+   with that mode.
 6. Add the release and its set here, then in `MEASURED_VERSIONS` and the
    release's composition delta table. Add a `Release` variant with its own
    exact versions in `Release::versions` (and its `Release::label`), and
@@ -178,18 +186,22 @@ Run by the implementing seat with
   `a_hands_resume_reads_its_release_from_the_launch_not_a_second_probe`,
   `the_bounded_reader_admits_the_0_2_2_ptc_pin_it_writes`,
   `a_malformed_0_2_2_ptc_pin_is_refused_by_the_bounded_reader`,
+  `the_0_2_2_reader_requires_the_ptc_pin_after_the_sandbox_row`,
   `a_composed_mode_that_is_not_the_seats_is_refused`,
   `a_composed_tree_with_no_mode_is_refused`,
   `the_measured_trees_still_pass_their_own_mode`,
   `a_column_zero_line_after_the_mode_is_refused_as_the_old_gate_refused_it`,
-  `a_sandbox_config_is_one_mode_line_and_closes_on_a_lower_indent`,
+  `a_sandbox_policy_span_refuses_a_second_mode_and_any_other_key`,
+  `every_unadmitted_line_in_the_sandbox_policy_span_refuses`,
+  `a_skipped_line_does_not_close_the_sandbox_config`,
   `a_disabled_sandbox_policy_row_is_refused`,
+  `a_sandbox_policy_disabled_line_is_read_with_or_without_its_space`,
   `a_hands_seat_reports_its_sandbox_refusal_before_a_later_root_refusal` and
   `a_launch_refuses_a_composed_mode_that_differs_from_the_seats`: the
-  #1052 part 1 follow-ups F4, F5 and the composed-mode finding, and fix
-  round 1052g2's C1, C2, C4 and C6. Each was
-  made to fail by the removal control recorded in the commit that added
-  it and then restored.
+  #1052 part 1 follow-ups F4, F5 and the composed-mode finding, fix
+  round 1052g2's C1, C2, C4 and C6, and fix round 1052g3's F1 to F3. Each
+  was made to fail by the removal control recorded in the commit that
+  added it and then restored.
 
 ## A real seat tree, judged (controller, 2026-11-12)
 

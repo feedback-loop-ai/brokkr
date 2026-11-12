@@ -209,6 +209,26 @@ fn a_malformed_0_2_2_ptc_pin_is_refused_by_the_bounded_reader() {
     );
 }
 
+/// F2: the bounded reader requires the 0.2.2 programmatic-executor pin
+/// because the release's row table names it after the sandbox row. A block
+/// with that row removed still names the sandbox row, so only the release
+/// table can want it: the reader refuses before the pin-less overlay runs.
+#[test]
+fn the_0_2_2_reader_requires_the_ptc_pin_after_the_sandbox_row() {
+    let block = pinned_block(Release::V0_2_2, Mode::ReadOnly);
+    let without = block.replace("- id: tool-executor-ptc\n  disabled: true\n", "");
+    assert_ne!(without, block, "the fixture drops the ptc pin");
+    let refusal = route_overlay::hands(without.as_bytes(), Release::V0_2_2)
+        .expect_err("the release pins the dropped row");
+    assert_eq!(
+        refusal.to_string(),
+        format!(
+            "refusing to invoke the dsh driver: the hands rows carry no row '{PTC_ROW}', which \
+             the measured hands set names"
+        )
+    );
+}
+
 /// The gate refuses a composed tree whose `sandbox-policy` mode is not the
 /// seat's, even when every row and `disabled` flag is measured: the third
 /// dsh mode never reaches a hands seat, and neither does the other allowed
@@ -316,22 +336,22 @@ fn a_column_zero_line_after_the_mode_is_refused_as_the_old_gate_refused_it() {
     }
 }
 
-/// C1 (b): the `sandbox-policy` `config` block closes on any line not
-/// indented four spaces, so a `mode:` under a later sibling is not read as
-/// the composed mode; and it holds exactly one `    mode:` line, so
-/// another key, a deeper line or a `Mode:` spelling refuses the tree. A
-/// second `mode:` still refuses.
+/// C1 (b), under 1052g3's closed span: the `sandbox-policy` row's whole
+/// span is read as a closed grammar, so a `mode:` under any later line is
+/// not read as the composed mode; a second mode, a deeper line, a `Mode:`
+/// spelling and any other key refuse the tree.
 #[test]
-fn a_sandbox_config_is_one_mode_line_and_closes_on_a_lower_indent() {
+fn a_sandbox_policy_span_refuses_a_second_mode_and_any_other_key() {
     let dump = with_sandbox_mode(&measured_dump(), "read-only");
-    // The block ends at `  other:`: the `mode:` beneath it is outside.
+    // `  other:` is not an admitted key, so the `mode:` behind it is never
+    // read as the composed mode under the closed span.
     let closed = dump.replace("    mode: read-only\n", "  other:\n    mode: read-only\n");
     assert_ne!(closed, dump);
     assert_eq!(
         gate(closed, Release::V0_2_1, Mode::ReadOnly),
-        Err(Composition::NoMode)
+        Err(Composition::Unreadable)
     );
-    // Another key inside the block is not the one line it may hold.
+    // Another key inside the block is not one of its admitted lines.
     let other_key = dump.replace("    mode: read-only\n", "    timeout: 1\n");
     assert_ne!(other_key, dump);
     assert_eq!(
@@ -355,6 +375,82 @@ fn a_sandbox_config_is_one_mode_line_and_closes_on_a_lower_indent() {
         "    mode: read-only\n    mode: workspace-write\n",
     );
     assert_eq!(rows(twice.as_bytes()).err(), Some(Composition::Unreadable));
+}
+
+/// F1: every line shape the review planted after the mode refuses the
+/// tree. A blank, comment or whitespace line is skipped, so it never ends
+/// the `config:` block; the second mode or extra key behind it is still
+/// read, and refused.
+#[test]
+fn every_unadmitted_line_in_the_sandbox_policy_span_refuses() {
+    let dump = with_sandbox_mode(&measured_dump(), "read-only");
+    for (what, planted) in [
+        (
+            "a blank then a second mode",
+            "\n    mode: danger-full-access\n",
+        ),
+        (
+            "a comment then a second mode",
+            "# c\n    mode: danger-full-access\n",
+        ),
+        (
+            "whitespace then a second mode",
+            "  \n    mode: danger-full-access\n",
+        ),
+        ("a blank then another key", "\n    allowNetwork: true\n"),
+        ("a three-space key", "   x: 1\n"),
+        (
+            "a flow-style config",
+            "  config: {mode: danger-full-access}\n",
+        ),
+        ("a second empty config", "  config:\n"),
+        ("a mode with no space", "    mode:read-only\n"),
+        ("a quoted disabled key", "  \"disabled\": true\n"),
+        ("a spaced disabled key", "  disabled : true\n"),
+        ("a second name", "  name: another\n"),
+        (
+            "a second disabled",
+            "  disabled: false\n  disabled: false\n",
+        ),
+    ] {
+        let mutated = dump.replace(
+            "    mode: read-only\n",
+            &format!("    mode: read-only\n{planted}"),
+        );
+        assert_ne!(mutated, dump, "{what}");
+        assert_eq!(
+            gate(mutated, Release::V0_2_1, Mode::ReadOnly),
+            Err(Composition::Unreadable),
+            "{what}"
+        );
+    }
+    // A mode before its `config:` is not after it.
+    let early = dump.replace("  config:\n", "    mode: read-only\n  config:\n");
+    assert_ne!(early, dump);
+    assert_eq!(
+        gate(early, Release::V0_2_1, Mode::ReadOnly),
+        Err(Composition::Unreadable)
+    );
+}
+
+/// F1: a blank, comment or whitespace-only line between `config:` and the
+/// mode is skipped, so the block stays open and the mode is still read. The
+/// tree passes, which the old indent close would turn into `NoMode`.
+#[test]
+fn a_skipped_line_does_not_close_the_sandbox_config() {
+    let dump = with_sandbox_mode(&measured_dump(), "read-only");
+    for separator in ["\n", "# c\n", "  # c\n", "  \n", "\t\n"] {
+        let mutated = dump.replace(
+            "  config:\n    mode: read-only\n",
+            &format!("  config:\n{separator}    mode: read-only\n"),
+        );
+        assert_ne!(mutated, dump, "{separator:?}");
+        assert_eq!(
+            gate(mutated, Release::V0_2_1, Mode::ReadOnly),
+            Ok(()),
+            "{separator:?}"
+        );
+    }
 }
 
 /// C2: the `sandbox-policy` row is refused unless its `disabled:` is absent
@@ -397,6 +493,27 @@ fn a_disabled_sandbox_policy_row_is_refused() {
     );
     assert_ne!(explicit, dump);
     assert_eq!(gate(explicit, Release::V0_2_1, Mode::ReadOnly), Ok(()));
+}
+
+/// F3: the `sandbox-policy` `disabled:` line is recognized without the
+/// space after its colon, as the reader has always spelled it. A word
+/// jammed against the colon and a bare key both name a disabled policy, so
+/// both refuse `PolicyDisabled`, not an unread line.
+#[test]
+fn a_sandbox_policy_disabled_line_is_read_with_or_without_its_space() {
+    let dump = with_sandbox_mode(&measured_dump(), "read-only");
+    let expected = Composition::PolicyDisabled {
+        id: SANDBOX_POLICY.into(),
+    };
+    for planted in ["  disabled:true\n", "  disabled:\n"] {
+        let mutated = dump.replace("  config:\n", &format!("{planted}  config:\n"));
+        assert_ne!(mutated, dump, "{planted}");
+        assert_eq!(
+            gate(mutated, Release::V0_2_1, Mode::ReadOnly),
+            Err(expected.clone()),
+            "{planted}"
+        );
+    }
 }
 
 /// The measured trees still pass when the seat's own mode is written into
