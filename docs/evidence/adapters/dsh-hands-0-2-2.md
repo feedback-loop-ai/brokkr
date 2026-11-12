@@ -269,6 +269,7 @@ Run by the implementing seat with
   `the_s7_shapes_on_another_row_refuse`,
   `a_line_before_the_first_row_that_is_not_a_skip_is_refused`,
   `an_unadmitted_two_space_key_is_refused`,
+  `the_policy_inject_block_is_unread`,
   `a_repeated_two_space_key_is_refused`,
   `a_deeper_line_is_admitted_only_while_a_block_is_open`,
   `a_one_space_tab_or_column_zero_line_is_refused` and
@@ -312,6 +313,49 @@ In both trees:
 The 100 rows are 0.2.2's plain 99 plus the insert, as the composition
 diff above predicts. A 0.2.2-rc.1 hands seat is therefore admitted by the
 gate on the real tree, not only on the offline fixture.
+
+## A real 0.2.2-rc.1 composed tree at this round's head (2026-11-12)
+
+Fix round 1052g5 re-ran the method on `git archive` of its own code
+commit `270f7fe98`, never committed. The throwaway test built both
+overlays with `hands_rows(Release::V0_2_2, mode, "/bin/brokkr",
+["hands", "serve"])`, ran `dsh --profile headless --patch <overlay>
+--dump-config` from the isolated `/var/tmp/dsh-0.2.2-rc.1` prefix under
+the controller's scratch home, and handed that same command to
+`composition_gate`. This box's `/var/tmp` is read-only, so the prepared
+home was copied byte-for-byte to `/tmp` inside the one measuring call and
+used as `DSH_HOME` there; the prepared home was not modified. The test
+ran each mode twice, once capturing the dump for its bytes and digest and
+once handing the command to the gate.
+
+| Mode | Dump | Rows | Gate |
+| --- | --- | --- | --- |
+| `read-only` | exit 0, 16,703 bytes, sha256 `2c484c25b7a202b2…` | 100 | `Ok(())` |
+| `workspace-write` | exit 0, 16,757 bytes, sha256 `f01745717859d7b2…` | 100 | `Ok(())` |
+
+Both dumps are 0.2.2's plain 99 plus the `brokkr-hands` insert. Their
+`sandbox-policy` row carries the seat's mode in its `config:` block and
+the measured
+
+```yaml
+  inject:
+    - headlessStartup
+```
+
+block. The plain 0.2.2-rc.1 dump carries that same inject block (its
+`config:` block also names `workspaceRoot` and
+`additionalWritableRoots`, which the seat overlay replaces with the one
+mode). The policy row's config block is the only one read by the span
+grammar; its inject block is unread, as every other row's is. 1052g3 and
+1052g4 admitted no `inject:` on the policy row and would have refused
+this real tree as `Unreadable`; commit `270f7fe98` admits it unread
+because the measured tree bounds the grammar. The 0.2.1 committed
+fixture still passes: its `sandbox-policy` row has no inject block, and
+the measured 99 rows are unchanged.
+
+The 17096db85 table above measures a different head, before 1052g3
+closed the policy span; its 17,019-byte and 17,073-byte dumps carry the
+same composed rows at a longer overlay path.
 
 ## Pending
 
