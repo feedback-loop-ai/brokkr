@@ -12,14 +12,17 @@
 //! floor that cannot be read cannot shorten a deadline either.
 //!
 //! A panel's and a sequence's terminal words name the same source too. The
-//! panel names its joined outcome once, before it is journaled, from
-//! whether any member was deadline-killed; a sequence names each step's
-//! outcome where it is built, and an ending built without one (a missing
-//! or malformed change, a contradictory result, a result outside its
-//! step's vocabulary, a refused record) names an unreadable or invalid
-//! host itself. Only the step that ends the attempt reaches its terminal
-//! words, so each attempt's words name the deadline's source once, however
-//! many members or steps it ran.
+//! panel names its result once, before it is journaled, from whether any
+//! member was deadline-killed; a raised deadline names only the members'
+//! joined outcome, never a carry refusal that stopped the join. A sequence
+//! names each step's outcome where it is built, and an ending built without
+//! one (a missing or malformed change, a contradictory result, a result
+//! outside its step's vocabulary, a refused record) names an unreadable or
+//! invalid host itself. A single attempt names an unreadable or invalid
+//! host in the outcome it settles on, which is the journal's refused one
+//! where it set one. Only the step that ends the attempt reaches its
+//! terminal words, so each attempt's words name the deadline's source
+//! once, however many members or steps it ran.
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -29,6 +32,7 @@ use std::time::Duration;
 
 use brokkr_protocol::{AttemptOutcome, AttemptReport};
 
+use super::super::carry::Panelled;
 use super::super::{site_label, DriverRun, Selection};
 use crate::admission::{read_host, HostError, Hosting};
 use crate::agents::Candidate;
@@ -107,15 +111,6 @@ impl fmt::Display for Cause {
     }
 }
 
-/// Which surface's words an outcome takes: a single attempt replaces the
-/// protocol's bare number, while a panel keeps its joined member list and
-/// appends the deadline to it.
-#[derive(Clone, Copy)]
-enum OutcomeWords {
-    Single,
-    Panel,
-}
-
 impl Deadline {
     /// The attempt's deadline: `authored` unless a shared-local route this
     /// attempt launches declares a higher floor.
@@ -172,6 +167,8 @@ impl Deadline {
         }
     }
 
+    /// The attempt's deadline on the seat's own limit, with no source to
+    /// name: what a test runs a body on.
     pub(in crate::engine) fn seat(authored: u64) -> Deadline {
         Deadline {
             seconds: authored,
@@ -201,12 +198,13 @@ impl Deadline {
     /// the watchdog ended keeps the protocol's facts and replaces its bare
     /// number with both numbers and the source (decision 0104 ruling
     /// 3(a)); a host file that could not be read or was invalid names
-    /// itself however the attempt ended, because it is why the seat's own
-    /// limit governed. Anything else reads exactly as before. A panel and a
-    /// sequence name the source once per attempt: the panel through
-    /// [`Self::name_joined_outcome`] at its joined outcome, a sequence's
-    /// step through this method where its outcome is built, and an ending
-    /// that builds no outcome through [`Self::name_words`].
+    /// itself in the outcome the attempt settles on — the journal's refused
+    /// one where it set one, and its own otherwise — because it is why the
+    /// seat's own limit governed. Anything else reads exactly as before. A
+    /// panel and a sequence name the source once per attempt: the panel
+    /// through [`Self::panel_namer`] at its result, a sequence's step
+    /// through this method where its outcome is built, and an ending that
+    /// builds no outcome through [`Self::name_words`].
     pub(in crate::engine) fn name(&self, run: &mut DriverRun) {
         let Some(cause) = &self.cause else {
             return;
@@ -217,67 +215,69 @@ impl Deadline {
                     *error = format!("{error}; {cause}");
                 }
             }
-            DriverRun::Ran(report) => {
-                self.name_outcome(
-                    &mut report.outcome,
-                    report.deadline_killed,
-                    OutcomeWords::Single,
-                );
-            }
+            DriverRun::Ran(report) => match cause {
+                Cause::Raised { .. } => {
+                    self.name_outcome(cause, &mut report.outcome, report.deadline_killed);
+                }
+                Cause::Unreadable { .. } | Cause::Invalid { .. } => {
+                    let named = report.refused.as_mut().unwrap_or(&mut report.outcome);
+                    append_cause(named, cause);
+                }
+            },
         }
     }
 
-    /// Name the deadline in an attempt outcome, from whether the watchdog
-    /// ended it and which surface's words the outcome takes.
-    fn name_outcome(&self, outcome: &mut AttemptOutcome, killed: bool, words: OutcomeWords) {
+    /// Name the raised deadline in an attempt outcome the watchdog ended:
+    /// both numbers and the source replace the protocol's bare number.
+    fn name_outcome(&self, cause: &Cause, outcome: &mut AttemptOutcome, killed: bool) {
+        if !killed {
+            return;
+        }
+        if let AttemptOutcome::Indeterminate { reason } = outcome {
+            *reason = format!(
+                "{raised}; its process tree is gone, and what it did is unknown",
+                raised = self.raised(cause)
+            );
+        }
+    }
+
+    /// Name a panel's result once, seat-level or a sequence's panel step:
+    /// only a joined outcome takes the raised deadline's words, because a
+    /// refusal before the join is not the members' outcome. A host file
+    /// that could not be read or was invalid is appended to either fact, as
+    /// [`Self::name_words`] appends it to an ending built without one.
+    fn name_panelled(&self, panelled: &mut Panelled, killed: bool) {
         let Some(cause) = &self.cause else {
             return;
         };
-        match cause {
-            Cause::Raised { .. } => {
+        match (cause, panelled) {
+            (Cause::Raised { .. }, Panelled::Joined(outcome)) => {
                 if !killed {
                     return;
                 }
                 if let AttemptOutcome::Indeterminate { reason } = outcome {
-                    let raised = self.raised(cause);
-                    *reason = match words {
-                        OutcomeWords::Panel => format!("{reason}: {raised}"),
-                        OutcomeWords::Single => {
-                            format!(
-                                "{raised}; its process tree is gone, and what it did is unknown"
-                            )
-                        }
-                    };
+                    *reason = format!("{reason}: {}", self.raised(cause));
                 }
             }
-            Cause::Unreadable { .. } | Cause::Invalid { .. } => {
-                append_cause(outcome, cause);
-            }
+            (Cause::Raised { .. }, Panelled::Refused(_)) => {}
+            (
+                Cause::Unreadable { .. } | Cause::Invalid { .. },
+                Panelled::Joined(outcome) | Panelled::Refused(outcome),
+            ) => append_cause(outcome, cause),
         }
     }
 
-    /// Name the deadline in a panel's joined outcome, seat-level or a
-    /// sequence's panel step: once, keeping the member list a raised
-    /// deadline's indeterminate reason already carries. A cause that is
-    /// not a raised deadline is appended as it is to a single attempt.
-    pub(in crate::engine) fn name_joined_outcome(
-        &self,
-        outcome: &mut AttemptOutcome,
-        killed: bool,
-    ) {
-        self.name_outcome(outcome, killed, OutcomeWords::Panel);
-    }
-
-    /// The one namer a panel's joined outcome uses: the watchdog's fact is
-    /// read from `reports` now, so the outcome can be built after they are
-    /// consumed and then named once. A seat-level panel and a sequence's
-    /// panel step share it, so neither can name the deadline differently.
+    /// The one namer a panel's result uses: the watchdog's fact is read from
+    /// `reports` now, so the outcome can be built after they are consumed
+    /// and then named once. A seat-level panel and a sequence's panel step
+    /// share it, so neither can name the deadline differently, and only a
+    /// [`Panelled::Joined`] outcome carries a raised deadline's words.
     pub(in crate::engine) fn panel_namer<'a>(
         &'a self,
         reports: &[(String, AttemptReport)],
-    ) -> impl FnOnce(&mut AttemptOutcome) + 'a {
+    ) -> impl FnOnce(&mut Panelled) + 'a {
         let killed = reports.iter().any(|(_, report)| report.deadline_killed);
-        move |outcome| self.name_joined_outcome(outcome, killed)
+        move |panelled| self.name_panelled(panelled, killed)
     }
 
     /// Name an unreadable or invalid host in terminal words a sequence

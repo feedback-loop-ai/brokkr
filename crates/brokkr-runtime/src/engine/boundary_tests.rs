@@ -5,13 +5,12 @@
 //! beside every model, the seat input's word and marker (ruling 3).
 
 use super::tests::{
-    bundle, checkpointing_command, composition, driver_command, execute_work, member,
+    bundle, checkpointing_command, composition, driver_command, execute_work, member, run_sequence,
     seat_input_of, single_body, state, step_body, unlimited,
 };
 use super::*;
 use crate::agents::{Adapters, Availability, HarnessHands, Library, ResultDoor};
 use crate::bundle::{HandsState, McpIntent, SiteFacts};
-use crate::engine::dispatch::deadline::{AttemptBound, Deadline};
 use crate::engine::sequence::SequenceAt;
 use crate::realms::World;
 use brokkr_core::canonical::sha256_bytes;
@@ -3525,15 +3524,15 @@ fn a_panels_members_and_a_sequences_steps_carry_their_own_word() {
         ],
         "context": {},
     });
-    engine
-        .execute_sequence(
-            &SequenceAt::new("effect", "attempt", "work"),
-            &steps,
-            &input,
-            AttemptBound::new(&Deadline::seat(5), std::time::Duration::from_secs(5)),
-            &Selection::new(),
-        )
-        .unwrap();
+    run_sequence(
+        &mut engine,
+        &SequenceAt::new("effect", "attempt", "work"),
+        &steps,
+        &input,
+        5,
+        &Selection::new(),
+    )
+    .unwrap();
     let events = engine.store.load(&engine.run_id).unwrap();
     let marker = events
         .iter()
@@ -4109,15 +4108,15 @@ fn a_sequence_panel_cannot_continue_when_its_member_marker_cannot_be_journaled()
     let input = json!({"workdir":".", "allowed_results":["complete"], "context":{},
         "steps":[{"name":"panel", "members":{"judge":{"role_path":"role.md", "result_path":"result.json"}}}]});
     super::tests::fail_event(&dir.path().join("forge.db"), "panel-member-finished");
-    let error = engine
-        .execute_sequence(
-            &SequenceAt::new("effect", "attempt", "work"),
-            &steps,
-            &input,
-            AttemptBound::new(&Deadline::seat(5), std::time::Duration::from_secs(5)),
-            &Selection::new(),
-        )
-        .unwrap_err();
+    let error = run_sequence(
+        &mut engine,
+        &SequenceAt::new("effect", "attempt", "work"),
+        &steps,
+        &input,
+        5,
+        &Selection::new(),
+    )
+    .unwrap_err();
     assert!(matches!(error, EngineError::Store(_)), "{error}");
     assert!(!engine
         .store

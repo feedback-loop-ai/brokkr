@@ -10,7 +10,7 @@
 //! use.
 
 use super::*;
-use crate::engine::dispatch::deadline::{AttemptBound, Deadline};
+use crate::engine::tests::run_panel;
 use brokkr_protocol::adapters::capability_calls::{Format, Observation, Tool, OBSERVATION_KEY};
 
 const DEADLINE: std::time::Duration = std::time::Duration::from_secs(10);
@@ -416,16 +416,16 @@ fn a_panel_member_is_attributed_by_its_own_holding_never_its_siblings() {
     ];
     let input = super::super::tests::panel_input(&["searcher", "sibling"]);
     let aggregate = Aggregate::UnanimousPass;
-    engine
-        .execute_panel(
-            &PanelAt::new(&effect, "attempt", "work", false),
-            &members,
-            aggregate,
-            &input,
-            AttemptBound::new(&Deadline::seat(DEADLINE.as_secs()), DEADLINE),
-            &selection,
-        )
-        .unwrap();
+    run_panel(
+        &mut engine,
+        &PanelAt::new(&effect, "attempt", "work", false),
+        &members,
+        aggregate,
+        &input,
+        DEADLINE.as_secs(),
+        &selection,
+    )
+    .unwrap();
     // Members run side by side, so only each member's own rows are ordered.
     let mut live: BTreeMap<String, Vec<Value>> = BTreeMap::new();
     for row in journaled(&engine) {

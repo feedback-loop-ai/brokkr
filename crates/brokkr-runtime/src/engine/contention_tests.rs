@@ -17,9 +17,8 @@
 //! contention back rather than forging an event the fold would refuse.
 //! Both endings leave a journal that folds.
 
-use super::tests::{bundle, single_body};
+use super::tests::{bundle, run_panel, single_body};
 use super::*;
-use crate::engine::dispatch::deadline::{AttemptBound, Deadline};
 use brokkr_core::fold::Status;
 use brokkr_store::StoreError;
 
@@ -1062,16 +1061,16 @@ fn a_member_checkpointing_after_a_peers_refusal_parks_the_panel() {
     ];
     let input = super::tests::panel_input(&["refused", "clean"]);
     let deadline = std::time::Duration::from_secs(UNHURRIED_SECONDS);
-    engine
-        .execute_panel(
-            &PanelAt::new("effect", "attempt", "work", false),
-            &members,
-            Aggregate::UnanimousPass,
-            &input,
-            AttemptBound::new(&Deadline::seat(deadline.as_secs()), deadline),
-            &Selection::new(),
-        )
-        .unwrap();
+    run_panel(
+        &mut engine,
+        &PanelAt::new("effect", "attempt", "work", false),
+        &members,
+        Aggregate::UnanimousPass,
+        &input,
+        deadline.as_secs(),
+        &Selection::new(),
+    )
+    .unwrap();
 
     let events = engine.store.load(&engine.run_id).unwrap();
     let finished: Vec<(&Value, &Value)> = events

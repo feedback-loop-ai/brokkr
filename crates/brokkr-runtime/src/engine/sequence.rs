@@ -464,7 +464,7 @@ impl Engine {
             start_failures,
             refused,
             unproven,
-            outcome,
+            outcome: outcome.outcome(),
         })
     }
 

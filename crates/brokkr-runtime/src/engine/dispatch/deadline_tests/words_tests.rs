@@ -7,6 +7,8 @@
 
 use super::*;
 use crate::bundle::{Aggregate, DialectExecution, PanelMember, SequenceStep, StepBody};
+use crate::engine::carry::Panelled;
+use std::os::unix::fs::PermissionsExt;
 
 /// The one fixture candidate `script` launches, built through the parent's
 /// `link` so another lane may add a field to `Candidate` without moving
@@ -140,6 +142,36 @@ fn pin_step(engine: &mut Engine, step: &str, candidate: &Candidate) {
     );
 }
 
+/// Drive one sequence step `step`, pinned to `candidate`, under `dir`'s
+/// unreadable host, and return its `effect/failed` words.
+fn step_error(dir: &Path, step: SequenceStep, candidate: &Candidate) -> String {
+    let name = step.name.clone();
+    let mut engine = sequence_engine(dir, vec![step], 1, Some(dir.to_path_buf()));
+    pin_step(&mut engine, &name, candidate);
+    engine.drive().unwrap();
+    terminal(&engine, EventType::EffectFailed, "error")
+}
+
+/// The one `work` seat running one dialect step `validate` on `argv`,
+/// under `timeout` and the host file `host`.
+fn dialect_engine(dir: &Path, argv: Vec<String>, timeout: u64, host: Option<PathBuf>) -> Engine {
+    sequence_engine(dir, vec![dialect_step("validate", argv)], timeout, host)
+}
+
+/// Drive one dialect step under `dir`'s unreadable host, with `engine_bin`
+/// as the engine, and return the `field` of its first `event`.
+fn dialect_words(
+    dir: &Path,
+    engine_bin: crate::argv::Executable,
+    event: EventType,
+    field: &str,
+) -> String {
+    let mut engine = dialect_engine(dir, vec!["true".into()], 1, Some(dir.to_path_buf()));
+    engine.bundle.executable = engine_bin;
+    engine.drive().unwrap();
+    terminal(&engine, event, field)
+}
+
 /// A driver that accepts the attempt and then exits without a result: an
 /// indeterminate outcome the watchdog did NOT end.
 fn exited_driver(dir: &Path) -> Vec<String> {
@@ -232,6 +264,56 @@ fn panel_step_engine(
 fn assert_names_host_once(words: &str, dir: &Path) {
     let named = format!("the host configuration at {}", dir.display());
     assert_eq!(words.matches(&named).count(), 1, "{words}");
+}
+
+/// A checkpoint the seat-record fence refuses: its `turn` is a word.
+const REFUSED_CHECKPOINT: &str = r#"printf '%s,"type":"checkpoint","effect_id":"%s","attempt_id":"%s","data":{"step":"seat-turn","turn":"one"}}\n' '{"proto":"forge-driver/v1","msg_id":"c1"' "$eid" "$aid"
+"#;
+
+/// A succeeded result the refused checkpoint leaves as the journal's
+/// failure instead.
+const SUCCEEDED_RESULT: &str = r#"printf '%s,"type":"result","effect_id":"%s","attempt_id":"%s","status":"succeeded","result":{"result":"complete"}}\n' '{"proto":"forge-driver/v1","msg_id":"r"' "$eid" "$aid"
+"#;
+
+/// A driver that reports its own failure.
+const FAILED_RESULT: &str = r#"printf '%s,"type":"result","effect_id":"%s","attempt_id":"%s","status":"failed","result":null,"error":"driver failed"}\n' '{"proto":"forge-driver/v1","msg_id":"r"' "$eid" "$aid"
+"#;
+
+/// A stand-in engine binary `dir`/`name` that speaks the driver protocol
+/// and then runs `tail`: a dialect step's own process, driven end to end.
+fn fake_engine(dir: &Path, name: &str, tail: &str) -> crate::argv::Executable {
+    let path = dir.join(name);
+    std::fs::write(&path, format!("#!/bin/sh\n{DRIVER_PRELUDE}{tail}")).unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    crate::argv::Executable(Some(path))
+}
+
+/// The `SubjectMoved` refusal's words for `attempt`.
+fn subject_moved(attempt: &str) -> String {
+    crate::engine::carry::Refusal::SubjectMoved {
+        attempt: attempt.into(),
+        observations: "the reviewed tree moved".into(),
+    }
+    .to_string()
+}
+
+/// A report the watchdog did (`killed`) or did not end.
+fn report_of(outcome: AttemptOutcome, killed: bool) -> AttemptReport {
+    let mut report = crate::engine::tests::report(outcome, "");
+    report.deadline_killed = killed;
+    report
+}
+
+/// The `dsh/spark-glm` raised deadline used by the namer's unit tests.
+fn raised(seconds: u64, authored: u64) -> Deadline {
+    Deadline {
+        seconds,
+        cause: Some(Cause::Raised {
+            provider: "dsh".into(),
+            route: "spark-glm".into(),
+            authored,
+        }),
+    }
 }
 
 #[test]
@@ -335,10 +417,7 @@ fn a_panels_unreadable_host_is_named_once_in_an_indeterminate_panels_words() {
 fn a_sequences_unreadable_host_is_named_once_in_the_failing_steps_words() {
     let dir = tempfile::tempdir().unwrap();
     let (step, candidate) = single_step("step", failed_driver(dir.path()));
-    let mut engine = sequence_engine(dir.path(), vec![step], 1, Some(dir.path().to_path_buf()));
-    pin_step(&mut engine, "step", &candidate);
-    engine.drive().unwrap();
-    let error = terminal(&engine, EventType::EffectFailed, "error");
+    let error = step_error(dir.path(), step, &candidate);
     assert!(
         error.starts_with("sequence step 'step': driver failed; "),
         "{error}"
@@ -384,7 +463,7 @@ fn a_panel_that_was_not_deadline_killed_keeps_todays_words() {
     );
 
     // The joined wording names only an indeterminate outcome, even when a
-    // caller says a member was killed.
+    // member was killed.
     let deadline = Deadline {
         seconds: 2,
         cause: Some(Cause::Raised {
@@ -393,12 +472,21 @@ fn a_panel_that_was_not_deadline_killed_keeps_todays_words() {
             authored: 1,
         }),
     };
-    let mut failed = AttemptOutcome::Failed {
+    let mut killed = crate::engine::tests::report(
+        AttemptOutcome::Indeterminate {
+            reason: "killed".into(),
+        },
+        "",
+    );
+    killed.deadline_killed = true;
+    let reports = [("gone".to_string(), killed)];
+    let name = deadline.panel_namer(&reports);
+    let mut failed = Panelled::Joined(AttemptOutcome::Failed {
         error: "panel members failed — gone: driver failed".into(),
-    };
-    deadline.name_joined_outcome(&mut failed, true);
+    });
+    name(&mut failed);
     assert_eq!(
-        failed,
+        failed.outcome(),
         AttemptOutcome::Failed {
             error: "panel members failed — gone: driver failed".into()
         }
@@ -442,17 +530,14 @@ fn a_sequence_with_the_seat_limit_governing_keeps_todays_words() {
 #[test]
 fn a_dialect_steps_unreadable_host_is_named_once_in_its_words() {
     let dir = tempfile::tempdir().unwrap();
-    let mut engine = sequence_engine(
-        dir.path(),
-        vec![dialect_step("validate", vec!["true".into()])],
-        1,
-        Some(dir.path().to_path_buf()),
-    );
     // Nothing of the dialect's own argv runs: the engine's executable is
     // absent, so the step does not spawn.
-    engine.bundle.executable = crate::argv::Executable(Some(dir.path().join("no-such-engine")));
-    engine.drive().unwrap();
-    let error = terminal(&engine, EventType::EffectFailed, "error");
+    let error = dialect_words(
+        dir.path(),
+        crate::argv::Executable(Some(dir.path().join("no-such-engine"))),
+        EventType::EffectFailed,
+        "error",
+    );
     assert!(
         error.starts_with("sequence step 'validate': driver did not spawn: "),
         "{error}"
@@ -555,5 +640,200 @@ fn a_sequences_refused_early_ending_names_an_unreadable_host_once() {
     let (mut step, candidate) = refused_step(dir.path());
     step.ends_on = vec!["complete".into()];
     let error = refused_step_error(dir.path(), step, &candidate);
+    assert_names_host_once(&error, dir.path());
+}
+
+#[test]
+fn a_raised_deadline_names_nothing_on_a_panels_refused_outcome() {
+    // The one namer a seat-level panel and a sequence's panel step share.
+    // The watchdog killed a member, but the carry refusal stopped the join:
+    // the refusal's words are the whole outcome, with no deadline words.
+    let refusal = subject_moved("a");
+    let reports = [(
+        "slow".to_string(),
+        report_of(
+            AttemptOutcome::Indeterminate {
+                reason: "killed".into(),
+            },
+            true,
+        ),
+    )];
+    let mut panelled = Panelled::Refused(AttemptOutcome::Indeterminate {
+        reason: refusal.clone(),
+    });
+    raised(2, 1).panel_namer(&reports)(&mut panelled);
+    assert_eq!(
+        panelled.outcome(),
+        AttemptOutcome::Indeterminate {
+            reason: refusal.clone()
+        }
+    );
+    assert!(!refusal.contains("deadline"), "{refusal}");
+}
+
+#[test]
+fn a_panels_refused_outcome_under_an_unreadable_host_names_the_host_once() {
+    // A host that could not be read is named on a refusal too, once: the
+    // refusal before the join is not the members' outcome, but the host is
+    // still why the seat's own limit governed.
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("host.json");
+    let deadline = Deadline {
+        seconds: 1,
+        cause: Some(Cause::Unreadable {
+            path: file.clone(),
+            kind: std::io::ErrorKind::NotFound,
+        }),
+    };
+    let refusal = subject_moved("a");
+    let reports = [(
+        "slow".to_string(),
+        report_of(
+            AttemptOutcome::Indeterminate {
+                reason: "killed".into(),
+            },
+            false,
+        ),
+    )];
+    let mut panelled = Panelled::Refused(AttemptOutcome::Indeterminate {
+        reason: refusal.clone(),
+    });
+    deadline.panel_namer(&reports)(&mut panelled);
+    let Panelled::Refused(AttemptOutcome::Indeterminate { reason }) = panelled else {
+        panic!("a refusal stays a refusal");
+    };
+    assert!(reason.starts_with(&refusal), "{reason}");
+    assert_names_host_once(&reason, &file);
+}
+
+#[test]
+fn an_unreadable_host_is_named_in_the_refused_outcome_a_single_attempt_settles_on() {
+    // The checkpoint's seat record is refused, so the journal's failure is
+    // the outcome the attempt settles on; the host is named there, not on
+    // the success the driver went on to report.
+    let dir = tempfile::tempdir().unwrap();
+    let script = driver(
+        dir.path(),
+        "refused-checkpoint.sh",
+        &format!("{REFUSED_CHECKPOINT}{SUCCEEDED_RESULT}"),
+    );
+    let mut engine = attempt(dir.path(), Some(dir.path().to_path_buf()), script, 1);
+    engine.drive().unwrap();
+    let error = terminal(&engine, EventType::EffectFailed, "error");
+    assert!(error.starts_with("seat record at journal seq "), "{error}");
+    assert_names_host_once(&error, dir.path());
+}
+
+#[test]
+fn an_unreadable_host_is_named_in_the_refused_outcome_a_sequences_step_settles_on() {
+    let dir = tempfile::tempdir().unwrap();
+    let (step, candidate) = single_step(
+        "step",
+        driver(
+            dir.path(),
+            "refused-checkpoint-step.sh",
+            &format!("{REFUSED_CHECKPOINT}{SUCCEEDED_RESULT}"),
+        ),
+    );
+    let error = step_error(dir.path(), step, &candidate);
+    assert!(
+        error.starts_with("sequence step 'step': seat record at journal seq "),
+        "{error}"
+    );
+    assert_names_host_once(&error, dir.path());
+}
+
+#[test]
+fn an_unreadable_host_is_named_in_the_refused_outcome_a_dialect_step_settles_on() {
+    let dir = tempfile::tempdir().unwrap();
+    let fake = fake_engine(
+        dir.path(),
+        "refused-dialect.sh",
+        &format!("{REFUSED_CHECKPOINT}{FAILED_RESULT}"),
+    );
+    let error = dialect_words(dir.path(), fake, EventType::EffectFailed, "error");
+    assert!(
+        error.starts_with("sequence step 'validate': seat record at journal seq "),
+        "{error}"
+    );
+    assert_names_host_once(&error, dir.path());
+}
+
+#[test]
+fn a_raised_deadline_leaves_a_refused_outcome_exactly_as_the_journal_set_it() {
+    // The raised words stay on the outcome the driver received; the
+    // journal's refusal is the outcome the attempt settles on, unchanged.
+    let mut report = report_of(
+        AttemptOutcome::Indeterminate {
+            reason: "attempt exceeded its 2s deadline and was killed".into(),
+        },
+        true,
+    );
+    let refused = AttemptOutcome::Failed {
+        error: "the journal's refusal".into(),
+    };
+    report.refused = Some(refused.clone());
+    let mut run = DriverRun::Ran(report);
+    raised(2, 1).name(&mut run);
+    let DriverRun::Ran(report) = run else {
+        panic!("the attempt ran");
+    };
+    assert_eq!(
+        report.outcome,
+        AttemptOutcome::Indeterminate {
+            reason: "the seat's 2-second deadline: the shared-local floor host.json declares for \
+                     dsh/spark-glm; the seat's own limit is 1 seconds; its process tree is gone, \
+                     and what it did is unknown"
+                .into()
+        }
+    );
+    assert_eq!(report.settled_outcome(), refused);
+}
+
+#[test]
+fn a_raised_deadline_names_both_numbers_and_the_source_on_a_killed_dialect_step() {
+    // The sequence launches a candidate on the shared-local route, so its
+    // attempt is raised; the dialect step then runs to the watchdog.
+    let dir = tempfile::tempdir().unwrap();
+    let (first, candidate) = single_step(
+        "first",
+        succeeded_driver(dir.path(), r#"{"result":"complete"}"#),
+    );
+    let fake = fake_engine(dir.path(), "slow-dialect.sh", "sleep 30\n");
+    let mut engine = sequence_engine(
+        dir.path(),
+        vec![first, dialect_step("validate", vec!["true".into()])],
+        1,
+        Some(host(dir.path(), Some(2))),
+    );
+    pin_step(&mut engine, "first", &candidate);
+    engine.bundle.executable = fake;
+    engine.drive().unwrap();
+    let reason = terminal(&engine, EventType::EffectIndeterminate, "reason");
+    assert!(
+        reason.starts_with("sequence step 'validate': the seat's 2-second deadline: "),
+        "{reason}"
+    );
+    assert!(
+        reason.contains(
+            "the shared-local floor host.json declares for dsh/spark-glm; the seat's own limit is \
+             1 seconds"
+        ),
+        "{reason}"
+    );
+    assert!(reason.contains("its process tree is gone"), "{reason}");
+}
+
+#[test]
+fn a_dialect_step_that_ran_under_an_unreadable_host_names_it_once() {
+    // The step's own process accepts and fails: not a spawn failure, so the
+    // host is named in the outcome the step settles on.
+    let dir = tempfile::tempdir().unwrap();
+    let fake = fake_engine(dir.path(), "failed-dialect.sh", FAILED_RESULT);
+    let error = dialect_words(dir.path(), fake, EventType::EffectFailed, "error");
+    assert!(
+        error.starts_with("sequence step 'validate': driver failed; "),
+        "{error}"
+    );
     assert_names_host_once(&error, dir.path());
 }

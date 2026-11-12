@@ -6,8 +6,7 @@ use super::*;
 use crate::agents::{Candidate, HarnessHands};
 use crate::bundle::PanelMember;
 
-use super::tests::{engine, single_body, templated};
-use crate::engine::dispatch::deadline::{AttemptBound, Deadline};
+use super::tests::{engine, run_sequence, single_body, templated};
 use crate::engine::sequence::SequenceAt;
 use crate::envelope_builder::EnvelopeBuilder;
 
@@ -554,11 +553,12 @@ fn a_dialect_step_is_composed_and_marked_at_its_own_site() {
                        "allowed_results": ["drafted", "fail"]}]});
         let deadline = std::time::Duration::from_secs(2);
         let selection = Selection::new();
-        let ran = engine.execute_sequence(
+        let ran = run_sequence(
+            &mut engine,
             &SequenceAt::new("e", "a", "design"),
             &validate,
             &dispatch,
-            AttemptBound::new(&Deadline::seat(deadline.as_secs()), deadline),
+            deadline.as_secs(),
             &selection,
         );
         ran.unwrap();

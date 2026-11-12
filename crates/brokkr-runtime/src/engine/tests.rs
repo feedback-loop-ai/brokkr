@@ -478,15 +478,15 @@ fn dialect_change_expands_from_typed_history_and_absence_parks() {
     );
 
     let (_kept, mut absent) = engine(single_body(vec!["driver".into()]));
-    absent
-        .execute_sequence(
-            &SequenceAt::new("effect", "attempt", "work"),
-            &[step],
-            &input(json!({})),
-            AttemptBound::new(&Deadline::seat(5), std::time::Duration::from_secs(5)),
-            &Selection::new(),
-        )
-        .unwrap();
+    run_sequence(
+        &mut absent,
+        &SequenceAt::new("effect", "attempt", "work"),
+        &[step],
+        &input(json!({})),
+        5,
+        &Selection::new(),
+    )
+    .unwrap();
     let events = absent.store.load(&absent.run_id).unwrap();
     assert_absent_reason(&events);
 
@@ -508,15 +508,15 @@ fn dialect_change_expands_from_typed_history_and_absence_parks() {
             },
         },
     }];
-    verify_without_change
-        .execute_sequence(
-            &SequenceAt::new("effect", "attempt", "verify"),
-            &verify_steps,
-            &verify_input,
-            AttemptBound::new(&Deadline::seat(2), std::time::Duration::from_secs(2)),
-            &Selection::new(),
-        )
-        .unwrap();
+    run_sequence(
+        &mut verify_without_change,
+        &SequenceAt::new("effect", "attempt", "verify"),
+        &verify_steps,
+        &verify_input,
+        2,
+        &Selection::new(),
+    )
+    .unwrap();
     let events = verify_without_change
         .store
         .load(&verify_without_change.run_id)
@@ -589,29 +589,29 @@ fn dialect_change_expands_from_typed_history_and_absence_parks() {
                 }),
             });
         }
-        present
-            .execute_sequence(
-                &SequenceAt::new("effect", "attempt", "work"),
-                &steps,
-                &dispatch,
-                AttemptBound::new(&Deadline::seat(2), std::time::Duration::from_secs(2)),
-                &Selection::new(),
-            )
-            .unwrap();
+        run_sequence(
+            &mut present,
+            &SequenceAt::new("effect", "attempt", "work"),
+            &steps,
+            &dispatch,
+            2,
+            &Selection::new(),
+        )
+        .unwrap();
         assert!(present.store.load(&present.run_id).unwrap().len() > 1);
     }
 
     let (_kept, mut no_token) = engine(single_body(vec!["driver".into()]));
     let no_token_step = dialect_step("validate", SeatClass::Work, vec!["true".into()], None);
-    no_token
-        .execute_sequence(
-            &SequenceAt::new("effect", "attempt", "work"),
-            &[no_token_step],
-            &input(json!({})),
-            AttemptBound::new(&Deadline::seat(2), std::time::Duration::from_secs(2)),
-            &Selection::new(),
-        )
-        .unwrap();
+    run_sequence(
+        &mut no_token,
+        &SequenceAt::new("effect", "attempt", "work"),
+        &[no_token_step],
+        &input(json!({})),
+        2,
+        &Selection::new(),
+    )
+    .unwrap();
 
     let (_kept, mut storage_error) = engine_failing("effect/checkpointed");
     let outcome = AttemptOutcome::Succeeded {
@@ -619,15 +619,15 @@ fn dialect_change_expands_from_typed_history_and_absence_parks() {
     };
     let selection = exec_selection("validate", driver_command("effect", "attempt", outcome));
     let failing_step = dialect_step("validate", SeatClass::Work, vec!["unused".into()], None);
-    assert!(storage_error
-        .execute_sequence(
-            &SequenceAt::new("effect", "attempt", "work"),
-            &[failing_step],
-            &input(json!({})),
-            AttemptBound::new(&Deadline::seat(2), std::time::Duration::from_secs(2)),
-            &selection
-        )
-        .is_err());
+    assert!(run_sequence(
+        &mut storage_error,
+        &SequenceAt::new("effect", "attempt", "work"),
+        &[failing_step],
+        &input(json!({})),
+        2,
+        &selection
+    )
+    .is_err());
 }
 
 #[test]
@@ -668,15 +668,15 @@ fn a_sequence_fences_a_malformed_change_before_the_dialect_tool_runs() {
     };
     let selection = exec_selection("validate", driver_command("effect", "attempt", outcome));
     let steps = [first, validate];
-    runtime
-        .execute_sequence(
-            &SequenceAt::new("effect", "attempt", "work"),
-            &steps,
-            &input,
-            AttemptBound::new(&Deadline::seat(2), std::time::Duration::from_secs(2)),
-            &selection,
-        )
-        .unwrap();
+    run_sequence(
+        &mut runtime,
+        &SequenceAt::new("effect", "attempt", "work"),
+        &steps,
+        &input,
+        2,
+        &selection,
+    )
+    .unwrap();
 
     let events = runtime.store.load(&runtime.run_id).unwrap();
     assert_eq!(
@@ -697,15 +697,15 @@ fn a_sequence_fences_a_malformed_change_before_the_dialect_tool_runs() {
     );
 
     let (_kept, mut undeclared) = engine(single_body(vec!["driver".into()]));
-    undeclared
-        .execute_sequence(
-            &SequenceAt::new("effect", "attempt", "work"),
-            &steps,
-            &input,
-            AttemptBound::new(&Deadline::seat(2), std::time::Duration::from_secs(2)),
-            &selection,
-        )
-        .unwrap();
+    run_sequence(
+        &mut undeclared,
+        &SequenceAt::new("effect", "attempt", "work"),
+        &steps,
+        &input,
+        2,
+        &selection,
+    )
+    .unwrap();
     let events = undeclared.store.load(&undeclared.run_id).unwrap();
     assert_eq!(
         events.last().unwrap().event_type,
@@ -719,15 +719,15 @@ fn a_sequence_fences_a_malformed_change_before_the_dialect_tool_runs() {
 
     let (_kept, mut storage_error) = engine_failing("effect/indeterminate");
     storage_error.bundle.seats.get_mut("work").unwrap().inputs = vec!["change".into()];
-    assert!(storage_error
-        .execute_sequence(
-            &SequenceAt::new("effect", "attempt", "work"),
-            &steps,
-            &input,
-            AttemptBound::new(&Deadline::seat(2), std::time::Duration::from_secs(2)),
-            &selection
-        )
-        .is_err());
+    assert!(run_sequence(
+        &mut storage_error,
+        &SequenceAt::new("effect", "attempt", "work"),
+        &steps,
+        &input,
+        2,
+        &selection
+    )
+    .is_err());
 }
 
 #[test]
@@ -856,15 +856,15 @@ fn sequence_journal(
     let input = engine.seat_input(current, phase, &effect).unwrap();
     let deadline = std::time::Duration::from_secs(10);
     let attempt = format!("{run}-attempt");
-    engine
-        .execute_sequence(
-            &SequenceAt::new(&effect, &attempt, phase),
-            steps,
-            &input,
-            AttemptBound::new(&Deadline::seat(deadline.as_secs()), deadline),
-            selection,
-        )
-        .unwrap();
+    run_sequence(
+        &mut *engine,
+        &SequenceAt::new(&effect, &attempt, phase),
+        steps,
+        &input,
+        deadline.as_secs(),
+        selection,
+    )
+    .unwrap();
     engine.store.load(&engine.run_id).unwrap()
 }
 
@@ -889,6 +889,73 @@ pub(super) fn report(outcome: AttemptOutcome, stderr: &str) -> AttemptReport {
         accepted: true,
         deadline_killed: false,
     }
+}
+
+/// Run a test sequence body on the seat's own limit, `seconds`.
+pub(super) fn run_sequence(
+    engine: &mut Engine,
+    at: &SequenceAt<'_>,
+    steps: &[SequenceStep],
+    input: &Value,
+    seconds: u64,
+    selection: &Selection,
+) -> Result<(), EngineError> {
+    engine.execute_sequence(
+        at,
+        steps,
+        input,
+        AttemptBound::new(
+            &Deadline::seat(seconds),
+            std::time::Duration::from_secs(seconds),
+        ),
+        selection,
+    )
+}
+
+/// The `work` seat's requested-time input for the `vocabulary-effect` tests.
+fn vocabulary_input(engine: &Engine) -> Value {
+    let current = state(Some("work"), Cursor::RequestEffect);
+    engine
+        .seat_input(&current, "work", "vocabulary-effect")
+        .unwrap()
+}
+
+fn run_vocabulary(
+    engine: &mut Engine,
+    steps: &[SequenceStep],
+    input: &Value,
+) -> Result<(), EngineError> {
+    run_sequence(
+        engine,
+        &SequenceAt::new("vocabulary-effect", "vocabulary-attempt", "work"),
+        steps,
+        input,
+        10,
+        &Selection::new(),
+    )
+}
+
+/// Run a test panel body on the seat's own limit, `seconds`.
+pub(super) fn run_panel(
+    engine: &mut Engine,
+    at: &PanelAt<'_>,
+    members: &[PanelMember],
+    aggregate: Aggregate,
+    input: &Value,
+    seconds: u64,
+    selection: &Selection,
+) -> Result<(), EngineError> {
+    engine.execute_panel(
+        at,
+        members,
+        aggregate,
+        input,
+        AttemptBound::new(
+            &Deadline::seat(seconds),
+            std::time::Duration::from_secs(seconds),
+        ),
+        selection,
+    )
 }
 
 pub(super) fn wire(body: Body) -> String {
@@ -2082,15 +2149,15 @@ fn sequence_execution_covers_spawn_failure_and_indeterminate_terminal_shapes() {
         ..step("failed", vec!["missing-driver".into()])
     };
     let (_dir, mut failed) = engine(single_body(vec!["driver".into()]));
-    failed
-        .execute_sequence(
-            &SequenceAt::new("failed-effect", "failed-attempt", "work"),
-            &[failed_step],
-            &step_input(),
-            AttemptBound::new(&Deadline::seat(1), std::time::Duration::from_secs(1)),
-            &Selection::new(),
-        )
-        .unwrap();
+    run_sequence(
+        &mut failed,
+        &SequenceAt::new("failed-effect", "failed-attempt", "work"),
+        &[failed_step],
+        &step_input(),
+        1,
+        &Selection::new(),
+    )
+    .unwrap();
     assert!(failed
         .store
         .load(&failed.run_id)
@@ -2111,11 +2178,12 @@ fn sequence_execution_covers_spawn_failure_and_indeterminate_terminal_shapes() {
         )),
     };
     let (_dir, mut lost) = engine(single_body(vec!["driver".into()]));
-    lost.execute_sequence(
+    run_sequence(
+        &mut lost,
         &SequenceAt::new("lost-effect", "lost-attempt", "work"),
         &[lost_step],
         &step_input(),
-        AttemptBound::new(&Deadline::seat(2), std::time::Duration::from_secs(2)),
+        2,
         &Selection::new(),
     )
     .unwrap();
@@ -3562,15 +3630,15 @@ fn panel_and_sequence_storage_failures_propagate() {
         ..step("failed", vec!["missing-driver".into()])
     };
     let (_kept, mut failed_sequence) = engine_failing("effect/failed");
-    assert!(failed_sequence
-        .execute_sequence(
-            &SequenceAt::new("effect", "attempt", "work"),
-            &[failed_step],
-            &step_input(),
-            AttemptBound::new(&Deadline::seat(1), std::time::Duration::from_secs(1)),
-            &Selection::new()
-        )
-        .is_err());
+    assert!(run_sequence(
+        &mut failed_sequence,
+        &SequenceAt::new("effect", "attempt", "work"),
+        &[failed_step],
+        &step_input(),
+        1,
+        &Selection::new()
+    )
+    .is_err());
 
     let lost_step = uncompiled_sequence_step! {
         name: "lost".into(),
@@ -3585,15 +3653,15 @@ fn panel_and_sequence_storage_failures_propagate() {
         )),
     };
     let (_kept, mut lost_sequence) = engine_failing("effect/indeterminate");
-    assert!(lost_sequence
-        .execute_sequence(
-            &SequenceAt::new("effect", "attempt", "work"),
-            &[lost_step],
-            &step_input(),
-            AttemptBound::new(&Deadline::seat(2), std::time::Duration::from_secs(2)),
-            &Selection::new()
-        )
-        .is_err());
+    assert!(run_sequence(
+        &mut lost_sequence,
+        &SequenceAt::new("effect", "attempt", "work"),
+        &[lost_step],
+        &step_input(),
+        2,
+        &Selection::new()
+    )
+    .is_err());
 
     let ok_step = uncompiled_sequence_step! {
         name: "ok".into(),
@@ -3608,15 +3676,15 @@ fn panel_and_sequence_storage_failures_propagate() {
         )),
     };
     let (_kept, mut ok_sequence) = engine_failing("effect/succeeded");
-    assert!(ok_sequence
-        .execute_sequence(
-            &SequenceAt::new("effect", "attempt", "work"),
-            &[ok_step],
-            &step_input(),
-            AttemptBound::new(&Deadline::seat(2), std::time::Duration::from_secs(2)),
-            &Selection::new()
-        )
-        .is_err());
+    assert!(run_sequence(
+        &mut ok_sequence,
+        &SequenceAt::new("effect", "attempt", "work"),
+        &[ok_step],
+        &step_input(),
+        2,
+        &Selection::new()
+    )
+    .is_err());
 
     let checkpoint_step = uncompiled_sequence_step! {
         name: "checkpoint".into(),
@@ -3625,15 +3693,15 @@ fn panel_and_sequence_storage_failures_propagate() {
         body: step_body(two_checkpoint_command("effect", "attempt")),
     };
     let (_kept, mut checkpoint_sequence) = engine_failing("effect/checkpointed");
-    assert!(checkpoint_sequence
-        .execute_sequence(
-            &SequenceAt::new("effect", "attempt", "work"),
-            &[checkpoint_step],
-            &step_input(),
-            AttemptBound::new(&Deadline::seat(2), std::time::Duration::from_secs(2)),
-            &Selection::new()
-        )
-        .is_err());
+    assert!(run_sequence(
+        &mut checkpoint_sequence,
+        &SequenceAt::new("effect", "attempt", "work"),
+        &[checkpoint_step],
+        &step_input(),
+        2,
+        &Selection::new()
+    )
+    .is_err());
 
     let steps = [
         uncompiled_sequence_step! {
@@ -3665,15 +3733,15 @@ fn panel_and_sequence_storage_failures_propagate() {
     });
     let (dir, mut between_steps) = engine(single_body(vec!["driver".into()]));
     fail_event(&dir.path().join("forge.db"), "sequence-step-finished");
-    assert!(between_steps
-        .execute_sequence(
-            &SequenceAt::new("effect", "attempt", "work"),
-            &steps,
-            &input,
-            AttemptBound::new(&Deadline::seat(2), std::time::Duration::from_secs(2)),
-            &Selection::new()
-        )
-        .is_err());
+    assert!(run_sequence(
+        &mut between_steps,
+        &SequenceAt::new("effect", "attempt", "work"),
+        &steps,
+        &input,
+        2,
+        &Selection::new()
+    )
+    .is_err());
 
     // An early ending's result passes the same fence, and a failure the
     // fence does not own is the engine's error, not an ended attempt.
@@ -3681,11 +3749,12 @@ fn panel_and_sequence_storage_failures_propagate() {
     ending[0].ends_on = vec!["first-result".into()];
     let (dir, mut early) = engine(single_body(vec!["driver".into()]));
     fail_event(&dir.path().join("forge.db"), "ends-on");
-    match early.execute_sequence(
+    match run_sequence(
+        &mut early,
         &SequenceAt::new("effect", "attempt", "work"),
         &ending,
         &input,
-        AttemptBound::new(&Deadline::seat(2), std::time::Duration::from_secs(2)),
+        2,
         &Selection::new(),
     ) {
         Err(EngineError::Store(StoreError::Sqlite(_))) => {}
@@ -3724,15 +3793,15 @@ fn panel_and_sequence_storage_failures_propagate() {
         ],
     });
     let (_kept, mut invalid_sequence) = engine_failing("effect/failed");
-    assert!(invalid_sequence
-        .execute_sequence(
-            &SequenceAt::new("effect", "attempt", "work"),
-            &invalid_steps,
-            &invalid_input,
-            AttemptBound::new(&Deadline::seat(2), std::time::Duration::from_secs(2)),
-            &Selection::new()
-        )
-        .is_err());
+    assert!(run_sequence(
+        &mut invalid_sequence,
+        &SequenceAt::new("effect", "attempt", "work"),
+        &invalid_steps,
+        &invalid_input,
+        2,
+        &Selection::new()
+    )
+    .is_err());
 }
 
 #[test]
@@ -4518,22 +4587,8 @@ fn a_sequence_fake_driver_sees_step_results_then_the_seat_results() {
     let repo = dir.path().join("work");
     engine.world = Some(world_with_house(dir.path(), &repo, "One realm rule.\n"));
     engine.bundle.seats.get_mut("work").unwrap().results = vec!["pass".into(), "fail".into()];
-    let seq_input = engine
-        .seat_input(
-            &state(Some("work"), Cursor::RequestEffect),
-            "work",
-            "vocabulary-effect",
-        )
-        .unwrap();
-    engine
-        .execute_sequence(
-            &SequenceAt::new("vocabulary-effect", "vocabulary-attempt", "work"),
-            &steps,
-            &seq_input,
-            AttemptBound::new(&Deadline::seat(10), std::time::Duration::from_secs(10)),
-            &Selection::new(),
-        )
-        .unwrap();
+    let seq_input = vocabulary_input(&engine);
+    run_vocabulary(&mut engine, &steps, &seq_input).unwrap();
 
     let first: Value = serde_json::from_slice(&std::fs::read(first_capture).unwrap()).unwrap();
     let final_step: Value = serde_json::from_slice(&std::fs::read(final_capture).unwrap()).unwrap();
@@ -4611,22 +4666,8 @@ fn a_non_final_sequence_result_is_enforced_before_it_becomes_prior_context() {
         let (_dir, mut engine) = engine(SeatBody::Sequence {
             steps: steps.clone(),
         });
-        let input = engine
-            .seat_input(
-                &state(Some("work"), Cursor::RequestEffect),
-                "work",
-                "vocabulary-effect",
-            )
-            .unwrap();
-        engine
-            .execute_sequence(
-                &SequenceAt::new("vocabulary-effect", "vocabulary-attempt", "work"),
-                &steps,
-                &input,
-                AttemptBound::new(&Deadline::seat(10), std::time::Duration::from_secs(10)),
-                &Selection::new(),
-            )
-            .unwrap();
+        let input = vocabulary_input(&engine);
+        run_vocabulary(&mut engine, &steps, &input).unwrap();
         let events = engine.store.load(&engine.run_id).unwrap();
         let failure = events
             .iter()
@@ -4737,15 +4778,15 @@ fn compiled_design_upstream_reenters_specify_then_exhausts() {
         let input = engine
             .seat_input(&current, "design", "upstream-effect")
             .unwrap();
-        engine
-            .execute_sequence(
-                &SequenceAt::new("upstream-effect", "upstream-attempt", "design"),
-                &steps,
-                &input,
-                AttemptBound::new(&Deadline::seat(10), std::time::Duration::from_secs(10)),
-                &Selection::new(),
-            )
-            .unwrap();
+        run_sequence(
+            &mut engine,
+            &SequenceAt::new("upstream-effect", "upstream-attempt", "design"),
+            &steps,
+            &input,
+            10,
+            &Selection::new(),
+        )
+        .unwrap();
         let events = engine.store.load(&engine.run_id).unwrap();
         let result = events
             .iter()
@@ -4960,15 +5001,15 @@ fn chief_synthesis_carries_a_panel_security_hold_to_the_machine() {
         });
 
         let (_dir, mut engine) = engine(single_body(vec!["driver".into()]));
-        engine
-            .execute_sequence(
-                &SequenceAt::new("review-effect", "review-attempt", "review"),
-                &steps,
-                &seq_input,
-                AttemptBound::new(&Deadline::seat(10), std::time::Duration::from_secs(10)),
-                &Selection::new(),
-            )
-            .unwrap();
+        run_sequence(
+            &mut engine,
+            &SequenceAt::new("review-effect", "review-attempt", "review"),
+            &steps,
+            &seq_input,
+            10,
+            &Selection::new(),
+        )
+        .unwrap();
         let events = engine.store.load(&engine.run_id).unwrap();
 
         // 1. The panel's worst-member verdict is journaled as the
@@ -6022,15 +6063,15 @@ fn a_sequence_steps_refused_result_fails_the_attempt_at_that_step() {
             },
         ),
     );
-    driven
-        .execute_sequence(
-            &SequenceAt::new("effect", "attempt", "work"),
-            &[last],
-            &step_input(),
-            AttemptBound::new(&Deadline::seat(2), std::time::Duration::from_secs(2)),
-            &Selection::new(),
-        )
-        .unwrap();
+    run_sequence(
+        &mut driven,
+        &SequenceAt::new("effect", "attempt", "work"),
+        &[last],
+        &step_input(),
+        2,
+        &Selection::new(),
+    )
+    .unwrap();
     let error = failed_error(&driven);
     assert!(error.starts_with("sequence step 'last': "), "{error}");
     assert!(
@@ -6049,18 +6090,18 @@ fn a_sequence_steps_refused_result_fails_the_attempt_at_that_step() {
         },
     );
     let (_dir, mut driven) = engine(single_body(vec!["driver".into()]));
-    driven
-        .execute_sequence(
-            &SequenceAt::new("effect", "attempt", "work"),
-            &[
-                step("first", first_command.clone()),
-                step("second", vec!["missing-driver".into()]),
-            ],
-            &two_step_input(),
-            AttemptBound::new(&Deadline::seat(2), std::time::Duration::from_secs(2)),
-            &Selection::new(),
-        )
-        .unwrap();
+    run_sequence(
+        &mut driven,
+        &SequenceAt::new("effect", "attempt", "work"),
+        &[
+            step("first", first_command.clone()),
+            step("second", vec!["missing-driver".into()]),
+        ],
+        &two_step_input(),
+        2,
+        &Selection::new(),
+    )
+    .unwrap();
     let error = failed_error(&driven);
     assert!(error.starts_with("sequence step 'first': "), "{error}");
     assert!(
@@ -6085,18 +6126,18 @@ fn a_sequence_steps_refused_result_fails_the_attempt_at_that_step() {
             ),
         };
         assert!(
-            driven
-                .execute_sequence(
-                    &SequenceAt::new("effect", "attempt", "work"),
-                    &[
-                        step("first", first),
-                        step("second", vec!["missing-driver".into()]),
-                    ],
-                    &two_step_input(),
-                    AttemptBound::new(&Deadline::seat(2), std::time::Duration::from_secs(2)),
-                    &Selection::new()
-                )
-                .is_err(),
+            run_sequence(
+                &mut driven,
+                &SequenceAt::new("effect", "attempt", "work"),
+                &[
+                    step("first", first),
+                    step("second", vec!["missing-driver".into()]),
+                ],
+                &two_step_input(),
+                2,
+                &Selection::new()
+            )
+            .is_err(),
             "{needle}"
         );
     }

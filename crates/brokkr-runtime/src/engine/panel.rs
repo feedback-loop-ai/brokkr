@@ -111,7 +111,7 @@ impl Engine {
         let name = bound.deadline.panel_namer(&reports);
         let mut outcome = outcome_under(aggregate, carry, reports, &record.span, attempt_id)?;
         name(&mut outcome);
-        match outcome {
+        match outcome.outcome() {
             AttemptOutcome::Indeterminate { reason } => {
                 let mut payload = json!(Indeterminate {
                     effect_id,
