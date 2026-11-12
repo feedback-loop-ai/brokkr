@@ -35,7 +35,7 @@
 //!   back.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use brokkr_core::canonical::sha256_hex;
 use brokkr_protocol::native_controls::{
@@ -51,11 +51,13 @@ pub(crate) mod charter_data;
 mod compose;
 mod load;
 mod mcp;
+mod route;
 pub use brokkr_protocol::adapters::HandsNotice;
 pub use load::{resolve_route, valid_name, Adapters, Library, LibraryError, NAME_GRAMMAR};
 pub(crate) use mcp::Uncarried;
 pub use mcp::{McpAxis, McpError, McpHands, McpHost, McpInvocation, McpIsolation, McpMeasurement};
 pub use mcp::{McpRefusal, McpShape, McpSupport, McpUnmeasured};
+pub(crate) use route::{is_patch_pair, DeclaredRouteOverlay};
 
 /// What this machine knows about a provider. Absent entries are
 /// `Unknown`, which is the only arm compile ever sees.
@@ -762,6 +764,11 @@ pub struct Candidate {
     /// 0069), carried for the same reason: the engine decides
     /// at spawn, per selected link, whether a boxed seat hears it.
     pub hands_notice: Option<HandsNotice>,
+    /// The route overlay the candidate's adapter route declares, carried
+    /// to the engine for the same reason `resume` is: the private start
+    /// context is built where no adapter is held. `None` for a route that
+    /// declares none, and for every inline site.
+    pub(crate) route_overlay: Option<DeclaredRouteOverlay>,
     /// The entry's composition before flattening (design D5.7): who
     /// supplied each token of `argv`, and the local and hands halves of the
     /// expected state, carried from the resolver to dispatch. `argv` is its
@@ -854,6 +861,20 @@ pub enum ResolveError {
         field: String,
         cause: String,
     },
+    /// A seat composed with two overlays at once (#1052 ask 2): the route
+    /// overlay its adapter route declares and an authored `--patch`. No
+    /// precedence is invented; both are named and the seat refuses.
+    #[error(
+        "agent '{agent}' composes two route overlays: the adapter's route declares \
+         '{declared}' and the composition also authors '{authored}'; one seat carries \
+         one overlay, so the compile refuses rather than choosing a winner \
+         (decision 0056's 2026-09-14 note)"
+    )]
+    RouteOverlayConflict {
+        agent: String,
+        declared: String,
+        authored: String,
+    },
 }
 
 /// One chain entry as the resolver sees it: the shared derivation behind
@@ -876,6 +897,9 @@ pub struct ChainEntry {
     pub hands_fragment: Vec<String>,
     /// The adapter's `hands.harness`, default when the entry is unmapped.
     pub harness: HarnessHands,
+    /// The route overlay the entry's adapter route declares, `None` where
+    /// it declares none or no adapter maps the model.
+    pub(crate) route_overlay: Option<DeclaredRouteOverlay>,
     pub gap: Option<ResolveError>,
     pub notices: Vec<Notice>,
     /// The composition before flattening (design D5.7), of which `argv`,
@@ -1087,62 +1111,6 @@ fn capability_gap(
     }
 }
 
-/// Compose one candidate, or refuse. A lookup and a join: there is no
-/// template language, so there is no substitution function whose branches
-/// could drift from the data. Each contribution is a segment labelled by
-/// who supplied it at the point it is made. Its steps, the effort pin and
-/// the tools' application, are in `agents/compose.rs`.
-fn compose(
-    agent: &Agent,
-    adapter: &Adapter,
-    model: &str,
-    concrete: &str,
-    boundary: brokkr_core::realms::Boundary,
-) -> Result<Composition, ResolveError> {
-    let intent = Intent::of(agent);
-    let mut segments = vec![driver_template(adapter)];
-    // The serving inputs are filled as each contribution is chosen
-    // (rebuild unit 14a1), never read back from the segments.
-    let mut serving = ServingInputs {
-        dialect: DeclaredDialect {
-            permissions: declared_permissions(adapter),
-            ..DeclaredDialect::default()
-        },
-        pins: Vec::new(),
-        spec: agent.hands.clone(),
-    };
-    // A provider that serves the model but cannot be TOLD which model is
-    // the silent-substitution case in its purest form: it would run its
-    // own default and the run would claim the pinned one.
-    let flag = adapter.model_flag.as_ref().ok_or_else(|| {
-        capability_gap(
-            agent,
-            adapter,
-            model,
-            "the provider declares model_flag unsupported, so the chosen model \
-             could not be pinned and the provider's own default would run"
-                .to_string(),
-        )
-    })?;
-    serving.pins = vec![flag.clone(), concrete.to_string()];
-    segments.push(Segment::new(Origin::Template, &serving.pins));
-
-    let effort = compose::pin_effort(agent, adapter, model, concrete, &mut segments, &mut serving)?;
-    let application =
-        compose::tool_application(agent, adapter, model, boundary, &mut segments, &mut serving)?;
-
-    // An agent names no MCP server (decision 0065 ruling 3).
-    Ok(Composition {
-        segments,
-        effort,
-        mcp: crate::bundle::McpIntent::composed(intent.hands, boundary),
-        intent,
-        application,
-        template: declared_template(&adapter.driver),
-        serving: Box::new(serving),
-    })
-}
-
 /// The adapter's declared driver as the `template` segment that opens every
 /// command it composes (design D5.7). Its dispatch verb supplies no driver
 /// extra; what follows the verb — Claude's `--permission-mode acceptEdits`
@@ -1290,63 +1258,6 @@ fn native_alias(adapter: &Adapter, tool: &str, name: &str) -> Result<(), String>
     }
 }
 
-fn entry_for(
-    agent: &Agent,
-    adapters: &Adapters,
-    availability: &Availability,
-    model: &str,
-    boundary: brokkr_core::realms::Boundary,
-) -> ChainEntry {
-    let Some((adapter, concrete)) = adapters.serving(model) else {
-        return ChainEntry {
-            model: model.to_string(),
-            effort: None,
-            provider: None,
-            presence: Presence::Unknown,
-            argv: Vec::new(),
-            hands_fragment: Vec::new(),
-            harness: HarnessHands::default(),
-            gap: None,
-            notices: Vec::new(),
-            lowering: Lowering::Unavailable,
-        };
-    };
-    let presence = availability.presence(&adapter.provider);
-    // The flat fields are projections of the composition, never a second
-    // derivation beside it; a refused entry keeps only its typed intent.
-    let (argv, effort, hands_fragment, gap, lowering) =
-        match compose(agent, adapter, model, concrete, boundary) {
-            Ok(composition) => (
-                composition.argv(),
-                composition.effort.clone(),
-                composition.hands_fragment(),
-                None,
-                Lowering::Composed(composition),
-            ),
-            Err(gap) => (
-                Vec::new(),
-                None,
-                Vec::new(),
-                Some(gap),
-                Lowering::Refused(Intent::of(agent)),
-            ),
-        };
-    ChainEntry {
-        model: model.to_string(),
-        effort,
-        provider: Some(adapter.provider.clone()),
-        presence,
-        argv,
-        hands_fragment,
-        harness: adapter.harness.clone(),
-        gap,
-        // Filled by the compiler, which knows the realm: a capability the
-        // office wants and the realm does not grant (decision 0065).
-        notices: Vec::new(),
-        lowering,
-    }
-}
-
 /// Walk an agent's whole chain without refusing anything but an unknown
 /// name: the derivation `brokkr agents show` and `brokkr doctor` print.
 pub fn report(
@@ -1397,6 +1308,32 @@ pub(crate) fn report_narrowed(
     boundary: brokkr_core::realms::Boundary,
     requested: &LocalTools,
 ) -> Result<Report, ResolveError> {
+    report_narrowed_in(
+        library,
+        adapters,
+        availability,
+        name,
+        boundary,
+        requested,
+        Path::new(""),
+    )
+}
+
+/// [`report_narrowed`] with the run's working directory: a route whose
+/// adapter declares an overlay composes the `--patch` value relative to
+/// it. Compilation passes the canonical run directory; a caller with no
+/// run passes the empty path, under which the declaration keeps its
+/// adapter-relative spelling and the driver refuses the seat rather than
+/// binding something outside its tree.
+pub(crate) fn report_narrowed_in(
+    library: &Library,
+    adapters: &Adapters,
+    availability: &Availability,
+    name: &str,
+    boundary: brokkr_core::realms::Boundary,
+    requested: &LocalTools,
+    workdir: &Path,
+) -> Result<Report, ResolveError> {
     let mut agent = library
         .agent(name)
         .ok_or_else(|| ResolveError::UnknownAgent {
@@ -1418,7 +1355,7 @@ pub(crate) fn report_narrowed(
     let entries: Vec<ChainEntry> = agent
         .models
         .iter()
-        .map(|model| entry_for(&agent, adapters, availability, model, boundary))
+        .map(|model| compose::entry_for(&agent, adapters, availability, model, boundary, workdir))
         .collect();
     let chosen = entries
         .iter()
@@ -1497,6 +1434,9 @@ pub(crate) fn resolve_report(
                 // The same provider's discovery declaration, read from
                 // the same adapter the consulted digest below pins.
                 hands_notice: adapter.and_then(|adapter| adapter.hands_notice.clone()),
+                // The route overlay the entry's own adapter route
+                // declares, carried beside the composition it produced.
+                route_overlay: entry.route_overlay.clone(),
                 // Every entry here composed: a gap or an unmapped model was
                 // refused above.
                 lowering: entry.lowering.clone(),

@@ -148,7 +148,7 @@ fn plan(
 ) -> Result<(), CompileError> {
     let (engine, charters) = (Executable::current(), Charters::default());
     let at = (authority, resolved, &engine, &charters);
-    let mut seated = seat(at, roots, (dialect, law), table)?;
+    let mut seated = seat(at, roots, (dialect, law), table, Path::new(""))?;
     let refusals = &mut Refusals::Survey(&mut *survey);
     let passed = (seated.settle(&table.machine, roots.1, refusals))
         .and_then(|()| seated.wrap(wrapped_verify(table.uses_dialect, dialect), refusals));
@@ -167,6 +167,7 @@ pub(super) fn seat<'s>(
     roots: (&'s Path, &'s Path),
     (dialect, law): (Option<&'s Dialect>, RealmLaw),
     table: &phases::Table,
+    workdir: &'s Path,
 ) -> Result<Seated<'s, 's>, CompileError> {
     let RealmLaw {
         boundary,
@@ -187,7 +188,8 @@ pub(super) fn seat<'s>(
     // map; a wrapper moves entrants.
     let (roots, case_origin) = (&resolved.roots, &resolved.case_origin);
     let at = (boundary, engine);
-    let mut compiler = SiteCompiler::new(agents, at, dialect, charters, roots, case_origin);
+    let mut compiler =
+        SiteCompiler::new(agents, at, dialect, charters, roots, case_origin, workdir);
     let machine = &table.machine;
     let (seats, verify_agent_hands) =
         compile_seats(&mut compiler, machine, resolved, wrapped_verify)?;

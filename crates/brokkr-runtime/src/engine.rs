@@ -75,6 +75,7 @@ mod worktree;
 use worktree::git_dirty;
 pub use worktree::git_head;
 mod replay;
+mod route_overlay;
 pub(crate) mod sequence;
 mod start;
 use operator::operator_stop_reason;
@@ -1204,10 +1205,14 @@ impl Engine {
             // layer, computed where the private context is built and
             // independent of the resume gate. A value that does not bind
             // yields no member; it never fails the start.
-            let route_overlay = route_overlay_binding(
+            let declared = selection
+                .get(&entry.site)
+                .and_then(|candidate| candidate.route_overlay.as_ref());
+            let route_overlay = route_overlay::route_overlay_binding(
                 &self.bundle,
                 argv_for(selection, &entry.site, &entry.command),
                 &workdir,
+                declared,
             );
             plans.insert(
                 entry.site,
@@ -1867,87 +1872,6 @@ fn argv_for<'a>(selection: &'a Selection, site: &Site, inline: &'a [String]) -> 
     }
 }
 
-/// The seat's single `--patch` value, or `None`. One exact `--patch` with
-/// a non-empty, non-flag value is the only shape; a second `--patch`, a
-/// bare `--patch`, or any other `--patch…` spelling (an `=`-joined value
-/// or a longer token) is ambiguous and yields no value. The engine's
-/// outcome for every non-binding value is withholding the binding, never
-/// failing the start (design D6 mechanism 1; AS3).
-fn single_patch_value(command: &[String]) -> Option<&str> {
-    let mut found: Option<&str> = None;
-    let mut index = 0;
-    while index < command.len() {
-        let part = command[index].as_str();
-        if part == "--patch" {
-            if found.is_some() {
-                return None;
-            }
-            let value = command.get(index + 1)?;
-            if value.is_empty() || value.starts_with("--") {
-                return None;
-            }
-            found = Some(value);
-            index += 2;
-            continue;
-        }
-        if part.starts_with("--patch") {
-            return None;
-        }
-        index += 1;
-    }
-    found
-}
-
-/// Bind one seat's single `--patch` value to the compiled leaf layer
-/// (design D6 mechanism 1; AS3). The value resolves relative to the
-/// run's working directory, without an absolute path or `..` component
-/// or symlink escape, to a regular file inside the compiled bundle's own
-/// layer directory that is a `files` member of the compiled manifest;
-/// the binding carries the argv value and that member's recorded digest.
-/// A value that does not bind yields no member — an ancestor layer's
-/// file, a same-shaped file outside the layer, a working-directory
-/// shadow and the bundle-relative `./` expansion (already absolute) all
-/// take this same outcome, and the adapter's pre-work failure to start is
-/// the single refusal.
-fn route_overlay_binding(
-    bundle: &Bundle,
-    command: &[String],
-    workdir: &Path,
-) -> Option<resume::RouteOverlay> {
-    let value = single_patch_value(command)?;
-    let relative = Path::new(value);
-    if relative.is_absolute() {
-        return None;
-    }
-    if relative
-        .components()
-        .any(|component| matches!(component, std::path::Component::ParentDir))
-    {
-        return None;
-    }
-    // Canonicalize both sides: an in-layer symlink whose target resolves
-    // outside the layer is not a binding, and a working-directory shadow
-    // canonicalizes outside the compiled layer too.
-    let resolved = std::fs::canonicalize(workdir.join(relative)).ok()?;
-    let layer = std::fs::canonicalize(&bundle.dir).ok()?;
-    if !resolved.is_file() {
-        return None;
-    }
-    let inside = resolved.strip_prefix(&layer).ok()?;
-    // Manifest keys are component-joined with `/` on every platform
-    // (bundle.rs's `walk_files`), so spell the looked-up key the same way.
-    let key = inside
-        .components()
-        .map(|component| component.as_os_str().to_str())
-        .collect::<Option<Vec<_>>>()?
-        .join("/");
-    let digest = bundle.manifest.get("files")?.get(key.as_str())?.as_str()?;
-    Some(resume::RouteOverlay {
-        value: value.to_string(),
-        digest: digest.to_string(),
-    })
-}
-
 /// The STRUCTURAL fail-to-start predicate (decision 0016): `Failed`, and
 /// no `Accepted` ever received, and no checkpoint emitted. No stderr
 /// sniffing and no "model not found" regex — the engine pattern-matching
@@ -2250,6 +2174,7 @@ impl SiteSpawn {
                             .iter()
                             .filter(|segment| {
                                 segment.origin == Origin::Template
+                                    && !crate::agents::is_patch_pair(&segment.argv)
                                     && pin_fault(&driver.argv, &segment.argv).is_some()
                             })
                             .flat_map(|segment| segment.argv.iter()),

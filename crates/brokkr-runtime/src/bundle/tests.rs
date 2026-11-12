@@ -759,8 +759,10 @@ fn panel_and_sequence_parsers_refuse_every_ambiguous_shape() {
     // canonical root (unit 27b; macOS's temporary root is a link).
     let dir = fixture.root.as_path();
     let results = vec!["pass".to_string(), "fail".to_string()];
+    let wd = Path::new("");
     let (charters, origin, ns) = (Charters::default(), BTreeMap::new(), Boundary::Namespace);
-    let compiler = || SiteCompiler::new(unopened(), (ns, &ENGINE), None, &charters, &[], &origin);
+    let compiler =
+        || SiteCompiler::new(unopened(), (ns, &ENGINE), None, &charters, &[], &origin, wd);
     let at = SeatScope {
         dir,
         results: &results,
@@ -1957,7 +1959,7 @@ fn a_compile_expands_brokkr_to_the_executable_it_is_handed() {
         let none = crate::capabilities::CapabilityContext::no_grants(unmapped, root);
         let law = Boundary::Namespace;
         let leaf = (&*fixture.root, &crate::places::Shelves::default());
-        Bundle::compile_as(engine, leaf, roots, None, None, law, &none).unwrap()
+        Bundle::compile_as(engine, leaf, roots, (None, None, law.into()), &none, leaf.0).unwrap()
     };
     let injected = Executable(Some(PathBuf::from("/opt/brokkr-test")));
     let bundles = [&entered, &compiled(&injected), &compiled(&Executable(None))];

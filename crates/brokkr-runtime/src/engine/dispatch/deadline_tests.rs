@@ -30,6 +30,7 @@ fn link(provider: &str, model: &str) -> Candidate {
         resume: Default::default(),
         lowering: Lowering::Unavailable,
         hands_notice: None,
+        route_overlay: None,
     }
 }
 
@@ -606,6 +607,7 @@ fn attempt(dir: &Path, host: Option<PathBuf>, script: Vec<String>, timeout: u64)
         resume: Default::default(),
         lowering: Lowering::Unavailable,
         hands_notice: None,
+        route_overlay: None,
     });
     let body = SeatBody::Invocation(Invocation::Single {
         role_path: PathBuf::from("role.md"),

@@ -124,6 +124,7 @@ fn a_selected_sequence_holds_no_dialect_step() {
             &charters,
             &[],
             &case_origin,
+            Path::new(""),
         );
         let at = SeatScope {
             dir: dir.path(),

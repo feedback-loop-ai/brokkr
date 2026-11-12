@@ -264,6 +264,7 @@ fn candidate(provider: &str, model: &str, script: Vec<String>) -> Candidate {
         resume: Default::default(),
         lowering: Lowering::Unavailable,
         hands_notice: None,
+        route_overlay: None,
     })
 }
 

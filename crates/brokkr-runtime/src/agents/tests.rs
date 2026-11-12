@@ -12,14 +12,14 @@ use std::path::Path;
 /// and an expectation glued from the lexical path passes on Linux and
 /// fails there. With the alias the same habit fails on Linux too. Every
 /// write and every expected path is derived from `root`.
-struct Tree {
+pub(super) struct Tree {
     /// Held for its drop: the directory lives as long as the fixture.
     _guard: tempfile::TempDir,
-    root: PathBuf,
+    pub(super) root: PathBuf,
 }
 
 impl Tree {
-    fn new() -> Tree {
+    pub(super) fn new() -> Tree {
         let guard = tempfile::tempdir().unwrap();
         std::fs::create_dir(guard.path().join("real")).unwrap();
         let alias = guard.path().join("alias");
@@ -42,7 +42,7 @@ impl Tree {
         self.root.join("adapters")
     }
 
-    fn write(&self, relative: &str, body: &Value) {
+    pub(super) fn write(&self, relative: &str, body: &Value) {
         std::fs::write(
             self.root.join(relative),
             serde_json::to_vec_pretty(body).unwrap(),
@@ -50,15 +50,14 @@ impl Tree {
         .unwrap();
     }
 
-    fn raw(&self, relative: &str, body: &str) {
+    pub(super) fn raw(&self, relative: &str, body: &str) {
         std::fs::write(self.root.join(relative), body).unwrap();
     }
-
-    fn library(&self) -> Library {
+    pub(super) fn library(&self) -> Library {
         Library::load(&self.library_root()).unwrap()
     }
 
-    fn adapters(&self) -> Adapters {
+    pub(super) fn adapters(&self) -> Adapters {
         Adapters::load(&self.adapters_root()).unwrap()
     }
 
@@ -76,14 +75,14 @@ impl Tree {
         }
     }
 
-    fn adapters_error(&self) -> String {
+    pub(super) fn adapters_error(&self) -> String {
         Adapters::load(&self.adapters_root())
             .unwrap_err()
             .to_string()
     }
 }
 
-fn agent_body() -> Value {
+pub(super) fn agent_body() -> Value {
     json!({
         "description": "a test agent",
         "charter": "charters/c.md",
@@ -94,7 +93,7 @@ fn agent_body() -> Value {
     })
 }
 
-fn claude_body() -> Value {
+pub(super) fn claude_body() -> Value {
     json!({
         "provider": "claude",
         "binary": "claude",
@@ -2590,7 +2589,7 @@ fn harness_work_support_cannot_rescue_a_boxed_seat_without_a_workspace_fragment(
         "the control retains the harness work fragment"
     );
 
-    let refusal = compose(
+    let refusal = compose::compose_test(
         agent,
         &adapter,
         "opus",
@@ -2608,8 +2607,9 @@ fn harness_work_support_cannot_rescue_a_boxed_seat_without_a_workspace_fragment(
     );
     // Unboxed, the same adapter composes and carries neither fragment nor
     // tool list: the workspace requirement is the boxed path's alone.
-    let composition = compose(agent, &adapter, "opus", "claude-opus-5", Boundary::Harness)
-        .expect("unboxed composition asks for no workspace fragment");
+    let composition =
+        compose::compose_test(agent, &adapter, "opus", "claude-opus-5", Boundary::Harness)
+            .expect("unboxed composition asks for no workspace fragment");
     let (argv, effort, hands_fragment) = (
         composition.argv(),
         composition.effort.clone(),

@@ -246,8 +246,13 @@ fn an_adapter_step_failing_a_field_and_its_file_reports_the_earlier() {
     let invocation = super::adapter::invocation("claude", native.as_object().unwrap(), &twice, "w");
     let effort = json!({"effort_flag": 7});
     let absent = dir.path().join("absent.json");
-    let settled =
-        super::adapter::settled(effort.as_object().unwrap(), &BTreeMap::new(), &absent, "w");
+    let settled = super::adapter::settled(
+        effort.as_object().unwrap(),
+        &BTreeMap::new(),
+        &absent,
+        "w",
+        &[],
+    );
     assert_eq!(
         [
             invocation.err().map(|e| e.to_string()),

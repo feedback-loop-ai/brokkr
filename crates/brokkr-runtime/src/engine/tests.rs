@@ -4843,6 +4843,7 @@ fn exec_selection(step: &str, argv: Vec<String>) -> Selection {
             harness: HarnessHands::default(),
             resume: Default::default(),
             hands_notice: None,
+            route_overlay: None,
             argv,
         }),
     );
@@ -6420,38 +6421,4 @@ fn a_supersede_racing_a_growing_journal_refuses_rather_than_writing() {
         8,
         "the peer's event is there and the supersede is not",
     );
-}
-
-#[test]
-fn a_single_patch_value_admits_exactly_one_well_formed_pair() {
-    let one = |parts: &[&str]| {
-        let owned: Vec<String> = parts.iter().map(|part| part.to_string()).collect();
-        single_patch_value(&owned).map(str::to_string)
-    };
-    assert_eq!(one(&["--patch", "route.yml"]).as_deref(), Some("route.yml"));
-    assert_eq!(
-        one(&["-x", "value", "--patch", "route.yml", "tail"]).as_deref(),
-        Some("route.yml")
-    );
-    // A second --patch, an empty value, a flag value, a joined spelling and
-    // a bare --patch all yield no value.
-    assert_eq!(one(&["--patch", "a", "--patch", "b"]), None);
-    assert_eq!(one(&["--patch", ""]), None);
-    assert_eq!(one(&["--patch", "--other"]), None);
-    assert_eq!(one(&["--patch=a"]), None);
-    assert_eq!(one(&["--patch"]), None);
-}
-
-#[test]
-fn a_route_overlay_binding_refuses_a_resolved_path_that_is_not_a_regular_file() {
-    // `resolved` canonicalizes inside the layer but is a directory: the
-    // binding is absent, and the adapter's pre-work failure to start is
-    // the one refusal (design D6 mechanism 1). The manifest names the
-    // path, so only the regular-file check keeps this from binding.
-    let dir = tempfile::tempdir().unwrap();
-    std::fs::create_dir(dir.path().join("as-directory")).unwrap();
-    let mut bundle = bundle(dir.path(), single_body(vec!["missing-driver".into()]));
-    bundle.manifest["files"]["as-directory"] = json!("a".repeat(64));
-    let command = vec!["--patch".to_string(), "as-directory".to_string()];
-    assert!(route_overlay_binding(&bundle, &command, dir.path()).is_none());
 }

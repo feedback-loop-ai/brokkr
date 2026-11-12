@@ -1,14 +1,132 @@
-//! The steps of [`compose`](super::compose) (#288, slice M): the effort
-//! half of a candidate's hire and the application of the agent's tools,
-//! each refusing as it did inline. `compose` reads as the model pin, then
-//! these two, then the composition.
+//! Composition of one candidate (#288, slice M): the adapter's driver
+//! template, the model pin, the route's declared overlay, the effort half
+//! of the hire and the application of the agent's tools, each refusing as
+//! it did inline.
+
+use std::path::Path;
 
 use brokkr_protocol::native_controls::{Application, Origin, Segment};
 
 use super::{
-    capability_gap, lower_allow, native_alias, route_is_effortless, Adapter, Agent,
-    BoundaryFragments, ResolveError, ServingInputs,
+    capability_gap, declared_permissions, declared_template, driver_template, lower_allow,
+    native_alias, route_is_effortless, Adapter, Adapters, Agent, Availability, BoundaryFragments,
+    ChainEntry, Composition, DeclaredDialect, DeclaredRouteOverlay, HarnessHands, Intent, Lowering,
+    Presence, ResolveError, ServingInputs,
 };
+
+/// Compose one candidate, or refuse. A lookup and a join: there is no
+/// template language, so there is no substitution function whose branches
+/// could drift from the data. Each contribution is a segment labelled by
+/// who supplied it at the point it is made. `workdir` is the run's
+/// working directory, used only to spell a declared route overlay's
+/// `--patch` value relative to it.
+pub(super) fn compose(
+    agent: &Agent,
+    adapter: &Adapter,
+    model: &str,
+    concrete: &str,
+    boundary: brokkr_core::realms::Boundary,
+    declared: Option<&DeclaredRouteOverlay>,
+    workdir: &Path,
+) -> Result<Composition, ResolveError> {
+    let intent = Intent::of(agent);
+    let mut segments = vec![driver_template(adapter)];
+    // The serving inputs are filled as each contribution is chosen
+    // (rebuild unit 14a1), never read back from the segments.
+    let mut serving = ServingInputs {
+        dialect: DeclaredDialect {
+            permissions: declared_permissions(adapter),
+            ..DeclaredDialect::default()
+        },
+        pins: Vec::new(),
+        spec: agent.hands.clone(),
+    };
+    // A provider that serves the model but cannot be TOLD which model is
+    // the silent-substitution case in its purest form: it would run its
+    // own default and the run would claim the pinned one.
+    let flag = adapter.model_flag.as_ref().ok_or_else(|| {
+        capability_gap(
+            agent,
+            adapter,
+            model,
+            "the provider declares model_flag unsupported, so the chosen model \
+             could not be pinned and the provider's own default would run"
+                .to_string(),
+        )
+    })?;
+    serving.pins = vec![flag.clone(), concrete.to_string()];
+    segments.push(Segment::new(Origin::Template, &serving.pins));
+
+    // Decision 0056's 2026-09-14 note as amended by #1052 ask 2: the
+    // route overlay its adapter's route declares is composed here, once,
+    // after the model pin. A composition that also authored a `--patch`
+    // carries two overlays, which is refused rather than ordered. The
+    // authored check runs again behind the effort pin and the tools,
+    // because a provider's effort flag or a tool fragment can spell one
+    // too; the declared segment itself is excluded from that second read.
+    let declared_at = if let Some(declared) = declared {
+        if let Some(authored) = authored_patch(&segments) {
+            return Err(conflict(agent, declared, authored));
+        }
+        let value = declared.patch_value(workdir);
+        segments.push(Segment::new(
+            Origin::Template,
+            &["--patch".to_string(), value],
+        ));
+        Some(segments.len() - 1)
+    } else {
+        None
+    };
+
+    let effort = pin_effort(agent, adapter, model, concrete, &mut segments, &mut serving)?;
+    let application =
+        tool_application(agent, adapter, model, boundary, &mut segments, &mut serving)?;
+
+    if let (Some(at), Some(declared)) = (declared_at, declared) {
+        if let Some(authored) = authored_patch(&segments[at + 1..]) {
+            return Err(conflict(agent, declared, authored));
+        }
+    }
+
+    // An agent names no MCP server (decision 0065 ruling 3).
+    Ok(Composition {
+        segments,
+        effort,
+        mcp: crate::bundle::McpIntent::composed(intent.hands, boundary),
+        intent,
+        application,
+        template: declared_template(&adapter.driver),
+        serving: Box::new(serving),
+    })
+}
+
+/// The refusal a seat carrying two overlays earns, naming both.
+fn conflict(agent: &Agent, declared: &DeclaredRouteOverlay, authored: String) -> ResolveError {
+    ResolveError::RouteOverlayConflict {
+        agent: agent.name.clone(),
+        declared: declared.file.clone(),
+        authored,
+    }
+}
+
+/// An authored `--patch` in the composition so far, in any spelling the
+/// engine reads as one, named for the refusal that two overlays earn. The
+/// value travels with the flag when it stands in the next token, so the
+/// refusal names both overlays and not one flag twice.
+fn authored_patch(segments: &[Segment]) -> Option<String> {
+    for segment in segments {
+        for (at, token) in segment.argv.iter().enumerate() {
+            if !token.starts_with("--patch") {
+                continue;
+            }
+            if let Some(value) = segment.argv.get(at + 1).filter(|_| token == "--patch") {
+                return Some(format!("{token} {value}"));
+            }
+            return Some(token.clone());
+        }
+    }
+    None
+}
 
 /// The other half of the hire (decision 0035 ruling 5). A model pin
 /// without an effort pin is half a hire, and the half it withholds is
@@ -147,3 +265,96 @@ pub(super) fn tool_application(
     };
     Ok(application)
 }
+
+pub(super) fn entry_for(
+    agent: &Agent,
+    adapters: &Adapters,
+    availability: &Availability,
+    model: &str,
+    boundary: brokkr_core::realms::Boundary,
+    workdir: &Path,
+) -> ChainEntry {
+    let Some((adapter, concrete)) = adapters.serving(model) else {
+        return ChainEntry {
+            model: model.to_string(),
+            effort: None,
+            provider: None,
+            presence: Presence::Unknown,
+            argv: Vec::new(),
+            hands_fragment: Vec::new(),
+            harness: HarnessHands::default(),
+            route_overlay: None,
+            gap: None,
+            notices: Vec::new(),
+            lowering: Lowering::Unavailable,
+        };
+    };
+    let presence = availability.presence(&adapter.provider);
+    let route_overlay = adapters.route_overlay(&adapter.provider, concrete);
+    // The flat fields are projections of the composition, never a second
+    // derivation beside it; a refused entry keeps only its typed intent.
+    let (argv, effort, hands_fragment, gap, lowering) = match compose(
+        agent,
+        adapter,
+        model,
+        concrete,
+        boundary,
+        route_overlay,
+        workdir,
+    ) {
+        Ok(composition) => (
+            composition.argv(),
+            composition.effort.clone(),
+            composition.hands_fragment(),
+            None,
+            Lowering::Composed(composition),
+        ),
+        Err(gap) => (
+            Vec::new(),
+            None,
+            Vec::new(),
+            Some(gap),
+            Lowering::Refused(Intent::of(agent)),
+        ),
+    };
+    ChainEntry {
+        model: model.to_string(),
+        effort,
+        provider: Some(adapter.provider.clone()),
+        presence,
+        argv,
+        hands_fragment,
+        harness: adapter.harness.clone(),
+        route_overlay: route_overlay.cloned(),
+        gap,
+        // Filled by the compiler, which knows the realm: a capability the
+        // office wants and the realm does not grant (decision 0065).
+        notices: Vec::new(),
+        lowering,
+    }
+}
+
+/// The composition of a test that declares no route overlay, so a test
+/// asserting an ordinary composition keeps its old call shape rather than
+/// spelling the overlay argument it is not about.
+#[cfg(test)]
+pub(super) fn compose_test(
+    agent: &Agent,
+    adapter: &Adapter,
+    model: &str,
+    concrete: &str,
+    boundary: brokkr_core::realms::Boundary,
+) -> Result<Composition, ResolveError> {
+    compose(
+        agent,
+        adapter,
+        model,
+        concrete,
+        boundary,
+        None,
+        Path::new(""),
+    )
+}
+
+#[cfg(test)]
+mod tests;

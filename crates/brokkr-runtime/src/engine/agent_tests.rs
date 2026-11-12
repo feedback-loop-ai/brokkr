@@ -28,6 +28,7 @@ pub(super) fn candidate(agent: &str, model: &str) -> Candidate {
         resume: Default::default(),
         lowering: Lowering::Unavailable,
         hands_notice: None,
+        route_overlay: None,
     })
 }
 
@@ -407,6 +408,7 @@ fn a_pre_session_refusal_advances_the_chain_and_keeps_its_reason() {
             harness: HarnessHands::default(),
             resume: Default::default(),
             hands_notice: None,
+            route_overlay: None,
             argv: vec!["driver".into(), "--model".into(), "fable".into()],
             lowering: Lowering::Unavailable,
         }),

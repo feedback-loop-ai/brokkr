@@ -272,6 +272,53 @@ declares. A route no row names is `uncontracted` by silence.
 | `dsh` | `spark` | `local` | 2026-09-03 |
 | `dsh` | `spark-glm` | `local` | 2026-09-16 |
 
+### A route's overlay declaration
+
+An adapter may declare a route's overlay once, on the route itself, beside
+its egress class (decision
+[0056](../decisions/0056-same-instance-session-resumption.md)'s
+2026-09-14 note as amended; issue #1052 ask 2). The string form every
+adapter already writes stays valid and unchanged; the object form adds the
+overlay:
+
+```json
+{
+  "routes": {
+    "spark-glm": {
+      "egress": "local",
+      "overlay": {
+        "file": "overlays/spark-glm.yml",
+        "sha256": "<64 lowercase hexadecimal characters>"
+      }
+    }
+  }
+}
+```
+
+`file` is relative to the adapter file's own directory, may hold no `..`
+component, and must resolve — through symlinks — inside that directory to
+a regular file within the route overlay's byte bound. `sha256` must be
+exactly 64 lowercase hexadecimal characters and equal the file's digest.
+Only an adapter whose driver admits a route overlay may declare one: `dsh`
+today. Load refuses, naming the adapter, the route and the field and never
+the value: an unknown route or overlay key; a missing `egress`, `overlay`,
+`file` or `sha256`; an overlay that is not an object; an absolute or `..`
+path; a path that resolves through a symlink outside the adapter's
+directory; a missing file or one naming a directory; an over-bound file; a
+malformed digest or one that differs from the file's; and any adapter
+dispatching a driver other than `dsh`.
+
+The engine composes the declared route's overlay as one `--patch` on a
+seat whose concrete model resolves through that route, spelled relative
+to the run's working directory, and binds it to the declared digest. The
+driver still reads the file once, requires digest equality, validates the
+closed grammar and checks the pinned provider. The library must sit
+inside the run's tree: a declared file outside the working directory
+binds nothing, and the driver refuses the start with `PatchUnbound`
+rather than running without the overlay it was told to carry. A seat
+composed with both a declared overlay and an authored `--patch` refuses at
+compile, naming both; no precedence is invented.
+
 ### The alias catalogue
 
 Adapter aliases are a catalogue, not a roster (the operator's ruling of

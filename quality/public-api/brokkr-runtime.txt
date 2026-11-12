@@ -265,6 +265,10 @@ pub brokkr_runtime::agents::ResolveError::LocalTools::field: alloc::string::Stri
 pub brokkr_runtime::agents::ResolveError::NoneAvailable
 pub brokkr_runtime::agents::ResolveError::NoneAvailable::agent: alloc::string::String
 pub brokkr_runtime::agents::ResolveError::NoneAvailable::chain: alloc::string::String
+pub brokkr_runtime::agents::ResolveError::RouteOverlayConflict
+pub brokkr_runtime::agents::ResolveError::RouteOverlayConflict::agent: alloc::string::String
+pub brokkr_runtime::agents::ResolveError::RouteOverlayConflict::authored: alloc::string::String
+pub brokkr_runtime::agents::ResolveError::RouteOverlayConflict::declared: alloc::string::String
 pub brokkr_runtime::agents::ResolveError::UnknownAgent
 pub brokkr_runtime::agents::ResolveError::UnknownAgent::known: alloc::string::String
 pub brokkr_runtime::agents::ResolveError::UnknownAgent::name: alloc::string::String
@@ -1964,6 +1968,10 @@ pub brokkr_runtime::ResolveError::LocalTools::field: alloc::string::String
 pub brokkr_runtime::ResolveError::NoneAvailable
 pub brokkr_runtime::ResolveError::NoneAvailable::agent: alloc::string::String
 pub brokkr_runtime::ResolveError::NoneAvailable::chain: alloc::string::String
+pub brokkr_runtime::ResolveError::RouteOverlayConflict
+pub brokkr_runtime::ResolveError::RouteOverlayConflict::agent: alloc::string::String
+pub brokkr_runtime::ResolveError::RouteOverlayConflict::authored: alloc::string::String
+pub brokkr_runtime::ResolveError::RouteOverlayConflict::declared: alloc::string::String
 pub brokkr_runtime::ResolveError::UnknownAgent
 pub brokkr_runtime::ResolveError::UnknownAgent::known: alloc::string::String
 pub brokkr_runtime::ResolveError::UnknownAgent::name: alloc::string::String
