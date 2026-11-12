@@ -209,8 +209,12 @@ fn a_codex_usage_limit_record_waits_for_the_probe_then_retries() {
     serve_codex_when_spawned();
 
     let dir = tempfile::tempdir().unwrap();
-    let fake = fake_codex(dir.path());
-    let driver = serve_driver(dir.path(), &fake);
+    // The bundle's layer is bound by its canonical path: macOS's temporary
+    // root is under `/var`, a symlink to `/private/var`, so the spelling
+    // `TempDir::path` gives would be refused as no layer's own.
+    let root = dir.path().canonicalize().unwrap();
+    let fake = fake_codex(&root);
+    let driver = serve_driver(&root, &fake);
     let argv = vec![
         driver.to_string_lossy().into_owned(),
         "driver".into(),
@@ -222,8 +226,8 @@ fn a_codex_usage_limit_record_waits_for_the_probe_then_retries() {
     let mut limits = work(2);
     limits.timeout_seconds = 20;
     let link = candidate("codex", "second/gpt", argv);
-    std::fs::create_dir_all(dir.path().join("work")).unwrap();
-    let mut compiled = bundle(dir.path(), chain(vec![link.clone()]));
+    std::fs::create_dir_all(root.join("work")).unwrap();
+    let mut compiled = bundle(&root, chain(vec![link.clone()]));
     compiled.seats.get_mut("work").unwrap().limits = limits;
     let charter = codex_served(&mut compiled, "work", &link);
     let SeatBody::Invocation(Invocation::Single {
@@ -244,13 +248,12 @@ fn a_codex_usage_limit_record_waits_for_the_probe_then_retries() {
         "--".into(),
     ];
     *role_path = charter;
-    let store = brokkr_store::Store::open(&dir.path().join("forge.db")).unwrap();
-    let mut engine =
-        Engine::start(store, compiled, "Feature", Some(dir.path().join("work"))).unwrap();
+    let store = brokkr_store::Store::open(&root.join("forge.db")).unwrap();
+    let mut engine = Engine::start(store, compiled, "Feature", Some(root.join("work"))).unwrap();
     // The reset sits inside the route's declared maximum, so the wait is
     // taken rather than parked: the held-wait past the maximum is
     // decision 0106's, and this unit does not build it.
-    engine.cooldown.host = Some(host(dir.path(), 1, 7_200));
+    engine.cooldown.host = Some(host(&root, 1, 7_200));
     let (mut engine, now) = with_clock(engine);
     let refused_at = *now.lock().unwrap();
     engine.drive().unwrap();
@@ -258,7 +261,7 @@ fn a_codex_usage_limit_record_waits_for_the_probe_then_retries() {
     // The probe ran BETWEEN the refused attempt and the retry, so the
     // attempt count is two and the retry is not spent in seconds.
     assert_eq!(
-        logs(dir.path(), "work"),
+        logs(&root, "work"),
         ["attempt:refuse", "probe", "attempt:succeed"]
     );
     let started = starts(&engine);
