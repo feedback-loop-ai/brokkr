@@ -753,17 +753,20 @@ fn a_key_twice_sealed_at_its_own_place_reads_as_stale() {
 #[test]
 fn a_journal_that_lost_a_seat_table_reads_stale_until_a_writable_open_refolds_it() {
     for lost in [
-        "DROP TABLE seat_summary",
-        "DROP TABLE seat_head",
-        "ALTER TABLE seat_summary DROP COLUMN digest",
-        "ALTER TABLE seat_head DROP COLUMN shape",
+        "DROP TABLE seat_summary".to_string(),
+        "DROP TABLE seat_head".to_string(),
+        "ALTER TABLE seat_summary DROP COLUMN digest".to_string(),
+        // The shape index is this unit's and names the column: SQLite
+        // refuses to drop a column an index names, so the fixture drops
+        // the index the older table never had first.
+        format!("DROP INDEX IF EXISTS {SHAPE_INDEX}; ALTER TABLE seat_head DROP COLUMN shape"),
     ] {
         let (_dir, mut store) = store();
         seated(&mut store, "r");
         let path = store.path().to_path_buf();
         drop(store);
         let raw = rusqlite::Connection::open(&path).unwrap();
-        raw.execute_batch(lost).unwrap();
+        raw.execute_batch(&lost).unwrap();
         let reader = Store::open_read_only(&path).unwrap();
         assert_eq!(reader.seat_rows("r").unwrap(), SeatRows::Stale, "{lost}");
         let store = Store::open(&path).unwrap();

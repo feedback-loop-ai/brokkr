@@ -9,7 +9,7 @@ use crate::acknowledgement::{acknowledgements_intact, migrate_acknowledgements};
 use crate::event_index::{index_intact, migrate_index};
 use crate::queue::{migrate_queue, queue_intact};
 use crate::run_select;
-use crate::seat_summary::{mark_seated, migrate_seats, seats_intact};
+use crate::seat_summary::{mark_seated, migrate_seats, migrate_stale, seats_intact, stale_intact};
 use crate::summary::{mark_backfilled, migrate_summary, summary_intact};
 use crate::{patiently, Store, StoreError, BUSY_TIMEOUT};
 
@@ -201,7 +201,7 @@ impl Store {
 /// A journal that records a schema: supported, and whole.
 fn repair(conn: &mut Connection, found: u32) -> Result<(), StoreError> {
     schema_supported(found)?;
-    // Nine additive repairs, each a READ in the steady state — the
+    // Ten additive repairs, each a READ in the steady state — the
     // starvation measurement holds — and each taking the immediate
     // transaction only when something is actually missing, so racing
     // openers serialise on the lock instead of colliding on the DDL.
@@ -212,13 +212,13 @@ fn repair(conn: &mut Connection, found: u32) -> Result<(), StoreError> {
     // batch that carries them.
     repair_tables(conn)?;
     repair_projections(conn)?;
-    // Eighth: a journal from before it named itself (decision 0095, #430)
+    // Ninth: a journal from before it named itself (decision 0095, #430)
     // gets its id, once; a peer that named it first keeps its own.
     let missing = journal_named(conn)?.is_none();
     repair_if(conn, missing, name_journal)?;
     let missing = !guards_intact(conn)?;
     repair_if(conn, missing, |conn| Ok(conn.execute_batch(MIGRATION_V1)?))?;
-    // Ninth: the run selector's `runs (created_at)` index (decision 0089
+    // Tenth: the run selector's `runs (created_at)` index (decision 0089
     // slice 4). A journal read-only without it still resolves — SQLite
     // scans — and the next writable open adds it.
     let missing = !run_select::intact(conn)?;
@@ -243,8 +243,9 @@ fn repair_tables(conn: &mut Connection) -> Result<(), StoreError> {
     repair_if(conn, missing, migrate_acknowledgements)
 }
 
-/// The fifth, sixth and seventh of [`repair`]'s additive repairs, in its
-/// order: decision 0089's run summary, event index and seat summary.
+/// The fifth to eighth of [`repair`]'s additive repairs, in its order:
+/// decision 0089's run summary, event index, seat summary and stale-seat
+/// set.
 fn repair_projections(conn: &mut Connection) -> Result<(), StoreError> {
     // Fifth: a journal from before the run summary (decision 0089), or
     // one that lost its table, index or a trigger, gets them, and a row
@@ -263,7 +264,13 @@ fn repair_projections(conn: &mut Connection) -> Result<(), StoreError> {
     // from the walk that follows the open ([`Store::seat_behind_with`]),
     // which a repair marks unfinished.
     let missing = !seats_intact(conn)?;
-    repair_if(conn, missing, migrate_seats)
+    repair_if(conn, missing, migrate_seats)?;
+    // Eighth: a journal from before the stale-seat set (decision 0089
+    // slice 4, U3d), or one that lost its table, a trigger or the shape
+    // index, gets them, and its set filled from the rule the seat summary
+    // keeps, so the whole-run fallback visits the stale runs alone.
+    let missing = !stale_intact(conn)?;
+    repair_if(conn, missing, migrate_stale)
 }
 
 /// Apply `fix` under the immediate transaction, and only when `missing`:
@@ -301,8 +308,8 @@ fn initialize(conn: &mut Connection) -> Result<(), StoreError> {
 
 /// [`initialize`]'s additive pieces, in [`repair`]'s order: the sidecar
 /// columns, the queue, the acknowledgements, the run summary, the event
-/// index and the seat summary, with the summary and seat marks a fresh
-/// journal seeds.
+/// index and the seat summary with the stale-seat set beside it, with the
+/// summary and seat marks a fresh journal seeds.
 fn initialize_additions(conn: &Connection) -> Result<(), StoreError> {
     migrate_sidecar_columns(conn)?;
     migrate_queue(conn)?;
@@ -317,7 +324,8 @@ fn initialize_additions(conn: &Connection) -> Result<(), StoreError> {
     // journal, records the mark once every event has its row.
     migrate_index(conn)?;
     // A run without a seat head reads as stale whatever this key says, and
-    // the open's walk folds it, so a new journal is marked here.
+    // the open's walk folds it, so a new journal is marked here. This also
+    // makes the stale-seat set that sits beside the seat tables.
     migrate_seats(conn)?;
     mark_seated(conn)?;
     Ok(())

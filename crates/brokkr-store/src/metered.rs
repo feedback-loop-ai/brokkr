@@ -50,7 +50,7 @@ use rusqlite::{params_from_iter, Row, StatementStatus};
 use crate::aggregate::{optional_text, required_text};
 use crate::event_index::{CHECKPOINTED, CHECKPOINT_STALE};
 use crate::seat_read::site_of;
-use crate::seat_summary::{lags as seat_lags, SHAPE};
+use crate::seat_summary::{lags as seat_lags, stale_runs, SHAPE};
 use crate::{Store, StoreError};
 
 /// The order a window's sites are folded in (decision 0089 ruling 7): the
@@ -366,14 +366,16 @@ static SPENDS: LazyLock<String> = LazyLock::new(|| {
 
 /// The runs the whole-run fallback reads: every run whose seat rows or
 /// checkpoint facts are not current, each once, store-wide. The seat arm
-/// reads each run's head by its key; the checkpoint arm reads only the
-/// stale index's rows, so neither walks the journal's current rows.
+/// reads the stale-seat set and the heads of another shape by their
+/// indexes, and the set drives the join (`CROSS JOIN`), so the planner
+/// cannot scan `run_summary` and probe the set instead; the checkpoint arm
+/// reads only the stale index's rows, so neither walks the journal's
+/// current rows.
 static FALLBACKS: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT r.run_id
-           FROM run_summary AS r LEFT JOIN seat_head AS h ON h.run_id = r.run_id
-          WHERE {outside} AND {seat}
-            AND (?1 IS NULL OR r.realm = ?1)
+           FROM ({seat}) AS l CROSS JOIN run_summary AS r ON r.run_id = l.run_id
+          WHERE {outside} AND (?1 IS NULL OR r.realm = ?1)
          UNION
          SELECT e.run_id
            FROM event_index AS e INDEXED BY event_index_checkpoint_stale
@@ -383,7 +385,7 @@ static FALLBACKS: LazyLock<String> = LazyLock::new(|| {
             AND (?1 IS NULL OR r.realm = ?1)
           ORDER BY 1",
         outside = crate::aggregate::outside("r."),
-        seat = seat_lags("r", "h", "?2"),
+        seat = stale_runs("?2"),
     )
 });
 

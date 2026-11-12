@@ -69,8 +69,12 @@ use crate::summary::{refold_once, Compared};
 use crate::{head_of, patiently, Disagreement, Store, StoreError};
 
 mod seal;
+mod stale;
 
 use seal::{digest, value, Cell, Seal};
+#[cfg(test)]
+pub(crate) use stale::SHAPE_INDEX;
+pub(crate) use stale::{migrate_stale, stale_intact, stale_runs};
 
 /// The meta key that records the backfill finished (ruling 8): its own,
 /// so keeping seat rows sends no run's summary behind (#753 ruling 4a).
@@ -149,16 +153,19 @@ pub(crate) fn seats_intact(conn: &Connection) -> Result<bool, StoreError> {
 
 const SHAPED: &str = "shape";
 
-/// Create the tables, on a connection holding the write lock: the seventh
-/// additive repair. Their presence is asked again under the lock, so an
-/// opener that raced a peer to it drops none of the rows the peer's walk
-/// has written since. Their rows come from the backfill that follows the
-/// open, outside this lock.
+/// Create the tables and the stale-seat set that names the runs whose rows
+/// lag them, on a connection holding the write lock: the seventh additive
+/// repair, with the eighth beside it. Their presence is asked again under
+/// the lock, so an opener that raced a peer to it drops none of the rows
+/// the peer's walk has written since. Their rows come from the backfill
+/// that follows the open, outside this lock. The set is kept here too, so
+/// a journal whose seat tables are migrated directly holds it before the
+/// open's next repair read, and that read stays a read.
 pub(crate) fn migrate_seats(conn: &Connection) -> Result<(), StoreError> {
     if !seats_intact(conn)? {
         conn.execute_batch(&migration())?;
     }
-    Ok(())
+    stale::migrate_stale(conn)
 }
 
 /// Record that the backfill finished; a journal created with the tables
