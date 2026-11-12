@@ -14,6 +14,8 @@ use crate::env_guard::EnvGuard;
 use crate::hands::{HandsSpec, SEALED_REACH};
 use crate::native_controls::{SealedBoundary, SealedDialect, ARTIFACT_ROOT, SERVING_INPUTS};
 
+mod releases;
+
 /// The full text an unreadable composed dsh tree prints.
 const UNREADABLE: &str =
     "refusing to invoke the dsh driver: the composed dsh tree cannot be read as \

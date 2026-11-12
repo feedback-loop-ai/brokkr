@@ -98,6 +98,10 @@ file.
 - `lanetally` resume `wrapper-work-site`: main does not perform this rejoin: a wrapper is qualified on its own wrapper, never on what it wraps; claude's captured interface says nothing about what this wrapper forwards, and support by analogy is exactly what this field refuses, so the unknown wrapper identity and forwarding stay unmeasured
 <!-- adapter-gaps:end -->
 
+The dsh hands rows were measured on 0.2.1-rc.2 and rc.3 (2026-10-26) and on
+0.2.2-rc.1 (2026-11-11); the 0.2.2 record is
+[here](evidence/adapters/dsh-hands-0-2-2.md).
+
 ## Native powers
 
 A native power is one the provider or the harness runs itself, such as
