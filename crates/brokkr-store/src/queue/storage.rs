@@ -58,6 +58,11 @@ pub(super) fn wait_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Wait> {
 /// (decision 0095 rulings 1, 2 and 7).
 pub(crate) const QUEUE_SCHEMA: u32 = 3;
 
+/// The `meta` key a journal records [`QUEUE_SCHEMA`] under: one home for
+/// the spelling, read by this module and by a backup's missing-schema
+/// refusal.
+pub(crate) const QUEUE_SCHEMA_KEY: &str = "queue_schema";
+
 /// The first queue storage, which held no pins: still read as it stands,
 /// and brought to [`QUEUE_SCHEMA`] by the first open that may write.
 pub(crate) const QUEUE_SCHEMA_V1: u32 = 1;
@@ -358,9 +363,10 @@ pub(crate) fn migrate_queue(conn: &Connection) -> Result<(), StoreError> {
     conn.execute_batch(MIGRATION_QUEUE_V2)?;
     conn.execute_batch(MIGRATION_QUEUE_V3)?;
     conn.execute(
-        "INSERT INTO meta (key, value) VALUES ('queue_schema', ?1)
-         ON CONFLICT (key) DO UPDATE SET value = excluded.value WHERE value IN (?2, ?3)",
+        "INSERT INTO meta (key, value) VALUES (?1, ?2)
+         ON CONFLICT (key) DO UPDATE SET value = excluded.value WHERE value IN (?3, ?4)",
         params![
+            QUEUE_SCHEMA_KEY,
             QUEUE_SCHEMA.to_string(),
             QUEUE_SCHEMA_V1.to_string(),
             QUEUE_SCHEMA_V2.to_string()
@@ -374,8 +380,8 @@ pub(crate) fn migrate_queue(conn: &Connection) -> Result<(), StoreError> {
 pub(crate) fn queue_schema(conn: &Connection) -> Result<Option<u32>, StoreError> {
     let recorded: Option<String> = conn
         .query_row(
-            "SELECT value FROM meta WHERE key = 'queue_schema'",
-            [],
+            "SELECT value FROM meta WHERE key = ?1",
+            params![QUEUE_SCHEMA_KEY],
             |row| row.get(0),
         )
         .optional()?;

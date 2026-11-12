@@ -664,6 +664,27 @@ fn a_boundary_naming_another_run_is_refused_by_name() {
     assert_absent(&destination);
 }
 
+/// [`crate::schema::RECORDED_SCHEMA`] and
+/// [`crate::schema::DATABASE_SCHEMA_KEY`] are one spelling: the statement
+/// reads the row the key names. A change to either alone reads nothing.
+#[test]
+fn the_recorded_schema_statement_reads_the_one_key_home() {
+    let connection = rusqlite::Connection::open_in_memory().unwrap();
+    connection
+        .execute_batch("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+        .unwrap();
+    connection
+        .execute(
+            "INSERT INTO meta (key, value) VALUES (?1, '1')",
+            [crate::schema::DATABASE_SCHEMA_KEY],
+        )
+        .unwrap();
+    let recorded: String = connection
+        .query_row(crate::schema::RECORDED_SCHEMA, [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(recorded, "1");
+}
+
 #[test]
 fn a_journal_that_records_no_queue_schema_is_refused_by_name() {
     let dir = tempfile::tempdir().unwrap();
@@ -685,7 +706,7 @@ fn a_journal_that_records_no_queue_schema_is_refused_by_name() {
     let BackupError::UnrecordedSchema { key } = refused else {
         panic!("a journal with no queue schema is refused by name: {refused:?}");
     };
-    assert_eq!(key, "queue_schema");
+    assert_eq!(key, SchemaKey::Queue);
 }
 
 #[cfg(unix)]
@@ -1326,7 +1347,13 @@ fn boundary_refusals() -> Vec<(BackupError, String)> {
         ),
         (
             BackupError::UnrecordedSchema {
-                key: "queue_schema",
+                key: SchemaKey::Database,
+            },
+            "the journal records no 'database_schema' schema".to_string(),
+        ),
+        (
+            BackupError::UnrecordedSchema {
+                key: SchemaKey::Queue,
             },
             "the journal records no 'queue_schema' schema".to_string(),
         ),

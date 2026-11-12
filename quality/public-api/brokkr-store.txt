@@ -86,13 +86,18 @@ pub brokkr_store::backup::BackupError::UnreadableInventory
 pub brokkr_store::backup::BackupError::UnreadableInventory::path: std::path::PathBuf
 pub brokkr_store::backup::BackupError::UnreadableInventory::source: core::io::error::Error
 pub brokkr_store::backup::BackupError::UnrecordedSchema
-pub brokkr_store::backup::BackupError::UnrecordedSchema::key: &'static str
+pub brokkr_store::backup::BackupError::UnrecordedSchema::key: brokkr_store::backup::SchemaKey
 pub enum brokkr_store::backup::RowField
 pub brokkr_store::backup::RowField::EventHash
 pub brokkr_store::backup::RowField::RunId
 pub brokkr_store::backup::RowField::Seq
 impl core::fmt::Display for brokkr_store::backup::RowField
 pub fn brokkr_store::backup::RowField::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub enum brokkr_store::backup::SchemaKey
+pub brokkr_store::backup::SchemaKey::Database
+pub brokkr_store::backup::SchemaKey::Queue
+impl core::fmt::Display for brokkr_store::backup::SchemaKey
+pub fn brokkr_store::backup::SchemaKey::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct brokkr_store::backup::Backup
 pub brokkr_store::backup::Backup::bytes: u64
 pub brokkr_store::backup::Backup::events: u64
