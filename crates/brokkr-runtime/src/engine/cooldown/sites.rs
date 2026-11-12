@@ -22,10 +22,10 @@ use super::{
 use crate::bundle::{ExecutableBody, Invocation};
 use crate::engine::carry::record::Tag;
 
-/// One member that failed to start with a typed rate-limit refusal, tagged
-/// as the journal tags it (decision 0103 ruling 1(a)): the site the panel's
-/// terminal event and each wait entry name.
-#[derive(Clone)]
+/// One site whose report carried a typed rate-limit refusal, tagged as the
+/// journal tags it (decision 0103 ruling 1(a)): the site the panel's or
+/// step's terminal event and each wait entry name.
+#[derive(Clone, Debug)]
 pub(in crate::engine) struct RefusedMember {
     pub(in crate::engine) site: String,
     pub(in crate::engine) refusal: PreSessionRefusal,
@@ -33,7 +33,8 @@ pub(in crate::engine) struct RefusedMember {
 
 /// Every member whose report carries a typed rate-limit refusal, in declared
 /// member order. A member refused for another reason is not one: it follows
-/// decision 0006 unchanged and gets no wait and no probe.
+/// decision 0006 unchanged and gets no wait and no probe. A step's waits and
+/// a seat-level panel's take this one assembly.
 pub(in crate::engine) fn refused_members(
     reports: &[(String, AttemptReport)],
     tag_prefix: &str,
@@ -236,6 +237,28 @@ impl Engine {
         let reason = refusal_text(&refused, cause.episode);
         let park = (!self.at_attempt_cap(events, effect_id)).then_some(reason);
         PanelTerminal { payload, park }
+    }
+
+    /// A sequence step's terminal payload with the step's own waits, through
+    /// the panel writer (decision 0103 slice 4c2b): a sequence attempt ends
+    /// at its failing step, so only that step's refused sites appear. No
+    /// refused site is no wait, and an indeterminate step takes the
+    /// computable waits as evidence only and parks on its own reason.
+    pub(in crate::engine) fn step_terminal(
+        &self,
+        effect_id: &str,
+        payload: Value,
+        refused: &[RefusedMember],
+        retry: bool,
+    ) -> Result<PanelTerminal, EngineError> {
+        if refused.is_empty() {
+            return Ok(PanelTerminal {
+                payload,
+                park: None,
+            });
+        }
+        let events = self.store.load(&self.run_id)?;
+        Ok(self.panel_rate_limit_terminal(&events, effect_id, payload, refused, retry))
     }
 
     /// The episode an earlier wait made unreadable: no current wait can be

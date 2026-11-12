@@ -85,7 +85,9 @@ impl Engine {
         // witnessed is proven settled; otherwise the run parks with the
         // cleanup refusal naming it, spending no effect attempt and starting
         // no probe or retry (decision 0103 ruling 4, this fix round).
-        if let Some(reason) = self.orphaned_probe_refusal(events, &waits) {
+        if let Some(reason) =
+            self.orphaned_probe_refusal(seat, state.strategy.as_deref(), events, &waits)
+        {
             self.park_with_reason(reason)?;
             return Ok(());
         }
@@ -244,10 +246,13 @@ impl Engine {
     /// ruling 4, this fix round).
     fn orphaned_probe_refusal(
         &self,
+        seat: &str,
+        strategy: Option<&str>,
         events: &[EventEnvelope],
         waits: &[ProviderWait],
     ) -> Option<String> {
-        self.recovered_probe(events, waits, &crate::engine::broker::observed())
+        let label = self.selected_label(seat, strategy);
+        self.recovered_probe(&label, events, waits, &crate::engine::broker::observed())
             .err()
             .map(|refusal| refusal.to_string())
     }

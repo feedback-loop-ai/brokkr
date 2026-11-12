@@ -6,14 +6,56 @@
 use brokkr_core::fold::Cursor;
 use brokkr_core::ProviderWait;
 
+use super::panel::member;
 use super::*;
 #[cfg(target_os = "linux")]
-use crate::engine::broker::admission::tests::reservation_path;
+use crate::engine::broker::admission::tests::{reservation_path, Coordinated};
 use crate::engine::cooldown::Waited;
 #[cfg(target_os = "linux")]
 use crate::engine::tests::in_its_own_engine;
 use crate::engine::tests::{fail_event, state};
 use crate::engine::EngineError;
+
+/// The wait these rows probe for claude/first, at `site`.
+fn rate_limit_wait(site: Option<&str>) -> ProviderWait {
+    ProviderWait {
+        site: site.map(str::to_string),
+        provider: "claude".into(),
+        route: "first".into(),
+        words: "rate_limit: slow down".into(),
+        retry_after_seconds: None,
+        seconds: 1,
+        until: base() + time::Duration::seconds(1),
+        rounds: 1,
+    }
+}
+
+/// A seat-level panel member's probe with no phase refuses the engine
+/// invariant rather than admitting: `phase_of` fails before the probe and
+/// `probe_member` propagates that error arm.
+#[test]
+fn a_probe_member_without_a_phase_refuses_the_invariant() {
+    let dir = tempfile::tempdir().unwrap();
+    let body = SeatBody::Invocation(Invocation::Panel {
+        members: vec![member("m", Vec::new())],
+        aggregate: Aggregate::ReviewPanel,
+    });
+    let mut engine = started(dir.path(), body, work(2));
+    engine.cooldown.host = Some(host(dir.path(), 1, 10));
+    request_effect(&mut engine);
+    let events = engine.store.load(&engine.run_id).unwrap();
+    let mut current = fold(&events).unwrap();
+    current.phase = None;
+    let wait = rate_limit_wait(Some("m"));
+    let error = match engine.probe_member(&events, &current, "effect", "work", &wait, "m") {
+        Err(error) => error,
+        Ok(_) => panic!("a phase-less probe was admitted"),
+    };
+    assert!(
+        matches!(error, EngineError::Invariant("cursor has phase", _)),
+        "{error}"
+    );
+}
 
 /// A second run in the same store: another engine's start appends its
 /// `run/started`, whose row moves the store-wide high water.
@@ -175,13 +217,11 @@ fn a_stop_after_the_last_slice_is_seen_before_the_probe() {
     assert_stopped(dir.path(), &engine);
 }
 
-/// A cased seat's probe is told the same `<seat>:<case>` site name as its
-/// attempt, so the probe's invocation is labelled as the retried one.
-#[test]
-fn the_probe_names_a_cased_site_as_the_attempt_does() {
-    let dir = tempfile::tempdir().unwrap();
+/// The cased engine the two `work:chore` rows drive: a selector whose one
+/// `chore` case is claude/first, the standard host and the test clock.
+fn chore_engine(dir: &Path) -> Engine {
     let command = driver(
-        dir.path(),
+        dir,
         "work",
         &["refuse", "succeed"],
         Probed::Answer,
@@ -193,9 +233,17 @@ fn the_probe_names_a_cased_site_as_the_attempt_does() {
         cases: [("chore".to_string(), single_body(command))].into(),
         default: None,
     };
-    let mut engine = started(dir.path(), body, work(2));
-    engine.cooldown.host = Some(host(dir.path(), 1, 10));
-    let (mut engine, _now) = with_clock(engine);
+    let mut engine = started(dir, body, work(2));
+    engine.cooldown.host = Some(host(dir, 1, 10));
+    with_clock(engine).0
+}
+
+/// A cased seat's probe is told the same `<seat>:<case>` site name as its
+/// attempt, so the probe's invocation is labelled as the retried one.
+#[test]
+fn the_probe_names_a_cased_site_as_the_attempt_does() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut engine = chore_engine(dir.path());
     let mut current = state(
         Some("work"),
         Cursor::ExecuteEffect {
@@ -206,16 +254,7 @@ fn the_probe_names_a_cased_site_as_the_attempt_does() {
     );
     current.strategy = Some("chore".into());
     let events = engine.store.load(&engine.run_id).unwrap();
-    let wait = ProviderWait {
-        site: None,
-        provider: "claude".into(),
-        route: "first".into(),
-        words: "rate_limit: slow down".into(),
-        retry_after_seconds: None,
-        seconds: 1,
-        until: base() + time::Duration::seconds(1),
-        rounds: 1,
-    };
+    let wait = rate_limit_wait(None);
     match engine
         .probe(&events, &current, "effect", "work", &wait)
         .unwrap()
@@ -229,6 +268,139 @@ fn the_probe_names_a_cased_site_as_the_attempt_does() {
         }
     }
     assert_eq!(probe_seat(dir.path(), "work"), "work:chore");
+}
+
+/// F1: the cleanup label's case half is the selected case or the
+/// selector's default, never the bare seat name; only an uncased seat's
+/// label is the seat alone.
+#[test]
+fn selected_label_names_the_selected_case_or_default() {
+    let selecting = tempfile::tempdir().unwrap();
+    let body = SeatBody::Select {
+        cases: [("chore".to_string(), single_body(vec!["chore".into()]))].into(),
+        default: Some(Box::new(single_body(vec!["fallback".into()]))),
+    };
+    let engine = started(selecting.path(), body, work(2));
+    assert_eq!(engine.selected_label("work", Some("chore")), "work:chore");
+    assert_eq!(engine.selected_label("work", None), "work:default");
+    assert_eq!(
+        engine.selected_label("work", Some("absent")),
+        "work:default"
+    );
+
+    let uncased = tempfile::tempdir().unwrap();
+    let engine = started(uncased.path(), single_body(vec!["unused".into()]), work(2));
+    assert_eq!(engine.selected_label("work", None), "work");
+    assert_eq!(engine.selected_label("work", Some("chore")), "work");
+}
+
+/// The selector's own first attempt: the phase, the requested effect and
+/// the driver's one typed refusal, leaving the journal's site-less wait.
+/// The effect id is the one the cursor executes from.
+#[cfg(target_os = "linux")]
+fn refused_cased_attempt(engine: &mut Engine, dir: &Path) -> String {
+    engine
+        .append(EventType::PhaseEntered, json!({"phase": "work"}), None)
+        .unwrap();
+    let events = engine.store.load(&engine.run_id).unwrap();
+    let mut current = state(Some("work"), Cursor::RequestEffect);
+    current.strategy = Some("chore".into());
+    engine
+        .advance_running(&events, Cursor::RequestEffect, current)
+        .unwrap();
+    let events = engine.store.load(&engine.run_id).unwrap();
+    let effect = events
+        .iter()
+        .find(|event| event.event_type == EventType::EffectRequested)
+        .map(|event| event.payload["effect_id"].as_str().unwrap().to_string())
+        .expect("the requested effect");
+    let cursor = Cursor::ExecuteEffect {
+        effect_id: effect.clone(),
+        seat: "work".into(),
+        failed_attempts: 0,
+    };
+    let mut current = state(Some("work"), cursor.clone());
+    current.strategy = Some("chore".into());
+    engine.advance_running(&events, cursor, current).unwrap();
+    assert_eq!(
+        logs(dir, "work"),
+        ["attempt:refuse"],
+        "the first attempt did not refuse"
+    );
+    effect
+}
+
+/// The crashed probe's reservation: attempt `a2`, no journal event naming
+/// it, its driver at the selected label unsettled.
+#[cfg(target_os = "linux")]
+fn plant_crashed_probe(engine: &mut Engine, home: &Path) {
+    let events = engine.store.load(&engine.run_id).unwrap();
+    let observed = crate::engine::broker::observed();
+    let seat_body = engine.bundle.seats["work"].body.clone();
+    let selected = seat_body.selected(Some("chore")).unwrap().0;
+    engine
+        .admit_for_probe(
+            &events,
+            ["a2", "work:chore"],
+            selected,
+            &crate::engine::Selection::new(),
+            (std::time::Instant::now(), std::time::Duration::from_secs(5)),
+            &observed,
+        )
+        .unwrap();
+    drop(engine.held.take());
+    let at = reservation_path(home, &engine.workdir(), &engine.run_id);
+    let mut sealed: Value = serde_json::from_slice(&std::fs::read(&at).unwrap()).unwrap();
+    let reserved = sealed["attempts"]
+        .as_object_mut()
+        .expect("the planted reservation stands")
+        .get_mut("a2")
+        .expect("the planted probe attempt");
+    reserved["cleanup"] = json!("settling");
+    reserved["drivers"] = json!([{"site": "work:chore", "begun": null, "cleanup": "settling"}]);
+    std::fs::write(&at, serde_json::to_vec(&sealed).unwrap()).unwrap();
+}
+
+/// F1: the cased label is bound end to end. A selector's `chore` case runs
+/// as `work:chore`; a crashed probe's reservation holds a driver at that
+/// label, unsettled and named by no journal event, beside the attempt's one
+/// site-less claude/first wait. Driven from the recorded wait, the cleanup
+/// refusal names claude/first only if the strategy reached the label; a
+/// bare `work` leaves it neutral.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_cased_seats_crashed_probe_reservation_parks_naming_its_route() {
+    let test = "engine::cooldown::tests::coverage::a_cased_seats_crashed_probe_reservation_parks_naming_its_route";
+    if !in_its_own_engine(test) {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let home = super::lease::home(dir.path());
+    let _stand = Coordinated::at(&home);
+    let mut engine = chore_engine(dir.path());
+    let effect = refused_cased_attempt(&mut engine, dir.path());
+    plant_crashed_probe(&mut engine, &home);
+    // The cursor from the recorded wait: the refusal names claude/first only
+    // if the selected case reaches the label the reserved driver carries.
+    let events = engine.store.load(&engine.run_id).unwrap();
+    let cursor = Cursor::ExecuteEffect {
+        effect_id: effect,
+        seat: "work".into(),
+        failed_attempts: 1,
+    };
+    let mut current = state(Some("work"), cursor.clone());
+    current.strategy = Some("chore".into());
+    engine.advance_running(&events, cursor, current).unwrap();
+    let reason = park_reason(&engine);
+    assert!(
+        reason.starts_with(
+            "the cool-down probe for claude/first did not prove its process tree gone"
+        ),
+        "{reason}"
+    );
+    assert_eq!(logs(dir.path(), "work"), ["attempt:refuse"]);
+    assert_eq!(starts(&engine).len(), 1, "an effect attempt was spent");
+    assert_eq!(failed(&engine).len(), 1, "an effect attempt was spent");
 }
 
 /// F2: a driven probe's spawn is witnessed on its own lease at the door

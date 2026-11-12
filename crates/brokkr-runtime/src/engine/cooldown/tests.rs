@@ -15,7 +15,7 @@ use time::OffsetDateTime;
 
 use super::Clock;
 use crate::agents::{Candidate, HarnessHands, Lowering};
-use crate::bundle::{Aggregate, Invocation, Limits, PanelMember, SeatBody, SeatClass, StepBody};
+use crate::bundle::{Aggregate, Invocation, Limits, PanelMember, SeatBody, SeatClass};
 use crate::engine::tests::{bundle, single_body, templated};
 use crate::engine::Engine;
 
@@ -182,6 +182,7 @@ case "$start" in *'"type":"start"'*) ;; *) exit 0 ;; esac
 eid=$(printf '%s' "$start" | sed -n 's/.*"effect_id":"\([^"]*\)".*/\1/p')
 aid=$(printf '%s' "$start" | sed -n 's/.*"attempt_id":"\([^"]*\)".*/\1/p')
 base='{"proto":"forge-driver/v1","msg_id":"m"'
+printf '%s\n' "$start" >> '@INPUTLOG@'
 glog() { printf '%s:%s\n' '@TAG@' "$1" >> '@GLOG@'; }
 case "$start" in
   *'"probe":true'*)
@@ -211,6 +212,10 @@ read -r bye
         ("@COUNT@", count.display().to_string()),
         ("@CAPABILITIES@", capabilities),
         ("@LOG@", log.display().to_string()),
+        (
+            "@INPUTLOG@",
+            dir.join(format!("{tag}.input")).display().to_string(),
+        ),
         (
             "@SEATLOG@",
             dir.join(format!("{tag}.seat")).display().to_string(),
@@ -267,6 +272,15 @@ fn logs(dir: &Path, tag: &str) -> Vec<String> {
         .unwrap_or_default()
         .lines()
         .map(str::to_string)
+        .collect()
+}
+
+/// The `Start` documents a driver's attempts and probes received, in order.
+fn start_inputs(dir: &Path, tag: &str) -> Vec<Value> {
+    std::fs::read_to_string(dir.join(format!("{tag}.input")))
+        .unwrap_or_default()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
         .collect()
 }
 
@@ -1389,6 +1403,7 @@ fn a_driver_that_does_not_advertise_the_probe_parks_naming_it() {
 
 mod lease;
 mod probe_driver;
+mod sequence;
 
 fn no_waits(engine: &Engine) {
     for event in failed(engine) {
@@ -1412,40 +1427,6 @@ fn panel_body(command: Vec<String>) -> SeatBody {
         }],
         aggregate: Aggregate::UnanimousPass,
     })
-}
-
-#[test]
-fn a_sequence_refused_by_a_rate_limit_follows_todays_path() {
-    let dir = tempfile::tempdir().unwrap();
-    let body = SeatBody::Sequence {
-        steps: vec![uncompiled_sequence_step! {
-            name: "draft".into(),
-            class: SeatClass::Work,
-            results: vec!["complete".into()],
-            body: StepBody::Invocation(Invocation::Single {
-                role_path: PathBuf::from("role.md"),
-                command: driver(
-                    dir.path(),
-                    "step",
-                    &["refuse", "refuse"],
-                    Probed::Answer,
-                    None,
-                    "claude",
-                    "first",
-                ),
-                candidates: Vec::new(),
-                written: Vec::new(),
-                class: (),
-            }),
-        }],
-    };
-    let (_dir, mut engine, _now) = seated!(@in dir, body, 2);
-    engine.drive().unwrap();
-    assert!(!failed(&engine).is_empty());
-    no_waits(&engine);
-    assert!(starts(&engine)
-        .iter()
-        .all(|start| start.get("probes").is_none()));
 }
 
 /// The host seam's three outcomes, and the two no-declaration shapes. A

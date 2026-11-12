@@ -10,7 +10,7 @@ use std::time::Duration;
 
 use brokkr_core::envelope::EventType;
 use brokkr_core::realms::Boundary;
-use brokkr_protocol::{AttemptOutcome, AttemptReport};
+use brokkr_protocol::AttemptOutcome;
 use brokkr_store::StoreError;
 use serde_json::{json, Map, Value};
 
@@ -18,10 +18,11 @@ use super::carry::{
     outcome_under,
     record::{settled_members, PanelRecord, PanelSpan},
 };
+use super::cooldown::{refused_members, RefusedMember};
 use super::{
     argv_for, copy_secret_binding_facts, failed_to_start, git_head, stamp_boundary,
-    start_failure_fields, start_failure_sites, stderr_tail, DriverRun, Engine, EngineError,
-    Indeterminate, Selection, Site, Unproven,
+    start_failure_fields, start_failure_sites, DriverRun, Engine, EngineError, Indeterminate,
+    Selection, Site, Unproven,
 };
 use crate::bundle::{
     dialect_results, Aggregate, DialectExecution, Invocation, PanelMember, SeatClass, SequenceStep,
@@ -29,8 +30,15 @@ use crate::bundle::{
 };
 use crate::dialect::DialectPhase;
 
+mod compose;
 mod contradiction;
+mod step_facts;
 mod success;
+
+pub(in crate::engine) use compose::StepComposition;
+pub(crate) use step_facts::needs_change;
+pub(super) use step_facts::{dialect_attempt_outcome, expand_dialect_argv, nearest_change};
+use step_facts::{tailed_outcome, vocabulary_problem};
 
 /// Where a step leaves its attempt, at each stage of settling it.
 enum StepVerdict<T> {
@@ -80,15 +88,80 @@ struct StepAt<'a> {
     context: Value,
 }
 
-/// A step form's outcome, and which of its sites failed to start, should
-/// the step be the one that fails the attempt.
+/// A step form's outcome, the sites that failed to start should the step
+/// be the one that fails the attempt, and the sites whose reports carried
+/// a typed rate-limit refusal.
 struct StepRun {
     record: Option<PanelRecord>,
     outcome: AttemptOutcome,
+    /// The chain-advance fact, unchanged from today: a site failed to
+    /// start, in declared order.
     start_failures: Vec<Site>,
+    /// The wait fact: every site whose report carried a typed rate-limit
+    /// refusal, in declared order, whether or not its cleanup made the
+    /// step indeterminate (decision 0103 ruling 2(a)).
+    refused: Vec<RefusedMember>,
     /// What the step's terminal event carries when its tree is not
     /// proven over (#403).
     unproven: Unproven,
+}
+
+/// The results a step may report: the seat's own for the final step, which
+/// is the seat's boundary, and the step's own for any other (decision 0002:
+/// the one rule the attempt and the cool-down probe both read).
+pub(super) fn step_allowed_results(seat_input: &Value, index: usize, last: bool) -> Value {
+    if last {
+        seat_input["allowed_results"].clone()
+    } else {
+        seat_input["steps"][index]["allowed_results"].clone()
+    }
+}
+
+/// Which step a driver input is built for: a model step's attempt and its
+/// cool-down probe carry the seat's spec dialect, while a dialect step's own
+/// invocation predates that prompt and keeps the secret-binding facts alone
+/// (decision 0103 slice 4c2b).
+#[derive(Clone, Copy)]
+pub(super) enum StepInputKind {
+    Model,
+    Dialect,
+}
+
+/// A step driver's input: the fields a single step and a dialect step
+/// share, with the step's own metadata and the context its attempt (or its
+/// probe) derived. The step's attempt and its cool-down probe both build
+/// this one shape, and the tail it carries is decided once by `kind`
+/// (decision 0103 slice 4c2b).
+pub(super) fn step_driver_input(
+    seat_input: &Value,
+    index: usize,
+    label: &str,
+    last: bool,
+    role_path: &Value,
+    context: &Value,
+    kind: StepInputKind,
+) -> Value {
+    let mut input = json!({
+        "feature": seat_input["feature"],
+        "phase": seat_input["phase"],
+        "seat": label,
+        "role_path": role_path,
+        "workdir": seat_input["workdir"],
+        "result_path": seat_input["steps"][index]["result_path"],
+        "allowed_results": step_allowed_results(seat_input, index, last),
+        "house_rules": seat_input["house_rules"],
+        "context": context,
+    });
+    // Exhaustive on purpose: a new step kind must decide its own tail.
+    let carries_spec_dialect = match kind {
+        StepInputKind::Model => true,
+        StepInputKind::Dialect => false,
+    };
+    if carries_spec_dialect && !seat_input["spec_dialect"].is_null() {
+        input["spec_dialect"] = seat_input["spec_dialect"].clone();
+    }
+    copy_secret_binding_facts(&mut input, seat_input);
+    input
 }
 
 impl SequenceRun<'_> {
@@ -98,16 +171,6 @@ impl SequenceRun<'_> {
 
     fn phase(&self) -> &str {
         self.input["phase"].as_str().unwrap_or("")
-    }
-
-    /// The results a step may report: the seat's own for the final step,
-    /// which is the seat's boundary, and the step's own for any other.
-    fn allowed_results<'s>(&'s self, at: &StepAt<'s>) -> &'s Value {
-        if self.is_last(at) {
-            &self.input["allowed_results"]
-        } else {
-            &at.meta["allowed_results"]
-        }
     }
 
     fn step_at<'s>(
@@ -133,31 +196,29 @@ impl SequenceRun<'_> {
         }
     }
 
-    /// A step driver's input: the fields a single step and a dialect step
-    /// share, with the step's own role path.
-    fn driver_input(&self, at: &StepAt, role_path: &Value) -> Value {
-        json!({
-            "feature": self.input["feature"],
-            "phase": self.input["phase"],
-            "seat": at.label,
-            "role_path": role_path,
-            "workdir": self.input["workdir"],
-            "result_path": at.meta["result_path"],
-            "allowed_results": self.allowed_results(at),
-            "house_rules": self.input["house_rules"],
-            "context": at.context,
-        })
+    /// A step driver's input, through the one derivation the step's attempt
+    /// and its cool-down probe share, with the tail its own step form carries.
+    fn driver_input(&self, at: &StepAt, role_path: &Value, kind: StepInputKind) -> Value {
+        step_driver_input(
+            self.input,
+            at.index,
+            &at.label,
+            self.is_last(at),
+            role_path,
+            &at.context,
+            kind,
+        )
     }
 
     /// The `effect/failed` payload for a step: its problem, and the sites
     /// that failed to start.
-    fn failed_payload(&self, at: &StepAt, problem: &str, start_failures: Vec<Site>) -> Value {
+    fn failed_payload(&self, at: &StepAt, problem: &str, start_failures: &[Site]) -> Value {
         let mut payload = json!({
             "effect_id": self.effect_id,
             "attempt_id": self.attempt_id,
             "error": format!("sequence step '{}': {problem}", at.step.name),
         });
-        start_failure_fields(&mut payload, self.selection, start_failures);
+        start_failure_fields(&mut payload, self.selection, start_failures.to_vec());
         payload
     }
 
@@ -275,27 +336,17 @@ impl Engine {
         command: &[String],
     ) -> Result<StepRun, EngineError> {
         let site = Some(at.step.name.clone());
-        let mut input = run.driver_input(at, &at.meta["role_path"]);
-        if !run.input["spec_dialect"].is_null() {
-            input["spec_dialect"] = run.input["spec_dialect"].clone();
-        }
-        copy_secret_binding_facts(&mut input, run.input);
+        let input = run.driver_input(at, &at.meta["role_path"], StepInputKind::Model);
         let gate = at.step.class == SeatClass::Gate;
-        let link = run.selection.get(&site);
-        self.marks().site(&at.label, gate, link, &mut input);
-        let hands = self.hands_for(&at.label);
-        let mut spawn = self.compose_at(
-            Some(&at.label),
-            run.attempt_id,
+        let composition = StepComposition {
+            label: &at.label,
+            attempt_id: run.attempt_id,
             gate,
-            argv_for(run.selection, &site, command).to_vec(),
-            hands.as_ref(),
-            link,
-            input["result_path"].as_str().unwrap_or_default(),
-        );
-        let brokers = run.selection.brokers(&at.label);
-        let served = (brokers, hands.as_ref());
-        self.mark_serving(&at.label, link, served, Some(&mut spawn), &mut input);
+            command,
+            site: &site,
+            selection: run.selection,
+        };
+        let (spawn, input) = self.compose_step(composition, input);
         // A sequence step now HAS such an identity: proposed
         // decision 0056 ruling 1 gives it a structural site
         // key, so a work-class step rejoins its own session
@@ -316,19 +367,28 @@ impl Engine {
             DriverRun::SpawnFailed(error) => StepRun {
                 record: None,
                 outcome: AttemptOutcome::Failed { error },
-                start_failures: vec![site],
+                start_failures: vec![Some(at.step.name.clone())],
+                refused: Vec::new(),
                 unproven: Unproven::Proven,
             },
-            DriverRun::Ran(report) => StepRun {
-                record: None,
-                start_failures: if failed_to_start(&report) {
-                    vec![site]
+            DriverRun::Ran(report) => {
+                let start_failures = if failed_to_start(&report) {
+                    vec![Some(at.step.name.clone())]
                 } else {
                     Vec::new()
-                },
-                unproven: Unproven::seat(&report),
-                outcome: tailed_outcome(&report),
-            },
+                };
+                let refused = refused_members(
+                    std::slice::from_ref(&(at.step.name.clone(), report.clone())),
+                    "",
+                );
+                StepRun {
+                    record: None,
+                    start_failures,
+                    refused,
+                    unproven: Unproven::seat(&report),
+                    outcome: tailed_outcome(&report),
+                }
+            }
         })
     }
 
@@ -344,7 +404,7 @@ impl Engine {
         let mut span = PanelSpan::open(&self.repo);
         let tag_prefix = format!("{}:", at.step.name);
         let mut step_input = run.input.clone();
-        step_input["allowed_results"] = run.allowed_results(at).clone();
+        step_input["allowed_results"] = step_allowed_results(run.input, at.index, run.is_last(at));
         let runs = self.member_runs(
             run.attempt_id,
             &at.label,
@@ -368,11 +428,13 @@ impl Engine {
             .then_some(run.selection.carry.as_ref())
             .flatten();
         let start_failures = start_failure_sites(&reports, &tag_prefix);
+        let refused = refused_members(&reports, &tag_prefix);
         let unproven = Unproven::panel(&reports);
         let outcome = outcome_under(aggregate, plan, reports, &record.span, run.attempt_id)?;
         Ok(StepRun {
             record: Some(record),
             start_failures,
+            refused,
             unproven,
             outcome,
         })
@@ -402,14 +464,13 @@ impl Engine {
             .chain(expand_dialect_argv(&execution.argv, change))
             .collect::<Vec<_>>();
         let site = Some(at.step.name.clone());
-        let mut input = run.driver_input(at, &json!(""));
+        let mut input = run.driver_input(at, &json!(""), StepInputKind::Dialect);
         input["dialect_exec"] = json!({
             "success_result": dialect_results(run.phase())[0],
             "failure_result": dialect_results(run.phase())[1],
             "state": execution.state.as_ref().map(|state| expand_dialect_argv(state, change)),
             "change": if change.is_empty() { Value::Null } else { Value::String(change.to_string()) },
         });
-        copy_secret_binding_facts(&mut input, run.input);
         self.mark_hands(&at.label, &mut input);
         // A dialect step composes under a boxed boundary only:
         // the compiler refuses it under `harness` and `open`
@@ -444,6 +505,7 @@ impl Engine {
             record: None,
             outcome: dialect_attempt_outcome(driven, &mut unproven),
             start_failures: Vec::new(),
+            refused: Vec::new(),
             unproven,
         }))
     }
@@ -479,7 +541,7 @@ impl Engine {
         // A step's result the fence refuses (decision 0034, ruling
         // 6) fails the attempt at that step, with the same facts a
         // step that failed on its own would carry.
-        let refused = |refusal: String| run.failed_payload(at, &refusal, start_failures.clone());
+        let refused = |refusal: String| run.failed_payload(at, &refusal, &start_failures);
         if run.is_last(at) {
             self.finish_sequence(run, at, result, carried, refused)
         } else {
@@ -502,11 +564,16 @@ impl Engine {
                 Ok(StepVerdict::Goes(stamp_boundary(result, boundary)))
             }
             AttemptOutcome::Failed { error } => {
-                let mut payload = run.failed_payload(at, &error, ran.start_failures);
+                let mut payload = run.failed_payload(at, &error, &ran.start_failures);
                 if let Some(record) = ran.record {
                     record.stamp(&mut payload);
                 }
-                self.end_failed(run, payload)
+                let terminal = self.step_terminal(run.effect_id, payload, &ran.refused, true)?;
+                let _ = self.end_failed::<()>(run, terminal.payload)?;
+                if let Some(reason) = terminal.park {
+                    self.park_with_reason(reason)?;
+                }
+                Ok(StepVerdict::Ended)
             }
             AttemptOutcome::Indeterminate { reason } => {
                 let mut payload = json!(Indeterminate {
@@ -518,9 +585,10 @@ impl Engine {
                 if let Some(record) = ran.record {
                     record.stamp(&mut payload);
                 }
+                let terminal = self.step_terminal(run.effect_id, payload, &ran.refused, false)?;
                 self.append(
                     EventType::EffectIndeterminate,
-                    payload,
+                    terminal.payload,
                     Some(run.attempt_id.to_owned()),
                 )
                 .map(|_| StepVerdict::Ended)
@@ -540,7 +608,7 @@ impl Engine {
         start_failures: &[Site],
     ) -> Result<StepVerdict<()>, EngineError> {
         if let Some(problem) = vocabulary_problem(at.step, result) {
-            return self.end_failed(run, run.failed_payload(at, &problem, Vec::new()));
+            return self.end_failed(run, run.failed_payload(at, &problem, &[]));
         }
         // A deterministic dialect check's failure is recorded before any
         // ending is decided, so an early ending passes the same
@@ -683,7 +751,7 @@ impl Engine {
                 "why": why,
             }),
             run.attempt_id,
-            |refusal| run.failed_payload(at, &refusal, start_failures.to_vec()),
+            |refusal| run.failed_payload(at, &refusal, start_failures),
         )?;
         Ok(StepVerdict::Ended)
     }
@@ -722,71 +790,5 @@ impl Engine {
             Some(run.attempt_id.to_string()),
         )
         .map(|_| StepVerdict::Ended)
-    }
-}
-
-/// A step driver's outcome, its failure or indeterminate reason with the
-/// driver's stderr tail beside it: the tail rides on the attempt's
-/// terminal event, as a single seat's does. It reads the settled outcome
-/// (#403): a step whose tree is not proven over is indeterminate.
-fn tailed_outcome(report: &AttemptReport) -> AttemptOutcome {
-    let tail = stderr_tail(&report.stderr);
-    match report.settled_outcome() {
-        AttemptOutcome::Succeeded { result } => AttemptOutcome::Succeeded { result },
-        AttemptOutcome::Failed { error } => AttemptOutcome::Failed {
-            error: format!("{error}; stderr tail: {tail}"),
-        },
-        AttemptOutcome::Indeterminate { reason } => AttemptOutcome::Indeterminate {
-            reason: format!("{reason}; stderr tail: {tail}"),
-        },
-    }
-}
-
-/// Whether a dialect step's argv or state names `{change}`.
-pub(crate) fn needs_change(execution: &DialectExecution) -> bool {
-    execution
-        .argv
-        .iter()
-        .chain(execution.state.iter().flatten())
-        .any(|token| token.contains("{change}"))
-}
-
-/// What is wrong with a step's result against its own vocabulary, if
-/// anything.
-fn vocabulary_problem(step: &SequenceStep, result: &Value) -> Option<String> {
-    match result.get("result").and_then(Value::as_str) {
-        None => Some("has no 'result' string".to_string()),
-        Some(word) if !step.results.iter().any(|allowed| allowed == word) => Some(format!(
-            "reported '{word}', outside its declared results {:?}",
-            step.results
-        )),
-        Some(_) => None,
-    }
-}
-
-pub(super) fn nearest_change(context: &Value) -> Option<String> {
-    crate::phase_name::CHANGE_SOURCES.iter().find_map(|phase| {
-        context
-            .pointer(&format!("/results/{phase}/inputs/change"))
-            .and_then(Value::as_str)
-            .map(str::to_string)
-    })
-}
-
-pub(super) fn expand_dialect_argv(argv: &[String], change: &str) -> Vec<String> {
-    argv.iter()
-        .map(|token| token.replace("{change}", change))
-        .collect()
-}
-
-/// A dialect step's outcome, and into `evidence` what its terminal event
-/// carries when its tree is not proven over (#403).
-pub(super) fn dialect_attempt_outcome(run: DriverRun, evidence: &mut Unproven) -> AttemptOutcome {
-    match run {
-        DriverRun::SpawnFailed(error) => AttemptOutcome::Failed { error },
-        DriverRun::Ran(report) => {
-            *evidence = Unproven::seat(&report);
-            report.settled_outcome()
-        }
     }
 }

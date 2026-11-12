@@ -64,8 +64,15 @@ fn a_lock_that_cannot_be_taken_parks_naming_the_reservation() {
     let (repo, at) = planted(&host, &work, "run-a");
     let _held = taken(&host.root().join(LOCK));
     let deadline = Instant::now() + Duration::from_millis(50);
-    let refused = settle_orphaned(&host.root, [&repo, "run-a"], &[], &[wait()], deadline)
-        .expect_err("a held lock was passed over");
+    let refused = settle_orphaned(
+        &host.root,
+        [&repo, "run-a"],
+        "work",
+        &[],
+        &[wait()],
+        deadline,
+    )
+    .expect_err("a held lock was passed over");
     assert!(
         matches!(refused.held.as_ref(), Held::Unreadable { .. }),
         "{refused:?}"
@@ -87,7 +94,7 @@ fn a_reservation_that_does_not_read_parks_naming_where_it_stands() {
     let work = host.worktree("work");
     let (repo, at) = planted(&host, &work, "run-a");
     std::fs::write(&at, "not a reservation").unwrap();
-    let refused = settle_orphaned(&host.root, [&repo, "run-a"], &[], &[wait()], soon())
+    let refused = settle_orphaned(&host.root, [&repo, "run-a"], "work", &[], &[wait()], soon())
         .expect_err("a malformed reservation was passed over");
     assert!(
         matches!(refused.held.as_ref(), Held::Unreadable { .. }),
@@ -115,7 +122,7 @@ fn a_release_that_cannot_be_sealed_parks_naming_the_attempt() {
     reserved.drivers.push(driver);
     std::fs::write(&at, serde_json::to_vec(&held).unwrap()).unwrap();
     LATE.set(Some(Late::FailCommitted));
-    let refused = settle_orphaned(&host.root, [&repo, "run-a"], &[], &[wait()], soon())
+    let refused = settle_orphaned(&host.root, [&repo, "run-a"], "work", &[], &[wait()], soon())
         .expect_err("a seal that could not commit was passed over");
     assert!(
         matches!(refused.held.as_ref(), Held::Unsealed { attempt, .. } if attempt == "a1"),
@@ -136,7 +143,7 @@ fn a_worktree_that_does_not_resolve_parks_without_a_reservation() {
     std::fs::remove_dir_all(worktree(&engine)).unwrap();
     let observed = observed().expect("a coordinated host");
     let refused = engine
-        .recovered_probe(&[], &[wait()], &observed)
+        .recovered_probe("work", &[], &[wait()], &observed)
         .expect_err("a vanished worktree found a reservation");
     assert!(
         matches!(refused.held.as_ref(), Held::Unlocated(_)),
@@ -207,4 +214,135 @@ fn a_vanished_worktree_leaves_the_probe_admission_its_own_refusal() {
         probe_admission(&mut engine, &observed),
         Err(Unadmitted::Identity(Unknown::Worktree))
     );
+}
+
+/// A wait at `site` the cleanup refusal may name.
+#[cfg(target_os = "linux")]
+fn wait_at(site: &str, provider: &str, route: &str) -> brokkr_core::ProviderWait {
+    let mut named = wait();
+    named.site = Some(site.into());
+    named.provider = provider.into();
+    named.route = route.into();
+    named
+}
+
+/// The reservation `run` of `work` with one standing attempt `a1` whose
+/// drivers are `sites`, each not proven settled: the crashed probe a cleanup
+/// refusal names.
+#[cfg(target_os = "linux")]
+fn standing_with(host: &Host, work: &Path, run: &str, sites: &[&str]) -> (String, PathBuf) {
+    let (repo, at) = planted(host, work, run);
+    let mut held: Reservation = serde_json::from_slice(&std::fs::read(&at).unwrap()).unwrap();
+    let reserved = held.attempts.get_mut("a1").unwrap();
+    for site in sites {
+        reserved.drivers.push(Driver {
+            site: (*site).into(),
+            begun: None,
+            cleanup: Witnessed::Settling,
+        });
+    }
+    std::fs::write(&at, serde_json::to_vec(&held).unwrap()).unwrap();
+    (repo, at)
+}
+
+/// The chief's colon-member case: `b` and `x:b` both suffix-match the
+/// reserved driver `work:x:b` under the old rule, and the cleanup refusal
+/// then named claude/first — the wrong member's provider and route. Exact
+/// member identity names codex/second, the route the reserved driver ran.
+#[cfg(target_os = "linux")]
+#[test]
+fn chief_colon_member_cleanup_names_the_reserved_route() {
+    let host = Host::new();
+    let work = host.worktree("work");
+    let (repo, _at) = standing_with(&host, &work, "run-a", &["work:x:b"]);
+    let waits = [
+        wait_at("b", "claude", "first"),
+        wait_at("x:b", "codex", "second"),
+    ];
+    let refused = settle_orphaned(&host.root, [&repo, "run-a"], "work", &[], &waits, soon())
+        .expect_err("an unsettled driver was passed over");
+    assert_eq!(refused.provider.as_deref(), Some("codex"), "{refused:?}");
+    assert_eq!(refused.route.as_deref(), Some("second"), "{refused:?}");
+    assert!(refused.to_string().contains("codex/second"), "{refused}");
+}
+
+/// The chief's site-less case: a single seat's site-less wait is `<seat>`
+/// alone, so it never names the unrelated reserved driver `work:x:b`; the
+/// cleanup refusal stays neutral instead of borrowing claude/first.
+#[cfg(target_os = "linux")]
+#[test]
+fn chief_siteless_wait_does_not_name_an_unrelated_reserved_route() {
+    uncased_cleanup("work:x:b", &[wait()]);
+}
+
+/// The cleanup refusal of a run whose one standing driver is
+/// `driver_site`, read against `waits`.
+#[cfg(target_os = "linux")]
+fn cased_cleanup(label: &str, driver_site: &str, waits: &[brokkr_core::ProviderWait]) {
+    let host = Host::new();
+    let work = host.worktree("work");
+    let (repo, _at) = standing_with(&host, &work, "run-a", &[driver_site]);
+    let refused = settle_orphaned(&host.root, [&repo, "run-a"], label, &[], waits, soon())
+        .expect_err("an unsettled driver was passed over");
+    assert_eq!(refused.provider.as_deref(), Some("claude"), "{refused:?}");
+    assert_eq!(refused.route.as_deref(), Some("first"), "{refused:?}");
+    assert!(refused.to_string().contains("claude/first"), "{refused}");
+}
+
+/// A selector-cased single seat's site-less wait still names its own
+/// reserved route: the driver is `work:fast`, and the wait is `<seat>`'s.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_cased_seats_siteless_wait_names_its_reserved_route() {
+    cased_cleanup("work:fast", "work:fast", &[wait()]);
+}
+
+/// A selector-cased single step's wait still names its own reserved route:
+/// the driver is `work:fast:draft`, and the wait is `draft`'s.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_cased_steps_wait_names_its_reserved_route() {
+    cased_cleanup(
+        "work:fast",
+        "work:fast:draft",
+        &[wait_at("draft", "claude", "first")],
+    );
+}
+
+/// The cleanup refusal of an uncased seat whose one standing driver is
+/// `driver_site`, read against `waits`: nothing matches, so the refusal
+/// stays neutral rather than borrowing a route.
+#[cfg(target_os = "linux")]
+fn uncased_cleanup(driver_site: &str, waits: &[brokkr_core::ProviderWait]) {
+    let host = Host::new();
+    let work = host.worktree("work");
+    let (repo, _at) = standing_with(&host, &work, "run-a", &[driver_site]);
+    let refused = settle_orphaned(&host.root, [&repo, "run-a"], "work", &[], waits, soon())
+        .expect_err("an unsettled driver was passed over");
+    assert_eq!(refused.provider, None, "{refused:?}");
+    assert_eq!(refused.route, None, "{refused:?}");
+    let said = refused.to_string();
+    assert!(
+        said.contains("a cool-down probe did not prove its process tree gone"),
+        "{said}"
+    );
+    assert!(!said.contains("claude/first"), "{said}");
+}
+
+/// The chief's first case: an uncased seat's wait at `draft` does not name
+/// a driver at `work:review:draft`, where `review` is a step segment, not
+/// a selector case. The cleanup refusal stays neutral.
+#[cfg(target_os = "linux")]
+#[test]
+fn chief_uncased_seat_does_not_name_a_wait_beyond_its_label() {
+    uncased_cleanup("work:review:draft", &[wait_at("draft", "claude", "first")]);
+}
+
+/// The chief's second case: an uncased seat's site-less wait does not name
+/// a driver at `work:b`; the refusal stays neutral instead of borrowing
+/// claude/first.
+#[cfg(target_os = "linux")]
+#[test]
+fn chief_uncased_seat_siteless_wait_does_not_name_a_cased_driver() {
+    uncased_cleanup("work:b", &[wait()]);
 }

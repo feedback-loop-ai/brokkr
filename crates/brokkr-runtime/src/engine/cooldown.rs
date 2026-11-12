@@ -34,7 +34,7 @@ pub(in crate::engine) use probe::cleanup_failure;
 use probe::Probe;
 
 mod sites;
-pub(in crate::engine) use sites::refused_members;
+pub(in crate::engine) use sites::{refused_members, RefusedMember};
 
 /// One slice of an in-process wait: the wait re-reads the run's journal
 /// after each, so an operator `stop` is honoured within a second.

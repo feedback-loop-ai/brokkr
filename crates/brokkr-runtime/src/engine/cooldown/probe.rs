@@ -6,24 +6,33 @@
 
 use std::time::{Duration, Instant};
 
+use brokkr_core::envelope::EventType;
 use brokkr_core::fold::RunState;
 use brokkr_core::{EventEnvelope, ProbeAnswer, ProviderWait};
 use brokkr_protocol::hands::HandsSpec;
 use brokkr_protocol::{AttemptOutcome, AttemptReport, Cleanup, RefusalClass};
-use serde_json::Value;
+use serde_json::{Map, Value};
 use uuid::Uuid;
 
 use super::{terminal, Engine, EngineError};
 use crate::agents::Candidate;
-use crate::bundle::{Aggregate, ExecutableBody, Invocation, PanelMember, Seat, ENGINE_VERSION};
+use crate::bundle::{
+    Aggregate, ExecutableBody, Invocation, PanelMember, Seat, SeatClass, SequenceStep, StepBody,
+    ENGINE_VERSION,
+};
 use crate::engine::broker::{observed, settlement};
+use crate::engine::carry::record::Tag;
 use crate::engine::dispatch::Dispatch;
+use crate::engine::sequence::{
+    step_allowed_results, step_driver_input, StepComposition, StepInputKind,
+};
 use crate::engine::{chain_index, phase_of, spawn_site, Door, Selection, Site, SiteSpawn};
 
 /// The seat a probe composes under, selected once: the body's form, the
 /// case and site label, and the gate class. One selection serves both the
 /// single seat's probe and a panel member's, so neither reads the seat's
 /// body its own way.
+#[derive(Clone)]
 struct ProbeSeat {
     seat: Seat,
     case: Option<String>,
@@ -32,22 +41,54 @@ struct ProbeSeat {
     form: ProbeForm,
 }
 
+/// One sited probe's common facts: the journal the refused attempt stands
+/// in, the run state, the effect and seat, the wait, and the seat's
+/// selected body.
+struct ProbeSite<'a> {
+    events: &'a [EventEnvelope],
+    state: &'a RunState,
+    effect_id: &'a str,
+    seat: &'a str,
+    wait: &'a ProviderWait,
+    picked: &'a ProbeSeat,
+}
+
 /// The selected body in the shape the probe composes.
+#[derive(Clone)]
 enum ProbeForm {
     Single(Vec<Candidate>),
     Panel(Vec<PanelMember>, Aggregate),
-    Other,
+    Sequence(Vec<SequenceStep>),
 }
 
-impl ProbeSeat {
-    fn of(seat: &Seat, name: &str, strategy: Option<&str>) -> ProbeSeat {
-        let (body, case) = seat
+impl Engine {
+    /// The selected site label (`<seat>` or `<seat>:<case>`) this run's
+    /// strategy names, as every attempt and probe composes it: the exact
+    /// identity a cleanup refusal matches a reserved driver by (decision
+    /// 0103 ruling 4).
+    pub(in crate::engine) fn selected_label(&self, seat: &str, strategy: Option<&str>) -> String {
+        let case = self.bundle.seats[seat]
+            .body
+            .selected(strategy)
+            .and_then(|(_, case)| case);
+        site_name(seat, case)
+    }
+
+    /// The seat a probe composes under, selected once: the body's form, the
+    /// case, and the gate class. Its label is [`Engine::selected_label`]'s,
+    /// the one derivation a cleanup refusal matches a reserved driver by
+    /// (decision 0103 ruling 4; ruling 5).
+    fn probe_seat(&self, seat: &str, strategy: Option<&str>) -> ProbeSeat {
+        let site = self.selected_label(seat, strategy);
+        let seat_def = &self.bundle.seats[seat];
+        let (body, case) = seat_def
             .body
             .selected(strategy)
             .expect("seat input resolved the selector");
         let case = case.map(str::to_string);
-        let site = site_name(name, case.as_deref());
-        let gate = seat.body.selected_is_gate(strategy, seat.has_gate());
+        let gate = seat_def
+            .body
+            .selected_is_gate(strategy, seat_def.has_gate());
         let form = match body {
             ExecutableBody::Invocation(Invocation::Single { candidates, .. }) => {
                 ProbeForm::Single(candidates.clone())
@@ -55,10 +96,10 @@ impl ProbeSeat {
             ExecutableBody::Invocation(Invocation::Panel { members, aggregate }) => {
                 ProbeForm::Panel(members.clone(), *aggregate)
             }
-            ExecutableBody::Sequence { .. } => ProbeForm::Other,
+            ExecutableBody::Sequence { steps } => ProbeForm::Sequence(steps.to_vec()),
         };
         ProbeSeat {
-            seat: seat.clone(),
+            seat: seat_def.clone(),
             case,
             site,
             gate,
@@ -161,15 +202,17 @@ impl Engine {
         seat: &str,
         wait: &ProviderWait,
     ) -> Result<Probe, EngineError> {
-        let picked = ProbeSeat::of(&self.bundle.seats[seat], seat, state.strategy.as_deref());
-        let ProbeForm::Single(candidates) = &picked.form else {
-            return Ok(Probe::Parked(format!(
-                "no cool-down probe for {}/{}: a wait is recorded at a body that is not a \
-                 single seat",
-                wait.provider, wait.route
-            )));
+        let picked = self.probe_seat(seat, state.strategy.as_deref());
+        let candidates = match &picked.form {
+            ProbeForm::Single(candidates) => candidates.clone(),
+            _ => {
+                return Ok(Probe::Parked(format!(
+                    "no cool-down probe for {}/{}: a wait is recorded at a body that is not a \
+                     single seat",
+                    wait.provider, wait.route
+                )))
+            }
         };
-        let candidates = candidates.clone();
         let mut selection = Selection::new();
         if !candidates.is_empty() {
             let index = refused_index(events, effect_id, &None, candidates.len());
@@ -201,12 +244,10 @@ impl Engine {
         self.settle_probe(probe)
     }
 
-    /// The cooled panel member's own one-turn probe (decision 0103 ruling
-    /// 4(a), slice 4c2a): its own command and candidates, the link the
-    /// refusal named, and its model pin, effort, boundary and credential
-    /// facts, composed through [`Engine::member_runs`] for that one member —
-    /// never the single seat's composition. It is admitted and settled
-    /// without provisioning, as the single seat's probe is.
+    /// A cooled site-tagged wait's own one-turn probe: a seat-level panel
+    /// member's through [`Engine::member_runs`] (decision 0103 slice 4c2a),
+    /// and a sequence step's or step member's through the step's own
+    /// composition (slice 4c2b).
     pub(super) fn probe_member(
         &mut self,
         events: &[EventEnvelope],
@@ -216,61 +257,273 @@ impl Engine {
         wait: &ProviderWait,
         member: &str,
     ) -> Result<Probe, EngineError> {
-        let picked = ProbeSeat::of(&self.bundle.seats[seat], seat, state.strategy.as_deref());
-        let ProbeForm::Panel(members, aggregate) = &picked.form else {
-            return Ok(Probe::Parked(format!(
+        let picked = self.probe_seat(seat, state.strategy.as_deref());
+        match &picked.form {
+            ProbeForm::Panel(members, aggregate) => {
+                let Some(member_def) = members.iter().find(|candidate| candidate.name == member)
+                else {
+                    return Ok(Probe::Parked(format!(
+                        "no cool-down probe for {}/{}: the panel declares no member {member}",
+                        wait.provider, wait.route
+                    )));
+                };
+                let tag = Some(member_def.name.clone());
+                let (selection, one) =
+                    probe_member_invocation(events, effect_id, tag, member_def, *aggregate);
+                let body = ExecutableBody::Invocation(&one);
+                // A member's own site label is `<seat>:<member>`; the
+                // one-member body makes the claim's writer walk produce
+                // exactly that.
+                let prepared = match self.admit_probe(
+                    events,
+                    state,
+                    effect_id,
+                    wait,
+                    (&picked, body),
+                    &selection,
+                )? {
+                    Ok(prepared) => prepared,
+                    Err(parked) => return Ok(parked),
+                };
+                let runs = self.member_runs(
+                    &prepared.attempt,
+                    &picked.site,
+                    std::slice::from_ref(member_def),
+                    &prepared.input["members"],
+                    &prepared.input,
+                    &prepared.input["context"],
+                    &selection,
+                    "",
+                    picked.gate,
+                );
+                let run = &runs[0];
+                // `member_runs` derives this member's own driver seat, which
+                // its door, `effect/started` and settlement record all name.
+                let at = Self::probe_dispatch(
+                    effect_id,
+                    &prepared.attempt,
+                    seat,
+                    &run.driver_seat,
+                    &picked,
+                    body,
+                );
+                let probe =
+                    self.spawn_probe(&at, &run.spawn, run.input.clone(), prepared.deadline, wait);
+                self.settle_probe(probe)
+            }
+            ProbeForm::Sequence(steps) => {
+                let at = ProbeSite {
+                    events,
+                    state,
+                    effect_id,
+                    seat,
+                    wait,
+                    picked: &picked,
+                };
+                self.probe_sequence_site(&at, steps, member)
+            }
+            ProbeForm::Single(_) => Ok(Probe::Parked(format!(
                 "no cool-down probe for {}/{}: member {member} stands at a body that is not a \
-                 panel",
+                 panel or a sequence",
                 wait.provider, wait.route
+            ))),
+        }
+    }
+
+    /// A sequence site's own probe: the step a `<step>` wait names, or the
+    /// member a `<step>:<member>` wait names, composed on the step's own
+    /// body — never the single seat's composition (decision 0103 slice
+    /// 4c2b).
+    fn probe_sequence_site(
+        &mut self,
+        at: &ProbeSite<'_>,
+        steps: &[SequenceStep],
+        site: &str,
+    ) -> Result<Probe, EngineError> {
+        let Some((index, step, member)) = step_site(steps, site) else {
+            return Ok(Probe::Parked(format!(
+                "no cool-down probe for {}/{}: the sequence declares no step at {site}",
+                at.wait.provider, at.wait.route
+            )));
+        };
+        match member {
+            None => self.probe_step_single(at, steps, index, step),
+            Some(member) => self.probe_step_member(at, steps, index, step, member),
+        }
+    }
+
+    /// Admit a sequence site's probe body under `at`: the one call both a
+    /// step's probe and a step member's take.
+    fn admit_site(
+        &mut self,
+        at: &ProbeSite<'_>,
+        picked: &ProbeSeat,
+        body: ExecutableBody<'_>,
+        selection: &Selection,
+    ) -> Result<Result<AdmittedProbe, Probe>, EngineError> {
+        self.admit_probe(
+            at.events,
+            at.state,
+            at.effect_id,
+            at.wait,
+            (picked, body),
+            selection,
+        )
+    }
+
+    /// Admit a sequence site's probe body and derive the facts both a step's
+    /// probe and a step member's share: the admitted attempt, whether the
+    /// step is final, and the step's attempt-time context.
+    fn admit_step(
+        &mut self,
+        at: &ProbeSite<'_>,
+        index: usize,
+        steps: &[SequenceStep],
+        picked: &ProbeSeat,
+        body: ExecutableBody<'_>,
+        selection: &Selection,
+    ) -> Result<Result<(AdmittedProbe, bool, Value), Probe>, EngineError> {
+        let prepared = match self.admit_site(at, picked, body, selection)? {
+            Ok(prepared) => prepared,
+            Err(parked) => return Ok(Err(parked)),
+        };
+        let last = index + 1 == steps.len();
+        let context = step_context(at.events, at.effect_id, &prepared.input);
+        Ok(Ok((prepared, last, context)))
+    }
+
+    /// A `<step>` wait's probe: the step's own command, the link the refusal
+    /// named, and its model pin, effort, boundary and credential facts,
+    /// through the same composition the step's attempt used.
+    fn probe_step_single(
+        &mut self,
+        at: &ProbeSite<'_>,
+        steps: &[SequenceStep],
+        index: usize,
+        step: &SequenceStep,
+    ) -> Result<Probe, EngineError> {
+        let StepBody::Invocation(Invocation::Single {
+            command,
+            candidates,
+            ..
+        }) = &step.body
+        else {
+            return Ok(Probe::Parked(format!(
+                "no cool-down probe for {}/{}: step {} is not a single driver",
+                at.wait.provider, at.wait.route, step.name
+            )));
+        };
+        let driver_seat = format!("{}:{}", at.picked.site, step.name);
+        let tag = Some(step.name.clone());
+        let mut selection = Selection::new();
+        if !candidates.is_empty() {
+            let index = refused_index(at.events, at.effect_id, &tag, candidates.len());
+            selection.insert(tag.clone(), candidates[index].clone());
+        }
+        let one = std::slice::from_ref(step);
+        let body = ExecutableBody::Sequence { steps: one };
+        let (prepared, last, context) =
+            match self.admit_step(at, index, steps, at.picked, body, &selection)? {
+                Ok(admitted) => admitted,
+                Err(parked) => return Ok(parked),
+            };
+        let input = step_driver_input(
+            &prepared.input,
+            index,
+            &driver_seat,
+            last,
+            &prepared.input["steps"][index]["role_path"],
+            &context,
+            StepInputKind::Model,
+        );
+        let composition = StepComposition {
+            label: &driver_seat,
+            attempt_id: &prepared.attempt,
+            gate: step.class == SeatClass::Gate,
+            command,
+            site: &tag,
+            selection: &selection,
+        };
+        let (spawn, input) = self.compose_step(composition, input);
+        let dispatch = Self::probe_dispatch(
+            at.effect_id,
+            &prepared.attempt,
+            at.seat,
+            &driver_seat,
+            at.picked,
+            body,
+        );
+        let probe = self.spawn_probe(&dispatch, &spawn, input, prepared.deadline, at.wait);
+        self.settle_probe(probe)
+    }
+
+    /// A `<step>:<member>` wait's probe: that member through
+    /// [`Engine::member_runs`] with the step's members and its `<step>:`
+    /// prefix, never the seat-level panel's composition.
+    fn probe_step_member(
+        &mut self,
+        at: &ProbeSite<'_>,
+        steps: &[SequenceStep],
+        index: usize,
+        step: &SequenceStep,
+        member: &str,
+    ) -> Result<Probe, EngineError> {
+        let StepBody::Invocation(Invocation::Panel { members, aggregate }) = &step.body else {
+            return Ok(Probe::Parked(format!(
+                "no cool-down probe for {}/{}: step {} is not a panel",
+                at.wait.provider, at.wait.route, step.name
             )));
         };
         let Some(member_def) = members.iter().find(|candidate| candidate.name == member) else {
             return Ok(Probe::Parked(format!(
-                "no cool-down probe for {}/{}: the panel declares no member {member}",
-                wait.provider, wait.route
+                "no cool-down probe for {}/{}: step {} declares no member {member}",
+                at.wait.provider, at.wait.route, step.name
             )));
         };
-        let tag = Some(member_def.name.clone());
-        let mut selection = Selection::new();
-        if !member_def.candidates.is_empty() {
-            let index = refused_index(events, effect_id, &tag, member_def.candidates.len());
-            selection.insert(tag, member_def.candidates[index].clone());
-        }
-        let one = Invocation::Panel {
-            members: vec![member_def.clone()],
-            aggregate: *aggregate,
-        };
+        let tag_prefix = format!("{}:", step.name);
+        let tag = Some(Tag::prefixed(&tag_prefix, &member_def.name).0);
+        let (selection, one) =
+            probe_member_invocation(at.events, at.effect_id, tag, member_def, *aggregate);
         let body = ExecutableBody::Invocation(&one);
-        // A member's own site label is `<seat>:<member>`; the one-member
-        // body makes the claim's writer walk produce exactly that.
-        let prepared =
-            match self.admit_probe(events, state, effect_id, wait, (&picked, body), &selection)? {
-                Ok(prepared) => prepared,
+        // The one-member body is anchored at the step's own driver site, so
+        // the claim's writer walk seals `work:<step>:<member>` exactly.
+        let driver_seat = format!("{}:{}", at.picked.site, step.name);
+        let mut picked = at.picked.clone();
+        picked.site = driver_seat.clone();
+        let (prepared, last, context) =
+            match self.admit_step(at, index, steps, &picked, body, &selection)? {
+                Ok(admitted) => admitted,
                 Err(parked) => return Ok(parked),
             };
+        let mut step_input = prepared.input.clone();
+        step_input["allowed_results"] = step_allowed_results(&prepared.input, index, last);
         let runs = self.member_runs(
             &prepared.attempt,
-            &picked.site,
+            &driver_seat,
             std::slice::from_ref(member_def),
-            &prepared.input["members"],
-            &prepared.input,
-            &prepared.input["context"],
+            &step_input["steps"][index]["members"],
+            &step_input,
+            &context,
             &selection,
-            "",
-            picked.gate,
+            &tag_prefix,
+            step.class == SeatClass::Gate,
         );
         let run = &runs[0];
-        // `member_runs` derives this member's own driver seat, which its
-        // door, `effect/started` and settlement record all name.
-        let at = Self::probe_dispatch(
-            effect_id,
+        let dispatch = Self::probe_dispatch(
+            at.effect_id,
             &prepared.attempt,
-            seat,
+            at.seat,
             &run.driver_seat,
-            &picked,
+            at.picked,
             body,
         );
-        let probe = self.spawn_probe(&at, &run.spawn, run.input.clone(), prepared.deadline, wait);
+        let probe = self.spawn_probe(
+            &dispatch,
+            &run.spawn,
+            run.input.clone(),
+            prepared.deadline,
+            at.wait,
+        );
         self.settle_probe(probe)
     }
 
@@ -378,6 +631,109 @@ impl Engine {
             )),
         }
     }
+}
+
+/// The sequence step and member a wait's site names. An exact step name is
+/// a single step; otherwise a member is resolved by the declared
+/// `(<step>, <member>)` pair, so a wait at `a:b:c` is `a:b`'s member `c`
+/// even when `a` also declares a member `b:c`. The prefix walk that follows
+/// is only for the diagnostic a site naming neither: exact first, so a step
+/// whose own name contains a colon is not mistaken for a member of an
+/// earlier one.
+fn step_site<'a>(
+    steps: &'a [SequenceStep],
+    site: &'a str,
+) -> Option<(usize, &'a SequenceStep, Option<&'a str>)> {
+    if let Some((index, step)) = steps.iter().enumerate().find(|(_, step)| step.name == site) {
+        return Some((index, step, None));
+    }
+    if let Some((index, step, member)) = declared_member(steps, site) {
+        return Some((index, step, Some(member)));
+    }
+    steps.iter().enumerate().find_map(|(index, step)| {
+        site.strip_prefix(&format!("{}:", step.name))
+            .map(|member| (index, step, Some(member)))
+    })
+}
+
+/// The step and member whose declared tag is exactly `site`, in declaration
+/// order.
+fn declared_member<'a>(
+    steps: &'a [SequenceStep],
+    site: &str,
+) -> Option<(usize, &'a SequenceStep, &'a str)> {
+    steps.iter().enumerate().find_map(|(index, step)| {
+        let StepBody::Invocation(Invocation::Panel { members, .. }) = &step.body else {
+            return None;
+        };
+        members
+            .iter()
+            .find(|member| Tag::new(Some(&step.name), &member.name).0 == site)
+            .map(|member| (index, step, member.name.as_str()))
+    })
+}
+
+/// The context a step's attempt had: the seat's context with the earlier
+/// steps' checkpointed results of the failed attempt beside it, so the
+/// probe's input derives exactly as the attempt's did (decision 0103 slice
+/// 4c2b).
+pub(super) fn step_context(events: &[EventEnvelope], effect_id: &str, seat_input: &Value) -> Value {
+    let mut context = seat_input["context"]
+        .as_object()
+        .cloned()
+        .unwrap_or_default();
+    let attempt = terminal(events, effect_id)
+        .and_then(|event| event.payload.get("attempt_id"))
+        .and_then(Value::as_str);
+    let mut prior = Map::new();
+    for event in events {
+        if event.event_type != EventType::EffectCheckpointed
+            || event.payload.get("effect_id").and_then(Value::as_str) != Some(effect_id)
+            || attempt.is_some_and(|attempt| {
+                event.payload.get("attempt_id").and_then(Value::as_str) != Some(attempt)
+            })
+        {
+            continue;
+        }
+        let Some(checkpoint) = event.payload.get("checkpoint") else {
+            continue;
+        };
+        if checkpoint.get("step").and_then(Value::as_str) != Some("sequence-step-finished") {
+            continue;
+        }
+        let (Some(name), Some(result)) = (
+            checkpoint.get("step_name").and_then(Value::as_str),
+            checkpoint.get("result"),
+        ) else {
+            continue;
+        };
+        prior.insert(name.to_string(), result.clone());
+    }
+    context.insert("prior_results".into(), Value::Object(prior));
+    Value::Object(context)
+}
+
+/// The selection and one-member body a panel member's probe admits: its
+/// own candidates, the link the refusal named, and the tag the journal
+/// names it by. A seat-level member and a sequence step's member take this
+/// one composition.
+fn probe_member_invocation(
+    events: &[EventEnvelope],
+    effect_id: &str,
+    tag: Option<String>,
+    member: &PanelMember,
+    aggregate: Aggregate,
+) -> (Selection, Invocation) {
+    let mut selection = Selection::new();
+    if !member.candidates.is_empty() {
+        let index = refused_index(events, effect_id, &tag, member.candidates.len());
+        selection.insert(tag, member.candidates[index].clone());
+    }
+    let one = Invocation::Panel {
+        members: vec![member.clone()],
+        aggregate,
+    };
+    (selection, one)
 }
 
 /// The chain link the refused attempt used: the start failures recorded

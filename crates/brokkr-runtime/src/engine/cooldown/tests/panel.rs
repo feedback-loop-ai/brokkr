@@ -28,7 +28,7 @@ fn panel_of(members: Vec<PanelMember>) -> SeatBody {
 }
 
 /// One panel member resolved to `candidates`, its own command never used.
-fn member(name: &str, candidates: Vec<Candidate>) -> PanelMember {
+pub(super) fn member(name: &str, candidates: Vec<Candidate>) -> PanelMember {
     PanelMember {
         name: name.into(),
         role_path: "role.md".into(),
@@ -514,7 +514,7 @@ fn started_payloads(engine: &Engine) -> Vec<Value> {
 }
 
 /// The newest terminal event a panel journaled.
-fn last_terminal(engine: &Engine) -> EventEnvelope {
+pub(super) fn last_terminal(engine: &Engine) -> EventEnvelope {
     engine
         .store
         .load(&engine.run_id)
@@ -712,7 +712,7 @@ fn a_succeeded_member_beside_a_refused_one_re_runs_on_the_retry() {
 
 /// A member whose first attempt is indeterminate and whose second succeeds:
 /// the operator retry's own case.
-fn indeterminate_once(dir: &Path, tag: &str) -> Vec<String> {
+pub(super) fn indeterminate_once(dir: &Path, tag: &str) -> Vec<String> {
     let count = dir.join(format!("{tag}.count")).display().to_string();
     let log = dir.join(format!("{tag}.log")).display().to_string();
     let glog = dir.join("all.log").display().to_string();
