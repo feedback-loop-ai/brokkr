@@ -214,12 +214,16 @@ jobs:
           - os: macos-latest
             machine: macos/4
     runs-on: ${{ fromJSON(matrix.os == 'ubuntu-latest' && vars.BROKKR_LOCAL_CI == 'true' && github.event_name != 'merge_group' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && '["self-hosted", "Linux", "X64", "brokkr-engine"]' || format('["{0}"]', matrix.os == 'ubuntu-latest' && 'ubuntu-24.04' || matrix.os)) }}
-    # 45, not the usual 20 (operator rulings 2026-10-09 to 2026-11-01): a
-    # machine's shards took about 20 minutes on a hosted runner, and its
-    # build and setup 3 to 5, and a slow hosted runner is a third slower.
-    # One runner running every shard took 57 minutes and was cancelled at
-    # 75 on a slow one (#940).
-    timeout-minutes: 45
+    # 45 on Linux and 60 on macOS, not the usual 20 (operator rulings
+    # 2026-10-09 to 2026-11-01, and 2026-11-11 for macOS): a machine's
+    # shards took about 20 minutes on a hosted runner, and its build and
+    # setup 3 to 5, and a slow hosted runner is a third slower. One runner
+    # running every shard took 57 minutes and was cancelled at 75 on a slow
+    # one (#940). On 2026-11-11 macos/1 ran past 45 twice in the merge
+    # queue, on runners GitHub named as under capacity constraints, so
+    # macOS's limit is 60 and its shards are rebalanced
+    # (scripts/test-shards.sh).
+    timeout-minutes: ${{ matrix.os == 'macos-latest' && 60 || 45 }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
