@@ -38,6 +38,15 @@ fn on_hands(dump: &str, line: &str) -> String {
     mutated
 }
 
+/// Replace the measured `tool-bash` row with its id and name followed by
+/// `body`, so a test plants a block exactly as a composed tree carries it.
+fn tool_bash_row(dump: &str, body: &str) -> String {
+    let row = format!("- id: tool-bash\n  name: '@deepseek-ai/dsh-tool-bash'\n{body}");
+    let mutated = dump.replacen(TOOL_BASH, &row, 1);
+    assert_ne!(mutated, dump, "the fixture names tool-bash");
+    mutated
+}
+
 /// C1 (HIGH, security): the hands row's `disabled:` is admitted only when
 /// it is absent or exactly `false` after the ASCII trim. A Unicode space is
 /// not trimmed, so the padded word is not `false` and the judge's
@@ -259,6 +268,180 @@ fn the_s7_shapes_on_another_row_refuse() {
     assert!(refused.is_empty(), "{refused:?}");
 }
 
+/// F1 (HIGH, security): a quoted scalar in an unread block must close on
+/// its own line, because a YAML reader lets it carry the row's following
+/// keys away as its content. In each form the block's next `disabled:` is
+/// swallowed by the quote PyYAML and js-yaml read, so the tree must refuse
+/// `Unreadable` rather than admit a row the reader then enables.
+#[test]
+fn an_unread_block_refuses_a_quoted_scalar_that_does_not_close() {
+    let dump = policy_dump();
+    for (what, body) in [
+        (
+            "a double quote in config",
+            "  config:\n    k: \"x\n  disabled: true\n  # \"\n",
+        ),
+        (
+            "a single quote in config",
+            "  config:\n    x: 'open\n  disabled: true\n  # '\n",
+        ),
+        (
+            "a backslash-continued double quote",
+            "  config:\n    k: \"x\\\n  disabled: true\n  # \"\n",
+        ),
+        (
+            "a quote in an inject list",
+            "  inject:\n    - 'x\n  disabled: true\n  # '\n",
+        ),
+        (
+            "a quote across a later key",
+            "  config:\n    k: \"x\n  disabled: true\n  inject:\n    \"\n",
+        ),
+        (
+            "a quote closed on a column-zero comment",
+            "  config:\n    k: \"x\n  disabled: true\n# \"\n",
+        ),
+    ] {
+        let mutated = tool_bash_row(&dump, body);
+        assert_eq!(
+            gate(mutated, Release::V0_2_1, Mode::ReadOnly),
+            Err(Composition::Unreadable),
+            "{what}"
+        );
+    }
+}
+
+/// F1: the policy row's `inject:` and the preceding `sandbox` row's
+/// `config:` are unread blocks too. A quote there swallows the real policy
+/// row's keys in a YAML reader, so both refuse; the mode the gate would
+/// read is never the mode the seat runs under.
+#[test]
+fn a_quote_in_the_policy_or_preceding_sandbox_block_refuses() {
+    let dump = policy_dump();
+    let configured = "  config:\n    mode: read-only\n";
+    let injected = "  inject:\n    - \"x\n  config:\n    mode: read-only\n  # \"\n";
+    let policy = dump.replacen(configured, injected, 1);
+    assert_ne!(policy, dump, "the fixture names the policy row");
+    assert_eq!(
+        gate(policy, Release::V0_2_1, Mode::ReadOnly),
+        Err(Composition::Unreadable),
+        "a quote in the policy inject block"
+    );
+
+    let sandbox = "- id: sandbox\n  name: '@deepseek-ai/dsh-sandbox-local'\n";
+    let opened = format!("{sandbox}  config:\n    k: \"x\n");
+    let preceding = dump.replacen(sandbox, &opened, 1);
+    assert_ne!(preceding, dump, "the fixture names the sandbox row");
+    let preceding = preceding.replacen(configured, &format!("{configured}# \"\n"), 1);
+    assert_eq!(
+        gate(preceding, Release::V0_2_1, Mode::ReadOnly),
+        Err(Composition::Unreadable),
+        "a quote opened in the preceding sandbox row"
+    );
+}
+
+/// F1: a flow collection in an unread block must be empty. A collection
+/// left open is read by js-yaml with lenient indentation, so a sequence or
+/// mapping that continues over the row's keys refuses `Unreadable`, at a
+/// value and at a sequence item.
+#[test]
+fn an_unread_block_refuses_an_open_flow_collection() {
+    let dump = policy_dump();
+    for (what, body) in [
+        (
+            "an open flow sequence",
+            "  config:\n    k: [a,\n  disabled: true\n  inject:\n    ]\n",
+        ),
+        (
+            "an open flow mapping",
+            "  config:\n    k: {a: b,\n  disabled: true\n  inject:\n    }\n",
+        ),
+        ("a flow sequence item", "  config:\n    - [a]\n"),
+        ("a flow mapping item", "  config:\n    - {a: b}\n"),
+    ] {
+        let mutated = tool_bash_row(&dump, body);
+        assert_eq!(
+            gate(mutated, Release::V0_2_1, Mode::ReadOnly),
+            Err(Composition::Unreadable),
+            "{what}"
+        );
+    }
+}
+
+/// F1: an anchor, an alias, an explicit key, a directive, a reserved
+/// indicator and a block-scalar indentation indicator are not lines
+/// js-yaml's dump writes, so each refuses `Unreadable`. So do the tab and
+/// double-space separators a lenient reader takes for structure: js-yaml
+/// reads `k:\t"x` and `k:  "x` as an open quoted value, so the gate does
+/// not carry either as a plain scalar.
+#[test]
+fn an_unread_block_refuses_every_other_non_dump_line() {
+    let dump = policy_dump();
+    for (what, body) in [
+        ("an anchor value", "  config:\n    k: &a value\n"),
+        ("an alias value", "  config:\n    k: *a\n"),
+        ("an anchor item", "  config:\n    - &a value\n"),
+        ("an alias item", "  config:\n    - *a\n"),
+        ("a literal indicator", "  config:\n    k: |2\n      text\n"),
+        ("a folded indicator", "  config:\n    k: >1-\n      text\n"),
+        ("an explicit key", "  config:\n    ? disabled\n"),
+        ("a directive", "  config:\n    %YAML 1.2\n"),
+        ("a reserved indicator", "  config:\n    @reserved\n"),
+        ("a backquote", "  config:\n    `reserved\n"),
+        ("a tag with no space", "  config:\n    k: !!js'x'\n"),
+        ("a tab after a key's colon", "  config:\n    k:\t\"x\n"),
+        ("a tab after a sequence marker", "  config:\n    -\t'x\n"),
+        ("a bare sequence marker", "  config:\n    -\n"),
+        ("a quoted scalar followed by junk", "  config:\n    'x' y\n"),
+        ("an anchored key", "  config:\n    &a key: value\n"),
+        ("an empty key", "  config:\n    : value\n"),
+        ("two spaces after a key's colon", "  config:\n    k:  \"x\n"),
+    ] {
+        let mutated = tool_bash_row(&dump, body);
+        assert_eq!(
+            gate(mutated, Release::V0_2_1, Mode::ReadOnly),
+            Err(Composition::Unreadable),
+            "{what}"
+        );
+    }
+}
+
+/// F1: every dump line an unread block may carry is admitted. A balanced
+/// quoted value and key, a tagged single-quoted value, a plain scalar with
+/// an apostrophe and a double quote, empty flow collections, and `>-` block
+/// scalars at a value and a sequence item are admitted. The scalar content
+/// holds an open quote and an open bracket and a blank line, and the
+/// two-space `inject:` after it is read again: content ends where the dump
+/// returns to the row's level.
+#[test]
+fn an_unread_block_admits_every_dump_line_it_reads() {
+    let dump = policy_dump();
+    let body = concat!(
+        "  config:\n",
+        "    a: \"v\"\n",
+        "    \"b\": v\n",
+        "    c: !!js '!ctx.get(''p'')'\n",
+        "    d: it's a \"quote\"\n",
+        "    h: \"a\\\"b\"\n",
+        "    e: >-\n",
+        "      \"open [\n",
+        "\n",
+        "      ] close\n",
+        "    f: []\n",
+        "    g: {}\n",
+        "    z:\n",
+        "  inject:\n",
+        "    - '-I'\n",
+        "    - >-\n",
+        "      'open [\n",
+        "  disabled: true\n",
+    );
+    assert_eq!(
+        gate(tool_bash_row(&dump, body), Release::V0_2_1, Mode::ReadOnly),
+        Ok(())
+    );
+}
+
 /// S7: before the first row only skip lines are admitted. A non-comment
 /// line, and a leading malformed `-   id:` row whose block names the
 /// third sandbox mode, refuse; a leading comment and blank line do not.
@@ -300,8 +483,9 @@ fn a_line_before_the_first_row_that_is_not_a_skip_is_refused() {
 }
 
 /// Rule 4: a row's two-space level is closed. An unknown key, an explicit
-/// `?` key, a flow-style `config:` or `inject:`, and an `inject:` on the
-/// policy row all refuse `Unreadable`.
+/// `?` key, and a flow-style `config:` or `inject:` all refuse
+/// `Unreadable`. The policy row's bare `inject:` is admitted only as its
+/// one measured item, which the next test binds.
 #[test]
 fn an_unadmitted_two_space_key_is_refused() {
     let dump = policy_dump();
@@ -324,28 +508,27 @@ fn an_unadmitted_two_space_key_is_refused() {
 }
 
 /// Rule 5, with the measured 0.2.2-rc.1 shape: the `sandbox-policy` row
-/// carries an `inject:` block (`    - headlessStartup`), which is admitted
-/// and unread like every other row's inject block. Only its `config:`
-/// block is span-read, so a mode-looking line under `inject:` is not the
-/// composed mode.
+/// carries an `inject:` block, and it is admitted only as the one measured
+/// `    - headlessStartup` line, before or after its `config:` block. Any
+/// other line in it refuses `Unreadable`: a mode-looking line, a second
+/// item, a quoted item, a wrongly indented item and an empty block all
+/// refuse, so no policy `inject:` content is admitted unread.
 #[test]
-fn the_policy_inject_block_is_unread() {
+fn the_policy_inject_block_is_only_the_measured_one() {
     let dump = policy_dump();
+    let configured = "  config:\n    mode: read-only\n";
+    let measured = "  inject:\n    - headlessStartup\n";
     for (what, planted) in [
         (
-            "the measured inject list",
-            "  inject:\n    - headlessStartup\n  config:\n    mode: read-only\n",
+            "the measured inject before config",
+            format!("{measured}{configured}"),
         ),
         (
-            "a mode-looking line under inject",
-            "  inject:\n    mode: danger-full-access\n  config:\n    mode: read-only\n",
-        ),
-        (
-            "an inject block after config",
-            "  config:\n    mode: read-only\n  inject:\n    - headlessStartup\n",
+            "the measured inject after config",
+            format!("{configured}{measured}"),
         ),
     ] {
-        let mutated = dump.replacen("  config:\n    mode: read-only\n", planted, 1);
+        let mutated = dump.replacen(configured, &planted, 1);
         assert_ne!(mutated, dump, "{what}");
         assert_eq!(
             gate(mutated, Release::V0_2_1, Mode::ReadOnly),
@@ -353,6 +536,57 @@ fn the_policy_inject_block_is_unread() {
             "{what}"
         );
     }
+    for (what, planted) in [
+        (
+            "a mode-looking line under inject",
+            format!("  inject:\n    mode: danger-full-access\n{configured}"),
+        ),
+        (
+            "a second item under inject",
+            format!("  inject:\n    - headlessStartup\n    - extra\n{configured}"),
+        ),
+        (
+            "the measured item twice",
+            format!("  inject:\n    - headlessStartup\n    - headlessStartup\n{configured}"),
+        ),
+        (
+            "a quoted item under inject",
+            format!("  inject:\n    - \"x\n{configured}"),
+        ),
+        (
+            "a wrongly indented measured item",
+            format!("  inject:\n      - headlessStartup\n{configured}"),
+        ),
+        (
+            "an empty inject before config",
+            format!("  inject:\n{configured}"),
+        ),
+        (
+            "an empty inject at the row's end",
+            format!("{configured}  inject:\n"),
+        ),
+        (
+            "a repeated inject",
+            format!("{measured}  inject:\n    - headlessStartup\n{configured}"),
+        ),
+    ] {
+        let mutated = dump.replacen(configured, &planted, 1);
+        assert_ne!(mutated, dump, "{what}");
+        assert_eq!(
+            gate(mutated, Release::V0_2_1, Mode::ReadOnly),
+            Err(Composition::Unreadable),
+            "{what}"
+        );
+    }
+    // The row's end is the last chance to read the item: a dump whose policy
+    // row closes the dump with an empty inject refuses there too.
+    let minimal = "- id: sandbox-policy\n  name: '@deepseek-ai/dsh-sandbox-policy'\n  \
+                   config:\n    mode: read-only\n  inject:\n";
+    assert_eq!(
+        gate(minimal.into(), Release::V0_2_1, Mode::ReadOnly),
+        Err(Composition::Unreadable),
+        "an empty inject at the end of the dump"
+    );
 }
 
 /// Rule 4: each two-space key is admitted at most once per row, so no
