@@ -773,7 +773,7 @@ fn parse_adapter(
         harness_auth,
         effort_flag,
         digest,
-    } = adapter::settled(map, &credentials, path, &what, &provider)?;
+    } = adapter::settled(map, &credentials, path, &what, &driver)?;
     Ok((
         Adapter {
             provider,

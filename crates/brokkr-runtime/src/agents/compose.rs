@@ -60,25 +60,33 @@ pub(super) fn compose(
     // Decision 0056's 2026-09-14 note as amended by #1052 ask 2: the
     // route overlay its adapter's route declares is composed here, once,
     // after the model pin. A composition that also authored a `--patch`
-    // carries two overlays, which is refused rather than ordered.
-    if let Some(declared) = declared {
+    // carries two overlays, which is refused rather than ordered. The
+    // authored check runs again behind the effort pin and the tools,
+    // because a provider's effort flag or a tool fragment can spell one
+    // too; the declared segment itself is excluded from that second read.
+    let declared_at = if let Some(declared) = declared {
         if let Some(authored) = authored_patch(&segments) {
-            return Err(ResolveError::RouteOverlayConflict {
-                agent: agent.name.clone(),
-                declared: declared.file.clone(),
-                authored,
-            });
+            return Err(conflict(agent, declared, authored));
         }
         let value = declared.patch_value(workdir);
         segments.push(Segment::new(
             Origin::Template,
             &["--patch".to_string(), value],
         ));
-    }
+        Some(segments.len() - 1)
+    } else {
+        None
+    };
 
     let effort = pin_effort(agent, adapter, model, concrete, &mut segments, &mut serving)?;
     let application =
         tool_application(agent, adapter, model, boundary, &mut segments, &mut serving)?;
+
+    if let (Some(at), Some(declared)) = (declared_at, declared) {
+        if let Some(authored) = authored_patch(&segments[at + 1..]) {
+            return Err(conflict(agent, declared, authored));
+        }
+    }
 
     // An agent names no MCP server (decision 0065 ruling 3).
     Ok(Composition {
@@ -90,6 +98,15 @@ pub(super) fn compose(
         template: declared_template(&adapter.driver),
         serving: Box::new(serving),
     })
+}
+
+/// The refusal a seat carrying two overlays earns, naming both.
+fn conflict(agent: &Agent, declared: &DeclaredRouteOverlay, authored: String) -> ResolveError {
+    ResolveError::RouteOverlayConflict {
+        agent: agent.name.clone(),
+        declared: declared.file.clone(),
+        authored,
+    }
 }
 
 /// An authored `--patch` in the composition so far, in any spelling the

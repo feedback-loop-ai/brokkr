@@ -284,7 +284,7 @@ overlay:
 ```json
 {
   "routes": {
-    "dashscope": {
+    "spark-glm": {
       "egress": "local",
       "overlay": {
         "file": "overlays/spark-glm.yml",
@@ -297,12 +297,18 @@ overlay:
 
 `file` is relative to the adapter file's own directory, may hold no `..`
 component, and must resolve — through symlinks — inside that directory to
-a regular file within the route overlay's byte bound. `sha256` must equal
-the file's digest. Only an adapter whose driver admits a route overlay
-may declare one: `dsh` today. An adapter of any other provider refuses at
-load, naming the adapter, the route and the field, never the value.
+a regular file within the route overlay's byte bound. `sha256` must be
+exactly 64 lowercase hexadecimal characters and equal the file's digest.
+Only an adapter whose driver admits a route overlay may declare one: `dsh`
+today. Load refuses, naming the adapter, the route and the field and never
+the value: an unknown route or overlay key; a missing `egress`, `overlay`,
+`file` or `sha256`; an overlay that is not an object; an absolute or `..`
+path; a path that resolves through a symlink outside the adapter's
+directory; a missing file or one naming a directory; an over-bound file; a
+malformed digest or one that differs from the file's; and any adapter
+dispatching a driver other than `dsh`.
 
-The engine composes the declared route's overlays as one `--patch` on a
+The engine composes the declared route's overlay as one `--patch` on a
 seat whose concrete model resolves through that route, spelled relative
 to the run's working directory, and binds it to the declared digest. The
 driver still reads the file once, requires digest equality, validates the

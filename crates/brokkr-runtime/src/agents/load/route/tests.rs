@@ -75,6 +75,11 @@ fn the_object_form_loads_with_a_valid_overlay_and_the_string_form_is_unchanged()
         "adapters/overlays/spark.yml",
         "the composed value is relative to the run's working directory"
     );
+    assert_eq!(
+        overlay.patch_value(Path::new("")),
+        "overlays/spark.yml",
+        "an empty working directory falls back to the adapter-relative spelling"
+    );
 }
 
 #[test]
@@ -202,6 +207,31 @@ fn a_provider_that_does_not_admit_a_route_overlay_refuses() {
 }
 
 #[test]
+fn an_adapter_named_dsh_whose_driver_is_not_dsh_refuses_its_overlay() {
+    // The gate is the DRIVER that reads the overlay, not the provider the
+    // file is named for: a command that dispatches no built-in driver
+    // would be handed a `--patch` it never reads.
+    let tree = Tree::new();
+    write_overlay(&tree, "a: b\n");
+    let digest = sha256_bytes(b"a: b\n");
+    let mut body = dsh_body();
+    body["driver"] = json!(["sh", "-c", "true", "--"]);
+    with_route(
+        &tree,
+        body,
+        json!({"egress": "local", "overlay": declared("overlays/spark.yml", &digest)}),
+    );
+    let error = tree.adapters_error();
+    assert!(error.contains("adapter 'dsh'"), "{error}");
+    assert!(error.contains("routes.spark-glm"), "{error}");
+    assert!(error.contains("dispatches '<custom>'"), "{error}");
+    assert!(
+        !error.contains(&digest),
+        "the refusal names a value: {error}"
+    );
+}
+
+#[test]
 fn the_object_form_requires_its_two_fields_and_reads_the_same_egress_vocabulary() {
     let tree = Tree::new();
     let digest = "a".repeat(64);
@@ -237,11 +267,127 @@ fn the_object_form_requires_its_two_fields_and_reads_the_same_egress_vocabulary(
 fn a_routes_declaration_whose_directory_cannot_be_resolved_refuses() {
     let map = json!({"routes": {"spark": "local"}});
     let absent = Path::new("/nonexistent/forge-1052b/adapters/dsh.json");
-    let error = super::declarations(map.as_object().unwrap(), "adapter 'dsh'", absent, "dsh")
+    let error = super::declarations(map.as_object().unwrap(), "adapter 'dsh'", absent, &[])
         .unwrap_err()
         .to_string();
     assert!(
         error.contains("cannot resolve the adapter file's own directory"),
+        "{error}"
+    );
+}
+
+#[test]
+fn a_malformed_or_uppercase_digest_refuses_naming_the_field() {
+    let tree = Tree::new();
+    write_overlay(&tree, "a: b\n");
+    for malformed in ["abc".to_string(), sha256_bytes(b"a: b\n").to_uppercase()] {
+        with_route(
+            &tree,
+            dsh_body(),
+            json!({"egress": "local", "overlay": declared("overlays/spark.yml", &malformed)}),
+        );
+        let error = tree.adapters_error();
+        assert!(error.contains("routes.spark-glm.overlay.sha256"), "{error}");
+        assert!(
+            error.contains("64-character lowercase hexadecimal"),
+            "{error}"
+        );
+        assert!(
+            !error.contains(&malformed),
+            "the refusal names a value: {error}"
+        );
+    }
+}
+
+#[test]
+fn an_overlay_that_is_not_an_object_or_lacks_a_field_refuses() {
+    let tree = Tree::new();
+    with_route(
+        &tree,
+        dsh_body(),
+        json!({"egress": "local", "overlay": "overlays/spark.yml"}),
+    );
+    let error = tree.adapters_error();
+    assert!(error.contains("overlay' must be a JSON object"), "{error}");
+
+    let tree = Tree::new();
+    with_route(
+        &tree,
+        dsh_body(),
+        json!({"egress": "local", "overlay": {"sha256": "a".repeat(64)}}),
+    );
+    let error = tree.adapters_error();
+    assert!(error.contains("needs a non-empty string 'file'"), "{error}");
+
+    let tree = Tree::new();
+    write_overlay(&tree, "a: b\n");
+    with_route(
+        &tree,
+        dsh_body(),
+        json!({"egress": "local", "overlay": {"file": "overlays/spark.yml"}}),
+    );
+    let error = tree.adapters_error();
+    assert!(
+        error.contains("needs a non-empty string 'sha256'"),
+        "{error}"
+    );
+}
+
+#[test]
+fn a_file_naming_a_directory_refuses() {
+    let tree = Tree::new();
+    std::fs::create_dir_all(tree.root.join("adapters/overlays/spark.yml")).unwrap();
+    with_route(
+        &tree,
+        dsh_body(),
+        json!({"egress": "local", "overlay": declared("overlays/spark.yml", &"a".repeat(64))}),
+    );
+    refusal(&tree, "routes.spark-glm.overlay.file", "overlays/spark.yml");
+}
+
+/// A metadata fault and a read fault each take the shared unreadable
+/// refusal, and an over-bound read takes the bound refusal the metadata
+/// check would have taken. The injected closures stand where the real
+/// `std::fs` calls do; the directory is the adapter's own.
+#[test]
+fn a_metadata_or_read_fault_takes_the_injected_refusal() {
+    fn injected(
+        raw: &Value,
+        directory: &Path,
+        metadata: impl FnOnce(&Path) -> std::io::Result<std::fs::Metadata>,
+        read: impl FnOnce(&Path) -> std::io::Result<Vec<u8>>,
+    ) -> String {
+        super::overlay_declaration_with(
+            raw,
+            "adapter 'dsh'",
+            "spark-glm",
+            directory,
+            metadata,
+            read,
+        )
+        .unwrap_err()
+        .to_string()
+    }
+    let tree = Tree::new();
+    write_overlay(&tree, "a: b\n");
+    let directory = tree.root.join("adapters").canonicalize().unwrap();
+    let raw = json!({"file": "overlays/spark.yml", "sha256": "a".repeat(64)});
+    let fault_metadata = |_: &Path| Err(std::io::Error::from(std::io::ErrorKind::PermissionDenied));
+    let fault_read = |_: &Path| Err(std::io::Error::from(std::io::ErrorKind::PermissionDenied));
+    let error = injected(&raw, &directory, fault_metadata, |path| std::fs::read(path));
+    assert!(
+        error.contains("does not resolve to a readable regular file"),
+        "{error}"
+    );
+    let error = injected(&raw, &directory, |path| std::fs::metadata(path), fault_read);
+    assert!(
+        error.contains("does not resolve to a readable regular file"),
+        "{error}"
+    );
+    let oversized = |_: &Path| Ok(vec![b'x'; 64 * 1024 + 1]);
+    let error = injected(&raw, &directory, |path| std::fs::metadata(path), oversized);
+    assert!(
+        error.contains("past the route overlay's byte bound"),
         "{error}"
     );
 }

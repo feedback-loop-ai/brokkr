@@ -251,7 +251,7 @@ fn an_adapter_step_failing_a_field_and_its_file_reports_the_earlier() {
         &BTreeMap::new(),
         &absent,
         "w",
-        "claude",
+        &[],
     );
     assert_eq!(
         [

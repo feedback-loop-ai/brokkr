@@ -30,6 +30,13 @@ impl DeclaredRouteOverlay {
     /// `workdir` is expected canonical, as `Bundle::compile_as` makes it;
     /// this function reads nothing.
     pub(crate) fn patch_value(&self, workdir: &Path) -> String {
+        // An empty working directory names no tree to be relative to; the
+        // adapter-relative spelling is the fallback, as it is outside the
+        // tree. `strip_prefix("")` would otherwise succeed on an absolute
+        // path and return it with a doubled root.
+        if workdir.as_os_str().is_empty() {
+            return self.file.clone();
+        }
         let relative = self.path.strip_prefix(workdir).ok().and_then(|path| {
             path.components()
                 .map(|component| component.as_os_str().to_str())
@@ -38,4 +45,13 @@ impl DeclaredRouteOverlay {
         });
         relative.unwrap_or_else(|| self.file.clone())
     }
+}
+
+/// Whether one composed segment is the route overlay's `--patch` pair
+/// (#1052 ask 2): exactly the flag and a non-empty value. It is a
+/// template contribution that is neither a model/effort pin nor a
+/// permission control, so the pin checks pass it by; any other shape is
+/// still judged as one of those.
+pub(crate) fn is_patch_pair(argv: &[String]) -> bool {
+    matches!(argv, [flag, value] if flag == "--patch" && !value.is_empty())
 }

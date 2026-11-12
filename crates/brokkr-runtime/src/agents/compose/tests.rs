@@ -27,17 +27,24 @@ fn body(driver: Value, routes: Value) -> Value {
 }
 
 fn tree(adapter: Value, overlay: &str) -> Tree {
+    tree_declaring(adapter, overlay, "dashscope")
+}
+
+fn tree_declaring(adapter: Value, overlay: &str, route: &str) -> Tree {
     let tree = Tree::new();
     std::fs::create_dir_all(tree.root.join("adapters/overlays")).unwrap();
     tree.raw("adapters/overlays/spark.yml", overlay);
     let digest = sha256_bytes(overlay.as_bytes());
     let mut adapter = adapter;
-    adapter["routes"] = json!({
-        "dashscope": {
+    let mut routes = serde_json::Map::new();
+    routes.insert(
+        route.to_string(),
+        json!({
             "egress": "local",
             "overlay": {"file": "overlays/spark.yml", "sha256": digest},
-        },
-    });
+        }),
+    );
+    adapter["routes"] = Value::Object(routes);
     tree.write("adapters/dsh.json", &adapter);
     tree.write(
         "agents/tester.json",
@@ -117,13 +124,25 @@ fn a_seat_on_the_declaring_route_gets_exactly_one_patch() {
 }
 
 #[test]
-fn a_seat_on_another_route_gets_none_even_when_the_name_is_a_prefix() {
-    let tree = tree(
+fn a_seat_on_a_near_named_route_gets_none_because_the_route_is_its_prefix() {
+    // The declared route is `dash`; the pinned concrete id is on
+    // `dashscope`. Decision 0036 ruling 2 splits at the first `/`, so the
+    // lookup asks for `dashscope` and finds nothing — a prefix test would
+    // find `dash` and compose a patch the route never declared.
+    let tree = tree_declaring(
         body(json!(["{brokkr}", "driver", "dsh", "--"]), json!({})),
         "a: b\n",
+        "dash",
     );
-    let argv = composed(&tree, "dash/qwen3.8-max");
+    let argv = composed(&tree, "dashscope/qwen3.8-max");
     assert!(patches(&argv).is_empty(), "{argv:?}");
+    // The same adapter composes on the route it actually declares.
+    let argv = composed(&tree, "dash/qwen3.8-max");
+    assert_eq!(
+        patches(&argv),
+        vec!["adapters/overlays/spark.yml"],
+        "{argv:?}"
+    );
 }
 
 #[test]
@@ -204,4 +223,24 @@ fn an_equals_joined_authored_patch_is_named_whole_in_the_refusal() {
     let error = conflict_error(&tree);
     let message = error.to_string();
     assert!(message.contains("--patch=authored.yml"), "{message}");
+}
+
+#[test]
+fn an_effort_flag_that_spells_patch_is_the_second_overlay_and_refuses() {
+    // The authored check runs again behind the effort pin: a provider
+    // whose declared effort flag is `--patch` composes a second overlay
+    // there, which the refusal names whole rather than leaving the seat
+    // to bind nothing and fail at start.
+    let mut adapter = body(json!(["{brokkr}", "driver", "dsh", "--"]), json!({}));
+    adapter["effort_flag"] = json!("--patch");
+    let tree = tree(adapter, "a: b\n");
+    let error = conflict_error(&tree);
+    assert_eq!(
+        error,
+        ResolveError::RouteOverlayConflict {
+            agent: "tester".into(),
+            declared: "overlays/spark.yml".into(),
+            authored: "--patch high".into(),
+        }
+    );
 }

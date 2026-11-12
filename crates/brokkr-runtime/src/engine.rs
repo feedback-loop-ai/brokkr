@@ -2174,6 +2174,7 @@ impl SiteSpawn {
                             .iter()
                             .filter(|segment| {
                                 segment.origin == Origin::Template
+                                    && !crate::agents::is_patch_pair(&segment.argv)
                                     && pin_fault(&driver.argv, &segment.argv).is_some()
                             })
                             .flat_map(|segment| segment.argv.iter()),

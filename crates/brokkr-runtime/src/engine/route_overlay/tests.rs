@@ -50,6 +50,15 @@ fn a_route_overlay_binding_refuses_a_resolved_path_that_is_not_a_regular_file() 
     bundle.manifest["files"]["as-directory"] = json!("a".repeat(64));
     let command = vec!["--patch".to_string(), "as-directory".to_string()];
     assert!(super::route_overlay_binding(&bundle, &command, dir.path(), None).is_none());
+
+    // The declaration's own path is a directory: resolution and
+    // containment both hold, so only the regular-file guard withholds it.
+    let declared = DeclaredRouteOverlay {
+        file: "as-directory".into(),
+        path: dir.path().join("as-directory").canonicalize().unwrap(),
+        sha256: "a".repeat(64),
+    };
+    assert!(super::route_overlay_binding(&bundle, &command, dir.path(), Some(&declared)).is_none());
 }
 
 #[test]
@@ -95,9 +104,28 @@ fn a_library_outside_the_working_directory_binds_nothing() {
     let declared = declared(library.path(), "overlays/spark.yml", "a: b\n");
     let bundle = bundle(run.path(), single_body(vec!["missing-driver".into()]));
     let command = vec!["--patch".to_string(), "overlays/spark.yml".to_string()];
+    let binds =
+        |workdir: &Path| super::route_overlay_binding(&bundle, &command, workdir, Some(&declared));
     assert!(
-        super::route_overlay_binding(&bundle, &command, run.path(), Some(&declared)).is_none(),
+        binds(run.path()).is_none(),
         "a file outside the run's tree has no working-directory-relative value"
+    );
+    // A link out of the run tree resolves to the declared file but lies
+    // outside workdir: the containment guard withholds the binding.
+    std::os::unix::fs::symlink(library.path().join("overlays"), run.path().join("overlays"))
+        .unwrap();
+    assert!(
+        binds(run.path()).is_none(),
+        "a symlink out of the run tree has no binding"
+    );
+    // A same-spelled file in the run tree is a lookalike, not the declared
+    // file: the path equality guard withholds the binding.
+    std::fs::remove_file(run.path().join("overlays")).unwrap();
+    std::fs::create_dir_all(run.path().join("overlays")).unwrap();
+    std::fs::write(run.path().join("overlays/spark.yml"), "a: b\n").unwrap();
+    assert!(
+        binds(run.path()).is_none(),
+        "a lookalike is not the declared file"
     );
 }
 

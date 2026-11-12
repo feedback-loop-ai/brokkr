@@ -80,6 +80,7 @@ mod recipes;
 mod rename_guard;
 mod research_registry;
 mod retired_overrides;
+mod route_overlay_driver;
 mod run_it_tests;
 mod script_gates;
 mod seat_items;

@@ -302,11 +302,11 @@ pub(super) fn settled(
     credentials: &BTreeMap<String, String>,
     path: &Path,
     what: &str,
-    provider: &str,
+    driver: &[String],
 ) -> Result<Settled, LibraryError> {
     let trust_tier = trust_tier(map, what)?;
     let egress = adapter_egress(map, what)?;
-    let route::Declared { routes, overlays } = route::declarations(map, what, path, provider)?;
+    let route::Declared { routes, overlays } = route::declarations(map, what, path, driver)?;
     Ok(Settled {
         trust_tier,
         egress,

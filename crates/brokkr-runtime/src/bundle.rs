@@ -1442,6 +1442,14 @@ fn refuse_permission_pins(
         if pin.origin != brokkr_protocol::native_controls::Origin::Template {
             continue;
         }
+        // #1052 ask 2: the route overlay its adapter's route declares is a
+        // template contribution that is neither a pin nor a permission
+        // control. The composition emits exactly one `--patch` pair, and
+        // the two-overlay refusal above guarantees no authored one stands
+        // beside it, so the candidate's own argv names it.
+        if is_declared_route_overlay(&pin.argv, candidate) {
+            continue;
+        }
         if let Some(fault) = pin_fault(&segments[0].argv, &pin.argv) {
             return Err(CompileError::Invalid(format!(
                 "seat '{what}': the '{provider}' adapter's composition carries a template \
@@ -1454,6 +1462,15 @@ fn refuse_permission_pins(
         }
     }
     Ok(())
+}
+
+/// Whether `argv` is the one `--patch` pair a composition carrying a
+/// declared route overlay emitted (#1052 ask 2), which no pin/permission
+/// check owns.
+fn is_declared_route_overlay(argv: &[String], candidate: &crate::agents::Candidate) -> bool {
+    candidate.route_overlay.is_some()
+        && crate::agents::is_patch_pair(argv)
+        && candidate.argv.windows(2).any(|pair| pair == argv)
 }
 
 /// A site's decision-0021 class, as written. ABSENT is `Work`: the

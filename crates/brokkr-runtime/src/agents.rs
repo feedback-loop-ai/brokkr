@@ -57,7 +57,7 @@ pub use load::{resolve_route, valid_name, Adapters, Library, LibraryError, NAME_
 pub(crate) use mcp::Uncarried;
 pub use mcp::{McpAxis, McpError, McpHands, McpHost, McpInvocation, McpIsolation, McpMeasurement};
 pub use mcp::{McpRefusal, McpShape, McpSupport, McpUnmeasured};
-pub(crate) use route::DeclaredRouteOverlay;
+pub(crate) use route::{is_patch_pair, DeclaredRouteOverlay};
 
 /// What this machine knows about a provider. Absent entries are
 /// `Unknown`, which is the only arm compile ever sees.
@@ -1322,9 +1322,9 @@ pub(crate) fn report_narrowed(
 /// [`report_narrowed`] with the run's working directory: a route whose
 /// adapter declares an overlay composes the `--patch` value relative to
 /// it. Compilation passes the canonical run directory; a caller with no
-/// run passes the empty path, under which no declared overlay composes a
-/// resolvable value and the driver refuses the seat rather than binding
-/// something outside its tree.
+/// run passes the empty path, under which the declaration keeps its
+/// adapter-relative spelling and the driver refuses the seat rather than
+/// binding something outside its tree.
 pub(crate) fn report_narrowed_in(
     library: &Library,
     adapters: &Adapters,
