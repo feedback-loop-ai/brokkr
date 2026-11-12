@@ -2,19 +2,26 @@
 //! ruling 7, slice 4's unit U4): each hearth read over its own journal,
 //! one row at a time, in the order its figure folds.
 //!
-//! A migrated hearth's figures come from [`RowOnly`]; a hearth whose rows
-//! are not ready, a hearth holding a run the whole read could not load or
-//! fold, and a run whose row is behind its head or whose seat facts are
-//! stale, come from [`brokkr_view::WholeRead`] instead (ruling 8). The two
-//! are merged in a figure's own key order, so a group never straddles the
-//! row stream and the runs read whole. A rows-read hearth takes its realm
-//! list and unreadable-run counts from the store's covering index, and
-//! every other keeps the whole read's (decision 0089 ruling A4, slice 4's
-//! unit U3c).
+//! A migrated, ready hearth's figures come from [`RowOnly`]; a hearth whose
+//! rows are not ready, and a run whose row is behind its head or whose seat
+//! facts are stale, come from [`brokkr_view::WholeRead`] instead (ruling
+//! 8). The two are merged in a figure's own key order, so a group never
+//! straddles the row stream and the runs read whole. A rows-read hearth
+//! takes its realm list and unreadable-run counts from the store's covering
+//! index, and every other keeps the whole read's (decision 0089 ruling A4,
+//! slice 4's unit U3c).
 //!
 //! This module reads a migrated journal only; `brokkr-store`'s window
 //! reads are its one source of rows, and nothing here writes (decision
 //! 0014).
+//!
+//! R1's limit (decision 0089 ruling 8's boundary, slice 4's unit U3c2): a
+//! migrated, ready hearth is not loaded run by run, and "unreadable" is
+//! what the store records — the `refused` and `acknowledged` lanes, and a
+//! behind run whose one-run opening refuses, which sends the hearth whole
+//! (U4). A chain broken behind the store's back after its row stood at its
+//! head is out of this path's reach: the row path trusts the row, and the
+//! journal and integrity checks find it (`doctor`, #1000).
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -520,18 +527,21 @@ pub(super) struct HearthSource {
 
 impl HearthSource {
     /// Read one hearth: the whole read for the fields that still need
-    /// every run, and the store's rows when its model is ready. A hearth
-    /// the fleet refused, a hearth holding a run the whole read could not
-    /// load or fold, and any failure on the row path leave the rows
-    /// unread, so the whole read in hand states every figure: a refusal
-    /// never contributes figures, an unreadable run is counted from no
+    /// every run, and the store's rows when its model is ready. Any
+    /// failure on the row path leaves the rows unread, so the whole read
+    /// in hand states every figure: an unreadable run is counted from no
     /// row, and a row read's error never fails the fleet's readout
     /// (decision 0089 rulings 7 and 8).
     ///
-    /// A run the store cannot load reaches the hand-over with no events,
-    /// so its id is not there to exclude from the rows; the whole read is
-    /// the only exact reading left for its hearth, and it already leaves
-    /// that run out.
+    /// A migrated, ready hearth is not loaded run by run (decision 0089
+    /// ruling 8's boundary, slice 4's unit U3c2): its unreadable runs are
+    /// what the store records — the `refused` and `acknowledged` lanes —
+    /// and a behind run whose one-run opening refuses sends the hearth
+    /// whole. A chain broken behind the store's back after its row stood
+    /// at its head is out of this path's reach: the row path trusts the
+    /// row, and the journal and integrity checks find it (#1000). The S2
+    /// guard that read every run whole to decide is gone; a run the
+    /// store cannot load no longer disables its hearth's rows.
     pub(super) fn read(
         grouped: &brokkr_view::AnalyticsHearth<'_>,
         range: brokkr_view::Range,
@@ -541,17 +551,9 @@ impl HearthSource {
         before: Window,
         store: Option<&Store>,
     ) -> HearthSource {
-        let query = Query {
-            hearths: std::slice::from_ref(grouped),
-            range,
-            realm,
-            now,
-        };
-        let whole = brokkr_view::whole_read(&query, window);
-        let ready = store.is_some_and(|store| store.aggregates_ready().unwrap_or(false));
-        let readable = grouped.runs.iter().all(|run| run.state.is_some());
-        let rows = match (ready, store) {
-            (true, Some(store)) if grouped.refusal.is_none() && readable => read_rows(&Rows {
+        let whole = whole_of(grouped, range, realm, now, window);
+        let rows = match store {
+            Some(store) if matches!(store.aggregates_ready(), Ok(true)) => read_rows(&Rows {
                 store,
                 label: grouped.label,
                 configured: grouped.realms,
@@ -567,12 +569,60 @@ impl HearthSource {
         HearthSource { whole, rows }
     }
 
+    /// Read one migrated, ready hearth's rows alone, with no fleet read
+    /// behind it: the caller has already opened the store read-only and
+    /// found its aggregates ready (decision 0089 ruling 8's boundary,
+    /// slice 4's unit U3c2). A refusal is the caller's to answer with the
+    /// whole read; a behind run's one-run opening is still read, and its
+    /// refusal is returned here.
+    pub(super) fn from_store(
+        grouped: &brokkr_view::AnalyticsHearth<'_>,
+        range: brokkr_view::Range,
+        realm: Option<&str>,
+        now: &str,
+        window: Window,
+        before: Window,
+        store: &Store,
+    ) -> Result<HearthSource, brokkr_store::StoreError> {
+        let rows = read_rows(&Rows {
+            store,
+            label: grouped.label,
+            configured: grouped.realms,
+            window,
+            before,
+            realm,
+            range,
+            now,
+        })?;
+        Ok(HearthSource {
+            whole: whole_of(grouped, range, realm, now, window),
+            rows: Some(rows),
+        })
+    }
+
     /// Whether this hearth's figures come from its rows rather than the
     /// whole read in hand: a test asks so a silent fallback cannot hide.
     #[cfg(test)]
     pub(super) fn reads_rows(&self) -> bool {
         self.rows.is_some()
     }
+}
+
+/// The whole read of one hearth, for the caller that holds it whole.
+fn whole_of(
+    grouped: &brokkr_view::AnalyticsHearth<'_>,
+    range: brokkr_view::Range,
+    realm: Option<&str>,
+    now: &str,
+    window: Window,
+) -> WholeRead {
+    let query = Query {
+        hearths: std::slice::from_ref(grouped),
+        range,
+        realm,
+        now,
+    };
+    brokkr_view::whole_read(&query, window)
 }
 
 impl FactSource for HearthSource {

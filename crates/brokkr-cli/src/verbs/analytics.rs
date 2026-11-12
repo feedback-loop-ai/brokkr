@@ -101,36 +101,164 @@ pub(crate) fn printed<T: serde::Serialize>(
 }
 
 /// Every hearth read, quarantining what does not load, and the view
-/// derived over them at `now`: a migrated hearth's figures from its rows,
-/// the rest from today's whole read (decision 0089 ruling 8).
+/// derived over them at `now` (decision 0089 ruling 8).
+///
+/// `derive` decides each hearth before the first fleet read: one whose
+/// store opens read-only and whose aggregates are ready takes its figures,
+/// realms and unreadable counts from the rows, and is never loaded run by
+/// run (U3c2's R1). A hearth that is not migrated, not ready or not
+/// openable keeps today's whole read, so the fleet read is still needed
+/// for it — and for a migrated hearth only when its row path refuses a
+/// read, which falls back to the whole read exactly as U4 built it.
 fn derive(hearths: &[Hearth], range: Range, realm: Option<&str>, now: &str) -> Result<Analytics> {
-    read_hearths(hearths, |grouped| -> Result<Analytics> {
-        let query = Query {
-            hearths: grouped,
+    // The decision is made for every hearth before any fleet read.
+    let stores: Vec<Option<Store>> = hearths
+        .iter()
+        .map(|hearth| Store::open_read_only(&hearth.journal).ok())
+        .collect();
+    let row_stores: Vec<Option<&Store>> = stores
+        .iter()
+        .map(|store| {
+            store
+                .as_ref()
+                .filter(|store| matches!(store.aggregates_ready(), Ok(true)))
+        })
+        .collect();
+    let (labels, journals) = fleet::names(hearths);
+    // The window and the view read the range, realm and clock; the facts
+    // are the sources', so the query carries no hearths.
+    let query = Query {
+        hearths: &[],
+        range,
+        realm,
+        now,
+    };
+    let (window, before) = brokkr_view::windows(&query).map_err(refused)?;
+    let mut sources: Vec<Box<dyn FactSource>> = Vec::with_capacity(hearths.len());
+    for index in 0..hearths.len() {
+        let reading = Reading {
+            hearth: &hearths[index],
+            label: &labels[index],
+            journal: &journals[index],
             range,
             realm,
             now,
+            window,
+            before,
         };
-        let (window, before) = brokkr_view::windows(&query).map_err(refused)?;
-        let stores: Vec<Option<Store>> = hearths
-            .iter()
-            .map(|hearth| Store::open_read_only(&hearth.journal).ok())
-            .collect();
-        let mut sources: Vec<Box<dyn FactSource>> = Vec::new();
-        for index in 0..hearths.len() {
-            sources.push(Box::new(rows::HearthSource::read(
-                &grouped[index],
-                range,
-                realm,
-                now,
-                window,
-                before,
-                stores[index].as_ref(),
-            )));
+        sources.push(Box::new(source_of(&reading, row_stores[index])));
+    }
+    brokkr_view::analytics_with(&brokkr_view::FactUnion::new(sources), &query).map_err(refused)
+}
+
+/// One hearth's read request: the hearth, its label and journal, the
+/// query's range, realm and clock, and the windows a figure folds
+/// (decision 0071 ruling 10's parameter object).
+struct Reading<'a> {
+    hearth: &'a Hearth,
+    label: &'a str,
+    journal: &'a str,
+    range: Range,
+    realm: Option<&'a str>,
+    now: &'a str,
+    window: brokkr_view::Window,
+    before: brokkr_view::Window,
+}
+
+/// One hearth's facts: the rows when its store is ready, the whole read
+/// when it is not, and — for a ready hearth whose row path refuses a read —
+/// the whole read of the fleet read taken then, so a refusal still states
+/// every figure (decision 0089 ruling 8's boundary, U3c2).
+fn source_of(reading: &Reading<'_>, store: Option<&Store>) -> rows::HearthSource {
+    if let Some(store) = store {
+        let empty: [AnalyticsRun<'_>; 0] = [];
+        let grouped = AnalyticsHearth {
+            label: reading.label,
+            realms: &reading.hearth.realms,
+            journal: reading.journal,
+            runs: &empty,
+            refusal: None,
+        };
+        if let Ok(source) = rows::HearthSource::from_store(
+            &grouped,
+            reading.range,
+            reading.realm,
+            reading.now,
+            reading.window,
+            reading.before,
+            store,
+        ) {
+            return source;
         }
-        let source = brokkr_view::FactUnion::new(sources);
-        brokkr_view::analytics_with(&source, &query).map_err(refused)
-    })
+    }
+    whole_source(reading, fleet_read(&reading.hearth.journal))
+}
+
+/// One hearth read whole: the fleet read's runs in the whole read's tie
+/// order (decision 0089 ruling A4), quarantined when the fleet refused the
+/// hearth, and handed to [`rows::HearthSource::read`] with no store, so
+/// every figure is the whole read's.
+fn whole_source(reading: &Reading<'_>, mut read: fleet::HearthRead) -> rows::HearthSource {
+    order(&mut read.runs);
+    let runs: Vec<AnalyticsRun<'_>> = read
+        .runs
+        .iter()
+        .map(|run| AnalyticsRun {
+            events: &run.events,
+            state: run.state.as_ref().ok(),
+        })
+        .collect();
+    let grouped = AnalyticsHearth {
+        label: reading.label,
+        realms: &reading.hearth.realms,
+        journal: reading.journal,
+        runs: &runs,
+        refusal: read.detail.as_deref(),
+    };
+    rows::HearthSource::read(
+        &grouped,
+        reading.range,
+        reading.realm,
+        reading.now,
+        reading.window,
+        reading.before,
+        None,
+    )
+}
+
+/// The fleet read, counted in tests so a migrated, ready hearth's no-run
+/// load can be asserted (decision 0089 ruling 8's boundary, U3c2).
+fn fleet_read(journal: &Path) -> fleet::HearthRead {
+    #[cfg(test)]
+    FLEET_READS.with(|reads| reads.set(reads.get() + 1));
+    fleet::read_journal(journal)
+}
+
+#[cfg(test)]
+std::thread_local! {
+    /// The fleet reads `derive` took on this test's thread.
+    static FLEET_READS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// How many fleet reads `derive` has taken on this thread: a migrated,
+/// ready hearth takes none.
+#[cfg(test)]
+fn fleet_reads() -> usize {
+    FLEET_READS.with(std::cell::Cell::get)
+}
+
+/// Start a test's fleet-read count at zero.
+#[cfg(test)]
+fn reset_fleet_reads() {
+    FLEET_READS.with(|reads| reads.set(0));
+}
+
+/// Put a fleet read's runs in the whole read's tie order (decision 0089
+/// ruling A4): the cut `created_at`, then the run's id.
+fn order(runs: &mut [fleet::ListedRun]) {
+    runs.sort_by(|left, right| {
+        place(&left.created_at, &left.run_id).cmp(&place(&right.created_at, &right.run_id))
+    });
 }
 
 /// The view's refusal in its own words. Both of `derive`'s reads refuse
@@ -159,9 +287,7 @@ pub(crate) fn read_hearths<T>(hearths: &[Hearth], view: impl FnOnce(&[AnalyticsH
     // U3c): two runs listed at one cut `created_at` stand by their id, the
     // order the store's covering realm index states too.
     for hearth in &mut read {
-        hearth.runs.sort_by(|left, right| {
-            place(&left.created_at, &left.run_id).cmp(&place(&right.created_at, &right.run_id))
-        });
+        order(&mut hearth.runs);
     }
     let runs: Vec<Vec<AnalyticsRun>> = read
         .iter()
