@@ -51,6 +51,9 @@ Every `brokkr` verb and argument with its default, and every exit code, as the b
 - [`brokkr watch`](#brokkr-watch): Watch a run live: redraw the graph, seats, last ruling and seat activity whenever the journal head moves; exit when the run reaches a terminal status. Read-only, like every other readout
 - [`brokkr replay`](#brokkr-replay): Rebuild state from the journal twice and verify determinism
 - [`brokkr export`](#brokkr-export): Write the canonical NDJSON journal and pinned manifest
+- [`brokkr evidence`](#brokkr-evidence): List every historical evidence root, or retire one under the admission lock once its evidence is archived or discarded. The sealed retirement sits beside the historical record, which stays (decision 0105)
+- [`brokkr evidence list`](#brokkr-evidence-list): List every historical evidence root: its path, whether it exists, its digest count and bytes, its retirement and its superseded history. A root whose own counts cannot be read still prints, with its problem, and makes the verb exit non-zero after every row
+- [`brokkr evidence retire`](#brokkr-evidence-retire): Retire one historical root, under the admission lock, after archiving its evidence or discarding it
 - [`brokkr backup`](#brokkr-backup): Back up a whole journal — one consistent snapshot taken while writers may run, plus the versioned inventory that declares its boundary and makes the backup complete
 - [`brokkr restore`](#brokkr-restore): Restore a journal backup into a new location, after the inventory, the snapshot's digest, SQLite's integrity, every chain and the counts all pass. It starts nothing
 - [`brokkr import`](#brokkr-import): Adopt an exported run into this journal, byte-identically — the verb paired with `export`. Journals never merge; one run relocates. Nothing lands unless the whole chain verifies, the events fold, the run_id does not already exist here, and the export is not a redacted derivative
@@ -757,6 +760,42 @@ Usage: brokkr export [OPTIONS] --run <RUN>
 | `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
 | `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
 | `--redact` |  |  | Also write a sanitized copy for publishable fixtures — `<run>.redacted.ndjson` and `<run>.redacted.manifest.json` — with every absolute path in event payloads rewritten to a stable placeholder. The verbatim pair is written unchanged; the redacted copy's recorded hashes no longer verify, and its manifest says so |
+
+## brokkr evidence
+
+List every historical evidence root, or retire one under the admission lock once its evidence is archived or discarded. The sealed retirement sits beside the historical record, which stays (decision 0105)
+
+```text
+Usage: brokkr evidence <COMMAND>
+```
+
+## brokkr evidence list
+
+List every historical evidence root: its path, whether it exists, its digest count and bytes, its retirement and its superseded history. A root whose own counts cannot be read still prints, with its problem, and makes the verb exit non-zero after every row
+
+```text
+Usage: brokkr evidence list [OPTIONS]
+```
+
+| Argument | Default | Selector | Description |
+| --- | --- | --- | --- |
+| `--json` |  |  | Print the roots as a JSON array |
+
+## brokkr evidence retire
+
+Retire one historical root, under the admission lock, after archiving its evidence or discarding it
+
+```text
+Usage: brokkr evidence retire [OPTIONS] --root <ROOT> --reason <REASON> <--archived-to <ARCHIVED_TO>|--discarded>
+```
+
+| Argument | Default | Selector | Description |
+| --- | --- | --- | --- |
+| `--root <ROOT>` |  |  | The artifact root the historical record names, as `evidence list` prints it |
+| `--archived-to <ARCHIVED_TO>` |  |  | Archive every artifact into this absent or empty directory, write the inventory last, and keep the root. The destination is resolved by the filesystem, so a link is followed before `..`, and it must resolve outside the coordination root and the root being retired; the resolved path is the one recorded |
+| `--discarded` |  |  | Discard the evidence: remove the artifact root by a walk that follows no link and crosses no filesystem |
+| `--reason <REASON>` |  |  | Why the operator retires it, in their words |
+| `--json` |  |  | Print the retirement as JSON |
 
 ## brokkr backup
 

@@ -478,6 +478,13 @@ pub(super) fn read(digests: &OwnedFd, sha256: &str) -> Result<(File, Vec<u8>), U
     named.then_some((file, bytes)).ok_or(Unread::Corrupt)
 }
 
+/// The artifact root of the run-local directory `run_local`, absolute as
+/// the engine made it: where retained responses stand and what a
+/// historical record or a retirement names (decision 0105 ruling 5).
+pub fn artifact_root(run_local: &Path) -> PathBuf {
+    super::boxed::artifact_root(run_local)
+}
+
 /// The retained response the digest `sha256` names in the run-local
 /// directory `run_local` (CR5; U8g's reader, operator ruling 2026-10-21):
 /// its bytes, verified by `read` in the digests below the artifact root,
@@ -487,7 +494,7 @@ pub(super) fn read(digests: &OwnedFd, sha256: &str) -> Result<(File, Vec<u8>), U
 /// and a root or digests never made means the artifact is missing.
 pub fn retained(run_local: &Path, sha256: &str) -> Result<Vec<u8>, Unread> {
     hex(sha256).then_some(()).ok_or(Unread::Uncontained)?;
-    let root = super::boxed::artifact_root(run_local);
+    let root = artifact_root(run_local);
     let root = opened(openat(CWD, &root, directory(), Mode::empty()), ADMITTED)?;
     let digests = opened(openat(&root, DIGESTS, directory(), Mode::empty()), SHUT)?;
     read(&digests, sha256).map(|(_, bytes)| bytes)

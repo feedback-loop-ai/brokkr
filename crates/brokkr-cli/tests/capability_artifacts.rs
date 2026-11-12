@@ -16,7 +16,7 @@ use brokkr_store::Store;
 use brokkr_view::capability_calls::{NO_RETAINED, UNRECORDED};
 use serde_json::{json, Value};
 
-use crate::boundary_readouts::brokkr;
+use crate::boundary_readouts::{brokkr, brokkr_in};
 
 const DIGEST: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
@@ -207,6 +207,7 @@ fn inspect_tells_a_retained_response_from_one_never_recorded() {
 struct Workspace {
     _dir: tempfile::TempDir,
     root: PathBuf,
+    home: PathBuf,
     db: PathBuf,
     digests: PathBuf,
 }
@@ -221,10 +222,13 @@ impl Workspace {
         let digests = root.join(".brokkr/state/artifacts/sha256");
         let mut made = fs::DirBuilder::new();
         made.recursive(true).mode(0o700).create(&digests).unwrap();
+        let home = root.join("home");
+        made.recursive(true).mode(0o700).create(&home).unwrap();
         let db = root.join("forge.db");
         Workspace {
             _dir: dir,
             root,
+            home,
             db,
             digests,
         }
@@ -262,7 +266,7 @@ impl Workspace {
             "--capability-call",
             call,
         ];
-        brokkr(&self.root, &[&args[..], more].concat())
+        brokkr_in(&self.root, Some(&self.home), &[&args[..], more].concat())
     }
 }
 
@@ -354,6 +358,8 @@ fn inspect_fails_a_readout_its_output_refuses_with_the_cause() {
     let out = std::process::Command::new(env!("CARGO_BIN_EXE_brokkr"))
         .args(args)
         .current_dir(&workspace.root)
+        .env("HOME", &workspace.home)
+        .env("XDG_STATE_HOME", workspace.home.join(".local/state"))
         .stdout(device)
         .output()
         .unwrap();
@@ -501,4 +507,518 @@ fn inspect_opens_a_call_in_the_repository_repo_names() {
         "  --capability-call <CALL_ID>",
     ];
     assert_eq!((out.as_str(), first, ok), ("", required.to_vec(), false));
+}
+
+/// Decision 0105: a historical evidence root retired by `brokkr evidence`,
+/// and the readouts after it. Each host gives itself its own HOME, so no
+/// test reads or writes the host's coordination root.
+struct EvidenceHost {
+    _dir: tempfile::TempDir,
+    home: PathBuf,
+    work: PathBuf,
+    artifacts: PathBuf,
+    digests: PathBuf,
+    db: PathBuf,
+}
+
+impl EvidenceHost {
+    fn new() -> EvidenceHost {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        let home = root.join("home");
+        let work = root.join("work");
+        fs::create_dir_all(work.join(".git")).unwrap();
+        let artifacts = work.join(".brokkr/state/artifacts");
+        let digests = artifacts.join("sha256");
+        let mut made = fs::DirBuilder::new();
+        made.recursive(true).mode(0o700).create(&digests).unwrap();
+        let capabilities = home.join(".local/state/brokkr/capabilities");
+        made.recursive(true)
+            .mode(0o700)
+            .create(&capabilities)
+            .unwrap();
+        let mut options = fs::OpenOptions::new();
+        let opened = options.write(true).create_new(true).mode(0o600);
+        std::io::Write::write_all(
+            &mut opened.open(capabilities.join("admission.lock")).unwrap(),
+            b"",
+        )
+        .unwrap();
+        let db = work.join("forge.db");
+        EvidenceHost {
+            _dir: dir,
+            home,
+            work,
+            artifacts,
+            digests,
+            db,
+        }
+    }
+
+    /// `bytes` published as the digest it names, read-only as the engine
+    /// leaves an artifact.
+    fn publish(&self, bytes: &[u8]) -> String {
+        let sha256 = canonical::sha256_bytes(bytes);
+        let mut options = fs::OpenOptions::new();
+        let opened = options.write(true).create_new(true).mode(0o400);
+        let mut file = opened.open(self.digests.join(&sha256)).unwrap();
+        std::io::Write::write_all(&mut file, bytes).unwrap();
+        sha256
+    }
+
+    /// The historical record the engine would have sealed for `work`.
+    fn record(&self) {
+        self.record_for(&self.work);
+    }
+
+    /// The historical record the engine would have sealed for `work`, any
+    /// worktree of this host.
+    fn record_for(&self, work: &Path) {
+        let artifacts = work.join(".brokkr/state/artifacts");
+        let repo = canonical::sha256_bytes(work.as_os_str().as_encoded_bytes());
+        let key = canonical::sha256_bytes(artifacts.as_os_str().as_encoded_bytes());
+        let at = self
+            .home
+            .join(".local/state/brokkr/capabilities")
+            .join(repo);
+        let mut made = fs::DirBuilder::new();
+        made.recursive(true).mode(0o700).create(&at).unwrap();
+        let mut options = fs::OpenOptions::new();
+        let opened = options.write(true).create_new(true).mode(0o600);
+        let record = json!({"artifacts": artifacts}).to_string();
+        std::io::Write::write_all(
+            &mut opened
+                .open(at.join(format!("historical-{key}.json")))
+                .unwrap(),
+            record.as_bytes(),
+        )
+        .unwrap();
+    }
+
+    /// The retirement's record in the coordination root.
+    fn retirement(&self) -> PathBuf {
+        let repo = canonical::sha256_bytes(self.work.as_os_str().as_encoded_bytes());
+        let key = canonical::sha256_bytes(self.artifacts.as_os_str().as_encoded_bytes());
+        self.home
+            .join(".local/state/brokkr/capabilities")
+            .join(repo)
+            .join(format!("retired-{key}.json"))
+    }
+
+    /// The admission lock's path in the coordination root.
+    fn lock(&self) -> PathBuf {
+        self.home
+            .join(".local/state/brokkr/capabilities/admission.lock")
+    }
+
+    /// A superseded retirement of this host's root, as a later admission
+    /// would have sealed it.
+    fn supersede(&self, run: &str) {
+        let repo = canonical::sha256_bytes(self.work.as_os_str().as_encoded_bytes());
+        let key = canonical::sha256_bytes(self.artifacts.as_os_str().as_encoded_bytes());
+        let at = self
+            .home
+            .join(".local/state/brokkr/capabilities")
+            .join(repo);
+        let record = json!({
+            "retirement": {
+                "artifacts": self.artifacts,
+                "cause": "discarded",
+                "operator": "operator",
+                "reason": "given up",
+                "retired_at": "2026-11-08T00:00:00Z",
+                "engine": "0.13.1",
+            },
+            "superseded_at": "2026-11-09T00:00:00Z",
+            "run": run,
+        });
+        let mut options = fs::OpenOptions::new();
+        let opened = options.write(true).create_new(true).mode(0o600);
+        std::io::Write::write_all(
+            &mut opened
+                .open(at.join(format!("superseded-{key}-1.json")))
+                .unwrap(),
+            record.to_string().as_bytes(),
+        )
+        .unwrap();
+    }
+
+    /// The binary run in `work` with this host's own HOME.
+    fn run(&self, args: &[&str]) -> (String, String, bool) {
+        brokkr_in(&self.work, Some(&self.home), args)
+    }
+
+    /// The `--root` argument: the artifact root as `evidence list` prints it.
+    fn root(&self) -> &str {
+        self.artifacts.to_str().unwrap()
+    }
+
+    /// `brokkr evidence list`, as its JSON array.
+    fn listed(&self) -> Vec<Value> {
+        let (out, err, ok) = self.run(&["evidence", "list", "--json"]);
+        assert!(ok, "{err}");
+        serde_json::from_str(&out).unwrap()
+    }
+
+    /// Retire the host's root into the archive `to` with `reason`.
+    fn retire_archived(&self, to: &Path, reason: &str) -> (String, String, bool) {
+        self.run(&[
+            "evidence",
+            "retire",
+            "--root",
+            self.root(),
+            "--archived-to",
+            to.to_str().unwrap(),
+            "--reason",
+            reason,
+        ])
+    }
+
+    /// `inspect --capability-call` over `run` in this host.
+    fn inspect_call(&self, run: &str, call: &str) -> (String, String, bool) {
+        self.run(&[
+            "inspect",
+            "--run",
+            run,
+            "--db",
+            self.db.to_str().unwrap(),
+            "--capability-call",
+            call,
+        ])
+    }
+}
+
+/// U8g after decision 0105: list prints every root by path, existence and
+/// retirement, `--json` agrees, retiring archives the evidence and writes
+/// the inventory last, and a second retirement refuses.
+#[test]
+fn evidence_lists_archives_and_retires_a_root() {
+    let host = EvidenceHost::new();
+    let sha256 = host.publish(RESPONSE);
+    host.record();
+    let (out, err, ok) = host.run(&["evidence", "list"]);
+    assert!(ok, "{err}");
+    assert!(out.contains(host.root()), "{out}");
+    assert!(
+        out.contains("not retired") && out.contains("exists"),
+        "{out}"
+    );
+    let listed = host.listed();
+    assert_eq!(listed[0]["artifacts"], json!(host.artifacts));
+    assert_eq!(listed[0]["exists"], json!(true));
+    assert_eq!(listed[0]["digests"], json!(1));
+    assert_eq!(listed[0]["bytes"], json!(RESPONSE.len()));
+
+    let to = host.home.join("archive");
+    let (out, err, ok) = host.run(&[
+        "evidence",
+        "retire",
+        "--root",
+        host.root(),
+        "--archived-to",
+        to.to_str().unwrap(),
+        "--reason",
+        "the evidence is archived",
+        "--json",
+    ]);
+    assert!(ok, "{err}");
+    let retired: Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(retired["cause"], json!("archived"));
+    assert_eq!(retired["archive"], json!(to));
+    assert_eq!(retired["reason"], json!("the evidence is archived"));
+    let inventory = fs::read(to.join("inventory.json")).unwrap();
+    assert_eq!(
+        retired["inventory_sha256"],
+        json!(canonical::sha256_bytes(&inventory))
+    );
+    let inventory: Value = serde_json::from_slice(&inventory).unwrap();
+    assert_eq!(inventory["format"], json!("brokkr.evidence-archive.v1"));
+    assert_eq!(inventory["root"], json!(host.artifacts));
+    assert_eq!(inventory["artifacts"][0]["sha256"], json!(sha256));
+    assert_eq!(inventory["artifacts"][0]["bytes"], json!(RESPONSE.len()));
+    assert_eq!(inventory["total_bytes"], json!(RESPONSE.len()));
+
+    let (out, _, ok) = host.run(&["evidence", "list"]);
+    assert!(ok);
+    assert!(out.contains("archived at"), "{out}");
+    let (_, err, ok) = host.run(&[
+        "evidence",
+        "retire",
+        "--root",
+        host.root(),
+        "--discarded",
+        "--reason",
+        "again",
+    ]);
+    assert!(!ok);
+    assert!(err.contains("is already retired"), "{err}");
+}
+
+/// U8g after decision 0105: a discarded root is removed and its response is
+/// named "discarded", never corrupt, in text and JSON.
+#[test]
+fn evidence_discards_a_root_and_inspect_names_it_never_corrupt() {
+    let host = EvidenceHost::new();
+    let sha256 = host.publish(RESPONSE);
+    host.record();
+    plant(
+        &host.db,
+        "discarded",
+        "0.12.0",
+        &[kept("a1:b:1", Some(&sha256))],
+    );
+    let (out, err, ok) = host.run(&[
+        "evidence",
+        "retire",
+        "--root",
+        host.root(),
+        "--discarded",
+        "--reason",
+        "the evidence is given up",
+    ]);
+    assert!(ok, "{err}");
+    assert!(out.contains("discarded"), "{out}");
+    assert!(!host.artifacts.exists(), "the root is removed");
+    assert_eq!(host.listed()[0]["exists"], json!(false));
+    let (out, err, ok) = host.run(&[
+        "inspect",
+        "--run",
+        "discarded",
+        "--db",
+        host.db.to_str().unwrap(),
+        "--capability-call",
+        "a1:b:1",
+    ]);
+    assert!(ok, "{err}");
+    assert!(out.contains("response discarded"), "{out}");
+    assert!(!out.to_lowercase().contains("corrupt"), "{out}");
+    let (out, err, ok) = host.run(&[
+        "inspect",
+        "--run",
+        "discarded",
+        "--db",
+        host.db.to_str().unwrap(),
+        "--capability-call",
+        "a1:b:1",
+        "--json",
+    ]);
+    assert!(ok, "{err}");
+    let printed: Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(printed["retirement"]["cause"], json!("discarded"));
+    assert_eq!(printed["call"]["call_id"], json!("a1:b:1"));
+}
+
+/// U8g after decision 0105: an archived root's response is named with its
+/// archive, and the evidence stands in both places.
+#[test]
+fn evidence_archives_a_root_and_inspect_names_where_it_went() {
+    let host = EvidenceHost::new();
+    let sha256 = host.publish(RESPONSE);
+    host.record();
+    plant(
+        &host.db,
+        "archived",
+        "0.12.0",
+        &[kept("a1:b:1", Some(&sha256))],
+    );
+    let to = host.home.join("archive");
+    let (_, err, ok) = host.retire_archived(&to, "the evidence is archived");
+    assert!(ok, "{err}");
+    let (out, err, ok) = host.inspect_call("archived", "a1:b:1");
+    assert!(ok, "{err}");
+    assert!(
+        out.contains(&format!("response archived at {}", to.display())),
+        "{out}"
+    );
+    assert!(!out.to_lowercase().contains("corrupt"), "{out}");
+    assert!(to.join("inventory.json").exists());
+    assert!(to.join("sha256").join(&sha256).exists());
+    assert!(host.artifacts.join("sha256").join(&sha256).exists());
+}
+
+/// Decision 0105 ruling 2: a destination that holds a file refuses before
+/// anything is written, and a root with no historical record refuses by
+/// name.
+#[test]
+fn evidence_refuses_a_full_destination_and_an_unrecorded_root() {
+    let host = EvidenceHost::new();
+    host.record();
+    let to = host.home.join("full");
+    fs::create_dir(&to).unwrap();
+    fs::write(to.join("file"), b"x").unwrap();
+    let (_, err, ok) = host.retire_archived(&to, "archived");
+    assert!(!ok, "{err}");
+    assert!(err.contains("already holds a file"), "{err}");
+    let (_, err, ok) = host.run(&[
+        "evidence",
+        "retire",
+        "--root",
+        "/no/such/evidence/root",
+        "--discarded",
+        "--reason",
+        "discarded",
+    ]);
+    assert!(!ok);
+    assert!(
+        err.contains("no historical evidence root is recorded"),
+        "{err}"
+    );
+    assert_eq!(host.listed()[0]["retirement"], Value::Null);
+}
+
+/// M4: one bad root hides no other; every row is printed, the bad one
+/// carries its problem, and the verb exits non-zero after printing.
+#[test]
+fn evidence_list_prints_every_root_and_exits_nonzero_after_a_bad_one() {
+    let host = EvidenceHost::new();
+    host.publish(RESPONSE);
+    host.record();
+    let second = host._dir.path().join("second");
+    fs::create_dir_all(second.join(".brokkr/state/artifacts/sha256")).unwrap();
+    let unfinished = second.join(".brokkr/state/artifacts/sha256/unfinished");
+    fs::write(&unfinished, b"x").unwrap();
+    host.record_for(&second);
+    let third = host._dir.path().join("third");
+    fs::create_dir_all(&third).unwrap();
+    host.record_for(&third);
+
+    let (out, err, ok) = host.run(&["evidence", "list"]);
+    assert!(!ok, "a bad root makes the verb exit non-zero: {err}");
+    for at in [
+        host.root(),
+        second.to_str().unwrap(),
+        third.to_str().unwrap(),
+    ] {
+        assert!(out.contains(at), "every root is printed: {at}\n{out}");
+    }
+    assert!(out.contains("problem:"), "{out}");
+    assert!(out.contains(&unfinished.display().to_string()), "{out}");
+
+    let (out, _err, ok) = host.run(&["evidence", "list", "--json"]);
+    assert!(!ok);
+    let rows: Vec<Value> = serde_json::from_str(&out).unwrap();
+    assert_eq!(rows.len(), 3, "every root is in the JSON array");
+    let bad = rows
+        .iter()
+        .find(|row| row["artifacts"] == json!(second.join(".brokkr/state/artifacts")))
+        .unwrap();
+    assert!(bad["problem"]
+        .as_str()
+        .is_some_and(|p| p.contains("unfinished")));
+}
+
+/// M3: a relative `--archived-to` is made absolute before the checks and
+/// the sealed record, as `--root` is.
+#[test]
+fn a_relative_archive_destination_is_recorded_absolute() {
+    let host = EvidenceHost::new();
+    host.publish(RESPONSE);
+    host.record();
+    let (out, err, ok) = host.run(&[
+        "evidence",
+        "retire",
+        "--root",
+        host.root(),
+        "--archived-to",
+        "relative-archive",
+        "--reason",
+        "archived",
+        "--json",
+    ]);
+    assert!(ok, "{err}");
+    let retired: Value = serde_json::from_str(&out).unwrap();
+    let expected = host.work.join("relative-archive");
+    assert_eq!(retired["archive"], json!(expected));
+    assert!(expected.join("inventory.json").exists());
+}
+
+/// L1: a readout on a coordination root with no lock file creates none,
+/// and reads nothing from it.
+#[test]
+fn a_readout_with_no_lock_creates_none() {
+    let host = EvidenceHost::new();
+    let sha256 = host.publish(RESPONSE);
+    host.record();
+    fs::remove_file(host.lock()).unwrap();
+    let (out, err, ok) = host.run(&["evidence", "list", "--json"]);
+    assert!(ok, "{err}");
+    assert_eq!(out.trim(), "[]", "nothing has been written under no lock");
+    assert!(!host.lock().exists(), "the readout created no lock");
+
+    plant(
+        &host.db,
+        "unlocked",
+        "0.12.0",
+        &[kept("a1:b:1", Some(&sha256))],
+    );
+    let (out, err, ok) = host.run(&[
+        "inspect",
+        "--run",
+        "unlocked",
+        "--db",
+        host.db.to_str().unwrap(),
+        "--capability-call",
+        "a1:b:1",
+    ]);
+    assert!(ok, "{err}");
+    assert!(
+        out.contains(String::from_utf8_lossy(RESPONSE).as_ref()),
+        "{out}"
+    );
+    assert!(!host.lock().exists(), "inspect created no lock either");
+}
+
+/// H1: a response retained after the last retirement reads as live
+/// evidence, chosen by the response's own recorded time against
+/// `retired_at`.
+#[test]
+fn inspect_names_a_response_retained_after_a_retirement_as_live() {
+    let host = EvidenceHost::new();
+    let sha256 = host.publish(RESPONSE);
+    host.record();
+    let to = host.home.join("archive");
+    let (_, err, ok) = host.retire_archived(&to, "archived");
+    assert!(ok, "{err}");
+    // The response is recorded after a retirement sealed in the past.
+    let at = host.retirement();
+    let mut sealed: Value = serde_json::from_slice(&fs::read(&at).unwrap()).unwrap();
+    sealed["retired_at"] = json!("2020-01-01T00:00:00Z");
+    fs::write(&at, sealed.to_string()).unwrap();
+    plant(
+        &host.db,
+        "after",
+        "0.12.0",
+        &[kept("a1:b:1", Some(&sha256))],
+    );
+    let (out, err, ok) = host.inspect_call("after", "a1:b:1");
+    assert!(ok, "{err}");
+    assert!(!out.contains("response archived"), "{out}");
+    assert!(
+        out.contains(String::from_utf8_lossy(RESPONSE).as_ref()),
+        "the live bytes are read: {out}"
+    );
+}
+
+/// H1: `evidence list` prints a superseded retirement as the root's
+/// history, in text and JSON.
+#[test]
+fn evidence_list_prints_a_superseded_retirement_as_history() {
+    let host = EvidenceHost::new();
+    host.record();
+    host.supersede("run-a");
+    let (out, err, ok) = host.run(&["evidence", "list"]);
+    assert!(ok, "{err}");
+    assert!(
+        out.contains("superseded on 2026-11-09T00:00:00Z by run 'run-a'"),
+        "{out}"
+    );
+    assert!(out.contains("discarded"), "{out}");
+    let listed = host.listed();
+    let history = listed[0]["history"].as_array().unwrap();
+    assert_eq!(history.len(), 1);
+    assert_eq!(history[0]["run"], json!("run-a"));
+    assert_eq!(
+        history[0]["retirement"]["retired_at"],
+        json!("2026-11-08T00:00:00Z")
+    );
 }

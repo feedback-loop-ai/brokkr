@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 
 use rustix::fs::{
     flock, fstat, fsync, linkat, mkdirat, openat, renameat, unlinkat, AtFlags, FileType,
-    FlockOperation, Mode, OFlags, Stat,
+    FlockOperation, Mode, OFlags, Stat, CWD,
 };
 use rustix::io::Errno;
 use serde::de::DeserializeOwned;
@@ -102,6 +102,17 @@ pub(in crate::engine) struct Root {
     mounts: Mounts,
 }
 
+/// Why the coordination root a readout looks for is not one it may read:
+/// it does not stand, it stands and is not this user's alone, or it cannot
+/// be opened at all — which only its absence is not (decision 0105, the
+/// controller's S2 ruling on #1020).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Existing {
+    Absent,
+    NotAlone,
+    Unreadable(std::io::ErrorKind),
+}
+
 /// Two handles are one root where they were opened at one path.
 impl PartialEq for Root {
     fn eq(&self, other: &Root) -> bool {
@@ -125,6 +136,30 @@ impl Root {
             hook,
             mounts,
         })
+    }
+
+    /// The root under `home` where it already stands, opened and judged
+    /// this user's alone, nothing made: the read a verb that only lists or
+    /// reads a retirement takes, so a readout writes no directory. Absent,
+    /// not this user's alone, and unreadable are told apart, so a readout
+    /// can name the last two as a problem rather than as no history.
+    pub(super) fn existing(home: &Path) -> Result<Root, Existing> {
+        let path = coordination(home);
+        let dir = match openat(CWD, &path, directory(), Mode::empty()) {
+            Ok(dir) => dir,
+            Err(Errno::NOENT) => return Err(Existing::Absent),
+            Err(error) => return Err(Existing::Unreadable(std::io::Error::from(error).kind())),
+        };
+        let stat = fstat(&dir).or(Err(Existing::NotAlone))?;
+        let (hook, mounts) = (unhooked, observed as Mounts);
+        owned(&stat, user(), true)
+            .then_some(Root {
+                dir,
+                path,
+                hook,
+                mounts,
+            })
+            .ok_or(Existing::NotAlone)
     }
 
     /// The root `dir` already opened at `path`, where it is this user's
@@ -222,16 +257,50 @@ pub(super) fn step(
 /// handle is dropped.
 pub(super) fn locked(root: &OwnedFd, deadline: Instant) -> Result<OwnedFd, Unknown> {
     let lock = lock_file::opened(root, LOCK).ok_or(Unknown::Lock)?;
-    // A lock that cannot be taken now, for whatever reason, is waited for
-    // until the deadline, and then refused.
+    taken(&lock, deadline)?;
+    Ok(lock)
+}
+
+/// `lock` taken exclusively before `deadline`: a lock that cannot be taken
+/// now, for whatever reason, is waited for until the deadline, and then
+/// refused.
+fn taken(lock: &OwnedFd, deadline: Instant) -> Result<(), Unknown> {
     loop {
-        if flock(&lock, FlockOperation::NonBlockingLockExclusive).is_ok() {
-            return Ok(lock);
+        if flock(lock, FlockOperation::NonBlockingLockExclusive).is_ok() {
+            return Ok(());
         }
         let left = deadline.saturating_duration_since(Instant::now());
         (!left.is_zero()).then_some(()).ok_or(Unknown::Expired)?;
         std::thread::sleep(left.min(POLL));
     }
+}
+
+/// The admission lock in the protected `root` where it already stands,
+/// held exclusively before `deadline`: nothing made, so a readout creates
+/// no lock. None where no lock file stands: nothing has ever been written
+/// under it, so there is no record to read (decision 0105, L1). A lock
+/// file that is not this user's own regular file of one link refuses as
+/// [`locked`] refuses it, and so does one that cannot be opened for any
+/// reason but its absence (decision 0105, the controller's S2 ruling on
+/// #1020).
+pub(super) fn locked_existing(
+    root: &OwnedFd,
+    deadline: Instant,
+) -> Result<Option<OwnedFd>, Unknown> {
+    let flags = OFlags::RDWR | OFlags::NOFOLLOW | OFlags::CLOEXEC;
+    let lock = match openat(root, LOCK, flags, Mode::empty()) {
+        Ok(lock) => lock,
+        Err(Errno::NOENT) => return Ok(None),
+        Err(_) => return Err(Unknown::Lock),
+    };
+    let single = fstat(&lock).is_ok_and(|stat| {
+        (FileType::from_raw_mode(stat.st_mode) == FileType::RegularFile)
+            & (stat.st_nlink == 1)
+            & lock_file::alone(&stat, user())
+    });
+    single.then_some(()).ok_or(Unknown::Lock)?;
+    taken(&lock, deadline)?;
+    Ok(Some(lock))
 }
 
 /// The record `name` in the directory `dir` at `at`, as it stands

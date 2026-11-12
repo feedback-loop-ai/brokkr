@@ -192,11 +192,19 @@ fn brokkr_bin() -> &'static str {
 /// file of the one test binary reaches the same runner instead of
 /// copying it (#550).
 pub(crate) fn brokkr(dir: &Path, args: &[&str]) -> (String, String, bool) {
-    let out = Command::new(brokkr_bin())
-        .args(args)
-        .current_dir(dir)
-        .output()
-        .unwrap();
+    brokkr_in(dir, None, args)
+}
+
+/// [`brokkr`] with `HOME` set to `home` when one is given, so a test gives
+/// a child its own coordination root without moving the process's.
+pub(crate) fn brokkr_in(dir: &Path, home: Option<&Path>, args: &[&str]) -> (String, String, bool) {
+    let mut command = Command::new(brokkr_bin());
+    command.args(args).current_dir(dir);
+    if let Some(home) = home {
+        command.env("HOME", home);
+        command.env("XDG_STATE_HOME", home.join(".local/state"));
+    }
+    let out = command.output().unwrap();
     (
         String::from_utf8_lossy(&out.stdout).into_owned(),
         String::from_utf8_lossy(&out.stderr).into_owned(),

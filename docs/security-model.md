@@ -438,6 +438,88 @@ cannot be kept from protected evidence or the coordination root". With
 nothing at stake, an unboxed writer is admitted as before (operator
 ruling of 2026-10-29; `engine/broker/exclusion.rs`).
 
+**Retiring a historical root.** An operator retires one historical root,
+once its evidence is archived or given up, with `brokkr evidence retire
+--root <dir> (--archived-to <dir> | --discarded) --reason <words>`
+(decision 0105). The verb runs under the admission lock and checks there,
+before anything is written, that the root has a historical record and no
+retirement, that no standing attempt's artifact root is this one, and that
+no standing attempt's writer can reach it; a root still in use refuses
+"evidence root '<path>' is protected by run '<run>'s standing attempt".
+`--archived-to` takes an absent or empty directory. The destination is made
+absolute and resolved once by the filesystem: the deepest ancestor that
+stands is canonicalized through the links it holds, the components below it
+that do not stand yet are appended one plain name at a time, and a `.` or
+`..` below that ancestor refuses, because nothing can resolve it before what
+it names exists. The resolved path is compared with the canonical
+coordination root and the canonical root being retired: a destination at or
+inside either refuses by name before anything is written, and the resolved
+path, never the spelling, is the one recorded. The archive is then made
+under that resolved directory alone, each directory and file opened or
+created through its descriptor without following a link. It verifies every
+`sha256/<hex>` artifact, copies it, verifies the copy, syncs `sha256/` and
+the archive directory, writes the `brokkr.evidence-archive.v1` inventory
+last, and syncs the archive directory again before the retirement is
+sealed; a digest that does not match refuses with nothing written, because
+archiving it would launder evidence that is not what its name says.
+`--discarded` removes the root, where it stands, by a walk that follows no
+link and crosses no filesystem, and records an already-absent root as
+absent. The sealed `retired-<key>.json` is written only after the archive or
+the discard is complete, beside the historical record, which is never
+deleted. Admission reads a readable retirement as the root no longer
+guarding evidence, so it no longer stakes the host or refuses unboxed
+writers; a retirement that does not read refuses with CR2's cause, never as
+absent and never as retired. Only the coordination root's or the lock file's
+actual absence reads as no history or no lock: any other error opening
+either is named, and a lock that is a directory or a link refuses as
+admission refuses it.
+
+A retirement covers the evidence its root held when it was retired, not
+the root forever. An admission whose attempt protects evidence there again
+seals the retirement into the root's history as
+`superseded-<key>-<n>.json` — the closed retirement nested as `retirement`,
+with `superseded_at` and the superseding `run` beside it, both levels
+refusing a field they do not know — and only then removes
+`retired-<key>.json`, in the same locked step. A refused admission writes
+neither: the supersede happens only after every check has passed. A crash
+between the two leaves both, and the next admission finishes the move
+without a second copy; from then on the root stakes the host again and can
+be retired again. A superseded record that does not read refuses with CR2's
+cause, and a history whose last sequence has no next refuses with its own
+typed cause rather than overflowing.
+
+`brokkr evidence list` prints every root's path, whether it still exists,
+its digest count and bytes, its retirement and its superseded history. One
+root whose own evidence cannot be read still prints its row with that
+problem, and the verb exits non-zero only after every row is printed;
+`brokkr doctor` names that root's problem. Every word either surface prints
+from a root — its path, its current retirement, each history row and its
+problem — is escaped for the terminal, so a reason cannot start or forge a
+line or carry a raw escape. `brokkr doctor` also names an
+absent historical root that is not retired as still staking the host, and
+a coordination root that stands but is not this user's alone. `brokkr
+inspect --capability-call` names a response retained before a retirement,
+current or superseded, as "archived at <dir>" or "discarded", never as
+corrupt, chosen by the response's own recorded time against `retired_at`; a
+response retained after the last retirement reads as live evidence. Nothing
+here offers a way to read archived bytes back.
+
+**Readouts write nothing.** `brokkr evidence list`, `brokkr doctor` and
+`brokkr inspect` never create the admission lock: where it is absent
+nothing has ever been written under the coordination root, so there is no
+record to read. Every test that reaches a coordination root gives itself
+its own `HOME` and `XDG_STATE_HOME`.
+
+**Keep a scratch run's state its own.** A measurement or scratch run that
+may retain evidence gives itself its own state home and never the host's:
+its own `HOME`, where this build resolves the coordination root under
+`~/.local/state/brokkr/capabilities`, and its own `XDG_STATE_HOME` for the
+tools that read one. A historical root left under a temporary directory is
+the run's own that way, and `brokkr evidence list` and `brokkr doctor`
+print each root's path, so it is easy to see and retire. No check keys on
+where a path lies: a heuristic over temporary directories is not a
+security property (decision 0105 ruling 6).
+
 Separately, a broker reserves its server's sources in the coordination
 root, across every worktree on the host, until its attempt's processes
 are proven settled; neither an engine's death nor a free lock releases

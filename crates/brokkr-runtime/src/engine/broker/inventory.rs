@@ -25,9 +25,11 @@ use std::time::{Duration, Instant};
 use brokkr_protocol::hands;
 use rustix::fs::{openat, statat, AtFlags, Dir, FileType, Mode};
 
-use super::admission::{Unknown, LOCK, RESERVATION, STAGED};
+use super::admission::{Conflict, Unadmitted, Unknown, LOCK, RESERVATION, STAGED};
+use super::historical::retired::{self, Retirement};
+use super::historical::superseded::{self, Superseded};
 use super::historical::{named, Historical};
-use super::root::{read, PRIOR};
+use super::root::{bytes, read, PRIOR};
 use super::{directory, owned};
 use crate::engine::artifacts::hex;
 use standing::standing;
@@ -78,12 +80,73 @@ impl Budget {
     }
 }
 
+/// One historical root the inventory holds: the worktree's directory it
+/// was recorded in, the artifact root it names, and its retirement where
+/// the operator retired it (decision 0105 ruling 3(a)).
+#[derive(Debug, Clone)]
+pub(super) struct HistoricalRoot {
+    pub(super) repo: String,
+    pub(super) artifacts: PathBuf,
+    pub(super) retirement: Option<Retirement>,
+    /// The retirements a later evidence-protecting admission superseded,
+    /// by sequence, oldest first (decision 0105, H1).
+    pub(super) history: Vec<(u64, Superseded)>,
+}
+
+/// Why the inventory could not be read: an unknown participant or a spent
+/// bound (MB3), or a retirement that does not read, which refuses with
+/// CR2's cause because admitting it either way would be a guess
+/// (decision 0105 ruling 3(a)).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum Unread {
+    Unknown(Unknown),
+    Retirement(PathBuf),
+    /// A superseded retirement that does not read refuses as a retirement
+    /// does: never read as absent history (decision 0105, H1).
+    Superseded(PathBuf),
+}
+
+impl From<Unknown> for Unread {
+    fn from(unknown: Unknown) -> Unread {
+        Unread::Unknown(unknown)
+    }
+}
+
+impl From<Unread> for Unadmitted {
+    fn from(unread: Unread) -> Unadmitted {
+        match unread {
+            Unread::Unknown(unknown) => Unadmitted::Identity(unknown),
+            Unread::Retirement(at) | Unread::Superseded(at) => {
+                Unadmitted::Evidence(Conflict::Retirement(at))
+            }
+        }
+    }
+}
+
 /// Everything the inventory holds: each run's reservation, and each
 /// historical root.
 #[derive(Debug, Default)]
 pub(super) struct Found {
     pub(super) standing: Vec<Standing>,
-    pub(super) historical: Vec<PathBuf>,
+    pub(super) historical: Vec<HistoricalRoot>,
+}
+
+impl Found {
+    /// The historical roots that still guard evidence: every one the
+    /// operator has not retired (decision 0105 ruling 2).
+    pub(super) fn records(&self, artifacts: &Path) -> bool {
+        self.historical
+            .iter()
+            .any(|root| root.artifacts == artifacts)
+    }
+
+    pub(super) fn guarded(&self) -> Vec<PathBuf> {
+        self.historical
+            .iter()
+            .filter(|root| root.retirement.is_none())
+            .map(|root| root.artifacts.clone())
+            .collect()
+    }
 }
 
 /// Everything the protected `root` at `at` holds, read within `budget`:
@@ -94,7 +157,7 @@ pub(super) fn inventory(
     at: &Path,
     own: [&str; 2],
     budget: &mut Budget,
-) -> Result<Found, Unknown> {
+) -> Result<Found, Unread> {
     let mut found = Found::default();
     for (name, kind) in listed(root, at, budget)? {
         if (name == LOCK) & (kind == FileType::RegularFile) {
@@ -108,7 +171,8 @@ pub(super) fn inventory(
 }
 
 /// One worktree's directory `repo` at `at`: each historical root's record,
-/// one staged beside it, and each run's directory ([`run`]), the one `own`
+/// its retirement and superseded retirements where they were sealed, one
+/// staged beside any, and each run's directory ([`run`]), the one `own`
 /// names its run's own.
 fn worktree(
     repo: &OwnedFd,
@@ -116,7 +180,40 @@ fn worktree(
     [key, id]: [&str; 2],
     budget: &mut Budget,
     found: &mut Found,
-) -> Result<(), Unknown> {
+) -> Result<(), Unread> {
+    let repo_name = at
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or_default()
+        .to_string();
+    let held = collected(repo, at, [key, id], budget, &repo_name, found)?;
+    found
+        .historical
+        .extend(attached(held)?.into_iter().map(|(_, held)| held));
+    Ok(())
+}
+
+/// The records, retirements and superseded retirements one worktree's
+/// directory holds, as its entries name them.
+#[derive(Debug, Default)]
+struct Collected {
+    records: Vec<(String, HistoricalRoot)>,
+    retirements: Vec<(String, PathBuf, Retirement)>,
+    superseded: Vec<(String, u64, PathBuf, Superseded)>,
+}
+
+/// [`worktree`]'s one pass over the entries of `repo` at `at`: every run's
+/// reservation into `found`, and every record here into the `Collected`
+/// returned.
+fn collected(
+    repo: &OwnedFd,
+    at: &Path,
+    [key, id]: [&str; 2],
+    budget: &mut Budget,
+    repo_name: &str,
+    found: &mut Found,
+) -> Result<Collected, Unread> {
+    let mut held = Collected::default();
     for (name, kind) in listed(repo, at, budget)? {
         if kind == FileType::Directory {
             let dir = entered(repo, at, &name, kind)?;
@@ -126,22 +223,139 @@ fn worktree(
                 .extend(run(&dir, &at.join(&name), own, budget)?);
             continue;
         }
-        let staged = name
-            .strip_suffix(STAGED)
-            .is_some_and(|name| named(name).is_some());
-        match (named(&name), kind) {
-            (Some(key), FileType::RegularFile) => {
-                let record: Historical = read(repo, &name, at)?;
-                let ours = named(&super::historical::name(&record.artifacts)) == Some(key);
-                let absolute = record.artifacts.is_absolute();
-                (ours & absolute).then_some(()).ok_or(unknown(at, &name))?;
-                found.historical.push(record.artifacts);
-            }
-            (None, FileType::RegularFile) if staged => {}
-            _ => return Err(unknown(at, &name)),
-        }
+        classified(repo, at, &name, kind, repo_name, &mut held)?;
     }
+    Ok(held)
+}
+
+/// Whether `name` is one record a seal staged and did not rename in.
+fn staged(name: &str) -> bool {
+    name.strip_suffix(STAGED).is_some_and(|name| {
+        named(name).is_some() | retired::named(name).is_some() | superseded::named(name).is_some()
+    })
+}
+
+/// The one entry `name` of kind `kind` in `repo` at `at`, put where its
+/// shape names it: a historical record, a retirement, a superseded one, or
+/// a staged copy passed over. Anything else is an unknown participant.
+fn classified(
+    repo: &OwnedFd,
+    at: &Path,
+    name: &str,
+    kind: FileType,
+    repo_name: &str,
+    held: &mut Collected,
+) -> Result<(), Unread> {
+    match (
+        named(name),
+        retired::named(name),
+        superseded::named(name),
+        kind,
+    ) {
+        (Some(key), None, None, FileType::RegularFile) => {
+            record(repo, at, name, key, repo_name, held)
+        }
+        (None, Some(key), None, FileType::RegularFile) => retired_at(repo, at, name, key, held),
+        (None, None, Some((key, n)), FileType::RegularFile) => {
+            superseded_at(repo, at, name, (key, n), held)
+        }
+        (None, None, None, FileType::RegularFile) if staged(name) => Ok(()),
+        _ => Err(Unread::Unknown(unknown(at, name))),
+    }
+}
+
+/// The historical record `name` in `repo` at `at`, for the key it carries
+/// and the worktree `repo_name`, into `held`; an unknown participant where
+/// its artifact root is not the one its name digests, or is not absolute.
+fn record(
+    repo: &OwnedFd,
+    at: &Path,
+    name: &str,
+    key: &str,
+    repo_name: &str,
+    held: &mut Collected,
+) -> Result<(), Unread> {
+    let record: Historical = read(repo, name, at)?;
+    let ours = named(&super::historical::name(&record.artifacts)) == Some(key);
+    let absolute = record.artifacts.is_absolute();
+    (ours & absolute).then_some(()).ok_or(unknown(at, name))?;
+    held.records.push((
+        key.to_string(),
+        HistoricalRoot {
+            repo: repo_name.to_string(),
+            artifacts: record.artifacts,
+            retirement: None,
+            history: Vec::new(),
+        },
+    ));
     Ok(())
+}
+
+/// The retirement `name` in `repo` at `at`, for the key it carries, into
+/// `held`.
+fn retired_at(
+    repo: &OwnedFd,
+    at: &Path,
+    name: &str,
+    key: &str,
+    held: &mut Collected,
+) -> Result<(), Unread> {
+    let refused = || Unread::Retirement(at.join(name));
+    let read = bytes(repo, name, at).map_err(|_| refused())?;
+    let retirement = serde_json::from_slice(&read).map_err(|_| refused())?;
+    held.retirements
+        .push((key.to_string(), at.join(name), retirement));
+    Ok(())
+}
+
+/// The superseded retirement `name` in `repo` at `at`, for the key and
+/// sequence it carries, into `held`.
+fn superseded_at(
+    repo: &OwnedFd,
+    at: &Path,
+    name: &str,
+    (key, n): (&str, u64),
+    held: &mut Collected,
+) -> Result<(), Unread> {
+    let refused = || Unread::Superseded(at.join(name));
+    let read = bytes(repo, name, at).map_err(|_| refused())?;
+    let record = serde_json::from_slice(&read).map_err(|_| refused())?;
+    held.superseded
+        .push((key.to_string(), n, at.join(name), record));
+    Ok(())
+}
+
+/// `held`'s records with every retirement and superseded retirement
+/// attached to the historical record it names, its history by sequence;
+/// a retirement that names no record, or another root, refuses.
+fn attached(held: Collected) -> Result<Vec<(String, HistoricalRoot)>, Unread> {
+    let Collected {
+        mut records,
+        retirements,
+        superseded,
+    } = held;
+    for (key, at, retirement) in retirements {
+        let index = records
+            .iter()
+            .position(|(held, _)| *held == key)
+            .ok_or_else(|| Unread::Retirement(at.clone()))?;
+        let same = records[index].1.artifacts == retirement.artifacts;
+        same.then_some(()).ok_or(Unread::Retirement(at))?;
+        records[index].1.retirement = Some(retirement);
+    }
+    for (key, n, at, record) in superseded {
+        let index = records
+            .iter()
+            .position(|(held, _)| *held == key)
+            .ok_or_else(|| Unread::Superseded(at.clone()))?;
+        let same = records[index].1.artifacts == record.retirement.artifacts;
+        same.then_some(()).ok_or(Unread::Superseded(at))?;
+        records[index].1.history.push((n, record));
+    }
+    for (_, held) in records.iter_mut() {
+        held.history.sort_by_key(|(n, _)| *n);
+    }
+    Ok(records)
 }
 
 /// The reservation standing in the run's directory `dir` at `at`, if one

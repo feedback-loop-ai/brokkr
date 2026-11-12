@@ -227,7 +227,7 @@ impl Tree {
 /// the doc (or the directory of docs, `""` for any), the path it names (or
 /// the start of it), and why. An allowance that covers nothing fails, so
 /// none outlives its text.
-const ABSENT: [(&str, &str, &str); 26] = [
+const ABSENT: [(&str, &str, &str); 28] = [
     (
         "",
         "credentials.toml",
@@ -262,6 +262,16 @@ const ABSENT: [(&str, &str, &str); 26] = [
         "packaging/README.md",
         "tools/go.mod",
         "a module pin the page weighs and no file carries",
+    ),
+    (
+        "docs/security-model.md",
+        "retired-<key>.json",
+        "the retirement record's name pattern, whose key is the historical record's",
+    ),
+    (
+        "docs/security-model.md",
+        "superseded-<key>-<n>.json",
+        "the superseded retirement's name pattern, whose key is the historical record's",
     ),
     (
         "",

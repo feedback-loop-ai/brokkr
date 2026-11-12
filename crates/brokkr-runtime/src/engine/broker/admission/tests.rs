@@ -44,6 +44,7 @@ mod probe;
 mod processes;
 mod reach;
 mod recovery;
+mod retirement;
 mod sealing;
 // U8a2b's proofs read the mount table, which only Linux has (decision 0063).
 #[cfg(target_os = "linux")]
@@ -86,6 +87,7 @@ enum Stand {
 enum Late {
     Sleep(Duration),
     Unstage,
+    UnstageSuperseded,
     Occupy,
     SleepCommitted(Duration),
     FailCommitted,
@@ -170,6 +172,9 @@ fn late(step: Step, dir: &OwnedFd, staged: &str) -> std::io::Result<()> {
             return Err(std::io::Error::other("the prior name could not be removed"))
         }
         (Step::Staged, Some(Late::Unstage)) => {
+            rustix::fs::unlinkat(dir, staged, AtFlags::empty()).unwrap()
+        }
+        (Step::Staged, Some(Late::UnstageSuperseded)) if staged.starts_with("superseded-") => {
             rustix::fs::unlinkat(dir, staged, AtFlags::empty()).unwrap()
         }
         (Step::Staged, Some(Late::Occupy)) => occupied(dir, staged),
@@ -973,9 +978,13 @@ fn the_inventory_reads_within_its_entry_bound() {
             super::super::inventory::inventory(host.root.dir(), &host.root(), own, &mut budget);
         found.map(|found| found.standing.len())
     };
+    use super::super::inventory::Unread;
     assert_eq!(within(4, soon()), Ok(1));
-    assert_eq!(within(3, soon()), Err(Unknown::Bounds));
-    assert_eq!(within(4, Instant::now()), Err(Unknown::Expired));
+    assert_eq!(within(3, soon()), Err(Unread::Unknown(Unknown::Bounds)));
+    assert_eq!(
+        within(4, Instant::now()),
+        Err(Unread::Unknown(Unknown::Expired))
+    );
     freed(&held);
 }
 

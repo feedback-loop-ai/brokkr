@@ -1037,3 +1037,17 @@ claim is pinned at start beside `realms` and `crossings`, never compiled
 into a bundle: it moves no bundle digest, and resume drops it before its
 manifest comparison as it drops those two, so a dispatched run resumes
 with no drift.
+
+## Evidence archive (decision 0105)
+
+Decision 0105 ruling 2 mints `brokkr.evidence-archive.v1` for the
+inventory `brokkr evidence retire --archived-to <dir>` writes last into an
+archive directory, after every artifact a historical evidence root holds
+has been verified, copied to `sha256/<hex>`, and verified again. It names
+the root, every digest and its bytes, the total, the engine version and
+when. A directory that holds copies and no inventory is an interrupted
+archive. Reading archived bytes back is not part of this contract.
+
+| Contract | File | Consumers |
+|---|---|---|
+| The evidence archive's inventory | `evidence-archive.v1.schema.json` | Read by brokkr-runtime (`engine::evidence::read_archive`); written by `brokkr evidence retire --archived-to <dir>`. `brokkr evidence list` reads the retirement, not this inventory. |

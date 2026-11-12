@@ -22,6 +22,7 @@ use super::{safe, Report};
 use crate::render::Safe;
 use mcp::{report_mcp, report_seats, Minimum};
 
+mod evidence;
 mod mcp;
 
 /// An adapter-level plan, submitted under one realm's whole authority: the
@@ -225,6 +226,14 @@ pub(super) fn report_capabilities(
         report_realm(report, realm, &root, known, &minimum);
     }
     report_seats(report, surveyed.as_ref().ok());
+}
+
+/// Doctor's historical evidence lines (decision 0105 ruling 5), on the
+/// host's HOME where one is named: every caller reports, so a host that
+/// names none gets the refusal's line rather than silence.
+pub(super) fn report_evidence(report: &mut Report) {
+    let home = std::env::var_os("HOME");
+    evidence::report(report, home.as_deref().map(Path::new));
 }
 
 /// The lines of a realms map that could not be read: said once, every

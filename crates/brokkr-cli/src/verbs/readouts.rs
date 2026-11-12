@@ -5,9 +5,12 @@
 use std::io::{IsTerminal, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use brokkr_core::fold::fold;
+use brokkr_runtime::engine::artifacts::artifact_root;
+use brokkr_runtime::engine::evidence::{self, Retirement, RetirementHistory};
 use brokkr_runtime::realms::Hearth;
 use brokkr_store::{Store, StoreError};
 use brokkr_view::capability_calls::{CallEvidence, CapabilityCall, NO_RETAINED};
@@ -200,16 +203,19 @@ impl std::fmt::Display for CallRefused {
 impl std::error::Error for CallRefused {}
 
 /// The one call `call_id` names among the checkpoints of the run `view`
-/// derives, beside the evidence the view derived for it.
+/// derives, beside the evidence the view derived for it and the time the
+/// journal recorded it, which a retirement is read against.
 fn call_of<'v>(
     view: &'v brokkr_view::RunView,
     call_id: &str,
-) -> Result<(&'v CapabilityCall, &'v CallEvidence), CallRefused> {
+) -> Result<(&'v CapabilityCall, &'v CallEvidence, &'v str), CallRefused> {
     let mut named = (view.participants.iter())
         .flat_map(|participant| &participant.checkpoints)
-        .map(|row| &row.capability_call)
-        .filter_map(|evidence| Some((evidence.call.as_ref()?, evidence)))
-        .filter(|(call, _)| call.call_id == call_id);
+        .filter_map(|row| {
+            let evidence = &row.capability_call;
+            Some((evidence.call.as_ref()?, evidence, row.recorded_at.as_str()))
+        })
+        .filter(|(call, _, _)| call.call_id == call_id);
     let found = named.next().ok_or(CallRefused::Unrecorded)?;
     named
         .next()
@@ -249,10 +255,17 @@ fn print_call(
     json: bool,
     out: &mut dyn Write,
 ) -> Result<ExitCode> {
-    let (call, evidence) = call_of(view, call_id)?;
+    let (call, evidence, recorded_at) = call_of(view, call_id)?;
     let sha256 = call.response_sha256.as_deref();
     let sha256 = sha256.ok_or(CallRefused::NoRetained)?;
     let run_local = crate::folder::run_local(repo)?;
+    let root = artifact_root(&run_local);
+    // A response retained before a retirement is named by the earliest
+    // retirement sealed at or after it, current or superseded; one retained
+    // after the last retirement is live evidence (decision 0105, H1).
+    if let Some(retired) = retired_at(&root)?.covering(recorded_at) {
+        return print_retired(call, evidence, &retired, json, out);
+    }
     let bytes = brokkr_runtime::engine::artifacts::retained(&run_local, sha256)?;
     let response = shown(&bytes, std::io::stdout().is_terminal());
     if json {
@@ -272,6 +285,46 @@ fn print_call(
         )?;
         out.write_all(&response)?;
     }
+    Ok(Exit::Completed.into())
+}
+
+/// Every retirement of the artifact root `root`, read from the host's
+/// coordination root (decision 0105 ruling 5 and H1): empty where this
+/// host names no HOME. A readout writes nothing.
+fn retired_at(root: &Path) -> Result<RetirementHistory> {
+    let Some(home) = std::env::var_os("HOME") else {
+        return Ok(RetirementHistory::default());
+    };
+    let deadline = Instant::now() + Duration::from_secs(30);
+    Ok(evidence::retirements(Path::new(&home), root, deadline)?)
+}
+
+/// What `inspect --capability-call` writes of a call whose artifact root
+/// was retired: the provenance, and the retirement's words instead of the
+/// bytes, never a corruption (decision 0105 ruling 5).
+fn print_retired(
+    call: &CapabilityCall,
+    evidence: &CallEvidence,
+    retired: &Retirement,
+    json: bool,
+    out: &mut dyn Write,
+) -> Result<ExitCode> {
+    let outcome = retired.outcome();
+    let said = render::Safe::new(&outcome);
+    if json {
+        let call = serde_json::to_string(call)?;
+        let retired = serde_json::to_string(retired)?;
+        writeln!(out, "{{\"call\":{call},\"retirement\":{retired}}}")?;
+        return Ok(Exit::Completed.into());
+    }
+    let provenance = [&call.call_id, &evidence.cell.text, &evidence.response.text];
+    let [id, line, digest] = provenance.map(|text| render::Safe::new(text));
+    let (id, line, digest) = (id.as_str(), line.as_str(), digest.as_str());
+    write!(
+        out,
+        "capability call {id}\n{line}\nresponse sha256 {digest}\n\nresponse {}\n",
+        said.as_str()
+    )?;
     Ok(Exit::Completed.into())
 }
 

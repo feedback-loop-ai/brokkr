@@ -46,6 +46,7 @@ pub mod artifacts;
 mod boxed;
 mod broker;
 use boxed::{artifact_root, boxed_spawn};
+pub use broker::evidence;
 // The test modules compare a box's argv through `use super::*`.
 #[cfg(test)]
 use boxed::hands_command;

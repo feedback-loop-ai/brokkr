@@ -30,6 +30,9 @@ use super::inventory::Budget;
 use super::root::{Commit, Root};
 use crate::engine::artifacts::{hex, ARTIFACT_BYTES_MAX, DIGESTS};
 
+pub(super) mod retired;
+pub(super) mod superseded;
+
 /// What a historical root's record begins with, in its worktree's
 /// directory.
 const PREFIX: &str = "historical-";
@@ -63,10 +66,14 @@ enum Undigested {
     Expired,
 }
 
+/// The key a historical root's record is named by: its path's sha256.
+pub(super) fn key(artifacts: &Path) -> String {
+    canonical::sha256_bytes(artifacts.as_os_str().as_bytes())
+}
+
 /// The record's name for the artifact root `artifacts`: its path's sha256.
 pub(super) fn name(artifacts: &Path) -> String {
-    let key = canonical::sha256_bytes(artifacts.as_os_str().as_bytes());
-    format!("{PREFIX}{key}{SUFFIX}")
+    format!("{PREFIX}{}{SUFFIX}", key(artifacts))
 }
 
 /// The key a historical record's name `file` carries, where it is one.
