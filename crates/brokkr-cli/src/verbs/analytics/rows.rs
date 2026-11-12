@@ -7,9 +7,10 @@
 //! fold, and a run whose row is behind its head or whose seat facts are
 //! stale, come from [`brokkr_view::WholeRead`] instead (ruling 8). The two
 //! are merged in a figure's own key order, so a group never straddles the
-//! row stream and the runs read whole. The realm list and the
-//! unreadable-run counts stay today's whole read over every run: the
-//! index-only read of them is unit U3c (decision 0089 ruling A4).
+//! row stream and the runs read whole. A rows-read hearth takes its realm
+//! list and unreadable-run counts from the store's covering index, and
+//! every other keeps the whole read's (decision 0089 ruling A4, slice 4's
+//! unit U3c).
 //!
 //! This module reads a migrated journal only; `brokkr-store`'s window
 //! reads are its one source of rows, and nothing here writes (decision
@@ -304,8 +305,8 @@ impl FactSource for RowOnly {
 }
 
 /// One run the store leaves whole, and where its realm first stands: the
-/// `runs` stamp the whole read orders it by (decision 0089 ruling A4's tie,
-/// `(created_at, run_id)`).
+/// `runs` stamp as the whole read holds it, placed by the one key both
+/// reads share (decision 0089 ruling A4's tie, `(created_at, run_id)`).
 struct BehindRealm {
     created_at: String,
     run_id: String,
@@ -321,8 +322,9 @@ struct RowSource {
 }
 
 /// A hearth's realm names and unreadable counts before their source joins
-/// the fleet: one home for the naming and cutting rules the whole read
-/// states (decision 0089 ruling 7).
+/// the fleet: the whole read's naming rules — the query's realm filter, the
+/// cut and one name once — applied to the store's keys (decision 0089
+/// ruling 7).
 #[derive(Default)]
 struct Scope {
     realms: Vec<String>,
@@ -456,7 +458,9 @@ fn store_scope(rows: &Rows<'_>, behind: &[BehindRealm]) -> Result<Scope, brokkr_
             behind.realm.clone(),
         )
     }));
-    places.sort_by(|left, right| left.0.cmp(&right.0).then_with(|| left.1.cmp(&right.1)));
+    places.sort_by(|left, right| {
+        super::place(&left.0, &left.1).cmp(&super::place(&right.0, &right.1))
+    });
     for (_, _, named) in places {
         scope.name(rows.realm, &named);
     }

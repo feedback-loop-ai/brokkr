@@ -122,8 +122,9 @@ impl Store {
     /// `[from, to)` that carries a `usd`, through the checkpoint index, its
     /// run's realm key joined by the run's key. A checkpoint no site names
     /// reports here as it does whole: its cost counts. A run behind its
-    /// summary row is left whole to the caller (ruling 8). `realm` narrows
-    /// to one stored realm key where given.
+    /// summary row is left whole to the caller, and a refused or
+    /// acknowledged run states no spend (ruling 8; U3c's R2). `realm`
+    /// narrows to one stored realm key where given.
     pub fn window_spends(
         &self,
         from: i64,
@@ -167,7 +168,8 @@ impl Store {
     /// in it, through the checkpoint index and its site's key. Each site is
     /// yielded once, in `order`, with its in-window facts folded as the
     /// stream passes them. A run behind its summary row is left whole to
-    /// the caller (ruling 8). `realm` narrows to one stored realm key where
+    /// the caller, and a refused or acknowledged run states no site
+    /// (ruling 8; U3c's R2). `realm` narrows to one stored realm key where
     /// given.
     pub fn window_sites(
         &self,
@@ -346,7 +348,8 @@ fn lags(run: &str, head: &str, shape: &str) -> String {
 
 /// The spends' one statement: the checkpoint index's range, each row's run
 /// joined by its key, a row no cost reported left out, and a run behind its
-/// summary row or whose projections are not current left whole (ruling 8).
+/// summary row, refused or acknowledged, or whose projections are not
+/// current left whole (ruling 8; U3c's R2).
 static SPENDS: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT e.run_id, r.realm, e.at_ms, e.phase, e.usd
@@ -416,12 +419,13 @@ fn sites_sql(order: SiteOrder) -> &'static str {
 /// The metered arm reads the checkpoint index's one range and finds each
 /// checkpoint's site by `seat_read`'s one `site_of` rule, the greatest start
 /// below its seq; the site's row is joined by its key. The started arm reads
-/// the started index's range. A run behind its summary row is in neither arm
-/// (ruling 8): the caller reads it whole. A run's open lane is the one the
-/// fleet lists (a stopping run is still open); the realm filter is on the
-/// run's stored key, as the run reads' is. A run whose seat rows or
-/// checkpoint facts are not current is in neither arm (ruling 8): the caller
-/// reads it whole.
+/// the started index's range. A run behind its summary row, refused or
+/// acknowledged, is in neither arm (ruling 8; U3c's R2): the caller reads a
+/// behind run whole, and a refused or acknowledged one states no site. A
+/// run's open lane is the one the fleet lists (a stopping run is still
+/// open); the realm filter is on the run's stored key, as the run reads'
+/// is. A run whose seat rows or checkpoint facts are not current is in
+/// neither arm (ruling 8): the caller reads it whole.
 fn sites_statement(order: &str) -> String {
     format!(
         "WITH metered AS (

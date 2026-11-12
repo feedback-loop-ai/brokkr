@@ -1466,10 +1466,26 @@ fn refused_counts_are_per_realm_and_count_both_lanes() {
             [],
         )
         .unwrap();
+    store
+        .conn
+        .execute(
+            "UPDATE run_summary SET refusal_words = 'stored refusal' WHERE run_id = 'c'",
+            [],
+        )
+        .unwrap();
     assert_eq!(lane(&store, "a").as_deref(), Some("refused"));
     assert_eq!(lane(&store, "b").as_deref(), Some("acknowledged"));
+    assert_eq!(lane(&store, "c").as_deref(), Some("refused"));
 
-    assert_eq!(counts_by_realm(&store), [(Some("one".to_string()), 2)]);
+    assert_eq!(
+        counts_by_realm(&store, None),
+        [(Some("one".to_string()), 2), (Some("two".to_string()), 1)]
+    );
+    assert_eq!(
+        counts_by_realm(&store, Some("one")),
+        [(Some("one".to_string()), 2)],
+        "a named realm leaves every other key out"
+    );
     assert_eq!(
         names_with(&store, None),
         ["a", "c", "d"],
@@ -1545,10 +1561,10 @@ fn names_with(store: &Store, realm: Option<&str>) -> Vec<String> {
 }
 
 /// The store's refused and acknowledged counts, by realm key.
-fn counts_by_realm(store: &Store) -> Vec<(Option<String>, u64)> {
+fn counts_by_realm(store: &Store, realm: Option<&str>) -> Vec<(Option<String>, u64)> {
     let mut counts = Vec::new();
     store
-        .refused_counts(None, |realm, count| {
+        .refused_counts(realm, |realm, count| {
             counts.push((realm.map(str::to_string), count));
         })
         .unwrap();
@@ -1595,7 +1611,7 @@ fn a_fold_refused_row_keeps_the_realm_the_whole_read_names() {
     assert_eq!(stored.as_deref(), Some("events-realm"));
 
     assert_eq!(
-        counts_by_realm(&store),
+        counts_by_realm(&store, None),
         [(Some("events-realm".to_string()), 1)]
     );
 
@@ -1612,7 +1628,7 @@ fn a_fold_refused_row_keeps_the_realm_the_whole_read_names() {
         .unwrap();
     assert_eq!(lane(&store, "refused").as_deref(), Some("acknowledged"));
     assert_eq!(
-        counts_by_realm(&store),
+        counts_by_realm(&store, None),
         [(Some("events-realm".to_string()), 1)],
         "the acknowledged lane counts too"
     );

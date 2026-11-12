@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use anyhow::Result;
+use brokkr_core::summary::{cut, STAMP_BYTES};
 use brokkr_runtime::realms::Hearth;
 use brokkr_store::Store;
 use brokkr_view::{
@@ -139,6 +140,14 @@ fn refused(error: AnalyticsError) -> anyhow::Error {
     anyhow::Error::msg(error.to_string())
 }
 
+/// The key a run's realm is placed by (decision 0089 ruling A4's tie):
+/// `created_at` cut where the store keeps it, then the run's id. The
+/// store's covering realm index states this key, and the whole read sorts
+/// by it too, so one key decides both lists.
+pub(super) fn place<'a>(created_at: &'a str, run_id: &'a str) -> (&'a str, &'a str) {
+    (cut(created_at, STAMP_BYTES), run_id)
+}
+
 /// Every hearth read, quarantining what does not load, handed to `view`
 /// as the cross-run readouts take them: `analytics` and `graph` alike.
 pub(crate) fn read_hearths<T>(hearths: &[Hearth], view: impl FnOnce(&[AnalyticsHearth]) -> T) -> T {
@@ -147,13 +156,11 @@ pub(crate) fn read_hearths<T>(hearths: &[Hearth], view: impl FnOnce(&[AnalyticsH
         .map(|hearth| fleet::read_journal(&hearth.journal))
         .collect();
     // The whole read's tie rule (decision 0089 ruling A4, slice 4's unit
-    // U3c): two runs listed at one `created_at` stand by their id, the
+    // U3c): two runs listed at one cut `created_at` stand by their id, the
     // order the store's covering realm index states too.
     for hearth in &mut read {
         hearth.runs.sort_by(|left, right| {
-            left.created_at
-                .cmp(&right.created_at)
-                .then_with(|| left.run_id.cmp(&right.run_id))
+            place(&left.created_at, &left.run_id).cmp(&place(&right.created_at, &right.run_id))
         });
     }
     let runs: Vec<Vec<AnalyticsRun>> = read

@@ -197,9 +197,10 @@ impl Store {
 
     /// The runs a window reads (ruling 7): those that finished inside it,
     /// through the `(finished_ms)` index, and those still open, through
-    /// the lane index; a behind row is never among them, read whole
-    /// instead. `order` is the figure's key order, `realm` narrows to one
-    /// stored realm key where given.
+    /// the lane index; a behind row is read whole instead, and a refused or
+    /// acknowledged row states no figure, so neither is among them. `order`
+    /// is the figure's key order, `realm` narrows to one stored realm key
+    /// where given.
     pub fn window_runs(
         &self,
         from: i64,
@@ -425,9 +426,10 @@ static DURATIONS: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-/// The runs a window reads: those that finished in it, less a behind row,
-/// and those still open, through the lane index. A stopping run is a
-/// running one with an accepted stop, still open, so its lane is read too.
+/// The runs a window reads: those that finished in it, less a behind,
+/// refused or acknowledged row, and those still open, through the lane
+/// index. A stopping run is a running one with an accepted stop, still
+/// open, so its lane is read too.
 /// Each row also states whether its fold stood at the policy's hard stop,
 /// exactly as `brokkr-core`'s `hard_stop` decides it: `stopped`, at the
 /// `stop` phase. The comparison is `IS`, not `=`, so a stopped run that
