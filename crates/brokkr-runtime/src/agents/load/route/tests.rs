@@ -391,3 +391,21 @@ fn a_metadata_or_read_fault_takes_the_injected_refusal() {
         "{error}"
     );
 }
+
+/// An adapter path with no parent resolves its overlays against the empty
+/// path, which never canonicalizes, so the loader refuses by name; and the
+/// route overlay's `--patch` pair needs a non-empty value.
+#[test]
+fn a_parentless_adapter_path_refuses_and_an_empty_patch_value_is_no_pair() {
+    let error = super::directory(Path::new("/"), "adapter 'dsh'")
+        .unwrap_err()
+        .to_string();
+    assert!(
+        error.contains("'routes' cannot resolve the adapter file's own directory"),
+        "{error}"
+    );
+    let pair =
+        |value: &str| crate::agents::is_patch_pair(&["--patch".to_string(), value.to_string()]);
+    assert!(pair("overlays/spark.yml"));
+    assert!(!pair(""));
+}
