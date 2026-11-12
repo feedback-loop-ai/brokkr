@@ -354,8 +354,9 @@ fixture still passes: its `sandbox-policy` row has no inject block, and
 the measured 99 rows are unchanged.
 
 The 17096db85 table above measures a different head, before 1052g3
-closed the policy span; its 17,019-byte and 17,073-byte dumps carry the
-same composed rows at a longer overlay path.
+closed the policy span; its dumps carry the same composed rows. This
+round did not re-run that head, so the byte-count difference is not
+compared here.
 
 ## Pending
 
