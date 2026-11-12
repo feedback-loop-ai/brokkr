@@ -777,6 +777,16 @@ impl<'a> CapabilityAdapters<'a> {
     }
 }
 
+/// The realm one compile stands in: the name it pins, the dialect it was
+/// given, and the law its boundary and provisional offices come from. A
+/// parameter object so `compile_as` and `assemble` do not repeat the same
+/// tuple, which also keeps the two signatures from reading as one clone.
+struct CompileRealm<'a> {
+    name: Option<&'a str>,
+    dialect: Option<&'a Dialect>,
+    law: RealmLaw,
+}
+
 impl Bundle {
     /// Compile against the default `agents/` and `adapters/` roots.
     pub fn compile(dir: &Path) -> Result<Bundle, CompileError> {
@@ -861,13 +871,12 @@ impl Bundle {
             &Executable::current(),
             leaf,
             (library_root, adapters_root),
-            None,
-            default.as_ref(),
-            law,
+            (None, default.as_ref(), law.into()),
             &crate::capabilities::CapabilityContext::no_grants(
                 crate::capabilities::UNMAPPED,
                 operator_root,
             ),
+            operator_root,
         )
     }
 
@@ -921,7 +930,14 @@ impl Bundle {
     ) -> Result<Bundle, CompileError> {
         let (leaf, roots) = ((dir, &Shelves::default()), (library_root, adapters_root));
         let engine = Executable::current();
-        Self::compile_as(&engine, leaf, roots, realm_name, dialect, law, capabilities)
+        Self::compile_as(
+            &engine,
+            leaf,
+            roots,
+            (realm_name, dialect, law.into()),
+            capabilities,
+            library_root.parent().unwrap_or(Path::new("")),
+        )
     }
 
     /// [`Bundle::compile_with_capabilities`] of the bundle at `leaf`'s
@@ -933,15 +949,26 @@ impl Bundle {
         engine: &Executable,
         (dir, shelves): (&Path, &Shelves),
         roots: (&Path, &Path),
-        realm_name: Option<&str>,
-        dialect: Option<&Dialect>,
-        law: impl Into<RealmLaw>,
+        (realm_name, dialect, law): (Option<&str>, Option<&Dialect>, RealmLaw),
         capabilities: &crate::capabilities::CapabilityContext,
+        workdir: &Path,
     ) -> Result<Bundle, CompileError> {
         let (dir, resolved) = survey::composed(dir, shelves)?;
+        // The run's working directory, canonical once here so a declared
+        // route overlay's `--patch` value is spelled relative to the same
+        // tree the driver resolves it in. An uncanonicalizable directory
+        // composes the declaration's own spelling, which the driver's
+        // binding check then refuses rather than binding something else.
+        let workdir = workdir
+            .canonicalize()
+            .unwrap_or_else(|_| workdir.to_path_buf());
         let note = resolved.chain_note();
-        let realm = (realm_name, dialect, law.into());
-        Bundle::assemble(&dir, resolved, roots, engine, realm, capabilities)
+        let realm = CompileRealm {
+            name: realm_name,
+            dialect,
+            law,
+        };
+        Bundle::assemble(&dir, resolved, roots, engine, realm, capabilities, &workdir)
             // A composed bundle's failure is wrapped ONCE with the chain: a
             // capability keeps its raw words, a policy refusal its type. A
             // folder seat's refusal rises as the resolver's do, unwrapped.
@@ -966,9 +993,15 @@ impl Bundle {
         mut resolved: compose::Resolved,
         (library_root, adapters_root): (&Path, &Path),
         engine: &Executable,
-        (realm_name, dialect, law): (Option<&str>, Option<&Dialect>, RealmLaw),
+        realm: CompileRealm<'_>,
         capabilities: &crate::capabilities::CapabilityContext,
+        workdir: &Path,
     ) -> Result<Bundle, CompileError> {
+        let CompileRealm {
+            name: realm_name,
+            dialect,
+            law,
+        } = realm;
         // Decision 0065 (design D4 steps 1 and 2): the operated realm's
         // grants are judged BEFORE any seat is looked at — every
         // definition, every selected dialect, every restriction, and the
@@ -986,7 +1019,7 @@ impl Bundle {
         let charters = Charters::default();
         let roots = (library_root, adapters_root);
         let at = (&authority, &resolved, engine, &charters);
-        let mut seated = survey::seat(at, roots, (dialect, law), &table)?;
+        let mut seated = survey::seat(at, roots, (dialect, law), &table, workdir)?;
         let compile = &mut survey::Refusals::Compile;
         seated.settle(&table.machine, adapters_root, compile)?;
         seated.wrap(wrapped_verify, compile)?;
@@ -1281,6 +1314,7 @@ fn resolve_reference(
     site: SiteRole,
 ) -> Result<ResolvedSeat, CompileError> {
     let (boundary, engine) = (compiler.boundary, compiler.engine);
+    let workdir = compiler.workdir;
     let SiteCompiler { agents, sites, .. } = compiler;
     let name = agent_name(what, raw)?;
     let (library, adapters) = agents.agent_roots()?;
@@ -1289,13 +1323,14 @@ fn resolve_reference(
     // judged here, narrowing inside the resolver, and the effective value
     // is what the chain below is composed from.
     let requested = decode_site_tools(what, raw)?;
-    let report = crate::agents::report_narrowed(
+    let report = crate::agents::report_narrowed_in(
         library,
         adapters,
         &Availability::unspecified(),
         name,
         boundary,
         &requested,
+        workdir,
     )
     .map_err(|e| CompileError::Invalid(format!("seat '{what}': {e}")))?;
     let effective = report.agent.local();

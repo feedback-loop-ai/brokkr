@@ -68,6 +68,7 @@ fn candidate(provider: &str, hands_fragment: Vec<&str>, harness: HarnessHands) -
             ..composition(segments, unlimited(hands), Application::Unrestricted)
         }),
         hands_notice: None,
+        route_overlay: None,
     }
 }
 
@@ -2929,7 +2930,6 @@ fn the_network_probe_is_asked_once_and_remembered() {
 /// A site with no hands re-walks its exec dispatch too (#823).
 mod rewalk_tests;
 use rewalk_tests::pinned_layer;
-
 #[test]
 #[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn an_unboxed_exec_dispatch_is_refused_at_spawn_when_its_layer_moved() {

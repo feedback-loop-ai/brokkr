@@ -18,9 +18,9 @@ use serde_json::{json, Map, Value};
 use thiserror::Error;
 
 use super::{
-    mcp::McpContext, Adapter, Agent, EgressClass, HarnessHands, LocalTools, McpRefusal, McpSupport,
-    ResultDoor, ResumeAssessment, ResumeEvidence, ResumeIdentity, ResumeShape, ResumeStatus,
-    Sandbox, ToolPermissions, TrustTier,
+    mcp::McpContext, Adapter, Agent, DeclaredRouteOverlay, EgressClass, HarnessHands, LocalTools,
+    McpRefusal, McpSupport, ResultDoor, ResumeAssessment, ResumeEvidence, ResumeIdentity,
+    ResumeShape, ResumeStatus, Sandbox, ToolPermissions, TrustTier,
 };
 use crate::bundle::Limits;
 
@@ -31,6 +31,7 @@ mod auth;
 mod models;
 mod overlay;
 mod resume;
+mod route;
 
 /// The grammar every agent, model, provider and MCP server name obeys.
 /// Quoted verbatim in rejection messages so a reader can act on them.
@@ -272,36 +273,6 @@ fn adapter_egress(map: &Map<String, Value>, what: &str) -> Result<EgressClass, L
         Some(declared) => egress_class(declared, "egress", what),
         None => Ok(EgressClass::Uncontracted),
     }
-}
-
-/// A provider's declared routes (decision 0036 ruling 2): route name →
-/// class. Absent is no routes at all, which is the shape of an adapter
-/// that fronts a single destination.
-fn routes(
-    map: &Map<String, Value>,
-    what: &str,
-) -> Result<BTreeMap<String, EgressClass>, LibraryError> {
-    let Some(declared) = map.get("routes") else {
-        return Ok(BTreeMap::new());
-    };
-    let Some(entries) = declared.as_object() else {
-        return invalid(format!(
-            "{what} 'routes' must be an object of route name → egress class"
-        ));
-    };
-    let mut out = BTreeMap::new();
-    for (route, value) in entries {
-        if !route_name(route) {
-            return invalid(format!(
-                "{what} 'routes' names '{route}', which does not match {ROUTE_GRAMMAR}"
-            ));
-        }
-        out.insert(
-            route.clone(),
-            egress_class(value, &format!("routes.{route}"), what)?,
-        );
-    }
-    Ok(out)
 }
 
 /// The grammar decision 0040 ruling 5 gives a route name, quoted
@@ -638,6 +609,10 @@ pub struct Adapters {
     adapters: BTreeMap<String, Adapter>,
     by_model: BTreeMap<String, String>,
     files: Vec<String>,
+    /// Decision 0056's 2026-09-14 note as amended by #1052 ask 2:
+    /// provider → route name → the overlay that route declares, kept
+    /// beside the adapter so its public shape and egress readers do not move.
+    route_overlays: BTreeMap<String, BTreeMap<String, DeclaredRouteOverlay>>,
 }
 
 impl Adapters {
@@ -649,8 +624,11 @@ impl Adapters {
         let mut by_model: BTreeMap<String, String> = BTreeMap::new();
         let mut sources: BTreeMap<String, String> = BTreeMap::new();
         let mut files = Vec::new();
+        let mut route_overlays = BTreeMap::new();
         for (name, path) in definition_files(&root, "adapters")? {
-            let adapter = models::pinless(parse_adapter(&name, &path)?, &path)?;
+            let (adapter, overlays) = parse_adapter(&name, &path)?;
+            let adapter = models::pinless(adapter, &path)?;
+            route_overlays.insert(name.clone(), overlays);
             files.push(path.display().to_string());
             for model in adapter.models.keys() {
                 if let Some(other) = by_model.get(model) {
@@ -671,6 +649,7 @@ impl Adapters {
             adapters,
             by_model,
             files,
+            route_overlays,
         })
     }
 
@@ -683,6 +662,20 @@ impl Adapters {
 
     pub fn digest(&self, provider: &str) -> Option<&str> {
         self.adapters.get(provider).map(|a| a.digest.as_str())
+    }
+
+    /// The overlay the concrete model's route declares on its adapter,
+    /// `None` where the route declares none or no adapter serves the
+    /// model. The route is decision 0036 ruling 2's split, through the
+    /// same `resolve_route` every egress reader uses.
+    pub(crate) fn route_overlay(
+        &self,
+        provider: &str,
+        concrete: &str,
+    ) -> Option<&DeclaredRouteOverlay> {
+        let adapter = self.adapters.get(provider)?;
+        let (route, _) = resolve_route(adapter, concrete);
+        route.and_then(|route| self.route_overlays.get(provider)?.get(route))
     }
 
     /// One provider's adapter by name. `None` for a driver no adapter
@@ -727,7 +720,10 @@ const ADAPTER_KEYS: [&str; 20] = [
     "native_capabilities",
 ];
 
-fn parse_adapter(name: &str, path: &Path) -> Result<Adapter, LibraryError> {
+fn parse_adapter(
+    name: &str,
+    path: &Path,
+) -> Result<(Adapter, BTreeMap<String, DeclaredRouteOverlay>), LibraryError> {
     let what = models::described(name, path);
     if !valid_name(name) {
         return invalid(format!("{what}: the file name must match {NAME_GRAMMAR}"));
@@ -773,38 +769,42 @@ fn parse_adapter(name: &str, path: &Path) -> Result<Adapter, LibraryError> {
         trust_tier,
         egress,
         routes,
+        route_overlays,
         harness_auth,
         effort_flag,
         digest,
-    } = adapter::settled(map, &credentials, path, &what)?;
-    Ok(Adapter {
-        provider,
-        trust_tier,
-        egress,
-        routes,
-        harness_auth,
-        credentials,
-        binary,
-        hint,
-        driver,
-        models,
-        provisional,
-        judges,
-        model_flag,
-        efforts,
-        effort_flag,
-        effortless_routes,
-        tool_permissions,
-        tool_permissions_gap,
-        hands,
-        hands_gap,
-        harness,
-        hands_notice,
-        mcp,
-        resume,
-        native,
-        digest,
-    })
+    } = adapter::settled(map, &credentials, path, &what, &provider)?;
+    Ok((
+        Adapter {
+            provider,
+            trust_tier,
+            egress,
+            routes,
+            harness_auth,
+            credentials,
+            binary,
+            hint,
+            driver,
+            models,
+            provisional,
+            judges,
+            model_flag,
+            efforts,
+            effort_flag,
+            effortless_routes,
+            tool_permissions,
+            tool_permissions_gap,
+            hands,
+            hands_gap,
+            harness,
+            hands_notice,
+            mcp,
+            resume,
+            native,
+            digest,
+        },
+        route_overlays,
+    ))
 }
 
 /// How long a measured reason, limitation or evidence reference may be.

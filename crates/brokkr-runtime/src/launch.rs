@@ -686,10 +686,9 @@ fn compile_in_realm(
         &crate::argv::Executable::current(),
         (dir, &shelves),
         (&places.agents, &places.adapters),
-        Some(name),
-        dialect,
-        RealmLaw::of(world, realm),
+        (Some(name), dialect, RealmLaw::of(world, realm)),
         &capability_context(workspace, world, realm, repo),
+        repo,
     )?)
 }
 

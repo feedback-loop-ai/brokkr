@@ -42,6 +42,7 @@ fn the_selected_servers_render_inside_the_serving_candidates_capability_contract
     };
     let primary = Candidate {
         hands_notice: Some(discovering()),
+        route_overlay: None,
         ..codex_primary()
     };
     let (told, guidance) = rendered(&fixture.engine, Some(&primary));

@@ -84,6 +84,7 @@ pub(super) fn judge_mapped_hands(
                 // judgment.
                 resume: Default::default(),
                 hands_notice: None,
+                route_overlay: entry.route_overlay.clone(),
                 // The entry's own lowering, refused or composed, never a
                 // valid empty one standing in for it (design D5.7).
                 lowering: entry.lowering.clone(),
@@ -137,6 +138,7 @@ pub(super) fn resolved_candidates(
             harness: candidate.harness.clone(),
             resume: candidate.resume.clone(),
             hands_notice: candidate.hands_notice.clone(),
+            route_overlay: candidate.route_overlay.clone(),
             lowering: expand_lowering(engine, dir, &candidate.lowering),
         });
     }

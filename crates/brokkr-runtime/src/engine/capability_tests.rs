@@ -59,6 +59,7 @@ pub(super) fn link(provider: &str, model: &str) -> Candidate {
         resume: Default::default(),
         lowering: Lowering::Unavailable,
         hands_notice: None,
+        route_overlay: None,
     }
 }
 

@@ -34,6 +34,9 @@ pub(super) struct SiteCompiler<'a> {
     pub(super) charters: &'a Charters,
     pub(super) roots: &'a [PathBuf],
     pub(super) case_origin: &'a BTreeMap<String, usize>,
+    /// The run's working directory, where a declared route overlay's
+    /// `--patch` value is spelled relative to.
+    pub(super) workdir: &'a Path,
 }
 
 /// What a body inherits from its seat: the layer that wrote it, and the
@@ -55,6 +58,7 @@ impl<'a> SiteCompiler<'a> {
         charters: &'a Charters,
         roots: &'a [PathBuf],
         case_origin: &'a BTreeMap<String, usize>,
+        workdir: &'a Path,
     ) -> SiteCompiler<'a> {
         SiteCompiler {
             agents,
@@ -65,6 +69,7 @@ impl<'a> SiteCompiler<'a> {
             charters,
             roots,
             case_origin,
+            workdir,
         }
     }
 
@@ -80,6 +85,7 @@ impl<'a> SiteCompiler<'a> {
             self.charters,
             self.roots,
             self.case_origin,
+            self.workdir,
         )
     }
 

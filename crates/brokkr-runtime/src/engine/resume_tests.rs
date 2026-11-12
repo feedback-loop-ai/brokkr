@@ -5,7 +5,6 @@
 //! `sh`: each logs every message the engine sends it, reports a session
 //! id of its own per invocation, and answers. What the engine offered is
 //! therefore read off the wire the driver actually saw, never inferred.
-
 use super::tests::{step_body, templated};
 use super::*;
 use crate::agents::{Candidate, HarnessHands};
@@ -14,7 +13,6 @@ use brokkr_core::{fold::Status, policy::Machine};
 use brokkr_protocol::{Body, Message};
 use std::collections::BTreeMap;
 mod journal;
-
 /// work → review → work → done: the phase machine's own way back into a
 /// seat, which is the re-entry the ruling names beside the retry.
 fn machine() -> Machine {
@@ -98,12 +96,10 @@ fn driver(dir: &Path, tag: &str, results: &[&str]) -> Vec<String> {
     }
     vec!["sh".into(), "-c".into(), script]
 }
-
 /// The status run `run_id`'s journal in `store` folds to.
 fn status_of(store: &Store, run_id: &str) -> Status {
     fold(&store.load(run_id).unwrap()).unwrap().run.status()
 }
-
 /// Every message one driver was sent, in order.
 fn received(dir: &Path, tag: &str) -> Vec<Value> {
     std::fs::read_to_string(dir.join(format!("{tag}.log")))
@@ -112,7 +108,6 @@ fn received(dir: &Path, tag: &str) -> Vec<Value> {
         .map(|line| serde_json::from_str(line).unwrap())
         .collect()
 }
-
 /// The same driver, emitting the rows an engine enacting proposed
 /// decision 0056 actually stamps: a launch checkpoint naming a model —
 /// which is what makes the engine write `site_ref` and `instance_ref`
@@ -152,7 +147,6 @@ fn model_driver(dir: &Path, tag: &str, results: &[&str]) -> Vec<String> {
     );
     vec![command[0].clone(), command[1].clone(), with_turn]
 }
-
 /// The same stamped driver, but emitting the row a DSH attempt writes: a
 /// `dsh-session` root carrying the certified harness version and the
 /// optional wrapper digest, plus the `transcript` object whose `home` and
@@ -229,7 +223,6 @@ fn dsh_model_driver(
     );
     vec![command[0].clone(), command[1].clone(), script]
 }
-
 fn seat(body: SeatBody, results: &[&str], max_attempts: u64) -> Seat {
     gate_seat(body, results, max_attempts, false)
 }
@@ -322,6 +315,7 @@ fn dsh_link(script: &str, extras: &[&str], resume: crate::agents::ResumeAssessme
         harness: HarnessHands::default(),
         resume,
         hands_notice: None,
+        route_overlay: None,
         lowering: Lowering::Composed(super::tests::composition(
             segments,
             super::tests::unlimited(HandsIntent::None),
@@ -508,6 +502,7 @@ fn a_chain_fallback_is_handed_no_session_at_all() {
             harness: HarnessHands::default(),
             resume: Default::default(),
             hands_notice: None,
+            route_overlay: None,
             lowering: Lowering::Unavailable,
         })
     };
@@ -1561,6 +1556,7 @@ fn the_site_key_is_structural_and_the_owner_key_moves_on_every_axis() {
         harness: HarnessHands::default(),
         resume: Default::default(),
         hands_notice: None,
+        route_overlay: None,
         lowering: Lowering::Unavailable,
     });
     let manifest = json!({"engine":"0.10.0", "files":{}, "hands":{"work":{}}});
@@ -2374,9 +2370,10 @@ fn a_valid_route_overlay_binds_on_an_offered_start_too() {
         harness: HarnessHands::default(),
         resume: Default::default(),
         hands_notice: None,
+        route_overlay: Default::default(),
         lowering: Lowering::Unavailable,
     });
-    let mut seats = BTreeMap::new();
+    let mut seats: BTreeMap<String, Seat> = BTreeMap::new();
     seats.insert(
         "work".into(),
         seat(single(argv, vec![candidate]), &["complete"], 2),
@@ -2662,12 +2659,13 @@ fn an_offered_dsh_start_carries_the_recorded_home_at_the_single_site() {
         // optional member, so the private start context can be read for
         // it on the real single-site path beside the owned target.
         resume: dsh_assessment_declaring(Some(&"c".repeat(64))),
-        hands_notice: None,
+        hands_notice: Default::default(),
+        route_overlay: None,
         lowering: Lowering::Unavailable,
     });
     let mut seats = BTreeMap::new();
     seats.insert(
-        "work".into(),
+        "work".to_string(),
         seat(single(argv, vec![candidate]), &["complete"], 2),
     );
     seats.insert(
@@ -2779,6 +2777,7 @@ fn an_offered_dsh_start_carries_the_recorded_home_at_the_panel_member() {
         harness: HarnessHands::default(),
         resume: dsh_assessment_declaring(Some(&"d".repeat(64))),
         hands_notice: None,
+        route_overlay: None,
         lowering: Lowering::Unavailable,
     })];
     let mut seats = BTreeMap::new();
@@ -3871,6 +3870,7 @@ fn a_declared_wrapper_digest_reaches_the_private_start_context() {
             harness: HarnessHands::default(),
             resume,
             hands_notice: None,
+            route_overlay: None,
             lowering: Lowering::Unavailable,
         });
         let mut seats = BTreeMap::new();

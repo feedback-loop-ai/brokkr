@@ -1063,6 +1063,7 @@ fn the_selected_servers_are_named_from_the_serving_candidates_own_set_and_cleare
     };
     let primary = Candidate {
         hands_notice: Some(discovering()),
+        route_overlay: None,
         ..codex_primary()
     };
     assert_eq!(carrier(Some(&primary)), Some(named(json!("tool_search"))));

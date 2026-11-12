@@ -13,6 +13,7 @@ fn link(model: &str, effort: Option<&str>) -> Candidate {
         harness: Default::default(),
         resume: Default::default(),
         hands_notice: None,
+        route_overlay: None,
         lowering: Lowering::Unavailable,
     }
 }

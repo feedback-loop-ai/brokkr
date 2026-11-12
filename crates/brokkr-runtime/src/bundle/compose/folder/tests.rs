@@ -169,7 +169,14 @@ fn compile_in(
     let operator = library.unwrap_or(leaf);
     let none = crate::capabilities::CapabilityContext::no_grants(unmapped, operator);
     let engine = Executable(Some(PathBuf::from("/nonexistent/brokkr")));
-    Bundle::compile_as(&engine, (leaf, shelves), roots, None, None, law, &none)
+    Bundle::compile_as(
+        &engine,
+        (leaf, shelves),
+        roots,
+        (None, None, law.into()),
+        &none,
+        leaf,
+    )
 }
 
 /// The folder seat refusal a compile gave, with its whole text.

@@ -11,9 +11,10 @@ use std::path::Path;
 use brokkr_core::canonical::sha256_bytes;
 use serde_json::{Map, Value};
 
+use super::route;
 use super::{
     adapter_egress, auth, capability, hands_notice, harness_hands, invalid, models, name_map,
-    named, no_notice_without_workspace, object, only_keys, pin_flag, route_name, routes, string,
+    named, no_notice_without_workspace, object, only_keys, pin_flag, route_name, string,
     string_array, trust_tier, EgressClass, HarnessHands, LibraryError, McpSupport, ToolPermissions,
     TrustTier, ROUTE_GRAMMAR,
 };
@@ -290,6 +291,7 @@ pub(super) struct Settled {
     pub(super) trust_tier: TrustTier,
     pub(super) egress: EgressClass,
     pub(super) routes: BTreeMap<String, EgressClass>,
+    pub(super) route_overlays: BTreeMap<String, crate::agents::DeclaredRouteOverlay>,
     pub(super) harness_auth: Vec<String>,
     pub(super) effort_flag: Option<String>,
     pub(super) digest: String,
@@ -300,11 +302,16 @@ pub(super) fn settled(
     credentials: &BTreeMap<String, String>,
     path: &Path,
     what: &str,
+    provider: &str,
 ) -> Result<Settled, LibraryError> {
+    let trust_tier = trust_tier(map, what)?;
+    let egress = adapter_egress(map, what)?;
+    let route::Declared { routes, overlays } = route::declarations(map, what, path, provider)?;
     Ok(Settled {
-        trust_tier: trust_tier(map, what)?,
-        egress: adapter_egress(map, what)?,
-        routes: routes(map, what)?,
+        trust_tier,
+        egress,
+        routes,
+        route_overlays: overlays,
         harness_auth: auth::harness_auth(map, credentials, what)?,
         effort_flag: pin_flag(map, "effort_flag", what)?,
         digest: sha256_bytes(&std::fs::read(path)?),

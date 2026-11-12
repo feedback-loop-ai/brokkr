@@ -522,6 +522,7 @@ fn candidate_for(provider: &str, notice: Option<Value>) -> Candidate {
         harness: Default::default(),
         resume: Default::default(),
         hands_notice: notice.map(|value| HandsNotice::parse(&value).unwrap()),
+        route_overlay: None,
         lowering: Lowering::Unavailable,
     })
 }
@@ -966,7 +967,6 @@ fn each_sequence_step_and_nested_member_hears_only_its_own_providers_notice() {
     assert_eq!(chief["input"].get("hands_notice"), None);
     assert_contract(&chief, "claude", "pass, fail", BOXED);
 }
-
 #[test]
 fn only_the_selected_strategy_body_is_heard() {
     // A selected strategy body: the executing case is Codex, the
