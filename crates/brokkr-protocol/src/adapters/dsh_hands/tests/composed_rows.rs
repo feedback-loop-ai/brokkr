@@ -291,6 +291,12 @@ fn a_line_before_the_first_row_that_is_not_a_skip_is_refused() {
         ),
         Ok(())
     );
+    // A dump of only skip lines has no row at all, so it is not a
+    // composition either.
+    assert_eq!(
+        gate("# only a comment\n".into(), Release::V0_2_1, Mode::ReadOnly),
+        Err(Composition::Unreadable)
+    );
 }
 
 /// Rule 4: a row's two-space level is closed. An unknown key, an explicit
