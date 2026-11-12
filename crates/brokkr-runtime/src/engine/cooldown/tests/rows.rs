@@ -93,14 +93,16 @@ fn a_held_terminal_event_lands_with_its_rows() {
     let dir = tempfile::tempdir().unwrap();
     let mut engine = in_flight(dir.path());
     let holder = write_lock_on(&dir.path().join("realm.db"));
-    let until = OffsetDateTime::now_utc() + time::Duration::seconds(2);
+    // An end no loaded host reaches while the lock is held and the held
+    // outcome lands, so the row is still in force when it records.
+    let until = OffsetDateTime::now_utc() + time::Duration::seconds(60);
     let payload = json!({
         "effect_id": "effect-1",
         "attempt_id": "attempt-1",
         "error": "provider refused",
         "start_failure": true,
         "start_failure_sites": [null],
-        "waits": wait_value(until, 2),
+        "waits": wait_value(until, 60),
     });
     // The terminal event meets the lock past every settling patience and
     // is held; the lawful end's own tries meet it too.
@@ -128,10 +130,9 @@ fn a_held_terminal_event_lands_with_its_rows() {
     assert_row(&rows[0], "", "claude", "first");
 }
 
-/// The rows a terminal payload records, read directly: one per wait, a
-/// parking refusal's computable end where no wait holds its site, and none
-/// for a record that does not read, a refusal with no end, or a site a
-/// wait already holds.
+/// The rows a terminal payload records, read directly: one per wait, and
+/// none for a record that does not read or an event type that carries no
+/// waits.
 #[test]
 fn the_rows_a_terminal_payload_records() {
     let now = base();
@@ -144,7 +145,7 @@ fn the_rows_a_terminal_payload_records() {
         payload
     };
     let recorded = |event_type, payload: &Value| {
-        cooldown_rows(event_type, payload, || now)
+        cooldown_rows(event_type, payload)
             .into_iter()
             .map(|row| (row.site, row.provider, row.route, row.rounds))
             .collect::<Vec<_>>()
@@ -165,63 +166,5 @@ fn the_rows_a_terminal_payload_records() {
     assert_eq!(
         recorded(EventType::EffectSucceeded, &payload(waits.clone())),
         []
-    );
-
-    // A parking refusal whose end is computable writes its own row, at its
-    // own site, with the first round this event knows.
-    let refused = |cause: &str, site: Option<&str>, route: Option<&str>, seconds: Option<u64>| {
-        let mut refused = json!({
-            "cause": cause, "provider": "claude",
-            "words": "rate_limit: slow down",
-        });
-        if let Some(site) = site {
-            refused["site"] = json!(site);
-        }
-        if let Some(route) = route {
-            refused["route"] = json!(route);
-        }
-        if let Some(seconds) = seconds {
-            refused["seconds"] = json!(seconds);
-            refused["max_seconds"] = json!(10);
-        }
-        payload(json!({"refused": refused}))
-    };
-    assert_eq!(
-        recorded(
-            EventType::EffectFailed,
-            &refused("past-maximum", Some("a"), Some("first"), Some(3))
-        ),
-        [("a".into(), "claude".into(), "first".into(), 1)]
-    );
-    // A refusal whose end is not representable, whose cause computed no
-    // length, or which never resolved a route writes none.
-    assert_eq!(
-        recorded(
-            EventType::EffectFailed,
-            &refused("past-maximum", Some("a"), Some("first"), Some(u64::MAX))
-        ),
-        []
-    );
-    assert_eq!(
-        recorded(
-            EventType::EffectFailed,
-            &refused("no-end", Some("a"), Some("first"), Some(3))
-        ),
-        []
-    );
-    assert_eq!(
-        recorded(
-            EventType::EffectFailed,
-            &refused("route-unresolved", None, None, None)
-        ),
-        []
-    );
-    // A refusal whose site a wait already holds writes no second row.
-    let mut both = payload(waits);
-    both["refused"] = refused("past-maximum", Some("a"), Some("first"), Some(3))["refused"].clone();
-    both["waits"][0]["site"] = json!("a");
-    assert_eq!(
-        recorded(EventType::EffectFailed, &both),
-        [("a".into(), "claude".into(), "first".into(), 1)]
     );
 }

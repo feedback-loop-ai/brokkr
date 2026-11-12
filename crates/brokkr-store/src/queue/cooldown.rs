@@ -14,6 +14,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
+use super::storage::{cool_downs_held, cool_downs_writable};
 use super::QueueRefusal;
 use crate::{patiently, Store, StoreError};
 
@@ -69,7 +70,9 @@ pub struct CooldownAggregate {
 /// `recorded_at`. A row whose end has already passed is history and is
 /// written not at all; a row that violates the table's CHECK constraints
 /// or its unique index fails the whole transaction, so the event and every
-/// row land together or not at all.
+/// row land together or not at all. No rows, or a queue that holds no
+/// table this binary may write, leaves the table untouched and the event
+/// alone lands.
 pub(crate) fn insert(
     tx: &Connection,
     run_id: &str,
@@ -77,6 +80,20 @@ pub(crate) fn insert(
     recorded_at: &str,
     rows: &[Cooling],
 ) -> Result<(), StoreError> {
+    // Every append that carries no cool-downs — every non-terminal event,
+    // and `append_next`/`append_next_if_head` — leaves the table alone, so
+    // a journal whose table is gone or whose queue a newer binary stores
+    // still takes its event.
+    if rows.is_empty() {
+        return Ok(());
+    }
+    // A row belongs to version 4's table. A version 1, 2 or 3 queue holds
+    // no table, and a version this binary does not know is a newer
+    // binary's, left as found: either way the event alone lands and its
+    // `waits` stay the attempt's record (decision 0103 ruling 2(a)).
+    if !cool_downs_writable(tx)? {
+        return Ok(());
+    }
     let recorded = OffsetDateTime::parse(recorded_at, &Rfc3339)
         .expect("the journal's own recorded_at is RFC 3339")
         .unix_timestamp();
@@ -87,7 +104,7 @@ pub(crate) fn insert(
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
     )?;
     for row in rows {
-        let until = row.until_at.unix_timestamp();
+        let until = until_second(row.until_at);
         if until <= recorded {
             continue;
         }
@@ -105,6 +122,18 @@ pub(crate) fn insert(
         ])?;
     }
     Ok(())
+}
+
+/// `at`'s whole second, rounded UP: a stored end never falls before the
+/// instant it names, so a reader that floors `now` never sees a wait end
+/// early. A wait is lengthened by under a second, never shortened.
+fn until_second(at: OffsetDateTime) -> i64 {
+    let seconds = at.unix_timestamp();
+    if at.nanosecond() == 0 {
+        seconds
+    } else {
+        seconds + 1
+    }
 }
 
 /// Every row in force at `now`, in the order it was written: the claim's
@@ -204,6 +233,9 @@ impl Store {
     /// unexpired row is in force and the wait ends at the latest
     /// `until_at` across them (decision 0103 ruling 2(a)). An expired row
     /// is history and is never deleted; `None` is a route no row holds.
+    /// The queue's version is judged first: a version 1, 2 or 3 journal
+    /// holds no cool-down and answers `None`, and a version this binary
+    /// does not know refuses.
     pub fn cooldown(
         &self,
         provider: &str,
@@ -211,15 +243,24 @@ impl Store {
         now: OffsetDateTime,
     ) -> Result<Option<CooldownAggregate>, StoreError> {
         patiently("cooldown", self.patience, || {
-            aggregate(&self.conn, provider, route, now.unix_timestamp())
+            if cool_downs_held(&self.conn)? {
+                aggregate(&self.conn, provider, route, now.unix_timestamp())
+            } else {
+                Ok(None)
+            }
         })
     }
 
     /// Every cool-down row in force at `now`, in the order it was written:
-    /// the rows the claim's judge reads inside its transaction.
+    /// the rows the claim's judge reads inside its transaction. The
+    /// queue's version is judged first, as [`Store::cooldown`] does.
     pub fn cooldowns_in_force(&self, now: OffsetDateTime) -> Result<Vec<Cooldown>, StoreError> {
         patiently("cooldowns_in_force", self.patience, || {
-            in_force(&self.conn, now.unix_timestamp())
+            if cool_downs_held(&self.conn)? {
+                in_force(&self.conn, now.unix_timestamp())
+            } else {
+                Ok(Vec::new())
+            }
         })
     }
 }

@@ -46,11 +46,10 @@ impl Engine {
     /// outlasts is held for the lawful end.
     ///
     /// A terminal event's cool-downs are derived from that event's own
-    /// `waits` (and a parking refusal with a computable end) HERE, the one
-    /// place that appends it, and the store writes them with it in one
-    /// transaction (decision 0103 ruling 2(a), slice 4d1). The held
-    /// outcome's payload is the same record, so its landing derives the
-    /// same rows.
+    /// `waits` HERE, the one place that appends it, and the store writes
+    /// them with it in one transaction (decision 0103 ruling 2(a), slice
+    /// 4d1). The held outcome's payload is the same record, so its landing
+    /// derives the same rows.
     pub(super) fn append_raw(
         &mut self,
         event_type: EventType,
@@ -66,7 +65,7 @@ impl Engine {
         } else {
             1
         };
-        let cooling = cooldown::cooldown_rows(event_type, &payload, || self.now());
+        let cooling = cooldown::cooldown_rows(event_type, &payload);
         let fence = self.fence.clone();
         #[cfg(test)]
         tests::peer_between();

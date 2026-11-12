@@ -262,7 +262,7 @@ fn a_journal_that_lost_a_queue_guard_gets_it_back_on_open() {
     let dir = tempfile::tempdir().unwrap();
     let (path, store) = journal_after(
         dir.path(),
-        "DROP TRIGGER queue_entries_run_once; DROP TRIGGER provider_cooldowns_append_only_delete",
+        "DROP TRIGGER provider_cooldowns_append_only_delete",
     );
     assert!(!queue_intact(&store.conn).unwrap());
     drop(store);
@@ -691,6 +691,8 @@ fn a_queue_stored_in_a_version_this_brokkr_does_not_know_is_refused() {
                 },
                 BY,
             )),
+            refusal(store.cooldown("claude", "first", time::OffsetDateTime::UNIX_EPOCH)),
+            refusal(store.cooldowns_in_force(time::OffsetDateTime::UNIX_EPOCH)),
         ] {
             assert_eq!((refused.to_string(), &refused), (text.clone(), &mismatch));
         }
@@ -877,7 +879,7 @@ fn journal_with_a_version_1_queue(path: &Path) {
 }
 
 /// A version 1 queue reads as it stands, and the first open that may
-/// write brings it to version 3 with its entries and commands kept, and
+/// write brings it to version 4 with its entries and commands kept, and
 /// re-pins then work on it.
 #[test]
 fn a_version_1_queue_is_read_as_it_stands_and_migrated_with_its_entries_kept() {

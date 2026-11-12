@@ -45,7 +45,7 @@ fn journal_with_a_version_2_queue(path: &Path) {
 }
 
 /// A version 2 queue reads as it stands, and the first open that may
-/// write brings it to version 3 with its order, holds, pins, latches and
+/// write brings it to version 4 with its order, holds, pins, latches and
 /// links unchanged, and claims then work on it.
 #[test]
 fn a_version_2_queue_migrates_with_its_order_holds_pins_latches_and_links_kept() {

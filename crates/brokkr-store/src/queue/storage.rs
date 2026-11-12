@@ -342,6 +342,12 @@ const QUEUE_TRIGGERS: [&str; 23] = [
     "provider_cooldowns_append_only_delete",
 ];
 
+/// The indexes the migrations install, by name, so an open can ask whether
+/// a journal still carries every one. A table's guards go with it when it
+/// is dropped, and so does its unique index, which no trigger can stand in
+/// for: without it two rows of one site and round both commit.
+const QUEUE_INDEXES: [&str; 1] = ["provider_cooldowns_once"];
+
 /// The queue's tables, in the order the migrations create them: version
 /// 1's three, then version 2's latches and pins, then version 3's claims,
 /// refusals, holders and settings, then version 4's provider cool-downs.
@@ -368,8 +374,9 @@ const QUEUE_TABLES_V3: usize = 9;
 /// it: all but the holders and the settings (decision 0095 slice 3b).
 const QUEUE_TABLES_UNHELD: usize = 7;
 
-/// Is the queue whole: stored in this binary's version and every guard
-/// in place? Pure reads, so the steady-state open takes no write lock.
+/// Is the queue whole: stored in this binary's version, every guard in
+/// place and every index? Pure reads, so the steady-state open takes no
+/// write lock.
 ///
 /// The recorded version is read first, before anything is repaired, and
 /// a queue stored in a version this binary does not know is left exactly
@@ -413,11 +420,15 @@ pub(crate) fn queue_intact(conn: &Connection) -> Result<bool, StoreError> {
     {
         return Err(QueueRefusal::TableLost { table }.into());
     }
-    // An older queue has not every guard: migrated.
+    // An older queue has not every guard or index: migrated.
     let triggers = objects(conn, "trigger")?;
+    let indexes = objects(conn, "index")?;
     Ok(QUEUE_TRIGGERS
         .iter()
-        .all(|guard| triggers.iter().any(|name| name == guard)))
+        .all(|guard| triggers.iter().any(|name| name == guard))
+        && QUEUE_INDEXES
+            .iter()
+            .all(|index| indexes.iter().any(|name| name == index)))
 }
 
 /// Create the queue's tables and guards and record its version, on a
@@ -463,5 +474,28 @@ pub(crate) fn queue_stored(conn: &Connection) -> Result<Option<Stored>, StoreErr
         Some(found) => Stored::of(found)
             .map(Some)
             .ok_or(QueueRefusal::SchemaMismatch { found }.into()),
+    }
+}
+
+/// Does the queue hold the cool-down table a reader may read? A version 1,
+/// 2 or 3 queue is from before the table, and no queue at all holds none;
+/// a version this binary does not know refuses, because only its own
+/// binary can say what it holds.
+pub(super) fn cool_downs_held(conn: &Connection) -> Result<bool, StoreError> {
+    match queue_stored(conn)? {
+        Some(Stored::V4) => Ok(true),
+        Some(Stored::V1 | Stored::V2 | Stored::V3) | None => Ok(false),
+    }
+}
+
+/// Does the queue hold the cool-down table a rows-bearing append writes?
+/// A version this binary does not know is a newer binary's queue: its
+/// table is left as found and only the event lands.
+pub(super) fn cool_downs_writable(conn: &Connection) -> Result<bool, StoreError> {
+    match queue_stored(conn) {
+        Ok(Some(Stored::V4)) => Ok(true),
+        Ok(Some(Stored::V1 | Stored::V2 | Stored::V3)) | Ok(None) => Ok(false),
+        Err(StoreError::Queue(QueueRefusal::SchemaMismatch { .. })) => Ok(false),
+        Err(error) => Err(error),
     }
 }

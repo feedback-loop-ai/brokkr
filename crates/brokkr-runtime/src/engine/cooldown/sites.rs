@@ -8,9 +8,7 @@
 use std::collections::BTreeMap;
 
 use brokkr_core::envelope::{EventType, EVENT_SCHEMA_VERSION};
-use brokkr_core::{
-    provider_refusal, provider_waits, EventEnvelope, ProviderRefusal, ProviderWait, RefusalCause,
-};
+use brokkr_core::{provider_waits, EventEnvelope, ProviderRefusal, ProviderWait, RefusalCause};
 use brokkr_protocol::{AttemptReport, PreSessionRefusal, RefusalClass};
 use brokkr_store::Cooling;
 use serde_json::Value;
@@ -676,26 +674,15 @@ pub(in crate::engine) struct PanelTerminal {
     pub(in crate::engine) park: Option<String>,
 }
 
-/// Every cool-down row the terminal event `payload` records, at the
-/// engine's `now` (decision 0103 ruling 2(a), slice 4d1): one per `waits`
-/// entry, and a parking `refused` record whose end is computable when no
-/// wait entry already holds its site. A refusal with no representable end
-/// writes none, and no other event type carries a row. The store fills the
-/// event's seq and its own recorded instant, and writes no row whose end
-/// has already passed.
+/// Every cool-down row the terminal event `payload` records (decision 0103
+/// ruling 2(a), slice 4d1): one per `waits` entry, and no other event type
+/// carries a row. The store fills the event's seq and its own recorded
+/// instant, and writes no row whose end has already passed.
 ///
 /// An entry that does not read writes no row either: the engine's own
 /// reader on the event refuses it by name and the attempt follows 0006, so
 /// the table never carries a fact the event does not.
-///
-/// `now` is asked only for a parking `refused` record's computable end: a
-/// `waits` entry already carries its own, and an append that read the clock
-/// for every event would observe the seam an operator's stop rides.
-pub(in crate::engine) fn cooldown_rows(
-    event_type: EventType,
-    payload: &Value,
-    now: impl FnOnce() -> OffsetDateTime,
-) -> Vec<Cooling> {
+pub(in crate::engine) fn cooldown_rows(event_type: EventType, payload: &Value) -> Vec<Cooling> {
     if !matches!(
         event_type,
         EventType::EffectFailed | EventType::EffectIndeterminate
@@ -703,16 +690,10 @@ pub(in crate::engine) fn cooldown_rows(
         return Vec::new();
     }
     let event = record_event(event_type, payload);
-    let mut rows: Vec<Cooling> = match provider_waits(&event) {
+    match provider_waits(&event) {
         Ok(Some(waits)) => waits.iter().map(row_of_wait).collect(),
         _ => Vec::new(),
-    };
-    if let Ok(Some(refused)) = provider_refusal(&event) {
-        if let Some(row) = row_of_refusal(&refused, &rows, now) {
-            rows.push(row);
-        }
     }
-    rows
 }
 
 /// The event whose payload the rows are read from. The append does not
@@ -747,43 +728,4 @@ fn row_of_wait(wait: &ProviderWait) -> Cooling {
         retry_after_seconds: wait.retry_after_seconds,
         rounds: wait.rounds,
     }
-}
-
-/// A parking `refused` record's row, where its end is computable and no
-/// wait entry already holds its site (decision 0103 slice 4c2a's ask 6,
-/// slice 4d1): its `seconds` run from the instant the event records, and
-/// it is this event's first row for the site. A refusal whose end is not
-/// representable, or whose cause computed no length, writes none.
-fn row_of_refusal(
-    refused: &ProviderRefusal,
-    rows: &[Cooling],
-    now: impl FnOnce() -> OffsetDateTime,
-) -> Option<Cooling> {
-    if refused.cause != RefusalCause::PastMaximum {
-        return None;
-    }
-    // The refused record's shape holds these two: a past-maximum refusal is
-    // only readable with a resolved route and a computed length
-    // (`provider_refusal`'s `refusal_shape`), so neither is guessed at and
-    // neither can be absent here.
-    let route = refused
-        .route
-        .as_ref()
-        .expect("a past-maximum refusal resolved its route");
-    let seconds = refused
-        .seconds
-        .expect("a past-maximum refusal computed its length");
-    let site = refused.site.clone().unwrap_or_default();
-    if rows.iter().any(|row| row.site == site) {
-        return None;
-    }
-    Some(Cooling {
-        site,
-        provider: refused.provider.clone(),
-        route: route.clone(),
-        until_at: wait_until(now(), seconds)?,
-        reason: refused.words.clone(),
-        retry_after_seconds: refused.retry_after_seconds,
-        rounds: 1,
-    })
 }

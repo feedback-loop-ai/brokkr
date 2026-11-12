@@ -224,6 +224,59 @@ fn an_ended_wait_writes_no_row() {
     assert_eq!(raw(&store.conn), vec![]);
 }
 
+/// An append with no cool-downs never touches the table: a journal whose
+/// queue this binary does not know, and whose cool-down table is gone,
+/// still takes the event, as it did on main.
+#[test]
+fn an_append_with_no_rows_does_not_touch_the_cool_down_table() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&dir.path().join("forge.db")).unwrap();
+    planted(&store, "run-a");
+    store
+        .conn
+        .execute_batch(
+            "UPDATE meta SET value = '9' WHERE key = 'queue_schema';
+             DROP TABLE provider_cooldowns;",
+        )
+        .unwrap();
+    let event = store
+        .append_next(
+            "run-a",
+            EventType::EffectRequested,
+            json!({"effect_id": "effect"}),
+            None,
+            None,
+        )
+        .unwrap();
+    assert_eq!(event.seq, 1);
+}
+
+/// A rows-bearing append on a queue version this binary does not know
+/// writes its event and no row: the event's `waits` stay the attempt's
+/// record, and a newer binary's table is left as found.
+#[test]
+fn a_rows_bearing_append_on_an_unknown_version_writes_no_row() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = journal(dir.path());
+    store
+        .conn
+        .execute("UPDATE meta SET value = '9' WHERE key = 'queue_schema'", [])
+        .unwrap();
+    let event = append(&mut store, "run-a", &[row("a", "claude", "first", at(60))]).unwrap();
+    assert_eq!(event.seq, 2);
+    assert_eq!(raw(&store.conn), vec![]);
+    let present: i64 = store
+        .conn
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master
+             WHERE type = 'table' AND name = 'provider_cooldowns'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(present, 1, "a newer binary's table was dropped");
+}
+
 /// A fenced append whose head moved writes neither the event nor a row.
 #[test]
 fn a_moved_head_writes_neither_the_event_nor_a_row() {
@@ -304,15 +357,68 @@ type Case<'a> = (
     &'a str,
 );
 
-/// Every CHECK the table carries refuses its own case, by the name of the
-/// constraint it broke.
-#[test]
-fn every_check_refuses_its_own_case() {
+/// The error one case's INSERT meets. A case about a column's type binds
+/// the value of that type; every other case binds the values its tuple
+/// names.
+fn refusal_of(conn: &Connection, case: Case<'_>) -> rusqlite::Error {
     const INSERT: &str = "INSERT INTO provider_cooldowns
         (run_id, event_seq, site, provider, route, until_at, reason,
          retry_after_seconds, rounds, recorded_at)
         VALUES ('run-a', 1, '', ?1, ?2, ?3, ?4, ?5, ?6, ?7)";
-    let cases: [Case; 8] = [
+    let (what, (provider, route, until, reason, retry, rounds, recorded), broken) = case;
+    match broken {
+        "until_is_seconds" => conn.execute(
+            INSERT,
+            params![
+                provider,
+                route,
+                "2026-11-01T00:00:00Z",
+                reason,
+                retry,
+                rounds,
+                recorded
+            ],
+        ),
+        "rounds_whole" if what.contains("not whole") => conn.execute(
+            INSERT,
+            params![provider, route, until, reason, retry, "one", recorded],
+        ),
+        "recorded_is_seconds" => conn.execute(
+            INSERT,
+            params![
+                provider,
+                route,
+                until,
+                reason,
+                retry,
+                rounds,
+                "2026-11-01T00:00:00Z"
+            ],
+        ),
+        "the_events_foreign_key" => conn.execute(
+            "INSERT INTO provider_cooldowns
+                (run_id, event_seq, site, provider, route, until_at, reason,
+                 retry_after_seconds, rounds, recorded_at)
+             VALUES ('run-a', 99, '', ?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![provider, route, until, reason, retry, rounds, recorded],
+        ),
+        "retry_after_positive" if what.contains("not an integer") => conn.execute(
+            INSERT,
+            params![provider, route, until, reason, 1.5_f64, rounds, recorded],
+        ),
+        _ => conn.execute(
+            INSERT,
+            params![provider, route, until, reason, retry, rounds, recorded],
+        ),
+    }
+    .expect_err(what)
+}
+
+/// Every constraint the table carries — each CHECK and the foreign key to
+/// `events` — refuses its own case, by the name it broke.
+#[test]
+fn every_check_refuses_its_own_case() {
+    let cases: [Case; 11] = [
         (
             "the rounds are not whole",
             ("claude", "first", 60, "words", None, 1, 0),
@@ -353,49 +459,32 @@ fn every_check_refuses_its_own_case() {
             ("claude", "first", 60, "words", None, 1, 0),
             "until_is_seconds",
         ),
+        (
+            "the record is text",
+            ("claude", "first", 60, "words", None, 1, 0),
+            "recorded_is_seconds",
+        ),
+        (
+            "the retry-after is not an integer",
+            ("claude", "first", 60, "words", Some(30), 1, 0),
+            "retry_after_positive",
+        ),
+        (
+            "the event the row names does not exist",
+            ("claude", "first", 60, "words", None, 1, 0),
+            "the_events_foreign_key",
+        ),
     ];
     let dir = tempfile::tempdir().unwrap();
     let store = journal(dir.path());
-    for (what, (provider, route, until, reason, retry, rounds, recorded), broken) in cases {
-        // SQLite binds a text where the column expects a whole number for
-        // the last case, which is exactly the malformed text a CHECK must
-        // refuse rather than pass on a NULL `unixepoch()`.
-        let error = match broken {
-            "until_is_seconds" => store
-                .conn
-                .execute(
-                    INSERT,
-                    params![
-                        provider,
-                        route,
-                        "2026-11-01T00:00:00Z",
-                        reason,
-                        retry,
-                        rounds,
-                        recorded
-                    ],
-                )
-                .expect_err(what),
-            "rounds_whole" if what.contains("not whole") => store
-                .conn
-                .execute(
-                    INSERT,
-                    params![provider, route, until, reason, retry, "one", recorded],
-                )
-                .expect_err(what),
-            _ => store
-                .conn
-                .execute(
-                    INSERT,
-                    params![provider, route, until, reason, retry, rounds, recorded],
-                )
-                .expect_err(what),
+    for case in cases {
+        let (what, _, broken) = case;
+        let error = refusal_of(&store.conn, case);
+        let expected = match broken {
+            "the_events_foreign_key" => "FOREIGN KEY constraint failed".to_string(),
+            _ => format!("CHECK constraint failed: {broken}"),
         };
-        assert_eq!(
-            error.to_string(),
-            format!("CHECK constraint failed: {broken}"),
-            "{what}"
-        );
+        assert_eq!(error.to_string(), expected, "{what}");
     }
     assert_eq!(raw(&store.conn), vec![]);
 }
@@ -420,6 +509,41 @@ fn the_cool_downs_are_append_only() {
         let error = store.conn.execute(statement, []).unwrap_err();
         assert_eq!(error.to_string(), guard, "{statement}");
     }
+    assert_eq!(raw(&store.conn).len(), 1);
+}
+
+/// The unique index is part of the queue's intact check, and a journal
+/// that lost it is repaired on open: the index is back, and a second row
+/// of the same site and round then refuses.
+#[test]
+fn a_lost_unique_index_is_repaired_and_refuses_a_second_row() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("forge.db");
+    let mut store = journal(dir.path());
+    append(&mut store, "run-a", &[row("a", "claude", "first", at(60))]).unwrap();
+    assert_eq!(raw(&store.conn)[0].2, 2, "the row is on the terminal event");
+    store
+        .conn
+        .execute_batch("DROP INDEX provider_cooldowns_once")
+        .unwrap();
+    assert!(!crate::queue::queue_intact(&store.conn).unwrap());
+    drop(store);
+
+    let store = Store::open(&path).unwrap();
+    assert!(crate::queue::queue_intact(&store.conn).unwrap());
+    let second = "INSERT INTO provider_cooldowns
+        (run_id, event_seq, site, provider, route, until_at, reason,
+         retry_after_seconds, rounds, recorded_at)
+        VALUES ('run-a', 2, 'a', 'codex', 'second', ?1, 'words', NULL, 1, 0)";
+    let error = store
+        .conn
+        .execute(second, params![at(60).unix_timestamp()])
+        .expect_err("the repaired index admits a second row");
+    assert_eq!(
+        error.to_string(),
+        "UNIQUE constraint failed: provider_cooldowns.run_id, \
+         provider_cooldowns.event_seq, provider_cooldowns.site, provider_cooldowns.rounds"
+    );
     assert_eq!(raw(&store.conn).len(), 1);
 }
 
@@ -479,6 +603,55 @@ fn an_expired_row_is_not_in_force() {
     assert_eq!(in_force(&store, at(30)), Vec::<String>::new());
 }
 
+/// A wait is never shortened by its rounding: a row whose end is T+10.9s
+/// is in force at T+10.5s, though the reader floors `now` to T+10.
+#[test]
+fn a_wait_is_not_shortened_by_its_rounding() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = journal(dir.path());
+    let until = at(10) + Duration::milliseconds(900);
+    append(&mut store, "run-a", &[row("a", "claude", "first", until)]).unwrap();
+    let now = at(10) + Duration::milliseconds(500);
+    assert_eq!(
+        store.cooldown("claude", "first", now).unwrap(),
+        Some(CooldownAggregate {
+            until: at(11),
+            reason: "rate_limit: slow down".into(),
+        })
+    );
+    assert_eq!(store.cooldowns_in_force(now).unwrap().len(), 1);
+    // The rounding lengthens the wait by under a second, never past it.
+    assert_eq!(store.cooldowns_in_force(at(11)).unwrap(), vec![]);
+}
+
+/// A wait ending inside its recording second writes its row: the stored
+/// end rounds up past the whole second the journal recorded.
+#[test]
+fn a_wait_ending_inside_its_recording_second_writes_its_row() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = journal(dir.path());
+    let until = time::OffsetDateTime::parse(
+        "2026-11-01T00:00:00.500Z",
+        &time::format_description::well_known::Rfc3339,
+    )
+    .unwrap();
+    insert(
+        &store.conn,
+        "run-a",
+        1,
+        "2026-11-01T00:00:00Z",
+        &[row("a", "claude", "first", until)],
+    )
+    .unwrap();
+    let raw = raw(&store.conn);
+    assert_eq!(raw.len(), 1);
+    assert_eq!(
+        raw[0].6,
+        until.unix_timestamp() + 1,
+        "the end was floored back inside its record"
+    );
+}
+
 /// A stored instant this reader cannot spell is refused by name, never
 /// read as expired (which would release the route) and never guessed at.
 #[test]
@@ -503,6 +676,56 @@ fn a_time_the_reader_cannot_spell_is_refused_by_name() {
         store.cooldowns_in_force(at(0)),
         Err(StoreError::Queue(QueueRefusal::CooldownTime { seq: 1 }))
     ));
+}
+
+/// Both readers judge the queue's version before they read the table: a
+/// version this binary does not know refuses, even with v4's table and a
+/// row still there.
+#[test]
+fn a_cool_down_reader_refuses_an_unknown_queue_version() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = journal(dir.path());
+    append(&mut store, "run-a", &[row("a", "claude", "first", at(60))]).unwrap();
+    store
+        .conn
+        .execute("UPDATE meta SET value = '9' WHERE key = 'queue_schema'", [])
+        .unwrap();
+    let now = at(0);
+    for error in [
+        store.cooldown("claude", "first", now).unwrap_err(),
+        store.cooldowns_in_force(now).unwrap_err(),
+    ] {
+        assert_eq!(
+            error.to_string(),
+            "queue storage 9 unsupported (want 4)",
+            "{error:?}"
+        );
+        assert!(matches!(
+            error,
+            StoreError::Queue(QueueRefusal::SchemaMismatch { found: 9 })
+        ));
+    }
+}
+
+/// A version 3 journal holds no cool-down table, and both readers answer
+/// none rather than failing on it.
+#[test]
+fn a_cool_down_reader_answers_none_on_a_version_3_journal() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("forge.db");
+    let store = Store::open(&path).unwrap();
+    store
+        .conn
+        .execute_batch(
+            "UPDATE meta SET value = '3' WHERE key = 'queue_schema';
+             DROP TABLE provider_cooldowns;",
+        )
+        .unwrap();
+    drop(store);
+    let store = Store::open_read_only(&path).unwrap();
+    let now = at(0);
+    assert_eq!(store.cooldown("claude", "first", now).unwrap(), None);
+    assert_eq!(store.cooldowns_in_force(now).unwrap(), vec![]);
 }
 
 /// The claim reads the rows in force inside its own transaction: a row
