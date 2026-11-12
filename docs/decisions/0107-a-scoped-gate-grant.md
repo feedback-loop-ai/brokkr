@@ -1,8 +1,9 @@
 # 0107 — A scoped gate grant: one route and model may hold a named gate role, on measured evidence
 
-Status: proposed
+Status: accepted — operator ruled in chat 2026-11-12, "go with recommended" (https://github.com/feedback-loop-ai/brokkr/issues/1052#issuecomment-6815683675)
 Date: 2026-11-11
 
+Amends: 0021, 0036, 0041, 0046, 0075
 Built: unbuilt (#1052)
 
 This decision relies on 0021's rulings 1, 2, 3, 4, 5, 7 and 8, on 0036's rulings 1, 2 and 3, on 0041's ruling 3, on 0043's rulings 2 and 3, on 0046's rulings 1 and 4, on 0065's rulings 3, 4 and 7, on 0075's rulings 3, 4, 5 and 6, and on 0098's rulings 2 and 3. Passages in five older decisions change on acceptance: 0021 ruling 2, 0036 ruling 3's enforcement binding, 0041 ruling 3, 0046 ruling 4's clause, and 0075 ruling 5's binding. Their exact replacements are in [What the older decisions say after acceptance](#what-the-older-decisions-say-after-acceptance), and no older file is edited here.
@@ -195,7 +196,7 @@ Until B and its prerequisites (1052a's native ON/OFF measurement and 0098 ruling
 
 ## The asks for the operator
 
-Each ask is a choice with a recommended option, and each is unruled. The operator can rule each in one line; the "Ruling line" is the sentence to accept or replace.
+Each ask is a choice with a recommended option. The operator ruled each as recommended on 2026-11-12 ([Ruled](#ruled-operator-in-chat-2026-11-12)); the "Ruling line" is the sentence each ruling accepted.
 
 ### (a) Where the grant lives
 
@@ -280,6 +281,37 @@ The tree already uses `office` for the hired agent's name (`crates/brokkr-runtim
 **Recommended: g2.** It names both facts in the grant, removes the new precedent of deciding a role by an agent's file name, and leaves every existing `office` sentence true. The grant's role enum is `review | chief`; `chief` is refused, and `verify`/`ship` are not grantable until a shipped verify or ship seat hires a model office.
 
 **Ruling line:** `0107(g): bind both words in the grant — the grant names the hired office and the structural gate role, and a site must match both.`
+
+## Ruled (operator, in chat, 2026-11-12)
+
+The operator answered "go with recommended" (#1052,
+https://github.com/feedback-loop-ai/brokkr/issues/1052#issuecomment-6815683675).
+Each ask above was taken as recommended:
+
+1. **(a) a1.** The grant lives in the adapter, as a `gate_grants` list
+   beside `routes` and `judges`.
+2. **(b) No.** A grant never names the review chief. The chief stays a
+   trusted adapter's judge.
+3. **(c) c1, with a typed `review_by` date.** The grant is bound to the
+   measured release, the concrete model id and the hands digest, so any
+   change re-opens it. `brokkr doctor` prints `review_by`.
+4. **(d) d1, the full bar.** The evidence is:
+   - a wager with the model work-class under a trusted chief, in the
+     office the role requires;
+   - the probe;
+   - the hands measurement;
+   - the native ON/OFF measurement on the grant's release and host.
+5. **(e) e1.** `Adapters::load` refuses two adapters that name the same
+   driver at different tiers.
+6. **(f) f1.** A grant names the office and the role it admits, sole-check
+   or panel member.
+7. **(g) g2.** The grant names both the hired `office` and the structural
+   `role`, and a site must match both.
+
+The replacement sentences in [What the older decisions say after
+acceptance](#what-the-older-decisions-say-after-acceptance) take effect with
+this acceptance. 0021, 0036, 0041, 0046 and 0075 each carry the `Amended by:
+0107` pointer.
 
 ## What the older decisions say after acceptance
 

@@ -3,6 +3,7 @@
 Status: accepted — operator ruled in chat 2026-10-12
 Date: 2026-09-28
 Built: partial (#485) — the conformance probe (#500) and the provisional tier (#526) are built; the epic tracks the rest
+Amended by: 0107
 
 ## Context
 
