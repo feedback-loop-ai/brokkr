@@ -14,9 +14,12 @@
 //! A panel's and a sequence's terminal words name the same source too. The
 //! panel names its joined outcome once, before it is journaled, from
 //! whether any member was deadline-killed; a sequence names each step's
-//! outcome where it is built, so only the step that ends the attempt
-//! reaches the terminal words. Each attempt's words therefore name the
-//! deadline's source once, however many members or steps it ran.
+//! outcome where it is built, and an ending built without one (a missing
+//! or malformed change, a contradictory result, a result outside its
+//! step's vocabulary, a refused record) names an unreadable or invalid
+//! host itself. Only the step that ends the attempt reaches its terminal
+//! words, so each attempt's words name the deadline's source once, however
+//! many members or steps it ran.
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -169,18 +172,11 @@ impl Deadline {
         }
     }
 
-    fn seat(authored: u64) -> Deadline {
+    pub(in crate::engine) fn seat(authored: u64) -> Deadline {
         Deadline {
             seconds: authored,
             cause: None,
         }
-    }
-
-    /// The seat's own limit with no source to name, for the test entry
-    /// points that call a panel or a sequence with a bare `Duration`.
-    #[cfg(test)]
-    pub(in crate::engine) fn unchanged(seconds: u64) -> Deadline {
-        Deadline::seat(seconds)
     }
 
     /// The attempt's bound.
@@ -209,7 +205,8 @@ impl Deadline {
     /// limit governed. Anything else reads exactly as before. A panel and a
     /// sequence name the source once per attempt: the panel through
     /// [`Self::name_joined_outcome`] at its joined outcome, a sequence's
-    /// step through this method where its outcome is built.
+    /// step through this method where its outcome is built, and an ending
+    /// that builds no outcome through [`Self::name_words`].
     pub(in crate::engine) fn name(&self, run: &mut DriverRun) {
         let Some(cause) = &self.cause else {
             return;
@@ -269,6 +266,25 @@ impl Deadline {
         killed: bool,
     ) {
         self.name_outcome(outcome, killed, OutcomeWords::Panel);
+    }
+
+    /// Name an unreadable or invalid host in terminal words a sequence
+    /// builds without an `AttemptOutcome`: an ending that never formed a
+    /// step's outcome. A raised deadline names nothing here, since only a
+    /// watchdog kill raises a raised deadline's words.
+    pub(in crate::engine) fn name_words(&self, words: &mut String) {
+        if let Some(cause) = self.unreadable() {
+            *words = format!("{words}; {cause}");
+        }
+    }
+
+    /// The host file's cause, where that is what the deadline carries: a
+    /// raised floor names itself only in an attempt the watchdog ended.
+    fn unreadable(&self) -> Option<&Cause> {
+        match self.cause.as_ref()? {
+            cause @ (Cause::Unreadable { .. } | Cause::Invalid { .. }) => Some(cause),
+            Cause::Raised { .. } => None,
+        }
     }
 
     /// The raised deadline's own words: both numbers and the source.

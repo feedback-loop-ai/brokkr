@@ -15,14 +15,12 @@ use brokkr_protocol::AttemptOutcome;
 use brokkr_store::StoreError;
 use serde_json::{json, Map, Value};
 
-use super::carry::{
-    outcome_under,
-    record::{settled_members, PanelRecord, PanelSpan},
-};
+use super::carry::record::{settled_members, PanelRecord, PanelSpan};
 use super::cooldown::{refused_members, RefusedMember};
 use super::dispatch::deadline::AttemptBound;
 #[cfg(test)]
 use super::dispatch::deadline::Deadline;
+use super::panel::named_panel_outcome;
 use super::{
     copy_secret_binding_facts, failed_to_start, git_head, stamp_boundary, start_failure_fields,
     start_failure_sites, DriverRun, Engine, EngineError, Indeterminate, Selection, Site, Unproven,
@@ -286,7 +284,7 @@ impl Engine {
         selection: &Selection,
     ) -> Result<(), EngineError> {
         let remaining = deadline;
-        let deadline = Deadline::unchanged(remaining.as_secs());
+        let deadline = Deadline::seat(remaining.as_secs());
         self.execute_sequence_named(
             &SequenceAt::new(effect_id, attempt_id, seat_name),
             steps,
@@ -490,9 +488,14 @@ impl Engine {
         let start_failures = start_failure_sites(&reports, &tag_prefix);
         let refused = refused_members(&reports, &tag_prefix);
         let unproven = Unproven::panel(&reports);
-        let killed = reports.iter().any(|(_, report)| report.deadline_killed);
-        let mut outcome = outcome_under(aggregate, plan, reports, &record.span, run.attempt_id)?;
-        run.bound.deadline.name_joined_outcome(&mut outcome, killed);
+        let outcome = named_panel_outcome(
+            run.bound.deadline,
+            aggregate,
+            plan,
+            reports,
+            &record.span,
+            run.attempt_id,
+        )?;
         Ok(StepRun {
             record: Some(record),
             start_failures,
@@ -533,7 +536,10 @@ impl Engine {
         // A step's result the fence refuses (decision 0034, ruling
         // 6) fails the attempt at that step, with the same facts a
         // step that failed on its own would carry.
-        let refused = |refusal: String| run.failed_payload(at, &refusal, &start_failures);
+        let refused = |mut refusal: String| {
+            run.bound.deadline.name_words(&mut refusal);
+            run.failed_payload(at, &refusal, &start_failures)
+        };
         if run.is_last(at) {
             self.finish_sequence(run, at, result, carried, refused)
         } else {
@@ -599,7 +605,8 @@ impl Engine {
         carried: &mut Carried,
         start_failures: &[Site],
     ) -> Result<StepVerdict<()>, EngineError> {
-        if let Some(problem) = vocabulary_problem(at.step, result) {
+        if let Some(mut problem) = vocabulary_problem(at.step, result) {
+            run.bound.deadline.name_words(&mut problem);
             return self.end_failed(run, run.failed_payload(at, &problem, &[]));
         }
         // A deterministic dialect check's failure is recorded before any
@@ -743,7 +750,10 @@ impl Engine {
                 "why": why,
             }),
             run.attempt_id,
-            |refusal| run.failed_payload(at, &refusal, start_failures),
+            |mut refusal| {
+                run.bound.deadline.name_words(&mut refusal);
+                run.failed_payload(at, &refusal, start_failures)
+            },
         )?;
         Ok(StepVerdict::Ended)
     }
@@ -771,12 +781,14 @@ impl Engine {
         reason: &str,
         unproven: Unproven,
     ) -> Result<StepVerdict<T>, EngineError> {
+        let mut reason = format!("sequence step '{}': {reason}", at.step.name);
+        run.bound.deadline.name_words(&mut reason);
         self.append(
             EventType::EffectIndeterminate,
             json!(Indeterminate {
                 effect_id: run.effect_id,
                 attempt_id: run.attempt_id,
-                reason: format!("sequence step '{}': {reason}", at.step.name),
+                reason,
                 unproven,
             }),
             Some(run.attempt_id.to_string()),

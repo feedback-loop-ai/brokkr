@@ -1,7 +1,9 @@
 //! A realm-dialect step: the engine's own `driver exec` runs the dialect's
 //! argv, with `{change}` expanded to the nearest change. Moved here from
-//! `sequence.rs` unchanged, to keep that file within ruling 4's 800-line
-//! ceiling.
+//! `sequence.rs` to keep that file within ruling 4's 800-line ceiling; it
+//! now also reads the step's bound from `run.bound` and names the
+//! deadline in its outcome, as every step form does (decision 0104 slice
+//! 5a2).
 
 use serde_json::{json, Value};
 

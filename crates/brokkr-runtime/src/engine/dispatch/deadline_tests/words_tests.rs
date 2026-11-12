@@ -1,11 +1,12 @@
 //! Decision 0104 ruling 3(a) for panels and sequences: a raised deadline,
 //! or a host file that could not be read or was invalid, is named once in
-//! the attempt's terminal words — at the panel's joined outcome, or at the
-//! sequence step that ends the attempt. Each test drives the attempt end to
-//! end, so the words it pins are the ones the journal carries.
+//! the attempt's terminal words — at the panel's joined outcome, or in the
+//! sequence words that end the attempt, whether a step's outcome or an
+//! ending built without one. Each test drives the attempt end to end, so
+//! the words it pins are the ones the journal carries.
 
 use super::*;
-use crate::bundle::{Aggregate, PanelMember, SequenceStep, StepBody};
+use crate::bundle::{Aggregate, DialectExecution, PanelMember, SequenceStep, StepBody};
 
 /// The one fixture candidate `script` launches, built through the parent's
 /// `link` so another lane may add a field to `Candidate` without moving
@@ -145,6 +146,94 @@ fn exited_driver(dir: &Path) -> Vec<String> {
     driver(dir, "exited-driver.sh", "exit 0\n")
 }
 
+/// A driver that accepts and then succeeds with `result`, a complete JSON
+/// object literal such as `{"result":"complete"}`.
+fn succeeded_driver(dir: &Path, result: &str) -> Vec<String> {
+    let tail = format!(
+        r#"printf '%s,"type":"result","effect_id":"%s","attempt_id":"%s","status":"succeeded","result":{result}}}\n' '{{"proto":"forge-driver/v1","msg_id":"r"' "$eid" "$aid"
+"#
+    );
+    driver(dir, "succeeded-driver.sh", &tail)
+}
+
+/// A realm-dialect step `name` running `argv`.
+fn dialect_step(name: &str, argv: Vec<String>) -> SequenceStep {
+    step(
+        name,
+        StepBody::Dialect {
+            execution: DialectExecution { argv, state: None },
+        },
+    )
+}
+
+/// A two-step sequence whose first step is `first`: the second is never
+/// reached, but only a step before the last is checked against its own
+/// vocabulary or a compiled ending.
+fn with_unreachable_step(first: SequenceStep) -> Vec<SequenceStep> {
+    vec![first, dialect_step("unreachable", vec!["true".into()])]
+}
+
+/// Drive a two-step sequence whose first step is `step` (pinned to
+/// `candidate`) and return the `effect/failed` words it ended with.
+fn two_step_error(
+    dir: &Path,
+    step: SequenceStep,
+    candidate: &Candidate,
+    host: Option<PathBuf>,
+) -> String {
+    let name = step.name.clone();
+    let mut engine = sequence_engine(dir, with_unreachable_step(step), 1, host);
+    pin_step(&mut engine, &name, candidate);
+    engine.drive().unwrap();
+    terminal(&engine, EventType::EffectFailed, "error")
+}
+
+/// A single step `draft` whose succeeded result the seat record refuses:
+/// its model is outside the contract's vocabulary.
+fn refused_step(dir: &Path) -> (SequenceStep, Candidate) {
+    single_step(
+        "draft",
+        succeeded_driver(dir, r#"{"result":"complete","model":"not a model"}"#),
+    )
+}
+
+/// The refused results' words, checked to be the fence's and not an
+/// engine error.
+fn refused_step_error(dir: &Path, step: SequenceStep, candidate: &Candidate) -> String {
+    let error = two_step_error(dir, step, candidate, Some(dir.to_path_buf()));
+    assert!(
+        error.starts_with("sequence step 'draft': seat record at journal seq "),
+        "{error}"
+    );
+    error
+}
+
+/// A one-panel-step sequence `check`, its members pinned at
+/// `work:check:<member>`, under `timeout` and the host file `host`.
+fn panel_step_engine(
+    dir: &Path,
+    members: Vec<PanelMember>,
+    timeout: u64,
+    host: Option<PathBuf>,
+) -> Engine {
+    let mut engine = sequence_engine(
+        dir,
+        vec![panel_step("check", members.clone())],
+        timeout,
+        host,
+    );
+    for member in &members {
+        pin_member(&mut engine, &format!("work:check:{}", member.name), member);
+    }
+    engine
+}
+
+/// Assert `words` names the host file at `dir` exactly once.
+fn assert_names_host_once(words: &str, dir: &Path) {
+    let named = format!("the host configuration at {}", dir.display());
+    assert_eq!(words.matches(&named).count(), 1, "{words}");
+}
+
 #[test]
 fn a_panels_raised_deadline_names_the_floor_and_keeps_its_member_list() {
     let dir = tempfile::tempdir().unwrap();
@@ -179,15 +268,7 @@ fn a_sequences_raised_deadline_names_the_floor_on_its_ending_step() {
 fn a_sequence_panel_steps_raised_deadline_names_the_source_once() {
     let dir = tempfile::tempdir().unwrap();
     let members = vec![panel_member("slow", silent_driver(dir.path()))];
-    let mut engine = sequence_engine(
-        dir.path(),
-        vec![panel_step("check", members.clone())],
-        1,
-        Some(host(dir.path(), Some(2))),
-    );
-    for member in &members {
-        pin_member(&mut engine, &format!("work:check:{}", member.name), member);
-    }
+    let mut engine = panel_step_engine(dir.path(), members, 1, Some(host(dir.path(), Some(2))));
     engine.drive().unwrap();
     let reason = terminal(&engine, EventType::EffectIndeterminate, "reason");
     assert_eq!(
@@ -217,8 +298,7 @@ fn a_panels_unreadable_host_is_named_once_in_a_failing_panels_words() {
         error.starts_with("panel members failed — a: driver failed; b: driver failed; "),
         "{error}"
     );
-    let named = format!("the host configuration at {}", dir.path().display());
-    assert_eq!(error.matches(&named).count(), 1, "{error}");
+    assert_names_host_once(&error, dir.path());
     assert!(error.contains("cannot be read"), "{error}");
 }
 
@@ -263,8 +343,7 @@ fn a_sequences_unreadable_host_is_named_once_in_the_failing_steps_words() {
         error.starts_with("sequence step 'step': driver failed; "),
         "{error}"
     );
-    let named = format!("the host configuration at {}", dir.path().display());
-    assert_eq!(error.matches(&named).count(), 1, "{error}");
+    assert_names_host_once(&error, dir.path());
 }
 
 #[test]
@@ -284,13 +363,7 @@ fn an_unspawned_panel_member_under_an_invalid_host_names_the_host_once() {
         error.starts_with("panel members failed — doomed: member driver did not spawn: "),
         "{error}"
     );
-    assert_eq!(
-        error
-            .matches(&format!("the host configuration at {}", file.display()))
-            .count(),
-        1,
-        "{error}"
-    );
+    assert_names_host_once(&error, &file);
     assert!(
         error.contains("is not a valid host configuration file"),
         "{error}"
@@ -364,4 +437,123 @@ fn a_sequence_with_the_seat_limit_governing_keeps_todays_words() {
         "sequence step 'step': attempt exceeded its 2s deadline and was killed; its process tree \
          is gone, and what it did is unknown; stderr tail: "
     );
+}
+
+#[test]
+fn a_dialect_steps_unreadable_host_is_named_once_in_its_words() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut engine = sequence_engine(
+        dir.path(),
+        vec![dialect_step("validate", vec!["true".into()])],
+        1,
+        Some(dir.path().to_path_buf()),
+    );
+    // Nothing of the dialect's own argv runs: the engine's executable is
+    // absent, so the step does not spawn.
+    engine.bundle.executable = crate::argv::Executable(Some(dir.path().join("no-such-engine")));
+    engine.drive().unwrap();
+    let error = terminal(&engine, EventType::EffectFailed, "error");
+    assert!(
+        error.starts_with("sequence step 'validate': driver did not spawn: "),
+        "{error}"
+    );
+    assert_names_host_once(&error, dir.path());
+    assert!(error.contains("cannot be read"), "{error}");
+}
+
+#[test]
+fn a_sequence_panel_steps_unraised_member_keeps_todays_words() {
+    let dir = tempfile::tempdir().unwrap();
+    // The floor raises the step to two seconds, but the member exits
+    // before the watchdog: the joined reason is untouched.
+    let mut engine = panel_step_engine(
+        dir.path(),
+        vec![panel_member("gone", exited_driver(dir.path()))],
+        1,
+        Some(host(dir.path(), Some(2))),
+    );
+    engine.drive().unwrap();
+    let reason = terminal(&engine, EventType::EffectIndeterminate, "reason");
+    assert_eq!(
+        reason,
+        "sequence step 'check': panel members [\"gone\"] could not establish completion"
+    );
+}
+
+#[test]
+fn a_sequences_missing_change_names_an_unreadable_host_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let step = dialect_step("validate", vec!["validator".into(), "{change}".into()]);
+    let mut engine = sequence_engine(dir.path(), vec![step], 1, Some(dir.path().to_path_buf()));
+    engine.drive().unwrap();
+    let reason = terminal(&engine, EventType::EffectIndeterminate, "reason");
+    assert!(
+        reason.starts_with(
+            "sequence step 'validate': cannot expand {change} because no preceding successful \
+             result carries it; "
+        ),
+        "{reason}"
+    );
+    assert_names_host_once(&reason, dir.path());
+}
+
+#[test]
+fn a_sequences_unraised_early_ending_keeps_todays_words() {
+    let dir = tempfile::tempdir().unwrap();
+    // The floor raises the attempt to two seconds, but the step returns an
+    // out-of-vocabulary word before the watchdog: the deadline is not named.
+    let (step, candidate) = single_step(
+        "draft",
+        succeeded_driver(dir.path(), r#"{"result":"halt"}"#),
+    );
+    let error = two_step_error(
+        dir.path(),
+        step,
+        &candidate,
+        Some(host(dir.path(), Some(2))),
+    );
+    assert_eq!(
+        error,
+        "sequence step 'draft': reported 'halt', outside its declared results [\"complete\"]"
+    );
+}
+
+#[test]
+fn a_sequences_out_of_vocabulary_result_names_an_unreadable_host_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let (step, candidate) = single_step(
+        "draft",
+        succeeded_driver(dir.path(), r#"{"result":"halt"}"#),
+    );
+    let error = two_step_error(dir.path(), step, &candidate, Some(dir.path().to_path_buf()));
+    assert!(
+        error.starts_with(
+            "sequence step 'draft': reported 'halt', outside its declared results \
+             [\"complete\"]; "
+        ),
+        "{error}"
+    );
+    assert_names_host_once(&error, dir.path());
+}
+
+#[test]
+fn a_sequences_refused_checkpoint_names_an_unreadable_host_once() {
+    let dir = tempfile::tempdir().unwrap();
+    // A step result the checkpoint's seat record refuses: the step is not
+    // the last, so the refusal lands at its checkpoint.
+    let (step, candidate) = refused_step(dir.path());
+    let error = refused_step_error(dir.path(), step, &candidate);
+    assert_names_host_once(&error, dir.path());
+}
+
+#[test]
+fn a_sequences_refused_early_ending_names_an_unreadable_host_once() {
+    let dir = tempfile::tempdir().unwrap();
+    // The step's result names a compiled ending, so the sequence ends on
+    // it; the seat record refuses that early result, and its words name
+    // the host once.
+    let (mut step, candidate) = refused_step(dir.path());
+    step.ends_on = vec!["complete".into()];
+    let error = refused_step_error(dir.path(), step, &candidate);
+    assert_names_host_once(&error, dir.path());
 }

@@ -22,11 +22,10 @@ use super::broker::Held;
 use super::carry::{
     outcome_under,
     record::{settled_members, PanelRecord, PanelSpan, Tag},
+    CarryPlan,
 };
 use super::cooldown::refused_members;
-use super::dispatch::deadline::AttemptBound;
-#[cfg(test)]
-use super::dispatch::deadline::Deadline;
+use super::dispatch::deadline::{AttemptBound, Deadline};
 use super::{
     argv_for, checkpoints, copy_secret_binding_facts, failed_to_start, resume, spawn_site,
     stamp_boundary, start_failure_fields, tag_member, Calls, Checkpoints, Door, DriverRun, Engine,
@@ -72,7 +71,7 @@ impl Engine {
         selection: &Selection,
     ) -> Result<(), EngineError> {
         let remaining = deadline;
-        let deadline = Deadline::unchanged(remaining.as_secs());
+        let deadline = Deadline::seat(remaining.as_secs());
         self.execute_panel_named(
             at,
             members,
@@ -133,13 +132,16 @@ impl Engine {
         let events = self.store.load(&self.run_id)?;
         let unproven = Unproven::panel(&reports);
         let carry = selection.carry.as_ref();
-        // The watchdog's fact is read before the reports join: the joined
-        // outcome names the deadline once, not each member's report.
-        let killed = reports.iter().any(|(_, report)| report.deadline_killed);
         // One line, as `disposed`'s refusal callsites: the exact-coverage
         // gate reads a multi-line call's `?` edge as its own region.
-        let mut outcome = outcome_under(aggregate, carry, reports, &record.span, attempt_id)?;
-        bound.deadline.name_joined_outcome(&mut outcome, killed);
+        let outcome = named_panel_outcome(
+            bound.deadline,
+            aggregate,
+            carry,
+            reports,
+            &record.span,
+            attempt_id,
+        )?;
         match outcome {
             AttemptOutcome::Indeterminate { reason } => {
                 let mut payload = json!(Indeterminate {
@@ -566,6 +568,29 @@ fn offer_member_checkpoint(
         None => resume::unstamped(checkpoint),
     };
     sink.offer(member, checkpoint, call);
+}
+
+/// Join member reports into the attempt's single outcome, naming the
+/// deadline once: a raised deadline only where a member's report says the
+/// watchdog killed it, a host file that could not be read however the
+/// panel ended. The rule lives here so a seat-level panel and a sequence's
+/// panel step cannot name the deadline differently. The joined outcome is
+/// built before it is named, so each member's own journaled evidence keeps
+/// its bytes.
+pub(super) fn named_panel_outcome(
+    deadline: &Deadline,
+    aggregate: Aggregate,
+    plan: Option<&CarryPlan>,
+    reports: Vec<(String, AttemptReport)>,
+    span: &PanelSpan,
+    attempt_id: &str,
+) -> Result<AttemptOutcome, EngineError> {
+    // The watchdog's fact is read before the reports join: the joined
+    // outcome names the deadline once, not each member's report.
+    let killed = reports.iter().any(|(_, report)| report.deadline_killed);
+    let mut outcome = outcome_under(aggregate, plan, reports, span, attempt_id)?;
+    deadline.name_joined_outcome(&mut outcome, killed);
+    Ok(outcome)
 }
 
 /// Join member reports into the attempt's single outcome: any
