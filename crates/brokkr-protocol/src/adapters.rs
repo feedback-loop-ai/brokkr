@@ -4324,10 +4324,12 @@ struct DshLaunch {
     /// The one home the plan read and the child is served from (U1c2).
     home: crate::transcript::DshHome,
     /// The dsh sandbox mode a seat whose office declares boxed hands runs
-    /// under, and `None` for a seat with no hands. It is the ONE carrier
-    /// of "this seat has hands": a scoped runner's overlay row is not a
-    /// hands selection (#896 round 3).
-    mode: Option<dsh_hands::Mode>,
+    /// under and the release its one `--version` read named, and `None` for
+    /// a seat with no hands. It is the ONE carrier of "this seat has
+    /// hands": a scoped runner's overlay row is not a hands selection
+    /// (#896 round 3). The release rides beside the mode so the
+    /// composed-tree gate never probes the binary a second time (F4).
+    hands: Option<dsh_hands::Hands>,
 }
 
 impl DshLaunch {
@@ -4500,6 +4502,25 @@ fn dsh_launch_with(
     let (transcript, home) = (Transcript::dsh(&served), served.path().to_path_buf());
     let gate = argv.isolation.gate(resume_gate(input, DSH_SHAPE));
 
+    // The dsh harness sandbox confines writes to the session workspace
+    // (decision 0054). A linked worktree's git metadata lives outside it,
+    // so the driver resolves the two git directories through Git NOW —
+    // before the seat can edit anything — and, when the seat's mode
+    // confines writes, points dsh's sandbox provider at the scoped
+    // runner that can reach them. A seat that cannot commit refuses
+    // here, before it spends an implementation.
+    let facts = if workdir.is_empty() {
+        GitFacts::default()
+    } else {
+        crate::hands::git_facts(Path::new(workdir))
+    };
+    // Read before the resume gate so a hands seat's ONE `--version` read
+    // serves both the rows it is served and a resume offer's qualification.
+    // The private git store is held for the seat's whole life and promoted
+    // afterwards; a hands seat runs no native command and stages no store
+    // (#896), and the typed choice keeps a runner's row out of the hands.
+    let selection = dsh_hands::sandbox(bin, workdir, &facts, input)?;
+
     let mut observed: Option<String> = None;
     let mut digest: Option<String> = None;
     let mut qualified = false;
@@ -4519,8 +4540,7 @@ fn dsh_launch_with(
                 .and_then(Value::as_str)
                 .filter(|value| recordable_digest(value));
             if let Some(declared) = declared {
-                if let Some(version) = observed_version(&[bin.to_string(), "--version".to_string()])
-                {
+                if let Some(version) = selection.resume_version(bin) {
                     observed = Some(version.clone());
                     if &version == applies_to {
                         if let Ok(value) = composite(&home) {
@@ -4584,33 +4604,13 @@ fn dsh_launch_with(
     // short and separator-free by construction, so this checks its output
     // too.
     let locator = planned_dsh_locator(&transcript, &root)?;
-    // The dsh harness sandbox confines writes to the session workspace
-    // (decision 0054). A linked worktree's git metadata lives outside it,
-    // so the driver resolves the two git directories through Git NOW —
-    // before the seat can edit anything — and, when the seat's mode
-    // confines writes, points dsh's sandbox provider at the scoped
-    // runner that can reach them. A seat that cannot commit refuses
-    // here, before it spends an implementation.
-    let facts = if workdir.is_empty() {
-        GitFacts::default()
-    } else {
-        crate::hands::git_facts(Path::new(workdir))
-    };
-    // The private git store is named in every command's runner argv, so
-    // it is held for the seat's whole life and handed to the promotion,
-    // which is the only way anything the seat committed reaches the
-    // shared repository. A seat whose office declares boxed hands runs no
-    // native command: its rows are the hands rows, and it stages no store
-    // (#896). The choice is typed, so a runner's overlay row is never
-    // read as hands.
-    let selection = dsh_hands::sandbox(bin, workdir, &facts, input)?;
     let overlay = dsh_seat_overlay_with(model, effort, &root, route.as_deref(), selection.rows())?;
     let overlay_path = overlay.path().to_string_lossy();
     let command = dsh_command(bin, &overlay_path, stream_json, rejoining.as_deref());
     // Nothing of the seat's own argv follows: `dsh_control_conflict`
     // above refused every residual part, so the argv is exactly what the
     // engine composed.
-    let (staged, mode) = selection.into_parts();
+    let (staged, hands) = selection.into_launch_parts();
     Ok(DshLaunch {
         command,
         rejoining,
@@ -4627,7 +4627,7 @@ fn dsh_launch_with(
         facts,
         staged,
         home: served,
-        mode,
+        hands,
     })
 }
 

@@ -5575,7 +5575,7 @@ pub(super) fn dsh_stream_launch(
         workdir: ".".to_string(),
         overlay: dsh_seat_overlay_with(None, None, root, None, None).unwrap(),
         home: crate::transcript::DshHome::operator().unwrap(),
-        mode: None,
+        hands: None,
     }
 }
 

@@ -120,6 +120,13 @@ impl Release {
             Release::V0_2_2 => V0_2_2_PINNED,
         }
     }
+
+    /// The rows this release's overlay pins after the sandbox row. The
+    /// bounded reader requires them, so the one reader sees every row the
+    /// release's writer emits (0.2.2's programmatic executor).
+    pub(super) fn pinned_after(self) -> &'static [&'static str] {
+        self.pinned_rows().after
+    }
 }
 
 /// Every model-facing tool row of the measured releases that can read,
@@ -282,6 +289,16 @@ impl From<Refusal> for String {
     }
 }
 
+/// The two facts a hands seat's one `--version` read yields: the release
+/// whose rows it was served and the sandbox mode its office selected. Both
+/// travel together so the composition gate judges the tree against the
+/// same release the rows came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct Hands {
+    pub(super) release: Release,
+    pub(super) mode: Mode,
+}
+
 /// The sandbox rows one dsh seat runs under, and the runner it stages. A
 /// seat whose office declares boxed hands runs no native command, so it
 /// stages no runner; any other seat's rows are the scoped runner's. The
@@ -289,7 +306,14 @@ impl From<Refusal> for String {
 /// from actual boxed hands and never from whether some overlay row exists
 /// (#896 round 3).
 pub(super) enum Selection {
-    Hands { rows: String, mode: Mode },
+    Hands {
+        rows: String,
+        mode: Mode,
+        release: Release,
+        /// The exact version string the one `--version` read answered, so
+        /// a resume offer is qualified from that read and no second probe.
+        observed: String,
+    },
     Runner(Option<Box<Staged>>),
 }
 
@@ -307,11 +331,31 @@ impl Selection {
         }
     }
 
-    /// The private store a runner seat stages and the mode a hands seat
-    /// runs under; the two are never both present.
-    pub(super) fn into_parts(self) -> (Option<Staged>, Option<Mode>) {
+    /// The exact version a hands seat's one read answered, `None` for a
+    /// runner seat, which reads no version of its own.
+    pub(super) fn observed(&self) -> Option<&str> {
         match self {
-            Selection::Hands { mode, .. } => (None, Some(mode)),
+            Selection::Hands { observed, .. } => Some(observed),
+            Selection::Runner(_) => None,
+        }
+    }
+
+    /// The version a resume offer is qualified against. A hands seat
+    /// already read its release once, for its rows; that read is reused so
+    /// the launch never probes the same binary twice. A runner seat probes
+    /// here, as it did before the hands rows had a read of their own.
+    pub(super) fn resume_version(&self, bin: &str) -> Option<String> {
+        match self {
+            Selection::Hands { .. } => self.observed().map(str::to_string),
+            Selection::Runner(_) => observed_version(&[bin.to_string(), "--version".to_string()]),
+        }
+    }
+
+    /// The private store a runner seat stages and the hands facts a hands
+    /// seat carries; the two are never both present.
+    pub(super) fn into_launch_parts(self) -> (Option<Staged>, Option<Hands>) {
+        match self {
+            Selection::Hands { mode, release, .. } => (None, Some(Hands { release, mode })),
             Selection::Runner(staged) => (staged.map(|staged| *staged), None),
         }
     }
@@ -335,13 +379,13 @@ pub(super) fn sandbox(
         return Ok(Selection::Runner(staged.map(Box::new)));
     };
     let mode = Mode::of(input)?;
-    let release = measured(observed_version(&[
-        bin.to_string(),
-        "--version".to_string(),
-    ]))?;
+    let observed = observed_version(&[bin.to_string(), "--version".to_string()]);
+    let release = measured(observed.clone())?;
     Ok(Selection::Hands {
         rows: hands_rows(release, mode, &command, &args)?,
         mode,
+        release,
+        observed: observed.unwrap_or_default(),
     })
 }
 
@@ -362,9 +406,9 @@ fn measured(observed: Option<String>) -> Result<Release, Refusal> {
 /// workspace server `command` and `args`: every row that release's own
 /// [`Release::pinned_rows`] table names, in its order, with the sandbox
 /// mode, checked by the bounded reader against the one shape they may take
-/// ([`route_overlay::hands`]), then the server row. 0.2.2-rc.1's added
-/// programmatic executor follows the sandbox row, where the controller
-/// measured it; 0.2.1 names no such row.
+/// ([`route_overlay::hands`]), then the server row. The reader runs over
+/// the WHOLE pinned block, 0.2.2-rc.1's programmatic executor included, so
+/// no row Brokkr writes goes unread; 0.2.1 names no such row.
 fn hands_rows(
     release: Release,
     mode: Mode,
@@ -384,10 +428,10 @@ fn hands_rows(
         "- id: {SANDBOX_POLICY}\n  config:\n    mode: {}\n",
         mode.word()
     ));
-    route_overlay::hands(rows.as_bytes())?;
     for row in pinned.after {
         rows.push_str(&format!("- id: {row}\n  disabled: true\n"));
     }
+    route_overlay::hands(rows.as_bytes(), release)?;
     rows.push_str(&format!(
         "- insert:\n\
          \x20   - id: {HANDS_ID}\n\
@@ -418,10 +462,16 @@ mod tests;
 /// The composed-tree check as the launch states it, before any child
 /// spawns (#896 round 2, D1). The command is the one
 /// [`harness_command`](super::harness_command) built from the launch's own
-/// argv, workdir, environment, bindings and removals.
-pub(crate) fn composition_gate(command: std::process::Command) -> Result<(), Composition> {
-    let release = composition::release(&command);
-    composition::composed_with(command, release, |command| command.output())
+/// argv, workdir, environment, bindings and removals. `release` and `mode`
+/// are the facts the launch's one `--version` read and its office's access
+/// already established: the gate judges the tree against that release and
+/// refuses any composed `sandbox-policy` mode but that seat's own.
+pub(crate) fn composition_gate(
+    command: std::process::Command,
+    release: Release,
+    mode: Mode,
+) -> Result<(), Composition> {
+    composition::composed_with(command, Some(release), mode, |command| command.output())
 }
 
 /// dsh's startup outcome, classified once from the RAW captured stderr

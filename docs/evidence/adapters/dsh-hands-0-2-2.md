@@ -128,10 +128,12 @@ controller can follow this procedure.
    those two words into that row: the overlay's bounded reader
    (`route_overlay::hands`, through `Mode::named`) refuses any other word
    in the overlay Brokkr writes. So dsh's third mode (`danger-full-access`)
-   is never written by Brokkr's overlay. The composed-tree check does not
-   read the composed mode, which it judges by row id and `disabled` alone,
-   so it is not what keeps that mode out. This step does not measure what
-   dsh itself does with that mode.
+   is never written by Brokkr's overlay. The composed-tree check now reads
+   the composed `sandbox-policy` mode too, and refuses a tree whose mode is
+   not the seat's own or that names no mode at all, so a later overlay or
+   the profile cannot leave the seat in `danger-full-access` (or the other
+   allowed word) while every row and `disabled` flag still looks measured.
+   This step does not measure what dsh itself does with that mode.
 6. Add the release and its set here, then in `MEASURED_VERSIONS` and the
    release's composition delta table. Add a `Release` variant with its own
    exact versions in `Release::versions` (and its `Release::label`), and
@@ -164,11 +166,22 @@ Run by the implementing seat with
   the overlay text.
 - `the_0_2_2_overlay_disables_the_programmatic_tool_row`: the overlay pins
   `tool-executor-ptc` disabled on 0.2.2-rc.1 and names no such row on 0.2.1.
-- `the_composition_gate_keys_on_the_release_it_reads`: the launch's
-  composed-tree gate judges the same dump against the release its binary
-  answers; an unmeasured release's dump is read and then refused against
-  no set. (A driver the version probe cannot start is refused as an
-  unreadable tree; that path is bound in `dsh_launch.rs`'s own tests.)
+- `the_composition_gate_keys_on_the_release_it_is_given`: the launch's
+  composed-tree gate judges the same dump against the release the launch
+  threaded in from its one `--version` read; the gate itself probes
+  nothing. (A driver the launch's read cannot name is refused by the rows
+  path, before the gate; an unthreaded release keeps `UnknownRelease`.)
+- `a_hands_launch_reads_its_release_exactly_once`,
+  `the_bounded_reader_admits_the_0_2_2_ptc_pin_it_writes`,
+  `a_malformed_0_2_2_ptc_pin_is_refused_by_the_bounded_reader`,
+  `a_composed_mode_that_is_not_the_seats_is_refused`,
+  `a_composed_tree_with_no_mode_is_refused`,
+  `the_measured_trees_still_pass_their_own_mode`,
+  `a_tree_with_no_threaded_release_keeps_the_unknown_release_words` and
+  `a_launch_refuses_a_composed_mode_that_differs_from_the_seats`: the
+  #1052 part 1 follow-ups F4, F5 and the composed-mode finding. Each was
+  made to fail by the removal control recorded in the commit that added
+  it and then restored.
 
 ## A real seat tree, judged (controller, 2026-11-12)
 

@@ -14,6 +14,7 @@ use crate::env_guard::EnvGuard;
 use crate::hands::{HandsSpec, SEALED_REACH};
 use crate::native_controls::{SealedBoundary, SealedDialect, ARTIFACT_ROOT, SERVING_INPUTS};
 
+mod composed;
 mod releases;
 
 /// The full text an unreadable composed dsh tree prints.
@@ -97,7 +98,7 @@ fn bound(workdir: &str) -> Vec<String> {
 }
 
 fn refused(rows: &str) -> String {
-    route_overlay::hands(rows.as_bytes())
+    route_overlay::hands(rows.as_bytes(), Release::V0_2_1)
         .expect_err("refused")
         .to_string()
 }
@@ -167,6 +168,7 @@ fn the_writer_the_composition_and_the_report_spell_one_hands_identity() {
         id: HANDS_ID.to_string(),
         name: MCP_CLIENT.to_string(),
         disabled: false,
+        mode: None,
     };
     assert_eq!(judge(Release::V0_2_1, &[row]), Ok(()));
     assert_eq!(
@@ -183,7 +185,10 @@ fn the_writer_the_composition_and_the_report_spell_one_hands_identity() {
 fn the_reader_admits_the_hands_rows_alone_and_names_what_it_refuses() {
     let head = |mode: &str| format!("{MEASURED_HEAD}{mode}\n");
     for mode in ["read-only", "workspace-write"] {
-        assert_eq!(route_overlay::hands(head(mode).as_bytes()), Ok(()));
+        assert_eq!(
+            route_overlay::hands(head(mode).as_bytes(), Release::V0_2_1),
+            Ok(())
+        );
     }
     let prefix = "refusing to invoke the dsh driver: ";
     let shape = |row: &str| {
@@ -240,7 +245,9 @@ fn the_reader_admits_the_hands_rows_alone_and_names_what_it_refuses() {
         assert_eq!(refused(&rows), text, "{rows}");
     }
     assert_eq!(
-        route_overlay::hands(b"\xff").unwrap_err().to_string(),
+        route_overlay::hands(b"\xff", Release::V0_2_1)
+            .unwrap_err()
+            .to_string(),
         format!("{prefix}route overlay is not UTF-8")
     );
     for dropped in DISABLED_ROWS.into_iter().chain([SANDBOX_POLICY]) {
@@ -348,9 +355,9 @@ fn a_0_2_2_release_is_measured_and_its_seat_is_served_its_rows() {
             .as_str()
         )
     );
-    let (staged, mode) = selection.into_parts();
+    let (staged, hands) = selection.into_launch_parts();
     assert!(staged.is_none());
-    assert_eq!(mode, Some(Mode::ReadOnly));
+    assert_eq!(hands.map(|hands| hands.mode), Some(Mode::ReadOnly));
 }
 
 /// A read-only office runs dsh's sandbox read-only and a writing office
@@ -396,9 +403,9 @@ fn a_boxed_seat_is_served_the_hands_rows_and_any_other_as_before() {
             selection.rows(),
             Some(format!("{MEASURED_HEAD}{word}\n{server}").as_str())
         );
-        let (staged, selected) = selection.into_parts();
+        let (staged, selected) = selection.into_launch_parts();
         assert!(staged.is_none(), "{access}");
-        assert_eq!(selected, Some(mode), "{access}");
+        assert_eq!(selected.map(|hands| hands.mode), Some(mode), "{access}");
     }
     let unprobed = "/nonexistent/dsh";
     for input in [
@@ -409,8 +416,8 @@ fn a_boxed_seat_is_served_the_hands_rows_and_any_other_as_before() {
     ] {
         let selection = sandbox(unprobed, workdir, &facts, &input).unwrap();
         assert!(selection.rows().is_none(), "{input}");
-        let (staged, mode) = selection.into_parts();
-        assert!(staged.is_none() && mode.is_none(), "{input}");
+        let (staged, hands) = selection.into_launch_parts();
+        assert!(staged.is_none() && hands.is_none(), "{input}");
     }
 }
 
@@ -1025,50 +1032,40 @@ fn a_0_2_2_tree_with_the_programmatic_executor_enabled_is_refused() {
     );
 }
 
-/// The launch's composed-tree gate reads the release its own binary
-/// answers, so the same dump is judged against that release's set: 0.2.2's
-/// dump is admitted under 0.2.2 and refused under 0.2.1, and an unmeasured
-/// release's dump is read and then refused against no set.
+/// The launch's composed-tree gate judges the dump against the release the
+/// launch threaded in, so the same dump is admitted under 0.2.2 and
+/// refused under 0.2.1. The release-read path itself is proven by the
+/// launch's one-probe count, not by a second `--version` call here (F4).
 #[cfg(unix)]
 #[test]
-fn the_composition_gate_keys_on_the_release_it_reads() {
+fn the_composition_gate_keys_on_the_release_it_is_given() {
     use super::composition::Composition;
 
     let dir = tempfile::tempdir().unwrap();
     let dump = dir.path().join("dump.yml");
-    std::fs::write(&dump, measured_dump_0_2_2()).unwrap();
-    let shim = |version: &str| {
-        super::super::tests::executable(
-            dir.path(),
-            &format!("dsh-{version}"),
-            &format!(
-                "#!/bin/sh\ncase \"$1\" in --version|-V|-v) printf '{version}\\n'; exit 0 ;; \
-                 esac\ncat '{}'\n",
-                dump.display()
-            ),
-        )
-    };
-    let gate = |version: &str| {
-        let mut command = std::process::Command::new(shim(version));
+    std::fs::write(
+        &dump,
+        composed::with_sandbox_mode(&measured_dump_0_2_2(), "read-only"),
+    )
+    .unwrap();
+    let shim = super::super::tests::executable(
+        dir.path(),
+        "dsh-gate",
+        &format!("#!/bin/sh\ncat '{}'\n", dump.display()),
+    );
+    let gate = |release| {
+        let mut command = std::process::Command::new(&shim);
         command.arg("--dump-config");
-        composition_gate(command)
+        composition_gate(command, release, Mode::ReadOnly)
     };
-    assert_eq!(gate("0.2.2-rc.1"), Ok(()));
+    assert_eq!(gate(Release::V0_2_2), Ok(()));
     assert_eq!(
-        gate("0.2.1-rc.2").err(),
+        gate(Release::V0_2_1).err(),
         Some(Composition::Unmeasured {
             id: "tool-executor-native".into(),
             name: "@deepseek-ai/dsh-tool-executor-native".into(),
             release: "0.2.1-rc.2",
         })
-    );
-    let unknown = gate("0.3.0").unwrap_err();
-    assert_eq!(unknown, Composition::UnknownRelease);
-    assert_eq!(
-        unknown.to_string(),
-        "refusing to invoke the dsh driver: the composed dsh tree's release cannot be read as \
-         one the hands rows were measured on (0.2.1-rc.2, 0.2.1-rc.3, 0.2.2-rc.1), so the seat \
-         is admitted on no measured composition (#896 D1)"
     );
 }
 
@@ -1088,7 +1085,9 @@ esac
 } >> "$BROKKR_TEST_DSH_OBSERVE"
 for a in "$@"; do
   if [ "$a" = "--dump-config" ]; then
-    printf '%s\n' "- id: brokkr-hands" "  name: '@deepseek-ai/dsh-mcp-client'"
+    printf '%s\n' "- id: sandbox-policy" \
+      "  name: '@deepseek-ai/dsh-sandbox-policy'" "  config:" "    mode: read-only" \
+      "- id: brokkr-hands" "  name: '@deepseek-ai/dsh-mcp-client'"
     exit 0
   fi
 done
@@ -1104,7 +1103,9 @@ case "$1" in
 esac
 for a in "$@"; do
   if [ "$a" = "--dump-config" ]; then
-    printf '%s\n' "- id: brokkr-hands" "  name: '@deepseek-ai/dsh-mcp-client'"
+    printf '%s\n' "- id: sandbox-policy" \
+      "  name: '@deepseek-ai/dsh-sandbox-policy'" "  config:" "    mode: read-only" \
+      "- id: brokkr-hands" "  name: '@deepseek-ai/dsh-mcp-client'"
     exit 0
   fi
 done
@@ -1442,7 +1443,7 @@ fn a_linked_worktree_runner_is_not_a_hands_launch() {
             .as_ref()
             .expect("the linked worktree stages a scoped runner");
         assert_eq!(
-            launch.mode, None,
+            launch.hands, None,
             "a runner's overlay row is not a hands selection"
         );
         assert_eq!(launch.stream_json, stream);
@@ -1584,13 +1585,18 @@ fn the_composed_tree_check_refuses_a_failed_or_oversized_dump() {
     use std::process::{Command, ExitStatus, Output};
 
     let run = |status: ExitStatus, stdout: Vec<u8>| {
-        composed_with(Command::new("dsh"), Some(Release::V0_2_1), |_| {
-            Ok(Output {
-                status,
-                stdout,
-                stderr: Vec::new(),
-            })
-        })
+        composed_with(
+            Command::new("dsh"),
+            Some(Release::V0_2_1),
+            Mode::ReadOnly,
+            |_| {
+                Ok(Output {
+                    status,
+                    stdout,
+                    stderr: Vec::new(),
+                })
+            },
+        )
     };
     let exit = run(ExitStatus::from_raw(2 << 8), Vec::new()).unwrap_err();
     assert_eq!(
@@ -1845,7 +1851,11 @@ fn a_boxed_dsh_hands_launch_is_served_from_the_engine_only_home() {
         hex::encode(hasher.finalize())
     };
     let dump = root.join("measured.yml");
-    std::fs::write(&dump, measured_dump()).unwrap();
+    std::fs::write(
+        &dump,
+        composed::with_sandbox_mode(&measured_dump(), "workspace-write"),
+    )
+    .unwrap();
     let shim = probe_shim(&root, &dump, &observe);
     env.set("BROKKR_DSH_BIN", &shim);
     env.set("HOME", &home);
