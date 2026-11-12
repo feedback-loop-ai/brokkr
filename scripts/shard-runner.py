@@ -93,6 +93,9 @@ GROUP_UNREADABLE = "the process table could not be read"
 GROUP_UNPARSEABLE = "the process table printed a line that cannot be parsed"
 GROUP_EMPTY = "the process table read was empty"
 EXE_UNREADABLE = "a member's executable could not be read"
+# The kernel's task flag for a process inside exit(): /proc/<pid>/stat's
+# ninth field, readable whatever the reader may trace (include/linux/sched.h).
+PF_EXITING = 0x00000004
 
 
 class Forwarded(Exception):
@@ -155,7 +158,14 @@ def stat_detail(text, error):
 
 
 def exited(entry):
-    """Whether the process at /proc entry `entry` is gone or a zombie now."""
+    """Whether the process at /proc entry `entry` is gone, a zombie, or inside
+    exit() now.
+
+    A process inside exit() has released its memory, which is why its
+    arguments read empty, and runs no code of its own again. A setuid helper
+    such as fusermount3 can sit there in state D, waiting on an unmount, past
+    the runner's whole grace (#1054, #1066's linux/5).
+    """
     try:
         text = (entry / "stat").read_text(encoding="utf-8", errors="replace")
     except (FileNotFoundError, ProcessLookupError):
@@ -163,7 +173,14 @@ def exited(entry):
     except OSError:
         return False
     fields = text[text.rfind(")") + 1:].split()
-    return bool(fields) and fields[0] in ("Z", "X")
+    if not fields:
+        return False
+    if fields[0] in ("Z", "X"):
+        return True
+    try:
+        return bool(int(fields[6]) & PF_EXITING)
+    except (IndexError, ValueError):
+        return False
 
 
 def proc_member(entry, start, stat_text=""):
@@ -176,8 +193,9 @@ def proc_member(entry, start, stat_text=""):
     starts a test binary as. A process that changed its credentials, as one
     entering a user namespace does, is refused this way until its next exec.
     Arguments that read empty because the process exited between the two
-    reads mean it is gone. Only a live member whose arguments cannot be read,
-    or are empty, is a failed read, and its reason names the errno and the
+    reads, or is inside exit() (a setuid helper is refused this way too),
+    mean it is gone. Only a live member whose arguments cannot be read, or
+    are empty, is a failed read, and its reason names the errno and the
     state and command name its stat holds (#1054).
     """
     try:
