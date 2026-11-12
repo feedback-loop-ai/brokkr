@@ -562,6 +562,23 @@ class ShardRunner(unittest.TestCase):
             stat_line(41, 7, 12345).replace("(member) S", "(member) Z", 1))
         self.assertEqual(self.runner.exited(proc / "41"), True)
         self.assertEqual(self.runner.proc_group(7, root=proc), ([], None))
+        # A setuid helper inside exit(), in state D: its stat's flags carry
+        # PF_EXITING (#1066's linux/5, fusermount3). The same state without
+        # the flag is a live member whose arguments read empty: a failed read.
+        line = stat_line(41, 7, 12345).replace(
+            "(member) S 1 7 7 0 -1 0 ", "(member) D 1 7 7 0 -1 {} ")
+        (proc / "41" / "stat").write_text(line.format(0x400104))
+        self.assertEqual(self.runner.exited(proc / "41"), True)
+        self.assertEqual(self.runner.proc_group(7, root=proc), ([], None))
+        (proc / "41" / "stat").write_text(line.format(0x400100))
+        self.assertEqual(self.runner.exited(proc / "41"), False)
+        self.assertEqual(
+            self.runner.proc_group(7, root=proc),
+            ([self.runner.Member(
+                41, 12345, None,
+                "a member's executable could not be read, and its arguments are empty "
+                "(EINVAL; stat state D, comm member)")],
+             None))
         (proc / "41" / "stat").write_text(stat_line(41, 7, 12345))
         (proc / "41" / "cmdline").unlink()
         self.assertEqual(self.runner.proc_group(7, root=proc), ([], None))
