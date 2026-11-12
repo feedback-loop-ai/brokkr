@@ -6,6 +6,7 @@
 //! attempt go on or journals its terminal event and ends it:
 //! [`StepVerdict`] is that answer, matched at every stage.
 
+#[cfg(test)]
 use std::time::Duration;
 
 use brokkr_core::envelope::EventType;
@@ -19,19 +20,21 @@ use super::carry::{
     record::{settled_members, PanelRecord, PanelSpan},
 };
 use super::cooldown::{refused_members, RefusedMember};
+use super::dispatch::deadline::AttemptBound;
+#[cfg(test)]
+use super::dispatch::deadline::Deadline;
 use super::{
-    argv_for, copy_secret_binding_facts, failed_to_start, git_head, stamp_boundary,
-    start_failure_fields, start_failure_sites, DriverRun, Engine, EngineError, Indeterminate,
-    Selection, Site, Unproven,
+    copy_secret_binding_facts, failed_to_start, git_head, stamp_boundary, start_failure_fields,
+    start_failure_sites, DriverRun, Engine, EngineError, Indeterminate, Selection, Site, Unproven,
 };
 use crate::bundle::{
-    dialect_results, Aggregate, DialectExecution, Invocation, PanelMember, SeatClass, SequenceStep,
-    StepBody,
+    dialect_results, Aggregate, Invocation, PanelMember, SeatClass, SequenceStep, StepBody,
 };
 use crate::dialect::DialectPhase;
 
 mod compose;
 mod contradiction;
+mod dialect;
 mod step_facts;
 mod success;
 
@@ -49,6 +52,29 @@ enum StepVerdict<T> {
     Ended,
 }
 
+/// One sequence attempt's identity: the effect, the attempt and the seat
+/// its steps run for, passed as a parameter object so the entry point
+/// stays within ruling 4's seven parameters.
+pub(in crate::engine) struct SequenceAt<'a> {
+    effect_id: &'a str,
+    attempt_id: &'a str,
+    seat_name: &'a str,
+}
+
+impl<'a> SequenceAt<'a> {
+    pub(in crate::engine) fn new(
+        effect_id: &'a str,
+        attempt_id: &'a str,
+        seat_name: &'a str,
+    ) -> Self {
+        Self {
+            effect_id,
+            attempt_id,
+            seat_name,
+        }
+    }
+}
+
 /// One sequence attempt's facts, the same for every step.
 struct SequenceRun<'a> {
     effect_id: &'a str,
@@ -57,7 +83,9 @@ struct SequenceRun<'a> {
     steps: &'a [SequenceStep],
     /// The requested-time seat input every step's driver input derives from.
     input: &'a Value,
-    deadline: Duration,
+    /// The attempt's deadline for its words, and what provisioning left of
+    /// it (`bound.remaining`) for every step's bound.
+    bound: AttemptBound<'a>,
     selection: &'a Selection,
     /// Whether the seat declares the `change` input, which a step's
     /// result then names for the steps after it.
@@ -242,14 +270,10 @@ impl SequenceRun<'_> {
 }
 
 impl Engine {
-    /// Run named steps one after another INSIDE one attempt (decision
-    /// 0002's serial form). Per-step driver inputs are derived
-    /// deterministically from the requested-time seat input; earlier
-    /// steps' result objects reach later steps as
-    /// `context.prior_results`. Any step failing fails the WHOLE attempt
-    /// (0006-retryable — a retry restarts from step 1); an indeterminate
-    /// step parks it. The FINAL step's result object is the effect's
-    /// single typed result — decide() validates it exactly as today.
+    /// A sequence run directly by a test, on a bare bound with no deadline
+    /// source to name. Dispatch reaches [`Self::execute_sequence_named`]
+    /// with the attempt's own bound.
+    #[cfg(test)]
     #[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]
     pub(super) fn execute_sequence(
         &mut self,
@@ -261,18 +285,47 @@ impl Engine {
         deadline: Duration,
         selection: &Selection,
     ) -> Result<(), EngineError> {
+        let remaining = deadline;
+        let deadline = Deadline::seat(remaining.as_secs());
+        self.execute_sequence_named(
+            &SequenceAt::new(effect_id, attempt_id, seat_name),
+            steps,
+            seq_input,
+            AttemptBound::new(&deadline, remaining),
+            selection,
+        )
+    }
+
+    /// Run named steps one after another INSIDE one attempt (decision
+    /// 0002's serial form). Per-step driver inputs are derived
+    /// deterministically from the requested-time seat input; earlier
+    /// steps' result objects reach later steps as
+    /// `context.prior_results`. Any step failing fails the WHOLE attempt
+    /// (0006-retryable — a retry restarts from step 1); an indeterminate
+    /// step parks it. The FINAL step's result object is the effect's
+    /// single typed result — decide() validates it exactly as today. Each
+    /// step's outcome names the attempt's deadline where it is built, so
+    /// only the step that ends the attempt reaches the terminal words.
+    pub(super) fn execute_sequence_named(
+        &mut self,
+        at: &SequenceAt<'_>,
+        steps: &[SequenceStep],
+        seq_input: &Value,
+        bound: AttemptBound<'_>,
+        selection: &Selection,
+    ) -> Result<(), EngineError> {
         let run = SequenceRun {
-            effect_id,
-            attempt_id,
-            seat_name,
+            effect_id: at.effect_id,
+            attempt_id: at.attempt_id,
+            seat_name: at.seat_name,
             steps,
             input: seq_input,
-            deadline,
+            bound,
             selection,
             declares_change: self
                 .bundle
                 .seats
-                .get(seat_name)
+                .get(at.seat_name)
                 .is_some_and(|seat| seat.inputs.iter().any(|input| input == "change")),
         };
         let mut carried = Carried {
@@ -353,16 +406,17 @@ impl Engine {
         // and a gate-class step never does. Under decision
         // 0030 alone there was nothing to match a step's
         // session by, and every step started cold.
-        let driven = self.run_driver(
+        let mut driven = self.run_driver(
             run.effect_id,
             run.attempt_id,
             &at.label,
             &spawn,
             input,
-            run.deadline,
+            run.bound.remaining,
             Some(&at.step.name),
             run.selection.plan(&site),
         )?;
+        run.bound.deadline.name(&mut driven);
         Ok(match driven {
             DriverRun::SpawnFailed(error) => StepRun {
                 record: None,
@@ -417,7 +471,10 @@ impl Engine {
             at.step.class == SeatClass::Gate,
         );
         let (effect_id, attempt_id) = (run.effect_id, run.attempt_id);
-        let reports = self.run_panel(effect_id, attempt_id, &runs, run.deadline, &tag_prefix)?;
+        // One line, as panel.rs's callsites: the exact-coverage gate reads a
+        // multi-line call's `?` edge as its own region.
+        let remaining = run.bound.remaining;
+        let reports = self.run_panel(effect_id, attempt_id, &runs, remaining, &tag_prefix)?;
         self.journal_panel_members(effect_id, attempt_id, &reports, &runs, &tag_prefix)?;
         span.close(&self.repo);
         let record = PanelRecord {
@@ -430,7 +487,9 @@ impl Engine {
         let start_failures = start_failure_sites(&reports, &tag_prefix);
         let refused = refused_members(&reports, &tag_prefix);
         let unproven = Unproven::panel(&reports);
-        let outcome = outcome_under(aggregate, plan, reports, &record.span, run.attempt_id)?;
+        let name = run.bound.deadline.panel_namer(&reports);
+        let mut outcome = outcome_under(aggregate, plan, reports, &record.span, run.attempt_id)?;
+        name(&mut outcome);
         Ok(StepRun {
             record: Some(record),
             start_failures,
@@ -438,76 +497,6 @@ impl Engine {
             unproven,
             outcome,
         })
-    }
-
-    /// A realm-dialect step: the engine's own `driver exec` runs the
-    /// dialect's argv, with `{change}` expanded to the nearest change. A
-    /// step that needs a change no earlier result carries parks.
-    fn dialect_step(
-        &mut self,
-        run: &SequenceRun,
-        at: &StepAt,
-        execution: &DialectExecution,
-        nearest_change: Option<&str>,
-    ) -> Result<StepVerdict<StepRun>, EngineError> {
-        if needs_change(execution) && nearest_change.is_none() {
-            return self.end_indeterminate(
-                run,
-                at,
-                "cannot expand {change} because no preceding successful result carries it",
-                Unproven::Proven,
-            );
-        }
-        let change = nearest_change.unwrap_or("");
-        let command = std::iter::once(self.bundle.executable.lossy())
-            .chain(["driver", "exec", "--"].into_iter().map(str::to_string))
-            .chain(expand_dialect_argv(&execution.argv, change))
-            .collect::<Vec<_>>();
-        let site = Some(at.step.name.clone());
-        let mut input = run.driver_input(at, &json!(""), StepInputKind::Dialect);
-        input["dialect_exec"] = json!({
-            "success_result": dialect_results(run.phase())[0],
-            "failure_result": dialect_results(run.phase())[1],
-            "state": execution.state.as_ref().map(|state| expand_dialect_argv(state, change)),
-            "change": if change.is_empty() { Value::Null } else { Value::String(change.to_string()) },
-        });
-        self.mark_hands(&at.label, &mut input);
-        // A dialect step composes under a boxed boundary only:
-        // the compiler refuses it under `harness` and `open`
-        // (design DD8), so no unboxed arm is reached here.
-        let hands = self.hands_for(&at.label);
-        let mut spawn = self.compose_at(
-            Some(&at.label),
-            run.attempt_id,
-            true,
-            argv_for(run.selection, &site, &command).to_vec(),
-            hands.as_ref(),
-            run.selection.get(&site),
-            input["result_path"].as_str().unwrap_or_default(),
-        );
-        // The generated validator holds nothing, and says so
-        // (decision 0065; design D5).
-        let brokers = run.selection.brokers(&at.label);
-        let served = (brokers, hands.as_ref());
-        self.mark_serving(&at.label, None, served, Some(&mut spawn), &mut input);
-        let driven = self.run_driver(
-            run.effect_id,
-            run.attempt_id,
-            &at.label,
-            &spawn,
-            input,
-            run.deadline,
-            Some(&at.step.name),
-            None,
-        )?;
-        let mut unproven = Unproven::Proven;
-        Ok(StepVerdict::Goes(StepRun {
-            record: None,
-            outcome: dialect_attempt_outcome(driven, &mut unproven),
-            start_failures: Vec::new(),
-            refused: Vec::new(),
-            unproven,
-        }))
     }
 
     /// Settle a step that ran: its outcome, the checks a step before the
@@ -541,7 +530,10 @@ impl Engine {
         // A step's result the fence refuses (decision 0034, ruling
         // 6) fails the attempt at that step, with the same facts a
         // step that failed on its own would carry.
-        let refused = |refusal: String| run.failed_payload(at, &refusal, &start_failures);
+        let refused = |mut refusal: String| {
+            run.bound.deadline.name_words(&mut refusal);
+            run.failed_payload(at, &refusal, &start_failures)
+        };
         if run.is_last(at) {
             self.finish_sequence(run, at, result, carried, refused)
         } else {
@@ -607,7 +599,8 @@ impl Engine {
         carried: &mut Carried,
         start_failures: &[Site],
     ) -> Result<StepVerdict<()>, EngineError> {
-        if let Some(problem) = vocabulary_problem(at.step, result) {
+        if let Some(mut problem) = vocabulary_problem(at.step, result) {
+            run.bound.deadline.name_words(&mut problem);
             return self.end_failed(run, run.failed_payload(at, &problem, &[]));
         }
         // A deterministic dialect check's failure is recorded before any
@@ -751,7 +744,10 @@ impl Engine {
                 "why": why,
             }),
             run.attempt_id,
-            |refusal| run.failed_payload(at, &refusal, start_failures),
+            |mut refusal| {
+                run.bound.deadline.name_words(&mut refusal);
+                run.failed_payload(at, &refusal, start_failures)
+            },
         )?;
         Ok(StepVerdict::Ended)
     }
@@ -779,12 +775,14 @@ impl Engine {
         reason: &str,
         unproven: Unproven,
     ) -> Result<StepVerdict<T>, EngineError> {
+        let mut reason = format!("sequence step '{}': {reason}", at.step.name);
+        run.bound.deadline.name_words(&mut reason);
         self.append(
             EventType::EffectIndeterminate,
             json!(Indeterminate {
                 effect_id: run.effect_id,
                 attempt_id: run.attempt_id,
-                reason: format!("sequence step '{}': {reason}", at.step.name),
+                reason,
                 unproven,
             }),
             Some(run.attempt_id.to_string()),

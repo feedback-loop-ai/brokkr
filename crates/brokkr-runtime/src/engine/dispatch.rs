@@ -21,13 +21,14 @@ use super::broker::fold::Begun;
 use super::broker::{admission, observed, settlement, Held, Observed};
 use super::carry::{CarryPlan, CarryRefusal};
 use super::panel::PanelAt;
+use super::sequence::SequenceAt;
 use super::{
     argv_for, arms_effect_gate_head, git_head, phase_of, select_candidates, verify_record, Engine,
     EngineError, Selection, SiteSpawn, RESULTS,
 };
 use crate::bundle::{layer_drift, site_charter_text, Bundle, ExecutableBody, Invocation};
 
-mod deadline;
+pub(super) mod deadline;
 
 /// One attempt of a requested effect, as [`Engine::execute`] names it
 /// before anything spawns: the effect, the attempt, the seat and the case
@@ -390,21 +391,19 @@ impl Engine {
     ) -> Result<(), EngineError> {
         match at.body {
             ExecutableBody::Invocation(Invocation::Panel { members, aggregate }) => self
-                .execute_panel(
+                .execute_panel_named(
                     &PanelAt::new(at.effect_id, at.attempt_id, at.site_name, at.gate),
                     members,
                     *aggregate,
                     &input,
-                    remaining,
+                    deadline::AttemptBound::new(deadline, remaining),
                     selection,
                 ),
-            ExecutableBody::Sequence { steps } => self.execute_sequence(
-                at.effect_id,
-                at.attempt_id,
-                at.site_name,
+            ExecutableBody::Sequence { steps } => self.execute_sequence_named(
+                &SequenceAt::new(at.effect_id, at.attempt_id, at.site_name),
                 steps,
                 &input,
-                remaining,
+                deadline::AttemptBound::new(deadline, remaining),
                 selection,
             ),
             // Agents choose the argv (model selection); composition
