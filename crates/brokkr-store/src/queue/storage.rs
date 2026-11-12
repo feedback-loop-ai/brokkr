@@ -55,8 +55,10 @@ pub(super) fn wait_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Wait> {
 /// operator releases one with (#430's realm-drift ruling). Version 3 adds
 /// the `launching` state, the dispatcher's claims, the refusals counted
 /// against an entry, the journal's dispatchers and its dispatch settings
-/// (decision 0095 rulings 1, 2 and 7).
-pub(crate) const QUEUE_SCHEMA: u32 = 3;
+/// (decision 0095 rulings 1, 2 and 7). Version 4 adds the
+/// `provider_cooldowns` table a rate-limited attempt's refused sites are
+/// recorded in (decision 0103 ruling 2(a), slice 4d1).
+pub(crate) const QUEUE_SCHEMA: u32 = 4;
 
 /// The `meta` key a journal records [`QUEUE_SCHEMA`] under: one home for
 /// the spelling, read by this module and by a backup's missing-schema
@@ -70,6 +72,11 @@ pub(crate) const QUEUE_SCHEMA_V1: u32 = 1;
 /// The second, which held no claims: read and migrated as the first is.
 pub(crate) const QUEUE_SCHEMA_V2: u32 = 2;
 
+/// The third, which held no provider cool-downs: read and migrated as the
+/// second is, and, as slice 3a's build wrote it, perhaps no dispatchers or
+/// dispatch settings either ([`QUEUE_TABLES_UNHELD`]).
+pub(crate) const QUEUE_SCHEMA_V3: u32 = 3;
+
 /// A queue storage version this brokkr reads, matched by version wherever
 /// what it holds differs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -77,6 +84,7 @@ pub(crate) enum Stored {
     V1,
     V2,
     V3,
+    V4,
 }
 
 impl Stored {
@@ -86,7 +94,8 @@ impl Stored {
         match found {
             QUEUE_SCHEMA_V1 => Some(Stored::V1),
             QUEUE_SCHEMA_V2 => Some(Stored::V2),
-            QUEUE_SCHEMA => Some(Stored::V3),
+            QUEUE_SCHEMA_V3 => Some(Stored::V3),
+            QUEUE_SCHEMA => Some(Stored::V4),
             _ => None,
         }
     }
@@ -96,7 +105,8 @@ impl Stored {
         match self {
             Stored::V1 => 3,
             Stored::V2 => 5,
-            Stored::V3 => QUEUE_TABLES.len(),
+            Stored::V3 => QUEUE_TABLES_V3,
+            Stored::V4 => QUEUE_TABLES.len(),
         }
     }
 }
@@ -263,9 +273,50 @@ CREATE TRIGGER IF NOT EXISTS dispatch_settings_append_only_delete
     BEGIN SELECT RAISE(ABORT, 'dispatch settings are append-only'); END;
 "#;
 
+/// Version 4's addition (decision 0103 ruling 2(a), slice 4d1): one
+/// append-only row per refused site and round of an attempt's episode,
+/// written in the terminal event's own transaction. A row's key is its
+/// rising `seq`; the unique index holds one row per site and round of an
+/// episode, and the run is part of it because `events` is keyed by
+/// `(run_id, seq)`, so two runs at the same `event_seq` never collide.
+/// `until_at` and `recorded_at` are Unix seconds (UTC), never text: a text
+/// time compared as a string is wrong across precisions and offsets, and
+/// a `unixepoch(text)` CHECK passes on malformed text because the
+/// function returns NULL and a NULL CHECK passes. The reader converts
+/// them. An expired row is history and is never deleted.
+const MIGRATION_QUEUE_V4: &str = r#"
+CREATE TABLE IF NOT EXISTS provider_cooldowns (
+    seq INTEGER PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES runs(run_id),
+    event_seq INTEGER NOT NULL,
+    site TEXT NOT NULL,
+    provider TEXT NOT NULL CONSTRAINT provider_named CHECK (length(provider) > 0),
+    route TEXT NOT NULL CONSTRAINT route_named CHECK (length(route) > 0),
+    until_at INTEGER NOT NULL CONSTRAINT until_is_seconds CHECK (typeof(until_at) = 'integer'),
+    reason TEXT NOT NULL CONSTRAINT reason_named CHECK (length(reason) > 0),
+    retry_after_seconds INTEGER CONSTRAINT retry_after_positive
+        CHECK (retry_after_seconds IS NULL
+            OR (typeof(retry_after_seconds) = 'integer' AND retry_after_seconds > 0)),
+    rounds INTEGER NOT NULL CONSTRAINT rounds_whole
+        CHECK (typeof(rounds) = 'integer' AND rounds >= 1),
+    recorded_at INTEGER NOT NULL CONSTRAINT recorded_is_seconds
+        CHECK (typeof(recorded_at) = 'integer'),
+    CONSTRAINT until_after_record CHECK (until_at > recorded_at),
+    FOREIGN KEY (run_id, event_seq) REFERENCES events(run_id, seq)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS provider_cooldowns_once
+    ON provider_cooldowns (run_id, event_seq, site, rounds);
+CREATE TRIGGER IF NOT EXISTS provider_cooldowns_append_only_update
+    BEFORE UPDATE ON provider_cooldowns
+    BEGIN SELECT RAISE(ABORT, 'provider cool-downs are append-only'); END;
+CREATE TRIGGER IF NOT EXISTS provider_cooldowns_append_only_delete
+    BEFORE DELETE ON provider_cooldowns
+    BEGIN SELECT RAISE(ABORT, 'provider cool-downs are append-only'); END;
+"#;
+
 /// The guards the migrations install, by name, so an open can ask
 /// whether a journal still carries every one.
-const QUEUE_TRIGGERS: [&str; 21] = [
+const QUEUE_TRIGGERS: [&str; 23] = [
     "queue_entries_fixed",
     "queue_entries_run_once",
     "queue_entries_kept",
@@ -287,12 +338,14 @@ const QUEUE_TRIGGERS: [&str; 21] = [
     "dispatch_holders_append_only_delete",
     "dispatch_settings_append_only_update",
     "dispatch_settings_append_only_delete",
+    "provider_cooldowns_append_only_update",
+    "provider_cooldowns_append_only_delete",
 ];
 
 /// The queue's tables, in the order the migrations create them: version
 /// 1's three, then version 2's latches and pins, then version 3's claims,
-/// refusals, holders and settings.
-const QUEUE_TABLES: [&str; 9] = [
+/// refusals, holders and settings, then version 4's provider cool-downs.
+const QUEUE_TABLES: [&str; 10] = [
     "queue_entries",
     "queue_waits",
     "queue_commands",
@@ -302,7 +355,14 @@ const QUEUE_TABLES: [&str; 9] = [
     "queue_refusals",
     "dispatch_holders",
     "dispatch_settings",
+    "provider_cooldowns",
 ];
+
+/// How many of [`QUEUE_TABLES`] version 3 held: all but the version 4
+/// table. Slice 3a's build wrote version 3 without the holders and the
+/// settings too (decision 0095 slice 3b), so a version 3 journal may hold
+/// [`QUEUE_TABLES_UNHELD`] of them.
+const QUEUE_TABLES_V3: usize = 9;
 
 /// How many of [`QUEUE_TABLES`] version 3 held as slice 3a's build wrote
 /// it: all but the holders and the settings (decision 0095 slice 3b).
@@ -331,15 +391,20 @@ pub(crate) fn queue_intact(conn: &Connection) -> Result<bool, StoreError> {
         return Ok(true);
     };
     let present = objects(conn, "table")?;
-    let held = QUEUE_TABLES[QUEUE_TABLES_UNHELD..]
+    // The version 3-era held tables, not the version 4 one: a version 3
+    // journal as slice 3a wrote it holds neither the holders nor the
+    // settings, and may already hold the cool-down table a migration got
+    // as far as creating.
+    let held = QUEUE_TABLES[QUEUE_TABLES_UNHELD..QUEUE_TABLES_V3]
         .iter()
         .any(|table| present.iter().any(|name| name == table));
     let tables = &QUEUE_TABLES[..stored.tables()];
-    // Holding neither, it holds none of their guards either, so the
-    // version 3 batch runs again.
-    let tables = match held {
-        true => tables,
-        false => &tables[..tables.len().min(QUEUE_TABLES_UNHELD)],
+    // Holding neither, a version 3 journal holds none of their guards
+    // either, so the version 3 batch runs again; any other recorded
+    // version that lost a table lost what the queue held.
+    let tables = match (stored, held) {
+        (Stored::V3, false) => &tables[..QUEUE_TABLES_UNHELD],
+        _ => tables,
     };
     if let Some(table) = tables
         .iter()
@@ -356,20 +421,22 @@ pub(crate) fn queue_intact(conn: &Connection) -> Result<bool, StoreError> {
 }
 
 /// Create the queue's tables and guards and record its version, on a
-/// connection already holding the write lock. A version 1 or 2 queue is
-/// moved to this version; a version this binary does not know is not.
+/// connection already holding the write lock. A version 1, 2 or 3 queue
+/// is moved to this version; a version this binary does not know is not.
 pub(crate) fn migrate_queue(conn: &Connection) -> Result<(), StoreError> {
     conn.execute_batch(MIGRATION_QUEUE_V1)?;
     conn.execute_batch(MIGRATION_QUEUE_V2)?;
     conn.execute_batch(MIGRATION_QUEUE_V3)?;
+    conn.execute_batch(MIGRATION_QUEUE_V4)?;
     conn.execute(
         "INSERT INTO meta (key, value) VALUES (?1, ?2)
-         ON CONFLICT (key) DO UPDATE SET value = excluded.value WHERE value IN (?3, ?4)",
+         ON CONFLICT (key) DO UPDATE SET value = excluded.value WHERE value IN (?3, ?4, ?5)",
         params![
             QUEUE_SCHEMA_KEY,
             QUEUE_SCHEMA.to_string(),
             QUEUE_SCHEMA_V1.to_string(),
-            QUEUE_SCHEMA_V2.to_string()
+            QUEUE_SCHEMA_V2.to_string(),
+            QUEUE_SCHEMA_V3.to_string()
         ],
     )?;
     Ok(())

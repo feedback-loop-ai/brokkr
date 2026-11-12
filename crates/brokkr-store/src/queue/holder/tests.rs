@@ -11,7 +11,7 @@ use super::super::tests::{
     claimed_now, commands, five_columns, queue, refusal, refused_as, rows, started, BY,
 };
 use super::*;
-use crate::queue::{Claim, EntryId, EntryState, QueueCommand, StartRefusal};
+use crate::queue::{Claim, Claiming, EntryId, EntryState, QueueCommand, StartRefusal};
 
 /// Everything a refused step could have written: the entries, the
 /// commands, and the count of claims and of counted refusals.
@@ -69,8 +69,15 @@ fn a_claim_under_a_generation_not_the_latest_holder_is_refused_and_writes_nothin
     let entry = queue(&mut store, 1)[0];
     let read = store.queue_entry(entry).unwrap();
     let claim = |store: &mut Store, generation| {
-        let judge = |_, _: &[_], _: &[_]| Ok::<(), ()>(());
-        store.queue_claim_with(&read, 0, "d", generation, "r", judge)
+        let over = Claiming {
+            entry: &read,
+            high_water: 0,
+            digest: "d",
+            generation,
+            now: time::OffsetDateTime::UNIX_EPOCH,
+        };
+        let judge = super::super::claim::concede;
+        store.queue_claim_with(&over, "r", judge)
     };
     let before = written(&store);
     let (variant, text) = superseded(Generation(1));

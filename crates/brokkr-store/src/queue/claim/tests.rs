@@ -129,12 +129,30 @@ const SEVEN: Generation = Generation(7);
 /// A bound on counted refusals that no test here reaches.
 const UNREACHED: NonZeroU32 = NonZeroU32::MAX;
 
+/// The pass's facts a test claims over: the entry as it read it, the
+/// high-water and generation it read, the bundle digest it admitted, and
+/// the instant its cool-down rows are read at.
+fn over<'a>(
+    entry: &'a QueueEntry,
+    high_water: i64,
+    digest: &'a str,
+    generation: Generation,
+) -> Claiming<'a> {
+    Claiming {
+        entry,
+        high_water,
+        digest,
+        generation,
+        now: time::OffsetDateTime::UNIX_EPOCH,
+    }
+}
+
 /// Claim `entry` as the store reads it now, as generation 7, its holder
 /// planted, admitting a bundle of `digest`, judging nothing.
 fn claim_of(store: &mut Store, entry: EntryId, digest: &str) -> Claim {
     crate::test_support::holding(store, SEVEN);
     let read = store.queue_entry(entry).unwrap();
-    let judged = store.queue_claim_with(&read, 0, digest, SEVEN, "admitted", |_, _, _| {
+    let judged = store.queue_claim_with(&over(&read, 0, digest, SEVEN), "admitted", |_| {
         Ok::<(), ()>(())
     });
     judged.unwrap().unwrap()
@@ -250,7 +268,7 @@ fn a_claim_over_a_hold_repin_or_latch_since_its_pass_read_the_entry_is_refused()
     store.queue_latch(ids[2], "drifted", latched, BY).unwrap();
     let before = (rows(&store), commands(&store.conn));
     let mut claim = |read: &QueueEntry| {
-        let judged = store.queue_claim_with(read, 0, "d", ONE, "r", |_, _, _| Ok::<(), ()>(()));
+        let judged = store.queue_claim_with(&over(read, 0, "d", ONE), "r", |_| Ok::<(), ()>(()));
         refusal(judged)
     };
     refused_as(
@@ -396,9 +414,9 @@ fn the_claim_hands_its_judge_each_run_past_the_high_water_and_its_refusal_writes
     let before = (rows(&store), commands(&store.conn));
     let (mut handed, mut named) = (Vec::new(), None);
     let refused = store
-        .queue_claim_with(&read, high_water, "d", ONE, "r", |journal, _, moved| {
-            named = journal;
-            handed = (moved.iter())
+        .queue_claim_with(&over(&read, high_water, "d", ONE), "r", |facts| {
+            named = facts.journal;
+            handed = (facts.moved.iter())
                 .map(|(run, events, manifest)| (run.clone(), events.len(), manifest.clone()))
                 .collect();
             Err("no room")
@@ -418,7 +436,7 @@ fn the_claim_hands_its_judge_each_run_past_the_high_water_and_its_refusal_writes
     assert!(claims(&store.conn).is_empty());
 
     // Judged to have room, it is claimed.
-    let claimed = store.queue_claim_with(&read, high_water, "d", ONE, "r", |_, _, _| {
+    let claimed = store.queue_claim_with(&over(&read, high_water, "d", ONE), "r", |_| {
         Ok::<(), &str>(())
     });
     let claim = claimed.unwrap().unwrap();
@@ -526,8 +544,8 @@ fn the_claim_hands_its_judge_each_wait_with_what_its_entry_came_to() {
 
     let read = store.queue_entry(waiting).unwrap();
     let mut handed = Vec::new();
-    let refused = store.queue_claim_with(&read, i64::MAX, "d", ONE, "r", |_, waits, _| {
-        handed = (waits.iter())
+    let refused = store.queue_claim_with(&over(&read, i64::MAX, "d", ONE), "r", |facts| {
+        handed = (facts.waits.iter())
             .map(|(wait, state, events)| (*wait, state.clone(), events.len()))
             .collect();
         Err("unmet")
@@ -626,8 +644,8 @@ fn one_entry_and_a_run(dir: &Path) -> (Store, EntryId, EventEnvelope) {
 fn refused_past(store: &mut Store, entry: EntryId, high_water: i64) -> StoreError {
     let read = store.queue_entry(entry).unwrap();
     let before = (rows(store), commands(&store.conn));
-    let judge = |_, _: &[_], _: &[_]| Ok::<(), ()>(());
-    let refused = store.queue_claim_with(&read, high_water, "d", ONE, "r", judge);
+    let judge = concede;
+    let refused = store.queue_claim_with(&over(&read, high_water, "d", ONE), "r", judge);
     let error = refused.unwrap_err();
     assert_eq!((rows(store), commands(&store.conn)), before);
     assert!(claims(&store.conn).is_empty());

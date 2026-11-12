@@ -99,8 +99,9 @@ pub use import::{verified_events, verify_export, Adoption, Arrival, ImportError,
 pub use opening::Opened;
 pub use page::{keyed, place_of, Keyed, Paged, RowRefusal, Unread};
 pub use queue::{
-    claim_stands, Attribution, Claim, EntryId, EntryState, Generation, Latch, NewEntry, NotAWait,
-    QueueCommand, QueueEntry, QueueRefusal, Seen, StartRefusal, Wait, WaitOn,
+    claim_stands, Attribution, Claim, ClaimFacts, Claiming, Cooldown, CooldownAggregate, Cooling,
+    EntryId, EntryState, Generation, Latch, NewEntry, NotAWait, QueueCommand, QueueEntry,
+    QueueRefusal, Seen, StartRefusal, Wait, WaitOn,
 };
 pub use redact::{redact_export, Redactor};
 pub use run_read::RunRead;
@@ -111,7 +112,6 @@ pub use seat_summary::SeatRows;
 pub use summary::Disagreement;
 
 use brokkr_core::summary::Account;
-use chain::{fence, seal_and_insert};
 pub use import::RUN_ID_MAX;
 use schema::{ensure_wal, schema_supported, RECORDED_SCHEMA};
 use start::Row;
@@ -321,57 +321,19 @@ const ENGINE_OF_RUN: &str = "SELECT CASE WHEN json_valid(manifest) THEN
 const HEAD_OF_RUN: &str = "SELECT (SELECT event_hash FROM events WHERE run_id = ?1 AND seq = ?2),
      (SELECT MIN(seq) FROM events WHERE run_id = ?1) FROM runs WHERE run_id = ?1";
 
-/// [`Store::append_next`]'s one transaction, as a body [`patiently`] may
-/// run again.
-///
-/// Every fact it writes — the head it chains onto, the seq, the seal —
-/// is derived INSIDE the transaction, so a retry is the same call made
-/// again rather than a second one: an attempt that ends busy committed
-/// nothing and the next attempt reads the journal fresh. The envelope it
-/// discards was never sealed into anything.
-///
-/// The two refusals it can return, [`StoreError::HeadMoved`] and
-/// [`StoreError::AppendConflict`], leave here untouched. They are not
-/// busy errors, so [`patiently`] does not look at them — which is what
-/// keeps a fence a fence. The writer's carried account is judged against
-/// the head found, in the same transaction ([`summary::judge`]).
-fn append_once(
-    (conn, carried): (&mut Connection, Option<&summary::Carried>),
-    run_id: &str,
-    expected_head: Option<(u64, &str)>,
-    event_type: EventType,
-    payload: Value,
-    causation_id: Option<String>,
-    attempt_id: Option<String>,
-) -> Result<(EventEnvelope, summary::Settled), StoreError> {
-    let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-    let (last_seq, previous_hash) = head_of(&tx, run_id)?;
-    if let Some((expected_seq, expected_hash)) = expected_head {
-        if last_seq != expected_seq || previous_hash != expected_hash {
-            // Dropping the transaction rolls it back: a fence that
-            // fails writes nothing, not even the row it was building.
-            return Err(StoreError::HeadMoved {
-                expected_seq,
-                found_seq: last_seq,
-            });
-        }
-    }
-    // Dropping the transaction rolls it back: a refused record writes
-    // nothing, like a fence that fails.
-    fence(&tx, run_id, event_type, &payload, last_seq + 1)??;
-    let envelope = seal_and_insert(
-        &tx,
-        run_id,
-        (last_seq, previous_hash.clone()),
-        event_type,
-        payload,
-        causation_id,
-        attempt_id,
-    )?;
-    let found = (last_seq, previous_hash.as_str());
-    let settled = summary::judge(&tx, carried, found, std::slice::from_ref(&envelope))?;
-    tx.commit()?;
-    Ok((envelope, settled))
+/// The event one cool-down append writes, and the head it is fenced to
+/// when the engine holds one: everything [`Store::append_next`] and
+/// [`Store::append_next_if_head`] decide by their names, in one parameter
+/// object (decision 0071 ruling 10, decision 0103 slice 4d1).
+pub struct CooldownAppend<'a> {
+    pub run_id: &'a str,
+    /// The head this event must still find, as [`Store::append_next_if_head`]
+    /// fences one; `None` appends wherever the head is.
+    pub fenced: Option<(u64, &'a str)>,
+    pub event_type: EventType,
+    pub payload: Value,
+    pub causation_id: Option<String>,
+    pub attempt_id: Option<String>,
 }
 
 impl Store {
@@ -610,7 +572,17 @@ impl Store {
         causation_id: Option<String>,
         attempt_id: Option<String>,
     ) -> Result<EventEnvelope, StoreError> {
-        self.append(run_id, None, event_type, payload, causation_id, attempt_id)
+        self.append(
+            CooldownAppend {
+                run_id,
+                fenced: None,
+                event_type,
+                payload,
+                causation_id,
+                attempt_id,
+            },
+            &[],
+        )
     }
 
     /// Append, but only onto the head the caller decided against —
@@ -647,37 +619,43 @@ impl Store {
         attempt_id: Option<String>,
     ) -> Result<EventEnvelope, StoreError> {
         self.append(
-            run_id,
-            Some((expected_seq, expected_hash)),
-            event_type,
-            payload,
-            causation_id,
-            attempt_id,
+            CooldownAppend {
+                run_id,
+                fenced: Some((expected_seq, expected_hash)),
+                event_type,
+                payload,
+                causation_id,
+                attempt_id,
+            },
+            &[],
         )
+    }
+
+    /// Append `event` and `cooldowns` as one: the event and every row of
+    /// its attempt's cool-downs land in ONE `Immediate` transaction, or
+    /// neither does (decision 0103 ruling 2(a), slice 4d1). The store fills
+    /// each row's `event_seq` with the seq the event takes inside that
+    /// transaction, so the caller never guesses it; a row the table refuses
+    /// rolls the event back with it, and a fence that moved writes nothing
+    /// at all.
+    pub fn append_with_cooldowns(
+        &mut self,
+        event: CooldownAppend<'_>,
+        cooldowns: &[Cooling],
+    ) -> Result<EventEnvelope, StoreError> {
+        self.append(event, cooldowns)
     }
 
     fn append(
         &mut self,
-        run_id: &str,
-        expected_head: Option<(u64, &str)>,
-        event_type: EventType,
-        payload: Value,
-        causation_id: Option<String>,
-        attempt_id: Option<String>,
+        event: CooldownAppend<'_>,
+        cooldowns: &[Cooling],
     ) -> Result<EventEnvelope, StoreError> {
         let (conn, carried) = (&mut self.conn, self.carried.as_ref());
         let (envelope, settled) = patiently("append", self.patience, || {
-            append_once(
-                (conn, carried),
-                run_id,
-                expected_head,
-                event_type,
-                payload.clone(),
-                causation_id.clone(),
-                attempt_id.clone(),
-            )
+            chain::append_once((conn, carried), &event, cooldowns)
         })?;
-        self.settle((run_id, 1), settled);
+        self.settle((event.run_id, 1), settled);
         Ok(envelope)
     }
 

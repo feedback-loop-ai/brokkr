@@ -41,6 +41,12 @@ fn holders(path: &Path) -> i64 {
     conn.query_row(query, [], |row| row.get(0)).unwrap()
 }
 
+/// A claim's judge that refuses nothing: written as a function, not a
+/// closure, so every reference argument keeps its own lifetime.
+fn concede(_facts: brokkr_store::ClaimFacts<'_>) -> Result<(), ()> {
+    Ok(())
+}
+
 /// The refusal of a dispatcher of `path`, which `holder` holds.
 fn dispatched(path: &Path, holder: &str) -> String {
     format!(
@@ -246,11 +252,18 @@ fn a_dispatcher_whose_lock_file_was_removed_is_fenced_out_by_the_next() {
         (Generation(1), Generation(2))
     );
     let read = store.queue_entry(entry).unwrap();
-    let judge = |_, _: &[_], _: &[_]| Ok::<(), ()>(());
-    let fenced = store.queue_claim_with(&read, 0, "d", first.generation, "r", judge);
+    let judge = concede;
+    let over = |generation| brokkr_store::Claiming {
+        entry: &read,
+        high_water: 0,
+        digest: "d",
+        generation,
+        now: time::OffsetDateTime::now_utc(),
+    };
+    let fenced = store.queue_claim_with(&over(first.generation), "r", judge);
     let refused = QueueRefusal::Superseded(Generation(1));
     assert!(matches!(&fenced, Err(StoreError::Queue(q)) if q == &refused));
     assert_eq!(store.queue_entry(entry).unwrap(), read, "nothing written");
-    let claimed = other.queue_claim_with(&read, 0, "d", second.generation, "r", judge);
+    let claimed = other.queue_claim_with(&over(second.generation), "r", judge);
     assert!(matches!(claimed, Ok(Ok(_))), "{claimed:?}");
 }

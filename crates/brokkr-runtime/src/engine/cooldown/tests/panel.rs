@@ -61,7 +61,7 @@ fn writer_panel() -> SeatBody {
 }
 
 /// An engine over `body` with two attempts under the standard host.
-fn plain_engine(dir: &Path, body: SeatBody, attempts: u64) -> Engine {
+pub(super) fn plain_engine(dir: &Path, body: SeatBody, attempts: u64) -> Engine {
     panel_engine(dir, body, attempts, route_host(dir, (1, 10), (1, 10)))
 }
 
@@ -128,7 +128,7 @@ fn inline(name: &str, command: Vec<String>) -> PanelMember {
 
 /// A v2 host file with per-route defaults and maxima for claude/first and
 /// codex/second, the two routes the panel fixtures use.
-fn route_host(dir: &Path, claude: (u64, u64), codex: (u64, u64)) -> PathBuf {
+pub(super) fn route_host(dir: &Path, claude: (u64, u64), codex: (u64, u64)) -> PathBuf {
     host_with(
         dir,
         "panel-host.json",
@@ -151,7 +151,7 @@ fn payload_waits(payload: &Value) -> Vec<Value> {
 }
 
 /// The waits on one terminal event, as the journal spells them.
-fn wait_entries(event: &EventEnvelope) -> Vec<Value> {
+pub(super) fn wait_entries(event: &EventEnvelope) -> Vec<Value> {
     payload_waits(&event.payload)
 }
 
@@ -176,7 +176,7 @@ fn shared_log(dir: &Path) -> Vec<String> {
 
 /// `argv` after waiting for `line` in the shared log: makes the concurrent
 /// panel's refusal order the declared one.
-fn delayed_after(dir: &Path, line: &str, mut argv: Vec<String>) -> Vec<String> {
+pub(super) fn delayed_after(dir: &Path, line: &str, mut argv: Vec<String>) -> Vec<String> {
     let script = argv.pop().expect("a driver script");
     argv.push(format!(
         "while ! grep -qx '{line}' '{}'; do sleep 0.01; done\n{script}",
@@ -187,7 +187,7 @@ fn delayed_after(dir: &Path, line: &str, mut argv: Vec<String>) -> Vec<String> {
 
 /// `argv` whose *retry* (its second attempt) waits for a's success before
 /// logging, so the concurrent panel's two re-runs log in declared order.
-fn retry_after_a_succeeds(dir: &Path, mut argv: Vec<String>) -> Vec<String> {
+pub(super) fn retry_after_a_succeeds(dir: &Path, mut argv: Vec<String>) -> Vec<String> {
     let script = argv.pop().expect("a driver script");
     let log = dir.join("all.log");
     let gate = format!(
@@ -219,7 +219,7 @@ fn wait_at(site: &str, provider: &str, route: &str, until: OffsetDateTime, secon
 }
 
 /// An engine over a panel, its v2 host file set, with a test clock.
-fn panel_engine(dir: &Path, body: SeatBody, attempts: u64, host: PathBuf) -> Engine {
+pub(super) fn panel_engine(dir: &Path, body: SeatBody, attempts: u64, host: PathBuf) -> Engine {
     let mut engine = started(dir, body, work(attempts));
     engine.cooldown.host = Some(host);
     with_clock(engine).0
@@ -239,7 +239,7 @@ fn two_route_refusing_engine(dir: &Path, b_probed: Probed) -> Engine {
 }
 
 /// A two-route panel engine with `attempts` allowed.
-fn two_route_engine(
+pub(super) fn two_route_engine(
     dir: &Path,
     a_verdicts: &[&str],
     b_verdicts: &[&str],
@@ -397,7 +397,7 @@ fn wait_in(site: &str, provider: &str, route: &str, seconds: u64) -> Value {
 }
 
 /// A two-route panel's two drivers: a on claude/first and b on codex/second.
-fn two_route_drivers(
+pub(super) fn two_route_drivers(
     dir: &Path,
     a_verdicts: &[&str],
     b_verdicts: &[&str],
@@ -426,7 +426,7 @@ fn writer_terminal(
 }
 
 /// The two candidates' panel: a on claude/first and b on codex/second.
-fn two_candidate_panel(a: Vec<String>, b: Vec<String>) -> SeatBody {
+pub(super) fn two_candidate_panel(a: Vec<String>, b: Vec<String>) -> SeatBody {
     panel_of(vec![
         member("a", vec![candidate("claude", "claude/first", a)]),
         member("b", vec![candidate("codex", "codex/second", b)]),
@@ -435,7 +435,7 @@ fn two_candidate_panel(a: Vec<String>, b: Vec<String>) -> SeatBody {
 
 /// A panel whose `a` runs `a` inline and whose `b` refuses once on
 /// codex/second and then succeeds.
-fn b_only_panel(dir: &Path, a: Vec<String>) -> SeatBody {
+pub(super) fn b_only_panel(dir: &Path, a: Vec<String>) -> SeatBody {
     let b = driver(
         dir,
         "b",

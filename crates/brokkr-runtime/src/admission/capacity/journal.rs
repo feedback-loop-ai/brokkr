@@ -16,11 +16,10 @@
 
 use std::path::Path;
 
-use brokkr_core::envelope::EventEnvelope;
-use brokkr_store::Store;
+use brokkr_store::{ClaimFacts, Store};
 use uuid::Uuid;
 
-use super::{Awaiting, Recheck, Room};
+use super::{Recheck, Room};
 use crate::admission::AdmissionError;
 
 /// The id a journal names itself by.
@@ -49,10 +48,6 @@ fn measured_in(
     }
 }
 
-/// A run with an event past a pass's high-water, as the claim's
-/// transaction hands it: its id, its events and its manifest.
-type Moved = (String, Vec<EventEnvelope>, String);
-
 impl Room {
     /// The claim's judge, for a claim through the store at `path`: the
     /// journal its transaction reads, refused first unless the one this
@@ -60,12 +55,15 @@ impl Room {
     pub(super) fn judge(
         &self,
         path: &Path,
-    ) -> impl FnMut(Option<Uuid>, &[Awaiting], &[Moved]) -> Result<(), Recheck> + '_ {
+    ) -> impl FnMut(ClaimFacts<'_>) -> Result<(), Recheck> + '_ {
         let path = path.to_path_buf();
-        move |named, waits, moved| {
+        // `facts.cooling` is every cool-down row in force inside the claim's
+        // transaction; admission's cool-down leg re-checks it in decision
+        // 0103 slice 4e, so it is dropped here (slice 4d1).
+        move |facts| {
             let other = |error| Recheck::Failed(Box::new(error));
-            measured_in(self.journal, named, &path).map_err(other)?;
-            self.recheck(waits, moved)
+            measured_in(self.journal, facts.journal, &path).map_err(other)?;
+            self.recheck(facts.waits, facts.moved)
         }
     }
 }

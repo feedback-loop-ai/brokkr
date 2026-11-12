@@ -183,9 +183,14 @@ fn a_pass_ended_after_its_claim_is_reclaimed_to_its_place_and_claimed_anew() {
     assert_eq!(commands(&store), rows);
     assert_eq!(runs(&store), Vec::<String>::new());
 
-    let judged = store.queue_claim_with(&entry, 0, "d", next.generation, "again", |_, _, _| {
-        Ok::<(), ()>(())
-    });
+    let over = brokkr_store::Claiming {
+        entry: &entry,
+        high_water: 0,
+        digest: "d",
+        generation: next.generation,
+        now: time::OffsetDateTime::now_utc(),
+    };
+    let judged = store.queue_claim_with(&over, "again", |_| Ok::<(), ()>(()));
     assert_eq!(judged.unwrap().unwrap().parts(), (EntryId(1), 4));
 }
 

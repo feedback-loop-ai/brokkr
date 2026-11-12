@@ -39,7 +39,7 @@ use std::sync::Arc;
 use brokkr_core::envelope::EventEnvelope;
 use brokkr_core::fold::{fold, Status};
 use brokkr_core::realms::Boundary;
-use brokkr_store::{Claim, EntryState, Generation, QueueEntry, Store, Wait};
+use brokkr_store::{Claim, Claiming, EntryState, Generation, QueueEntry, Store, Wait};
 use serde::Deserialize;
 use serde_json::Value;
 use thiserror::Error;
@@ -429,14 +429,18 @@ impl Room {
         generation: Generation,
         reason: &str,
     ) -> Result<Result<Claim, Reason>, AdmissionError> {
-        let claimed = store.queue_claim_with(
-            &self.entry,
-            self.high_water,
-            &self.digest,
+        let over = Claiming {
+            entry: &self.entry,
+            high_water: self.high_water,
+            digest: &self.digest,
             generation,
-            reason,
-            self.judge(store.path()),
-        );
+            now: time::OffsetDateTime::now_utc(),
+        };
+        // The cool-down rows the claim reads inside its transaction reach
+        // this judge in `ClaimFacts::cooling`; admission's cool-down leg is
+        // decision 0103 slice 4e, so the judge drops them for now (slice
+        // 4d1).
+        let claimed = store.queue_claim_with(&over, reason, self.judge(store.path()));
         match claimed? {
             Ok(claim) => Ok(Ok(claim)),
             Err(Recheck::Refused(reason)) => Ok(Err(reason)),

@@ -532,14 +532,14 @@ pub fn holding(store: &Store, generation: crate::Generation) {
 pub fn linked(store: &mut Store, entry: crate::EntryId, run: &str) {
     holding(store, crate::Generation(1));
     let read = store.queue_entry(entry).unwrap();
-    let claimed = store.queue_claim_with(
-        &read,
-        i64::MAX,
-        "test",
-        crate::Generation(1),
-        "test",
-        |_, _, _| Ok::<(), ()>(()),
-    );
+    let over = crate::Claiming {
+        entry: &read,
+        high_water: i64::MAX,
+        digest: "test",
+        generation: crate::Generation(1),
+        now: time::OffsetDateTime::UNIX_EPOCH,
+    };
+    let claimed = store.queue_claim_with(&over, "test", |_| Ok::<(), ()>(()));
     let claim = claimed.unwrap().unwrap();
     (store.queue_link(claim, crate::Generation(1), run, "test")).unwrap();
 }

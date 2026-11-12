@@ -30,12 +30,15 @@ use crate::{now_rfc3339, patiently, Store, StoreError};
 
 mod beside;
 mod claim;
+mod cooldown;
 mod holder;
 mod storage;
 
 pub use beside::Seen;
 use beside::{beside_once, Beside};
-pub use claim::{claim_stands, Claim, Generation, StartRefusal};
+pub use claim::{claim_stands, Claim, ClaimFacts, Claiming, Generation, StartRefusal};
+pub(crate) use cooldown::insert as insert_cooldowns;
+pub use cooldown::{Cooldown, CooldownAggregate, Cooling};
 use storage::{
     latch_row, queue_stored, wait_row, Stored, PINNED_PAYLOAD, PINNED_SEQ, QUEUE_SCHEMA,
     STANDING_LATCH, WAITS,
@@ -372,6 +375,11 @@ pub enum QueueRefusal {
          be read, and it is never recreated empty"
     )]
     TableLost { table: &'static str },
+    /// A cool-down row whose stored instant this reader cannot spell, named
+    /// by its row (decision 0103 ruling 2(a), slice 4d1): a whole number of
+    /// seconds outside `time`'s range is never read as a wait.
+    #[error("the journal's provider cool-down {seq} records a time it cannot read")]
+    CooldownTime { seq: i64 },
     /// A command on an entry the dispatcher has claimed and not yet
     /// linked, returned or held (decision 0095 ruling 1).
     #[error("queue entry {0} is launching; the dispatcher links, returns or holds it first")]
@@ -652,7 +660,7 @@ fn entries(
     key: &dyn rusqlite::ToSql,
 ) -> Result<Vec<QueueEntry>, StoreError> {
     let (payload, pin, latched) = match stored {
-        Stored::V2 | Stored::V3 => (PINNED_PAYLOAD, PINNED_SEQ, true),
+        Stored::V2 | Stored::V3 | Stored::V4 => (PINNED_PAYLOAD, PINNED_SEQ, true),
         Stored::V1 => ("payload", "NULL", false),
     };
     let mut entries = conn.prepare(&format!(
