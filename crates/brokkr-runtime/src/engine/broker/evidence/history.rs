@@ -9,7 +9,6 @@ use std::time::Instant;
 
 use serde::Serialize;
 
-use super::super::admission::beside;
 use super::super::historical::retired::Retirement;
 use super::super::historical::superseded::Superseded;
 use super::super::inventory::{inventory, Budget};
@@ -106,9 +105,9 @@ pub(in crate::engine) fn retirements_in(
     let mut budget = Budget::new(deadline);
     let found = inventory(root.dir(), root.path(), ["", ""], &mut budget)?;
     // Admission records the artifact root as `beside` resolves it; a repo
-    // named through a link is the same root, so the lookup takes the same
+    // named through a link is the same root, so `find` takes the same
     // resolution (decision 0105, the controller's R2 ruling on #1020).
-    let held = find(&found, &beside(artifacts));
+    let held = find(&found, artifacts);
     Ok(RetirementHistory {
         current: held.and_then(|held| held.retirement.clone()),
         superseded: held

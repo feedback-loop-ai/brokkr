@@ -284,28 +284,50 @@ fn archiving_an_absent_root_into_its_own_parent_refuses_and_writes_nothing() {
     assert!(!retirement_path(&host, &kept, "run-a", &root).exists());
 }
 
-/// Ruling 2/1020b: a dangling link at the artifact root does not stand, so
-/// it refuses as absent rather than archiving an empty retirement, and the
-/// link is left where it was.
+/// LOW 1 (1020c): a link at the artifact root's path, dangling or not, is
+/// one refusal for either action: `--archived-to` and `--discarded` name
+/// the same `Link`, and nothing is made at the destination.
 #[test]
-fn archiving_a_dangling_root_link_refuses_as_absent() {
+fn a_dangling_root_link_refuses_an_archive_and_a_discard_with_one_text() {
     let host = Host::new();
     let (kept, root) = absent_root(&host);
     let nowhere = host.dir.path().join("nowhere");
     std::os::unix::fs::symlink(&nowhere, &root).unwrap();
-    a_refused_absent_archive_writes_nothing(&host, &kept, &root);
+    let to = host.dir.path().join("archive");
+    let archived = archive_refused(&host, &root, &to);
+    let discarded = evidence::retire_in(
+        &host.root,
+        options(&root, RetireAction::Discarded, "given up"),
+        soon(),
+    )
+    .unwrap_err();
+    assert!(
+        matches!(&archived, EvidenceError::Link(at) if at == &root),
+        "{archived:?}"
+    );
+    assert!(
+        matches!(&discarded, EvidenceError::Link(at) if at == &root),
+        "{discarded:?}"
+    );
+    assert_eq!(
+        archived.to_string(),
+        discarded.to_string(),
+        "one refusal, one text"
+    );
+    assert!(!to.exists(), "the archive wrote nothing");
+    assert!(
+        !retirement_path(&host, &kept, "run-a", &root).exists(),
+        "no retirement was sealed"
+    );
     assert!(root.is_symlink(), "the link is left where it was");
 }
 
-/// Ruling 2/1020b: `--discarded` of an absent root still records it as
-/// absent, unchanged.
-#[test]
-fn discarding_an_absent_root_still_records_it_as_absent() {
-    let host = Host::new();
-    let (_kept, root) = absent_root(&host);
+/// `root` discarded, sealed as absent, and listed as the absent root its
+/// retirement names.
+fn discards_as_absent(host: &Host, root: &Path) {
     let retired = evidence::retire_in(
         &host.root,
-        options(&root, RetireAction::Discarded, "already absent"),
+        options(root, RetireAction::Discarded, "already absent"),
         soon(),
     )
     .unwrap();
@@ -316,6 +338,27 @@ fn discarding_an_absent_root_still_records_it_as_absent() {
     let row = listed.iter().find(|held| held.artifacts == root).unwrap();
     assert!(!row.exists, "the record says the root is absent");
     assert_eq!(row.retirement.as_ref(), Some(&retired));
+}
+
+/// LOW 1 (1020c): once the link is removed, `--discarded` records the root
+/// as absent, and the retirement names the path that was linked.
+#[test]
+fn discarding_a_root_whose_link_was_removed_records_it_absent() {
+    let host = Host::new();
+    let (_kept, root) = absent_root(&host);
+    let nowhere = host.dir.path().join("nowhere");
+    std::os::unix::fs::symlink(&nowhere, &root).unwrap();
+    std::fs::remove_file(&root).unwrap();
+    discards_as_absent(&host, &root);
+}
+
+/// Ruling 2/1020b: `--discarded` of an absent root still records it as
+/// absent, unchanged.
+#[test]
+fn discarding_an_absent_root_still_records_it_as_absent() {
+    let host = Host::new();
+    let (_kept, root) = absent_root(&host);
+    discards_as_absent(&host, &root);
 }
 
 /// 12(e)/1020b: the record takes the operator's words, so an empty or

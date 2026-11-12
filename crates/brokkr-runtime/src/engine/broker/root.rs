@@ -103,15 +103,17 @@ pub(in crate::engine) struct Root {
 }
 
 /// Why the coordination root a readout looks for is not one it may read:
-/// it does not stand, a path on the way is a link or is not this user's
-/// alone, or it cannot be opened at all — which only its absence is not
-/// (decision 0105, the controller's S2 ruling on #1020; 1020b).
+/// it does not stand, a path on the way is a link, not one plain name or
+/// not this user's alone, or it cannot be opened at all — which only its
+/// absence is not (decision 0105, the controller's S2 ruling on #1020;
+/// 1020b and 1020c).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum Existing {
     Absent,
     NotAlone(PathBuf),
     Linked(PathBuf),
-    Unreadable(std::io::ErrorKind),
+    NotPlain(PathBuf),
+    Unreadable(PathBuf, std::io::ErrorKind),
 }
 
 /// Two handles are one root where they were opened at one path.
@@ -241,8 +243,10 @@ fn walked(home: &Path) -> Result<OwnedFd, Existing> {
     let mut at = PathBuf::from("/");
     // `/` and an `fstat` of an open descriptor cannot fail on a supported
     // host; their fallback is unreadable rather than a guess at a kind.
-    let mut held = openat(CWD, "/", directory(), Mode::empty())
-        .or(Err(Existing::Unreadable(std::io::ErrorKind::Other)))?;
+    let mut held = openat(CWD, "/", directory(), Mode::empty()).or(Err(Existing::Unreadable(
+        at.clone(),
+        std::io::ErrorKind::Other,
+    )))?;
     for (index, name) in names.into_iter().enumerate() {
         at.push(name);
         held = step_existing(&held, name, &at, index == private)?;
@@ -252,13 +256,17 @@ fn walked(home: &Path) -> Result<OwnedFd, Existing> {
 
 /// One plain name `name` on the way to the coordination root, at `at`,
 /// opened in `parent` without following a link and judged [`owned`]'s way:
-/// absent, a link, not this user's alone, or another open error.
+/// absent, a link, not one plain name, not this user's alone, or another
+/// open error naming the path walked so far.
 fn step_existing(
     parent: &OwnedFd,
     name: &OsStr,
     at: &Path,
     private: bool,
 ) -> Result<OwnedFd, Existing> {
+    plain(name)
+        .then_some(())
+        .ok_or_else(|| Existing::NotPlain(at.to_path_buf()))?;
     let held = match openat(parent, name, directory(), Mode::empty()) {
         Ok(held) => held,
         Err(Errno::NOENT) => return Err(Existing::Absent),
@@ -268,15 +276,30 @@ fn step_existing(
             return Err(if linked {
                 Existing::Linked(at.to_path_buf())
             } else {
-                Existing::Unreadable(std::io::ErrorKind::NotADirectory)
+                Existing::Unreadable(at.to_path_buf(), std::io::ErrorKind::NotADirectory)
             });
         }
-        Err(error) => return Err(Existing::Unreadable(std::io::Error::from(error).kind())),
+        Err(error) => {
+            return Err(Existing::Unreadable(
+                at.to_path_buf(),
+                std::io::Error::from(error).kind(),
+            ))
+        }
     };
-    let stat = fstat(&held).or(Err(Existing::Unreadable(std::io::ErrorKind::Other)))?;
+    let stat = fstat(&held).or(Err(Existing::Unreadable(
+        at.to_path_buf(),
+        std::io::ErrorKind::Other,
+    )))?;
     owned(&stat, user(), private)
         .then_some(held)
         .ok_or_else(|| Existing::NotAlone(at.to_path_buf()))
+}
+
+/// Whether `name` is one plain name: one component that names neither its
+/// parent nor the current directory, so entering it walks out of no judged
+/// directory and past no name the walk did not judge.
+fn plain(name: &OsStr) -> bool {
+    Path::new(name).file_name() == Some(name)
 }
 
 /// The directory `name` in `parent`: one plain name, made owner-only where
@@ -290,8 +313,7 @@ pub(super) fn step(
     (make, private): (bool, bool),
     synced: Synced<'_>,
 ) -> Result<OwnedFd, Unprovisioned> {
-    let plain = Path::new(name).file_name() == Some(name);
-    plain.then_some(()).ok_or(Unprovisioned::Root)?;
+    plain(name).then_some(()).ok_or(Unprovisioned::Root)?;
     if make && mkdirat(parent, name, Mode::RWXU).is_ok() {
         synced(parent).or(Err(Unprovisioned::Root))?;
     }

@@ -448,11 +448,14 @@ no standing attempt's writer can reach it; a root still in use refuses
 "evidence root '<path>' is protected by run '<run>'s standing attempt".
 `--archived-to` takes an absent or empty directory. A root whose artifact
 root does not stand refuses an archive before anything is written:
-`--discarded` is the record for an absent root. The destination is made
+`--discarded` is the record for an absent root. A link at that path,
+dangling or not, refuses either action with "the evidence root '<path>' is
+a link, which a retirement never follows; remove the link, then
+--discarded records the root as absent". The destination is made
 absolute and resolved once by the filesystem: the deepest ancestor that
 stands is canonicalized through the links it holds, the components below it
 that do not stand yet are appended one plain name at a time, a `.` below
-that ancestor names the directory it follows and is dropped from the
+that ancestor names the same directory and is dropped from the
 resolved path, and a `..` there refuses, because nothing can resolve it
 before what it names exists. The resolved path is compared with the canonical
 coordination root and the canonical root being retired: a destination at or
@@ -504,8 +507,8 @@ problem — is escaped for the terminal, so a reason cannot start or forge a
 line or carry a raw escape. `brokkr doctor` also names an
 absent historical root that is not retired as still staking the host, and
 a coordination root that is not protected: the root itself or an ancestor
-on the way that is not this user's alone, or a link on the way, which a
-readout never follows. `brokkr
+on the way that is not this user's alone, a link on the way, which a
+readout never follows, or a name on the way that is not one plain name. `brokkr
 inspect --capability-call` names a response retained before a retirement,
 current or superseded, as "archived at <dir>" or "discarded", never as
 corrupt, chosen by the response's own recorded time against `retired_at`; a
@@ -552,9 +555,9 @@ Once a `retired-<key>.json` or `superseded-<key>-<n>.json` stands in a
 worktree's directory, an engine with writer admission that predates
 decision 0105 refuses every admission that reads that coordination root
 with "the protected inventory holds an unknown participant" until it is
-upgraded. An archived root keeps its bytes, so the next admission that
-protects evidence there supersedes its retirement at once, and the root
-stakes the host again.
+upgraded. Any retirement whose artifacts equal a protecting claim's —
+archived or discarded — is superseded by the next admission that protects
+evidence there, and the root stakes the host again.
 
 **Startup budgets.** A broker's start, its host survey included, has
 one 30 s bound; observing its sources is bounded at 1,000,000 entries,

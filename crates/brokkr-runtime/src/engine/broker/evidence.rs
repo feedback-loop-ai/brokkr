@@ -26,7 +26,7 @@ pub use super::historical::retired::{Cause, Retirement};
 pub use super::historical::superseded::Superseded;
 use super::historical::{self};
 use super::inventory::{inventory, Budget, Found, HistoricalRoot, Reaching, Standing, Unread};
-use super::root::{coordination, locked, locked_existing, Existing, Root};
+use super::root::{locked, locked_existing, Existing, Root};
 use crate::engine::artifacts::{hex, DIGESTS};
 
 use destination::Destination;
@@ -145,8 +145,19 @@ pub enum EvidenceError {
         .0.display()
     )]
     Linked(PathBuf),
+    /// A component on the way to the coordination root is not one plain
+    /// name, which admission's walk never enters; the path walked so far is
+    /// named, and the refusal carries the same problem `retire` refuses
+    /// with (decision 0105; 1020c).
+    #[error(
+        "the capability coordination root is not protected: '{}' is not a plain name, which the \
+         walk never enters",
+        .0.display()
+    )]
+    NotPlain(PathBuf),
     /// The root cannot be opened at all: only its absence is read as no
-    /// root (decision 0105, the controller's S2 ruling on #1020).
+    /// root, and the path that failed is named (decision 0105, the
+    /// controller's S2 ruling on #1020; 1020c).
     #[error("the coordination root '{}' cannot be read: {}", .0.display(), .1)]
     Unreadable(PathBuf, std::io::ErrorKind),
     #[error("the retirement of '{}' cannot be read", .0.display())]
@@ -220,14 +231,22 @@ pub enum EvidenceError {
     Corrupt(PathBuf),
     #[error("the artifact '{}' is not one regular file named by a digest; nothing was written", .0.display())]
     Unfinished(PathBuf),
-    /// `sha256/` is a link or is not a directory, which a readout never
-    /// follows (decision 0105, M4; 1020b).
+    /// `sha256/` is a link or is not a directory, which neither a readout
+    /// nor an archive follows (decision 0105, M4; 1020b and 1020c).
     #[error(
-        "the digest directory '{}' is a link or is not a directory, which a readout never follows",
+        "the digest directory '{}' is a link or is not a directory, which neither a readout nor \
+         an archive follows",
         .0.display()
     )]
     Digests(PathBuf),
-    #[error("the evidence root '{}' is a link, which a discard never follows", .0.display())]
+    /// A link at the root's path, dangling or not, which neither action
+    /// follows; removing it lets `--discarded` record the root as absent
+    /// (decision 0105; 1020c).
+    #[error(
+        "the evidence root '{}' is a link, which a retirement never follows; remove the link, \
+         then --discarded records the root as absent",
+        .0.display()
+    )]
     Link(PathBuf),
     #[error("the evidence root '{}' is not a directory", .0.display())]
     NotDirectory(PathBuf),
@@ -302,7 +321,8 @@ fn existing(home: &Path) -> Result<Option<Root>, EvidenceError> {
         Err(Existing::Absent) => Ok(None),
         Err(Existing::NotAlone(at)) => Err(EvidenceError::Unprotected(at)),
         Err(Existing::Linked(at)) => Err(EvidenceError::Linked(at)),
-        Err(Existing::Unreadable(kind)) => Err(EvidenceError::Unreadable(coordination(home), kind)),
+        Err(Existing::NotPlain(at)) => Err(EvidenceError::NotPlain(at)),
+        Err(Existing::Unreadable(at, kind)) => Err(EvidenceError::Unreadable(at, kind)),
     }
 }
 
@@ -414,23 +434,28 @@ pub fn retire(
     options: RetireOptions<'_>,
     deadline: Instant,
 ) -> Result<Retirement, EvidenceError> {
-    // The reason is the record's own words: check it before the protected
-    // walk makes a directory, so the refusal wrote nothing (0105, 1020b).
+    // The reason is the record's own words: checked here at the outer
+    // entry, before `Root::of` makes the coordination root, so the refusal
+    // wrote nothing (decision 0105, 1020b and 1020c).
     required_reason(options.reason)?;
     let root = Root::of(home).ok_or(EvidenceError::Coordination)?;
-    retire_in(&root, options, deadline)
+    retire_in_with(&root, options, deadline, &|| {})
 }
 
-/// [`retire`] in an already opened coordination root.
+/// [`retire`] in an already opened coordination root: the outer entry a
+/// test drives, which checks the reason as `retire` does (decision 0105,
+/// 1020c).
+#[cfg(test)]
 pub(in crate::engine) fn retire_in(
     root: &Root,
     options: RetireOptions<'_>,
     deadline: Instant,
 ) -> Result<Retirement, EvidenceError> {
+    required_reason(options.reason)?;
     retire_in_with(root, options, deadline, &|| {})
 }
 
-/// [`retire_in`], `between` run after the root's artifacts are verified and
+/// [`retire`], `between` run after the root's artifacts are verified and
 /// its `sha256/` is made, before they are copied: the house `_with` seam a
 /// test changes a source under, so the copy's own digest check is the one
 /// that fails, or plants a name under the destination, so nothing this verb
@@ -441,7 +466,6 @@ pub(in crate::engine) fn retire_in_with(
     deadline: Instant,
     between: &dyn Fn(),
 ) -> Result<Retirement, EvidenceError> {
-    required_reason(options.reason)?;
     let _lock = locked(root.dir(), deadline)?;
     let mut budget = Budget::new(deadline);
     let found = inventory(root.dir(), root.path(), ["", ""], &mut budget)?;
@@ -475,16 +499,19 @@ fn required_reason(reason: &str) -> Result<(), EvidenceError> {
     }
 }
 
-/// Whether the artifact root `artifacts` stands, by a stat that follows a
-/// link: a root that does not stand cannot be archived, and a dangling
-/// link does not stand, where `--discarded` is the record for an absent
-/// root (decision 0105 ruling 2; 1020b).
+/// Whether the artifact root `artifacts` stands, by a stat of the path
+/// itself: a root that does not stand cannot be archived, a link at that
+/// path is refused as the discard refuses it, and nothing is written
+/// (decision 0105 ruling 2; 1020b and 1020c).
 fn archived_root(artifacts: &Path) -> Result<(), EvidenceError> {
-    match std::fs::metadata(artifacts) {
+    match std::fs::symlink_metadata(artifacts) {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             Err(EvidenceError::Absent(artifacts.to_path_buf()))
         }
         Err(error) => Err(error.into()),
+        Ok(stat) if stat.file_type().is_symlink() => {
+            Err(EvidenceError::Link(artifacts.to_path_buf()))
+        }
         Ok(_) => Ok(()),
     }
 }
