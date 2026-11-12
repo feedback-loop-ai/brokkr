@@ -52,7 +52,7 @@ fn pinned_block(release: Release, mode: Mode) -> String {
 }
 
 /// Judge a dump as the composed-tree gate would, through its closure seam.
-fn gate(dump: String, release: Release, mode: Mode) -> Result<(), Composition> {
+pub(super) fn gate(dump: String, release: Release, mode: Mode) -> Result<(), Composition> {
     composed_with(Command::new("dsh"), release, mode, move |_| {
         Ok(Output {
             status: std::process::ExitStatus::from_raw(0),
@@ -60,6 +60,19 @@ fn gate(dump: String, release: Release, mode: Mode) -> Result<(), Composition> {
             stderr: Vec::new(),
         })
     })
+}
+
+/// Plant `to` in place of `from` and require the span to refuse it as
+/// unreadable. One home for the refusal cases the whole-span tests share,
+/// so this round's module plants its lines through the same helper.
+pub(super) fn refuses_planted(dump: &str, what: &str, from: &str, to: &str) {
+    let mutated = dump.replace(from, to);
+    assert_ne!(mutated, dump, "{what}");
+    assert_eq!(
+        gate(mutated, Release::V0_2_1, Mode::ReadOnly),
+        Err(Composition::Unreadable),
+        "{what}"
+    );
 }
 
 /// A locked environment, a fresh temporary root and the probe log both
@@ -413,15 +426,11 @@ fn every_unadmitted_line_in_the_sandbox_policy_span_refuses() {
             "  disabled: false\n  disabled: false\n",
         ),
     ] {
-        let mutated = dump.replace(
+        refuses_planted(
+            &dump,
+            what,
             "    mode: read-only\n",
             &format!("    mode: read-only\n{planted}"),
-        );
-        assert_ne!(mutated, dump, "{what}");
-        assert_eq!(
-            gate(mutated, Release::V0_2_1, Mode::ReadOnly),
-            Err(Composition::Unreadable),
-            "{what}"
         );
     }
     // A mode before its `config:` is not after it.

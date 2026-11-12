@@ -15,6 +15,7 @@ use crate::hands::{HandsSpec, SEALED_REACH};
 use crate::native_controls::{SealedBoundary, SealedDialect, ARTIFACT_ROOT, SERVING_INPUTS};
 
 mod composed;
+mod composed_controls;
 mod launch_order;
 mod releases;
 

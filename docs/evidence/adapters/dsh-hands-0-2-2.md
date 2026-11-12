@@ -131,19 +131,34 @@ controller can follow this procedure.
    is never written by Brokkr's overlay. The composed-tree check reads the
    whole span of the composed `sandbox-policy` row, from its `- id:` line
    to the next column-zero `- id:` or the end of the dump, as a closed
-   grammar. It skips a blank line, a whitespace-only line and a comment
-   line (whose first non-space character is `#`). It admits, each at most
+   grammar. It refuses first, before any other test, a line holding a C0
+   control other than tab (U+0000–U+0008 and U+000A–U+001F, so a bare CR
+   or VT), DEL (U+007F), a C1 control (U+0080–U+009F, so NEL), LS
+   (U+2028), PS (U+2029) or a BOM (U+FEFF): a YAML reader breaks on
+   several of these and treats none as white space, so such a line is
+   never skipped or read. It then skips only an empty line, a line of
+   ASCII spaces and tabs, and a line whose first character after leading
+   ASCII spaces and tabs is `#`; text after the `#` is comment content,
+   non-ASCII characters included, while a line of any other white space
+   (such as NBSP, or NBSP then `#`) is refused. It admits, each at most
    once, `  name: <name>`, `  disabled: <word>` (only absent or exactly
-   `false` is admitted), `  config:` and, only after `  config:`,
-   `    mode: <word>`. Every other line in the span refuses `Unreadable`: a
-   second `config:` or `mode:`, any other key at any indent, a line
-   indented three spaces, a flow-style `config: {...}`, a quoted or spaced
-   key, and a `mode:` before `config:`. Other rows' config blocks are not
-   read. It refuses a tree whose composed mode is not the seat's own, a
-   tree that names no mode, and a `sandbox-policy` row whose `disabled:` is
-   present and not exactly `false`. It reads nothing else about the
-   composed tree's sandbox. This step does not measure what dsh itself does
-   with that mode.
+   `false` is admitted), `  config:` and, only while the config block is
+   open, `    mode: <word>`. The block has three states: `  config:` opens
+   it, a second `  config:` refuses, an admitted two-space key (`  name:`
+   or `  disabled:`) after it closes it, and a skipped line leaves it as
+   it is. Every other line in the span refuses `Unreadable`: a second
+   `config:` or `mode:`, any other key at any indent, a line indented
+   three spaces, a flow-style `config: {...}`, a quoted or spaced key, and
+   a `mode:` before `config:` or after a two-space key closed the block.
+   Every value the reader takes from the dump — every row's `- id:`, and
+   `  name:`, `  disabled:` and `    mode:` — is trimmed with ASCII spaces
+   and tabs only: Unicode white space is not trimmed, so a padded word
+   cannot be read as the word the gate compares. Other rows' config blocks
+   are not read. It refuses a tree whose composed mode is not the seat's
+   own, a tree that names no mode, and a `sandbox-policy` row whose
+   `disabled:` is present and not exactly `false`. It reads nothing else
+   about the composed tree's sandbox. This step does not measure what dsh
+   itself does with that mode.
 6. Add the release and its set here, then in `MEASURED_VERSIONS` and the
    release's composition delta table. Add a `Release` variant with its own
    exact versions in `Release::versions` (and its `Release::label`), and
@@ -196,12 +211,19 @@ Run by the implementing seat with
   `a_skipped_line_does_not_close_the_sandbox_config`,
   `a_disabled_sandbox_policy_row_is_refused`,
   `a_sandbox_policy_disabled_line_is_read_with_or_without_its_space`,
-  `a_hands_seat_reports_its_sandbox_refusal_before_a_later_root_refusal` and
-  `a_launch_refuses_a_composed_mode_that_differs_from_the_seats`: the
+  `a_hands_seat_reports_its_sandbox_refusal_before_a_later_root_refusal`,
+  `a_launch_refuses_a_composed_mode_that_differs_from_the_seats`,
+  `a_policy_span_line_holding_a_break_or_control_is_refused`,
+  `a_policy_span_line_of_only_non_ascii_space_is_refused`,
+  `a_policy_span_refuses_a_mode_after_a_two_space_key_closed_config`,
+  `a_policy_span_admits_a_mode_before_a_later_two_space_key`,
+  `a_policy_span_still_skips_ascii_space_and_a_non_ascii_comment`,
+  `a_policy_span_refuses_a_non_ascii_padded_value` and
+  `a_policy_span_trims_ascii_padding`: the
   #1052 part 1 follow-ups F4, F5 and the composed-mode finding, fix
-  round 1052g2's C1, C2, C4 and C6, and fix round 1052g3's F1 to F3. Each
-  was made to fail by the removal control recorded in the commit that
-  added it and then restored.
+  round 1052g2's C1, C2, C4 and C6, fix round 1052g3's F1 to F3, and fix
+  round 1052g4's S1, S2 and S4. Each was made to fail by the removal
+  control recorded in the commit that added it and then restored.
 
 ## A real seat tree, judged (controller, 2026-11-12)
 
