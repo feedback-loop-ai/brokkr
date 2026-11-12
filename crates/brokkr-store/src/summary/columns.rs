@@ -241,3 +241,28 @@ pub(super) fn has<'a, 'b: 'a>(
         .into_iter()
         .all(|(column, _)| found.iter().any(|name| name == column)))
 }
+
+/// The covering index the realm list and refused counts read (decision 0089
+/// ruling A4, slice 4's unit U3c): the two names in their order and every
+/// column [`not_behind`] tests, so the read visits the index alone.
+pub(super) const REALM_INDEX: &str = "run_summary_realm";
+
+/// The row is behind its folded head: its fold or a stamped part is not the
+/// head's. `prefix` names the row, so one rule serves the generated `lane`
+/// and each read that must state the test without reading that column.
+pub(super) fn behind(prefix: &str) -> String {
+    format!("NOT ({})", not_behind(prefix))
+}
+
+/// The rows that are not behind their folded head, stated on the stamped
+/// columns they carry: `folded_seq` and `head_seq` at the same place, and
+/// no part's stamp off it. A read that covers these columns with its index
+/// asks this predicate instead of `lane`, so the index alone answers it.
+pub(crate) fn not_behind(prefix: &str) -> String {
+    format!(
+        "{prefix}folded_seq IS NOT NULL
+         AND {prefix}folded_seq = {prefix}head_seq
+         AND NOT ({stale})",
+        stale = super::stale(prefix)
+    )
+}

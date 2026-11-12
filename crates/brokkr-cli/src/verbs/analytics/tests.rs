@@ -787,12 +787,22 @@ fn every_figure_is_its_whole_read_on_the_generated_journal() {
         let store = brokkr_store::Store::open_read_only(&journal).unwrap();
         let mut whole = Vec::new();
         store
-            .behind_runs(|run_id| whole.push(run_id.to_string()))
+            .behind_runs(|run_id, _created_at| whole.push(run_id.to_string()))
             .unwrap();
         store
             .window_fallbacks(0, 0, None, |run| whole.push(run.run_id.to_string()))
             .unwrap();
         assert!(whole.is_empty(), "no run is read whole: {whole:?}");
+        let mut refused = Vec::new();
+        store
+            .refused_counts(None, |realm, count| {
+                refused.push((realm.map(str::to_string), count));
+            })
+            .unwrap();
+        assert!(
+            refused.is_empty(),
+            "every run folded, so the store counts no refusal: {refused:?}"
+        );
         let mut bound = None;
         store
             .window_sites(
@@ -924,6 +934,23 @@ fn a_behind_run_and_a_stale_seat_run_are_each_read_whole_alone() {
     plant_older_writer(&store, "behind-run", &behind);
     let parked = sealed("behind-parked", &behind_parked_run(base));
     plant_older_writer(&store, "behind-parked", &parked);
+    // A behind run that names no realm: its realm is the hearth's label.
+    let bare = sealed(
+        "behind-bare",
+        &stopped_run(
+            base,
+            RunCase {
+                realm: None,
+                recipe: "bare-recipe",
+                rule: LastRuling::Named("bare-rule"),
+                provider: "claude",
+                model: "bare-model",
+                usd: 0.1,
+                finish: -19 * 60,
+            },
+        ),
+    );
+    plant_older_writer(&store, "behind-bare", &bare);
     // A run from before the summary whose chain does not verify: the
     // fallback's one-run opening refuses it, as today's whole read
     // quarantines it and no figure reads it.
@@ -1257,7 +1284,7 @@ fn a_run_the_whole_read_cannot_load_is_counted_from_no_row() {
     assert_eq!(lane(&store, "corrupt-0").as_deref(), Some("finished"));
     let mut behind = Vec::new();
     store
-        .behind_runs(|run_id| behind.push(run_id.to_string()))
+        .behind_runs(|run_id, _created_at| behind.push(run_id.to_string()))
         .unwrap();
     assert!(
         behind.is_empty(),
@@ -1473,4 +1500,153 @@ fn a_park_row_that_will_not_read_reads_its_hearth_whole() {
     let refused = ready(&journal).window_parks(base - DAY_MILLIS, base, base, None, |_| {});
     assert!(refused.is_err(), "the park row will not read");
     day_through_rows(&journal, false, "a park row that will not read");
+}
+
+/// A writer-recorded fold refusal contributes no figure, and the same run
+/// acknowledged stays out: the rows are not trusted for a hearth the whole
+/// read cannot fold (decision 0089 slice 4, unit U3c; R1 held).
+#[test]
+fn a_writer_recorded_refusal_is_its_whole_read_and_the_acknowledged_one_too() {
+    let dir = tempfile::tempdir().unwrap();
+    let journal = dir.path().join("refused-journal.db");
+    let base = parse_millis(GENERATED_NOW).unwrap();
+    let mut store = brokkr_store::Store::open(&journal).unwrap();
+    plant(
+        &mut store,
+        "refused-spend",
+        &stopped_run(
+            base,
+            RunCase {
+                realm: Some("refused-realm"),
+                recipe: "refused-recipe",
+                rule: LastRuling::Named("refused-rule"),
+                provider: "claude",
+                model: "refused-model",
+                usd: 0.5,
+                finish: -19 * 60,
+            },
+        ),
+    );
+    plant(
+        &mut store,
+        "refused-park",
+        &parked_in_phase(base, "review", -20, -19, -18),
+    );
+    for run in ["refused-spend", "refused-park"] {
+        store
+            .append_next(
+                run,
+                EventType::PhaseEntered,
+                json!({"phase": "after-terminal"}),
+                None,
+                None,
+            )
+            .unwrap();
+    }
+    drop(store);
+    let store = brokkr_store::Store::open(&journal).unwrap();
+    for run in ["refused-spend", "refused-park"] {
+        assert_eq!(lane(&store, run).as_deref(), Some("refused"), "{run}");
+    }
+    drop(store);
+
+    let rows = assert_rows_are_whole(&journal, "a writer-recorded refusal");
+    assert_eq!(
+        rows.realms
+            .iter()
+            .map(|realm| realm.unreadable_runs)
+            .sum::<usize>(),
+        2
+    );
+    assert!(
+        rows.quarantined.is_empty(),
+        "a fold refusal is no hearth refusal"
+    );
+    assert_eq!(
+        rows.headline.cost.text, "not reported",
+        "a refused run's spend reaches no figure"
+    );
+    let hearths = [hearth(Vec::new(), &journal)];
+    with_rows(
+        &hearths,
+        Range::Day,
+        None,
+        GENERATED_NOW,
+        || {},
+        |_, source| {
+            assert!(
+                !source.reads_rows(),
+                "the fleet read cannot fold either run, so the hearth is whole"
+            );
+        },
+    );
+
+    let mut store = brokkr_store::Store::open(&journal).unwrap();
+    for run in ["refused-spend", "refused-park"] {
+        let (head, hash) = store.head_hash(run).unwrap();
+        store
+            .acknowledge_quarantine(
+                run,
+                (head, &hash),
+                brokkr_store::Attribution {
+                    operator: "op",
+                    reason: "looked at it",
+                },
+            )
+            .unwrap();
+        assert_eq!(lane(&store, run).as_deref(), Some("acknowledged"), "{run}");
+    }
+    drop(store);
+    let rows = assert_rows_are_whole(&journal, "the same runs acknowledged");
+    assert_eq!(
+        rows.realms
+            .iter()
+            .map(|realm| realm.unreadable_runs)
+            .sum::<usize>(),
+        2
+    );
+}
+
+/// A rows-read hearth takes its realm list and unreadable counts from the
+/// store's index, a NULL realm named by the label and filtered by the
+/// query's cut (decision 0089 ruling A4, unit U3c's R5). The store row is
+/// set inconsistent here to exercise the wiring: a real refused lane comes
+/// with a fold the fleet read refuses, so that hearth is read whole instead
+/// (the oracle above).
+#[test]
+fn a_rows_read_hearth_takes_its_unreadable_counts_from_the_store() {
+    let dir = tempfile::tempdir().unwrap();
+    let journal = small_journal(dir.path(), "stored", 2);
+    let conn = rusqlite::Connection::open(&journal).unwrap();
+    conn.execute(
+        "UPDATE run_summary SET realm = NULL, refusal_words = 'stored refusal'
+          WHERE run_id = 'stored-0'",
+        [],
+    )
+    .unwrap();
+    conn.execute(
+        "UPDATE run_summary SET realm = 'stored-realm', refusal_words = 'stored refusal'
+          WHERE run_id = 'stored-1'",
+        [],
+    )
+    .unwrap();
+    drop(conn);
+    let hearths = [hearth(Vec::new(), &journal)];
+    with_rows(
+        &hearths,
+        Range::Day,
+        Some("stored-realm"),
+        GENERATED_NOW,
+        || {},
+        |_, source| {
+            assert!(source.reads_rows(), "the fleet read folds both runs");
+            let (realms, unreadable) = brokkr_view::FactSource::scope(&source);
+            assert_eq!(unreadable.get("stored-realm"), Some(&1), "{unreadable:?}");
+            assert!(
+                !unreadable.contains_key("world"),
+                "the NULL realm names the label, which this cut keeps out: {unreadable:?}"
+            );
+            assert!(realms.contains(&"stored-realm".to_string()), "{realms:?}");
+        },
+    );
 }

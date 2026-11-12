@@ -377,9 +377,11 @@ pub fn brokkr_store::Store::acknowledge_quarantine(&mut self, &str, (u64, &str),
 pub fn brokkr_store::Store::acknowledgement(&self, &str) -> core::result::Result<core::option::Option<brokkr_store::Acknowledgement>, brokkr_store::StoreError>
 impl brokkr_store::Store
 pub fn brokkr_store::Store::aggregates_ready(&self) -> core::result::Result<bool, brokkr_store::StoreError>
-pub fn brokkr_store::Store::behind_runs(&self, impl core::ops::function::FnMut(&str)) -> core::result::Result<(), brokkr_store::StoreError>
+pub fn brokkr_store::Store::behind_runs(&self, impl core::ops::function::FnMut(&str, &str)) -> core::result::Result<(), brokkr_store::StoreError>
 pub fn brokkr_store::Store::durations(&self, i64, i64, core::option::Option<&str>, impl core::ops::function::FnMut(core::option::Option<&str>, i64)) -> core::result::Result<(), brokkr_store::StoreError>
 pub fn brokkr_store::Store::finished_between(&self, i64, i64, core::option::Option<&str>) -> core::result::Result<u64, brokkr_store::StoreError>
+pub fn brokkr_store::Store::realm_names(&self, core::option::Option<&str>, impl core::ops::function::FnMut(&str, &str, core::option::Option<&str>)) -> core::result::Result<(), brokkr_store::StoreError>
+pub fn brokkr_store::Store::refused_counts(&self, core::option::Option<&str>, impl core::ops::function::FnMut(core::option::Option<&str>, u64)) -> core::result::Result<(), brokkr_store::StoreError>
 pub fn brokkr_store::Store::window_parks(&self, i64, i64, i64, core::option::Option<&str>, impl core::ops::function::FnMut(&brokkr_store::aggregate::WindowPark<'_>)) -> core::result::Result<(), brokkr_store::StoreError>
 pub fn brokkr_store::Store::window_runs(&self, i64, i64, brokkr_store::aggregate::RunOrder, core::option::Option<&str>, impl core::ops::function::FnMut(&brokkr_store::aggregate::WindowRun<'_>)) -> core::result::Result<(), brokkr_store::StoreError>
 impl brokkr_store::Store

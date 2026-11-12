@@ -42,7 +42,7 @@ use crate::{head_of, patiently, seat_summary, Acknowledgement, Store, StoreError
 fn lane() -> String {
     format!(
         "CASE
-      WHEN folded_seq IS NULL OR folded_seq <> head_seq OR {stale} THEN 'behind'
+      WHEN {behind} THEN 'behind'
       WHEN refusal_words IS NOT NULL AND acknowledged = 0 THEN 'refused'
       WHEN refusal_words IS NOT NULL THEN 'acknowledged'
       WHEN status = 'awaiting_operator' THEN 'parked'
@@ -50,7 +50,7 @@ fn lane() -> String {
       WHEN status = 'running' THEN 'running'
       ELSE 'finished'
     END",
-        stale = stale("")
+        behind = columns::behind("")
     )
 }
 
@@ -73,10 +73,12 @@ mod disagreement;
 mod ending;
 mod stop;
 
+pub(crate) use columns::not_behind;
 pub use disagreement::Disagreement;
 
 const TABLE: [&str; 1] = ["run_summary"];
-const INDEX: [&str; 2] = ["run_summary_page", aggregate::INDEX];
+const INDEX: [&str; 3] = ["run_summary_page", aggregate::INDEX, columns::REALM_INDEX];
+
 const TRIGGERS: [&str; 7] = [
     "run_summary_of_a_run",
     columns::HEAD_TRIGGER,
@@ -169,6 +171,10 @@ fn migration() -> String {
         );
         CREATE INDEX IF NOT EXISTS run_summary_page
             ON run_summary (lane, order_at DESC, run_id DESC);
+        CREATE INDEX IF NOT EXISTS {REALM_INDEX}
+            ON run_summary (created_at, run_id, realm, folded_seq, head_seq,
+                            aggregated_seq, stop_folded_seq, ending_folded_seq,
+                            refusal_words);
         CREATE TRIGGER IF NOT EXISTS run_summary_of_a_run AFTER INSERT ON runs BEGIN
             INSERT OR IGNORE INTO run_summary (run_id, head_seq, head_hash)
                 VALUES (NEW.run_id, 0, '{ZERO_HASH}');
@@ -192,6 +198,7 @@ fn migration() -> String {
         lane = lane(),
         aggregated = aggregate::defined(),
         indexed = aggregate::migration(),
+        REALM_INDEX = columns::REALM_INDEX,
         head_trigger = columns::head_trigger(),
         cut = cut_stamp("NEW.last_recorded_at"),
         acknowledged = acknowledged_by("NEW"),

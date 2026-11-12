@@ -549,6 +549,7 @@ fn a_lost_index_or_trigger_is_repaired_and_its_rows_kept() {
     started(&mut store, "r1");
     for lost in [
         "DROP INDEX run_summary_page",
+        "DROP INDEX run_summary_realm",
         "DROP TRIGGER run_summary_of_an_acknowledgement",
     ] {
         let path = store.path().to_path_buf();

@@ -142,10 +142,20 @@ fn refused(error: AnalyticsError) -> anyhow::Error {
 /// Every hearth read, quarantining what does not load, handed to `view`
 /// as the cross-run readouts take them: `analytics` and `graph` alike.
 pub(crate) fn read_hearths<T>(hearths: &[Hearth], view: impl FnOnce(&[AnalyticsHearth]) -> T) -> T {
-    let read: Vec<fleet::HearthRead> = hearths
+    let mut read: Vec<fleet::HearthRead> = hearths
         .iter()
         .map(|hearth| fleet::read_journal(&hearth.journal))
         .collect();
+    // The whole read's tie rule (decision 0089 ruling A4, slice 4's unit
+    // U3c): two runs listed at one `created_at` stand by their id, the
+    // order the store's covering realm index states too.
+    for hearth in &mut read {
+        hearth.runs.sort_by(|left, right| {
+            left.created_at
+                .cmp(&right.created_at)
+                .then_with(|| left.run_id.cmp(&right.run_id))
+        });
+    }
     let runs: Vec<Vec<AnalyticsRun>> = read
         .iter()
         .map(|hearth| {

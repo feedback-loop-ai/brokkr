@@ -354,9 +354,9 @@ static SPENDS: LazyLock<String> = LazyLock::new(|| {
     JOIN run_summary AS r ON r.run_id = e.run_id
     LEFT JOIN seat_head AS h ON h.run_id = r.run_id
    WHERE e.type = '{CHECKPOINTED}' AND e.at_ms >= ?1 AND e.at_ms < ?2
-     AND e.usd IS NOT NULL AND r.lane <> '{behind}' AND NOT {lags}
+     AND e.usd IS NOT NULL AND {outside} AND NOT {lags}
      AND (?3 IS NULL OR r.realm = ?3)",
-        behind = Lane::Behind.as_str(),
+        outside = crate::aggregate::outside("r."),
         lags = lags("r", "h", "?4"),
     )
 });
@@ -369,17 +369,17 @@ static FALLBACKS: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT r.run_id
            FROM run_summary AS r LEFT JOIN seat_head AS h ON h.run_id = r.run_id
-          WHERE r.lane <> '{behind}' AND {seat}
+          WHERE {outside} AND {seat}
             AND (?1 IS NULL OR r.realm = ?1)
          UNION
          SELECT e.run_id
            FROM event_index AS e INDEXED BY event_index_checkpoint_stale
            JOIN run_summary AS r ON r.run_id = e.run_id
           WHERE e.type = '{CHECKPOINTED}' AND {CHECKPOINT_STALE}
-            AND r.lane <> '{behind}'
+            AND {outside}
             AND (?1 IS NULL OR r.realm = ?1)
           ORDER BY 1",
-        behind = Lane::Behind.as_str(),
+        outside = crate::aggregate::outside("r."),
         seat = seat_lags("r", "h", "?2"),
     )
 });
@@ -455,7 +455,7 @@ fn sites_statement(order: &str) -> String {
           JOIN run_summary AS r ON r.run_id = w.run_id
           JOIN seat_summary AS s ON s.run_id = w.run_id AND s.opened = w.opened
           LEFT JOIN seat_head AS h ON h.run_id = r.run_id
-         WHERE r.lane <> '{behind}' AND NOT {lags}
+         WHERE {outside} AND NOT {lags}
            AND (?3 IS NULL OR r.realm = ?3)
         UNION ALL
         SELECT s.run_id, s.opened, r.realm, r.recipe,
@@ -466,12 +466,12 @@ fn sites_statement(order: &str) -> String {
           JOIN run_summary AS r ON r.run_id = s.run_id
           LEFT JOIN seat_head AS h ON h.run_id = r.run_id
          WHERE s.site IS NOT NULL AND s.started_ms >= ?1 AND s.started_ms < ?2
-           AND r.lane <> '{behind}' AND NOT {lags}
+           AND {outside} AND NOT {lags}
            AND (?3 IS NULL OR r.realm = ?3)
         {order}",
         site_of("s2", "e.run_id", "e.attempt_id", "e.member", "e.seq"),
         open = open_lanes(),
-        behind = Lane::Behind.as_str(),
+        outside = crate::aggregate::outside("r."),
         lags = lags("r", "h", "?4"),
     )
 }
