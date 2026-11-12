@@ -424,6 +424,24 @@ Alternatives weighed, each rejected on evidence rather than taste:
    text above is preserved as written; the specification is AS1/AS2 of
    `adapter-resume-safety`.
 
+   **2026-11-12 — the route overlay may be declared on the adapter's
+   route.** The operator amended the 2026-09-14 note's first rule ("go
+   with recommended", #1052): the engine binds the seat's single
+   `--patch` value to "a `files` member of the compiled bundle's own
+   layer, or the route overlay its adapter's route declares by path and
+   SHA-256 in the adapter's own data". A DSH adapter's `routes` entry may
+   declare `{egress, overlay: {file, sha256}}`, the file relative to the
+   adapter file's own directory. The loader checks the path, the bound and
+   the digest, and refuses a declaration on any driver but DSH. Every seat
+   on that route composes one `--patch`, and the engine binds it by the
+   declared path and digest, carried in the private start context as the
+   layer binding is. Rules 2 to 4 are unchanged: the adapter still
+   requires digest equality before any shape check, the closed grammar
+   still reads the file, and Brokkr's rows still apply last. A library
+   outside the run's working directory binds nothing, and the start
+   refuses `PatchUnbound`. This note is appended and the 2026-09-14 text
+   is preserved as written.
+
 7. **One confirmed launch per executing model site, in v5's vocabulary,
    dispatched from 0.10.0.** `launch: resumed` is published only after
    provider evidence confirms the exact offered root before first work;
@@ -659,3 +677,8 @@ Alternatives weighed, each rejected on evidence rather than taste:
   shipped `recipes/research-dsh` lane keeps its Model Studio route under
   the closed gate today and under an enabled shape later. The earlier
   ruling text is preserved rather than rewritten.
+- **2026-11-12 — the declared route overlay.** The 2026-09-14 note's
+  first rule gains its second binding, appended above as a dated note:
+  the route overlay a DSH adapter's route declares by path and SHA-256 in
+  the adapter's own data (#1052). The earlier note's text is preserved
+  rather than rewritten.
