@@ -114,7 +114,6 @@ fn add_sites(
     kept: &mut Vec<((String, String), Retained)>,
     index: &BTreeMap<(String, String), usize>,
 ) {
-    let keeps = |at: i64, _: Option<&str>| window.holds(at);
     let mut provider: Option<((String, String, String), bool)> = None;
     let flush = |group: Option<((String, String, String), bool)>,
                  kept: &mut Vec<((String, String), Retained)>| {
@@ -125,25 +124,26 @@ fn add_sites(
         }
     };
     source.sites_in(SiteOrder::RecipeProvider, &mut |fact| {
-        let Some(recipe) = fact.recipe else {
+        let Some(recipe) = fact.recipe.as_deref() else {
             return;
         };
         if !in_range(fact.ended, fact.open, window) {
             return;
         }
-        let realm = name_key(fact.realm).to_string();
+        let realm = name_key(&fact.realm).to_string();
         let recipe = name_key(recipe).to_string();
-        let provider_name = name_key(&fact.site.provider).to_string();
+        let provider_name = name_key(&fact.provider).to_string();
         if let Some(position) = index.get(&(realm.clone(), recipe.clone())) {
-            if let Some(usage) = fact.site.usage(&keeps) {
+            if let Some(usage) = &fact.usage {
                 let group = &mut kept[*position].1;
-                group.usage = sum_usage([group.usage.take(), Some(usage)].into_iter().flatten());
+                group.usage = sum_usage(
+                    [group.usage.take(), Some(usage.clone())]
+                        .into_iter()
+                        .flatten(),
+                );
             }
         }
-        if !fact.site.ran(&keeps) {
-            return;
-        }
-        let reported = fact.site.reported(&keeps);
+        let reported = fact.reported;
         match &mut provider {
             Some(((kept_realm, kept_recipe, kept_name), kept_reported))
                 if *kept_realm == realm

@@ -26,6 +26,7 @@ struct OwnedRun {
     realm: Option<String>,
     recipe: Option<String>,
     ending_rule: Option<String>,
+    hard_stop: bool,
     started_ms: Option<i64>,
     finished_ms: Option<i64>,
     ending: Option<Ending>,
@@ -41,6 +42,7 @@ impl OwnedRun {
             realm: row.realm.map(str::to_string),
             recipe: row.recipe.map(str::to_string),
             ending_rule: row.ending_rule.map(str::to_string),
+            hard_stop: row.hard_stop,
             started_ms: row.started_ms,
             finished_ms: row.finished_ms,
             ending: row.ending,
@@ -121,6 +123,10 @@ fn expected_run(run_id: &str, events: &[EventEnvelope]) -> OwnedRun {
             .and_then(|finished| finished.hard_stop.as_ref())
             .and_then(|stop| stop.rule.as_deref())
             .map(cut),
+        hard_stop: aggregate
+            .finished
+            .as_ref()
+            .is_some_and(|finished| finished.hard_stop.is_some()),
         started_ms: aggregate.started_ms,
         finished_ms: aggregate.finished.as_ref().map(|finished| finished.at),
         ending: summary.closing.as_ref().map(|closing| closing.ended.ending),
@@ -433,6 +439,46 @@ fn stopped_steps() -> Vec<(EventType, serde_json::Value)> {
     ]
 }
 
+/// A run stopped before it entered any phase: its row's status is
+/// `stopped` and its phase NULL, which is no hard stop (the comparison
+/// must be NULL-safe).
+fn stopped_before_any_phase_steps() -> Vec<(EventType, serde_json::Value)> {
+    vec![
+        (EventType::RunStarted, json!({"feature": "stopped at once"})),
+        (EventType::RunStopped, json!({})),
+    ]
+}
+
+/// A run the table's hard stop ended: a review ruling sent it to `stop`,
+/// the phase was entered, and the run stopped. `rule` is the ruling's
+/// `rule_id`, absent when it names none.
+fn hard_stop_steps(rule: Option<&str>) -> Vec<(EventType, serde_json::Value)> {
+    let mut decided = json!({"from": "review", "inputs": {}, "next": "stop",
+                   "problem": null, "result": "ruled", "severity": "normal"});
+    if let Some(rule) = rule {
+        decided["rule_id"] = json!(rule);
+    }
+    vec![
+        (EventType::RunStarted, json!({"feature": "hard stop"})),
+        (EventType::PhaseEntered, json!({"phase": "review"})),
+        (
+            EventType::EffectRequested,
+            json!({"effect_id": "fx", "seat": "builder"}),
+        ),
+        (
+            EventType::EffectStarted,
+            json!({"effect_id": "fx", "attempt_id": "a"}),
+        ),
+        (
+            EventType::EffectSucceeded,
+            json!({"effect_id": "fx", "result": {"result": "complete"}}),
+        ),
+        (EventType::TransitionDecided, decided),
+        (EventType::PhaseEntered, json!({"phase": "stop"})),
+        (EventType::RunStopped, json!({})),
+    ]
+}
+
 /// A parked run's steps, from its start to the open park, in `phase`.
 fn parked_steps(phase: &str) -> Vec<(EventType, serde_json::Value)> {
     vec![
@@ -501,6 +547,74 @@ fn every_fixture_window_reads_as_the_whole_journal() {
             );
         }
     }
+}
+
+/// A hard stop whose last ruling names no rule is still a hard stop: the
+/// flag comes from the fold's status and phase, never the rule column. A
+/// run stopped before it entered a phase is no hard stop, and its NULL
+/// phase must not turn the flag into SQL NULL.
+#[test]
+fn a_hard_stop_that_names_no_rule_is_still_a_stop() {
+    let (_dir, store) = store();
+    let no_rule = chain("no-rule", Some("realm"), 0, &hard_stop_steps(None));
+    let named = chain(
+        "named",
+        Some("realm"),
+        20,
+        &hard_stop_steps(Some("STOP-RULE")),
+    );
+    let no_phase = chain(
+        "no-phase",
+        Some("realm"),
+        40,
+        &stopped_before_any_phase_steps(),
+    );
+    plant_older_writer(&store, "no-rule", &no_rule);
+    plant_older_writer(&store, "named", &named);
+    plant_older_writer(&store, "no-phase", &no_phase);
+    let store = refolded(store);
+
+    let mut runs = window_runs(&store, 0, i64::MAX, RunOrder::Unordered, None);
+    runs.sort_by(|left, right| left.run_id.cmp(&right.run_id));
+    assert_eq!(
+        runs.iter()
+            .map(|run| {
+                (
+                    run.run_id.as_str(),
+                    run.hard_stop,
+                    run.ending_rule.as_deref(),
+                )
+            })
+            .collect::<Vec<_>>(),
+        [
+            ("named", true, Some("STOP-RULE")),
+            ("no-phase", false, None),
+            ("no-rule", true, None),
+        ],
+        "both hard stops kept; the stop that entered no phase is no hard stop"
+    );
+    // The flag reads the stored phase's cut, which is the whole `stop`: a
+    // longer phase cannot cut to it, so `phase_whole` is absent.
+    let whole: Option<String> = store
+        .conn
+        .query_row(
+            "SELECT phase_whole FROM run_summary WHERE run_id = 'no-rule'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(whole, None);
+    // The no-phase stop is stored exactly as the row reader sees it: a
+    // stopped status and a NULL phase.
+    let (status, phase): (String, Option<String>) = store
+        .conn
+        .query_row(
+            "SELECT status, phase FROM run_summary WHERE run_id = 'no-phase'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!((status.as_str(), phase), (Status::Stopped.as_str(), None));
 }
 
 /// A hand-built journal whose parks and runs cut the chosen windows.

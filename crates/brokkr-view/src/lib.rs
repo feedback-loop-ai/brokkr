@@ -50,7 +50,11 @@ use tokens::usage_cells;
 pub use tokens::TokenCells;
 
 use crate::operator_trail::{commands_of, operator_what, OperatorKind};
-pub use analytics::{analytics, Analytics, AnalyticsError, AnalyticsHearth, AnalyticsRun, Query};
+pub use analytics::{
+    analytics, analytics_with, realm_in_scope, whole_read, windows, Analytics, AnalyticsError,
+    AnalyticsHearth, AnalyticsRun, FactSource, FactUnion, ParkFact, QuarantinedHearth, Query,
+    Reviews, RunFacts, RunOrder, SiteFact, SiteOrder, SpendFact, WholeRead, Window,
+};
 pub use analytics::{Ledger, Range};
 pub use brokkr_core::policy::RuleSeverity;
 use brokkr_core::seat::meter;

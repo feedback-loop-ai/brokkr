@@ -28,7 +28,7 @@ fn finished_in<F: FnMut(&RunFacts, &Finished)>(
     source.runs(&mut |run| {
         if let Some(finished) = &run.finished {
             if window.holds(finished.at) {
-                fold(run, finished);
+                fold(&run, finished);
             }
         }
     });
@@ -73,24 +73,16 @@ pub(crate) fn span(millis: Option<i64>) -> Span {
 /// The headline's median and each realm row's, selected in one set of
 /// passes (decision 0089 ruling 7): target 0 is the whole read, and target
 /// `n + 1` the realm at `realms[n]`.
-fn medians_of(source: &dyn FactSource, window: Window, realms: &[String]) -> Vec<Option<i64>> {
+fn medians_of(source: &dyn FactSource, realms: &[String]) -> Vec<Option<i64>> {
     let index: BTreeMap<&str, usize> = realms
         .iter()
         .enumerate()
         .map(|(position, realm)| (realm.as_str(), position + 1))
         .collect();
     medians(realms.len() + 1, &mut |emit: &mut dyn FnMut(usize, i64)| {
-        source.runs(&mut |run| {
-            let Some(finished) = &run.finished else {
-                return;
-            };
-            if !window.holds(finished.at) {
-                return;
-            }
-            let started = run.started.unwrap_or(finished.at);
-            let duration = finished.at.saturating_sub(started).max(0);
+        source.durations(&mut |realm, duration| {
             emit(0, duration);
-            if let Some(target) = index.get(name_key(&run.realm)) {
+            if let Some(target) = index.get(name_key(realm)) {
                 emit(*target, duration);
             }
         });
@@ -246,7 +238,6 @@ impl ProviderGroup {
 fn provider_groups(
     source: &dyn FactSource,
     group: ProviderGroup,
-    keeps: Keeps,
     mut visit: impl FnMut(&str, &str, bool),
 ) {
     let mut current: Option<(String, String, bool)> = None;
@@ -256,12 +247,9 @@ fn provider_groups(
         }
     };
     source.sites_in(group.order(), &mut |fact| {
-        if !fact.site.ran(keeps) {
-            return;
-        }
-        let realm = group.realm(fact.realm).to_string();
-        let provider = name_key(&fact.site.provider).to_string();
-        let reported = fact.site.reported(keeps);
+        let realm = group.realm(&fact.realm).to_string();
+        let provider = name_key(&fact.provider).to_string();
+        let reported = fact.reported;
         match &mut current {
             Some((kept_realm, kept_provider, kept_reported))
                 if *kept_realm == realm && *kept_provider == provider =>
@@ -328,22 +316,14 @@ pub(crate) fn cost_figure<'a>(
 }
 
 /// The whole read's cost: its spends and provider groups, one at a time.
-fn cost(source: &dyn FactSource, window: Window) -> CostFigure {
+/// A source's spends are already its window's ([`FactSource`]), as its
+/// sites are.
+fn cost(source: &dyn FactSource) -> CostFigure {
     let mut accumulator = ProviderAcc::default();
-    let keeps = |at: i64, _: Option<&str>| window.holds(at);
-    source.spends(&mut |spend| {
-        if window.holds(spend.at) {
-            accumulator.spend(spend.usd);
-        }
+    source.spends(&mut |spend| accumulator.spend(spend.usd));
+    provider_groups(source, ProviderGroup::Whole, |_, provider, reported| {
+        accumulator.provider(provider, reported);
     });
-    provider_groups(
-        source,
-        ProviderGroup::Whole,
-        &keeps,
-        |_, provider, reported| {
-            accumulator.provider(provider, reported);
-        },
-    );
     accumulator.finish()
 }
 
@@ -373,7 +353,9 @@ fn per_day(source: &dyn FactSource, window: Window) -> Vec<Day> {
 struct StepAcc {
     waiting_millis: i64,
     runs: usize,
-    last_run: Option<usize>,
+    /// The last park's (hearth, run): a run id is unique only within one
+    /// journal, so a park's identity is both.
+    last_run: Option<(String, String)>,
 }
 
 fn waiting_by_step(source: &dyn FactSource, window: Window) -> (Vec<StepWait>, usize) {
@@ -391,13 +373,14 @@ fn waiting_by_step(source: &dyn FactSource, window: Window) -> (Vec<StepWait>, u
         if waited == 0 {
             return;
         }
-        let phase = park.phase.map(str::to_string);
+        let phase = park.phase.clone();
+        let identity = (park.hearth, park.run);
         match &mut current {
             Some((named, step)) if *named == phase => {
                 step.waiting_millis += waited;
-                if step.last_run != Some(park.run) {
+                if step.last_run.as_ref() != Some(&identity) {
                     step.runs += 1;
-                    step.last_run = Some(park.run);
+                    step.last_run = Some(identity);
                 }
             }
             _ => {
@@ -407,7 +390,7 @@ fn waiting_by_step(source: &dyn FactSource, window: Window) -> (Vec<StepWait>, u
                     StepAcc {
                         waiting_millis: waited,
                         runs: 1,
-                        last_run: Some(park.run),
+                        last_run: Some(identity),
                     },
                 ));
             }
@@ -474,15 +457,10 @@ fn models(source: &dyn FactSource, window: Window) -> (Vec<ModelShare>, usize) {
         }
     };
     source.sites_in(SiteOrder::Model, &mut |fact| {
-        if !window.holds(fact.site.at) {
+        if !window.holds(fact.at) {
             return;
         }
-        let model = fact
-            .site
-            .model
-            .as_deref()
-            .map(model_key)
-            .map(str::to_string);
+        let model = fact.model.as_deref().map(model_key).map(str::to_string);
         total += 1;
         match &mut current {
             Some((named, attempts)) if *named == model => *attempts += 1,
@@ -549,34 +527,26 @@ fn realm_waiting(
     let mut waiting: BTreeMap<String, i64> =
         realms.iter().map(|realm| (realm.clone(), 0)).collect();
     source.parks(&mut |park| {
-        if let Some(total) = waiting.get_mut(name_key(park.realm)) {
+        if let Some(total) = waiting.get_mut(name_key(&park.realm)) {
             *total += window.overlap(park.at, park.answered);
         }
     });
     waiting
 }
 
-fn realm_costs(
-    source: &dyn FactSource,
-    window: Window,
-    realms: &[String],
-) -> BTreeMap<String, ProviderAcc> {
+fn realm_costs(source: &dyn FactSource, realms: &[String]) -> BTreeMap<String, ProviderAcc> {
     let mut costs: BTreeMap<String, ProviderAcc> = realms
         .iter()
         .map(|realm| (realm.clone(), ProviderAcc::default()))
         .collect();
-    let keeps = |at: i64, _: Option<&str>| window.holds(at);
     source.spends(&mut |spend| {
-        if let Some(cost) = costs.get_mut(name_key(spend.realm)) {
-            if window.holds(spend.at) {
-                cost.spend(spend.usd);
-            }
+        if let Some(cost) = costs.get_mut(name_key(&spend.realm)) {
+            cost.spend(spend.usd);
         }
     });
     provider_groups(
         source,
         ProviderGroup::PerRealm,
-        &keeps,
         |realm, provider, reported| {
             if let Some(cost) = costs.get_mut(realm) {
                 cost.provider(provider, reported);
@@ -594,7 +564,7 @@ fn realm_rows(
 ) -> Vec<RealmRow> {
     let mut counts = realm_counts(source, window, realms);
     let mut waiting = realm_waiting(source, window, realms);
-    let mut costs = realm_costs(source, window, realms);
+    let mut costs = realm_costs(source, realms);
     realms
         .iter()
         .enumerate()
@@ -612,7 +582,7 @@ fn realm_rows(
                 waiting_text: hours_text(waiting_millis),
                 cost_text: cost.text,
                 cost: cost.cost,
-                unreadable_runs: source.unreadable().get(realm).copied().unwrap_or(0),
+                unreadable_runs: source.scope().1.get(realm).copied().unwrap_or(0),
             }
         })
         .collect()
@@ -621,28 +591,26 @@ fn realm_rows(
 /// The analytics readout for `query`: every figure the console paints,
 /// derived once from the hearths' journals, for the range ending at `now`.
 pub fn analytics(query: &Query) -> Result<Analytics, AnalyticsError> {
-    let now = brokkr_core::stamp::parse_millis(query.now)
-        .ok_or_else(|| AnalyticsError::Clock(query.now.to_string()))?;
-    let reach = query.range.millis();
-    let window = Window {
-        from: now - reach,
-        to: now,
-    };
-    let before = Window {
-        from: window.from - reach,
-        to: window.from,
-    };
-    let scoped = super::facts::Scoped::read(query, now);
-    let source: &dyn FactSource = &scoped;
+    let (window, _) = super::windows(query)?;
+    let source = super::whole_read(query, window);
+    analytics_with(&source, query)
+}
+
+/// The analytics readout for `query` over `source`: today's whole read, or
+/// the store's rows merged with the runs it reads whole (decision 0089
+/// ruling 8).
+pub fn analytics_with(source: &dyn FactSource, query: &Query) -> Result<Analytics, AnalyticsError> {
+    let (window, before) = super::windows(query)?;
     // Offered in discovery order, which is the order `Ranked` keeps and
     // the rows are painted in: the first 64 realms, the rest counted.
     let mut kept_realms: Ranked<String, (), ()> = Ranked::new();
-    for realm in source.realms() {
+    let (named, _) = source.scope();
+    for realm in named {
         kept_realms.push(realm.clone(), (), ());
     }
     let (kept, realms_more) = kept_realms.finish();
     let realms: Vec<String> = kept.into_iter().map(|(realm, ())| realm).collect();
-    let medians = medians_of(source, window, &realms);
+    let medians = medians_of(source, &realms);
     let shipped = shipped_in(source, window);
     let previous = shipped_in(source, before);
     let change = shipped as i64 - previous as i64;
@@ -665,7 +633,7 @@ pub fn analytics(query: &Query) -> Result<Analytics, AnalyticsError> {
             median: span(medians[0]),
             waiting: waiting(source, window),
             stopped_by_rule: stopped_by_rule(source, window),
-            cost: cost(source, window),
+            cost: cost(source),
             ledger: ledger_in(source, window),
         },
         per_day: per_day(source, window),
