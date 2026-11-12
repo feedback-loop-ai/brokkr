@@ -159,22 +159,42 @@ Run by the implementing seat with
   no set. (A driver the version probe cannot start is refused as an
   unreadable tree; that path is bound in `dsh_launch.rs`'s own tests.)
 
+## A real seat tree, judged (controller, 2026-11-12)
+
+The seat's full overlay, composed by a real 0.2.2-rc.1, was judged by
+the gate itself. The overlay is the bytes `hands_rows(Release::V0_2_2,
+mode, …)` writes:
+- the ten rows;
+- `sandbox-policy`;
+- the `tool-executor-ptc` pin;
+- the `brokkr-hands` insert, naming `brokkr hands serve`.
+
+The method is a throwaway test on a `git archive` copy of 17096db85,
+never committed. It ran `dsh --profile headless --patch <overlay>
+--dump-config` on the isolated `/var/tmp/dsh-0.2.2-rc.1` prefix, under
+the scratch `DSH_HOME`, and handed that command to
+`composition_gate`. The test also asserted that `composition::release`
+reads `V0_2_2` from the same program.
+
+| Mode | Overlay sha256 (first 16) | Dump | Rows | Gate |
+| --- | --- | --- | --- | --- |
+| `read-only` | `a75646a695cdd447` | exit 0, 17,019 bytes, sha256 `6824e53812605e9f…` | 100 | `Ok(())` |
+| `workspace-write` | `b34cf8f68de3dc5d` | exit 0, 17,073 bytes, sha256 `1e20453e8c9aa2d3…` | 100 | `Ok(())` |
+
+In both trees:
+- the ten rows and `tool-executor-ptc` are `disabled: true`;
+- `sandbox-policy` carries the seat's mode;
+- `tool-executor-native` is enabled, as ruled;
+- `brokkr-hands` is present.
+
+The 100 rows are 0.2.2's plain 99 plus the insert, as the composition
+diff above predicts. A 0.2.2-rc.1 hands seat is therefore admitted by the
+gate on the real tree, not only on the offline fixture.
+
 ## Pending
 
 - macOS, on every figure. This record proves the release tables and the
   checks on Linux only; macOS is still a supported host (decision 0063).
-- A real 0.2.2-rc.1 composition of a seat's own overlay. The controller's
-  2026-11-11 measurement was the PLAIN `--dump-config` (99 rows, before the
-  `brokkr-hands` insert) and the two tool lists with the ten rows; the
-  seat's full overlay — the ten rows, `sandbox-policy`, the
-  `tool-executor-ptc` pin and the `brokkr-hands` insert — has never been
-  composed by a real 0.2.2-rc.1. The offline 0.2.2 fixture is generated
-  from `ADDED_0_2_2`/`REMOVED_0_2_2` themselves, so the gate has not yet
-  judged a real 0.2.2 tree. Every way that can go wrong fails closed
-  (`DumpFailed`, `Unmeasured`, `Enabled`), but it could leave a 0.2.2 hands
-  seat refused by a different sentence. Owed to the controller before the
-  PR leaves draft: one `dsh --profile headless --patch <the seat's overlay>
-  --dump-config` on the isolated 0.2.2-rc.1 prefix.
 - A live `mcp__brokkr__workspace` call through this driver on 0.2.2-rc.1.
   The controller measured the tool lists, not a call of Brokkr's server
   under a seat.
