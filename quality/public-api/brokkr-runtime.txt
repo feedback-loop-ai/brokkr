@@ -1230,6 +1230,7 @@ pub brokkr_runtime::engine::evidence::EvidenceError::Link(std::path::PathBuf)
 pub brokkr_runtime::engine::evidence::EvidenceError::Linked(std::path::PathBuf)
 pub brokkr_runtime::engine::evidence::EvidenceError::Lock
 pub brokkr_runtime::engine::evidence::EvidenceError::NotDirectory(std::path::PathBuf)
+pub brokkr_runtime::engine::evidence::EvidenceError::NotPlain(std::path::PathBuf)
 pub brokkr_runtime::engine::evidence::EvidenceError::NotRecorded(std::path::PathBuf)
 pub brokkr_runtime::engine::evidence::EvidenceError::OtherFilesystem(std::path::PathBuf)
 pub brokkr_runtime::engine::evidence::EvidenceError::Participant(std::path::PathBuf)

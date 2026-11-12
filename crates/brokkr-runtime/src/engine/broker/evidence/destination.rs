@@ -124,8 +124,23 @@ impl Destination {
         between: &dyn Fn(),
         now: &str,
     ) -> Result<String, EvidenceError> {
+        self.archive_with(root, budget, between, &|| Ok(()), now)
+    }
+
+    /// [`archive`], `after` run once the inventory this verb wrote is
+    /// created and before its bytes are read back: the house `_with` seam
+    /// a test refuses there, so an inventory this verb wrote is removed by
+    /// the refusal path; nothing in production.
+    pub(super) fn archive_with(
+        &self,
+        root: &Path,
+        budget: &mut Budget,
+        between: &dyn Fn(),
+        after: &dyn Fn() -> Result<(), EvidenceError>,
+        now: &str,
+    ) -> Result<String, EvidenceError> {
         let mut written = Written::default();
-        match self.archived(root, budget, between, now, &mut written) {
+        match self.archived(root, budget, between, after, now, &mut written) {
             Ok(sha256) => Ok(sha256),
             Err(refused) => {
                 self.removed(&written);
@@ -134,13 +149,14 @@ impl Destination {
         }
     }
 
-    /// [`archive`] with every name it writes recorded in `written`, so a
-    /// refusal removes them through the descriptors that wrote them.
+    /// [`archive_with`] with every name it writes recorded in `written`, so
+    /// a refusal removes them through the descriptors that wrote them.
     fn archived(
         &self,
         root: &Path,
         budget: &mut Budget,
         between: &dyn Fn(),
+        after: &dyn Fn() -> Result<(), EvidenceError>,
         now: &str,
         written: &mut Written,
     ) -> Result<String, EvidenceError> {
@@ -184,15 +200,9 @@ impl Destination {
         };
         let bytes = serde_json::to_vec_pretty(&inventory)?;
         let mut file = self.inventory(&bytes, written)?;
+        after()?;
         super::sync_dir(&self.dir)?;
-        // The bytes written are the bytes the inventory names: a reader
-        // parses them back through this build's one reader, from the very
-        // descriptor that wrote them.
-        let mut kept = Vec::new();
-        file.seek(SeekFrom::Start(0))?;
-        file.read_to_end(&mut kept)?;
-        super::read_archive(&kept)?;
-        Ok(canonical::sha256_bytes(&bytes))
+        read_back(&mut file, &bytes)
     }
 
     /// The archive's `sha256/` directory, made new beneath the resolved
@@ -242,18 +252,6 @@ impl Destination {
     }
 }
 
-#[cfg(test)]
-impl Destination {
-    /// The archive's inventory written through this destination and then
-    /// removed by the refusal path: the one test that an inventory this verb
-    /// created is the one `removed` unlinks (0105, 1020b).
-    pub(super) fn wrote_inventory(&self) {
-        let mut written = Written::default();
-        self.inventory(b"{}", &mut written).unwrap();
-        self.removed(&written);
-    }
-}
-
 /// `to`'s absolute path resolved once by the filesystem: the deepest
 /// ancestor that stands, through the links it holds, with the plain names
 /// below it that do not stand yet.
@@ -274,10 +272,10 @@ struct Resolved {
 /// [`resolved`] with the deepest standing ancestor, the plain names below
 /// it and that ancestor's identity (device and inode) kept apart, so the
 /// archive can be made under that one descriptor and checked to be the
-/// directory that was compared. A `.` names the same directory and is
-/// dropped by the components walk, so the resolved path never carries one;
-/// a `..` below the deepest standing ancestor refuses, because nothing can
-/// resolve it before what it names exists.
+/// directory that was compared. A `.` below the ancestor names the same
+/// directory and is dropped by the components walk, so the resolved path
+/// never carries one; a `..` below the deepest standing ancestor refuses,
+/// because nothing can resolve it before what it names exists.
 fn resolve(to: &Path) -> Result<Resolved, EvidenceError> {
     let absolute = std::path::absolute(to)?;
     let mut base = PathBuf::new();
@@ -409,29 +407,24 @@ fn empty(dir: &OwnedFd) -> Result<bool, EvidenceError> {
 
 /// The new owner-only file `name` in `dir`, created without following a
 /// link.
-fn create(dir: &OwnedFd, name: &str) -> Result<std::fs::File, EvidenceError> {
+pub(super) fn create(dir: &OwnedFd, name: &str) -> Result<std::fs::File, EvidenceError> {
     let flags = OFlags::RDWR | OFlags::CREATE | OFlags::EXCL | OFlags::NOFOLLOW | OFlags::CLOEXEC;
     let file = openat(dir, name, flags, Mode::RUSR | Mode::WUSR)
         .map_err(|error| EvidenceError::Io(std::io::Error::from(error)))?;
     Ok(std::fs::File::from(file))
 }
 
-/// `source` copied to the new file `name` in `dir`, both digests named
-/// `name`: the source read as one regular file of one link, its bytes
-/// hashed as they are written, and the copy read back from the same
-/// descriptor and hashed. A mismatch refuses by the source's name. The
-/// archive records its own names as it creates them ([`written_into`]); a
-/// test drives this one whole.
-#[cfg(test)]
-pub(super) fn copied(source: &Path, dir: &OwnedFd, name: &str) -> Result<(), EvidenceError> {
-    let mut out = create(dir, name)?;
-    written_into(source, &mut out, name)
-}
-
-/// [`copied`] into the file `out` that `create` already made: the copy's
-/// digest checked as it is written and read back. Kept apart so the caller
-/// records the name only once creation succeeded (0105, 1020b).
-fn written_into(source: &Path, out: &mut std::fs::File, name: &str) -> Result<(), EvidenceError> {
+/// The copy of `source` into the file `out` that `create` already made,
+/// both digests named `name`: the source read as one regular file of one
+/// link, its bytes hashed as they are written, and the copy read back from
+/// the same descriptor and hashed. A mismatch refuses by the source's name.
+/// Kept apart so the caller records the name only once creation succeeded
+/// (0105, 1020b).
+pub(super) fn written_into(
+    source: &Path,
+    out: &mut std::fs::File,
+    name: &str,
+) -> Result<(), EvidenceError> {
     let refused = || EvidenceError::Corrupt(source.to_path_buf());
     let mut source = std::fs::File::from(regular(source).ok_or_else(refused)?);
     let (mut hasher, mut chunk, mut total) = (Sha256::new(), vec![0; CHUNK], 0_u64);
@@ -453,4 +446,17 @@ fn written_into(source: &Path, out: &mut std::fs::File, name: &str) -> Result<()
         & (format!("{:x}", hasher.finalize()) == name)
         & (kept == name);
     written.then_some(()).ok_or_else(refused)
+}
+
+/// The archive's digest: the bytes written are the bytes the inventory
+/// names, so a reader parses them back through this build's one reader,
+/// from the very descriptor that wrote them, before the digest of `bytes`
+/// is the retirement's (decision 0105; split from `archived` for its CC,
+/// #1069).
+fn read_back(file: &mut std::fs::File, bytes: &[u8]) -> Result<String, EvidenceError> {
+    let mut kept = Vec::new();
+    file.seek(SeekFrom::Start(0))?;
+    file.read_to_end(&mut kept)?;
+    super::read_archive(&kept)?;
+    Ok(canonical::sha256_bytes(bytes))
 }

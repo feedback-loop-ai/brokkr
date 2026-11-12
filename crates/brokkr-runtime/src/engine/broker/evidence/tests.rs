@@ -175,7 +175,7 @@ fn copied_hashes_what_it_writes_and_refuses_a_link_or_a_wrong_name() {
     fs::write(&source, b"evidence").unwrap();
     let name = canonical::sha256_bytes(b"evidence");
     let target = opened(dir.path());
-    destination::copied(&source, &target, &name).unwrap();
+    copied(&source, &target, &name).unwrap();
     assert_eq!(fs::read(dir.path().join(&name)).unwrap(), b"evidence");
 
     let link = dir.path().join("link");
@@ -183,14 +183,14 @@ fn copied_hashes_what_it_writes_and_refuses_a_link_or_a_wrong_name() {
     let refused_dir = fresh();
     let refused = opened(refused_dir.path());
     assert!(matches!(
-        destination::copied(&link, &refused, &name),
+        copied(&link, &refused, &name),
         Err(EvidenceError::Corrupt(at)) if at == link
     ));
     let wrong = canonical::sha256_bytes(b"other");
     let second_dir = fresh();
     let second = opened(second_dir.path());
     assert!(matches!(
-        destination::copied(&source, &second, &wrong),
+        copied(&source, &second, &wrong),
         Err(EvidenceError::Corrupt(at)) if at == source
     ));
 
@@ -200,7 +200,7 @@ fn copied_hashes_what_it_writes_and_refuses_a_link_or_a_wrong_name() {
     let third_dir = fresh();
     let third = opened(third_dir.path());
     assert!(matches!(
-        destination::copied(&fifo, &third, &name),
+        copied(&fifo, &third, &name),
         Err(EvidenceError::Corrupt(at)) if at == fifo
     ));
 }
@@ -208,6 +208,14 @@ fn copied_hashes_what_it_writes_and_refuses_a_link_or_a_wrong_name() {
 /// A fresh directory of this test's own, opened for a copy's target.
 fn opened(path: &Path) -> std::os::fd::OwnedFd {
     std::fs::File::open(path).unwrap().into()
+}
+
+/// The production copy path for one name, as `archived` drives it: a new
+/// file in `dir`, then the digest check `written_into` makes (decision
+/// 0105; 1020c).
+fn copied(source: &Path, dir: &std::os::fd::OwnedFd, name: &str) -> Result<(), EvidenceError> {
+    let mut out = destination::create(dir, name)?;
+    destination::written_into(source, &mut out, name)
 }
 
 #[test]
@@ -406,15 +414,13 @@ fn every_internal_refusal_keeps_its_cause_or_its_words() {
         EvidenceError::from(Unknown::Participant(at.clone())),
         EvidenceError::Participant(found) if found == at
     ));
-    assert!(matches!(
-        EvidenceError::from(Unknown::Unsealed),
-        EvidenceError::Refused(_)
-    ));
-    assert_eq!(
-        EvidenceError::from(Unknown::Unsealed).to_string(),
-        Unknown::Unsealed.to_string(),
-        "a refusal keeps its cause's words"
-    );
+    match EvidenceError::from(Unknown::Unsealed) {
+        EvidenceError::Refused(source) => assert!(
+            matches!(source.downcast_ref::<Unknown>(), Some(Unknown::Unsealed)),
+            "a refusal keeps its typed cause: {source:?}"
+        ),
+        other => panic!("an unsealed refusal must keep its cause: {other:?}"),
+    }
     assert_eq!(
         EvidenceError::from(Unknown::Unsynced).to_string(),
         Unknown::Unsynced.to_string()
@@ -484,10 +490,24 @@ fn the_new_refusals_keep_their_words() {
         "the coordination root's path '/evidence/root' is a link, which is never followed"
     );
     assert_eq!(
+        EvidenceError::NotPlain(at.clone()).to_string(),
+        concat!(
+            "the capability coordination root is not protected: '/evidence/root' is not a plain ",
+            "name, which the walk never enters"
+        )
+    );
+    assert_eq!(
         EvidenceError::Digests(at.clone()).to_string(),
         concat!(
-            "the digest directory '/evidence/root' is a link or is not a directory, which a ",
-            "readout never follows"
+            "the digest directory '/evidence/root' is a link or is not a directory, which neither ",
+            "a readout nor an archive follows"
+        )
+    );
+    assert_eq!(
+        EvidenceError::Link(at.clone()).to_string(),
+        concat!(
+            "the evidence root '/evidence/root' is a link, which a retirement never follows; ",
+            "remove the link, then --discarded records the root as absent"
         )
     );
     assert_eq!(
@@ -693,8 +713,53 @@ fn a_linked_coordination_root_is_named_and_nothing_is_made() {
     );
 }
 
-/// I2/1020b: a name on the way that is a file, not a link, is unreadable
-/// with its kind rather than named as a link.
+/// LOW 2 (1020c): the readout takes admission's plain-name check. A HOME
+/// with a `..` is refused by `list` naming the path walked so far and the
+/// problem `retire` refuses with, and the readout makes nothing.
+#[test]
+fn a_name_that_is_not_plain_is_named_by_the_readout() {
+    let (dir, _home, root) = coordination_root();
+    let base = dir.path();
+    fs::create_dir(base.join("a")).unwrap();
+    let spelled = base.join("a/../home");
+    let listed = list(&spelled, soon());
+    let retired = retire(
+        &spelled,
+        RetireOptions {
+            artifacts: &root,
+            action: RetireAction::Discarded,
+            operator: "operator",
+            reason: "given up",
+            now: "2026-11-08T00:00:00Z",
+        },
+        soon(),
+    );
+    let at = base.join("a/..");
+    match listed {
+        Err(EvidenceError::NotPlain(refused)) => {
+            assert_eq!(refused, at);
+            assert!(
+                EvidenceError::NotPlain(at.clone())
+                    .to_string()
+                    .starts_with(&EvidenceError::Coordination.to_string()),
+                "the readout names the problem retire refuses with"
+            );
+        }
+        other => panic!("a name that is not plain must be named: {other:?}"),
+    }
+    assert!(
+        matches!(retired, Err(EvidenceError::Coordination)),
+        "retire refuses the same walk: {retired:?}"
+    );
+    assert!(
+        !root.join("admission.lock").exists(),
+        "the readout made no lock"
+    );
+}
+
+/// I2/1020b and 1020c: a name on the way that is a file, not a link, is
+/// unreadable with its kind and names the path that failed rather than the
+/// coordination root.
 #[test]
 fn a_file_on_the_way_to_the_coordination_root_is_unreadable() {
     let (_dir, home, _root) = coordination_root();
@@ -703,7 +768,7 @@ fn a_file_on_the_way_to_the_coordination_root_is_unreadable() {
     fs::write(&at, b"not a directory").unwrap();
     match list(&home, soon()) {
         Err(EvidenceError::Unreadable(refused, kind)) => {
-            assert_eq!(refused, coordination(&home));
+            assert_eq!(refused, at);
             assert_eq!(kind, std::io::ErrorKind::NotADirectory);
         }
         other => panic!("a file on the way must be unreadable: {other:?}"),
@@ -1185,15 +1250,48 @@ fn an_inventory_that_already_stands_refuses() {
     assert!(!to.join(DIGESTS).exists(), "the digest directory is gone");
 }
 
-/// M2/1020b: an inventory this verb created is the one its refusal removes.
+/// M2/1020b and 1020c: an inventory this verb created is the one its
+/// refusal removes, driven through archive's own refusal path once the
+/// inventory is written, never a test-only item in the production file.
 #[test]
-fn a_refusal_removes_an_inventory_this_verb_wrote() {
+fn a_refusal_after_an_inventory_this_verb_wrote_removes_it() {
     let (_dir, base, coordination, retired) = roots();
-    let (to, opened, _evidence) = opened_archive(&base, &coordination, &retired);
-    opened.wrote_inventory();
+    let (to, opened, evidence) = opened_archive(&base, &coordination, &retired);
+    let after = || Err(EvidenceError::NotDirectory(to.clone()));
+    let refused = opened.archive_with(
+        &evidence,
+        &mut Budget::new(soon()),
+        &|| {},
+        &after,
+        "2026-11-08T00:00:00Z",
+    );
+    assert!(
+        matches!(&refused, Err(EvidenceError::NotDirectory(at)) if *at == to),
+        "{refused:?}"
+    );
     assert!(
         !to.join("inventory.json").exists(),
         "the inventory this verb wrote is removed"
+    );
+    assert!(!to.join(DIGESTS).exists(), "the digest directory is gone");
+}
+
+/// Archive `evidence` through `between`, expecting the planted inventory's
+/// `AlreadyExists`: the refusal both ordering tests below read.
+fn an_inventory_another_writer_planted_refuses(
+    opened: &destination::Destination,
+    evidence: &Path,
+    between: &dyn Fn(),
+) {
+    let refused = opened.archive(
+        evidence,
+        &mut Budget::new(soon()),
+        between,
+        "2026-11-08T00:00:00Z",
+    );
+    assert!(
+        matches!(&refused, Err(EvidenceError::Io(error)) if error.kind() == std::io::ErrorKind::AlreadyExists),
+        "{refused:?}"
     );
 }
 
@@ -1211,16 +1309,7 @@ fn an_archive_refusal_removes_only_what_the_verb_wrote() {
         fs::write(to.join("inventory.json"), b"raced").unwrap();
         fs::write(to.join(DIGESTS).join(&name), b"raced").unwrap();
     };
-    let refused = opened.archive(
-        &evidence,
-        &mut Budget::new(soon()),
-        &between,
-        "2026-11-08T00:00:00Z",
-    );
-    assert!(
-        matches!(&refused, Err(EvidenceError::Io(error)) if error.kind() == std::io::ErrorKind::AlreadyExists),
-        "{refused:?}"
-    );
+    an_inventory_another_writer_planted_refuses(&opened, &evidence, &between);
     assert_eq!(
         fs::read(to.join("inventory.json")).unwrap(),
         b"raced",
@@ -1229,6 +1318,22 @@ fn an_archive_refusal_removes_only_what_the_verb_wrote() {
     assert!(
         to.join(DIGESTS).join(&name).exists(),
         "the planted digest survives"
+    );
+}
+
+/// M2/1020b and 1020c: an inventory another writer planted is not this
+/// verb's to remove, even where no digest copy refused first: `written`
+/// learns of an inventory only after `create` made it.
+#[test]
+fn an_archive_refusal_keeps_an_inventory_it_did_not_create() {
+    let (_dir, base, coordination, retired) = roots();
+    let (to, opened, evidence) = opened_archive(&base, &coordination, &retired);
+    let between = || fs::write(to.join("inventory.json"), b"raced").unwrap();
+    an_inventory_another_writer_planted_refuses(&opened, &evidence, &between);
+    assert_eq!(
+        fs::read(to.join("inventory.json")).unwrap(),
+        b"raced",
+        "the inventory another writer planted survives"
     );
 }
 
@@ -1270,10 +1375,13 @@ fn an_archive_whose_seal_fails_stays_and_a_retry_needs_a_fresh_destination() {
         soon(),
         &|| {},
     );
-    assert_eq!(
-        refused.unwrap_err().to_string(),
-        Unknown::Unsealed.to_string()
-    );
+    match refused {
+        Err(EvidenceError::Refused(source)) => assert!(
+            matches!(source.downcast_ref::<Unknown>(), Some(Unknown::Unsealed)),
+            "the refusal keeps its typed cause: {source:?}"
+        ),
+        other => panic!("the retirement seal's refusal must be typed: {other:?}"),
+    }
     assert!(
         to.join("inventory.json").exists(),
         "the archive stays in place"

@@ -165,6 +165,21 @@ fn doctor_names_a_linked_coordination_root_and_makes_nothing() {
     );
 }
 
+/// LOW 2 (1020c): doctor takes admission's plain-name check too. A HOME
+/// with a `..` is a named problem, not no historical root, so the readout
+/// never reaches the root the fixture holds.
+#[test]
+fn doctor_names_a_home_whose_name_is_not_plain() {
+    let host = fixture::Host::new();
+    fs::create_dir(host.dir.path().join("a")).unwrap();
+    let spelled = host.dir.path().join("a/../home");
+    let report = reported(Some(&spelled));
+    let lines = report.render();
+    let at = safe(&host.dir.path().join("a/..").display().to_string());
+    assert!(lines.contains(&at), "{lines}");
+    assert!(lines.contains("is not a plain name"), "{lines}");
+}
+
 /// S3: doctor escapes every untrusted field of a root — its retirement and
 /// its problem — so a reason cannot forge a line or carry an escape.
 #[test]
