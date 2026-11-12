@@ -539,7 +539,8 @@ pub(super) enum HearthSource {
 impl HearthSource {
     /// One hearth read whole: the fleet's runs folded as today, and every
     /// figure, realm name and unreadable count the whole read's (decision
-    /// 0089 rulings 7 and 8).
+    /// 0089 rulings 7 and 8). R1's limit belongs to the row path alone:
+    /// see [`HearthSource::from_store`].
     pub(super) fn read(
         grouped: &brokkr_view::AnalyticsHearth<'_>,
         range: brokkr_view::Range,
@@ -556,6 +557,11 @@ impl HearthSource {
     /// boundary, slice 4's unit U3c2). A refusal is the caller's to answer
     /// with the whole read; a behind run's one-run opening is still read,
     /// and its refusal is returned here.
+    ///
+    /// R1's limit, as the module doc states it: this path trusts the row.
+    /// A chain broken behind the store's back after its row stood at its
+    /// head is out of its reach, and the journal and integrity checks find
+    /// it (`doctor`, #1000).
     pub(super) fn from_store(
         grouped: &brokkr_view::AnalyticsHearth<'_>,
         range: brokkr_view::Range,
