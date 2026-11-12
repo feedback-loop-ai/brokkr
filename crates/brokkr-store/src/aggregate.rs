@@ -21,6 +21,7 @@
 //! in `brokkr-cli`; they are `pub` on [`Store`] so it can, and each is in
 //! the public API snapshot until then.
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::LazyLock;
 
 use brokkr_core::ending::Ending;
@@ -109,24 +110,97 @@ impl Store {
         Ok(marked && !parks_unfinished(&self.conn)?)
     }
 
-    /// Every run whose summary row is behind its head, streamed by its
-    /// id through the `behind` lane's index: a run a writer did not fold,
-    /// or one whose aggregate stamp is not its folded head's. The caller
-    /// reads each one whole (ruling 8).
-    pub fn behind_runs(&self, mut visit: impl FnMut(&str)) -> Result<(), StoreError> {
+    /// Every run whose summary row is behind its head, streamed by its id
+    /// through the `behind` lane's index and its `runs` stamp: a run a
+    /// writer did not fold, or one whose aggregate stamp is not its folded
+    /// head's. The caller reads each one whole (ruling 8), and needs the
+    /// stamp to place its realm among the runs it reads (U3c).
+    pub fn behind_runs(&self, mut visit: impl FnMut(&str, &str)) -> Result<(), StoreError> {
         let mut statement = self.conn.prepare(&BEHIND)?;
         let mut rows = statement.query([])?;
         while let Some(row) = rows.next()? {
-            visit(required_text(row, 0)?);
+            visit(required_text(row, 0)?, required_text(row, 1)?);
+        }
+        Ok(())
+    }
+
+    /// Every non-behind run's realm key, one realm once, in first-`created_at`
+    /// order, through the covering index that answers `not_behind` (decision
+    /// 0089 ruling A4, slice 4's unit U3c). A NULL realm is yielded as it
+    /// stands: the caller names it the hearth's label. `realm` filters the
+    /// stored keys and leaves the NULL rows for that naming, since the store
+    /// does not know the label.
+    pub fn realm_names(
+        &self,
+        realm: Option<&str>,
+        visit: impl FnMut(&str, &str, Option<&str>),
+    ) -> Result<(), StoreError> {
+        self.realm_names_with(realm, visit, |_| {})
+    }
+
+    /// [`Store::realm_names`] with the statement's VM steps handed to
+    /// `stepped`, so the test that binds the index-only scan measures the
+    /// production statement itself.
+    fn realm_names_with(
+        &self,
+        realm: Option<&str>,
+        mut visit: impl FnMut(&str, &str, Option<&str>),
+        mut stepped: impl FnMut(i64),
+    ) -> Result<(), StoreError> {
+        let mut statement = self.conn.prepare(&REALM_NAMES)?;
+        let mut rows = statement.query(params![realm])?;
+        let mut named: BTreeSet<Option<String>> = BTreeSet::new();
+        while let Some(row) = rows.next()? {
+            let realm = optional_text(row, 2)?;
+            if named.insert(realm.map(str::to_string)) {
+                visit(required_text(row, 0)?, required_text(row, 1)?, realm);
+            }
+        }
+        drop(rows);
+        stepped(i64::from(statement.get_status(StatementStatus::VmStep)));
+        Ok(())
+    }
+
+    /// The VM steps [`Store::realm_names`]' one statement takes, for the
+    /// test that holds it to the index alone.
+    #[cfg(test)]
+    pub(crate) fn realm_names_steps(&self, realm: Option<&str>) -> Result<i64, StoreError> {
+        let mut steps = 0;
+        self.realm_names_with(realm, |_, _, _| {}, |taken| steps = taken)?;
+        Ok(steps)
+    }
+
+    /// Every non-behind run in the refused or acknowledged lane, counted by
+    /// its realm key through the same covering index (decision 0089 ruling
+    /// A4, slice 4's unit U3c): the fold refused it and no figure reads it.
+    /// A NULL realm is yielded as it stands; the caller names it the
+    /// hearth's label and filters by its own realm.
+    pub fn refused_counts(
+        &self,
+        realm: Option<&str>,
+        mut visit: impl FnMut(Option<&str>, u64),
+    ) -> Result<(), StoreError> {
+        let mut statement = self.conn.prepare(&REFUSED_COUNTS)?;
+        let mut rows = statement.query(params![realm])?;
+        let mut counts: BTreeMap<Option<String>, u64> = BTreeMap::new();
+        while let Some(row) = rows.next()? {
+            *counts
+                .entry(optional_text(row, 0)?.map(str::to_string))
+                .or_default() += 1;
+        }
+        drop(rows);
+        for (realm, count) in counts {
+            visit(realm.as_deref(), count);
         }
         Ok(())
     }
 
     /// The runs a window reads (ruling 7): those that finished inside it,
     /// through the `(finished_ms)` index, and those still open, through
-    /// the lane index; a behind row is never among them, read whole
-    /// instead. `order` is the figure's key order, `realm` narrows to one
-    /// stored realm key where given.
+    /// the lane index; a behind row is read whole instead, and a refused or
+    /// acknowledged row states no figure, so neither is among them. `order`
+    /// is the figure's key order, `realm` narrows to one stored realm key
+    /// where given.
     pub fn window_runs(
         &self,
         from: i64,
@@ -252,10 +326,23 @@ fn lane_is(lane: Lane) -> String {
     format!("lane = '{}'", lane.as_str())
 }
 
-/// The rows outside `lane`: the behind rows a window and its figures read
-/// whole instead of counting stale columns.
-fn outside(lane: Lane) -> String {
-    format!("lane <> '{}'", lane.as_str())
+/// The rows a window never reads: the behind rows it reads whole instead of
+/// counting stale columns, and the refused or acknowledged rows whose fold
+/// states no figure ([`Lane::Refused`] and [`Lane::Acknowledged`]).
+/// `prefix` names the row where a statement aliases it.
+pub(crate) fn outside(prefix: &str) -> String {
+    [Lane::Behind, Lane::Refused, Lane::Acknowledged]
+        .map(|lane| format!("{prefix}lane <> '{}'", lane.as_str()))
+        .join(" AND ")
+}
+
+/// The refused or acknowledged rows a window's parks never read: a behind
+/// row's parks come from the caller's whole read instead, so the park scan
+/// keeps them for that caller to leave out.
+fn refused_or_acknowledged(prefix: &str) -> String {
+    [Lane::Refused, Lane::Acknowledged]
+        .map(|lane| format!("{prefix}lane <> '{}'", lane.as_str()))
+        .join(" AND ")
 }
 
 /// The lanes that are still open and read whole: a stopping run is a
@@ -278,11 +365,39 @@ fn shipped_endings() -> String {
         .join(", ")
 }
 
-/// Every behind row's id, by the lane's index.
+/// Every behind row's id and `runs` stamp, by the lane's index.
 static BEHIND: LazyLock<String> = LazyLock::new(|| {
     format!(
-        "SELECT run_id FROM run_summary WHERE {} ORDER BY run_id",
+        "SELECT run_summary.run_id, runs.created_at
+           FROM run_summary JOIN runs ON runs.run_id = run_summary.run_id
+          WHERE {}
+          ORDER BY run_summary.run_id",
         lane_is(Lane::Behind)
+    )
+});
+
+/// Every non-behind row's order and realm, each realm once, in
+/// `(created_at, run_id)` order: the covering index's own order, and the
+/// tie the whole read states too (U3c's ruled tie).
+static REALM_NAMES: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT created_at, run_id, realm FROM run_summary
+          WHERE {not_behind} AND (?1 IS NULL OR realm = ?1 OR realm IS NULL)
+          ORDER BY created_at, run_id",
+        not_behind = crate::summary::not_behind("")
+    )
+});
+
+/// The refused and acknowledged rows' realms: both lanes are a row whose
+/// fold wrote refusal words, and only a behind row can hide one from the
+/// count, so [`not_behind`](crate::summary::not_behind) is the whole lane
+/// test on the covering index.
+static REFUSED_COUNTS: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT realm FROM run_summary
+          WHERE {not_behind} AND refusal_words IS NOT NULL
+            AND (?1 IS NULL OR realm = ?1 OR realm IS NULL)",
+        not_behind = crate::summary::not_behind("")
     )
 });
 
@@ -293,7 +408,7 @@ static COUNT_FINISHED: LazyLock<String> = LazyLock::new(|| {
         "SELECT count(*) FROM run_summary
     WHERE finished_ms >= ?1 AND finished_ms < ?2 AND {behind}
       AND ending IN ({shipped}) AND (?3 IS NULL OR realm = ?3)",
-        behind = outside(Lane::Behind),
+        behind = outside(""),
         shipped = shipped_endings(),
     )
 });
@@ -307,13 +422,14 @@ static DURATIONS: LazyLock<String> = LazyLock::new(|| {
         max(finished_ms - coalesce(started_ms, finished_ms), 0)
     FROM run_summary
     WHERE finished_ms >= ?1 AND finished_ms < ?2 AND {behind} AND (?3 IS NULL OR realm = ?3)",
-        behind = outside(Lane::Behind)
+        behind = outside("")
     )
 });
 
-/// The runs a window reads: those that finished in it, less a behind row,
-/// and those still open, through the lane index. A stopping run is a
-/// running one with an accepted stop, still open, so its lane is read too.
+/// The runs a window reads: those that finished in it, less a behind,
+/// refused or acknowledged row, and those still open, through the lane
+/// index. A stopping run is a running one with an accepted stop, still
+/// open, so its lane is read too.
 /// Each row also states whether its fold stood at the policy's hard stop,
 /// exactly as `brokkr-core`'s `hard_stop` decides it: `stopped`, at the
 /// `stop` phase. The comparison is `IS`, not `=`, so a stopped run that
@@ -339,7 +455,7 @@ fn runs_statement(order: &str) -> String {
              AND (?3 IS NULL OR realm = ?3)
          {order}",
         stopped = Status::Stopped.as_str(),
-        behind = outside(Lane::Behind),
+        behind = outside(""),
         open = open_lanes(),
     )
 }
@@ -461,6 +577,7 @@ fn class_start(from: i64, class: u8) -> i64 {
 /// The parks' ranges, each arm seeking the partial index and the run
 /// summary's key, then one sort by phase and run.
 fn park_statement() -> String {
+    let unread = refused_or_acknowledged("s.");
     let mut ranges: Vec<String> = (1u8..=63)
         .map(|class| {
             let start = 4 + usize::from(class);
@@ -472,7 +589,7 @@ fn park_statement() -> String {
                    WHERE e.type = '{PARKED}' AND e.span_class = {class}
                      AND e.at_ms >= ?{start} AND e.at_ms < ?2
                      AND max(e.answered_ms, e.ended_ms) > ?1
-                     AND (?4 IS NULL OR s.realm = ?4)"
+                     AND (?4 IS NULL OR s.realm = ?4) AND {unread}"
             )
         })
         .collect();
@@ -482,7 +599,7 @@ fn park_statement() -> String {
            FROM event_index AS e INDEXED BY event_index_park
            JOIN run_summary AS s ON s.run_id = e.run_id
            WHERE e.type = '{PARKED}' AND e.span_class = 64 AND e.at_ms < ?2
-             AND (?4 IS NULL OR s.realm = ?4)"
+             AND (?4 IS NULL OR s.realm = ?4) AND {unread}"
     ));
     // One sort over the ranges' rows: the phase, the run, the park's
     // start, and its seq for a stable tie. The materialized CTE collects

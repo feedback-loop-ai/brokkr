@@ -122,8 +122,9 @@ impl Store {
     /// `[from, to)` that carries a `usd`, through the checkpoint index, its
     /// run's realm key joined by the run's key. A checkpoint no site names
     /// reports here as it does whole: its cost counts. A run behind its
-    /// summary row is left whole to the caller (ruling 8). `realm` narrows
-    /// to one stored realm key where given.
+    /// summary row is left whole to the caller, and a refused or
+    /// acknowledged run states no spend (ruling 8; U3c's R2). `realm`
+    /// narrows to one stored realm key where given.
     pub fn window_spends(
         &self,
         from: i64,
@@ -167,7 +168,8 @@ impl Store {
     /// in it, through the checkpoint index and its site's key. Each site is
     /// yielded once, in `order`, with its in-window facts folded as the
     /// stream passes them. A run behind its summary row is left whole to
-    /// the caller (ruling 8). `realm` narrows to one stored realm key where
+    /// the caller, and a refused or acknowledged run states no site
+    /// (ruling 8; U3c's R2). `realm` narrows to one stored realm key where
     /// given.
     pub fn window_sites(
         &self,
@@ -346,7 +348,8 @@ fn lags(run: &str, head: &str, shape: &str) -> String {
 
 /// The spends' one statement: the checkpoint index's range, each row's run
 /// joined by its key, a row no cost reported left out, and a run behind its
-/// summary row or whose projections are not current left whole (ruling 8).
+/// summary row, refused or acknowledged, or whose projections are not
+/// current left whole (ruling 8; U3c's R2).
 static SPENDS: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT e.run_id, r.realm, e.at_ms, e.phase, e.usd
@@ -354,9 +357,9 @@ static SPENDS: LazyLock<String> = LazyLock::new(|| {
     JOIN run_summary AS r ON r.run_id = e.run_id
     LEFT JOIN seat_head AS h ON h.run_id = r.run_id
    WHERE e.type = '{CHECKPOINTED}' AND e.at_ms >= ?1 AND e.at_ms < ?2
-     AND e.usd IS NOT NULL AND r.lane <> '{behind}' AND NOT {lags}
+     AND e.usd IS NOT NULL AND {outside} AND NOT {lags}
      AND (?3 IS NULL OR r.realm = ?3)",
-        behind = Lane::Behind.as_str(),
+        outside = crate::aggregate::outside("r."),
         lags = lags("r", "h", "?4"),
     )
 });
@@ -369,17 +372,17 @@ static FALLBACKS: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT r.run_id
            FROM run_summary AS r LEFT JOIN seat_head AS h ON h.run_id = r.run_id
-          WHERE r.lane <> '{behind}' AND {seat}
+          WHERE {outside} AND {seat}
             AND (?1 IS NULL OR r.realm = ?1)
          UNION
          SELECT e.run_id
            FROM event_index AS e INDEXED BY event_index_checkpoint_stale
            JOIN run_summary AS r ON r.run_id = e.run_id
           WHERE e.type = '{CHECKPOINTED}' AND {CHECKPOINT_STALE}
-            AND r.lane <> '{behind}'
+            AND {outside}
             AND (?1 IS NULL OR r.realm = ?1)
           ORDER BY 1",
-        behind = Lane::Behind.as_str(),
+        outside = crate::aggregate::outside("r."),
         seat = seat_lags("r", "h", "?2"),
     )
 });
@@ -416,12 +419,13 @@ fn sites_sql(order: SiteOrder) -> &'static str {
 /// The metered arm reads the checkpoint index's one range and finds each
 /// checkpoint's site by `seat_read`'s one `site_of` rule, the greatest start
 /// below its seq; the site's row is joined by its key. The started arm reads
-/// the started index's range. A run behind its summary row is in neither arm
-/// (ruling 8): the caller reads it whole. A run's open lane is the one the
-/// fleet lists (a stopping run is still open); the realm filter is on the
-/// run's stored key, as the run reads' is. A run whose seat rows or
-/// checkpoint facts are not current is in neither arm (ruling 8): the caller
-/// reads it whole.
+/// the started index's range. A run behind its summary row, refused or
+/// acknowledged, is in neither arm (ruling 8; U3c's R2): the caller reads a
+/// behind run whole, and a refused or acknowledged one states no site. A
+/// run's open lane is the one the fleet lists (a stopping run is still
+/// open); the realm filter is on the run's stored key, as the run reads'
+/// is. A run whose seat rows or checkpoint facts are not current is in
+/// neither arm (ruling 8): the caller reads it whole.
 fn sites_statement(order: &str) -> String {
     format!(
         "WITH metered AS (
@@ -455,7 +459,7 @@ fn sites_statement(order: &str) -> String {
           JOIN run_summary AS r ON r.run_id = w.run_id
           JOIN seat_summary AS s ON s.run_id = w.run_id AND s.opened = w.opened
           LEFT JOIN seat_head AS h ON h.run_id = r.run_id
-         WHERE r.lane <> '{behind}' AND NOT {lags}
+         WHERE {outside} AND NOT {lags}
            AND (?3 IS NULL OR r.realm = ?3)
         UNION ALL
         SELECT s.run_id, s.opened, r.realm, r.recipe,
@@ -466,12 +470,12 @@ fn sites_statement(order: &str) -> String {
           JOIN run_summary AS r ON r.run_id = s.run_id
           LEFT JOIN seat_head AS h ON h.run_id = r.run_id
          WHERE s.site IS NOT NULL AND s.started_ms >= ?1 AND s.started_ms < ?2
-           AND r.lane <> '{behind}' AND NOT {lags}
+           AND {outside} AND NOT {lags}
            AND (?3 IS NULL OR r.realm = ?3)
         {order}",
         site_of("s2", "e.run_id", "e.attempt_id", "e.member", "e.seq"),
         open = open_lanes(),
-        behind = Lane::Behind.as_str(),
+        outside = crate::aggregate::outside("r."),
         lags = lags("r", "h", "?4"),
     )
 }

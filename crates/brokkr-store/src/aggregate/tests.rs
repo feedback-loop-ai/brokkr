@@ -9,7 +9,7 @@ use brokkr_core::ending::{Ending, UnknownEnding};
 use brokkr_core::envelope::{EventEnvelope, EventType};
 use brokkr_core::fold::{concluded, Status};
 use brokkr_core::stamp::parse_millis;
-use brokkr_core::summary::{Account, Bounded, Listing, Summary, NAME_BYTES};
+use brokkr_core::summary::{aggregate, Account, Bounded, Listing, Summary, NAME_BYTES};
 use serde_json::json;
 
 use super::*;
@@ -528,7 +528,7 @@ fn every_fixture_window_reads_as_the_whole_journal() {
     // A behind run is never in a window's runs, and is in behind_runs.
     let mut behind: Vec<String> = Vec::new();
     store
-        .behind_runs(|run_id| behind.push(run_id.to_string()))
+        .behind_runs(|run_id, _created_at| behind.push(run_id.to_string()))
         .unwrap();
     behind.sort();
     let mut wanted: Vec<String> = runs
@@ -743,7 +743,7 @@ fn a_behind_run_is_read_whole_and_never_in_a_window() {
     );
     let mut behind = Vec::new();
     store
-        .behind_runs(|run_id| behind.push(run_id.to_string()))
+        .behind_runs(|run_id, _created_at| behind.push(run_id.to_string()))
         .unwrap();
     assert_eq!(behind, ["lagging", "older", "stale"]);
 }
@@ -767,7 +767,7 @@ fn a_behind_run_is_not_counted_or_measured() {
     assert_eq!(lane(&store, "stale").as_deref(), Some("behind"));
     let mut behind = Vec::new();
     store
-        .behind_runs(|run_id| behind.push(run_id.to_string()))
+        .behind_runs(|run_id, _created_at| behind.push(run_id.to_string()))
         .unwrap();
     assert_eq!(behind, ["stale"]);
 
@@ -1091,12 +1091,36 @@ fn closed_park(run_id: &str, phase: &str, at: i64, ended: i64) -> Vec<EventEnvel
     let steps = [
         (EventType::RunStarted, json!({"feature": "closed"})),
         (EventType::PhaseEntered, json!({"phase": phase})),
+        (
+            EventType::EffectRequested,
+            json!({"effect_id": "parked", "seat": "reviewer"}),
+        ),
+        (
+            EventType::EffectStarted,
+            json!({"effect_id": "parked", "attempt_id": "p"}),
+        ),
+        (
+            EventType::EffectFailed,
+            json!({"effect_id": "parked", "error": "the seat exited 1"}),
+        ),
         (EventType::RunParked, json!({"reason": "waiting"})),
-        (EventType::PhaseEntered, json!({"phase": "implement"})),
+        (
+            EventType::OperatorCommanded,
+            json!({"command_id": "answer", "command": "retry"}),
+        ),
+        (EventType::OperatorAccepted, json!({"command_id": "answer"})),
+        (
+            EventType::EffectRequested,
+            json!({"effect_id": "next", "seat": "builder"}),
+        ),
     ];
     let mut previous = ZERO_HASH.to_string();
     let mut events = Vec::new();
-    for (index, ((event_type, payload), at)) in steps.iter().zip([at, at, at, ended]).enumerate() {
+    for (index, ((event_type, payload), at)) in steps
+        .iter()
+        .zip([at, at, at, at, at, at, ended, ended, ended])
+        .enumerate()
+    {
         let mut payload = payload.clone();
         if index == 0 {
             payload["manifest"] = manifest(None);
@@ -1331,4 +1355,341 @@ fn plant_class_zero(conn: &rusqlite::Connection, next: &mut i64) {
             },
         );
     }
+}
+
+/// A folded row as a writer leaves it: `created_at`, `realm` and a finished
+/// run at `finished_ms`, every stamp at the head so its lane is not behind.
+fn planted_summary(store: &Store, run_id: &str, created_at: &str, realm: Option<&str>, at: i64) {
+    crate::test_support::plant_run(&store.conn, run_id, "{}").unwrap();
+    store
+        .conn
+        .execute(
+            "UPDATE run_summary SET created_at = ?2, realm = ?3, status = 'completed',
+                folded_seq = 1, head_seq = 1, aggregated_seq = 1,
+                stop_folded_seq = 1, ending_folded_seq = 1,
+                started_ms = ?4, finished_ms = ?4, ending = 'shipped',
+                implement_visits = 0, review_first = 0, review_second = 0,
+                review_back = 0
+              WHERE run_id = ?1",
+            params![run_id, created_at, realm, at],
+        )
+        .unwrap();
+}
+
+/// The realm list is each non-behind row's stored key once, in
+/// `(created_at, run_id)` order, behind rows left to the one-run read
+/// (decision 0089 ruling A4, unit U3c).
+#[test]
+fn a_realm_list_is_each_realm_once_in_first_created_order() {
+    let (_dir, store) = store();
+    planted_summary(&store, "b", "2026-01-01T00:00:02Z", Some("two"), 20);
+    planted_summary(&store, "a", "2026-01-01T00:00:01Z", Some("one"), 10);
+    planted_summary(&store, "c", "2026-01-01T00:00:01Z", Some("one"), 30);
+    planted_summary(&store, "d", "2026-01-01T00:00:03Z", None, 40);
+    crate::test_support::plant_run(&store.conn, "behind", "{}").unwrap();
+    store
+        .conn
+        .execute(
+            "UPDATE run_summary SET created_at = '2026-01-01T00:00:01.500Z',
+                realm = 'behind-realm' WHERE run_id = 'behind'",
+            [],
+        )
+        .unwrap();
+    assert_eq!(lane(&store, "behind").as_deref(), Some("behind"));
+
+    let mut names = Vec::new();
+    store
+        .realm_names(None, |created_at, run_id, realm| {
+            names.push((
+                created_at.to_string(),
+                run_id.to_string(),
+                realm.map(str::to_string),
+            ));
+        })
+        .unwrap();
+    assert_eq!(
+        names,
+        [
+            (
+                "2026-01-01T00:00:01Z".to_string(),
+                "a".to_string(),
+                Some("one".to_string())
+            ),
+            (
+                "2026-01-01T00:00:02Z".to_string(),
+                "b".to_string(),
+                Some("two".to_string())
+            ),
+            ("2026-01-01T00:00:03Z".to_string(), "d".to_string(), None),
+        ],
+        "each realm once, at its first stamp, the NULL left for the caller"
+    );
+
+    let mut filtered = Vec::new();
+    store
+        .realm_names(Some("one"), |_, run_id, realm| {
+            filtered.push((run_id.to_string(), realm.map(str::to_string)));
+        })
+        .unwrap();
+    assert_eq!(
+        filtered,
+        [
+            ("a".to_string(), Some("one".to_string())),
+            ("d".to_string(), None),
+        ],
+        "a named realm keeps its key and the NULL rows the caller names"
+    );
+}
+
+/// The refused and acknowledged counts are per realm key, both lanes
+/// counted, through the same covering index (decision 0089 ruling A4, unit
+/// U3c).
+#[test]
+fn refused_counts_are_per_realm_and_count_both_lanes() {
+    let (_dir, store) = store();
+    planted_summary(&store, "a", "2026-01-01T00:00:01Z", Some("one"), 10);
+    planted_summary(&store, "b", "2026-01-01T00:00:02Z", Some("one"), 20);
+    planted_summary(&store, "c", "2026-01-01T00:00:03Z", Some("two"), 30);
+    planted_summary(&store, "d", "2026-01-01T00:00:04Z", None, 40);
+    store
+        .conn
+        .execute(
+            "UPDATE run_summary SET refusal_words = 'stored refusal' WHERE run_id = 'a'",
+            [],
+        )
+        .unwrap();
+    store
+        .conn
+        .execute(
+            "UPDATE run_summary SET refusal_words = 'stored refusal', acknowledged = 1
+              WHERE run_id = 'b'",
+            [],
+        )
+        .unwrap();
+    store
+        .conn
+        .execute(
+            "UPDATE run_summary SET refusal_words = 'stored refusal' WHERE run_id = 'c'",
+            [],
+        )
+        .unwrap();
+    assert_eq!(lane(&store, "a").as_deref(), Some("refused"));
+    assert_eq!(lane(&store, "b").as_deref(), Some("acknowledged"));
+    assert_eq!(lane(&store, "c").as_deref(), Some("refused"));
+
+    assert_eq!(
+        counts_by_realm(&store, None),
+        [(Some("one".to_string()), 2), (Some("two".to_string()), 1)]
+    );
+    assert_eq!(
+        counts_by_realm(&store, Some("one")),
+        [(Some("one".to_string()), 2)],
+        "a named realm leaves every other key out"
+    );
+    assert_eq!(
+        names_with(&store, None),
+        ["a", "c", "d"],
+        "a refused or acknowledged row still names its realm"
+    );
+}
+
+/// The realm list's plan is the covering index alone, and its steps grow by
+/// a small constant a row with no run loaded (decision 0089 ruling A4).
+#[test]
+fn a_realm_list_visits_the_covering_index_only() {
+    let (_dir, store) = store();
+    plant_many_summaries(&store, 1);
+    let plan = explain(&store, &REALM_NAMES, params![None::<&str>]);
+    assert!(
+        plan.iter()
+            .any(|step| step.contains("SCAN run_summary USING COVERING INDEX run_summary_realm")),
+        "{plan:?}"
+    );
+    assert!(
+        !plan.iter().any(|step| step.contains("SEARCH")),
+        "no per-run lookup: {plan:?}"
+    );
+    let taken = explain(&store, &REFUSED_COUNTS, params![None::<&str>]);
+    assert!(
+        taken
+            .iter()
+            .any(|step| step.contains("USING COVERING INDEX run_summary_realm")),
+        "{taken:?}"
+    );
+
+    let one = store.realm_names_steps(None).unwrap();
+    plant_many_summaries(&store, 1_000);
+    let many = store.realm_names_steps(None).unwrap();
+    assert!(
+        many - one <= 1_000 * 32,
+        "the scan costs at most a small constant a row: one {one}, many {many}"
+    );
+}
+
+/// Insert `count` rows from `next`, each a folded realm in its own order.
+fn plant_many_summaries(store: &Store, count: usize) {
+    let first: usize = store
+        .conn
+        .query_row("SELECT count(*) FROM run_summary", [], |row| row.get(0))
+        .unwrap();
+    for index in first..first + count {
+        store
+            .conn
+            .execute(
+                "INSERT INTO run_summary
+                     (run_id, created_at, realm, folded_seq, head_seq, aggregated_seq,
+                      stop_folded_seq, ending_folded_seq, head_hash)
+                 VALUES (?1, ?2, ?3, 1, 1, 1, 1, 1, ?4)",
+                params![
+                    format!("run-{index:06}"),
+                    format!("{index:06}"),
+                    format!("realm-{index:06}"),
+                    ZERO_HASH
+                ],
+            )
+            .unwrap();
+    }
+}
+
+/// The realm keys of the rows `realm` keeps, by their run ids.
+fn names_with(store: &Store, realm: Option<&str>) -> Vec<String> {
+    let mut names = Vec::new();
+    store
+        .realm_names(realm, |_, run_id, _| names.push(run_id.to_string()))
+        .unwrap();
+    names
+}
+
+/// The store's refused and acknowledged counts, by realm key.
+fn counts_by_realm(store: &Store, realm: Option<&str>) -> Vec<(Option<String>, u64)> {
+    let mut counts = Vec::new();
+    store
+        .refused_counts(realm, |realm, count| {
+            counts.push((realm.map(str::to_string), count));
+        })
+        .unwrap();
+    counts
+}
+
+/// A writer-recorded fold refusal keeps the realm the whole read names for
+/// it, and the store counts it at that key on both lanes (decision 0089
+/// ruling A4, unit U3c).
+#[test]
+fn a_fold_refused_row_keeps_the_realm_the_whole_read_names() {
+    let (_dir, mut store) = store();
+    store
+        .create_run("refused", "feat", "self", &json!({}))
+        .unwrap();
+    crate::test_support::append(
+        &mut store,
+        "refused",
+        EventType::RunStarted,
+        json!({"feature": "refused", "manifest": manifest(Some("events-realm"))}),
+    );
+    crate::test_support::append(&mut store, "refused", EventType::RunCompleted, json!({}));
+    crate::test_support::append(
+        &mut store,
+        "refused",
+        EventType::PhaseEntered,
+        json!({"phase": "after"}),
+    );
+    assert_eq!(lane(&store, "refused").as_deref(), Some("refused"));
+    let events = store.load("refused").unwrap();
+    let stored: Option<String> = store
+        .conn
+        .query_row(
+            "SELECT realm FROM run_summary WHERE run_id = 'refused'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        stored,
+        aggregate(&events, None).realm.map(|realm| cut(&realm)),
+        "the store's realm is the whole read's"
+    );
+    assert_eq!(stored.as_deref(), Some("events-realm"));
+
+    assert_eq!(
+        counts_by_realm(&store, None),
+        [(Some("events-realm".to_string()), 1)]
+    );
+
+    let (head, hash) = store.head_hash("refused").unwrap();
+    store
+        .acknowledge_quarantine(
+            "refused",
+            (head, &hash),
+            crate::Attribution {
+                operator: "op",
+                reason: "looked at it",
+            },
+        )
+        .unwrap();
+    assert_eq!(lane(&store, "refused").as_deref(), Some("acknowledged"));
+    assert_eq!(
+        counts_by_realm(&store, None),
+        [(Some("events-realm".to_string()), 1)],
+        "the acknowledged lane counts too"
+    );
+}
+
+/// A refused or acknowledged run contributes no row to the runs, the
+/// preceding count, the durations or the parks (decision 0089 slice 4, unit
+/// U3c's R2).
+#[test]
+fn a_refused_or_acknowledged_run_contributes_no_aggregate_row() {
+    let (_dir, store) = store();
+    planted_summary(
+        &store,
+        "r",
+        "2026-01-01T00:00:00Z",
+        Some("realm"),
+        FROM + 1_000,
+    );
+    plant_park(
+        &store.conn,
+        "r",
+        ParkRow {
+            seq: 1,
+            phase: "review",
+            at: FROM + 1_000,
+            answered: Some(FROM + 2_000),
+            ended: Some(FROM + 2_000),
+            class: 10,
+        },
+    );
+    let present = |store: &Store| {
+        (
+            window_runs(store, 0, i64::MAX, RunOrder::Unordered, None).len(),
+            store.finished_between(0, i64::MAX, None).unwrap(),
+            durations(store, 0, i64::MAX, None).len(),
+            window_parks(store, FROM, TO, TO, None).len(),
+        )
+    };
+    assert_eq!(present(&store), (1, 1, 1, 1), "the folded run is read");
+    for (acknowledged, word) in [(0, "refused"), (1, "acknowledged")] {
+        store
+            .conn
+            .execute(
+                "UPDATE run_summary SET refusal_words = 'stored refusal', acknowledged = ?1
+                  WHERE run_id = 'r'",
+                [acknowledged],
+            )
+            .unwrap();
+        assert_eq!(lane(&store, "r").as_deref(), Some(word));
+        assert_eq!(
+            present(&store),
+            (0, 0, 0, 0),
+            "{word} contributes no row to any stream"
+        );
+    }
+    store
+        .conn
+        .execute(
+            "UPDATE run_summary SET refusal_words = NULL, acknowledged = 0 WHERE run_id = 'r'",
+            [],
+        )
+        .unwrap();
+    assert_eq!(present(&store), (1, 1, 1, 1), "the control reads again");
 }

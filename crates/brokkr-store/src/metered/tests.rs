@@ -70,12 +70,14 @@ fn core_reads(
     let mut spends = Vec::new();
     let mut held = Vec::new();
     for (run_id, events) in runs {
-        let state = brokkr_core::fold(events).ok();
-        let read = aggregate(events, state.as_ref());
+        // A run whose fold refuses is no figure: the whole read counts it
+        // unreadable and the window's statements leave it out (U3c).
+        let Ok(state) = brokkr_core::fold(events) else {
+            continue;
+        };
+        let read = aggregate(events, Some(&state));
         let account = Account::whole(run_id, events);
-        let open = state
-            .as_ref()
-            .is_some_and(|state| concluded(state).is_none());
+        let open = concluded(&state).is_none();
         let realm = read.realm.map(|realm| cut(&realm));
         for checkpoint in checkpoints(events) {
             let Some(usd) = checkpoint.usd else {
@@ -847,6 +849,14 @@ fn ordered_journal() -> Vec<Journal> {
         json!({"step": "seat-turn", "model": "m-2", "input_tokens": 1,
                "total_cost_usd": 0.1}),
     );
+    one.succeeded("2026-01-01T00:00:04Z", "f1", "a1");
+    one.push(
+        EventType::TransitionDecided,
+        json!({"from": "implement", "inputs": {}, "next": "ship", "problem": null,
+               "result": "complete", "severity": "normal", "rule_id": "SHIP-COMPLETE"}),
+        "2026-01-01T00:00:04Z",
+    );
+    one.phase("2026-01-01T00:00:04Z", "ship");
     one.effect("2026-01-01T00:00:04Z", "f2", "a2", "alpha");
     one.checkpoint(
         "2026-01-01T00:00:05Z",
@@ -1785,4 +1795,84 @@ fn a_metering_rule_no_writer_words_is_refused() {
         ),
         "{error:?}"
     );
+}
+
+/// A refused or acknowledged run contributes no spend and no site to a
+/// window, exactly as the whole read leaves an unreadable run out
+/// (decision 0089 slice 4, unit U3c's R2).
+#[test]
+fn a_refused_or_acknowledged_run_contributes_no_metered_row() {
+    let mut normal = Journal::new("normal");
+    normal.started("2026-01-01T00:00:00Z", Some("hearth-a"));
+    normal.phase("2026-01-01T00:00:01Z", "implement");
+    normal.effect("2026-01-01T00:00:02Z", "f1", "a1", "alpha");
+    normal.checkpoint(
+        "2026-01-01T00:00:03Z",
+        "f1",
+        "a1",
+        json!({"step": "seat-turn", "input_tokens": 1, "total_cost_usd": 0.1}),
+    );
+    let mut refused = Journal::new("refused");
+    refused.started("2026-01-01T00:00:00Z", Some("hearth-b"));
+    refused.phase("2026-01-01T00:00:01Z", "implement");
+    refused.effect("2026-01-01T00:00:02Z", "f2", "a2", "beta");
+    refused.checkpoint(
+        "2026-01-01T00:00:03Z",
+        "f2",
+        "a2",
+        json!({"step": "seat-turn", "input_tokens": 2, "total_cost_usd": 0.2}),
+    );
+    let (_dir, store) = plant_runs(vec![normal, refused]);
+    let from = ms("2026-01-01T00:00:00Z");
+    let to = ms("2026-01-01T00:01:00Z");
+    let read = |store: &Store| {
+        let mut spends = Vec::new();
+        store
+            .window_spends(from, to, None, |spend| {
+                spends.push(spend.run_id.to_string())
+            })
+            .unwrap();
+        let mut sites = Vec::new();
+        store
+            .window_sites(from, to, None, SiteOrder::Model, |site| {
+                sites.push(site.run_id.to_string())
+            })
+            .unwrap();
+        spends.sort();
+        sites.sort();
+        (spends, sites)
+    };
+    let both = (
+        vec!["normal".to_string(), "refused".to_string()],
+        vec!["normal".to_string(), "refused".to_string()],
+    );
+    assert_eq!(read(&store), both, "both folded runs are read");
+    for (acknowledged, word) in [(0, "refused"), (1, "acknowledged")] {
+        store
+            .conn
+            .execute(
+                "UPDATE run_summary SET refusal_words = 'stored refusal', acknowledged = ?1
+                  WHERE run_id = 'refused'",
+                [acknowledged],
+            )
+            .unwrap();
+        assert_eq!(
+            crate::test_support::lane(&store, "refused").as_deref(),
+            Some(word)
+        );
+        assert_eq!(
+            read(&store),
+            (vec!["normal".to_string()], vec!["normal".to_string()]),
+            "{word} contributes no spend and no site"
+        );
+    }
+    store
+        .conn
+        .execute(
+            "UPDATE run_summary SET refusal_words = NULL, acknowledged = 0
+              WHERE run_id = 'refused'",
+            [],
+        )
+        .unwrap();
+    assert_eq!(read(&store), both, "the control reads both again");
 }
