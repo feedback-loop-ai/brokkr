@@ -5,7 +5,7 @@ Date: 2026-09-05
 
 Built: partial (#269) — `seatbelt` owes its lifetime gate and `container` its slice; both refuse at start
 Supersedes in part: 0008
-Amended by: 0063
+Amended by: 0063, 0107
 
 ## Context
 
