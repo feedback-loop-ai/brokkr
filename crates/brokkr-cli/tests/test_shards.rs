@@ -168,12 +168,12 @@ fi
 if names "${STUB_TAIL:-}" "$@"; then
   shell_dep tail-9abc 'sleep 0.2
 printf "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s\n"
-sleep 2; :'
+sleep 6; :'
   wait
 fi
 if names "${STUB_LEAK:-}" "$@"; then
   dep_path="$(dep leak-0123abcd /bin/sh)"
-  "$dep_path" -c 'sleep 1.8; :' leak-0123abcd & printf '%s\n' "$!" > "$dir/leak.pid"
+  "$dep_path" -c 'sleep 6; :' leak-0123abcd & printf '%s\n' "$!" > "$dir/leak.pid"
   sleep 0.4; summary ok 1 0; exit 0
 fi
 if names "${STUB_CARGO_TAIL:-}" "$@"; then run_dep short-0123abcd 0.2; sleep 3; fi
@@ -1549,7 +1549,7 @@ fn a_hang_in_cargos_own_tail_is_not_bounded() {
 }
 
 /// A `deps` binary that prints a passing result at 0.2 s and then lives
-/// 2 s is bounded at 1 s: a result line cannot clear its clock. The result
+/// 6 s, a margin a loaded host cannot close (#1054), is bounded at 1 s: a result line cannot clear its clock. The result
 /// is copied before the bound, so it is in the log, and every later shard
 /// runs.
 #[test]
@@ -1563,7 +1563,7 @@ fn a_passing_result_line_at_the_tail_does_not_clear_the_clock() {
 
 /// A `deps` binary that outlives argv itself is still bounded: a fake cargo
 /// prints a passing summary at 0.4 s and exits 0 while `leak-0123abcd` lives
-/// 1.8 s. The 1 s clock is judged after argv's exit, so the shard fails by
+/// 6 s, a margin a loaded host cannot close (#1054). The 1 s clock is judged after argv's exit, so the shard fails by
 /// the binary's name, every later shard runs, and nothing of the group
 /// remains.
 #[test]

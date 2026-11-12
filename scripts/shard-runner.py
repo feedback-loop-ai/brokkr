@@ -63,6 +63,7 @@ proof; the job's own timeout is its bound.
 """
 
 import argparse
+import errno
 import os
 from pathlib import Path
 import platform
@@ -109,13 +110,17 @@ class Member(NamedTuple):
     the process identity a clock is keyed by. `exe` is the executable the
     kernel reports, or None when it could not be read, with `exe_problem`
     saying why; a member whose executable cannot be read is a failed read,
-    never a member that is silently not judged.
+    never a member that is silently not judged. When the executable link
+    refuses its read but the arguments can be read, `exe` is the first
+    argument and `exe_source` says so and why, so the member is judged by
+    the path it was started as (#1054).
     """
 
     pid: int
     start: object
     exe: object = None
     exe_problem: object = None
+    exe_source: object = None
 
 
 def parse_stat(text):
@@ -136,17 +141,70 @@ def parse_stat(text):
     return pid, group, start
 
 
-def proc_member(entry, start):
-    """The member at /proc entry `entry`, or None when it vanished."""
+def stat_detail(text, error):
+    """The errno, state and command name a refused read is reported with."""
+    name = errno.errorcode.get(error.errno, str(error.errno))
+    open_paren = text.find("(")
+    close_paren = text.rfind(")")
+    if open_paren < 1 or close_paren <= open_paren:
+        return f"{name}; stat unreadable"
+    comm = "".join(c if c.isprintable() else "?" for c in text[open_paren + 1:close_paren])
+    fields = text[close_paren + 1:].split()
+    state = fields[0] if fields else "?"
+    return f"{name}; stat state {state}, comm {comm[:32]}"
+
+
+def exited(entry):
+    """Whether the process at /proc entry `entry` is gone or a zombie now."""
+    try:
+        text = (entry / "stat").read_text(encoding="utf-8", errors="replace")
+    except (FileNotFoundError, ProcessLookupError):
+        return True
+    except OSError:
+        return False
+    fields = text[text.rfind(")") + 1:].split()
+    return bool(fields) and fields[0] in ("Z", "X")
+
+
+def proc_member(entry, start, stat_text=""):
+    """The member at /proc entry `entry`, or None when it vanished.
+
+    An executable link that refuses its read with anything but ENOENT or
+    ESRCH is not the end of the judgment: the kernel can refuse it for a
+    live process it will not let this user trace, while the arguments stay
+    readable. Such a member is judged by its first argument, the path cargo
+    starts a test binary as. A process that changed its credentials, as one
+    entering a user namespace does, is refused this way until its next exec.
+    Arguments that read empty because the process exited between the two
+    reads mean it is gone. Only a live member whose arguments cannot be read,
+    or are empty, is a failed read, and its reason names the errno and the
+    state and command name its stat holds (#1054).
+    """
     try:
         exe = os.readlink(entry / "exe")
     except (FileNotFoundError, ProcessLookupError):
         # The pid exited, or is a zombie with no exe left: not a live
         # member, so it takes no clock and cannot be a survivor.
         return None
+    except OSError as error:
+        detail = stat_detail(stat_text, error)
+    else:
+        return Member(int(entry.name), start, exe)
+    try:
+        data = (entry / "cmdline").read_bytes()
+    except (FileNotFoundError, ProcessLookupError):
+        return None
     except OSError:
-        return Member(int(entry.name), start, None, EXE_UNREADABLE)
-    return Member(int(entry.name), start, exe)
+        return Member(int(entry.name), start, None,
+                      f"{EXE_UNREADABLE}, nor its arguments ({detail})")
+    first = data.split(b"\0", 1)[0].decode("utf-8", "replace")
+    if not first:
+        if exited(entry):
+            return None
+        return Member(int(entry.name), start, None,
+                      f"{EXE_UNREADABLE}, and its arguments are empty ({detail})")
+    return Member(int(entry.name), start, first, None,
+                  f"its first argument, its executable unreadable ({detail})")
 
 
 def proc_group(pgid, root=PROC):
@@ -180,7 +238,7 @@ def proc_group(pgid, root=PROC):
         pid, group, start = parsed
         if group != pgid:
             continue
-        member = proc_member(entry, start)
+        member = proc_member(entry, start, text)
         if member is not None:
             members.append(member)
     if not seen:
@@ -331,6 +389,7 @@ class Runner:
         self.status = status
         self.read_group = read_group
         self.read_args = read_args
+        self.noted = set()
         self.process = None
         self.pgid = None
         self.selector = None
@@ -477,6 +536,13 @@ class Runner:
         for member in members:
             key = (member.pid, member.start)
             seen.add(key)
+            if member.exe_source is not None and key not in self.noted:
+                # Said once per process, so the log shows what the kernel
+                # refused and what the member was judged by instead (#1054).
+                self.noted.add(key)
+                sys.stderr.write(f"shard runner: pid {member.pid} is judged by "
+                                 f"{member.exe_source}: {member.exe}\n")
+                sys.stderr.flush()
             if key in clocks:
                 continue
             name, problem = judged_name(member, self.read_args)
