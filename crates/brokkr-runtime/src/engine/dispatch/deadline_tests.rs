@@ -772,3 +772,5 @@ fn an_invalid_host_names_itself_after_a_normal_failure() {
         "{error}"
     );
 }
+
+mod words_tests;

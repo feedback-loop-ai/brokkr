@@ -24,6 +24,9 @@ use super::carry::{
     record::{settled_members, PanelRecord, PanelSpan, Tag},
 };
 use super::cooldown::refused_members;
+use super::dispatch::deadline::AttemptBound;
+#[cfg(test)]
+use super::dispatch::deadline::Deadline;
 use super::{
     argv_for, checkpoints, copy_secret_binding_facts, failed_to_start, resume, spawn_site,
     stamp_boundary, start_failure_fields, tag_member, Calls, Checkpoints, Door, DriverRun, Engine,
@@ -55,13 +58,10 @@ impl<'a> PanelAt<'a> {
 }
 
 impl Engine {
-    /// Run a parallel panel INSIDE one effect (decision 0002): members
-    /// execute concurrently, join as a barrier in declared order, each
-    /// member's outcome is journaled as checkpoint evidence, and the
-    /// declared deterministic aggregate produces the single typed result
-    /// the outer machine sees. Any indeterminate member makes the whole
-    /// attempt indeterminate (park); otherwise any failed member fails
-    /// the attempt (retryable under 0006).
+    /// A panel run directly by a test, on a bare bound with no deadline
+    /// source to name. Dispatch reaches [`Self::execute_panel_named`] with
+    /// the attempt's own bound.
+    #[cfg(test)]
     pub(super) fn execute_panel(
         &mut self,
         at: &PanelAt<'_>,
@@ -69,6 +69,35 @@ impl Engine {
         aggregate: Aggregate,
         panel_input: &Value,
         deadline: std::time::Duration,
+        selection: &Selection,
+    ) -> Result<(), EngineError> {
+        let remaining = deadline;
+        let deadline = Deadline::unchanged(remaining.as_secs());
+        self.execute_panel_named(
+            at,
+            members,
+            aggregate,
+            panel_input,
+            AttemptBound::new(&deadline, remaining),
+            selection,
+        )
+    }
+
+    /// Run a parallel panel INSIDE one effect (decision 0002): members
+    /// execute concurrently, join as a barrier in declared order, each
+    /// member's outcome is journaled as checkpoint evidence, and the
+    /// declared deterministic aggregate produces the single typed result
+    /// the outer machine sees. Any indeterminate member makes the whole
+    /// attempt indeterminate (park); otherwise any failed member fails
+    /// the attempt (retryable under 0006). A panel's terminal words name
+    /// the attempt's deadline once, at the joined outcome.
+    pub(super) fn execute_panel_named(
+        &mut self,
+        at: &PanelAt<'_>,
+        members: &[PanelMember],
+        aggregate: Aggregate,
+        panel_input: &Value,
+        bound: AttemptBound<'_>,
         selection: &Selection,
     ) -> Result<(), EngineError> {
         let PanelAt {
@@ -89,7 +118,7 @@ impl Engine {
             "",
             gate,
         );
-        let reports = self.run_panel(effect_id, attempt_id, &runs, deadline, "")?;
+        let reports = self.run_panel(effect_id, attempt_id, &runs, bound.remaining, "")?;
         self.journal_panel_members(effect_id, attempt_id, &reports, &runs, "")?;
         span.close(&self.repo);
         let record = PanelRecord {
@@ -104,9 +133,14 @@ impl Engine {
         let events = self.store.load(&self.run_id)?;
         let unproven = Unproven::panel(&reports);
         let carry = selection.carry.as_ref();
+        // The watchdog's fact is read before the reports join: the joined
+        // outcome names the deadline once, not each member's report.
+        let killed = reports.iter().any(|(_, report)| report.deadline_killed);
         // One line, as `disposed`'s refusal callsites: the exact-coverage
         // gate reads a multi-line call's `?` edge as its own region.
-        match outcome_under(aggregate, carry, reports, &record.span, attempt_id)? {
+        let mut outcome = outcome_under(aggregate, carry, reports, &record.span, attempt_id)?;
+        bound.deadline.name_joined_outcome(&mut outcome, killed);
+        match outcome {
             AttemptOutcome::Indeterminate { reason } => {
                 let mut payload = json!(Indeterminate {
                     effect_id,
