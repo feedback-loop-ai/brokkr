@@ -202,14 +202,7 @@ impl Destination {
         let mut file = self.inventory(&bytes, written)?;
         after()?;
         super::sync_dir(&self.dir)?;
-        // The bytes written are the bytes the inventory names: a reader
-        // parses them back through this build's one reader, from the very
-        // descriptor that wrote them.
-        let mut kept = Vec::new();
-        file.seek(SeekFrom::Start(0))?;
-        file.read_to_end(&mut kept)?;
-        super::read_archive(&kept)?;
-        Ok(canonical::sha256_bytes(&bytes))
+        read_back(&mut file, &bytes)
     }
 
     /// The archive's `sha256/` directory, made new beneath the resolved
@@ -453,4 +446,17 @@ pub(super) fn written_into(
         & (format!("{:x}", hasher.finalize()) == name)
         & (kept == name);
     written.then_some(()).ok_or_else(refused)
+}
+
+/// The archive's digest: the bytes written are the bytes the inventory
+/// names, so a reader parses them back through this build's one reader,
+/// from the very descriptor that wrote them, before the digest of `bytes`
+/// is the retirement's (decision 0105; split from `archived` for its CC,
+/// #1069).
+fn read_back(file: &mut std::fs::File, bytes: &[u8]) -> Result<String, EvidenceError> {
+    let mut kept = Vec::new();
+    file.seek(SeekFrom::Start(0))?;
+    file.read_to_end(&mut kept)?;
+    super::read_archive(&kept)?;
+    Ok(canonical::sha256_bytes(bytes))
 }
