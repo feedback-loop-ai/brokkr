@@ -531,6 +531,7 @@ fn a_backfill_cut_short_by_a_peer_s_lock_resumes_at_the_next_open() {
     migrate_summary(&conn).unwrap();
     crate::event_index::migrate_index(&conn).unwrap();
     crate::seat_summary::migrate_seats(&conn).unwrap();
+    crate::seat_summary::migrate_stale(&conn).unwrap();
     drop(conn);
     let lock = write_lock_on(&path);
     let store = Store::open(&path).unwrap();

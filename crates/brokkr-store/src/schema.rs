@@ -324,10 +324,13 @@ fn initialize_additions(conn: &Connection) -> Result<(), StoreError> {
     // journal, records the mark once every event has its row.
     migrate_index(conn)?;
     // A run without a seat head reads as stale whatever this key says, and
-    // the open's walk folds it, so a new journal is marked here. This also
-    // makes the stale-seat set that sits beside the seat tables.
+    // the open's walk folds it, so a new journal is marked here.
     migrate_seats(conn)?;
     mark_seated(conn)?;
+    // The eighth repair runs beside the seat tables on a fresh journal as
+    // it does after them on an older one; the seat migration no longer
+    // makes the set, so this is its one call site on the creation path.
+    migrate_stale(conn)?;
     Ok(())
 }
 

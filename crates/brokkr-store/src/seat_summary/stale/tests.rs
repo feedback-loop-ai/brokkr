@@ -52,6 +52,15 @@ fn stale(conn: &Connection) -> Vec<String> {
     rows(conn, &sql, rusqlite::params![SHAPE.as_str()])
 }
 
+/// The runs [`Store::window_fallbacks`] names, store-wide and in its order.
+fn fallback(store: &Store) -> Vec<String> {
+    let mut named = Vec::new();
+    store
+        .window_fallbacks(0, 0, None, |run| named.push(run.run_id.to_string()))
+        .unwrap();
+    named
+}
+
 /// The runs that lag by shape alone: a seat head at the summary's own seq
 /// and hash, written by another build.
 fn shape_only(conn: &Connection) -> Vec<String> {
@@ -109,6 +118,14 @@ fn headless(conn: &Connection, run_id: &str) {
         .unwrap();
 }
 
+/// A store and its directory carrying one current run, `run`.
+fn current_store() -> (tempfile::TempDir, Store) {
+    let (dir, store) = crate::tests::store();
+    plant_run(&store.conn, "run", "{}").unwrap();
+    current(&store.conn, "run");
+    (dir, store)
+}
+
 /// The repair's shared tail: reopen `path` and run the open's repair path,
 /// without the catch-up whose refold would clear the lags the test states.
 fn repaired(path: &std::path::Path) -> Connection {
@@ -156,6 +173,119 @@ fn every_transition_keeps_the_set() {
         set(&store.conn),
         ["run".to_string()],
         "a head at another seq joins again"
+    );
+}
+
+/// A head written by `UPDATE` is kept as a head written by `INSERT` is:
+/// moved off the summary's head it joins the set, and moved back it
+/// leaves. No production writer updates a head, but the triggers keep the
+/// set exact whatever writes the journal's own table.
+#[test]
+fn an_updated_seat_head_keeps_the_set() {
+    let (_dir, store) = crate::tests::store();
+    plant_run(&store.conn, "run", "{}").unwrap();
+    current(&store.conn, "run");
+    assert_eq!(set(&store.conn), Vec::<String>::new(), "the run is current");
+
+    store
+        .conn
+        .execute(
+            "UPDATE seat_head SET folded_seq = 7 WHERE run_id = 'run'",
+            [],
+        )
+        .unwrap();
+    assert_eq!(
+        set(&store.conn),
+        ["run".to_string()],
+        "a head moved in place joins"
+    );
+    assert_eq!(rule(&store.conn), ["run".to_string()]);
+
+    store
+        .conn
+        .execute(
+            "UPDATE seat_head SET folded_seq = 0 WHERE run_id = 'run'",
+            [],
+        )
+        .unwrap();
+    assert_eq!(
+        set(&store.conn),
+        Vec::<String>::new(),
+        "a head moved back leaves"
+    );
+    assert_eq!(rule(&store.conn), Vec::<String>::new());
+}
+
+/// A summary repair does not name a current run: the seed names the head
+/// columns on every row, and the trigger decides by the seat head it finds
+/// rather than joining on the write alone. A head that moves and comes
+/// back leaves the set as the rule says.
+#[test]
+fn a_summary_repair_leaves_the_set_equal_to_the_rule() {
+    let (dir, store) = current_store();
+    store
+        .conn
+        .execute("DROP INDEX run_summary_page", [])
+        .unwrap();
+    assert!(!crate::summary::summary_intact(&store.conn).unwrap());
+    drop(store);
+
+    let conn = repaired(&dir.path().join("forge.db"));
+    assert!(crate::summary::summary_intact(&conn).unwrap());
+    assert_eq!(
+        set(&conn),
+        Vec::<String>::new(),
+        "a current run stays out of the set"
+    );
+    assert_eq!(set(&conn), rule(&conn));
+
+    conn.execute(
+        "UPDATE run_summary SET head_hash = 'h2' WHERE run_id = 'run'",
+        [],
+    )
+    .unwrap();
+    assert_eq!(set(&conn), ["run".to_string()], "a moved head joins");
+    conn.execute(
+        "UPDATE run_summary SET head_hash = ?1 WHERE run_id = 'run'",
+        [ZERO_HASH],
+    )
+    .unwrap();
+    assert_eq!(
+        set(&conn),
+        Vec::<String>::new(),
+        "a head that comes back leaves"
+    );
+    assert_eq!(set(&conn), rule(&conn));
+}
+
+/// A trigger body another build wrote is not this build's: the repair
+/// replaces it, so a journal carrying the old unconditional join takes the
+/// fixed body rather than being trusted by its name.
+#[test]
+fn a_trigger_of_another_body_is_replaced() {
+    let (dir, store) = current_store();
+    store
+        .conn
+        .execute_batch(&format!(
+            "DROP TRIGGER {SUMMARY_MOVED};
+             CREATE TRIGGER {SUMMARY_MOVED}
+                 AFTER UPDATE OF head_seq, head_hash ON run_summary BEGIN
+                 INSERT OR IGNORE INTO {STALE} (run_id) VALUES (NEW.run_id);
+             END;"
+        ))
+        .unwrap();
+    assert!(
+        !stale_intact(&store.conn).unwrap(),
+        "another body is not this build's"
+    );
+    drop(store);
+
+    let conn = repaired(&dir.path().join("forge.db"));
+    assert!(stale_intact(&conn).unwrap(), "the repair replaced the body");
+    assert_eq!(
+        set(&conn),
+        Vec::<String>::new(),
+        "the current run stays out"
     );
 }
 
@@ -352,5 +482,68 @@ fn an_older_writers_append_joins_the_set() {
         set(&store.conn),
         Vec::<String>::new(),
         "the matching head leaves"
+    );
+}
+
+/// A reader that cannot write and finds no set reads the rule's own
+/// statement, not the set's absent table: a journal from before U3d is
+/// still answered exactly, as the projection fallbacks answer (decision
+/// 0014).
+#[test]
+fn a_read_only_reader_without_the_set_reads_the_rule() {
+    let (dir, store) = crate::tests::store();
+    plant_run(&store.conn, "current", "{}").unwrap();
+    current(&store.conn, "current");
+    plant_run(&store.conn, "headless", "{}").unwrap();
+    headless(&store.conn, "headless");
+    let named = rule(&store.conn);
+    assert_eq!(named, ["headless".to_string()]);
+    drop_set(&store.conn);
+    drop(store);
+
+    let reader = Store::open_read_only(&dir.path().join("forge.db")).unwrap();
+    assert!(
+        !stale_intact(&reader.conn).unwrap(),
+        "the reader finds no set"
+    );
+    assert_eq!(
+        fallback(&reader),
+        named,
+        "the fallback reads the rule, not the absent table"
+    );
+}
+
+/// A reader that cannot write and finds a damaged set reads the rule's own
+/// statement too: a lost trigger can leave a lagging run out of the set,
+/// and the reader must still name it.
+#[test]
+fn a_read_only_reader_with_a_damaged_set_reads_the_rule() {
+    let (dir, store) = current_store();
+    store
+        .conn
+        .execute(&format!("DROP TRIGGER {SEAT_HEAD_DROPPED}"), [])
+        .unwrap();
+    store
+        .conn
+        .execute("DELETE FROM seat_head WHERE run_id = 'run'", [])
+        .unwrap();
+    assert_eq!(
+        set(&store.conn),
+        Vec::<String>::new(),
+        "the lost trigger kept no entry"
+    );
+    assert_eq!(
+        rule(&store.conn),
+        ["run".to_string()],
+        "the rule names the run the set lost"
+    );
+    assert!(!stale_intact(&store.conn).unwrap(), "the loss is noticed");
+    drop(store);
+
+    let reader = Store::open_read_only(&dir.path().join("forge.db")).unwrap();
+    assert_eq!(
+        fallback(&reader),
+        ["run".to_string()],
+        "the fallback reads the rule, not the damaged set"
     );
 }

@@ -153,19 +153,18 @@ pub(crate) fn seats_intact(conn: &Connection) -> Result<bool, StoreError> {
 
 const SHAPED: &str = "shape";
 
-/// Create the tables and the stale-seat set that names the runs whose rows
-/// lag them, on a connection holding the write lock: the seventh additive
-/// repair, with the eighth beside it. Their presence is asked again under
-/// the lock, so an opener that raced a peer to it drops none of the rows
-/// the peer's walk has written since. Their rows come from the backfill
-/// that follows the open, outside this lock. The set is kept here too, so
-/// a journal whose seat tables are migrated directly holds it before the
-/// open's next repair read, and that read stays a read.
+/// Create the tables, on a connection holding the write lock: the seventh
+/// additive repair. Their presence is asked again under the lock, so an
+/// opener that raced a peer to it drops none of the rows the peer's walk
+/// has written since. Their rows come from the backfill that follows the
+/// open, outside this lock. Remaking the tables drops the heads' triggers
+/// and the shape index with them, so the eighth repair, which names the
+/// runs whose rows lag, runs after this one and sees their loss.
 pub(crate) fn migrate_seats(conn: &Connection) -> Result<(), StoreError> {
     if !seats_intact(conn)? {
         conn.execute_batch(&migration())?;
     }
-    stale::migrate_stale(conn)
+    Ok(())
 }
 
 /// Record that the backfill finished; a journal created with the tables

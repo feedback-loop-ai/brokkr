@@ -404,6 +404,7 @@ fn a_journal_from_before_the_seat_summary_reads_stale_until_a_writable_open() {
 fn a_seat_backfill_cut_short_resumes_at_the_next_run() {
     let (_dir, path) = older_journal();
     migrate_seats(&rusqlite::Connection::open(&path).unwrap()).unwrap();
+    migrate_stale(&rusqlite::Connection::open(&path).unwrap()).unwrap();
     let lock = write_lock_on(&path);
     let mut store = Store::open(&path).unwrap();
     lock.execute_batch("ROLLBACK").unwrap();
