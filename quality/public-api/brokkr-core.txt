@@ -505,6 +505,7 @@ pub brokkr_core::policy::audit::Audit::groups: usize
 pub brokkr_core::policy::audit::Audit::valuations: usize
 impl core::fmt::Display for brokkr_core::policy::audit::Audit
 pub fn brokkr_core::policy::audit::Audit::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub const brokkr_core::policy::audit::STOP: &str
 pub const brokkr_core::policy::audit::SWEEP_BUDGET: usize
 pub enum brokkr_core::policy::Direction
 pub brokkr_core::policy::Direction::Forward

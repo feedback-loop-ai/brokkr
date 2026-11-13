@@ -139,15 +139,17 @@ fn migration() -> String {
 }
 
 /// Does this journal carry both tables, the rows' with every column a
-/// row is kept in and its digest, and the heads' with the shape they
-/// name? Pure reads. A table without one is a shape an unreleased build
-/// of this slice made, a row without its digest or without the facts
-/// slice 2b keeps, or a head that names no shape, which [`migrate_seats`]
-/// makes anew.
+/// row is kept in and its digest, and the heads' with every column the
+/// set's bodies read and the shape they name? Pure reads. A table without
+/// one is a shape an unreleased build of this slice made, a row without
+/// its digest or without the facts slice 2b keeps, or a head that names no
+/// shape or cannot satisfy the set's bodies, which [`migrate_seats`] makes
+/// anew. The head's question is [`stale::shaped_head`]'s, the same one the
+/// summary repair's drop asks, so a remade head has one home.
 pub(crate) fn seats_intact(conn: &Connection) -> Result<bool, StoreError> {
     Ok(all_present(conn, "table", &TABLES)?
         && holds(conn, "seat_summary", kept())?
-        && holds(conn, "seat_head", [SHAPED])?
+        && stale::shaped_head(conn)?
         && all_present(conn, "index", &INDEXES)?)
 }
 

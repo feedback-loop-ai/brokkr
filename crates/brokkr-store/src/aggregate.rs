@@ -27,13 +27,14 @@ use std::sync::LazyLock;
 use brokkr_core::ending::Ending;
 use brokkr_core::fold::Status;
 use brokkr_core::page::Lane;
+use brokkr_core::policy::audit::STOP;
 use rusqlite::types::{Value, ValueRef};
 use rusqlite::Connection;
-use rusqlite::{params, params_from_iter, Row, StatementStatus};
+use rusqlite::{params, params_from_iter, OptionalExtension, Row, StatementStatus};
 
 use crate::event_index::{finished, index_intact, BACKFILLED as INDEXED, PARKED};
 use crate::summary::{summary_intact, BACKFILLED as SUMMARISED};
-use crate::{Store, StoreError};
+use crate::{patiently, Store, StoreError};
 
 /// The order a window's runs are folded in (decision 0089 ruling 7): the
 /// two key orders the figures group by, or no order when the caller keeps
@@ -96,6 +97,63 @@ pub struct WindowPark<'a> {
     pub open: bool,
 }
 
+/// The partial index the readiness probe reads: one entry a `runs` row
+/// whose `run_id`, `feature` or `created_at` is not text, which
+/// [`Store::list_runs`] cannot read. `IF NOT EXISTS`, so a writable open
+/// adds it to an older journal and `DATABASE_SCHEMA` does not move for it;
+/// an older binary keeps it, since no repair drops an index on `runs`.
+/// [`unreadable_intact`] compares the text, so an index another build's
+/// definition made is remade rather than trusted.
+pub(crate) const UNREADABLE_INDEX: &str = "runs_unreadable";
+
+/// The rows [`Store::list_runs`] cannot read: one of its three columns is
+/// not text. `typeof` answers for a NULL, an integer, a real and a blob
+/// alike; `IS NULL` would see only the first.
+const UNREADABLE: &str = "typeof(run_id) <> 'text'
+     OR typeof(feature) <> 'text'
+     OR typeof(created_at) <> 'text'";
+
+/// The probe's statement: one index entry, or none. `LIMIT 1` holds it to
+/// that one, so neither its heap nor its steps grow with the runs.
+static RUNS_UNREADABLE: LazyLock<String> =
+    LazyLock::new(|| format!("SELECT 1 FROM runs WHERE {UNREADABLE} LIMIT 1"));
+
+/// The index's statement, `if_not_exists` for the repair's own `CREATE`,
+/// false for the text SQLite stores and [`unreadable_intact`] reads back
+/// (SQLite stores neither that clause nor a trailing semicolon). The
+/// predicate is the probe's own, so SQLite answers the probe from the
+/// index's entries alone.
+fn unreadable_index_sql(if_not_exists: bool) -> String {
+    let clause = if if_not_exists { "IF NOT EXISTS " } else { "" };
+    format!("CREATE INDEX {clause}{UNREADABLE_INDEX} ON runs (run_id) WHERE {UNREADABLE}")
+}
+
+/// Remake the probe's index, inside the open's immediate transaction: an
+/// index another build's text made is dropped, never trusted, so the
+/// probe's bound survives a changed definition.
+pub(crate) fn migrate_unreadable(conn: &Connection) -> Result<(), StoreError> {
+    conn.execute_batch(&format!(
+        "DROP INDEX IF EXISTS {UNREADABLE_INDEX};\n{}",
+        unreadable_index_sql(true)
+    ))?;
+    Ok(())
+}
+
+/// Does the journal carry the probe's index with this build's definition?
+/// A pure read of `sqlite_master`: a name alone would trust an index whose
+/// text another build wrote, which the probe's predicate cannot read
+/// through.
+pub(crate) fn unreadable_intact(conn: &Connection) -> Result<bool, StoreError> {
+    let index: Option<String> = conn
+        .query_row(
+            "SELECT sql FROM sqlite_master WHERE type = 'index' AND name = ?1",
+            [UNREADABLE_INDEX],
+            |row| row.get(0),
+        )
+        .optional()?;
+    Ok(index.as_deref() == Some(unreadable_index_sql(false).as_str()))
+}
+
 impl Store {
     /// Whether the aggregates' rows are read (ruling 8): the summary's
     /// aggregate columns and the event index's park facts are present,
@@ -108,6 +166,42 @@ impl Store {
         }
         let marked = finished(&self.conn, SUMMARISED)? && finished(&self.conn, INDEXED)?;
         Ok(marked && !parks_unfinished(&self.conn)?)
+    }
+
+    /// Whether [`Store::list_runs`] would read this journal: no `runs` row
+    /// holds a `run_id`, `feature` or `created_at` that is not text. One
+    /// entry of the partial index the open keeps, so the probe's heap and
+    /// VM steps do not grow with the runs; a journal opened read-only
+    /// without the index still answers, by scanning.
+    ///
+    /// The one shape it cannot see is a text value that is not valid UTF-8:
+    /// SQLite stores it as text, so this says `true` where the listing
+    /// refuses. That is damage behind the store's back — the ruled limit of
+    /// analytics' reach (decision 0089 ruling 8's boundary; `doctor` and the
+    /// journal integrity checks find it).
+    pub fn runs_readable(&self) -> Result<bool, StoreError> {
+        self.runs_readable_with(|_| {})
+    }
+
+    /// [`Store::runs_readable`] with the statement's VM steps handed to
+    /// `stepped`, so the test that binds the probe measures the production
+    /// statement itself.
+    fn runs_readable_with(&self, mut stepped: impl FnMut(i64)) -> Result<bool, StoreError> {
+        patiently("runs_readable", self.patience, || {
+            let mut statement = self.conn.prepare(RUNS_UNREADABLE.as_str())?;
+            let found = statement.query([])?.next()?.is_some();
+            stepped(i64::from(statement.get_status(StatementStatus::VmStep)));
+            Ok(!found)
+        })
+    }
+
+    /// The VM steps [`Store::runs_readable`]' one statement takes, for the
+    /// test that holds the probe to the index.
+    #[cfg(test)]
+    pub(crate) fn runs_readable_steps(&self) -> Result<i64, StoreError> {
+        let mut steps = 0;
+        self.runs_readable_with(|taken| steps = taken)?;
+        Ok(steps)
     }
 
     /// Every run whose summary row is behind its head, streamed by its id
@@ -431,10 +525,11 @@ static DURATIONS: LazyLock<String> = LazyLock::new(|| {
 /// index. A stopping run is a running one with an accepted stop, still
 /// open, so its lane is read too.
 /// Each row also states whether its fold stood at the policy's hard stop,
-/// exactly as `brokkr-core`'s `hard_stop` decides it: `stopped`, at the
-/// `stop` phase. The comparison is `IS`, not `=`, so a stopped run that
-/// never entered a phase (its `phase` column NULL) reads false rather than
-/// SQL NULL, which the row reader would refuse. The `phase` column is the
+/// exactly as `brokkr-core`'s `hard_stop` decides it: `stopped`, at
+/// `brokkr_core::policy::audit::STOP`, the one name the core gives the
+/// phase. The comparison is `IS`, not `=`, so a stopped run that never
+/// entered a phase (its `phase` column NULL) reads false rather than SQL
+/// NULL, which the row reader would refuse. The `phase` column is the
 /// writer's cut at [`brokkr_core::summary::NAME_BYTES`], and a cut that
 /// reads `stop` is the whole `stop` — a longer phase cannot cut to it — so
 /// `phase_whole` need not be read.
@@ -442,19 +537,20 @@ fn runs_statement(order: &str) -> String {
     format!(
         "SELECT run_id, realm, recipe, ending_rule, started_ms, finished_ms, ending,
                 implement_visits, review_first, review_second, review_back,
-                (status = '{stopped}' AND phase IS 'stop') AS hard_stop, 0 AS open
+                (status = '{stopped}' AND phase IS '{stop}') AS hard_stop, 0 AS open
            FROM run_summary
            WHERE finished_ms >= ?1 AND finished_ms < ?2 AND {behind}
              AND (?3 IS NULL OR realm = ?3)
          UNION ALL
          SELECT run_id, realm, recipe, ending_rule, started_ms, finished_ms, ending,
                 implement_visits, review_first, review_second, review_back,
-                (status = '{stopped}' AND phase IS 'stop') AS hard_stop, 1 AS open
+                (status = '{stopped}' AND phase IS '{stop}') AS hard_stop, 1 AS open
            FROM run_summary
            WHERE lane IN ({open})
              AND (?3 IS NULL OR realm = ?3)
          {order}",
         stopped = Status::Stopped.as_str(),
+        stop = STOP,
         behind = outside(""),
         open = open_lanes(),
     )

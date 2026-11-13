@@ -46,9 +46,8 @@
 
 use rusqlite::{Connection, OptionalExtension};
 
-use crate::schema::all_present;
-use crate::seat_summary::SHAPE;
-use crate::summary::triggers_intact;
+use crate::schema::holds;
+use crate::seat_summary::{SHAPE, SHAPED};
 use crate::StoreError;
 
 /// The set's table: the runs whose seat head lags by seq or hash, each
@@ -89,7 +88,9 @@ fn shape_index_sql(if_not_exists: bool) -> String {
 
 /// The subquery that holds when `table` carries `run`'s head at `seq` and
 /// `hash`: the one home of what "the other table already holds this head"
-/// means, read by every trigger body and by the fill.
+/// means, read by every trigger body and by the fill. Every column is
+/// qualified by its table, so a `table` that lost one fails to prepare
+/// rather than binding the name outward to the query around it.
 fn matching(
     table: &str,
     run: &str,
@@ -100,7 +101,9 @@ fn matching(
 ) -> String {
     format!(
         "SELECT 1 FROM {table}
-          WHERE run_id = {run} AND {seq_column} = {seq} AND {hash_column} = {hash}"
+          WHERE {table}.run_id = {run}
+            AND {table}.{seq_column} = {seq}
+            AND {table}.{hash_column} = {hash}"
     )
 }
 
@@ -159,13 +162,23 @@ fn summary_insert() -> String {
     )
 }
 
+/// The summary's update trigger. It watches `run_id` as the seat head's
+/// update trigger does: a row moved to another id is judged as an insert
+/// is, and the run it moved from leaves the set, since no summary row
+/// names it any more. A head moved in place is judged as before.
 fn summary_moved() -> String {
     format!(
         "CREATE TRIGGER {SUMMARY_MOVED}
-            AFTER UPDATE OF head_seq, head_hash ON run_summary
-            WHEN OLD.head_seq IS NOT NEW.head_seq OR OLD.head_hash IS NOT NEW.head_hash
-        {}",
-        in_step(
+            AFTER UPDATE OF run_id, head_seq, head_hash ON run_summary
+            WHEN OLD.run_id IS NOT NEW.run_id
+              OR OLD.head_seq IS NOT NEW.head_seq
+              OR OLD.head_hash IS NOT NEW.head_hash
+        BEGIN
+            DELETE FROM {STALE}
+                WHERE run_id = OLD.run_id AND OLD.run_id IS NOT NEW.run_id;
+            {step}
+        END",
+        step = step(
             "NEW.run_id",
             "seat_head",
             "folded_seq",
@@ -299,21 +312,46 @@ pub(crate) fn migrate_stale(conn: &Connection) -> Result<(), StoreError> {
     Ok(())
 }
 
-/// Drop the set's two `run_summary` triggers when a table they name is
-/// absent. SQLite compiles a trigger's body when the statement that fires
-/// it is prepared, so the fifth repair's seed cannot write `run_summary`
-/// while `seat_head` or `seat_lag` is gone; the eighth repair remakes and
-/// refills them. A journal carrying both tables keeps its triggers, so the
-/// steady-state open writes nothing.
+/// Drop the set's two `run_summary` triggers unless the tables they name
+/// can satisfy their bodies. SQLite compiles a trigger's body when the
+/// statement that fires it is prepared, so the fifth repair's seed cannot
+/// write `run_summary` while `seat_head` lacks a column the bodies read or
+/// `seat_lag` is not keyed as this build's: drop them when the tables are
+/// not that shape, and the eighth repair remakes and refills them. A
+/// `seat_head` that cannot satisfy the bodies is not a head this build
+/// keeps either: drop it, and the seventh repair remakes the seat tables and
+/// refolds their runs. A journal carrying both in this build's shape keeps
+/// its triggers, so the steady-state open writes nothing.
 pub(crate) fn forget_summary_triggers(conn: &Connection) -> Result<(), StoreError> {
-    if all_present(conn, "table", &["seat_head", STALE])? {
+    let head = shaped_head(conn)?;
+    if keyed(conn)? && head {
         return Ok(());
     }
-    conn.execute_batch(&format!(
+    let mut drops = format!(
         "DROP TRIGGER IF EXISTS {SUMMARY_INSERT};
          DROP TRIGGER IF EXISTS {SUMMARY_MOVED};"
-    ))?;
+    );
+    if !head {
+        drops.push_str("\n         DROP TABLE IF EXISTS seat_head;");
+    }
+    conn.execute_batch(&drops)?;
     Ok(())
+}
+
+/// Does `seat_head` hold every column the set's bodies read, its own
+/// `shape` beside them? A table of another shape, a column absent or one
+/// not this build's, cannot satisfy them, so [`forget_summary_triggers`]
+/// drops the summary triggers and the seventh repair remakes the seat
+/// tables. [`crate::seat_summary::seats_intact`] asks this same question,
+/// so "seat_head is this build's" has one home: a remade head fails both
+/// the seventh repair and this drop, and neither trusts a shape it cannot
+/// read.
+pub(super) fn shaped_head(conn: &Connection) -> Result<bool, StoreError> {
+    holds(
+        conn,
+        "seat_head",
+        ["run_id", "folded_seq", "folded_hash", SHAPED],
+    )
 }
 
 /// Does `seat_lag` declare `run_id` as its one primary key? One read of
@@ -351,8 +389,19 @@ fn bodies_intact(conn: &Connection) -> Result<bool, StoreError> {
 /// with this build's definition, and every trigger with this build's body?
 /// Pure reads, so the steady-state open writes nothing; a body another
 /// build wrote fails the check, so it is replaced rather than trusted.
+///
+/// [`keyed`] is the table's presence and its shape in one read:
+/// `pragma_table_info` of an absent table, or of a view, yields no primary
+/// key, so a set that is missing or a view fails here without a second
+/// `sqlite_master` read.
+///
+/// [`bodies_intact`] is the whole trigger presence and body question: it
+/// finds each of the five triggers by name, so a second presence read adds
+/// nothing about the set. It does not ask the summary head trigger's body,
+/// and should not: that body is the summary repair's to keep, and a journal
+/// whose only damage is there still carries this build's set, which the
+/// by-set statement answers exactly.
 pub(crate) fn stale_intact(conn: &Connection) -> Result<bool, StoreError> {
-    let names: Vec<&str> = definitions().iter().map(|(name, _)| *name).collect();
     let index: Option<String> = conn
         .query_row(
             "SELECT sql FROM sqlite_master WHERE type = 'index' AND name = ?1",
@@ -360,9 +409,7 @@ pub(crate) fn stale_intact(conn: &Connection) -> Result<bool, StoreError> {
             |row| row.get(0),
         )
         .optional()?;
-    Ok(all_present(conn, "table", &[STALE])?
-        && triggers_intact(conn, &names)?
-        && keyed(conn)?
+    Ok(keyed(conn)?
         && index.as_deref() == Some(shape_index_sql(false).as_str())
         && bodies_intact(conn)?)
 }

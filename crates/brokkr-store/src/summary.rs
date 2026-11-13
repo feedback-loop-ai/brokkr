@@ -73,7 +73,7 @@ mod disagreement;
 mod ending;
 mod stop;
 
-pub(crate) use columns::{not_behind, triggers_intact};
+pub(crate) use columns::not_behind;
 pub use disagreement::Disagreement;
 
 const TABLE: [&str; 1] = ["run_summary"];

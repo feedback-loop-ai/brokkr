@@ -4,6 +4,8 @@
 //! it folds through, and the parks' ranges held to the window alone by their
 //! VM steps.
 
+mod probe;
+
 use brokkr_core::canonical::ZERO_HASH;
 use brokkr_core::ending::{Ending, UnknownEnding};
 use brokkr_core::envelope::{EventEnvelope, EventType};
