@@ -6,12 +6,12 @@
 
 use brokkr_core::fold::{fold, Cursor, Run, RunState};
 use brokkr_core::{EventEnvelope, ProbeAnswer, ProviderWait};
-use brokkr_store::CooldownAggregate;
+use brokkr_store::{CooldownAggregate, CooldownRound, RoundAppend};
 use time::{Duration as TimeDuration, OffsetDateTime};
 
-use super::probe::Probe;
+use super::probe::{NextRound, Probe};
 use super::{
-    episode, maximum_reason, past_maximum, CooldownError, Engine, EngineError, Waited, SLICE,
+    episode, maximum_reason, past_maximum, sites, CooldownError, Engine, EngineError, Waited, SLICE,
 };
 
 impl Engine {
@@ -58,8 +58,8 @@ impl Engine {
         // run's row has no row of this episode, so its remainder is summed
         // here rather than read back.
         let mut unrecorded = 0u64;
-        // The latest own or probe-round end the episode counts. A probe's
-        // row is counted once by `episode`, never again as a remainder.
+        // The latest own or probe-round end the episode counts. A written
+        // round is counted once by `episode`, never again as a remainder.
         let mut counted = waits
             .iter()
             .map(|wait| wait.until)
@@ -74,11 +74,18 @@ impl Engine {
             match self.probe_each(events, state, effect_id, seat, waits)? {
                 ProbeRound::Stopped => return Ok(Waited::Stopped),
                 ProbeRound::Parked(reason) => return Ok(Waited::Parked(reason)),
-                ProbeRound::Extended(until) => {
-                    counted = counted.max(until);
-                    continue;
+                ProbeRound::Extended(round) => match self.record_extension(&round, unrecorded) {
+                    Ok(until) => {
+                        counted = counted.max(until);
+                        continue;
+                    }
+                    Err(reason) => return Ok(Waited::Parked(reason)),
+                },
+                ProbeRound::Answered(round) => {
+                    for answer in round {
+                        record_answer(&mut answers, answer);
+                    }
                 }
-                ProbeRound::Answered(round) => merge_answers(&mut answers, round),
             }
             // Re-read AFTER the probes and BEFORE the retry: another run's
             // row, or one recorded while the probe ran, holds the route
@@ -94,8 +101,9 @@ impl Engine {
     }
 
     /// One round's wait: a stop, the park reason the maximum gives, or the
-    /// wait taken. `unrecorded` gains the seconds this round waits past what
-    /// the episode already counts.
+    /// wait taken. The episode's own stored rows seed the counted baseline,
+    /// so a written round's remainder is never counted twice; `unrecorded`
+    /// is the seconds waited on rows this episode does not own.
     pub(super) fn wait_round(
         &mut self,
         events: &[EventEnvelope],
@@ -111,16 +119,12 @@ impl Engine {
             Ok(end) => end,
             Err(error) => return Ok(WaitRound::Parked(error.to_string())),
         };
-        let additional = beyond_the_record(counted, end, self.now());
-        if let Some(reason) = self.extension_park_reason(
-            events,
-            effect_id,
-            waits,
-            unrecorded.saturating_add(additional),
-        ) {
-            return Ok(WaitRound::Parked(reason));
-        }
-        *unrecorded = unrecorded.saturating_add(additional);
+        let waited =
+            match self.extension_park_reason(events, effect_id, waits, end, counted, *unrecorded) {
+                Ok(waited) => waited,
+                Err(reason) => return Ok(WaitRound::Parked(reason)),
+            };
+        *unrecorded = waited;
         if self.wait_in_slices(end)? {
             return Ok(WaitRound::Stopped);
         }
@@ -152,62 +156,133 @@ impl Engine {
             }
             match self.probe_wait(events, state, effect_id, seat, wait)? {
                 Probe::Answered(answer) => answers.push(answer),
-                Probe::Extended(until) => return Ok(ProbeRound::Extended(until)),
+                Probe::Extended(round) => return Ok(ProbeRound::Extended(round)),
                 Probe::Parked(reason) => return Ok(ProbeRound::Parked(reason)),
             }
         }
         Ok(ProbeRound::Answered(answers))
     }
 
-    /// The maximum judged over the episode through this round, `extension`
-    /// seconds included: the reason to park, or `None` when every cooled
-    /// route may wait. The episode reads its probe rounds from the table, so
-    /// a row written while a probe ran is counted; a remainder waited on
-    /// another run's row is not a row of this episode and is passed in.
+    /// The maximum judged over the episode through `end`, the seconds waited
+    /// past the episode already counted included: the waited total, or the
+    /// reason to park. The episode's own stored rows seed the baseline, so a
+    /// round written before this wait is counted once and a resume over it
+    /// does not add its remainder again; a remainder waited on another run's
+    /// row is not a row of this episode and is carried in `unrecorded`.
     pub(super) fn extension_park_reason(
         &self,
         events: &[EventEnvelope],
         effect_id: &str,
         waits: &[ProviderWait],
-        extension: u64,
-    ) -> Option<String> {
-        let total = match episode(&self.store, &self.run_id, events, effect_id) {
-            Ok((_, total)) => total,
+        end: OffsetDateTime,
+        counted: OffsetDateTime,
+        unrecorded: u64,
+    ) -> Result<u64, String> {
+        let episode = match sites::episode_by_site(&self.store, &self.run_id, events, effect_id) {
+            Ok(episode) => episode,
             Err(error) => {
                 let wait = &waits[0];
-                return Some(format!(
+                return Err(format!(
                     "a cool-down wait for {}/{} cannot read its episode: {error}",
                     wait.provider, wait.route
                 ));
             }
         };
+        let counted = counted.max(episode.latest.unwrap_or(counted));
+        let waited = unrecorded.saturating_add(beyond_the_record(counted, end, self.now()));
         for wait in waits {
             let max = match self.cooldown_bounds(&wait.provider, &wait.route) {
                 Ok(Some(bounds)) => u64::from(bounds.max_seconds.get()),
                 Ok(None) => continue,
                 Err(error) => {
-                    return Some(format!(
+                    return Err(format!(
                         "a cool-down wait for {}/{} cannot read its bounds: {error}",
                         wait.provider, wait.route
                     ))
                 }
             };
-            let through = total.saturating_add(extension);
-            if past_maximum(extension, through, max) {
+            let through = episode.seconds.saturating_add(waited);
+            if past_maximum(waited, through, max) {
+                let rounds = episode
+                    .rounds
+                    .get(&wait.site)
+                    .copied()
+                    .unwrap_or(0)
+                    .max(wait.rounds);
                 let pending = ProviderWait {
                     site: wait.site.clone(),
                     provider: wait.provider.clone(),
                     route: wait.route.clone(),
                     words: wait.words.clone(),
                     retry_after_seconds: None,
-                    seconds: extension,
+                    seconds: waited,
                     until: self.now(),
-                    rounds: wait.rounds,
+                    rounds,
                 };
-                return Some(maximum_reason(&pending, through, max));
+                return Err(maximum_reason(&pending, through, max));
             }
         }
-        None
+        Ok(waited)
+    }
+
+    /// Append one probe's next round after judging it against the maximum
+    /// with the remainders this wait has already taken: a round past the
+    /// maximum writes nothing and parks with the maximum named (choice 3);
+    /// a round within it is written at the terminal's own `(run_id,
+    /// event_seq)`, and its end is what the caller waits. A rows-bearing
+    /// store refusal parks naming the store's words, never silently. The
+    /// effect's attempts are untouched.
+    fn record_extension(
+        &mut self,
+        round: &NextRound,
+        waited: u64,
+    ) -> Result<OffsetDateTime, String> {
+        let through = round
+            .episode
+            .saturating_add(waited)
+            .saturating_add(round.seconds);
+        let pending = ProviderWait {
+            site: round.site.clone(),
+            provider: round.provider.clone(),
+            route: round.route.clone(),
+            words: round.words.clone(),
+            retry_after_seconds: round.retry_after_seconds,
+            seconds: round.seconds.saturating_add(waited),
+            until: self.now(),
+            rounds: round.rounds,
+        };
+        if past_maximum(pending.seconds, through, round.max) {
+            return Err(maximum_reason(&pending, through, round.max));
+        }
+        // A round within the maximum has a length at most the declared
+        // maximum, a `u32`, so its end is always representable:
+        // `a_round_within_the_maximum_has_a_representable_end` holds that
+        // bound, which is why this arm has no no-end park to cover.
+        let until = sites::wait_until(self.now(), round.seconds)
+            .expect("a round within the maximum has a representable end");
+        let appended = self.store.append_cooldown_round(CooldownRound {
+            run_id: &self.run_id,
+            event_seq: round.event_seq,
+            site: round.site.as_deref().unwrap_or(""),
+            provider: &round.provider,
+            route: &round.route,
+            until_at: until,
+            reason: &round.words,
+            retry_after_seconds: round.retry_after_seconds,
+            rounds: round.rounds,
+            seconds: round.seconds,
+        });
+        match appended {
+            Ok(RoundAppend::Written) => Ok(until),
+            Ok(RoundAppend::NoTable) => Err(format!(
+                "the cool-down probe for {}/{} was refused again by the provider: {}",
+                round.provider, round.route, round.words
+            )),
+            Err(error) => Err(format!(
+                "the cool-down probe for {}/{} could not record its next round: {error}",
+                round.provider, round.route
+            )),
+        }
     }
 
     /// The wait's end: the latest of every recorded wait's own `until` and
@@ -334,8 +409,8 @@ pub(super) enum WaitRound {
 /// What one round of probes left.
 enum ProbeRound {
     Answered(Vec<ProbeAnswer>),
-    /// The new end a rate-limited refusal's row records.
-    Extended(OffsetDateTime),
+    /// A rate-limited refusal's next round, before its row is written.
+    Extended(NextRound),
     Stopped,
     Parked(String),
 }
@@ -345,15 +420,6 @@ enum ProbeRound {
 /// already reached is no wait at all.
 fn beyond_the_record(counted: OffsetDateTime, end: OffsetDateTime, now: OffsetDateTime) -> u64 {
     (end - counted.max(now)).whole_seconds().max(0) as u64
-}
-
-/// Keep one answer per cooled site: a later round's answer replaces the
-/// earlier one, so the retry's `effect/started` records the final answers
-/// (decision 0103 ruling 4(a)).
-fn merge_answers(answers: &mut Vec<ProbeAnswer>, round: Vec<ProbeAnswer>) {
-    for answer in round {
-        record_answer(answers, answer);
-    }
 }
 
 /// Keep one answer per cooled site: a later round's answer replaces the

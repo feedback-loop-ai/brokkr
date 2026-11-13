@@ -10,7 +10,6 @@ use brokkr_core::fold::RunState;
 use brokkr_core::{EventEnvelope, ProbeAnswer, ProviderWait};
 use brokkr_protocol::hands::HandsSpec;
 use serde_json::Value;
-use time::OffsetDateTime;
 use uuid::Uuid;
 
 use super::{Engine, EngineError};
@@ -591,11 +590,30 @@ impl Engine {
     }
 }
 
-/// What a probe leaves: an answer, a rate-limit refusal's extension whose
-/// new end and next round the caller waits and probes again, or the park's
-/// reason.
+/// A rate-limited probe's next round before anything is written: the
+/// terminal event it extends, the site and round it names, its length and
+/// the episode through it. The wait judges the maximum with its own
+/// remainders included and appends the row (decision 0103 ruling 2(a),
+/// choice 3), so a round past the maximum writes nothing.
+pub(super) struct NextRound {
+    pub(super) event_seq: u64,
+    pub(super) site: Option<String>,
+    pub(super) provider: String,
+    pub(super) route: String,
+    pub(super) words: String,
+    pub(super) retry_after_seconds: Option<u64>,
+    pub(super) rounds: u64,
+    pub(super) seconds: u64,
+    /// The episode's seconds through the round's terminal, before it.
+    pub(super) episode: u64,
+    pub(super) max: u64,
+}
+
+/// What a probe leaves: an answer, a rate-limit refusal's next round the
+/// caller judges and writes before waiting and probing again, or the
+/// park's reason.
 pub(super) enum Probe {
     Answered(ProbeAnswer),
-    Extended(OffsetDateTime),
+    Extended(NextRound),
     Parked(String),
 }

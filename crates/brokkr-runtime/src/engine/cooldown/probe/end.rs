@@ -1,24 +1,24 @@
 //! What a probe's report leaves (decision 0103 ruling 4(a)): an answer
-//! permits the retry; a typed rate-limit refusal before any answer appends
-//! the next round and extends the wait, spending no effect attempt; every
-//! other end parks, cleanup's refusal first. The admission's recovery
-//! shares the cleanup refusal's opening.
+//! permits the retry; a typed rate-limit refusal before any answer answers
+//! the next round the wait judges and appends, extending the wait without
+//! spending an effect attempt; every other end parks, cleanup's refusal
+//! first. The admission's recovery shares the cleanup refusal's opening.
 
 use brokkr_core::{ProbeAnswer, ProviderWait};
 use brokkr_protocol::{AttemptOutcome, AttemptReport, Cleanup, PreSessionRefusal, RefusalClass};
-use brokkr_store::{CooldownRound, RoundAppend};
 
 use super::super::sites;
-use super::super::{episode, maximum_reason, past_maximum, terminal, CooldownError};
-use super::{Engine, Probe};
+use super::super::{episode, terminal, CooldownError};
+use super::{Engine, NextRound, Probe};
 
 impl Engine {
     /// What the probe's report leaves: an answer permits the retry; a typed
-    /// rate-limit refusal appends the next round to the terminal event's
-    /// episode and answers [`Probe::Extended`], so the caller waits the new
-    /// aggregate and probes again (decision 0103 ruling 2(a)); every other
-    /// end parks, cleanup's refusal first (ruling 4(a)). No end here spends
-    /// an effect attempt; only a rate-limit refusal writes a row.
+    /// rate-limit refusal before any answer answers the next round
+    /// [`Probe::Extended`] carries, and the caller judges the maximum with
+    /// its own remainders, appends the row and probes again (decision 0103
+    /// ruling 2(a)); every other end parks, cleanup's refusal first (ruling
+    /// 4(a)). No end here spends an effect attempt; only a rate-limit
+    /// refusal can lead to a row.
     pub(in crate::engine::cooldown) fn probe_end(
         &mut self,
         effect_id: &str,
@@ -67,65 +67,21 @@ impl Engine {
         }
     }
 
-    /// One typed rate-limit refusal's next round: the plan read from the
-    /// record, the maximum judged first over the episode through it — the
-    /// probe rounds included — and, within the maximum, the row appended at
-    /// the terminal's own `(run_id, event_seq)`. The caller waits the new
-    /// aggregate and probes again. The effect's attempts are untouched: no
-    /// attempt event is journaled here.
+    /// One typed rate-limit refusal's next round, read from the record but
+    /// not written: the wait judges the maximum with the remainders it has
+    /// already waited included, appends the row at the terminal's own
+    /// `(run_id, event_seq)` and probes again (decision 0103 ruling 2(a),
+    /// choice 3). The effect's attempts are untouched: no attempt event is
+    /// journaled, here or by the round.
     fn extend_wait(
         &mut self,
         effect_id: &str,
         wait: &ProviderWait,
         refusal: &PreSessionRefusal,
     ) -> Probe {
-        let plan = match self.extension_plan(effect_id, wait, refusal) {
-            Ok(plan) => plan,
-            Err(error) => return Probe::Parked(error.to_string()),
-        };
-        if past_maximum(plan.seconds, plan.total, plan.max) {
-            let next = ProviderWait {
-                site: wait.site.clone(),
-                provider: wait.provider.clone(),
-                route: wait.route.clone(),
-                words: refusal.words().to_string(),
-                retry_after_seconds: refusal.retry_after_seconds(),
-                seconds: plan.seconds,
-                until: self.now(),
-                rounds: plan.rounds,
-            };
-            return Probe::Parked(maximum_reason(&next, plan.total, plan.max));
-        }
-        // A round within the maximum has a length at most the declared
-        // maximum, a `u32`, so its end is always representable:
-        // `a_round_within_the_maximum_has_a_representable_end` holds that
-        // bound, which is why this arm has no no-end park to cover.
-        let until = sites::wait_until(self.now(), plan.seconds)
-            .expect("a round within the maximum has a representable end");
-        let round = CooldownRound {
-            run_id: &self.run_id,
-            event_seq: plan.event_seq,
-            site: &plan.site,
-            provider: &wait.provider,
-            route: &wait.route,
-            until_at: until,
-            reason: refusal.words(),
-            retry_after_seconds: refusal.retry_after_seconds(),
-            rounds: plan.rounds,
-            seconds: plan.seconds,
-        };
-        match self.store.append_cooldown_round(round) {
-            Ok(RoundAppend::Written) => Probe::Extended(until),
-            Ok(RoundAppend::NoTable) => Probe::Parked(format!(
-                "the cool-down probe for {}/{} was refused again by the provider: {}",
-                wait.provider,
-                wait.route,
-                refusal.words()
-            )),
-            Err(error) => Probe::Parked(format!(
-                "the cool-down probe for {}/{} could not record its next round: {error}",
-                wait.provider, wait.route
-            )),
+        match self.extension_plan(effect_id, wait, refusal) {
+            Ok(round) => Probe::Extended(round),
+            Err(error) => Probe::Parked(error.to_string()),
         }
     }
 
@@ -141,7 +97,7 @@ impl Engine {
         effect_id: &str,
         wait: &ProviderWait,
         refusal: &PreSessionRefusal,
-    ) -> Result<ExtensionPlan, CooldownError> {
+    ) -> Result<NextRound, CooldownError> {
         let bounds = match self.cooldown_bounds(&wait.provider, &wait.route) {
             Ok(Some(bounds)) => bounds,
             Ok(None) => {
@@ -201,25 +157,19 @@ impl Engine {
                 words: refusal.words().to_string(),
             }
         })?;
-        Ok(ExtensionPlan {
+        Ok(NextRound {
             event_seq: event.seq,
-            site,
+            site: wait.site.clone(),
+            provider: wait.provider.clone(),
+            route: wait.route.clone(),
+            words: refusal.words().to_string(),
+            retry_after_seconds: retry_after,
             rounds,
             seconds,
-            total: prior.1.saturating_add(seconds),
+            episode: prior.1,
             max,
         })
     }
-}
-
-/// One probe round's facts before its row is written.
-struct ExtensionPlan {
-    event_seq: u64,
-    site: String,
-    rounds: u64,
-    seconds: u64,
-    total: u64,
-    max: u64,
 }
 
 /// The opening of every cleanup refusal: the probe for this wait did not

@@ -209,8 +209,8 @@ fn episode(
     events: &[EventEnvelope],
     effect_id: &str,
 ) -> Result<(u64, u64), CooldownError> {
-    let (sites, seconds) = sites::episode_by_site(store, run_id, events, effect_id)?;
-    Ok((sites.values().copied().sum(), seconds))
+    let episode = sites::episode_by_site(store, run_id, events, effect_id)?;
+    Ok((episode.rounds.values().copied().sum(), episode.seconds))
 }
 
 /// The one maximum check the terminal event and a resume both apply: the

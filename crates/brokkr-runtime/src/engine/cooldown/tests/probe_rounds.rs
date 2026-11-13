@@ -70,6 +70,20 @@ fn rounds(engine: &Engine, event_seq: u64, site: &str) -> Vec<u64> {
         .collect()
 }
 
+/// The fact both maximum parks share: the terminal's own row alone, no row
+/// for the round past the maximum, and the maximum named.
+fn only_the_own_row_and_the_maximum(engine: &Engine, expected: &str) {
+    let event = failed(engine).remove(0);
+    assert_eq!(
+        rounds(engine, event.seq, ""),
+        [1],
+        "the round past the maximum wrote a row"
+    );
+    let reason = park_reason(engine);
+    assert!(reason.contains(expected), "{reason}");
+    assert!(reason.contains("declared 100s maximum"), "{reason}");
+}
+
 /// A second run in the same journal, ready for its own refusal row.
 fn second_run(dir: &Path) -> String {
     let store = brokkr_store::Store::open(&dir.join("forge.db")).unwrap();
@@ -758,8 +772,8 @@ fn the_wait_rounds_park_by_name_when_the_store_bounds_or_rounds_cannot_read() {
     let (dir, mut engine, events) = waited_round_fixture();
     invalid_host(dir.path(), &mut engine);
     let reason = engine
-        .extension_park_reason(&events, "effect", &waits, 0)
-        .expect("unreadable bounds park");
+        .extension_park_reason(&events, "effect", &waits, waits[0].until, base(), 0)
+        .expect_err("unreadable bounds park");
     assert!(reason.contains("cannot read its bounds"), "{reason}");
 
     // A probe row whose own recorded instant does not read: the episode, not
@@ -771,8 +785,8 @@ fn the_wait_rounds_park_by_name_when_the_store_bounds_or_rounds_cannot_read() {
          UPDATE provider_cooldowns SET recorded_at = -9223372036854775808;",
     );
     let reason = engine
-        .extension_park_reason(&events, "effect", &waits, 0)
-        .expect("an unreadable round parks");
+        .extension_park_reason(&events, "effect", &waits, waits[0].until, base(), 0)
+        .expect_err("an unreadable round parks");
     assert!(reason.contains("cannot read its episode"), "{reason}");
 }
 
@@ -807,4 +821,99 @@ fn a_stop_journaled_before_the_first_slice_is_honoured() {
         ["attempt:refuse"],
         "a probe ran after the stop"
     );
+}
+
+/// A resume over a round already written counts that round's remainder
+/// once: the episode through it is within the maximum, the engine waits the
+/// written end, the probe answers and the retry runs, spending no attempt.
+#[test]
+fn a_resume_over_a_written_round_counts_it_once() {
+    let start = OffsetDateTime::now_utc();
+    let (dir, mut engine, now) = resumed_at(
+        &["succeed"],
+        start + Duration::seconds(30),
+        30,
+        start + Duration::seconds(45),
+        false,
+    );
+    engine.cooldown.host = Some(host(dir.path(), 30, 100));
+    let event = failed(&engine).remove(0);
+    let run_id = engine.run_id.clone();
+    engine
+        .store
+        .append_cooldown_round(brokkr_store::CooldownRound {
+            run_id: &run_id,
+            event_seq: event.seq,
+            site: "",
+            provider: "claude",
+            route: "first",
+            until_at: start + Duration::seconds(90),
+            reason: "rate_limit: slow down",
+            retry_after_seconds: None,
+            rounds: 2,
+            seconds: 60,
+        })
+        .unwrap();
+    engine.drive().unwrap();
+    assert_eq!(
+        logs(dir.path(), "work"),
+        ["probe", "attempt:succeed"],
+        "a written round was counted twice and parked the resume"
+    );
+    assert!(
+        *now.lock().unwrap() >= start + Duration::seconds(90),
+        "the write's end was not waited"
+    );
+    assert_eq!(starts(&engine).len(), 2, "the resume spent an attempt");
+    let effect = event.payload["effect_id"].clone();
+    assert_eq!(
+        failed(&engine)
+            .iter()
+            .filter(|failed| failed.payload["effect_id"] == effect)
+            .count(),
+        1,
+        "the resume wrote a second failure"
+    );
+}
+
+/// A terminal whose own row never landed is filled at round one; that
+/// filled round is the episode's, so the next round would pass the declared
+/// maximum and is neither written nor waited.
+#[test]
+fn a_filled_round_is_counted_so_the_next_round_parks_at_the_maximum() {
+    let dir = tempfile::tempdir().unwrap();
+    let command = driver(
+        dir.path(),
+        "work",
+        &["succeed"],
+        Probed::Refuse,
+        None,
+        "claude",
+        "first",
+    );
+    let mut engine = started(dir.path(), single_body(command), work(3));
+    engine.cooldown.host = Some(host(dir.path(), 30, 100));
+    let (clock, _now) = Clock::advancing(base());
+    engine.cooldown.clock = clock;
+    append_waited(&mut engine, wait_value(base() - Duration::seconds(1), 30));
+    engine.drive().unwrap();
+    assert_eq!(logs(dir.path(), "work"), ["probe", "probe"]);
+    only_the_own_row_and_the_maximum(&engine, "would wait 60s in round 2 (episode 120s)");
+    assert_eq!(starts(&engine).len(), 1, "the run started another attempt");
+}
+
+/// A remainder already waited on another run's row counts before a probe's
+/// next round is written: the round would pass the maximum, so it writes no
+/// row and parks naming the maximum.
+#[test]
+fn a_remainder_waited_on_another_run_counts_before_the_extension_writes() {
+    let (dir, mut engine, now) = seated!(&["refuse"], Probed::Refuse, None, 3);
+    engine.cooldown.host = Some(host(dir.path(), 30, 100));
+    let start = start_of(&now);
+    let (b, db) = second_run_route(dir.path());
+    append_second_row(&db, &b, start + Duration::seconds(50));
+    engine.drive().unwrap();
+    assert_eq!(logs(dir.path(), "work"), ["attempt:refuse", "probe"]);
+    only_the_own_row_and_the_maximum(&engine, "would wait 80s in round 2 (episode 110s)");
+    assert_eq!(starts(&engine).len(), 1, "the run retried past the maximum");
 }

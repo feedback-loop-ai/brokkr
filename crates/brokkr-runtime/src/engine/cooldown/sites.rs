@@ -52,21 +52,33 @@ pub(in crate::engine) fn refused_members(
         .collect()
 }
 
-/// The episode's waits per site and their seconds across every site: one
-/// entry per earlier round, keyed by the site it named (decision 0103 ruling
-/// 3: the sum is across sites, the round is per site). The terminal events
-/// are the attempt's record; the probe rounds a terminal's episode gained
-/// are read back from the table, one row per round, and counted by the
-/// length the row itself records (decision 0103 ruling 2(a)). An earlier
-/// entry that does not read refuses by name, never as nothing.
+/// The episode's record through one effect: the rounds each site has
+/// waited and their seconds (decision 0103 ruling 3: the sum is across
+/// sites, the round is per site), and the latest instant a stored row ends.
+/// The terminal events are the attempt's record; the probe rounds a
+/// terminal's episode gained are read back from the table, one row per
+/// round, and counted by the length the row itself records (decision 0103
+/// ruling 2(a)). The terminal event's own row is not counted twice; any
+/// other row is a probe round, including the fill at round one of a
+/// terminal whose own row never landed. An earlier entry that does not read
+/// refuses by name, never as nothing.
+pub(super) struct Episode {
+    pub(super) rounds: BTreeMap<Option<String>, u64>,
+    pub(super) seconds: u64,
+    pub(super) latest: Option<OffsetDateTime>,
+}
+
 pub(super) fn episode_by_site(
     store: &brokkr_store::Store,
     run_id: &str,
     events: &[EventEnvelope],
     effect_id: &str,
-) -> Result<(BTreeMap<Option<String>, u64>, u64), CooldownError> {
-    let mut sites = BTreeMap::new();
-    let mut seconds = 0u64;
+) -> Result<Episode, CooldownError> {
+    let mut episode = Episode {
+        rounds: BTreeMap::new(),
+        seconds: 0,
+        latest: None,
+    };
     for event in events {
         if !matches!(
             event.event_type,
@@ -84,21 +96,37 @@ pub(super) fn episode_by_site(
             continue;
         };
         for wait in waits {
-            *sites.entry(wait.site.clone()).or_insert(0u64) += 1;
-            seconds = seconds.saturating_add(wait.seconds);
+            *episode.rounds.entry(wait.site.clone()).or_insert(0u64) += 1;
+            episode.seconds = episode.seconds.saturating_add(wait.seconds);
             let site = wait.site.clone().unwrap_or_default();
             let rows = store
                 .cooldown_rounds(run_id, event.seq, &site)
                 .map_err(|source| CooldownError::RoundsUnreadable {
                     source: Box::new(source),
                 })?;
-            for row in rows.into_iter().filter(|row| row.rounds > wait.rounds) {
-                *sites.entry(wait.site.clone()).or_insert(0u64) += 1;
-                seconds = seconds.saturating_add(round_length(&row));
+            for row in rows {
+                episode.latest = Some(
+                    episode
+                        .latest
+                        .map_or(row.until_at, |latest| latest.max(row.until_at)),
+                );
+                if the_waits_own(&row, &wait) {
+                    continue;
+                }
+                *episode.rounds.entry(wait.site.clone()).or_insert(0u64) += 1;
+                episode.seconds = episode.seconds.saturating_add(round_length(&row));
             }
         }
     }
-    Ok((sites, seconds))
+    Ok(episode)
+}
+
+/// Whether `row` is the terminal event's own row for `wait`: the store
+/// wrote that wait's end, rounded up to its stored whole second, at the
+/// wait's own round when the event landed. A probe's fill at the same round
+/// ends later and is a round the episode counts.
+fn the_waits_own(row: &brokkr_store::Cooldown, wait: &ProviderWait) -> bool {
+    row.rounds == wait.rounds && row.until_at - wait.until < TimeDuration::seconds(1)
 }
 
 /// A probe round's length, read from the row's own two times: the store
@@ -186,15 +214,14 @@ impl Engine {
                 park: None,
             };
         }
-        let Ok((site_rounds, prior_seconds)) =
-            episode_by_site(&self.store, &self.run_id, events, effect_id)
-        else {
+        let Ok(episode) = episode_by_site(&self.store, &self.run_id, events, effect_id) else {
             return self.panel_episode_unreadable(events, effect_id, &mut payload, refused, retry);
         };
         let mut planned: Vec<Option<Plan>> = Vec::with_capacity(refused.len());
         let mut causes: Vec<Option<Cause>> = Vec::with_capacity(refused.len());
         for member in refused {
-            let rounds = site_rounds
+            let rounds = episode
+                .rounds
                 .get(&Some(member.site.clone()))
                 .copied()
                 .unwrap_or(0)
@@ -225,9 +252,12 @@ impl Engine {
                 }
             }
         }
-        let total = planned.iter().flatten().fold(prior_seconds, |total, plan| {
-            total.saturating_add(plan.seconds)
-        });
+        let total = planned
+            .iter()
+            .flatten()
+            .fold(episode.seconds, |total, plan| {
+                total.saturating_add(plan.seconds)
+            });
         for (at, plan) in planned.iter().enumerate() {
             if causes[at].is_none() {
                 if let Some(cause) = plan.as_ref().and_then(|plan| plan.past_maximum(total)) {
