@@ -67,6 +67,7 @@ fn verify_run_prints_the_chain_and_the_state_in_these_bytes() {
     "ending_cited": null,
     "feature": "feature",
     "last_decision": null,
+    "late_tail": null,
     "park_reason": null,
     "phase": "work",
     "run_id": "run",
