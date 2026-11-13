@@ -6,15 +6,13 @@
 
 use std::time::{Duration, Instant};
 
-use brokkr_core::envelope::EventType;
 use brokkr_core::fold::RunState;
 use brokkr_core::{EventEnvelope, ProbeAnswer, ProviderWait};
 use brokkr_protocol::hands::HandsSpec;
-use brokkr_protocol::{AttemptOutcome, AttemptReport, Cleanup, RefusalClass};
-use serde_json::{Map, Value};
+use serde_json::Value;
 use uuid::Uuid;
 
-use super::{terminal, Engine, EngineError};
+use super::{Engine, EngineError};
 use crate::agents::Candidate;
 use crate::bundle::{
     Aggregate, ExecutableBody, Invocation, PanelMember, Seat, SeatClass, SequenceStep, StepBody,
@@ -26,7 +24,13 @@ use crate::engine::dispatch::Dispatch;
 use crate::engine::sequence::{
     step_allowed_results, step_driver_input, StepComposition, StepInputKind,
 };
-use crate::engine::{chain_index, phase_of, spawn_site, Door, Selection, Site, SiteSpawn};
+use crate::engine::{phase_of, spawn_site, Door, Selection, SiteSpawn};
+
+mod end;
+mod sequence;
+pub(in crate::engine) use end::cleanup_failure;
+pub(super) use sequence::step_context;
+use sequence::{probe_member_invocation, refused_index, site_name, step_site};
 
 /// The seat a probe composes under, selected once: the body's form, the
 /// case and site label, and the gate class. One selection serves both the
@@ -583,196 +587,6 @@ impl Engine {
         );
         settlement::ended(&mut self.held, at.site_name, &report.cleanup);
         self.probe_end(wait, report)
-    }
-
-    /// What the probe's report leaves: an answer permits the retry, and
-    /// every other end parks, cleanup's refusal first (decision 0103
-    /// ruling 4(a)). A typed rate-limit refusal parks in 4c1 because the
-    /// table that records its next round is 4d's.
-    pub(super) fn probe_end(&self, wait: &ProviderWait, report: AttemptReport) -> Probe {
-        if let Cleanup::Unresolved { reason } = &report.cleanup {
-            return Probe::Parked(cleanup_failure(
-                Some(&wait.provider),
-                Some(&wait.route),
-                &reason.to_string(),
-            ));
-        }
-        if let Some(refusal) = &report.refusal {
-            let said = match refusal.class() {
-                RefusalClass::RateLimit => "was refused again by the provider",
-                RefusalClass::Other => "was refused",
-            };
-            return Probe::Parked(format!(
-                "the cool-down probe for {}/{} {said}: {}",
-                wait.provider,
-                wait.route,
-                refusal.words()
-            ));
-        }
-        match report.settled_outcome() {
-            AttemptOutcome::Succeeded { .. } => match report.checkpoints.first() {
-                Some(_) => Probe::Answered(ProbeAnswer {
-                    site: wait.site.clone(),
-                    provider: wait.provider.clone(),
-                    route: wait.route.clone(),
-                    answered_at: self.now(),
-                }),
-                None => Probe::Parked(format!(
-                    "the cool-down probe for {}/{} reported success with no answer checkpoint",
-                    wait.provider, wait.route
-                )),
-            },
-            AttemptOutcome::Failed { error } => Probe::Parked(format!(
-                "the cool-down probe for {}/{} ended without an answer: {error}",
-                wait.provider, wait.route
-            )),
-            AttemptOutcome::Indeterminate { reason } => Probe::Parked(format!(
-                "the cool-down probe for {}/{} ended without an answer: {reason}",
-                wait.provider, wait.route
-            )),
-        }
-    }
-}
-
-/// The sequence step and member a wait's site names. An exact step name is
-/// a single step; otherwise a member is resolved by the declared
-/// `(<step>, <member>)` pair, so a wait at `a:b:c` is `a:b`'s member `c`
-/// even when `a` also declares a member `b:c`. The prefix walk that follows
-/// is only for the diagnostic a site naming neither: exact first, so a step
-/// whose own name contains a colon is not mistaken for a member of an
-/// earlier one.
-fn step_site<'a>(
-    steps: &'a [SequenceStep],
-    site: &'a str,
-) -> Option<(usize, &'a SequenceStep, Option<&'a str>)> {
-    if let Some((index, step)) = steps.iter().enumerate().find(|(_, step)| step.name == site) {
-        return Some((index, step, None));
-    }
-    if let Some((index, step, member)) = declared_member(steps, site) {
-        return Some((index, step, Some(member)));
-    }
-    steps.iter().enumerate().find_map(|(index, step)| {
-        site.strip_prefix(&format!("{}:", step.name))
-            .map(|member| (index, step, Some(member)))
-    })
-}
-
-/// The step and member whose declared tag is exactly `site`, in declaration
-/// order.
-fn declared_member<'a>(
-    steps: &'a [SequenceStep],
-    site: &str,
-) -> Option<(usize, &'a SequenceStep, &'a str)> {
-    steps.iter().enumerate().find_map(|(index, step)| {
-        let StepBody::Invocation(Invocation::Panel { members, .. }) = &step.body else {
-            return None;
-        };
-        members
-            .iter()
-            .find(|member| Tag::new(Some(&step.name), &member.name).0 == site)
-            .map(|member| (index, step, member.name.as_str()))
-    })
-}
-
-/// The context a step's attempt had: the seat's context with the earlier
-/// steps' checkpointed results of the failed attempt beside it, so the
-/// probe's input derives exactly as the attempt's did (decision 0103 slice
-/// 4c2b).
-pub(super) fn step_context(events: &[EventEnvelope], effect_id: &str, seat_input: &Value) -> Value {
-    let mut context = seat_input["context"]
-        .as_object()
-        .cloned()
-        .unwrap_or_default();
-    let attempt = terminal(events, effect_id)
-        .and_then(|event| event.payload.get("attempt_id"))
-        .and_then(Value::as_str);
-    let mut prior = Map::new();
-    for event in events {
-        if event.event_type != EventType::EffectCheckpointed
-            || event.payload.get("effect_id").and_then(Value::as_str) != Some(effect_id)
-            || attempt.is_some_and(|attempt| {
-                event.payload.get("attempt_id").and_then(Value::as_str) != Some(attempt)
-            })
-        {
-            continue;
-        }
-        let Some(checkpoint) = event.payload.get("checkpoint") else {
-            continue;
-        };
-        if checkpoint.get("step").and_then(Value::as_str) != Some("sequence-step-finished") {
-            continue;
-        }
-        let (Some(name), Some(result)) = (
-            checkpoint.get("step_name").and_then(Value::as_str),
-            checkpoint.get("result"),
-        ) else {
-            continue;
-        };
-        prior.insert(name.to_string(), result.clone());
-    }
-    context.insert("prior_results".into(), Value::Object(prior));
-    Value::Object(context)
-}
-
-/// The selection and one-member body a panel member's probe admits: its
-/// own candidates, the link the refusal named, and the tag the journal
-/// names it by. A seat-level member and a sequence step's member take this
-/// one composition.
-fn probe_member_invocation(
-    events: &[EventEnvelope],
-    effect_id: &str,
-    tag: Option<String>,
-    member: &PanelMember,
-    aggregate: Aggregate,
-) -> (Selection, Invocation) {
-    let mut selection = Selection::new();
-    if !member.candidates.is_empty() {
-        let index = refused_index(events, effect_id, &tag, member.candidates.len());
-        selection.insert(tag, member.candidates[index].clone());
-    }
-    let one = Invocation::Panel {
-        members: vec![member.clone()],
-        aggregate,
-    };
-    (selection, one)
-}
-
-/// The chain link the refused attempt used: the start failures recorded
-/// before the effect's last terminal event, clamped as `chain_index` does.
-fn refused_index(events: &[EventEnvelope], effect_id: &str, site: &Site, chain: usize) -> usize {
-    let before = terminal(events, effect_id)
-        .and_then(|last| events.iter().position(|event| event.seq == last.seq))
-        .map_or(events, |at| &events[..at]);
-    chain_index(before, effect_id, site, chain)
-}
-
-/// The label a seat's attempt and its probe are both composed under: the
-/// seat, or `<seat>:<case>` where the selector chose a case.
-fn site_name(seat: &str, case: Option<&str>) -> String {
-    case.map(|case| format!("{seat}:{case}"))
-        .unwrap_or_else(|| seat.to_string())
-}
-
-/// The opening of every cleanup refusal: the probe for this wait did not
-/// prove its process tree gone, so it is ruling 4's cleanup failure. The
-/// admission's recovery appends the reservation's facts to the same
-/// sentence (decision 0071 ruling 5: one home for the rule). `None` is a
-/// reservation whose own attempt names no wait: the sentence stays neutral
-/// rather than borrowing another member's route.
-pub(in crate::engine) fn cleanup_failure(
-    provider: Option<&str>,
-    route: Option<&str>,
-    detail: &str,
-) -> String {
-    match (provider, route) {
-        (Some(provider), Some(route)) => format!(
-            "the cool-down probe for {provider}/{route} did not prove its process tree gone, so \
-             it is a cleanup failure: {detail}"
-        ),
-        _ => format!(
-            "a cool-down probe did not prove its process tree gone, so it is a cleanup failure: \
-             {detail}"
-        ),
     }
 }
 
