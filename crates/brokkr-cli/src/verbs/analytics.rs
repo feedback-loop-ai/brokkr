@@ -168,11 +168,21 @@ fn derive_with(
 }
 
 /// Whether a hearth's rows state the whole readout: the store's aggregates
-/// are ready and its run listing reads. A listing that refuses is still the
-/// fleet read's to quarantine; the row path has no refusal of its own
-/// (decision 0089 ruling 8's boundary, U3c2).
+/// are ready and its run listing would read. The listing is asked through
+/// [`Store::runs_readable`], one entry of the store's index over the rows
+/// the listing cannot read, so readiness costs neither the runs' heap nor
+/// their time. A listing that refuses is still the fleet read's to
+/// quarantine; the row path has no refusal of its own (decision 0089
+/// ruling 8's boundary, U3c2).
+///
+/// One shape reads as text to SQLite and refuses the listing: a text value
+/// that is not valid UTF-8. The probe answers `true` there, so the row path
+/// reads the hearth and the fleet's quarantine is not taken. That is damage
+/// behind the store's back, outside analytics' reach (decision 0089 ruling
+/// 8's boundary, R1's ruled limit); `doctor` and the journal integrity
+/// checks find it.
 fn rows_ready(store: &Store) -> bool {
-    matches!(store.aggregates_ready(), Ok(true)) && store.list_runs().is_ok()
+    matches!(store.aggregates_ready(), Ok(true)) && matches!(store.runs_readable(), Ok(true))
 }
 
 /// One hearth's read request: the hearth, its label and journal, the

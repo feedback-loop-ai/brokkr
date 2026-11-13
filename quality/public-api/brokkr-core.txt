@@ -505,6 +505,7 @@ pub brokkr_core::policy::audit::Audit::groups: usize
 pub brokkr_core::policy::audit::Audit::valuations: usize
 impl core::fmt::Display for brokkr_core::policy::audit::Audit
 pub fn brokkr_core::policy::audit::Audit::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub const brokkr_core::policy::audit::STOP: &str
 pub const brokkr_core::policy::audit::SWEEP_BUDGET: usize
 pub enum brokkr_core::policy::Direction
 pub brokkr_core::policy::Direction::Forward
@@ -1367,6 +1368,7 @@ pub brokkr_core::RunState::strategy: core::option::Option<alloc::string::String>
 pub brokkr_core::RunState::visits: alloc::collections::btree::map::BTreeMap<alloc::string::String, u64>
 impl brokkr_core::fold::RunState
 pub fn brokkr_core::fold::RunState::stopping_seq(&self) -> core::option::Option<u64>
+pub const brokkr_core::STOP: &str
 pub fn brokkr_core::cited_shas(&[brokkr_core::envelope::EventEnvelope]) -> alloc::collections::btree::set::BTreeSet<alloc::string::String>
 pub fn brokkr_core::fold(&[brokkr_core::envelope::EventEnvelope]) -> core::result::Result<brokkr_core::fold::RunState, brokkr_core::fold::FoldError>
 pub fn brokkr_core::provider_refusal(&brokkr_core::envelope::EventEnvelope) -> core::result::Result<core::option::Option<brokkr_core::ProviderRefusal>, brokkr_core::ProviderRefusalError>

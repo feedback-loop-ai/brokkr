@@ -6,6 +6,7 @@
 use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::acknowledgement::{acknowledgements_intact, migrate_acknowledgements};
+use crate::aggregate;
 use crate::event_index::{index_intact, migrate_index};
 use crate::queue::{migrate_queue, queue_intact};
 use crate::run_select;
@@ -203,7 +204,7 @@ impl Store {
 /// A journal that records a schema: supported, and whole.
 fn repair(conn: &mut Connection, found: u32) -> Result<(), StoreError> {
     schema_supported(found)?;
-    // Ten additive repairs, each a READ in the steady state — the
+    // Eleven additive repairs, each a READ in the steady state — the
     // starvation measurement holds — and each taking the immediate
     // transaction only when something is actually missing, so racing
     // openers serialise on the lock instead of colliding on the DDL.
@@ -224,7 +225,13 @@ fn repair(conn: &mut Connection, found: u32) -> Result<(), StoreError> {
     // slice 4). A journal read-only without it still resolves — SQLite
     // scans — and the next writable open adds it.
     let missing = !run_select::intact(conn)?;
-    repair_if(conn, missing, run_select::migrate)
+    repair_if(conn, missing, run_select::migrate)?;
+    // Eleventh: the partial index the aggregates' readiness probe reads
+    // over the `runs` rows the listing cannot read (decision 0089 slice 4,
+    // U5a). A journal read-only without it still answers — SQLite scans —
+    // and the next writable open adds it.
+    let missing = !aggregate::unreadable_intact(conn)?;
+    repair_if(conn, missing, aggregate::migrate_unreadable)
 }
 
 /// The first, third and fourth of [`repair`]'s additive repairs, in its
@@ -249,16 +256,20 @@ fn repair_tables(conn: &mut Connection) -> Result<(), StoreError> {
 /// decision 0089's run summary, event index, seat summary and stale-seat
 /// set.
 fn repair_projections(conn: &mut Connection) -> Result<(), StoreError> {
-    // A summary write prepares the set's triggers, so a table they name
-    // must stand before the fifth repair seeds: drop them when it does
-    // not, and the eighth repair remakes and refills them.
-    forget_summary_triggers(conn)?;
     // Fifth: a journal from before the run summary (decision 0089), or
     // one that lost its table, index or a trigger, gets them, and a row
     // for every run it carries, kept at its head and folded by the
     // backfill that follows the open ([`Store::catch_up`]).
+    //
+    // A summary write prepares the set's `run_summary` triggers, so a
+    // table they name must stand before the seed: the drop joins this
+    // repair's own immediate transaction, ahead of the seed, so a crash
+    // leaves either both or neither.
     let missing = !summary_intact(conn)?;
-    repair_if(conn, missing, migrate_summary)?;
+    repair_if(conn, missing, |conn| {
+        forget_summary_triggers(conn)?;
+        migrate_summary(conn)
+    })?;
     // Sixth: a journal from before the event index (decision 0089 slice
     // 2), or one that lost its table, an index or a trigger, gets them,
     // and its rows from the backfill that follows the open
@@ -325,6 +336,8 @@ fn initialize_additions(conn: &Connection) -> Result<(), StoreError> {
     // The selector's index is additive like the ones above, so a fresh
     // journal gets it here and an older one in `repair`.
     run_select::migrate(conn)?;
+    // The readiness probe's partial index, on the same terms.
+    aggregate::migrate_unreadable(conn)?;
     // No index backfill is marked here: a journal with no schema recorded
     // may still carry events, and the open's walk, one read on an empty
     // journal, records the mark once every event has its row.

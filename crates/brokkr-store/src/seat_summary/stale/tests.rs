@@ -754,3 +754,146 @@ fn a_seat_lag_of_another_shape_is_not_intact_and_is_repaired() {
         assert_eq!(set(&store.conn), rule(&store.conn), "{remake}");
     }
 }
+/// The chief's R1: a `seat_lag` or `seat_head` of another shape beside a
+/// summary repair. The drop that lets the fifth repair seed decides by
+/// shape, not presence, and a `seat_head` the set's bodies cannot read is
+/// remade by the seventh repair. The open is `Ok` and the set afterwards
+/// equals the rule.
+#[test]
+fn a_summary_repair_with_a_seat_table_of_another_shape_reseeds() {
+    for remake in [
+        "DROP TABLE seat_lag; CREATE TABLE seat_lag (other TEXT PRIMARY KEY);",
+        "DROP TABLE seat_head; CREATE TABLE seat_head (run_id TEXT PRIMARY KEY, shape TEXT);",
+    ] {
+        let (dir, store) = current_store();
+        store
+            .conn
+            .execute_batch(&format!("{remake} DROP INDEX run_summary_page;"))
+            .unwrap();
+        drop(store);
+
+        let store = Store::open(&dir.path().join("forge.db"))
+            .unwrap_or_else(|error| panic!("open after {remake}: {error}"));
+        assert!(stale_intact(&store.conn).unwrap(), "{remake} is repaired");
+        assert_eq!(set(&store.conn), rule(&store.conn), "{remake}");
+    }
+}
+
+/// The chief's R2: a summary row moved to another `run_id` is judged as an
+/// insert is, so the run it moved to joins the set by the rule. A row moved
+/// from a lagging run leaves the set too: no summary row names the run it
+/// moved from any more.
+#[test]
+fn a_moved_summary_run_id_judges_the_new_run() {
+    let (_dir, store) = crate::tests::store();
+    for run_id in ["current", "headless", "seq-lag", "shape-lag"] {
+        plant_run(&store.conn, run_id, "{}").unwrap();
+    }
+    current(&store.conn, "current");
+    headless(&store.conn, "headless");
+    current(&store.conn, "seq-lag");
+    head(&store.conn, "seq-lag", -1, "h", SHAPE.as_str());
+    current(&store.conn, "shape-lag");
+    shape_lag(&store.conn, "shape-lag");
+
+    store
+        .conn
+        .execute(
+            "UPDATE run_summary SET run_id = 'renamed' WHERE run_id = 'current'",
+            [],
+        )
+        .unwrap();
+    assert_eq!(
+        set(&store.conn),
+        [
+            "headless".to_string(),
+            "renamed".to_string(),
+            "seq-lag".to_string()
+        ],
+        "the new run has no head, so it joins"
+    );
+    assert_eq!(stale(&store.conn), rule(&store.conn), "with the shape arm");
+
+    store
+        .conn
+        .execute(
+            "UPDATE run_summary SET run_id = 'moved' WHERE run_id = 'headless'",
+            [],
+        )
+        .unwrap();
+    assert_eq!(
+        set(&store.conn),
+        [
+            "moved".to_string(),
+            "renamed".to_string(),
+            "seq-lag".to_string()
+        ],
+        "the run it moved from leaves the set"
+    );
+    assert_eq!(stale(&store.conn), rule(&store.conn));
+}
+
+/// The chief's R3: the set's probe does not ask the summary head trigger's
+/// body. A journal whose only damage is there still reads the set, because
+/// the set is intact and the by-set statement answers exactly; the summary
+/// repair keeps that body, not the set.
+#[test]
+fn the_sets_probe_does_not_read_the_summarys_head_trigger() {
+    let (_dir, store) = current_store();
+    plant_run(&store.conn, "headless", "{}").unwrap();
+    headless(&store.conn, "headless");
+    store
+        .conn
+        .execute_batch(
+            "DROP TRIGGER run_summary_of_an_event;
+             CREATE TRIGGER run_summary_of_an_event AFTER INSERT ON events
+             BEGIN SELECT 1; END;",
+        )
+        .unwrap();
+    assert!(
+        !crate::summary::summary_intact(&store.conn).unwrap(),
+        "the summary's own head trigger is another body"
+    );
+    assert!(
+        stale_intact(&store.conn).unwrap(),
+        "the set is still this build's"
+    );
+    assert_eq!(fallback(&store), rule(&store.conn));
+}
+
+/// A summary trigger of an older body is not this build's: the open
+/// replaces it, so a journal whose trigger did not watch `run_id` gains the
+/// body that does.
+#[test]
+fn an_older_summary_trigger_is_replaced_on_open() {
+    let (dir, store) = current_store();
+    store
+        .conn
+        .execute_batch(&format!(
+            "DROP TRIGGER {SUMMARY_MOVED};
+             CREATE TRIGGER {SUMMARY_MOVED}
+                 AFTER UPDATE OF head_seq, head_hash ON run_summary
+                 WHEN OLD.head_seq IS NOT NEW.head_seq
+                   OR OLD.head_hash IS NOT NEW.head_hash
+             BEGIN SELECT 1; END;"
+        ))
+        .unwrap();
+    assert!(
+        !stale_intact(&store.conn).unwrap(),
+        "an older body is not this build's"
+    );
+    drop(store);
+
+    let conn = repaired(&dir.path().join("forge.db"));
+    assert!(stale_intact(&conn).unwrap(), "the repair replaced the body");
+    conn.execute(
+        "UPDATE run_summary SET run_id = 'renamed' WHERE run_id = 'run'",
+        [],
+    )
+    .unwrap();
+    assert_eq!(
+        set(&conn),
+        ["renamed".to_string()],
+        "the new body watches it"
+    );
+}
