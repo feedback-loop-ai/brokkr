@@ -53,7 +53,7 @@ impl Engine {
         let hands = self.hands_for(&at.label);
         let mut spawn = self.compose_at(
             Some(&at.label),
-            run.attempt_id,
+            crate::engine::AttemptIds::new(run.effect_id, run.attempt_id),
             true,
             argv_for(run.selection, &site, &command).to_vec(),
             hands.as_ref(),

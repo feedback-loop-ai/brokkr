@@ -116,7 +116,10 @@ fn retiring_confine_leaves_plain_seat_member_and_step_argv_untouched() {
         // The member composer is shared by a panel and a panel step.
         for (site, prefix) in [("work", ""), ("work:check", "check:")] {
             let runs = engine.member_runs(
-                "attempt",
+                AttemptIds {
+                    effect: "effect",
+                    attempt: "attempt",
+                },
                 site,
                 &[member("judge", command.clone())],
                 &json!({"judge":{"role_path":"role.md","result_path":"result.json"}}),

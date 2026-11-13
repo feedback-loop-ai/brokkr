@@ -81,7 +81,7 @@ impl Engine {
         } = *at;
         let mut span = PanelSpan::open(&self.repo);
         let runs = self.member_runs(
-            attempt_id,
+            crate::engine::AttemptIds::new(effect_id, attempt_id),
             seat_name,
             members,
             &panel_input["members"],
@@ -176,7 +176,7 @@ impl Engine {
     #[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]
     pub(super) fn member_runs(
         &mut self,
-        attempt_id: &str,
+        ids: crate::engine::AttemptIds<'_>,
         driver_seat_prefix: &str,
         members: &[PanelMember],
         members_meta: &Value,
@@ -210,7 +210,7 @@ impl Engine {
                 let hands = self.hands_for(&label);
                 let mut spawn = self.compose_at(
                     Some(&label),
-                    attempt_id,
+                    ids,
                     gate,
                     argv_for(selection, &site, &member.command).to_vec(),
                     hands.as_ref(),

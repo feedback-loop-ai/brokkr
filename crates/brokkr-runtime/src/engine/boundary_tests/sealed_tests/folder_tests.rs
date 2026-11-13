@@ -22,7 +22,14 @@ fn verify_spawn(engine: &mut Engine) -> SiteSpawn {
         other => panic!("verify is a single site: {other:?}"),
     };
     let hands = engine.bundle.hands["verify"].clone();
-    engine.compose("attempt", true, command, Some(&hands), None, "result.json")
+    engine.compose(
+        "88888888-8888-4888-8888-888888888888",
+        true,
+        command,
+        Some(&hands),
+        None,
+        "result.json",
+    )
 }
 
 /// Why the spawn did not start: refused before it, or, its walk passed,

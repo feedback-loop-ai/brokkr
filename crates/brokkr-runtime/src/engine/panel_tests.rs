@@ -33,7 +33,10 @@ fn a_panels_members_each_carry_their_own_refusal() {
     ];
     let input = crate::engine::tests::panel_input(&["first", "second"]);
     let runs = engine.member_runs(
-        "attempt",
+        AttemptIds {
+            effect: "effect",
+            attempt: "attempt",
+        },
         "work",
         &members,
         &input["members"],

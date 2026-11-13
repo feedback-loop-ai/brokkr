@@ -18,8 +18,6 @@ use brokkr_protocol::hands::network_prefix;
 use sealed_tests::{boxed, boxed_a, ENGINE, REACH_ARG};
 
 impl Engine {
-    /// [`Self::compose_at`] over argv no compiled site owns: the boundary
-    /// tests' door, which composes a command for the boundary alone.
     fn compose(
         &mut self,
         attempt_id: &str,
@@ -31,7 +29,8 @@ impl Engine {
     ) -> SiteSpawn {
         // Its reach sealed as admission seals it (U8a2c).
         hands.inspect(|spec| self.sealed_for(Path::new("/home/fixture"), spec));
-        self.compose_at(None, attempt_id, gate, command, hands, link, result_path)
+        let ids = AttemptIds::new("effect", attempt_id);
+        self.compose_at(None, ids, gate, command, hands, link, result_path)
     }
 }
 
@@ -2896,33 +2895,34 @@ fn a_run_that_recorded_no_bindings_is_refused_even_by_a_bundle_that_binds_none()
     assert_eq!(store_at(&root).load("legacy").unwrap().len(), 1);
 }
 
-/// The probe is asked once per engine process and remembered: a second
-/// dispatch of the same engine spawns no second probe.
 #[test]
 fn the_network_probe_is_asked_once_and_remembered() {
     let (_dir, mut engine) = super::tests::engine(single_body(vec!["driver".into()]));
     let spec = HandsSpec::default();
     engine.network_prefix = Some(true);
     let (uid, gid) = brokkr_protocol::hands::ids();
-    let first = engine.unboxed("attempt-1", &spec);
+    let ids = AttemptIds::new("effect", "11111111-1111-4111-8111-111111111111");
+    let first = super::seat_tree::unboxed(&mut engine, ids, &spec).unwrap();
     assert_eq!(
         first.prefix,
         network_prefix_if(cfg!(target_os = "linux"), uid, gid)
     );
-    assert!(Path::new(&first.env["HOME"]).ends_with(Path::new("attempt-1").join("home")));
-    assert!(Path::new(&first.env["TMPDIR"]).ends_with(Path::new("attempt-1").join("tmp")));
+    assert!(Path::new(&first.env["HOME"])
+        .ends_with(Path::new("11111111-1111-4111-8111-111111111111").join("home")));
+    assert!(Path::new(&first.env["TMPDIR"])
+        .ends_with(Path::new("11111111-1111-4111-8111-111111111111").join("tmp")));
     assert!(Path::new(&first.env["HOME"]).is_dir());
     engine.network_prefix = Some(false);
-    let second = engine.unboxed("attempt-2", &spec);
+    let second = super::seat_tree::unboxed(&mut engine, ids, &spec).unwrap();
     assert!(second.prefix.is_empty());
     // With no answer remembered the probe runs once, in the dispatch's
     // environment, and the answer is kept for the next dispatch.
     engine.network_prefix = None;
-    let probed = engine.unboxed("attempt-3", &spec);
+    let probed = super::seat_tree::unboxed(&mut engine, ids, &spec).unwrap();
     let answer = engine.network_prefix;
     assert_eq!(answer.is_some(), cfg!(target_os = "linux"));
     assert_eq!(probed.prefix.is_empty(), !answer.unwrap_or(false));
-    let again = engine.unboxed("attempt-4", &spec);
+    let again = super::seat_tree::unboxed(&mut engine, ids, &spec).unwrap();
     assert_eq!(engine.network_prefix, answer);
     assert_eq!(again.prefix, probed.prefix);
 }
@@ -3636,11 +3636,11 @@ fn the_seat_input_names_the_boundary_and_the_marker_only_under_a_box() {
         "right": {"role_path": "r.md", "result_path": "/r/r.json"},
     });
     let seat_input = json!({
-        "feature": "f", "phase": "review", "workdir": "/w",
+        "feature": "boundary", "phase": "review", "workdir": "/boundary",
         "allowed_results": ["clean"], "house_rules": Value::Null, "spec_dialect": Value::Null,
     });
     let runs = engine.member_runs(
-        "attempt",
+        AttemptIds::new("boundary-effect", "attempt"),
         "review",
         &members,
         &meta,

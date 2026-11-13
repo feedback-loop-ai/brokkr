@@ -185,7 +185,10 @@ impl Claude {
         let (command, link) = (command.clone(), None);
         engine.compose_at(
             Some("work"),
-            attempt,
+            AttemptIds {
+                effect: "effect",
+                attempt,
+            },
             false,
             command,
             hands.as_ref(),
@@ -762,7 +765,10 @@ fn each_panel_member_is_served_the_set_its_own_site_was_provisioned() {
         claude.fixture.engine.sealed_for(&home, &hands);
     }
     let runs = (claude.fixture.engine).member_runs(
-        "attempt-1",
+        AttemptIds {
+            effect: "effect",
+            attempt: "11111111-1111-4111-8111-111111111111",
+        },
         "work",
         members,
         meta,

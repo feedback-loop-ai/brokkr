@@ -76,7 +76,9 @@ use worktree::git_dirty;
 pub use worktree::git_head;
 mod replay;
 mod route_overlay;
+mod seat_tree;
 pub(crate) mod sequence;
+pub(in crate::engine) use seat_tree::AttemptIds;
 mod start;
 use operator::operator_stop_reason;
 #[cfg(test)]
@@ -1279,16 +1281,15 @@ impl Engine {
     /// Compose one site's spawn from the boundary this run stands under
     /// (decision 0046 ruling 4; design DD18): the pure [`compose_site`]
     /// over the facts the engine holds, with the unboxed exec dispatch's
-    /// fixed environment and network prefix prepared here — the two
-    /// private directories created under the run's scratch, the probe
-    /// asked once per engine process and remembered. `label` names the
+    /// fixed environment and network prefix prepared in `seat_tree`, where
+    /// its tree's row is recorded before the tree. `label` names the
     /// compiled site whose facts the composition reads — an inline site's
     /// lowered allow among them (rebuild unit 5b).
     #[expect(clippy::too_many_arguments, reason = "decision 0065 slice one, #288")]
     fn compose_at(
         &mut self,
         label: Option<&str>,
-        attempt_id: &str,
+        ids: AttemptIds<'_>,
         gate: bool,
         command: Vec<String>,
         hands: Option<&HandsSpec>,
@@ -1300,12 +1301,7 @@ impl Engine {
             Some(_) => built_boundary(self.boundary).expect("the entry fence admitted these hands"),
         };
         let workdir = self.workdir();
-        let unboxed = match hands {
-            Some(spec) if !self.boundary.is_boxed() && is_exec_dispatch(&command) => {
-                Some(self.unboxed(attempt_id, spec))
-            }
-            _ => None,
-        };
+        let (unboxed, refused_tree) = seat_tree::made(self, ids, hands, &command);
         let class = if gate {
             SeatClass::Gate
         } else {
@@ -1337,38 +1333,10 @@ impl Engine {
                 unboxed.as_ref(),
             )
         };
-        spawn.refusal = unrooted
-            .map(|unrooted| unrooted.to_string())
+        spawn.refusal = refused_tree
+            .or(unrooted.map(|unrooted| unrooted.to_string()))
             .or(spawn.refusal);
         spawn
-    }
-
-    /// What an unboxed exec dispatch starts in (design DD10, DD15): the
-    /// fixed environment over two private directories under the run's
-    /// scratch, and the network prefix when the probe — run once per
-    /// engine process, in that environment, on Linux only — passed.
-    fn unboxed(&mut self, attempt_id: &str, spec: &HandsSpec) -> Unboxed {
-        let scratch = self.run_local().join(SEAT_SCRATCH).join(attempt_id);
-        let private_home = scratch.join("home");
-        let private_tmp = scratch.join("tmp");
-        std::fs::create_dir_all(&private_home).ok();
-        std::fs::create_dir_all(&private_tmp).ok();
-        let engine_env: BTreeMap<String, String> = std::env::vars().collect();
-        let identity = brokkr_protocol::hands::git_facts(&self.workdir()).identity;
-        let env = brokkr_protocol::hands::unboxed_environment(
-            &engine_env,
-            &brokkr_protocol::hands::home_dir(&engine_env),
-            spec,
-            &identity,
-            &private_home,
-            &private_tmp,
-        );
-        let (uid, gid) = brokkr_protocol::hands::ids();
-        let passes = self.network_narrowing(&env, uid, gid);
-        Unboxed {
-            env,
-            prefix: network_prefix_if(passes, uid, gid),
-        }
     }
 
     /// Whether the network prefix stands here: asked of the kernel once
