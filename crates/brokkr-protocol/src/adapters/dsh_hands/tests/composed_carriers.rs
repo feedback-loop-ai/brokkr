@@ -638,3 +638,35 @@ fn the_closure_admits_a_comment_a_header_and_a_cut_comment() {
         assert_eq!(closure(text), Ok(()), "{what}");
     }
 }
+
+/// What the closure admits as closed, the row grammar may still refuse:
+/// the dump never writes a value after a doubled space, plain or past a tag,
+/// nor more text after a closed quote. Removal controls: dropping
+/// `read_value`'s leading-space refusal, or letting a closed quote's
+/// trailing text pass, admits these through the gate.
+#[test]
+fn the_grammar_refuses_a_doubled_space_and_text_after_a_closed_quote() {
+    let dump = policy_dump();
+    for (what, body) in [
+        (
+            "a doubled space after a key",
+            "  config:\n    k:  x\n  disabled: true\n",
+        ),
+        (
+            "a doubled space after a tag",
+            "  config:\n    k: !!str  x\n  disabled: true\n",
+        ),
+        (
+            "text after a closed quote",
+            "  config:\n    k: 'a' b\n  disabled: true\n",
+        ),
+    ] {
+        let tree = tool_bash_row(&dump, body);
+        assert_eq!(closure(&tree), Ok(()), "{what}: the closure admits it");
+        assert_eq!(
+            gate(tree, Release::V0_2_1, Mode::ReadOnly),
+            Err(Composition::Unreadable),
+            "{what}: gate"
+        );
+    }
+}
