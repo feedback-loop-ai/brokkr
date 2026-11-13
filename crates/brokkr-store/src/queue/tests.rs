@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use rusqlite::Connection;
 use serde_json::json;
 
-use super::storage::{queue_schema, QUEUE_SCHEMA_V3};
+use super::storage::{queue_schema, QUEUE_SCHEMA_V2, QUEUE_SCHEMA_V3, QUEUE_SCHEMA_V4};
 use super::*;
 use crate::schema::{MIGRATION_V1, SIDECAR_COLUMNS};
 use crate::test_support::{linked, plant_run};
@@ -260,13 +260,19 @@ fn journal_after(dir: &Path, surgery: &str) -> (PathBuf, Store) {
 #[test]
 fn a_journal_that_lost_a_queue_guard_gets_it_back_on_open() {
     let dir = tempfile::tempdir().unwrap();
-    let (path, store) = journal_after(
-        dir.path(),
+    for surgery in [
         "DROP TRIGGER provider_cooldowns_append_only_delete",
-    );
-    assert!(!queue_intact(&store.conn).unwrap());
-    drop(store);
-    assert!(queue_intact(&Store::open(&path).unwrap().conn).unwrap());
+        "DROP TRIGGER seat_trees_append_only_update",
+        "DROP INDEX seat_trees_once",
+    ] {
+        let (path, store) = journal_after(dir.path(), surgery);
+        assert!(!queue_intact(&store.conn).unwrap(), "{surgery}");
+        drop(store);
+        assert!(
+            queue_intact(&Store::open(&path).unwrap().conn).unwrap(),
+            "{surgery}"
+        );
+    }
 }
 
 /// A journal that records its queue and has lost a queue table is refused
@@ -289,6 +295,7 @@ fn a_journal_that_lost_a_queue_table_is_refused_on_open_not_recreated_empty() {
         ("DROP TABLE dispatch_holders", "dispatch_holders"),
         ("DROP TABLE dispatch_settings", "dispatch_settings"),
         ("DROP TABLE provider_cooldowns", "provider_cooldowns"),
+        ("DROP TABLE seat_trees", "seat_trees"),
     ] {
         let path = dir.path().join(format!("{table}.db"));
         let mut store = Store::open(&path).unwrap();
@@ -371,11 +378,11 @@ fn a_version_3_journal_from_before_its_dispatchers_gains_them_and_keeps_its_queu
 }
 
 /// A journal at version 3 as this binary's predecessor wrote it — every
-/// table but `provider_cooldowns` — migrates to version 4 at its next
-/// writable open, and its queue, claims, refusals, holders and settings
-/// read unchanged.
+/// table but `provider_cooldowns` and `seat_trees` — migrates to version 5
+/// at its next writable open, its queue, claims, refusals, holders and
+/// settings read unchanged, and `seat_trees` empty.
 #[test]
-fn a_version_3_queue_migrates_to_version_4_and_keeps_what_it_held() {
+fn a_version_3_queue_migrates_to_version_5_and_keeps_what_it_held() {
     let dir = tempfile::tempdir().unwrap();
     let (store, _) = every_standing(dir.path());
     let seq = store
@@ -433,7 +440,7 @@ fn a_version_3_queue_migrates_to_version_4_and_keeps_what_it_held() {
         .conn
         .execute_batch(
             "UPDATE meta SET value = '3' WHERE key = 'queue_schema';
-             DROP TABLE provider_cooldowns;",
+             DROP TABLE provider_cooldowns; DROP TABLE seat_trees;",
         )
         .unwrap();
     assert_eq!(queue_schema(&store.conn).unwrap(), Some(QUEUE_SCHEMA_V3));
@@ -441,6 +448,7 @@ fn a_version_3_queue_migrates_to_version_4_and_keeps_what_it_held() {
     drop(store);
 
     let store = opened_whole(&dir.path().join("forge.db"));
+    assert_eq!(queue_schema(&store.conn).unwrap(), Some(5));
     assert_eq!(
         (
             rows(&store),
@@ -473,6 +481,71 @@ fn a_version_3_queue_migrates_to_version_4_and_keeps_what_it_held() {
         )
         .unwrap();
     assert_eq!(present, 1);
+    assert_eq!(store.seat_trees("run-b").unwrap(), vec![]);
+}
+
+/// A version 4 journal — every table but `seat_trees` — migrates to version
+/// 5 at its next writable open, and its one version 4 cool-down reads
+/// unchanged while `seat_trees` is empty.
+#[test]
+fn a_version_4_queue_migrates_to_version_5_and_keeps_its_cool_downs() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut store, _) = every_standing(dir.path());
+    crate::test_support::plant_event(&store.conn, "run-b", &1, "hash", "{}").unwrap();
+    crate::test_support::lags(&mut store, &["run-b"]);
+    store
+        .conn
+        .execute(
+            "INSERT INTO provider_cooldowns
+                (run_id, event_seq, site, provider, route, until_at, reason,
+                 retry_after_seconds, rounds, recorded_at)
+             VALUES ('run-b', 1, 'work', 'claude', 'first', 60, 'wait', NULL, 1, 0)",
+            [],
+        )
+        .unwrap();
+    let cooled = store
+        .cooldown("claude", "first", time::OffsetDateTime::UNIX_EPOCH)
+        .unwrap();
+    store
+        .conn
+        .execute_batch(
+            "UPDATE meta SET value = '4' WHERE key = 'queue_schema';
+             DROP TABLE seat_trees;",
+        )
+        .unwrap();
+    assert_eq!(queue_schema(&store.conn).unwrap(), Some(QUEUE_SCHEMA_V4));
+    assert!(!queue_intact(&store.conn).unwrap());
+    drop(store);
+
+    // The open migrates it to this binary's version.
+    let store = opened_whole(&dir.path().join("forge.db"));
+    assert_eq!(queue_schema(&store.conn).unwrap(), Some(5));
+    assert_eq!(
+        store
+            .cooldown("claude", "first", time::OffsetDateTime::UNIX_EPOCH)
+            .unwrap(),
+        cooled
+    );
+    assert_eq!(store.seat_trees("run-b").unwrap(), vec![]);
+}
+
+/// A version 2 journal — version 1's tables and version 2's latches and
+/// pins — reaches version 5 at its next writable open, keeping its entry.
+#[test]
+fn a_version_2_queue_migrates_to_version_5_and_keeps_its_entries() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("forge.db");
+    journal_with_a_version_1_queue(&path);
+    let conn = Connection::open(&path).unwrap();
+    conn.execute_batch(storage::MIGRATION_QUEUE_V2).unwrap();
+    conn.execute("UPDATE meta SET value = '2' WHERE key = 'queue_schema'", [])
+        .unwrap();
+    assert_eq!(queue_schema(&conn).unwrap(), Some(QUEUE_SCHEMA_V2));
+    drop(conn);
+
+    let store = opened_whole(&path);
+    assert_eq!(store.queue_list().unwrap()[0].payload, payload(1));
+    assert_eq!(store.seat_trees("old-run").unwrap(), vec![]);
 }
 
 /// A queue with an entry in every standing: 1 queued, 2 held, 3 dropped
@@ -655,7 +728,7 @@ fn a_queue_stored_in_a_version_this_brokkr_does_not_know_is_refused() {
     let entry = queue(&mut store, 1)[0];
     let read = store.queue_entry(entry).unwrap();
     let claim = Claim { entry, seq: 1 };
-    for (recorded, found) in [("5", 5), ("two", 0)] {
+    for (recorded, found) in [("6", 6), ("two", 0)] {
         store
             .conn
             .execute(
@@ -664,7 +737,7 @@ fn a_queue_stored_in_a_version_this_brokkr_does_not_know_is_refused() {
             )
             .unwrap();
         let mismatch = QueueRefusal::SchemaMismatch { found };
-        let text = format!("queue storage {found} unsupported (want 4)");
+        let text = format!("queue storage {found} unsupported (want 5)");
         let over = Claiming {
             entry: &read,
             high_water: 0,
@@ -916,7 +989,7 @@ fn a_version_1_queue_is_read_as_it_stands_and_migrated_with_its_entries_kept() {
 #[test]
 fn a_queue_stored_in_a_version_this_brokkr_does_not_know_is_left_as_found() {
     let dir = tempfile::tempdir().unwrap();
-    let surgery = "UPDATE meta SET value = '5' WHERE key = 'queue_schema';
+    let surgery = "UPDATE meta SET value = '6' WHERE key = 'queue_schema';
                    DROP TRIGGER queue_entries_run_once;
                    DROP TABLE queue_pins;";
     let (path, store) = journal_after(dir.path(), surgery);
@@ -933,7 +1006,7 @@ fn a_queue_stored_in_a_version_this_brokkr_does_not_know_is_left_as_found() {
         (named("queue_entries_run_once"), named("queue_pins")),
         (0, 0)
     );
-    assert_eq!(queue_schema(&store.conn).unwrap(), Some(5));
+    assert_eq!(queue_schema(&store.conn).unwrap(), Some(6));
 }
 
 #[test]

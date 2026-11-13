@@ -88,6 +88,7 @@ mod schema;
 mod seat_read;
 mod seat_record;
 mod seat_summary;
+mod seat_tree;
 mod start;
 mod summary;
 #[cfg(any(test, feature = "test-support"))]
@@ -109,6 +110,7 @@ pub use schema::DATABASE_SCHEMA;
 pub use seat_read::SeatRead;
 pub use seat_record::{validate_seat_record, SeatRecordError, SeatRecordVersion};
 pub use seat_summary::SeatRows;
+pub use seat_tree::{SeatTree, SeatTreeRecord, SeatTreeRefusal};
 pub use summary::Disagreement;
 
 use brokkr_core::summary::Account;
@@ -197,6 +199,9 @@ pub enum StoreError {
     /// The queue refused an operator command or a claim (decision 0068).
     #[error(transparent)]
     Queue(#[from] QueueRefusal),
+    /// A seat-tree append or repair refused (decision 0104 ruling 6).
+    #[error(transparent)]
+    SeatTree(#[from] SeatTreeRefusal),
     /// The head an operator acknowledged a quarantined run at already
     /// carries an acknowledgement (#511).
     #[error("run '{run_id}' is already acknowledged at event {seq}; nothing was recorded")]

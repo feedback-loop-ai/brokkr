@@ -403,6 +403,7 @@ fn lasting(error: &StoreError) -> bool {
         | StoreError::HeadMoved { .. }
         | StoreError::UnknownHead { .. }
         | StoreError::Queue(_)
+        | StoreError::SeatTree(_)
         | StoreError::AlreadyAcknowledged { .. }
         | StoreError::TokenCountOutOfRange(..)
         | StoreError::Contended { .. } => false,
