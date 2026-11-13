@@ -207,6 +207,13 @@ fn the_closure_refuses_the_empty_item_and_every_open_node() {
         assert_ne!(mutated, dump, "the fixture names the sandbox row");
         refuses(what, &mutated);
     }
+
+    // The empty-item rule's comment marker takes any first character after
+    // `#`, not only `# `: the row grammar reads `#b` as a key with a block
+    // header, while both readers read an empty item and a comment. The
+    // block is unread, so only the closure refuses this tree.
+    let comment_key = tool_bash_row(&dump, "  disabled: true\n  config:\n    - #b: >-\n");
+    refuses("an empty item whose comment names a key", &comment_key);
 }
 
 /// The closed shapes the rebuild admits, each through the closure alone and
@@ -516,6 +523,14 @@ fn plain_values_the_dump_never_writes_refuse() {
 fn the_closure_reads_a_colon_marker_a_tag_and_every_property_end() {
     for (what, text) in [
         ("a colon marker holding a bare item", ": -\n"),
+        (
+            "a colon marker with an extra space before a bare item",
+            ":  -\n",
+        ),
+        (
+            "a question marker with an extra space before a bare item",
+            "?  -\n",
+        ),
         ("a tag then an open quote", "    k: !!str \"x\n"),
         ("a brace ends an anchor and opens a flow", "    k: &a{b,\n"),
     ] {
@@ -541,9 +556,12 @@ fn the_closure_reads_a_colon_marker_a_tag_and_every_property_end() {
 
 /// The closure's admitted line starts: a comment, a block-scalar header and
 /// a plain scalar cut at ` #` all leave nothing open even when a key and a
-/// quote follow, and a `? ` after a `- ` leaves the dash marker closed.
-/// Dropping the `#` arm, the `|`/`>` arm, the ` #` cut or the `dash = false`
-/// reset after `? ` refuses one of them, a false refusal.
+/// quote follow, and a `? ` or a `: ` after a `- ` leaves the dash marker
+/// closed. A flow node's space or colon tail and a closed quote with no
+/// space before its colon leave nothing open too. Dropping the `#` arm, the
+/// `|`/`>` arm, the ` #` cut, the `dash = false` reset after `? ` or `: `,
+/// either flow tail, or `after_node`'s space guard refuses one of them, a
+/// false refusal.
 #[test]
 fn the_closure_admits_a_comment_a_header_and_a_cut_comment() {
     for (what, text) in [
@@ -553,6 +571,13 @@ fn the_closure_admits_a_comment_a_header_and_a_cut_comment() {
         (
             "a question after an item marker and a comment",
             "    - ? # c\n",
+        ),
+        ("a colon after an item marker and a comment", "- : # c\n"),
+        ("an empty flow cut at a comment", "    k: [] # c\n"),
+        ("an empty flow sequence used as a key", "    []: x\n"),
+        (
+            "a closed quoted key jammed against an open quote",
+            "    \"k\":\"x\n",
         ),
     ] {
         assert_eq!(closure(text), Ok(()), "{what}");

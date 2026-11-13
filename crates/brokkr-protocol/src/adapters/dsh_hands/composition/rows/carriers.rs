@@ -128,7 +128,8 @@ fn flow_open(value: &str) -> bool {
 
 /// Whether the text after a node, at byte index `end`, is a colon and a
 /// value left open by [`node_open`]. ASCII spaces are skipped; anything but
-/// `:` followed by a space or the line's end leaves nothing open.
+/// `:` followed by a space leaves nothing open, and a colon at the line's
+/// end has no value to read.
 fn after_node(value: &str, end: usize) -> bool {
     let rest = value[end..].trim_start_matches(' ');
     match rest.strip_prefix(':') {
