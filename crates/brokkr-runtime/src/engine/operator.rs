@@ -443,7 +443,7 @@ pub(super) fn conclude_racing(
                 }
         )
     ) {
-        command_stop(store, run_id, named, shaped.args())?;
+        command_stop(store, run_id, named, shaped.args(), &mut between)?;
     }
     let events = close_riding_attempt(store, run_id, &mut between)?;
 
@@ -476,12 +476,15 @@ pub(super) fn conclude_racing(
 
 /// The stop `conclude` commands on a run that has none in force, naming
 /// the operator invoking it, with the cause's `args`. A refusal ends the
-/// conclusion: the journal moved beneath it.
+/// conclusion: the journal moved beneath it. `between` is
+/// [`conclude_racing`]'s window, run inside the stop's own disposition
+/// ([`disposed`]); production passes a no-op.
 fn command_stop(
     store: &mut Store,
     run_id: &str,
     named: &Named,
     args: Value,
+    between: impl FnMut(&mut Store),
 ) -> Result<(), EngineError> {
     let stop = OperatorCommand::Stop;
     let read = folded(store, run_id)?;
@@ -491,7 +494,7 @@ fn command_stop(
         reason: named.reason,
         args,
     };
-    let disposition = match disposed(store, run_id, request, read, |_| {}) {
+    let disposition = match disposed(store, run_id, request, read, between) {
         Ok(disposition) => disposition,
         // The run concluded in the window between `conclude`'s fold and
         // its stop: the same refusal `conclude` would have made at the

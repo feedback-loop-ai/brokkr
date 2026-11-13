@@ -296,3 +296,18 @@ fn the_refusal_names_the_drift_and_says_to_look_first() {
          `brokkr runs` before resuming (decision 0029)"
     );
 }
+
+/// Only the store's terminal refusal becomes the driver's typed ending: any
+/// other store error stays a storage error, so a contended or moved head is
+/// never reported as a conclusion beneath the driver (#440).
+#[test]
+fn a_store_error_other_than_the_terminal_refusal_stays_a_store_error() {
+    let error = StoreError::HeadMoved {
+        expected_seq: 3,
+        found_seq: 4,
+    };
+    assert!(matches!(
+        EngineError::concluded_beneath(error, Some("attempt")),
+        EngineError::Store(StoreError::HeadMoved { .. })
+    ));
+}
