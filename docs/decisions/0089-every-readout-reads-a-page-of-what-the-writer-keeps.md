@@ -920,8 +920,8 @@ model the writer keeps in the journal's own file and transaction.
 
      *Amended, 2026-11-13 (operator, in chat, recorded on #753):* SQLite's
      share is held to 1,000 KiB (1,024,000 B) on every host, double the
-     500 KiB of 2026-10-21. It supersedes 2026-10-25's "the cap does not
-     rise".
+     500 KiB of 2026-10-21, so the 2026-10-25 amendment's "the cap does not
+     rise" no longer holds.
      - **The operator's words:** "maybe just double it, that's still fine",
        and "I'd rather set ambitious targets than use 3gb of memory where
        we can fit in 1mb". The new cap is a target to hold, not a step
