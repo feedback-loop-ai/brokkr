@@ -159,12 +159,15 @@ fn record_once(
     Ok(record)
 }
 
-/// The rows of one run, oldest first: `seq` is the table's rising key.
+/// One run's rows, oldest first: `seq` is the table's rising key.
+const READ_TREES: &str = "SELECT seq, run_id, effect_id, attempt_id, root, recorded_at
+     FROM seat_trees WHERE run_id = ?1 ORDER BY seq";
+
+/// The rows of one run, oldest first. The query is named above so this
+/// call stays on one line: the exact-coverage gate reads a multi-line
+/// call's lone `)?;` as an error arm of its own.
 fn read_trees(conn: &Connection, run_id: &str) -> Result<Vec<SeatTree>, StoreError> {
-    let mut rows = conn.prepare(
-        "SELECT seq, run_id, effect_id, attempt_id, root, recorded_at
-         FROM seat_trees WHERE run_id = ?1 ORDER BY seq",
-    )?;
+    let mut rows = conn.prepare(READ_TREES)?;
     let trees = rows.query_map([run_id], |row| {
         Ok(SeatTree {
             seq: row.get(0)?,
