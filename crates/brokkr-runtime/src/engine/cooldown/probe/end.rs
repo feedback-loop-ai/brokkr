@@ -166,7 +166,6 @@ impl Engine {
             .saturating_add(1);
         let retry_after = refusal.retry_after_seconds();
         let seconds = sites::wait_seconds(retry_after, bounds.default_seconds.get(), round);
-        let max = u64::from(bounds.max_seconds.get());
         Ok(NextRound {
             event_seq: event.seq,
             site: wait.site.clone(),
@@ -178,7 +177,6 @@ impl Engine {
             round,
             seconds,
             episode: prior.seconds,
-            max,
         })
     }
 }

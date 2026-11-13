@@ -611,7 +611,6 @@ pub(super) struct NextRound {
     pub(super) seconds: u64,
     /// The episode's seconds through the round's terminal, before it.
     pub(super) episode: u64,
-    pub(super) max: u64,
 }
 
 /// What a probe leaves: an answer, a rate-limit refusal's next round the

@@ -65,6 +65,7 @@ impl Engine {
                 .max()
                 .expect("a wait to take"),
             waits,
+            maxima: Vec::new(),
         };
         loop {
             match self.step(&mut round, events, state, effect_id, seat)? {
@@ -95,19 +96,13 @@ impl Engine {
             round.waits,
             &mut round.unrecorded,
             round.counted,
+            &mut round.maxima,
         )? {
             WaitRound::Stopped => return Ok(Step::Stopped),
             WaitRound::Parked(reason) => return Ok(Step::Parked(reason)),
             WaitRound::Waited => {}
         }
-        let answers = match self.round_probes(
-            events,
-            state,
-            effect_id,
-            seat,
-            round.waits,
-            round.unrecorded,
-        )? {
+        let answers = match self.round_probes(round, events, state, effect_id, seat)? {
             ProbedRound::Stopped => return Ok(Step::Stopped),
             ProbedRound::Parked(reason) => return Ok(Step::Parked(reason)),
             ProbedRound::Extended(until) => {
@@ -134,21 +129,27 @@ impl Engine {
     /// past a ceiling (0071 ruling 4).
     fn round_probes(
         &mut self,
+        round: &Round<'_>,
         events: &[EventEnvelope],
         state: &RunState,
         effect_id: &str,
         seat: &str,
-        waits: &[ProviderWait],
-        unrecorded: u64,
     ) -> Result<ProbedRound, EngineError> {
-        match self.probe_each(events, state, effect_id, seat, waits)? {
+        match self.probe_each(events, state, effect_id, seat, round.waits)? {
             ProbeRound::Stopped => Ok(ProbedRound::Stopped),
             ProbeRound::Parked(reason) => Ok(ProbedRound::Parked(reason)),
-            ProbeRound::Extended(round) => match self.hold_extension(waits, &round, unrecorded)? {
-                Extension::Stopped => Ok(ProbedRound::Stopped),
-                Extension::Parked(reason) => Ok(ProbedRound::Parked(reason)),
-                Extension::Written(until) => Ok(ProbedRound::Extended(until)),
-            },
+            ProbeRound::Extended(extension) => {
+                match self.hold_extension(
+                    round.waits,
+                    &round.maxima,
+                    &extension,
+                    round.unrecorded,
+                )? {
+                    Extension::Stopped => Ok(ProbedRound::Stopped),
+                    Extension::Parked(reason) => Ok(ProbedRound::Parked(reason)),
+                    Extension::Written(until) => Ok(ProbedRound::Extended(until)),
+                }
+            }
             ProbeRound::Answered(round) => Ok(ProbedRound::Answered(round)),
         }
     }
@@ -161,13 +162,14 @@ impl Engine {
     fn hold_extension(
         &mut self,
         waits: &[ProviderWait],
+        maxima: &[Option<u64>],
         round: &NextRound,
         unrecorded: u64,
     ) -> Result<Extension, EngineError> {
         if self.moved_from_the_effect()? {
             return Ok(Extension::Stopped);
         }
-        match self.record_extension(waits, round, unrecorded) {
+        match self.record_extension(waits, maxima, round, unrecorded) {
             Ok(until) => Ok(Extension::Written(until)),
             Err(error) => Ok(Extension::Parked(error.to_string())),
         }
@@ -184,6 +186,7 @@ impl Engine {
         waits: &[ProviderWait],
         unrecorded: &mut u64,
         counted: OffsetDateTime,
+        maxima: &mut Vec<Option<u64>>,
     ) -> Result<WaitRound, EngineError> {
         if self.moved_from_the_effect()? {
             return Ok(WaitRound::Stopped);
@@ -196,7 +199,7 @@ impl Engine {
             // The maximum is judged before every wait this round takes,
             // including a re-wait to an end another run moved during the
             // slices.
-            let waited = match self.extension_park_reason(
+            let budget = match self.extension_park_reason(
                 events,
                 effect_id,
                 waits,
@@ -204,10 +207,11 @@ impl Engine {
                 counted,
                 *unrecorded,
             ) {
-                Ok(waited) => waited,
+                Ok(budget) => budget,
                 Err(error) => return Ok(WaitRound::Parked(error.to_string())),
             };
-            *unrecorded = waited;
+            *unrecorded = budget.waited;
+            *maxima = budget.maxima;
             if self.wait_in_slices(end)? {
                 return Ok(WaitRound::Stopped);
             }
@@ -271,7 +275,7 @@ impl Engine {
         end: OffsetDateTime,
         counted: OffsetDateTime,
         unrecorded: u64,
-    ) -> Result<u64, CooldownError> {
+    ) -> Result<WaitBudget, CooldownError> {
         let episode =
             episode_by_site(&self.store, &self.run_id, events, effect_id).map_err(|source| {
                 let wait = &waits[0];
@@ -283,10 +287,14 @@ impl Engine {
             })?;
         let counted = counted.max(episode.latest.unwrap_or(counted));
         let waited = unrecorded.saturating_add(beyond_the_record(counted, end, self.now()));
+        let mut maxima = Vec::with_capacity(waits.len());
         for wait in waits {
             let max = match self.cooldown_bounds(&wait.provider, &wait.route) {
                 Ok(Some(bounds)) => u64::from(bounds.max_seconds.get()),
-                Ok(None) => continue,
+                Ok(None) => {
+                    maxima.push(None);
+                    continue;
+                }
                 Err(source) => {
                     return Err(CooldownError::WaitBoundsUnreadable {
                         provider: wait.provider.clone(),
@@ -295,6 +303,7 @@ impl Engine {
                     })
                 }
             };
+            maxima.push(Some(max));
             let through = episode.seconds.saturating_add(waited);
             if past_maximum(waited, through, max) {
                 let rounds = episode
@@ -318,7 +327,7 @@ impl Engine {
                 )));
             }
         }
-        Ok(waited)
+        Ok(WaitBudget { waited, maxima })
     }
 
     /// Append one probe's next round after judging it against the maximum
@@ -331,6 +340,7 @@ impl Engine {
     pub(super) fn record_extension(
         &mut self,
         waits: &[ProviderWait],
+        maxima: &[Option<u64>],
         round: &NextRound,
         waited: u64,
     ) -> Result<OffsetDateTime, CooldownError> {
@@ -340,28 +350,12 @@ impl Engine {
             .saturating_add(round.seconds);
         // Judge EVERY cooled site's maximum before the append, not only the
         // extending route's: a round that passes any of them writes no row
-        // (finding 4, 0103 choice 3). The extending route's maximum is the
-        // one `extension_plan` already read; another site's is read here.
-        for wait in waits {
-            let max = if wait.site == round.site
-                && wait.provider == round.provider
-                && wait.route == round.route
-            {
-                round.max
-            } else {
-                match self.cooldown_bounds(&wait.provider, &wait.route) {
-                    Ok(Some(bounds)) => u64::from(bounds.max_seconds.get()),
-                    Ok(None) => continue,
-                    Err(source) => {
-                        return Err(CooldownError::RoundBoundsUnreadable {
-                            provider: round.provider.clone(),
-                            route: round.route.clone(),
-                            source: Box::new(source),
-                        })
-                    }
-                }
-            };
-            if past_maximum(round.seconds, through, max) {
+        // (finding 4, 0103 choice 3). The maxima are the ones the round's
+        // wait read before the probes, so the host file is read once a
+        // round and the append cannot see a different declaration.
+        for (wait, max) in waits.iter().zip(maxima) {
+            let Some(max) = max else { continue };
+            if past_maximum(round.seconds, through, *max) {
                 let pending = ProviderWait {
                     site: wait.site.clone(),
                     provider: wait.provider.clone(),
@@ -373,7 +367,7 @@ impl Engine {
                     rounds: round.round,
                 };
                 return Err(CooldownError::Maximum(maximum_reason(
-                    &pending, through, max,
+                    &pending, through, *max,
                 )));
             }
         }
@@ -580,6 +574,15 @@ struct Round<'a> {
     unrecorded: u64,
     counted: OffsetDateTime,
     waits: &'a [ProviderWait],
+    maxima: Vec<Option<u64>>,
+}
+
+/// One round's waited seconds and each cooled site's declared maximum, as
+/// the round's one bounds read left them.
+#[derive(Debug)]
+pub(super) struct WaitBudget {
+    waited: u64,
+    maxima: Vec<Option<u64>>,
 }
 
 /// What one step left the round loop.

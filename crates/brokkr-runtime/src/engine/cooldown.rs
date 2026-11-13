@@ -176,15 +176,6 @@ pub(super) enum CooldownError {
         route: String,
         source: Box<CooldownError>,
     },
-    #[error(
-        "the cool-down probe for {provider}/{route} could not judge every cooled site's maximum: \
-         {source}"
-    )]
-    RoundBoundsUnreadable {
-        provider: String,
-        route: String,
-        source: Box<CooldownError>,
-    },
     #[error("{0}")]
     Maximum(String),
     #[error(
