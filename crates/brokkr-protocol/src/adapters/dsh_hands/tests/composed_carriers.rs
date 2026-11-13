@@ -1,9 +1,11 @@
-//! Fix round 1052g7 (#1052): the dump's line-property closure, independent
+//! Fix round 1052g8 (#1052): the dump's line-property closure, independent
 //! of the row grammar and of its block bookkeeping. No line may leave a
-//! quote or a flow collection open, whether a YAML reader reads it as
-//! structure or as block content, so no line can carry a following row's
-//! keys away. The closure admits nothing the row grammar refuses; these
-//! tests read it alone and through `gate`.
+//! quote, a non-empty flow collection or an empty sequence item open,
+//! whether a YAML reader reads it as structure or as block content, so no
+//! line can carry a following row's keys away. The empty item is js-yaml
+//! 4.3.2's own third carrier: it folds the next less-indented `- ` line into
+//! it. The closure admits nothing the row grammar refuses; these tests read
+//! it alone and through `gate`.
 
 #![cfg(unix)]
 
@@ -139,6 +141,14 @@ fn the_closure_refuses_the_empty_item_and_every_open_node() {
         (
             "an alias key with an open value",
             "  config:\n    *a : \"x\n  disabled: true\n",
+        ),
+        (
+            "an alias key with no space before its colon",
+            "  config:\n    *a: \"x\n  disabled: true\n",
+        ),
+        (
+            "an empty flow followed by junk",
+            "  config:\n    []x: \"y\n  disabled: true\n",
         ),
         (
             "an anchor ended by a flow indicator",
@@ -493,5 +503,58 @@ fn plain_values_the_dump_never_writes_refuse() {
             Ok(()),
             "{what}"
         );
+    }
+}
+
+/// The closure's markers, properties and property ends, each bound by the
+/// line it changes. A `: ` indicator whose body is a bare item, a `!`
+/// property that leaves an open quote, and a `{` that ends an anchor before
+/// an open flow all refuse; a property ended by `,`, `]` or `}` leaves a
+/// node the pass reads as closed, as the rule says. Dropping the `: ` arm,
+/// the `!` member, or any one of the flow indicators flips its case.
+#[test]
+fn the_closure_reads_a_colon_marker_a_tag_and_every_property_end() {
+    for (what, text) in [
+        ("a colon marker holding a bare item", ": -\n"),
+        ("a tag then an open quote", "    k: !!str \"x\n"),
+        ("a brace ends an anchor and opens a flow", "    k: &a{b,\n"),
+    ] {
+        assert_eq!(closure(text), Err(Composition::Unreadable), "{what}");
+    }
+    for (what, text) in [
+        (
+            "a comma ends an anchor before text a reader refuses",
+            "    k: &a,[b\n",
+        ),
+        (
+            "a flow closer ends an anchor before a quote",
+            "    k: &a] \"x\n",
+        ),
+        (
+            "a mapping closer ends an anchor before a quote",
+            "    k: &a} \"x\n",
+        ),
+    ] {
+        assert_eq!(closure(text), Ok(()), "{what}");
+    }
+}
+
+/// The closure's admitted line starts: a comment, a block-scalar header and
+/// a plain scalar cut at ` #` all leave nothing open even when a key and a
+/// quote follow, and a `? ` after a `- ` leaves the dash marker closed.
+/// Dropping the `#` arm, the `|`/`>` arm, the ` #` cut or the `dash = false`
+/// reset after `? ` refuses one of them, a false refusal.
+#[test]
+fn the_closure_admits_a_comment_a_header_and_a_cut_comment() {
+    for (what, text) in [
+        ("a comment at a node's start", "    # t: \"x\n"),
+        ("a block header with a key-shaped tail", "    > k: \"x\n"),
+        ("a plain scalar cut before its key", "    a # b: \"x\n"),
+        (
+            "a question after an item marker and a comment",
+            "    - ? # c\n",
+        ),
+    ] {
+        assert_eq!(closure(text), Ok(()), "{what}");
     }
 }

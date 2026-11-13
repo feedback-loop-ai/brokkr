@@ -18,20 +18,21 @@
 //! nothing or by a comment: an empty sequence item. A bare `?` or `:` ends
 //! the line. A node strips every `!` or `&` property (to an ASCII space or a
 //! flow indicator), then reads a quoted scalar (which must close on the
-//! line), an empty flow collection (`[]` or `{}` only; any other flow
-//! refuses), an alias, a block-scalar header, a comment, or a plain scalar
-//! (whose first `: ` starts its value and whose first ` #` starts a
-//! comment). After every node kind, ASCII spaces are skipped and a `: `
-//! starts a value read by the same rule.
+//! line), an empty flow collection (exactly `[]` or `{}`; any other flow
+//! refuses), a block-scalar header, a comment, or a plain scalar (whose
+//! first `: ` starts its value and whose first ` #` starts a comment). An
+//! alias is read as a plain scalar, so `*a: "x` is a key whose value is
+//! read, and only a property token ends at a flow indicator. After every
+//! node kind, ASCII spaces are skipped and a `: ` starts a value read by
+//! the same rule.
 
 use super::super::Composition;
 
 /// Refuse `Unreadable` if any line of `text` leaves a quote, a non-empty
-/// flow collection or an empty sequence item open. Empty lines are the only
-/// lines the pass never reads.
+/// flow collection or an empty sequence item open.
 pub(crate) fn check(text: &str) -> Result<(), Composition> {
     for line in text.lines() {
-        if !line.is_empty() && line_open(line) {
+        if line_open(line) {
             return Err(Composition::Unreadable);
         }
     }
@@ -56,8 +57,8 @@ fn line_open(line: &str) -> bool {
 
 /// Strip every leading `- `, `? ` or `: ` marker, with the spaces after
 /// each. A bare `-` and an empty sequence item (the last marker a `- ` with
-/// nothing or only a comment after it) refuse; a bare `?` or `:` ends the
-/// line.
+/// nothing or only a comment after it) refuse. A bare `?` or `:` falls
+/// through to a plain scalar, which leaves nothing open.
 fn strip_indicators(mut body: &str) -> Body<'_> {
     let mut dash = false;
     loop {
@@ -79,9 +80,6 @@ fn strip_indicators(mut body: &str) -> Body<'_> {
         if body == "-" {
             return Body::Refuse;
         }
-        if body == "?" || body == ":" {
-            return Body::Node("");
-        }
         break;
     }
     if dash && (body.is_empty() || body.starts_with('#')) {
@@ -92,13 +90,12 @@ fn strip_indicators(mut body: &str) -> Body<'_> {
 
 /// Whether the node at the start of `value` leaves one of the three carriers
 /// open. A `!` or `&` property is stripped first, then the node's own form
-/// decides.
+/// decides; an alias is not special, so it is read as a plain scalar.
 fn node_open(value: &str) -> bool {
     let value = strip_properties(value);
     match value.chars().next() {
         Some('\'' | '"') => quoted_open(value),
         Some('[' | '{') => flow_open(value),
-        Some('*') => alias_open(value),
         Some('|' | '>') | Some('#') => false,
         _ => plain_open(value),
     }
@@ -115,21 +112,18 @@ fn quoted_open(value: &str) -> bool {
 }
 
 /// Whether the flow collection at the start of `value` leaves something
-/// open. Only the empty collections `[]` and `{}` are admitted, and only
-/// their value after a colon is read; any other flow refuses, since none is
-/// a dump line and an open one is a carrier.
+/// open. Only the empty collections `[]` and `{}` are admitted: the two
+/// characters are the whole node, followed by the line's end, a space or a
+/// colon. Anything else is not the dump's flow and refuses, since an open
+/// one is a carrier. The value after a colon is read by [`after_node`].
 fn flow_open(value: &str) -> bool {
-    if value.starts_with("[]") || value.starts_with("{}") {
-        after_node(value, 2)
-    } else {
-        true
+    if !(value.starts_with("[]") || value.starts_with("{}")) {
+        return true;
     }
-}
-
-/// Whether the alias at the start of `value` is followed by a value that is
-/// left open.
-fn alias_open(value: &str) -> bool {
-    after_node(value, token_end(value, 0))
+    match value[2..].chars().next() {
+        None | Some(' ' | ':') => after_node(value, 2),
+        Some(_) => true,
+    }
 }
 
 /// Whether the text after a node, at byte index `end`, is a colon and a
@@ -138,7 +132,7 @@ fn alias_open(value: &str) -> bool {
 fn after_node(value: &str, end: usize) -> bool {
     let rest = value[end..].trim_start_matches(' ');
     match rest.strip_prefix(':') {
-        Some(after) if after.is_empty() || after.starts_with(' ') => node_open(after),
+        Some(after) if after.starts_with(' ') => node_open(after),
         _ => false,
     }
 }
@@ -158,10 +152,11 @@ fn plain_open(value: &str) -> bool {
     false
 }
 
-/// Whether the byte at `next` ends a key's colon: the line's end, or an
-/// ASCII space.
+/// Whether the byte at `next` is an ASCII space, which ends a key's colon.
+/// A colon at the line's end is read by [`node_open`] on an empty value,
+/// which leaves nothing open either way.
 fn colon_ends_key(value: &str, next: usize) -> bool {
-    next == value.len() || value.as_bytes()[next] == b' '
+    value.as_bytes().get(next) == Some(&b' ')
 }
 
 /// Strip every leading `!` or `&` property: the indicator, its run, and the
@@ -181,9 +176,9 @@ fn strip_properties(mut value: &str) -> &str {
     }
 }
 
-/// The byte index at which the `!`, `&` or `*` token at `start` ends: the
-/// first ASCII space or flow indicator after the indicator, or the line's
-/// end.
+/// The byte index at which the `!` or `&` property token at `start` ends:
+/// the first ASCII space or flow indicator after the indicator, or the
+/// line's end.
 fn token_end(value: &str, start: usize) -> usize {
     for (offset, c) in value[start..].char_indices().skip(1) {
         if c == ' ' || matches!(c, ',' | '[' | ']' | '{' | '}') {

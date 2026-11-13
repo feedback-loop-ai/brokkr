@@ -19,12 +19,15 @@
 //! spaces is admitted only while a block is open, and the `sandbox-policy`
 //! config block reads only one `    mode: <w>`.
 //!
-//! Every `-` marker followed by more than one ASCII space refuses
-//! `Unreadable`: js-yaml's dump writes exactly `- `, and a wider marker
-//! would put the key at a column the reader does not record. Every other
-//! deeper line of an unread block must be a line js-yaml's dump writes, so
-//! no quoted scalar, flow collection, anchor or empty sequence item can
-//! carry a later row's keys away. A block-scalar header opens content:
+//! Every `- ` marker read as a structure line of an unread block that is
+//! followed by more than one ASCII space refuses `Unreadable`: js-yaml's
+//! dump writes exactly `- `, and a wider marker would put the key at a
+//! column the reader does not record. A `-   x` line inside a block
+//! scalar's content is content, skipped before this rule, not a structure
+//! line. Every other structure line of an unread block must be a line
+//! js-yaml's dump writes, so no quoted scalar, flow collection, anchor or
+//! empty sequence item can carry a later row's keys away. A block-scalar
+//! header opens content:
 //! every following blank line, or line indented more than the header's node
 //! column, is skipped unread, and the first non-blank line at or above that
 //! column ends the content and is read normally. The node column is the
@@ -460,7 +463,9 @@ fn refused_plain_start(first: char) -> bool {
 /// structure: an explicit `-` or `:` marker on its own or followed by a
 /// space, a `: ` key separator inside, or a ` #` comment start inside.
 /// `?` is not repeated here: [`refused_plain_start`] already refuses every
-/// value that starts with `?`. `-1` and `a-b` stay plain values.
+/// value that starts with `?`. A `: ` start is implied by the `: `
+/// separator, so it has no arm of its own. `-1` and `a-b` stay plain
+/// values.
 fn refused_plain_value(value: &str) -> bool {
     matches!(value, "-" | ":")
         || value.starts_with("- ")
@@ -679,8 +684,9 @@ mod tests {
     }
 
     /// R2: any `-` marker followed by more than one ASCII space refuses, so
-    /// no wider marker can put a key at a column the reader did not record.
-    /// Admitting the wider marker again makes these cases return `Ok`.
+    /// no wider marker can put a key at a column the reader did not record;
+    /// a bare `-` is a sequence marker too, so it refuses as well.
+    /// Admitting either again makes these cases return `Ok`.
     #[test]
     fn a_wider_sequence_marker_is_refused() {
         for (what, line) in [
@@ -688,6 +694,7 @@ mod tests {
             ("two spaces", "-  k: >-"),
             ("two spaces before a quoted key", "-  \"k\": >-"),
             ("two spaces after a nested marker", "- -  k: >-"),
+            ("a bare marker", "-"),
         ] {
             assert_eq!(strip_markers(line), Err(Composition::Unreadable), "{what}");
         }

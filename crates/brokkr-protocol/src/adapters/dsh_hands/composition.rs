@@ -18,13 +18,15 @@
 //!
 //! The whole dump is read by two passes, not only the one `sandbox-policy`
 //! row. First every line is refused for a break, control or tab. Then the
-//! line-property closure refuses any line that leaves a quote or a flow
-//! collection open, independent of the row grammar and its block
-//! bookkeeping. Only then does the row grammar read the dump: every row's
-//! two-space keys are closed to `name:`, `disabled:`, `config:` and
-//! `inject:` each at most once, and a deeper line is admitted only while
-//! `config:` or `inject:` opened a block. The closure's home is
-//! [`carriers`] and the grammar's one home is [`rows`].
+//! line-property closure refuses any line that leaves a quote, a non-empty
+//! flow collection or an empty sequence item open, independent of the row
+//! grammar and its block bookkeeping. Only then does the row grammar read
+//! the dump: every row's two-space keys are closed to `name:`, `disabled:`,
+//! `config:` and `inject:` each at most once, and a deeper line is admitted
+//! only while `config:` or `inject:` opened a block. The closure's home is
+//! [`rows::carriers`] and the grammar's one home is [`rows`];
+//! [`closure`] stays a `pub(crate)` forwarder to the closure so the unit
+//! tests read one seam without a second path into the module.
 
 use std::process::{Command, Stdio};
 

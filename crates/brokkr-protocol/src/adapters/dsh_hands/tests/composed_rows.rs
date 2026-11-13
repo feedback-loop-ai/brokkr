@@ -6,7 +6,7 @@
 
 #![cfg(unix)]
 
-use super::super::composition::Composition;
+use super::super::composition::{closure, Composition};
 use super::super::{Mode, Release, HANDS_ID, SANDBOX_POLICY};
 use super::composed::{gate, with_sandbox_mode};
 use super::measured_dump;
@@ -715,15 +715,16 @@ fn another_rows_disabled_keeps_its_reading() {
 /// more than one ASCII space refuses `Unreadable`, as the column-zero
 /// `-   id:` already did. js-yaml's dump writes exactly `- `, and the
 /// wider marker would put the key at a column the reader records as the
-/// marker's. Admitting the wider marker again admits the second and third
-/// trees, which is the removal control.
+/// marker's. Each tree's closure admits every line, so the marker rule is
+/// what refuses it; admitting the wider marker again admits all three,
+/// which is the removal control.
 #[test]
 fn a_marker_followed_by_more_than_one_space_is_refused() {
     let dump = policy_dump();
     for (what, body) in [
         (
-            "three spaces and an open flow content line",
-            "  config:\n    -   k: >-\n        j: [a]\n  disabled: true\n",
+            "three spaces and an empty flow content line",
+            "  config:\n    -   k: >-\n        j: []\n  disabled: true\n",
         ),
         (
             "two spaces and an alias content line",
@@ -734,8 +735,10 @@ fn a_marker_followed_by_more_than_one_space_is_refused() {
             "  config:\n    -  \"k\": >-\n  disabled: true\n",
         ),
     ] {
+        let tree = tool_bash_row(&dump, body);
+        assert_eq!(closure(&tree), Ok(()), "{what}: the closure admits it");
         assert_eq!(
-            gate(tool_bash_row(&dump, body), Release::V0_2_1, Mode::ReadOnly),
+            gate(tree, Release::V0_2_1, Mode::ReadOnly),
             Err(Composition::Unreadable),
             "{what}"
         );
