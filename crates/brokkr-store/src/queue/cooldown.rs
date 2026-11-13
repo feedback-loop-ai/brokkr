@@ -10,6 +10,8 @@
 //! returns NULL and a NULL CHECK passes. Only the readers here convert
 //! them, into the `time` type the engine already carries.
 
+use brokkr_core::envelope::{EventEnvelope, EventType};
+use brokkr_core::provider_waits;
 use rusqlite::{params, Connection, OptionalExtension};
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
@@ -65,6 +67,41 @@ pub struct CooldownAggregate {
     pub reason: String,
 }
 
+/// One probe round appended to a terminal event's episode (decision 0103
+/// ruling 2(a), slice 4d2b). The event is the terminal whose `waits` entry
+/// names `site`; the store fills the row's `recorded_at` from `until_at`
+/// and `seconds`, so the two stored times differ by exactly the length the
+/// engine computed, and the episode reads the round back from the table
+/// rather than recomputing it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CooldownRound<'a> {
+    pub run_id: &'a str,
+    /// The terminal event's seq: the probe's row shares it with its attempt.
+    pub event_seq: u64,
+    /// The invocation-site tag, `''` for an inline seat.
+    pub site: &'a str,
+    pub provider: &'a str,
+    pub route: &'a str,
+    /// When this round's wait ends.
+    pub until_at: OffsetDateTime,
+    /// The provider's bounded words from the probe's refusal.
+    pub reason: &'a str,
+    pub retry_after_seconds: Option<u64>,
+    /// The site's next round: the highest stored round plus one.
+    pub rounds: u64,
+    /// The length this round's wait was computed at.
+    pub seconds: u64,
+}
+
+/// What [`Store::append_cooldown_round`] did. A queue this binary may not
+/// write takes no row and the engine falls back to the 4c park; a row the
+/// store refused is a [`StoreError`] instead, and nothing was written.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RoundAppend {
+    Written,
+    NoTable,
+}
+
 /// Write `rows` as the cool-downs of `run_id`'s event `event_seq`, inside
 /// the transaction that wrote that event, which the journal recorded at
 /// `recorded_at`. A row whose end has already passed is history and is
@@ -97,30 +134,66 @@ pub(crate) fn insert(
     let recorded = OffsetDateTime::parse(recorded_at, &Rfc3339)
         .expect("the journal's own recorded_at is RFC 3339")
         .unix_timestamp();
-    let mut insert = tx.prepare(
-        "INSERT INTO provider_cooldowns
-            (run_id, event_seq, site, provider, route, until_at, reason,
-             retry_after_seconds, rounds, recorded_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-    )?;
     for row in rows {
         let until = until_second(row.until_at);
         if until <= recorded {
             continue;
         }
-        insert.execute(params![
-            run_id,
-            event_seq as i64,
+        insert_row(
+            tx,
+            &StoredRow {
+                run_id,
+                event_seq,
+                site: &row.site,
+                provider: &row.provider,
+                route: &row.route,
+                until,
+                reason: &row.reason,
+                retry_after_seconds: row.retry_after_seconds,
+                rounds: row.rounds,
+                recorded,
+            },
+        )?;
+    }
+    Ok(())
+}
+
+/// One `provider_cooldowns` row as the table's one writer spells it:
+/// shared by an attempt's rows and a probe's later round, so the INSERT
+/// lives once (decision 0071 ruling 5).
+struct StoredRow<'a> {
+    run_id: &'a str,
+    event_seq: u64,
+    site: &'a str,
+    provider: &'a str,
+    route: &'a str,
+    until: i64,
+    reason: &'a str,
+    retry_after_seconds: Option<u64>,
+    rounds: u64,
+    recorded: i64,
+}
+
+/// Insert one row. The table's CHECK constraints and unique index judge it.
+fn insert_row(conn: &Connection, row: &StoredRow<'_>) -> Result<(), StoreError> {
+    conn.execute(
+        "INSERT INTO provider_cooldowns
+            (run_id, event_seq, site, provider, route, until_at, reason,
+             retry_after_seconds, rounds, recorded_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+        params![
+            row.run_id,
+            row.event_seq as i64,
             row.site,
             row.provider,
             row.route,
-            until,
+            row.until,
             row.reason,
             row.retry_after_seconds.map(|retry| retry as i64),
             row.rounds as i64,
-            recorded,
-        ])?;
-    }
+            row.recorded,
+        ],
+    )?;
     Ok(())
 }
 
@@ -238,6 +311,47 @@ fn time_of(seconds: i64, seq: i64) -> Result<OffsetDateTime, StoreError> {
         .map_err(|_| QueueRefusal::CooldownTime { seq }.into())
 }
 
+/// One site's rounds on an event, in round order: the attempt's own row and
+/// every probe round appended after it. The version is judged before this
+/// runs, as the aggregate's read is.
+fn rounds(
+    conn: &Connection,
+    run_id: &str,
+    event_seq: u64,
+    site: &str,
+) -> Result<Vec<Cooldown>, StoreError> {
+    let mut statement = conn.prepare(
+        "SELECT seq, site, provider, route, until_at, reason, retry_after_seconds, rounds,
+                recorded_at
+         FROM provider_cooldowns
+         WHERE run_id = ?1 AND event_seq = ?2 AND site = ?3
+         ORDER BY rounds",
+    )?;
+    let raw = statement.query_map(params![run_id, event_seq as i64, site], Raw::read)?;
+    let rows = raw.collect::<Result<Vec<_>, _>>()?;
+    rows.into_iter().map(Raw::typed).collect()
+}
+
+/// The event at `(run_id, event_seq)`, parsed, or `None`: a probe round is
+/// appended to an event that already landed, so the check reads it inside
+/// the transaction that writes the row.
+fn event_at(
+    conn: &Connection,
+    run_id: &str,
+    event_seq: u64,
+) -> Result<Option<EventEnvelope>, StoreError> {
+    let raw: Option<String> = conn
+        .query_row(
+            "SELECT envelope FROM events WHERE run_id = ?1 AND seq = ?2",
+            params![run_id, event_seq as i64],
+            |row| row.get(0),
+        )
+        .optional()?;
+    raw.map(|raw| serde_json::from_str(&raw))
+        .transpose()
+        .map_err(StoreError::from)
+}
+
 impl Store {
     /// The aggregate `provider` and `route` stand at, at `now`: every
     /// unexpired row is in force and the wait ends at the latest
@@ -271,6 +385,117 @@ impl Store {
             } else {
                 Ok(Vec::new())
             }
+        })
+    }
+
+    /// One site's rounds on a terminal event, in round order: the attempt's
+    /// own row and every probe round appended after it. The episode reads
+    /// its probe rounds here instead of recomputing them under today's
+    /// bounds (decision 0103 ruling 2(a), slice 4d2b). The queue's version
+    /// is judged first, as [`Store::cooldown`] does: a version 1, 2 or 3
+    /// journal holds no cool-down and answers none.
+    pub fn cooldown_rounds(
+        &self,
+        run_id: &str,
+        event_seq: u64,
+        site: &str,
+    ) -> Result<Vec<Cooldown>, StoreError> {
+        patiently("cooldown_rounds", self.patience, || {
+            if cool_downs_held(&self.conn)? {
+                rounds(&self.conn, run_id, event_seq, site)
+            } else {
+                Ok(Vec::new())
+            }
+        })
+    }
+
+    /// Append ONE probe round to its terminal event, in its own `Immediate`
+    /// transaction (decision 0103 ruling 2(a), slice 4d2b). The queue must
+    /// be version 4 (`NoTable` otherwise, and the engine parks as 4c does);
+    /// the event must be a terminal effect event carrying a readable `waits`
+    /// entry for the round's site; and the round must be exactly one more
+    /// than the site's highest stored round for that `(run_id, event_seq)`,
+    /// so a lost race writes neither a gap nor a duplicate. The table's
+    /// CHECK constraints and unique index judge the row as they judge an attempt's
+    /// rows.
+    pub fn append_cooldown_round(
+        &mut self,
+        round: CooldownRound<'_>,
+    ) -> Result<RoundAppend, StoreError> {
+        patiently("append_cooldown_round", self.patience, || {
+            let tx = self
+                .conn
+                .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+            if !cool_downs_writable(&tx)? {
+                return Ok(RoundAppend::NoTable);
+            }
+            let absent = || QueueRefusal::CooldownRoundEvent {
+                run_id: round.run_id.to_string(),
+                event_seq: round.event_seq,
+            };
+            let Some(event) = event_at(&tx, round.run_id, round.event_seq)? else {
+                return Err(absent().into());
+            };
+            if !matches!(
+                event.event_type,
+                EventType::EffectFailed | EventType::EffectIndeterminate
+            ) {
+                return Err(absent().into());
+            }
+            let waits = provider_waits(&event).ok().flatten().unwrap_or_default();
+            if !waits
+                .iter()
+                .any(|wait| wait.site.as_deref().unwrap_or("") == round.site)
+            {
+                return Err(QueueRefusal::CooldownRoundWait {
+                    run_id: round.run_id.to_string(),
+                    event_seq: round.event_seq,
+                    site: round.site.to_string(),
+                }
+                .into());
+            }
+            let highest: i64 = tx.query_row(
+                "SELECT COALESCE(MAX(rounds), 0) FROM provider_cooldowns
+                 WHERE run_id = ?1 AND event_seq = ?2 AND site = ?3",
+                params![round.run_id, round.event_seq as i64, round.site],
+                |row| row.get(0),
+            )?;
+            let standing = u64::try_from(highest).unwrap_or(0);
+            if round.rounds != standing.saturating_add(1) {
+                return Err(QueueRefusal::CooldownRoundNotNext(Box::new(
+                    super::CooldownRoundMismatch {
+                        run_id: round.run_id.to_string(),
+                        event_seq: round.event_seq,
+                        site: round.site.to_string(),
+                        rounds: round.rounds,
+                        standing,
+                    },
+                ))
+                .into());
+            }
+            // The row's two times differ by exactly the round's computed
+            // length: `recorded_at` is the round's start, so the episode
+            // sums the row back without re-deriving it under today's
+            // bounds (decision 0071 ruling 5, one home for the length).
+            let until = until_second(round.until_at);
+            let recorded = until.saturating_sub(i64::try_from(round.seconds).unwrap_or(i64::MAX));
+            insert_row(
+                &tx,
+                &StoredRow {
+                    run_id: round.run_id,
+                    event_seq: round.event_seq,
+                    site: round.site,
+                    provider: round.provider,
+                    route: round.route,
+                    until,
+                    reason: round.reason,
+                    retry_after_seconds: round.retry_after_seconds,
+                    rounds: round.rounds,
+                    recorded,
+                },
+            )?;
+            tx.commit()?;
+            Ok(RoundAppend::Written)
         })
     }
 }

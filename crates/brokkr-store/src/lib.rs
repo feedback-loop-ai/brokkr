@@ -103,8 +103,9 @@ pub use opening::Opened;
 pub use page::{keyed, place_of, Keyed, Paged, RowRefusal, Unread};
 pub use queue::{
     claim_stands, Attribution, Claim, ClaimFacts, Claiming, Cooldown, CooldownAggregate,
-    CooldownDuplicate, Cooling, EntryId, EntryState, Generation, Latch, NewEntry, NotAWait,
-    QueueCommand, QueueEntry, QueueRefusal, Seen, StartRefusal, Wait, WaitOn,
+    CooldownDuplicate, CooldownRound, CooldownRoundMismatch, Cooling, EntryId, EntryState,
+    Generation, Latch, NewEntry, NotAWait, QueueCommand, QueueEntry, QueueRefusal, RoundAppend,
+    Seen, StartRefusal, Wait, WaitOn,
 };
 pub use redact::{redact_export, Redactor};
 pub use run_read::RunRead;

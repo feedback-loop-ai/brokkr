@@ -19,6 +19,18 @@ pub struct CooldownDuplicate {
     pub rounds: i64,
 }
 
+/// The run, event seq, site and rounds of a probe round that is not the
+/// next one for its site (decision 0103 ruling 2(a), slice 4d2b), boxed so
+/// the store's error stays small as its callers carry it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CooldownRoundMismatch {
+    pub run_id: String,
+    pub event_seq: u64,
+    pub site: String,
+    pub rounds: u64,
+    pub standing: u64,
+}
+
 /// Why the queue refused, with the operator's text. Nothing was written.
 #[derive(Debug, Clone, Error, PartialEq, Eq)]
 pub enum QueueRefusal {
@@ -79,6 +91,35 @@ pub enum QueueRefusal {
     /// error stays small as the store's callers carry it.
     #[error("the journal's provider cool-downs hold run '{}' event {} site '{}' round {} more than once; the lost unique index is not rebuilt over them", .0.run_id, .0.event_seq, .0.site, .0.rounds)]
     CooldownDuplicate(Box<CooldownDuplicate>),
+    /// A probe round for an event that is absent or is not the terminal
+    /// effect event whose `waits` an episode appends to (decision 0103
+    /// ruling 2(a), slice 4d2b). Nothing was written.
+    #[error(
+        "the journal's event '{run_id}' {event_seq} is not a terminal effect event a probe round \
+         can append to"
+    )]
+    CooldownRoundEvent { run_id: String, event_seq: u64 },
+    /// A probe round for a site the terminal event carries no readable
+    /// `waits` entry for (decision 0103 ruling 2(a), slice 4d2b). Nothing
+    /// was written.
+    #[error(
+        "the journal's event '{run_id}' {event_seq} carries no readable wait for site '{site}', \
+         so it has no probe round"
+    )]
+    CooldownRoundWait {
+        run_id: String,
+        event_seq: u64,
+        site: String,
+    },
+    /// A probe round that is not the next one for its site (decision 0103
+    /// ruling 2(a), slice 4d2b): a gap or a duplicate would be written, so
+    /// nothing was.
+    #[error(
+        "the journal's provider cool-downs for run '{}' event {} site '{}' stand at round {}; \
+         round {} is not the next one",
+        .0.run_id, .0.event_seq, .0.site, .0.standing, .0.rounds
+    )]
+    CooldownRoundNotNext(Box<CooldownRoundMismatch>),
     /// A command on an entry the dispatcher has claimed and not yet
     /// linked, returned or held (decision 0095 ruling 1).
     #[error("queue entry {0} is launching; the dispatcher links, returns or holds it first")]
