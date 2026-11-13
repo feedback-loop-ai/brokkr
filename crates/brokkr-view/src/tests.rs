@@ -72,7 +72,7 @@ pub(crate) fn listed<'a>(
 }
 
 /// A single seat that starts, turns, finishes its session and succeeds.
-fn seat_journal() -> Vec<EventEnvelope> {
+pub(crate) fn seat_journal() -> Vec<EventEnvelope> {
     vec![
         ev(1, EventType::RunStarted, json!({"feature": "build it"}), T0),
         ev(2, EventType::PhaseEntered, json!({"phase": "intake"}), T0),
