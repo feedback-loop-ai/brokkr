@@ -50,7 +50,7 @@ use rusqlite::{params_from_iter, Row, StatementStatus};
 use crate::aggregate::{optional_text, required_text};
 use crate::event_index::{CHECKPOINTED, CHECKPOINT_STALE};
 use crate::seat_read::site_of;
-use crate::seat_summary::{lags as seat_lags, SHAPE};
+use crate::seat_summary::{lags as seat_lags, stale_intact, stale_runs, SHAPE};
 use crate::{Store, StoreError};
 
 /// The order a window's sites are folded in (decision 0089 ruling 7): the
@@ -252,7 +252,10 @@ impl Store {
 
     /// [`Store::window_fallbacks`] with the statement's VM steps handed to
     /// `stepped`, so the test that binds the fallback's cost measures the
-    /// production statement itself.
+    /// production statement itself. A journal whose set is intact reads the
+    /// set's statement; one whose set is absent or damaged reads the rule's
+    /// own, so a reader that cannot write still names every lagging run
+    /// (decision 0014).
     fn window_fallbacks_with(
         &self,
         _from: i64,
@@ -261,7 +264,12 @@ impl Store {
         mut visit: impl FnMut(&WindowFallback<'_>),
         mut stepped: impl FnMut(i64),
     ) -> Result<(), StoreError> {
-        let mut statement = self.conn.prepare(FALLBACKS.as_str())?;
+        let sql = if stale_intact(&self.conn)? {
+            FALLBACKS.as_str()
+        } else {
+            FALLBACKS_BY_RULE.as_str()
+        };
+        let mut statement = self.conn.prepare(sql)?;
         let mut rows = statement.query(params_from_iter(fallback_bounds(realm)))?;
         while let Some(row) = rows.next()? {
             visit(&WindowFallback {
@@ -364,18 +372,12 @@ static SPENDS: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-/// The runs the whole-run fallback reads: every run whose seat rows or
-/// checkpoint facts are not current, each once, store-wide. The seat arm
-/// reads each run's head by its key; the checkpoint arm reads only the
-/// stale index's rows, so neither walks the journal's current rows.
-static FALLBACKS: LazyLock<String> = LazyLock::new(|| {
+/// The fallback statements' checkpoint arm: the runs whose checkpoint facts
+/// are not current, read through the stale index's rows alone. Both the
+/// set's statement and the rule's carry it unchanged.
+fn fallback_checkpoints() -> String {
     format!(
-        "SELECT r.run_id
-           FROM run_summary AS r LEFT JOIN seat_head AS h ON h.run_id = r.run_id
-          WHERE {outside} AND {seat}
-            AND (?1 IS NULL OR r.realm = ?1)
-         UNION
-         SELECT e.run_id
+        "SELECT e.run_id
            FROM event_index AS e INDEXED BY event_index_checkpoint_stale
            JOIN run_summary AS r ON r.run_id = e.run_id
           WHERE e.type = '{CHECKPOINTED}' AND {CHECKPOINT_STALE}
@@ -383,7 +385,47 @@ static FALLBACKS: LazyLock<String> = LazyLock::new(|| {
             AND (?1 IS NULL OR r.realm = ?1)
           ORDER BY 1",
         outside = crate::aggregate::outside("r."),
-        seat = seat_lags("r", "h", "?2"),
+    )
+}
+
+/// The runs the whole-run fallback reads: every run whose seat rows or
+/// checkpoint facts are not current, each once, store-wide. The seat arm
+/// reads the stale-seat set and the heads of another shape by their
+/// indexes, and the set drives the join (`CROSS JOIN`), so the planner
+/// cannot scan `run_summary` and probe the set instead; the checkpoint arm
+/// reads only the stale index's rows, so neither walks the journal's
+/// current rows.
+static FALLBACKS: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT r.run_id
+           FROM ({seat}) AS l CROSS JOIN run_summary AS r ON r.run_id = l.run_id
+          WHERE {outside} AND (?1 IS NULL OR r.realm = ?1)
+         UNION
+         {checkpoint}",
+        outside = crate::aggregate::outside("r."),
+        seat = stale_runs("?2"),
+        checkpoint = fallback_checkpoints(),
+    )
+});
+
+/// The fallback for a journal whose stale-seat set is absent or damaged:
+/// the `run_summary` scan under the seat-currentness rule. It is not the
+/// statement U3d replaced byte for byte: `lags` carries the checkpoint
+/// arm's condition as well, and the statement unions the checkpoint arm
+/// too, so a reader that cannot write cannot repair the set (decision
+/// 0014) and still names every lagging run exactly, costing a visit a run
+/// only where no writer has repaired the journal yet.
+static FALLBACKS_BY_RULE: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT r.run_id
+           FROM run_summary AS r LEFT JOIN seat_head AS h ON h.run_id = r.run_id
+          WHERE {outside} AND {seat}
+            AND (?1 IS NULL OR r.realm = ?1)
+         UNION
+         {checkpoint}",
+        outside = crate::aggregate::outside("r."),
+        seat = lags("r", "h", "?2"),
+        checkpoint = fallback_checkpoints(),
     )
 });
 

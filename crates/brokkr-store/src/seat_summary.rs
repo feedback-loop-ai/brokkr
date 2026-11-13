@@ -69,8 +69,12 @@ use crate::summary::{refold_once, Compared};
 use crate::{head_of, patiently, Disagreement, Store, StoreError};
 
 mod seal;
+mod stale;
 
 use seal::{digest, value, Cell, Seal};
+#[cfg(test)]
+pub(crate) use stale::SHAPE_INDEX;
+pub(crate) use stale::{forget_summary_triggers, migrate_stale, stale_intact, stale_runs};
 
 /// The meta key that records the backfill finished (ruling 8): its own,
 /// so keeping seat rows sends no run's summary behind (#753 ruling 4a).
@@ -153,7 +157,9 @@ const SHAPED: &str = "shape";
 /// additive repair. Their presence is asked again under the lock, so an
 /// opener that raced a peer to it drops none of the rows the peer's walk
 /// has written since. Their rows come from the backfill that follows the
-/// open, outside this lock.
+/// open, outside this lock. Remaking the tables drops the heads' triggers
+/// and the shape index with them, so the eighth repair, which names the
+/// runs whose rows lag, runs after this one and sees their loss.
 pub(crate) fn migrate_seats(conn: &Connection) -> Result<(), StoreError> {
     if !seats_intact(conn)? {
         conn.execute_batch(&migration())?;

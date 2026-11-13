@@ -154,7 +154,7 @@ pub(super) fn head_trigger() -> String {
 /// 0089 ruling 5). [`super::summary_intact`] asks it once, and a writable
 /// open replaces an older build's copy before reading anything by a value
 /// its appends never kept.
-pub(super) fn triggers_intact(conn: &Connection, names: &[&str]) -> Result<bool, StoreError> {
+pub(crate) fn triggers_intact(conn: &Connection, names: &[&str]) -> Result<bool, StoreError> {
     let mut statement =
         conn.prepare("SELECT name, sql FROM sqlite_master WHERE type = 'trigger'")?;
     let found: Vec<(String, Option<String>)> = statement

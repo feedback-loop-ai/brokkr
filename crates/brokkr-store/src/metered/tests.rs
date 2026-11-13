@@ -17,6 +17,8 @@ use super::*;
 use crate::test_support::{fixture_events, import_fixtures, plant_older_writer};
 use crate::tests::envelope_builder::EnvelopeBuilder;
 
+mod stale;
+
 /// A window's expected spend: its run, its run's stored realm key, its
 /// checkpoint's time and stored phase, and its cost.
 #[derive(Debug, PartialEq)]

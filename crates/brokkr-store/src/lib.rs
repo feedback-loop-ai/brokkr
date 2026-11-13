@@ -149,7 +149,7 @@ use start::Row;
 const BUSY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// A reader's page cache in KiB, a negative `cache_size`: 64 holds SQLite
-/// 3.54's share within the 512,000-byte cap on every host, macOS measuring
+/// 3.54's share within ruling 9's cap on every host, macOS measuring
 /// above Linux (decision 0089 ruling 9, amended 2026-11-10 on #1043).
 const READER_CACHE_KIB: i64 = 64;
 
