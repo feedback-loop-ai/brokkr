@@ -199,7 +199,7 @@ pub brokkr_store::QueueRefusal::Carried(brokkr_store::Claim, alloc::vec::Vec<all
 pub brokkr_store::QueueRefusal::Claimed
 pub brokkr_store::QueueRefusal::Claimed::entry: brokkr_store::EntryId
 pub brokkr_store::QueueRefusal::Claimed::run: alloc::string::String
-pub brokkr_store::QueueRefusal::CooldownDuplicate(alloc::boxed::Box<brokkr_store::queue::refusal::CooldownDuplicate>)
+pub brokkr_store::QueueRefusal::CooldownDuplicate(alloc::boxed::Box<brokkr_store::CooldownDuplicate>)
 pub brokkr_store::QueueRefusal::CooldownTime
 pub brokkr_store::QueueRefusal::CooldownTime::seq: i64
 pub brokkr_store::QueueRefusal::Dropped(brokkr_store::EntryId)
@@ -381,6 +381,11 @@ pub brokkr_store::CooldownAppend::event_type: brokkr_core::envelope::EventType
 pub brokkr_store::CooldownAppend::fenced: core::option::Option<(u64, &'a str)>
 pub brokkr_store::CooldownAppend::payload: serde_json::value::Value
 pub brokkr_store::CooldownAppend::run_id: &'a str
+pub struct brokkr_store::CooldownDuplicate
+pub brokkr_store::CooldownDuplicate::event_seq: i64
+pub brokkr_store::CooldownDuplicate::rounds: i64
+pub brokkr_store::CooldownDuplicate::run_id: alloc::string::String
+pub brokkr_store::CooldownDuplicate::site: alloc::string::String
 pub struct brokkr_store::Cooling
 pub brokkr_store::Cooling::provider: alloc::string::String
 pub brokkr_store::Cooling::reason: alloc::string::String
