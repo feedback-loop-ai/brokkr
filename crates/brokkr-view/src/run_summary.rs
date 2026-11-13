@@ -12,7 +12,7 @@ use brokkr_core::fold::RunState;
 use brokkr_core::EventEnvelope;
 use serde::Serialize;
 
-use crate::fleet::{said, stopping_detail, Facts, Standing};
+use crate::fleet::{late_tail, said, stopping_detail, Facts, LateTail, Standing};
 
 /// The `summarize()` keys, verbatim and in the same order the
 /// existing `brokkr inspect` prints them, and the standing the fleet
@@ -43,6 +43,9 @@ pub struct Summary {
     pub strategy: Option<String>,
     /// What the run asks of the operator: a ruling, an action, or nothing.
     pub wants: Option<Wants>,
+    /// The late tail an operator's repair named (decision 0108 ruling 4):
+    /// kept and shown, never applied.
+    pub late_tail: Option<LateTail>,
 }
 
 impl Summary {
@@ -85,5 +88,6 @@ pub fn summary(state: &RunState, events: &[EventEnvelope]) -> Summary {
         status,
         strategy: state.strategy.clone(),
         wants: said.wants,
+        late_tail: late_tail(state),
     }
 }

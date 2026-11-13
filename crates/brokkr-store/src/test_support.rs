@@ -5,7 +5,8 @@
 //! plants it here rather than in its own SQL, so the statements a planted
 //! row goes through are the ones the store's own writers use. The `runs`
 //! and `events` tables admit anything the schema's guards do; nothing
-//! here chains, seals or validates.
+//! here validates. [`plant_chained`] seals and chains the events it
+//! plants, and nothing else does.
 //!
 //! Compiled for this crate's own tests and behind the `test-support`
 //! feature, which only dev-dependencies enable.
@@ -13,10 +14,11 @@
 use std::collections::BTreeSet;
 
 use brokkr_core::canonical::ZERO_HASH;
-use brokkr_core::envelope::{EventEnvelope, EventType};
+use brokkr_core::envelope::{EventEnvelope, EventType, EVENT_SCHEMA_VERSION};
 use brokkr_core::summary::{Account, Summary};
 use rusqlite::types::Value;
 use rusqlite::{params, Connection, ToSql};
+use serde_json::Value as Json;
 
 use crate::import::INSERT_EVENT;
 use crate::summary::{Compared, Listed};
@@ -224,6 +226,42 @@ pub fn plant_envelope(conn: &Connection, envelope: &EventEnvelope) -> rusqlite::
         &envelope.event_hash,
         &text,
     )
+}
+
+/// Plant `events` after `head`, `run_id`'s last event: each sealed as the
+/// store seals one and chained onto the one before it, behind the store's
+/// back. The shapes a late driver or an older binary left, kept whole.
+pub fn plant_chained(
+    conn: &Connection,
+    run_id: &str,
+    head: &EventEnvelope,
+    events: &[(EventType, Json)],
+) -> rusqlite::Result<Vec<EventEnvelope>> {
+    let (mut seq, mut previous) = (head.seq, head.event_hash.clone());
+    let mut planted = Vec::with_capacity(events.len());
+    for (event_type, payload) in events {
+        seq += 1;
+        let envelope = EventEnvelope {
+            run_id: run_id.to_string(),
+            seq,
+            event_id: uuid::Uuid::new_v4().to_string(),
+            event_schema_version: EVENT_SCHEMA_VERSION,
+            event_type: *event_type,
+            payload: payload.clone(),
+            causation_id: None,
+            correlation_id: run_id.to_string(),
+            attempt_id: None,
+            recorded_at: "2026-11-13T00:00:00Z".to_string(),
+            previous_hash: previous,
+            event_hash: String::new(),
+        }
+        .sealed();
+        let text = serde_json::to_string(&envelope).expect("an envelope serializes");
+        plant_event(conn, run_id, &(seq as i64), &envelope.event_hash, &text)?;
+        previous = envelope.event_hash.clone();
+        planted.push(envelope);
+    }
+    Ok(planted)
 }
 
 /// Plant a copy of `event` at `seq` that chains onto no event — its

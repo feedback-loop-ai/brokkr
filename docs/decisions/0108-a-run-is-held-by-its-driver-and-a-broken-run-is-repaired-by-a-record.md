@@ -3,7 +3,7 @@
 Status: accepted — operator ruled in chat 2026-11-13, "go with all recommended" (#440)
 Date: 2026-11-13
 
-Built: partial (#440) — rulings 1 and 2
+Built: partial (#440) — rulings 1, 2 and 4; ruling 3 unbuilt
 
 ## Context
 
@@ -138,6 +138,18 @@ questions are left, and they are this decision's:
      Each fails to fold, and folds as `stopped` with its late tail once a
      repair names it. A repair naming a range that is not the late tail
      refuses.
+   - **Erratum, 2026-11-13 (#440 unit 3a).** The sentences above say
+     `operator/repaired` and "new event types". This codebase records an
+     operator annotation on a terminal run as `operator/commanded` with its
+     own command word and a versioned `args` schema, never as a new event
+     type: decision 0047's supersede and decision 0064's classify both do.
+     So repair is `operator/commanded` with command `repair`, and its args
+     are `contracts/operator-repair.v1.schema.json` — the late tail's
+     `first_seq` and `last_seq`, the `terminal_seq` it follows, the tail's
+     `event_types` in order, and the operator's `reason`. No new event
+     type, no new payload field, no manifest digest moved, and the meaning
+     above is unchanged. Ruling 3's `operator/settled` takes the same shape
+     as command `settle`, built by unit 3b (440d).
 
 ## What this decision does not do
 

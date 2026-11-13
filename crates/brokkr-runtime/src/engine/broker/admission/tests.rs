@@ -285,7 +285,7 @@ pub(in crate::engine) fn reservation_path(home: &Path, worktree: &Path, run: &st
 
 /// A HOME of a test's own, its coordination root opened, and the worktrees
 /// it makes beside it.
-struct Host {
+pub(in crate::engine::broker) struct Host {
     dir: tempfile::TempDir,
     home: PathBuf,
     root: Arc<Root>,
@@ -294,7 +294,7 @@ struct Host {
 impl Host {
     /// A fresh one in TMPDIR, whatever TMPDIR's ancestors are: its root is
     /// handed to admission opened, as production's resolution would.
-    fn new() -> Host {
+    pub(in crate::engine::broker) fn new() -> Host {
         Host::in_dir(fresh(&base()))
     }
 
@@ -327,7 +327,7 @@ impl Host {
     }
 
     /// The worktree `name` beside the HOME, made.
-    fn worktree(&self, name: &str) -> PathBuf {
+    pub(in crate::engine::broker) fn worktree(&self, name: &str) -> PathBuf {
         let worktree = self.dir.path().join(name);
         std::fs::create_dir_all(&worktree).unwrap();
         worktree
@@ -346,7 +346,11 @@ impl Host {
 
     /// The reservation `run` of `worktree` holds: its standing attempts,
     /// and its settled ones.
-    fn attempts(&self, worktree: &Path, run: &str) -> (Vec<String>, Vec<String>) {
+    pub(in crate::engine::broker) fn attempts(
+        &self,
+        worktree: &Path,
+        run: &str,
+    ) -> (Vec<String>, Vec<String>) {
         let bytes = std::fs::read(self.reservation(worktree, run)).unwrap();
         let held: Reservation = serde_json::from_slice(&bytes).unwrap();
         (
@@ -356,7 +360,7 @@ impl Host {
     }
 
     /// `claim` admitted in this HOME's root within five seconds.
-    fn admit(&self, claim: &Claim) -> Result<Held, Unadmitted> {
+    pub(in crate::engine::broker) fn admit(&self, claim: &Claim) -> Result<Held, Unadmitted> {
         admit(&self.root, claim, soon())
     }
 }
@@ -452,7 +456,7 @@ fn fresh_lease(
 /// `protects` with `writers`; its artifact root is the worktree's
 /// `.forge/artifacts`, made where it protects it, and its journal the
 /// worktree's `forge.db`.
-fn claim(
+pub(in crate::engine::broker) fn claim(
     worktree: &Path,
     [run, attempt]: [&str; 2],
     protects: Protects,
@@ -482,7 +486,7 @@ fn claim(
 
 /// [`claim`] of a run on `worktree` that protects nothing, its one `work`
 /// site outside any box.
-fn open(worktree: &Path, ids: [&str; 2]) -> Claim {
+pub(in crate::engine::broker) fn open(worktree: &Path, ids: [&str; 2]) -> Claim {
     claim(worktree, ids, Protects::Nothing, &[unbounded("work")])
 }
 
@@ -554,7 +558,7 @@ fn unbounded(site: &str) -> Writer {
 }
 
 /// CR2's refusal of `conflict`, as a variant.
-fn cr2(conflict: Conflict) -> Result<Held, Unadmitted> {
+pub(in crate::engine::broker) fn cr2(conflict: Conflict) -> Result<Held, Unadmitted> {
     Err(Unadmitted::Evidence(conflict))
 }
 

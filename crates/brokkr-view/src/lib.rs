@@ -83,9 +83,9 @@ pub use dashboard::{working_checkpoints, Concluded, Dashboard, Decision, Outcome
 pub use fleet::{
     at_work, behind_line, fleet_rows, need, page, ranges, run_row, run_rows, section_of,
     section_of_rows, sections, stopping_detail, summary_row, title, title_within, window, wrap,
-    Acknowledgement, Cursor, CursorError, HearthEntries, Hire, Need, Page, Paged, Quarantine,
-    Refusal, RunRow, Section, Standing, Verdict, AHEAD_ROWS, PAGE_ROWS, TITLE_COLUMNS,
-    VERDICT_COLUMNS,
+    Acknowledgement, Cursor, CursorError, HearthEntries, Hire, LateEvent, LateTail, Need, Page,
+    Paged, Quarantine, Refusal, RunRow, Section, Standing, Verdict, AHEAD_ROWS, PAGE_ROWS,
+    TITLE_COLUMNS, VERDICT_COLUMNS,
 };
 pub use graph::{
     graph, GraphError, GraphQuery, GraphResolution, GraphTable, GraphView, Table,
@@ -165,7 +165,9 @@ use serde_json::Value;
 /// Bumped to 28 by #909: a run whose accepted stop has no ending stands
 /// as `stopping`, with its detail, instead of `running`.
 /// Bumped to 29 by decision 0064: rows and summaries carry `ending`, `ending_cited`, `wants`.
-pub const VIEW_VERSION: u32 = 29;
+/// Bumped to 30 by decision 0108 ruling 4: a row and a summary carry the late
+/// tail an operator's repair named, kept and never applied.
+pub const VIEW_VERSION: u32 = 30;
 
 /// The note every absent boundary cell carries (decision 0046 ruling 3;
 /// design DD13): a journal written before the boundary was named, a
