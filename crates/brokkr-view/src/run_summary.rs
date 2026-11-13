@@ -30,6 +30,10 @@ pub struct Summary {
     pub ending_cited: Option<Citation>,
     pub feature: Option<String>,
     pub last_decision: Option<Decided>,
+    /// The late tail an operator's repair named (decision 0108 ruling 4):
+    /// kept and shown, never applied. It sits in its alphabetical place,
+    /// as every key does, so the struct's bytes and `json!`'s agree.
+    pub late_tail: Option<LateTail>,
     pub park_reason: Option<String>,
     pub phase: Option<String>,
     pub run_id: String,
@@ -43,9 +47,6 @@ pub struct Summary {
     pub strategy: Option<String>,
     /// What the run asks of the operator: a ruling, an action, or nothing.
     pub wants: Option<Wants>,
-    /// The late tail an operator's repair named (decision 0108 ruling 4):
-    /// kept and shown, never applied.
-    pub late_tail: Option<LateTail>,
 }
 
 impl Summary {
@@ -76,6 +77,7 @@ pub fn summary(state: &RunState, events: &[EventEnvelope]) -> Summary {
         ending_cited: said.ending_cited,
         feature: state.feature.clone(),
         last_decision: state.last_decision.clone(),
+        late_tail: late_tail(state),
         park_reason: state
             .run
             .park_reason()
@@ -88,6 +90,5 @@ pub fn summary(state: &RunState, events: &[EventEnvelope]) -> Summary {
         status,
         strategy: state.strategy.clone(),
         wants: said.wants,
-        late_tail: late_tail(state),
     }
 }

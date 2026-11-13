@@ -239,7 +239,7 @@ fn a_one_hearth_listing_a_page_of_which_will_not_read_is_refused_in_the_stores_w
 
 /// [`world`] as `brokkr runs --json` prints it.
 const WORLD_JSON: &str = r#"{
-  "view_version": 29,
+  "view_version": 30,
   "realms": [
     {
       "realm": "alpha",
@@ -259,6 +259,7 @@ const WORLD_JSON: &str = r#"{
           "last_recorded_at": "2026-10-19T23:30:00Z",
           "feature": "feat",
           "detail": "event 2: operator/accepted without a matching command",
+          "late_tail": null,
           "quarantine": "does_not_fold",
           "acknowledgement": null,
           "residuals": [],
@@ -287,6 +288,7 @@ const WORLD_JSON: &str = r#"{
           "last_recorded_at": "2026-10-19T23:00:00Z",
           "feature": "feat",
           "detail": null,
+          "late_tail": null,
           "quarantine": null,
           "acknowledgement": null,
           "residuals": [
@@ -326,6 +328,7 @@ const WORLD_JSON: &str = r#"{
           "last_recorded_at": "2026-10-19T23:50:00Z",
           "feature": "feat",
           "detail": null,
+          "late_tail": null,
           "quarantine": null,
           "acknowledgement": null,
           "residuals": [],
@@ -354,6 +357,7 @@ const WORLD_JSON: &str = r#"{
           "last_recorded_at": "2026-10-19T23:55:00Z",
           "feature": "feat",
           "detail": null,
+          "late_tail": null,
           "quarantine": null,
           "acknowledgement": null,
           "residuals": [],
@@ -397,6 +401,7 @@ const WORLD_JSON: &str = r#"{
           "last_recorded_at": "2026-10-18T00:00:00Z",
           "feature": "feat",
           "detail": null,
+          "late_tail": null,
           "quarantine": null,
           "acknowledgement": null,
           "residuals": [
