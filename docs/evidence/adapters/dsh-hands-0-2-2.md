@@ -741,7 +741,7 @@ fixture still passes with its own 99 rows.
 Gates run at this head: `cargo fmt --all -- --check`; `cargo clippy
 --workspace --all-targets --all-features --locked -- -D warnings` (clean);
 `cargo test -p brokkr-protocol --lib --all-features --locked -- adapters::`
-(668 passed); `cargo test -p brokkr-cli --locked --test it -- doc_truth`
+(668 passed); `cargo test -p brokkr-cli --locked --test it -- doc_truth::`
 (19 passed); `typos --hidden` (no findings); `quality/ratchet.sh files`,
 `clones` and `api` (all hold); `cargo run --locked -p brokkr-cli --
 compile --bundle recipes/self` (policy sweep clean); `git diff --check`.
