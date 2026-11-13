@@ -164,6 +164,11 @@ pub enum EngineError {
     EntryRecord(#[from] brokkr_core::entry::EntryRead),
     #[error(transparent)]
     Store(#[from] brokkr_store::StoreError),
+    /// A driver could not take its run's lock: another process drives it,
+    /// or the directory or file is not this user's own (decision 0108
+    /// ruling 1).
+    #[error(transparent)]
+    RunLock(#[from] crate::run_lock::RunLockError),
     #[error("fold: {0}")]
     Fold(#[from] brokkr_core::FoldError),
     #[error("run '{run_id}' pins a different bundle: {detail}")]
@@ -498,6 +503,9 @@ pub struct Engine {
     held: Option<broker::Held>,
     /// The reach its admission sealed, which its every box is built from.
     reach: broker::Authored,
+    /// The run's lock while this process drives it (decision 0108 ruling
+    /// 1), taken before the first append and let go as the engine is.
+    run_lock: Option<crate::run_lock::RunLock>,
 }
 
 pub(crate) fn verify_dispatch_bundle_bounds(
@@ -577,10 +585,26 @@ fn shell(store: Store, bundle: Bundle, run_id: String, feature: String, repo: Pa
         held_outcome: None,
         fence: None,
         held: None,
+        run_lock: None,
     }
 }
 
 impl Engine {
+    /// The store, after letting this process's run lock go, as a test
+    /// handing the journal to the next process does.
+    #[cfg(test)]
+    pub(crate) fn into_store(mut self) -> Store {
+        self.run_lock = None;
+        self.store
+    }
+
+    /// Let the run lock go, as a test that simulates this driver ending
+    /// does. Production never calls it: a live engine holds its run.
+    #[cfg(test)]
+    pub(crate) fn release_run_lock(&mut self) {
+        self.run_lock = None;
+    }
+
     /// The journaled run-level entry, when the operator named one.
     pub fn entry(&self) -> Option<&brokkr_core::entry::RunEntry> {
         self.entry.as_ref()
@@ -649,13 +673,14 @@ impl Engine {
     ) -> Result<Engine, EngineError> {
         let begun = (world.as_ref(), entry.as_ref());
         let admitted = start::journaled(&mut store, &bundle, feature, repo, begun, claim)?;
-        let mut engine = shell(
-            store,
-            bundle,
-            admitted.run_id,
-            feature.to_string(),
-            admitted.operated,
-        );
+        let start::Admitted {
+            run_id,
+            operated,
+            lock,
+            ..
+        } = admitted;
+        let mut engine = shell(store, bundle, run_id, feature.to_string(), operated);
+        engine.run_lock = lock;
         engine.entry = entry;
         engine.world = world;
         Ok(engine)
@@ -671,18 +696,20 @@ impl Engine {
         repo: Option<PathBuf>,
         dispatch: DispatchEnvelopeV2,
     ) -> Result<Engine, EngineError> {
-        let run_id = start::dispatched(&mut store, &bundle, feature, dispatch)?;
+        let (run_id, lock) = start::dispatched(&mut store, &bundle, feature, dispatch)?;
         // A Looper-bound run pins a run-manifest/v2, whose bytes a
         // counterpart system reads; the map's pin belongs to the
         // v1→v5 local lineage. The CLI refuses the combination rather
         // than dropping a world silently.
-        Ok(shell(
+        let mut engine = shell(
             store,
             bundle,
             run_id,
             feature.to_string(),
             operated_repo(repo),
-        ))
+        );
+        engine.run_lock = Some(lock);
+        Ok(engine)
     }
 
     /// Resume uses the exact pinned bundle or refuses with a diagnostic.
@@ -693,6 +720,9 @@ impl Engine {
         repo: Option<PathBuf>,
     ) -> Result<Engine, EngineError> {
         refuse_unbuilt(&bundle)?;
+        // Refused at once where another process drives the run: nothing is
+        // read, and nothing is written (decision 0108 ruling 1).
+        let lock = crate::run_lock::take(&store, run_id)?;
         let pinned = store.manifest(run_id)?;
         let pinned_bundle = bundle_manifest_from_run(&pinned)?;
         if let Some(dispatch) = brokkr_core::dispatch::dispatch_from_run(&pinned)? {
@@ -748,6 +778,7 @@ impl Engine {
         engine.entry = entry;
         engine.world = world;
         engine.replay = replay;
+        engine.run_lock = Some(lock);
         Ok(engine)
     }
 
@@ -3262,6 +3293,8 @@ mod notice_tests;
 mod operator_tests;
 #[cfg(test)]
 mod resume_tests;
+#[cfg(test)]
+mod run_lock_tests;
 #[cfg(test)]
 mod secret_threading_tests;
 #[cfg(test)]

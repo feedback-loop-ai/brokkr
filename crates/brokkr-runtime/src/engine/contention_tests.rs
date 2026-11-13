@@ -1224,6 +1224,7 @@ fn a_lock_that_outlasts_both_windows_hands_the_contention_back_with_the_attempt_
         [EventType::EffectRequested, EventType::EffectStarted]
     );
 
+    engine.release_run_lock();
     let store = Store::open(&dir.path().join("realm.db")).unwrap();
     let bundle = seating(dir.path(), finishing_behind_a_lock(dir.path()));
     let mut resumed = Engine::resume(store, bundle, &run_id, Some(dir.path().join("work")))
@@ -1289,6 +1290,7 @@ fn a_terminal_event_the_lock_outlasts_settles_the_attempt_and_parks() {
     );
 
     let written = events.len();
+    engine.release_run_lock();
     let mut resumed = resumed(dir.path(), &run_id);
     let again = resumed.drive().unwrap();
     assert_eq!(
@@ -1469,6 +1471,7 @@ fn a_lock_that_outlasts_the_settlement_leaves_the_attempt_to_the_next_resume() {
     assert_eq!(engine.store.load(&run_id).unwrap().len(), before);
 
     drop(holder);
+    engine.release_run_lock();
     let mut resumed = resumed(dir.path(), &run_id);
     let again = resumed.drive().unwrap();
     assert_eq!(again.state.run.status(), Status::AwaitingOperator);

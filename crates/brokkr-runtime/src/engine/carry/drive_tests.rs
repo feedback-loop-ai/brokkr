@@ -17,6 +17,7 @@ fn recovery_rebuilds_the_request_and_carries_only_journaled_verdicts() {
         .carry_selection(&journal, &state, effect)
         .unwrap()
         .unwrap();
+    runtime.release_run_lock();
     let store = brokkr_store::Store::open(runtime.store.path()).unwrap();
     let mut resumed = Engine::resume(
         store,

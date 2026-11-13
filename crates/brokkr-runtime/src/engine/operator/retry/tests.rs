@@ -119,8 +119,9 @@ fn drifted_request(dir: &std::path::Path, runtime: &Engine) -> crate::launch::La
 
 #[test]
 fn a_drifted_bundle_is_refused_by_resume_after_the_records_and_before_any_panel_fact() {
-    let (dir, runtime) = parked(body(), false);
+    let (dir, mut runtime) = parked(body(), false);
     let before = events(&runtime).len();
+    runtime.release_run_lock();
     for names in [vec!["b"], vec!["unknown"], vec!["a", "b"]] {
         let names: Vec<String> = names.into_iter().map(str::to_owned).collect();
         let refusal = crate::launch::operator_retry_members(
@@ -140,9 +141,10 @@ fn a_drifted_bundle_is_refused_by_resume_after_the_records_and_before_any_panel_
             .starts_with(&format!("run '{}' pins a different bundle", runtime.run_id)));
     }
     assert_eq!(events(&runtime).len(), before);
-    let (dir, unread) = parked_record(body(), false, |record| {
+    let (dir, mut unread) = parked_record(body(), false, |record| {
         record["head"] = json!({"at_start":"not a head"});
     });
+    unread.release_run_lock();
     for names in [vec!["b"], vec!["a", "b"]] {
         let names: Vec<String> = names.into_iter().map(str::to_owned).collect();
         let outcome = crate::launch::operator_retry_members(

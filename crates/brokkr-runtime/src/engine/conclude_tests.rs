@@ -14,6 +14,7 @@ use brokkr_store::test_support::plant_event;
 use brokkr_store::StoreError;
 use std::fmt::Debug;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 fn fixtures() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -838,4 +839,148 @@ fn a_stop_the_store_refuses_to_accept_ends_the_conclusion_with_its_error() {
         fold(&events(&store, name)).is_ok(),
         "the journal still folds"
     );
+}
+
+/// The parked run every lock test here concludes.
+const PARKED: &str = "conclude-parked-hand-built";
+
+/// `name`'s events as the bytes a write would move.
+fn seen(store: &Store, name: &str) -> Vec<(u64, String)> {
+    events(store, name)
+        .iter()
+        .map(|event| (event.seq, event.event_hash.clone()))
+        .collect()
+}
+
+/// The parked fixture, its store and the bytes it holds before a verb.
+fn parked(dir: &tempfile::TempDir) -> (Store, Vec<(u64, String)>) {
+    let store = store_for(dir, PARKED);
+    let before = seen(&store, PARKED);
+    (store, before)
+}
+
+/// Assert `name` still holds exactly `before`.
+fn unchanged(store: &Store, name: &str, before: &[(u64, String)]) {
+    assert_eq!(seen(store, name), before, "nothing was written");
+}
+
+/// Set, to the journal's path, in a re-executed test binary that is to
+/// hold the run until it is killed; the run id rides beside it.
+const HELD_CHILD: &str = "BROKKR_TEST_CONCLUDE_HELD_CHILD";
+const HELD_RUN: &str = "BROKKR_TEST_CONCLUDE_HELD_RUN";
+
+/// The re-executed child: take the run's lock and hold it until killed.
+fn hold_until_killed(db: &Path, run: &str) {
+    let store = Store::open(db).unwrap();
+    let _held = crate::run_lock::take(&store, run).unwrap();
+    std::fs::write(db.with_file_name("held"), "").unwrap();
+    std::thread::sleep(Duration::from_secs(300));
+}
+
+/// A run whose lock a child holds refuses `conclude` with 0108's words and
+/// writes nothing; with the child killed, `conclude` closes the run.
+#[test]
+fn a_held_run_refuses_conclude_and_writes_nothing() {
+    if let (Some(db), Some(run)) = (std::env::var_os(HELD_CHILD), std::env::var_os(HELD_RUN)) {
+        return hold_until_killed(Path::new(&db), &run.to_string_lossy());
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let (mut store, before) = parked(&dir);
+    let db = dir.path().join(format!("{PARKED}.db"));
+    let mut child = crate::child::spawn_holding(
+        "engine::conclude_tests::a_held_run_refuses_conclude_and_writes_nothing",
+        &[
+            (HELD_CHILD, db.as_os_str()),
+            (HELD_RUN, std::ffi::OsStr::new(PARKED)),
+        ],
+        &db.with_file_name("held"),
+    );
+    let mut locked = std::ffi::OsString::from(&db);
+    locked.push(".runs");
+    let locked = PathBuf::from(locked).join(format!("{PARKED}.lock"));
+    let recorded: crate::run_lock::Holder =
+        serde_json::from_str(&std::fs::read_to_string(&locked).unwrap()).unwrap();
+    let refused = conclude_as(&mut store, PARKED, "operator", "close it").unwrap_err();
+    assert!(matches!(
+        &refused,
+        EngineError::ConcludeRefused {
+            why: ConcludeRefusal::Driven { .. },
+            ..
+        }
+    ));
+    assert_eq!(
+        refused.to_string(),
+        format!(
+            "run '{PARKED}' is driven by pid {} on this host since {} (engine {}); stop it with \
+             `brokkr operator stop`, or end that process, then conclude",
+            child.id(),
+            recorded.since,
+            ENGINE_VERSION
+        )
+    );
+    unchanged(&store, PARKED, &before);
+    child.kill().unwrap();
+    child.wait().unwrap();
+    let state = conclude_as(&mut store, PARKED, "operator", "close it").unwrap();
+    assert_eq!(state.run, Run::Stopped, "the free run is closed");
+}
+
+/// A free run's lock is held by `conclude` while it writes, so a driver
+/// that comes to start beneath the conclusion is refused, and let go
+/// when the conclusion is written.
+#[test]
+fn conclude_holds_the_run_while_it_writes() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut store, _) = parked(&dir);
+    let mut at_write = None;
+    let state = conclude_racing_as(&mut store, PARKED, ("operator", "close it"), |store| {
+        at_write.get_or_insert_with(|| crate::run_lock::take(store, PARKED).is_err());
+    })
+    .unwrap();
+    assert_eq!(state.run, Run::Stopped);
+    assert_eq!(
+        at_write,
+        Some(true),
+        "the conclusion's lock refused a driver while it wrote"
+    );
+    assert!(
+        crate::run_lock::take(&store, PARKED).is_ok(),
+        "and let go once it was written"
+    );
+}
+
+/// `operator stop` is the cooperative path: it takes no run lock and
+/// stays lawful for a run a live driver holds (decision 0108 ruling 2).
+#[test]
+fn operator_stop_stays_lawful_for_a_held_run() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut store, _) = parked(&dir);
+    let _held = crate::run_lock::take(&store, PARKED).unwrap();
+    let stopped = stop_as(&mut store, PARKED, "operator", "stop it").unwrap();
+    assert!(matches!(stopped, FencedCommandOutcome::Accepted { .. }));
+}
+
+/// A lock that is not this user's own single file refuses `conclude` by
+/// name, before anything is written.
+#[test]
+fn conclude_refuses_a_lock_that_is_not_this_users_single_file() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let (mut store, before) = parked(&dir);
+    let db = dir.path().join(format!("{PARKED}.db"));
+    let mut at = std::ffi::OsString::from(&db);
+    at.push(".runs");
+    let at = PathBuf::from(at);
+    std::fs::create_dir(&at).unwrap();
+    std::fs::set_permissions(&at, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let lock = at.join(format!("{PARKED}.lock"));
+    std::fs::write(&lock, "").unwrap();
+    std::fs::set_permissions(&lock, std::fs::Permissions::from_mode(0o644)).unwrap();
+    let refused = conclude_as(&mut store, PARKED, "operator", "close it").unwrap_err();
+    assert!(
+        matches!(refused, EngineError::RunLock(crate::RunLockError::File(_))),
+        "{refused:?}"
+    );
+    unchanged(&store, PARKED, &before);
 }

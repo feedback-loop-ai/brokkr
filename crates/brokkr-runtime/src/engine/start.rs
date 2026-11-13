@@ -24,6 +24,7 @@ use super::{
 };
 use crate::bundle::Bundle;
 use crate::realms::World;
+use crate::run_lock::{self, RunLock};
 
 /// What a start admitted at its door: the run's id, the repository it
 /// operates, the charter bindings it checked, and the manifest it pins.
@@ -32,6 +33,9 @@ pub(super) struct Admitted {
     pub(super) operated: PathBuf,
     pub(super) charters: Value,
     pub(super) manifest: Value,
+    /// The run's lock, taken before its first append (decision 0108
+    /// ruling 1).
+    pub(super) lock: Option<RunLock>,
 }
 
 /// The door [`Engine::start_in_world`] runs before `create_run`: the run
@@ -77,6 +81,7 @@ pub(super) fn door(
         operated,
         charters,
         manifest,
+        lock: None,
     })
 }
 
@@ -95,6 +100,9 @@ pub(super) fn journaled(
     claim: Option<(Claim, Generation)>,
 ) -> Result<Admitted, EngineError> {
     let mut admitted = door(bundle, feature, repo, world, entry)?;
+    // The lock comes before the run's first append, so no second driver can
+    // take a run this one is already journaling (decision 0108 ruling 1).
+    admitted.lock = Some(run_lock::take(store, &admitted.run_id)?);
     if let Some((claim, _)) = claim {
         let (queued, seq) = claim.parts();
         admitted.manifest["queue_entry"] = json!({"entry": queued.0, "claim": seq});
@@ -117,7 +125,7 @@ pub(super) fn dispatched(
     bundle: &Bundle,
     feature: &str,
     dispatch: DispatchEnvelopeV2,
-) -> Result<String, EngineError> {
+) -> Result<(String, RunLock), EngineError> {
     let run_id = dispatch.forge_run_id.clone();
     refuse_unbuilt(bundle)?;
     dispatch.verify(time::OffsetDateTime::now_utc(), &bundle.manifest_digest())?;
@@ -125,8 +133,9 @@ pub(super) fn dispatched(
     let charters = refuse_moved_charter(bundle)?;
     let manifest = build_run_manifest_v2(&bundle.manifest, dispatch)?;
     let started = bundle.run_started(feature, &manifest, charters, None);
+    let lock = run_lock::take(store, &run_id)?;
     store.start_run(&run_id, feature, &bundle.name, &manifest, started, None)?;
-    Ok(run_id)
+    Ok((run_id, lock))
 }
 
 /// The feature's slug — lowercased, every run of non-alphanumerics one

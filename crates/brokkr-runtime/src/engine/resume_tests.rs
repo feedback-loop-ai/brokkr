@@ -611,7 +611,7 @@ fn a_journal_that_moved_is_offered_nothing_and_one_that_stayed_still_is() {
                 .unwrap();
         }
 
-        let mut store = engine.store;
+        let mut store = engine.into_store();
         operator_command(&mut store, &run_id, Retry, "operator", "once more").unwrap();
         Engine::resume(store, bundle, &run_id, Some(dir.join("work")))
             .unwrap()
@@ -966,7 +966,7 @@ fn a_fresh_process_derives_the_same_offers_from_the_same_journal() {
     .unwrap();
     let run_id = engine.run_id.clone();
     engine.drive().unwrap();
-    let mut store = engine.store;
+    let mut store = engine.into_store();
     let first = offers(&received(dir.path(), "alpha"));
 
     // A second process, with nothing of the first in memory.

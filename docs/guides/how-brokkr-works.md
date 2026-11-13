@@ -76,6 +76,20 @@ brokkr compare <a> <b>                                     # journal-backed A/B
 4. **Human gates are control states.** Parks exit only through operator
    events; approval is a journal entry, not a prose convention.
 
+**One driver per run.** A process that drives a run — `brokkr run`,
+`brokkr resume`, or the dispatcher's start from a queue claim — holds
+`<journal>.runs/<run-id>.lock`, an exclusive `flock`, from before its first
+append until it stops driving. The directory is the user's own, mode 0700,
+and the file is this user's regular file of one link, opened without
+following links; it records the holder's pid, the start of the hold, the
+host fingerprint and the engine version. A second driver, and `brokkr
+conclude` of that run, refuse before writing and name the holder;
+`conclude` says to stop the driver with `brokkr operator stop`, or end that
+process, then conclude, while `operator stop` and `retry` stay lawful as
+the cooperative path. A driver that dies drops its lock with it, so the
+next `resume` takes the run. A filesystem where `flock` does not exclude,
+such as some network mounts, is outside this guarantee.
+
 The paradigm behind these laws is argued in long form in
 [the essays](../essays/): *[The Model Is a Detail](../essays/the-model-is-a-detail.md)*
 (why the model belongs in leaf position, with this repository's own

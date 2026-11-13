@@ -5,8 +5,7 @@
 //! fenced out of the journal by the next.
 
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use brokkr_store::{Attribution, Generation, NewEntry, QueueRefusal, Store, StoreError};
 use rustix::fs::{flock, FlockOperation, CWD};
@@ -155,27 +154,11 @@ fn a_killed_dispatchers_lock_lets_the_next_take_the_journal() {
     }
     let dir = tempfile::tempdir().unwrap();
     let (path, mut store) = journal(dir.path());
-    let mut child = Command::new(std::env::current_exe().unwrap())
-        .args([
-            // The full libtest path: under `--exact`, a bare name matches
-            // nothing, and the child would hold nothing.
-            "dispatch::tests::a_killed_dispatchers_lock_lets_the_next_take_the_journal",
-            "--exact",
-            "--test-threads=1",
-        ])
-        .env(CHILD, &path)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .unwrap();
-    let deadline = Instant::now() + Duration::from_secs(60);
-    while !dir.path().join("held").exists() {
-        assert!(
-            Instant::now() < deadline,
-            "the child never held the journal"
-        );
-        std::thread::sleep(Duration::from_millis(10));
-    }
+    let mut child = crate::child::spawn_holding(
+        "dispatch::tests::a_killed_dispatchers_lock_lets_the_next_take_the_journal",
+        &[(CHILD, path.as_os_str())],
+        &dir.path().join("held"),
+    );
     let refused = take_dispatch(&mut store).unwrap().unwrap_err();
     let holder = format!(
         "generation 1 (pid {} on this host since {})",
