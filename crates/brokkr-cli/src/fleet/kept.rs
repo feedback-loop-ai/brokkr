@@ -389,9 +389,12 @@ impl KeptRun {
 /// — may read cleanly next time, so it is never kept. Matched
 /// exhaustively, so a new refusal is decided here: the tests read a
 /// broken chain kept and a refusal of timing read again.
-fn lasting(error: &StoreError) -> bool {
+pub(super) fn lasting(error: &StoreError) -> bool {
     match error {
-        StoreError::Json(_) | StoreError::Chain(_) | StoreError::RowBeforeChain { .. } => true,
+        StoreError::Json(_)
+        | StoreError::Chain(_)
+        | StoreError::RowBeforeChain { .. }
+        | StoreError::AfterTerminal { .. } => true,
         StoreError::Sqlite(_)
         | StoreError::RunNotFound(_)
         | StoreError::RunExists(_)

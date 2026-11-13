@@ -15,6 +15,14 @@
 //! the process holding the attempt writes on the seat's report, not on a
 //! fold, and which `fold` reads back after the one peer that may lawfully
 //! write mid-attempt: an operator stop riding the attempt to its boundary.
+//!
+//! The disarmed window is why the store, not the fence, holds the last
+//! rule (#440): inside every append's transaction a non-annotation event
+//! is refused once the run has reached a terminal event. A driver that was
+//! still working when its run was concluded therefore meets
+//! [`StoreError::AfterTerminal`] at its next write and ends in
+//! [`EngineError::ConcludedBeneath`], writing nothing more and folding no
+//! further, instead of leaving an event after `run/stopped`.
 
 use brokkr_core::envelope::EventType;
 use brokkr_core::EventEnvelope;
@@ -99,6 +107,20 @@ impl Engine {
                     run_id: self.run_id.clone(),
                     expected_seq,
                     found_seq,
+                })
+            }
+            // The run was concluded beneath this driver: its report cannot
+            // be journaled, and the conclusion already closed the attempt
+            // indeterminate. End here, without retrying or folding again.
+            Err(StoreError::AfterTerminal {
+                run_id,
+                status,
+                event_type,
+            }) => {
+                return Err(EngineError::ConcludedBeneath {
+                    run_id,
+                    status,
+                    event_type,
                 })
             }
             Err(error) => return Err(error.into()),

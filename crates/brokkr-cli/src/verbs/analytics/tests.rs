@@ -1734,15 +1734,19 @@ fn refused_journal(dir: &std::path::Path) -> std::path::PathBuf {
         &parked_in_phase(base, "review", -20, -19, -18),
     );
     for run in ["refused-spend", "refused-park"] {
-        store
-            .append_next(
-                run,
-                EventType::PhaseEntered,
-                json!({"phase": "after-terminal"}),
-                None,
-                None,
-            )
-            .unwrap();
+        // A non-annotation after a terminal event is a row no writer may
+        // append any more (#440); it is planted as an older build left it,
+        // with the summary written over its refusal as that build did.
+        let last = store.load(run).unwrap().last().unwrap().clone();
+        let after =
+            EnvelopeBuilder::new(EventType::PhaseEntered, json!({"phase": "after-terminal"}))
+                .run(run)
+                .seq(last.seq + 1)
+                .event_id(format!("{run}-after-terminal"))
+                .at(GENERATED_NOW)
+                .previous(last.event_hash)
+                .sealed();
+        plant_summary_writer(&store, run, &[after]);
     }
     drop(store);
     let store = brokkr_store::Store::open(&journal).unwrap();

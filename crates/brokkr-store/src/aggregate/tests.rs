@@ -1589,12 +1589,23 @@ fn a_fold_refused_row_keeps_the_realm_the_whole_read_names() {
         json!({"feature": "refused", "manifest": manifest(Some("events-realm"))}),
     );
     crate::test_support::append(&mut store, "refused", EventType::RunCompleted, json!({}));
-    crate::test_support::append(
-        &mut store,
-        "refused",
-        EventType::PhaseEntered,
-        json!({"phase": "after"}),
-    );
+    // The row this test is about is one no writer may append any more
+    // (#440), so it is planted past the store exactly as an older build
+    // left it, and named as a deliberate lag for the drop check.
+    let (seq, previous) = store.head_hash("refused").unwrap();
+    let after = EnvelopeBuilder::new(EventType::PhaseEntered, json!({"phase": "after"}))
+        .run("refused")
+        .seq(seq + 1)
+        .event_id("refused-after-terminal")
+        .at("2026-01-01T00:00:09Z")
+        .previous(previous)
+        .sealed();
+    plant_envelope(&store.conn, &after).unwrap();
+    lags(&mut store, &["refused"]);
+    // The planted row is folded on the next writable catch-up, as an older
+    // build's own append would have folded it: the row's words are the
+    // fold's refusal.
+    store.catch_up().unwrap();
     assert_eq!(lane(&store, "refused").as_deref(), Some("refused"));
     let events = store.load("refused").unwrap();
     let stored: Option<String> = store

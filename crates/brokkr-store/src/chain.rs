@@ -8,7 +8,7 @@ use serde_json::Value;
 
 use crate::queue::insert_cooldowns;
 use crate::{
-    head_of, now_rfc3339, patiently, seat_record, summary, CooldownAppend, Cooling,
+    head_of, now_rfc3339, patiently, seat_record, summary, terminal, CooldownAppend, Cooling,
     SeatRecordError, SeatRecordVersion, Store, StoreError, ENGINE_OF_RUN,
 };
 
@@ -47,7 +47,9 @@ pub(crate) fn fence(
 
 /// Seal `payload` as the run's next event after `head`, its seq and hash,
 /// and insert it inside `tx`; a seq a peer already took is
-/// [`StoreError::AppendConflict`].
+/// [`StoreError::AppendConflict`], and a non-annotation after the run's
+/// terminal event is [`StoreError::AfterTerminal`] (#440). Every append
+/// path seals through here, so the terminal rule has one gate.
 pub(crate) fn seal_and_insert(
     tx: &Connection,
     run_id: &str,
@@ -57,6 +59,7 @@ pub(crate) fn seal_and_insert(
     causation_id: Option<String>,
     attempt_id: Option<String>,
 ) -> Result<EventEnvelope, StoreError> {
+    terminal::refuse(tx, run_id, event_type, last_seq)?;
     let envelope = EventEnvelope {
         run_id: run_id.to_string(),
         seq: last_seq + 1,

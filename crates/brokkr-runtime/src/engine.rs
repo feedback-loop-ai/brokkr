@@ -174,6 +174,31 @@ pub enum EngineError {
         run_id: String,
         why: ConcludeRefusal,
     },
+    /// An operator command that would dispose of itself on a concluded
+    /// run is refused before its first append (#440): a `stop` or `retry`
+    /// would otherwise journal `operator/commanded` and then an
+    /// `operator/accepted` the fold refuses after terminal.
+    #[error("run '{run_id}' is already concluded ({status}); {verb} appends nothing")]
+    AlreadyConcluded {
+        run_id: String,
+        status: &'static str,
+        verb: &'static str,
+    },
+    /// A driver that was still working when its run was concluded beneath
+    /// it met the store's terminal gate (#440). Nothing was written, and
+    /// the conclusion already closed the attempt indeterminate, so the
+    /// report it was carrying is lost to the journal.
+    #[error(
+        "run '{run_id}' was concluded ({status}) while this driver was still working, so its \
+         {event_type} could not be appended and nothing was written; the driver stops here, \
+         and the conclusion already closed the attempt as effect/indeterminate — the report \
+         this driver was carrying is lost to the journal"
+    )]
+    ConcludedBeneath {
+        run_id: String,
+        status: &'static str,
+        event_type: &'static str,
+    },
     /// `supersede` refused a citation, and wrote nothing (decision 0047
     /// ruling 2). Unlike `retry` and `stop`, a refused supersede leaves
     /// no `operator/rejected` behind: there is no pending command to

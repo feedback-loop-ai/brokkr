@@ -1738,14 +1738,23 @@ fn request_finish_input_and_execute_refusals_are_journaled() {
         ("cursor has phase", "RequestEffect with no phase".into())
     );
 
-    let mut stop = state(Some("stop"), Cursor::RequestEffect);
-    stop.last_decision = Some(decided(
-        json!({"from":"review","result":"x","rule_id":"SECURITY"}),
-    ));
-    engine.request_or_finish(&stop).unwrap();
-    engine
-        .request_or_finish(&state(Some("done"), Cursor::RequestEffect))
-        .unwrap();
+    // Each terminal branch closes its own run: after a terminal event no
+    // second one is lawful, so the two are proven apart (#440).
+    for phase in ["stop", "done"] {
+        let (_dir, mut terminal) = self::engine(single_body(vec!["missing-driver".into()]));
+        let mut current = state(Some(phase), Cursor::RequestEffect);
+        current.last_decision = Some(decided(
+            json!({"from":"review","result":"x","rule_id":"SECURITY"}),
+        ));
+        terminal.request_or_finish(&current).unwrap();
+        let last = terminal.store.load(&terminal.run_id).unwrap();
+        let expected = if phase == "stop" {
+            EventType::RunStopped
+        } else {
+            EventType::RunCompleted
+        };
+        assert_eq!(last.last().unwrap().event_type, expected);
+    }
     engine
         .request_or_finish(&state(Some("work"), Cursor::RequestEffect))
         .unwrap();
@@ -2406,11 +2415,10 @@ fn an_operator_command_the_run_cannot_take_is_refused_never_accepted() {
         "{refused:?}",
     );
 
-    // Already concluded. This is the irreversible case: fold exempts only
-    // `operator/commanded` and `operator/rejected` after a terminal, so an
-    // acceptance here is `AfterTerminal` for every reader from now on.
-    // Both commands must refuse — including `stop`, which anywhere
-    // non-terminal is a live kill switch.
+    // Already concluded. A stop or retry here is judged before its first
+    // append: it names the conclusion and writes nothing at all, not even
+    // the command. Both commands must refuse — including `stop`, which
+    // anywhere non-terminal is a live kill switch.
     store
         .append_next(
             "raced",
@@ -2420,24 +2428,32 @@ fn an_operator_command_the_run_cannot_take_is_refused_never_accepted() {
             None,
         )
         .unwrap();
-    // `release` moves no run and is refused by its reservation's rules.
-    let retried = operator_command(&mut store, "raced", Retry, "operator", "too late");
+    let before = store.load("raced").unwrap();
     for (command, refused) in [
-        (Retry, retried),
+        (
+            Retry,
+            operator_command(&mut store, "raced", Retry, "operator", "too late"),
+        ),
         (Stop, stop_as(&mut store, "raced", "o", "x")),
     ] {
-        let refused = refused
-            .unwrap_or_else(|error| panic!("{command:?} errored instead of refusing: {error}"));
+        let error = refused.unwrap_err();
         assert!(
-            matches!(&refused, FencedCommandOutcome::Rejected { reason, .. }
-                if reason == Refusal::AfterTerminal.word()),
-            "{command:?}: {refused:?}",
+            matches!(
+                &error,
+                EngineError::AlreadyConcluded {
+                    run_id,
+                    status: "stopped",
+                    verb,
+                } if run_id == "raced" && *verb == command.as_str()
+            ),
+            "{command:?}: {error}"
         );
     }
 
     let events = store.load("raced").unwrap();
-    // The journal still folds — three refusals later.
+    // The journal still folds, and the two refusals wrote nothing.
     assert_eq!(fold(&events).unwrap().run, Run::Stopped);
+    assert_eq!(events.len(), before.len());
     let counted = |event_type| {
         events
             .iter()
@@ -2449,17 +2465,20 @@ fn an_operator_command_the_run_cannot_take_is_refused_never_accepted() {
         1,
         "only the one command that was still legal was ever accepted",
     );
-    assert_eq!(counted(EventType::OperatorRejected), 3);
+    assert_eq!(
+        counted(EventType::OperatorRejected),
+        1,
+        "the two terminal commands were refused before they wrote",
+    );
     // Every refusal names a condition, never a race, and disposes of
-    // exactly the command it refused — so the journal reads back as three
-    // answered commands rather than three loose ones.
+    // exactly the command it refused — so the journal reads back as
+    // answered commands rather than loose ones.
     for rejected in events
         .iter()
         .filter(|event| event.event_type == EventType::OperatorRejected)
     {
         assert!(
-            rejected.payload["reason"] == json!(Refusal::RunNotAwaitingOperator.word())
-                || rejected.payload["reason"] == json!(Refusal::AfterTerminal.word()),
+            rejected.payload["reason"] == json!(Refusal::RunNotAwaitingOperator.word()),
             "a refusal that was not a race must not claim one: {}",
             rejected.payload["reason"],
         );
@@ -2469,42 +2488,6 @@ fn an_operator_command_the_run_cannot_take_is_refused_never_accepted() {
                 && &event.payload["command_id"] == command_id
         }));
     }
-
-    // The hazard is not hypothetical. Written by hand — exactly the pair
-    // the unfenced path used to write into this position — the journal
-    // stops folding, permanently, because events are immutable.
-    let mut poisoned = parked_store(&dir.path().join("poisoned.db"), "poisoned");
-    stop_as(&mut poisoned, "poisoned", "operator", "enough").unwrap();
-    poisoned
-        .append_next(
-            "poisoned",
-            EventType::RunStopped,
-            json!({"reason": "stopped"}),
-            None,
-            None,
-        )
-        .unwrap();
-    for (event_type, payload) in [
-        (
-            EventType::OperatorCommanded,
-            json!({"command_id":"late","command":"stop","args":{},"operator":"operator"}),
-        ),
-        (
-            EventType::OperatorAccepted,
-            json!({"command_id":"late","operator":"operator","reason":"too late"}),
-        ),
-    ] {
-        poisoned
-            .append_next("poisoned", event_type, payload, None, None)
-            .unwrap();
-    }
-    assert!(
-        fold(&poisoned.load("poisoned").unwrap()).is_err(),
-        "the acceptance the fence now refuses is exactly what breaks the fold",
-    );
-    // And a fenced command arriving at that already-broken journal
-    // refuses to add to it rather than folding it again.
-    assert!(stop_as(&mut poisoned, "poisoned", "operator", "later").is_err());
 }
 
 /// A command the vocabulary does not know is refused by NAME before any

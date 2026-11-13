@@ -91,6 +91,7 @@ mod seat_summary;
 mod seat_tree;
 mod start;
 mod summary;
+mod terminal;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support;
 pub use acknowledgement::Acknowledgement;
@@ -185,6 +186,19 @@ pub enum StoreError {
     AppendConflict { seq: u64 },
     #[error("head moved: expected seq {expected_seq}, found {found_seq}")]
     HeadMoved { expected_seq: u64, found_seq: u64 },
+    /// The event a caller asked to append is not an annotation, and the
+    /// run already reached one of its two terminal events (#440). The
+    /// check runs inside the append's own write transaction, so the
+    /// refusal leaves no event, no cool-down row and no projection.
+    #[error(
+        "run '{run_id}' is already concluded ({status}); {event_type} is not an operator \
+         annotation, and nothing was written"
+    )]
+    AfterTerminal {
+        run_id: String,
+        status: &'static str,
+        event_type: &'static str,
+    },
     /// The seq, column and count of a token count past the index's signed 64-bit range (decision 0089 ruling 7).
     #[error("checkpoint {0} reports {1} {2} past the index's 64-bit bound; nothing was written")]
     TokenCountOutOfRange(u64, &'static str, u64),
@@ -565,9 +579,11 @@ impl Store {
     /// inside the transaction; a concurrent writer conflicts instead of
     /// forking the chain.
     ///
-    /// The head is whatever the transaction finds, so this always lands.
-    /// A caller whose event is only legal against the head it read —
-    /// anything it decided by folding — wants
+    /// The head is whatever the transaction finds, so this lands on any
+    /// live run. It refuses a non-annotation once the run has reached a
+    /// terminal event ([`StoreError::AfterTerminal`]), before anything is
+    /// written (#440). A caller whose event is only legal against the head
+    /// it read — anything it decided by folding — wants
     /// [`Store::append_next_if_head`] instead.
     pub fn append_next(
         &mut self,
@@ -594,9 +610,9 @@ impl Store {
     /// compare-and-append.
     ///
     /// [`Store::append_next`] recomputes the head inside its own
-    /// transaction and always succeeds, which is right for a writer whose
-    /// event is legal wherever it lands: the engine appending to its own
-    /// run is the only writer of that run. It is wrong for a writer whose
+    /// transaction and lands on any live run, which is right for a writer
+    /// whose event is legal wherever it lands: the engine appending to its
+    /// own run is the only writer of that run. It is wrong for a writer whose
     /// event is legal only against a particular state. An
     /// `operator/accepted` is the case that forced this: whether `fold`
     /// can read it back depends on the run's status at that exact seq, so

@@ -69,8 +69,9 @@ const WIRE_NAMES: [&str; EventType::RunStopped as usize + 1] = [
 ];
 
 impl EventType {
-    /// Every type, in declaration order: what a wire name is read back to.
-    const ALL: [EventType; EventType::RunStopped as usize + 1] = {
+    /// Every type, in declaration order: the vocabulary a reader of the
+    /// closed set iterates, and what a wire name is read back to.
+    pub const ALL: [EventType; EventType::RunStopped as usize + 1] = {
         use EventType::*;
         [
             RunStarted,

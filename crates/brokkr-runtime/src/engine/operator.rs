@@ -491,7 +491,22 @@ fn command_stop(
         reason: named.reason,
         args,
     };
-    match disposed(store, run_id, request, read, |_| {})? {
+    let disposition = match disposed(store, run_id, request, read, |_| {}) {
+        Ok(disposition) => disposition,
+        // The run concluded in the window between `conclude`'s fold and
+        // its stop: the same refusal `conclude` would have made at the
+        // top, not a second command over a finished run.
+        Err(EngineError::AlreadyConcluded { status, .. }) => {
+            let status = if status == Status::Completed.as_str() {
+                Status::Completed
+            } else {
+                Status::Stopped
+            };
+            return Err(ConcludeRefusal::AlreadyConcluded { status }.of(run_id));
+        }
+        Err(error) => return Err(error),
+    };
+    match disposition {
         Disposition::Accepted(_) => Ok(()),
         Disposition::Refused(refusal, _) => {
             Err(ConcludeRefusal::StopRefused { refusal }.of(run_id))

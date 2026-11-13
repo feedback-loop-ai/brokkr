@@ -692,8 +692,8 @@ fn an_engine_version_that_moved_refuses_resume_and_concludes_anyway() {
 /// The fences, each proven against the live driver it exists to refuse
 /// (the operator's park ruling, 2026-09-01). First: the driver concludes
 /// the run in the window between `conclude`'s fold and the stop command
-/// — the command re-decides against the moved journal and its refusal
-/// ends the conclusion with the look-first instruction.
+/// — the command is judged before it writes and ends the conclusion with
+/// the conclusion's own words, appending nothing.
 #[test]
 fn a_run_the_driver_finishes_mid_conclusion_refuses_the_stop() {
     let dir = tempfile::tempdir().unwrap();
@@ -724,8 +724,8 @@ fn a_run_the_driver_finishes_mid_conclusion_refuses_the_stop() {
         }
     })
     .unwrap_err();
-    let why = ConcludeRefusal::StopRefused {
-        refusal: Refusal::AfterTerminal,
+    let why = ConcludeRefusal::AlreadyConcluded {
+        status: Status::Completed,
     };
     assert_eq!(refusal_of(refused), (name.to_string(), why));
     assert!(

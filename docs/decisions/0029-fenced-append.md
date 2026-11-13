@@ -332,3 +332,60 @@ addendum's closing paragraph lists the stdout queue, bounded only by its
 count of lines, as open: this erratum's queue term closes it, and only
 host-configured limits remain open, in #662. No contract, event type or
 frozen byte moves.
+
+## Addendum — 2026-11-13: nothing but an annotation is written after a terminal event (#440)
+
+Status: accepted — operator ruling of 2026-11-04 applied to #440 on 2026-11-13, with each recommendation below taken as written.
+
+The fence narrows a race but cannot close the case it was named for. Its
+own carve-out disarms it at `effect/started`, so an attempt that settles
+after a conclusion still lands (shape (A), 2026-09-26); and an operator
+verb journaled its command before judging the run, so a second stop after
+a conclusion still lands (shape (B), 2026-11-12). Either leaves an event
+after `run/stopped`, and `fold` refuses the run from that seq on forever.
+
+1. **One home for the rule.** `brokkr_core::fold::lawful_after_terminal`
+   reads the transition relation's terminal column (`ROWS`). Nothing
+   else in the tree names the set of annotations: the store, the operator
+   verbs and `fold` all read that function or the relation it reads.
+2. **The store refuses inside the write transaction.** Every append seals
+   through `chain::seal_and_insert`, which refuses a non-annotation on a
+   run that has reached a terminal event with `StoreError::AfterTerminal`,
+   naming the run, its status and the refused type. Nothing is written —
+   no event, no cool-down row, no projection. An annotation still lands.
+   An event type a newer engine adds is refused until the relation admits
+   it.
+3. **The read is bounded.** The summary's fold answers first while it
+   stands at the head; a terminal status is absorbing and answers wherever
+   it stands. A row absent or behind falls back to the events' primary key,
+   walked backwards from the head and stopped at the first event that is
+   not an annotation — which, by this rule, is the terminal event itself.
+   The check measured 89 VM instructions on a run with ten events and 89
+   on one with ten thousand.
+4. **Operator commands judge before they write.** In `disposed` — the
+   path `stop` and `retry` share — a concluded run is refused before the
+   first append with `EngineError::AlreadyConcluded`, whose words follow
+   `concluded_text`'s: `run '…' is already concluded (stopped); stop
+   appends nothing`. Nothing is written, not even `operator/commanded`.
+   The annotations (`classify`, `supersede`, and `acknowledge`, which
+   writes no event) keep working on a terminal run. `conclude`'s
+   `AlreadyConcluded` is unchanged, and a run concluded in its own fence
+   window now reaches that same refusal rather than journaling a second
+   command.
+5. **A late driver ends.** When the engine's append meets the store's
+   refusal it ends with `EngineError::ConcludedBeneath`, naming the
+   conclusion and saying the attempt's report is lost because the
+   conclusion already closed it `effect/indeterminate`. It writes nothing
+   more, retries nothing and folds no further.
+
+The fence's carve-out still stands: an attempt's own checkpoints and
+settlement are journaled unfenced while it is open. What changes is that
+they can no longer land after the run is over. A driver that was alive but
+silent when the conclusion was written now stops at its next write with
+the conclusion named, instead of corrupting the journal.
+
+Out of this unit, named for the PR: unit 2 makes `conclude` and `operator
+stop` refuse while a live driver holds the run, which needs a per-run
+liveness signal and a short decision; unit 3 stops a quarantined run from
+holding its worktree and repairs an already-broken run. No contract, event
+type or frozen byte moves.

@@ -1327,6 +1327,31 @@ fn the_relation_answers_every_pair_and_the_fold_answers_by_it() {
     assert_eq!(Position::of(&stopped), Terminal);
 }
 
+/// The after-terminal rule the store and the operator verbs read is the
+/// relation's terminal column, not a table beside it (decision 0071
+/// ruling 5): every event type answers as its row's last column says, so
+/// a new type or a changed column cannot move one without the other.
+#[test]
+fn lawful_after_terminal_is_the_relations_terminal_column() {
+    let mut lawful = Vec::new();
+    for event_type in EVENT_TYPES {
+        let expected = matches!(
+            relation::arm(event_type, Position::Terminal),
+            Arm::Annotates
+        );
+        assert_eq!(
+            lawful_after_terminal(event_type),
+            expected,
+            "{event_type:?}"
+        );
+        if expected {
+            lawful.push(event_type);
+        }
+    }
+    use EventType::{OperatorCommanded, OperatorRejected};
+    assert_eq!(lawful, [OperatorCommanded, OperatorRejected]);
+}
+
 /// An event that is both malformed and out of place is refused for the
 /// field it names its target by, as the fold's arms always read it first;
 /// an event that names no target first is refused for its place.

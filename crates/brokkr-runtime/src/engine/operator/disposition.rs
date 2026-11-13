@@ -34,6 +34,18 @@ pub(super) fn disposed(
         reason,
         args,
     } = request;
+    // A command writes a disposition the fold refuses on a concluded run,
+    // so it is judged before its first append: a stop or retry on a run
+    // that already ended names the conclusion and appends nothing (#440).
+    // An annotation never takes this path: classify and supersede write
+    // only `operator/commanded`.
+    if let Some(status) = concluded(&asked) {
+        return Err(EngineError::AlreadyConcluded {
+            run_id: run_id.to_string(),
+            status: status.as_str(),
+            verb: command.as_str(),
+        });
+    }
     let command_id = Uuid::new_v4().to_string();
     // A journal that does not fold cannot host a legal acceptance at
     // all, so refuse before writing anything rather than adding to it.

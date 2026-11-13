@@ -20,6 +20,7 @@ use crate::policy::{CONSECUTIVE_FAILURES, REVIEWED_HEADS, STRATEGIES, STRATEGY, 
 mod operator;
 use operator::{accept, command};
 mod relation;
+pub use relation::lawful_after_terminal;
 use relation::{Arm, Position, Transition};
 mod run;
 pub use run::{ParkReason, Run};

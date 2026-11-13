@@ -144,6 +144,54 @@ fn a_fresh_process_does_not_close_an_attempt_its_live_driver_moved() {
     assert_eq!(events.last().unwrap().event_type, checkpointed);
 }
 
+/// Shape (A) of #440: the run is concluded while its attempt is open,
+/// and the attempt's settlement then meets the store's terminal gate.
+/// Nothing is written, the driver ends on a typed error naming the
+/// conclusion, and the run still folds as stopped.
+#[test]
+fn a_late_settlement_over_a_conclusion_ends_the_driver_and_the_run_still_folds() {
+    let dir = tempfile::tempdir().unwrap();
+    let run_id = journaled(dir.path(), in_flight());
+    let mut store = Store::open(&db(dir.path())).unwrap();
+    conclude_as(&mut store, &run_id, "operator", "believed dead").unwrap();
+    let mut engine = resumed(dir.path(), &run_id);
+    let settlement = json!({"effect_id": "effect-1", "result": {"result": "complete"}});
+    let error = engine
+        .append_raw(
+            EventType::EffectSucceeded,
+            settlement,
+            Some("attempt-1".into()),
+        )
+        .unwrap_err();
+    assert!(
+        matches!(
+            &error,
+            EngineError::ConcludedBeneath {
+                run_id: named,
+                status: "stopped",
+                event_type: "effect/succeeded",
+            } if named == &run_id
+        ),
+        "{error:?}"
+    );
+    assert_eq!(
+        error.to_string(),
+        format!(
+            "run '{run_id}' was concluded (stopped) while this driver was still working, so its \
+             effect/succeeded could not be appended and nothing was written; the driver stops \
+             here, and the conclusion already closed the attempt as effect/indeterminate — the \
+             report this driver was carrying is lost to the journal"
+        )
+    );
+    let events = engine.store.load(&run_id).unwrap();
+    assert_eq!(events.last().unwrap().event_type, EventType::RunStopped);
+    assert!(events.iter().any(|event| {
+        event.event_type == EventType::EffectIndeterminate
+            && event.attempt_id.as_deref() == Some("attempt-1")
+    }));
+    assert_eq!(fold(&events).unwrap().run, Run::Stopped);
+}
+
 /// A step the engine decides between effects: an operator's stop is
 /// accepted after the engine folded `Cursor::Start` and before it enters
 /// the phase. Unfenced, `phase/entered` landed at `Cursor::Stop` and the

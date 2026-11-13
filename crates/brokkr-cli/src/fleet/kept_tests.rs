@@ -7,7 +7,7 @@ use std::path::Path;
 use brokkr_core::canonical::ZERO_HASH;
 use brokkr_core::{EventEnvelope, EventType};
 use brokkr_store::test_support::{plant_envelope, plant_run};
-use brokkr_store::{Attribution, Store};
+use brokkr_store::{Attribution, Store, StoreError};
 use serde_json::{json, Value};
 
 use super::kept::rules;
@@ -332,13 +332,25 @@ fn the_kept_rows_are_the_whole_reads_rows_as_the_journal_moves() {
     assert_eq!(acknowledged, Some(seq), "acknowledged where it stood");
 
     // An event after the run stopped: the fold refuses it in the suffix,
-    // and the run is quarantined where the whole read quarantines it.
-    append(
-        &db,
-        "held",
+    // and the run is quarantined where the whole read quarantines it. No
+    // writer may append it any more (#440), so it is planted as an older
+    // build left it.
+    let head = Store::open(&db).unwrap();
+    let (seq, previous) = head.head_hash("held").unwrap();
+    drop(head);
+    let late = EnvelopeBuilder::new(
         EventType::EffectRequested,
         json!({"effect_id": "late", "seat": "review", "phase": "review"}),
-    );
+    )
+    .run("held")
+    .seq(seq + 1)
+    .event_id("held-after-terminal")
+    .at(STAMP)
+    .previous(previous)
+    .sealed();
+    let conn = rusqlite::Connection::open(&db).unwrap();
+    plant_envelope(&conn, &late).unwrap();
+    drop(conn);
     assert_eq!(refreshed(&mut kept, &db), 1);
     assert_eq!(kept_rows(&kept), whole_rows(&db));
     assert_eq!(refreshed(&mut kept, &db), 0, "refused, and unmoved");
@@ -721,6 +733,18 @@ fn a_refusal_is_kept_at_its_head_only_when_the_journals_bytes_made_it() {
         (state(&kept, "locked"), state(&kept, "torn")),
         (Some(1), None)
     );
+}
+
+/// The append refusal a load cannot return is still a verdict about the
+/// journal's content, so a refresh keeps the run while its head stands.
+#[test]
+fn a_terminal_append_refusal_is_a_lasting_verdict() {
+    let refused = StoreError::AfterTerminal {
+        run_id: "held".into(),
+        status: "stopped",
+        event_type: "effect/started",
+    };
+    assert!(super::kept::lasting(&refused));
 }
 
 /// A whole read's own connection that will not open is the refresh's
