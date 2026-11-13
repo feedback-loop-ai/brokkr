@@ -127,7 +127,10 @@ fn the_closure_refuses_a_quoted_key_and_the_quote_escapes() {
 /// whole gate. The line-77 shape is the measured 0.2.1 dump's own block
 /// content: a closed quote followed by junk is no carrier under the
 /// structure reading. The closed flow is block-scalar content, so the row
-/// grammar still decides admission and skips it unread.
+/// grammar still decides admission and skips it unread. The closure-only
+/// lines read the `? ` marker, bare markers, a tag with no space, a comment
+/// after a plain scalar, a quoted key with no value or a jammed one, a
+/// quote inside a plain flow scalar and a nested flow.
 #[test]
 fn the_closure_admits_every_closed_shape() {
     let dump = policy_dump();
@@ -169,6 +172,27 @@ fn the_closure_admits_every_closed_shape() {
         Ok(()),
         "the closure admits a closed flow at a value too"
     );
+    assert_eq!(closure(""), Ok(()), "the empty dump has no open line");
+    assert_eq!(closure("\n\n"), Ok(()), "empty lines leave nothing open");
+    for (what, text) in [
+        (
+            "a `? ` marker, a bare `?`, a bare `-` and a `- ` item",
+            "? x\n?\n-\n- x\n",
+        ),
+        (
+            "a tag with no space after it, and a tag alone",
+            "k: !tag\nk: !!js\nk: !\n",
+        ),
+        ("a plain scalar cut at a comment", "k: a # c\n"),
+        (
+            "a quoted key with an empty and a jammed value",
+            "\"k\":\n\"k\":x\n",
+        ),
+        ("a quote inside a plain flow scalar", "k: [it's]\n"),
+        ("a nested flow", "k: [[a]]\n"),
+    ] {
+        assert_eq!(closure(text), Ok(()), "{what}");
+    }
 }
 
 /// The two committed real trees still pass. The raw 0.2.1 dump has no
@@ -276,7 +300,9 @@ fn plain_values_the_dump_never_writes_refuse() {
     let dump = policy_dump();
     for (what, value) in [
         ("a dash item", "- a"),
+        ("a bare dash", "-"),
         ("a dash marker", "- \"x"),
+        ("a colon item", ": a"),
         ("a key inside a value", "j: \"x"),
         ("a flow closer", "]"),
         ("a comma", ","),

@@ -132,15 +132,18 @@ fn plain_open(value: &str) -> bool {
 /// collection's start, after `[`, `{`, `,`, `:` or a space, and is scanned
 /// by the same quote rule the grammar uses.
 fn flow_end(value: &str) -> Option<usize> {
-    let mut index = 0;
+    let mut chars = value.char_indices().peekable();
     let mut depth = 0isize;
     let mut previous = None;
-    while index < value.len() {
-        let c = value[index..].chars().next()?;
+    while let Some((index, c)) = chars.next() {
         let quote_start = matches!(c, '\'' | '"')
             && (index == 0 || matches!(previous, Some('[' | '{' | ',' | ':' | ' ')));
         if quote_start {
-            index += super::scan_quoted(&value[index..])?;
+            let end = super::scan_quoted(&value[index..])?;
+            let stop = index + end;
+            while matches!(chars.peek(), Some((next, _)) if *next < stop) {
+                chars.next();
+            }
             previous = Some(c);
             continue;
         }
@@ -155,7 +158,6 @@ fn flow_end(value: &str) -> Option<usize> {
             _ => {}
         }
         previous = Some(c);
-        index += c.len_utf8();
     }
     None
 }

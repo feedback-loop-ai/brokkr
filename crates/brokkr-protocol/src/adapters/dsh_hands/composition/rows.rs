@@ -447,12 +447,13 @@ fn refused_plain_start(first: char) -> bool {
 }
 
 /// Whether a plain value is one the dump never writes and a reader reads as
-/// structure: an explicit marker on its own or followed by a space, or a
-/// `: ` key separator inside. `-1` and `a-b` stay plain values.
+/// structure: an explicit `-` or `:` marker on its own or followed by a
+/// space, or a `: ` key separator inside. `?` is not repeated here:
+/// [`refused_plain_start`] already refuses every value that starts with
+/// `?`. `-1` and `a-b` stay plain values.
 fn refused_plain_value(value: &str) -> bool {
-    matches!(value, "-" | "?" | ":")
+    matches!(value, "-" | ":")
         || value.starts_with("- ")
-        || value.starts_with("? ")
         || value.starts_with(": ")
         || value.contains(": ")
 }
