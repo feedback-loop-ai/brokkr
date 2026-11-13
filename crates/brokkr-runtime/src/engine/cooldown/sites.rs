@@ -5,8 +5,6 @@
 //! retries. The per-site reading lives here so `cooldown.rs` stays within
 //! ruling 4's 800-line ceiling and `cursor.rs` keeps its small cap branch.
 
-use std::collections::BTreeMap;
-
 use brokkr_core::envelope::{EventType, EVENT_SCHEMA_VERSION};
 use brokkr_core::{provider_waits, EventEnvelope, ProviderRefusal, ProviderWait, RefusalCause};
 use brokkr_protocol::{AttemptReport, PreSessionRefusal, RefusalClass};
@@ -17,8 +15,8 @@ use time::{Duration as TimeDuration, OffsetDateTime};
 
 use super::probe::Probe;
 use super::{
-    effect_seat, note_error, past_maximum, refusal_record, refusal_text, representable_end,
-    terminal, waiter, CooldownError, Engine, EngineError,
+    effect_seat, episode_by_site, note_error, past_maximum, refusal_record, refusal_text,
+    representable_end, terminal, waiter, CooldownError, Engine, EngineError, Episode,
 };
 use crate::bundle::{ExecutableBody, Invocation};
 use crate::engine::carry::record::Tag;
@@ -50,90 +48,6 @@ pub(in crate::engine) fn refused_members(
             })
         })
         .collect()
-}
-
-/// The episode's record through one effect: the rounds each site has
-/// waited and their seconds (decision 0103 ruling 3: the sum is across
-/// sites, the round is per site), and the latest instant a stored row ends.
-/// The terminal events are the attempt's record; the probe rounds a
-/// terminal's episode gained are read back from the table, one row per
-/// round, and counted by the length the row itself records (decision 0103
-/// ruling 2(a)). The terminal event's own row is not counted twice; any
-/// other row is a probe round, including the fill at round one of a
-/// terminal whose own row never landed. An earlier entry that does not read
-/// refuses by name, never as nothing.
-pub(super) struct Episode {
-    pub(super) rounds: BTreeMap<Option<String>, u64>,
-    pub(super) seconds: u64,
-    pub(super) latest: Option<OffsetDateTime>,
-}
-
-pub(super) fn episode_by_site(
-    store: &brokkr_store::Store,
-    run_id: &str,
-    events: &[EventEnvelope],
-    effect_id: &str,
-) -> Result<Episode, CooldownError> {
-    let mut episode = Episode {
-        rounds: BTreeMap::new(),
-        seconds: 0,
-        latest: None,
-    };
-    for event in events {
-        if !matches!(
-            event.event_type,
-            EventType::EffectFailed | EventType::EffectIndeterminate
-        ) || event.payload.get("effect_id").and_then(Value::as_str) != Some(effect_id)
-        {
-            continue;
-        }
-        let Some(waits) =
-            provider_waits(event).map_err(|source| CooldownError::EarlierWaitUnreadable {
-                seq: event.seq,
-                source,
-            })?
-        else {
-            continue;
-        };
-        for wait in waits {
-            *episode.rounds.entry(wait.site.clone()).or_insert(0u64) += 1;
-            episode.seconds = episode.seconds.saturating_add(wait.seconds);
-            let site = wait.site.clone().unwrap_or_default();
-            let rows = store
-                .cooldown_rounds(run_id, event.seq, &site)
-                .map_err(|source| CooldownError::RoundsUnreadable {
-                    source: Box::new(source),
-                })?;
-            for row in rows {
-                episode.latest = Some(
-                    episode
-                        .latest
-                        .map_or(row.until_at, |latest| latest.max(row.until_at)),
-                );
-                if the_waits_own(&row, &wait) {
-                    continue;
-                }
-                *episode.rounds.entry(wait.site.clone()).or_insert(0u64) += 1;
-                episode.seconds = episode.seconds.saturating_add(round_length(&row));
-            }
-        }
-    }
-    Ok(episode)
-}
-
-/// Whether `row` is the terminal event's own row for `wait`: the store
-/// wrote that wait's end, rounded up to its stored whole second, at the
-/// wait's own round when the event landed. A probe's fill at the same round
-/// ends later and is a round the episode counts.
-fn the_waits_own(row: &brokkr_store::Cooldown, wait: &ProviderWait) -> bool {
-    row.rounds == wait.rounds && row.until_at - wait.until < TimeDuration::seconds(1)
-}
-
-/// A probe round's length, read from the row's own two times: the store
-/// writes `recorded_at` as the round's start and `until_at` as its end, so
-/// the episode never recomputes an earlier round under a later bound.
-fn round_length(row: &brokkr_store::Cooldown) -> u64 {
-    (row.until_at - row.recorded_at).whole_seconds().max(0) as u64
 }
 
 /// The length one wait computes: the provider's own retry-after, else the
@@ -195,30 +109,20 @@ impl Engine {
         }
     }
 
-    /// The panel terminal payload: every computable refused member's wait in
-    /// declared order, and — where the panel may retry and one member's
-    /// refusal parks it — the first such member's `refused` record and the
-    /// park reason. An indeterminate panel parks anyway, so it takes the
-    /// computable waits as evidence only and no member's refusal decides it.
-    pub(in crate::engine) fn panel_rate_limit_terminal(
+    /// One plan per refused member, in declared order, and the cause each
+    /// already carries: a missing `until` where the panel may retry, a
+    /// planned member's own cause, or an undeclared note. Kept apart from
+    /// [`Engine::panel_rate_limit_terminal`] so both stay within the
+    /// complexity ceiling (0071 ruling 4).
+    fn plan_members(
         &self,
-        events: &[EventEnvelope],
-        effect_id: &str,
-        mut payload: Value,
+        episode: &Episode,
+        payload: &mut Value,
         refused: &[RefusedMember],
         retry: bool,
-    ) -> PanelTerminal {
-        if refused.is_empty() {
-            return PanelTerminal {
-                payload,
-                park: None,
-            };
-        }
-        let Ok(episode) = episode_by_site(&self.store, &self.run_id, events, effect_id) else {
-            return self.panel_episode_unreadable(events, effect_id, &mut payload, refused, retry);
-        };
-        let mut planned: Vec<Option<Plan>> = Vec::with_capacity(refused.len());
-        let mut causes: Vec<Option<Cause>> = Vec::with_capacity(refused.len());
+    ) -> (Vec<Option<Plan>>, Vec<Option<Cause>>) {
+        let mut planned = Vec::with_capacity(refused.len());
+        let mut causes = Vec::with_capacity(refused.len());
         for member in refused {
             let rounds = episode
                 .rounds
@@ -245,26 +149,50 @@ impl Engine {
                     // note stays off it: the contract edge admits only the
                     // terminal's own fields there (0071 ruling 3).
                     if retry {
-                        note_error(&mut payload, &note);
+                        note_error(payload, &note);
                     }
                     planned.push(None);
                     causes.push(None);
                 }
             }
         }
-        let total = planned
-            .iter()
-            .flatten()
-            .fold(episode.seconds, |total, plan| {
-                total.saturating_add(plan.seconds)
-            });
-        for (at, plan) in planned.iter().enumerate() {
-            if causes[at].is_none() {
-                if let Some(cause) = plan.as_ref().and_then(|plan| plan.past_maximum(total)) {
-                    causes[at] = Some(cause);
-                }
-            }
+        (planned, causes)
+    }
+
+    /// The panel terminal payload: every computable refused member's wait in
+    /// declared order, and — where the panel may retry and one member's
+    /// refusal parks it — the first such member's `refused` record and the
+    /// park reason. An indeterminate panel parks anyway, so it takes the
+    /// computable waits as evidence only and no member's refusal decides it.
+    pub(in crate::engine) fn panel_rate_limit_terminal(
+        &self,
+        events: &[EventEnvelope],
+        effect_id: &str,
+        mut payload: Value,
+        refused: &[RefusedMember],
+        retry: bool,
+    ) -> PanelTerminal {
+        if refused.is_empty() {
+            return PanelTerminal {
+                payload,
+                park: None,
+            };
         }
+        let episode = match episode_by_site(&self.store, &self.run_id, events, effect_id) {
+            Ok(episode) => episode,
+            Err(error) => {
+                return self.panel_episode_unreadable(
+                    events,
+                    effect_id,
+                    &mut payload,
+                    refused,
+                    retry,
+                    &error,
+                )
+            }
+        };
+        let (planned, mut causes) = self.plan_members(&episode, &mut payload, refused, retry);
+        judge_total(&planned, &mut causes, episode.seconds);
         let waits: Vec<Value> = planned
             .iter()
             .flatten()
@@ -289,7 +217,7 @@ impl Engine {
         let cause = causes[first].take().expect("the first parked member");
         let refused = cause.refused;
         super::record_refusal(&mut payload, &refused);
-        let reason = refusal_text(&refused, cause.episode);
+        let reason = refusal_text(&refused, cause.episode, None);
         let park = (!self.at_attempt_cap(events, effect_id)).then_some(reason);
         PanelTerminal { payload, park }
     }
@@ -327,6 +255,7 @@ impl Engine {
         payload: &mut Value,
         refused: &[RefusedMember],
         retry: bool,
+        error: &CooldownError,
     ) -> PanelTerminal {
         let member = &refused[0];
         if retry {
@@ -347,7 +276,7 @@ impl Engine {
                 None,
             );
             super::record_refusal(payload, &refused);
-            let reason = refusal_text(&refused, None);
+            let reason = refusal_text(&refused, None, Some(&error.to_string()));
             let park = (!self.at_attempt_cap(events, effect_id)).then_some(reason);
             return PanelTerminal {
                 payload: payload.clone(),
@@ -476,6 +405,24 @@ impl Plan {
                 Some(self.max),
             ),
             episode: None,
+        }
+    }
+}
+
+/// Judge every planned member's maximum against the episode through all of
+/// them, filling the first cause a member did not already carry.
+fn judge_total(planned: &[Option<Plan>], causes: &mut [Option<Cause>], episode_seconds: u64) {
+    let total = planned
+        .iter()
+        .flatten()
+        .fold(episode_seconds, |total, plan| {
+            total.saturating_add(plan.seconds)
+        });
+    for (at, plan) in planned.iter().enumerate() {
+        if causes[at].is_none() {
+            if let Some(cause) = plan.as_ref().and_then(|plan| plan.past_maximum(total)) {
+                causes[at] = Some(cause);
+            }
         }
     }
 }

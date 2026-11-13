@@ -45,5 +45,9 @@ pub(super) fn probe_action(
             "{accepted}\n  : > '@STARTED@'\n  i=0\n  while [ ! -e '@RELEASE@' ] && \
              [ $i -lt 600 ]; do sleep 0.05; i=$((i+1)); done\n  {checkpoint}\n  {succeeded}"
         ),
+        Probed::BarrierRefuse => format!(
+            "{accepted}\n  : > '@STARTED@'\n  i=0\n  while [ ! -e '@RELEASE@' ] && \
+             [ $i -lt 600 ]; do sleep 0.05; i=$((i+1)); done\n  {refused}"
+        ),
     }
 }

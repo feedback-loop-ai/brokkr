@@ -32,6 +32,12 @@ fn started(dir: &Path, body: SeatBody, limits: Limits) -> Engine {
     Engine::start(store, compiled, "Feature", Some(dir.join("work"))).unwrap()
 }
 
+/// A single-seat engine over the unused command, with `attempts` allowed:
+/// the fixtures that only need a journal and a seat share it.
+pub(super) fn bare_engine(dir: &Path, attempts: u64) -> Engine {
+    started(dir, single_body(vec!["unused".into()]), work(attempts))
+}
+
 fn work(attempts: u64) -> Limits {
     Limits {
         max_attempts: attempts,
@@ -135,6 +141,9 @@ enum Probed {
     OtherRefusal,
     /// Every probe ends with a refusal object the edge cannot read.
     MalformedRefusal,
+    /// The probe waits for its release marker, then refuses with a rate
+    /// limit: a stop can land while it runs (this round's stop case).
+    BarrierRefuse,
 }
 
 /// A `forge-driver/v1` participant in `sh`: its attempts read a verdict
@@ -577,11 +586,7 @@ fn a_one_candidate_chain_retries_the_cooled_route() {
 fn a_malformed_wait_refuses_by_name_at_and_below_the_cap() {
     for attempts in [2u64, 1] {
         let dir = tempfile::tempdir().unwrap();
-        let mut engine = started(
-            dir.path(),
-            single_body(vec!["unused".into()]),
-            work(attempts),
-        );
+        let mut engine = bare_engine(dir.path(), attempts);
         append_waited(
             &mut engine,
             json!([{"route": "first", "words": "w", "seconds": 1,
@@ -722,8 +727,17 @@ fn a_wait_past_the_maximum_parks_with_the_words_and_the_maximum() {
 
 #[test]
 fn an_accumulated_episode_past_the_maximum_parks() {
-    let (dir, mut engine, _now) =
-        seated!(&["refuse", "refuse", "succeed"], Probed::Answer, None, 3);
+    let dir = tempfile::tempdir().unwrap();
+    let command = driver(
+        dir.path(),
+        "work",
+        &["refuse", "refuse", "succeed"],
+        Probed::Answer,
+        None,
+        "claude",
+        "first",
+    );
+    let mut engine = started(dir.path(), single_body(command), probe_rounds::patient(3));
     engine.cooldown.host = Some(host(dir.path(), 2, 3));
     drove(
         &mut engine,
@@ -1356,8 +1370,9 @@ fn a_resume_late_keeps_the_recorded_maximum_refusal() {
 fn an_episode_sums_each_routes_recorded_length() {
     let dir = tempfile::tempdir().unwrap();
     let body = two_route_body(dir.path(), &["refuse"], &["refuse", "succeed"]);
-    let (dir, mut engine, _now) = seated!(@in dir, body, 3);
+    let mut engine = started(dir.path(), body, probe_rounds::patient(3));
     engine.cooldown.host = Some(routes_host(dir.path()));
+    let (mut engine, _now) = with_clock(engine);
     engine.drive().unwrap();
     assert_eq!(logs(dir.path(), "claude"), ["attempt:refuse", "probe"]);
     assert_eq!(logs(dir.path(), "codex"), ["attempt:refuse"]);
@@ -1613,11 +1628,7 @@ fn malformed_earlier() -> Value {
 /// second one, with the host declared and `attempts` allowed.
 fn two_terminal_engine(attempts: u64) -> (tempfile::TempDir, Engine) {
     let dir = tempfile::tempdir().unwrap();
-    let mut engine = started(
-        dir.path(),
-        single_body(vec!["unused".into()]),
-        work(attempts),
-    );
+    let mut engine = bare_engine(dir.path(), attempts);
     engine.cooldown.host = Some(host(dir.path(), 1, 10));
     two_terminals(&mut engine, malformed_earlier());
     (dir, engine)

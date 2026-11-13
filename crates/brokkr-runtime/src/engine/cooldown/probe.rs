@@ -602,7 +602,12 @@ pub(super) struct NextRound {
     pub(super) route: String,
     pub(super) words: String,
     pub(super) retry_after_seconds: Option<u64>,
+    /// The row's round: the store's next one, which the append requires.
     pub(super) rounds: u64,
+    /// The site's episode round this wait is: the count its length doubles
+    /// from and the round a park names. A fill at round one can be the
+    /// site's second wait, so this need not equal `rounds` (finding 3).
+    pub(super) round: u64,
     pub(super) seconds: u64,
     /// The episode's seconds through the round's terminal, before it.
     pub(super) episode: u64,

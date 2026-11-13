@@ -16,6 +16,17 @@ use time::{Duration, OffsetDateTime};
 use super::*;
 use crate::engine::Engine;
 
+/// The fixture deadline for a test whose fake driver must outlast a loaded
+/// host (this round's four load-flaky fixtures): the attempt deadline is
+/// unrelated to what those tests prove, so it is generous, as 4d1's
+/// neighbours are.
+pub(super) fn patient(attempts: u64) -> Limits {
+    Limits {
+        max_attempts: attempts,
+        timeout_seconds: 30,
+    }
+}
+
 /// The instant a test's clock reads when its run starts.
 fn start_of(now: &Arc<Mutex<OffsetDateTime>>) -> OffsetDateTime {
     *now.lock().unwrap()
@@ -131,6 +142,13 @@ fn append_second_row(db: &Path, run_id: &str, until: OffsetDateTime) {
         .unwrap();
 }
 
+/// Drive the engine and return the cooled seat's log, the two-run tests'
+/// shared ending.
+fn drive_and_log(engine: &mut Engine, dir: &Path) -> Vec<String> {
+    engine.drive().unwrap();
+    logs(dir, "work")
+}
+
 /// The probes a retry's `effect/started` records, in probed order.
 fn retry_probes(engine: &Engine) -> Vec<Value> {
     starts(engine)
@@ -158,6 +176,62 @@ fn seated_for_two_runs() -> (tempfile::TempDir, Engine, Arc<Mutex<OffsetDateTime
     let (dir, mut engine, now) = seated!(&["refuse", "succeed"], Probed::Answer, None, 2);
     engine.cooldown.host = Some(host(dir.path(), 30, 1000));
     (dir, engine, now)
+}
+
+/// A two-run fixture: run-A's engine and clock, and run-B's row sink.
+fn two_run_fixture() -> (
+    tempfile::TempDir,
+    Engine,
+    Arc<Mutex<OffsetDateTime>>,
+    OffsetDateTime,
+    String,
+    PathBuf,
+) {
+    let (dir, engine, now) = seated_for_two_runs();
+    let start = start_of(&now);
+    let (b, db) = second_run_route(dir.path());
+    (dir, engine, now, start, b, db)
+}
+
+/// A single-seat engine with one journaled terminal wait, its wide host,
+/// and the fixture's own temporary journal.
+fn engine_with_wait(
+    attempts: u64,
+    until: OffsetDateTime,
+    seconds: u64,
+) -> (tempfile::TempDir, Engine) {
+    let dir = tempfile::tempdir().unwrap();
+    let mut engine = super::bare_engine(dir.path(), attempts);
+    append_waited(&mut engine, wait_value(until, seconds));
+    engine.cooldown.host = Some(host(dir.path(), 30, 1000));
+    (dir, engine)
+}
+
+/// Append one probe row at the single seat's terminal: the tests that plant
+/// a written round share one row shape.
+fn append_round(
+    engine: &mut Engine,
+    event_seq: u64,
+    until_at: OffsetDateTime,
+    rounds: u64,
+    seconds: u64,
+) {
+    let run_id = engine.run_id.clone();
+    engine
+        .store
+        .append_cooldown_round(brokkr_store::CooldownRound {
+            run_id: &run_id,
+            event_seq,
+            site: "",
+            provider: "claude",
+            route: "first",
+            until_at,
+            reason: "rate_limit: slow down",
+            retry_after_seconds: None,
+            rounds,
+            seconds,
+        })
+        .unwrap();
 }
 
 /// The one action a clock runs, taken once it fires.
@@ -276,15 +350,13 @@ fn two_overlapping_refusals_from_two_runs_hold_until_the_longer_ends() {
 /// after the probes waits it out and probes again before the retry.
 #[test]
 fn a_row_recorded_while_the_probe_ran_holds_the_route_again() {
-    let (dir, mut engine, now) = seated_for_two_runs();
-    let start = start_of(&now);
-    let (b, db) = second_run_route(dir.path());
+    let (dir, mut engine, now, start, b, db) = two_run_fixture();
     engine.cooldown.clock = clock_on_probe(&now, dir.path(), true, move || {
         append_second_row(&db, &b, start + Duration::seconds(120));
     });
-    engine.drive().unwrap();
+    let log = drive_and_log(&mut engine, dir.path());
     assert_eq!(
-        logs(dir.path(), "work"),
+        log,
         ["attempt:refuse", "probe", "probe", "attempt:succeed"],
         "the row recorded while the probe ran was not waited out and probed again"
     );
@@ -388,7 +460,9 @@ fn a_store_refusal_while_reading_the_aggregate_parks_by_name() {
     after_first_slice(&mut engine, &now, move || {
         alter_journal(&db, "DROP TABLE provider_cooldowns")
     });
-    let reason = drove_one(dir.path(), &mut engine, &["attempt:refuse", "probe"]);
+    // The wait's end is re-read before the probe (finding 8), so the lost
+    // table parks this round before any probe runs.
+    let reason = drove_one(dir.path(), &mut engine, &["attempt:refuse"]);
     assert!(
         reason.contains("the cool-down aggregate for claude/first cannot be read"),
         "{reason}"
@@ -431,6 +505,14 @@ fn the_unchanged_probe_ends_write_no_row() {
 fn a_probes_cleanup_refusal_parks_first_and_writes_no_row() {
     let dir = tempfile::tempdir().unwrap();
     let mut engine = started(dir.path(), single_body(vec!["unused".into()]), work(2));
+    engine.cooldown.host = Some(host(dir.path(), 30, 1000));
+    // A terminal the refusal could extend: with the cleanup check gone, the
+    // rate limit reaches `record_extension` and writes a row, so the row
+    // count below can fail (finding F6).
+    append_waited(
+        &mut engine,
+        wait_value(OffsetDateTime::now_utc() + Duration::hours(1), 60),
+    );
     let refusal: PreSessionRefusal = serde_json::from_value(json!({
         "class": "rate_limit", "provider": "claude", "route": "first",
         "words": "rate_limit: slow down"
@@ -443,21 +525,26 @@ fn a_probes_cleanup_refusal_parks_first_and_writes_no_row() {
         },
         vec![json!({"step": "answer"})],
     );
-    match engine.probe_end("effect", &wait(), report) {
+    let extended = match engine.probe_end("effect", &wait(), report) {
         super::super::Probe::Parked(reason) => {
             assert!(reason.contains("cleanup failure"), "{reason}");
             assert!(reason.contains("group 7"), "{reason}");
             assert!(!reason.contains("rate_limit: slow down"), "{reason}");
+            None
         }
-        _ => panic!("a cleanup refusal did not park"),
+        super::super::Probe::Extended(round) => Some(round),
+        super::super::Probe::Answered(_) => panic!("a cleanup refusal answered"),
+    };
+    // Only the broken cleanup-first check reaches here; the write is the
+    // row-writing path the row assertion is the removal control for.
+    if let Some(round) = extended {
+        let _ = engine.record_extension(&[wait()], &round, 0);
     }
-    assert!(
-        engine
-            .store
-            .cooldowns_in_force(OffsetDateTime::now_utc())
-            .unwrap()
-            .is_empty(),
-        "a cleanup refusal wrote a row"
+    let event = failed(&engine).remove(0);
+    assert_eq!(
+        rounds(&engine, event.seq, ""),
+        [1],
+        "a cleanup refusal wrote a probe row"
     );
 }
 
@@ -518,13 +605,7 @@ fn a_probe_refusal_parks_when_its_declaration_journal_or_episode_cannot_read() {
     parked(&mut engine, "no terminal event to extend");
 
     // A version this binary does not know: the rounds cannot be read.
-    let dir = tempfile::tempdir().unwrap();
-    let mut engine = started(dir.path(), single_body(vec!["unused".into()]), work(2));
-    engine.cooldown.host = Some(host(dir.path(), 30, 1000));
-    append_waited(
-        &mut engine,
-        wait_value(OffsetDateTime::now_utc() + Duration::hours(1), 60),
-    );
+    let (dir, mut engine) = engine_with_wait(2, OffsetDateTime::now_utc() + Duration::hours(1), 60);
     rusqlite::Connection::open(dir.path().join("forge.db"))
         .unwrap()
         .execute("UPDATE meta SET value = '9' WHERE key = 'queue_schema'", [])
@@ -729,13 +810,7 @@ fn a_non_empty_sites_refusal_extends_and_reprobes_the_answered_member() {
 /// The single-seat round fixture the unreadable-input cases share: a
 /// journal with one future wait, a wide host, and its events.
 fn waited_round_fixture() -> (tempfile::TempDir, Engine, Vec<brokkr_core::EventEnvelope>) {
-    let dir = tempfile::tempdir().unwrap();
-    let mut engine = started(dir.path(), single_body(vec!["unused".into()]), work(2));
-    append_waited(
-        &mut engine,
-        wait_value(OffsetDateTime::now_utc() + Duration::seconds(60), 60),
-    );
-    engine.cooldown.host = Some(host(dir.path(), 30, 1000));
+    let (dir, engine) = engine_with_wait(2, OffsetDateTime::now_utc() + Duration::seconds(60), 60);
     let events = engine.store.load(&engine.run_id).unwrap();
     (dir, engine, events)
 }
@@ -771,9 +846,17 @@ fn the_wait_rounds_park_by_name_when_the_store_bounds_or_rounds_cannot_read() {
     // Bounds that stop reading between rounds.
     let (dir, mut engine, events) = waited_round_fixture();
     invalid_host(dir.path(), &mut engine);
-    let reason = engine
+    let error = engine
         .extension_park_reason(&events, "effect", &waits, waits[0].until, base(), 0)
         .expect_err("unreadable bounds park");
+    assert!(
+        matches!(
+            error,
+            super::super::CooldownError::WaitBoundsUnreadable { .. }
+        ),
+        "{error}"
+    );
+    let reason = error.to_string();
     assert!(reason.contains("cannot read its bounds"), "{reason}");
 
     // A probe row whose own recorded instant does not read: the episode, not
@@ -784,9 +867,17 @@ fn the_wait_rounds_park_by_name_when_the_store_bounds_or_rounds_cannot_read() {
         "DROP TRIGGER provider_cooldowns_append_only_update;
          UPDATE provider_cooldowns SET recorded_at = -9223372036854775808;",
     );
-    let reason = engine
+    let error = engine
         .extension_park_reason(&events, "effect", &waits, waits[0].until, base(), 0)
         .expect_err("an unreadable round parks");
+    assert!(
+        matches!(
+            error,
+            super::super::CooldownError::WaitEpisodeUnreadable { .. }
+        ),
+        "{error}"
+    );
+    let reason = error.to_string();
     assert!(reason.contains("cannot read its episode"), "{reason}");
 }
 
@@ -838,22 +929,7 @@ fn a_resume_over_a_written_round_counts_it_once() {
     );
     engine.cooldown.host = Some(host(dir.path(), 30, 100));
     let event = failed(&engine).remove(0);
-    let run_id = engine.run_id.clone();
-    engine
-        .store
-        .append_cooldown_round(brokkr_store::CooldownRound {
-            run_id: &run_id,
-            event_seq: event.seq,
-            site: "",
-            provider: "claude",
-            route: "first",
-            until_at: start + Duration::seconds(90),
-            reason: "rate_limit: slow down",
-            retry_after_seconds: None,
-            rounds: 2,
-            seconds: 60,
-        })
-        .unwrap();
+    append_round(&mut engine, event.seq, start + Duration::seconds(90), 2, 60);
     engine.drive().unwrap();
     assert_eq!(
         logs(dir.path(), "work"),
@@ -898,7 +974,7 @@ fn a_filled_round_is_counted_so_the_next_round_parks_at_the_maximum() {
     append_waited(&mut engine, wait_value(base() - Duration::seconds(1), 30));
     engine.drive().unwrap();
     assert_eq!(logs(dir.path(), "work"), ["probe", "probe"]);
-    only_the_own_row_and_the_maximum(&engine, "would wait 60s in round 2 (episode 120s)");
+    only_the_own_row_and_the_maximum(&engine, "would wait 120s in round 3 (episode 210s)");
     assert_eq!(starts(&engine).len(), 1, "the run started another attempt");
 }
 
@@ -914,6 +990,198 @@ fn a_remainder_waited_on_another_run_counts_before_the_extension_writes() {
     append_second_row(&db, &b, start + Duration::seconds(50));
     engine.drive().unwrap();
     assert_eq!(logs(dir.path(), "work"), ["attempt:refuse", "probe"]);
-    only_the_own_row_and_the_maximum(&engine, "would wait 80s in round 2 (episode 110s)");
+    only_the_own_row_and_the_maximum(&engine, "would wait 60s in round 2 (episode 110s)");
     assert_eq!(starts(&engine).len(), 1, "the run retried past the maximum");
+}
+
+/// The own-row window is exact only while a probe runs at or after every
+/// own `until` and a round is at least a second. This fill lands after that
+/// second, so the episode counts it; the removal control moves it inside
+/// the window (a fill within a second of the own row's) and the episode
+/// stops counting it, failing this test.
+#[test]
+fn a_fill_after_the_own_rows_second_is_counted_as_a_round() {
+    let (_dir, mut engine) = engine_with_wait(2, base() - Duration::seconds(1), 30);
+    let event = failed(&engine).remove(0);
+    append_round(&mut engine, event.seq, base() + Duration::seconds(2), 1, 2);
+    let events = engine.store.load(&engine.run_id).unwrap();
+    let episode =
+        super::super::episode_by_site(&engine.store, &engine.run_id, &events, "effect").unwrap();
+    assert_eq!(
+        episode.rounds.get(&None),
+        Some(&2),
+        "the fill after the own row's second was read as the own row"
+    );
+    assert_eq!(episode.seconds, 32);
+}
+
+/// A row recorded by another run during this run's slices holds the probe:
+/// the wait's end is re-read before any probe, so the probe runs only once
+/// the later row's end stands.
+#[test]
+fn a_row_recorded_during_the_wait_holds_the_probe() {
+    let (dir, mut engine, now, start, b, db) = two_run_fixture();
+    after_first_slice(&mut engine, &now, move || {
+        append_second_row(&db, &b, start + Duration::seconds(120));
+    });
+    let log = drive_and_log(&mut engine, dir.path());
+    assert!(
+        *now.lock().unwrap() >= start + Duration::seconds(120),
+        "the wait ended before the row recorded during the slices"
+    );
+    assert_eq!(
+        log,
+        ["attempt:refuse", "probe", "attempt:succeed"],
+        "a probe ran inside another run's hold"
+    );
+    assert_eq!(starts(&engine).len(), 2);
+}
+
+/// A probe's round that passes any cooled site's maximum writes no row:
+/// `a`'s own maximum is wide (200s), but the episode through the round
+/// passes `b`'s 70s, so the round is judged before the append.
+#[test]
+fn a_round_that_passes_any_cooled_sites_maximum_writes_no_row() {
+    use super::panel::{panel_engine, retried_two_route_panel, route_host};
+
+    let dir = tempfile::tempdir().unwrap();
+    let body = retried_two_route_panel(dir.path(), Probed::RefuseThenAnswer, Probed::Answer);
+    let mut engine = panel_engine(
+        dir.path(),
+        body,
+        2,
+        route_host(dir.path(), (30, 200), (30, 70)),
+    );
+    engine.drive().unwrap();
+    assert_eq!(logs(dir.path(), "a"), ["attempt:refuse", "probe"]);
+    assert_eq!(
+        logs(dir.path(), "b"),
+        ["attempt:refuse"],
+        "b was probed before a's round passed b's maximum"
+    );
+    let event = failed(&engine).remove(0);
+    assert_eq!(
+        rounds(&engine, event.seq, "a"),
+        [1],
+        "a row was written for a round past b's maximum"
+    );
+    let reason = park_reason(&engine);
+    assert!(reason.contains("member b"), "{reason}");
+    assert!(reason.contains("declared 70s maximum"), "{reason}");
+}
+
+/// A resume parks after a written probe round with the episode's round and
+/// length, not the terminal wait's own first round and length: the park says
+/// round 2 at 60s, where the terminal recorded round 1 at 30s.
+#[test]
+fn a_resume_after_a_written_round_parks_with_the_episodes_round_and_length() {
+    let start = OffsetDateTime::now_utc();
+    let until = start + Duration::seconds(30);
+    let (dir, mut engine, _now) = resumed_at(&["succeed"], until, 30, start, false);
+    let event = failed(&engine).remove(0);
+    append_round(&mut engine, event.seq, start + Duration::seconds(90), 2, 60);
+    engine.cooldown.host = Some(host(dir.path(), 30, 50));
+    engine.drive().unwrap();
+    assert!(
+        logs(dir.path(), "work").is_empty(),
+        "a probe ran past the maximum"
+    );
+    let reason = park_reason(&engine);
+    assert!(reason.contains("would wait 60s in round 2"), "{reason}");
+    assert!(reason.contains("episode 90s"), "{reason}");
+    assert!(reason.contains("declared 50s maximum"), "{reason}");
+}
+
+/// The terminal, resume and panel readers all carry a store refusal that
+/// loses the episode into the park text: the store's own words, never the
+/// generic "an earlier wait does not read" alone (finding 2).
+#[test]
+fn every_episode_store_refusal_parks_naming_the_store() {
+    let (dir, mut engine) = engine_with_wait(3, OffsetDateTime::now_utc() + Duration::hours(1), 60);
+    let events = engine.store.load(&engine.run_id).unwrap();
+    alter_journal(
+        &dir.path().join("forge.db"),
+        "DROP TABLE provider_cooldowns",
+    );
+    let refusal = a_rate_limit_with(Some("first"), None);
+
+    // The terminal path.
+    match engine.rate_limit_terminal(
+        "effect",
+        json!({"effect_id": "effect", "error": "refused"}),
+        Some(&refusal),
+    ) {
+        Ok(super::super::Terminal::Park { reason, .. }) => {
+            assert!(reason.contains("an earlier wait does not read"), "{reason}");
+            assert!(
+                reason.contains("no such table: provider_cooldowns"),
+                "{reason}"
+            );
+        }
+        _ => panic!("a store refusal did not park the terminal"),
+    }
+
+    // The crash-before-the-park resume.
+    let refused = brokkr_core::ProviderRefusal {
+        cause: brokkr_core::RefusalCause::EpisodeUnreadable,
+        site: None,
+        provider: "claude".into(),
+        route: Some("first".into()),
+        words: "rate_limit: slow down".into(),
+        retry_after_seconds: None,
+        seconds: None,
+        max_seconds: None,
+    };
+    let reason = engine.refused_park_reason(&events, "effect", &refused);
+    assert!(
+        reason.contains("no such table: provider_cooldowns"),
+        "{reason}"
+    );
+
+    // The panel writer.
+    let member = super::super::RefusedMember {
+        site: "a".into(),
+        refusal: a_rate_limit_with(Some("first"), None),
+    };
+    let panel = engine.panel_rate_limit_terminal(&events, "effect", json!({}), &[member], true);
+    let reason = panel.park.expect("a panel episode refusal parks");
+    assert!(
+        reason.contains("no such table: provider_cooldowns"),
+        "{reason}"
+    );
+}
+
+/// A stop that lands while the probe runs stops the run before the append:
+/// the probe's rate-limit refusal writes no row.
+#[test]
+fn a_stop_that_lands_during_the_probe_writes_no_probe_row() {
+    let (dir, mut engine, _now) = seated!(&["refuse", "succeed"], Probed::BarrierRefuse, None, 2);
+    engine.cooldown.host = Some(host(dir.path(), 30, 1000));
+    let started = dir.path().join("work.started");
+    let release = dir.path().join("work.release");
+    let db = dir.path().join("forge.db");
+    let run = engine.run_id.clone();
+    let waiter = std::thread::spawn(move || {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        while !started.exists() {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the probe never started"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        append_stop(&db, &run);
+        std::fs::write(&release, b"go").unwrap();
+    });
+    engine.drive().unwrap();
+    waiter.join().unwrap();
+    let events = engine.store.load(&engine.run_id).unwrap();
+    assert_eq!(fold(&events).unwrap().run.status(), Status::Stopped);
+    assert_eq!(logs(dir.path(), "work"), ["attempt:refuse", "probe"]);
+    let event = failed(&engine).remove(0);
+    assert_eq!(
+        rounds(&engine, event.seq, ""),
+        [1],
+        "a stop during the probe wrote a probe row"
+    );
 }

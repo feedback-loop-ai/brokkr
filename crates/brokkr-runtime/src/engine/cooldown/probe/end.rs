@@ -8,7 +8,7 @@ use brokkr_core::{ProbeAnswer, ProviderWait};
 use brokkr_protocol::{AttemptOutcome, AttemptReport, Cleanup, PreSessionRefusal, RefusalClass};
 
 use super::super::sites;
-use super::super::{episode, terminal, CooldownError};
+use super::super::{episode_by_site, terminal, CooldownError};
 use super::{Engine, NextRound, Probe};
 
 impl Engine {
@@ -86,12 +86,15 @@ impl Engine {
     }
 
     /// The facts of a probe's next round before anything is written: its
-    /// terminal event, site, round, length and the episode through it, or
+    /// terminal event, site, rounds, length and the episode through it, or
     /// the typed reason a bound, the journal, the rounds or the episode
-    /// cannot be read. The round is the site's highest stored round plus
+    /// cannot be read. The row keeps the site's highest stored round plus
     /// one, the store's own requirement, so a terminal whose own row never
-    /// landed is filled at round one rather than asked for round two.
-    /// Nothing is appended here.
+    /// landed is filled at round one rather than asked for round two. The
+    /// length, though, comes from the episode's per-site count: a fill at
+    /// round one is still the site's second wait, and the default doubles
+    /// for each earlier wait of that site (decision 0103 ruling 3, finding
+    /// 3). Nothing is appended here.
     fn extension_plan(
         &mut self,
         effect_id: &str,
@@ -146,17 +149,24 @@ impl Engine {
             .max()
             .unwrap_or(0)
             .saturating_add(1);
+        let prior =
+            episode_by_site(&self.store, &self.run_id, &events, effect_id).map_err(|source| {
+                CooldownError::ProbeEpisodeUnreadable {
+                    provider: wait.provider.clone(),
+                    route: wait.route.clone(),
+                    source: Box::new(source),
+                    words: refusal.words().to_string(),
+                }
+            })?;
+        let round = prior
+            .rounds
+            .get(&wait.site)
+            .copied()
+            .unwrap_or(0)
+            .saturating_add(1);
         let retry_after = refusal.retry_after_seconds();
-        let seconds = sites::wait_seconds(retry_after, bounds.default_seconds.get(), rounds);
+        let seconds = sites::wait_seconds(retry_after, bounds.default_seconds.get(), round);
         let max = u64::from(bounds.max_seconds.get());
-        let prior = episode(&self.store, &self.run_id, &events, effect_id).map_err(|source| {
-            CooldownError::ProbeEpisodeUnreadable {
-                provider: wait.provider.clone(),
-                route: wait.route.clone(),
-                source: Box::new(source),
-                words: refusal.words().to_string(),
-            }
-        })?;
         Ok(NextRound {
             event_seq: event.seq,
             site: wait.site.clone(),
@@ -165,8 +175,9 @@ impl Engine {
             words: refusal.words().to_string(),
             retry_after_seconds: retry_after,
             rounds,
+            round,
             seconds,
-            episode: prior.1,
+            episode: prior.seconds,
             max,
         })
     }

@@ -11,7 +11,8 @@ use time::{Duration as TimeDuration, OffsetDateTime};
 
 use super::probe::{NextRound, Probe};
 use super::{
-    episode, maximum_reason, past_maximum, sites, CooldownError, Engine, EngineError, Waited, SLICE,
+    episode_by_site, maximum_reason, past_maximum, sites, CooldownError, Engine, EngineError,
+    Waited, SLICE,
 };
 
 impl Engine {
@@ -53,50 +54,122 @@ impl Engine {
         seat: &str,
         waits: &[ProviderWait],
     ) -> Result<Waited, EngineError> {
-        let mut answers = Vec::with_capacity(waits.len());
-        // Seconds waited beyond what the episode already counts: another
-        // run's row has no row of this episode, so its remainder is summed
-        // here rather than read back.
-        let mut unrecorded = 0u64;
         // The latest own or probe-round end the episode counts. A written
         // round is counted once by `episode`, never again as a remainder.
-        let mut counted = waits
-            .iter()
-            .map(|wait| wait.until)
-            .max()
-            .expect("a wait to take");
+        let mut round = Round {
+            answers: Vec::with_capacity(waits.len()),
+            unrecorded: 0,
+            counted: waits
+                .iter()
+                .map(|wait| wait.until)
+                .max()
+                .expect("a wait to take"),
+            waits,
+        };
         loop {
-            match self.wait_round(events, effect_id, waits, &mut unrecorded, counted)? {
-                WaitRound::Stopped => return Ok(Waited::Stopped),
-                WaitRound::Parked(reason) => return Ok(Waited::Parked(reason)),
-                WaitRound::Waited => {}
+            match self.step(&mut round, events, state, effect_id, seat)? {
+                Step::Proceed => return Ok(Waited::Proceed(round.answers)),
+                Step::Again => continue,
+                Step::Stopped => return Ok(Waited::Stopped),
+                Step::Parked(reason) => return Ok(Waited::Parked(reason)),
             }
-            match self.probe_each(events, state, effect_id, seat, waits)? {
-                ProbeRound::Stopped => return Ok(Waited::Stopped),
-                ProbeRound::Parked(reason) => return Ok(Waited::Parked(reason)),
-                ProbeRound::Extended(round) => match self.record_extension(&round, unrecorded) {
-                    Ok(until) => {
-                        counted = counted.max(until);
-                        continue;
-                    }
-                    Err(reason) => return Ok(Waited::Parked(reason)),
-                },
-                ProbeRound::Answered(round) => {
-                    for answer in round {
-                        record_answer(&mut answers, answer);
-                    }
-                }
+        }
+    }
+
+    /// One round's wait, probes and re-read: the aggregate still in force
+    /// (again), every cooled site answered and clear (proceed), a stop, or
+    /// the park a step gave. The round's answers, unrecorded seconds and
+    /// counted end live in [`Round`] so this stays within the parameter and
+    /// complexity ceilings (0071 ruling 4).
+    fn step(
+        &mut self,
+        round: &mut Round<'_>,
+        events: &[EventEnvelope],
+        state: &RunState,
+        effect_id: &str,
+        seat: &str,
+    ) -> Result<Step, EngineError> {
+        match self.wait_round(
+            events,
+            effect_id,
+            round.waits,
+            &mut round.unrecorded,
+            round.counted,
+        )? {
+            WaitRound::Stopped => return Ok(Step::Stopped),
+            WaitRound::Parked(reason) => return Ok(Step::Parked(reason)),
+            WaitRound::Waited => {}
+        }
+        let answers = match self.round_probes(
+            events,
+            state,
+            effect_id,
+            seat,
+            round.waits,
+            round.unrecorded,
+        )? {
+            ProbedRound::Stopped => return Ok(Step::Stopped),
+            ProbedRound::Parked(reason) => return Ok(Step::Parked(reason)),
+            ProbedRound::Extended(until) => {
+                round.counted = round.counted.max(until);
+                return Ok(Step::Again);
             }
-            // Re-read AFTER the probes and BEFORE the retry: another run's
-            // row, or one recorded while the probe ran, holds the route
-            // again, so the wait and the probes repeat. The answers already
-            // taken are kept; the retry's `effect/started` records the last
-            // answer for each cooled site.
-            match self.aggregate_in_force(waits) {
-                Ok(false) => return Ok(Waited::Proceed(answers)),
-                Ok(true) => continue,
-                Err(error) => return Ok(Waited::Parked(error.to_string())),
-            }
+            ProbedRound::Answered(answers) => answers,
+        };
+        for answer in answers {
+            record_answer(&mut round.answers, answer);
+        }
+        // Re-read AFTER the probes and BEFORE the retry: another run's row,
+        // or one recorded while the probe ran, holds the route again, so
+        // the wait and the probes repeat.
+        match self.aggregate_in_force(round.waits) {
+            Ok(false) => Ok(Step::Proceed),
+            Ok(true) => Ok(Step::Again),
+            Err(error) => Ok(Step::Parked(error.to_string())),
+        }
+    }
+
+    /// One round of probes and, if a rate-limited refusal extended it, its
+    /// written end. Kept apart from the wait loop so neither function grows
+    /// past a ceiling (0071 ruling 4).
+    fn round_probes(
+        &mut self,
+        events: &[EventEnvelope],
+        state: &RunState,
+        effect_id: &str,
+        seat: &str,
+        waits: &[ProviderWait],
+        unrecorded: u64,
+    ) -> Result<ProbedRound, EngineError> {
+        match self.probe_each(events, state, effect_id, seat, waits)? {
+            ProbeRound::Stopped => Ok(ProbedRound::Stopped),
+            ProbeRound::Parked(reason) => Ok(ProbedRound::Parked(reason)),
+            ProbeRound::Extended(round) => match self.hold_extension(waits, &round, unrecorded)? {
+                Extension::Stopped => Ok(ProbedRound::Stopped),
+                Extension::Parked(reason) => Ok(ProbedRound::Parked(reason)),
+                Extension::Written(until) => Ok(ProbedRound::Extended(until)),
+            },
+            ProbeRound::Answered(round) => Ok(ProbedRound::Answered(round)),
+        }
+    }
+
+    /// A probe's rate-limit refusal, once the probe has returned: a stop
+    /// journaled while the probe ran ends the run before the append, so no
+    /// row is written for that probe; otherwise the round is judged and
+    /// appended. Lifted out of the round loop so the loop stays small
+    /// (0071 ruling 4).
+    fn hold_extension(
+        &mut self,
+        waits: &[ProviderWait],
+        round: &NextRound,
+        unrecorded: u64,
+    ) -> Result<Extension, EngineError> {
+        if self.moved_from_the_effect()? {
+            return Ok(Extension::Stopped);
+        }
+        match self.record_extension(waits, round, unrecorded) {
+            Ok(until) => Ok(Extension::Written(until)),
+            Err(error) => Ok(Extension::Parked(error.to_string())),
         }
     }
 
@@ -115,18 +188,39 @@ impl Engine {
         if self.moved_from_the_effect()? {
             return Ok(WaitRound::Stopped);
         }
-        let end = match self.cool_down_end(waits) {
+        let mut end = match self.cool_down_end(waits) {
             Ok(end) => end,
             Err(error) => return Ok(WaitRound::Parked(error.to_string())),
         };
-        let waited =
-            match self.extension_park_reason(events, effect_id, waits, end, counted, *unrecorded) {
+        loop {
+            // The maximum is judged before every wait this round takes,
+            // including a re-wait to an end another run moved during the
+            // slices.
+            let waited = match self.extension_park_reason(
+                events,
+                effect_id,
+                waits,
+                end,
+                counted,
+                *unrecorded,
+            ) {
                 Ok(waited) => waited,
-                Err(reason) => return Ok(WaitRound::Parked(reason)),
+                Err(error) => return Ok(WaitRound::Parked(error.to_string())),
             };
-        *unrecorded = waited;
-        if self.wait_in_slices(end)? {
-            return Ok(WaitRound::Stopped);
+            *unrecorded = waited;
+            if self.wait_in_slices(end)? {
+                return Ok(WaitRound::Stopped);
+            }
+            // Re-read the aggregate at the wait's own end, before any
+            // probe: a row recorded during the slices can hold every
+            // cooled site past the end sampled before them.
+            end = match self.cool_down_end(waits) {
+                Ok(end) => end,
+                Err(error) => return Ok(WaitRound::Parked(error.to_string())),
+            };
+            if end <= self.now() {
+                break;
+            }
         }
         Ok(WaitRound::Waited)
     }
@@ -177,28 +271,28 @@ impl Engine {
         end: OffsetDateTime,
         counted: OffsetDateTime,
         unrecorded: u64,
-    ) -> Result<u64, String> {
-        let episode = match sites::episode_by_site(&self.store, &self.run_id, events, effect_id) {
-            Ok(episode) => episode,
-            Err(error) => {
+    ) -> Result<u64, CooldownError> {
+        let episode =
+            episode_by_site(&self.store, &self.run_id, events, effect_id).map_err(|source| {
                 let wait = &waits[0];
-                return Err(format!(
-                    "a cool-down wait for {}/{} cannot read its episode: {error}",
-                    wait.provider, wait.route
-                ));
-            }
-        };
+                CooldownError::WaitEpisodeUnreadable {
+                    provider: wait.provider.clone(),
+                    route: wait.route.clone(),
+                    source: Box::new(source),
+                }
+            })?;
         let counted = counted.max(episode.latest.unwrap_or(counted));
         let waited = unrecorded.saturating_add(beyond_the_record(counted, end, self.now()));
         for wait in waits {
             let max = match self.cooldown_bounds(&wait.provider, &wait.route) {
                 Ok(Some(bounds)) => u64::from(bounds.max_seconds.get()),
                 Ok(None) => continue,
-                Err(error) => {
-                    return Err(format!(
-                        "a cool-down wait for {}/{} cannot read its bounds: {error}",
-                        wait.provider, wait.route
-                    ))
+                Err(source) => {
+                    return Err(CooldownError::WaitBoundsUnreadable {
+                        provider: wait.provider.clone(),
+                        route: wait.route.clone(),
+                        source: Box::new(source),
+                    })
                 }
             };
             let through = episode.seconds.saturating_add(waited);
@@ -219,7 +313,9 @@ impl Engine {
                     until: self.now(),
                     rounds,
                 };
-                return Err(maximum_reason(&pending, through, max));
+                return Err(CooldownError::Maximum(maximum_reason(
+                    &pending, through, max,
+                )));
             }
         }
         Ok(waited)
@@ -232,27 +328,54 @@ impl Engine {
     /// event_seq)`, and its end is what the caller waits. A rows-bearing
     /// store refusal parks naming the store's words, never silently. The
     /// effect's attempts are untouched.
-    fn record_extension(
+    pub(super) fn record_extension(
         &mut self,
+        waits: &[ProviderWait],
         round: &NextRound,
         waited: u64,
-    ) -> Result<OffsetDateTime, String> {
+    ) -> Result<OffsetDateTime, CooldownError> {
         let through = round
             .episode
             .saturating_add(waited)
             .saturating_add(round.seconds);
-        let pending = ProviderWait {
-            site: round.site.clone(),
-            provider: round.provider.clone(),
-            route: round.route.clone(),
-            words: round.words.clone(),
-            retry_after_seconds: round.retry_after_seconds,
-            seconds: round.seconds.saturating_add(waited),
-            until: self.now(),
-            rounds: round.rounds,
-        };
-        if past_maximum(pending.seconds, through, round.max) {
-            return Err(maximum_reason(&pending, through, round.max));
+        // Judge EVERY cooled site's maximum before the append, not only the
+        // extending route's: a round that passes any of them writes no row
+        // (finding 4, 0103 choice 3). The extending route's maximum is the
+        // one `extension_plan` already read; another site's is read here.
+        for wait in waits {
+            let max = if wait.site == round.site
+                && wait.provider == round.provider
+                && wait.route == round.route
+            {
+                round.max
+            } else {
+                match self.cooldown_bounds(&wait.provider, &wait.route) {
+                    Ok(Some(bounds)) => u64::from(bounds.max_seconds.get()),
+                    Ok(None) => continue,
+                    Err(source) => {
+                        return Err(CooldownError::RoundBoundsUnreadable {
+                            provider: round.provider.clone(),
+                            route: round.route.clone(),
+                            source: Box::new(source),
+                        })
+                    }
+                }
+            };
+            if past_maximum(round.seconds, through, max) {
+                let pending = ProviderWait {
+                    site: wait.site.clone(),
+                    provider: wait.provider.clone(),
+                    route: wait.route.clone(),
+                    words: round.words.clone(),
+                    retry_after_seconds: round.retry_after_seconds,
+                    seconds: round.seconds,
+                    until: self.now(),
+                    rounds: round.round,
+                };
+                return Err(CooldownError::Maximum(maximum_reason(
+                    &pending, through, max,
+                )));
+            }
         }
         // A round within the maximum has a length at most the declared
         // maximum, a `u32`, so its end is always representable:
@@ -274,14 +397,16 @@ impl Engine {
         });
         match appended {
             Ok(RoundAppend::Written) => Ok(until),
-            Ok(RoundAppend::NoTable) => Err(format!(
-                "the cool-down probe for {}/{} was refused again by the provider: {}",
-                round.provider, round.route, round.words
-            )),
-            Err(error) => Err(format!(
-                "the cool-down probe for {}/{} could not record its next round: {error}",
-                round.provider, round.route
-            )),
+            Ok(RoundAppend::NoTable) => Err(CooldownError::RoundNoTable {
+                provider: round.provider.clone(),
+                route: round.route.clone(),
+                words: round.words.clone(),
+            }),
+            Err(source) => Err(CooldownError::RoundUnwritable {
+                provider: round.provider.clone(),
+                route: round.route.clone(),
+                source: Box::new(source),
+            }),
         }
     }
 
@@ -339,16 +464,40 @@ impl Engine {
         match self.cooldown_bounds(&wait.provider, &wait.route) {
             Ok(Some(bounds)) => {
                 let max = u64::from(bounds.max_seconds.get());
-                let total = match episode(&self.store, &self.run_id, events, effect_id) {
-                    Ok((_, total)) => total,
-                    Err(reason) => {
+                let episode = match episode_by_site(&self.store, &self.run_id, events, effect_id) {
+                    Ok(episode) => episode,
+                    Err(error) => {
                         return Some(format!(
-                            "a resume waits for {}/{} without reading its episode: {reason}",
+                            "a resume waits for {}/{} without reading its episode: {error}",
                             wait.provider, wait.route
                         ));
                     }
                 };
-                past_maximum(wait.seconds, total, max).then(|| maximum_reason(wait, total, max))
+                // The episode's own per-site round and latest length are
+                // what a park after a written probe round must name; the
+                // terminal wait's first round is stale by then (finding 6).
+                let rounds = episode
+                    .rounds
+                    .get(&wait.site)
+                    .copied()
+                    .unwrap_or(wait.rounds);
+                let seconds = episode
+                    .lengths
+                    .get(&wait.site)
+                    .copied()
+                    .unwrap_or(wait.seconds);
+                let pending = ProviderWait {
+                    site: wait.site.clone(),
+                    provider: wait.provider.clone(),
+                    route: wait.route.clone(),
+                    words: wait.words.clone(),
+                    retry_after_seconds: wait.retry_after_seconds,
+                    seconds,
+                    until: wait.until,
+                    rounds,
+                };
+                past_maximum(wait.seconds, episode.seconds, max)
+                    .then(|| maximum_reason(&pending, episode.seconds, max))
             }
             Ok(None) => None,
             Err(reason) => Some(format!(
@@ -402,6 +551,41 @@ impl Engine {
 /// What one round's wait left.
 pub(super) enum WaitRound {
     Waited,
+    Stopped,
+    Parked(String),
+}
+
+/// What a probe's rate-limit refusal left: the written round's end, a stop
+/// that landed while the probe ran, or the park the judge gave.
+enum Extension {
+    Written(OffsetDateTime),
+    Stopped,
+    Parked(String),
+}
+
+/// What one round of probes left the wait loop: answers to keep, an
+/// extension's written end, a stop, or a park.
+enum ProbedRound {
+    Answered(Vec<ProbeAnswer>),
+    Extended(OffsetDateTime),
+    Stopped,
+    Parked(String),
+}
+
+/// The state one effect's wait carries between rounds: the answers taken so
+/// far, the seconds waited on rows this episode does not own, the latest end
+/// the episode counts, and the cooled sites.
+struct Round<'a> {
+    answers: Vec<ProbeAnswer>,
+    unrecorded: u64,
+    counted: OffsetDateTime,
+    waits: &'a [ProviderWait],
+}
+
+/// What one step left the round loop.
+enum Step {
+    Proceed,
+    Again,
     Stopped,
     Parked(String),
 }

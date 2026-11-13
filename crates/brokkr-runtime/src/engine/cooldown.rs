@@ -9,17 +9,18 @@
 //! this one place; a file that cannot be read parks and never falls back
 //! to a constant (decision 0068 ruling 3).
 
+use std::collections::BTreeMap;
 use std::io::ErrorKind;
 use std::path::PathBuf;
 use std::time::Duration;
 
 use brokkr_core::envelope::EventType;
 use brokkr_core::{
-    EventEnvelope, ProbeAnswer, ProviderRefusalError, ProviderWait, ProviderWaitError,
+    provider_waits, EventEnvelope, ProbeAnswer, ProviderRefusalError, ProviderWait,
+    ProviderWaitError,
 };
 use serde_json::{json, Value};
 use thiserror::Error;
-#[cfg(test)]
 use time::Duration as TimeDuration;
 use time::OffsetDateTime;
 
@@ -163,6 +164,45 @@ pub(super) enum CooldownError {
         source: Box<CooldownError>,
         words: String,
     },
+    #[error("a cool-down wait for {provider}/{route} cannot read its episode: {source}")]
+    WaitEpisodeUnreadable {
+        provider: String,
+        route: String,
+        source: Box<CooldownError>,
+    },
+    #[error("a cool-down wait for {provider}/{route} cannot read its bounds: {source}")]
+    WaitBoundsUnreadable {
+        provider: String,
+        route: String,
+        source: Box<CooldownError>,
+    },
+    #[error(
+        "the cool-down probe for {provider}/{route} could not judge every cooled site's maximum: \
+         {source}"
+    )]
+    RoundBoundsUnreadable {
+        provider: String,
+        route: String,
+        source: Box<CooldownError>,
+    },
+    #[error("{0}")]
+    Maximum(String),
+    #[error(
+        "the cool-down probe for {provider}/{route} was refused again by the provider: {words}"
+    )]
+    RoundNoTable {
+        provider: String,
+        route: String,
+        words: String,
+    },
+    #[error(
+        "the cool-down probe for {provider}/{route} could not record its next round: {source}"
+    )]
+    RoundUnwritable {
+        provider: String,
+        route: String,
+        source: Box<brokkr_store::StoreError>,
+    },
 }
 
 /// What the engine does with a wait it read: proceed to the retry, leave
@@ -196,6 +236,107 @@ pub(super) fn effect_seat<'a>(events: &'a [EventEnvelope], effect_id: &str) -> O
         .and_then(|event| event.payload.get("seat").and_then(Value::as_str))
 }
 
+/// The episode's record through one effect: the rounds each site has
+/// waited and their seconds (decision 0103 ruling 3: the sum is across
+/// sites, the round is per site), and the latest instant a stored row ends.
+/// The terminal events are the attempt's record; the probe rounds a
+/// terminal's episode gained are read back from the table, one row per
+/// round, and counted by the length the row itself records (decision 0103
+/// ruling 2(a)). The terminal event's own row is not counted twice; any
+/// other row is a probe round, including the fill at round one of a
+/// terminal whose own row never landed. An earlier entry that does not read
+/// refuses by name, never as nothing.
+pub(super) struct Episode {
+    pub(super) rounds: BTreeMap<Option<String>, u64>,
+    pub(super) seconds: u64,
+    pub(super) latest: Option<OffsetDateTime>,
+    /// The latest round length each site recorded: the terminal's own
+    /// wait, or the probe row that superseded it. The resume's park words
+    /// read this, so a park after a written probe round names that round's
+    /// length rather than the first wait's (0103 ruling 3).
+    pub(super) lengths: BTreeMap<Option<String>, u64>,
+}
+
+pub(super) fn episode_by_site(
+    store: &brokkr_store::Store,
+    run_id: &str,
+    events: &[EventEnvelope],
+    effect_id: &str,
+) -> Result<Episode, CooldownError> {
+    let mut episode = Episode {
+        rounds: BTreeMap::new(),
+        seconds: 0,
+        latest: None,
+        lengths: BTreeMap::new(),
+    };
+    for event in events {
+        if !matches!(
+            event.event_type,
+            EventType::EffectFailed | EventType::EffectIndeterminate
+        ) || event.payload.get("effect_id").and_then(Value::as_str) != Some(effect_id)
+        {
+            continue;
+        }
+        let Some(waits) =
+            provider_waits(event).map_err(|source| CooldownError::EarlierWaitUnreadable {
+                seq: event.seq,
+                source,
+            })?
+        else {
+            continue;
+        };
+        for wait in waits {
+            *episode.rounds.entry(wait.site.clone()).or_insert(0u64) += 1;
+            episode.seconds = episode.seconds.saturating_add(wait.seconds);
+            episode.lengths.insert(wait.site.clone(), wait.seconds);
+            let site = wait.site.clone().unwrap_or_default();
+            let rows = store
+                .cooldown_rounds(run_id, event.seq, &site)
+                .map_err(|source| CooldownError::RoundsUnreadable {
+                    source: Box::new(source),
+                })?;
+            for row in rows {
+                episode.latest = Some(
+                    episode
+                        .latest
+                        .map_or(row.until_at, |latest| latest.max(row.until_at)),
+                );
+                if the_waits_own(&row, &wait) {
+                    continue;
+                }
+                *episode.rounds.entry(wait.site.clone()).or_insert(0u64) += 1;
+                let length = round_length(&row);
+                episode.seconds = episode.seconds.saturating_add(length);
+                episode.lengths.insert(wait.site.clone(), length);
+            }
+        }
+    }
+    Ok(episode)
+}
+
+/// Whether `row` is the terminal event's own row for `wait`: the store
+/// wrote that wait's end, rounded up to its stored whole second, at the
+/// wait's own round when the event landed. A probe's fill at the same round
+/// ends later and is a round the episode counts.
+///
+/// The one-second window is exact because of the invariant its callers
+/// keep: a probe runs only at or after every own `until`, and a round is at
+/// least one second, so a probe's row ends at least one whole second after
+/// the wait's own `until`. A row inside that window is therefore the
+/// terminal's own (the store's round-up), never a fill. The removal control
+/// `a_fill_after_the_own_rows_second_is_counted_as_a_round` breaks the
+/// invariant (a fill inside the window) and the episode stops counting it.
+fn the_waits_own(row: &brokkr_store::Cooldown, wait: &ProviderWait) -> bool {
+    row.rounds == wait.rounds && row.until_at - wait.until < TimeDuration::seconds(1)
+}
+
+/// A probe round's length, read from the row's own two times: the store
+/// writes `recorded_at` as the round's start and `until_at` as its end, so
+/// the episode never recomputes an earlier round under a later bound.
+fn round_length(row: &brokkr_store::Cooldown) -> u64 {
+    (row.until_at - row.recorded_at).whole_seconds().max(0) as u64
+}
+
 /// The effect's own episode: how many waits it has recorded and how many
 /// seconds they add, read from the terminal events the journal holds and
 /// the probe rounds the table appended (decision 0103 ruling 2(a)). Each
@@ -209,7 +350,7 @@ fn episode(
     events: &[EventEnvelope],
     effect_id: &str,
 ) -> Result<(u64, u64), CooldownError> {
-    let episode = sites::episode_by_site(store, run_id, events, effect_id)?;
+    let episode = episode_by_site(store, run_id, events, effect_id)?;
     Ok((episode.rounds.values().copied().sum(), episode.seconds))
 }
 
