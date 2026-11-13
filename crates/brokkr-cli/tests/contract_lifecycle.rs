@@ -902,10 +902,6 @@ fn drive_archive(row: &Row) -> Vec<String> {
     Vec::new()
 }
 
-/// Drive the public loader a `load` row names with an instance of the row's
-/// version, and require it to load. The instance is validated against the
-/// row's own schema file first; a row whose label names another file never
-/// reaches its loader.
 /// The fold reading `operator-repair.v1`: a repaired journal folds, its
 /// late tail kept and never applied.
 fn drive_repair(row: &Row) -> Vec<String> {
@@ -955,6 +951,10 @@ fn drive_repair(row: &Row) -> Vec<String> {
     Vec::new()
 }
 
+/// Drive the public loader a `load` row names with an instance of the row's
+/// version, and require it to load. The instance is validated against the
+/// row's own schema file first; a row whose label names another file never
+/// reaches its loader.
 fn drive_load(row: &Row, item: &str) -> Vec<String> {
     match item {
         "brokkr_core::policy::Machine::from_table" => {

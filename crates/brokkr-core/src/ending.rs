@@ -590,7 +590,7 @@ pub fn ended(events: &[EventEnvelope], state: &RunState) -> Option<Ended> {
 /// reading reads.
 pub fn closing(events: &[EventEnvelope], state: &RunState) -> Option<Closing> {
     let mut reading = Reading::default();
-    for event in events {
+    for event in crate::summary::live(events, Some(state)) {
         reading.note(event);
     }
     reading.closing(state)

@@ -18,9 +18,10 @@ use crate::canonical::ZERO_HASH;
 use crate::ending::{self, Closing};
 use crate::envelope::EventEnvelope;
 use crate::fold::{fold, fold_onto, FoldError, RunState, Status};
+use crate::page::LateTail;
 use crate::policy::Severity;
 use crate::residual::{
-    note_closing, open_severity, residuals, Claim, Mark, Residual, ResidualPhase,
+    note_closing, open_severity, residuals_of, Claim, Mark, Residual, ResidualPhase,
 };
 use crate::seat::row::{SeatRow, Seats};
 use crate::stamp::parse_millis;
@@ -275,12 +276,20 @@ impl Account {
             Err(refused) => Err(refused),
             Ok(state) => fold_onto(state, suffix),
         };
+        // A late event is kept in the journal and shown as the tail, never
+        // applied by any scan that derives a figure from it (decision 0108
+        // ruling 4): a late classify moves no ending, a late supersede
+        // closes no finding.
+        let late = late_range(&self.read);
         self.findings.extend(
-            residuals(suffix)
+            residuals_of(suffix.iter().filter(|event| !in_late(late, event.seq)))
                 .iter()
                 .map(|residual| Stated::of(residual, None)),
         );
         for event in suffix {
+            if in_late(late, event.seq) {
+                continue;
+            }
             note_closing(&mut self.marks, event);
             let replayed = self.seats.note(event);
             self.reading.note(event);
@@ -404,6 +413,30 @@ impl Account {
     }
 }
 
+/// The seq range a state's repaired late tail holds, where it holds one.
+fn late_range(read: &Result<RunState, FoldError>) -> Option<(u64, u64)> {
+    let tail = read.as_ref().ok()?.late_tail.as_ref()?;
+    Some((tail.first_seq, tail.last_seq))
+}
+
+/// Is `seq` inside the late range `late`, where there is one?
+pub fn in_late(late: Option<(u64, u64)>, seq: u64) -> bool {
+    late.is_some_and(|(first, last)| (first..=last).contains(&seq))
+}
+
+/// The events a derived scan may apply: every event, less a repaired run's
+/// late tail, which is kept and shown and never applied (decision 0108
+/// ruling 4).
+pub fn live<'a>(
+    events: &'a [EventEnvelope],
+    state: Option<&RunState>,
+) -> impl Iterator<Item = &'a EventEnvelope> + 'a {
+    let late = state
+        .and_then(|state| state.late_tail.as_ref())
+        .map(|tail| (tail.first_seq, tail.last_seq));
+    events.iter().filter(move |event| !in_late(late, event.seq))
+}
+
 /// What the run's `runs` row states: its feature and when it was created.
 #[derive(Debug, Clone, Copy)]
 pub struct Listing<'a> {
@@ -468,6 +501,9 @@ pub struct Summary {
     pub aggregate: Aggregate,
     /// Its ending, once its fold states it is over (decision 0064).
     pub closing: Option<Closing>,
+    /// The late tail a repair named (decision 0108 ruling 4), so a summary
+    /// row carries the sentence a whole read prints.
+    pub late_tail: Option<LateTail>,
 }
 
 impl Summary {
@@ -514,6 +550,9 @@ impl Summary {
             last_recorded_at: stamp.map(|stamp| Bounded::within(stamp, STAMP_BYTES)),
             aggregate: account.reading.of(state, closing.as_ref()),
             closing,
+            late_tail: state
+                .and_then(|state| state.late_tail.as_ref())
+                .map(LateTail::of),
         }
     }
 }

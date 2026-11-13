@@ -1,5 +1,7 @@
 # produced by quality/measure.sh with cargo-public-api 0.52.0 on nightly-2026-09-05, -sss
 pub mod brokkr_view
+pub use brokkr_view::LateEvent
+pub use brokkr_view::LateTail
 pub use brokkr_view::RuleSeverity
 pub use brokkr_view::SeatCost
 pub use brokkr_view::TokenUsage
@@ -473,16 +475,6 @@ pub brokkr_view::JournalRow::recorded_at: alloc::string::String
 pub brokkr_view::JournalRow::seq: u64
 pub brokkr_view::JournalRow::served: brokkr_view::ModelAtBoundary
 pub brokkr_view::JournalRow::what: brokkr_view::What
-pub struct brokkr_view::LateEvent
-pub brokkr_view::LateEvent::event_type: alloc::string::String
-pub brokkr_view::LateEvent::seq: u64
-pub struct brokkr_view::LateTail
-pub brokkr_view::LateTail::events: alloc::vec::Vec<brokkr_view::LateEvent>
-pub brokkr_view::LateTail::operator: alloc::string::String
-pub brokkr_view::LateTail::repaired_at: u64
-pub brokkr_view::LateTail::terminal_seq: u64
-impl brokkr_view::LateTail
-pub fn brokkr_view::LateTail::line(&self) -> alloc::string::String
 pub struct brokkr_view::Ledger
 pub brokkr_view::Ledger::excluded: alloc::collections::btree::map::BTreeMap<brokkr_core::ending::Ending, usize>
 pub brokkr_view::Ledger::judged: usize
@@ -664,7 +656,7 @@ pub brokkr_view::RunRow::ending_cited: core::option::Option<brokkr_core::ending:
 pub brokkr_view::RunRow::feature: alloc::string::String
 pub brokkr_view::RunRow::hire: core::option::Option<brokkr_view::Hire>
 pub brokkr_view::RunRow::last_recorded_at: core::option::Option<alloc::string::String>
-pub brokkr_view::RunRow::late_tail: core::option::Option<brokkr_view::LateTail>
+pub brokkr_view::RunRow::late_tail: core::option::Option<brokkr_core::page::LateTail>
 pub brokkr_view::RunRow::order_at: i64
 pub brokkr_view::RunRow::paged_at: core::option::Option<(i64, alloc::string::String)>
 pub brokkr_view::RunRow::phase: core::option::Option<alloc::string::String>
@@ -747,7 +739,7 @@ pub brokkr_view::Summary::ending: core::option::Option<brokkr_core::ending::Endi
 pub brokkr_view::Summary::ending_cited: core::option::Option<brokkr_core::ending::Citation>
 pub brokkr_view::Summary::feature: core::option::Option<alloc::string::String>
 pub brokkr_view::Summary::last_decision: core::option::Option<brokkr_core::decision::Decision>
-pub brokkr_view::Summary::late_tail: core::option::Option<brokkr_view::LateTail>
+pub brokkr_view::Summary::late_tail: core::option::Option<brokkr_core::page::LateTail>
 pub brokkr_view::Summary::park_reason: core::option::Option<alloc::string::String>
 pub brokkr_view::Summary::phase: core::option::Option<alloc::string::String>
 pub brokkr_view::Summary::run_id: alloc::string::String
@@ -862,6 +854,7 @@ pub fn brokkr_view::graph(&brokkr_view::GraphQuery<'_>) -> core::result::Result<
 pub fn brokkr_view::keeps_participant(core::option::Option<&brokkr_view::Lens>, &brokkr_view::Participant) -> bool
 pub fn brokkr_view::keeps_phase(core::option::Option<&brokkr_view::Lens>, &brokkr_view::Phase) -> bool
 pub fn brokkr_view::keeps_row(core::option::Option<&brokkr_view::Lens>, &brokkr_view::JournalRow) -> bool
+pub fn brokkr_view::late_line(&brokkr_core::page::LateTail) -> alloc::string::String
 pub fn brokkr_view::lens_for(&brokkr_view::RunView, core::option::Option<&brokkr_view::Scope>) -> core::result::Result<core::option::Option<brokkr_view::Lens>, brokkr_view::ScopeError>
 pub fn brokkr_view::member_retry_refusal(&str) -> alloc::string::String
 pub fn brokkr_view::need(&brokkr_view::RunRow, &str) -> core::option::Option<brokkr_view::Need>
@@ -873,6 +866,7 @@ pub fn brokkr_view::quarantine_finding(&str, u64, &str) -> brokkr_view::Residual
 pub fn brokkr_view::ranges(brokkr_view::Section, &str) -> alloc::vec::Vec<brokkr_core::page::Range>
 pub fn brokkr_view::realm_in_scope(core::option::Option<&str>, &str) -> bool
 pub fn brokkr_view::residual_findings(&str, &[brokkr_core::envelope::EventEnvelope]) -> alloc::vec::Vec<brokkr_view::ResidualFinding>
+pub fn brokkr_view::residual_findings_at(&str, &[brokkr_core::envelope::EventEnvelope], core::option::Option<&brokkr_core::fold::RunState>) -> alloc::vec::Vec<brokkr_view::ResidualFinding>
 pub fn brokkr_view::resolution_divergence<T: core::clone::Clone + core::cmp::PartialEq>(&alloc::collections::btree::map::BTreeMap<alloc::string::String, T>, &alloc::collections::btree::map::BTreeMap<alloc::string::String, T>) -> alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_view::Sides<T>>
 pub fn brokkr_view::resolutions(&[brokkr_core::envelope::EventEnvelope]) -> alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_view::Resolution>
 pub fn brokkr_view::resolved(alloc::vec::Vec<brokkr_view::Participant>) -> alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_view::Resolution>

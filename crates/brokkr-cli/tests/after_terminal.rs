@@ -273,15 +273,42 @@ fn inspect_shows(dir: &Path, db: &str, needles: &[&str]) {
     }
 }
 
+/// A run stopped at five with a settlement planted after it, repaired by
+/// the shipped binary: shape (A)'s setup.
+fn repaired_settlement() -> (tempfile::TempDir, String) {
+    let (dir, db) = staged();
+    concluded_at_five(Path::new(&db));
+    planted(Path::new(&db), &[late::settlement()]);
+    repaired_at(dir.path(), &db, "repairer", "the tail is evidence", 7);
+    (dir, db)
+}
+
+/// `brokkr runs` says the settlement's sentence and its JSON row carries
+/// the tail: the one assertion both the whole read and a summary row make.
+fn runs_shows_settlement_tail(dir: &Path, db: &str) {
+    let runs = brokkr(dir, &["runs", "--db", db]);
+    assert_eq!(runs.status.code(), Some(0), "{runs:?}");
+    let listed = String::from_utf8_lossy(&runs.stdout);
+    assert!(
+        listed.contains("a late tail of 1 event, repaired by repairer"),
+        "{listed}"
+    );
+
+    let json = brokkr(dir, &["runs", "--json", "--db", db]);
+    assert_eq!(json.status.code(), Some(0), "{json:?}");
+    let parsed: serde_json::Value = serde_json::from_slice(&json.stdout).unwrap();
+    let tail = &parsed["runs"][0]["late_tail"];
+    assert_eq!(tail["operator"], "repairer");
+    assert_eq!(tail["events"][0]["seq"], 6);
+    assert_eq!(tail["events"][0]["type"], "effect/succeeded");
+}
+
 /// `brokkr operator repair` over shape (A), through the shipped binary:
 /// the settlement is named, the run folds as stopped, and `inspect` and
 /// `runs` show the late tail it kept.
 #[test]
 fn an_operator_repair_of_a_settlement_reads_as_stopped_with_its_late_tail() {
-    let (dir, db) = staged();
-    concluded_at_five(Path::new(&db));
-    planted(Path::new(&db), &[late::settlement()]);
-    repaired_at(dir.path(), &db, "repairer", "the tail is evidence", 7);
+    let (dir, db) = repaired_settlement();
     inspect_shows(
         dir.path(),
         &db,
@@ -292,21 +319,7 @@ fn an_operator_repair_of_a_settlement_reads_as_stopped_with_its_late_tail() {
         ],
     );
 
-    let runs = brokkr(dir.path(), &["runs", "--db", &db]);
-    assert_eq!(runs.status.code(), Some(0), "{runs:?}");
-    let listed = String::from_utf8_lossy(&runs.stdout);
-    assert!(
-        listed.contains("a late tail of 1 event, repaired by repairer"),
-        "{listed}"
-    );
-
-    let json = brokkr(dir.path(), &["runs", "--json", "--db", &db]);
-    assert_eq!(json.status.code(), Some(0), "{json:?}");
-    let parsed: serde_json::Value = serde_json::from_slice(&json.stdout).unwrap();
-    let tail = &parsed["runs"][0]["late_tail"];
-    assert_eq!(tail["operator"], "repairer");
-    assert_eq!(tail["events"][0]["seq"], 6);
-    assert_eq!(tail["events"][0]["type"], "effect/succeeded");
+    runs_shows_settlement_tail(dir.path(), &db);
 }
 
 /// Shape (B) through the shipped binary: the stop command and acceptance
@@ -341,6 +354,20 @@ fn an_operator_repair_of_a_late_stop_reads_as_stopped_with_its_late_tail() {
         2
     );
     assert_eq!(view["summary"]["late_tail"]["terminal_seq"], 5);
+}
+
+/// F3: the late-tail sentence survives a writable open. The repair leaves
+/// its summary row behind; a writable open refolds it, and `brokkr runs`
+/// then reads the row rather than the run whole. The row carries the tail,
+/// so the sentence and its events are still there.
+#[test]
+fn a_repaired_runs_late_tail_survives_a_writable_open() {
+    let (dir, db) = repaired_settlement();
+
+    // The writable open refolds the row the repair left behind it.
+    drop(brokkr_store::Store::open(Path::new(&db)).unwrap());
+
+    runs_shows_settlement_tail(dir.path(), &db);
 }
 
 /// A live run refuses the verb, naming it, and writes nothing.

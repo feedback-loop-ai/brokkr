@@ -54,7 +54,7 @@ fn run(store: &Store, run_id: &str, realm: &str) {
             "UPDATE run_summary
                 SET realm = ?2, status = 'running', recipe = 'one',
                     folded_seq = 0, folded_hash = ?3, aggregated_seq = 0,
-                    stop_folded_seq = 0, ending_folded_seq = 0
+                    stop_folded_seq = 0, ending_folded_seq = 0, late_folded_seq = 0
               WHERE run_id = ?1",
             params![run_id, realm, ZERO_HASH],
         )
@@ -74,16 +74,7 @@ fn run(store: &Store, run_id: &str, realm: &str) {
 /// (`Account::seats_kept` false), so no writer keeps a head for it.
 fn headless_at_its_head(store: &Store, run_id: &str) {
     crate::test_support::plant_run(&store.conn, run_id, "{}").unwrap();
-    store
-        .conn
-        .execute(
-            "UPDATE run_summary
-                SET folded_seq = 0, folded_hash = ?2, aggregated_seq = 0,
-                    stop_folded_seq = 0, ending_folded_seq = 0
-              WHERE run_id = ?1",
-            params![run_id, ZERO_HASH],
-        )
-        .unwrap();
+    crate::test_support::settle_summary(&store.conn, run_id, ZERO_HASH);
 }
 
 /// Over a journal holding every lag shape and every write order, the

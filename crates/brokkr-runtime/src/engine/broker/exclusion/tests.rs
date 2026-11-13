@@ -10,7 +10,7 @@
 use brokkr_core::envelope::EventType;
 use brokkr_core::fold::{fold, Run};
 use brokkr_store::test_support::{lags, plant_chained};
-use brokkr_store::Store;
+use brokkr_store::{Attribution, Store};
 use serde_json::json;
 use std::path::Path;
 
@@ -71,6 +71,31 @@ fn a_repaired_run_still_holds_its_worktree_until_its_attempt_is_settled() {
         brokkr_core::FoldError::AfterTerminal { seq: 7 },
         "shape (B) does not fold"
     );
+    // 0.12.0's operator acknowledged the quarantined run before anything
+    // else: the acknowledgement stands beside the chain at the broken
+    // head. The worktree is still held after it, because admission reads
+    // the broker's reservation, never the journal's fold.
+    let (seq, hash) = store.head_hash("run-a").unwrap();
+    store
+        .acknowledge_quarantine(
+            "run-a",
+            (seq, &hash),
+            Attribution {
+                operator: "operator",
+                reason: "0.12.0 left a stop after the conclusion",
+            },
+        )
+        .expect("the broken run is acknowledged where it stands");
+    assert!(
+        store.acknowledgement("run-a").unwrap().is_some(),
+        "the acknowledgement stands at the broken head"
+    );
+    assert_eq!(
+        second(),
+        cr2(Conflict::Held("run-a".into())),
+        "acknowledging the run does not release the worktree"
+    );
+
     operator_repair(
         &mut store,
         "run-a",
@@ -83,6 +108,11 @@ fn a_repaired_run_still_holds_its_worktree_until_its_attempt_is_settled() {
     let state = fold(&store.load("run-a").unwrap()).unwrap();
     assert_eq!(state.run, Run::Stopped, "the repaired run folds again");
     assert!(state.late_tail.is_some());
+    assert_eq!(
+        store.acknowledgement("run-a").unwrap(),
+        None,
+        "the repair moved the head past the acknowledgement; the fold is the record now"
+    );
     lags(&mut store, &["run-a"]);
 
     let (standing, settled) = host.attempts(&work, "run-a");
@@ -94,8 +124,9 @@ fn a_repaired_run_still_holds_its_worktree_until_its_attempt_is_settled() {
     assert_eq!(
         second(),
         cr2(Conflict::Held("run-a".into())),
-        "the repaired run still holds the worktree: settling its attempts is 440d's \
-         (decision 0108 ruling 3), not this unit's"
+        "`operator repair` alone does NOT release the worktree a broken run held: admission \
+         reads the broker's own reservation, and a1 still stands because no positive \
+         settlement fact was sealed. Decision 0108 ruling 3 (440d) is what releases it"
     );
     let _ = held;
 }

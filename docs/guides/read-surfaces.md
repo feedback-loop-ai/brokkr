@@ -942,7 +942,7 @@ that already folds (no late tail, or already repaired and left alone),
 and a journal that faults for any other reason. Whether the worktree is
 released is the broker's proof from its own records, not the run's fold;
 when the record still names an attempt with no sealed settlement, that is
-`operator settle`'s job (decision 0108 ruling 3).
+`operator settle`'s job, which 440d builds (decision 0108 ruling 3).
 
 ### Gate entries on a run
 

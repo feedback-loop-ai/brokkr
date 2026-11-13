@@ -1006,8 +1006,8 @@ fn a_row_an_older_writer_folds_without_the_stop_stamp_is_sent_behind_and_refolde
         .conn
         .execute(
             "UPDATE run_summary SET folded_seq = head_seq, folded_hash = head_hash,
-                 aggregated_seq = head_seq, stop_accepted_seq = NULL,
-                 stop_folded_seq = NULL
+                 aggregated_seq = head_seq, late_folded_seq = head_seq,
+                 stop_accepted_seq = NULL, stop_folded_seq = NULL
              WHERE run_id = 'r'",
             [],
         )

@@ -70,6 +70,10 @@ mod started;
 mod told;
 use told::{Finish, Told};
 mod composed;
+mod live;
+use live::derived;
+mod residual_findings;
+pub use residual_findings::{residual_findings, residual_findings_at};
 mod seat_view;
 pub use commands::{Admission, Command, CommandRefusal, Disabled, Offered, Unavailable};
 pub use compare::{
@@ -81,7 +85,7 @@ use dashboard::dashboard;
 pub use dashboard::working_participants;
 pub use dashboard::{working_checkpoints, Concluded, Dashboard, Decision, Outcome, Ruled, Visit};
 pub use fleet::{
-    at_work, behind_line, fleet_rows, need, page, ranges, run_row, run_rows, section_of,
+    at_work, behind_line, fleet_rows, late_line, need, page, ranges, run_row, run_rows, section_of,
     section_of_rows, sections, stopping_detail, summary_row, title, title_within, window, wrap,
     Acknowledgement, Cursor, CursorError, HearthEntries, Hire, LateEvent, LateTail, Need, Page,
     Paged, Quarantine, Refusal, RunRow, Section, Standing, Verdict, AHEAD_ROWS, PAGE_ROWS,
@@ -107,7 +111,7 @@ use std::collections::BTreeMap;
 use brokkr_core::decision::Decision as Decided;
 use brokkr_core::fold::RunState;
 use brokkr_core::realms::Boundary;
-use brokkr_core::residual::{closings, residuals, Mark};
+use brokkr_core::residual::{closings, Mark};
 use brokkr_core::summary::Stated;
 use brokkr_core::{EventEnvelope, EventType};
 use serde::Serialize;
@@ -853,17 +857,6 @@ pub struct ResidualFinding {
 /// write time stays true. A superseding run concluded, stopped or ruled
 /// again afterwards changes nothing about a mark already written
 /// (ruling 2).
-pub fn residual_findings(run_id: &str, events: &[EventEnvelope]) -> Vec<ResidualFinding> {
-    let marks: BTreeMap<u64, Mark> = closings(events).into_iter().collect();
-    residuals(events)
-        .iter()
-        .map(|residual| {
-            let superseded = marks.get(&residual.ruling.seq).cloned();
-            stated_finding(run_id, Stated::of(residual, superseded))
-        })
-        .collect()
-}
-
 /// A residual finding of run `run_id` as every surface shows it, from the
 /// finding as its summary's `residuals` column states it (decision 0089
 /// ruling 2) or as [`residual_findings`] reads it from the journal: the
@@ -2326,19 +2319,20 @@ fn ruling_of(decision: Option<&Decided>, superseded: Option<Superseded>) -> Opti
 
 /// The whole readout for one run: one derivation, every surface.
 pub fn run_view(events: &[EventEnvelope], state: Option<&RunState>) -> RunView {
-    let scan = scan_participants(events);
-    let buckets = bucket(events);
-    let marks = supersedes(events);
+    let applied = derived(events, state);
+    let scan = scan_participants(&applied);
+    let buckets = bucket(&applied);
+    let marks = supersedes(&applied);
     let commands = commands_of(events);
     let by_id = ids(events);
     let cause = |id: &str| by_id.get(id).copied();
     let read = Read {
-        live: live_lines(events),
+        live: live_lines(&applied),
         journal: journal_rows(events, &scan, &buckets, &marks, &commands, cause),
         event_count: events.len(),
-        dashboard: dashboard(events),
+        dashboard: dashboard(&applied),
     };
-    viewed(events, &scan, &buckets, &marks, read, state)
+    viewed(&applied, &scan, &buckets, &marks, read, state)
 }
 
 /// What a run view reads beside its trail: the live block, the journal's

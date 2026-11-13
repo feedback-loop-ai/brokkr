@@ -153,7 +153,8 @@ pub(crate) fn read_hearth(store: &Store) -> HearthRead {
         .into_iter()
         .map(|(run_id, feature, created_at)| {
             let (events, state) = read_run(store, &run_id);
-            let residuals = brokkr_view::residual_findings(&run_id, &events);
+            let residuals =
+                brokkr_view::residual_findings_at(&run_id, &events, state.as_ref().ok());
             ListedRun {
                 run_id,
                 feature,

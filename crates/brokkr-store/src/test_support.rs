@@ -28,6 +28,20 @@ mod generated;
 
 pub use generated::{fleet, generate, Generated, Standing, Width};
 
+/// The folded columns at the head a row names, so a planted row is not
+/// `behind`: the caller names the hash, and every stamped part stands at
+/// seq 0. The one statement both stale-set tests make.
+pub(crate) fn settle_summary(conn: &Connection, run_id: &str, hash: &str) {
+    conn.execute(
+        "UPDATE run_summary
+            SET folded_seq = 0, folded_hash = ?2, aggregated_seq = 0,
+                stop_folded_seq = 0, ending_folded_seq = 0, late_folded_seq = 0
+          WHERE run_id = ?1",
+        params![run_id, hash],
+    )
+    .unwrap();
+}
+
 /// Every run's summary row and seat rows stand at its head and read as its
 /// fold (decision 0089 ruling 4): each run folded whole, and its rows
 /// compared with the projections of that fold, column for column.

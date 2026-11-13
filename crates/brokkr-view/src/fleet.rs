@@ -761,7 +761,7 @@ mod late;
 mod need;
 mod page;
 pub(crate) use late::late_tail;
-pub use late::{LateEvent, LateTail};
+pub use late::{late_line, LateEvent, LateTail};
 pub use need::{at_work, need, Need};
 use page::order_at;
 pub use page::{

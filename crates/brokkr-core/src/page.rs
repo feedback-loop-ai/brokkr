@@ -6,6 +6,8 @@
 
 use std::cmp::Reverse;
 
+use serde::{Deserialize, Serialize};
+
 use crate::ending::Closing;
 use crate::fold::Status;
 use crate::policy::Severity;
@@ -45,6 +47,49 @@ impl Lane {
             Lane::Stopping => "stopping",
             Lane::Running => "running",
             Lane::Finished => "finished",
+        }
+    }
+}
+
+/// A run's late tail, as an operator's repair record named it (decision
+/// 0108 ruling 4): kept and shown, never applied. One type for the run
+/// view, the summary row and the whole read, so every surface paints it
+/// the same.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LateTail {
+    /// The seq of the repair annotation that named it.
+    pub repaired_at: u64,
+    /// The run's terminal event, which the tail follows.
+    pub terminal_seq: u64,
+    /// The operator who repaired the run.
+    pub operator: String,
+    /// The tail's events, in order.
+    pub events: Vec<LateEvent>,
+}
+
+/// One event of a run's late tail: its seq and its wire type.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LateEvent {
+    pub seq: u64,
+    #[serde(rename = "type")]
+    pub event_type: String,
+}
+
+impl LateTail {
+    /// The tail `fold` carries, as every surface reads it. The one
+    /// derivation of its wire shape.
+    pub fn of(tail: &crate::fold::LateTail) -> LateTail {
+        LateTail {
+            repaired_at: tail.repaired_at,
+            terminal_seq: tail.terminal_seq,
+            operator: tail.operator.clone(),
+            events: tail
+                .events()
+                .map(|(seq, event_type)| LateEvent {
+                    seq,
+                    event_type: event_type.as_str().to_string(),
+                })
+                .collect(),
         }
     }
 }
@@ -116,6 +161,10 @@ pub struct Row {
     /// [`crate::summary::CITATION_BYTES`] until [`Whole`] is read for the
     /// row, which completes it.
     pub closing: Option<Closing>,
+    /// The late tail a repair named, as the row's own column states it
+    /// (decision 0108 ruling 4): a repaired run keeps its sentence when
+    /// the summary row is the one a listing reads.
+    pub late_tail: Option<LateTail>,
 }
 
 /// An acknowledgement's words as its trigger copies them onto the row,

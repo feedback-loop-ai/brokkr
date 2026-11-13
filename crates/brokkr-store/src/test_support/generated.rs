@@ -216,6 +216,7 @@ fn summary_of(run: &Generated) -> Summary {
         feature,
         aggregate: brokkr_core::summary::aggregate(&[], None),
         closing,
+        late_tail: None,
     }
 }
 

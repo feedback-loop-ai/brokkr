@@ -60,6 +60,7 @@ pub(super) fn onto(mut state: RunState, suffix: &[EventEnvelope]) -> Result<RunS
         if event.seq == 1 {
             continue;
         }
+        record_tail_type(&mut state, event);
         if is_late(&state, event.seq) {
             continue;
         }
@@ -70,10 +71,11 @@ pub(super) fn onto(mut state: RunState, suffix: &[EventEnvelope]) -> Result<RunS
 }
 
 /// The last repair `suffix` carries that names exactly the late tail of
-/// the run `state` describes. A repair that names another range, or that
-/// stands before the terminal event, is refused by name. A `repair`
-/// command on a run that has not terminated is no repair record: it is
-/// the pending command the fold has always read `operator/commanded` as.
+/// the run `state` describes. A repair that names another range is
+/// refused by name. A `repair` command standing before the terminal
+/// event is no repair record at all: it is the pending command the fold
+/// has always read `operator/commanded` as, and the bridge's own door
+/// keeps such a word out of the journal.
 fn repair_of(state: &RunState, suffix: &[EventEnvelope]) -> Result<Option<LateTail>, FoldError> {
     let terminal = match state.terminal_seq {
         Some(seq) => Some(seq),
@@ -85,14 +87,22 @@ fn repair_of(state: &RunState, suffix: &[EventEnvelope]) -> Result<Option<LateTa
     let Some(terminal) = terminal else {
         return Ok(None);
     };
-    let types: BTreeMap<u64, EventType> = suffix
-        .iter()
-        .filter(|event| event.seq > terminal)
-        .map(|event| (event.seq, event.event_type))
-        .collect();
+    // The events before the carry are the state's own, so their types are
+    // carried on it; the suffix's types are read here. A repair names the
+    // whole tail, so both halves are checked, never only the suffix.
+    let mut types = state.tail_types.clone();
+    types.extend(
+        suffix
+            .iter()
+            .filter(|event| event.seq > terminal)
+            .map(|event| (event.seq, event.event_type)),
+    );
     let mut honoured = None;
-    for event in suffix.iter().filter(|event| is_repair(event)) {
-        honoured = Some(named(state, event, terminal, &types)?);
+    for event in suffix
+        .iter()
+        .filter(|event| event.seq > terminal && is_repair(event))
+    {
+        honoured = Some(named(event, terminal, &types)?);
     }
     Ok(honoured)
 }
@@ -107,7 +117,6 @@ fn is_repair(event: &EventEnvelope) -> bool {
 /// at `terminal` and the types the run holds after it in `types`: every
 /// seq between the terminal and the repair, and no other.
 fn named(
-    state: &RunState,
     event: &EventEnvelope,
     terminal: u64,
     types: &BTreeMap<u64, EventType>,
@@ -116,12 +125,6 @@ fn named(
         seq: event.seq,
         detail,
     };
-    if event.seq <= terminal {
-        return Err(refused(format!(
-            "it stands at seq {} before the terminal event at seq {terminal}",
-            event.seq
-        )));
-    }
     if event.seq == terminal + 1 {
         return Err(refused(format!(
             "it names no late tail: seq {} is the terminal event and seq {} is the repair",
@@ -150,11 +153,6 @@ fn named(
         )));
     }
     for (at, seq) in (first_seq..=last_seq).enumerate() {
-        // A seq the state already folded is the run's own: its type is not
-        // read again, and the range's exactness is what carries it.
-        if seq <= state.seq {
-            continue;
-        }
         let Some(kind) = types.get(&seq) else {
             return Err(refused(format!(
                 "it names seq {seq}, which the run does not hold"
@@ -219,6 +217,18 @@ fn is_late(state: &RunState, seq: u64) -> bool {
 fn record_terminal(state: &mut RunState, event: &EventEnvelope) {
     if terminal_event(event.event_type).is_some() {
         state.terminal_seq = Some(event.seq);
+    }
+}
+
+/// Carry the type of an event after the terminal one, so a repair read
+/// from the rest of the journal is checked against the same types the
+/// whole fold reads.
+fn record_tail_type(state: &mut RunState, event: &EventEnvelope) {
+    if state
+        .terminal_seq
+        .is_some_and(|terminal| event.seq > terminal)
+    {
+        state.tail_types.insert(event.seq, event.event_type);
     }
 }
 

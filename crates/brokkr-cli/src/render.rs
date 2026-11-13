@@ -335,10 +335,12 @@ fn under_row(run: &RunRow, style: &Style) -> Vec<String> {
         .detail
         .as_deref()
         .map(|detail| format!("    {}", Safe::new(detail).as_str()));
-    let late = run
-        .late_tail
-        .as_ref()
-        .map(|tail| format!("    late  {}", Safe::new(&tail.line()).as_str()));
+    let late = run.late_tail.as_ref().map(|tail| {
+        format!(
+            "    late  {}",
+            Safe::new(&brokkr_view::late_line(tail)).as_str()
+        )
+    });
     refusal
         .into_iter()
         .chain(acknowledged)

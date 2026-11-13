@@ -24,6 +24,10 @@ pub use relation::lawful_after_terminal;
 use relation::{Arm, Position, Transition};
 mod late;
 pub use late::{LateTail, REPAIR};
+
+mod annotation;
+pub use annotation::reserved_annotation;
+
 mod run;
 pub use run::{ParkReason, Run};
 
@@ -215,6 +219,10 @@ pub struct RunState {
     /// The seq of the event that concluded the run, once one has: what a
     /// repair read from the rest of the journal is anchored to.
     pub terminal_seq: Option<u64>,
+    /// The types of the events after `terminal_seq`, carried across
+    /// [`fold_onto`] so a repair read from the rest of the journal checks
+    /// exactly the types the whole fold checks.
+    pub tail_types: BTreeMap<u64, EventType>,
 }
 
 impl RunState {
@@ -503,6 +511,7 @@ pub fn fold(events: &[EventEnvelope]) -> Result<RunState, FoldError> {
         stop_accepted_seq: None,
         late_tail: None,
         terminal_seq: None,
+        tail_types: BTreeMap::new(),
     };
     fold_onto(state, events)
 }

@@ -134,6 +134,12 @@ impl Residual<'_> {
 /// lives in free-text notes and is never re-read here as a typed finding
 /// — deriving structure from prose is repair (decision 0001).
 pub fn residuals(events: &[EventEnvelope]) -> Vec<Residual<'_>> {
+    residuals_of(events.iter())
+}
+
+/// [`residuals`] over any sequence of events, so a scan that skips a
+/// repaired run's late tail reads the same rule (decision 0108 ruling 4).
+pub fn residuals_of<'a>(events: impl IntoIterator<Item = &'a EventEnvelope>) -> Vec<Residual<'a>> {
     let mut out = Vec::new();
     for event in events {
         if event.event_type != EventType::TransitionDecided {
@@ -237,6 +243,12 @@ pub(crate) fn note_closing(marks: &mut BTreeMap<u64, Mark>, event: &EventEnvelop
 /// each closes. A finding named by more than one annotation carries the
 /// LAST in journal order (decision 0047 ruling 3).
 pub fn closings(events: &[EventEnvelope]) -> BTreeMap<u64, Mark> {
+    closings_of(events.iter())
+}
+
+/// [`closings`] over any sequence of events, so a scan that skips a
+/// repaired run's late tail reads the same rule (decision 0108 ruling 4).
+pub fn closings_of<'a>(events: impl IntoIterator<Item = &'a EventEnvelope>) -> BTreeMap<u64, Mark> {
     let mut marks = BTreeMap::new();
     for event in events {
         note_closing(&mut marks, event);

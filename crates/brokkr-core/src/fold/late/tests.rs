@@ -5,7 +5,7 @@
 use super::*;
 use crate::canonical::ZERO_HASH;
 use crate::envelope_builder::EnvelopeBuilder;
-use crate::fold::{fold, fold_onto, FoldError, Run};
+use crate::fold::{fold, fold_onto, FoldError, OperatorCommand, Run};
 use serde_json::{json, Value};
 
 /// Append `event_type` to `events`, chained onto the head and sealed as
@@ -121,6 +121,65 @@ fn classified() -> (EventType, Value) {
     )
 }
 
+/// Shape (B) of #440, as 0.12.0 wrote it: the stop command and the
+/// acceptance that disposes of it after the conclusion.
+fn shape_b() -> Vec<EventEnvelope> {
+    stopped_with(
+        &[
+            commanded(),
+            (
+                EventType::OperatorAccepted,
+                json!({"command_id": "c-stop", "operator": "operator", "reason": "stop it"}),
+            ),
+        ],
+        repaired(5, 6, 7, &["operator/commanded", "operator/accepted"]),
+    )
+}
+
+/// A command and its rejection after the conclusion, named as one tail.
+fn multi_tail() -> Vec<EventEnvelope> {
+    stopped_with(
+        &[
+            commanded(),
+            (
+                EventType::OperatorRejected,
+                json!({"command_id": "c-stop", "operator": "operator",
+                       "reason": "after_terminal"}),
+            ),
+        ],
+        repaired(5, 6, 7, &["operator/commanded", "operator/rejected"]),
+    )
+}
+
+/// A repair naming a range that is not the late tail.
+fn wrong_range_tail() -> Vec<EventEnvelope> {
+    stopped_with(&[settlement()], repaired(5, 7, 6, &["effect/succeeded"]))
+}
+
+/// A repair whose types lie about the carried prefix.
+fn lying_types_tail() -> Vec<EventEnvelope> {
+    stopped_with(
+        &[classified(), settlement()],
+        repaired(5, 6, 7, &["operator/commanded", "effect/failed"]),
+    )
+}
+
+/// A `repair` word standing before the terminal event: the pending
+/// command it is, never a record.
+fn pre_terminal_repair() -> Vec<EventEnvelope> {
+    opened(&[
+        (
+            EventType::OperatorCommanded,
+            repaired(3, 4, 4, &["effect/requested"]),
+        ),
+        (
+            EventType::EffectRequested,
+            json!({"effect_id": "e", "seat": "work"}),
+        ),
+        (EventType::RunStopped, json!({"reason": "concluded"})),
+    ])
+}
+
 /// Shape (A) of #440: a settlement landed after `run/stopped`. The run
 /// does not fold; a repair naming that one event makes it fold as
 /// stopped, with the tail kept and never applied.
@@ -158,16 +217,7 @@ fn a_repaired_late_settlement_folds_as_stopped_and_changes_nothing() {
 /// and the acceptance that disposes of it landed after the conclusion.
 #[test]
 fn a_repaired_late_command_folds_as_stopped() {
-    let events = stopped_with(
-        &[
-            commanded(),
-            (
-                EventType::OperatorAccepted,
-                json!({"command_id": "c-stop", "operator": "operator", "reason": "stop it"}),
-            ),
-        ],
-        repaired(5, 6, 7, &["operator/commanded", "operator/accepted"]),
-    );
+    let events = shape_b();
     assert_eq!(
         fold(&events[..7]).unwrap_err(),
         FoldError::AfterTerminal { seq: 7 }
@@ -184,16 +234,7 @@ fn a_repaired_late_command_folds_as_stopped() {
 /// as late.
 #[test]
 fn a_multi_event_late_tail_is_named_as_one_range() {
-    let events = stopped_with(
-        &[
-            commanded(),
-            (
-                EventType::OperatorRejected,
-                json!({"command_id": "c-stop", "operator": "operator", "reason": "after_terminal"}),
-            ),
-        ],
-        repaired(5, 6, 7, &["operator/commanded", "operator/rejected"]),
-    );
+    let events = multi_tail();
     let state = fold(&events).unwrap();
     let tail = state.late_tail.unwrap();
     assert_eq!((tail.first_seq, tail.last_seq), (6, 7));
@@ -274,26 +315,94 @@ fn a_repair_whose_types_do_not_read_is_refused() {
     );
 }
 
-/// A repair that stands before the run's terminal event is refused: the
-/// record can only name a tail that follows one.
+/// A repair that stands before the run's terminal event is no repair
+/// record: it is the pending command the fold has always read
+/// `operator/commanded` as, and the run folds to its terminal status.
 #[test]
-fn a_repair_before_the_terminal_event_is_refused() {
-    let events = opened(&[
-        (
-            EventType::OperatorCommanded,
-            repaired(3, 4, 4, &["effect/requested"]),
-        ),
-        (
-            EventType::EffectRequested,
-            json!({"effect_id": "e", "seat": "work"}),
-        ),
-        (EventType::RunStopped, json!({"reason": "concluded"})),
-    ]);
+fn a_repair_before_the_terminal_event_is_the_pending_command_it_is() {
+    let events = pre_terminal_repair();
+    let state = fold(&events).unwrap();
+    assert_eq!(state.run, Run::Stopped);
+    assert!(
+        state.late_tail.is_none(),
+        "a pre-terminal word names no tail"
+    );
     assert_eq!(
-        fold(&events).unwrap_err(),
+        state.pending_command,
+        Some(("c-repair".to_string(), REPAIR.to_string())),
+        "the word is the command the run was given, never a repair record"
+    );
+}
+
+/// The reserved annotation words are one list in core, and none of them
+/// is a command the bridge may journal.
+#[test]
+fn the_reserved_annotation_words_are_not_bridge_commands() {
+    for word in ["repair", "settle", "classify", "supersede"] {
+        assert!(crate::fold::reserved_annotation(word), "{word} is reserved");
+        assert_eq!(OperatorCommand::parse(word), None, "{word} is no verb");
+    }
+    assert!(!crate::fold::reserved_annotation("dance"));
+    assert!(!crate::fold::reserved_annotation("stop"));
+}
+
+/// A repair carrying no args, or no operator, is refused by name: both
+/// are what the published schema requires of the record.
+#[test]
+fn a_repair_without_args_or_operator_is_refused() {
+    let no_args = stopped_with(
+        &[settlement()],
+        json!({"command_id": "c-repair", "command": REPAIR, "operator": "operator"}),
+    );
+    assert_eq!(
+        fold(&no_args).unwrap_err(),
         FoldError::BadRepair {
-            seq: 3,
-            detail: "it stands at seq 3 before the terminal event at seq 5".to_string()
+            seq: 7,
+            detail: "it carries no args".to_string()
+        }
+    );
+
+    let no_operator = stopped_with(
+        &[settlement()],
+        json!({
+            "command_id": "c-repair",
+            "command": REPAIR,
+            "args": {
+                "first_seq": 6, "last_seq": 6, "terminal_seq": 5,
+                "event_types": ["effect/succeeded"], "reason": "kept",
+            },
+        }),
+    );
+    assert_eq!(
+        fold(&no_operator).unwrap_err(),
+        FoldError::BadRepair {
+            seq: 7,
+            detail: "it carries no operator".to_string()
+        }
+    );
+}
+
+/// A repair that names a seq the run does not hold, because the carried
+/// state has no event there and the suffix does not either, is refused
+/// rather than read as a type it cannot check.
+#[test]
+fn a_repair_naming_an_event_the_run_does_not_hold_is_refused() {
+    let state = fold(&stopped()).unwrap();
+    let repair = EnvelopeBuilder::new(
+        EventType::OperatorCommanded,
+        repaired(5, 6, 6, &["effect/succeeded"]),
+    )
+    .run("r1")
+    .seq(7)
+    .event_id("e7")
+    .at("2026-11-13T00:00:07Z")
+    .previous("hash")
+    .sealed();
+    assert_eq!(
+        fold_onto(state, &[repair]).unwrap_err(),
+        FoldError::BadRepair {
+            seq: 7,
+            detail: "it names seq 6, which the run does not hold".to_string()
         }
     );
 }
@@ -341,6 +450,36 @@ fn annotations_after_the_repair_are_admitted() {
     assert_eq!(state.late_tail.unwrap().last_seq, 6);
 }
 
+/// The whole fold and the carried fold agree at every cut point over the
+/// planted shapes: (A), (B), the multi-event tail, the wrong-range repair,
+/// the lying-types repair and the pre-terminal repair. A cut after the
+/// terminal event but before the repair exercises the carried types.
+#[test]
+fn the_whole_and_carried_folds_agree_at_every_cut_point() {
+    let shapes: Vec<Vec<EventEnvelope>> = vec![
+        stopped_with(&[settlement()], repaired(5, 6, 6, &["effect/succeeded"])),
+        shape_b(),
+        multi_tail(),
+        wrong_range_tail(),
+        lying_types_tail(),
+        pre_terminal_repair(),
+    ];
+    for (at, events) in shapes.iter().enumerate() {
+        let whole = fold(events);
+        for split in 1..=events.len() {
+            let Ok(prefix) = fold(&events[..split]) else {
+                continue;
+            };
+            let carried = fold_onto(prefix, &events[split..]);
+            assert_eq!(
+                format!("{carried:?}"),
+                format!("{whole:?}"),
+                "shape {at} carried over split {split} is the whole fold"
+            );
+        }
+    }
+}
+
 /// The tail a reader folded past carries across [`fold_onto`]: a repair
 /// in the suffix is checked against the state, and the whole fold and the
 /// carried one are one state.
@@ -363,18 +502,6 @@ fn a_repair_in_the_suffix_carries_across_fold_onto() {
     let prefix = fold(&events[..6]).unwrap();
     let carried = fold_onto(prefix, &events[6..]).unwrap();
     assert_eq!(format!("{carried:?}"), format!("{whole:?}"));
-
-    for split in 1..=events.len() {
-        let Ok(prefix) = fold(&events[..split]) else {
-            continue;
-        };
-        let carried = fold_onto(prefix, &events[split..]).unwrap();
-        assert_eq!(
-            format!("{carried:?}"),
-            format!("{whole:?}"),
-            "the fold carried over split {split} is the whole fold"
-        );
-    }
 }
 
 /// A repair a carried fold reads still checks every type it names in the
