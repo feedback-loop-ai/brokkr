@@ -31,7 +31,7 @@ pub use generated::{fleet, generate, Generated, Standing, Width};
 /// The folded columns at the head a row names, so a planted row is not
 /// `behind`: the caller names the hash, and every stamped part stands at
 /// seq 0. The one statement both stale-set tests make.
-pub(crate) fn settle_summary(conn: &Connection, run_id: &str, hash: &str) {
+pub fn settle_summary(conn: &Connection, run_id: &str, hash: &str) {
     conn.execute(
         "UPDATE run_summary
             SET folded_seq = 0, folded_hash = ?2, aggregated_seq = 0,
