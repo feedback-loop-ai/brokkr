@@ -724,7 +724,8 @@ and run-keyed-row tests therefore land in 4d and 4e, not 4c.
    - **the probe comes first:** no `effect/started` for the effect before
      the probe's answer; a probe refused again parks in 4c — no further
      probe, no `effect/started`, and `failed_attempts` unchanged — because
-     the table that records its next round arrives in 4d.
+     the table that records its next round arrives in 4d1. Slice 4d2b then
+     appends that row, extends the wait and probes again instead of parking.
    - **a probe that starts and then hangs or errors has no answer:** after
      `turn.started`, a hang (`a_probe_that_starts_then_hangs_parks_without_a_retry`)
      and an error (`a_probe_that_starts_then_errors_parks_without_a_retry`)

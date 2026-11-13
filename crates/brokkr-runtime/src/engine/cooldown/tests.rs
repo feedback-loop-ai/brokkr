@@ -129,6 +129,12 @@ enum Probed {
     /// The first probe hangs before answering; every later probe answers.
     /// The live-probe crash test's first engine is killed in that hang.
     HangThenAnswer,
+    /// The first probe refuses with a rate limit; every later probe answers.
+    RefuseThenAnswer,
+    /// Every probe refuses with a class other than a rate limit.
+    OtherRefusal,
+    /// Every probe ends with a refusal object the edge cannot read.
+    MalformedRefusal,
 }
 
 /// A `forge-driver/v1` participant in `sh`: its attempts read a verdict
@@ -507,18 +513,6 @@ fn the_cap_parks_naming_the_cool_down_and_starts_no_third_attempt() {
     assert!(reason.contains("waits for claude/first until"), "{reason}");
     assert!(reason.contains("rate_limit: slow down"), "{reason}");
     assert_eq!(starts(&engine).len(), 2);
-}
-
-#[test]
-fn a_probe_refused_again_parks_without_a_second_probe_or_attempt() {
-    let (dir, mut engine, _now) = seated!(&["refuse", "succeed"], Probed::Refuse, None, 3);
-    engine.drive().unwrap();
-    assert_eq!(logs(dir.path(), "work"), ["attempt:refuse", "probe"]);
-    assert_eq!(starts(&engine).len(), 1);
-    assert_eq!(failed(&engine).len(), 1, "the probe spent no attempt");
-    let reason = park_reason(&engine);
-    assert!(reason.contains("was refused again"), "{reason}");
-    assert!(reason.contains("rate_limit: slow down"), "{reason}");
 }
 
 fn parked_probe(probed: Probed) -> (tempfile::TempDir, Engine, Arc<Mutex<OffsetDateTime>>) {
@@ -1412,6 +1406,7 @@ fn a_driver_that_does_not_advertise_the_probe_parks_naming_it() {
 
 mod lease;
 mod probe_driver;
+mod probe_rounds;
 mod sequence;
 
 fn no_waits(engine: &Engine) {
@@ -1490,6 +1485,8 @@ fn the_host_seam_reads_absent_unreadable_invalid_and_undeclared_files() {
 #[test]
 fn the_episode_sums_each_waits_own_round() {
     use crate::envelope_builder::EnvelopeBuilder;
+    let dir = tempfile::tempdir().unwrap();
+    let store = brokkr_store::Store::open(&dir.path().join("forge.db")).unwrap();
     let event = |seq, effect, waits| {
         EnvelopeBuilder::new(
             EventType::EffectFailed,
@@ -1503,11 +1500,19 @@ fn the_episode_sums_each_waits_own_round() {
                "until": "2026-11-01T00:00:00Z", "rounds": rounds})
     };
     assert_eq!(
-        super::episode(&[event(1, "effect", json!([wait(10, 1)]))], "effect").unwrap(),
+        super::episode(
+            &store,
+            "run",
+            &[event(1, "effect", json!([wait(10, 1)]))],
+            "effect"
+        )
+        .unwrap(),
         (1, 10)
     );
     assert_eq!(
         super::episode(
+            &store,
+            "run",
             &[
                 event(1, "effect", json!([wait(10, 1)])),
                 event(2, "effect", json!([wait(2, 2)])),
@@ -1520,6 +1525,8 @@ fn the_episode_sums_each_waits_own_round() {
     // A terminal with no waits counts nothing, and is not a malformed one.
     assert_eq!(
         super::episode(
+            &store,
+            "run",
             &[
                 EnvelopeBuilder::new(EventType::EffectFailed, json!({"effect_id": "effect"}),)
                     .seq(5)
@@ -1540,7 +1547,7 @@ fn the_episode_sums_each_waits_own_round() {
         json!([{"route": "first", "words": "w", "seconds": 1,
                 "until": "2026-11-01T00:00:00Z", "rounds": 1}]),
     );
-    match super::episode(&[skipped, other, malformed], "effect") {
+    match super::episode(&store, "run", &[skipped, other, malformed], "effect") {
         Err(super::CooldownError::EarlierWaitUnreadable {
             seq: 3,
             source: brokkr_core::ProviderWaitError::Field { field, .. },
@@ -1722,10 +1729,11 @@ fn wait() -> super::ProviderWait {
     }
 }
 
-fn probe_reason(engine: &Engine, report: brokkr_protocol::AttemptReport) -> String {
-    match engine.probe_end(&wait(), report) {
+fn probe_reason(engine: &mut Engine, report: brokkr_protocol::AttemptReport) -> String {
+    match engine.probe_end("effect", &wait(), report) {
         super::Probe::Parked(reason) => reason,
         super::Probe::Answered(_) => panic!("a probe that never answered is not an answer"),
+        super::Probe::Extended => panic!("a probe with no rate limit extended the wait"),
     }
 }
 
@@ -1752,9 +1760,9 @@ fn report(
 #[test]
 fn a_probe_that_does_not_answer_parks_naming_its_end() {
     let dir = tempfile::tempdir().unwrap();
-    let engine = started(dir.path(), single_body(vec!["unused".into()]), work(1));
+    let mut engine = started(dir.path(), single_body(vec!["unused".into()]), work(1));
     let reason = probe_reason(
-        &engine,
+        &mut engine,
         report(
             None,
             brokkr_protocol::Cleanup::Unresolved {
@@ -1766,7 +1774,7 @@ fn a_probe_that_does_not_answer_parks_naming_its_end() {
     assert!(reason.contains("cleanup failure"), "{reason}");
     assert!(reason.contains("group 7"), "{reason}");
     let reason = probe_reason(
-        &engine,
+        &mut engine,
         report(None, brokkr_protocol::Cleanup::Settled, Vec::new()),
     );
     assert!(reason.contains("no answer checkpoint"), "{reason}");
@@ -1775,7 +1783,7 @@ fn a_probe_that_does_not_answer_parks_naming_its_end() {
     }))
     .unwrap();
     let reason = probe_reason(
-        &engine,
+        &mut engine,
         report(
             Some(Box::new(other)),
             brokkr_protocol::Cleanup::Settled,

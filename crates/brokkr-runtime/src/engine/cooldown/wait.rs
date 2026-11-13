@@ -1,10 +1,12 @@
-//! The engine's wait (decision 0103 slice 4c1): the maximum judged before
-//! anything sleeps, the recorded remainder waited in bounded slices that
-//! honour an operator `stop`, and the probe of each cooled route before the
-//! retry.
+//! The engine's wait (decision 0103 slice 4c1, the aggregate and the probe's
+//! extension in slice 4d2b): the maximum judged before anything sleeps, the
+//! aggregate taken as the wait's end in bounded slices that honour an
+//! operator `stop`, the probe of each cooled route, and a rate-limited
+//! probe's next round waited and probed again before the retry.
 
 use brokkr_core::fold::{fold, Cursor, Run, RunState};
-use brokkr_core::{EventEnvelope, ProviderWait};
+use brokkr_core::{EventEnvelope, ProbeAnswer, ProviderWait};
+use brokkr_store::CooldownAggregate;
 use time::{Duration as TimeDuration, OffsetDateTime};
 
 use super::probe::Probe;
@@ -12,10 +14,13 @@ use super::{episode, maximum_reason, past_maximum, Engine, EngineError, Waited, 
 
 impl Engine {
     /// Wait the recorded remainder in bounded slices, honouring an operator
-    /// `stop`, then probe the cooled route. The maximum is judged from the
-    /// record before anything sleeps; the remainder only sets how long to
-    /// sleep. A stop already journaled is seen before the first slice and
-    /// again immediately before the probe.
+    /// `stop`, then probe the cooled route. The wait's end is the latest of
+    /// each recorded wait's own `until` and the store's aggregate for its
+    /// provider and route (decision 0103 ruling 2(a)); after the probes
+    /// answer, the aggregate is re-read before the retry, so a row recorded
+    /// while the probe ran holds the route again. The maximum is judged from
+    /// the record before anything sleeps. A stop already journaled is seen
+    /// before the first slice and again immediately before every probe.
     pub(in crate::engine) fn take_cooldown(
         &mut self,
         events: &[EventEnvelope],
@@ -29,26 +34,88 @@ impl Engine {
                 return Ok(Waited::Parked(reason));
             }
         }
-        let latest = waits
+        let mut answers = Vec::with_capacity(waits.len());
+        loop {
+            if self.moved_from_the_effect()? {
+                return Ok(Waited::Stopped);
+            }
+            let end = match self.cool_down_end(waits) {
+                Ok(end) => end,
+                Err(reason) => return Ok(Waited::Parked(reason)),
+            };
+            if self.wait_in_slices(end)? {
+                return Ok(Waited::Stopped);
+            }
+            // A rate-limited refusal extends the wait and this round's
+            // remaining probes wait for the new end: the loop is bounded by
+            // the episode maximum, judged in `probe_end`, not by the cap.
+            let mut extended = false;
+            for wait in waits {
+                if self.moved_from_the_effect()? {
+                    return Ok(Waited::Stopped);
+                }
+                match self.probe_wait(events, state, effect_id, seat, wait)? {
+                    Probe::Answered(answer) => record_answer(&mut answers, answer),
+                    Probe::Extended => {
+                        extended = true;
+                        break;
+                    }
+                    Probe::Parked(reason) => return Ok(Waited::Parked(reason)),
+                }
+            }
+            if extended {
+                continue;
+            }
+            // Re-read AFTER the probes and BEFORE the retry: another run's
+            // row, or one recorded while the probe ran, holds the route
+            // again, so the wait and the probes repeat. The answers already
+            // taken are kept; the retry's `effect/started` records the last
+            // answer for each cooled site.
+            match self.cool_down_aggregates(waits) {
+                Ok(aggregates) if aggregates.is_empty() => return Ok(Waited::Proceed(answers)),
+                Ok(_) => continue,
+                Err(reason) => return Ok(Waited::Parked(reason)),
+            }
+        }
+    }
+
+    /// The wait's end: the latest of every recorded wait's own `until` and
+    /// the store's aggregate for its provider and route. A store refusal
+    /// parks by its own words, never as an absent aggregate (decision 0103
+    /// ruling 2(a)); a version 1, 2 or 3 journal answers none, so the
+    /// event's own `until` stands.
+    fn cool_down_end(&self, waits: &[ProviderWait]) -> Result<OffsetDateTime, String> {
+        let mut end = waits
             .iter()
             .map(|wait| wait.until)
             .max()
             .expect("a wait to take");
-        if self.wait_in_slices(latest)? {
-            return Ok(Waited::Stopped);
+        for aggregate in self.cool_down_aggregates(waits)? {
+            end = end.max(aggregate.until);
         }
-        let mut answers = Vec::with_capacity(waits.len());
+        Ok(end)
+    }
+
+    /// Every unexpired aggregate the cooled sites stand at, at `now`, or
+    /// the park reason a store refusal gives.
+    fn cool_down_aggregates(
+        &self,
+        waits: &[ProviderWait],
+    ) -> Result<Vec<CooldownAggregate>, String> {
+        let mut aggregates = Vec::new();
         for wait in waits {
-            if self.moved_from_the_effect()? {
-                return Ok(Waited::Stopped);
-            }
-            match self.probe_outcome(events, state, effect_id, seat, wait)? {
-                Waited::Proceed(mut answered) => answers.append(&mut answered),
-                Waited::Parked(reason) => return Ok(Waited::Parked(reason)),
-                Waited::Stopped => return Ok(Waited::Stopped),
+            match self.store.cooldown(&wait.provider, &wait.route, self.now()) {
+                Ok(Some(aggregate)) => aggregates.push(aggregate),
+                Ok(None) => {}
+                Err(error) => {
+                    return Err(format!(
+                        "the cool-down aggregate for {}/{} cannot be read: {error}",
+                        wait.provider, wait.route
+                    ))
+                }
             }
         }
-        Ok(Waited::Proceed(answers))
+        Ok(aggregates)
     }
 
     /// The bounds and episode the resume reads before it sleeps: the reason
@@ -65,7 +132,7 @@ impl Engine {
         match self.cooldown_bounds(&wait.provider, &wait.route) {
             Ok(Some(bounds)) => {
                 let max = u64::from(bounds.max_seconds.get());
-                let total = match episode(events, effect_id) {
+                let total = match episode(&self.store, &self.run_id, events, effect_id) {
                     Ok((_, total)) => total,
                     Err(reason) => {
                         return Some(format!(
@@ -112,22 +179,6 @@ impl Engine {
         self.moved_from_the_effect()
     }
 
-    /// Probe the cooled route and turn its answer into what the caller does
-    /// next: the retry's answer, or the park's reason.
-    fn probe_outcome(
-        &mut self,
-        events: &[EventEnvelope],
-        state: &RunState,
-        effect_id: &str,
-        seat: &str,
-        wait: &ProviderWait,
-    ) -> Result<Waited, EngineError> {
-        match self.probe_wait(events, state, effect_id, seat, wait)? {
-            Probe::Answered(answer) => Ok(Waited::Proceed(vec![answer])),
-            Probe::Parked(reason) => Ok(Waited::Parked(reason)),
-        }
-    }
-
     /// Has the run left this effect's executable position: an operator
     /// `stop` during the wait lands as `Cursor::Stop`, and nothing may
     /// probe or retry after it.
@@ -138,5 +189,15 @@ impl Engine {
             state.run,
             Run::Running(Cursor::ExecuteEffect { .. })
         ))
+    }
+}
+
+/// Keep one answer per cooled site: a later round's answer replaces the
+/// earlier one, so the retry's `effect/started` records the final answers
+/// (decision 0103 ruling 4(a)).
+fn record_answer(answers: &mut Vec<ProbeAnswer>, answer: ProbeAnswer) {
+    match answers.iter_mut().find(|seen| seen.site == answer.site) {
+        Some(slot) => *slot = answer,
+        None => answers.push(answer),
     }
 }

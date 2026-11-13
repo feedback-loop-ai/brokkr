@@ -53,10 +53,15 @@ pub(in crate::engine) fn refused_members(
 }
 
 /// The episode's waits per site and their seconds across every site: one
-/// entry per earlier wait, keyed by the site it named (decision 0103 ruling
-/// 3: the sum is across sites, the round is per site). An earlier entry that
-/// does not read refuses by name, never as nothing.
+/// entry per earlier round, keyed by the site it named (decision 0103 ruling
+/// 3: the sum is across sites, the round is per site). The terminal events
+/// are the attempt's record; the probe rounds a terminal's episode gained
+/// are read back from the table, one row per round, and counted by the
+/// length the row itself records (decision 0103 ruling 2(a)). An earlier
+/// entry that does not read refuses by name, never as nothing.
 pub(super) fn episode_by_site(
+    store: &brokkr_store::Store,
+    run_id: &str,
     events: &[EventEnvelope],
     effect_id: &str,
 ) -> Result<(BTreeMap<Option<String>, u64>, u64), CooldownError> {
@@ -81,9 +86,26 @@ pub(super) fn episode_by_site(
         for wait in waits {
             *sites.entry(wait.site.clone()).or_insert(0u64) += 1;
             seconds = seconds.saturating_add(wait.seconds);
+            let site = wait.site.clone().unwrap_or_default();
+            let rows = store
+                .cooldown_rounds(run_id, event.seq, &site)
+                .map_err(|source| CooldownError::RoundsUnreadable {
+                    source: Box::new(source),
+                })?;
+            for row in rows.into_iter().filter(|row| row.rounds > wait.rounds) {
+                *sites.entry(wait.site.clone()).or_insert(0u64) += 1;
+                seconds = seconds.saturating_add(round_length(&row));
+            }
         }
     }
     Ok((sites, seconds))
+}
+
+/// A probe round's length, read from the row's own two times: the store
+/// writes `recorded_at` as the round's start and `until_at` as its end, so
+/// the episode never recomputes an earlier round under a later bound.
+fn round_length(row: &brokkr_store::Cooldown) -> u64 {
+    (row.until_at - row.recorded_at).whole_seconds().max(0) as u64
 }
 
 /// The length one wait computes: the provider's own retry-after, else the
@@ -164,7 +186,9 @@ impl Engine {
                 park: None,
             };
         }
-        let Ok((site_rounds, prior_seconds)) = episode_by_site(events, effect_id) else {
+        let Ok((site_rounds, prior_seconds)) =
+            episode_by_site(&self.store, &self.run_id, events, effect_id)
+        else {
             return self.panel_episode_unreadable(events, effect_id, &mut payload, refused, retry);
         };
         let mut planned: Vec<Option<Plan>> = Vec::with_capacity(refused.len());

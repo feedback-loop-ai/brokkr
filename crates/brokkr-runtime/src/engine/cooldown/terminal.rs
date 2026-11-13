@@ -211,7 +211,9 @@ impl Engine {
         effect_id: &str,
         refused: &ProviderRefusal,
     ) -> String {
-        let episode = episode(events, effect_id).ok().map(|(_, seconds)| seconds);
+        let episode = episode(&self.store, &self.run_id, events, effect_id)
+            .ok()
+            .map(|(_, seconds)| seconds);
         refusal_text(refused, episode)
     }
 
@@ -284,21 +286,22 @@ impl Engine {
         bounds: Bounds,
     ) -> Terminal {
         let provider = refusal.provider();
-        let (prior_rounds, prior_seconds) = match episode(events, effect_id) {
-            Ok(episode) => episode,
-            Err(_) => {
-                let refused = refusal_record(
-                    RefusalCause::EpisodeUnreadable,
-                    None,
-                    refusal,
-                    Some(route),
-                    None,
-                    None,
-                );
-                record_refusal(&mut payload, &refused);
-                return self.refusal_terminal(events, effect_id, payload, refused, None);
-            }
-        };
+        let (prior_rounds, prior_seconds) =
+            match episode(&self.store, &self.run_id, events, effect_id) {
+                Ok(episode) => episode,
+                Err(_) => {
+                    let refused = refusal_record(
+                        RefusalCause::EpisodeUnreadable,
+                        None,
+                        refusal,
+                        Some(route),
+                        None,
+                        None,
+                    );
+                    record_refusal(&mut payload, &refused);
+                    return self.refusal_terminal(events, effect_id, payload, refused, None);
+                }
+            };
         let rounds = prior_rounds.saturating_add(1);
         let retry_after = refusal.retry_after_seconds();
         let seconds = sites::wait_seconds(retry_after, bounds.default_seconds.get(), rounds);

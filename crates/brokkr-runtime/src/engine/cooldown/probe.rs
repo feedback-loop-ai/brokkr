@@ -586,12 +586,14 @@ impl Engine {
             |_| {},
         );
         settlement::ended(&mut self.held, at.site_name, &report.cleanup);
-        self.probe_end(wait, report)
+        self.probe_end(at.effect_id, wait, report)
     }
 }
 
-/// What a probe leaves.
+/// What a probe leaves: an answer, a rate-limit refusal's extension whose
+/// next round the caller waits and probes again, or the park's reason.
 pub(super) enum Probe {
     Answered(ProbeAnswer),
+    Extended,
     Parked(String),
 }

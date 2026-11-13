@@ -95,6 +95,10 @@ pub(super) enum CooldownError {
     EarlierWaitUnreadable { seq: u64, source: ProviderWaitError },
     #[error("the failed event's refusal does not read: {0}")]
     RefusedUnreadable(ProviderRefusalError),
+    #[error("the journal's cool-down rounds cannot be read: {source}")]
+    RoundsUnreadable {
+        source: Box<brokkr_store::StoreError>,
+    },
 }
 
 /// What the engine does with a wait it read: proceed to the retry, leave
@@ -129,12 +133,19 @@ pub(super) fn effect_seat<'a>(events: &'a [EventEnvelope], effect_id: &str) -> O
 }
 
 /// The effect's own episode: how many waits it has recorded and how many
-/// seconds they add, read from the terminal events the journal holds. Each
-/// wait contributes the `seconds` it recorded under its own route's bounds
-/// (decision 0103 ruling 3); an earlier entry that does not read refuses by
-/// name, never as nothing.
-fn episode(events: &[EventEnvelope], effect_id: &str) -> Result<(u64, u64), CooldownError> {
-    let (sites, seconds) = sites::episode_by_site(events, effect_id)?;
+/// seconds they add, read from the terminal events the journal holds and
+/// the probe rounds the table appended (decision 0103 ruling 2(a)). Each
+/// waits contributes the `seconds` it recorded under its own route's bounds
+/// (decision 0103 ruling 3); each probe round contributes the length its
+/// row records, so a round written while a probe ran is counted too. An
+/// earlier entry that does not read refuses by name, never as nothing.
+fn episode(
+    store: &brokkr_store::Store,
+    run_id: &str,
+    events: &[EventEnvelope],
+    effect_id: &str,
+) -> Result<(u64, u64), CooldownError> {
+    let (sites, seconds) = sites::episode_by_site(store, run_id, events, effect_id)?;
     Ok((sites.values().copied().sum(), seconds))
 }
 
@@ -218,7 +229,7 @@ impl Engine {
         effect_id: &str,
         wait: &ProviderWait,
     ) -> Result<Option<(u64, u64, bool)>, CooldownError> {
-        let (_, total) = episode(events, effect_id)?;
+        let (_, total) = episode(&self.store, &self.run_id, events, effect_id)?;
         let Some(bounds) = self.cooldown_bounds(&wait.provider, &wait.route)? else {
             return Ok(None);
         };
