@@ -710,3 +710,63 @@ fn another_rows_disabled_keeps_its_reading() {
         );
     }
 }
+
+/// R2 and the adversarial HIGH's second cause: a `-` marker followed by
+/// more than one ASCII space refuses `Unreadable`, as the column-zero
+/// `-   id:` already did. js-yaml's dump writes exactly `- `, and the
+/// wider marker would put the key at a column the reader records as the
+/// marker's. Admitting the wider marker again admits the second and third
+/// trees, which is the removal control.
+#[test]
+fn a_marker_followed_by_more_than_one_space_is_refused() {
+    let dump = policy_dump();
+    for (what, body) in [
+        (
+            "three spaces and an open flow content line",
+            "  config:\n    -   k: >-\n        j: [a]\n  disabled: true\n",
+        ),
+        (
+            "two spaces and an alias content line",
+            "  config:\n    -  k: >-\n       j: *a\n  disabled: true\n",
+        ),
+        (
+            "two spaces before a quoted key's header",
+            "  config:\n    -  \"k\": >-\n  disabled: true\n",
+        ),
+    ] {
+        assert_eq!(
+            gate(tool_bash_row(&dump, body), Release::V0_2_1, Mode::ReadOnly),
+            Err(Composition::Unreadable),
+            "{what}"
+        );
+    }
+}
+
+/// glm's LOW: js-yaml's dump writes no comment, so a ` #` inside a
+/// two-space plain value refuses instead of being read as part of the
+/// word. Both the row that must be disabled and a row that may be enabled
+/// refuse; reading the whole line's word again admits both, which is the
+/// removal control.
+#[test]
+fn a_two_space_plain_value_holding_a_comment_is_refused() {
+    let dump = policy_dump();
+    let tool_bash = dump.replacen(
+        TOOL_BASH,
+        "- id: tool-bash\n  name: '@deepseek-ai/dsh-tool-bash'\n  disabled: true # c\n",
+        1,
+    );
+    assert_ne!(tool_bash, dump, "the fixture names tool-bash");
+    let sandbox = "- id: sandbox\n  name: '@deepseek-ai/dsh-sandbox-local'\n";
+    let sandbox = dump.replacen(sandbox, &format!("{sandbox}  disabled: true # c\n"), 1);
+    assert_ne!(sandbox, dump, "the fixture names the sandbox row");
+    for (what, tree) in [
+        ("on the tool-bash row", tool_bash),
+        ("on the sandbox row", sandbox),
+    ] {
+        assert_eq!(
+            gate(tree, Release::V0_2_1, Mode::ReadOnly),
+            Err(Composition::Unreadable),
+            "{what}"
+        );
+    }
+}

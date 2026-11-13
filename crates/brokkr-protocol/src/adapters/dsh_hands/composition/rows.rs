@@ -8,31 +8,35 @@
 //! character a YAML reader may break on or that the gate will not read as
 //! text: a C0 control other than tab, a tab anywhere, DEL, a C1 control, LS,
 //! PS, a BOM, U+FFFE or U+FFFF. The closure then refuses any line that
-//! leaves a quote or a flow collection open, independent of the grammar's
-//! block bookkeeping. Only after both does the grammar read the line: only
-//! an empty line, a line of ASCII spaces, or a line whose first character
-//! after those is `#` is skipped. A column-zero `- id: <v>` starts a row and
-//! any other non-skip column-zero line refuses. A row's two-space level is
-//! closed to `  name: <v>`, `  disabled: <v>`, `  config:` and `  inject:`,
-//! each at most once. `config:` or `inject:` opens a block; a line indented
-//! three or more spaces is admitted only while a block is open, and the
-//! `sandbox-policy` config block reads only one `    mode: <w>`.
+//! leaves a quote, a non-empty flow collection or an empty sequence item
+//! open, independent of the grammar's block bookkeeping. Only after both
+//! does the grammar read the line: only an empty line, a line of ASCII
+//! spaces, or a line whose first character after those is `#` is skipped. A
+//! column-zero `- id: <v>` starts a row and any other non-skip column-zero
+//! line refuses. A row's two-space level is closed to `  name: <v>`,
+//! `  disabled: <v>`, `  config:` and `  inject:`, each at most once.
+//! `config:` or `inject:` opens a block; a line indented three or more
+//! spaces is admitted only while a block is open, and the `sandbox-policy`
+//! config block reads only one `    mode: <w>`.
 //!
-//! Every other deeper line of an unread block must be a line js-yaml's
-//! dump writes, so no quoted scalar, flow collection or anchor can carry a
-//! later row's keys away. A block-scalar header opens content: every
-//! following blank line, or line indented more than the header's node
+//! Every `-` marker followed by more than one ASCII space refuses
+//! `Unreadable`: js-yaml's dump writes exactly `- `, and a wider marker
+//! would put the key at a column the reader does not record. Every other
+//! deeper line of an unread block must be a line js-yaml's dump writes, so
+//! no quoted scalar, flow collection, anchor or empty sequence item can
+//! carry a later row's keys away. A block-scalar header opens content:
+//! every following blank line, or line indented more than the header's node
 //! column, is skipped unread, and the first non-blank line at or above that
 //! column ends the content and is read normally. The node column is the
 //! key's column when a key was read and the last marker's column for a bare
-//! item. Every other deeper line is read for structure: sequence markers
-//! are stripped, a quoted or plain key is
-//! followed by one value, and that value must be empty, a block-scalar
-//! header, an empty flow collection, a quoted scalar that closes on its
-//! line, or a plain scalar. An open quote, an open flow collection, an
-//! anchor, an alias, an explicit key, a directive, a reserved indicator and
-//! a block-scalar indentation indicator refuse. The `sandbox-policy`
-//! `inject:` block is admitted only as the one measured
+//! item; a wider marker refuses before any column is recorded. Every other
+//! deeper line is read for structure: sequence markers are stripped, a
+//! quoted or plain key is followed by one value, and that value must be
+//! empty, a block-scalar header, an empty flow collection, a quoted scalar
+//! that closes on its line, or a plain scalar. An open quote, an open flow
+//! collection, an anchor, an alias, an explicit key, a directive, a
+//! reserved indicator and a block-scalar indentation indicator refuse. The
+//! `sandbox-policy` `inject:` block is admitted only as the one measured
 //! `    - headlessStartup` line. A one-space line refuses.
 
 use super::super::{HANDS_ID, SANDBOX_POLICY};
@@ -321,11 +325,17 @@ fn read_unread_body(body: &str) -> Result<Option<Header>, Composition> {
 
 /// Strip every leading `- ` sequence marker, returning the item's body and
 /// the width of the markers stripped, so the caller can record the key's
-/// column or the last marker's column. A bare `-` is a YAML sequence marker
-/// too, but not the one a dump writes, so it refuses.
+/// column or the last marker's column. A wider marker (`-` followed by more
+/// than one ASCII space) refuses: js-yaml's dump writes exactly `- `, and
+/// the key would sit at a column this reader would not record. A bare `-`
+/// is a YAML sequence marker too, but not the one a dump writes, so it
+/// refuses.
 fn strip_markers(mut body: &str) -> Result<(&str, usize), Composition> {
     let mut width = 0;
     while let Some(rest) = body.strip_prefix("- ") {
+        if rest.starts_with(' ') {
+            return Err(Composition::Unreadable);
+        }
         body = rest;
         width += 2;
     }
@@ -448,14 +458,14 @@ fn refused_plain_start(first: char) -> bool {
 
 /// Whether a plain value is one the dump never writes and a reader reads as
 /// structure: an explicit `-` or `:` marker on its own or followed by a
-/// space, or a `: ` key separator inside. `?` is not repeated here:
-/// [`refused_plain_start`] already refuses every value that starts with
-/// `?`. `-1` and `a-b` stay plain values.
+/// space, a `: ` key separator inside, or a ` #` comment start inside.
+/// `?` is not repeated here: [`refused_plain_start`] already refuses every
+/// value that starts with `?`. `-1` and `a-b` stay plain values.
 fn refused_plain_value(value: &str) -> bool {
     matches!(value, "-" | ":")
         || value.starts_with("- ")
-        || value.starts_with(": ")
         || value.contains(": ")
+        || value.contains(" #")
 }
 
 /// The byte index just past the closing quote of the quoted scalar at the
@@ -666,5 +676,44 @@ mod tests {
             Ok(())
         );
         assert_eq!(row.name, "@deepseek-ai/dsh-tool-bash");
+    }
+
+    /// R2: any `-` marker followed by more than one ASCII space refuses, so
+    /// no wider marker can put a key at a column the reader did not record.
+    /// Admitting the wider marker again makes these cases return `Ok`.
+    #[test]
+    fn a_wider_sequence_marker_is_refused() {
+        for (what, line) in [
+            ("three spaces", "-   k: >-"),
+            ("two spaces", "-  k: >-"),
+            ("two spaces before a quoted key", "-  \"k\": >-"),
+            ("two spaces after a nested marker", "- -  k: >-"),
+        ] {
+            assert_eq!(strip_markers(line), Err(Composition::Unreadable), "{what}");
+        }
+        assert_eq!(strip_markers("- k: >-"), Ok(("k: >-", 2)));
+    }
+
+    /// R4's grammar half: the node column of a bare item is the LAST
+    /// marker's column, not the line's leading spaces plus every marker
+    /// width. `    - - >-` has its header at column 6, so recording
+    /// `spaces + width` (8) would make a line at 8 content that must be
+    /// read. The unit reads the recorded column directly.
+    #[test]
+    fn a_bare_item_header_records_the_last_markers_column() {
+        let mut state = RowState::default();
+        assert_eq!(read_unread(&mut state, "    - - >-", 4), Ok(()));
+        assert_eq!(state.scalar, Some(6));
+        let mut state = RowState::default();
+        assert_eq!(read_unread(&mut state, "    - k: >-", 4), Ok(()));
+        assert_eq!(state.scalar, Some(6));
+    }
+
+    /// R4's grammar half: `}` may not start a plain value. Dropping it from
+    /// `refused_plain_start` admits a value of `}`.
+    #[test]
+    fn a_flow_closer_may_not_start_a_plain_value() {
+        assert_eq!(read_value("}"), Err(Composition::Unreadable));
+        assert_eq!(read_value("a-b"), Ok(false));
     }
 }

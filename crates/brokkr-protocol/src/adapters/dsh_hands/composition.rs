@@ -37,9 +37,10 @@ mod rows;
 pub(crate) use self::rows::rows;
 
 /// The dump's line-property closure: refuse [`Composition::Unreadable`] if
-/// any line leaves a quote or a flow collection open. [`rows`] runs it after
-/// the dump-wide break, control and tab rule and before the row grammar;
-/// the closure's unit tests read this one seam alone.
+/// any line leaves a quote, a non-empty flow collection or an empty
+/// sequence item open. [`rows`] runs it after the dump-wide break, control
+/// and tab rule and before the row grammar; the closure's unit tests read
+/// this one seam alone.
 pub(crate) fn closure(text: &str) -> Result<(), Composition> {
     rows::carriers::check(text)
 }

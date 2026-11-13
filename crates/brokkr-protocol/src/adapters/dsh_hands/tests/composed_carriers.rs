@@ -35,6 +35,16 @@ fn refuses(what: &str, dump: &str) {
     );
 }
 
+/// Admit `what` through the closure alone and through the whole gate.
+fn admits(what: &str, dump: String) {
+    assert_eq!(closure(&dump), Ok(()), "{what}: closure");
+    assert_eq!(
+        gate(dump, Release::V0_2_1, Mode::ReadOnly),
+        Ok(()),
+        "{what}: gate"
+    );
+}
+
 /// C1a to C1f, C2 and the adversarial HIGH: the carrier class the hold
 /// found. Each is a block-scalar header behind a marker whose content
 /// reaches the node's column, a two-space `disabled:` value, or a quoted
@@ -94,6 +104,169 @@ fn the_closure_refuses_every_carrier_case() {
     refuses("ADV: a quoted disabled value on the timer row", &adv);
 }
 
+/// The third carrier, the value read after every node kind, and flows
+/// admitted only empty. Each case refuses `Unreadable` through the closure
+/// alone and through the whole gate. The empty item is js-yaml 4.3.2's own
+/// carrier: it folds a less-indented `- ` line into the empty item, so the
+/// policy row disappears; the adversarial HIGH combines it with a wider
+/// marker and an open quote after a flow key.
+#[test]
+fn the_closure_refuses_the_empty_item_and_every_open_node() {
+    let dump = policy_dump();
+
+    let high = tool_bash_row(
+        &dump,
+        concat!(
+            "  config:\n",
+            "    -   k: >-\n",
+            "        deep\n",
+            "      []: \"x\n",
+            "  disabled: true\n",
+            "# \"\n",
+        ),
+    );
+    refuses("the adversarial HIGH", &high);
+
+    for (what, body) in [
+        (
+            "a flow key with an open value",
+            "  config:\n    []: \"x\n  disabled: true\n",
+        ),
+        (
+            "a mapping key with an open value",
+            "  config:\n    {}: \"x\n  disabled: true\n",
+        ),
+        (
+            "an alias key with an open value",
+            "  config:\n    *a : \"x\n  disabled: true\n",
+        ),
+        (
+            "an anchor ended by a flow indicator",
+            "  config:\n    k: &a[b,\n  disabled: true\n",
+        ),
+        (
+            "an anchor then an open quote",
+            "  config:\n    k: &a \"x\n  disabled: true\n",
+        ),
+        (
+            "an explicit key with an open quote",
+            "  config:\n    ? \"x\n  disabled: true\n",
+        ),
+        (
+            "a non-empty flow sequence",
+            "  config:\n    k: [a]\n  disabled: true\n",
+        ),
+        (
+            "a non-empty flow mapping",
+            "  config:\n    k: {a: b}\n  disabled: true\n",
+        ),
+        (
+            "a flow with a comment inside",
+            "  config:\n    k: [a, # ]\n  disabled: true\n",
+        ),
+        (
+            "a flow after a quoted key",
+            "  config:\n    \"k\": [a, # ]\n  disabled: true\n",
+        ),
+        (
+            "a flow with a quote-shaped key",
+            "  config:\n    k: [?'a]', b\n  disabled: true\n",
+        ),
+        (
+            "a closed flow holding a quote as content",
+            "  config:\n    e: >-\n      [a, \"b\"]\n  disabled: true\n",
+        ),
+    ] {
+        refuses(what, &tool_bash_row(&dump, body));
+    }
+
+    // js-yaml folds the next less-indented row into each empty item, so the
+    // policy row is gone; each tree refuses at the empty item.
+    for (what, item) in [
+        ("a bare item", "    -\n"),
+        ("an item of spaces", "    -   \n"),
+        ("an item then a comment", "    -   # c\n"),
+        ("a nested item", "    - - a\n      -\n"),
+    ] {
+        let opened = format!("{SANDBOX_ROW}  inject:\n{item}");
+        let mutated = dump.replacen(SANDBOX_ROW, &opened, 1);
+        assert_ne!(mutated, dump, "the fixture names the sandbox row");
+        refuses(what, &mutated);
+    }
+}
+
+/// The closed shapes the rebuild admits, each through the closure alone and
+/// through the gate: a quoted value holding ` #` behind a plain key, the
+/// dump's empty items and empty flows, a quoted key with spaces before its
+/// colon, the measured lines 76 and 77 in a `!!js >-` block, and ` #` in
+/// folded content.
+#[test]
+fn the_closure_admits_the_closed_dump_lines() {
+    let dump = policy_dump();
+    for (what, body) in [
+        (
+            "a single-quoted value holding a comment marker",
+            "  config:\n    k: 'a #b'\n  disabled: true\n",
+        ),
+        (
+            "a double-quoted value holding a comment marker",
+            "  config:\n    k: \"a #b\"\n  disabled: true\n",
+        ),
+        ("a null item", "  config:\n    - null\n  disabled: true\n"),
+        (
+            "an empty flow item",
+            "  config:\n    - []\n  disabled: true\n",
+        ),
+        (
+            "an empty flow sequence value",
+            "  config:\n    k: []\n  disabled: true\n",
+        ),
+        (
+            "an empty flow mapping value",
+            "  config:\n    k: {}\n  disabled: true\n",
+        ),
+        (
+            "a quoted key with spaces before its colon",
+            "  config:\n    \"k\" : v\n  disabled: true\n",
+        ),
+        (
+            "a comment marker in folded content",
+            "  config:\n    k: >-\n      with a # title. Make\n  disabled: true\n",
+        ),
+    ] {
+        let mutated = tool_bash_row(&dump, body);
+        admits(what, mutated);
+    }
+
+    // The measured 0.2.1 dump's lines 76 and 77, in a tagged block.
+    let lines = tool_bash_row(
+        &dump,
+        concat!(
+            "  config:\n",
+            "    desktopPlatform: !!js >-\n",
+            "      ctx.get('profileContext')?.name === 'desktop' && ['darwin',\n",
+            "      'win32'].includes(process.platform) ? process.platform : null\n",
+            "  disabled: true\n",
+        ),
+    );
+    admits("lines 76 and 77", lines);
+
+    // A closed row id holding ` #` is read by both passes; the judge then
+    // refuses the id it names, so the line is not unreadable.
+    assert_eq!(closure("- id: 'a #b'\n"), Ok(()), "a closed row id");
+    let id = dump.replacen("- id: tool-bash\n", "- id: 'a #b'\n", 1);
+    assert_ne!(id, dump, "the fixture names tool-bash");
+    assert_eq!(
+        gate(id, Release::V0_2_1, Mode::ReadOnly),
+        Err(Composition::Unmeasured {
+            id: "a #b".into(),
+            name: "@deepseek-ai/dsh-tool-bash".into(),
+            release: Release::V0_2_1.label(),
+        }),
+        "the passes read the closed id"
+    );
+}
+
 /// The closure's own line shapes: a quoted key with spaces before its
 /// colon, an open flow after a quoted key, a double-quoted scalar whose
 /// last quote is escaped, and a backslash continuation all leave something
@@ -126,11 +299,9 @@ fn the_closure_refuses_a_quoted_key_and_the_quote_escapes() {
 /// The admitted shapes, each through the closure alone and through the
 /// whole gate. The line-77 shape is the measured 0.2.1 dump's own block
 /// content: a closed quote followed by junk is no carrier under the
-/// structure reading. The closed flow is block-scalar content, so the row
-/// grammar still decides admission and skips it unread. The closure-only
-/// lines read the `? ` marker, bare markers, a tag with no space, a comment
-/// after a plain scalar, a quoted key with no value or a jammed one, a
-/// quote inside a plain flow scalar and a nested flow.
+/// structure reading. The closure-only lines read the `? ` marker, bare
+/// `?`, a tag with no space, a comment after a plain scalar, and a quoted
+/// key with an empty or a jammed value.
 #[test]
 fn the_closure_admits_every_closed_shape() {
     let dump = policy_dump();
@@ -153,32 +324,15 @@ fn the_closure_admits_every_closed_shape() {
             "a tagged single-quoted value",
             "  config:\n    c: !!js '!ctx.get(''p'')'\n  disabled: true\n",
         ),
-        (
-            "a closed flow holding a closed quote as block content",
-            "  config:\n    e: >-\n      [a, \"b\"]\n  disabled: true\n",
-        ),
     ];
     for (what, body) in bodies {
         let mutated = tool_bash_row(&dump, body);
-        assert_eq!(closure(&mutated), Ok(()), "{what}: closure");
-        assert_eq!(
-            gate(mutated, Release::V0_2_1, Mode::ReadOnly),
-            Ok(()),
-            "{what}: gate"
-        );
+        admits(what, mutated);
     }
-    assert_eq!(
-        closure("    k: [a, \"b\"]\n"),
-        Ok(()),
-        "the closure admits a closed flow at a value too"
-    );
     assert_eq!(closure(""), Ok(()), "the empty dump has no open line");
     assert_eq!(closure("\n\n"), Ok(()), "empty lines leave nothing open");
     for (what, text) in [
-        (
-            "a `? ` marker, a bare `?`, a bare `-` and a `- ` item",
-            "? x\n?\n-\n- x\n",
-        ),
+        ("a `? ` marker and a bare `?`", "? x\n?\n"),
         (
             "a tag with no space after it, and a tag alone",
             "k: !tag\nk: !!js\nk: !\n",
@@ -188,8 +342,6 @@ fn the_closure_admits_every_closed_shape() {
             "a quoted key with an empty and a jammed value",
             "\"k\":\n\"k\":x\n",
         ),
-        ("a quote inside a plain flow scalar", "k: [it's]\n"),
-        ("a nested flow", "k: [[a]]\n"),
     ] {
         assert_eq!(closure(text), Ok(()), "{what}");
     }
@@ -228,21 +380,24 @@ fn the_real_tree_fixtures_pass_the_closure_and_the_gate() {
 
 /// C1's fix: judge block content from the header's node column. A header
 /// behind a marker has its key at column 6, so a line at 6 is not content:
-/// the grammar reads it and refuses its non-dump flow value. Content two
-/// columns past the node's column is the real js-yaml form and is skipped.
-/// Recording the line's spaces again makes the first case pass, which is
-/// the removal control.
+/// the grammar reads it and refuses its non-dump value. A bare item's
+/// header records the last marker's column, not the line's spaces plus
+/// every marker width: a line at column 7 is content, and recording 8 would
+/// make the grammar read it. Content two columns past the node's column is
+/// the real js-yaml form and is skipped. Recording the line's spaces again
+/// makes the first case pass, which is the removal control; recording
+/// `spaces + width` for a bare item makes the last case fail.
 #[test]
 fn the_block_content_judgement_reads_a_line_at_the_nodes_column() {
     let dump = policy_dump();
     for (what, body) in [
         (
             "a key at the node's column is read",
-            "  config:\n    - k: >-\n      j: [a]\n  disabled: true\n",
+            "  config:\n    - k: >-\n      j: a: b\n  disabled: true\n",
         ),
         (
             "a bare item at the last marker's column is read",
-            "  config:\n    - - >-\n      - [a]\n  disabled: true\n",
+            "  config:\n    - - >-\n      a: b: c\n  disabled: true\n",
         ),
     ] {
         assert_eq!(
@@ -251,7 +406,7 @@ fn the_block_content_judgement_reads_a_line_at_the_nodes_column() {
             "{what}"
         );
     }
-    let admitted = "  config:\n    - k: |-\n        j: [a]\n  disabled: true\n";
+    let admitted = "  config:\n    - k: |-\n        j: []\n  disabled: true\n";
     assert_eq!(
         gate(
             tool_bash_row(&dump, admitted),
@@ -260,6 +415,16 @@ fn the_block_content_judgement_reads_a_line_at_the_nodes_column() {
         ),
         Ok(()),
         "js-yaml's real form has its content at the node column plus two"
+    );
+    let item_content = "  config:\n    - - >-\n       j: a: b\n  disabled: true\n";
+    assert_eq!(
+        gate(
+            tool_bash_row(&dump, item_content),
+            Release::V0_2_1,
+            Mode::ReadOnly
+        ),
+        Ok(()),
+        "a bare item's content at column 7 stays content"
     );
 }
 
@@ -305,6 +470,7 @@ fn plain_values_the_dump_never_writes_refuse() {
         ("a colon item", ": a"),
         ("a key inside a value", "j: \"x"),
         ("a flow closer", "]"),
+        ("a flow mapping closer", "}"),
         ("a comma", ","),
         ("a bare colon", ":"),
     ] {
