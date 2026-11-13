@@ -203,30 +203,37 @@ controller can follow this procedure.
        FIRST of `: ` (a key, whose value is read as a node) or ` #` (a
        comment); a quote inside it is plain content, so `k: 'a #b'` reads
        the closed quoted value after the key.
-     - **After every node.** Skip ASCII spaces. If `:` follows, then a space
-       or the line's end, the text after it is a node read by the same
-       rule. This applies after a quoted scalar, a flow collection and a
-       plain scalar, so `[]: "x`, `{}: "x`, `"k" : "x`, `*a : "x` and
-       `*a: "x` all have their value read.
+     - **After every node.** Skip ASCII spaces. If `:` follows and then a
+       space, the text after it is a node read by the same rule; a colon at
+       the line's end has no value to read and leaves nothing open. This
+       applies after a quoted scalar, a flow collection and a plain scalar,
+       so `[]: "x`, `{}: "x`, `"k" : "x`, `*a : "x` and `*a: "x` all have
+       their value read.
      - **The controller's measurement, not re-run by this seat.** Fix round
        1052g7's prototype (`/var/tmp/1052g7-proto/open.py`) measured the
        earlier two-carrier reading. 1052g8's prototype
        (`/var/tmp/1052g8-proto/closure.py`, both read-only and not
-       committed) is the rebuilt pass above. It admits all four real dumps
-       (the committed 0.2.1 dump, the two 0.2.2-rc.1 overlay dumps and the
-       plain 0.2.2-rc.1 dump) and refuses every 1052g7 finding, the empty
-       item included. On 600,000 generated trees from a token generator,
-       the closure and a row filter standing in for the grammar admitted
-       161,154. On 400,000 trees from a generator of mostly-valid YAML
-       lines (markers including `-   `, `- - ` and `? `; quoted, flow,
-       anchored, tagged and plain keys; `: `, `:` and ` : ` separators;
-       values with open quotes, open and closed flows, comments inside
-       flows, `[]: "x`, anchors against flow brackets, block headers and
-       escapes), 96,763 were admitted. PyYAML found 0 differentials and
+       committed) is the pre-review pass. The review then dropped its alias
+       arm and made a flow node exactly `[]` or `{}`, so the prototype
+       admits `*a: "x` and `[]x: "y`, which the shipped pass refuses. The
+       shipped pass therefore admits a strict subset of the prototype's
+       trees, and the prototype's differential counts still bind
+       transitively for every tree the shipped pass admits. It admits all
+       four real dumps (the committed 0.2.1 dump, the two 0.2.2-rc.1
+       overlay dumps and the plain 0.2.2-rc.1 dump) and refuses every
+       1052g7 finding, the empty item included. On 600,000 generated trees
+       from a token generator, the closure and a row filter standing in for
+       the grammar admitted 161,154. On 400,000 trees from a generator of
+       mostly-valid YAML lines (markers including `-   `, `- - ` and `? `;
+       quoted, flow, anchored, tagged and plain keys; `: `, `:` and ` : `
+       separators; values with open quotes, open and closed flows, comments
+       inside flows, `[]: "x`, anchors against flow brackets, block headers
+       and escapes), 96,763 were admitted. PyYAML found 0 differentials and
        js-yaml 4.3.2 found 0 differentials; most admitted trees fail to
        parse in both readers (fail-closed), and about 21,000 and 15,500
-       respectively read exactly as the gate reads them. Those counts are
-       the controller's, not this seat's.
+       respectively read exactly as the gate reads them. The review's run
+       of the shipped Rust found 0 differentials in 480,000 trees. Those
+       counts are the controller's, not this seat's.
    - **Skips everywhere.** Only an empty line, a line of ASCII spaces,
      or a line whose first character after those is `#` is skipped.
      Text after the `#` is comment content, non-ASCII characters
@@ -741,10 +748,14 @@ fixture still passes with its own 99 rows.
 Gates run at this head: `cargo fmt --all -- --check`; `cargo clippy
 --workspace --all-targets --all-features --locked -- -D warnings` (clean);
 `cargo test -p brokkr-protocol --lib --all-features --locked -- adapters::`
-(668 passed); `cargo test -p brokkr-cli --locked --test it -- doc_truth::`
-(19 passed); `typos --hidden` (no findings); `quality/ratchet.sh files`,
-`clones` and `api` (all hold); `cargo run --locked -p brokkr-cli --
-compile --bundle recipes/self` (policy sweep clean); `git diff --check`.
+(668 passed); `cargo test -p brokkr-cli --locked --test it -- doc_truth::
+layering::test_targets` (38 passed); `typos --hidden` (no findings);
+`quality/ratchet.sh files`, `clones` and `api` (all hold); `cargo run
+--locked -p brokkr-cli -- compile --bundle recipes/self` (policy sweep
+clean); `git diff --check`. The 649f80072 message names the reverted bare
+`-- doc_truth` filter's refusal `TestlessModule`; the reader refuses a
+filter word with no `::` as `UnreadFilter` (its `path_of` finds no
+module). The gate verdict is unchanged, and the commit is not amended.
 
 ## Pending
 
