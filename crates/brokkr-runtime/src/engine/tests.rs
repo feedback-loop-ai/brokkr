@@ -3348,7 +3348,10 @@ fn a_boxed_site_is_told_so_in_its_driver_input_and_an_unboxed_one_is_not() {
         "allowed_results": ["clean"], "house_rules": Value::Null, "spec_dialect": Value::Null,
     });
     let runs = engine.member_runs(
-        "attempt",
+        AttemptIds {
+            effect: "effect",
+            attempt: "attempt",
+        },
         "review",
         &members,
         &meta,
@@ -3586,7 +3589,10 @@ fn panel_and_sequence_storage_failures_propagate() {
     )];
     let input = panel_input(&["member"]);
     let runs = live_panel.member_runs(
-        "attempt",
+        AttemptIds {
+            effect: "effect",
+            attempt: "attempt",
+        },
         "work",
         &members,
         &input["members"],

@@ -9,6 +9,7 @@ use brokkr_core::realms::Boundary;
 use super::*;
 use crate::bundle::{Aggregate, Invocation};
 use crate::engine::boxed::{Unnamed, Unprepared};
+use crate::engine::AttemptIds;
 
 /// An exec seat's command, which `hands exec` boxes whole.
 fn exec_seat() -> Vec<String> {
@@ -90,7 +91,7 @@ fn a_seats_box_is_built_from_the_reach_its_admission_sealed() {
         assert_ne!(now, held, "a reach sealed now differs");
         let spawn = engine.compose_at(
             Some("work"),
-            "attempt",
+            AttemptIds::new("effect", "attempt"),
             true,
             exec_seat(),
             Some(&spec),
@@ -153,7 +154,7 @@ fn a_box_whose_hands_were_sealed_nothing_refuses_its_spawn() {
     let (_dir, mut engine, spec, _) = boxed_seat();
     let spawn = engine.compose_at(
         Some("work"),
-        "attempt",
+        AttemptIds::new("no-reach", "attempt"),
         true,
         exec_seat(),
         Some(&spec),
@@ -172,7 +173,7 @@ fn a_box_whose_hands_were_sealed_nothing_refuses_its_spawn() {
     engine.sealed_for(Path::new("/home/fixture"), &other);
     let spawn = engine.compose_at(
         Some("work"),
-        "attempt",
+        AttemptIds::new("sealed", "attempt"),
         true,
         exec_seat(),
         Some(&spec),

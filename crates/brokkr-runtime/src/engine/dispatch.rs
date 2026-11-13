@@ -262,7 +262,7 @@ impl Engine {
         };
         Some(self.compose_at(
             Some(at.site_name),
-            at.attempt_id,
+            crate::engine::AttemptIds::new(at.effect_id, at.attempt_id),
             at.gate,
             argv_for(selection, &None, command).to_vec(),
             hands,

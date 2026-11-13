@@ -13,6 +13,7 @@ use crate::engine::{argv_for, Engine, Selection, Site, SiteSpawn};
 /// selection. The step's attempt and its cool-down probe both build one.
 pub(in crate::engine) struct StepComposition<'a> {
     pub(in crate::engine) label: &'a str,
+    pub(in crate::engine) effect_id: &'a str,
     pub(in crate::engine) attempt_id: &'a str,
     pub(in crate::engine) gate: bool,
     pub(in crate::engine) command: &'a [String],
@@ -32,6 +33,7 @@ impl Engine {
     ) -> (SiteSpawn, Value) {
         let StepComposition {
             label,
+            effect_id,
             attempt_id,
             gate,
             command,
@@ -43,7 +45,7 @@ impl Engine {
         let hands = self.hands_for(label);
         let mut spawn = self.compose_at(
             Some(label),
-            attempt_id,
+            crate::engine::AttemptIds::new(effect_id, attempt_id),
             gate,
             argv_for(selection, site, command).to_vec(),
             hands.as_ref(),

@@ -286,7 +286,7 @@ impl Engine {
                     Err(parked) => return Ok(parked),
                 };
                 let runs = self.member_runs(
-                    &prepared.attempt,
+                    crate::engine::AttemptIds::new(effect_id, &prepared.attempt),
                     &picked.site,
                     std::slice::from_ref(member_def),
                     &prepared.input["members"],
@@ -438,6 +438,7 @@ impl Engine {
         );
         let composition = StepComposition {
             label: &driver_seat,
+            effect_id: at.effect_id,
             attempt_id: &prepared.attempt,
             gate: step.class == SeatClass::Gate,
             command,
@@ -498,7 +499,7 @@ impl Engine {
         let mut step_input = prepared.input.clone();
         step_input["allowed_results"] = step_allowed_results(&prepared.input, index, last);
         let runs = self.member_runs(
-            &prepared.attempt,
+            crate::engine::AttemptIds::new(at.effect_id, &prepared.attempt),
             &driver_seat,
             std::slice::from_ref(member_def),
             &step_input["steps"][index]["members"],

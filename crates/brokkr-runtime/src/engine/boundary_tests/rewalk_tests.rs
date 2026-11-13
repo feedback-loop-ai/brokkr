@@ -93,7 +93,7 @@ fn compose_and_run(
     hands: Option<&HandsSpec>,
 ) -> (SiteSpawn, DriverRun) {
     let spawn = engine.compose(
-        "attempt",
+        "77777777-7777-4777-8777-777777777777",
         true,
         command.to_vec(),
         hands,

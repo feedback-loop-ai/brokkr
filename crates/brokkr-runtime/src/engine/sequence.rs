@@ -362,6 +362,7 @@ impl Engine {
         let gate = at.step.class == SeatClass::Gate;
         let composition = StepComposition {
             label: &at.label,
+            effect_id: run.effect_id,
             attempt_id: run.attempt_id,
             gate,
             command,
@@ -429,7 +430,7 @@ impl Engine {
         let mut step_input = run.input.clone();
         step_input["allowed_results"] = step_allowed_results(run.input, at.index, run.is_last(at));
         let runs = self.member_runs(
-            run.attempt_id,
+            crate::engine::AttemptIds::new(run.effect_id, run.attempt_id),
             &at.label,
             members,
             &at.meta["members"],

@@ -280,7 +280,18 @@ fn a_reach_sealed_at_another_place_than_the_kept_one_refuses() {
     engine.store_place = std::sync::OnceLock::new();
     let (sealed, kept) = (real.join("secrets.env"), moved.join("secrets.env"));
     assert_eq!(engine.secrets_store_path(), kept);
-    let spawn = engine.compose_at(None, "attempt", false, command, Some(&spec), None, "r.json");
+    let spawn = engine.compose_at(
+        None,
+        AttemptIds {
+            effect: "effect",
+            attempt: "attempt",
+        },
+        false,
+        command,
+        Some(&spec),
+        None,
+        "r.json",
+    );
     let strayed = Unprepared::Strayed(route.join("secrets.env"), sealed.clone());
     assert_eq!(spawn.refusal, Some(strayed.to_string()));
     unmade(&sealed);
@@ -299,7 +310,18 @@ fn a_boxed_writer_whose_reach_seals_no_store_refuses_before_any_box() {
     let storeless = Some(Unprepared::Storeless.to_string());
     let spawned = |engine: &mut Engine| {
         let command = command.clone();
-        let spawn = engine.compose_at(None, "attempt", false, command, Some(&spec), None, "r.json");
+        let spawn = engine.compose_at(
+            None,
+            AttemptIds {
+                effect: "effect",
+                attempt: "attempt",
+            },
+            false,
+            command,
+            Some(&spec),
+            None,
+            "r.json",
+        );
         spawn.refusal
     };
     assert_eq!(spawned(&mut engine), storeless, "no reach was sealed");

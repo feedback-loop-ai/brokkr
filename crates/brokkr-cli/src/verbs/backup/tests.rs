@@ -129,7 +129,7 @@ fn a_backup_and_restore_keep_what_inspect_reads_and_start_nothing() {
         brokkr_store::backup::JOURNAL_BACKUP_FORMAT
     );
     assert_eq!(inventory["schemas"]["database"], 1);
-    assert_eq!(inventory["schemas"]["queue"], 4);
+    assert_eq!(inventory["schemas"]["queue"], 5);
     assert_eq!(
         inventory["schemas"]["projection"],
         brokkr_view::VIEW_VERSION as u64

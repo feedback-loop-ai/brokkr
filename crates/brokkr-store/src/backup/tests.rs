@@ -463,7 +463,7 @@ fn a_backup_records_the_versioned_inventory_this_build_reads() {
             inventory.schemas.queue,
             inventory.schemas.projection
         ),
-        (crate::DATABASE_SCHEMA, 4, PROJECTION)
+        (crate::DATABASE_SCHEMA, 5, PROJECTION)
     );
     assert_eq!(inventory.boundary.runs, 3);
     assert_eq!(inventory.boundary.events, 9);

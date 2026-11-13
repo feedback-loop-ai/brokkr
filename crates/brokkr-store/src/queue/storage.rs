@@ -6,6 +6,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 
 use super::{EntryId, Latch, QueueRefusal, Wait};
 use crate::schema::{all_present, objects};
+use crate::seat_tree::{refuse_duplicates, SEAT_TREE_INDEX, SEAT_TREE_TABLE};
 use crate::StoreError;
 
 /// The launch an entry stands for: the one it was last re-pinned to,
@@ -57,8 +58,10 @@ pub(super) fn wait_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Wait> {
 /// against an entry, the journal's dispatchers and its dispatch settings
 /// (decision 0095 rulings 1, 2 and 7). Version 4 adds the
 /// `provider_cooldowns` table a rate-limited attempt's refused sites are
-/// recorded in (decision 0103 ruling 2(a), slice 4d1).
-pub(crate) const QUEUE_SCHEMA: u32 = 4;
+/// recorded in (decision 0103 ruling 2(a), slice 4d1). Version 5 adds the
+/// `seat_trees` table a run-local seat scratch tree is recorded in before
+/// it is made (decision 0104 ruling 6, slice 5b).
+pub(crate) const QUEUE_SCHEMA: u32 = 5;
 
 /// The `meta` key a journal records [`QUEUE_SCHEMA`] under: one home for
 /// the spelling, read by this module and by a backup's missing-schema
@@ -77,6 +80,10 @@ pub(crate) const QUEUE_SCHEMA_V2: u32 = 2;
 /// dispatch settings either ([`QUEUE_TABLES_UNHELD`]).
 pub(crate) const QUEUE_SCHEMA_V3: u32 = 3;
 
+/// The fourth, which held no seat trees: read and migrated as the third
+/// is.
+pub(crate) const QUEUE_SCHEMA_V4: u32 = 4;
+
 /// A queue storage version this brokkr reads, matched by version wherever
 /// what it holds differs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -85,6 +92,7 @@ pub(crate) enum Stored {
     V2,
     V3,
     V4,
+    V5,
 }
 
 impl Stored {
@@ -95,7 +103,8 @@ impl Stored {
             QUEUE_SCHEMA_V1 => Some(Stored::V1),
             QUEUE_SCHEMA_V2 => Some(Stored::V2),
             QUEUE_SCHEMA_V3 => Some(Stored::V3),
-            QUEUE_SCHEMA => Some(Stored::V4),
+            QUEUE_SCHEMA_V4 => Some(Stored::V4),
+            QUEUE_SCHEMA => Some(Stored::V5),
             _ => None,
         }
     }
@@ -106,7 +115,8 @@ impl Stored {
             Stored::V1 => 3,
             Stored::V2 => 5,
             Stored::V3 => QUEUE_TABLES_V3,
-            Stored::V4 => QUEUE_TABLES.len(),
+            Stored::V4 => QUEUE_TABLES_V4,
+            Stored::V5 => QUEUE_TABLES.len(),
         }
     }
 }
@@ -314,9 +324,40 @@ CREATE TRIGGER IF NOT EXISTS provider_cooldowns_append_only_delete
     BEGIN SELECT RAISE(ABORT, 'provider cool-downs are append-only'); END;
 "#;
 
+/// Version 5's addition (decision 0104 ruling 6, slice 5b): one append-only
+/// row per run-local seat scratch tree, written before the tree is made.
+/// The tree is always `root/attempt_id` and is never stored apart; `root`
+/// is absolute and ends in the component `scratch`, as `SEAT_SCRATCH` names
+/// it, and `attempt_id` is exactly the lower-case UUID the engine mints, so
+/// it is one path component and never `..`. `recorded_at` is Unix seconds
+/// (UTC), never text, for the reason version 4's is.
+const MIGRATION_QUEUE_V5: &str = r#"
+CREATE TABLE IF NOT EXISTS seat_trees (
+    seq INTEGER PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES runs(run_id),
+    effect_id TEXT NOT NULL CONSTRAINT effect_named CHECK (length(effect_id) > 0),
+    attempt_id TEXT NOT NULL CONSTRAINT attempt_is_uuid CHECK (
+        attempt_id GLOB '[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]'
+        AND length(CAST(attempt_id AS BLOB)) = 36
+    ),
+    root TEXT NOT NULL CONSTRAINT root_absolute CHECK (substr(root, 1, 1) = '/')
+        CONSTRAINT root_is_scratch CHECK (substr(root, -8) = '/scratch')
+        CONSTRAINT root_has_no_nul CHECK (instr(CAST(root AS BLOB), x'00') = 0),
+    recorded_at INTEGER NOT NULL CONSTRAINT recorded_is_seconds
+        CHECK (typeof(recorded_at) = 'integer')
+);
+CREATE UNIQUE INDEX IF NOT EXISTS seat_trees_once ON seat_trees (run_id, attempt_id);
+CREATE TRIGGER IF NOT EXISTS seat_trees_append_only_update
+    BEFORE UPDATE ON seat_trees
+    BEGIN SELECT RAISE(ABORT, 'seat trees are append-only'); END;
+CREATE TRIGGER IF NOT EXISTS seat_trees_append_only_delete
+    BEFORE DELETE ON seat_trees
+    BEGIN SELECT RAISE(ABORT, 'seat trees are append-only'); END;
+"#;
+
 /// The guards the migrations install, by name, so an open can ask
 /// whether a journal still carries every one.
-const QUEUE_TRIGGERS: [&str; 23] = [
+const QUEUE_TRIGGERS: [&str; 25] = [
     "queue_entries_fixed",
     "queue_entries_run_once",
     "queue_entries_kept",
@@ -340,6 +381,8 @@ const QUEUE_TRIGGERS: [&str; 23] = [
     "dispatch_settings_append_only_delete",
     "provider_cooldowns_append_only_update",
     "provider_cooldowns_append_only_delete",
+    "seat_trees_append_only_update",
+    "seat_trees_append_only_delete",
 ];
 
 /// The version 4 table and the unique index on it, by name beyond the
@@ -352,12 +395,13 @@ const COOLDOWN_INDEX: &str = "provider_cooldowns_once";
 /// a journal still carries every one. A table's guards go with it when it
 /// is dropped, and so does its unique index, which no trigger can stand in
 /// for: without it two rows of one site and round both commit.
-const QUEUE_INDEXES: [&str; 1] = [COOLDOWN_INDEX];
+const QUEUE_INDEXES: [&str; 2] = [COOLDOWN_INDEX, SEAT_TREE_INDEX];
 
 /// The queue's tables, in the order the migrations create them: version
 /// 1's three, then version 2's latches and pins, then version 3's claims,
-/// refusals, holders and settings, then version 4's provider cool-downs.
-const QUEUE_TABLES: [&str; 10] = [
+/// refusals, holders and settings, then version 4's provider cool-downs,
+/// then version 5's seat trees.
+const QUEUE_TABLES: [&str; 11] = [
     "queue_entries",
     "queue_waits",
     "queue_commands",
@@ -368,13 +412,18 @@ const QUEUE_TABLES: [&str; 10] = [
     "dispatch_holders",
     "dispatch_settings",
     COOLDOWN_TABLE,
+    SEAT_TREE_TABLE,
 ];
 
-/// How many of [`QUEUE_TABLES`] version 3 held: all but the version 4
-/// table. Slice 3a's build wrote version 3 without the holders and the
-/// settings too (decision 0095 slice 3b), so a version 3 journal may hold
-/// [`QUEUE_TABLES_UNHELD`] of them.
+/// How many of [`QUEUE_TABLES`] version 3 held: all but the version 4 and
+/// version 5 tables. Slice 3a's build wrote version 3 without the holders
+/// and the settings too (decision 0095 slice 3b), so a version 3 journal
+/// may hold [`QUEUE_TABLES_UNHELD`] of them.
 const QUEUE_TABLES_V3: usize = 9;
+
+/// How many of [`QUEUE_TABLES`] version 4 held: all but the version 5
+/// table.
+const QUEUE_TABLES_V4: usize = 10;
 
 /// How many of [`QUEUE_TABLES`] version 3 held as slice 3a's build wrote
 /// it: all but the holders and the settings (decision 0095 slice 3b).
@@ -441,15 +490,18 @@ pub(crate) fn migrate_queue(conn: &Connection) -> Result<(), StoreError> {
     conn.execute_batch(MIGRATION_QUEUE_V3)?;
     refuse_cool_down_duplicates(conn)?;
     conn.execute_batch(MIGRATION_QUEUE_V4)?;
+    refuse_duplicates(conn)?;
+    conn.execute_batch(MIGRATION_QUEUE_V5)?;
     conn.execute(
         "INSERT INTO meta (key, value) VALUES (?1, ?2)
-         ON CONFLICT (key) DO UPDATE SET value = excluded.value WHERE value IN (?3, ?4, ?5)",
+         ON CONFLICT (key) DO UPDATE SET value = excluded.value WHERE value IN (?3, ?4, ?5, ?6)",
         params![
             QUEUE_SCHEMA_KEY,
             QUEUE_SCHEMA.to_string(),
             QUEUE_SCHEMA_V1.to_string(),
             QUEUE_SCHEMA_V2.to_string(),
-            QUEUE_SCHEMA_V3.to_string()
+            QUEUE_SCHEMA_V3.to_string(),
+            QUEUE_SCHEMA_V4.to_string()
         ],
     )?;
     Ok(())
@@ -516,16 +568,17 @@ pub(crate) fn queue_stored(conn: &Connection) -> Result<Option<Stored>, StoreErr
 /// binary can say what it holds.
 pub(super) fn cool_downs_held(conn: &Connection) -> Result<bool, StoreError> {
     match queue_stored(conn)? {
-        Some(Stored::V4) => Ok(true),
+        Some(Stored::V4 | Stored::V5) => Ok(true),
         Some(Stored::V1 | Stored::V2 | Stored::V3) | None => Ok(false),
     }
 }
 
 /// Does the queue hold the cool-down table a rows-bearing append writes?
-/// Version 4 is the only one this binary writes. A version 1, 2 or 3
-/// queue is from before the table, no queue at all holds none, and a
-/// version this binary does not know is a newer binary's queue, left as
-/// found: in each case only the event lands.
+/// Version 5 is the only one this binary writes. A version 1, 2 or 3
+/// queue is from before the table, a version 4 queue is older than this
+/// binary's version (and only an open that may write migrates it), no
+/// queue at all holds none, and a version this binary does not know is a
+/// newer binary's queue, left as found: in each case only the event lands.
 pub(super) fn cool_downs_writable(conn: &Connection) -> Result<bool, StoreError> {
     Ok(queue_schema(conn)? == Some(QUEUE_SCHEMA))
 }
