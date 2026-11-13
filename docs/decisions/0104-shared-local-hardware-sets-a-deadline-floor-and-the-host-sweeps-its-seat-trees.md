@@ -190,11 +190,21 @@ listing (ruling 9) is the window to look before a pass. A declared
   - It follows no link and crosses no filesystem.
   - It makes each directory owner-writable before removing its entries, because hands overlays leave read-only directories.
   - It counts each inode's allocated bytes once, and removes the root last.
-- **One row per complete removal, in `tree_sweeps`** (same storage version as `seat_trees`).
-  - **Columns:** rising `seq`; `kind` (`scratch` or `hands`); `tree_seq` (the `seat_trees` row, required for `scratch`, absent for `hands`); `path`; `bytes`; `removed_at`; `generation`, the dispatch holder's generation, absent for an on-demand pass.
+- **One row per complete removal, in `tree_sweeps`** (queue storage v6,
+  amended below).
+  - **Columns:** rising `seq`; `kind` (`scratch` or `hands`); `tree_seq` (the `seat_trees` row, required for `scratch`, absent for `hands`); `path`; `bytes`; `removed_at`; `generation`, the dispatch hold the pass took (amended below).
   - A unique index is on `tree_seq`. Triggers refuse update and delete.
 - **A partial removal** records nothing, and the pass reports its error. The next pass tries again.
 - **A recorded tree whose path is already absent** is recorded with `bytes` absent, meaning gone before the pass. So every `seat_trees` row closes.
+
+*Amended, 2026-11-13 (controller, #430):* `tree_sweeps` is queue storage
+v6, not the version `seat_trees` shipped in. Ruling 8 put both in "the same
+storage version", and slice 5b shipped `seat_trees` alone in v5; journals
+have migrated to v5, so the sweep's table is v6 after it. The amendment also
+gives every pass a generation: ruling 9 has a pass hold the journal's
+dispatch lock through `take_dispatch`, which writes a holder row of the next
+generation, so an on-demand pass takes one too. `generation` is therefore
+NOT NULL and names the hold the pass took; it is never absent.
 
 ### 9. Who sweeps, before slice 6
 
@@ -252,7 +262,7 @@ Smallest first. Each lands alone, tested, through the merge queue.
 
 **Queue order:**
 - 5a queues after decision 0103's slice 4c1 merges, because 4c1 is reshaping `engine/dispatch.rs`, where the deadline is read.
-- 5b and 5c queue after 0103's slice 4d merges, not only after its design, because their tables take queue storage v5 and 4d's take v4.
+- 5b and 5c queue after 0103's slice 4d merges, not only after its design, because their tables take queue storage v5 and v6 and 4d's take v4.
 - 5c follows 5b.
 
 1. **5a: the host floor and the deadline.** It needs nothing from decision 0103's open slices except 4c1's merge (see the queue order above).
@@ -275,7 +285,7 @@ Smallest first. Each lands alone, tested, through the merge queue.
      - the uniqueness and the `CHECK`s;
      - the triggers refuse update and delete.
 3. **5c: the sweep.**
-   - **Files:** `tree_sweeps` in the same storage version; the sweep function in brokkr-runtime; `brokkr sweep [--dry-run]` in brokkr-cli; the hands reaper's removals reported to the pass; and doctor's line for unrecorded trees.
+   - **Files:** `tree_sweeps` in queue storage v6; the sweep function in brokkr-runtime; `brokkr sweep [--dry-run]` in brokkr-cli; the hands reaper's removals reported to the pass; and doctor's line for unrecorded trees.
    - **Tests:**
      - a closed effect's tree goes, with its bytes recorded;
      - a parked run's open effect keeps every tree;
@@ -299,8 +309,9 @@ Smallest first. Each lands alone, tested, through the merge queue.
   what it freed. Trees an older engine made are listed, never removed.
 - This does not fix the volume seats write outside Brokkr's trees. That is
   named as the next question, not hidden in this one.
-- The price: `forge.host/v3`, two append-only tables in queue storage v5, one
-  verb, and one host read per attempt.
+- The price: `forge.host/v3`, two append-only tables in queue storage v6
+  (`seat_trees` in v5, `tree_sweeps` in v6), one verb, and one host read per
+  attempt.
 
 ## Evidence
 

@@ -822,7 +822,7 @@ fn a_cool_down_reader_refuses_an_unknown_queue_version() {
     ] {
         assert_eq!(
             error.to_string(),
-            "queue storage 9 unsupported (want 5)",
+            "queue storage 9 unsupported (want 6)",
             "{error:?}"
         );
         assert!(matches!(

@@ -23,9 +23,7 @@ const ROOT: &str = "/run/scratch";
 
 /// A store whose journal holds `RUN`, and one row planted by a raw insert.
 fn store(dir: &Path) -> Store {
-    let store = Store::open(&dir.join("forge.db")).unwrap();
-    plant_run(&store.conn, RUN, "{}").unwrap();
-    store
+    crate::test_support::seat_tree_store(dir, RUN)
 }
 
 /// One raw `seat_trees` row, past the append: the statement each `CHECK`
@@ -206,7 +204,7 @@ fn an_unknown_queue_version_writes_nothing_and_says_so() {
     let mut store = store(dir.path());
     store
         .conn
-        .execute("UPDATE meta SET value = '6' WHERE key = 'queue_schema'", [])
+        .execute("UPDATE meta SET value = '7' WHERE key = 'queue_schema'", [])
         .unwrap();
     assert_eq!(
         store
@@ -220,7 +218,7 @@ fn an_unknown_queue_version_writes_nothing_and_says_so() {
         .unwrap();
     assert_eq!(count, 0);
     let refused = store.seat_trees(RUN).unwrap_err();
-    assert_eq!(refused.to_string(), "queue storage 6 unsupported (want 5)");
+    assert_eq!(refused.to_string(), "queue storage 7 unsupported (want 6)");
 }
 
 #[test]
@@ -259,6 +257,8 @@ fn a_journal_with_no_queue_reads_no_seat_trees() {
     drop(store);
     let reader = Store::open_read_only(&path).unwrap();
     assert_eq!(reader.seat_trees(RUN).unwrap(), vec![]);
+    assert_eq!(reader.open_seat_trees().unwrap(), vec![]);
+    assert_eq!(reader.tree_sweeps().unwrap(), vec![]);
 }
 
 #[test]

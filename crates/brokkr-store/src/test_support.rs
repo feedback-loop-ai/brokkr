@@ -11,6 +11,7 @@
 //! feature, which only dev-dependencies enable.
 
 use std::collections::BTreeSet;
+use std::path::Path;
 
 use brokkr_core::canonical::ZERO_HASH;
 use brokkr_core::envelope::{EventEnvelope, EventType};
@@ -193,6 +194,14 @@ pub fn text(value: &str) -> Value {
 /// not: a run as a foreign or older writer left it, with no origin and no
 /// arrival. Inside a transaction a test holds open, it is also how the
 /// test takes the journal's write lock.
+/// A store whose journal holds `run` and nothing else, as the seat-tree
+/// tables' tests need a run for their foreign keys.
+pub fn seat_tree_store(dir: &Path, run: &str) -> Store {
+    let store = Store::open(&dir.join("forge.db")).unwrap();
+    plant_run(&store.conn, run, "{}").unwrap();
+    store
+}
+
 pub fn plant_run(conn: &Connection, run_id: &str, manifest: &str) -> rusqlite::Result<usize> {
     conn.execute(
         "INSERT INTO runs (run_id, feature, bundle_name, manifest, created_at)
