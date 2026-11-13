@@ -13,13 +13,14 @@ use super::measured_dump;
 
 /// The measured 0.2.1 tree with the seat's read-only `sandbox-policy` mode
 /// written into its config block, as the real composed tree carries it.
-fn policy_dump() -> String {
+pub(super) fn policy_dump() -> String {
     with_sandbox_mode(&measured_dump(), "read-only")
 }
 
 /// The hand-written `tool-bash` row of the measured fixture, with its one
 /// disabled flag, in the exact bytes the fixture writes.
-const TOOL_BASH: &str = "- id: tool-bash\n  name: '@deepseek-ai/dsh-tool-bash'\n  disabled: true\n";
+pub(super) const TOOL_BASH: &str =
+    "- id: tool-bash\n  name: '@deepseek-ai/dsh-tool-bash'\n  disabled: true\n";
 
 /// The measured fixture's one hands row.
 const HANDS: &str = "- id: brokkr-hands\n  name: '@deepseek-ai/dsh-mcp-client'\n";
@@ -40,7 +41,7 @@ fn on_hands(dump: &str, line: &str) -> String {
 
 /// Replace the measured `tool-bash` row with its id and name followed by
 /// `body`, so a test plants a block exactly as a composed tree carries it.
-fn tool_bash_row(dump: &str, body: &str) -> String {
+pub(super) fn tool_bash_row(dump: &str, body: &str) -> String {
     let row = format!("- id: tool-bash\n  name: '@deepseek-ai/dsh-tool-bash'\n{body}");
     let mutated = dump.replacen(TOOL_BASH, &row, 1);
     assert_ne!(mutated, dump, "the fixture names tool-bash");
@@ -183,15 +184,16 @@ fn the_whole_dump_refuses_a_break_or_control_on_every_line() {
 }
 
 /// C2 (MEDIUM, ruling 9): a non-ASCII-padded `name:` is not bound by
-/// Unicode trim, so the padded word is not the measured package. The plain
-/// `timer` row refuses by its padded name, and the policy row refuses the
-/// same way.
+/// Unicode trim, so the padded word is not the measured package. The pad
+/// sits before the quote, where the row value rule reads a plain start and
+/// does not strip it. The plain `timer` row refuses by its padded name, and
+/// the policy row refuses the same way.
 #[test]
 fn a_non_ascii_padded_name_is_not_trimmed() {
     let dump = policy_dump();
     let timer = dump.replacen(
         "  name: '@deepseek-ai/cordis-plugin-timer'\n",
-        "  name: '@deepseek-ai/cordis-plugin-timer'\u{a0}\n",
+        "  name: \u{a0}'@deepseek-ai/cordis-plugin-timer'\n",
         1,
     );
     assert_ne!(timer, dump, "the fixture names the timer row");
@@ -199,13 +201,13 @@ fn a_non_ascii_padded_name_is_not_trimmed() {
         gate(timer, Release::V0_2_1, Mode::ReadOnly),
         Err(Composition::Unmeasured {
             id: "timer".into(),
-            name: "'@deepseek-ai/cordis-plugin-timer'\u{a0}".into(),
+            name: "\u{a0}'@deepseek-ai/cordis-plugin-timer'".into(),
             release: Release::V0_2_1.label(),
         })
     );
     let policy = dump.replacen(
         "  name: '@deepseek-ai/dsh-sandbox-policy'\n",
-        "  name: '@deepseek-ai/dsh-sandbox-policy'\u{a0}\n",
+        "  name: \u{a0}'@deepseek-ai/dsh-sandbox-policy'\n",
         1,
     );
     assert_ne!(policy, dump, "the fixture names the policy row");
@@ -213,7 +215,7 @@ fn a_non_ascii_padded_name_is_not_trimmed() {
         gate(policy, Release::V0_2_1, Mode::ReadOnly),
         Err(Composition::Unmeasured {
             id: SANDBOX_POLICY.into(),
-            name: "'@deepseek-ai/dsh-sandbox-policy'\u{a0}".into(),
+            name: "\u{a0}'@deepseek-ai/dsh-sandbox-policy'".into(),
             release: Release::V0_2_1.label(),
         })
     );
@@ -410,9 +412,10 @@ fn an_unread_block_refuses_every_other_non_dump_line() {
 /// quoted value and key, a tagged single-quoted value, a plain scalar with
 /// an apostrophe and a double quote, empty flow collections, and `>-` block
 /// scalars at a value and a sequence item are admitted. The scalar content
-/// holds an open quote and an open bracket and a blank line, and the
+/// holds a quoted bracket and a blank line, and the
 /// two-space `inject:` after it is read again: content ends where the dump
-/// returns to the row's level.
+/// returns to the row's level. The content lines close their quote, because
+/// 1052g7's closure judges every line on its own.
 #[test]
 fn an_unread_block_admits_every_dump_line_it_reads() {
     let dump = policy_dump();
@@ -424,7 +427,7 @@ fn an_unread_block_admits_every_dump_line_it_reads() {
         "    d: it's a \"quote\"\n",
         "    h: \"a\\\"b\"\n",
         "    e: >-\n",
-        "      \"open [\n",
+        "      \"closed [\"\n",
         "\n",
         "      ] close\n",
         "    f: []\n",
@@ -433,7 +436,7 @@ fn an_unread_block_admits_every_dump_line_it_reads() {
         "  inject:\n",
         "    - '-I'\n",
         "    - >-\n",
-        "      'open [\n",
+        "      'closed ['\n",
         "  disabled: true\n",
     );
     assert_eq!(

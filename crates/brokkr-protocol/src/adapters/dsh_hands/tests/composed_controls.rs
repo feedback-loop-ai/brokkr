@@ -1,8 +1,9 @@
 //! Fix round 1052g4 (#1052): the `sandbox-policy` span refuses a line
 //! holding a break or control character before it skips anything, skips
-//! only ASCII space, tab and a `#` after them, and trims every value with
-//! ASCII space and tab only, so no line the gate skips or trims can hold
-//! what a YAML reader reads as structure.
+//! only ASCII space and a `#` after it, and trims every value with ASCII
+//! space only, so no line the gate skips or trims can hold what a YAML
+//! reader reads as structure. Fix round 1052g7 folds a tab into the
+//! dump-wide refusal, so it is no longer skip or trim material.
 
 #![cfg(unix)]
 
@@ -154,14 +155,15 @@ fn a_policy_span_admits_a_mode_before_a_later_two_space_key() {
     assert_eq!(gate(ordered, Release::V0_2_1, Mode::ReadOnly), Ok(()));
 }
 
-/// S1: a tab-only line and a comment line are still skipped, and a comment
-/// whose text after `#` holds non-ASCII characters is comment content, not
-/// a refused line: the tree passes with the mode behind it.
+/// S1: a space-only line and a comment line are still skipped, and a
+/// comment whose text after `#` holds non-ASCII characters is comment
+/// content, not a refused line: the tree passes with the mode behind it.
+/// A tab-only line is no longer skip material: 1052g7 refuses it dump-wide.
 #[test]
 fn a_policy_span_still_skips_ascii_space_and_a_non_ascii_comment() {
     let dump = policy_dump();
     for (what, separator) in [
-        ("a tab-only line", "\t\n"),
+        ("a space-only line", "  \n"),
         (
             "a comment holding a patch path",
             "# /var/tmp/patch\u{e9}\u{a0}.yml\n",
@@ -220,8 +222,9 @@ fn a_policy_span_refuses_a_non_ascii_padded_value() {
     );
 }
 
-/// S1: the ASCII trim still strips ASCII spaces and tabs, so a value the
-/// dump pads with them is the word the gate compares.
+/// S1: the ASCII trim still strips ASCII spaces, so a value the dump pads
+/// with them is the word the gate compares. A tab is refused dump-wide by
+/// 1052g7, so a tab-padded value is not trimmed into the word.
 #[test]
 fn a_policy_span_trims_ascii_padding() {
     let dump = policy_dump();
@@ -230,7 +233,11 @@ fn a_policy_span_trims_ascii_padding() {
     assert_eq!(gate(id, Release::V0_2_1, Mode::ReadOnly), Ok(()));
     let mode = dump.replace("    mode: read-only\n", "    mode: read-only\t \n");
     assert_ne!(mode, dump);
-    assert_eq!(gate(mode, Release::V0_2_1, Mode::ReadOnly), Ok(()));
+    assert_eq!(
+        gate(mode, Release::V0_2_1, Mode::ReadOnly),
+        Err(Composition::Unreadable),
+        "a tab-padded mode is refused, not trimmed"
+    );
     let disabled = dump.replace(
         "    mode: read-only\n",
         "    mode: read-only\n  disabled: false  \n",

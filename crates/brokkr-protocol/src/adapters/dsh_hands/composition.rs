@@ -16,12 +16,15 @@
 //! left disabled or a dump that cannot be read. A hands seat is never
 //! served a composition nobody measured.
 //!
-//! The whole dump is read by one closed row grammar, not only the one
-//! `sandbox-policy` row: every line is refused for a break or control
-//! before anything else, every row's two-space keys are closed to `name:`,
-//! `disabled:`, `config:` and `inject:` each at most once, and a deeper
-//! line is admitted only while `config:` or `inject:` opened a block. The
-//! grammar's one home is [`rows`].
+//! The whole dump is read by two passes, not only the one `sandbox-policy`
+//! row. First every line is refused for a break, control or tab. Then the
+//! line-property closure refuses any line that leaves a quote or a flow
+//! collection open, independent of the row grammar and its block
+//! bookkeeping. Only then does the row grammar read the dump: every row's
+//! two-space keys are closed to `name:`, `disabled:`, `config:` and
+//! `inject:` each at most once, and a deeper line is admitted only while
+//! `config:` or `inject:` opened a block. The closure's home is
+//! [`carriers`] and the grammar's one home is [`rows`].
 
 use std::process::{Command, Stdio};
 
@@ -32,6 +35,14 @@ use super::{Mode, Release, HANDS_ID, MCP_CLIENT, SANDBOX_POLICY};
 mod rows;
 
 pub(crate) use self::rows::rows;
+
+/// The dump's line-property closure: refuse [`Composition::Unreadable`] if
+/// any line leaves a quote or a flow collection open. [`rows`] runs it after
+/// the dump-wide break, control and tab rule and before the row grammar;
+/// the closure's unit tests read this one seam alone.
+pub(crate) fn closure(text: &str) -> Result<(), Composition> {
+    rows::carriers::check(text)
+}
 
 /// A dump larger than this is not the measured shape, and is refused
 /// before it is parsed.

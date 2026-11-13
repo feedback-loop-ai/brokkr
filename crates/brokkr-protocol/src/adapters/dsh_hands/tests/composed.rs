@@ -442,13 +442,14 @@ fn every_unadmitted_line_in_the_sandbox_policy_span_refuses() {
     );
 }
 
-/// F1: a blank, comment or whitespace-only line between `config:` and the
-/// mode is skipped, so the block stays open and the mode is still read. The
-/// tree passes, which the old indent close would turn into `NoMode`.
+/// F1: a blank, comment or space-only line between `config:` and the mode
+/// is skipped, so the block stays open and the mode is still read. The tree
+/// passes, which the old indent close would turn into `NoMode`. A tab line
+/// is refused dump-wide by 1052g7 and is not skip material.
 #[test]
 fn a_skipped_line_does_not_close_the_sandbox_config() {
     let dump = with_sandbox_mode(&measured_dump(), "read-only");
-    for separator in ["\n", "# c\n", "  # c\n", "  \n", "\t\n"] {
+    for separator in ["\n", "# c\n", "  # c\n", "  \n"] {
         let mutated = dump.replace(
             "  config:\n    mode: read-only\n",
             &format!("  config:\n{separator}    mode: read-only\n"),
