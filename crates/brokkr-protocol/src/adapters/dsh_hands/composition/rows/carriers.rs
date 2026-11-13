@@ -154,8 +154,8 @@ fn plain_open(value: &str) -> bool {
 }
 
 /// Whether the byte at `next` is an ASCII space, which ends a key's colon.
-/// A colon at the line's end is read by [`node_open`] on an empty value,
-/// which leaves nothing open either way.
+/// A colon at the line's end has no value to read, so it does not end a
+/// key: it is plain content and nothing follows it.
 fn colon_ends_key(value: &str, next: usize) -> bool {
     value.as_bytes().get(next) == Some(&b' ')
 }

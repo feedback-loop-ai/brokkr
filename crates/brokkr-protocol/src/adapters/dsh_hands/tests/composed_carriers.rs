@@ -519,6 +519,10 @@ fn plain_values_the_dump_never_writes_refuse() {
 /// an open flow all refuse; a property ended by `,`, `]` or `}` leaves a
 /// node the pass reads as closed, as the rule says. Dropping the `: ` arm,
 /// the `!` member, or any one of the flow indicators flips its case.
+/// Every marker is stripped, not only the first, and so is every property;
+/// the spaces after a quoted node and around a property are a run; and a
+/// property token ends at its first space. A `#` inside a plain scalar cuts
+/// a comment only after a space. Dropping any one of those flips its case.
 #[test]
 fn the_closure_reads_a_colon_marker_a_tag_and_every_property_end() {
     for (what, text) in [
@@ -533,6 +537,25 @@ fn the_closure_reads_a_colon_marker_a_tag_and_every_property_end() {
         ),
         ("a tag then an open quote", "    k: !!str \"x\n"),
         ("a brace ends an anchor and opens a flow", "    k: &a{b,\n"),
+        ("a second item marker kept as plain text", "- - \"x\n"),
+        (
+            "a comment marker jammed against a plain scalar",
+            "    k: a#b: \"x\n",
+        ),
+        (
+            "two properties before an open quote",
+            "    k: !!js &a \"x\n",
+        ),
+        (
+            "a quoted key with two spaces before its colon",
+            "    \"k\"  : \"x\n",
+        ),
+        ("a one-character property before a quote", "    k: ! \"x\n"),
+        ("two spaces before an open quoted value", "    k:  \"x\n"),
+        (
+            "a tagged value with two spaces before an open quote",
+            "    k: !!str  \"x\n",
+        ),
     ] {
         assert_eq!(closure(text), Err(Composition::Unreadable), "{what}");
     }
@@ -552,21 +575,31 @@ fn the_closure_reads_a_colon_marker_a_tag_and_every_property_end() {
     ] {
         assert_eq!(closure(text), Ok(()), "{what}");
     }
+
+    // The repeated-marker rule's carrier: without it the second marker stays
+    // plain text, so the tree's empty item is admitted both by the pass and
+    // by the whole gate, which reads the block as content and never sees it.
+    let dump = policy_dump();
+    let repeated = tool_bash_row(&dump, "  disabled: true\n  config:\n    - - # c\n");
+    refuses("a repeated item marker before a comment", &repeated);
 }
 
 /// The closure's admitted line starts: a comment, a block-scalar header and
 /// a plain scalar cut at ` #` all leave nothing open even when a key and a
 /// quote follow, and a `? ` or a `: ` after a `- ` leaves the dash marker
-/// closed. A flow node's space or colon tail and a closed quote with no
-/// space before its colon leave nothing open too. Dropping the `#` arm, the
-/// `|`/`>` arm, the ` #` cut, the `dash = false` reset after `? ` or `: `,
-/// either flow tail, or `after_node`'s space guard refuses one of them, a
-/// false refusal.
+/// closed. A flow node's space or colon tail, a colon with no space after it
+/// (plain content, not a key separator), and a closed quote with no space
+/// before its colon leave nothing open too. Dropping the `#` arm, either
+/// half of the `|`/`>` arm, the ` #` cut, the `dash = false` reset after
+/// `? ` or `: `, either flow tail, or `after_node`'s space guard refuses
+/// one of them, a false refusal. The `:` arm's byte check is what keeps
+/// `k:"x` from splitting a key, and `|` is a header exactly as `>` is.
 #[test]
 fn the_closure_admits_a_comment_a_header_and_a_cut_comment() {
     for (what, text) in [
         ("a comment at a node's start", "    # t: \"x\n"),
         ("a block header with a key-shaped tail", "    > k: \"x\n"),
+        ("a literal header with a key-shaped tail", "    | k: \"x\n"),
         ("a plain scalar cut before its key", "    a # b: \"x\n"),
         (
             "a question after an item marker and a comment",
@@ -579,6 +612,7 @@ fn the_closure_admits_a_comment_a_header_and_a_cut_comment() {
             "a closed quoted key jammed against an open quote",
             "    \"k\":\"x\n",
         ),
+        ("a colon jammed against an open quote", "    k:\"x\n"),
     ] {
         assert_eq!(closure(text), Ok(()), "{what}");
     }
