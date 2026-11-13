@@ -153,6 +153,10 @@ fn the_closure_refuses_the_empty_item_and_every_open_node() {
             "  config:\n    ? \"x\n  disabled: true\n",
         ),
         (
+            "a colon indicator with an open quote",
+            "  config:\n    : \"x\n  disabled: true\n",
+        ),
+        (
             "a non-empty flow sequence",
             "  config:\n    k: [a]\n  disabled: true\n",
         ),
@@ -333,6 +337,7 @@ fn the_closure_admits_every_closed_shape() {
     assert_eq!(closure("\n\n"), Ok(()), "empty lines leave nothing open");
     for (what, text) in [
         ("a `? ` marker and a bare `?`", "? x\n?\n"),
+        ("a bare colon and a colon then a comment", ":\n: # c\n"),
         (
             "a tag with no space after it, and a tag alone",
             "k: !tag\nk: !!js\nk: !\n",
