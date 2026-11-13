@@ -143,7 +143,8 @@ controller can follow this procedure.
    The refusal order is the dump-wide break, control and tab rule, then the
    line-property closure, then the row grammar. The closure runs after the
    first and before the second, and it admits nothing the row grammar
-   refuses; it only refuses a line that leaves something open.
+   refuses; it only refuses a line that leaves a quote, a non-empty flow
+   collection or an empty sequence item open.
 
    - **Breaks, controls and tabs first, on every line of the dump.** Any
      line holding a C0 control other than tab (U+0000–U+0008 and
@@ -161,43 +162,65 @@ controller can follow this procedure.
      `ascii_trim` read ASCII spaces only now.
    - **The closure, on every non-empty line.** After the rule above and
      before the row grammar, a second pass reads every line on its own and
-     refuses `Unreadable` if it leaves a quote or a flow collection open.
-     Under YAML only a quoted scalar or a flow collection can continue onto
-     a line indented at or under its parent; a block scalar's and a plain
-     multi-line scalar's content ends at the first non-blank line at or
-     under the parent. So if no line, read as a structure line at its own
-     position, leaves a quote or a flow collection open, no line can carry
+     refuses `Unreadable` if it leaves a quote, a non-empty flow collection
+     or an empty sequence item open. PyYAML has two carriers: a quoted
+     scalar and a flow collection can continue onto a line indented at or
+     under its parent. js-yaml 4.3.2, dsh's reader, has a third: it folds
+     the next less-indented `- ` line into an empty sequence item. So
+     `- id: sandbox` / `  inject:` / `    -` / `- id: sandbox-policy` /
+     `  config:` / `    mode: read-only` reads
+     `inject: [null, {id: sandbox-policy, …}]`, and the policy row is
+     gone; PyYAML reads the policy row. The same fold happens through a
+     `# ==` line, with `    -   # c`, inside `    - - a` / `      -`, and
+     after `    k:` / `    -`. A block scalar's and a plain multi-line
+     scalar's content still ends at the first non-blank line at or under
+     the parent. So if no line, read as a structure line at its own
+     position, leaves one of those three carriers open, no line can carry
      a following row's keys away, whether YAML reads the line as structure
      or as block content. The pass judges no value and admits nothing the
      row grammar refuses.
-     - **The line reading.** Strip the leading ASCII spaces, then any
-       `- ` or `? ` markers; a bare `-` or `?` ends the line, and a `#`
-       after the markers is a comment. Strip any `!` or `&` token (the
-       indicator, a non-space run, and the space after it). Then a quoted
-       scalar must close on the line, with YAML's scanning (`''` inside
-       single quotes and `\` escaping the next character inside double
-       quotes); after it, ASCII spaces are skipped, and a `: ` starts a
-       value read by the same rule. A flow collection must balance its
-       brackets, and a quote that starts a flow node (at the collection's
-       start or after `[`, `{`, `,`, `:` or a space) is scanned and must
-       close. A plain scalar is read up to the first ` #`, and its first
-       `: ` starts a value read by the same rule; quotes inside it are
-       plain content and are not scanned.
-     - **The controller's measurement, not re-run by this seat.** Its
-       prototype (`/var/tmp/1052g7-proto/open.py`, read-only, not
-       committed) admits all four real dumps (the committed 0.2.1 dump,
-       the two 0.2.2-rc.1 overlay dumps and the plain 0.2.2-rc.1 dump) and
-       refuses every C1 and C2 case and the adversarial HIGH. On 160,000
-       generated trees (a `config:` or `inject:` block of one to five
-       lines at four to ten spaces, built from quotes, flow brackets,
-       block headers, tags, anchors, markers, keys and comments, with an
-       optional two-space `disabled:` and a closing line after the row),
-       PyYAML found 0 differentials and about 54,000 trees were admitted.
-       On a further 120,000 trees, js-yaml 4.3.2 found 0 differentials
-       over the 40,636 admitted: 33,532 refused to parse (fail-closed) and
-       7,104 read exactly as the gate reads them. The one defect it found
-       was ASCII spaces between a quoted key and its colon
-       (`"j: " : "x`); YAML allows them, so the value after them is read.
+     - **The line indicators.** Strip the leading ASCII spaces, then every
+       `- `, `? ` or `: ` marker, with the spaces after each. A bare `-`
+       refuses, and so does a last `- ` marker followed by nothing or by a
+       comment: that is an empty sequence item. A bare `?` or `:` leaves
+       nothing open.
+     - **A node.** Strip every `!` or `&` property; its token ends at an
+       ASCII space or a flow indicator (`,`, `[`, `]`, `{` or `}`), and
+       the spaces after it are stripped. Then a quoted scalar must close on
+       the line, with YAML's scanning (`''` inside single quotes and `\`
+       escaping the next character inside double quotes). A flow collection
+       is admitted only as exactly `[]` or `{}`; any other flow at a node's
+       start refuses, so `[a, # ]`, `[?'a]', b` and `&a[b,` refuse and no
+       non-empty flow is a dump line. An alias (`*`, ending as a property
+       token does) is read next. A block-scalar header (`|` or `>`) and a
+       comment (`#`) leave nothing open. A plain scalar is read up to the
+       FIRST of `: ` (a key, whose value is read as a node) or ` #` (a
+       comment); a quote inside it is plain content, so `k: 'a #b'` reads
+       the closed quoted value after the key.
+     - **After every node.** Skip ASCII spaces. If `:` follows, then a space
+       or the line's end, the text after it is a node read by the same
+       rule. This applies after a quoted scalar, a flow collection, an
+       alias and a plain scalar, so `[]: "x`, `{}: "x`, `"k" : "x` and
+       `*a : "x` all have their value read.
+     - **The controller's measurement, not re-run by this seat.** Fix round
+       1052g7's prototype (`/var/tmp/1052g7-proto/open.py`) measured the
+       earlier two-carrier reading. 1052g8's prototype
+       (`/var/tmp/1052g8-proto/closure.py`, both read-only and not
+       committed) is the rebuilt pass above. It admits all four real dumps
+       (the committed 0.2.1 dump, the two 0.2.2-rc.1 overlay dumps and the
+       plain 0.2.2-rc.1 dump) and refuses every 1052g7 finding, the empty
+       item included. On 600,000 generated trees from a token generator,
+       the closure and a row filter standing in for the grammar admitted
+       161,154. On 400,000 trees from a generator of mostly-valid YAML
+       lines (markers including `-   `, `- - ` and `? `; quoted, flow,
+       anchored, tagged and plain keys; `: `, `:` and ` : ` separators;
+       values with open quotes, open and closed flows, comments inside
+       flows, `[]: "x`, anchors against flow brackets, block headers and
+       escapes), 96,763 were admitted. PyYAML found 0 differentials and
+       js-yaml 4.3.2 found 0 differentials; most admitted trees fail to
+       parse in both readers (fail-closed), and about 21,000 and 15,500
+       respectively read exactly as the gate reads them. Those counts are
+       the controller's, not this seat's.
    - **Skips everywhere.** Only an empty line, a line of ASCII spaces,
      or a line whose first character after those is `#` is skipped.
      Text after the `#` is comment content, non-ASCII characters
@@ -255,10 +278,19 @@ controller can follow this procedure.
        which is then read normally. The node column is the key's column
        when the header is a key's value, and the last marker's column for
        a bare item: for `    - k: >-` it is 6, so a line at column 6 is
-       read and a line at column 7 or more is content. The measured
-       trees' only headers are `>-`, `>` and `!!js >-`. A header with an
-       indentation indicator (`|2`, `>1-`) refuses `Unreadable`, since no
-       real tree carries one.
+       read and a line at column 7 or more is content. A `-` marker
+       followed by more than one space records no column: the grammar
+       refuses that line (see the marker rule below), so the sentence is
+       true for the one-space markers js-yaml writes and not for a wider
+       one. The measured trees' only headers are `>-`, `>` and `!!js >-`.
+       A header with an indentation indicator (`|2`, `>1-`) refuses
+       `Unreadable`, since no real tree carries one.
+     - **A `-` marker followed by more than one space refuses.** Any `-`
+       marker followed by more than one ASCII space refuses `Unreadable`,
+       anywhere in the dump, as the column-zero `-   id:` already did.
+       js-yaml's dump writes exactly `- `, so a wider marker is not a dump
+       line, and `read_unread` would record the key at the marker's column
+       rather than the key's. No real dump carries one.
      - **Every other line is read for structure.** Strip the indentation
        and any `- ` sequence markers. If what remains starts with a quote,
        the quoted scalar must close on the line, followed by nothing but
@@ -278,10 +310,11 @@ controller can follow this procedure.
        (`it's`, `echo "hi"`, `!!js a ?? 'b'`) are plain content and are
        not scanned.
      - **Every other line refuses `Unreadable`.** An open quote, an open
-       flow collection, an anchor (`&`), an alias (`*`), `? `, a
-       directive, a reserved indicator, a block-scalar indentation
+       or non-empty flow collection, an anchor (`&`), an alias (`*`),
+       `? `, a directive, a reserved indicator, a block-scalar indentation
        indicator, a double-space separator that a lenient YAML reader
-       takes for structure, and a quoted scalar followed by junk are all
+       takes for structure, a plain value holding ` #` (js-yaml's dump
+       writes no comment), and a quoted scalar followed by junk are all
        refused. A tab is refused earlier, dump-wide.
      - The block's lines stay unread in meaning: no other row's config
        value is judged, and the rule bounds only where the block ends.
@@ -290,8 +323,10 @@ controller can follow this procedure.
    - **Values.** The two-space `- id:`, `name:` and `disabled:` values are
      read by the same block value rule as an unread block's value: a
      closed quote, one optional tag, or a plain start, with no open quote,
-     open flow, anchor, alias or block header. An open quote refuses
-     `Unreadable` before its word is taken. Other rows' `disabled:` keeps
+     open flow, anchor, alias, block header or ` #`. An open quote refuses
+     `Unreadable` before its word is taken, and a plain value holding ` #`
+     refuses, since js-yaml's dump writes no comment. Other rows'
+     `disabled:` keeps
      its reading: exactly `true`
      after the ASCII trim is disabled, and `false` and `!!js …` are not,
      so a row that must be disabled refuses `Enabled`. The
@@ -426,16 +461,36 @@ refusal set covers C1a to C1f, C2 and the adversarial HIGH, the quoted
 key with spaces before its colon, an open flow after a quoted key, and
 the `\"` and backslash-continuation quotes; the admitted set covers the
 measured line-77 shape in a tagged block, a closed quoted key with
-spaces, `!!js '!ctx.get(''p'')'`, a closed flow holding a closed quote in
-block content, and both committed real-tree fixtures. The node-column
-test reads a line at the header's column and skips one at node column
-plus two. The tab tests cover C3a, C3b and a tab inside block content.
-The plain-value test refuses `- a`, `- "x`, `j: "x`, `]`, `,` and `:`
-and admits `-1` and `a-b`. The row grammar's two inline tests read the
-`disabled:`, `- id:` and `name:` values and refuse the open quote and the
-header on their own; the C2 gate cases still refuse through the closure
-when the bare word is restored. Each removal control and its observed
-failing test is recorded in the code commit message.
+spaces, `!!js '!ctx.get(''p'')'`, and both committed real-tree fixtures.
+(1052g8 moves this round's admitted closed flow `[a, "b"]` from block
+content to the refusal set: a non-empty flow at a node's start is now
+refused.) The node-column test reads a line at the header's column and
+skips one at node column plus two. The tab tests cover C3a, C3b and a tab
+inside block content. The plain-value test refuses `- a`, `- "x`,
+`j: "x`, `]`, `,` and `:` and admits `-1` and `a-b`. The row grammar's
+two inline tests read the `disabled:`, `- id:` and `name:` values and
+refuse the open quote and the header on their own; the C2 gate cases
+still refuse through the closure when the bare word is restored. Each
+removal control and its observed failing test is recorded in the code
+commit message.
+
+Fix round 1052g8 rebuilds the closure's tests around the three carriers and
+adds the row grammar's wider-marker and ` #` refusals. Refused through the
+pass alone and through `gate`: the adversarial HIGH; `[]: "x`, `{}: "x`
+and `*a : "x`; the four empty-item folds (`-`, `-   `, `-   # c` and
+`- - a` / `      -`) before the policy row; `k: [a, # ]`,
+`"k": [a, # ]`, `k: [?'a]', b`, `k: &a[b,`, `k: [a]`, `k: {a: b}`,
+`k: &a "x` and `? "x`. Admitted through both: `k: 'a #b'`, `k: "a #b"`,
+`- id: 'a #b'` (read by the passes, then refused by the judge as
+`Unmeasured` for its id), `- null`, `- []`, `k: []`, `k: {}`, `"k" : v`,
+the measured lines 76 and 77 in a `!!js >-` block, and
+`      with a # title. Make` in folded content. The row-grammar tests
+refuse `-   k: >-` / `j: [a]`, `-  k: >-` / `j: *a` and `-  "k": >-`,
+and the two-space `disabled: true # c` on the tool-bash and sandbox rows.
+The inline units read the wider marker, the bare item's node column and a
+`}` plain start. Each removal control (a) to (k), R2, the ` #` rule, `}`
+and `Header::Item` was a compiling mutation observed failing and restored;
+the code commit message records each with its failing test.
 
 ## A real seat tree, judged (controller, 2026-11-12)
 
@@ -556,10 +611,12 @@ inside the one measuring call and used as `DSH_HOME` there; the prepared
 home was not modified. The test ran each mode twice, once capturing the
 dump for its bytes and digest and once handing the command to the gate.
 The dump's bytes depend on `DSH_HOME` and the overlay path, so this table
-is not byte-comparable with the 1052g6 table above. The test-only coverage
-commit `8ff369ac5` was re-measured the same way: the two dumps keep their
-lengths (16,975 and 17,029 bytes) and the digests change because the random
-`/tmp` home path changed in the `# ==` lines.
+is not byte-comparable with the 1052g6 table above. The coverage commit
+`8ff369ac5` was re-measured the same way: it also edits `rows.rs` and its
+new `rows/carriers.rs`, so it is not a test-only diff; its no-behaviour-
+change claim is about the closure's decisions, not its file list. The two
+dumps keep their lengths (16,975 and 17,029 bytes) and the digests change
+because the random `/tmp` home path changed in the `# ==` lines.
 
 | Mode | Overlay bytes | Dump | Rows | Gate |
 | --- | --- | --- | --- | --- |
@@ -576,6 +633,45 @@ passes with its own 99 rows. The seat's own gate commands measured the
 same commit: `cargo test -p brokkr-protocol --lib --all-features
 --locked -- adapters::` passed 659 tests, including
 `the_real_tree_fixtures_pass_the_closure_and_the_gate`.
+
+## A real 0.2.2-rc.1 composed tree at 1052g8's head (2026-11-13)
+
+Fix round 1052g8 re-ran the method on `git archive` of its code commit
+`03b732efb`, never committed. The throwaway test built both overlays with
+`hands_rows(Release::V0_2_2, mode, "/bin/brokkr", ["hands", "serve"])`,
+ran `dsh --profile headless --patch <overlay> --dump-config` from the
+isolated `/var/tmp/dsh-0.2.2-rc.1` prefix (dsh 0.2.2-rc.1, js-yaml
+4.3.2) under the controller's scratch home, and handed that same command
+to `composition_gate`. This box's `/var/tmp` is read-only under the seat's
+file sandbox, so the prepared home was copied byte-for-byte to `/tmp`
+inside the one measuring call and used as `DSH_HOME` there; the prepared
+home was not modified. The test ran each mode twice, once capturing the
+dump for its bytes and digest and once handing the command to the gate.
+It also read the plain 0.2.2-rc.1 dump at
+`/var/tmp/dsh-scratch-1052g5/dump.txt`, whose closure is `Ok(())`. The
+dump's bytes depend on `DSH_HOME` and the overlay path, so this table is
+not byte-comparable with the 1052g7 table above: the `/tmp` copy's path is
+longer than that round's, and the `# ==` lines carry it.
+
+| Mode | Overlay bytes | Dump | Rows | Gate |
+| --- | --- | --- | --- | --- |
+| `read-only` | 913 | exit 0, 16,840 bytes, sha256 `f815f6ce18a81afe…` | 100 | `Ok(())` |
+| `workspace-write` | 919 | exit 0, 16,894 bytes, sha256 `887d682a7289c696…` | 100 | `Ok(())` |
+
+Both dumps are 0.2.2's plain 99 plus the `brokkr-hands` insert, both carry
+no tab and neither carries a bare `-`, a marker followed by more than one
+space, a non-empty flow at a node's start or an empty sequence item. Both
+pass the gate under the rebuilt line-property closure (empty item
+included), the dump-wide break, control and tab rule, the wider-marker
+refusal, the two-space ` #` rule, the node-column unread-block rule and
+the measured policy `inject:` rule. Their `sandbox-policy` row carries the
+seat's mode in its `config:` block and the measured
+`inject:`/`- headlessStartup` block; the 0.2.1 committed fixture still
+passes with its own 99 rows. The seat's own gate commands measured the
+same commit: `cargo test -p brokkr-protocol --lib --all-features
+--locked -- adapters::` passed 666 tests, including
+`the_real_tree_fixtures_pass_the_closure_and_the_gate` and the two
+1052g8 closure tests.
 
 ## Pending
 
