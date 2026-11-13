@@ -317,9 +317,9 @@ fn an_append_with_rows_refuses_a_journal_whose_meta_is_gone() {
     assert_eq!(store.load("run-a").unwrap().len(), 1, "the event landed");
 }
 
-/// A version 4 journal whose cool-down table is lost under an open store.
+/// A version 5 journal whose cool-down table is lost under an open store.
 /// An append with no rows still lands: it never prepares the table's
-/// statement, and on a version 4 queue the empty-rows guard alone is what
+/// statement, and on a version 5 queue the empty-rows guard alone is what
 /// keeps it from doing so. A rows-bearing append refuses on SQLite's own
 /// text and rolls its event back, and the reader refuses the same way:
 /// both fail closed, and neither answers from a table that is not there.

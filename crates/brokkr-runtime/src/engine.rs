@@ -1301,7 +1301,7 @@ impl Engine {
             Some(_) => built_boundary(self.boundary).expect("the entry fence admitted these hands"),
         };
         let workdir = self.workdir();
-        let (unboxed, refused_tree) = seat_tree::made(self, ids, hands, &command);
+        let made = seat_tree::made(self, ids, hands, &command);
         let class = if gate {
             SeatClass::Gate
         } else {
@@ -1330,10 +1330,12 @@ impl Engine {
                 (&self.bundle.executable, &artifacts, sealed),
                 &self.bundle.roots,
                 result_path,
-                unboxed.as_ref(),
+                made.unboxed(),
             )
         };
-        spawn.refusal = refused_tree
+        spawn.refusal = made
+            .refusal()
+            .map(|refusal| refusal.to_string())
             .or(unrooted.map(|unrooted| unrooted.to_string()))
             .or(spawn.refusal);
         spawn

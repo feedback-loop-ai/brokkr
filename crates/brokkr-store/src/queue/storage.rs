@@ -338,9 +338,11 @@ CREATE TABLE IF NOT EXISTS seat_trees (
     effect_id TEXT NOT NULL CONSTRAINT effect_named CHECK (length(effect_id) > 0),
     attempt_id TEXT NOT NULL CONSTRAINT attempt_is_uuid CHECK (
         attempt_id GLOB '[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]'
+        AND length(CAST(attempt_id AS BLOB)) = 36
     ),
     root TEXT NOT NULL CONSTRAINT root_absolute CHECK (substr(root, 1, 1) = '/')
-        CONSTRAINT root_is_scratch CHECK (substr(root, -8) = '/scratch'),
+        CONSTRAINT root_is_scratch CHECK (substr(root, -8) = '/scratch')
+        CONSTRAINT root_has_no_nul CHECK (instr(CAST(root AS BLOB), x'00') = 0),
     recorded_at INTEGER NOT NULL CONSTRAINT recorded_is_seconds
         CHECK (typeof(recorded_at) = 'integer')
 );
@@ -397,7 +399,8 @@ const QUEUE_INDEXES: [&str; 2] = [COOLDOWN_INDEX, SEAT_TREE_INDEX];
 
 /// The queue's tables, in the order the migrations create them: version
 /// 1's three, then version 2's latches and pins, then version 3's claims,
-/// refusals, holders and settings, then version 4's provider cool-downs.
+/// refusals, holders and settings, then version 4's provider cool-downs,
+/// then version 5's seat trees.
 const QUEUE_TABLES: [&str; 11] = [
     "queue_entries",
     "queue_waits",
@@ -571,10 +574,11 @@ pub(super) fn cool_downs_held(conn: &Connection) -> Result<bool, StoreError> {
 }
 
 /// Does the queue hold the cool-down table a rows-bearing append writes?
-/// Version 4 is the only one this binary writes. A version 1, 2 or 3
-/// queue is from before the table, no queue at all holds none, and a
-/// version this binary does not know is a newer binary's queue, left as
-/// found: in each case only the event lands.
+/// Version 5 is the only one this binary writes. A version 1, 2 or 3
+/// queue is from before the table, a version 4 queue is older than this
+/// binary's version (and only an open that may write migrates it), no
+/// queue at all holds none, and a version this binary does not know is a
+/// newer binary's queue, left as found: in each case only the event lands.
 pub(super) fn cool_downs_writable(conn: &Connection) -> Result<bool, StoreError> {
     Ok(queue_schema(conn)? == Some(QUEUE_SCHEMA))
 }

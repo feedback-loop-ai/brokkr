@@ -952,7 +952,7 @@ fn journal_with_a_version_1_queue(path: &Path) {
 }
 
 /// A version 1 queue reads as it stands, and the first open that may
-/// write brings it to version 4 with its entries and commands kept, and
+/// write brings it to version 5 with its entries and commands kept, and
 /// re-pins then work on it.
 #[test]
 fn a_version_1_queue_is_read_as_it_stands_and_migrated_with_its_entries_kept() {

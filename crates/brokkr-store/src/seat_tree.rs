@@ -4,9 +4,10 @@
 //! the attempt's id; the row is the authority the later sweep reads, and a
 //! tree no row names is never removed.
 //!
-//! A version 4 queue holds no table. A queue this binary does not know is a
-//! newer binary's and is left as found: the append writes nothing and says
-//! so, as a cool-down append leaves a newer queue alone.
+//! A version 1, 2, 3 or 4 queue holds no table. A queue this binary does
+//! not write here — older and opened read-only, or newer than this binary
+//! knows — is left as found: the append writes nothing and says so, as a
+//! cool-down append leaves an older or newer queue alone.
 
 use std::path::{Path, PathBuf};
 
@@ -39,16 +40,16 @@ pub struct SeatTree {
 }
 
 /// What an append did: wrote the row, found the same row already standing,
-/// or wrote nothing because the queue is a version this binary does not
-/// know.
+/// or wrote nothing because the queue is one this binary does not write here.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SeatTreeRecord {
     /// The row was written.
     Written,
     /// The same row stood already; nothing was written.
     Present,
-    /// The queue is a version this binary does not know: left as found,
-    /// and nothing was written.
+    /// The queue is one this binary does not write here — older and opened
+    /// read-only, or newer than this binary knows: left as found, and
+    /// nothing was written.
     Unrecorded,
 }
 
@@ -81,7 +82,8 @@ impl Store {
     /// One row per `(run_id, attempt_id)`: the same append a second time
     /// writes nothing and succeeds, while one that differs in effect or
     /// root is refused by [`SeatTreeRefusal::Mismatch`]. A queue this
-    /// binary does not know is left as found and reports
+    /// binary does not write here — older and opened read-only, or newer
+    /// than this binary knows — is left as found and reports
     /// [`SeatTreeRecord::Unrecorded`], so an older engine's tree is made
     /// without a row, as slice 5c's doctor expects.
     pub fn record_seat_tree(

@@ -43,6 +43,24 @@ fn one_row(engine: &Engine) {
     assert_eq!(rows[0].attempt_id, ATTEMPT);
 }
 
+/// The refusal is an unmade tree at `path`, with the sentence the spawn
+/// carries around its cause.
+fn assert_unmade(refused: &Unready, path: &std::path::Path) {
+    assert!(matches!(
+        refused,
+        Unready::Unmade { attempt, path: named, .. }
+            if attempt == ATTEMPT && named.as_path() == path
+    ));
+    let words = refused.to_string();
+    assert!(
+        words.starts_with(&format!(
+            "the seat tree for attempt '{ATTEMPT}' could not be made at '{}': ",
+            path.display()
+        )),
+        "{words}"
+    );
+}
+
 #[test]
 fn the_row_lands_before_the_tree() {
     let (_dir, mut engine) = engine(single_body(vec!["driver".into()]));
@@ -63,18 +81,14 @@ fn the_row_lands_before_the_tree() {
     assert_eq!(rows[0].root, root);
     assert!(root.join(ATTEMPT).is_file());
     assert!(!root.join(ATTEMPT).join("home").exists());
-    assert!(
-        refused.starts_with("the seat tree for attempt"),
-        "{refused}"
-    );
-    assert!(refused.contains("could not be made"), "{refused}");
+    assert_unmade(&refused, &root.join(ATTEMPT).join("home"));
 
     // The tree's second directory failing leaves the same row and no tree.
     std::fs::remove_file(root.join(ATTEMPT)).unwrap();
     std::fs::create_dir(root.join(ATTEMPT)).unwrap();
     std::fs::write(root.join(ATTEMPT).join("tmp"), "").unwrap();
     let refused = unboxed(&mut engine, ids(), &HandsSpec::default()).unwrap_err();
-    assert!(refused.contains("could not be made"), "{refused}");
+    assert_unmade(&refused, &root.join(ATTEMPT).join("tmp"));
     assert_eq!(engine.store.seat_trees(&engine.run_id).unwrap().len(), 1);
 }
 
@@ -143,6 +157,8 @@ fn a_refused_record_makes_no_tree_and_names_the_record() {
         .store
         .record_seat_tree(&engine.run_id, "another-effect", ATTEMPT, &root)
         .unwrap();
+    let unready = unboxed(&mut engine, ids(), &HandsSpec::default()).unwrap_err();
+    assert!(matches!(unready, Unready::Unrecorded { .. }));
 
     let spawn = engine.compose_at(
         None,
@@ -154,11 +170,13 @@ fn a_refused_record_makes_no_tree_and_names_the_record() {
         "r.json",
     );
     let refused = spawn.refusal.expect("the spawn is refused");
-    assert!(
-        refused.starts_with("the seat tree record for attempt"),
-        "{refused}"
+    let expected = format!(
+        "the seat tree record for attempt '{ATTEMPT}' was not written: run '{}' already records \
+         a seat tree for attempt '{ATTEMPT}' with another effect or root; this one was not \
+         written",
+        engine.run_id
     );
-    assert!(refused.contains("already records a seat tree"), "{refused}");
+    assert_eq!(refused, expected);
     assert!(!root.join(ATTEMPT).exists());
     assert_eq!(engine.store.seat_trees(&engine.run_id).unwrap().len(), 1);
 }
