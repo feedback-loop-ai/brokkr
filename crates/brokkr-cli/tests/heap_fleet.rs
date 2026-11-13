@@ -167,7 +167,7 @@ fn first_page_micros(db: &Path) -> u128 {
 /// pages, so neither scrolling nor `a` grows what the console holds to
 /// read a frame (ruling 6). Every window holds within the
 /// budget ruling 9 caps at 256 KiB, one whose every row fills every bound
-/// within 640 KiB, and SQLite's high-water within 500 KiB; each budget
+/// within 640 KiB, and SQLite's high-water within 1,000 KiB; each budget
 /// sits at or under its cap. The painted frame, which adds ratatui's
 /// buffers at 80x24 to the read, is a budget of its own, and does not
 /// move between the two journals by more than the layout solver moves one
@@ -253,8 +253,8 @@ fn a_fleet_page_costs_the_same_heap_at_every_journal_size() {
     within("fleet-page-at-every-bound", every.read());
     within("fleet-painted-frame-at-every-bound", every.frame);
     within("fleet-page-sqlite", every.sqlite);
-    // Ruling 9's caps, which no measurement raises; SQLite's, 500 KiB on
-    // every host, is the operator's of 2026-10-21 (#753).
+    // Ruling 9's caps, which no measurement raises; SQLite's, 1,000 KiB on
+    // every host, is the operator's, doubled on 2026-11-13 (#753).
     for (name, cap) in [
         ("fleet-page", 256 * 1024),
         ("fleet-page-at-every-bound", 640 * 1024),

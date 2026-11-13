@@ -83,17 +83,18 @@ impl Drop for Window {
     }
 }
 
-/// SQLite's budget on every host, 500 KiB: the fleet's by the operator's
-/// ruling of 2026-10-21 on #753, the cap itself and not a measured peak
-/// plus a tenth, since CI's macOS leg measures SQLite's high-water about a
-/// tenth above Linux. Opening a run and the run view's first screen hold
-/// SQLite's budget to it too.
-pub(crate) const SQLITE_CAP: u64 = 500 * 1024;
+/// SQLite's budget on every host, 1,000 KiB: the operator doubled the
+/// 2026-10-21 cap of 500 KiB on 2026-11-13 (#753), because the schema every
+/// connection parses at open now takes about 206 KB of it. It is the cap
+/// itself, not a measured peak plus a tenth, since CI's macOS leg measures
+/// SQLite's high-water about a tenth above Linux. Opening a run and the run
+/// view's first screen hold SQLite's budget to it too.
+pub(crate) const SQLITE_CAP: u64 = 1000 * 1024;
 
 /// Reports SQLite's share `held` of the readout `name` and its headroom
 /// under [`SQLITE_CAP`], in bytes, and the share of the cap it holds. CI's
-/// macOS leg measures SQLite about 12% above Linux (#753), so a Linux
-/// figure under about 457,000 bytes is one the macOS leg holds too.
+/// macOS leg measures SQLite about 8–12% above Linux (#753, #1072), so a
+/// Linux figure under about 914,000 bytes is one the macOS leg holds too.
 pub(crate) fn report_headroom(name: &str, held: u64) {
     let headroom = i128::from(SQLITE_CAP) - i128::from(held);
     let permille = held * 1000 / SQLITE_CAP;

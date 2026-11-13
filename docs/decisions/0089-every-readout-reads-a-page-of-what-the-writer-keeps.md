@@ -917,6 +917,29 @@ model the writer keeps in the journal's own file and transaction.
      402,200 B for the run view's first screen and 458,728 B for the seat
      view's page, about what 3.46.0 read at 128 KiB. Each readout's wall
      time stays within ruling 9's.
+
+     *Amended, 2026-11-13 (operator, in chat, recorded on #753):* SQLite's
+     share is held to 1,000 KiB (1,024,000 B) on every host, double the
+     500 KiB of 2026-10-21. It supersedes 2026-10-25's "the cap does not
+     rise".
+     - **The operator's words:** "maybe just double it, that's still fine",
+       and "I'd rather set ambitious targets than use 3gb of memory where
+       we can fit in 1mb". The new cap is a target to hold, not a step
+       toward the next raise.
+     - **Why:** the schema every connection parses at open is now SQLite's
+       largest fixed share (`SQLITE_DBSTATUS_SCHEMA_USED`, one read-only
+       connection, Linux): 182,720 B on a fresh journal at 1f6ca7747 (18
+       tables, 28 indexes, 41 triggers), and 205,744 B with U3d's stale-seat
+       set (#1072). It does not grow with what the writer keeps, so ruling
+       9's bound is unchanged: no readout grows with the journal's history.
+     - **With U3d, on Linux:** 480,112 B for costs, 489,048 B for compare,
+       485,880 B for the seat view's page and 429,352 B for the run view's
+       first screen. CI's `test (macos-latest)` leg read costs at 513,824 B
+       and the seat view's page at 520,112 B, over the old cap.
+     - **What was not changed:** the reader's page cache stays at 64 KiB, and
+       at 48 KiB every readout read exactly what it read at 64. Building
+       SQLite without lookaside would free 48,000 B a connection (a
+       measured lever, not taken).
    - **A page at every bound.** The 256 KiB is a page of ordinary rows.
      A page whose every row fills every bound holds about 330 KiB of row
      text before it is derived and painted (ruling 2), so it has a budget
