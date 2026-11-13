@@ -76,6 +76,10 @@ fn a_start_whose_inventory_never_landed_settles_indeterminate_and_mints_nothing_
     super::super::tests::fail_event(&db, "effect/failed");
     let crashed = fixture.engine.drive();
     assert!(matches!(crashed, Err(EngineError::Store(_))), "{crashed:?}");
+    // The process ended inside provisioning, and its lock went with it
+    // (decision 0108 ruling 1); this fixture's engine object outlives the
+    // crash it simulates, so let the lock go as that death would.
+    fixture.engine.release_run_lock();
     let run = fixture.engine.run_id.clone();
     let events = fixture.engine.store.load(&run).unwrap();
     let started = events.last().unwrap();
