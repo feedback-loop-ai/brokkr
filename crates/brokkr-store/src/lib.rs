@@ -187,10 +187,8 @@ pub enum StoreError {
     AppendConflict { seq: u64 },
     #[error("head moved: expected seq {expected_seq}, found {found_seq}")]
     HeadMoved { expected_seq: u64, found_seq: u64 },
-    /// The event a caller asked to append is not an annotation, and the
-    /// run already reached one of its two terminal events (#440). The
-    /// check runs inside the append's own write transaction, so the
-    /// refusal leaves no event, no cool-down row and no projection.
+    /// A non-annotation on a run that already reached a terminal event (#440),
+    /// refused inside the append's write transaction: nothing is written.
     #[error(
         "run '{run_id}' is already concluded ({}); {} is not an operator \
          annotation, and nothing was written",
