@@ -20,9 +20,7 @@ const CHILD: &str = "BROKKR_TEST_RUN_LOCK_CHILD";
 
 /// The lock directory beside `journal`.
 fn runs(journal: &Path) -> PathBuf {
-    let mut name = std::ffi::OsString::from(journal);
-    name.push(DIRECTORY);
-    PathBuf::from(name)
+    directory_path(journal)
 }
 
 /// The lock file of `run` beside `journal`.
@@ -104,9 +102,10 @@ fn a_taken_lock_records_the_holders_facts() {
     assert_eq!(mode & 0o777, 0o600, "the lock file is this user's own");
 }
 
-/// The directory refuses a regular file, a link and a mode others may
-/// enter, by its own name; the file refuses a link, a second link and a
-/// mode others may read, by its own name.
+/// The directory refuses a regular file, a link and a mode other than
+/// 0700, by its own name; the file refuses a link, a second link and a
+/// mode others may read, by its own name. The linked directory is one
+/// this user owns at 0700, so only `O_NOFOLLOW` refuses it.
 #[test]
 fn the_directory_and_file_refuse_links_other_modes_and_owners() {
     let dir = tempfile::tempdir().unwrap();
@@ -115,6 +114,7 @@ fn the_directory_and_file_refuse_links_other_modes_and_owners() {
     let at = runs(&path);
     let elsewhere = dir.path().join("elsewhere");
     std::fs::create_dir(&elsewhere).unwrap();
+    std::fs::set_permissions(&elsewhere, std::fs::Permissions::from_mode(0o700)).unwrap();
 
     std::fs::write(&at, "").unwrap();
     let refused = take(&store, "run").unwrap_err();
@@ -141,6 +141,12 @@ fn the_directory_and_file_refuse_links_other_modes_and_owners() {
     assert_eq!(
         take(&store, "run").unwrap_err(),
         RunLockError::Directory(at.clone())
+    );
+    std::fs::set_permissions(&at, std::fs::Permissions::from_mode(0o600)).unwrap();
+    assert_eq!(
+        take(&store, "run").unwrap_err(),
+        RunLockError::Directory(at.clone()),
+        "a directory that is not exactly 0700 is refused by the directory's name"
     );
     std::fs::set_permissions(&at, std::fs::Permissions::from_mode(0o700)).unwrap();
     drop(take(&store, "run").unwrap());
@@ -179,7 +185,7 @@ fn a_run_id_that_would_escape_the_directory_is_refused() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("forge.db");
     let store = Store::open(&path).unwrap();
-    for run in ["../escape", "a/b", "a/", "/absolute", ".", "..", ""] {
+    for run in ["../escape", "a/b", "a/", "/absolute", ".", "..", "", "a\0b"] {
         let refused = take(&store, run).unwrap_err();
         assert_eq!(refused, RunLockError::UnsafeId(run.to_string()));
         assert_eq!(

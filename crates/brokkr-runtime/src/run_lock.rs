@@ -11,19 +11,28 @@
 //! operator's eyes only; a second driver reads them to name the holder,
 //! and the lock alone decides whether the run is held.
 //!
+//! The lock is held from before the driver's first append until its
+//! drive returns, so a run view still painting after
+//! [`crate::Engine::drive`] returns does not hold the run. Lock files
+//! are never removed: one stays per run for the journal's life, and an
+//! entry refused before its first append may leave an empty one. A
+//! file's presence says nothing; the lock does, so a file removed under a
+//! live driver, or a journal reached through another name, is the one
+//! place a second driver can share a run, and the existing head fences
+//! (decision 0029), not this lock, are what remain.
+//!
 //! Linux and macOS exclude alike (decision 0063). A filesystem where
 //! `flock` does not exclude, such as some network mounts, is outside this
 //! guarantee, as decision 0095 already notes for the dispatcher's lock.
 
 use std::ffi::{OsStr, OsString};
 use std::fs::File;
-use std::io::{Read, Write};
-use std::os::fd::OwnedFd;
+use std::os::fd::{AsFd, OwnedFd};
 use std::path::{Component, Path, PathBuf};
 
 use brokkr_store::Store;
-use rustix::fs::{flock, fstat, mkdirat, openat, FileType, FlockOperation, Mode, OFlags, CWD};
-use rustix::io::Errno;
+use rustix::fs::{fstat, ftruncate, mkdirat, openat, FileType, Mode, OFlags, CWD};
+use rustix::io::{write, Errno};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use time::format_description::well_known::Rfc3339;
@@ -97,21 +106,11 @@ pub(crate) fn named(run_id: &str, holder: &Option<Holder>) -> String {
     }
 }
 
-/// A run's lock held by its descriptor, until this is dropped or the
-/// process ends.
+/// A run's lock held by its descriptor through the shared lock-file
+/// home, until this is dropped or the process ends.
 #[derive(Debug)]
 pub(crate) struct RunLock {
-    held: OwnedFd,
-}
-
-/// Let the lock go as it is dropped, not as its descriptor closes: a
-/// process this one forked holds a copy of the descriptor, and the lock
-/// with it, from its fork until its exec.
-impl Drop for RunLock {
-    fn drop(&mut self) {
-        // Unlocking a lock this descriptor holds has no failure to act on.
-        let _ = flock(&self.held, FlockOperation::Unlock);
-    }
+    _held: lock_file::Held,
 }
 
 /// Take the run's lock as this process's driver: at once or not at all,
@@ -142,29 +141,28 @@ fn take_at(journal: &Path, run_id: &str, facts: &Facts) -> Result<RunLock, RunLo
     }
     let dir = directory(journal)?;
     let name = format!("{run_id}{SUFFIX}");
-    let Some(held) = lock_file::opened(&dir, name.as_str()) else {
+    let Some(opened) = lock_file::opened(&dir, name.as_str()) else {
         return Err(RunLockError::File(beside(journal, run_id)));
     };
     // A lock that cannot be taken now, for whatever reason, is another's.
-    if flock(&held, FlockOperation::NonBlockingLockExclusive).is_err() {
-        return Err(RunLockError::Driven {
-            run_id: run_id.to_string(),
-            holder: recorded(held),
-        });
-    }
-    let held = record(held, facts);
-    Ok(RunLock { held })
+    let held = match lock_file::hold(opened) {
+        Ok(held) => held,
+        Err(opened) => {
+            return Err(RunLockError::Driven {
+                run_id: run_id.to_string(),
+                holder: recorded(opened),
+            })
+        }
+    };
+    record(&held, facts);
+    Ok(RunLock { _held: held })
 }
 
 /// The run lock directory: made owner-only where it is missing, opened
 /// without following a link, and this user's own directory of mode 0700
 /// as it stands.
 fn directory(journal: &Path) -> Result<OwnedFd, RunLockError> {
-    // `.runs` is a name added to the journal's own, never a replacement of
-    // its extension: `<journal>.runs`, not `<journal without extension>.runs`.
-    let mut named = OsString::from(journal);
-    named.push(DIRECTORY);
-    let at = PathBuf::from(named);
+    let at = directory_path(journal);
     match mkdirat(CWD, &at, Mode::RWXU) {
         Ok(()) | Err(Errno::EXIST) => {}
         Err(_) => return Err(RunLockError::Directory(at)),
@@ -176,9 +174,19 @@ fn directory(journal: &Path) -> Result<OwnedFd, RunLockError> {
     };
     let ours = fstat(&dir).is_ok_and(|stat| {
         (FileType::from_raw_mode(stat.st_mode) == FileType::Directory)
+            & ((stat.st_mode & 0o777) == 0o700)
             & lock_file::alone(&stat, lock_file::user())
     });
     ours.then_some(dir).ok_or(RunLockError::Directory(at))
+}
+
+/// The run lock directory beside `journal`: `.runs` is a name added to
+/// the journal's own, never a replacement of its extension, so
+/// `<journal>.runs`, not `<journal without extension>.runs`.
+pub(crate) fn directory_path(journal: &Path) -> PathBuf {
+    let mut named = OsString::from(journal);
+    named.push(DIRECTORY);
+    PathBuf::from(named)
 }
 
 /// Whether `run_id` is one plain file name: no separator, no `.` or `..`,
@@ -196,35 +204,28 @@ fn safe(run_id: &str) -> bool {
 
 /// The lock's path, for the operator's refusal.
 fn beside(journal: &Path, run_id: &str) -> PathBuf {
-    let mut name = OsString::from(journal);
-    name.push(DIRECTORY);
-    PathBuf::from(name).join(format!("{run_id}{SUFFIX}"))
+    directory_path(journal).join(format!("{run_id}{SUFFIX}"))
 }
 
 /// The holder facts in a lock that could not be taken, or `None` when the
 /// holder has not recorded them.
 fn recorded(held: OwnedFd) -> Option<Holder> {
-    let mut text = String::new();
-    let mut file = File::from(held);
-    file.read_to_string(&mut text).ok()?;
-    serde_json::from_str(&text).ok()
+    serde_json::from_reader(File::from(held)).ok()
 }
 
 /// Record `facts` in the lock just taken. The lock is liveness; these are
 /// for the operator, so a file that cannot be written leaves the lock
 /// held rather than failing it.
-fn record(held: OwnedFd, facts: &Facts) -> OwnedFd {
+fn record(held: &lock_file::Held, facts: &Facts) {
     let holder = Holder {
         pid: std::process::id(),
         since: facts.since.clone(),
         host: facts.host.clone(),
         engine: facts.engine.clone(),
     };
-    let mut file = File::from(held);
     let text = serde_json::to_vec(&holder).unwrap_or_default();
-    let _ = file.set_len(0);
-    let _ = file.write_all(&text);
-    OwnedFd::from(file)
+    let _ = ftruncate(held.as_fd(), 0);
+    let _ = write(held.as_fd(), &text);
 }
 
 /// This process's start of the hold, in the spelling the dispatcher's

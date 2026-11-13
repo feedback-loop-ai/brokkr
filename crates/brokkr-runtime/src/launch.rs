@@ -360,6 +360,20 @@ fn resume_with(
     request: LaunchRequest,
     run: &str,
 ) -> Result<Engine, LaunchError> {
+    resumed_with(store, state, request, run, Engine::resume)
+}
+
+/// [`resume_with`], with the constructor that decides whether this entry
+/// drives: `retry --member` reads and commands a run a live driver may
+/// hold and drives nothing, so it resumes without the run lock (decision
+/// 0108 ruling 2).
+fn resumed_with(
+    store: Store,
+    state: Option<PathBuf>,
+    request: LaunchRequest,
+    run: &str,
+    resume: fn(Store, Bundle, &str, Option<PathBuf>) -> Result<Engine, EngineError>,
+) -> Result<Engine, LaunchError> {
     let manifest = store.manifest(run)?;
     let dir = request.bundle.resolve()?;
     let repo = request.repo.as_deref().unwrap_or(&request.workspace);
@@ -367,7 +381,7 @@ fn resume_with(
     let bundle = compile_from_manifest(&request.workspace, leaf, &manifest, repo)
         .map_err(|error| unreproducible(run, error))?;
     refuse_unboxable(&bundle, &request.host_path)?;
-    let mut engine = Engine::resume(store, bundle, run, request.repo)?;
+    let mut engine = resume(store, bundle, run, request.repo)?;
     // Decision 0057, on decision 0046's Addendum's terms: a resumed run
     // is fenced where a new one is, before `drive()` and so before any
     // seat spawns. The world it holds comes from its own manifest and has
@@ -396,7 +410,7 @@ pub fn operator_retry_members(
         Ok(read) => read,
         Err(outcome) => return Ok(outcome),
     };
-    let mut engine = resume_with(store, state, request, run)?;
+    let mut engine = resumed_with(store, state, request, run, Engine::resumed)?;
     Ok(engine.retry_members(read, names, operator, reason)?)
 }
 

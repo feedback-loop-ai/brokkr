@@ -30,8 +30,8 @@ use uuid::Uuid;
 use crate::agents::{Candidate, Lowering, ResultDoor};
 use crate::argv::Executable;
 use crate::bundle::{
-    charters_as_started, charters_intact, sequence::stops_run, Bundle, CharterPin, ExecutableBody,
-    HandsState, Seat, SeatBody, SeatClass, SiteFacts, StepBody, ENGINE_VERSION,
+    charters_intact, sequence::stops_run, Bundle, CharterPin, ExecutableBody, HandsState, Seat,
+    SeatBody, SeatClass, SiteFacts, StepBody, ENGINE_VERSION,
 };
 use crate::phase_name;
 // The test modules reach these through `use super::*`.
@@ -714,70 +714,15 @@ impl Engine {
 
     /// Resume uses the exact pinned bundle or refuses with a diagnostic.
     pub fn resume(
-        mut store: Store,
+        store: Store,
         bundle: Bundle,
         run_id: &str,
         repo: Option<PathBuf>,
     ) -> Result<Engine, EngineError> {
-        refuse_unbuilt(&bundle)?;
         // Refused at once where another process drives the run: nothing is
         // read, and nothing is written (decision 0108 ruling 1).
         let lock = crate::run_lock::take(&store, run_id)?;
-        let pinned = store.manifest(run_id)?;
-        let pinned_bundle = bundle_manifest_from_run(&pinned)?;
-        if let Some(dispatch) = brokkr_core::dispatch::dispatch_from_run(&pinned)? {
-            dispatch.verify(time::OffsetDateTime::now_utc(), &bundle.manifest_digest())?;
-            verify_dispatch_bundle_bounds(&dispatch, &bundle)?;
-        }
-        // The boundary needs no second fence here: the manifest pins it
-        // per hands site, so a bundle compiled under another word is a
-        // manifest mismatch whose diff names `boundary` (design DD3).
-        if pinned_bundle != bundle.manifest {
-            let detail = manifest_diff(&pinned_bundle, &bundle.manifest);
-            return Err(EngineError::ManifestMismatch {
-                run_id: run_id.to_string(),
-                detail,
-            });
-        }
-        // An equal manifest is the pinned identity, not the pinned bytes:
-        // each charter it names is read again through its owner, whether the
-        // run pinned a world or none (rebuild unit 19), and must be the
-        // binding the run STARTED over: the bundle here may be compiled
-        // again, and a recompile binds an equal-byte retarget afresh without
-        // moving the manifest (review return F1). A pin that does not answer
-        // for itself is tampering, and refuses before any charter is read.
-        let world = crate::realms::World::from_manifest(&pinned)?;
-        let mut replay = replay::Replay::default();
-        let feature = replay.caught_up(&mut store, run_id)?.feature;
-        let started = replay
-            .events
-            .first()
-            .filter(|event| event.event_type == EventType::RunStarted)
-            .and_then(|event| event.payload.get("charters"));
-        charters_as_started(&bundle, started).map_err(charter_moved)?;
-        let entry = replay
-            .events
-            .first()
-            .map(|event| brokkr_core::entry::RunEntry::of_started(&event.payload))
-            .transpose()?
-            .flatten();
-        if let Some(entry) = &entry {
-            crate::bundle::entry::admit(&bundle, &entry.phase)?;
-        }
-        // Resume takes no map — and needs none: the world it believed in
-        // is pinned in the manifest just read, content and all, so it is
-        // rehydrated from evidence rather than off a disk that may have
-        // moved on.
-        let mut engine = shell(
-            store,
-            bundle,
-            run_id.to_string(),
-            feature.unwrap_or("unknown".to_string()),
-            operated_repo(repo),
-        );
-        engine.entry = entry;
-        engine.world = world;
-        engine.replay = replay;
+        let mut engine = Engine::resumed(store, bundle, run_id, repo)?;
         engine.run_lock = Some(lock);
         Ok(engine)
     }
@@ -797,6 +742,22 @@ impl Engine {
     /// peer that lets go of its lock there, so a terminal event the lock
     /// outlasted can only land by the lawful end.
     fn drive_racing(
+        &mut self,
+        before_lawful_end: impl FnMut(&EngineError),
+    ) -> Result<DriveEnd, EngineError> {
+        // A drive that returns stops driving: let the run go so an operator
+        // can conclude it while a view still paints (decision 0108 ruling
+        // 1). A second drive here takes it again, as a new driver.
+        if self.run_lock.is_none() {
+            self.run_lock = Some(crate::run_lock::take(&self.store, &self.run_id)?);
+        }
+        let ended = self.drive_locked(before_lawful_end);
+        self.run_lock = None;
+        ended
+    }
+
+    /// [`Engine::drive_racing`]'s loop, with the run held.
+    fn drive_locked(
         &mut self,
         mut before_lawful_end: impl FnMut(&EngineError),
     ) -> Result<DriveEnd, EngineError> {

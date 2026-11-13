@@ -568,6 +568,23 @@ fn every_conclusion_refusal_reads_as_it_always_has() {
              something may still be driving it — a conclusion is for a run believed dead; \
              look with `brokkr runs` before closing",
         ),
+        (
+            ConcludeRefusal::Driven {
+                holder: Some(crate::run_lock::Holder {
+                    pid: 42,
+                    since: "2026-11-13T00:00:00Z".into(),
+                    host: None,
+                    engine: "0.13.1".into(),
+                }),
+            },
+            "run 'r' is driven by pid 42 on this host since 2026-11-13T00:00:00Z (engine \
+             0.13.1); stop it with `brokkr operator stop`, or end that process, then conclude",
+        ),
+        (
+            ConcludeRefusal::Driven { holder: None },
+            "run 'r' is driven by another process on this host, which has not recorded its \
+             facts yet; stop it with `brokkr operator stop`, or end that process, then conclude",
+        ),
     ];
     for (why, text) in pins {
         let run_id = "r".to_string();
@@ -895,9 +912,7 @@ fn a_held_run_refuses_conclude_and_writes_nothing() {
         ],
         &db.with_file_name("held"),
     );
-    let mut locked = std::ffi::OsString::from(&db);
-    locked.push(".runs");
-    let locked = PathBuf::from(locked).join(format!("{PARKED}.lock"));
+    let locked = crate::run_lock::directory_path(&db).join(format!("{PARKED}.lock"));
     let recorded: crate::run_lock::Holder =
         serde_json::from_str(&std::fs::read_to_string(&locked).unwrap()).unwrap();
     let refused = conclude_as(&mut store, PARKED, "operator", "close it").unwrap_err();
@@ -969,9 +984,7 @@ fn conclude_refuses_a_lock_that_is_not_this_users_single_file() {
     let dir = tempfile::tempdir().unwrap();
     let (mut store, before) = parked(&dir);
     let db = dir.path().join(format!("{PARKED}.db"));
-    let mut at = std::ffi::OsString::from(&db);
-    at.push(".runs");
-    let at = PathBuf::from(at);
+    let at = crate::run_lock::directory_path(&db);
     std::fs::create_dir(&at).unwrap();
     std::fs::set_permissions(&at, std::fs::Permissions::from_mode(0o700)).unwrap();
     let lock = at.join(format!("{PARKED}.lock"));

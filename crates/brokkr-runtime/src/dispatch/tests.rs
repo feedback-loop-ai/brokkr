@@ -79,7 +79,7 @@ fn a_second_dispatcher_is_refused_naming_the_one_that_holds_the_journal() {
     assert_eq!(holders(&path), 1, "the refused one recorded nothing");
     // A copy of the lock's descriptor, as a process forked while it was
     // held keeps one until it execs, does not keep the lock past the drop.
-    let forked = held._held.0.try_clone().unwrap();
+    let forked = held._held.try_clone().unwrap();
     drop(held);
     let next = take_dispatch(&mut second).unwrap().unwrap();
     assert_eq!(next.generation, Generation(2));

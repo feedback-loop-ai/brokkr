@@ -14,9 +14,7 @@ fn bundle(dir: &Path) -> Bundle {
 
 /// The lock directory beside `db`.
 fn runs_path(db: &Path) -> PathBuf {
-    let mut at = std::ffi::OsString::from(db);
-    at.push(".runs");
-    PathBuf::from(at)
+    crate::run_lock::directory_path(db)
 }
 
 /// The typed refusal a door answered with, or a panic naming what was
@@ -135,6 +133,39 @@ fn a_dispatched_start_refuses_a_run_lock_it_cannot_take() {
         "a dispatched start without a lock must refuse",
     );
     refused_directory(&db, refused);
+}
+
+/// A drive lets the run go when it returns: a second drive in this process
+/// takes it again, and another process takes it while the engine lives.
+#[test]
+fn a_drive_lets_the_run_go_when_it_returns() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("work")).unwrap();
+    let db = dir.path().join("released.db");
+    let store = Store::open(&db).unwrap();
+    let bundle = bundle(dir.path());
+    let mut engine = Engine::start(
+        store,
+        bundle.clone(),
+        "released",
+        Some(dir.path().join("work")),
+    )
+    .unwrap();
+    let run = engine.run_id.clone();
+    engine.drive().unwrap();
+    // A second drive in this process takes the run again, as a new driver.
+    engine.drive().unwrap();
+    assert!(
+        crate::run_lock::take(&engine.store, &run).is_ok(),
+        "the run is free while its engine lives, after the drive returns"
+    );
+    Engine::resume(
+        Store::open(&db).unwrap(),
+        bundle,
+        &run,
+        Some(dir.path().join("work")),
+    )
+    .expect("another process takes the run the drive let go");
 }
 
 /// A resume takes the lock before reading the manifest, and refuses a lock

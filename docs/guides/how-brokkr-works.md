@@ -77,18 +77,30 @@ brokkr compare <a> <b>                                     # journal-backed A/B
    events; approval is a journal entry, not a prose convention.
 
 **One driver per run.** A process that drives a run — `brokkr run`,
-`brokkr resume`, or the dispatcher's start from a queue claim — holds
+`brokkr rerun`, `brokkr resume`, a Looper dispatch's start, or the
+dispatcher's start from a queue claim — holds
 `<journal>.runs/<run-id>.lock`, an exclusive `flock`, from before its first
-append until it stops driving. The directory is the user's own, mode 0700,
-and the file is this user's regular file of one link, opened without
-following links; it records the holder's pid, the start of the hold, the
-host fingerprint and the engine version. A second driver, and `brokkr
-conclude` of that run, refuse before writing and name the holder;
-`conclude` says to stop the driver with `brokkr operator stop`, or end that
-process, then conclude, while `operator stop` and `retry` stay lawful as
-the cooperative path. A driver that dies drops its lock with it, so the
-next `resume` takes the run. A filesystem where `flock` does not exclude,
-such as some network mounts, is outside this guarantee.
+append until its drive returns. The `.runs` directory is this user's own,
+mode 0700, made where it is absent; a link, another owner's directory, or
+another mode refuses by the directory's name, and a lock file that is a
+link, of more than one link, or not this user's alone refuses by its own.
+The file records the holder's pid, the start of the hold, the host
+fingerprint and the engine version, for the operator's eyes; liveness is
+the lock. A second driver, and `brokkr conclude` of that run, refuse before
+writing and name the holder: "run '…' is driven by pid P on this host since
+T (engine V)". `conclude` adds "stop it with `brokkr operator stop`, or end
+that process, then conclude", and holds the free lock while it writes so no
+driver starts beneath it. `operator stop` and `operator retry` (with or
+without `--member`) take no run lock and stay lawful for a live run, the
+cooperative path; a seat's retry command is journaled for the driver to
+honour. A driver that dies drops its lock with it, so the next `resume`
+takes the run; a view still painting after its drive returned does not hold
+it. Lock files are never removed, so one stays per run and a refused entry
+may leave an empty one — a file's presence says nothing, the lock does. A
+filesystem where `flock` does not exclude, such as some network mounts, is
+outside this guarantee, and a lock file removed under a live driver, or a
+journal reached through another name, falls back to the head fences
+(decision 0029).
 
 The paradigm behind these laws is argued in long form in
 [the essays](../essays/): *[The Model Is a Detail](../essays/the-model-is-a-detail.md)*
