@@ -739,6 +739,7 @@ fn an_accumulated_episode_past_the_maximum_parks() {
     );
     let mut engine = started(dir.path(), single_body(command), probe_rounds::patient(3));
     engine.cooldown.host = Some(host(dir.path(), 2, 3));
+    let (mut engine, _now) = with_clock(engine);
     drove(
         &mut engine,
         dir.path(),

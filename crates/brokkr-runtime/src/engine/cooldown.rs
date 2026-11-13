@@ -177,7 +177,16 @@ pub(super) enum CooldownError {
         source: Box<CooldownError>,
     },
     #[error("{0}")]
-    Maximum(String),
+    Maximum(Box<MaximumFacts>),
+    #[error(
+        "the cool-down probe for {provider}/{route} would write a round its wait found no \
+         cool-down declared for: {words}"
+    )]
+    RoundUnbounded {
+        provider: String,
+        route: String,
+        words: String,
+    },
     #[error(
         "the cool-down probe for {provider}/{route} was refused again by the provider: {words}"
     )]
@@ -352,16 +361,52 @@ fn past_maximum(seconds: u64, episode_seconds: u64, max: u64) -> bool {
     seconds > max || episode_seconds > max
 }
 
+/// The facts a maximum park names: the round that would be written and the
+/// cooled site whose maximum it passed, typed rather than prebuilt prose so
+/// a test can match them and a reader reads one record (finding 6).
+#[derive(Debug)]
+pub(super) struct MaximumFacts {
+    /// The round's own site, route, round and length, so a park names the
+    /// round it refuses, not another member's (finding 5).
+    pub(super) wait: ProviderWait,
+    pub(super) episode: u64,
+    pub(super) max: u64,
+    /// The cooled site whose maximum the round passed, when that site is not
+    /// the round's own: the extension judges every member.
+    pub(super) passed: Option<String>,
+}
+
+impl std::fmt::Display for MaximumFacts {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            maximum_reason(&self.wait, self.episode, self.max, self.passed.as_deref())
+        )
+    }
+}
+
 /// The park reason a maximum refusal gives: the provider's words and the
-/// maximum, with the round and the episode the record supplies.
-fn maximum_reason(wait: &ProviderWait, episode_seconds: u64, max: u64) -> String {
+/// maximum, with the round and the episode the record supplies. `passed`
+/// names the cooled site whose maximum the round passed when that is not the
+/// round's own site, so a panel's park never reads one member's round as
+/// another's (finding 5).
+fn maximum_reason(
+    wait: &ProviderWait,
+    episode_seconds: u64,
+    max: u64,
+    passed: Option<&str>,
+) -> String {
     let member = wait
         .site
         .as_deref()
         .map_or_else(String::new, |site| format!("member {site}: "));
+    let declared = match passed {
+        Some(site) if !site.is_empty() => format!("member {site}'s declared {max}s maximum"),
+        _ => format!("the declared {max}s maximum"),
+    };
     format!(
-        "{member}cool-down for {}/{} would wait {}s in round {} (episode {}s), past the declared \
-         {max}s maximum: {}",
+        "{member}cool-down for {}/{} would wait {}s in round {} (episode {}s), past {declared}: {}",
         wait.provider, wait.route, wait.seconds, wait.rounds, episode_seconds, wait.words
     )
 }

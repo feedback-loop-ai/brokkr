@@ -60,9 +60,12 @@ fn refusal_body(
             refused.provider, refused.words
         ),
         RefusalCause::EpisodeUnreadable => {
+            // The error's own text is the detail: `EarlierWaitUnreadable`
+            // already opens with "an earlier wait does not read", so adding
+            // that opening again would say it twice (INFO, this fix round).
             let detail = episode_error.map_or_else(
                 || "an earlier wait does not read".to_string(),
-                |error| format!("an earlier wait does not read: {error}"),
+                str::to_string,
             );
             format!(
                 "refusing to retry {}/{route}: {detail}{retry}: {}",
