@@ -1487,10 +1487,10 @@ fn runs_lists_completed_run_with_status_and_phase() {
 /// `brokkr operator` used to be a way to CREATE this fault — it wrote
 /// the acceptance without re-reading the run — and this test used to
 /// reach for it. It no longer can, which the first half now proves: the
-/// command is fenced, it refuses, and it says why. The poisoned fixture
-/// is therefore built directly through the store, because a journal in
-/// this state can now only come from a hand-edited file or from one
-/// written before the fence existed. Both still have to be readable
+/// command judges the run first, it refuses, and it says why. The poisoned
+/// fixture is therefore planted behind the store's gate, because a journal
+/// in this state can now only come from a hand-edited file or from one
+/// written before the gate existed. Both still have to be readable
 /// without blinding the fleet, so the quarantine is still on trial here.
 #[test]
 #[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
@@ -1520,9 +1520,9 @@ fn one_unfoldable_journal_is_quarantined_by_runs_and_still_fatal_to_its_own_verb
         .unwrap_or_else(|| panic!("rerun announcement on stderr: {stderr}"));
 
     // The operator's command lands on a run that has already finished.
-    // The fence catches it: refused, not accepted, and journaled as a
-    // refusal — a real process against a real journal, which is the
-    // between-effects write race proved where it is actually spent.
+    // The verb judges it before its first append: refused, not accepted,
+    // and nothing written — a real process against a real journal, which
+    // is the between-effects write race proved where it is actually spent.
     let (code, _, stderr) = ws.brokkr_raw(&[
         "operator",
         "--run",
@@ -1533,9 +1533,9 @@ fn one_unfoldable_journal_is_quarantined_by_runs_and_still_fatal_to_its_own_verb
         db.to_str().unwrap(),
         "stop",
     ]);
-    assert_eq!(code, Some(1), "the fence refuses it: {stderr}");
+    assert_eq!(code, Some(1), "the verb refuses it: {stderr}");
     assert!(
-        stderr.contains("after_terminal"),
+        stderr.contains("is already concluded (completed); stop appends nothing"),
         "and names the condition — the run had finished before the command was \
          given, which is a refusal, not a lost race: {stderr}"
     );
@@ -1548,25 +1548,23 @@ fn one_unfoldable_journal_is_quarantined_by_runs_and_still_fatal_to_its_own_verb
         "the refusal left the journal foldable: {stderr}"
     );
 
-    // Now poison it deliberately, the only way that is still open: write
-    // the acceptance straight into the journal, behind the engine's back.
-    {
-        let mut store = brokkr_store::Store::open(&db).unwrap();
-        for (event_type, payload) in [
-            (
-                brokkr_core::envelope::EventType::OperatorCommanded,
-                json!({"command_id":"hand-edited","command":"stop","args":{},"operator":"operator"}),
-            ),
-            (
-                brokkr_core::envelope::EventType::OperatorAccepted,
-                json!({"command_id":"hand-edited","operator":"operator","reason":"stop it now"}),
-            ),
-        ] {
-            store
-                .append_next(&poisoned, event_type, payload, None, None)
-                .unwrap();
-        }
+    use brokkr_core::envelope::{EventEnvelope, EventType};
+
+    // Now poison it deliberately, the only way that is still open: plant an
+    // acceptance behind the store's gate, as a hand-edited file would.
+    let store = brokkr_store::Store::open_read_only(&db).unwrap();
+    let head = store.load(&poisoned).unwrap().pop().unwrap();
+    let poison = EventEnvelope {
+        seq: head.seq + 1,
+        event_type: EventType::OperatorAccepted,
+        payload: json!({"command_id":"hand-edited","operator":"operator","reason":"stop it now"}),
+        previous_hash: head.event_hash.clone(),
+        event_hash: String::new(),
+        ..head
     }
+    .sealed();
+    let conn = rusqlite::Connection::open(&db).unwrap();
+    brokkr_store::test_support::plant_envelope(&conn, &poison).unwrap();
 
     let (code, stdout, stderr) = ws.brokkr_raw(&["runs", "--json", "--db", db.to_str().unwrap()]);
     assert_eq!(code, Some(0), "the fleet still lists: {stderr}");
