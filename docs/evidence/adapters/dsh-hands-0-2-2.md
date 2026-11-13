@@ -544,8 +544,8 @@ different head and working directory.
 
 ## A real 0.2.2-rc.1 composed tree at 1052g7's head (2026-11-13)
 
-Fix round 1052g7 re-ran the method on `git archive` of its code commit
-`0e4312a35`, never committed. The throwaway test built both overlays with
+Fix round 1052g7 re-ran the method on `git archive` of its code head
+`8ff369ac5`, never committed. The throwaway test built both overlays with
 `hands_rows(Release::V0_2_2, mode, "/bin/brokkr", ["hands", "serve"])`,
 ran `dsh --profile headless --patch <overlay> --dump-config` from the
 isolated `/var/tmp/dsh-0.2.2-rc.1` prefix (dsh 0.2.2-rc.1, js-yaml
@@ -556,12 +556,15 @@ inside the one measuring call and used as `DSH_HOME` there; the prepared
 home was not modified. The test ran each mode twice, once capturing the
 dump for its bytes and digest and once handing the command to the gate.
 The dump's bytes depend on `DSH_HOME` and the overlay path, so this table
-is not byte-comparable with the 1052g6 table above.
+is not byte-comparable with the 1052g6 table above. The test-only coverage
+commit `8ff369ac5` was re-measured the same way: the two dumps keep their
+lengths (16,975 and 17,029 bytes) and the digests change because the random
+`/tmp` home path changed in the `# ==` lines.
 
 | Mode | Overlay bytes | Dump | Rows | Gate |
 | --- | --- | --- | --- | --- |
-| `read-only` | 913 | exit 0, 16,975 bytes, sha256 `7769ae4e5fd42e94…` | 100 | `Ok(())` |
-| `workspace-write` | 919 | exit 0, 17,029 bytes, sha256 `83d8c15283dbf4a3…` | 100 | `Ok(())` |
+| `read-only` | 913 | exit 0, 16,975 bytes, sha256 `38a4914494cae17d…` | 100 | `Ok(())` |
+| `workspace-write` | 919 | exit 0, 17,029 bytes, sha256 `4e769ed08417386a…` | 100 | `Ok(())` |
 
 Both dumps are 0.2.2's plain 99 plus the `brokkr-hands` insert, both
 carry no tab, and both pass the gate under the new line-property closure,
