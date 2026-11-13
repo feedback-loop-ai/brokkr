@@ -338,14 +338,17 @@ fn mode(path: &Path, bits: u32) {
 }
 
 /// #620: a dead tree the start would reap but cannot remove is said on
-/// stderr, with the removal's error, and left whole.
+/// stderr, with the removal's error, and its root is left for the next
+/// pass. The walk unseals and empties the tree first, and fails on the
+/// root's own unlink, so the reaping root itself is read-only while the
+/// journal stays in the writable directory above it.
 #[test]
 fn an_unremovable_dead_tree_is_said_at_the_start() {
     let tmp = tempfile::tempdir().unwrap();
+    let reap = tmp.path().join("reap");
+    std::fs::create_dir(&reap).unwrap();
     let uuid = "123e4567-e89b-12d3-a456-426614174000";
-    let tree = tmp
-        .path()
-        .join(format!("brokkr-hands-exec-{}-{uuid}", dead_pid()));
+    let tree = reap.join(format!("brokkr-hands-exec-{}-{uuid}", dead_pid()));
     let sealed = tree.join("sealed");
     std::fs::create_dir_all(&sealed).unwrap();
     std::fs::write(sealed.join("call"), "").unwrap();
@@ -353,22 +356,41 @@ fn an_unremovable_dead_tree_is_said_at_the_start() {
     mode(&sealed, 0o500);
 
     let bundle = reap_bundle(tmp.path());
-    let started = start_run(tmp.path(), &bundle);
-    mode(&sealed, 0o700);
+    let mut command = brokkr_in(tmp.path());
+    command
+        .env("TMPDIR", &reap)
+        .args([
+            "run",
+            "--bundle",
+            bundle.to_str().unwrap(),
+            "--feature",
+            "reap",
+        ])
+        .args(["--db", tmp.path().join("j.db").to_str().unwrap()])
+        .args(["--repo", tmp.path().to_str().unwrap()]);
+    mode(&reap, 0o500);
+    let started = command.output().unwrap();
+    mode(&reap, 0o700);
     let stderr = String::from_utf8_lossy(&started.stderr);
 
     assert_eq!(
         stderr.lines().nth(1),
         Some(
             format!(
-                "hands: kept {}: it cannot be removed: Permission denied (os error 13)",
+                "hands: kept {}: it cannot be removed: removing {}: \
+                 Permission denied (os error 13)",
+                tree.display(),
                 tree.display()
             )
             .as_str()
         ),
         "{stderr}"
     );
-    assert!(sealed.join("call").is_file(), "the tree is left whole");
+    assert!(tree.is_dir(), "the root is left for the next pass");
+    assert!(
+        !sealed.exists(),
+        "the walk unsealed and emptied the tree first"
+    );
 }
 
 #[test]
