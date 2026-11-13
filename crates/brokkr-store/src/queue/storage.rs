@@ -4,7 +4,7 @@
 
 use rusqlite::{params, Connection, OptionalExtension};
 
-use super::{EntryId, Latch, QueueRefusal, Wait};
+use super::{CooldownDuplicate, EntryId, Latch, QueueRefusal, Wait};
 use crate::schema::{all_present, objects};
 use crate::seat_tree::{refuse_duplicates, SEAT_TREE_INDEX, SEAT_TREE_TABLE};
 use crate::StoreError;
@@ -535,7 +535,13 @@ fn refuse_cool_down_duplicates(conn: &Connection) -> Result<(), StoreError> {
     let Some((run_id, event_seq, site, rounds)) = duplicate else {
         return Ok(());
     };
-    Err(QueueRefusal::CooldownDuplicate(Box::new((run_id, event_seq, site, rounds))).into())
+    Err(QueueRefusal::CooldownDuplicate(Box::new(CooldownDuplicate {
+        run_id,
+        event_seq,
+        site,
+        rounds,
+    }))
+    .into())
 }
 
 /// The queue storage a journal records, or `None` for one that never held
