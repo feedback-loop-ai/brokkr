@@ -231,7 +231,12 @@ fn repair(conn: &mut Connection, found: u32) -> Result<(), StoreError> {
     // U5a). A journal read-only without it still answers — SQLite scans —
     // and the next writable open adds it.
     let missing = !aggregate::unreadable_intact(conn)?;
-    repair_if(conn, missing, aggregate::migrate_unreadable)
+    repair_if(conn, missing, aggregate::migrate_unreadable)?;
+    // Twelfth: the terminal index the append's gate reads after a summary
+    // absent or behind (#440). Additive and definition-checked, so a
+    // journal a writable open finds without it gets it.
+    let missing = !crate::terminal::intact(conn)?;
+    repair_if(conn, missing, crate::terminal::migrate)
 }
 
 /// The first, third and fourth of [`repair`]'s additive repairs, in its
@@ -338,6 +343,8 @@ fn initialize_additions(conn: &Connection) -> Result<(), StoreError> {
     run_select::migrate(conn)?;
     // The readiness probe's partial index, on the same terms.
     aggregate::migrate_unreadable(conn)?;
+    // The append's terminal index, additive and definition-checked (#440).
+    crate::terminal::migrate(conn)?;
     // No index backfill is marked here: a journal with no schema recorded
     // may still carry events, and the open's walk, one read on an empty
     // journal, records the mark once every event has its row.

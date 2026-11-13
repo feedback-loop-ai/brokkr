@@ -497,11 +497,6 @@ fn command_stop(
         // its stop: the same refusal `conclude` would have made at the
         // top, not a second command over a finished run.
         Err(EngineError::AlreadyConcluded { status, .. }) => {
-            let status = if status == Status::Completed.as_str() {
-                Status::Completed
-            } else {
-                Status::Stopped
-            };
             return Err(ConcludeRefusal::AlreadyConcluded { status }.of(run_id));
         }
         Err(error) => return Err(error),

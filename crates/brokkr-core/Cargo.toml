@@ -19,6 +19,13 @@ workspace = true
 [[test]]
 name = "it"
 
+[features]
+# The closed vocabulary's full list, for a test outside core that holds
+# the store's terminal gate to the fold's relation (decision 0071
+# ruling 9). Only dev-dependencies enable it; no shipped reader iterates
+# the set.
+test-support = []
+
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }

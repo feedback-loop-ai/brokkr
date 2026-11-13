@@ -1524,6 +1524,8 @@ fn library(workspace: &std::path::Path, command: LibraryCmd) -> Result<ExitCode>
 }
 
 #[cfg(test)]
+mod after_terminal_tests;
+#[cfg(test)]
 mod cli_reference_tests;
 #[cfg(test)]
 mod opened_tests;

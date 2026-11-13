@@ -2442,9 +2442,9 @@ fn an_operator_command_the_run_cannot_take_is_refused_never_accepted() {
                 &error,
                 EngineError::AlreadyConcluded {
                     run_id,
-                    status: "stopped",
+                    status: Status::Stopped,
                     verb,
-                } if run_id == "raced" && *verb == command.as_str()
+                } if run_id == "raced" && *verb == command
             ),
             "{command:?}: {error}"
         );

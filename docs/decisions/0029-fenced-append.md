@@ -335,7 +335,7 @@ frozen byte moves.
 
 ## Addendum — 2026-11-13: nothing but an annotation is written after a terminal event (#440)
 
-Status: accepted — operator ruling of 2026-11-04 applied to #440 on 2026-11-13, with each recommendation below taken as written.
+Status: accepted by the operator's ruling on #440 of 2026-11-13 ("prioritize it … complete #440"; "go with all recommended"), with each recommendation below taken as written.
 
 The fence narrows a race but cannot close the case it was named for. Its
 own carve-out disarms it at `effect/started`, so an attempt that settles
@@ -355,28 +355,40 @@ after `run/stopped`, and `fold` refuses the run from that seq on forever.
    no event, no cool-down row, no projection. An annotation still lands.
    An event type a newer engine adds is refused until the relation admits
    it.
-3. **The read is bounded.** The summary's fold answers first while it
-   stands at the head; a terminal status is absorbing and answers wherever
-   it stands. A row absent or behind falls back to the events' primary key,
-   walked backwards from the head and stopped at the first event that is
-   not an annotation — which, by this rule, is the terminal event itself.
-   The check measured 89 VM instructions on a run with ten events and 89
-   on one with ten thousand.
+3. **The read is bounded, and fails closed on every journal.** The
+   summary's fold answers first while it stands at the head; a terminal
+   status is absorbing and answers wherever it stands. A row absent,
+   behind or wordless falls back to an index read of the run's terminal
+   events (`event_index_terminal`, a partial index on `events`), not a
+   walk of the tail: the answer is whether the run has *any* terminal
+   event, so a pre-#440 journal whose terminal event sits under later
+   non-annotation events is still refused instead of read as live. The
+   terminal types are brokkr-core's one list. The check measured 38 VM
+   steps on a run with ten events and 38 on one with ten thousand; the
+   index costs 2,040 B of SQLite's schema memory on a fresh journal
+   (`SQLITE_DBSTATUS_SCHEMA_USED`, before and after, under the bundled
+   SQLite 3.54.1), well under ruling 9's cap.
 4. **Operator commands judge before they write.** In `disposed` — the
    path `stop` and `retry` share — a concluded run is refused before the
-   first append with `EngineError::AlreadyConcluded`, whose words follow
-   `concluded_text`'s: `run '…' is already concluded (stopped); stop
-   appends nothing`. Nothing is written, not even `operator/commanded`.
-   The annotations (`classify`, `supersede`, and `acknowledge`, which
-   writes no event) keep working on a terminal run. `conclude`'s
-   `AlreadyConcluded` is unchanged, and a run concluded in its own fence
-   window now reaches that same refusal rather than journaling a second
-   command.
-5. **A late driver ends.** When the engine's append meets the store's
-   refusal it ends with `EngineError::ConcludedBeneath`, naming the
-   conclusion and saying the attempt's report is lost because the
-   conclusion already closed it `effect/indeterminate`. It writes nothing
-   more, retries nothing and folds no further.
+   first append with `EngineError::AlreadyConcluded`, whose type carries
+   core's `Status` and `OperatorCommand` and whose words the view reads
+   from `concluded_command_text`: `run '…' is already concluded (stopped);
+   stop appends nothing`. Nothing is written, not even
+   `operator/commanded`, and the view's offer says the same thing rather
+   than that the refusal was journaled. The annotations (`classify`,
+   `supersede`, and `acknowledge`, which writes no event) keep working on
+   a terminal run. `conclude`'s `AlreadyConcluded` is unchanged, and a run
+   concluded in its own fence window now reaches that same refusal rather
+   than journaling a second command.
+5. **A late driver ends, on every append path.** When an engine append
+   meets the store's refusal it ends with `EngineError::ConcludedBeneath`,
+   whose type carries the conclusion's `Status`, the refused `EventType`
+   and the attempt whose report is lost: the settlement, the checkpoint
+   sink's flush and settle, and the broker calls settled behind them all
+   map the store's refusal here. It names the conclusion and says the
+   attempt's report is lost because the conclusion already closed it
+   `effect/indeterminate`. It writes nothing more, retries nothing and
+   folds no further.
 
 The fence's carve-out still stands: an attempt's own checkpoints and
 settlement are journaled unfenced while it is open. What changes is that

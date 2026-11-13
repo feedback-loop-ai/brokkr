@@ -284,9 +284,9 @@ pub brokkr_store::StartRefusal::Crossing
 pub brokkr_store::StartRefusal::Unboxable
 pub enum brokkr_store::StoreError
 pub brokkr_store::StoreError::AfterTerminal
-pub brokkr_store::StoreError::AfterTerminal::event_type: &'static str
+pub brokkr_store::StoreError::AfterTerminal::event_type: brokkr_core::envelope::EventType
 pub brokkr_store::StoreError::AfterTerminal::run_id: alloc::string::String
-pub brokkr_store::StoreError::AfterTerminal::status: &'static str
+pub brokkr_store::StoreError::AfterTerminal::status: brokkr_core::fold::Status
 pub brokkr_store::StoreError::AlreadyAcknowledged
 pub brokkr_store::StoreError::AlreadyAcknowledged::run_id: alloc::string::String
 pub brokkr_store::StoreError::AlreadyAcknowledged::seq: u64

@@ -10,17 +10,18 @@
 //!
 //! The answer is bounded. The summary's fold is read by key, and while it
 //! stands at the head it is the whole answer. A row that is absent or
-//! behind falls back to a primary-key walk backwards from the head, which
-//! stops at the first event that is not an annotation: by this rule, the
-//! event before any trailing annotations is the terminal event itself, so
-//! the walk reads those annotations and one more, never the run's events.
-//! A new event type is refused until the relation admits it: the walk
-//! asks [`lawful_after_terminal`], not a list kept here.
+//! behind falls back to the terminal index (`event_index_terminal`, a
+//! partial index on `events`): the read asks whether the run has ANY
+//! terminal event, so a pre-#440 journal whose terminal event sits under
+//! later non-annotation events is still refused instead of read as live.
+//! The terminal types are brokkr-core's one list, and a new event type is
+//! refused until the relation admits it.
+
+use std::sync::LazyLock;
 
 use brokkr_core::envelope::EventType;
 use brokkr_core::fold::{lawful_after_terminal, Status};
 use rusqlite::{params, Connection, OptionalExtension};
-use serde_json::Value;
 
 use crate::StoreError;
 
@@ -28,17 +29,73 @@ use crate::StoreError;
 /// written at.
 const SUMMARY: &str = "SELECT status, folded_seq FROM run_summary WHERE run_id = ?1";
 
-/// The event type at one seq, read from the envelope's text with the same
-/// guarded last-key reading the store's triggers use.
-const TYPE_AT: &str = "SELECT CASE WHEN json_valid(envelope) THEN
-        (SELECT CASE type WHEN 'text' THEN value END FROM json_each(envelope)
-         WHERE key = 'type' ORDER BY id DESC LIMIT 1)
-    END FROM events WHERE run_id = ?1 AND seq = ?2";
+/// The predicate that names a run's terminal event on `events`, guarded so
+/// an envelope no reader parses is never extracted. The partial index and
+/// the gate's query both read it, so the query takes the index instead of
+/// walking the run (#440). Its types are brokkr-core's one terminal list,
+/// never a copy here.
+fn terminal_predicate() -> String {
+    let names: Vec<String> = brokkr_core::fold::TERMINAL_EVENTS
+        .into_iter()
+        .map(|(event, _)| format!("'{}'", event.as_str()))
+        .collect();
+    format!(
+        "{} IN ({})",
+        crate::summary::text_at("envelope", "$.type"),
+        names.join(", ")
+    )
+}
 
-/// Refuse `event_type` when `run_id` reached a terminal event at or
-/// before `head` and the event is not an annotation. Called inside the
-/// append's transaction, before the event is sealed, so a refusal leaves
-/// the journal exactly as it found it.
+/// The index that keys a run's terminal event on `events`: the gate's
+/// fallback reads the run's terminal rows alone, never its every event.
+fn terminal_index() -> String {
+    format!(
+        "CREATE INDEX IF NOT EXISTS event_index_terminal ON events (run_id, seq) WHERE {}",
+        terminal_predicate()
+    )
+}
+
+/// Does the journal's terminal index carry the definition this build
+/// writes? A name alone would keep a copy from another build, whose
+/// predicate the gate's query could not take.
+pub(crate) fn intact(conn: &Connection) -> Result<bool, StoreError> {
+    let sql: Option<String> = conn
+        .query_row(
+            "SELECT sql FROM sqlite_master WHERE type = 'index' AND name = ?1",
+            ["event_index_terminal"],
+            |row| row.get(0),
+        )
+        .optional()?;
+    Ok(sql
+        .as_deref()
+        .is_some_and(|sql| sql.contains(&terminal_predicate())))
+}
+
+/// Create the terminal index, `IF NOT EXISTS`; a copy another build wrote
+/// is dropped first so this build's predicate is the one the query takes.
+/// An additive repair, run only when [`intact`] says the journal lacks it.
+pub(crate) fn migrate(conn: &Connection) -> Result<(), StoreError> {
+    if !intact(conn)? {
+        conn.execute_batch("DROP INDEX IF EXISTS event_index_terminal")?;
+    }
+    Ok(conn.execute_batch(&terminal_index())?)
+}
+
+/// The run's last terminal event, read through `event_index_terminal`:
+/// the predicate is the index's own, so SQLite searches the run's terminal
+/// rows and never walks its events.
+static TERMINAL_AT: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT {} FROM events WHERE run_id = ?1 AND {} ORDER BY seq DESC LIMIT 1",
+        crate::summary::text_at("envelope", "$.type"),
+        terminal_predicate()
+    )
+});
+
+/// Refuse `event_type` when `run_id` has reached a terminal event and the
+/// event is not an annotation. Called inside the append's transaction,
+/// before the event is sealed, so a refusal leaves the journal exactly as
+/// it found it.
 pub(crate) fn refuse(
     tx: &Connection,
     run_id: &str,
@@ -53,15 +110,16 @@ pub(crate) fn refuse(
     };
     Err(StoreError::AfterTerminal {
         run_id: run_id.to_string(),
-        status: status.as_str(),
-        event_type: event_type.as_str(),
+        status,
+        event_type,
     })
 }
 
-/// The status of the terminal event the run reached at or before `head`,
-/// or `None` for a run that is still live. The summary answers first
-/// while its fold stands at `head`; a terminal status is absorbing, so it
-/// answers wherever it stands.
+/// The status of the terminal event the run has reached, or `None` for a
+/// run that is still live. The summary answers first while its fold
+/// stands at `head`; a terminal status is absorbing, so it answers
+/// wherever it stands. A row absent, behind or wordless falls back to the
+/// run's terminal index, which answers "has this run ANY terminal event".
 fn terminal_status(tx: &Connection, run_id: &str, head: u64) -> Result<Option<Status>, StoreError> {
     let mut statement = tx.prepare(SUMMARY)?;
     let summary: Option<(Option<String>, Option<i64>)> = statement
@@ -69,7 +127,7 @@ fn terminal_status(tx: &Connection, run_id: &str, head: u64) -> Result<Option<St
         .optional()?;
     note(&statement);
     if let Some((word, folded)) = summary {
-        if let Some(status) = word.as_deref().and_then(status_of) {
+        if let Some(status) = word.as_deref().and_then(Status::named) {
             if matches!(status, Status::Completed | Status::Stopped) {
                 return Ok(Some(status));
             }
@@ -78,55 +136,25 @@ fn terminal_status(tx: &Connection, run_id: &str, head: u64) -> Result<Option<St
             }
         }
     }
-    walk(tx, run_id, head)
+    any_terminal(tx, run_id)
 }
 
-/// The terminal event at or before `head`, found by walking the events
-/// backwards past the annotations that follow it and stopping at the
-/// first event that is not one.
-fn walk(tx: &Connection, run_id: &str, head: u64) -> Result<Option<Status>, StoreError> {
-    let mut statement = tx.prepare(TYPE_AT)?;
-    let mut found = None;
-    let mut seq = head;
-    while seq > 0 {
-        let word: Option<String> = statement
-            .query_row(params![run_id, seq as i64], |row| row.get(0))
-            .optional()?;
-        let Some(word) = word else { break };
-        let event_type = serde_json::from_value::<EventType>(Value::String(word))?;
-        if !lawful_after_terminal(event_type) {
-            found = terminal_event(event_type);
-            break;
-        }
-        seq -= 1;
-    }
+/// The run's last terminal event, whichever later events a pre-#440
+/// journal left above it: an index read of the terminal types alone, not
+/// a walk of the tail. The row's `type` is the event's wire name, so it is
+/// read back through brokkr-core's one terminal list.
+fn any_terminal(tx: &Connection, run_id: &str) -> Result<Option<Status>, StoreError> {
+    let mut statement = tx.prepare(TERMINAL_AT.as_str())?;
+    let word: Option<String> = statement
+        .query_row(params![run_id], |row| row.get(0))
+        .optional()?;
     note(&statement);
-    Ok(found)
-}
-
-/// The summary status a stored word names, read against the statuses'
-/// own words so the vocabulary has one home ([`Status::as_str`]).
-fn status_of(word: &str) -> Option<Status> {
-    [
-        Status::Running,
-        Status::AwaitingOperator,
-        Status::Completed,
-        Status::Stopped,
-    ]
-    .into_iter()
-    .find(|status| status.as_str() == word)
-}
-
-/// The status a run's final event states, or `None` for an event that
-/// concluded nothing.
-fn terminal_event(event: EventType) -> Option<Status> {
-    if event == EventType::RunCompleted {
-        Some(Status::Completed)
-    } else if event == EventType::RunStopped {
-        Some(Status::Stopped)
-    } else {
-        None
-    }
+    Ok(word.as_deref().and_then(|word| {
+        brokkr_core::fold::TERMINAL_EVENTS
+            .into_iter()
+            .find(|(event, _)| event.as_str() == word)
+            .map(|(_, status)| status)
+    }))
 }
 
 #[cfg(test)]

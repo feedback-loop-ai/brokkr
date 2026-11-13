@@ -7,7 +7,7 @@ use std::path::Path;
 use brokkr_core::canonical::ZERO_HASH;
 use brokkr_core::{EventEnvelope, EventType};
 use brokkr_store::test_support::{plant_envelope, plant_run};
-use brokkr_store::{Attribution, Store, StoreError};
+use brokkr_store::{Attribution, Store};
 use serde_json::{json, Value};
 
 use super::kept::rules;
@@ -733,18 +733,6 @@ fn a_refusal_is_kept_at_its_head_only_when_the_journals_bytes_made_it() {
         (state(&kept, "locked"), state(&kept, "torn")),
         (Some(1), None)
     );
-}
-
-/// The append refusal a load cannot return is still a verdict about the
-/// journal's content, so a refresh keeps the run while its head stands.
-#[test]
-fn a_terminal_append_refusal_is_a_lasting_verdict() {
-    let refused = StoreError::AfterTerminal {
-        run_id: "held".into(),
-        status: "stopped",
-        event_type: "effect/started",
-    };
-    assert!(super::kept::lasting(&refused));
 }
 
 /// A whole read's own connection that will not open is the refresh's

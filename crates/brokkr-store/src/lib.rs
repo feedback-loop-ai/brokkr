@@ -64,6 +64,7 @@ use std::path::{Path, PathBuf};
 
 use brokkr_core::canonical::ZERO_HASH;
 use brokkr_core::envelope::{verify_chain, ChainError, EventEnvelope, EventType};
+use brokkr_core::fold::Status;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::Value;
 use thiserror::Error;
@@ -191,13 +192,15 @@ pub enum StoreError {
     /// check runs inside the append's own write transaction, so the
     /// refusal leaves no event, no cool-down row and no projection.
     #[error(
-        "run '{run_id}' is already concluded ({status}); {event_type} is not an operator \
-         annotation, and nothing was written"
+        "run '{run_id}' is already concluded ({}); {} is not an operator \
+         annotation, and nothing was written",
+        status.as_str(),
+        event_type.as_str()
     )]
     AfterTerminal {
         run_id: String,
-        status: &'static str,
-        event_type: &'static str,
+        status: Status,
+        event_type: EventType,
     },
     /// The seq, column and count of a token count past the index's signed 64-bit range (decision 0089 ruling 7).
     #[error("checkpoint {0} reports {1} {2} past the index's 64-bit bound; nothing was written")]

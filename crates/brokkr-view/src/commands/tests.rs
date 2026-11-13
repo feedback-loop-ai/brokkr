@@ -66,6 +66,10 @@ fn a_running_run_refuses_retry_as_not_awaiting_the_operator() {
     );
 }
 
+/// A concluded run's four commands are refused with the verbs' own words:
+/// `stop` and `retry` are judged before their first append, and the view
+/// offers the same concluded text the verb prints, not a journaled
+/// refusal's (#440).
 #[test]
 fn a_concluded_run_refuses_all_four_with_the_terminal_reason() {
     for status in [Status::Completed, Status::Stopped] {
@@ -75,17 +79,38 @@ fn a_concluded_run_refuses_all_four_with_the_terminal_reason() {
             [
                 (
                     retry(Some("done")),
-                    operator(OperatorCommand::Retry, Refusal::AfterTerminal)
+                    Some(CommandRefusal::ConcludedCommand {
+                        command: OperatorCommand::Retry,
+                        status,
+                    })
                 ),
                 (
                     Command::Stop,
-                    operator(OperatorCommand::Stop, Refusal::AfterTerminal)
+                    Some(CommandRefusal::ConcludedCommand {
+                        command: OperatorCommand::Stop,
+                        status,
+                    })
                 ),
                 (Command::Resume, Some(CommandRefusal::Ended(status))),
                 (Command::Conclude, Some(CommandRefusal::Concluded(status))),
             ],
             "{status:?}"
         );
+        let offered = commands(&ended);
+        for (command, index) in [(OperatorCommand::Retry, 0), (OperatorCommand::Stop, 1)] {
+            let Admission::Refused { text, .. } = &offered[index].admission else {
+                panic!("{command:?} is refused on a concluded run");
+            };
+            assert_eq!(
+                text,
+                &brokkr_core::fold::concluded_command_text("r1", status, command),
+                "{command:?}: the view and the verb read one text"
+            );
+            assert!(
+                text.contains("appends nothing"),
+                "{command:?}: the view says nothing is journaled: {text}"
+            );
+        }
     }
 }
 
@@ -135,6 +160,20 @@ fn each_refusal_says_the_words_its_verb_says() {
     assert_eq!(
         ended.text("r1"),
         "run 'r1' is already concluded (completed); resume drives nothing"
+    );
+    let concluded_stop = CommandRefusal::ConcludedCommand {
+        command: OperatorCommand::Stop,
+        status: Status::Stopped,
+    };
+    assert_eq!(concluded_stop.word(), "after_terminal");
+    assert_eq!(
+        concluded_stop.text("r1"),
+        "run 'r1' is already concluded (stopped); stop appends nothing"
+    );
+    assert_eq!(
+        concluded_stop.text("r1"),
+        brokkr_core::fold::concluded_command_text("r1", Status::Stopped, OperatorCommand::Stop),
+        "the view reads the one text the verb reads"
     );
 }
 

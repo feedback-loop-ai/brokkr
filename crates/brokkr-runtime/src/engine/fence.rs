@@ -112,16 +112,8 @@ impl Engine {
             // The run was concluded beneath this driver: its report cannot
             // be journaled, and the conclusion already closed the attempt
             // indeterminate. End here, without retrying or folding again.
-            Err(StoreError::AfterTerminal {
-                run_id,
-                status,
-                event_type,
-            }) => {
-                return Err(EngineError::ConcludedBeneath {
-                    run_id,
-                    status,
-                    event_type,
-                })
+            Err(error @ StoreError::AfterTerminal { .. }) => {
+                return Err(EngineError::concluded_beneath(error, attempt_id.as_deref()))
             }
             Err(error) => return Err(error.into()),
         };

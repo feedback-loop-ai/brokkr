@@ -42,8 +42,8 @@ pub(super) fn disposed(
     if let Some(status) = concluded(&asked) {
         return Err(EngineError::AlreadyConcluded {
             run_id: run_id.to_string(),
-            status: status.as_str(),
-            verb: command.as_str(),
+            status,
+            verb: command,
         });
     }
     let command_id = Uuid::new_v4().to_string();

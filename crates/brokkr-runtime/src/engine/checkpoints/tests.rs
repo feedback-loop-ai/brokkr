@@ -134,3 +134,72 @@ fn a_checkpoint_that_is_not_an_object_passes_unchanged() {
         );
     }
 }
+
+/// Shape (A) of #440, through the checkpoint sink the live driver streams
+/// into: the run is concluded while the attempt is open, the seat then
+/// offers a checkpoint, and the sink's flush meets the store's terminal
+/// gate. The sink latches, writes nothing more, and its settle ends in
+/// `ConcludedBeneath` naming the attempt whose report is lost — never the
+/// store's words as a bare `Store(AfterTerminal)`, and never a retry.
+#[test]
+fn a_checkpoint_after_a_conclusion_ends_concluded_beneath_and_writes_nothing() {
+    use brokkr_core::fold::Status;
+
+    use crate::engine::operator::conclude_as;
+    use crate::engine::tests::in_flight_store;
+
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = in_flight_store(&dir.path().join("beneath.db"), "beneath");
+    conclude_as(&mut store, "beneath", "operator", "believed dead").unwrap();
+    let before = store.load("beneath").unwrap();
+    let mut cause = None;
+    let mut sink = super::Checkpoints::new(
+        &mut store,
+        &mut cause,
+        super::Attempt {
+            run_id: "beneath",
+            effect_id: "effect",
+            attempt_id: "attempt",
+        },
+    );
+    sink.offer("", json!({"step": "seat-turn", "turn": 1}), Ok(None));
+    // The latch: a second checkpoint writes nothing more and loops
+    // nothing, whatever the seat does next.
+    sink.offer("", json!({"step": "seat-turn", "turn": 2}), Ok(None));
+    let error = match sink.settle() {
+        Ok(_) => panic!("a checkpoint after a conclusion does not settle"),
+        Err(error) => error,
+    };
+    assert!(
+        matches!(
+            &error,
+            crate::engine::EngineError::ConcludedBeneath {
+                run_id: named,
+                status: Status::Stopped,
+                event_type: EventType::EffectCheckpointed,
+                attempt_id: Some(attempt),
+            } if named == "beneath" && attempt == "attempt"
+        ),
+        "{error:?}"
+    );
+    assert_eq!(
+        error.to_string(),
+        "run 'beneath' was concluded (stopped) while attempt 'attempt' was still working, so its \
+         effect/checkpointed could not be appended and nothing was written; the driver stops \
+         here, and the conclusion already closed the attempt as effect/indeterminate — the \
+         report this driver was carrying is lost to the journal"
+    );
+    let after = store.load("beneath").unwrap();
+    assert_eq!(
+        after
+            .iter()
+            .map(|event| &event.event_hash)
+            .collect::<Vec<_>>(),
+        before
+            .iter()
+            .map(|event| &event.event_hash)
+            .collect::<Vec<_>>(),
+        "the refused checkpoints wrote nothing"
+    );
+    assert_eq!(after.last().unwrap().event_type, EventType::RunStopped);
+}

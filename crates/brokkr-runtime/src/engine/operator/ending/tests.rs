@@ -5,7 +5,7 @@
 use super::*;
 use brokkr_core::ending::ended;
 use brokkr_core::envelope::EventType;
-use brokkr_core::fold::fold;
+use brokkr_core::fold::{fold, Status};
 use brokkr_core::EventEnvelope;
 use brokkr_core::RunState;
 use std::path::Path;
@@ -364,8 +364,8 @@ fn a_stop_after_a_conclusion_is_refused_before_any_append() {
             &error,
             EngineError::AlreadyConcluded {
                 run_id,
-                status: "stopped",
-                verb: "stop",
+                status: Status::Stopped,
+                verb: OperatorCommand::Stop,
             } if run_id == "after"
         ),
         "{error:?}"
