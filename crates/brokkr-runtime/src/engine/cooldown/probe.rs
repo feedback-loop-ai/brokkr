@@ -10,6 +10,7 @@ use brokkr_core::fold::RunState;
 use brokkr_core::{EventEnvelope, ProbeAnswer, ProviderWait};
 use brokkr_protocol::hands::HandsSpec;
 use serde_json::Value;
+use time::OffsetDateTime;
 use uuid::Uuid;
 
 use super::{Engine, EngineError};
@@ -591,9 +592,10 @@ impl Engine {
 }
 
 /// What a probe leaves: an answer, a rate-limit refusal's extension whose
-/// next round the caller waits and probes again, or the park's reason.
+/// new end and next round the caller waits and probes again, or the park's
+/// reason.
 pub(super) enum Probe {
     Answered(ProbeAnswer),
-    Extended,
+    Extended(OffsetDateTime),
     Parked(String),
 }

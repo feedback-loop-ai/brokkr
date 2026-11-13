@@ -99,6 +99,70 @@ pub(super) enum CooldownError {
     RoundsUnreadable {
         source: Box<brokkr_store::StoreError>,
     },
+    #[error("the cool-down aggregate for {provider}/{route} cannot be read: {source}")]
+    AggregateUnreadable {
+        provider: String,
+        route: String,
+        source: Box<brokkr_store::StoreError>,
+    },
+    #[error(
+        "the cool-down probe for {provider}/{route} was refused again by the provider, and no \
+         cool-down is declared for it: {words}"
+    )]
+    ProbeUndeclared {
+        provider: String,
+        route: String,
+        words: String,
+    },
+    #[error(
+        "the cool-down probe for {provider}/{route} was refused again, and its bounds cannot be \
+         read: {source}: {words}"
+    )]
+    ProbeBoundsUnreadable {
+        provider: String,
+        route: String,
+        source: Box<CooldownError>,
+        words: String,
+    },
+    #[error(
+        "the cool-down probe for {provider}/{route} was refused again, and its journal cannot be \
+         read: {source}: {words}"
+    )]
+    ProbeJournalUnreadable {
+        provider: String,
+        route: String,
+        source: Box<brokkr_store::StoreError>,
+        words: String,
+    },
+    #[error(
+        "the cool-down probe for {provider}/{route} was refused again with no terminal event to \
+         extend: {words}"
+    )]
+    ProbeNoTerminal {
+        provider: String,
+        route: String,
+        words: String,
+    },
+    #[error(
+        "the cool-down probe for {provider}/{route} was refused again, and its rounds cannot be \
+         read: {source}: {words}"
+    )]
+    ProbeRoundsUnreadable {
+        provider: String,
+        route: String,
+        source: Box<brokkr_store::StoreError>,
+        words: String,
+    },
+    #[error(
+        "the cool-down probe for {provider}/{route} was refused again, and its episode cannot be \
+         read: {source}: {words}"
+    )]
+    ProbeEpisodeUnreadable {
+        provider: String,
+        route: String,
+        source: Box<CooldownError>,
+        words: String,
+    },
 }
 
 /// What the engine does with a wait it read: proceed to the retry, leave

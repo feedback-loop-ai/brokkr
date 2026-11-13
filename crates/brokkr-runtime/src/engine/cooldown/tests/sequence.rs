@@ -993,7 +993,7 @@ fn a_member_wait_resolves_the_declared_step_and_member_pair() {
         crate::engine::cooldown::probe::Probe::Parked(reason) => {
             panic!("a:b:c was not a:b's member c: {reason}")
         }
-        crate::engine::cooldown::probe::Probe::Extended => {
+        crate::engine::cooldown::probe::Probe::Extended(_) => {
             panic!("a:b:c extended a wait instead of answering")
         }
     }
@@ -1082,7 +1082,7 @@ fn a_sequence_wait_at_a_form_it_does_not_name_parks_by_name() {
             crate::engine::cooldown::probe::Probe::Answered(_) => {
                 panic!("{site} was probed")
             }
-            crate::engine::cooldown::probe::Probe::Extended => {
+            crate::engine::cooldown::probe::Probe::Extended(_) => {
                 panic!("{site} extended a wait")
             }
         }

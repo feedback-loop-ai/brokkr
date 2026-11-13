@@ -976,6 +976,25 @@ fn next_round<'a>(
     }
 }
 
+/// Append one probe round the store accepts, and return the site's rows in
+/// round order.
+fn append_round(
+    store: &mut Store,
+    run: &str,
+    event_seq: u64,
+    site: &str,
+    until: OffsetDateTime,
+    rounds: u64,
+) -> Vec<Cooldown> {
+    assert_eq!(
+        store
+            .append_cooldown_round(next_round(run, event_seq, site, until, rounds))
+            .unwrap(),
+        RoundAppend::Written
+    );
+    store.cooldown_rounds(run, event_seq, site).unwrap()
+}
+
 /// A probe round is the next one for its site and reads back with the
 /// attempt's row; a gap or a duplicate refuses by name and writes nothing.
 #[test]
@@ -985,13 +1004,7 @@ fn a_probe_round_is_the_next_one_and_reads_back() {
     let event = append_waited(&mut store, "run-a", at(60));
     assert_eq!(event.seq, 2);
 
-    assert_eq!(
-        store
-            .append_cooldown_round(next_round("run-a", event.seq, "a", at(90), 2))
-            .unwrap(),
-        RoundAppend::Written
-    );
-    let rounds = store.cooldown_rounds("run-a", event.seq, "a").unwrap();
+    let rounds = append_round(&mut store, "run-a", event.seq, "a", at(90), 2);
     assert_eq!(
         rounds.iter().map(|row| row.rounds).collect::<Vec<_>>(),
         [1, 2]
@@ -1026,6 +1039,36 @@ fn a_probe_round_is_the_next_one_and_reads_back() {
             .len(),
         2,
         "a refused round wrote a row"
+    );
+}
+
+/// A terminal whose own row never landed (a version 3 journal migrated, or
+/// an `insert` whose end had already passed) stands at round zero: the
+/// probe's round one fills it, the next round the store accepts.
+#[test]
+fn a_round_one_fills_a_terminal_whose_own_row_is_absent() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = journal(dir.path());
+    let event = append_waited(
+        &mut store,
+        "run-a",
+        OffsetDateTime::now_utc() - Duration::seconds(10),
+    );
+    assert_eq!(raw(&store.conn).len(), 0, "a past row landed");
+    assert!(store
+        .cooldown_rounds("run-a", event.seq, "a")
+        .unwrap()
+        .is_empty());
+    let rounds = append_round(&mut store, "run-a", event.seq, "a", at(90), 1);
+    assert_eq!(
+        rounds.iter().map(|row| row.rounds).collect::<Vec<_>>(),
+        [1],
+        "round one was not the next round"
+    );
+    assert_eq!(
+        rounds[0].recorded_at,
+        at(30),
+        "the row's two times are not its length apart"
     );
 }
 

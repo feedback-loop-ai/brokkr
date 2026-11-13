@@ -605,18 +605,25 @@ fn two_route_panel(
     two_candidate_panel(a, b)
 }
 
+/// The two-route panel both members refuse, b's refusal ordered after a's,
+/// and the retry's success ordered after a's: the two-round fixtures share
+/// one builder (decision 0071 ruling 5).
+pub(super) fn retried_two_route_panel(dir: &Path, a_probed: Probed, b_probed: Probed) -> SeatBody {
+    let (a, b) = two_route_drivers(
+        dir,
+        &["refuse", "succeed"],
+        &["refuse", "succeed"],
+        a_probed,
+        b_probed,
+    );
+    let b = retry_after_a_succeeds(dir, delayed_after(dir, "a:attempt:refuse", b));
+    two_candidate_panel(a, b)
+}
+
 #[test]
 fn a_panels_rate_limited_members_each_record_their_own_wait() {
     let dir = tempfile::tempdir().unwrap();
-    let (a, b) = two_route_drivers(
-        dir.path(),
-        &["refuse", "succeed"],
-        &["refuse", "succeed"],
-        Probed::Answer,
-        Probed::Answer,
-    );
-    let b = retry_after_a_succeeds(dir.path(), delayed_after(dir.path(), "a:attempt:refuse", b));
-    let body = two_candidate_panel(a, b);
+    let body = retried_two_route_panel(dir.path(), Probed::Answer, Probed::Answer);
     let mut engine = panel_engine(
         dir.path(),
         body,
@@ -1772,9 +1779,7 @@ fn an_operator_retry_of_an_indeterminate_panel_honours_a_stop_during_the_wait() 
     engine.cooldown.clock = clock_acting(&now, Acting::AfterFirstSlice, move || {
         append_stop(&db, &run)
     });
-    engine.drive().unwrap();
-    let events = engine.store.load(&engine.run_id).unwrap();
-    assert_eq!(fold(&events).unwrap().run.status(), Status::Stopped);
+    drive_to_stop(&mut engine);
     assert_eq!(logs(dir.path(), "b"), Vec::<String>::new());
 }
 

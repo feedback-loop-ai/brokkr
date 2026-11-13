@@ -332,6 +332,13 @@ fn starts(engine: &Engine) -> Vec<Value> {
         .collect()
 }
 
+/// Drive the run to the stop it was given, the ending the stop tests share.
+fn drive_to_stop(engine: &mut Engine) {
+    engine.drive().unwrap();
+    let events = engine.store.load(&engine.run_id).unwrap();
+    assert_eq!(fold(&events).unwrap().run.status(), Status::Stopped);
+}
+
 /// Drive the run and pin the log it read, the one assertion the seat tests
 /// share.
 fn drove(engine: &mut Engine, dir: &Path, expected: &[&str]) {
@@ -1733,7 +1740,7 @@ fn probe_reason(engine: &mut Engine, report: brokkr_protocol::AttemptReport) -> 
     match engine.probe_end("effect", &wait(), report) {
         super::Probe::Parked(reason) => reason,
         super::Probe::Answered(_) => panic!("a probe that never answered is not an answer"),
-        super::Probe::Extended => panic!("a probe with no rate limit extended the wait"),
+        super::Probe::Extended(_) => panic!("a probe with no rate limit extended the wait"),
     }
 }
 

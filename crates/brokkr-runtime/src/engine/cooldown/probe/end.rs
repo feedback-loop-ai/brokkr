@@ -9,7 +9,7 @@ use brokkr_protocol::{AttemptOutcome, AttemptReport, Cleanup, PreSessionRefusal,
 use brokkr_store::{CooldownRound, RoundAppend};
 
 use super::super::sites;
-use super::super::{episode, maximum_reason, past_maximum, terminal};
+use super::super::{episode, maximum_reason, past_maximum, terminal, CooldownError};
 use super::{Engine, Probe};
 
 impl Engine {
@@ -81,7 +81,7 @@ impl Engine {
     ) -> Probe {
         let plan = match self.extension_plan(effect_id, wait, refusal) {
             Ok(plan) => plan,
-            Err(reason) => return Probe::Parked(reason),
+            Err(error) => return Probe::Parked(error.to_string()),
         };
         if past_maximum(plan.seconds, plan.total, plan.max) {
             let next = ProviderWait {
@@ -97,7 +97,9 @@ impl Engine {
             return Probe::Parked(maximum_reason(&next, plan.total, plan.max));
         }
         // A round within the maximum has a length at most the declared
-        // maximum, a `u32`, so its end is always representable.
+        // maximum, a `u32`, so its end is always representable:
+        // `a_round_within_the_maximum_has_a_representable_end` holds that
+        // bound, which is why this arm has no no-end park to cover.
         let until = sites::wait_until(self.now(), plan.seconds)
             .expect("a round within the maximum has a representable end");
         let round = CooldownRound {
@@ -113,7 +115,7 @@ impl Engine {
             seconds: plan.seconds,
         };
         match self.store.append_cooldown_round(round) {
-            Ok(RoundAppend::Written) => Probe::Extended,
+            Ok(RoundAppend::Written) => Probe::Extended(until),
             Ok(RoundAppend::NoTable) => Probe::Parked(format!(
                 "the cool-down probe for {}/{} was refused again by the provider: {}",
                 wait.provider,
@@ -129,83 +131,75 @@ impl Engine {
 
     /// The facts of a probe's next round before anything is written: its
     /// terminal event, site, round, length and the episode through it, or
-    /// the park reason a bound, the journal, the rounds or the episode
-    /// cannot be read. Nothing is appended here.
+    /// the typed reason a bound, the journal, the rounds or the episode
+    /// cannot be read. The round is the site's highest stored round plus
+    /// one, the store's own requirement, so a terminal whose own row never
+    /// landed is filled at round one rather than asked for round two.
+    /// Nothing is appended here.
     fn extension_plan(
         &mut self,
         effect_id: &str,
         wait: &ProviderWait,
         refusal: &PreSessionRefusal,
-    ) -> Result<ExtensionPlan, String> {
+    ) -> Result<ExtensionPlan, CooldownError> {
         let bounds = match self.cooldown_bounds(&wait.provider, &wait.route) {
             Ok(Some(bounds)) => bounds,
             Ok(None) => {
-                return Err(format!(
-                    "the cool-down probe for {}/{} was refused again by the provider, and no \
-                     cool-down is declared for it: {}",
-                    wait.provider,
-                    wait.route,
-                    refusal.words()
-                ))
+                return Err(CooldownError::ProbeUndeclared {
+                    provider: wait.provider.clone(),
+                    route: wait.route.clone(),
+                    words: refusal.words().to_string(),
+                })
             }
-            Err(error) => {
-                return Err(format!(
-                    "the cool-down probe for {}/{} was refused again, and its bounds cannot be \
-                     read: {error}: {}",
-                    wait.provider,
-                    wait.route,
-                    refusal.words()
-                ))
+            Err(source) => {
+                return Err(CooldownError::ProbeBoundsUnreadable {
+                    provider: wait.provider.clone(),
+                    route: wait.route.clone(),
+                    source: Box::new(source),
+                    words: refusal.words().to_string(),
+                })
             }
         };
-        let events = self.store.load(&self.run_id).map_err(|error| {
-            format!(
-                "the cool-down probe for {}/{} was refused again, and its journal cannot be \
-                 read: {error}: {}",
-                wait.provider,
-                wait.route,
-                refusal.words()
-            )
+        let events = self.store.load(&self.run_id).map_err(|source| {
+            CooldownError::ProbeJournalUnreadable {
+                provider: wait.provider.clone(),
+                route: wait.route.clone(),
+                source: Box::new(source),
+                words: refusal.words().to_string(),
+            }
         })?;
         let Some(event) = terminal(&events, effect_id) else {
-            return Err(format!(
-                "the cool-down probe for {}/{} was refused again with no terminal event to \
-                 extend: {}",
-                wait.provider,
-                wait.route,
-                refusal.words()
-            ));
+            return Err(CooldownError::ProbeNoTerminal {
+                provider: wait.provider.clone(),
+                route: wait.route.clone(),
+                words: refusal.words().to_string(),
+            });
         };
         let site = wait.site.clone().unwrap_or_default();
         let rounds = self
             .store
             .cooldown_rounds(&self.run_id, event.seq, &site)
-            .map_err(|error| {
-                format!(
-                    "the cool-down probe for {}/{} was refused again, and its rounds cannot be \
-                     read: {error}: {}",
-                    wait.provider,
-                    wait.route,
-                    refusal.words()
-                )
+            .map_err(|source| CooldownError::ProbeRoundsUnreadable {
+                provider: wait.provider.clone(),
+                route: wait.route.clone(),
+                source: Box::new(source),
+                words: refusal.words().to_string(),
             })?
             .iter()
             .map(|row| row.rounds)
             .max()
             .unwrap_or(0)
-            .max(wait.rounds)
             .saturating_add(1);
         let retry_after = refusal.retry_after_seconds();
         let seconds = sites::wait_seconds(retry_after, bounds.default_seconds.get(), rounds);
         let max = u64::from(bounds.max_seconds.get());
-        let prior = episode(&self.store, &self.run_id, &events, effect_id).map_err(|error| {
-            format!(
-                "the cool-down probe for {}/{} was refused again, and its episode cannot be \
-                 read: {error}: {}",
-                wait.provider,
-                wait.route,
-                refusal.words()
-            )
+        let prior = episode(&self.store, &self.run_id, &events, effect_id).map_err(|source| {
+            CooldownError::ProbeEpisodeUnreadable {
+                provider: wait.provider.clone(),
+                route: wait.route.clone(),
+                source: Box::new(source),
+                words: refusal.words().to_string(),
+            }
         })?;
         Ok(ExtensionPlan {
             event_seq: event.seq,
