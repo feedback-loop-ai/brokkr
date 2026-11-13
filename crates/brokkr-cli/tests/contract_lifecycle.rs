@@ -906,6 +906,55 @@ fn drive_archive(row: &Row) -> Vec<String> {
 /// version, and require it to load. The instance is validated against the
 /// row's own schema file first; a row whose label names another file never
 /// reaches its loader.
+/// The fold reading `operator-repair.v1`: a repaired journal folds, its
+/// late tail kept and never applied.
+fn drive_repair(row: &Row) -> Vec<String> {
+    let args = serde_json::json!({
+        "first_seq": 4,
+        "last_seq": 4,
+        "terminal_seq": 3,
+        "event_types": ["effect/succeeded"],
+        "reason": "the tail is evidence"
+    });
+    if let Some(finding) = instance_satisfies_row(row, &args) {
+        return vec![finding];
+    }
+    let events = [
+        envelope(
+            brokkr_core::EventType::RunStarted,
+            serde_json::json!({"feature": "f", "manifest": {}}),
+            1,
+        ),
+        envelope(
+            brokkr_core::EventType::PhaseEntered,
+            serde_json::json!({"phase": "work"}),
+            2,
+        ),
+        envelope(
+            brokkr_core::EventType::RunStopped,
+            serde_json::json!({"reason": "concluded"}),
+            3,
+        ),
+        envelope(
+            brokkr_core::EventType::EffectSucceeded,
+            serde_json::json!({"effect_id": "e", "result": {}}),
+            4,
+        ),
+        envelope(
+            brokkr_core::EventType::OperatorCommanded,
+            serde_json::json!({
+                "command": brokkr_core::fold::REPAIR,
+                "operator": "operator",
+                "args": args
+            }),
+            5,
+        ),
+    ];
+    let state = brokkr_core::fold::fold(&events).expect("a v1 repair folds");
+    assert_eq!(state.late_tail.map(|tail| tail.last_seq), Some(4));
+    Vec::new()
+}
+
 fn drive_load(row: &Row, item: &str) -> Vec<String> {
     match item {
         "brokkr_core::policy::Machine::from_table" => {
@@ -980,6 +1029,7 @@ fn drive_load(row: &Row, item: &str) -> Vec<String> {
             assert_eq!(marks.len(), 1, "a v1 supersede annotation loads");
             Vec::new()
         }
+        "brokkr_core::fold::fold" => drive_repair(row),
         "brokkr_core::seat::boundary_entries" => {
             let payload = serde_json::json!({
                 "boundary": [{"member": "m", "boundary": "namespace", "gate": false}]

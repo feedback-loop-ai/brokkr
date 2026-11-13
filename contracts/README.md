@@ -565,6 +565,7 @@ Decision 0047 adds one more file and changes none of the bytes above:
 |---|---|---|
 | Operator ending args | `operator-ending.v1.schema.json` | brokkr-runtime (the verb), brokkr-core (the ending reading), the fleet dossier |
 | Operator supersede args | `operator-supersede.v1.schema.json` | brokkr-runtime (the verb), brokkr-view, the fleet dossier |
+| Operator repair args | `operator-repair.v1.schema.json` | brokkr-runtime (the verb), brokkr-core (the fold reading), brokkr-view, the fleet dossier |
 
 `operator-supersede.v1` is a payload schema over `operator/commanded.args`
 for `command: "supersede"` and nothing else. The v1 event envelope, the
@@ -601,6 +602,30 @@ nothing, and no `operator/accepted` follows it.
 `brokkr_core::ending::operator_ending` reads the latest one; the fold reads
 none of it, and a finished run folded with the annotation present is
 byte-identical to the same run folded without it.
+
+Decision 0108 ruling 4, in the shape its 2026-11-13 erratum gives it, adds
+one more file and changes none of the bytes above:
+
+`operator-repair.v1` is a payload schema over `operator/commanded.args` for
+`command: "repair"` and nothing else. The envelope is unmoved for the same
+reason `operator-supersede.v1` states: `command` is already an open string
+and `args` an already-legal open object. The annotation is written only on a
+run that has already reached a terminal event and has a late tail above it —
+an event a newer engine, or an older one, left after the conclusion. It
+names exactly that tail: `first_seq` is the event after the terminal one,
+`last_seq` is the head the repair was written at less one, `terminal_seq` is
+the terminal event, and `event_types` names every event in the range in
+order. `reason` carries the operator's sentence.
+
+Unlike every annotation before it, the fold DOES read this one. Before it
+applies events it reads the run's repairs, and an event inside a repaired
+range folds as *late*: kept and shown by `inspect` and `brokkr runs`, never
+applied. The run reads as its terminal status with "a late tail of N events,
+repaired by <operator>". The range is checked when it is written and again
+when it is folded; a repair that names any other range, or that stands
+before the terminal event, is refused by name. An unrepaired late tail still
+fails the fold as it did before, and the hash chain is untouched: nothing is
+edited or deleted.
 
 Proposed decision 0056 (same-instance session resumption) adds one file and
 changes none of the bytes above:

@@ -319,7 +319,10 @@ pub(super) struct OperatorArgs {
     /// and frees the worktree their writer lease holds; "supersede" records
     /// that residual findings on a run that has already finished are closed
     /// by another run (decision 0047); "classify" names how a stopped run
-    /// ended (decision 0064 ruling 5); "acknowledge" lists a quarantined
+    /// ended (decision 0064 ruling 5); "repair" names the late tail an
+    /// event after a run's terminal one left, so the run folds again as it
+    /// ended, the tail kept and never applied (decision 0108 ruling 4);
+    /// "acknowledge" lists a quarantined
     /// run under older until its journal moves (#511).
     pub(super) command: String,
     /// Why the operator issued the command, recorded with it.

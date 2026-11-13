@@ -6208,6 +6208,24 @@ fn ask<'a>(findings: &'a [u64], by_run: &'a str, by_seq: u64) -> Supersede<'a> {
     }
 }
 
+/// Assert `args` is a valid instance of the published payload schema at
+/// `relative`, and that `invalid` is refused: the contract, not a test's
+/// idea of it.
+pub(in crate::engine) fn published_args(relative: &str, args: &Value, invalid: &Value) {
+    let schema: Value = serde_json::from_slice(
+        &std::fs::read(
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../..")
+                .join(relative),
+        )
+        .expect("the published payload schema is beside the frozen contracts"),
+    )
+    .unwrap();
+    let contract = jsonschema::draft7::new(&schema).unwrap();
+    assert!(contract.is_valid(args), "{args}");
+    assert!(!contract.is_valid(invalid), "{invalid}");
+}
+
 /// Decision 0047 rulings 1, 2 and 6: one annotation, verified before it
 /// is written, changing nothing about the run it annotates. No
 /// `operator/accepted` follows it — there is nothing to execute — and
@@ -6235,24 +6253,10 @@ fn an_operator_supersede_closes_a_finding_by_name_and_changes_nothing_else() {
     );
     // …and that shape is the published contract, not this test's idea
     // of it: the schema is read from the file the README's table names.
-    let schema: Value = serde_json::from_slice(
-        &std::fs::read(
-            Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("../..")
-                .join("contracts/operator-supersede.v1.schema.json"),
-        )
-        .expect("the published payload schema is beside the frozen contracts"),
-    )
-    .unwrap();
-    let contract = jsonschema::draft7::new(&schema).unwrap();
-    assert!(
-        contract.is_valid(&written.payload["args"]),
-        "{}",
-        written.payload["args"]
-    );
-    assert!(
-        !contract.is_valid(&json!({"findings": [], "by": {}, "reason": ""})),
-        "the schema refuses an annotation that cites nothing",
+    published_args(
+        "contracts/operator-supersede.v1.schema.json",
+        &written.payload["args"],
+        &json!({"findings": [], "by": {}, "reason": ""}),
     );
 
     let events = store.load("held").unwrap();

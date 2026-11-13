@@ -287,6 +287,14 @@ pub(crate) fn operator(
             journal.db,
         );
     }
+    if command == brokkr_core::fold::REPAIR {
+        anyhow::ensure!(
+            !cited && cause.is_none() && by_ref.is_none(),
+            "--cause, --by-ref, --findings, --by-run, --by-seq and --by-realm belong to other \
+             verbs; 'repair' takes --run, --reason and the journal"
+        );
+        return repair(workspace, &run, &reason, journal);
+    }
     // The two operator verbs that name how a run ended (decision 0064
     // rulings 4 and 5) take the cause and its citation, and refuse the
     // pair that is supersede's alone.
@@ -321,7 +329,8 @@ pub(crate) fn operator(
     }
     let Some(verb) = OperatorCommand::parse(&command) else {
         anyhow::bail!(
-            "operator command must be 'retry', 'stop', 'supersede', 'classify' or 'acknowledge'"
+            "operator command must be 'retry', 'stop', 'supersede', 'classify', 'repair' or \
+             'acknowledge'"
         );
     };
     if !member.member.is_empty() {
@@ -474,3 +483,45 @@ fn disposition(outcome: FencedCommandOutcome, command: &str, run: &str) -> Resul
 mod tests;
 
 mod member_retry;
+
+/// The writable journal an operator annotation writes to, and the run it
+/// names, resolved: the preamble every annotation verb shares.
+pub(super) fn writable_run(
+    workspace: &Path,
+    run: &str,
+    journal: JournalArgs,
+) -> Result<(Store, String)> {
+    let store = open_journal(&journal.journal(workspace)?, Access::Append)?;
+    let run = selector::resolve_run(&store, run)?;
+    Ok((store, run))
+}
+
+/// `brokkr operator repair` (decision 0108 ruling 4): one annotation on a
+/// run an event after its terminal one already stopped folding, naming
+/// that late tail so the fold reads it as late — kept, shown, never
+/// applied. The run is read from its events, never from its fold, because
+/// a run this verb exists for does not fold at all; a refusal writes
+/// nothing, and the annotation has no acceptance to dispose of.
+fn repair(
+    workspace: &std::path::Path,
+    run: &str,
+    reason: &str,
+    journal: JournalArgs,
+) -> Result<ExitCode> {
+    let (mut store, run) = writable_run(workspace, run, journal)?;
+    let operator = operator_name();
+    let written = brokkr_runtime::operator_repair(
+        &mut store,
+        &run,
+        &brokkr_runtime::Repair {
+            reason,
+            operator: &operator,
+        },
+    )?;
+    eprintln!(
+        "recorded repair at seq {} on {run}; the late tail is kept, shown, and never \
+         applied, and the run folds as it ended. Read it with: brokkr inspect --run {run}",
+        written.seq
+    );
+    Ok(Exit::Completed.into())
+}

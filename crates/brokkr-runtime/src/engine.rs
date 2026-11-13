@@ -100,8 +100,9 @@ use brokkr_core::fold::{
 pub use carry::CarryRefusal;
 pub use operator::{
     apply_fenced_operator_command, conclude, named_cause, operator_classify, operator_command,
-    operator_stop, operator_supersede, Cause, CauseRefusal, CommandWord, ConcludeRefusal,
-    FencedCommand, FencedCommandOutcome, Flag, MemberRetryOutcome, Named, Supersede, Verb,
+    operator_repair, operator_stop, operator_supersede, Cause, CauseRefusal, CommandWord,
+    ConcludeRefusal, FencedCommand, FencedCommandOutcome, Flag, MemberRetryOutcome, Named, Repair,
+    Supersede, Verb,
 };
 #[cfg(test)]
 use operator::{
@@ -213,6 +214,12 @@ pub enum EngineError {
     /// terminal and the journal stays exactly as it was.
     #[error("supersede refused, nothing was written: {0}")]
     SupersedeRefused(String),
+    /// `repair` refused the run or the tail it would name, and wrote
+    /// nothing (decision 0108 ruling 4). Like a supersede there is no
+    /// pending command to dispose of, so the refusal is the operator's to
+    /// read and the journal stays exactly as it was.
+    #[error("repair refused, nothing was written: {0}")]
+    RepairRefused(String),
     /// `classify` refused the run, its cause or its citation, and wrote
     /// nothing (decision 0064 rule 5). The annotation has no acceptance
     /// to carry a rejection, so the typed text is the whole record and

@@ -316,6 +316,9 @@ pub brokkr_core::fold::FoldError::BadDecision::seq: u64
 pub brokkr_core::fold::FoldError::BadPayload
 pub brokkr_core::fold::FoldError::BadPayload::field: alloc::string::String
 pub brokkr_core::fold::FoldError::BadPayload::seq: u64
+pub brokkr_core::fold::FoldError::BadRepair
+pub brokkr_core::fold::FoldError::BadRepair::detail: alloc::string::String
+pub brokkr_core::fold::FoldError::BadRepair::seq: u64
 pub brokkr_core::fold::FoldError::Empty
 pub brokkr_core::fold::FoldError::FirstEventNotRunStarted
 pub brokkr_core::fold::FoldError::FirstEventNotRunStarted::seq: u64
@@ -375,12 +378,22 @@ pub brokkr_core::fold::Status::Stopped
 impl brokkr_core::fold::Status
 pub const fn brokkr_core::fold::Status::as_str(self) -> &'static str
 pub fn brokkr_core::fold::Status::named(&str) -> core::option::Option<brokkr_core::fold::Status>
+pub struct brokkr_core::fold::LateTail
+pub brokkr_core::fold::LateTail::event_types: alloc::vec::Vec<brokkr_core::envelope::EventType>
+pub brokkr_core::fold::LateTail::first_seq: u64
+pub brokkr_core::fold::LateTail::last_seq: u64
+pub brokkr_core::fold::LateTail::operator: alloc::string::String
+pub brokkr_core::fold::LateTail::repaired_at: u64
+pub brokkr_core::fold::LateTail::terminal_seq: u64
+impl brokkr_core::fold::LateTail
+pub fn brokkr_core::fold::LateTail::events(&self) -> impl core::iter::traits::iterator::Iterator<Item = (u64, brokkr_core::envelope::EventType)> + '_
 pub struct brokkr_core::fold::RunState
 pub brokkr_core::fold::RunState::consecutive_failures: alloc::collections::btree::map::BTreeMap<alloc::string::String, u64>
 pub brokkr_core::fold::RunState::feature: core::option::Option<alloc::string::String>
 pub brokkr_core::fold::RunState::last_decision: core::option::Option<brokkr_core::decision::Decision>
 pub brokkr_core::fold::RunState::last_hash: alloc::string::String
 pub brokkr_core::fold::RunState::last_result: core::option::Option<serde_json::value::Value>
+pub brokkr_core::fold::RunState::late_tail: core::option::Option<brokkr_core::fold::LateTail>
 pub brokkr_core::fold::RunState::pending_command: core::option::Option<(alloc::string::String, alloc::string::String)>
 pub brokkr_core::fold::RunState::phase: core::option::Option<alloc::string::String>
 pub brokkr_core::fold::RunState::phase_results: alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_core::decision::PhaseResult>
@@ -390,10 +403,12 @@ pub brokkr_core::fold::RunState::run_id: alloc::string::String
 pub brokkr_core::fold::RunState::seq: u64
 pub brokkr_core::fold::RunState::stop_accepted_seq: core::option::Option<u64>
 pub brokkr_core::fold::RunState::strategy: core::option::Option<alloc::string::String>
+pub brokkr_core::fold::RunState::terminal_seq: core::option::Option<u64>
 pub brokkr_core::fold::RunState::visits: alloc::collections::btree::map::BTreeMap<alloc::string::String, u64>
 impl brokkr_core::fold::RunState
 pub fn brokkr_core::fold::RunState::stopping_seq(&self) -> core::option::Option<u64>
 pub const brokkr_core::fold::FAILURE_RESULTS: [&str; 2]
+pub const brokkr_core::fold::REPAIR: &str
 pub const brokkr_core::fold::TERMINAL_EVENTS: [(brokkr_core::envelope::EventType, brokkr_core::fold::Status); 2]
 pub fn brokkr_core::fold::acceptance_refusal(&brokkr_core::fold::RunState, brokkr_core::fold::OperatorCommand) -> core::option::Option<brokkr_core::fold::Refusal>
 pub fn brokkr_core::fold::computed_inputs(&brokkr_core::fold::RunState, &str, &str, bool) -> serde_json::map::Map<alloc::string::String, serde_json::value::Value>
@@ -1241,6 +1256,9 @@ pub brokkr_core::FoldError::BadDecision::seq: u64
 pub brokkr_core::FoldError::BadPayload
 pub brokkr_core::FoldError::BadPayload::field: alloc::string::String
 pub brokkr_core::FoldError::BadPayload::seq: u64
+pub brokkr_core::FoldError::BadRepair
+pub brokkr_core::FoldError::BadRepair::detail: alloc::string::String
+pub brokkr_core::FoldError::BadRepair::seq: u64
 pub brokkr_core::FoldError::Empty
 pub brokkr_core::FoldError::FirstEventNotRunStarted
 pub brokkr_core::FoldError::FirstEventNotRunStarted::seq: u64
@@ -1360,6 +1378,7 @@ pub brokkr_core::RunState::feature: core::option::Option<alloc::string::String>
 pub brokkr_core::RunState::last_decision: core::option::Option<brokkr_core::decision::Decision>
 pub brokkr_core::RunState::last_hash: alloc::string::String
 pub brokkr_core::RunState::last_result: core::option::Option<serde_json::value::Value>
+pub brokkr_core::RunState::late_tail: core::option::Option<brokkr_core::fold::LateTail>
 pub brokkr_core::RunState::pending_command: core::option::Option<(alloc::string::String, alloc::string::String)>
 pub brokkr_core::RunState::phase: core::option::Option<alloc::string::String>
 pub brokkr_core::RunState::phase_results: alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_core::decision::PhaseResult>
@@ -1369,6 +1388,7 @@ pub brokkr_core::RunState::run_id: alloc::string::String
 pub brokkr_core::RunState::seq: u64
 pub brokkr_core::RunState::stop_accepted_seq: core::option::Option<u64>
 pub brokkr_core::RunState::strategy: core::option::Option<alloc::string::String>
+pub brokkr_core::RunState::terminal_seq: core::option::Option<u64>
 pub brokkr_core::RunState::visits: alloc::collections::btree::map::BTreeMap<alloc::string::String, u64>
 impl brokkr_core::fold::RunState
 pub fn brokkr_core::fold::RunState::stopping_seq(&self) -> core::option::Option<u64>

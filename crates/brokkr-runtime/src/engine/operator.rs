@@ -29,6 +29,7 @@ use disposition::{disposed, Commanded, Disposition};
 pub use retry::MemberRetryOutcome;
 mod receipt;
 mod release;
+mod repair;
 mod supersede;
 pub use classify::operator_classify;
 pub(super) use conclusion::operator_stop_reason;
@@ -38,6 +39,7 @@ pub(super) use ending::tests::{conclude_as, conclude_racing_as, stop_as, stop_ra
 pub use ending::{named_cause, operator_stop, Cause, CauseRefusal, Flag, Named, Verb};
 #[cfg(test)]
 pub(super) use release::released_racing;
+pub use repair::{operator_repair, Repair};
 #[cfg(test)]
 pub(super) use supersede::operator_supersede_racing;
 pub use supersede::{operator_supersede, Supersede};

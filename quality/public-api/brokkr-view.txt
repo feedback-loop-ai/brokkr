@@ -473,6 +473,16 @@ pub brokkr_view::JournalRow::recorded_at: alloc::string::String
 pub brokkr_view::JournalRow::seq: u64
 pub brokkr_view::JournalRow::served: brokkr_view::ModelAtBoundary
 pub brokkr_view::JournalRow::what: brokkr_view::What
+pub struct brokkr_view::LateEvent
+pub brokkr_view::LateEvent::event_type: alloc::string::String
+pub brokkr_view::LateEvent::seq: u64
+pub struct brokkr_view::LateTail
+pub brokkr_view::LateTail::events: alloc::vec::Vec<brokkr_view::LateEvent>
+pub brokkr_view::LateTail::operator: alloc::string::String
+pub brokkr_view::LateTail::repaired_at: u64
+pub brokkr_view::LateTail::terminal_seq: u64
+impl brokkr_view::LateTail
+pub fn brokkr_view::LateTail::line(&self) -> alloc::string::String
 pub struct brokkr_view::Ledger
 pub brokkr_view::Ledger::excluded: alloc::collections::btree::map::BTreeMap<brokkr_core::ending::Ending, usize>
 pub brokkr_view::Ledger::judged: usize
@@ -654,6 +664,7 @@ pub brokkr_view::RunRow::ending_cited: core::option::Option<brokkr_core::ending:
 pub brokkr_view::RunRow::feature: alloc::string::String
 pub brokkr_view::RunRow::hire: core::option::Option<brokkr_view::Hire>
 pub brokkr_view::RunRow::last_recorded_at: core::option::Option<alloc::string::String>
+pub brokkr_view::RunRow::late_tail: core::option::Option<brokkr_view::LateTail>
 pub brokkr_view::RunRow::order_at: i64
 pub brokkr_view::RunRow::paged_at: core::option::Option<(i64, alloc::string::String)>
 pub brokkr_view::RunRow::phase: core::option::Option<alloc::string::String>
@@ -736,6 +747,7 @@ pub brokkr_view::Summary::ending: core::option::Option<brokkr_core::ending::Endi
 pub brokkr_view::Summary::ending_cited: core::option::Option<brokkr_core::ending::Citation>
 pub brokkr_view::Summary::feature: core::option::Option<alloc::string::String>
 pub brokkr_view::Summary::last_decision: core::option::Option<brokkr_core::decision::Decision>
+pub brokkr_view::Summary::late_tail: core::option::Option<brokkr_view::LateTail>
 pub brokkr_view::Summary::park_reason: core::option::Option<alloc::string::String>
 pub brokkr_view::Summary::phase: core::option::Option<alloc::string::String>
 pub brokkr_view::Summary::run_id: alloc::string::String
