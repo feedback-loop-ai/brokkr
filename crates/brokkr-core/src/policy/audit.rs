@@ -28,7 +28,8 @@ pub const SWEEP_BUDGET: usize = 65_536;
 
 /// The terminal a hard rule rules. Reaching it is not going on. The one
 /// name of the hard stop's phase, read by the fold and by the store's
-/// aggregate statement (decision 0089 slice 4, U5a).
+/// aggregate statement through this module path (decision 0089 slice 4,
+/// U5a).
 pub const STOP: &str = "stop";
 
 /// What the audit found in one table.

@@ -46,7 +46,7 @@
 
 use rusqlite::{Connection, OptionalExtension};
 
-use crate::schema::{all_present, holds};
+use crate::schema::holds;
 use crate::seat_summary::{SHAPE, SHAPED};
 use crate::StoreError;
 
@@ -88,7 +88,9 @@ fn shape_index_sql(if_not_exists: bool) -> String {
 
 /// The subquery that holds when `table` carries `run`'s head at `seq` and
 /// `hash`: the one home of what "the other table already holds this head"
-/// means, read by every trigger body and by the fill.
+/// means, read by every trigger body and by the fill. Every column is
+/// qualified by its table, so a `table` that lost one fails to prepare
+/// rather than binding the name outward to the query around it.
 fn matching(
     table: &str,
     run: &str,
@@ -99,7 +101,9 @@ fn matching(
 ) -> String {
     format!(
         "SELECT 1 FROM {table}
-          WHERE run_id = {run} AND {seq_column} = {seq} AND {hash_column} = {hash}"
+          WHERE {table}.run_id = {run}
+            AND {table}.{seq_column} = {seq}
+            AND {table}.{hash_column} = {hash}"
     )
 }
 
@@ -337,8 +341,12 @@ pub(crate) fn forget_summary_triggers(conn: &Connection) -> Result<(), StoreErro
 /// Does `seat_head` hold every column the set's bodies read, its own
 /// `shape` beside them? A table of another shape, a column absent or one
 /// not this build's, cannot satisfy them, so [`forget_summary_triggers`]
-/// drops the summary triggers and the seventh repair remakes the seat tables.
-fn shaped_head(conn: &Connection) -> Result<bool, StoreError> {
+/// drops the summary triggers and the seventh repair remakes the seat
+/// tables. [`crate::seat_summary::seats_intact`] asks this same question,
+/// so "seat_head is this build's" has one home: a remade head fails both
+/// the seventh repair and this drop, and neither trusts a shape it cannot
+/// read.
+pub(super) fn shaped_head(conn: &Connection) -> Result<bool, StoreError> {
     holds(
         conn,
         "seat_head",
@@ -382,8 +390,13 @@ fn bodies_intact(conn: &Connection) -> Result<bool, StoreError> {
 /// Pure reads, so the steady-state open writes nothing; a body another
 /// build wrote fails the check, so it is replaced rather than trusted.
 ///
-/// [`bodies_intact`] is the whole presence and body question: it finds
-/// each of the five triggers by name, so a second presence read adds
+/// [`keyed`] is the table's presence and its shape in one read:
+/// `pragma_table_info` of an absent table, or of a view, yields no primary
+/// key, so a set that is missing or a view fails here without a second
+/// `sqlite_master` read.
+///
+/// [`bodies_intact`] is the whole trigger presence and body question: it
+/// finds each of the five triggers by name, so a second presence read adds
 /// nothing about the set. It does not ask the summary head trigger's body,
 /// and should not: that body is the summary repair's to keep, and a journal
 /// whose only damage is there still carries this build's set, which the
@@ -396,8 +409,7 @@ pub(crate) fn stale_intact(conn: &Connection) -> Result<bool, StoreError> {
             |row| row.get(0),
         )
         .optional()?;
-    Ok(all_present(conn, "table", &[STALE])?
-        && keyed(conn)?
+    Ok(keyed(conn)?
         && index.as_deref() == Some(shape_index_sql(false).as_str())
         && bodies_intact(conn)?)
 }

@@ -2,7 +2,7 @@
 //! answers exactly what `Store::list_runs` answers over every shape a
 //! journal can plant, its one unseeable shape named, and its cost does not
 //! grow with the runs. The hard-stop statement's bytes are pinned too, so
-//! reading `brokkr_core::STOP` there changes no SQL.
+//! reading `brokkr_core::policy::audit::STOP` there changes no SQL.
 
 use brokkr_core::canonical::sha256_bytes;
 use rusqlite::Connection;
@@ -149,4 +149,47 @@ fn the_hard_stop_statement_is_byte_identical() {
         "f78baabfd200baa1cc6692ce1bf1c6a04072cca67f697df152aafce354c2347e",
         "the statement is the one before this unit, byte for byte"
     );
+}
+
+/// L4: the probe's index is checked by its definition, not its name. An
+/// index a build of another text made is not the one the probe reads
+/// through: its answer is still exact, but it scans every run (508 steps
+/// at 50, against 8). The open replaces it, so the bound survives a
+/// changed definition.
+#[test]
+fn a_rebuilt_probe_index_of_another_text_is_replaced_on_open() {
+    let (dir, store) = fresh();
+    for index in 0..50 {
+        plant_run(&store.conn, &format!("run-{index}"), "{}").unwrap();
+    }
+    store
+        .conn
+        .execute_batch(
+            "DROP INDEX runs_unreadable;
+             CREATE INDEX runs_unreadable ON runs (run_id) WHERE feature IS NULL;",
+        )
+        .unwrap();
+    assert!(
+        !unreadable_intact(&store.conn).unwrap(),
+        "the text is not this build's"
+    );
+    assert_eq!(
+        store.runs_readable_steps().unwrap(),
+        508,
+        "that predicate cannot answer the probe, so it scans every run"
+    );
+    assert!(store.runs_readable().unwrap(), "the answer is still exact");
+    drop(store);
+
+    let store = Store::open(&dir.path().join("forge.db")).unwrap();
+    assert!(
+        unreadable_intact(&store.conn).unwrap(),
+        "the open restored this build's index"
+    );
+    assert_eq!(
+        store.runs_readable_steps().unwrap(),
+        8,
+        "the probe reads this build's index alone"
+    );
+    assert!(store.runs_readable().unwrap());
 }

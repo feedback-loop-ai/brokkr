@@ -147,6 +147,26 @@ fn current_store() -> (tempfile::TempDir, Store) {
     (dir, store)
 }
 
+/// The chief's L3 journal: two current runs under a `seat_head` remade
+/// without its fold columns, each run carrying a row at this build's
+/// shape, and the summary intact.
+fn a_head_without_its_fold_columns() -> (tempfile::TempDir, Store) {
+    let (dir, store) = current_store();
+    plant_run(&store.conn, "second", "{}").unwrap();
+    current(&store.conn, "second");
+    store
+        .conn
+        .execute_batch(&format!(
+            "DROP TABLE seat_head;
+             CREATE TABLE seat_head (run_id TEXT PRIMARY KEY, shape TEXT);
+             INSERT INTO seat_head (run_id, shape)
+                 VALUES ('run', '{shape}'), ('second', '{shape}');",
+            shape = SHAPE.as_str()
+        ))
+        .unwrap();
+    (dir, store)
+}
+
 /// The repair's shared tail: reopen `path` and run the open's repair path,
 /// without the catch-up whose refold would clear the lags the test states.
 fn repaired(path: &std::path::Path) -> Connection {
@@ -896,4 +916,148 @@ fn an_older_summary_trigger_is_replaced_on_open() {
         ["renamed".to_string()],
         "the new body watches it"
     );
+}
+
+/// L1: the set's intact check asks the table's key, and that read is the
+/// table's presence and shape together. An absent `seat_lag` and a VIEW
+/// named `seat_lag` each have no primary key, so `keyed` alone fails them;
+/// the five trigger bodies still stand, so the key is the conjunct that
+/// decides, not a second `sqlite_master` presence read.
+#[test]
+fn a_seat_lag_absent_or_a_view_fails_the_sets_key_alone() {
+    for (what, remake) in [
+        ("absent", "DROP TABLE seat_lag;"),
+        (
+            "a view",
+            "DROP TABLE seat_lag; CREATE VIEW seat_lag AS SELECT 1 AS run_id;",
+        ),
+    ] {
+        let (_dir, store) = current_store();
+        store.conn.execute_batch(remake).unwrap();
+        assert!(
+            bodies_intact(&store.conn).unwrap(),
+            "{what}: the five bodies still stand"
+        );
+        assert!(!keyed(&store.conn).unwrap(), "{what}: no primary key");
+        assert!(
+            !stale_intact(&store.conn).unwrap(),
+            "{what}: the set is not intact"
+        );
+    }
+}
+
+/// The chief's L3: a `seat_head` that lost its fold columns beside an
+/// intact summary. `seats_intact` asks the same four columns the set's
+/// bodies read, so the seventh repair remakes the head rather than
+/// trusting it; the fill's columns are each qualified by their table, so
+/// no name binds outward to `run_summary` and the set names every run the
+/// rule does. A reader that cannot write still reads that rule.
+#[test]
+fn a_seat_head_without_its_fold_columns_is_remade_not_trusted() {
+    let (dir, store) = a_head_without_its_fold_columns();
+    assert!(
+        crate::summary::summary_intact(&store.conn).unwrap(),
+        "the summary is intact, so the fifth repair does not run"
+    );
+    assert!(
+        !crate::seat_summary::seats_intact(&store.conn).unwrap(),
+        "the head cannot satisfy the set's bodies"
+    );
+    drop(store);
+
+    let path = dir.path().join("forge.db");
+    let conn = repaired(&path);
+    assert!(stale_intact(&conn).unwrap(), "the eighth repair remade it");
+    assert_eq!(
+        set(&conn),
+        ["run".to_string(), "second".to_string()],
+        "no head vouches for either run"
+    );
+    assert_eq!(
+        set(&conn),
+        rule(&conn),
+        "the fill binds every column to its own table"
+    );
+    drop(conn);
+
+    let store = Store::open_read_only(&path).unwrap();
+    assert_eq!(
+        fallback(&store),
+        ["run".to_string(), "second".to_string()],
+        "the reader that cannot write reads the rule"
+    );
+}
+
+/// L3(b), the fill's own bound: every column [`matching`] reads is named by
+/// its table. With a `seat_head` that lost a fold column, a bare name binds
+/// outward to `run_summary` and the fill answers a set that names no run;
+/// qualified, the statement refuses instead. The seventh repair keeps the
+/// head whole before the fill ([`a_seat_head_without_its_fold_columns_is_remade_not_trusted`]),
+/// so this states the guarantee that makes the refusal unreachable in the
+/// open.
+#[test]
+fn the_fill_refuses_a_head_it_cannot_read_instead_of_binding_outward() {
+    let (_dir, store) = a_head_without_its_fold_columns();
+    let error = match migrate_stale(&store.conn) {
+        Ok(()) => panic!("the fill bound a column outward and answered a set"),
+        Err(error) => error,
+    };
+    assert!(
+        matches!(error, crate::StoreError::Sqlite(_)),
+        "the fill refuses to prepare: {error}"
+    );
+}
+
+/// L2, C2's join: the drop that lets the fifth repair seed is inside the
+/// repair's own immediate transaction. A failure after the drop — the
+/// seed's write aborted here — rolls the drop back with it, so the two
+/// `run_summary` triggers and `seat_head` still stand. A drop in
+/// autocommit would leave them gone.
+#[test]
+fn a_failed_summary_repair_rolls_back_the_drops_with_it() {
+    let (dir, store) = current_store();
+    store
+        .conn
+        .execute_batch(
+            "DROP INDEX run_summary_page;
+             DROP TABLE seat_lag;
+             CREATE TABLE seat_lag (other TEXT PRIMARY KEY);
+             CREATE TRIGGER planted_failure AFTER UPDATE ON run_summary
+             BEGIN SELECT RAISE(ABORT, 'planted'); END;",
+        )
+        .unwrap();
+    drop(store);
+
+    let path = dir.path().join("forge.db");
+    let error = match Store::open(&path) {
+        Ok(_) => panic!("the seed fails after the drop"),
+        Err(error) => error,
+    };
+    assert!(
+        matches!(error, crate::StoreError::Sqlite(_)),
+        "the seed's refusal is the database's: {error}"
+    );
+
+    let conn = Connection::open(&path).unwrap();
+    let standing = |name: &str| -> i64 {
+        conn.query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE name = ?1",
+            [name],
+            |row| row.get(0),
+        )
+        .unwrap()
+    };
+    assert_eq!(
+        standing(SUMMARY_INSERT),
+        1,
+        "the summary insert rolled back"
+    );
+    assert_eq!(standing(SUMMARY_MOVED), 1, "the summary update rolled back");
+    assert_eq!(standing("seat_head"), 1, "the dropped head rolled back");
+
+    conn.execute_batch("DROP TRIGGER planted_failure;").unwrap();
+    drop(conn);
+    let store = Store::open(&path).unwrap();
+    assert!(stale_intact(&store.conn).unwrap(), "the next open repairs");
+    assert_eq!(set(&store.conn), rule(&store.conn));
 }

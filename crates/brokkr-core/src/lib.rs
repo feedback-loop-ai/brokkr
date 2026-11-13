@@ -32,7 +32,6 @@ pub use payload::{
     provider_refusal, provider_waits, ProbeAnswer, ProviderRefusal, ProviderRefusalError,
     ProviderWait, ProviderWaitError, RefusalCause,
 };
-pub use policy::audit::STOP;
 pub use policy::{Machine, Outcome, PolicyError};
 
 // The workspace's shared test support names this crate as every other

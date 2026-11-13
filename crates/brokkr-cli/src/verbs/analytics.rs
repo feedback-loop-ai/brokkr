@@ -170,10 +170,17 @@ fn derive_with(
 /// Whether a hearth's rows state the whole readout: the store's aggregates
 /// are ready and its run listing would read. The listing is asked through
 /// [`Store::runs_readable`], one entry of the store's index over the rows
-/// the listing cannot read, so readiness costs neither the runs' heap nor
-/// their time. A listing that refuses is still the fleet read's to
-/// quarantine; the row path has no refusal of its own (decision 0089
-/// ruling 8's boundary, U3c2).
+/// the listing cannot read. A listing that refuses is still the fleet
+/// read's to quarantine; the row path has no refusal of its own (decision
+/// 0089 ruling 8's boundary, U3c2).
+///
+/// The probe is bounded once a writer of this build has opened the journal,
+/// which is the only open that adds the index. Analytics opens read-only
+/// ([`derive`]), so a hearth no such writer has opened has no index to read
+/// and the probe scans: 508 VM steps at 50 runs and 5,008 at 500, against 8
+/// with the index. Its heap stays constant either way — one row at a time,
+/// never the runs collected — so the scan costs time, not memory. That is
+/// the same read-only limit every repair has: a reader cannot write.
 ///
 /// One shape reads as text to SQLite and refuses the listing: a text value
 /// that is not valid UTF-8. The probe answers `true` there, so the row path
