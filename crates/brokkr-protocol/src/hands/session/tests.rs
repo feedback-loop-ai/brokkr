@@ -316,6 +316,8 @@ fn a_lock_that_cannot_be_probed_keeps_the_tree_and_says_so() {
     mode(&unsearchable, 0o000);
     let reaped = reap_dead_sessions_in(tmp.path(), flock);
     mode(&unsearchable, 0o700);
+    let accessor: Vec<_> = reaped.kept().collect();
+    assert_eq!(accessor.len(), 2);
     let mut kept = reaped.kept;
     kept.sort_by(|a, b| a.0.cmp(&b.0));
     let mut expected = vec![
@@ -323,7 +325,17 @@ fn a_lock_that_cannot_be_probed_keeps_the_tree_and_says_so() {
         (unsearchable, Kept::Unprobed(Unprobed::Stat(Errno::ACCESS))),
     ];
     expected.sort_by(|a, b| a.0.cmp(&b.0));
-    assert_eq!((reaped.removed, kept), (vec![refusing], expected));
+    assert_eq!(
+        (
+            reaped
+                .removed
+                .iter()
+                .map(|(tree, _)| tree.clone())
+                .collect::<Vec<_>>(),
+            kept,
+        ),
+        (vec![refusing], expected)
+    );
     assert_eq!(
         [Unprobed::Stat(Errno::ACCESS), Unprobed::Open(Errno::ACCESS)].map(|why| why.to_string()),
         [
@@ -421,15 +433,20 @@ fn only_a_tree_whose_owner_is_dead_and_unlocked_is_reaped() {
     std::fs::write(&file, "").unwrap();
 
     let mut reaped = reap_dead_sessions_in(tmp.path(), flock);
-    reaped.removed.sort();
+    reaped.removed.sort_by(|a, b| a.0.cmp(&b.0));
     let mut expected = vec![serve, exec];
     expected.sort();
     assert_eq!(
-        reaped,
-        Reaped {
-            removed: expected.clone(),
-            kept: vec![(unreadable, Kept::Unprobed(Unprobed::NotRegular))],
-        }
+        reaped
+            .removed
+            .iter()
+            .map(|(tree, _)| tree.clone())
+            .collect::<Vec<_>>(),
+        expected
+    );
+    assert_eq!(
+        reaped.kept,
+        vec![(unreadable, Kept::Unprobed(Unprobed::NotRegular))]
     );
     for tree in &expected {
         assert!(!tree.exists(), "{}", tree.display());
@@ -530,10 +547,11 @@ fn set_mode(path: &Path, bits: u32) {
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(bits)).unwrap();
 }
 
-/// A dead owner's unheld tree that cannot be removed is kept and said,
-/// with the removal's error, so the start's stderr names it (#620). One
-/// tree holds a directory its owner cannot write; another cannot be
-/// listed at all, so the overlay walk cannot open it either.
+/// A dead owner's unheld tree whose root cannot be unlinked from its
+/// parent is kept and said, with the removal's error, so the start's
+/// stderr names it (#620). The walk still unseals and empties the tree:
+/// the error is the root's own unlink, and the empty root waits for the
+/// next pass.
 #[test]
 fn a_free_tree_that_cannot_be_removed_is_kept_and_said() {
     let tmp = tempfile::tempdir().unwrap();
@@ -545,27 +563,27 @@ fn a_free_tree_that_cannot_be_removed_is_kept_and_said() {
     set_mode(&sealed, 0o500);
     let unlistable = unheld(tmp.path(), "serve", &dead);
     set_mode(&unlistable, 0o300);
+    set_mode(tmp.path(), 0o500);
 
     let mut reaped = reap_dead_sessions_in(tmp.path(), flock);
-    set_mode(&sealed, 0o700);
+    set_mode(tmp.path(), 0o700);
     set_mode(&unlistable, 0o700);
     reaped.kept.sort_by(|a, b| a.0.cmp(&b.0));
 
-    let denied = || Unremovable(said(Errno::ACCESS));
+    let denied = |path: &Path| {
+        Unremovable(TreeError::Io {
+            path: path.to_path_buf(),
+            cause: said(Errno::ACCESS),
+        })
+    };
     let mut kept = vec![
-        (tree.clone(), Kept::Unremovable(denied())),
-        (unlistable.clone(), Kept::Unremovable(denied())),
+        (tree.clone(), Kept::Unremovable(denied(&tree))),
+        (unlistable.clone(), Kept::Unremovable(denied(&unlistable))),
     ];
     kept.sort_by(|a, b| a.0.cmp(&b.0));
     let lines: Vec<String> = kept
         .iter()
-        .map(|(tree, _)| {
-            format!(
-                "hands: kept {}: it cannot be removed: {}\n",
-                tree.display(),
-                said(Errno::ACCESS)
-            )
-        })
+        .map(|(tree, why)| format!("hands: kept {}: {}\n", tree.display(), why))
         .collect();
     assert_eq!(reaped.to_string(), lines.concat());
     assert_eq!(
@@ -575,8 +593,8 @@ fn a_free_tree_that_cannot_be_removed_is_kept_and_said() {
             kept
         }
     );
-    assert!(sealed.join("call").is_file(), "the tree is left whole");
-    assert!(unlistable.is_dir());
+    assert!(!sealed.exists(), "the walk unsealed and emptied the tree");
+    assert!(tree.is_dir() && unlistable.is_dir(), "the roots are left");
 }
 
 /// A layer's overlay work directory as overlayfs leaves it under `tree`:
@@ -616,38 +634,49 @@ fn a_tree_whose_overlay_work_is_sealed_is_removed() {
     assert!(!own.exists(), "dropping the session removes its tree");
 }
 
-/// The overlay walk changes no directory but the work ones: a sealed
-/// `work/work` beside `overlay/`, or a sealed directory in a layer's
-/// upper, keeps its mode, and the tree is kept and said.
+/// A dead owner's free tree is removed with the bytes its walk freed, and
+/// a live owner's held tree is not.
 #[test]
-fn the_overlay_walk_changes_only_the_work_directories() {
+fn a_dead_owner_s_free_tree_reports_its_bytes() {
     let tmp = tempfile::tempdir().unwrap();
     let tree = unheld(tmp.path(), "exec", &dead_pid().to_string());
-    sealed_overlay_work(&tree, "0");
-    let beside = tree.join("work").join("work");
-    let upper = tree.join("overlay").join("0").join("upper").join("sealed");
-    for sealed in [&beside, &upper] {
-        std::fs::create_dir_all(sealed).unwrap();
-        std::fs::write(sealed.join("call"), "").unwrap();
-        set_mode(sealed, 0o500);
-    }
+    std::fs::write(tree.join("payload"), vec![9u8; 12_345]).unwrap();
+    let (_held, live) = held_under(tmp.path(), &dead_pid().to_string());
+    let expected = crate::tree::count_tree(&tree).unwrap().unwrap();
 
     let reaped = reap_dead_sessions_in(tmp.path(), flock);
-    let modes = [&beside, &upper].map(|sealed| {
-        let mode = std::fs::metadata(sealed).ok()?.permissions().mode() & 0o777;
-        set_mode(sealed, 0o700);
-        Some(mode)
-    });
+    let removed: Vec<_> = reaped.removed().collect();
+    assert_eq!(removed, vec![(tree.as_path(), expected)]);
+    assert!(!tree.exists());
+    assert_eq!(reaped.kept().count(), 0);
+    assert!(live.is_dir(), "a held tree is never removed");
+}
+
+/// The listing names the trees the reaping would remove, with the bytes a
+/// removal would free, and removes nothing.
+#[test]
+fn the_listing_removes_nothing_and_counts_what_the_reaping_would() {
+    let tmp = tempfile::tempdir().unwrap();
+    let tree = unheld(tmp.path(), "exec", &dead_pid().to_string());
+    std::fs::write(tree.join("payload"), vec![3u8; 9_000]).unwrap();
+    let (_held, live) = held_under(tmp.path(), &dead_pid().to_string());
+    let expected = crate::tree::count_tree(&tree).unwrap().unwrap();
 
     assert_eq!(
-        reaped.to_string(),
-        format!(
-            "hands: kept {}: it cannot be removed: {}\n",
-            tree.display(),
-            said(Errno::ACCESS)
-        )
+        list_reapable_under(tmp.path()),
+        vec![(tree.clone(), expected)]
     );
-    assert_eq!(modes, [Some(0o500), Some(0o500)]);
+    assert!(
+        tree.join("payload").is_file(),
+        "the listing removes nothing"
+    );
+    assert!(live.is_dir());
+    let reaped = reap_dead_sessions_in(tmp.path(), flock);
+    assert_eq!(
+        reaped.removed().collect::<Vec<_>>(),
+        vec![(tree.as_path(), expected)]
+    );
+    assert!(!tree.exists());
 }
 
 /// The overlay walk follows no symlink: a link at `overlay/<n>/work/work`
