@@ -22,16 +22,16 @@
 //! ([`Seen`]). Priority and
 //! waits are operator data, stored and listed here; admission weighs them.
 
-use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ValueRef};
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
-use thiserror::Error;
 
 use crate::{now_rfc3339, patiently, Store, StoreError};
 
 mod beside;
 mod claim;
 mod cooldown;
+mod entry;
 mod holder;
+mod refusal;
 pub(crate) mod storage;
 
 pub use beside::Seen;
@@ -39,9 +39,15 @@ use beside::{beside_once, Beside};
 pub use claim::{claim_stands, Claim, ClaimFacts, Claiming, Generation, StartRefusal};
 pub(crate) use cooldown::insert as insert_cooldowns;
 pub use cooldown::{Cooldown, CooldownAggregate, Cooling};
+#[cfg(test)]
+use entry::UnknownWord;
+use entry::{read_word, Standing};
+pub use entry::{EntryState, Latch, NewEntry, NotAWait, QueueCommand, WaitOn};
+pub use refusal::QueueRefusal;
+#[cfg(test)]
+use storage::QUEUE_SCHEMA;
 use storage::{
-    latch_row, queue_stored, wait_row, Stored, PINNED_PAYLOAD, PINNED_SEQ, QUEUE_SCHEMA,
-    STANDING_LATCH, WAITS,
+    latch_row, queue_stored, wait_row, Stored, PINNED_PAYLOAD, PINNED_SEQ, STANDING_LATCH, WAITS,
 };
 pub(crate) use storage::{migrate_queue, queue_intact, queue_schema, QUEUE_SCHEMA_KEY};
 
@@ -64,62 +70,6 @@ impl std::str::FromStr for EntryId {
     }
 }
 
-/// A word a queue table holds that this binary does not know. Only the
-/// store's own writers write these columns, so reading one is a journal
-/// written by something else, refused rather than guessed at.
-#[derive(Debug, Error, PartialEq, Eq)]
-#[error("queue column {column} holds '{word}', which this brokkr does not know")]
-pub(crate) struct UnknownWord {
-    pub(crate) column: &'static str,
-    pub(crate) word: String,
-}
-
-/// Read one word of a closed vocabulary: the member whose `word` it is.
-fn read_word<T: Copy>(
-    value: ValueRef<'_>,
-    column: &'static str,
-    all: &[T],
-    word: fn(T) -> &'static str,
-) -> FromSqlResult<T> {
-    let text = value.as_str()?;
-    all.iter()
-        .copied()
-        .find(|known| word(*known) == text)
-        .ok_or_else(|| {
-            FromSqlError::Other(Box::new(UnknownWord {
-                column,
-                word: text.to_string(),
-            }))
-        })
-}
-
-/// What an entry waits on in the entry it names (decision 0068 ruling 2).
-/// A named ending (decision 0064) joins when #317 builds it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum WaitOn {
-    /// The awaited entry's run completed.
-    Completed,
-    /// The awaited entry's run reached any terminal status.
-    Ended,
-}
-
-impl WaitOn {
-    pub const ALL: [WaitOn; 2] = [WaitOn::Completed, WaitOn::Ended];
-
-    pub fn word(self) -> &'static str {
-        match self {
-            WaitOn::Completed => "completed",
-            WaitOn::Ended => "ended",
-        }
-    }
-}
-
-impl FromSql for WaitOn {
-    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
-        read_word(value, "queue_waits.condition", &WaitOn::ALL, WaitOn::word)
-    }
-}
-
 /// One entry another waits for, and on what. Written `ENTRY:CONDITION`,
 /// as `3:completed`, and read back the same way.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -134,14 +84,6 @@ impl std::fmt::Display for Wait {
     }
 }
 
-/// Text that is not a [`Wait`].
-#[derive(Debug, Error, PartialEq, Eq)]
-#[error(
-    "'{0}' is not ENTRY:CONDITION, with CONDITION one of {words}",
-    words = WaitOn::ALL.map(WaitOn::word).join(", ")
-)]
-pub struct NotAWait(pub String);
-
 impl std::str::FromStr for Wait {
     type Err = NotAWait;
 
@@ -155,93 +97,6 @@ impl std::str::FromStr for Wait {
                 .find(|known| known.word() == on)
                 .ok_or_else(refused)?,
         })
-    }
-}
-
-/// The stored state word. Claimed is not one: an entry is claimed exactly
-/// when it names a run, and that column is its one home.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Standing {
-    Queued,
-    Held,
-    Dropped,
-    Launching,
-}
-
-impl Standing {
-    const ALL: [Standing; 4] = [
-        Standing::Queued,
-        Standing::Held,
-        Standing::Dropped,
-        Standing::Launching,
-    ];
-
-    fn word(self) -> &'static str {
-        match self {
-            Standing::Queued => "queued",
-            Standing::Held => "held",
-            Standing::Dropped => "dropped",
-            Standing::Launching => "launching",
-        }
-    }
-}
-
-impl FromSql for Standing {
-    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
-        read_word(value, "queue_entries.state", &Standing::ALL, Standing::word)
-    }
-}
-
-/// Where an entry stands.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum EntryState {
-    /// Waiting its turn.
-    Queued,
-    /// Kept in its place, and not to be started until released.
-    Held,
-    /// Claimed by the dispatcher, in its place, before its run exists
-    /// (decision 0095 ruling 1): linked to the run it starts, or returned
-    /// to the queue or held, before any other entry is claimed.
-    Launching,
-    /// Started: the run it produced, recorded once.
-    Claimed { run: String },
-    /// Taken out of the queue by the operator.
-    Dropped,
-}
-
-impl EntryState {
-    /// The state as the queue's readouts name it.
-    pub fn word(&self) -> &'static str {
-        match self {
-            EntryState::Queued => Standing::Queued.word(),
-            EntryState::Held => Standing::Held.word(),
-            EntryState::Launching => Standing::Launching.word(),
-            EntryState::Claimed { .. } => "claimed",
-            EntryState::Dropped => Standing::Dropped.word(),
-        }
-    }
-
-    /// The run a claimed entry started.
-    pub fn run(&self) -> Option<&str> {
-        match self {
-            EntryState::Claimed { run } => Some(run),
-            EntryState::Queued | EntryState::Held | EntryState::Launching | EntryState::Dropped => {
-                None
-            }
-        }
-    }
-
-    fn of(standing: Standing, run: Option<String>) -> EntryState {
-        match (run, standing) {
-            (
-                Some(run),
-                Standing::Queued | Standing::Held | Standing::Dropped | Standing::Launching,
-            ) => EntryState::Claimed { run },
-            (None, Standing::Queued) => EntryState::Queued,
-            (None, Standing::Held) => EntryState::Held,
-            (None, Standing::Launching) => EntryState::Launching,
-            (None, Standing::Dropped) => EntryState::Dropped,
-        }
     }
 }
 
@@ -277,175 +132,12 @@ impl QueueEntry {
     }
 }
 
-/// A realm-drift hold admission latched on an entry (#430): the `latch`
-/// command that recorded it, and what admission found, as the runtime
-/// encoded it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Latch {
-    pub(crate) seq: i64,
-    pub finding: String,
-}
-
 /// Who issued an operator command, and why (decision 0068 ruling 1: each
 /// is journaled with its reason).
 #[derive(Debug, Clone, Copy)]
 pub struct Attribution<'a> {
     pub operator: &'a str,
     pub reason: &'a str,
-}
-
-/// A new entry.
-#[derive(Debug, Clone, Copy)]
-pub struct NewEntry<'a> {
-    pub payload: &'a str,
-    pub priority: i64,
-    pub waits: &'a [Wait],
-}
-
-/// The operator commands that change an entry already queued.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum QueueCommand {
-    /// Put the entry at this place, from 1.
-    Move {
-        to: u32,
-    },
-    Hold,
-    Release,
-    Drop,
-}
-
-impl QueueCommand {
-    fn word(self) -> &'static str {
-        match self {
-            QueueCommand::Move { .. } => "move",
-            QueueCommand::Hold => "hold",
-            QueueCommand::Release => "release",
-            QueueCommand::Drop => "drop",
-        }
-    }
-}
-
-/// Why the queue refused, with the operator's text. Nothing was written.
-#[derive(Debug, Clone, Error, PartialEq, Eq)]
-pub enum QueueRefusal {
-    #[error("queue entry {0} does not exist")]
-    UnknownEntry(EntryId),
-    #[error("a new queue entry cannot wait for entry {0}, which does not exist")]
-    UnknownWait(EntryId),
-    #[error("a new queue entry names entry {0} to wait for twice")]
-    DuplicateWait(EntryId),
-    #[error("queue entry {entry} cannot move to place {to}: the queue's places run 1 to {last}")]
-    PastTheEnds { entry: EntryId, to: u32, last: u32 },
-    #[error("queue entry {0} is already held")]
-    AlreadyHeld(EntryId),
-    #[error("queue entry {0} is not held")]
-    NotHeld(EntryId),
-    #[error("queue entry {0} is held; release it first")]
-    Held(EntryId),
-    #[error("queue entry {entry} is claimed by run '{run}'")]
-    Claimed { entry: EntryId, run: String },
-    #[error("queue entry {0} was dropped")]
-    Dropped(EntryId),
-    #[error("run '{run}' already started queue entry {entry}")]
-    RunTaken { run: String, entry: EntryId },
-    #[error("queue storage {found} unsupported (want {QUEUE_SCHEMA})")]
-    SchemaMismatch { found: u32 },
-    /// A re-pin over a latch that no longer stands: a peer latched again,
-    /// or re-pinned, after the caller read it. `standing` is the latch
-    /// that stands now, read in the transaction that refused.
-    #[error("queue entry {entry}'s latched hold is not the one the re-pin was shown")]
-    LatchMoved {
-        entry: EntryId,
-        standing: Option<Latch>,
-    },
-    /// A re-pin over a pin that no longer stands: a peer re-pinned after
-    /// the caller read it.
-    #[error("queue entry {entry} was re-pinned after the re-pin was shown")]
-    PinMoved { entry: EntryId },
-    /// A latch measured against a pin or a latch that no longer stands: a
-    /// peer re-pinned or latched after the caller read the entry.
-    #[error(
-        "queue entry {entry} was re-pinned or latched after its finding was measured, and the \
-         finding was not latched"
-    )]
-    Unmeasured { entry: EntryId },
-    /// A journal that records its queue, and has lost one of its tables.
-    #[error(
-        "the journal records a queue but its {table} table is gone; what the queue held cannot \
-         be read, and it is never recreated empty"
-    )]
-    TableLost { table: &'static str },
-    /// A cool-down row whose stored instant this reader cannot spell, named
-    /// by its row (decision 0103 ruling 2(a), slice 4d1): a whole number of
-    /// seconds outside `time`'s range is never read as a wait.
-    #[error("the journal's provider cool-down {seq} records a time it cannot read")]
-    CooldownTime { seq: i64 },
-    /// A lost unique cool-down index over duplicated rows (0103, slice 4d1):
-    /// the run, event seq, site and round of the duplicate, boxed so the
-    /// error stays small as the store's callers carry it.
-    #[error("the journal's provider cool-downs hold run '{}' event {} site '{}' round {} more than once; the lost unique index is not rebuilt over them", .0.0, .0.1, .0.2, .0.3)]
-    CooldownDuplicate(Box<(String, i64, String, i64)>),
-    /// A command on an entry the dispatcher has claimed and not yet
-    /// linked, returned or held (decision 0095 ruling 1).
-    #[error("queue entry {0} is launching; the dispatcher links, returns or holds it first")]
-    Launching(EntryId),
-    /// A claim while this other entry stands launching: one entry is
-    /// claimed at a time (decision 0095 ruling 7).
-    #[error(
-        "queue entry {0} is launching, and no other entry is claimed until it is linked, \
-         returned or held"
-    )]
-    InFlight(EntryId),
-    /// A claim of an entry re-pinned or latched since the pass that
-    /// admitted it read it (decision 0095 ruling 7).
-    #[error(
-        "queue entry {0} was re-pinned or latched after the pass that admitted it read it, and \
-         it was not claimed"
-    )]
-    Unseen(EntryId),
-    /// A dispatcher's step under a claim that does not stand for it: the
-    /// entry was claimed again, returned, held or linked since, or the
-    /// step was taken already (decision 0095 ruling 1).
-    #[error(
-        "queue entry {}'s claim {} does not stand for this step",
-        .0.entry,
-        .0.seq
-    )]
-    Stale(Claim),
-    /// A dispatcher's step under a claim another generation took (decision
-    /// 0095 ruling 1).
-    #[error(
-        "queue entry {}'s claim {} was not taken by generation {}",
-        .0.entry,
-        .0.seq,
-        .1.0
-    )]
-    OtherGeneration(Claim, Generation),
-    /// A dispatcher's step under a generation that is not the journal's
-    /// latest holder: a newer dispatcher fenced it out (decision 0095 ruling 2).
-    #[error("dispatcher generation {} is not the journal's latest holder; it writes nothing", .0.0)]
-    Superseded(Generation),
-    /// A start under a claim whose bundle is not the one the pass measured:
-    /// the manifest digest the claim recorded, which the start's is not
-    /// (decision 0095 ruling 7). The start's is its caller's own.
-    #[error(
-        "queue entry {}'s claim {} admitted the bundle of manifest digest {}, and this start's \
-         is another; no run was written",
-        .0.entry,
-        .0.seq,
-        .1
-    )]
-    BundleMoved(Claim, String),
-    /// Runs whose manifests carry one claim, more than one, which no
-    /// dispatcher writes (decision 0095 ruling 3): none is adopted.
-    #[error(
-        "queue entry {}'s claim {} is carried by runs '{}', and a claim starts one run; none is \
-         adopted",
-        .0.entry,
-        .0.seq,
-        .1.join("', '")
-    )]
-    Carried(Claim, Vec<String>),
 }
 
 /// The standing of one entry, read inside the transaction that acts on it.
