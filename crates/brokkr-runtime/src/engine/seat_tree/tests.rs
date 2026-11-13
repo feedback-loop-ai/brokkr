@@ -205,7 +205,7 @@ fn an_unknown_queue_version_makes_the_tree_with_no_row() {
     engine.network_prefix = Some(false);
     let journal = engine.store.path().to_path_buf();
     let peer = rusqlite::Connection::open(&journal).unwrap();
-    peer.execute("UPDATE meta SET value = '6' WHERE key = 'queue_schema'", [])
+    peer.execute("UPDATE meta SET value = '7' WHERE key = 'queue_schema'", [])
         .unwrap();
     drop(peer);
     unboxed(&mut engine, ids(), &HandsSpec::default()).unwrap();
