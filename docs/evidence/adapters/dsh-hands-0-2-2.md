@@ -526,6 +526,42 @@ dropped at 03b732efb. Each removal control (a) to (k), the review's
 rule, `}` and `Header::Item` was a compiling mutation observed failing and
 restored; the code commit message records each with its failing test.
 
+1052g8b's two reviews owed sixteen more bindings. Each is a compiling
+mutation observed failing and then restored. They are recorded here, so a
+squash keeps them; the failing test is named after each list.
+
+- **ac9488b36:**
+  - (a) the `: ` arm's space trim;
+  - (b) the `? ` arm's space trim;
+  - (c) the `: ` arm's `dash = false`;
+  - (d) `' '` in the flow tail;
+  - (e) `':'` in the flow tail;
+  - (f) `after_node`'s space guard;
+  - (g) the empty-item marker narrowed to `# `.
+
+  The tests are `the_closure_reads_a_colon_marker_a_tag_and_every_property_end`
+  for (a) and (b); `the_closure_admits_a_comment_a_header_and_a_cut_comment`
+  for (c) to (f); and `the_closure_refuses_the_empty_item_and_every_open_node`
+  for (g).
+- **d1ee69468:**
+  - (a) the `- ` arm's `continue` made `break`. The same mutation admits
+    the composed `- - # c` tree through the closure and the gate.
+  - (b) `plain_open`'s ` #` cut made `#` alone;
+  - (c) `strip_properties`' loop removed;
+  - (d) `after_node` skipping one space instead of the run;
+  - (e) `token_end`'s `.skip(1)` made `.skip(2)`;
+  - (f) `strip_properties`' loop-top trim stripping one space;
+  - (g) `colon_ends_key`'s `== Some(&b' ')` made `.is_some()`;
+  - (h) `node_open`'s `|` half dropped.
+
+  The tests are `the_closure_reads_a_colon_marker_a_tag_and_every_property_end`
+  for (a) to (f), and `the_closure_admits_a_comment_a_header_and_a_cut_comment`
+  for (g) and (h).
+- **By hand:** the bare-dash rule's false-refusal direction. `body ==
+  "-"` widened to `body.starts_with('-')` fails
+  `the_closure_admits_a_dash_led_plain_scalar` with `-1` at a line start
+  refused (controller, 2026-11-13).
+
 ## A real seat tree, judged (controller, 2026-11-12)
 
 The seat's full overlay, composed by a real 0.2.2-rc.1, was judged by

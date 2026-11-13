@@ -369,6 +369,27 @@ fn the_closure_admits_every_closed_shape() {
     }
 }
 
+/// A plain scalar that starts with a dash at the start of a line is no
+/// empty item: `-1` and `--flag x` leave no quote, flow or item open, so the
+/// closure admits them, and so does the gate in a block scalar's content.
+/// Only a bare `-` (or `- ` with nothing after it) is the empty item the
+/// rule refuses. Removal control: `body == "-"` widened to
+/// `body.starts_with('-')` refuses all three.
+#[test]
+fn the_closure_admits_a_dash_led_plain_scalar() {
+    assert_eq!(closure("-1\n"), Ok(()), "a negative number at a line start");
+    assert_eq!(
+        closure("      --flag x\n"),
+        Ok(()),
+        "a dash-led flag in block content"
+    );
+    let dump = policy_dump();
+    admits(
+        "a dash-led line in a literal block",
+        tool_bash_row(&dump, "  config:\n    k: |-\n      -1\n  disabled: true\n"),
+    );
+}
+
 /// The two committed real trees still pass. The raw 0.2.1 dump has no
 /// composed hands row, so the closure reads it alone; the composed 0.2.1
 /// and 0.2.2 fixtures pass the whole gate.
