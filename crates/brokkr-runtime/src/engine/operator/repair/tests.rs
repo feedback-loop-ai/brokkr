@@ -5,9 +5,11 @@
 use super::*;
 use crate::engine::tests::{in_flight_store, published_args};
 
+use crate::engine::apply_fenced_operator_command;
 use brokkr_core::fold::{fold, Run, Status};
 use brokkr_store::test_support::{lags, plant_chained};
-use serde_json::json;
+use brokkr_store::StoreError;
+use serde_json::{json, Value};
 use std::path::Path;
 
 /// A run stopped at seq 5 by its operator, and nothing after it.
@@ -187,7 +189,7 @@ fn a_repair_is_refused_and_writes_nothing_where_it_cannot_help() {
     assert_eq!(
         refused.to_string(),
         "repair refused, nothing was written: run 'repaired' is already repaired at seq 7; \
-         nothing stands after the repair, so it folds as it stands and repair appends nothing"
+         it folds as it stands and repair appends nothing"
     );
     assert_eq!(length(&repaired, "repaired"), before);
     lags(&mut repaired, &["repaired"]);
@@ -364,4 +366,193 @@ fn a_repair_leaves_the_terminal_status_in_place() {
     let after = fold(&store.load("status").unwrap()).unwrap();
     assert_eq!(after.run.status(), Status::Stopped);
     lags(&mut store, &["status"]);
+}
+
+/// F4: a repaired run with a later lawful annotation still carries the
+/// fold's late tail, so repair refuses it as repaired rather than as a
+/// run with no late tail.
+#[test]
+fn a_repair_after_a_later_annotation_is_still_already_repaired() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("annotated-after-repair.db");
+    let store = concluded(&db, "late");
+    let mut store = planted(store, &db, "late", &[crate::late::settlement()]);
+    operator_repair(&mut store, "late", &ask("operator", "first")).unwrap();
+    store
+        .append_next(
+            "late",
+            EventType::OperatorCommanded,
+            json!({"command_id": "c-classify", "command": "classify",
+                   "operator": "operator", "args": {"cause": "withdrawn", "reason": "later"}}),
+            None,
+            None,
+        )
+        .unwrap();
+    let before = length(&store, "late");
+    let refused = operator_repair(&mut store, "late", &ask("operator", "again")).unwrap_err();
+    assert_eq!(
+        refused.to_string(),
+        "repair refused, nothing was written: run 'late' is already repaired at seq 7; it folds \
+         as it stands and repair appends nothing"
+    );
+    assert_eq!(length(&store, "late"), before);
+    lags(&mut store, &["late"]);
+}
+
+/// F9: the fenced append's error arm. A peer moves the head between the
+/// read and the write, so the repair lands nowhere and the store's
+/// `HeadMoved` is the answer.
+#[test]
+fn a_repair_that_loses_the_head_writes_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("moved.db");
+    let store = concluded(&db, "late");
+    let mut store = planted(store, &db, "late", &[crate::late::settlement()]);
+    let before = length(&store, "late");
+    let refused = repair_with(&mut store, "late", &ask("operator", "why"), |store| {
+        store
+            .append_next(
+                "late",
+                EventType::OperatorCommanded,
+                json!({"command_id": "peer", "command": "stop", "operator": "other", "args": {}}),
+                None,
+                None,
+            )
+            .unwrap();
+    })
+    .unwrap_err();
+    assert!(
+        matches!(refused, EngineError::Store(StoreError::HeadMoved { .. })),
+        "{refused:?}"
+    );
+    let events = store.load("late").unwrap();
+    assert_eq!(events.len(), before + 1, "only the peer's event landed");
+    assert!(
+        !events
+            .iter()
+            .any(|event| event.payload.get("command").and_then(Value::as_str) == Some(REPAIR)),
+        "the repair wrote nothing"
+    );
+    lags(&mut store, &["late"]);
+}
+
+/// C1(a): the bridge refuses every annotation word before journaling it,
+/// and the terminal run still folds. The `dance` control still journals
+/// the word it was sent and refuses it by name, exactly as before.
+#[test]
+fn the_bridge_refuses_annotation_words_and_the_run_still_folds() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("reserved.db");
+    let mut store = concluded(&db, "late");
+    let before = length(&store, "late");
+    for word in ["repair", "settle", "classify", "supersede"] {
+        let (seq, hash) = store.head_hash("late").unwrap();
+        let wire = crate::engine::FencedCommand {
+            command_id: "reserved",
+            command: crate::engine::CommandWord::parse(word),
+            operator: "operator",
+            reason: "please",
+            expected_seq: seq,
+            expected_hash: &hash,
+        };
+        let refused = apply_fenced_operator_command(&mut store, "late", &wire).unwrap_err();
+        assert!(
+            matches!(&refused, EngineError::ReservedCommand { word: said, .. } if said == word),
+            "{word}: {refused:?}"
+        );
+        assert_eq!(length(&store, "late"), before, "{word} wrote nothing");
+        assert_eq!(
+            fold(&store.load("late").unwrap()).unwrap().run,
+            Run::Stopped,
+            "{word} left the run foldable"
+        );
+    }
+
+    let (seq, hash) = store.head_hash("late").unwrap();
+    let dance = crate::engine::FencedCommand {
+        command_id: "control",
+        command: crate::engine::CommandWord::parse("dance"),
+        operator: "operator",
+        reason: "please",
+        expected_seq: seq,
+        expected_hash: &hash,
+    };
+    let refused = apply_fenced_operator_command(&mut store, "late", &dance).unwrap();
+    assert!(
+        matches!(&refused, crate::engine::FencedCommandOutcome::Rejected { reason, .. }
+            if reason == "command_not_allowed"),
+        "{refused:?}"
+    );
+    assert_eq!(
+        fold(&store.load("late").unwrap()).unwrap().run,
+        Run::Stopped,
+        "the control word is refused and the run still folds"
+    );
+}
+
+/// C1(b): a `repair` word journaled before the terminal event is the
+/// pending command it is, never a repair record; the run folds as stopped
+/// and the store's summary row says the same status.
+#[test]
+fn a_pre_terminal_repair_folds_as_stopped_and_the_summary_agrees() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("pre-terminal.db");
+    let mut store = in_flight_store(&db, "live");
+    store
+        .append_next(
+            "live",
+            EventType::OperatorCommanded,
+            json!({"command_id": "remote", "command": "repair", "operator": "looper",
+                   "args": {}}),
+            None,
+            None,
+        )
+        .unwrap();
+    store
+        .append_next(
+            "live",
+            EventType::OperatorRejected,
+            json!({"command_id": "remote", "operator": "looper",
+                   "reason": "command_not_allowed"}),
+            None,
+            None,
+        )
+        .unwrap();
+    store
+        .append_next(
+            "live",
+            EventType::RunStopped,
+            json!({"reason": "concluded"}),
+            None,
+            None,
+        )
+        .unwrap();
+    drop(store);
+    let store = Store::open(&db).unwrap();
+    let state = fold(&store.load("live").unwrap()).unwrap();
+    assert_eq!(state.run, Run::Stopped);
+    assert!(
+        state.late_tail.is_none(),
+        "the pre-terminal word named no late tail"
+    );
+
+    let rows = store
+        .section(
+            &[brokkr_core::page::Range {
+                lane: brokkr_core::page::Lane::Finished,
+                bound: None,
+            }],
+            None,
+            10,
+        )
+        .unwrap();
+    let row = rows
+        .into_iter()
+        .find_map(|row| row.ok().filter(|row| row.run_id == "live"))
+        .expect("the run's summary row");
+    assert_eq!(
+        row.status,
+        Some(Status::Stopped),
+        "the summary row and the fold state the same status"
+    );
 }

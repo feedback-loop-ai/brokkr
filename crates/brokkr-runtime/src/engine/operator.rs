@@ -672,6 +672,18 @@ pub(super) fn apply_fenced_windows(
     mut between: impl FnMut(&mut Store),
 ) -> Result<FencedCommandOutcome, EngineError> {
     let (command_id, operator) = (wire.command_id, wire.operator);
+    // A reserved word is an operator annotation's, never a command a
+    // remote caller may journal: refusing here writes nothing at all, so
+    // the fold never reads a `repair` (or `settle`, `classify`,
+    // `supersede`) nobody wrote (decision 0108 ruling 4, #440).
+    if let CommandWord::Unknown(word) = wire.command {
+        if brokkr_core::fold::reserved_annotation(word) {
+            return Err(EngineError::ReservedCommand {
+                run_id: run_id.to_string(),
+                word: word.to_string(),
+            });
+        }
+    }
     let events = store.load(run_id)?;
     if let Some(receipt) = receipt::journaled(store, run_id, &events, command_id, operator)? {
         return Ok(receipt);

@@ -9,7 +9,7 @@ use brokkr_core::envelope::EventType;
 use brokkr_core::fold::{fold, terminal_event, FoldError, REPAIR};
 use brokkr_core::EventEnvelope;
 use brokkr_store::Store;
-use serde_json::{json, Value};
+use serde_json::json;
 use uuid::Uuid;
 
 use super::{fenced_append, EngineError, Head};
@@ -43,6 +43,18 @@ pub fn operator_repair(
     run_id: &str,
     ask: &Repair<'_>,
 ) -> Result<EventEnvelope, EngineError> {
+    repair_with(store, run_id, ask, |_| {})
+}
+
+/// [`operator_repair`] with `before_write` run after the read and before
+/// the fenced append: the instant a peer's append makes the head stale,
+/// which the tests stage there. Production passes a no-op.
+fn repair_with(
+    store: &mut Store,
+    run_id: &str,
+    ask: &Repair<'_>,
+    before_write: impl FnOnce(&mut Store),
+) -> Result<EventEnvelope, EngineError> {
     let events = store.load(run_id)?;
     let refused = EngineError::RepairRefused;
     let Some(at) = events
@@ -62,19 +74,23 @@ pub fn operator_repair(
     // fold that refuses with anything but the late tail is a corrupt
     // record, and this verb does not add to it.
     match fold(&events) {
-        Ok(_) => {
+        Ok(state) => {
+            // The fold's own late tail is the one reading: a repaired run
+            // with a later lawful annotation still carries it, and is
+            // still repaired rather than read as a tail no record names.
+            if let Some(repaired) = state.late_tail {
+                return Err(refused(format!(
+                    "run '{run_id}' is already repaired at seq {}; it folds as it stands and \
+                     repair appends nothing",
+                    repaired.repaired_at
+                )));
+            }
             if tail.is_empty() {
                 let status = terminal_event(terminal.event_type).expect("the index found one");
                 return Err(refused(format!(
                     "run '{run_id}' is already concluded ({}), with no late tail; it folds as it \
                      stands and repair appends nothing",
                     status.as_str()
-                )));
-            }
-            if let Some(repaired_at) = repaired_tail(terminal, tail) {
-                return Err(refused(format!(
-                    "run '{run_id}' is already repaired at seq {repaired_at}; nothing stands \
-                     after the repair, so it folds as it stands and repair appends nothing"
                 )));
             }
             return Err(refused(format!(
@@ -105,6 +121,7 @@ pub fn operator_repair(
         },
     });
     let cause = &head.event_id;
+    before_write(store);
     let written = fenced_append(
         store,
         run_id,
@@ -118,26 +135,6 @@ pub fn operator_repair(
     // status, with the tail the operator named.
     fold(&store.load(run_id)?)?;
     Ok(written)
-}
-
-/// The seq of the repair that already names exactly `tail`, when the head
-/// is one: a run repaired and left alone folds as it stands.
-fn repaired_tail(terminal: &EventEnvelope, tail: &[EventEnvelope]) -> Option<u64> {
-    let at = tail.last()?;
-    if at.event_type != EventType::OperatorCommanded {
-        return None;
-    }
-    if at.payload.get("command").and_then(Value::as_str) != Some(REPAIR) {
-        return None;
-    }
-    let args = at.payload.get("args")?;
-    let number = |field: &str| args.get(field).and_then(Value::as_u64);
-    let (first, last, named) = (
-        number("first_seq")?,
-        number("last_seq")?,
-        number("terminal_seq")?,
-    );
-    ((first, last, named) == (terminal.seq + 1, at.seq - 1, terminal.seq)).then_some(at.seq)
 }
 
 #[cfg(test)]

@@ -114,14 +114,7 @@ fn appended(conn: &Connection, run_id: &str, seq: i64, hash: &str) {
 /// The folded columns at the head the row names, so the row is not
 /// `behind` and the rule alone decides it.
 fn settled(conn: &Connection, run_id: &str) {
-    conn.execute(
-        "UPDATE run_summary
-            SET folded_seq = 0, folded_hash = ?2, aggregated_seq = 0,
-                stop_folded_seq = 0, ending_folded_seq = 0
-          WHERE run_id = ?1",
-        params![run_id, ZERO_HASH],
-    )
-    .unwrap();
+    crate::test_support::settle_summary(conn, run_id, ZERO_HASH);
 }
 
 /// A current run: no fact of its row lags, and its seat head names this

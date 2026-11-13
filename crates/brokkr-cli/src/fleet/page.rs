@@ -603,7 +603,7 @@ pub(crate) fn refused_row(
 fn row_of(store: &Store, run_id: &str, read: Judged) -> Result<RunRow, StoreError> {
     let (feature, created_at) = store.listing(run_id)?;
     let (events, state) = read;
-    let residuals = brokkr_view::residual_findings(run_id, &events);
+    let residuals = brokkr_view::residual_findings_at(run_id, &events, state.as_ref().ok());
     let run = ListedRun {
         run_id: run_id.to_string(),
         feature,

@@ -1368,7 +1368,7 @@ fn planted_summary(store: &Store, run_id: &str, created_at: &str, realm: Option<
         .execute(
             "UPDATE run_summary SET created_at = ?2, realm = ?3, status = 'completed',
                 folded_seq = 1, head_seq = 1, aggregated_seq = 1,
-                stop_folded_seq = 1, ending_folded_seq = 1,
+                stop_folded_seq = 1, ending_folded_seq = 1, late_folded_seq = 1,
                 started_ms = ?4, finished_ms = ?4, ending = 'shipped',
                 implement_visits = 0, review_first = 0, review_second = 0,
                 review_back = 0
@@ -1540,8 +1540,8 @@ fn plant_many_summaries(store: &Store, count: usize) {
             .execute(
                 "INSERT INTO run_summary
                      (run_id, created_at, realm, folded_seq, head_seq, aggregated_seq,
-                      stop_folded_seq, ending_folded_seq, head_hash)
-                 VALUES (?1, ?2, ?3, 1, 1, 1, 1, 1, ?4)",
+                      stop_folded_seq, ending_folded_seq, late_folded_seq, head_hash)
+                 VALUES (?1, ?2, ?3, 1, 1, 1, 1, 1, 1, ?4)",
                 params![
                     format!("run-{index:06}"),
                     format!("{index:06}"),

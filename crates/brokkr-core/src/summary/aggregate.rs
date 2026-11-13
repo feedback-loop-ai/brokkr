@@ -202,7 +202,7 @@ fn hard_stop(state: &RunState) -> Option<HardStop> {
 /// from its first, folded to `state`, or `None` where it does not fold.
 pub fn aggregate(events: &[EventEnvelope], state: Option<&RunState>) -> Aggregate {
     let mut reading = Reading::default();
-    for event in events {
+    for event in crate::summary::live(events, state) {
         reading.note(event);
     }
     let closing = state.and_then(|state| closing(events, state));

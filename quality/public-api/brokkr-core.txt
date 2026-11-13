@@ -403,6 +403,7 @@ pub brokkr_core::fold::RunState::run_id: alloc::string::String
 pub brokkr_core::fold::RunState::seq: u64
 pub brokkr_core::fold::RunState::stop_accepted_seq: core::option::Option<u64>
 pub brokkr_core::fold::RunState::strategy: core::option::Option<alloc::string::String>
+pub brokkr_core::fold::RunState::tail_types: alloc::collections::btree::map::BTreeMap<u64, brokkr_core::envelope::EventType>
 pub brokkr_core::fold::RunState::terminal_seq: core::option::Option<u64>
 pub brokkr_core::fold::RunState::visits: alloc::collections::btree::map::BTreeMap<alloc::string::String, u64>
 impl brokkr_core::fold::RunState
@@ -418,6 +419,7 @@ pub fn brokkr_core::fold::concluded_text(&str, brokkr_core::fold::Status) -> all
 pub fn brokkr_core::fold::fold(&[brokkr_core::envelope::EventEnvelope]) -> core::result::Result<brokkr_core::fold::RunState, brokkr_core::fold::FoldError>
 pub fn brokkr_core::fold::fold_onto(brokkr_core::fold::RunState, &[brokkr_core::envelope::EventEnvelope]) -> core::result::Result<brokkr_core::fold::RunState, brokkr_core::fold::FoldError>
 pub fn brokkr_core::fold::lawful_after_terminal(brokkr_core::envelope::EventType) -> bool
+pub fn brokkr_core::fold::reserved_annotation(&str) -> bool
 pub fn brokkr_core::fold::terminal_event(brokkr_core::envelope::EventType) -> core::option::Option<brokkr_core::fold::Status>
 pub mod brokkr_core::gate_moved_head
 pub struct brokkr_core::gate_moved_head::MovedHead
@@ -448,6 +450,16 @@ pub struct brokkr_core::page::Copied
 pub brokkr_core::page::Copied::at: alloc::string::String
 pub brokkr_core::page::Copied::operator: alloc::string::String
 pub brokkr_core::page::Copied::reason: alloc::string::String
+pub struct brokkr_core::page::LateEvent
+pub brokkr_core::page::LateEvent::event_type: alloc::string::String
+pub brokkr_core::page::LateEvent::seq: u64
+pub struct brokkr_core::page::LateTail
+pub brokkr_core::page::LateTail::events: alloc::vec::Vec<brokkr_core::page::LateEvent>
+pub brokkr_core::page::LateTail::operator: alloc::string::String
+pub brokkr_core::page::LateTail::repaired_at: u64
+pub brokkr_core::page::LateTail::terminal_seq: u64
+impl brokkr_core::page::LateTail
+pub fn brokkr_core::page::LateTail::of(&brokkr_core::fold::LateTail) -> brokkr_core::page::LateTail
 pub struct brokkr_core::page::Range
 pub brokkr_core::page::Range::bound: core::option::Option<brokkr_core::page::Bound>
 pub brokkr_core::page::Range::lane: brokkr_core::page::Lane
@@ -459,6 +471,7 @@ pub brokkr_core::page::Row::feature_line: alloc::string::String
 pub brokkr_core::page::Row::folded: (u64, alloc::string::String)
 pub brokkr_core::page::Row::hired: core::option::Option<brokkr_core::summary::Hired>
 pub brokkr_core::page::Row::last_recorded_at: core::option::Option<brokkr_core::summary::Bounded>
+pub brokkr_core::page::Row::late_tail: core::option::Option<brokkr_core::page::LateTail>
 pub brokkr_core::page::Row::order_at: i64
 pub brokkr_core::page::Row::park_reason: core::option::Option<brokkr_core::summary::Bounded>
 pub brokkr_core::page::Row::phase: core::option::Option<brokkr_core::summary::Bounded>
@@ -959,8 +972,10 @@ pub brokkr_core::residual::Residual::phase: brokkr_core::residual::ResidualPhase
 pub brokkr_core::residual::Residual::ruling: &'a brokkr_core::envelope::EventEnvelope
 pub const brokkr_core::residual::SUPERSEDE: &str
 pub fn brokkr_core::residual::closings(&[brokkr_core::envelope::EventEnvelope]) -> alloc::collections::btree::map::BTreeMap<u64, brokkr_core::residual::Mark>
+pub fn brokkr_core::residual::closings_of<'a>(impl core::iter::traits::collect::IntoIterator<Item = &'a brokkr_core::envelope::EventEnvelope>) -> alloc::collections::btree::map::BTreeMap<u64, brokkr_core::residual::Mark>
 pub fn brokkr_core::residual::open_severity(impl core::iter::traits::collect::IntoIterator<Item = (core::option::Option<brokkr_core::policy::Severity>, bool)>) -> core::option::Option<brokkr_core::policy::Severity>
 pub fn brokkr_core::residual::residuals(&[brokkr_core::envelope::EventEnvelope]) -> alloc::vec::Vec<brokkr_core::residual::Residual<'_>>
+pub fn brokkr_core::residual::residuals_of<'a>(impl core::iter::traits::collect::IntoIterator<Item = &'a brokkr_core::envelope::EventEnvelope>) -> alloc::vec::Vec<brokkr_core::residual::Residual<'a>>
 pub mod brokkr_core::seat
 pub mod brokkr_core::seat::meter
 pub enum brokkr_core::seat::meter::Metering
@@ -1174,6 +1189,7 @@ pub brokkr_core::summary::Summary::head_seq: u64
 pub brokkr_core::summary::Summary::hired: core::option::Option<brokkr_core::summary::Hired>
 pub brokkr_core::summary::Summary::last_at_ms: core::option::Option<i64>
 pub brokkr_core::summary::Summary::last_recorded_at: core::option::Option<brokkr_core::summary::Bounded>
+pub brokkr_core::summary::Summary::late_tail: core::option::Option<brokkr_core::page::LateTail>
 pub brokkr_core::summary::Summary::park_reason: core::option::Option<brokkr_core::summary::Bounded>
 pub brokkr_core::summary::Summary::phase: core::option::Option<brokkr_core::summary::Bounded>
 pub brokkr_core::summary::Summary::refused: core::option::Option<brokkr_core::summary::Refused>
@@ -1200,6 +1216,8 @@ pub fn brokkr_core::summary::checkpoints(&[brokkr_core::envelope::EventEnvelope]
 pub fn brokkr_core::summary::cut(&str, usize) -> &str
 pub fn brokkr_core::summary::entered_phase(&brokkr_core::envelope::EventEnvelope) -> core::option::Option<&str>
 pub fn brokkr_core::summary::feature_line(&str) -> &str
+pub fn brokkr_core::summary::in_late(core::option::Option<(u64, u64)>, u64) -> bool
+pub fn brokkr_core::summary::live<'a>(&'a [brokkr_core::envelope::EventEnvelope], core::option::Option<&brokkr_core::fold::RunState>) -> impl core::iter::traits::iterator::Iterator<Item = &'a brokkr_core::envelope::EventEnvelope> + 'a
 pub fn brokkr_core::summary::parks(&[brokkr_core::envelope::EventEnvelope]) -> alloc::vec::Vec<brokkr_core::summary::Park>
 pub fn brokkr_core::summary::sites(&[brokkr_core::envelope::EventEnvelope]) -> alloc::vec::Vec<brokkr_core::summary::Site>
 pub enum brokkr_core::Cursor
@@ -1388,6 +1406,7 @@ pub brokkr_core::RunState::run_id: alloc::string::String
 pub brokkr_core::RunState::seq: u64
 pub brokkr_core::RunState::stop_accepted_seq: core::option::Option<u64>
 pub brokkr_core::RunState::strategy: core::option::Option<alloc::string::String>
+pub brokkr_core::RunState::tail_types: alloc::collections::btree::map::BTreeMap<u64, brokkr_core::envelope::EventType>
 pub brokkr_core::RunState::terminal_seq: core::option::Option<u64>
 pub brokkr_core::RunState::visits: alloc::collections::btree::map::BTreeMap<alloc::string::String, u64>
 impl brokkr_core::fold::RunState

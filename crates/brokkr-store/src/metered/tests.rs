@@ -1183,8 +1183,8 @@ fn plant_run(conn: &rusqlite::Connection, run_id: &str, realm: &str) {
     conn.execute(
         "INSERT INTO run_summary
             (run_id, head_seq, head_hash, folded_seq, folded_hash, status, realm, recipe,
-             aggregated_seq, stop_folded_seq, ending_folded_seq)
-         VALUES (?1, 0, 'h', 0, 'h', 'running', ?2, 'one', 0, 0, 0)",
+             aggregated_seq, stop_folded_seq, ending_folded_seq, late_folded_seq)
+         VALUES (?1, 0, 'h', 0, 'h', 'running', ?2, 'one', 0, 0, 0, 0)",
         rusqlite::params![run_id, realm],
     )
     .unwrap();

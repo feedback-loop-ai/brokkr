@@ -39,7 +39,13 @@ pub(super) fn summary_lines(out: &mut String, summary: Option<&Summary>, style: 
                 push_line(out, &format!("stop  {}", Safe::new(&ruled).as_str()));
             }
             if let Some(tail) = &summary.late_tail {
-                push_line(out, &format!("late  {}", Safe::new(&tail.line()).as_str()));
+                push_line(
+                    out,
+                    &format!(
+                        "late  {}",
+                        Safe::new(&brokkr_view::late_line(tail)).as_str()
+                    ),
+                );
                 for event in &tail.events {
                     push_line(
                         out,

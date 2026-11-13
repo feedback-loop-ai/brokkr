@@ -371,7 +371,11 @@ impl KeptRun {
         self.rulings
             .extend(events.into_iter().filter(|event| rules(event.event_type)));
         if self.rulings.len() > before {
-            self.residuals = brokkr_view::residual_findings(run_id, &self.rulings);
+            let state = match &self.read {
+                Read::Folded(state) => Some(state.as_ref()),
+                Read::Refused { .. } => None,
+            };
+            self.residuals = brokkr_view::residual_findings_at(run_id, &self.rulings, state);
         }
         if landed {
             self.closing = match &self.read {

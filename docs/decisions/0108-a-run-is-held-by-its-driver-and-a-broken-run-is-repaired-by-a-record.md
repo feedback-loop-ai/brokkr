@@ -150,6 +150,15 @@ questions are left, and they are this decision's:
      type, no new payload field, no manifest digest moved, and the meaning
      above is unchanged. Ruling 3's `operator/settled` takes the same shape
      as command `settle`, built by unit 3b (440d).
+   - **Enforcement binding, 2026-11-13 (#440 fix round 440c2).** A command
+     word that is an operator annotation's — `repair`, `settle`, `classify`
+     and `supersede` — is refused by the Looper bridge before it journals
+     anything, so a remote caller cannot make a run unfoldable with a
+     `repair` it never wrote. The words are one list in `brokkr-core`. A
+     `repair` word standing before the terminal event is no record at all:
+     it is the pending command the fold has always read an
+     `operator/commanded` as, and only a word after the terminal event can
+     be honoured or refused as a repair.
 
 ## What this decision does not do
 

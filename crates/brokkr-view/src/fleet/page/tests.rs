@@ -84,6 +84,7 @@ fn row_of(summary: &Summary) -> Row {
         folded: (summary.folded_seq, summary.folded_hash.clone()),
         acknowledged: None,
         closing: summary.closing.clone(),
+        late_tail: summary.late_tail.clone(),
     }
 }
 

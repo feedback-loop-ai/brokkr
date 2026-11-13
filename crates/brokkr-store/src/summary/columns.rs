@@ -263,6 +263,29 @@ pub(crate) fn not_behind(prefix: &str) -> String {
         "{prefix}folded_seq IS NOT NULL
          AND {prefix}folded_seq = {prefix}head_seq
          AND NOT ({stale})",
-        stale = super::stale(prefix)
+        stale = stale(prefix)
     )
 }
+
+/// Any stamp off the folded head sends the row behind, whichever writer
+/// folded it.
+pub(super) fn stale(prefix: &str) -> String {
+    let [stopping, ended] = [super::stop::PART, super::ending::PART].map(|part| part.stale(prefix));
+    format!(
+        "{} OR {stopping} OR {ended} OR {late}",
+        super::aggregate::stale(prefix),
+        late = super::late::PART.stale(prefix)
+    )
+}
+
+/// The triggers the summary's intact check lists, by name.
+pub(super) const TRIGGERS: [&str; 8] = [
+    "run_summary_of_a_run",
+    HEAD_TRIGGER,
+    "run_summary_of_an_acknowledgement",
+    "run_summary_stamp_bounded",
+    super::stop::PART.trigger,
+    super::ending::PART.trigger,
+    super::late::PART.trigger,
+    super::aggregate::TRIGGER,
+];

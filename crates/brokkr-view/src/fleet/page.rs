@@ -134,9 +134,9 @@ pub fn summary_row(row: &Row, whole: Option<&Whole>) -> RunRow {
             .map(|at| shown(at).to_string()),
         feature: feature.to_string(),
         detail: refused.map(|refused| shown(&refused.words).to_string()),
-        // A summary row carries no late tail: a repaired run is read whole
-        // whenever its row is not the summary's, which a repair leaves it.
-        late_tail: None,
+        // The writer keeps the late tail on the row, so a listing that
+        // reads the summary says the same sentence a whole read does.
+        late_tail: row.late_tail.clone(),
         quarantine: refused.map(|_| Quarantine::DoesNotFold),
         acknowledgement: refused
             .and(copied)

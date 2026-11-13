@@ -234,6 +234,7 @@ fn a_writer_from_before_the_ending_columns_sends_its_row_behind() {
     planted(&store, "r", EventType::OperatorCommanded, named);
     let older = "UPDATE run_summary SET folded_seq = head_seq, folded_hash = head_hash,
                      aggregated_seq = head_seq, stop_folded_seq = head_seq,
+                     late_folded_seq = head_seq,
                      ending = 'by_operator'";
     store.conn.execute(older, []).unwrap();
     let folded = columns_of(&store, "r", &[("folded_seq", "INTEGER")]);
@@ -284,7 +285,8 @@ fn refolded_as_withdrawn(store: &Store) {
 /// every stamp it knows at the head, the ending's left as it was.
 const REFOLDED_AT_ITS_HEAD: &str =
     "UPDATE run_summary SET folded_seq = head_seq, folded_hash = head_hash,
-         aggregated_seq = head_seq, stop_folded_seq = head_seq, ending = 'shipped'";
+         aggregated_seq = head_seq, stop_folded_seq = head_seq,
+         late_folded_seq = head_seq, ending = 'shipped'";
 
 /// A binary from before the ending's columns refolds the head the stamp
 /// names, as its backfill does a row sent behind: where its word is not
