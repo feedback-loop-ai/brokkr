@@ -13,7 +13,7 @@ use time::{Duration, OffsetDateTime};
 
 use super::*;
 use crate::queue::tests::queue;
-use crate::queue::{Claiming, QueueRefusal};
+use crate::queue::{Claiming, CooldownDuplicate, QueueRefusal};
 use crate::StoreError;
 
 /// A fixed instant after the event's own recorded time, so a row's end is
@@ -634,7 +634,12 @@ fn a_lost_unique_index_over_a_duplicate_refuses_by_its_key() {
         };
         assert_eq!(
             refusal,
-            QueueRefusal::CooldownDuplicate(Box::new(("run-a".into(), 2, "a".into(), 1)))
+            QueueRefusal::CooldownDuplicate(Box::new(CooldownDuplicate {
+                run_id: "run-a".into(),
+                event_seq: 2,
+                site: "a".into(),
+                rounds: 1,
+            }))
         );
         assert_eq!(
             refusal.to_string(),

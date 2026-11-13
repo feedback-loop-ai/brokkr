@@ -43,7 +43,7 @@ pub use cooldown::{Cooldown, CooldownAggregate, Cooling};
 use entry::UnknownWord;
 use entry::{read_word, Standing};
 pub use entry::{EntryState, Latch, NewEntry, NotAWait, QueueCommand, WaitOn};
-pub use refusal::QueueRefusal;
+pub use refusal::{CooldownDuplicate, QueueRefusal};
 #[cfg(test)]
 use storage::QUEUE_SCHEMA;
 use storage::{

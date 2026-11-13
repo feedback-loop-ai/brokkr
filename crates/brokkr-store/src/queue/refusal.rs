@@ -8,6 +8,17 @@ use super::entry::Latch;
 use super::storage::QUEUE_SCHEMA;
 use super::EntryId;
 
+/// The key of a duplicated cool-down row (decision 0103, slice 4d1): the
+/// run, event seq, site and round a lost unique index no longer holds
+/// apart, boxed so the refusal stays small as the store's callers carry it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CooldownDuplicate {
+    pub run_id: String,
+    pub event_seq: i64,
+    pub site: String,
+    pub rounds: i64,
+}
+
 /// Why the queue refused, with the operator's text. Nothing was written.
 #[derive(Debug, Clone, Error, PartialEq, Eq)]
 pub enum QueueRefusal {
@@ -66,8 +77,8 @@ pub enum QueueRefusal {
     /// A lost unique cool-down index over duplicated rows (0103, slice 4d1):
     /// the run, event seq, site and round of the duplicate, boxed so the
     /// error stays small as the store's callers carry it.
-    #[error("the journal's provider cool-downs hold run '{}' event {} site '{}' round {} more than once; the lost unique index is not rebuilt over them", .0.0, .0.1, .0.2, .0.3)]
-    CooldownDuplicate(Box<(String, i64, String, i64)>),
+    #[error("the journal's provider cool-downs hold run '{}' event {} site '{}' round {} more than once; the lost unique index is not rebuilt over them", .0.run_id, .0.event_seq, .0.site, .0.rounds)]
+    CooldownDuplicate(Box<CooldownDuplicate>),
     /// A command on an entry the dispatcher has claimed and not yet
     /// linked, returned or held (decision 0095 ruling 1).
     #[error("queue entry {0} is launching; the dispatcher links, returns or holds it first")]
