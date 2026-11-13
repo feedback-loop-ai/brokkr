@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use rusqlite::Connection;
 use serde_json::json;
 
-use super::storage::queue_schema;
+use super::storage::{queue_schema, QUEUE_SCHEMA_V3};
 use super::*;
 use crate::schema::{MIGRATION_V1, SIDECAR_COLUMNS};
 use crate::test_support::{linked, plant_run};
@@ -260,7 +260,10 @@ fn journal_after(dir: &Path, surgery: &str) -> (PathBuf, Store) {
 #[test]
 fn a_journal_that_lost_a_queue_guard_gets_it_back_on_open() {
     let dir = tempfile::tempdir().unwrap();
-    let (path, store) = journal_after(dir.path(), "DROP TRIGGER queue_entries_run_once");
+    let (path, store) = journal_after(
+        dir.path(),
+        "DROP TRIGGER provider_cooldowns_append_only_delete",
+    );
     assert!(!queue_intact(&store.conn).unwrap());
     drop(store);
     assert!(queue_intact(&Store::open(&path).unwrap().conn).unwrap());
@@ -285,6 +288,7 @@ fn a_journal_that_lost_a_queue_table_is_refused_on_open_not_recreated_empty() {
         ("DROP TABLE queue_refusals", "queue_refusals"),
         ("DROP TABLE dispatch_holders", "dispatch_holders"),
         ("DROP TABLE dispatch_settings", "dispatch_settings"),
+        ("DROP TABLE provider_cooldowns", "provider_cooldowns"),
     ] {
         let path = dir.path().join(format!("{table}.db"));
         let mut store = Store::open(&path).unwrap();
@@ -341,10 +345,11 @@ fn a_version_3_journal_from_before_its_dispatchers_gains_them_and_keeps_its_queu
         claims.collect::<Result<_, _>>().unwrap()
     };
     let (queued, claimed) = (rows(&store), claims(&store.conn));
-    let unheld = "DROP TABLE dispatch_holders; DROP TABLE dispatch_settings;";
+    let unheld = "UPDATE meta SET value = '3' WHERE key = 'queue_schema';
+        DROP TABLE dispatch_holders; DROP TABLE dispatch_settings;";
     store.conn.execute_batch(unheld).unwrap();
     assert_eq!(dispatch(&store.conn), Vec::<String>::new());
-    assert_eq!(queue_schema(&store.conn).unwrap(), Some(QUEUE_SCHEMA));
+    assert_eq!(queue_schema(&store.conn).unwrap(), Some(QUEUE_SCHEMA_V3));
     drop(store);
 
     let store = opened_whole(&dir.path().join("forge.db"));
@@ -363,6 +368,111 @@ fn a_version_3_journal_from_before_its_dispatchers_gains_them_and_keeps_its_queu
     assert_eq!((rows(&store), claims(&store.conn)), (queued, claimed));
     assert_eq!(store.dispatch_holder().unwrap(), None);
     assert_eq!(store.dispatch_bound().unwrap(), NonZeroU32::new(3).unwrap());
+}
+
+/// A journal at version 3 as this binary's predecessor wrote it — every
+/// table but `provider_cooldowns` — migrates to version 4 at its next
+/// writable open, and its queue, claims, refusals, holders and settings
+/// read unchanged.
+#[test]
+fn a_version_3_queue_migrates_to_version_4_and_keeps_what_it_held() {
+    let dir = tempfile::tempdir().unwrap();
+    let (store, _) = every_standing(dir.path());
+    let seq = store
+        .conn
+        .query_row("SELECT MAX(seq) FROM queue_commands", [], |row| {
+            row.get::<_, i64>(0)
+        })
+        .unwrap();
+    store
+        .conn
+        .execute(
+            "INSERT INTO queue_refusals (seq, entry_id, refusal) VALUES (?1, 4, 'compile')",
+            [seq],
+        )
+        .unwrap();
+    let holders = |conn: &Connection| -> Vec<(i64, Option<String>, i64, String)> {
+        let query =
+            "SELECT generation, host, pid, started_at FROM dispatch_holders ORDER BY generation";
+        let mut statement = conn.prepare(query).unwrap();
+        let read =
+            |row: &rusqlite::Row<'_>| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?));
+        statement
+            .query_map([], read)
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap()
+    };
+    let refusals = |conn: &Connection| -> Vec<(i64, i64, String)> {
+        let query = "SELECT seq, entry_id, refusal FROM queue_refusals ORDER BY seq";
+        let mut statement = conn.prepare(query).unwrap();
+        let read = |row: &rusqlite::Row<'_>| Ok((row.get(0)?, row.get(1)?, row.get(2)?));
+        statement
+            .query_map([], read)
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap()
+    };
+    let claims = |conn: &Connection| -> Vec<(i64, i64, i64, String, Option<String>)> {
+        let query =
+            "SELECT seq, entry_id, generation, digest, run_id FROM queue_claims ORDER BY seq";
+        five_columns(conn, query)
+    };
+    let held = (
+        rows(&store),
+        claims(&store.conn),
+        refusals(&store.conn),
+        holders(&store.conn),
+        commands(&store.conn),
+    );
+    let settings = (
+        store.dispatch_holder().unwrap(),
+        store.dispatch_bound().unwrap(),
+    );
+    store
+        .conn
+        .execute_batch(
+            "UPDATE meta SET value = '3' WHERE key = 'queue_schema';
+             DROP TABLE provider_cooldowns;",
+        )
+        .unwrap();
+    assert_eq!(queue_schema(&store.conn).unwrap(), Some(QUEUE_SCHEMA_V3));
+    assert!(!queue_intact(&store.conn).unwrap());
+    drop(store);
+
+    let store = opened_whole(&dir.path().join("forge.db"));
+    assert_eq!(
+        (
+            rows(&store),
+            claims(&store.conn),
+            refusals(&store.conn),
+            holders(&store.conn),
+            commands(&store.conn),
+        ),
+        held
+    );
+    assert_eq!(
+        (
+            store.dispatch_holder().unwrap(),
+            store.dispatch_bound().unwrap(),
+        ),
+        settings
+    );
+    assert_eq!(
+        store
+            .cooldown("claude", "first", time::OffsetDateTime::UNIX_EPOCH)
+            .unwrap(),
+        None
+    );
+    let present: i64 = store
+        .conn
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'provider_cooldowns'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(present, 1);
 }
 
 /// A queue with an entry in every standing: 1 queued, 2 held, 3 dropped
@@ -510,7 +620,14 @@ pub(super) fn claimed_now(
 ) -> Result<Result<Claim, ()>, StoreError> {
     crate::test_support::holding(store, Generation(1));
     let read = store.queue_entry(entry)?;
-    store.queue_claim_with(&read, 0, "d", Generation(1), "r", |_, _, _| Ok(()))
+    let over = Claiming {
+        entry: &read,
+        high_water: 0,
+        digest: "d",
+        generation: Generation(1),
+        now: time::OffsetDateTime::UNIX_EPOCH,
+    };
+    store.queue_claim_with(&over, "r", |_| Ok(()))
 }
 
 /// A journal that records the queue's storage but has lost its entries
@@ -538,7 +655,7 @@ fn a_queue_stored_in_a_version_this_brokkr_does_not_know_is_refused() {
     let entry = queue(&mut store, 1)[0];
     let read = store.queue_entry(entry).unwrap();
     let claim = Claim { entry, seq: 1 };
-    for (recorded, found) in [("4", 4), ("two", 0)] {
+    for (recorded, found) in [("5", 5), ("two", 0)] {
         store
             .conn
             .execute(
@@ -547,15 +664,22 @@ fn a_queue_stored_in_a_version_this_brokkr_does_not_know_is_refused() {
             )
             .unwrap();
         let mismatch = QueueRefusal::SchemaMismatch { found };
-        let text = format!("queue storage {found} unsupported (want 3)");
-        let judge = |_, _: &[_], _: &[_]| Ok::<(), ()>(());
+        let text = format!("queue storage {found} unsupported (want 4)");
+        let over = Claiming {
+            entry: &read,
+            high_water: 0,
+            digest: "d",
+            generation: Generation(1),
+            now: time::OffsetDateTime::UNIX_EPOCH,
+        };
+        let judge = super::claim::concede;
         for refused in [
             refusal(store.queue_list()),
             refusal(store.queue_entry(entry)),
             refusal(store.queue_repin(entry, "x", Seen::default(), BY)),
             refusal(store.queue_latch(entry, "x", Seen::default(), BY)),
             refusal(store.queue_command(entry, QueueCommand::Hold, BY)),
-            refusal(store.queue_claim_with(&read, 0, "d", Generation(1), "r", judge)),
+            refusal(store.queue_claim_with(&over, "r", judge)),
             refusal(store.queue_link(claim, Generation(1), "r", "r")),
             refusal(store.queue_spawn(claim, Generation(1), "r")),
             refusal(store.queue_reclaim(claim, Generation(1), None, NonZeroU32::MIN, "r")),
@@ -567,6 +691,8 @@ fn a_queue_stored_in_a_version_this_brokkr_does_not_know_is_refused() {
                 },
                 BY,
             )),
+            refusal(store.cooldown("claude", "first", time::OffsetDateTime::UNIX_EPOCH)),
+            refusal(store.cooldowns_in_force(time::OffsetDateTime::UNIX_EPOCH)),
         ] {
             assert_eq!((refused.to_string(), &refused), (text.clone(), &mismatch));
         }
@@ -753,7 +879,7 @@ fn journal_with_a_version_1_queue(path: &Path) {
 }
 
 /// A version 1 queue reads as it stands, and the first open that may
-/// write brings it to version 3 with its entries and commands kept, and
+/// write brings it to version 4 with its entries and commands kept, and
 /// re-pins then work on it.
 #[test]
 fn a_version_1_queue_is_read_as_it_stands_and_migrated_with_its_entries_kept() {
@@ -790,7 +916,7 @@ fn a_version_1_queue_is_read_as_it_stands_and_migrated_with_its_entries_kept() {
 #[test]
 fn a_queue_stored_in_a_version_this_brokkr_does_not_know_is_left_as_found() {
     let dir = tempfile::tempdir().unwrap();
-    let surgery = "UPDATE meta SET value = '4' WHERE key = 'queue_schema';
+    let surgery = "UPDATE meta SET value = '5' WHERE key = 'queue_schema';
                    DROP TRIGGER queue_entries_run_once;
                    DROP TABLE queue_pins;";
     let (path, store) = journal_after(dir.path(), surgery);
@@ -807,7 +933,7 @@ fn a_queue_stored_in_a_version_this_brokkr_does_not_know_is_left_as_found() {
         (named("queue_entries_run_once"), named("queue_pins")),
         (0, 0)
     );
-    assert_eq!(queue_schema(&store.conn).unwrap(), Some(4));
+    assert_eq!(queue_schema(&store.conn).unwrap(), Some(5));
 }
 
 #[test]

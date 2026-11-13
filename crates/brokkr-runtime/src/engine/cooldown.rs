@@ -34,7 +34,7 @@ pub(in crate::engine) use probe::cleanup_failure;
 use probe::Probe;
 
 mod sites;
-pub(in crate::engine) use sites::{refused_members, RefusedMember};
+pub(in crate::engine) use sites::{cooldown_rows, refused_members, RefusedMember};
 
 /// One slice of an in-process wait: the wait re-reads the run's journal
 /// after each, so an operator `stop` is honoured within a second.
@@ -748,7 +748,7 @@ impl Engine {
         )
     }
 
-    fn now(&self) -> OffsetDateTime {
+    pub(super) fn now(&self) -> OffsetDateTime {
         (self.cooldown.clock.now)()
     }
 }

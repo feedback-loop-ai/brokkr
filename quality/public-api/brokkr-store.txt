@@ -199,6 +199,9 @@ pub brokkr_store::QueueRefusal::Carried(brokkr_store::Claim, alloc::vec::Vec<all
 pub brokkr_store::QueueRefusal::Claimed
 pub brokkr_store::QueueRefusal::Claimed::entry: brokkr_store::EntryId
 pub brokkr_store::QueueRefusal::Claimed::run: alloc::string::String
+pub brokkr_store::QueueRefusal::CooldownDuplicate(alloc::boxed::Box<(alloc::string::String, i64, alloc::string::String, i64)>)
+pub brokkr_store::QueueRefusal::CooldownTime
+pub brokkr_store::QueueRefusal::CooldownTime::seq: i64
 pub brokkr_store::QueueRefusal::Dropped(brokkr_store::EntryId)
 pub brokkr_store::QueueRefusal::DuplicateWait(brokkr_store::EntryId)
 pub brokkr_store::QueueRefusal::Held(brokkr_store::EntryId)
@@ -335,6 +338,44 @@ pub brokkr_store::Chain::refused: core::option::Option<brokkr_store::SeatRecordE
 pub struct brokkr_store::Claim
 impl brokkr_store::Claim
 pub fn brokkr_store::Claim::parts(self) -> (brokkr_store::EntryId, i64)
+pub struct brokkr_store::ClaimFacts<'a>
+pub brokkr_store::ClaimFacts::cooling: &'a [brokkr_store::Cooldown]
+pub brokkr_store::ClaimFacts::journal: core::option::Option<uuid::Uuid>
+pub brokkr_store::ClaimFacts::moved: &'a [(alloc::string::String, alloc::vec::Vec<brokkr_core::envelope::EventEnvelope>, alloc::string::String)]
+pub brokkr_store::ClaimFacts::waits: &'a [(brokkr_store::Wait, brokkr_store::EntryState, alloc::vec::Vec<brokkr_core::envelope::EventEnvelope>)]
+pub struct brokkr_store::Claiming<'a>
+pub brokkr_store::Claiming::digest: &'a str
+pub brokkr_store::Claiming::entry: &'a brokkr_store::QueueEntry
+pub brokkr_store::Claiming::generation: brokkr_store::Generation
+pub brokkr_store::Claiming::high_water: i64
+pub brokkr_store::Claiming::now: time::offset_date_time::OffsetDateTime
+pub struct brokkr_store::Cooldown
+pub brokkr_store::Cooldown::provider: alloc::string::String
+pub brokkr_store::Cooldown::reason: alloc::string::String
+pub brokkr_store::Cooldown::recorded_at: time::offset_date_time::OffsetDateTime
+pub brokkr_store::Cooldown::retry_after_seconds: core::option::Option<u64>
+pub brokkr_store::Cooldown::rounds: u64
+pub brokkr_store::Cooldown::route: alloc::string::String
+pub brokkr_store::Cooldown::site: alloc::string::String
+pub brokkr_store::Cooldown::until_at: time::offset_date_time::OffsetDateTime
+pub struct brokkr_store::CooldownAggregate
+pub brokkr_store::CooldownAggregate::reason: alloc::string::String
+pub brokkr_store::CooldownAggregate::until: time::offset_date_time::OffsetDateTime
+pub struct brokkr_store::CooldownAppend<'a>
+pub brokkr_store::CooldownAppend::attempt_id: core::option::Option<alloc::string::String>
+pub brokkr_store::CooldownAppend::causation_id: core::option::Option<alloc::string::String>
+pub brokkr_store::CooldownAppend::event_type: brokkr_core::envelope::EventType
+pub brokkr_store::CooldownAppend::fenced: core::option::Option<(u64, &'a str)>
+pub brokkr_store::CooldownAppend::payload: serde_json::value::Value
+pub brokkr_store::CooldownAppend::run_id: &'a str
+pub struct brokkr_store::Cooling
+pub brokkr_store::Cooling::provider: alloc::string::String
+pub brokkr_store::Cooling::reason: alloc::string::String
+pub brokkr_store::Cooling::retry_after_seconds: core::option::Option<u64>
+pub brokkr_store::Cooling::rounds: u64
+pub brokkr_store::Cooling::route: alloc::string::String
+pub brokkr_store::Cooling::site: alloc::string::String
+pub brokkr_store::Cooling::until_at: time::offset_date_time::OffsetDateTime
 pub struct brokkr_store::EntryId(pub i64)
 impl core::fmt::Display for brokkr_store::EntryId
 pub fn brokkr_store::EntryId::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
@@ -395,6 +436,7 @@ pub fn brokkr_store::Store::append_chain_without_waiting<T>(&mut self, &str, bro
 impl brokkr_store::Store
 pub fn brokkr_store::Store::append_next(&mut self, &str, brokkr_core::envelope::EventType, serde_json::value::Value, core::option::Option<alloc::string::String>, core::option::Option<alloc::string::String>) -> core::result::Result<brokkr_core::envelope::EventEnvelope, brokkr_store::StoreError>
 pub fn brokkr_store::Store::append_next_if_head(&mut self, &str, u64, &str, brokkr_core::envelope::EventType, serde_json::value::Value, core::option::Option<alloc::string::String>, core::option::Option<alloc::string::String>) -> core::result::Result<brokkr_core::envelope::EventEnvelope, brokkr_store::StoreError>
+pub fn brokkr_store::Store::append_with_cooldowns(&mut self, brokkr_store::CooldownAppend<'_>, &[brokkr_store::Cooling]) -> core::result::Result<brokkr_core::envelope::EventEnvelope, brokkr_store::StoreError>
 pub fn brokkr_store::Store::create_run(&mut self, &str, &str, &str, &serde_json::value::Value) -> core::result::Result<(), brokkr_store::StoreError>
 pub fn brokkr_store::Store::export_ndjson(&self, &str) -> core::result::Result<alloc::string::String, brokkr_store::StoreError>
 pub fn brokkr_store::Store::head_hash(&self, &str) -> core::result::Result<(u64, alloc::string::String), brokkr_store::StoreError>
@@ -422,6 +464,9 @@ impl brokkr_store::Store
 pub fn brokkr_store::Store::carry(&mut self, brokkr_core::summary::Account)
 pub fn brokkr_store::Store::summary_disagreements(&self) -> core::result::Result<alloc::vec::Vec<brokkr_store::Disagreement>, brokkr_store::StoreError>
 impl brokkr_store::Store
+pub fn brokkr_store::Store::cooldown(&self, &str, &str, time::offset_date_time::OffsetDateTime) -> core::result::Result<core::option::Option<brokkr_store::CooldownAggregate>, brokkr_store::StoreError>
+pub fn brokkr_store::Store::cooldowns_in_force(&self, time::offset_date_time::OffsetDateTime) -> core::result::Result<alloc::vec::Vec<brokkr_store::Cooldown>, brokkr_store::StoreError>
+impl brokkr_store::Store
 pub fn brokkr_store::Store::dispatch_bound(&self) -> core::result::Result<core::num::nonzero::NonZeroU32, brokkr_store::StoreError>
 pub fn brokkr_store::Store::dispatch_hold(&mut self, u32) -> core::result::Result<brokkr_store::Generation, brokkr_store::StoreError>
 pub fn brokkr_store::Store::dispatch_holder(&self) -> core::result::Result<core::option::Option<(brokkr_store::Generation, u32, alloc::string::String)>, brokkr_store::StoreError>
@@ -435,7 +480,7 @@ pub fn brokkr_store::Store::reads_index(&self) -> core::result::Result<bool, bro
 impl brokkr_store::Store
 pub fn brokkr_store::Store::high_water(&self) -> core::result::Result<i64, brokkr_store::StoreError>
 pub fn brokkr_store::Store::journal(&self) -> core::result::Result<core::option::Option<uuid::Uuid>, brokkr_store::StoreError>
-pub fn brokkr_store::Store::queue_claim_with<R>(&mut self, &brokkr_store::QueueEntry, i64, &str, brokkr_store::Generation, &str, impl core::ops::function::FnMut(core::option::Option<uuid::Uuid>, &[(brokkr_store::Wait, brokkr_store::EntryState, alloc::vec::Vec<brokkr_core::envelope::EventEnvelope>)], &[(alloc::string::String, alloc::vec::Vec<brokkr_core::envelope::EventEnvelope>, alloc::string::String)]) -> core::result::Result<(), R>) -> core::result::Result<core::result::Result<brokkr_store::Claim, R>, brokkr_store::StoreError>
+pub fn brokkr_store::Store::queue_claim_with<R>(&mut self, &brokkr_store::Claiming<'_>, &str, impl core::ops::function::FnMut(brokkr_store::ClaimFacts<'_>) -> core::result::Result<(), R>) -> core::result::Result<core::result::Result<brokkr_store::Claim, R>, brokkr_store::StoreError>
 pub fn brokkr_store::Store::queue_link(&mut self, brokkr_store::Claim, brokkr_store::Generation, &str, &str) -> core::result::Result<(), brokkr_store::StoreError>
 pub fn brokkr_store::Store::queue_reclaim(&mut self, brokkr_store::Claim, brokkr_store::Generation, core::option::Option<brokkr_store::StartRefusal>, core::num::nonzero::NonZeroU32, &str) -> core::result::Result<u32, brokkr_store::StoreError>
 pub fn brokkr_store::Store::queue_spawn(&mut self, brokkr_store::Claim, brokkr_store::Generation, &str) -> core::result::Result<(), brokkr_store::StoreError>

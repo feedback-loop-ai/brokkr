@@ -66,7 +66,7 @@ fn contention(operation: &'static str) -> StoreError {
 
 /// A peer connection holding this journal's write lock until it is told
 /// to let go.
-fn write_lock_on(db: &Path) -> rusqlite::Connection {
+pub(super) fn write_lock_on(db: &Path) -> rusqlite::Connection {
     let holder = rusqlite::Connection::open(db).unwrap();
     holder
         .busy_timeout(std::time::Duration::from_secs(30))
@@ -318,7 +318,7 @@ fn a_refusal_and_a_defect_both_pass_through_untouched() {
 
 /// A started engine walked to `EffectInFlight`: its attempt is open and
 /// its checkpoints would stream in now.
-fn in_flight(dir: &Path) -> Engine {
+pub(super) fn in_flight(dir: &Path) -> Engine {
     let mut engine = started(dir);
     let run_id = engine.run_id.clone();
     for (event_type, payload) in [

@@ -18,10 +18,10 @@
 
 use brokkr_core::envelope::EventType;
 use brokkr_core::EventEnvelope;
-use brokkr_store::StoreError;
+use brokkr_store::{CooldownAppend, StoreError};
 use serde_json::Value;
 
-use super::{checkpoints, Engine, EngineError};
+use super::{checkpoints, cooldown, Engine, EngineError};
 
 #[cfg(test)]
 pub(super) mod tests;
@@ -44,6 +44,12 @@ impl Engine {
     /// attempt's real outcome lands when the lock lets go in time; every
     /// other event gets one patience (#394). A terminal event the lock
     /// outlasts is held for the lawful end.
+    ///
+    /// A terminal event's cool-downs are derived from that event's own
+    /// `waits` HERE, the one place that appends it, and the store writes
+    /// them with it in one transaction (decision 0103 ruling 2(a), slice
+    /// 4d1). The held outcome's payload is the same record, so its landing
+    /// derives the same rows.
     pub(super) fn append_raw(
         &mut self,
         event_type: EventType,
@@ -59,27 +65,21 @@ impl Engine {
         } else {
             1
         };
+        let cooling = cooldown::cooldown_rows(event_type, &payload);
         let fence = self.fence.clone();
         #[cfg(test)]
         tests::peer_between();
         let appended = checkpoints::within_patiences(patiences, || {
             let (run_id, cause) = (&self.run_id, self.current_cause.clone());
-            match &fence {
-                Some((seq, hash)) => self.store.append_next_if_head(
-                    run_id,
-                    *seq,
-                    hash,
-                    event_type,
-                    payload.clone(),
-                    cause,
-                    attempt_id.clone(),
-                ),
-                None => {
-                    let attempt_id = attempt_id.clone();
-                    self.store
-                        .append_next(run_id, event_type, payload.clone(), cause, attempt_id)
-                }
-            }
+            let event = CooldownAppend {
+                run_id,
+                fenced: fence.as_ref().map(|(seq, hash)| (*seq, hash.as_str())),
+                event_type,
+                payload: payload.clone(),
+                causation_id: cause,
+                attempt_id: attempt_id.clone(),
+            };
+            self.store.append_with_cooldowns(event, &cooling)
         });
         let envelope = match appended {
             Ok(envelope) => envelope,

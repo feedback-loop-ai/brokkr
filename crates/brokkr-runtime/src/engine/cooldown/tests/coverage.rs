@@ -132,10 +132,16 @@ fn a_journal_append_that_cannot_journal_propagates_the_store_error() {
 #[test]
 fn a_wait_with_no_representable_end_inside_the_maximum_is_no_end() {
     let dir = tempfile::tempdir().unwrap();
+    // The 1s wait is the host's; the attempt deadline is generous so a
+    // loaded host cannot make this fixture's shell driver go indeterminate.
+    let limits = Limits {
+        max_attempts: 2,
+        timeout_seconds: 30,
+    };
     let mut engine = started(
         dir.path(),
         single_body(standard_command(dir.path())),
-        work(2),
+        limits,
     );
     engine.cooldown.host = Some(host(dir.path(), 1, 10));
     let at = OffsetDateTime::parse("9999-12-31T23:59:59Z", &Rfc3339).unwrap();

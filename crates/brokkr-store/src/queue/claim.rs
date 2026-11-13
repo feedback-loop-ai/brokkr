@@ -62,12 +62,13 @@ use super::beside::standing_now;
 use super::holder::{holds, latest};
 use super::storage::{queue_stored, wait_row, WAITS};
 use super::{
-    exists, leave_order, read_word, record, set_standing, standing, Attribution, EntryId,
+    exists, leave_order, read_word, record, set_standing, standing, Attribution, Cooldown, EntryId,
     EntryState, QueueEntry, QueueRefusal, Seen, Standing, Wait,
 };
 use crate::read::rows_in;
 use crate::schema::journal_named;
 use crate::{patiently, Store, StoreError};
+use time::OffsetDateTime;
 
 /// The token a dispatcher's steps on one entry are taken under: the entry,
 /// and the seq of the `claim` command that made it `launching`.
@@ -167,13 +168,38 @@ type Moved = (String, Vec<EventEnvelope>, String);
 /// verified; none for an entry with no run.
 type Awaiting = (Wait, EntryState, Vec<EventEnvelope>);
 
-/// What a pass read and measured of the entry it admitted, which its
-/// claim is taken over.
-struct Over<'a> {
-    entry: &'a QueueEntry,
-    high_water: i64,
-    digest: &'a str,
-    generation: Generation,
+/// The facts a claim's judge reads, handed to it inside the claim's own
+/// transaction: the id the journal names itself by, the entry's waits with
+/// what their awaited entries have come to, each run with an event past the
+/// pass's high-water, and every cool-down row in force at the claim's
+/// `now` (decision 0103 ruling 2(a), slice 4d1). A parameter object, as
+/// decision 0071 ruling 10 asks of a list this long.
+pub struct ClaimFacts<'a> {
+    pub journal: Option<Uuid>,
+    pub waits: &'a [Awaiting],
+    pub moved: &'a [Moved],
+    pub cooling: &'a [Cooldown],
+}
+
+/// A claim's judge that refuses nothing, for the tests that only need a
+/// claim taken.
+#[cfg(test)]
+pub(crate) fn concede(_facts: ClaimFacts<'_>) -> Result<(), ()> {
+    Ok(())
+}
+
+/// What a pass read and measured of the entry it admits, which its claim
+/// is taken over: the entry as the pass read it, the events high-water it
+/// read before its census, the manifest digest of the bundle it admitted,
+/// the dispatcher's generation, and `now` — the instant the journal's
+/// cool-down rows are read in force at (decision 0103 ruling 2(a), slice
+/// 4d1; decision 0071 ruling 10 gives the pass's facts one home).
+pub struct Claiming<'a> {
+    pub entry: &'a QueueEntry,
+    pub high_water: i64,
+    pub digest: &'a str,
+    pub generation: Generation,
+    pub now: OffsetDateTime,
 }
 
 /// One step's `Immediate` transaction: `body` checks and writes inside it,
@@ -302,15 +328,22 @@ fn journal_id(conn: &Connection) -> Result<Option<Uuid>, StoreError> {
 
 fn claim_in<R>(
     tx: &Transaction<'_>,
-    over: &Over<'_>,
+    over: &Claiming<'_>,
     reason: &str,
-    judge: &mut impl FnMut(Option<Uuid>, &[Awaiting], &[Moved]) -> Result<(), R>,
+    judge: &mut impl FnMut(ClaimFacts<'_>) -> Result<(), R>,
 ) -> Result<Result<Claim, R>, StoreError> {
     let entry = over.entry.id;
-    let named = journal_id(tx)?;
     claimable(tx, entry, over.entry.seen())?;
     let waits = awaited(tx, entry)?;
-    if let Err(refused) = judge(named, &waits, &moved(tx, over.high_water)?) {
+    let cooling = super::cooldown::in_force(tx, over.now.unix_timestamp())?;
+    let moved = moved(tx, over.high_water)?;
+    let facts = ClaimFacts {
+        journal: journal_id(tx)?,
+        waits: &waits,
+        moved: &moved,
+        cooling: &cooling,
+    };
+    if let Err(refused) = judge(facts) {
         return Ok(Err(refused));
     }
     let seq = journal(tx, entry, Step::Claim, over.generation, reason)?;
@@ -621,30 +654,27 @@ impl Store {
     /// digest of the bundle the pass admitted (decision 0095 ruling 7).
     /// Refused, writing nothing, unless the entry is queued under the pin
     /// and the latch the pass read and no other entry is launching; and
-    /// `judge` is handed, inside the claim's transaction, the id the
-    /// journal it writes in names itself by, as [`Store::journal`] reads
-    /// it, each of the entry's waits with what its awaited entry has come
-    /// to, and each run with an event past `high_water`, the one the pass
-    /// read before its census, by id with its events and manifest; its
-    /// refusal is returned as the claim's, with nothing written.
+    /// `judge` is handed, inside the claim's transaction, the journal's own
+    /// id as [`Store::journal`] reads it, each of the entry's waits with
+    /// what its awaited entry has come to, each run with an event past
+    /// `high_water`, the one the pass read before its census, by id with
+    /// its events and manifest, and every cool-down row in force at
+    /// `claiming.now` ([`ClaimFacts`]); its refusal is returned as the
+    /// claim's, with nothing written.
+    ///
+    /// The cool-down rows are read inside this transaction, so a row a
+    /// peer recorded between the pass's read and this claim reaches the
+    /// judge (decision 0103 ruling 2(a), slice 4d1). `now` is the pass's
+    /// instant, an argument as decision 0071 ruling 1 asks.
     pub fn queue_claim_with<R>(
         &mut self,
-        entry: &QueueEntry,
-        high_water: i64,
-        digest: &str,
-        generation: Generation,
+        claiming: &Claiming<'_>,
         reason: &str,
-        mut judge: impl FnMut(Option<Uuid>, &[Awaiting], &[Moved]) -> Result<(), R>,
+        mut judge: impl FnMut(ClaimFacts<'_>) -> Result<(), R>,
     ) -> Result<Result<Claim, R>, StoreError> {
-        let over = Over {
-            entry,
-            high_water,
-            digest,
-            generation,
-        };
         let conn = &mut self.conn;
         patiently("queue_claim", self.patience, || {
-            in_step(conn, |tx| claim_in(tx, &over, reason, &mut judge))
+            in_step(conn, |tx| claim_in(tx, claiming, reason, &mut judge))
         })
     }
 

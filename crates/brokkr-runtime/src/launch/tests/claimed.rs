@@ -49,9 +49,14 @@ pub(crate) fn claimed(root: &Path, measured: Option<&str>) -> Claimed {
     let compiled = queued.compiled().unwrap().manifest_digest();
     let digest = measured.unwrap_or(&compiled);
     let read = store.queue_entry(entry).unwrap();
-    let judged = store.queue_claim_with(&read, 0, digest, generation, "admitted", |_, _, _| {
-        Ok::<(), ()>(())
-    });
+    let over = brokkr_store::Claiming {
+        entry: &read,
+        high_water: 0,
+        digest,
+        generation,
+        now: time::OffsetDateTime::now_utc(),
+    };
+    let judged = store.queue_claim_with(&over, "admitted", |_| Ok::<(), ()>(()));
     let claim = judged.unwrap().unwrap();
     let (request, mut run) = queued.rebuild(asked.journal, asked.host_path).unwrap();
     assert!(run.claim.is_none(), "a rebuilt entry holds no claim");

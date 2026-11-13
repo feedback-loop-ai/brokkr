@@ -6,9 +6,10 @@ use brokkr_core::envelope::{EventEnvelope, EventType, EVENT_SCHEMA_VERSION};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::Value;
 
+use crate::queue::insert_cooldowns;
 use crate::{
-    head_of, now_rfc3339, patiently, seat_record, summary, SeatRecordError, SeatRecordVersion,
-    Store, StoreError, ENGINE_OF_RUN,
+    head_of, now_rfc3339, patiently, seat_record, summary, CooldownAppend, Cooling,
+    SeatRecordError, SeatRecordVersion, Store, StoreError, ENGINE_OF_RUN,
 };
 
 /// The seat-record fence (decision 0034, ruling 6), inside the transaction
@@ -198,3 +199,63 @@ impl Store {
 
 #[cfg(test)]
 mod tests;
+
+/// [`Store::append_next`]'s one transaction, as a body [`patiently`] may
+/// run again.
+///
+/// Every fact it writes — the head it chains onto, the seq, the seal, and
+/// the `event_seq` each cool-down row is keyed by — is derived INSIDE the
+/// transaction, so a retry is the same call made again rather than a
+/// second one: an attempt that ends busy committed nothing and the next
+/// attempt reads the journal fresh. The envelope it discards was never
+/// sealed into anything.
+///
+/// The two refusals it can return, [`StoreError::HeadMoved`] and
+/// [`StoreError::AppendConflict`], leave here untouched. They are not
+/// busy errors, so [`patiently`] does not look at them — which is what
+/// keeps a fence a fence. The writer's carried account is judged against
+/// the head found, in the same transaction ([`summary::judge`]). The
+/// cool-down rows are written after the event, in the same transaction: a
+/// row the table refuses rolls the event back with it.
+pub(crate) fn append_once(
+    (conn, carried): (&mut Connection, Option<&summary::Carried>),
+    event: &CooldownAppend<'_>,
+    cooldowns: &[Cooling],
+) -> Result<(EventEnvelope, summary::Settled), StoreError> {
+    let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+    let (last_seq, previous_hash) = head_of(&tx, event.run_id)?;
+    if let Some((expected_seq, expected_hash)) = event.fenced {
+        if last_seq != expected_seq || previous_hash != expected_hash {
+            // Dropping the transaction rolls it back: a fence that
+            // fails writes nothing, not even the row it was building.
+            return Err(StoreError::HeadMoved {
+                expected_seq,
+                found_seq: last_seq,
+            });
+        }
+    }
+    // Dropping the transaction rolls it back: a refused record writes
+    // nothing, like a fence that fails.
+    let seq = last_seq + 1;
+    fence(&tx, event.run_id, event.event_type, &event.payload, seq)??;
+    let envelope = seal_and_insert(
+        &tx,
+        event.run_id,
+        (last_seq, previous_hash.clone()),
+        event.event_type,
+        event.payload.clone(),
+        event.causation_id.clone(),
+        event.attempt_id.clone(),
+    )?;
+    insert_cooldowns(
+        &tx,
+        event.run_id,
+        envelope.seq,
+        &envelope.recorded_at,
+        cooldowns,
+    )?;
+    let found = (last_seq, previous_hash.as_str());
+    let settled = summary::judge(&tx, carried, found, std::slice::from_ref(&envelope))?;
+    tx.commit()?;
+    Ok((envelope, settled))
+}

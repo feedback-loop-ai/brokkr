@@ -7,9 +7,10 @@
 
 use std::collections::BTreeMap;
 
-use brokkr_core::envelope::EventType;
+use brokkr_core::envelope::{EventType, EVENT_SCHEMA_VERSION};
 use brokkr_core::{provider_waits, EventEnvelope, ProviderRefusal, ProviderWait, RefusalCause};
 use brokkr_protocol::{AttemptReport, PreSessionRefusal, RefusalClass};
+use brokkr_store::Cooling;
 use serde_json::Value;
 use time::format_description::well_known::Rfc3339;
 use time::{Duration as TimeDuration, OffsetDateTime};
@@ -671,4 +672,60 @@ fn cap_wait_facts(wait: &ProviderWait) -> String {
 pub(in crate::engine) struct PanelTerminal {
     pub(in crate::engine) payload: Value,
     pub(in crate::engine) park: Option<String>,
+}
+
+/// Every cool-down row the terminal event `payload` records (decision 0103
+/// ruling 2(a), slice 4d1): one per `waits` entry, and no other event type
+/// carries a row. The store fills the event's seq and its own recorded
+/// instant, and writes no row whose end has already passed.
+///
+/// An entry that does not read writes no row either: the engine's own
+/// reader on the event refuses it by name and the attempt follows 0006, so
+/// the table never carries a fact the event does not.
+pub(in crate::engine) fn cooldown_rows(event_type: EventType, payload: &Value) -> Vec<Cooling> {
+    if !matches!(
+        event_type,
+        EventType::EffectFailed | EventType::EffectIndeterminate
+    ) {
+        return Vec::new();
+    }
+    let event = record_event(event_type, payload);
+    match provider_waits(&event) {
+        Ok(Some(waits)) => waits.iter().map(row_of_wait).collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// The event whose payload the rows are read from. The append does not
+/// know the seq the event will take yet, and a payload the engine just
+/// built reads; the stub names a bad field by seq 0, which no engine
+/// writer can produce.
+fn record_event(event_type: EventType, payload: &Value) -> EventEnvelope {
+    EventEnvelope {
+        run_id: String::new(),
+        seq: 0,
+        event_id: String::new(),
+        event_schema_version: EVENT_SCHEMA_VERSION,
+        event_type,
+        payload: payload.clone(),
+        causation_id: None,
+        correlation_id: String::new(),
+        attempt_id: None,
+        recorded_at: String::new(),
+        previous_hash: String::new(),
+        event_hash: String::new(),
+    }
+}
+
+/// One `waits` entry as its row.
+fn row_of_wait(wait: &ProviderWait) -> Cooling {
+    Cooling {
+        site: wait.site.clone().unwrap_or_default(),
+        provider: wait.provider.clone(),
+        route: wait.route.clone(),
+        until_at: wait.until,
+        reason: wait.words.clone(),
+        retry_after_seconds: wait.retry_after_seconds,
+        rounds: wait.rounds,
+    }
 }
