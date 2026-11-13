@@ -11,6 +11,8 @@ use super::super::*;
 use super::REACH;
 use crate::argv::Executable;
 use crate::engine::boxed::Unnamed;
+use crate::engine::sequence::SequenceAt;
+use crate::engine::tests::run_sequence;
 
 fn strings(parts: &[&str]) -> Vec<String> {
     parts.iter().map(|part| part.to_string()).collect()
@@ -162,17 +164,15 @@ fn dialect_step_through(
     });
     let deadline = std::time::Duration::from_secs(5);
     let at = ("effect", "attempt", "work");
-    engine
-        .execute_sequence(
-            at.0,
-            at.1,
-            at.2,
-            &[step],
-            &input,
-            deadline,
-            &Selection::new(),
-        )
-        .unwrap();
+    run_sequence(
+        &mut engine,
+        &SequenceAt::new(at.0, at.1, at.2),
+        &[step],
+        &input,
+        deadline.as_secs(),
+        &Selection::new(),
+    )
+    .unwrap();
     // Any other executable is not the stand-in, and records nothing.
     let recorded = std::fs::read_to_string(&record).ok();
     let spawned = recorded.map(|argv| argv.lines().map(str::to_string).collect());

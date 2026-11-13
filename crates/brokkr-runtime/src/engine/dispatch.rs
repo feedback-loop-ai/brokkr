@@ -391,7 +391,7 @@ impl Engine {
     ) -> Result<(), EngineError> {
         match at.body {
             ExecutableBody::Invocation(Invocation::Panel { members, aggregate }) => self
-                .execute_panel_named(
+                .execute_panel(
                     &PanelAt::new(at.effect_id, at.attempt_id, at.site_name, at.gate),
                     members,
                     *aggregate,
@@ -399,7 +399,7 @@ impl Engine {
                     deadline::AttemptBound::new(deadline, remaining),
                     selection,
                 ),
-            ExecutableBody::Sequence { steps } => self.execute_sequence_named(
+            ExecutableBody::Sequence { steps } => self.execute_sequence(
                 &SequenceAt::new(at.effect_id, at.attempt_id, at.site_name),
                 steps,
                 &input,

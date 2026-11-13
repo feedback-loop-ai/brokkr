@@ -7,7 +7,9 @@ use brokkr_core::envelope::EventType;
 use brokkr_protocol::AttemptOutcome;
 use serde_json::{json, Value};
 
-use crate::engine::tests::{checkpointing_command, engine, member, panel_input, single_body};
+use crate::engine::tests::{
+    checkpointing_command, engine, member, panel_input, run_panel, single_body,
+};
 use crate::engine::{Aggregate, DriverRun, Engine, Selection, SiteSpawn};
 
 /// Legacy telemetry every shipped driver may forward, unchanged by
@@ -97,12 +99,13 @@ fn a_panel_member_cannot_journal_capability_call_attribution() {
     let members = [member("ok", forging("pass"))];
     let (input, selection) = (panel_input(&["ok"]), Selection::new());
     let aggregate = Aggregate::UnanimousPass;
-    let panel = engine.execute_panel(
+    let panel = run_panel(
+        &mut engine,
         &crate::engine::PanelAt::new("effect", "attempt", "work", false),
         &members,
         aggregate,
         &input,
-        DEADLINE,
+        DEADLINE.as_secs(),
         &selection,
     );
     panel.unwrap();

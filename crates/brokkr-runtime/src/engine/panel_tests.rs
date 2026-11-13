@@ -1,4 +1,5 @@
 //! The unanimous panel invocation shared by terminal and storage tests.
+use super::tests::run_panel;
 use super::*;
 
 pub(super) fn unanimous(
@@ -8,12 +9,13 @@ pub(super) fn unanimous(
     input: &Value,
     seconds: u64,
 ) -> Result<(), EngineError> {
-    engine.execute_panel(
+    run_panel(
+        &mut *engine,
         &at,
         members,
         Aggregate::UnanimousPass,
         input,
-        std::time::Duration::from_secs(seconds),
+        seconds,
         &Selection::new(),
     )
 }

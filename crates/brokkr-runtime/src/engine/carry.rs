@@ -235,15 +235,34 @@ fn join_defect(detail: &str) -> EngineError {
     EngineError::Invariant("complete carry plan", detail.to_owned())
 }
 
+/// What [`outcome_under`] reached: the members' joined outcome, or the
+/// refusal that stopped it before any join. A raised deadline names only
+/// the joined one (decision 0104 slice 5a3).
+pub(crate) enum Panelled {
+    /// The joined outcome, built from every member's report.
+    Joined(AttemptOutcome),
+    /// A refusal before the join, which is not the members' joined outcome.
+    Refused(AttemptOutcome),
+}
+
+impl Panelled {
+    /// The outcome the attempt acts on, whichever fact it is.
+    pub(crate) fn outcome(self) -> AttemptOutcome {
+        match self {
+            Panelled::Joined(outcome) | Panelled::Refused(outcome) => outcome,
+        }
+    }
+}
+
 pub(crate) fn outcome_under(
     aggregate: Aggregate,
     plan: Option<&CarryPlan>,
     reports: Vec<(String, AttemptReport)>,
     span: &PanelSpan,
     attempt: &str,
-) -> Result<AttemptOutcome, EngineError> {
+) -> Result<Panelled, EngineError> {
     let Some(plan) = plan else {
-        return Ok(panel_outcome(aggregate, reports));
+        return Ok(Panelled::Joined(panel_outcome(aggregate, reports)));
     };
     if let Some(subject) = &plan.subject {
         if !span.holds(subject) {
@@ -253,12 +272,15 @@ pub(crate) fn outcome_under(
                 attempt: attempt.to_owned(),
                 observations,
             };
-            return Ok(AttemptOutcome::Indeterminate {
+            return Ok(Panelled::Refused(AttemptOutcome::Indeterminate {
                 reason: refusal.to_string(),
-            });
+            }));
         }
     }
-    Ok(outcome_over(aggregate, plan.join(reports)?))
+    Ok(Panelled::Joined(outcome_over(
+        aggregate,
+        plan.join(reports)?,
+    )))
 }
 
 pub(crate) fn carry_plan(facts: &CarryFacts, names: &[Tag]) -> Result<CarryPlan, CarryRefusal> {

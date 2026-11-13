@@ -102,8 +102,11 @@ fn the_rule_preserves_the_aggregate_and_checks_identity_and_selection() {
         &span,
         "carrying",
     )
-    .unwrap();
-    let complete = outcome_under(Aggregate::ReviewPanel, None, full, &span, "full").unwrap();
+    .unwrap()
+    .outcome();
+    let complete = outcome_under(Aggregate::ReviewPanel, None, full, &span, "full")
+        .unwrap()
+        .outcome();
     assert_eq!(
         serde_json::to_value(joined).unwrap(),
         serde_json::to_value(complete).unwrap()
@@ -135,7 +138,7 @@ fn the_rule_preserves_the_aggregate_and_checks_identity_and_selection() {
     let mut moved = span.clone();
     moved.tree.at_end = TreeReading::Dirty;
     assert!(
-        matches!(outcome_under(Aggregate::ReviewPanel, Some(&plan), fresh(), &moved, "carrying").unwrap(), AttemptOutcome::Indeterminate { reason } if reason.contains("carrying attempt 'carrying' changed its reviewed subject"))
+        matches!(outcome_under(Aggregate::ReviewPanel, Some(&plan), fresh(), &moved, "carrying").unwrap(), Panelled::Refused(AttemptOutcome::Indeterminate { reason }) if reason.contains("carrying attempt 'carrying' changed its reviewed subject"))
     );
     assert!(
         matches!(plan.join(vec![]), Err(EngineError::Invariant("complete carry plan", detail)) if detail == "missing fresh report")
@@ -377,7 +380,8 @@ fn both_aggregates_keep_opaque_and_settled_verdicts_in_declared_order() {
             &span,
             "two",
         )
-        .unwrap();
+        .unwrap()
+        .outcome();
         let full = outcome_under(
             aggregate,
             None,
@@ -385,7 +389,8 @@ fn both_aggregates_keep_opaque_and_settled_verdicts_in_declared_order() {
             &span,
             "one",
         )
-        .unwrap();
+        .unwrap()
+        .outcome();
         assert_eq!(
             serde_json::to_value(&carried).unwrap(),
             serde_json::to_value(full).unwrap()
@@ -422,7 +427,7 @@ fn the_span_is_checked_before_join_only_when_a_verdict_is_carried() {
         .to_string();
         assert!(
             matches!(outcome_under(Aggregate::ReviewPanel, Some(&carried), vec![], &span, "two").unwrap(),
-            AttemptOutcome::Indeterminate { reason } if reason == expected)
+            Panelled::Refused(AttemptOutcome::Indeterminate { reason }) if reason == expected)
         );
         let reports = || {
             vec![
@@ -430,7 +435,9 @@ fn the_span_is_checked_before_join_only_when_a_verdict_is_carried() {
                 ("b".into(), success(json!({"result":"clean"}))),
             ]
         };
-        let plain = outcome_under(Aggregate::ReviewPanel, None, reports(), &span, "two").unwrap();
+        let plain = outcome_under(Aggregate::ReviewPanel, None, reports(), &span, "two")
+            .unwrap()
+            .outcome();
         let all_named = outcome_under(
             Aggregate::ReviewPanel,
             Some(&fresh),
@@ -438,7 +445,8 @@ fn the_span_is_checked_before_join_only_when_a_verdict_is_carried() {
             &span,
             "two",
         )
-        .unwrap();
+        .unwrap()
+        .outcome();
         assert_eq!(
             serde_json::to_value(plain).unwrap(),
             serde_json::to_value(all_named).unwrap()

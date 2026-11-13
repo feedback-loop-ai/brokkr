@@ -1,4 +1,6 @@
 use super::*;
+use crate::engine::sequence::SequenceAt;
+use crate::engine::tests::run_sequence;
 use brokkr_core::envelope::EventType;
 use brokkr_core::fold::{Cursor, Run};
 use brokkr_store::test_support::{every_run_reads_as_its_fold, lags, lane};
@@ -285,9 +287,15 @@ fn an_engine_sequence_s_rows_list_its_steps_tags_and_models_as_its_view() {
     let input = engine.seat_input(&asking, "work", "seq").unwrap();
     let deadline = std::time::Duration::from_secs(10);
     let selection = Selection::new();
-    engine
-        .execute_sequence("seq", "a1", "work", &steps, &input, deadline, &selection)
-        .unwrap();
+    run_sequence(
+        &mut engine,
+        &SequenceAt::new("seq", "a1", "work"),
+        &steps,
+        &input,
+        deadline.as_secs(),
+        &selection,
+    )
+    .unwrap();
     let events = engine.store.load(&engine.run_id).unwrap();
     let account = brokkr_core::summary::Account::whole(&engine.run_id, &events);
     let rows = account.seats();
