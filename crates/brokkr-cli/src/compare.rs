@@ -25,8 +25,8 @@ use brokkr_core::seat::{row, SeatCost};
 use brokkr_core::EventType;
 use brokkr_store::{Opened, RunRead, SeatRows, Store};
 use brokkr_view::{
-    composed_view, first_divergence, resolution_divergence, resolutions, resolved, seat_costs,
-    Ledger, Parts, Resolution,
+    applied_events, composed_view, first_divergence, resolution_divergence, resolutions_at,
+    resolved, seat_costs, Ledger, Parts, Resolution,
 };
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -47,7 +47,15 @@ pub(crate) fn costs(store: &Store, requested: &str) -> Result<Costs> {
 pub(crate) fn costs_at(store: &Store, run: String, opened: &Opened) -> Result<Costs> {
     let (report, total) = match store.seat_rows_at(&run, opened)? {
         SeatRows::Current(rows) => row::costs(&rows),
-        SeatRows::Stale => seat_costs(&store.load(&run)?),
+        SeatRows::Stale => {
+            // A row that does not stand at the head is read whole, and
+            // that read derives from the run's applied events: a repaired
+            // tail is kept and shown and never costed (decision 0108
+            // ruling 4).
+            let events = store.load(&run)?;
+            let state = fold(&events).ok();
+            seat_costs(&applied_events(&events, state.as_ref()))
+        }
     };
     Ok(Costs {
         run_id: run,
@@ -154,13 +162,17 @@ fn kept(store: &Store, run_id: &str) -> Result<Read> {
         .load(run_id)
         .context(format!("loading run '{run_id}'"))?;
     let state = fold(&events).context(format!("folding run '{run_id}'"))?;
+    // The figures read the applied events: a repaired tail is kept and
+    // shown and is never costed, resolved or walked (decision 0108
+    // ruling 4).
+    let applied = applied_events(&events, Some(&state));
     Ok(Read {
         events: events.len(),
         last_recorded_at: events.last().map(|e| e.recorded_at.clone()),
+        seats: seat_costs(&applied),
+        resolution: resolutions_at(&applied, Some(&state)),
+        trail: applied,
         state,
-        seats: seat_costs(&events),
-        resolution: resolutions(&events),
-        trail: events,
     })
 }
 
@@ -192,16 +204,19 @@ fn current(store: &Store, run_id: &str, opened: &Opened) -> Result<Option<Read>>
         head_seq: opened.seq,
         last_at: &last_at,
     };
-    let Some(view) = composed_view(&parts, None) else {
+    let Some(view) = composed_view(&parts, Some(state.as_ref())) else {
         return Ok(None);
     };
+    // The trail `walked` and `ended` read is the applied one: a repaired
+    // tail adds no attempt, phase or ending (decision 0108 ruling 4).
+    let applied = applied_events(&trail, Some(state.as_ref()));
     Ok(Some(Read {
         events: view.event_count,
         last_recorded_at: Some(last_at),
         state: *state,
         seats: row::costs(&seats),
         resolution: resolved(view.participants),
-        trail,
+        trail: applied,
     }))
 }
 

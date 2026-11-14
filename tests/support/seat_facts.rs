@@ -12,6 +12,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use brokkr_core::envelope::{EventEnvelope, EventType};
+use brokkr_core::fold::RunState;
 use brokkr_core::seat::row::{
     costs, facts as facts_of, inner, live, models, Datum, Member, Outcome, Provider, SeatFacts,
     SeatRow,
@@ -386,9 +387,10 @@ pub(crate) fn disagreements(
     events: &[EventEnvelope],
     rows: &[SeatRow],
     kept: bool,
+    state: Option<&RunState>,
 ) -> (Vec<String>, usize) {
     let facts = facts_of(rows);
-    let view = run_view(events, None);
+    let view = run_view(events, state);
     let (lists, lists_compared) = lists_differ(run, events, rows, &view);
     if facts.len() != view.participants.len() {
         let counts = (facts.len(), view.participants.len());

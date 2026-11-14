@@ -1,14 +1,14 @@
 //! The run summary's late-tail columns (decision 0108 ruling 4): the
-//! tail a repair named, kept as the wire shape every surface paints, and
-//! the stamp that proves the column was folded at the row's head, as the
-//! ending's carry theirs (#909). A writer from before the column leaves
-//! its stamp off, so a trigger sends the row behind and the open's
-//! backfill refolds it.
+//! compact tail a repair named — the sentence's count, range, repair and
+//! repairer — and the stamp that proves the column was folded at the
+//! row's head, as the ending's carry theirs (#909). A writer from before
+//! the column leaves its stamp off, so a trigger sends the row behind and
+//! the open's backfill refolds it.
 
-use brokkr_core::page::LateTail;
-use brokkr_core::summary::Summary;
+use brokkr_core::page::LateRange;
+use brokkr_core::summary::{Account, Summary};
 use rusqlite::types::Value;
-use rusqlite::Row;
+use rusqlite::{Connection, Row};
 
 use super::columns::Stamped;
 use crate::page::RowRefusal;
@@ -22,10 +22,13 @@ pub(super) const PART: Stamped = Stamped {
     trigger: "run_summary_late",
 };
 
-/// The columns `summary`'s late tail, folded at its seq, is written as.
+/// The columns `summary`'s late tail, folded at its seq, is written as:
+/// only what the row's sentence says, so the column stays small and every
+/// operator name is cut to its one bound.
 pub(super) fn written(summary: &Summary) -> Vec<(&'static str, Value)> {
     let tail = summary.late_tail.as_ref().map_or(Value::Null, |tail| {
-        Value::Text(serde_json::to_string(tail).expect("a late tail serializes"))
+        let range = LateRange::of_tail(tail);
+        Value::Text(serde_json::to_string(&range).expect("a late range serializes"))
     });
     vec![
         ("late_tail", tail),
@@ -33,8 +36,17 @@ pub(super) fn written(summary: &Summary) -> Vec<(&'static str, Value)> {
     ]
 }
 
-/// The late tail the row's column states, parsed once at the page's edge.
-pub(crate) fn read(row: &Row<'_>, at: usize) -> Result<Option<LateTail>, RowRefusal> {
+/// The run's whole account, read inside the append's transaction: what a
+/// suffix repair that named a carried event asks the writer to refold.
+pub(super) fn refold(tx: &Connection, run_id: &str) -> Result<Account, crate::StoreError> {
+    let events = crate::read::rows_in(tx, run_id, None)?;
+    Ok(Account::whole(run_id, &events))
+}
+
+/// The compact late tail the row's column states, parsed once at the
+/// page's edge: a row naming an unknown field, or a column that does not
+/// read, refuses as unreadable.
+pub(crate) fn read(row: &Row<'_>, at: usize) -> Result<Option<LateRange>, RowRefusal> {
     let Some(text) = row.get::<_, Option<String>>(at)? else {
         return Ok(None);
     };

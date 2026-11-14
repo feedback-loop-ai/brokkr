@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use anyhow::Result;
+use brokkr_core::envelope::EventType;
 use brokkr_core::fold::OperatorCommand;
 use brokkr_runtime::launch::{self, LaunchRequest, NewRun, RunMap};
 use brokkr_runtime::realms::World;
@@ -523,5 +524,49 @@ fn repair(
          applied, and the run folds as it ended. Read it with: brokkr inspect --run {run}",
         written.seq
     );
+    // L8: a lawful annotation that landed between the terminal event and
+    // the break is in the tail, so the repair makes it late too. Say so,
+    // by seq and type, and tell the operator to record it again after the
+    // repair; the words fail closed and never imply it still applies.
+    let first = written
+        .payload
+        .pointer("/args/first_seq")
+        .and_then(|value| value.as_u64());
+    let last = written
+        .payload
+        .pointer("/args/last_seq")
+        .and_then(|value| value.as_u64());
+    let events = store.load(&run)?;
+    let skipped: Vec<_> = events
+        .iter()
+        .filter(|event| {
+            first.is_none_or(|first| event.seq >= first)
+                && last.is_none_or(|last| event.seq <= last)
+                && event.event_type == EventType::OperatorCommanded
+                && event
+                    .payload
+                    .get("command")
+                    .and_then(|word| word.as_str())
+                    .is_some_and(brokkr_core::fold::reserved_annotation)
+        })
+        .collect();
+    if !skipped.is_empty() {
+        eprintln!(
+            "the late tail also holds lawful annotation(s) this repair makes late; \
+             each is NOT applied, so record it again after the repair if it still holds:"
+        );
+        for event in skipped {
+            let word = event
+                .payload
+                .get("command")
+                .and_then(|word| word.as_str())
+                .unwrap_or("?");
+            eprintln!(
+                "  seq {} · {} ({word})",
+                event.seq,
+                event.event_type.as_str()
+            );
+        }
+    }
     Ok(Exit::Completed.into())
 }

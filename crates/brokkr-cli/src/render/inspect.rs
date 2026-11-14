@@ -52,7 +52,7 @@ pub(super) fn summary_lines(out: &mut String, summary: Option<&Summary>, style: 
                         &format!(
                             "      seq {} · {}",
                             event.seq,
-                            Safe::new(&event.event_type).as_str()
+                            Safe::new(event.event_type.as_str()).as_str()
                         ),
                     );
                 }

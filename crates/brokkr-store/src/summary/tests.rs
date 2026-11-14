@@ -14,6 +14,9 @@ use brokkr_core::envelope::EventType;
 use brokkr_core::stamp::parse_millis;
 use serde_json::{json, Value as Json};
 
+#[path = "../../../../tests/support/repair.rs"]
+mod repair;
+
 const BY: Attribution<'static> = Attribution {
     operator: "op",
     reason: "looked at it",
@@ -78,6 +81,73 @@ pub(super) fn reopened(store: Store) -> Store {
     let path = store.path().to_path_buf();
     drop(store);
     Store::open(&path).unwrap()
+}
+
+#[test]
+fn a_repair_that_names_a_carried_event_refolds_the_whole_account() {
+    let (_dir, mut store) = store();
+    started(&mut store, "run");
+    for (event_type, payload) in [
+        (EventType::PhaseEntered, json!({"phase": "verify"})),
+        (
+            EventType::EffectRequested,
+            json!({"effect_id": "e", "seat": "s"}),
+        ),
+        (
+            EventType::EffectStarted,
+            json!({"effect_id": "e", "attempt_id": "a1"}),
+        ),
+        (EventType::RunStopped, json!({"reason": "concluded"})),
+    ] {
+        append(&mut store, "run", event_type, payload);
+    }
+    planted(
+        &store,
+        "run",
+        EventType::OperatorCommanded,
+        json!({"command_id": "c-classify", "command": "classify", "operator": "operator",
+               "args": {"cause": "withdrawn", "reason": "late"}}),
+    );
+    planted(
+        &store,
+        "run",
+        EventType::EffectSucceeded,
+        json!({"effect_id": "e", "attempt_id": "a1",
+               "result": {"result": "complete"}}),
+    );
+    append(
+        &mut store,
+        "run",
+        EventType::OperatorCommanded,
+        json!({"command_id": "c-repair", "command": "repair", "operator": "operator",
+               "args": repair::repair_args(5, 6, 7,
+                                        &["operator/commanded", "effect/succeeded"],
+                                        "kept")}),
+    );
+    let events = store.load("run").unwrap();
+    assert_eq!(events.len(), 8, "the first repair is at the head");
+    assert!(events.iter().any(|event| event.seq == 8));
+    store.carry(Account::whole("run", &events));
+
+    // A second repair names seq 6, which the carried account has already
+    // applied: `onto` must ask for a whole refold, and the writer reads
+    // the whole journal from its transaction and writes that account.
+    append(
+        &mut store,
+        "run",
+        EventType::OperatorCommanded,
+        json!({"command_id": "c-repair-2", "command": "repair", "operator": "operator",
+               "args": repair::repair_args(5, 6, 8,
+                                        &["operator/commanded", "effect/succeeded",
+                                          "operator/commanded"],
+                                        "kept again")}),
+    );
+    let Value::Text(tail) = row(&store, "run", "late_tail").remove(0) else {
+        panic!("the late tail column is text");
+    };
+    let tail: brokkr_core::page::LateRange = serde_json::from_str(&tail).unwrap();
+    assert_eq!((tail.first_seq, tail.last_seq, tail.count), (6, 8, 3));
+    assert_eq!(row(&store, "run", "status"), vec![text("stopped")]);
 }
 
 #[test]

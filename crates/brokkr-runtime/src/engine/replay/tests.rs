@@ -2,10 +2,13 @@ use super::*;
 use crate::engine::sequence::SequenceAt;
 use crate::engine::tests::run_sequence;
 use brokkr_core::envelope::EventType;
-use brokkr_core::fold::{Cursor, Run};
+use brokkr_core::fold::{Cursor, Run, Status};
 use brokkr_store::test_support::{every_run_reads_as_its_fold, lags, lane};
 use brokkr_store::{Store, StoreError};
 use serde_json::json;
+
+#[path = "../../../../../tests/support/repair.rs"]
+mod repair;
 
 #[path = "../../../../../tests/support/seat_facts.rs"]
 mod seat_facts;
@@ -19,6 +22,7 @@ fn carried_disagreements(replay: &Replay) -> Option<(Vec<String>, usize)> {
         &replay.events,
         account.seats(),
         account.seats_kept(),
+        account.state().ok(),
     ))
 }
 
@@ -102,8 +106,77 @@ fn a_turn_reads_only_what_landed_since_the_last() {
     lags(&mut store, &["r1"]);
 }
 
-/// A replay is one run's: asked for another, it reads that run whole
-/// rather than carrying the first run's state onto the second's suffix.
+/// L7: a suffix repair that names an event the replay already applied
+/// answers `Carried::Refold`, and the replay refolds the whole journal it
+/// holds instead of carrying a wrong account.
+#[test]
+fn a_suffix_repair_that_names_a_carried_event_refolds_the_replay_whole() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&dir.path().join("forge.db")).unwrap();
+    started(&mut store, "r1");
+    requested(&mut store, "r1");
+    for (event_type, payload) in [
+        (
+            EventType::EffectStarted,
+            json!({"effect_id": "fx", "attempt_id": "a1"}),
+        ),
+        (EventType::RunStopped, json!({"reason": "concluded"})),
+    ] {
+        store
+            .append_next("r1", event_type, payload, None, None)
+            .unwrap();
+    }
+    let head = store.load("r1").unwrap().pop().unwrap();
+    let connection = rusqlite::Connection::open(store.path()).unwrap();
+    brokkr_store::test_support::plant_chained(
+        &connection,
+        "r1",
+        &head,
+        &[crate::late::classified(), crate::late::settlement()],
+    )
+    .unwrap();
+    drop(connection);
+    store
+        .append_next(
+            "r1",
+            EventType::OperatorCommanded,
+            json!({"command_id": "c-repair", "command": "repair", "operator": "operator",
+                   "args": repair::repair_args(
+                       5, 6, 7,
+                       &["operator/commanded", "effect/succeeded"],
+                       "kept")}),
+            None,
+            None,
+        )
+        .unwrap();
+
+    let mut replay = Replay::default();
+    let first = replay.caught_up(&mut store, "r1").unwrap();
+    assert_eq!(first.late_tail.as_ref().map(|tail| tail.last_seq), Some(7));
+
+    store
+        .append_next(
+            "r1",
+            EventType::OperatorCommanded,
+            json!({"command_id": "c-repair-2", "command": "repair", "operator": "operator",
+                   "args": repair::repair_args(
+                       5, 6, 8,
+                       &["operator/commanded", "effect/succeeded",
+                         "operator/commanded"],
+                       "kept again")}),
+            None,
+            None,
+        )
+        .unwrap();
+    let second = replay.caught_up(&mut store, "r1").unwrap();
+    assert_eq!(
+        second.late_tail.as_ref().map(|tail| tail.last_seq),
+        Some(8),
+        "the whole refold reads the second repair's tail"
+    );
+    assert_eq!(second.run.status(), Status::Stopped);
+}
+
 #[test]
 fn a_replay_asked_for_another_run_reads_it_whole() {
     let dir = tempfile::tempdir().unwrap();
@@ -323,7 +396,13 @@ fn an_engine_sequence_s_rows_list_its_steps_tags_and_models_as_its_view() {
     let models: Vec<String> = models.into_iter().collect();
     assert_eq!(view.dashboard.path.len(), 1);
     assert_eq!(Some(models.join(", ")), view.dashboard.path[0].model);
-    let found = seat_facts::disagreements(&engine.run_id, &events, rows, account.seats_kept());
+    let found = seat_facts::disagreements(
+        &engine.run_id,
+        &events,
+        rows,
+        account.seats_kept(),
+        account.state().ok(),
+    );
     // Its seat, its two steps' and its panel's two members, its one phase
     // and its one visit.
     assert_eq!(found, (Vec::new(), 7));

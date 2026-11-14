@@ -194,7 +194,9 @@ fn an_account_carries_the_parks_the_run_reads_whole() {
     let expected = parks(&events);
     let whole = Account::whole("run", &events);
     assert_eq!(whole.parks(), expected);
-    let carried = Account::whole("run", &events[..6]).onto(&events[6..]);
+    let carried = Account::whole("run", &events[..6])
+        .onto(&events[6..])
+        .account();
     assert_eq!(carried.parks(), expected);
     assert_eq!(
         carried

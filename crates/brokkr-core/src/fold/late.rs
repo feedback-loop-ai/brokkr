@@ -39,16 +39,22 @@ impl LateTail {
     pub fn events(&self) -> impl Iterator<Item = (u64, EventType)> + '_ {
         (self.first_seq..=self.last_seq).zip(self.event_types.iter().copied())
     }
+
+    /// Is `seq` inside this tail? The one late-range test every scan that
+    /// derives a figure reads (decision 0108 ruling 4).
+    pub fn holds(&self, seq: u64) -> bool {
+        (self.first_seq..=self.last_seq).contains(&seq)
+    }
 }
 
 /// `state` carried over `suffix`: repairs in `suffix` are read before any
 /// event is applied, and the events they name fold as late.
 ///
-/// A repair the state's prefix already holds is checked against the state:
-/// the seqs before the carry are the run's own, so their types are not
-/// read again. A repair wholly inside the suffix — the way `fold` reads a
-/// whole journal, and the way any journal is read here for the first time
-/// — is checked against every event it names.
+/// A repair's `event_types` are checked against every seq it names, in
+/// both halves of the tail. A seq before the carry is the state's own, so
+/// its type is read from `RunState::tail_types`, which the prefix carried;
+/// a seq in the suffix is read here. Neither half is skipped and neither
+/// is read again from the journal: the one comparison is the whole fold's.
 pub(super) fn onto(mut state: RunState, suffix: &[EventEnvelope]) -> Result<RunState, FoldError> {
     let repaired = repair_of(&state, suffix)?;
     if let Some(tail) = repaired {

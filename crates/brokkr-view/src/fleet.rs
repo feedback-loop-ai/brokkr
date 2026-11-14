@@ -48,9 +48,10 @@ pub struct RunRow {
     /// on every surface instead of vanishing from the fleet.
     pub detail: Option<String>,
     /// The late tail an operator's repair named (decision 0108 ruling
-    /// 4): kept and shown, never applied. `null` for every run no repair
-    /// has named.
-    pub late_tail: Option<LateTail>,
+    /// 4): kept and shown, never applied. The row keeps the compact
+    /// range its sentence needs; `inspect` lists the events from the
+    /// fold. `null` for every run no repair has named.
+    pub late_tail: Option<LateRange>,
     /// What refused the journal, when the row carries no status (#503):
     /// a way out names `export` only for a journal the store loads.
     pub quarantine: Option<Quarantine>,
@@ -684,7 +685,7 @@ pub fn run_row(entry: &RunEntry) -> RunRow {
         last_recorded_at: entry.last_recorded_at.map(str::to_string),
         feature: entry.feature.to_string(),
         detail: entry.detail.map(|refusal| refusal.words.to_string()),
-        late_tail: entry.state.and_then(late_tail),
+        late_tail: entry.state.and_then(late_range),
         quarantine: entry.state.is_none().then(|| {
             entry
                 .detail
@@ -760,8 +761,8 @@ pub fn fleet_rows(hearths: &[HearthEntries]) -> FleetView {
 mod late;
 mod need;
 mod page;
-pub(crate) use late::late_tail;
-pub use late::{late_line, LateEvent, LateTail};
+pub use late::{late_line, LateEvent, LateLine, LateRange, LateTail};
+pub(crate) use late::{late_range, late_tail};
 pub use need::{at_work, need, Need};
 use page::order_at;
 pub use page::{

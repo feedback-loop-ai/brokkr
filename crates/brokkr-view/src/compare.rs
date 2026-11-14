@@ -7,6 +7,7 @@
 
 use std::collections::BTreeMap;
 
+use brokkr_core::fold::RunState;
 use brokkr_core::EventEnvelope;
 use serde::Serialize;
 
@@ -54,7 +55,16 @@ impl Resolution {
 /// off the run view's participants, so `compare` cannot describe a
 /// fallback differently from every other readout.
 pub fn resolutions(events: &[EventEnvelope]) -> BTreeMap<String, Resolution> {
-    resolved(run_view(events, None).participants)
+    resolutions_at(events, None)
+}
+
+/// [`resolutions`] with the run's fold: a repaired tail resolves nothing,
+/// as no readout applies one (decision 0108 ruling 4).
+pub fn resolutions_at(
+    events: &[EventEnvelope],
+    state: Option<&RunState>,
+) -> BTreeMap<String, Resolution> {
+    resolved(run_view(events, state).participants)
 }
 
 /// What a run view's `participants` resolved to, as [`resolutions`] reads

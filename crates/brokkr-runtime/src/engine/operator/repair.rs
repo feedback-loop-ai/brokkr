@@ -43,17 +43,20 @@ pub fn operator_repair(
     run_id: &str,
     ask: &Repair<'_>,
 ) -> Result<EventEnvelope, EngineError> {
-    repair_with(store, run_id, ask, |_| {})
+    repair_with(store, run_id, ask, |_| {}, |_| {})
 }
 
 /// [`operator_repair`] with `before_write` run after the read and before
-/// the fenced append: the instant a peer's append makes the head stale,
-/// which the tests stage there. Production passes a no-op.
+/// the fenced append — the instant a peer's append makes the head stale —
+/// and `after_write` run after the append and before the read-back, the
+/// instant a peer's annotation can make the new journal refuse. Production
+/// passes no-ops.
 fn repair_with(
     store: &mut Store,
     run_id: &str,
     ask: &Repair<'_>,
     before_write: impl FnOnce(&mut Store),
+    after_write: impl FnOnce(&mut Store),
 ) -> Result<EventEnvelope, EngineError> {
     let events = store.load(run_id)?;
     let refused = EngineError::RepairRefused;
@@ -131,8 +134,11 @@ fn repair_with(
         payload,
         None,
     )?;
+    after_write(store);
     // The record must read back: the run folds again, as its terminal
-    // status, with the tail the operator named.
+    // status, with the tail the operator named. The load and the fold sit
+    // on one line, so the exact-coverage gate reads the arm a peer's
+    // append can reach as the arm it exercises (INFO a).
     fold(&store.load(run_id)?)?;
     Ok(written)
 }

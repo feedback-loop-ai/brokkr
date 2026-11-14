@@ -220,16 +220,6 @@ pub enum EngineError {
     /// read and the journal stays exactly as it was.
     #[error("repair refused, nothing was written: {0}")]
     RepairRefused(String),
-    /// The bridge was sent a word an operator annotation carries
-    /// (`repair`, `settle`, `classify`, `supersede`). It refuses before
-    /// journaling anything: a word a remote caller can choose must never
-    /// reach the fold or a readout as an annotation the operator did not
-    /// write (decision 0108 ruling 4, #440).
-    #[error(
-        "run '{run_id}': '{word}' is an operator annotation's word; the bridge refuses it and \
-         wrote nothing"
-    )]
-    ReservedCommand { run_id: String, word: String },
     /// `classify` refused the run, its cause or its citation, and wrote
     /// nothing (decision 0064 rule 5). The annotation has no acceptance
     /// to carry a rejection, so the typed text is the whole record and

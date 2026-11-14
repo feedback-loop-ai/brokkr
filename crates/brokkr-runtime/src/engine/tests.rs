@@ -6419,3 +6419,52 @@ fn a_supersede_racing_a_growing_journal_refuses_rather_than_writing() {
         "the peer's event is there and the supersede is not",
     );
 }
+
+/// L4: the pre-check reads the run's APPLIED events. A finding that stands
+/// only in a repaired late tail — one no readout shows — is not a residual
+/// finding to close, so naming it refuses and writes nothing.
+#[test]
+fn a_supersede_refuses_a_finding_that_stands_only_in_a_repaired_tail() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("tail-finding.db");
+    let store = held_store(&db, "held");
+    shipped_store(&db, "later");
+    let head = store.load("held").unwrap().pop().unwrap();
+    drop(store);
+    let connection = rusqlite::Connection::open(&db).unwrap();
+    brokkr_store::test_support::plant_chained(
+        &connection,
+        "held",
+        &head,
+        &[(
+            EventType::TransitionDecided,
+            json!({"from":"review","result":"residual","rule_id":"REVIEW-SECURITY-HOLD",
+                   "next":null,"severity":null,
+                   "inputs":{"has_security_residual":true},
+                   "problem":"a residual the run never applied"}),
+        )],
+    )
+    .unwrap();
+    drop(connection);
+    let mut store = Store::open(&db).unwrap();
+    let repair = crate::engine::Repair {
+        operator: "repairer",
+        reason: "the tail is evidence",
+    };
+    crate::engine::operator_repair(&mut store, "held", &repair).unwrap();
+    assert_eq!(
+        store.load("held").unwrap().len(),
+        9,
+        "the late ruling and the repair are journaled"
+    );
+
+    let cited = Store::open_read_only(&db).unwrap();
+    let refusal = operator_supersede(&mut store, &cited, "held", &ask(&[8], "later", 6))
+        .expect_err("a finding only the late tail holds is not shown, so it is not closed");
+    assert!(
+        format!("{refusal}").contains("seq 8 is not a residual finding"),
+        "{refusal}"
+    );
+    assert_eq!(store.load("held").unwrap().len(), 9, "no write");
+    brokkr_store::test_support::lags(&mut store, &["held"]);
+}

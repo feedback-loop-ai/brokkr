@@ -239,6 +239,12 @@ impl RunState {
             Run::Running(_) | Run::AwaitingOperator { .. } | Run::Completed | Run::Stopped => None,
         }
     }
+
+    /// Does the fold apply `seq`? False in a repaired late tail, which is
+    /// kept and shown and never applied (decision 0108 ruling 4).
+    pub fn applies(&self, seq: u64) -> bool {
+        !self.late_tail.as_ref().is_some_and(|tail| tail.holds(seq))
+    }
 }
 
 #[derive(Debug, Clone, Error, PartialEq)]
@@ -294,7 +300,9 @@ impl FoldError {
 /// word outside the set can still reach the journal as an
 /// `operator/commanded` (the bridge journals the word it was sent, and
 /// `supersede` is an annotation), and an acceptance of one folds to
-/// [`FoldError::UnknownCommand`].
+/// [`FoldError::UnknownCommand`] — except a reserved annotation word,
+/// which the bridge's door refuses and answers without journaling, so the
+/// fold never sees one from that door (decision 0108 ruling 4, #440).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OperatorCommand {
     /// Moves a parked run back to running, into the phase it parked in.

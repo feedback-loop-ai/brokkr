@@ -150,11 +150,19 @@ questions are left, and they are this decision's:
      type, no new payload field, no manifest digest moved, and the meaning
      above is unchanged. Ruling 3's `operator/settled` takes the same shape
      as command `settle`, built by unit 3b (440d).
-   - **Enforcement binding, 2026-11-13 (#440 fix round 440c2).** A command
-     word that is an operator annotation's — `repair`, `settle`, `classify`
-     and `supersede` — is refused by the Looper bridge before it journals
-     anything, so a remote caller cannot make a run unfoldable with a
-     `repair` it never wrote. The words are one list in `brokkr-core`. A
+   - **Enforcement binding, 2026-11-13 (#440 fix rounds 440c2 and 440c3).**
+     A command word that is an operator annotation's — `repair`, `settle`,
+     `classify` and `supersede` — is refused by the Looper bridge before it
+     journals anything, so a remote caller cannot make a run unfoldable
+     with a `repair` it never wrote. The words are one list in
+     `brokkr-core`. The refusal is ANSWERED as any refused command is: the
+     bridge acknowledges a rejected receipt whose reason is
+     `reserved_command`, the cursor advances, and the words queued behind
+     it still run. Nothing is journaled for it — neither
+     `operator/commanded` nor `operator/rejected` — so the receipt is the
+     refusal's only record, and the run keeps folding. A redelivery of a
+     word an older binary already journaled returns that journaled receipt,
+     because the reserved-word check stands after the receipt lookup. A
      `repair` word standing before the terminal event is no record at all:
      it is the pending command the fold has always read an
      `operator/commanded` as, and only a word after the terminal event can

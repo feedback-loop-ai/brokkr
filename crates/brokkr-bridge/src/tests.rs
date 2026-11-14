@@ -979,6 +979,131 @@ fn sync_replays_and_receipts_cover_rejected_and_cursor_refusals() {
     assert!(transport.receipts[0].reason.is_some());
 }
 
+/// S1: a reserved word is ANSWERED, not failed. `repair` at cursor 1 used
+/// to make `sync_once` return `Err(ReservedCommand)` before the receipt,
+/// so the cursor never advanced and the `stop` at cursor 2 never ran. It
+/// is now a rejected receipt at the head it found, nothing is journaled,
+/// and the word behind it is applied.
+#[test]
+fn a_reserved_word_is_answered_and_the_command_behind_it_runs() {
+    let (manifest, _, now) = fixture();
+    let (_, mut store) = store_with_manifest(&manifest, "forge-run-1");
+    park(&mut store);
+    let (seq, hash) = store.head_hash("forge-run-1").unwrap();
+    let commands = [("reserved", "repair"), ("stop-behind", "stop")]
+        .into_iter()
+        .enumerate()
+        .map(|(at, (id, word))| ProducerCommand {
+            cursor: at as u64 + 1,
+            id: id.into(),
+            command: word.into(),
+            expected_forge_sequence: seq,
+            expected_event_hash: hash.clone(),
+            actor: "operator".into(),
+            reason: "please".into(),
+        })
+        .collect();
+    let mut bridge = Bridge::new(MockTransport {
+        commands,
+        ..Default::default()
+    });
+    let report = bridge
+        .sync_once(&mut store, "forge-run-1", now, 0)
+        .expect("a reserved word is answered, never a failed sync");
+    assert_eq!(report.commands, 2, "both commands were read");
+    assert_eq!(report.last_command_cursor, 2, "the cursor advanced");
+    let transport = bridge.into_transport();
+    assert_eq!(transport.receipts.len(), 2, "both commands were answered");
+    assert_eq!(transport.receipts[0].outcome, "rejected");
+    assert_eq!(
+        transport.receipts[0].reason.as_deref(),
+        Some("reserved_command"),
+        "the receipt's reason names the reserved word"
+    );
+    assert_eq!(transport.receipts[1].outcome, "accepted");
+    let events = store.load("forge-run-1").unwrap();
+    assert!(
+        !events.iter().any(|event| {
+            event.payload.get("command").and_then(Value::as_str) == Some("repair")
+        }),
+        "the reserved word is not journaled"
+    );
+    assert_eq!(
+        brokkr_core::fold::fold(&events).unwrap().run,
+        brokkr_core::fold::Run::Running(brokkr_core::fold::Cursor::Stop),
+        "the stop queued behind the reserved word was accepted and rides to its boundary"
+    );
+}
+
+/// S1: a redelivery answers with the receipt its command id already
+/// holds, before the word is judged. An older binary journaled the word
+/// and rejected it; this delivery must return that rejection, not refuse
+/// the redelivered word again.
+#[test]
+fn a_redelivered_reserved_word_returns_the_receipt_it_holds() {
+    let (manifest, _, now) = fixture();
+    let (dir, mut store) = store_with_manifest(&manifest, "forge-run-1");
+    let stopped = store
+        .append_next(
+            "forge-run-1",
+            EventType::RunStopped,
+            json!({"reason": "concluded"}),
+            None,
+            None,
+        )
+        .unwrap();
+    drop(store);
+    let connection = rusqlite::Connection::open(dir.path().join("forge.db")).unwrap();
+    brokkr_store::test_support::plant_chained(
+        &connection,
+        "forge-run-1",
+        &stopped,
+        &[
+            (
+                EventType::OperatorCommanded,
+                json!({"command_id": "old-repair", "command": "repair",
+                       "operator": "looper", "args": {}}),
+            ),
+            (
+                EventType::OperatorRejected,
+                json!({"command_id": "old-repair", "operator": "looper",
+                       "reason": "command_not_allowed"}),
+            ),
+        ],
+    )
+    .unwrap();
+    drop(connection);
+    let db = dir.path().join("forge.db");
+    let mut store = Store::open(&db).unwrap();
+    let before = store.load("forge-run-1").unwrap().len();
+    let (seq, hash) = store.head_hash("forge-run-1").unwrap();
+    let mut bridge = Bridge::new(MockTransport {
+        commands: vec![ProducerCommand {
+            cursor: 1,
+            id: "old-repair".into(),
+            command: "repair".into(),
+            expected_forge_sequence: seq,
+            expected_event_hash: hash,
+            actor: "looper".into(),
+            reason: "redelivered".into(),
+        }],
+        ..Default::default()
+    });
+    bridge.sync_once(&mut store, "forge-run-1", now, 0).unwrap();
+    let transport = bridge.into_transport();
+    assert_eq!(transport.receipts[0].outcome, "rejected");
+    assert_eq!(
+        transport.receipts[0].reason.as_deref(),
+        Some("command_not_allowed"),
+        "the receipt the older binary journaled, not a fresh reserved-word refusal"
+    );
+    assert_eq!(
+        store.load("forge-run-1").unwrap().len(),
+        before,
+        "a redelivery writes nothing"
+    );
+}
+
 #[test]
 fn sync_refuses_a_transport_whose_origin_is_not_the_sealed_audience() {
     // The audience rule belongs to the bridge, not to one transport: a

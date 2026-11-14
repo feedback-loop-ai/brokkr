@@ -122,6 +122,11 @@ impl Scoped {
                     continue;
                 };
                 let read = aggregate(run.events, Some(state));
+                // One reading of which events this run applies: a
+                // repaired tail is shown and never counted (decision 0108
+                // ruling 4).
+                let applied = crate::live::derived(run.events, Some(state));
+                let events = applied.as_slice();
                 let realm = read.realm.unwrap_or_else(|| hearth.label.to_string());
                 let Some(carried) = read.recipe.filter(|_| realm == query.realm) else {
                     continue;
@@ -140,10 +145,10 @@ impl Scoped {
                         finished,
                         open,
                         state: state.phase.clone(),
-                        stays: stays(run.events),
-                        rulings: rulings(run.events),
-                        pins: pins(run.events),
-                        attempts: attempts(run.events),
+                        stays: stays(events),
+                        rulings: rulings(events),
+                        pins: pins(events),
+                        attempts: attempts(events),
                     });
                 }
                 scoped.carried.insert(carried);

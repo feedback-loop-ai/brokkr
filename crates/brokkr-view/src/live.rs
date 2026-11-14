@@ -25,19 +25,23 @@ impl Applied<'_> {
 
 /// The events `state`'s repaired tail leaves to a derived scan: the
 /// journal whole where no repair names a tail, and the journal without
-/// that tail where one does.
+/// that tail where one does. The range test is `RunState::applies`, the
+/// one home the fold and every readout share.
 pub(crate) fn derived<'a>(events: &'a [EventEnvelope], state: Option<&RunState>) -> Applied<'a> {
-    let late = state
-        .and_then(|state| state.late_tail.as_ref())
-        .map(|tail| (tail.first_seq, tail.last_seq));
-    if late.is_none() {
+    let Some(state) = state.filter(|state| state.late_tail.is_some()) else {
         return Applied::Whole(events);
-    }
+    };
     Applied::Without(
         events
             .iter()
-            .filter(|event| !brokkr_core::summary::in_late(late, event.seq))
+            .filter(|event| state.applies(event.seq))
             .cloned()
             .collect(),
     )
+}
+
+/// The applied events as owned values, for a reader outside this crate
+/// that derives a figure from them: the CLI's compare and ledger scans.
+pub fn applied_events(events: &[EventEnvelope], state: Option<&RunState>) -> Vec<EventEnvelope> {
+    derived(events, state).as_slice().to_vec()
 }

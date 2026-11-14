@@ -935,6 +935,14 @@ late  a late tail of 2 events, repaired by operator
       seq 47 · operator/accepted
 ```
 
+A lawful annotation that landed between the terminal event and the break
+is part of that tail too, so the repair makes it late as well: an ending
+a `classify` had named `withdrawn` reads `unclassified` after the repair,
+and a `supersede` there reopens the findings it had closed. The verb names
+each such annotation by seq and type and says to record it again after the
+repair. That is the fail-closed reading: the whole tail is kept, shown and
+not applied, with no annotation quietly surviving inside it.
+
 `repair` never deletes anything: the hash chain is untouched, the late
 events stay in the journal, and they are marked as the tail an operator
 named. It refuses, writing nothing, a run with no terminal event, a run

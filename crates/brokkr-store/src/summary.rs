@@ -489,7 +489,13 @@ pub(crate) fn judge(
         write_sealed(tx, &first.run_id, sealed)?;
         return Ok(Settled::Lost);
     }
-    let account = carried.account.clone().onto(sealed);
+    // A repair in `sealed` may name a carried event: the account answers
+    // `Refold`, and the writer refolds the whole journal in this
+    // transaction (decision 0108 ruling 4, L7).
+    let account = match carried.account.clone().onto(sealed) {
+        brokkr_core::summary::Carried::Account(account) => *account,
+        brokkr_core::summary::Carried::Refold => late::refold(tx, &first.run_id)?,
+    };
     let listed = match &carried.listed {
         Some(listed) => listed.clone(),
         None => Listed::of(tx, &first.run_id)?,

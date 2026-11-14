@@ -210,6 +210,34 @@ impl<'de> Deserialize<'de> for Stated {
     }
 }
 
+/// What carrying an account over a suffix came to (decision 0108 ruling
+/// 4, L7). A repair in the suffix can name events the carried prefix has
+/// already applied; those events are late, so the carried account's
+/// figures are not the whole journal's, and the caller must refold whole.
+#[derive(Debug)]
+pub enum Carried {
+    /// The suffix was carried onto the account. Boxed because the account
+    /// is much larger than the signal beside it.
+    Account(Box<Account>),
+    /// A repair in the suffix names events the carried prefix already
+    /// applied: refold the run's whole journal.
+    Refold,
+}
+
+impl Carried {
+    /// The carried account. A caller that may meet [`Carried::Refold`]
+    /// matches instead; `Account::whole` never can, because an empty
+    /// account has applied no prefix event.
+    pub fn account(self) -> Account {
+        match self {
+            Carried::Account(account) => *account,
+            Carried::Refold => {
+                panic!("a repair named a carried event: the caller must refold the whole journal")
+            }
+        }
+    }
+}
+
 /// What a writer holds of a run: the run's head as it last judged it, the
 /// fold there or the fold's refusal, and the residual findings and
 /// closing marks the journal carries up to it.
@@ -259,7 +287,7 @@ impl Account {
 
     /// The account of a run's whole journal, `events` in order from seq 1.
     pub fn whole(run_id: &str, events: &[EventEnvelope]) -> Account {
-        Account::empty(run_id).onto(events)
+        Account::empty(run_id).onto(events).account()
     }
 
     /// The account carried over `suffix`, the events after this head in
@@ -267,27 +295,53 @@ impl Account {
     /// by [`fold_onto`]; a refusal stands, as a whole fold stops at the
     /// event it refuses. The caller verifies the suffix chains onto this
     /// head first; like [`fold`], this checks protocol shape only.
-    pub fn onto(mut self, suffix: &[EventEnvelope]) -> Account {
+    ///
+    /// When a repair in `suffix` names events this account already
+    /// applied — its range reaches at or below this head — the account
+    /// cannot carry: it answers [`Carried::Refold`] and the caller
+    /// refolds the run's whole journal (decision 0108 ruling 4, L7).
+    pub fn onto(mut self, suffix: &[EventEnvelope]) -> Carried {
         let Some(last) = suffix.last() else {
-            return self;
+            return Carried::Account(Box::new(self));
         };
+        let carried_head = self.head.0;
         self.read = match self.read {
             Err(FoldError::Empty) => fold(suffix),
             Err(refused) => Err(refused),
             Ok(state) => fold_onto(state, suffix),
         };
+        // A repair read from the suffix that names a seq at or below the
+        // carried head names an event this account has already applied.
+        // Marking it late now cannot undo that, so the only honest answer
+        // is a whole refold.
+        if self
+            .read
+            .as_ref()
+            .ok()
+            .and_then(|state| state.late_tail.as_ref())
+            .is_some_and(|tail| tail.first_seq <= carried_head)
+        {
+            return Carried::Refold;
+        }
         // A late event is kept in the journal and shown as the tail, never
         // applied by any scan that derives a figure from it (decision 0108
         // ruling 4): a late classify moves no ending, a late supersede
-        // closes no finding.
-        let late = late_range(&self.read);
+        // closes no finding. The tail's own rule, [`LateTail::holds`], is
+        // the one test; `RunState::applies` wraps it for a whole scan.
+        let late = self
+            .read
+            .as_ref()
+            .ok()
+            .and_then(|state| state.late_tail.clone());
+        let applies =
+            |event: &EventEnvelope| late.as_ref().is_none_or(|tail| !tail.holds(event.seq));
         self.findings.extend(
-            residuals_of(suffix.iter().filter(|event| !in_late(late, event.seq)))
+            residuals_of(suffix.iter().filter(|event| applies(event)))
                 .iter()
                 .map(|residual| Stated::of(residual, None)),
         );
         for event in suffix {
-            if in_late(late, event.seq) {
+            if !applies(event) {
                 continue;
             }
             note_closing(&mut self.marks, event);
@@ -332,7 +386,7 @@ impl Account {
         }
         self.head = (last.seq, last.event_hash.clone());
         self.last_recorded_at = Some(last.recorded_at.clone());
-        self
+        Carried::Account(Box::new(self))
     }
 
     /// The run this account is of.
@@ -413,28 +467,17 @@ impl Account {
     }
 }
 
-/// The seq range a state's repaired late tail holds, where it holds one.
-fn late_range(read: &Result<RunState, FoldError>) -> Option<(u64, u64)> {
-    let tail = read.as_ref().ok()?.late_tail.as_ref()?;
-    Some((tail.first_seq, tail.last_seq))
-}
-
-/// Is `seq` inside the late range `late`, where there is one?
-pub fn in_late(late: Option<(u64, u64)>, seq: u64) -> bool {
-    late.is_some_and(|(first, last)| (first..=last).contains(&seq))
-}
-
 /// The events a derived scan may apply: every event, less a repaired run's
 /// late tail, which is kept and shown and never applied (decision 0108
-/// ruling 4).
-pub fn live<'a>(
+/// ruling 4). The range test itself is [`RunState::applies`], the one home
+/// the fold, the account and every readout share.
+pub(crate) fn live<'a>(
     events: &'a [EventEnvelope],
-    state: Option<&RunState>,
+    state: Option<&'a RunState>,
 ) -> impl Iterator<Item = &'a EventEnvelope> + 'a {
-    let late = state
-        .and_then(|state| state.late_tail.as_ref())
-        .map(|tail| (tail.first_seq, tail.last_seq));
-    events.iter().filter(move |event| !in_late(late, event.seq))
+    events
+        .iter()
+        .filter(move |event| state.is_none_or(|state| state.applies(event.seq)))
 }
 
 /// What the run's `runs` row states: its feature and when it was created.

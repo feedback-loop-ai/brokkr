@@ -1,5 +1,6 @@
 use super::*;
 use crate::tests::envelope_builder;
+use brokkr_view::resolutions;
 
 #[path = "../../../../tests/support/seat_journal.rs"]
 mod seat_journal;
@@ -18,6 +19,96 @@ fn printed(resolution: &BTreeMap<String, Resolution>) -> Value {
 /// A printed document, read back as a value.
 fn value(document: impl Serialize) -> Value {
     serde_json::to_value(document).unwrap()
+}
+
+#[test]
+fn a_repaired_runs_compare_facts_are_the_terminal_cuts() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&dir.path().join("forge.db")).unwrap();
+    let prefix = [
+        (
+            EventType::RunStarted,
+            json!({"feature": "f", "manifest": {}}),
+        ),
+        (EventType::PhaseEntered, json!({"phase": "work"})),
+        (
+            EventType::EffectRequested,
+            json!({"effect_id": "e", "seat": "work"}),
+        ),
+        (
+            EventType::EffectStarted,
+            json!({"effect_id": "e", "attempt_id": "a1"}),
+        ),
+        (
+            EventType::EffectCheckpointed,
+            json!({"effect_id": "e", "attempt_id": "a1",
+                   "checkpoint": {"step": "turn", "total_cost_usd": 1.5}}),
+        ),
+        (EventType::RunStopped, json!({"reason": "concluded"})),
+    ];
+    for run in ["repaired", "cut"] {
+        store
+            .create_run(run, run, "bundle", &json!({"bundle_name": "bundle"}))
+            .unwrap();
+        for (event_type, payload) in &prefix {
+            store
+                .append_next(run, *event_type, payload.clone(), None, None)
+                .unwrap();
+        }
+    }
+    let head = store.load("repaired").unwrap().pop().unwrap();
+    let db = store.path().to_path_buf();
+    drop(store);
+    let connection = rusqlite::Connection::open(&db).unwrap();
+    brokkr_store::test_support::plant_chained(
+        &connection,
+        "repaired",
+        &head,
+        &[
+            (
+                EventType::EffectStarted,
+                json!({"effect_id": "late", "attempt_id": "late"}),
+            ),
+            (
+                EventType::EffectCheckpointed,
+                json!({"effect_id": "late", "attempt_id": "late",
+                       "checkpoint": {"step": "turn", "total_cost_usd": 100.0}}),
+            ),
+            (
+                EventType::OperatorCommanded,
+                json!({"command_id": "c-repair", "command": "repair",
+                       "operator": "operator",
+                       "args": {"first_seq": 7, "last_seq": 8, "terminal_seq": 6,
+                                "event_types": ["effect/started", "effect/checkpointed"],
+                                "reason": "kept"}}),
+            ),
+        ],
+    )
+    .unwrap();
+    drop(connection);
+    let store = Store::open(&db).unwrap();
+
+    let full = run_facts(&store, "repaired").unwrap();
+    let cut = run_facts(&store, "cut").unwrap();
+    assert_eq!(full.attempts, cut.attempts, "no late attempt is counted");
+    assert_eq!(
+        value(&full.summary)["total_cost_usd"],
+        value(&cut.summary)["total_cost_usd"],
+        "no late cost is counted"
+    );
+    assert_eq!(
+        value(&full.summary)["phases_visited"],
+        value(&cut.summary)["phases_visited"]
+    );
+    assert_eq!(
+        value(&full.summary)["decision_trail"],
+        value(&cut.summary)["decision_trail"]
+    );
+    assert_eq!(
+        serde_json::to_value(&full.resolution).unwrap(),
+        serde_json::to_value(&cut.resolution).unwrap(),
+        "no late invocation site resolves"
+    );
 }
 
 #[test]

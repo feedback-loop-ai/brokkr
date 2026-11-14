@@ -71,14 +71,15 @@ mod told;
 use told::{Finish, Told};
 mod composed;
 mod live;
+pub use live::applied_events;
 use live::derived;
 mod residual_findings;
 pub use residual_findings::{residual_findings, residual_findings_at};
 mod seat_view;
 pub use commands::{Admission, Command, CommandRefusal, Disabled, Offered, Unavailable};
 pub use compare::{
-    first_divergence, resolution_divergence, resolutions, resolved, FirstDivergence, Resolution,
-    Sides,
+    first_divergence, resolution_divergence, resolutions, resolutions_at, resolved,
+    FirstDivergence, Resolution, Sides,
 };
 pub use composed::{composed_view, composed_whole, seat_keys, Parts};
 use dashboard::dashboard;
@@ -87,9 +88,9 @@ pub use dashboard::{working_checkpoints, Concluded, Dashboard, Decision, Outcome
 pub use fleet::{
     at_work, behind_line, fleet_rows, late_line, need, page, ranges, run_row, run_rows, section_of,
     section_of_rows, sections, stopping_detail, summary_row, title, title_within, window, wrap,
-    Acknowledgement, Cursor, CursorError, HearthEntries, Hire, LateEvent, LateTail, Need, Page,
-    Paged, Quarantine, Refusal, RunRow, Section, Standing, Verdict, AHEAD_ROWS, PAGE_ROWS,
-    TITLE_COLUMNS, VERDICT_COLUMNS,
+    Acknowledgement, Cursor, CursorError, HearthEntries, Hire, LateEvent, LateLine, LateRange,
+    LateTail, Need, Page, Paged, Quarantine, Refusal, RunRow, Section, Standing, Verdict,
+    AHEAD_ROWS, PAGE_ROWS, TITLE_COLUMNS, VERDICT_COLUMNS,
 };
 pub use graph::{
     graph, GraphError, GraphQuery, GraphResolution, GraphTable, GraphView, Table,
@@ -2385,7 +2386,10 @@ fn viewed(
         scopes: None,
         commands: state.map_or_else(Vec::new, commands),
         unavailable: state.map_or_else(Vec::new, |state| {
-            let residuals = residual_findings(&state.run_id, events);
+            // A late supersede in a repaired tail closes no finding the
+            // commands show, and a late ruling states none: the same
+            // reading the findings list takes (decision 0108 ruling 4).
+            let residuals = residual_findings_at(&state.run_id, events, Some(state));
             unavailable(state, &residuals, clarify.as_ref())
         }),
         clarify,

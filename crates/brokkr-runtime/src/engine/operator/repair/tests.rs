@@ -409,17 +409,23 @@ fn a_repair_that_loses_the_head_writes_nothing() {
     let store = concluded(&db, "late");
     let mut store = planted(store, &db, "late", &[crate::late::settlement()]);
     let before = length(&store, "late");
-    let refused = repair_with(&mut store, "late", &ask("operator", "why"), |store| {
-        store
-            .append_next(
-                "late",
-                EventType::OperatorCommanded,
-                json!({"command_id": "peer", "command": "stop", "operator": "other", "args": {}}),
-                None,
-                None,
-            )
-            .unwrap();
-    })
+    let refused = repair_with(
+        &mut store,
+        "late",
+        &ask("operator", "why"),
+        |store| {
+            store
+                .append_next(
+                    "late",
+                    EventType::OperatorCommanded,
+                    json!({"command_id": "peer", "command": "stop", "operator": "other", "args": {}}),
+                    None,
+                    None,
+                )
+                .unwrap();
+        },
+        |_| {},
+    )
     .unwrap_err();
     assert!(
         matches!(refused, EngineError::Store(StoreError::HeadMoved { .. })),
@@ -436,9 +442,50 @@ fn a_repair_that_loses_the_head_writes_nothing() {
     lags(&mut store, &["late"]);
 }
 
-/// C1(a): the bridge refuses every annotation word before journaling it,
-/// and the terminal run still folds. The `dance` control still journals
-/// the word it was sent and refuses it by name, exactly as before.
+/// INFO a: the read-back's fold arm. A peer's annotation lands between
+/// the repair and the read, and makes the journal refuse; the verb
+/// reports the fold's error, not a success over a journal that does not
+/// fold.
+#[test]
+fn a_repair_whose_read_back_refuses_reports_the_fold_error() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("read-back.db");
+    let store = concluded(&db, "late");
+    let mut store = planted(store, &db, "late", &[crate::late::settlement()]);
+    let refused = repair_with(
+        &mut store,
+        "late",
+        &ask("operator", "why"),
+        |_| {},
+        |store| {
+            store
+                .append_next(
+                    "late",
+                    EventType::OperatorCommanded,
+                    json!({"command_id": "peer-repair", "command": "repair",
+                           "operator": "other",
+                           "args": {"first_seq": 6, "last_seq": 6, "terminal_seq": 5,
+                                    "event_types": ["effect/failed"], "reason": "bad"}}),
+                    None,
+                    None,
+                )
+                .unwrap();
+        },
+    )
+    .unwrap_err();
+    assert!(
+        matches!(
+            &refused,
+            EngineError::Fold(brokkr_core::fold::FoldError::BadRepair { seq: 8, .. })
+        ),
+        "{refused:?}"
+    );
+}
+
+/// C1(a), S1: the bridge refuses every annotation word before journaling
+/// it, ANSWERING it as a refused command with a rejected receipt, and the
+/// terminal run still folds. The `dance` control still journals the word
+/// it was sent and refuses it by name, exactly as before.
 #[test]
 fn the_bridge_refuses_annotation_words_and_the_run_still_folds() {
     let dir = tempfile::tempdir().unwrap();
@@ -455,9 +502,10 @@ fn the_bridge_refuses_annotation_words_and_the_run_still_folds() {
             expected_seq: seq,
             expected_hash: &hash,
         };
-        let refused = apply_fenced_operator_command(&mut store, "late", &wire).unwrap_err();
+        let refused = apply_fenced_operator_command(&mut store, "late", &wire).unwrap();
         assert!(
-            matches!(&refused, EngineError::ReservedCommand { word: said, .. } if said == word),
+            matches!(&refused, crate::engine::FencedCommandOutcome::Rejected { reason, .. }
+                if reason == crate::engine::operator::RESERVED_COMMAND_REASON),
             "{word}: {refused:?}"
         );
         assert_eq!(length(&store, "late"), before, "{word} wrote nothing");

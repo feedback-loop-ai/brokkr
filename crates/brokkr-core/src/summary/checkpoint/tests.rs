@@ -178,7 +178,7 @@ fn a_carried_account_drops_the_checkpoint_facts_it_already_read() {
     let carried = Account::whole("r", &events[..2]).carried();
     assert_eq!(carried.checkpoint_rows(), Vec::<u64>::new());
     assert_eq!(carried.checkpoint(1), None);
-    let account = carried.onto(&events[2..]);
+    let account = carried.onto(&events[2..]).account();
     assert_eq!(account.checkpoint_rows(), [3]);
     assert_eq!(account.checkpoint(3).unwrap().seq, 3);
     assert_eq!(account.checkpoint(1), None);

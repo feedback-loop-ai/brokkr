@@ -52,10 +52,11 @@ impl Lane {
 }
 
 /// A run's late tail, as an operator's repair record named it (decision
-/// 0108 ruling 4): kept and shown, never applied. One type for the run
-/// view, the summary row and the whole read, so every surface paints it
-/// the same.
+/// 0108 ruling 4): kept and shown, never applied. This is the whole
+/// tail a run's fold carries and `inspect` lists; the summary row keeps
+/// only [`LateRange`], what its sentence says.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct LateTail {
     /// The seq of the repair annotation that named it.
     pub repaired_at: u64,
@@ -69,10 +70,11 @@ pub struct LateTail {
 
 /// One event of a run's late tail: its seq and its wire type.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct LateEvent {
     pub seq: u64,
     #[serde(rename = "type")]
-    pub event_type: String,
+    pub event_type: crate::envelope::EventType,
 }
 
 impl LateTail {
@@ -85,13 +87,85 @@ impl LateTail {
             operator: tail.operator.clone(),
             events: tail
                 .events()
-                .map(|(seq, event_type)| LateEvent {
-                    seq,
-                    event_type: event_type.as_str().to_string(),
-                })
+                .map(|(seq, event_type)| LateEvent { seq, event_type })
                 .collect(),
         }
     }
+
+    /// The tail's event count: what the row's sentence states.
+    pub fn count(&self) -> usize {
+        self.events.len()
+    }
+}
+
+/// The late tail a summary row keeps: only what its sentence says — the
+/// count, the range's first and last seq, the repair's seq, and the
+/// repairer's operator name cut to the journal's operator bound. The
+/// per-event seq and type stay in the fold, where `inspect` reads them
+/// (decision 0108 ruling 4; #440 fix round 440c3).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LateRange {
+    /// The seq of the repair annotation that named the tail.
+    pub repaired_at: u64,
+    /// The run's terminal event, which the tail follows.
+    pub terminal_seq: u64,
+    /// The tail's first seq: the event after the terminal one.
+    pub first_seq: u64,
+    /// The tail's last seq: the head the repair was written at, less one.
+    pub last_seq: u64,
+    /// How many events the tail holds.
+    pub count: u64,
+    /// The operator who repaired the run, cut to
+    /// [`crate::summary::ACK_OPERATOR_CHARS`] as the journal's page cuts
+    /// an operator name.
+    pub operator: String,
+}
+
+impl LateRange {
+    /// The row's compact tail, from the fold's whole one.
+    pub fn of(tail: &crate::fold::LateTail) -> LateRange {
+        LateRange {
+            repaired_at: tail.repaired_at,
+            terminal_seq: tail.terminal_seq,
+            first_seq: tail.first_seq,
+            last_seq: tail.last_seq,
+            count: tail.last_seq - tail.first_seq + 1,
+            operator: cut_operator(&tail.operator),
+        }
+    }
+
+    /// The row's compact tail, from the whole wire tail a summary states:
+    /// what the store writes into its column.
+    pub fn of_tail(tail: &LateTail) -> LateRange {
+        let (Some(first), Some(last)) = (tail.events.first(), tail.events.last()) else {
+            return LateRange {
+                repaired_at: tail.repaired_at,
+                terminal_seq: tail.terminal_seq,
+                first_seq: tail.repaired_at,
+                last_seq: tail.repaired_at,
+                count: 0,
+                operator: cut_operator(&tail.operator),
+            };
+        };
+        LateRange {
+            repaired_at: tail.repaired_at,
+            terminal_seq: tail.terminal_seq,
+            first_seq: first.seq,
+            last_seq: last.seq,
+            count: tail.events.len() as u64,
+            operator: cut_operator(&tail.operator),
+        }
+    }
+}
+
+/// An operator name in the row's column, cut to the journal's bound in
+/// characters as its acknowledgement's copy is.
+fn cut_operator(operator: &str) -> String {
+    operator
+        .chars()
+        .take(crate::summary::ACK_OPERATOR_CHARS)
+        .collect()
 }
 
 /// The one bound a range puts on `order_at`, the milliseconds the writer
@@ -161,10 +235,10 @@ pub struct Row {
     /// [`crate::summary::CITATION_BYTES`] until [`Whole`] is read for the
     /// row, which completes it.
     pub closing: Option<Closing>,
-    /// The late tail a repair named, as the row's own column states it
-    /// (decision 0108 ruling 4): a repaired run keeps its sentence when
-    /// the summary row is the one a listing reads.
-    pub late_tail: Option<LateTail>,
+    /// The late tail a repair named, as the row's own compact column
+    /// states it (decision 0108 ruling 4): a repaired run keeps its
+    /// sentence when the summary row is the one a listing reads.
+    pub late_tail: Option<LateRange>,
 }
 
 /// An acknowledgement's words as its trigger copies them onto the row,

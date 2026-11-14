@@ -1010,7 +1010,6 @@ fn a_cut_first_line_titles_as_its_feature() {
 #[test]
 fn a_repaired_run_carries_its_late_tail_on_the_row_and_the_summary() {
     let mut repaired = settled(Status::Stopped, "work", None);
-    repaired.terminal_seq = Some(5);
     repaired.late_tail = Some(brokkr_core::fold::LateTail {
         repaired_at: 8,
         terminal_seq: 5,
@@ -1031,18 +1030,11 @@ fn a_repaired_run_carries_its_late_tail_on_the_row_and_the_summary() {
         "a late tail of 2 events, repaired by repairer"
     );
     assert_eq!(
-        tail.events,
-        [
-            LateEvent {
-                seq: 6,
-                event_type: "operator/commanded".to_string()
-            },
-            LateEvent {
-                seq: 7,
-                event_type: "operator/accepted".to_string()
-            },
-        ]
+        (tail.first_seq, tail.last_seq, tail.count),
+        (6, 7, 2),
+        "the row keeps only the sentence's range and count"
     );
+    assert_eq!(tail.operator, "repairer");
     assert_eq!(row.status.as_deref(), Some("stopped"));
     assert!(
         row.quarantine.is_none(),
@@ -1055,8 +1047,25 @@ fn a_repaired_run_carries_its_late_tail_on_the_row_and_the_summary() {
         summary.late_tail.as_ref().map(crate::fleet::late_line),
         Some("a late tail of 2 events, repaired by repairer".to_string())
     );
+    assert_eq!(
+        summary
+            .late_tail
+            .as_ref()
+            .expect("the summary lists the tail's events")
+            .events
+            .iter()
+            .map(|event| event.event_type)
+            .collect::<Vec<_>>(),
+        [EventType::OperatorCommanded, EventType::OperatorAccepted],
+        "the whole tail keeps the types inspect lists"
+    );
     let wire = serde_json::to_value(&row).unwrap();
     assert_eq!(wire["late_tail"]["repaired_at"], 8);
-    assert_eq!(wire["late_tail"]["events"][1]["seq"], 7);
-    assert_eq!(wire["late_tail"]["events"][1]["type"], "operator/accepted");
+    assert_eq!(wire["late_tail"]["count"], 2);
+    assert_eq!(wire["late_tail"]["first_seq"], 6);
+    assert_eq!(wire["late_tail"]["last_seq"], 7);
+    assert!(
+        wire["late_tail"].get("events").is_none(),
+        "the row's column keeps no per-event text"
+    );
 }

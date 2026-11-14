@@ -18,7 +18,13 @@ mod seat_facts;
 /// What `seat_facts::disagreements` finds of `run`'s account read whole.
 fn disagreements(run: &str, events: &[EventEnvelope]) -> (Vec<String>, usize) {
     let account = Account::whole(run, events);
-    seat_facts::disagreements(run, events, account.seats(), account.seats_kept())
+    seat_facts::disagreements(
+        run,
+        events,
+        account.seats(),
+        account.seats_kept(),
+        account.state().ok(),
+    )
 }
 
 #[test]

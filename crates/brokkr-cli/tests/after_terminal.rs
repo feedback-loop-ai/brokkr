@@ -9,6 +9,9 @@ use brokkr_core::envelope::EventType;
 
 #[path = "../../../tests/support/late.rs"]
 mod late;
+
+#[path = "../../../tests/support/repair.rs"]
+mod repair;
 use brokkr_core::fold::Status;
 use serde_json::json;
 
@@ -299,8 +302,13 @@ fn runs_shows_settlement_tail(dir: &Path, db: &str) {
     let parsed: serde_json::Value = serde_json::from_slice(&json.stdout).unwrap();
     let tail = &parsed["runs"][0]["late_tail"];
     assert_eq!(tail["operator"], "repairer");
-    assert_eq!(tail["events"][0]["seq"], 6);
-    assert_eq!(tail["events"][0]["type"], "effect/succeeded");
+    assert_eq!(tail["count"], 1);
+    assert_eq!(tail["first_seq"], 6);
+    assert_eq!(tail["last_seq"], 6);
+    assert!(
+        tail.get("events").is_none(),
+        "the row keeps the sentence, not the per-event text"
+    );
 }
 
 /// `brokkr operator repair` over shape (A), through the shipped binary:
@@ -368,6 +376,39 @@ fn a_repaired_runs_late_tail_survives_a_writable_open() {
     drop(brokkr_store::Store::open(Path::new(&db)).unwrap());
 
     runs_shows_settlement_tail(dir.path(), &db);
+}
+
+/// L8: a lawful classify between the terminal event and the break is in
+/// the tail, so the repair makes it late. The verb names it by seq and
+/// type, and says to record it again after the repair.
+#[test]
+fn a_repair_names_the_lawful_annotation_it_skips() {
+    let (dir, db) = staged();
+    concluded_at_five(Path::new(&db));
+    planted(Path::new(&db), &[late::classified(), late::settlement()]);
+    let repaired = repair_as(dir.path(), &db, "repairer", "kept");
+    let stderr = String::from_utf8_lossy(&repaired.stderr);
+    assert_eq!(repaired.status.code(), Some(0), "{stderr}");
+    assert!(
+        stderr.contains("recorded repair at seq 8 on late"),
+        "{stderr}"
+    );
+    assert!(
+        stderr.contains("seq 6 · operator/commanded (classify)"),
+        "the skipped annotation is named by seq and type: {stderr}"
+    );
+    assert!(
+        stderr.contains("record it again after the repair"),
+        "the operator is told to record it again: {stderr}"
+    );
+    let store = brokkr_store::Store::open_read_only(Path::new(&db)).unwrap();
+    let written = store.load("late").unwrap().pop().unwrap();
+    assert_eq!(
+        written.payload["args"],
+        repair::repair_args(5, 6, 7, &["operator/commanded", "effect/succeeded"], "kept"),
+        "the repair names exactly the tail it skips"
+    );
+    inspect_shows(dir.path(), &db, &["stopped", "a late tail of 2 events"]);
 }
 
 /// A live run refuses the verb, naming it, and writes nothing.

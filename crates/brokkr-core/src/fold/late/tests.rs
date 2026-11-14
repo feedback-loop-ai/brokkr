@@ -6,6 +6,7 @@ use super::*;
 use crate::canonical::ZERO_HASH;
 use crate::envelope_builder::EnvelopeBuilder;
 use crate::fold::{fold, fold_onto, FoldError, OperatorCommand, Run};
+use crate::summary::{Account, Carried};
 use serde_json::{json, Value};
 
 /// Append `event_type` to `events`, chained onto the head and sealed as
@@ -161,6 +162,29 @@ fn lying_types_tail() -> Vec<EventEnvelope> {
     stopped_with(
         &[classified(), settlement()],
         repaired(5, 6, 7, &["operator/commanded", "effect/failed"]),
+    )
+}
+
+/// A repair whose types lie about seq 6, an event a carried fold has
+/// already applied: the case that proves the carried fold checks the
+/// prefix's types as the whole fold does. `lying_types_tail` lies about
+/// seq 7, which no prefix through the repair can hold, so it exercises
+/// only the suffix.
+fn lying_carried_types_tail() -> Vec<EventEnvelope> {
+    stopped_with(
+        &[classified(), settlement()],
+        repaired(5, 6, 7, &["effect/failed", "effect/succeeded"]),
+    )
+}
+
+/// The honest shape L7 exists for: a lawful classify lands after the
+/// terminal event, then a repair names it late. A carried account that
+/// already applied the classify reads a moved ending; the whole one does
+/// not.
+fn late_classify_tail() -> Vec<EventEnvelope> {
+    stopped_with(
+        &[classified(), settlement()],
+        repaired(5, 6, 7, &["operator/commanded", "effect/succeeded"]),
     )
 }
 
@@ -450,21 +474,30 @@ fn annotations_after_the_repair_are_admitted() {
     assert_eq!(state.late_tail.unwrap().last_seq, 6);
 }
 
-/// The whole fold and the carried fold agree at every cut point over the
-/// planted shapes: (A), (B), the multi-event tail, the wrong-range repair,
-/// the lying-types repair and the pre-terminal repair. A cut after the
-/// terminal event but before the repair exercises the carried types.
-#[test]
-fn the_whole_and_carried_folds_agree_at_every_cut_point() {
-    let shapes: Vec<Vec<EventEnvelope>> = vec![
+/// Every planted shape the two property tests read: (A), (B), the
+/// multi-event tail, the wrong-range repair, the lying-types repairs
+/// (suffix and carried prefix), the honest late classify and the
+/// pre-terminal repair.
+fn shapes() -> Vec<Vec<EventEnvelope>> {
+    vec![
         stopped_with(&[settlement()], repaired(5, 6, 6, &["effect/succeeded"])),
         shape_b(),
         multi_tail(),
         wrong_range_tail(),
         lying_types_tail(),
+        lying_carried_types_tail(),
+        late_classify_tail(),
         pre_terminal_repair(),
-    ];
-    for (at, events) in shapes.iter().enumerate() {
+    ]
+}
+
+/// The whole fold and the carried fold agree at every cut point over the
+/// planted shapes. A cut after the terminal event but before the repair
+/// exercises the carried types; the prefix-lying shape makes the cut at
+/// seq 6 prove the carried fold reads the state's own types.
+#[test]
+fn the_whole_and_carried_folds_agree_at_every_cut_point() {
+    for (at, events) in shapes().iter().enumerate() {
         let whole = fold(events);
         for split in 1..=events.len() {
             let Ok(prefix) = fold(&events[..split]) else {
@@ -478,6 +511,44 @@ fn the_whole_and_carried_folds_agree_at_every_cut_point() {
             );
         }
     }
+}
+
+/// L7: the carried account equals the whole one, or says it must refold
+/// whole. A suffix repair that names a carried event cannot be applied to
+/// the account after the fact, so the signal is the only honest answer and
+/// the refold is the whole account.
+#[test]
+fn the_whole_and_carried_accounts_agree_or_ask_for_a_whole_refold() {
+    for (at, events) in shapes().iter().enumerate() {
+        let whole = Account::whole("r1", events);
+        for split in 1..=events.len() {
+            let prefix = Account::whole("r1", &events[..split]);
+            if prefix.state().is_err() {
+                continue;
+            }
+            match prefix.onto(&events[split..]) {
+                Carried::Account(carried) => assert_eq!(
+                    format!("{carried:?}"),
+                    format!("{whole:?}"),
+                    "shape {at} carried over split {split} is the whole account"
+                ),
+                Carried::Refold => {
+                    // The caller's contract: refold the whole journal,
+                    // which is exactly `whole` above. The classify cut
+                    // below proves this is the arm the signal takes.
+                }
+            }
+        }
+    }
+
+    // The classify cut is the one the signal exists for: the prefix
+    // through the lawful classify folds, and the suffix's repair names it.
+    let events = late_classify_tail();
+    let carried = Account::whole("r1", &events[..6]).onto(&events[6..]);
+    assert!(
+        matches!(carried, Carried::Refold),
+        "a repair naming a carried classify asks for a whole refold"
+    );
 }
 
 /// The tail a reader folded past carries across [`fold_onto`]: a repair
@@ -521,5 +592,29 @@ fn a_carried_repair_checks_the_types_it_names_in_the_suffix() {
                 .to_string()
         },
         "the suffix's type is read and compared"
+    );
+}
+
+/// M2: a carried fold checks a type the state's prefix already applied,
+/// not only the suffix's. Seq 6 is inside the carried prefix, so the
+/// state's own `tail_types` must answer, and a lie there is refused with
+/// the whole fold's words.
+#[test]
+fn a_carried_repair_checks_the_types_it_names_in_the_carried_prefix() {
+    let events = lying_carried_types_tail();
+    let refused = FoldError::BadRepair {
+        seq: 8,
+        detail: "it names seq 6 as effect/failed, but the run holds operator/commanded".to_string(),
+    };
+    assert_eq!(
+        fold(&events).unwrap_err(),
+        refused,
+        "the whole fold refuses"
+    );
+    let prefix = fold(&events[..6]).unwrap();
+    assert_eq!(
+        fold_onto(prefix, &events[6..]).unwrap_err(),
+        refused,
+        "the carried fold refuses at the same cut with the same words"
     );
 }

@@ -293,12 +293,14 @@ fn an_account_carried_event_by_event_is_the_account_read_whole() {
     let whole = Summary::of(&Account::whole("run", &events), LISTING);
     let mut carried = Account::empty("run");
     for event in &events {
-        carried = carried.onto(std::slice::from_ref(event));
+        carried = carried.onto(std::slice::from_ref(event)).account();
     }
     assert_eq!(Summary::of(&carried, LISTING), whole);
-    let halves = Account::whole("run", &events[..6]).onto(&events[6..]);
+    let halves = Account::whole("run", &events[..6])
+        .onto(&events[6..])
+        .account();
     assert_eq!(Summary::of(&halves, LISTING), whole);
-    let unmoved = Account::whole("run", &events).onto(&[]);
+    let unmoved = Account::whole("run", &events).onto(&[]).account();
     assert_eq!(Summary::of(&unmoved, LISTING), whole);
 }
 
@@ -321,7 +323,7 @@ fn an_account_carries_the_ending_the_run_read_whole_states() {
     let events = journal(&steps);
     let mut carried = Account::empty("run");
     for event in &events {
-        carried = carried.onto(std::slice::from_ref(event));
+        carried = carried.onto(std::slice::from_ref(event)).account();
     }
     let superseded = Some(Closing {
         ended: crate::ending::Ended {
@@ -349,7 +351,7 @@ fn a_seat_at_work_is_hired_while_its_effect_is_requested_or_in_flight() {
         failed_attempts: 0,
     });
     assert_eq!(Summary::of(&requested, LISTING).hired, hired);
-    let in_flight = requested.onto(&events[3..]);
+    let in_flight = requested.onto(&events[3..]).account();
     let summary = Summary::of(&in_flight, LISTING);
     assert_eq!(summary.hired, hired);
     assert_eq!(summary.status, Some(Status::Running));
@@ -403,7 +405,9 @@ fn a_refusal_stands_as_the_journal_moves_past_it() {
     );
     assert_eq!((summary.status, &summary.hired), (None, &None));
     assert_eq!(summary.folded_seq, 5);
-    let carried = Account::whole("run", &events[..2]).onto(&events[2..]);
+    let carried = Account::whole("run", &events[..2])
+        .onto(&events[2..])
+        .account();
     assert_eq!(Summary::of(&carried, LISTING), summary);
 }
 

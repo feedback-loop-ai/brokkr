@@ -148,9 +148,17 @@ pub enum FencedCommandOutcome {
     },
 }
 
+/// The receipt reason for a reserved annotation word. Nothing is
+/// journaled for it — neither `operator/commanded` nor `operator/rejected`
+/// — so this receipt is the refusal's only record (decision 0108 ruling
+/// 4, #440 fix round 440c3).
+pub(crate) const RESERVED_COMMAND_REASON: &str = "reserved_command";
+
 /// The word a Looper command carries, parsed once at the bridge's edge: a
 /// verb of the closed set, or a word outside it, kept as sent so the
-/// journal records what was asked before the door refuses it by name.
+/// journal records what was asked before the door refuses it by name —
+/// except a reserved annotation word, which the door refuses and answers
+/// without journaling (decision 0108 ruling 4, #440).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CommandWord<'a> {
     Known(OperatorCommand),
@@ -616,7 +624,12 @@ pub(super) fn riding_attempt(
 ///
 /// The bridge parsed Looper's word into a [`CommandWord`] at its edge: a
 /// word outside the set is journaled as sent and refused as
-/// [`Refusal::CommandNotAllowed`], so the evidence says what was asked.
+/// [`Refusal::CommandNotAllowed`], so the evidence says what was asked,
+/// except when it is an operator annotation's word — `repair`, `settle`,
+/// `classify` or `supersede`. That one is answered with a rejected
+/// receipt whose reason is [`RESERVED_COMMAND_REASON`] and nothing is
+/// journaled at all, so a remote word can never reach the fold or a
+/// readout as an annotation nobody wrote (decision 0108 ruling 4, #440).
 pub fn apply_fenced_operator_command(
     store: &mut Store,
     run_id: &str,
@@ -672,21 +685,30 @@ pub(super) fn apply_fenced_windows(
     mut between: impl FnMut(&mut Store),
 ) -> Result<FencedCommandOutcome, EngineError> {
     let (command_id, operator) = (wire.command_id, wire.operator);
+    let events = store.load(run_id)?;
+    // A redelivery answers with the receipt its command id already holds,
+    // before any word is judged: a word an older binary already journaled
+    // and rejected returns that receipt instead of being refused again.
+    if let Some(receipt) = receipt::journaled(store, run_id, &events, command_id, operator)? {
+        return Ok(receipt);
+    }
     // A reserved word is an operator annotation's, never a command a
     // remote caller may journal: refusing here writes nothing at all, so
     // the fold never reads a `repair` (or `settle`, `classify`,
-    // `supersede`) nobody wrote (decision 0108 ruling 4, #440).
+    // `supersede`) nobody wrote (decision 0108 ruling 4, #440). It is
+    // ANSWERED as any refused command is — a rejected receipt at the head
+    // it found — so the cursor advances and the words queued behind it
+    // still run. Nothing is journaled, so the receipt is this refusal's
+    // only record; [`RESERVED_COMMAND_REASON`] names it.
     if let CommandWord::Unknown(word) = wire.command {
         if brokkr_core::fold::reserved_annotation(word) {
-            return Err(EngineError::ReservedCommand {
-                run_id: run_id.to_string(),
-                word: word.to_string(),
+            let head = Head::tip(&events);
+            return Ok(FencedCommandOutcome::Rejected {
+                reason: RESERVED_COMMAND_REASON.to_string(),
+                head_seq: head.seq,
+                head_hash: head.hash,
             });
         }
-    }
-    let events = store.load(run_id)?;
-    if let Some(receipt) = receipt::journaled(store, run_id, &events, command_id, operator)? {
-        return Ok(receipt);
     }
     // The head this fold read: the one the wire's cursor is checked
     // against, and the one the command must still find (decision 0029).

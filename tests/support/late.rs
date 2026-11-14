@@ -30,3 +30,16 @@ pub(crate) fn late_stop() -> Vec<(EventType, Value)> {
         ),
     ]
 }
+
+/// A lawful classify annotation planted after the conclusion: an event
+/// the fold admits and applies, so a repair that names it late takes its
+/// ending away and the operator must record it again (decision 0064
+/// ruling 5; decision 0108 ruling 4, L8).
+pub(crate) fn classified() -> (EventType, Value) {
+    (
+        EventType::OperatorCommanded,
+        json!({"command_id": "c-classify", "command": "classify",
+               "operator": "operator",
+               "args": {"cause": "withdrawn", "reason": "the tail classified it"}}),
+    )
+}
