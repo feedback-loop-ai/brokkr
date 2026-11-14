@@ -194,20 +194,20 @@ pub fn text(value: &str) -> Value {
 /// not: a run as a foreign or older writer left it, with no origin and no
 /// arrival. Inside a transaction a test holds open, it is also how the
 /// test takes the journal's write lock.
-/// A store whose journal holds `run` and nothing else, as the seat-tree
-/// tables' tests need a run for their foreign keys.
-pub fn seat_tree_store(dir: &Path, run: &str) -> Store {
-    let store = Store::open(&dir.join("forge.db")).unwrap();
-    plant_run(&store.conn, run, "{}").unwrap();
-    store
-}
-
 pub fn plant_run(conn: &Connection, run_id: &str, manifest: &str) -> rusqlite::Result<usize> {
     conn.execute(
         "INSERT INTO runs (run_id, feature, bundle_name, manifest, created_at)
          VALUES (?1, 'feat', 'self', ?2, '2026-01-01T00:00:00Z')",
         params![run_id, manifest],
     )
+}
+
+/// A store whose journal holds `run` and nothing else, as the seat-tree
+/// tables' tests need a run for their foreign keys.
+pub fn seat_tree_store(dir: &Path, run: &str) -> Store {
+    let store = Store::open(&dir.join("forge.db")).unwrap();
+    plant_run(&store.conn, run, "{}").unwrap();
+    store
 }
 
 /// Plant an event row exactly as given — any seq SQLite will bind, any

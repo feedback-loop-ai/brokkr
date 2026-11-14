@@ -1,8 +1,9 @@
 //! The `tree_sweeps` record (decision 0104 ruling 8, slice 5c1): one
 //! append-only row for every complete removal of a tree Brokkr made. A
-//! scratch row closes the `seat_trees` row it removed and names a dispatch
-//! hold; a hands row names neither, because a hands tree belongs to a
-//! process and not to an effect. A partial removal writes nothing, so the
+//! scratch row closes the `seat_trees` row it removed, and a hands row
+//! closes none because a hands tree belongs to a process and not to an
+//! effect; every row, hands included, names the dispatch hold the pass
+//! took, which R2 makes NOT NULL. A partial removal writes nothing, so the
 //! next pass reads the tree still open and tries again.
 
 use std::path::{Path, PathBuf};
@@ -22,29 +23,39 @@ pub(crate) const TREE_SWEEP_TABLE: &str = "tree_sweeps";
 /// The unique index on `tree_seq`: one complete removal per seat tree.
 pub(crate) const TREE_SWEEP_INDEX: &str = "tree_sweeps_once";
 
-/// The two trees a pass removes: a run-local seat scratch tree, which a
-/// `seat_trees` row names, and a hands session tree, which no row names.
+/// The tree a complete removal closed: a run-local seat scratch tree names
+/// the `seat_trees` row it closed, and a hands session tree names no row.
+/// The row travels with the kind, so neither an unclosed scratch nor a
+/// closed hands tree is representable.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SweepKind {
-    Scratch,
+pub enum Swept {
+    Scratch(i64),
     Hands,
 }
 
-impl SweepKind {
+impl Swept {
     /// The table's word for the kind.
-    pub(crate) const fn as_str(self) -> &'static str {
+    pub(crate) const fn word(self) -> &'static str {
         match self {
-            SweepKind::Scratch => "scratch",
-            SweepKind::Hands => "hands",
+            Swept::Scratch(_) => "scratch",
+            Swept::Hands => "hands",
         }
     }
 
-    /// The kind a table row names, or `None` for a word the closed set does
-    /// not hold: the table's own `CHECK` makes one impossible.
-    fn of(word: &str) -> Option<SweepKind> {
-        match word {
-            "scratch" => Some(SweepKind::Scratch),
-            "hands" => Some(SweepKind::Hands),
+    /// The `seat_trees` row this removal closes, if any.
+    pub(crate) const fn tree_seq(self) -> Option<i64> {
+        match self {
+            Swept::Scratch(seq) => Some(seq),
+            Swept::Hands => None,
+        }
+    }
+
+    /// The kind a table row names, or `None` for a pair the table's own
+    /// `CHECK` makes impossible.
+    fn of(word: &str, tree_seq: Option<i64>) -> Option<Swept> {
+        match (word, tree_seq) {
+            ("scratch", Some(seq)) => Some(Swept::Scratch(seq)),
+            ("hands", None) => Some(Swept::Hands),
             _ => None,
         }
     }
@@ -55,8 +66,7 @@ impl SweepKind {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TreeSweep {
     pub seq: i64,
-    pub kind: SweepKind,
-    pub tree_seq: Option<i64>,
+    pub kind: Swept,
     pub path: PathBuf,
     pub bytes: Option<i64>,
     pub removed_at: i64,
@@ -76,15 +86,14 @@ pub enum TreeSweepRecord {
 }
 
 impl Store {
-    /// Record one complete removal. A `scratch` append names the
-    /// `seat_trees` row it closes; a `hands` append names none. A second
+    /// Record one complete removal. A [`Swept::Scratch`] names the
+    /// `seat_trees` row it closes; [`Swept::Hands`] names none. A second
     /// row for one `tree_seq` is refused by [`SeatTreeRefusal::SweepClosed`]
     /// with nothing written. A queue this binary does not write here is
     /// left as found and reports [`TreeSweepRecord::Unrecorded`].
     pub fn record_tree_sweep(
         &mut self,
-        kind: SweepKind,
-        tree_seq: Option<i64>,
+        swept: Swept,
         path: &Path,
         bytes: Option<i64>,
         generation: i64,
@@ -94,7 +103,7 @@ impl Store {
             .ok_or_else(|| SeatTreeRefusal::SweepUnnameable(path.to_path_buf()))?;
         let (conn, patience) = (&mut self.conn, self.patience);
         patiently("record_tree_sweep", patience, || {
-            record_sweep_once(conn, kind, tree_seq, path, bytes, generation)
+            record_sweep_once(conn, swept, path, bytes, generation)
         })
     }
 
@@ -137,8 +146,7 @@ impl Store {
 /// One append inside the write lock: the standing sweep, else the insert.
 fn record_sweep_once(
     conn: &mut Connection,
-    kind: SweepKind,
-    tree_seq: Option<i64>,
+    swept: Swept,
     path: &str,
     bytes: Option<i64>,
     generation: i64,
@@ -147,7 +155,7 @@ fn record_sweep_once(
         return Ok(TreeSweepRecord::Unrecorded);
     }
     let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
-    if let Some(tree_seq) = tree_seq {
+    if let Some(tree_seq) = swept.tree_seq() {
         let closed: Option<i64> = tx
             .query_row(
                 "SELECT seq FROM tree_sweeps WHERE tree_seq = ?1",
@@ -163,8 +171,8 @@ fn record_sweep_once(
         "INSERT INTO tree_sweeps (kind, tree_seq, path, bytes, removed_at, generation)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
         params![
-            kind.as_str(),
-            tree_seq,
+            swept.word(),
+            swept.tree_seq(),
             path,
             bytes,
             now_seconds(),
@@ -197,12 +205,13 @@ fn read_trees_from(conn: &Connection, query: &str) -> Result<Vec<SeatTree>, Stor
     Ok(rows.collect::<Result<_, _>>()?)
 }
 
-/// One raw sweep row: the kind as the table stores it, until [`SweepKind`]
-/// has judged it.
+/// One raw sweep row: the kind as the table stores it, until [`Swept`] has
+/// judged it with its `tree_seq`.
 type RawSweep = (i64, String, Option<i64>, String, Option<i64>, i64, i64);
 
 /// Every sweep row, oldest first. The kind is mapped after the read so an
-/// impossible word is refused by name and the row is never guessed at.
+/// impossible word, or a pair its `CHECK` makes impossible, is refused by
+/// name and the row is never guessed at.
 fn read_sweeps(conn: &Connection) -> Result<Vec<TreeSweep>, StoreError> {
     let mut statement = conn.prepare(READ_SWEEPS)?;
     let rows = statement.query_map([], |row| {
@@ -220,12 +229,11 @@ fn read_sweeps(conn: &Connection) -> Result<Vec<TreeSweep>, StoreError> {
     raw.into_iter()
         .map(
             |(seq, kind, tree_seq, path, bytes, removed_at, generation)| {
-                let kind =
-                    SweepKind::of(&kind).ok_or(SeatTreeRefusal::SweepKind { seq, word: kind })?;
+                let kind = Swept::of(&kind, tree_seq)
+                    .ok_or(SeatTreeRefusal::SweepKind { seq, word: kind })?;
                 Ok(TreeSweep {
                     seq,
                     kind,
-                    tree_seq,
                     path: PathBuf::from(path),
                     bytes,
                     removed_at,

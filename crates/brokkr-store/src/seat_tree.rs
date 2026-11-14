@@ -21,7 +21,7 @@ use crate::{patiently, Store, StoreError};
 
 pub(crate) mod sweep;
 
-pub use sweep::{SweepKind, TreeSweep, TreeSweepRecord};
+pub use sweep::{Swept, TreeSweep, TreeSweepRecord};
 
 /// The version 5 table, by name: the intact check asks for it, its unique
 /// index is repaired by it, and a lost index over rows that already hold a

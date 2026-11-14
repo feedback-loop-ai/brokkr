@@ -265,6 +265,10 @@ Smallest first. Each lands alone, tested, through the merge queue.
 - 5b and 5c queue after 0103's slice 4d merges, not only after its design, because their tables take queue storage v5 and v6 and 4d's take v4.
 - 5c follows 5b.
 
+*Amended, 2026-11-13 (controller, #430):* the queue order names v5 and v6
+because 5b shipped `seat_trees` in v5 and 5c's `tree_sweeps` is v6; see
+ruling 8's amendment.
+
 1. **5a: the host floor and the deadline.** It needs nothing from decision 0103's open slices except 4c1's merge (see the queue order above).
    - **Files:** `crates/brokkr-runtime/src/admission/host.rs` and `host/tests.rs`; the new `forge.host/v3` schema; `crates/brokkr-runtime/src/engine/dispatch.rs` (the deadline read, with its logic in a child module); the host-file seam where 0103's 4c1 did not already carry it; `brokkr doctor` (the floors, and ruling 4's line); `frozen_contracts.rs`; `docs/guides/versioning.md`'s lifecycle table; and `contracts/README.md`.
    - **Contract:** `forge.host/v3`.
@@ -297,6 +301,11 @@ Smallest first. Each lands alone, tested, through the merge queue.
      - `--dry-run` writes nothing;
      - a hands tree whose owner lives is kept;
      - a tree no row names is listed by doctor and never removed.
+
+*Amended, 2026-11-13 (controller, #430):* 5c's `tree_sweeps` is queue
+storage v6, not the version `seat_trees` shipped in; see ruling 8's
+amendment.
+
 4. **Then slice 6**, `brokkr dispatch` and its standing loop. It calls the sweep on every pass.
 
 ## Consequences
@@ -312,6 +321,9 @@ Smallest first. Each lands alone, tested, through the merge queue.
 - The price: `forge.host/v3`, two append-only tables in queue storage v6
   (`seat_trees` in v5, `tree_sweeps` in v6), one verb, and one host read per
   attempt.
+
+*Amended, 2026-11-13 (controller, #430):* the two tables are `seat_trees` in
+v5 and `tree_sweeps` in v6, as ruling 8's amendment says.
 
 ## Evidence
 

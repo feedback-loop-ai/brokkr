@@ -230,13 +230,7 @@ fn a_recorded_sweep_closes_its_seat_tree() {
     let before = OffsetDateTime::now_utc().unix_timestamp();
     assert_eq!(
         store
-            .record_tree_sweep(
-                SweepKind::Scratch,
-                Some(seq),
-                Path::new(PATH),
-                Some(4096),
-                generation,
-            )
+            .record_tree_sweep(Swept::Scratch(seq), Path::new(PATH), Some(4096), generation)
             .unwrap(),
         TreeSweepRecord::Written
     );
@@ -247,18 +241,11 @@ fn a_recorded_sweep_closes_its_seat_tree() {
     assert_eq!(
         (
             rows[0].kind,
-            rows[0].tree_seq,
             rows[0].path.as_path(),
             rows[0].bytes,
             rows[0].generation,
         ),
-        (
-            SweepKind::Scratch,
-            Some(seq),
-            Path::new(PATH),
-            Some(4096),
-            generation,
-        )
+        (Swept::Scratch(seq), Path::new(PATH), Some(4096), generation,)
     );
     assert!(
         (before..=after).contains(&rows[0].removed_at),
@@ -267,31 +254,15 @@ fn a_recorded_sweep_closes_its_seat_tree() {
         before,
         after
     );
-    // A hands tree names no seat tree and closes none.
-    assert_eq!(
-        store
-            .record_tree_sweep(
-                SweepKind::Hands,
-                None,
-                Path::new("/tmp/brokkr-hands-serve-1-x"),
-                None,
-                generation,
-            )
-            .unwrap(),
-        TreeSweepRecord::Written
-    );
-    assert_eq!(
-        store
-            .record_tree_sweep(
-                SweepKind::Hands,
-                None,
-                Path::new("/tmp/brokkr-hands-exec-2-y"),
-                Some(1),
-                generation,
-            )
-            .unwrap(),
-        TreeSweepRecord::Written
-    );
+    // A hands tree closes no seat tree, and two of them are distinct rows.
+    for path in ["/tmp/brokkr-hands-serve-1-x", "/tmp/brokkr-hands-exec-2-y"] {
+        assert_eq!(
+            store
+                .record_tree_sweep(Swept::Hands, Path::new(path), None, generation)
+                .unwrap(),
+            TreeSweepRecord::Written
+        );
+    }
     assert_eq!(store.tree_sweeps().unwrap().len(), 3);
 }
 
@@ -301,10 +272,10 @@ fn a_second_record_for_one_seat_tree_is_refused_and_writes_nothing() {
     let (mut store, seq, generation) = seated(dir.path());
     let path = Path::new(PATH);
     store
-        .record_tree_sweep(SweepKind::Scratch, Some(seq), path, Some(1), generation)
+        .record_tree_sweep(Swept::Scratch(seq), path, Some(1), generation)
         .unwrap();
     let refused = store
-        .record_tree_sweep(SweepKind::Scratch, Some(seq), path, Some(2), generation)
+        .record_tree_sweep(Swept::Scratch(seq), path, Some(2), generation)
         .unwrap_err();
     assert_eq!(
         refused.to_string(),
@@ -361,8 +332,7 @@ fn an_unknown_queue_version_writes_nothing_and_says_so() {
     assert_eq!(
         store
             .record_tree_sweep(
-                SweepKind::Scratch,
-                Some(seq),
+                Swept::Scratch(seq),
                 Path::new("/run/scratch/x"),
                 None,
                 generation,
@@ -457,7 +427,7 @@ fn a_swept_path_that_is_not_utf8_is_refused_and_writes_nothing() {
     let (mut store, seq, generation) = seated(dir.path());
     let path = Path::new(OsStr::from_bytes(b"/run/\xff/scratch"));
     let refused = store
-        .record_tree_sweep(SweepKind::Scratch, Some(seq), path, None, generation)
+        .record_tree_sweep(Swept::Scratch(seq), path, None, generation)
         .unwrap_err();
     assert!(matches!(
         &refused,
