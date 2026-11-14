@@ -611,6 +611,7 @@ fn a_running_fold_and_a_restart_that_both_read_journal_each_call_once() {
     site.settled_at_work();
     let (db, run, bundle, work) = site.journal();
     let from = site.length();
+    site.engine.release_run_lock();
     after_the_read(Box::new(move || {
         let store = Store::open(&db).unwrap();
         let mut restarted = Engine::resume(store, bundle, &run, Some(work)).unwrap();
@@ -653,6 +654,7 @@ fn moved_after_the_read(
     site.begin();
     site.settled_at_work();
     let (db, run, bundle, work) = site.journal();
+    site.engine.release_run_lock();
     brokkr_store::test_support::lags(&mut site.engine.store, &[&run]);
     after_the_read(Box::new(move || peer(db, run, bundle, work)));
     let folded = site.length();
@@ -862,6 +864,7 @@ fn operator_conclude_folds_nothing_of_a_recoverable_attempt() {
     let held = site.engine.held.take().unwrap();
     let run = site.engine.run_id.clone();
     let from = site.length();
+    site.engine.release_run_lock();
     let state = conclude_as(&mut site.engine.store, &run, "operator", "it died").unwrap();
     assert_eq!(state.run, brokkr_core::fold::Run::Stopped);
     use EventType::{EffectIndeterminate, OperatorAccepted, OperatorCommanded, RunStopped};

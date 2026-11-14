@@ -30,8 +30,8 @@ use uuid::Uuid;
 use crate::agents::{Candidate, Lowering, ResultDoor};
 use crate::argv::Executable;
 use crate::bundle::{
-    charters_as_started, charters_intact, sequence::stops_run, Bundle, CharterPin, ExecutableBody,
-    HandsState, Seat, SeatBody, SeatClass, SiteFacts, StepBody, ENGINE_VERSION,
+    charters_intact, sequence::stops_run, Bundle, CharterPin, ExecutableBody, HandsState, Seat,
+    SeatBody, SeatClass, SiteFacts, StepBody, ENGINE_VERSION,
 };
 use crate::phase_name;
 // The test modules reach these through `use super::*`.
@@ -164,6 +164,11 @@ pub enum EngineError {
     EntryRecord(#[from] brokkr_core::entry::EntryRead),
     #[error(transparent)]
     Store(#[from] brokkr_store::StoreError),
+    /// A driver could not take its run's lock: another process drives it,
+    /// or the directory or file is not this user's own (decision 0108
+    /// ruling 1).
+    #[error(transparent)]
+    RunLock(#[from] crate::run_lock::RunLockError),
     #[error("fold: {0}")]
     Fold(#[from] brokkr_core::FoldError),
     #[error("run '{run_id}' pins a different bundle: {detail}")]
@@ -498,6 +503,9 @@ pub struct Engine {
     held: Option<broker::Held>,
     /// The reach its admission sealed, which its every box is built from.
     reach: broker::Authored,
+    /// The run's lock while this process drives it (decision 0108 ruling
+    /// 1), taken before the first append and let go as the engine is.
+    run_lock: Option<crate::run_lock::RunLock>,
 }
 
 pub(crate) fn verify_dispatch_bundle_bounds(
@@ -577,10 +585,26 @@ fn shell(store: Store, bundle: Bundle, run_id: String, feature: String, repo: Pa
         held_outcome: None,
         fence: None,
         held: None,
+        run_lock: None,
     }
 }
 
 impl Engine {
+    /// The store, after letting this process's run lock go, as a test
+    /// handing the journal to the next process does.
+    #[cfg(test)]
+    pub(crate) fn into_store(mut self) -> Store {
+        self.run_lock = None;
+        self.store
+    }
+
+    /// Let the run lock go, as a test that simulates this driver ending
+    /// does. Production never calls it: a live engine holds its run.
+    #[cfg(test)]
+    pub(crate) fn release_run_lock(&mut self) {
+        self.run_lock = None;
+    }
+
     /// The journaled run-level entry, when the operator named one.
     pub fn entry(&self) -> Option<&brokkr_core::entry::RunEntry> {
         self.entry.as_ref()
@@ -649,13 +673,14 @@ impl Engine {
     ) -> Result<Engine, EngineError> {
         let begun = (world.as_ref(), entry.as_ref());
         let admitted = start::journaled(&mut store, &bundle, feature, repo, begun, claim)?;
-        let mut engine = shell(
-            store,
-            bundle,
-            admitted.run_id,
-            feature.to_string(),
-            admitted.operated,
-        );
+        let start::Admitted {
+            run_id,
+            operated,
+            lock,
+            ..
+        } = admitted;
+        let mut engine = shell(store, bundle, run_id, feature.to_string(), operated);
+        engine.run_lock = lock;
         engine.entry = entry;
         engine.world = world;
         Ok(engine)
@@ -671,83 +696,34 @@ impl Engine {
         repo: Option<PathBuf>,
         dispatch: DispatchEnvelopeV2,
     ) -> Result<Engine, EngineError> {
-        let run_id = start::dispatched(&mut store, &bundle, feature, dispatch)?;
+        let (run_id, lock) = start::dispatched(&mut store, &bundle, feature, dispatch)?;
         // A Looper-bound run pins a run-manifest/v2, whose bytes a
         // counterpart system reads; the map's pin belongs to the
         // v1→v5 local lineage. The CLI refuses the combination rather
         // than dropping a world silently.
-        Ok(shell(
+        let mut engine = shell(
             store,
             bundle,
             run_id,
             feature.to_string(),
             operated_repo(repo),
-        ))
+        );
+        engine.run_lock = Some(lock);
+        Ok(engine)
     }
 
     /// Resume uses the exact pinned bundle or refuses with a diagnostic.
     pub fn resume(
-        mut store: Store,
+        store: Store,
         bundle: Bundle,
         run_id: &str,
         repo: Option<PathBuf>,
     ) -> Result<Engine, EngineError> {
-        refuse_unbuilt(&bundle)?;
-        let pinned = store.manifest(run_id)?;
-        let pinned_bundle = bundle_manifest_from_run(&pinned)?;
-        if let Some(dispatch) = brokkr_core::dispatch::dispatch_from_run(&pinned)? {
-            dispatch.verify(time::OffsetDateTime::now_utc(), &bundle.manifest_digest())?;
-            verify_dispatch_bundle_bounds(&dispatch, &bundle)?;
-        }
-        // The boundary needs no second fence here: the manifest pins it
-        // per hands site, so a bundle compiled under another word is a
-        // manifest mismatch whose diff names `boundary` (design DD3).
-        if pinned_bundle != bundle.manifest {
-            let detail = manifest_diff(&pinned_bundle, &bundle.manifest);
-            return Err(EngineError::ManifestMismatch {
-                run_id: run_id.to_string(),
-                detail,
-            });
-        }
-        // An equal manifest is the pinned identity, not the pinned bytes:
-        // each charter it names is read again through its owner, whether the
-        // run pinned a world or none (rebuild unit 19), and must be the
-        // binding the run STARTED over: the bundle here may be compiled
-        // again, and a recompile binds an equal-byte retarget afresh without
-        // moving the manifest (review return F1). A pin that does not answer
-        // for itself is tampering, and refuses before any charter is read.
-        let world = crate::realms::World::from_manifest(&pinned)?;
-        let mut replay = replay::Replay::default();
-        let feature = replay.caught_up(&mut store, run_id)?.feature;
-        let started = replay
-            .events
-            .first()
-            .filter(|event| event.event_type == EventType::RunStarted)
-            .and_then(|event| event.payload.get("charters"));
-        charters_as_started(&bundle, started).map_err(charter_moved)?;
-        let entry = replay
-            .events
-            .first()
-            .map(|event| brokkr_core::entry::RunEntry::of_started(&event.payload))
-            .transpose()?
-            .flatten();
-        if let Some(entry) = &entry {
-            crate::bundle::entry::admit(&bundle, &entry.phase)?;
-        }
-        // Resume takes no map — and needs none: the world it believed in
-        // is pinned in the manifest just read, content and all, so it is
-        // rehydrated from evidence rather than off a disk that may have
-        // moved on.
-        let mut engine = shell(
-            store,
-            bundle,
-            run_id.to_string(),
-            feature.unwrap_or("unknown".to_string()),
-            operated_repo(repo),
-        );
-        engine.entry = entry;
-        engine.world = world;
-        engine.replay = replay;
+        // Refused at once where another process drives the run: nothing is
+        // read, and nothing is written (decision 0108 ruling 1).
+        let lock = crate::run_lock::take(&store, run_id)?;
+        let mut engine = Engine::resumed(store, bundle, run_id, repo)?;
+        engine.run_lock = Some(lock);
         Ok(engine)
     }
 
@@ -766,6 +742,22 @@ impl Engine {
     /// peer that lets go of its lock there, so a terminal event the lock
     /// outlasted can only land by the lawful end.
     fn drive_racing(
+        &mut self,
+        before_lawful_end: impl FnMut(&EngineError),
+    ) -> Result<DriveEnd, EngineError> {
+        // A drive that returns stops driving: let the run go so an operator
+        // can conclude it while a view still paints (decision 0108 ruling
+        // 1). A second drive here takes it again, as a new driver.
+        if self.run_lock.is_none() {
+            self.run_lock = Some(crate::run_lock::take(&self.store, &self.run_id)?);
+        }
+        let ended = self.drive_locked(before_lawful_end);
+        self.run_lock = None;
+        ended
+    }
+
+    /// [`Engine::drive_racing`]'s loop, with the run held.
+    fn drive_locked(
         &mut self,
         mut before_lawful_end: impl FnMut(&EngineError),
     ) -> Result<DriveEnd, EngineError> {
@@ -3262,6 +3254,8 @@ mod notice_tests;
 mod operator_tests;
 #[cfg(test)]
 mod resume_tests;
+#[cfg(test)]
+mod run_lock_tests;
 #[cfg(test)]
 mod secret_threading_tests;
 #[cfg(test)]

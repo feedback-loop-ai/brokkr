@@ -21,6 +21,7 @@ mod lock_file;
 mod phase_name;
 pub mod places;
 pub mod realms;
+mod run_lock;
 
 pub use agents::{
     report as report_agent, resolve as resolve_agent, resolve_route, Adapters, Availability,
@@ -45,8 +46,12 @@ pub use keep_refs::{
     KeepRefsError, Planted,
 };
 pub use realms::{World, WorldError};
+pub use run_lock::{Holder, RunLockError};
 
 // The workspace's shared test support (#357).
+#[cfg(test)]
+#[path = "../../../tests/support/child.rs"]
+mod child;
 #[cfg(test)]
 #[path = "../../../tests/support/contract_lifecycle.rs"]
 mod contract_lifecycle;

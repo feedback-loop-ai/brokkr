@@ -25,7 +25,7 @@ use std::os::fd::OwnedFd;
 use std::path::{Path, PathBuf};
 
 use brokkr_store::{Generation, Store, StoreError};
-use rustix::fs::{flock, FlockOperation, CWD};
+use rustix::fs::CWD;
 use uuid::Uuid;
 
 use super::DispatcherError;
@@ -42,7 +42,7 @@ const LOCK: &str = ".dispatch.lock";
 pub struct Dispatcher {
     pub generation: Generation,
     pub(super) journal: Option<Uuid>,
-    pub(super) _held: Held,
+    pub(super) _held: lock_file::Held,
 }
 
 impl Dispatcher {
@@ -54,20 +54,6 @@ impl Dispatcher {
             true => Ok(()),
             false => Err(DispatcherError::OtherJournal(self.journal, named)),
         }
-    }
-}
-
-/// A dispatch lock held by its descriptor.
-#[derive(Debug)]
-pub(super) struct Held(pub(super) OwnedFd);
-
-/// Let the lock go as it is dropped, not as its descriptor closes: a
-/// process this one forked holds a copy of the descriptor, and the lock
-/// with it, from its fork until its exec.
-impl Drop for Held {
-    fn drop(&mut self) {
-        // Unlocking a lock this descriptor holds has no failure to act on.
-        let _ = flock(&self.0, FlockOperation::Unlock);
     }
 }
 
@@ -94,17 +80,16 @@ pub(super) fn take_dispatch_with(
 ) -> Result<Result<Dispatcher, DispatcherError>, StoreError> {
     let journal = store.path().to_path_buf();
     let path = beside(&journal);
-    let Some(held) = open(&path) else {
+    let Some(opened) = open(&path) else {
         return Ok(Err(DispatcherError::Lock(path)));
     };
     // A lock that cannot be taken now, for whatever reason, is another's.
-    if flock(&held, FlockOperation::NonBlockingLockExclusive).is_err() {
+    let Ok(held) = lock_file::hold(opened) else {
         let holder = store.dispatch_holder()?;
         return Ok(Err(DispatcherError::Dispatched(journal, holder)));
-    }
+    };
     // Held from here, so a holder row the journal does not record lets
     // the lock go as surely as a dispatcher dropped.
-    let held = Held(held);
     let journal = store.journal()?;
     let generation = store.dispatch_hold(std::process::id())?;
     Ok(Ok(Dispatcher {

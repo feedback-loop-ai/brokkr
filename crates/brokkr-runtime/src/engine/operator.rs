@@ -18,6 +18,7 @@ use serde_json::{json, Value};
 use uuid::Uuid;
 
 use super::{EngineError, OPERATOR_STOP_RULE};
+use crate::run_lock::{self, RunLockError};
 
 mod classify;
 mod conclusion;
@@ -418,6 +419,16 @@ pub(super) fn conclude_racing(
     named: &Named,
     mut between: impl FnMut(&mut Store),
 ) -> Result<RunState, EngineError> {
+    // The run's lock comes before anything else: a live driver is refused
+    // before a read, and a free lock is held until this conclusion is
+    // written, so no driver can start beneath it (decision 0108 ruling 2).
+    let _driven = match run_lock::take(store, run_id) {
+        Ok(lock) => lock,
+        Err(RunLockError::Driven { holder, .. }) => {
+            return Err(ConcludeRefusal::Driven { holder }.of(run_id));
+        }
+        Err(error) => return Err(error.into()),
+    };
     let shaped = ending::checked(ending::Verb::Conclude, &named.cause, by_journal)?;
     // `load` verifies the hash chain and never returns a partial journal,
     // so a broken chain refuses the whole conclusion here — before any

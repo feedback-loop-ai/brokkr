@@ -1592,7 +1592,7 @@ fn bound_start_resume_and_manifest_differences_are_explicit() {
     .unwrap();
     assert_eq!(engine.run_id, "bound-run");
     let resumed = Engine::resume(
-        engine.store,
+        engine.into_store(),
         bundle.clone(),
         "bound-run",
         Some(dir.path().into()),
@@ -1602,7 +1602,7 @@ fn bound_start_resume_and_manifest_differences_are_explicit() {
 
     let mut changed = bundle.clone();
     changed.manifest["files"] = json!({"changed":"b".repeat(64)});
-    let error = match Engine::resume(resumed.store, changed, "bound-run", None) {
+    let error = match Engine::resume(resumed.into_store(), changed, "bound-run", None) {
         Ok(_) => panic!("changed dispatch-bound bundle must refuse"),
         Err(error) => error,
     };
@@ -1721,7 +1721,7 @@ fn a_composed_run_resumes_and_refuses_when_its_base_moved() {
     let run_id = engine.run_id.clone();
     std::fs::write(dir.path().join("base/roles/role.md"), "# moved\n").unwrap();
     let moved = Bundle::compile(&leaf).unwrap();
-    match Engine::resume(engine.store, moved, &run_id, None) {
+    match Engine::resume(engine.into_store(), moved, &run_id, None) {
         Ok(_) => panic!("a changed base must refuse"),
         Err(EngineError::ManifestMismatch { detail, .. }) => {
             assert_eq!(detail, "changed: @compose/0000/base")
@@ -3380,6 +3380,7 @@ fn ship_journal_is_a_runtime_read_only_bind_not_a_digested_input() {
     );
 
     let workdir = dir.path().join("work");
+    engine.release_run_lock();
     engine.store = Store::open(&workdir.join("journal.db")).unwrap();
     assert!(engine.runtime_hands("ship").unwrap().binds.is_empty());
     engine.repo = dir.path().join("not-created");
@@ -4455,7 +4456,8 @@ fn a_resumed_run_keeps_the_world_its_manifest_pinned() {
     // The map is DELETED before the resume: a run's answer about its own
     // world may not depend on the file still being there.
     std::fs::remove_file(dir.path().join("realms.json")).unwrap();
-    let mut resumed = Engine::resume(engine.store, bundle, &run_id, Some(repo.clone())).unwrap();
+    let mut resumed =
+        Engine::resume(engine.into_store(), bundle, &run_id, Some(repo.clone())).unwrap();
     assert_eq!(
         resumed
             .world
@@ -4490,10 +4492,12 @@ fn resume_carries_no_world_where_the_run_had_none_and_refuses_a_broken_pin() {
     std::fs::create_dir(&repo).unwrap();
     let engine = engine_in(dir.path(), None, &repo);
     let (run_id, bundle) = (engine.run_id.clone(), engine.bundle.clone());
-    assert!(Engine::resume(engine.store, bundle.clone(), &run_id, None)
-        .unwrap()
-        .world
-        .is_none());
+    assert!(
+        Engine::resume(engine.into_store(), bundle.clone(), &run_id, None)
+            .unwrap()
+            .world
+            .is_none()
+    );
 
     let mut store = Store::open(&dir.path().join("tampered.db")).unwrap();
     let mut manifest = bundle.manifest.clone();

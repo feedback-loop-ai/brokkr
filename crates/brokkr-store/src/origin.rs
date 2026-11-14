@@ -20,6 +20,15 @@ const MACHINE_SOURCES: [&str; 3] = [
 /// This process's fingerprint, once asked.
 static LOCAL: OnceLock<Option<String>> = OnceLock::new();
 
+impl crate::Store {
+    /// This process's host fingerprint, as `local_host` computes it: the
+    /// fact a run's lock records for the operator, and the same token a
+    /// run created here writes into `origin_host`.
+    pub fn host_fingerprint(&self) -> Option<String> {
+        local_host()
+    }
+}
+
 /// This machine and this account, as [`host_from`] fingerprints them.
 /// Neither changes under a running process, so the first answer is the
 /// answer: it is computed once and every later caller reads it.

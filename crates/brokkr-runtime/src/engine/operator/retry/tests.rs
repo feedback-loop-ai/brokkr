@@ -121,6 +121,10 @@ fn drifted_request(dir: &std::path::Path, runtime: &Engine) -> crate::launch::La
 fn a_drifted_bundle_is_refused_by_resume_after_the_records_and_before_any_panel_fact() {
     let (dir, runtime) = parked(body(), false);
     let before = events(&runtime).len();
+    // A live driver holds the run, and the retry is lawful anyway: it
+    // journals its command without taking the run lock (decision 0108
+    // ruling 2).
+    let _held = crate::run_lock::take(&runtime.store, &runtime.run_id).unwrap();
     for names in [vec!["b"], vec!["unknown"], vec!["a", "b"]] {
         let names: Vec<String> = names.into_iter().map(str::to_owned).collect();
         let refusal = crate::launch::operator_retry_members(
@@ -143,6 +147,7 @@ fn a_drifted_bundle_is_refused_by_resume_after_the_records_and_before_any_panel_
     let (dir, unread) = parked_record(body(), false, |record| {
         record["head"] = json!({"at_start":"not a head"});
     });
+    let _held = crate::run_lock::take(&unread.store, &unread.run_id).unwrap();
     for names in [vec!["b"], vec!["a", "b"]] {
         let names: Vec<String> = names.into_iter().map(str::to_owned).collect();
         let outcome = crate::launch::operator_retry_members(
@@ -158,6 +163,58 @@ fn a_drifted_bundle_is_refused_by_resume_after_the_records_and_before_any_panel_
             "{outcome:?}"
         );
     }
+}
+
+/// Plain `operator retry` takes no run lock either, and its command is
+/// lawful for a run a live driver holds (decision 0108 ruling 2).
+#[test]
+fn a_plain_retry_is_lawful_for_a_run_another_driver_holds() {
+    let (_dir, runtime) = parked(body(), false);
+    let run = runtime.run_id.clone();
+    let mut store = runtime.into_store();
+    let _held = crate::run_lock::take(&store, &run).unwrap();
+    let outcome = crate::engine::operator_command(
+        &mut store,
+        &run,
+        OperatorCommand::Retry,
+        "test",
+        "recover",
+    )
+    .unwrap();
+    assert!(matches!(outcome, FencedCommandOutcome::Accepted { .. }));
+}
+
+/// A member retry is lawful for a run a live driver holds: it reads and
+/// commands the run without taking its lock, and journals the command
+/// (decision 0108 ruling 2).
+#[test]
+fn a_member_retry_is_lawful_for_a_run_another_driver_holds() {
+    let (_dir, runtime) = parked(body(), true);
+    let run = runtime.run_id.clone();
+    let bundle = runtime.bundle.clone();
+    let repo = Some(runtime.repo.clone());
+    let secrets = runtime.secrets_file.clone();
+    let store = runtime.into_store();
+    let _held = crate::run_lock::take(&store, &run).unwrap();
+    let mut retried = Engine::resumed(store, bundle, &run, repo).unwrap();
+    retried.secrets_file = secrets;
+    let read = Engine::read_member_retry(&mut retried.store, &run)
+        .unwrap()
+        .unwrap();
+    let names = ["b".to_string(), "a".to_string()];
+    let outcome = retried
+        .retry_members(read, &names, "test", "recover")
+        .unwrap();
+    assert!(
+        matches!(outcome, MemberRetryOutcome::Disposed(_)),
+        "{outcome:?}"
+    );
+    let commanded = events(&retried)
+        .into_iter()
+        .rev()
+        .find(|event| event.event_type == EventType::OperatorCommanded)
+        .expect("the retry command is journaled");
+    assert_eq!(commanded.payload["args"], json!({"members":["a","b"]}));
 }
 
 fn commanded_args(runtime: &Engine) -> Value {

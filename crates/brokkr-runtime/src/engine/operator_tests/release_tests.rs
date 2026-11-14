@@ -97,6 +97,7 @@ impl Killed {
     /// indeterminate.
     fn concluded(&mut self) {
         let run = self.run();
+        self.engine.release_run_lock();
         conclude_as(&mut self.engine.store, &run, "operator", "its engine died").unwrap();
     }
 

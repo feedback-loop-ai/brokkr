@@ -1343,6 +1343,8 @@ pub fn brokkr_runtime::CommandWord<'a>::parse(&'a str) -> brokkr_runtime::Comman
 pub enum brokkr_runtime::engine::ConcludeRefusal
 pub brokkr_runtime::engine::ConcludeRefusal::AlreadyConcluded
 pub brokkr_runtime::engine::ConcludeRefusal::AlreadyConcluded::status: brokkr_core::fold::Status
+pub brokkr_runtime::engine::ConcludeRefusal::Driven
+pub brokkr_runtime::engine::ConcludeRefusal::Driven::holder: core::option::Option<brokkr_runtime::Holder>
 pub brokkr_runtime::engine::ConcludeRefusal::JournalMoved
 pub brokkr_runtime::engine::ConcludeRefusal::StopRefused
 pub brokkr_runtime::engine::ConcludeRefusal::StopRefused::refusal: brokkr_core::fold::Refusal
@@ -1387,6 +1389,7 @@ pub brokkr_runtime::engine::EngineError::JournalMoved::run_id: alloc::string::St
 pub brokkr_runtime::engine::EngineError::ManifestMismatch
 pub brokkr_runtime::engine::EngineError::ManifestMismatch::detail: alloc::string::String
 pub brokkr_runtime::engine::EngineError::ManifestMismatch::run_id: alloc::string::String
+pub brokkr_runtime::engine::EngineError::RunLock(brokkr_runtime::RunLockError)
 pub brokkr_runtime::engine::EngineError::Store(brokkr_store::StoreError)
 pub brokkr_runtime::engine::EngineError::SupersedeRefused(alloc::string::String)
 pub brokkr_runtime::engine::EngineError::UnbuiltBoundary
@@ -1864,6 +1867,8 @@ pub brokkr_runtime::CompileError::Shelf(brokkr_runtime::places::ShelfRefusal)
 pub enum brokkr_runtime::ConcludeRefusal
 pub brokkr_runtime::ConcludeRefusal::AlreadyConcluded
 pub brokkr_runtime::ConcludeRefusal::AlreadyConcluded::status: brokkr_core::fold::Status
+pub brokkr_runtime::ConcludeRefusal::Driven
+pub brokkr_runtime::ConcludeRefusal::Driven::holder: core::option::Option<brokkr_runtime::Holder>
 pub brokkr_runtime::ConcludeRefusal::JournalMoved
 pub brokkr_runtime::ConcludeRefusal::StopRefused
 pub brokkr_runtime::ConcludeRefusal::StopRefused::refusal: brokkr_core::fold::Refusal
@@ -1920,6 +1925,7 @@ pub brokkr_runtime::EngineError::JournalMoved::run_id: alloc::string::String
 pub brokkr_runtime::EngineError::ManifestMismatch
 pub brokkr_runtime::EngineError::ManifestMismatch::detail: alloc::string::String
 pub brokkr_runtime::EngineError::ManifestMismatch::run_id: alloc::string::String
+pub brokkr_runtime::EngineError::RunLock(brokkr_runtime::RunLockError)
 pub brokkr_runtime::EngineError::Store(brokkr_store::StoreError)
 pub brokkr_runtime::EngineError::SupersedeRefused(alloc::string::String)
 pub brokkr_runtime::EngineError::UnbuiltBoundary
@@ -2003,6 +2009,13 @@ pub brokkr_runtime::ResultDoor::File
 pub brokkr_runtime::ResultDoor::LastMessage
 impl brokkr_runtime::agents::ResultDoor
 pub fn brokkr_runtime::agents::ResultDoor::word(self) -> &'static str
+pub enum brokkr_runtime::RunLockError
+pub brokkr_runtime::RunLockError::Directory(std::path::PathBuf)
+pub brokkr_runtime::RunLockError::Driven
+pub brokkr_runtime::RunLockError::Driven::holder: core::option::Option<brokkr_runtime::Holder>
+pub brokkr_runtime::RunLockError::Driven::run_id: alloc::string::String
+pub brokkr_runtime::RunLockError::File(std::path::PathBuf)
+pub brokkr_runtime::RunLockError::UnsafeId(alloc::string::String)
 pub enum brokkr_runtime::SeatBody
 pub brokkr_runtime::SeatBody::Invocation(brokkr_runtime::Invocation)
 pub brokkr_runtime::SeatBody::Select
@@ -2159,6 +2172,7 @@ pub brokkr_runtime::HarnessHands::gate_gap: core::option::Option<alloc::string::
 pub brokkr_runtime::HarnessHands::result: brokkr_runtime::agents::ResultDoor
 pub brokkr_runtime::HarnessHands::work: core::option::Option<alloc::vec::Vec<alloc::string::String>>
 pub brokkr_runtime::HarnessHands::work_gap: core::option::Option<alloc::string::String>
+pub struct brokkr_runtime::Holder
 pub struct brokkr_runtime::Library
 impl brokkr_runtime::Library
 pub fn brokkr_runtime::Library::agent(&self, &str) -> core::option::Option<&brokkr_runtime::agents::Agent>

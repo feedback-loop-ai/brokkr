@@ -9,6 +9,7 @@ use brokkr_core::EventEnvelope;
 use serde_json::Value;
 
 use super::{command_id_of, EngineError, OPERATOR_STOP_RULE};
+use crate::run_lock::{named, Holder};
 
 /// The conclusion an accepted operator stop is journaled with: the rule
 /// id [`OPERATOR_STOP_RULE`], the command it names, and the operator who
@@ -67,6 +68,9 @@ pub enum ConcludeRefusal {
     StopRefused { refusal: Refusal },
     /// A fenced write met a head that moved beneath the conclusion.
     JournalMoved,
+    /// Another process drives the run: its lock is held, and its facts are
+    /// what the lock file records, `None` where it has not recorded them.
+    Driven { holder: Option<Holder> },
 }
 
 impl ConcludeRefusal {
@@ -85,6 +89,10 @@ impl ConcludeRefusal {
                 "engine: conclude: the journal moved beneath the conclusion of run '{run_id}', \
                  so something may still be driving it — a conclusion is for a run believed \
                  dead; look with `brokkr runs` before closing"
+            ),
+            ConcludeRefusal::Driven { holder } => format!(
+                "{}; stop it with `brokkr operator stop`, or end that process, then conclude",
+                named(run_id, holder)
             ),
         }
     }

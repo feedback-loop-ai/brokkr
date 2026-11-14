@@ -3,7 +3,7 @@
 Status: accepted — operator ruled in chat 2026-11-13, "go with all recommended" (#440)
 Date: 2026-11-13
 
-Built: unbuilt (#440)
+Built: partial (#440) — rulings 1 and 2
 
 ## Context
 
