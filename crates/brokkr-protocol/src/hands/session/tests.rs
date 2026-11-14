@@ -755,6 +755,29 @@ fn changing(fd: BorrowedFd<'_>) -> Result<(), Errno> {
     flock(fd)
 }
 
+/// The renderer's `safe`: every control character removed.
+fn stripped(text: &str) -> String {
+    text.chars()
+        .filter(|character| !character.is_control())
+        .collect()
+}
+
+/// Whether `line` is one line whose only control byte is its own newline.
+fn one_clean_line(line: &str) -> bool {
+    line.strip_suffix('\n')
+        .is_some_and(|line| line.chars().all(|character| !character.is_control()))
+}
+
+/// A hostile reaping root holding one dead owner's tree, whose label is
+/// hostile too.
+fn hostile_listing_root(label: &str) -> (tempfile::TempDir, PathBuf, PathBuf) {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("evil\n\u{1b}[31mlist");
+    std::fs::create_dir(&root).unwrap();
+    let tree = unheld(&root, label, &dead_pid().to_string());
+    (tmp, root, tree)
+}
+
 /// A hostile name at the reaping root and below it never reaches a kept or
 /// a removed line: the tree's path goes through `safe`, and the kept reason
 /// carries the cause alone, never the removal's own path.
@@ -762,22 +785,17 @@ fn changing(fd: BorrowedFd<'_>) -> Result<(), Errno> {
 fn a_hostile_name_never_reaches_a_kept_or_a_removed_line() {
     let tmp = tempfile::tempdir().unwrap();
     let dead = dead_pid().to_string();
-    let safe = |text: &str| {
-        text.chars()
-            .filter(|character| !character.is_control())
-            .collect::<String>()
-    };
 
     let removed_root = tmp.path().join("evil\n\u{1b}[31mremoved");
     std::fs::create_dir(&removed_root).unwrap();
     let removed = unheld(&removed_root, "exec\t\u{7}", &dead);
     std::fs::create_dir(removed.join("sub\n\u{1b}[32m")).unwrap();
-    let removed_line = reap_dead_sessions_in(&removed_root, flock).lines_with(safe);
+    let removed_line = reap_dead_sessions_in(&removed_root, flock).lines_with(stripped);
     assert_eq!(
         removed_line,
         format!(
             "hands: reaped {}: its owner is dead and holds no lock\n",
-            safe(&removed.display().to_string())
+            stripped(&removed.display().to_string())
         )
     );
     assert!(!removed.exists());
@@ -787,24 +805,88 @@ fn a_hostile_name_never_reaches_a_kept_or_a_removed_line() {
     let kept = unheld(&kept_root, "serve\r\u{1b}[33m", &dead);
     std::fs::create_dir(kept.join("sub\n\u{1b}[34m")).unwrap();
     set_mode(&kept_root, 0o500);
-    let kept_line = reap_dead_sessions_in(&kept_root, flock).lines_with(safe);
+    let kept_line = reap_dead_sessions_in(&kept_root, flock).lines_with(stripped);
     set_mode(&kept_root, 0o700);
     assert_eq!(
         kept_line,
         format!(
             "hands: kept {}: it cannot be removed: {}\n",
-            safe(&kept.display().to_string()),
+            stripped(&kept.display().to_string()),
             said(Errno::ACCESS)
         )
     );
 
     for line in [removed_line, kept_line] {
-        assert!(
-            line.trim_end_matches('\n')
-                .chars()
-                .all(|character| !character.is_control()),
-            "{line:?}"
-        );
+        assert!(one_clean_line(&line), "{line:?}");
+    }
+}
+
+/// `Listed::line_with` passes every path it names through `safe`, on every
+/// arm: the tree on all four, and the first unreadable directory on the
+/// lower-bound one. A seat can name a directory with a newline and an ESC,
+/// and 5c2's `--dry-run` paints these lines.
+#[test]
+fn a_listing_line_passes_every_named_path_through_safe() {
+    let (_whole_tmp, whole_root, whole) = hostile_listing_root("exec\t\u{7}");
+    let whole_line = list_reapable_in(&whole_root, flock)[0].line_with(stripped);
+    assert_eq!(
+        whole_line,
+        format!(
+            "hands: listed {}: {} bytes\n",
+            stripped(&whole.display().to_string()),
+            crate::tree::count_tree(&whole).unwrap().unwrap().bytes
+        )
+    );
+
+    let (_lower_tmp, lower_root, lower) = hostile_listing_root("exec\n\u{1b}[35m");
+    let work = lower.join("overlay").join("work\n\u{1b}[32mwork");
+    std::fs::create_dir_all(&work).unwrap();
+    std::fs::write(work.join("index"), "").unwrap();
+    set_mode(&work, 0o000);
+    let listed = list_reapable_in(&lower_root, flock);
+    let counted = listed[0].count.as_ref().unwrap().as_ref().unwrap();
+    assert_eq!(counted.unreadable.as_deref(), Some(work.as_path()));
+    let lower_line = listed[0].line_with(stripped);
+    assert_eq!(
+        lower_line,
+        format!(
+            "hands: listed {}: at least {} bytes; it cannot read {}\n",
+            stripped(&lower.display().to_string()),
+            counted.bytes,
+            stripped(&work.display().to_string())
+        )
+    );
+
+    let (_gone_tmp, gone_root, gone) = hostile_listing_root("exec\r\u{1b}[36m");
+    ON_PROBE.set(Some(OnProbe::Vanish(gone.clone())));
+    let gone_line = list_reapable_in(&gone_root, changing)[0].line_with(stripped);
+    assert_eq!(
+        gone_line,
+        format!(
+            "hands: listed {}: it was gone before the count\n",
+            stripped(&gone.display().to_string())
+        )
+    );
+
+    let (_failed_tmp, failed_root, failed) = hostile_listing_root("serve\n\u{1b}[37m");
+    let outside = failed.parent().unwrap().join("outside");
+    std::fs::create_dir(&outside).unwrap();
+    ON_PROBE.set(Some(OnProbe::Link {
+        tree: failed.clone(),
+        target: outside,
+    }));
+    let failed_line = list_reapable_in(&failed_root, changing)[0].line_with(stripped);
+    assert_eq!(
+        failed_line,
+        format!(
+            "hands: listed {}: the count failed: {}\n",
+            stripped(&failed.display().to_string()),
+            said(Errno::NOTDIR)
+        )
+    );
+
+    for line in [&whole_line, &lower_line, &gone_line, &failed_line] {
+        assert!(one_clean_line(line), "{line:?}");
     }
 }
 

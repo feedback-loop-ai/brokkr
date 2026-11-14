@@ -190,6 +190,47 @@ fn a_link_at_the_root_is_refused_and_its_target_stands() {
     target_stands(&target);
 }
 
+/// Unsealing changes the directory it opened no-follow, never a link the
+/// name became after the stat: the target's mode and contents stand. The
+/// name a walk is about to unseal is one a writer in the parent can swap.
+#[test]
+fn unsealing_a_name_that_became_a_link_leaves_its_target_alone() {
+    let tmp = tempfile::tempdir().unwrap();
+    let tree = tmp.path().join("tree");
+    let outside = tmp.path().join("outside");
+    std::fs::create_dir(&tree).unwrap();
+    std::fs::create_dir(&outside).unwrap();
+    std::fs::write(outside.join("kept"), "").unwrap();
+    set_mode(&outside, 0o500);
+    let stat = statat(CWD, &outside, AtFlags::SYMLINK_NOFOLLOW).unwrap();
+    let work = tree.join("work");
+    std::os::unix::fs::symlink(&outside, &work).unwrap();
+    let tree_fd = std::fs::File::open(&tree).unwrap();
+
+    let refused = unseal_at(&tree_fd, "work", &work, stat.st_mode);
+    assert_eq!(
+        std::fs::metadata(&outside).unwrap().permissions().mode() & 0o777,
+        0o500,
+        "the link's target was unsealed"
+    );
+    assert!(outside.join("kept").is_file());
+    if let Err(refused) = refused {
+        let (named, _) = refused_io(&refused);
+        assert_eq!(named, work.as_path());
+    }
+    set_mode(&outside, 0o700);
+}
+
+/// The listing answers the same refusal for a link on Linux, which says
+/// `ENOTDIR`, and on macOS, which says `ELOOP`; one host's errno is not the
+/// line a `--dry-run` prints.
+#[test]
+fn a_link_refusal_names_notdir_on_every_host() {
+    assert_eq!(link_errno(Errno::LOOP), Errno::NOTDIR);
+    assert_eq!(link_errno(Errno::NOTDIR), Errno::NOTDIR);
+    assert_eq!(link_errno(Errno::ACCESS), Errno::ACCESS);
+}
+
 /// Removal errors compare by path and cause, the equality a reaper's kept
 /// tree relies on.
 #[test]
@@ -350,6 +391,24 @@ fn a_root_name_the_filesystem_refuses_is_named() {
     let (named, errno) = refused_io(&refused);
     assert_eq!(named, long);
     assert_eq!(errno, Errno::NAMETOOLONG.raw_os_error());
+
+    // The listing's own open of the same name is named too, not only the
+    // removal's stat.
+    let refused = count_tree(&long).unwrap_err();
+    let (named, errno) = refused_io(&refused);
+    assert_eq!(named, long);
+    assert_eq!(errno, Errno::NAMETOOLONG.raw_os_error());
+
+    // A parent that is a regular file is not a directory to open: both
+    // walks name the root they were asked for.
+    let file = tmp.path().join("file");
+    std::fs::write(&file, "").unwrap();
+    let under = file.join("tree");
+    for refused in refused_both(&under) {
+        let (named, errno) = refused_io(&refused);
+        assert_eq!(named, under.as_path());
+        assert_eq!(errno, Errno::NOTDIR.raw_os_error());
+    }
 }
 
 /// A count that meets a directory it cannot read is a lower bound naming

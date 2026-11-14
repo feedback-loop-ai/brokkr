@@ -1,9 +1,9 @@
 //! One removal walk (decision 0104 ruling 8): the hands reaper and, from
 //! slice 5c2, the sweep share this home. It descends by descriptor, each
 //! directory opened no-follow from the one above, follows no link, crosses
-//! no filesystem, makes each directory owner-writable before removing its
-//! entries, counts every inode's allocated bytes once, and removes the
-//! tree's own root last.
+//! no filesystem, makes each directory owner-writable through a descriptor
+//! before removing its entries, counts every inode's allocated bytes once,
+//! and removes the tree's own root last.
 //!
 //! The root's parent is opened as a directory and the root by its final
 //! name, so the root's own name is never resolved through a link: POSIX
@@ -14,6 +14,8 @@
 
 use std::collections::HashSet;
 use std::ffi::{CString, OsStr};
+#[cfg(target_os = "linux")]
+use std::os::fd::AsRawFd;
 use std::os::fd::{AsFd, OwnedFd};
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
@@ -244,8 +246,19 @@ fn open_final<'a>(
         Err(Errno::NOENT) => Ok(Root::Absent),
         Err(cause) => match (remove, cause) {
             (false, Errno::ACCESS) => Ok(Root::Unreadable(stat_root(&parent, name, tree)?)),
-            _ => Err(io_error(tree, cause)),
+            _ => Err(io_error(tree, link_errno(cause))),
         },
+    }
+}
+
+/// The errno a refused open names. macOS answers `ELOOP` for an
+/// `O_NOFOLLOW | O_DIRECTORY` open of a link where Linux answers `ENOTDIR`;
+/// the listing's line must not depend on the host, so both are the walk's
+/// same refusal. The removal answers `ENOTDIR` from its own stat first.
+fn link_errno(cause: Errno) -> Errno {
+    match cause {
+        Errno::LOOP | Errno::NOTDIR => Errno::NOTDIR,
+        _ => cause,
     }
 }
 
@@ -350,32 +363,68 @@ fn descend(
         if matches!(name.to_bytes(), b"." | b"..") {
             continue;
         }
-        let child = path.join(OsStr::from_bytes(name.to_bytes()));
-        let stat = io(&child, statat(dir, &name, AtFlags::SYMLINK_NOFOLLOW))?;
-        let device = device_of(&child, stat_device(&stat));
-        if device != tree_device {
-            return Err(TreeError::Foreign {
-                path: child,
-                device,
-                tree: tree_device,
-            });
-        }
-        walk.count(&stat);
-        if FileType::from_raw_mode(stat.st_mode) == FileType::Directory {
-            if walk.remove {
-                unseal_at(dir, &name, &child, stat.st_mode)?;
-            } else if !readable(stat.st_mode) {
-                walk.unreadable(&child);
-                continue;
-            }
-            let opened = io(&child, openat(dir, &name, dir_flags(), Mode::empty()))?;
-            descend(&opened, &child, tree_device, walk, device_of)?;
-            if walk.remove {
-                io(&child, unlinkat(dir, &name, AtFlags::REMOVEDIR))?;
-            }
-        } else if walk.remove {
-            io(&child, unlinkat(dir, &name, AtFlags::empty()))?;
-        }
+        descend_entry(dir, path, &name, tree_device, walk, device_of)?;
+    }
+    Ok(())
+}
+
+/// One entry of `dir`: counted, refused when it crosses a filesystem, and
+/// removed when the walk removes. Its path is the directory's and its name,
+/// never a path the kernel resolves through a link.
+fn descend_entry(
+    dir: &OwnedFd,
+    path: &Path,
+    name: &CString,
+    tree_device: u64,
+    walk: &mut Walk,
+    device_of: &impl Fn(&Path, u64) -> u64,
+) -> Result<(), TreeError> {
+    let child = path.join(OsStr::from_bytes(name.to_bytes()));
+    let stat = io(&child, statat(dir, name, AtFlags::SYMLINK_NOFOLLOW))?;
+    let device = device_of(&child, stat_device(&stat));
+    if device != tree_device {
+        return Err(TreeError::Foreign {
+            path: child,
+            device,
+            tree: tree_device,
+        });
+    }
+    walk.count(&stat);
+    if FileType::from_raw_mode(stat.st_mode) == FileType::Directory {
+        descend_directory(dir, &child, name, &stat, tree_device, walk, device_of)
+    } else if walk.remove {
+        io(&child, unlinkat(dir, name, AtFlags::empty()))
+    } else {
+        Ok(())
+    }
+}
+
+/// Enter one directory entry and remove it last when the walk removes. A
+/// listing never changes a mode: an open the kernel refuses with `EACCES` is
+/// that entry's own blocks counted (already, above) and the count's lower
+/// bound, whether the mode is 0000 or another owner's. That is the one rule
+/// the root's unreadable answer uses too.
+fn descend_directory(
+    dir: &OwnedFd,
+    child: &Path,
+    name: &CString,
+    stat: &Stat,
+    tree_device: u64,
+    walk: &mut Walk,
+    device_of: &impl Fn(&Path, u64) -> u64,
+) -> Result<(), TreeError> {
+    if walk.remove {
+        unseal_at(dir, name, child, stat.st_mode)?;
+    }
+    let opened = openat(dir, name, dir_flags(), Mode::empty());
+    if !walk.remove && matches!(&opened, Err(Errno::ACCESS)) {
+        walk.unreadable(child);
+        return Ok(());
+    }
+    let opened = io(child, opened)?;
+    descend(&opened, child, tree_device, walk, device_of)?;
+    if walk.remove {
+        io(child, unlinkat(dir, name, AtFlags::REMOVEDIR))?;
     }
     Ok(())
 }
@@ -389,17 +438,15 @@ fn entry_names(dir: &OwnedFd) -> Result<Vec<CString>, Errno> {
         .collect()
 }
 
-/// Whether the walk's owner can read and search a directory. A listing
-/// never adds the bits, so it asks before opening what it cannot read.
-fn readable(mode: u32) -> bool {
-    mode & 0o500 == 0o500
-}
-
 /// Give the owner read, write and search on `name` in `dir` before the walk
 /// opens and reads it: hands overlays leave directories with no bit for
 /// their owner. The other bits stay as they were. A mode SQLite could not
 /// open first (0200 has no read) is changed from its parent, so the walk
-/// never has to open what it cannot yet read.
+/// never has to open what it cannot yet read. The mode is set through a
+/// descriptor opened no-follow, never by the name: a writer who swaps the
+/// name for a link between the stat and the change cannot reach the link's
+/// target. The operator's 2026-09-26 ruling covers the tree, and this makes
+/// the change itself not follow.
 fn unseal_at<P: rustix::path::Arg>(
     dir: impl AsFd,
     name: P,
@@ -407,7 +454,42 @@ fn unseal_at<P: rustix::path::Arg>(
     mode: u32,
 ) -> Result<(), TreeError> {
     let mode = Mode::from_bits_truncate((mode & 0o7777) | 0o700);
-    io(path, chmodat(dir, name, mode, AtFlags::empty()))
+    set_dir_mode(dir, name, path, mode)
+}
+
+/// Linux opens the directory itself with `O_PATH`, needing no read bit, and
+/// changes it through the descriptor's `/proc/self/fd` name: that names the
+/// inode the no-follow open reached, so no later swap can redirect it.
+#[cfg(target_os = "linux")]
+fn set_dir_mode<P: rustix::path::Arg>(
+    dir: impl AsFd,
+    name: P,
+    path: &Path,
+    mode: Mode,
+) -> Result<(), TreeError> {
+    let opened = io(
+        path,
+        openat(
+            dir,
+            name,
+            OFlags::PATH | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+            Mode::empty(),
+        ),
+    )?;
+    let named = format!("/proc/self/fd/{}", opened.as_raw_fd());
+    io(path, chmodat(CWD, named, mode, AtFlags::empty()))
+}
+
+/// macOS's `fchmodat` takes `AT_SYMLINK_NOFOLLOW`, so the final component
+/// is changed without following it and the name needs no second open.
+#[cfg(not(target_os = "linux"))]
+fn set_dir_mode<P: rustix::path::Arg>(
+    dir: impl AsFd,
+    name: P,
+    path: &Path,
+    mode: Mode,
+) -> Result<(), TreeError> {
+    io(path, chmodat(dir, name, mode, AtFlags::SYMLINK_NOFOLLOW))
 }
 
 /// Run one filesystem call and name `path` in whatever it refuses. One
