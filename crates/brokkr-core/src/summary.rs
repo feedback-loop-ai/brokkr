@@ -17,8 +17,9 @@ use thiserror::Error;
 use crate::canonical::ZERO_HASH;
 use crate::ending::{self, Closing};
 use crate::envelope::EventEnvelope;
+use crate::fold::late::is_repair;
 use crate::fold::{fold, fold_onto, FoldError, RunState, Status};
-use crate::page::LateTail;
+use crate::page::LateRange;
 use crate::policy::Severity;
 use crate::residual::{
     note_closing, open_severity, residuals_of, Claim, Mark, Residual, ResidualPhase,
@@ -285,24 +286,39 @@ impl Account {
     /// When a repair in `suffix` names events this account already
     /// applied — its range reaches at or below this head — the account
     /// cannot carry: it answers [`Carried::Refold`] and the caller
-    /// refolds the run's whole journal (decision 0108 ruling 4, L7).
+    /// refolds the run's whole journal (decision 0108 ruling 4, L7). A
+    /// carried refusal answers the same signal when the suffix carries a
+    /// repair, because only the whole fold can tell whether that repair
+    /// lifts the refusal. An append that neither breaks nor repairs
+    /// carries, including every annotation after a tail this account
+    /// already has.
     pub fn onto(self, suffix: &[EventEnvelope]) -> Carried {
         if suffix.is_empty() {
             return Carried::Account(Box::new(self));
         }
         let carried_head = self.head.0;
+        let first = suffix[0].seq;
         let account = self.carry(suffix);
-        // A repair read from the suffix that names a seq at or below the
+        // A repair read from THIS suffix that names a seq at or below the
         // carried head names an event this account has already applied.
         // Marking it late now cannot undo that, so the only honest answer
-        // is a whole refold. An empty account has applied no prefix, so
-        // [`Account::whole`] never meets this arm.
-        let refold = account
-            .read
-            .as_ref()
-            .ok()
-            .and_then(|state| state.late_tail.as_ref())
-            .is_some_and(|tail| tail.first_seq <= carried_head);
+        // is a whole refold. A tail the carried account already holds is
+        // not this suffix's repair: a later annotation carries, and the
+        // account stays the one the whole journal reads. An empty account
+        // has applied no prefix, so [`Account::whole`] never meets the
+        // signal.
+        let refold = match &account.read {
+            // A carried refusal is only judged whole: a later repair in
+            // the suffix may name the event the prefix refused at, which
+            // only the whole fold can lift. A suffix with no repair leaves
+            // the refusal standing, as a whole fold does.
+            Err(FoldError::Empty) => false,
+            Err(_) => suffix.iter().any(is_repair),
+            Ok(state) => state
+                .late_tail
+                .as_ref()
+                .is_some_and(|tail| tail.repaired_at >= first && tail.first_seq <= carried_head),
+        };
         if refold {
             Carried::Refold
         } else {
@@ -326,7 +342,7 @@ impl Account {
         // A late event is kept in the journal and shown as the tail, never
         // applied by any scan that derives a figure from it (decision 0108
         // ruling 4): a late classify moves no ending, a late supersede
-        // closes no finding. The tail's own rule, [`LateTail::holds`], is
+        // closes no finding. The tail's own rule, [`crate::fold::LateTail::holds`], is
         // the one test; `RunState::applies` wraps it for a whole scan.
         let late = self
             .read
@@ -546,7 +562,7 @@ pub struct Summary {
     pub closing: Option<Closing>,
     /// The late tail a repair named (decision 0108 ruling 4), so a summary
     /// row carries the sentence a whole read prints.
-    pub late_tail: Option<LateTail>,
+    pub late_tail: Option<LateRange>,
 }
 
 impl Summary {
@@ -595,7 +611,7 @@ impl Summary {
             closing,
             late_tail: state
                 .and_then(|state| state.late_tail.as_ref())
-                .map(LateTail::of),
+                .map(LateRange::of),
         }
     }
 }

@@ -761,7 +761,7 @@ pub fn fleet_rows(hearths: &[HearthEntries]) -> FleetView {
 mod late;
 mod need;
 mod page;
-pub use late::{late_line, LateEvent, LateLine, LateRange, LateTail};
+pub use late::{late_line, LateEvent, LateRange, LateTail};
 pub(crate) use late::{late_range, late_tail};
 pub use need::{at_work, need, Need};
 use page::order_at;

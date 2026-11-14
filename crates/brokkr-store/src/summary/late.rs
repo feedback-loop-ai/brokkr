@@ -26,9 +26,8 @@ pub(super) const PART: Stamped = Stamped {
 /// only what the row's sentence says, so the column stays small and every
 /// operator name is cut to its one bound.
 pub(super) fn written(summary: &Summary) -> Vec<(&'static str, Value)> {
-    let tail = summary.late_tail.as_ref().map_or(Value::Null, |tail| {
-        let range = LateRange::of_tail(tail);
-        Value::Text(serde_json::to_string(&range).expect("a late range serializes"))
+    let tail = summary.late_tail.as_ref().map_or(Value::Null, |range| {
+        Value::Text(serde_json::to_string(range).expect("a late range serializes"))
     });
     vec![
         ("late_tail", tail),

@@ -6,6 +6,7 @@
 //! read ([`fenced_append`]), and the rule for whether an acceptance folds
 //! at all is `fold`'s own ([`acceptance_refusal`]).
 
+use brokkr_core::canonical::ZERO_HASH;
 use brokkr_core::ending::ended;
 use brokkr_core::envelope::EventType;
 use brokkr_core::fold::{
@@ -698,15 +699,17 @@ pub(super) fn apply_fenced_windows(
     // `supersede`) nobody wrote (decision 0108 ruling 4, #440). It is
     // ANSWERED as any refused command is — a rejected receipt at the head
     // it found — so the cursor advances and the words queued behind it
-    // still run. Nothing is journaled, so the receipt is this refusal's
-    // only record; [`RESERVED_COMMAND_REASON`] names it.
+    // still run. Nothing is journaled, so the receipt is the only record.
     if let CommandWord::Unknown(word) = wire.command {
         if brokkr_core::fold::reserved_annotation(word) {
-            let head = Head::tip(&events);
+            let (head_seq, head_hash) = events.last().map_or_else(
+                || (0, ZERO_HASH.to_string()),
+                |event| (event.seq, event.event_hash.clone()),
+            );
             return Ok(FencedCommandOutcome::Rejected {
                 reason: RESERVED_COMMAND_REASON.to_string(),
-                head_seq: head.seq,
-                head_hash: head.hash,
+                head_seq,
+                head_hash,
             });
         }
     }

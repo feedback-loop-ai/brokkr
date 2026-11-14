@@ -546,7 +546,7 @@ fn a_row_no_writer_writes_is_refused_at_the_edge() {
 fn a_rows_late_tail_refuses_an_unreadable_column_and_an_unknown_field() {
     let running = [lane(Lane::Running, None)];
     let unknown = serde_json::json!({
-        "repaired_at": 8, "terminal_seq": 5, "first_seq": 6, "last_seq": 7,
+        "repaired_at": 8, "first_seq": 6, "last_seq": 7,
         "count": 2, "operator": "repairer", "extra": 1,
     })
     .to_string();

@@ -396,3 +396,36 @@ fn a_feature_of_control_characters_derives_an_id_the_writer_records() {
 }
 
 mod release_tests;
+
+/// L3: a reserved word on a run whose journal holds no event is answered
+/// with the empty run's head, never a panic out of a public door. The
+/// receipt is the refusal's only record: nothing is journaled.
+#[test]
+fn a_reserved_word_on_an_empty_run_is_answered() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&dir.path().join("empty.db")).unwrap();
+    store
+        .create_run("empty", "feature", "test", &json!({}))
+        .unwrap();
+    let wire = FencedCommand {
+        command_id: "reserved",
+        command: CommandWord::parse("repair"),
+        operator: "operator",
+        reason: "please",
+        expected_seq: 0,
+        expected_hash: brokkr_core::canonical::ZERO_HASH,
+    };
+    let refused = apply_fenced_operator_command(&mut store, "empty", &wire).unwrap();
+    assert_eq!(
+        refused,
+        FencedCommandOutcome::Rejected {
+            reason: "reserved_command".into(),
+            head_seq: 0,
+            head_hash: brokkr_core::canonical::ZERO_HASH.into(),
+        }
+    );
+    assert!(
+        store.load("empty").unwrap().is_empty(),
+        "nothing was journaled"
+    );
+}

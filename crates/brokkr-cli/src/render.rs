@@ -338,7 +338,11 @@ fn under_row(run: &RunRow, style: &Style) -> Vec<String> {
     let late = run.late_tail.as_ref().map(|tail| {
         format!(
             "    late  {}",
-            Safe::new(&brokkr_view::late_line(tail)).as_str()
+            Safe::new(&brokkr_view::late_line(
+                usize::try_from(tail.count).unwrap_or(usize::MAX),
+                &tail.operator
+            ))
+            .as_str()
         )
     });
     refusal

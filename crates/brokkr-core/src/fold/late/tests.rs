@@ -516,16 +516,15 @@ fn the_whole_and_carried_folds_agree_at_every_cut_point() {
 /// L7: the carried account equals the whole one, or says it must refold
 /// whole. A suffix repair that names a carried event cannot be applied to
 /// the account after the fact, so the signal is the only honest answer and
-/// the refold is the whole account.
+/// the refold is the whole account. A carried refusal is compared too: a
+/// repair in the suffix may lift it, and the signal is how the caller
+/// learns to refold.
 #[test]
 fn the_whole_and_carried_accounts_agree_or_ask_for_a_whole_refold() {
     for (at, events) in shapes().iter().enumerate() {
         let whole = Account::whole("r1", events);
         for split in 1..=events.len() {
             let prefix = Account::whole("r1", &events[..split]);
-            if prefix.state().is_err() {
-                continue;
-            }
             match prefix.onto(&events[split..]) {
                 Carried::Account(carried) => assert_eq!(
                     format!("{carried:?}"),
@@ -534,8 +533,13 @@ fn the_whole_and_carried_accounts_agree_or_ask_for_a_whole_refold() {
                 ),
                 Carried::Refold => {
                     // The caller's contract: refold the whole journal,
-                    // which is exactly `whole` above. The classify cut
-                    // below proves this is the arm the signal takes.
+                    // which is exactly `whole` above. A refusal prefix and
+                    // a suffix without a repair cannot reach this arm; the
+                    // cuts below prove which ones do.
+                    assert!(
+                        split < events.len(),
+                        "shape {at}: an empty suffix never asks for a refold"
+                    );
                 }
             }
         }
@@ -548,6 +552,24 @@ fn the_whole_and_carried_accounts_agree_or_ask_for_a_whole_refold() {
     assert!(
         matches!(carried, Carried::Refold),
         "a repair naming a carried classify asks for a whole refold"
+    );
+
+    // A cut after the repair is no repair at all: the tail is the carried
+    // state's own, and the suffix's later annotation carries onto it, so
+    // the account is the whole one (L2).
+    let mut events = stopped_with(&[settlement()], repaired(5, 6, 6, &["effect/succeeded"]));
+    push(&mut events, classified().0, classified().1);
+    let whole = Account::whole("r1", &events);
+    let carried = match Account::whole("r1", &events[..7]).onto(&events[7..]) {
+        Carried::Account(carried) => *carried,
+        Carried::Refold => {
+            panic!("a later annotation names no carried event and must carry onto the tail")
+        }
+    };
+    assert_eq!(
+        format!("{carried:?}"),
+        format!("{whole:?}"),
+        "the annotation after the repair carries onto the repaired account"
     );
 }
 

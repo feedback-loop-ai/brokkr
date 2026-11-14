@@ -79,12 +79,13 @@ pub struct LateEvent {
 
 impl LateTail {
     /// The tail `fold` carries, as every surface reads it. The one
-    /// derivation of its wire shape.
+    /// derivation of its wire shape. Its operator is cut to the journal's
+    /// bound so `runs` and `inspect` name one repairer, never two (L10).
     pub fn of(tail: &crate::fold::LateTail) -> LateTail {
         LateTail {
             repaired_at: tail.repaired_at,
             terminal_seq: tail.terminal_seq,
-            operator: tail.operator.clone(),
+            operator: cut_operator(&tail.operator),
             events: tail
                 .events()
                 .map(|(seq, event_type)| LateEvent { seq, event_type })
@@ -108,8 +109,6 @@ impl LateTail {
 pub struct LateRange {
     /// The seq of the repair annotation that named the tail.
     pub repaired_at: u64,
-    /// The run's terminal event, which the tail follows.
-    pub terminal_seq: u64,
     /// The tail's first seq: the event after the terminal one.
     pub first_seq: u64,
     /// The tail's last seq: the head the repair was written at, less one.
@@ -123,33 +122,14 @@ pub struct LateRange {
 }
 
 impl LateRange {
-    /// The row's compact tail, from the fold's whole one.
+    /// The row's compact tail, from the fold's whole one: the one shape
+    /// both the row and the summary it is written from read.
     pub fn of(tail: &crate::fold::LateTail) -> LateRange {
         LateRange {
             repaired_at: tail.repaired_at,
-            terminal_seq: tail.terminal_seq,
             first_seq: tail.first_seq,
             last_seq: tail.last_seq,
             count: tail.last_seq - tail.first_seq + 1,
-            operator: cut_operator(&tail.operator),
-        }
-    }
-
-    /// The row's compact tail, from the whole wire tail a summary states:
-    /// what the store writes into its column. A repair names a non-empty
-    /// tail, so the fold's tail always has a first and a last event.
-    pub fn of_tail(tail: &LateTail) -> LateRange {
-        let (first, last) = tail
-            .events
-            .first()
-            .zip(tail.events.last())
-            .expect("a repair names a non-empty tail");
-        LateRange {
-            repaired_at: tail.repaired_at,
-            terminal_seq: tail.terminal_seq,
-            first_seq: first.seq,
-            last_seq: last.seq,
-            count: tail.events.len() as u64,
             operator: cut_operator(&tail.operator),
         }
     }

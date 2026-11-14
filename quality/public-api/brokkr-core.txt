@@ -461,10 +461,8 @@ pub brokkr_core::page::LateRange::first_seq: u64
 pub brokkr_core::page::LateRange::last_seq: u64
 pub brokkr_core::page::LateRange::operator: alloc::string::String
 pub brokkr_core::page::LateRange::repaired_at: u64
-pub brokkr_core::page::LateRange::terminal_seq: u64
 impl brokkr_core::page::LateRange
 pub fn brokkr_core::page::LateRange::of(&brokkr_core::fold::LateTail) -> brokkr_core::page::LateRange
-pub fn brokkr_core::page::LateRange::of_tail(&brokkr_core::page::LateTail) -> brokkr_core::page::LateRange
 pub struct brokkr_core::page::LateTail
 pub brokkr_core::page::LateTail::events: alloc::vec::Vec<brokkr_core::page::LateEvent>
 pub brokkr_core::page::LateTail::operator: alloc::string::String
@@ -1205,7 +1203,7 @@ pub brokkr_core::summary::Summary::head_seq: u64
 pub brokkr_core::summary::Summary::hired: core::option::Option<brokkr_core::summary::Hired>
 pub brokkr_core::summary::Summary::last_at_ms: core::option::Option<i64>
 pub brokkr_core::summary::Summary::last_recorded_at: core::option::Option<brokkr_core::summary::Bounded>
-pub brokkr_core::summary::Summary::late_tail: core::option::Option<brokkr_core::page::LateTail>
+pub brokkr_core::summary::Summary::late_tail: core::option::Option<brokkr_core::page::LateRange>
 pub brokkr_core::summary::Summary::park_reason: core::option::Option<brokkr_core::summary::Bounded>
 pub brokkr_core::summary::Summary::phase: core::option::Option<brokkr_core::summary::Bounded>
 pub brokkr_core::summary::Summary::refused: core::option::Option<brokkr_core::summary::Refused>

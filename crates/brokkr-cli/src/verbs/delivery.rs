@@ -510,6 +510,11 @@ fn repair(
     journal: JournalArgs,
 ) -> Result<ExitCode> {
     let (mut store, run) = writable_run(workspace, run, journal)?;
+    // Read the journal before the write: the annotations the repair will
+    // make late are the reserved words that folded before the break, and
+    // a read after the write would report failure for a repair that had
+    // already landed (L4).
+    let before = store.load(&run)?;
     let operator = operator_name();
     let written = brokkr_runtime::operator_repair(
         &mut store,
@@ -527,21 +532,22 @@ fn repair(
     // L8: a lawful annotation that landed between the terminal event and
     // the break is in the tail, so the repair makes it late too. Say so,
     // by seq and type, and tell the operator to record it again after the
-    // repair; the words fail closed and never imply it still applies.
-    let first = written
-        .payload
-        .pointer("/args/first_seq")
-        .and_then(|value| value.as_u64());
-    let last = written
-        .payload
-        .pointer("/args/last_seq")
-        .and_then(|value| value.as_u64());
-    let events = store.load(&run)?;
-    let skipped: Vec<_> = events
+    // repair; the words fail closed and never imply it still applies. Only
+    // what folded before the break was lawful: a reserved word past it was
+    // never applied, so it is not named.
+    let terminal = before
+        .iter()
+        .rev()
+        .find(|event| brokkr_core::fold::terminal_event(event.event_type).is_some())
+        .map_or(0, |event| event.seq);
+    let broke_at = brokkr_core::fold::fold(&before)
+        .err()
+        .map_or(u64::MAX, |error| error.seq());
+    let skipped: Vec<_> = before
         .iter()
         .filter(|event| {
-            first.is_none_or(|first| event.seq >= first)
-                && last.is_none_or(|last| event.seq <= last)
+            event.seq > terminal
+                && event.seq < broke_at
                 && event.event_type == EventType::OperatorCommanded
                 && event
                     .payload

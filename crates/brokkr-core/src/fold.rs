@@ -22,7 +22,7 @@ use operator::{accept, command};
 mod relation;
 pub use relation::lawful_after_terminal;
 use relation::{Arm, Position, Transition};
-mod late;
+pub(crate) mod late;
 pub use late::{LateTail, REPAIR};
 
 mod annotation;

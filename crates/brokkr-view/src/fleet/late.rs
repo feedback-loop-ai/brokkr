@@ -4,43 +4,13 @@
 use brokkr_core::fold::RunState;
 pub use brokkr_core::page::{LateEvent, LateRange, LateTail};
 
-/// What the one sentence needs of a tail: its event count and its
-/// repairer. The whole tail and the summary row's compact range both
-/// state them, so both paint the same words.
-pub trait LateLine {
-    fn late_count(&self) -> usize;
-    fn late_operator(&self) -> &str;
-}
-
-impl LateLine for LateTail {
-    fn late_count(&self) -> usize {
-        self.count()
-    }
-
-    fn late_operator(&self) -> &str {
-        &self.operator
-    }
-}
-
-impl LateLine for LateRange {
-    fn late_count(&self) -> usize {
-        usize::try_from(self.count).unwrap_or(usize::MAX)
-    }
-
-    fn late_operator(&self) -> &str {
-        &self.operator
-    }
-}
-
 /// The sentence every surface prints for a tail: derived here once, as
-/// the fleet's other facts are (decision 0071 ruling 7).
-pub fn late_line(tail: &impl LateLine) -> String {
-    let count = tail.late_count();
+/// the fleet's other facts are (decision 0071 ruling 7). The count and
+/// the repairer are the only facts it needs, so a whole tail and a row's
+/// compact range paint the same words without a trait between them.
+pub fn late_line(count: usize, operator: &str) -> String {
     let events = if count == 1 { "event" } else { "events" };
-    format!(
-        "a late tail of {count} {events}, repaired by {}",
-        tail.late_operator()
-    )
+    format!("a late tail of {count} {events}, repaired by {operator}")
 }
 
 /// The compact tail `state` carries, as a listing row paints it.

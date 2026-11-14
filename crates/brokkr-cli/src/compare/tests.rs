@@ -1,6 +1,6 @@
 use super::*;
 use crate::tests::envelope_builder;
-use brokkr_view::resolutions;
+use brokkr_view::resolutions_at;
 
 #[path = "../../../../tests/support/seat_journal.rs"]
 mod seat_journal;
@@ -86,6 +86,8 @@ fn a_repaired_runs_compare_facts_are_the_terminal_cuts() {
     )
     .unwrap();
     drop(connection);
+    let stale = run_facts(&Store::open_read_only(&db).unwrap(), "repaired").unwrap();
+    let repaired_cost = costs(&Store::open_read_only(&db).unwrap(), "repaired").unwrap();
     let store = Store::open(&db).unwrap();
 
     let full = run_facts(&store, "repaired").unwrap();
@@ -108,6 +110,38 @@ fn a_repaired_runs_compare_facts_are_the_terminal_cuts() {
         serde_json::to_value(&full.resolution).unwrap(),
         serde_json::to_value(&cut.resolution).unwrap(),
         "no late invocation site resolves"
+    );
+
+    assert_stale_read_is_current(
+        &stale,
+        &full,
+        &repaired_cost,
+        &costs(&store, "cut").unwrap(),
+    );
+}
+
+/// L11: the kept path (stale rows) reads the same document and the same
+/// facts as the current path, and its cost refuses the late checkpoint.
+fn assert_stale_read_is_current(
+    stale: &RunFacts,
+    full: &RunFacts,
+    repaired_cost: &Costs,
+    cut_cost: &Costs,
+) {
+    assert_eq!(stale.attempts, full.attempts);
+    assert_eq!(
+        value(&stale.summary),
+        value(&full.summary),
+        "the stale read is the current read"
+    );
+    assert_eq!(
+        serde_json::to_value(&stale.resolution).unwrap(),
+        serde_json::to_value(&full.resolution).unwrap()
+    );
+    assert_eq!(
+        value(repaired_cost)["total_cost_usd"],
+        value(cut_cost)["total_cost_usd"],
+        "the stale cost scan applies no late checkpoint"
     );
 }
 
@@ -337,7 +371,7 @@ fn a_run_whose_rows_compose_no_view_is_compared_whole() {
     let read = current(&store, "run", &opened).unwrap();
     assert_eq!(read.map(|read| read.events), None);
     let facts = run_facts(&store, "run").unwrap();
-    let whole = resolutions(&store.load("run").unwrap());
+    let whole = resolutions_at(&store.load("run").unwrap(), None);
     assert_eq!(value(&facts.summary)["resolution"], printed(&whole));
     assert_eq!(value(&facts.summary)["events"], 10);
 }
@@ -572,8 +606,8 @@ const COMPARED: &str = r#"{
 /// exactly as it names a model difference.
 #[test]
 fn the_resolution_map_carries_the_pair_and_diverges_on_the_boundary() {
-    let harness = resolutions(&boxed_seat("verify", "harness"));
-    let namespace = resolutions(&boxed_seat("verify", "namespace"));
+    let harness = resolutions_at(&boxed_seat("verify", "harness"), None);
+    let namespace = resolutions_at(&boxed_seat("verify", "namespace"), None);
     assert_eq!(
         printed(&harness),
         json!({"verify": {"model": "claude-fable-5-1", "boundary": "harness",
@@ -590,7 +624,7 @@ fn the_resolution_map_carries_the_pair_and_diverges_on_the_boundary() {
     old[1].payload.as_object_mut().unwrap().remove("boundary");
     old[2].payload["checkpoint"]["boundary"] = Value::Null;
     old[3].payload["result"]["boundary"] = Value::Null;
-    let old = resolutions(&old);
+    let old = resolutions_at(&old, None);
     assert_eq!(printed(&old)["verify"]["boundary"], brokkr_view::ABSENT);
     assert_eq!(
         printed_divergence(&namespace, &old)["verify"]["b"]["boundary"],

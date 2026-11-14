@@ -51,15 +51,11 @@ impl Resolution {
 }
 
 /// What each run's invocation sites resolved to, keyed by participant
-/// label so a panel member and a sequence step line up across runs. Read
-/// off the run view's participants, so `compare` cannot describe a
-/// fallback differently from every other readout.
-pub fn resolutions(events: &[EventEnvelope]) -> BTreeMap<String, Resolution> {
-    resolutions_at(events, None)
-}
-
-/// [`resolutions`] with the run's fold: a repaired tail resolves nothing,
-/// as no readout applies one (decision 0108 ruling 4).
+/// label so a panel member and a sequence step line up across runs, with
+/// the run's fold: a repaired tail resolves nothing, as no readout applies
+/// one (decision 0108 ruling 4). Read off the run view's participants, so
+/// `compare` cannot describe a fallback differently from every other
+/// readout.
 pub fn resolutions_at(
     events: &[EventEnvelope],
     state: Option<&RunState>,
@@ -67,7 +63,7 @@ pub fn resolutions_at(
     resolved(run_view(events, state).participants)
 }
 
-/// What a run view's `participants` resolved to, as [`resolutions`] reads
+/// What a run view's `participants` resolved to, as [`resolutions_at`] reads
 /// them: the run view read whole or composed from the run's rows
 /// (`composed_view`), so `compare` reads both alike.
 pub fn resolved(participants: Vec<Participant>) -> BTreeMap<String, Resolution> {

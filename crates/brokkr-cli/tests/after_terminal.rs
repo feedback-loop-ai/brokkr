@@ -378,6 +378,23 @@ fn a_repaired_runs_late_tail_survives_a_writable_open() {
     runs_shows_settlement_tail(dir.path(), &db);
 }
 
+/// A repair that succeeded at `seq` and names the lawful classify at
+/// seq 6, whose words both L8 and L4 read.
+fn repair_naming_the_classify(dir: &Path, db: &str, seq: u64) -> String {
+    let repaired = repair_as(dir, db, "repairer", "kept");
+    let stderr = String::from_utf8_lossy(&repaired.stderr).into_owned();
+    assert_eq!(repaired.status.code(), Some(0), "{stderr}");
+    assert!(
+        stderr.contains(&format!("recorded repair at seq {seq} on late")),
+        "{stderr}"
+    );
+    assert!(
+        stderr.contains("seq 6 · operator/commanded (classify)"),
+        "the skipped annotation is named by seq and type: {stderr}"
+    );
+    stderr
+}
+
 /// L8: a lawful classify between the terminal event and the break is in
 /// the tail, so the repair makes it late. The verb names it by seq and
 /// type, and says to record it again after the repair.
@@ -386,17 +403,7 @@ fn a_repair_names_the_lawful_annotation_it_skips() {
     let (dir, db) = staged();
     concluded_at_five(Path::new(&db));
     planted(Path::new(&db), &[late::classified(), late::settlement()]);
-    let repaired = repair_as(dir.path(), &db, "repairer", "kept");
-    let stderr = String::from_utf8_lossy(&repaired.stderr);
-    assert_eq!(repaired.status.code(), Some(0), "{stderr}");
-    assert!(
-        stderr.contains("recorded repair at seq 8 on late"),
-        "{stderr}"
-    );
-    assert!(
-        stderr.contains("seq 6 · operator/commanded (classify)"),
-        "the skipped annotation is named by seq and type: {stderr}"
-    );
+    let stderr = repair_naming_the_classify(dir.path(), &db, 8);
     assert!(
         stderr.contains("record it again after the repair"),
         "the operator is told to record it again: {stderr}"
@@ -433,4 +440,31 @@ fn an_operator_repair_on_a_live_run_refuses_and_writes_nothing() {
     );
     let after = brokkr_store::Store::open_read_only(Path::new(&db)).unwrap();
     assert_eq!(after.load("late").unwrap().len(), before);
+}
+
+/// L4: a reserved word standing past the break was never applied — an
+/// older binary journaled it and the fold refused it — so the verb does
+/// not name it as a lawful annotation the repair makes late. Only the
+/// classify that folded before the break is named.
+#[test]
+fn a_repair_names_only_the_annotation_that_folded_before_the_break() {
+    let (dir, db) = staged();
+    concluded_at_five(Path::new(&db));
+    planted(
+        Path::new(&db),
+        &[
+            late::classified(),
+            late::settlement(),
+            (
+                EventType::OperatorCommanded,
+                json!({"command_id": "c-settle", "command": "settle",
+                       "operator": "operator", "args": {}}),
+            ),
+        ],
+    );
+    let stderr = repair_naming_the_classify(dir.path(), &db, 9);
+    assert!(
+        !stderr.contains("seq 8"),
+        "a reserved word past the break was never applied: {stderr}"
+    );
 }

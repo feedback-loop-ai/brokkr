@@ -53,7 +53,7 @@ fn a_known_journal_renders_a_known_ledger() {
             }}),
         ),
     ];
-    let rendered = render("known-run", &events, Path::new("/not/a/repository")).unwrap();
+    let rendered = render("known-run", events.clone(), Path::new("/not/a/repository")).unwrap();
     assert_eq!(
         rendered,
         "# Delivery ledger — known-run\n\n## Delivered\n\nboxed seats\n\n\
@@ -133,7 +133,7 @@ fn commits_absent_evidence_and_the_file_writer_are_all_literal() {
         ),
     ];
 
-    let rendered = render("known-run", &events, dir.path()).unwrap();
+    let rendered = render("known-run", events.clone(), dir.path()).unwrap();
     assert!(rendered.contains("boxed delivery"), "{rendered}");
     assert!(
         rendered.contains("absent-commit (not a valid commit id)"),
@@ -161,23 +161,23 @@ fn commits_absent_evidence_and_the_file_writer_are_all_literal() {
     );
 
     crate::folder::folder_tests::plant_library(dir.path());
-    let path = write("known-run", &events, dir.path()).unwrap();
+    let path = write("known-run", events.clone(), dir.path()).unwrap();
     assert_eq!(std::fs::read_to_string(path).unwrap(), rendered);
 
     let ordinary_directory = tempfile::tempdir().unwrap();
     assert_eq!(git(ordinary_directory.path(), &["rev-parse", "HEAD"]), None);
-    let empty = render("empty-run", &[], ordinary_directory.path()).unwrap();
+    let empty = render("empty-run", Vec::new(), ordinary_directory.path()).unwrap();
     assert!(empty.contains("no delivery description recorded"));
 
     library_root(ordinary_directory.path());
     let repo_file = ordinary_directory.path().join("not-a-directory");
     std::fs::write(&repo_file, "x").unwrap();
-    let error = write("known-run", &events, &repo_file).unwrap_err();
+    let error = write("known-run", events.clone(), &repo_file).unwrap_err();
     assert!(error.to_string().contains("creating ledger directory"));
 
     let obstructed = ordinary_directory.path().join("obstructed");
     std::fs::create_dir_all(obstructed.join(".forge/ledger/known-run.md")).unwrap();
-    let error = write("known-run", &events, &obstructed).unwrap_err();
+    let error = write("known-run", events.clone(), &obstructed).unwrap_err();
     assert!(error.to_string().contains("writing ledger"));
 }
 
@@ -254,13 +254,8 @@ fn a_repaired_ledgers_late_evidence_is_never_delivered() {
     let store = Store::open(&db).unwrap();
     let repaired_events = store.load("known-run").unwrap();
 
-    let repaired = render(
-        "known-run",
-        &repaired_events,
-        Path::new("/not/a/repository"),
-    )
-    .unwrap();
-    let terminal = render("known-run", &cut, Path::new("/not/a/repository")).unwrap();
+    let repaired = render("known-run", repaired_events, Path::new("/not/a/repository")).unwrap();
+    let terminal = render("known-run", cut, Path::new("/not/a/repository")).unwrap();
     assert_eq!(repaired, terminal, "the ledger is the terminal cut's");
     assert!(!repaired.contains("late notes"), "{repaired}");
 }

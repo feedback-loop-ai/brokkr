@@ -69,18 +69,20 @@ fn a_late_range_states_the_count_the_range_and_a_cut_operator() {
     let range = LateRange::of(&tail);
     assert_eq!((range.first_seq, range.last_seq, range.count), (6, 8, 3));
     assert_eq!(range.repaired_at, 9);
-    assert_eq!(range.terminal_seq, 5);
     assert_eq!(
         range.operator.chars().count(),
         crate::summary::ACK_OPERATOR_CHARS
     );
     assert!(operator.starts_with(&range.operator));
+    // L10: the whole tail a row or `inspect` reads cuts the same name, so
+    // `runs` and `inspect` never name two repairers.
+    assert_eq!(LateTail::of(&tail).operator, range.operator);
 
     let written = serde_json::to_value(&range).unwrap();
     assert_eq!(
         written,
         json!({
-            "repaired_at": 9, "terminal_seq": 5, "first_seq": 6,
+            "repaired_at": 9, "first_seq": 6,
             "last_seq": 8, "count": 3, "operator": range.operator,
         })
     );

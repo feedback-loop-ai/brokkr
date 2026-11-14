@@ -1026,7 +1026,7 @@ fn a_repaired_run_carries_its_late_tail_on_the_row_and_the_summary() {
     ));
     let tail = row.late_tail.as_ref().expect("the row carries the tail");
     assert_eq!(
-        crate::fleet::late_line(tail),
+        crate::fleet::late_line(usize::try_from(tail.count).unwrap(), &tail.operator),
         "a late tail of 2 events, repaired by repairer"
     );
     assert_eq!(
@@ -1044,7 +1044,10 @@ fn a_repaired_run_carries_its_late_tail_on_the_row_and_the_summary() {
     let summary = summary(&repaired, &[]);
     assert_eq!(summary.status, "stopped");
     assert_eq!(
-        summary.late_tail.as_ref().map(crate::fleet::late_line),
+        summary
+            .late_tail
+            .as_ref()
+            .map(|tail| crate::fleet::late_line(tail.count(), &tail.operator)),
         Some("a late tail of 2 events, repaired by repairer".to_string())
     );
     assert_eq!(

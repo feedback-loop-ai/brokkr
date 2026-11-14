@@ -66,8 +66,8 @@ fn a_carried_part_is_completed_and_names_its_original_attempt() {
     assert_eq!(carried.served.model.text, "—");
     assert_eq!(carried.transcript, None);
     assert!(!parts.iter().any(|part| part.key == "carrying:bad"));
-    let expected = serde_json::to_value(compare::resolutions(&events[..4])).unwrap();
-    let actual = serde_json::to_value(compare::resolutions(&events)).unwrap();
+    let expected = serde_json::to_value(compare::resolutions_at(&events[..4], None)).unwrap();
+    let actual = serde_json::to_value(compare::resolutions_at(&events, None)).unwrap();
     assert_eq!(actual["review:a"], expected["review:a"]);
     events.push(ev(
         6,

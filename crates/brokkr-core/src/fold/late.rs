@@ -67,7 +67,9 @@ pub(super) fn onto(mut state: RunState, suffix: &[EventEnvelope]) -> Result<RunS
             continue;
         }
         record_tail_type(&mut state, event);
-        if is_late(&state, event.seq) {
+        // The one late-range test, `RunState::applies`, is the fold's own:
+        // a repaired tail is kept and shown and never applied.
+        if !state.applies(event.seq) {
             continue;
         }
         apply(&mut state, event)?;
@@ -114,7 +116,7 @@ fn repair_of(state: &RunState, suffix: &[EventEnvelope]) -> Result<Option<LateTa
 }
 
 /// Is `event` an `operator/commanded` carrying the repair word?
-fn is_repair(event: &EventEnvelope) -> bool {
+pub(crate) fn is_repair(event: &EventEnvelope) -> bool {
     (event.event_type == EventType::OperatorCommanded)
         & (event.payload.get("command").and_then(Value::as_str) == Some(REPAIR))
 }
@@ -208,14 +210,6 @@ fn operator_of(event: &EventEnvelope) -> Result<String, FoldError> {
             seq: event.seq,
             detail: "it carries no operator".to_string(),
         })
-}
-
-/// Is `seq` inside the late tail the state already honours?
-fn is_late(state: &RunState, seq: u64) -> bool {
-    state
-        .late_tail
-        .as_ref()
-        .is_some_and(|tail| (tail.first_seq..=tail.last_seq).contains(&seq))
 }
 
 /// Remember the seq of the event that concluded the run: the anchor every

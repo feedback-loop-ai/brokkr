@@ -43,7 +43,7 @@ pub(super) fn summary_lines(out: &mut String, summary: Option<&Summary>, style: 
                     out,
                     &format!(
                         "late  {}",
-                        Safe::new(&brokkr_view::late_line(tail)).as_str()
+                        Safe::new(&brokkr_view::late_line(tail.count(), &tail.operator)).as_str()
                     ),
                 );
                 for event in &tail.events {

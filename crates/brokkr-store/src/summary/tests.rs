@@ -83,8 +83,14 @@ pub(super) fn reopened(store: Store) -> Store {
     Store::open(&path).unwrap()
 }
 
+/// L7 and M1: carry at the lawful classify (seq 6, applied, closing
+/// Withdrawn), then seal the break and the repair together. The repair
+/// names the carried classify late, so the row must be the WHOLE account's
+/// closing — Unclassified — not the carried one's Withdrawn. The removal
+/// control maps `Carried::Refold` to the carried account, which keeps the
+/// classify applied and fails this row.
 #[test]
-fn a_repair_that_names_a_carried_event_refolds_the_whole_account() {
+fn a_repair_that_names_a_carried_classify_refolds_the_whole_account() {
     let (_dir, mut store) = store();
     started(&mut store, "run");
     for (event_type, payload) in [
@@ -108,15 +114,35 @@ fn a_repair_that_names_a_carried_event_refolds_the_whole_account() {
         json!({"command_id": "c-classify", "command": "classify", "operator": "operator",
                "args": {"cause": "withdrawn", "reason": "late"}}),
     );
-    planted(
+    let events = store.load("run").unwrap();
+    assert_eq!(events.len(), 6, "the classify is the carried head");
+    let carried_closing = Summary::of(
+        &Account::whole("run", &events),
+        Listing {
+            feature: "",
+            created_at: "",
+        },
+    )
+    .closing
+    .expect("the carried classify closes the run");
+    assert_eq!(
+        carried_closing.ended.ending,
+        brokkr_core::ending::Ending::Withdrawn,
+        "the carried classify closes the run Withdrawn before the repair"
+    );
+
+    // The break and the repair are one suffix written after the carried
+    // head: the repair makes seq 6, which the account already applied,
+    // late, so only a whole refold can reach the row.
+    let settlement = planted(
         &store,
         "run",
         EventType::EffectSucceeded,
         json!({"effect_id": "e", "attempt_id": "a1",
                "result": {"result": "complete"}}),
     );
-    append(
-        &mut store,
+    let repair = planted(
+        &store,
         "run",
         EventType::OperatorCommanded,
         json!({"command_id": "c-repair", "command": "repair", "operator": "operator",
@@ -124,30 +150,33 @@ fn a_repair_that_names_a_carried_event_refolds_the_whole_account() {
                                         &["operator/commanded", "effect/succeeded"],
                                         "kept")}),
     );
-    let events = store.load("run").unwrap();
-    assert_eq!(events.len(), 8, "the first repair is at the head");
-    assert!(events.iter().any(|event| event.seq == 8));
-    store.carry(Account::whole("run", &events));
+    let head = events.last().unwrap();
+    let carried = Carried {
+        account: Account::whole("run", &events),
+        listed: None,
+    };
+    let tx = store.conn.transaction().unwrap();
+    let settled = judge(
+        &tx,
+        Some(&carried),
+        (6, &head.event_hash),
+        &[settlement, repair],
+    )
+    .unwrap();
+    tx.commit().unwrap();
+    assert!(matches!(settled, Settled::Carried(_)));
 
-    // A second repair names seq 6, which the carried account has already
-    // applied: `onto` must ask for a whole refold, and the writer reads
-    // the whole journal from its transaction and writes that account.
-    append(
-        &mut store,
-        "run",
-        EventType::OperatorCommanded,
-        json!({"command_id": "c-repair-2", "command": "repair", "operator": "operator",
-               "args": repair::repair_args(5, 6, 8,
-                                        &["operator/commanded", "effect/succeeded",
-                                          "operator/commanded"],
-                                        "kept again")}),
+    assert_eq!(row(&store, "run", "status"), vec![text("stopped")]);
+    assert_eq!(
+        row(&store, "run", "ending"),
+        vec![text("unclassified")],
+        "the repair made the carried Withdrawn classify late: the whole closing stands"
     );
     let Value::Text(tail) = row(&store, "run", "late_tail").remove(0) else {
         panic!("the late tail column is text");
     };
     let tail: brokkr_core::page::LateRange = serde_json::from_str(&tail).unwrap();
-    assert_eq!((tail.first_seq, tail.last_seq, tail.count), (6, 8, 3));
-    assert_eq!(row(&store, "run", "status"), vec![text("stopped")]);
+    assert_eq!((tail.first_seq, tail.last_seq, tail.count), (6, 7, 2));
 }
 
 #[test]
@@ -1310,4 +1339,29 @@ fn a_trigger_repair_keeps_a_folded_rows_own_time() {
             "the row did not move at {stamp}"
         );
     }
+}
+
+/// INFO a (the exact-coverage gate's): the refold a carried-event repair
+/// asks for reads the whole journal through `rows_in`, and a journal that
+/// does not parse refuses rather than writing a summary of nothing.
+#[test]
+fn a_refold_of_an_unreadable_journal_refuses() {
+    let (_dir, mut store) = store();
+    started(&mut store, "run");
+    append(
+        &mut store,
+        "run",
+        EventType::PhaseEntered,
+        json!({"phase": "verify"}),
+    );
+    store
+        .conn
+        .execute_batch(
+            "DROP TRIGGER events_append_only_update;
+             UPDATE events SET envelope = '{' WHERE run_id = 'run' AND seq = 1;",
+        )
+        .unwrap();
+    let refused = super::late::refold(&store.conn, "run").unwrap_err();
+    assert!(matches!(refused, crate::StoreError::Json(_)), "{refused:?}");
+    lags(&mut store, &["run"]);
 }
