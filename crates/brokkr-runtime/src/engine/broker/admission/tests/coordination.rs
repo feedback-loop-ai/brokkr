@@ -1020,3 +1020,28 @@ fn aliased(dir: &Path) {
     let shown = Conflict::Shown(evidence[0].clone());
     assert_eq!(judged("holder", &holder), Err(shown.into()));
 }
+
+/// The lock taken to release a quarantined run is held from the proof
+/// through the seal of the incoming claim: at the `between` seam the run
+/// still refuses a second driver, and only once `admit_with` returns is it
+/// free (decision 0108 ruling 3).
+#[test]
+fn a_released_runs_lock_is_held_from_the_proof_until_the_claim_is_sealed() {
+    let fixture = quarantined(&[Witnessed::Settled], None);
+    let claim = boxed_claim(&fixture.work, ["run-b", "b1"]);
+    let checked = std::cell::Cell::new(false);
+    let admitted = admit_with(&fixture.host.root, &claim, soon(), &|| {
+        let taken = crate::run_lock::take(&fixture.store, "run-a");
+        assert!(
+            matches!(taken, Err(crate::RunLockError::Driven { .. })),
+            "the released run's lock is held from the proof to the seal: {taken:?}"
+        );
+        checked.set(true);
+    });
+    assert!(checked.get(), "the seam was reached");
+    assert!(admitted.is_ok(), "the settled, quarantined run releases");
+    assert!(
+        crate::run_lock::take(&fixture.store, "run-a").is_ok(),
+        "the lock is let go only after the claim is sealed"
+    );
+}

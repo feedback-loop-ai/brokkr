@@ -27,7 +27,7 @@ use uuid::Uuid;
 
 use super::{fenced_append, EngineError, Head};
 use crate::engine::broker::settlement;
-use crate::engine::broker::settlement::release::{provenances, LockState, Proven, SettleArgs};
+use crate::engine::broker::settlement::release::{provenances, Proven, SettleArgs};
 use crate::run_lock;
 
 #[cfg(test)]
@@ -111,21 +111,14 @@ fn settle_with(
     let (reservations, _admission) =
         settlement::release::settle_locked(&root, run_id, store.path())
             .map_err(|unadmitted| refused(unadmitted.to_string()))?;
-    let present = run_lock::present(store.path(), run_id);
     let _held = run_lock::held_at(store.path(), run_id).map_err(EngineError::RunLock)?;
     let attempts = proved(&reservations).map_err(|live| refused(live.to_string()))?;
-    let lock = if present {
-        LockState::Free
-    } else {
-        LockState::None
-    };
     let payload = json!({
         "command_id": Uuid::new_v4().to_string(),
         "command": SETTLE,
         "operator": ask.operator,
         "args": SettleArgs {
             run: run_id.to_string(),
-            lock,
             attempts,
             reason: ask.reason.to_string(),
         },

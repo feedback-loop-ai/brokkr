@@ -48,8 +48,8 @@ mod retirement;
 mod sealing;
 mod support;
 pub(in crate::engine) use support::{
-    acknowledge, boxed_claim, child_lock, dead_group, isolated, quarantined, unacknowledged,
-    Fixture, LiveGroup,
+    acknowledge, boxed_claim, child_lock, dead_group, isolated, quarantined, quarantined_drivers,
+    unacknowledged, Fixture, LiveGroup,
 };
 // U8a2b's proofs read the mount table, which only Linux has (decision 0063).
 #[cfg(target_os = "linux")]

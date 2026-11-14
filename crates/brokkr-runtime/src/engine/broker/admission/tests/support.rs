@@ -40,12 +40,17 @@ impl LiveGroup {
     pub(in crate::engine) fn group(&self) -> u32 {
         self.0.id()
     }
+
+    /// End the child and reap it, so the host no longer shows its group.
+    pub(in crate::engine) fn end(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
 }
 
 impl Drop for LiveGroup {
     fn drop(&mut self) {
-        let _ = self.0.kill();
-        let _ = self.0.wait();
+        self.end();
     }
 }
 
@@ -155,8 +160,26 @@ pub(in crate::engine) fn boxed_claim(
 pub(in crate::engine) fn planted(
     host: &Host,
     worktree: &Path,
-    [run, attempt]: [&str; 2],
+    ids: [&str; 2],
     drivers: &[Witnessed],
+    group: Option<u32>,
+    journal: &Path,
+) -> Held {
+    let drivers: Vec<(&str, Witnessed, Option<u32>)> = drivers
+        .iter()
+        .map(|cleanup| ("work", *cleanup, None))
+        .collect();
+    planted_drivers(host, worktree, ids, &drivers, group, journal)
+}
+
+/// [`planted`] with each driver's own site and process group: the shape the
+/// dispatch door writes, one group per driver (decision 0108 ruling 3). The
+/// `group` is 440d's single slot, kept where a test proves its migration.
+pub(in crate::engine) fn planted_drivers(
+    host: &Host,
+    worktree: &Path,
+    [run, attempt]: [&str; 2],
+    drivers: &[(&str, Witnessed, Option<u32>)],
     group: Option<u32>,
     journal: &Path,
 ) -> Held {
@@ -164,10 +187,11 @@ pub(in crate::engine) fn planted(
     claim.journal = journal.to_path_buf();
     claim.reserved.drivers = drivers
         .iter()
-        .map(|cleanup| Driver {
-            site: "work".to_string(),
+        .map(|(site, cleanup, group)| Driver {
+            site: (*site).to_string(),
             begun: None,
             cleanup: *cleanup,
+            group: *group,
         })
         .collect();
     claim.reserved.group = group;
@@ -250,4 +274,32 @@ pub(in crate::engine) fn unacknowledged(drivers: &[Witnessed], group: Option<u32
         db,
         store,
     }
+}
+
+/// A quarantined fixture whose attempt's drivers are the sites and cleanups
+/// a panel test names, its lease returned so the test can record each
+/// driver's own group through the dispatch door's own call.
+pub(in crate::engine) fn quarantined_drivers(drivers: &[(&str, Witnessed)]) -> (Fixture, Held) {
+    let host = Host::new();
+    let work = host.worktree("work");
+    let db = host.journal("run-a.db");
+    let drivers: Vec<(&str, Witnessed, Option<u32>)> = drivers
+        .iter()
+        .map(|(site, cleanup)| (*site, *cleanup, None))
+        .collect();
+    let held = planted_drivers(&host, &work, ["run-a", "a1"], &drivers, None, &db);
+    concluded(&db, "run-a");
+    let mut store = broken(&db, "run-a");
+    acknowledge(&mut store, "run-a");
+    let stood = Coordinated::at(host.home());
+    (
+        Fixture {
+            host,
+            _stood: stood,
+            work,
+            db,
+            store,
+        },
+        held,
+    )
 }

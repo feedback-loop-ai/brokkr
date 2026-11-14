@@ -180,20 +180,21 @@ pub(in crate::engine) struct Reservation {
 
 /// What one attempt reserved: whether it protects evidence, the reach of
 /// every writer its body may start, what its engine witnessed of its
-/// drivers' cleanup, sealed as it witnesses it (R2; M1), the process group
-/// its driver leads, the sources its MCP servers are built from, none where
-/// it brokers nothing (U8a2b), and each driver it spawned's own settlement
-/// record, in spawn order (U8e2).
+/// drivers' cleanup, sealed as it witnesses it (R2; M1), the sources its
+/// MCP servers are built from, none where it brokers nothing (U8a2b), and
+/// each driver it spawned's own settlement record, in spawn order (U8e2),
+/// the process group that driver leads included (decision 0108 ruling 3).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Reserved {
     pub(super) protects: Protects,
     pub(super) writers: Vec<Writer>,
     pub(super) cleanup: Witnessed,
-    /// The process group the first driver leads, recorded before it is told
-    /// anything, so the release proof can ask the host whether it is gone
-    /// (decision 0108 ruling 3). A record written before this field proves
-    /// its attempt from the drivers' own settlement, never a guess.
+    /// The one process group 440d's shape recorded for the attempt, kept so
+    /// a record it wrote still reads. It names the *last* driver 440d
+    /// spawned, so it may prove only a single-driver attempt; every driver
+    /// spawned since records its own group on its own [`Driver`] record. A
+    /// new record leaves this absent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) group: Option<u32>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

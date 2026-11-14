@@ -368,6 +368,7 @@ mod tests {
                     site: site.to_string(),
                     begun: None,
                     cleanup,
+                    group: None,
                 })
                 .collect(),
         }

@@ -530,12 +530,13 @@ pub(super) fn spawn_site(
     }
     let process = DriverProcess::spawn(&spawn.argv, workdir, Some(deadline), &spawn.env)
         .map_err(|error| error.to_string())?;
-    // The attempt's process group is recorded before the driver is told
-    // anything, so a later release can ask the host whether it is gone
-    // (decision 0108 ruling 3). A seal that fails leaves it unrecorded:
-    // the release then reads the driver records and never guesses.
-    if let Some(Door { held, .. }) = door {
-        settlement::release::spawned(held, process.group());
+    // The driver's own process group is recorded on its own record before
+    // it is told anything, so a later release asks the host about every
+    // driver that is not settled and never about a sibling's group
+    // (decision 0108 ruling 3). A seal that fails leaves this driver
+    // without a group: the release refuses for it and never guesses.
+    if let Some(Door { held, site, .. }) = door {
+        settlement::release::spawned(held, site, process.group());
     }
     Ok((process, input))
 }

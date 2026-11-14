@@ -636,10 +636,12 @@ changes none of the bytes above either:
 already reached a terminal event, and only after `brokkr operator settle`
 re-checks the release's facts: the run is acknowledged (or repaired), its run
 lock is free or absent, and every attempt the broker's reservation names is
-proven ended by the broker's own settlement records or by the attempt's
-recorded process group being gone from the host. `run` names the run, `lock`
-says whether a lock file stood at all, `attempts` names each standing attempt
-and how it was proven, and `reason` carries the operator's sentence.
+proven ended by the broker's own settlement records or, for each driver those
+records do not prove, by that driver's own recorded process group being gone
+from the host. `run` names the run, `attempts` names each standing attempt
+and how it was proven — with the `groups` that proved any driver the records
+did not — and `reason` carries the operator's sentence. Whether a lock file
+stood is not a fact about the run, so the record states none.
 
 Nothing folds this one, and it is deliberately not read by the fold: the
 run's worktree only needs the record, and a run this verb exists for does not

@@ -378,17 +378,26 @@ pub(super) fn witnessed_by(held: &mut Option<Held>, cleanup: &Cleanup, deadline:
 /// One driver's settlement record in its attempt's reservation (U8e2;
 /// operator ruling 2026-10-21): the label of the site it was spawned for,
 /// the journal head its fold begins from, which [`Engine::begun`] took
-/// before it spawned, none where its site was sealed no broker, and what
-/// its engine witnessed of its cleanup: Settling from before it spawns,
-/// Settled once its report carried #403's proof. It names no process and
-/// starts no scanner: it makes durable a proof the engine already holds,
-/// and is no launch model (D6).
+/// before it spawned, none where its site was sealed no broker, what its
+/// engine witnessed of its cleanup: Settling from before it spawns, Settled
+/// once its report carried #403's proof, and the process group it leads,
+/// recorded after it spawns and before it is told anything (decision 0108
+/// ruling 3). It names no process and starts no scanner: it makes durable a
+/// proof the engine already holds, and is no launch model (D6).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Driver {
     pub(super) site: String,
     pub(super) begun: Option<(u64, String)>,
     pub(super) cleanup: Witnessed,
+    /// The process group this driver leads: its own pid, recorded before it
+    /// is told anything, so a release asks the host about *this* driver and
+    /// never about a sibling's group (decision 0108 ruling 3). Absent where
+    /// the record was written before the field, where the amend that writes
+    /// it failed, or where the spawn wrote none; such a driver is never
+    /// proven by a group.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) group: Option<u32>,
 }
 
 /// The driver about to spawn at the site `site` of the attempt in flight
@@ -418,6 +427,7 @@ pub(in crate::engine) fn spawning(
             site,
             begun,
             cleanup,
+            group: None,
         };
         reserved.ok_or(Unknown::Lost)?.drivers.push(driver);
         Ok(reservation)

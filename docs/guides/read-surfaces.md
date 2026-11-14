@@ -953,15 +953,36 @@ acknowledge --run <id> --reason <why>`, which records that the run was
 looked at beside its chain; acknowledgement alone releases nothing. Then,
 optionally and only for the history, `brokkr operator repair --run <id>
 --reason <why>`, so the run folds again with its late tail kept and never
-applied. Finally the release itself: a new dispatch admits once the run's
-lock is free and every attempt the broker's own reservation names is
-proven ended, and where its records cannot prove one, `brokkr operator
-settle --run <id> --reason <why>` re-checks the same facts from the
-records and the host and journals what it proved — refusing, and writing
-nothing, while a lock holder, a live process group or an unproven attempt
-still stands. A shape (B) journal from an older engine, such as 0.12.0's
-stop after a conclusion, is recovered the same way on a copy opened with
-this release: acknowledge, repair, settle, and never a hand edit.
+applied. A repair moves the head past the acknowledgement and lapses it
+(#511), but the repair record is itself the operator's word that the run was
+looked at, so it stands where the acknowledgement stood; a folding run cannot
+be acknowledged again.
+
+The release itself is the broker's proof, not the run's fold: a new dispatch
+admits once the run's lock is free and every attempt the broker's own
+reservation names is proven ended — each driver sealed Settled, or that
+driver's own recorded process group gone from the host. Where a driver is
+not sealed and its group cannot be asked, `brokkr operator settle --run <id>
+--reason <why>` re-checks the same facts and journals what it proved,
+refusing and writing nothing while a lock holder, a live process group or an
+unproven attempt still stands. A reservation written before this release
+records its drivers but no group (0.13.x; 0.12.0 wrote no reservation at
+all), so `settle` cannot prove one of its drivers: repair the run first, then
+`brokkr operator release --run <id> --reason <why>`, the operator's
+attestation that every process those attempts owned has ended. `release`
+asks the host no process question — that is what the attestation is for —
+so it is the route only after the operator has looked. It is also the route
+where the host shows a recorded group id still alive because an unrelated
+process now reuses it: no proof can tell them apart, so the worktree stays
+held until the operator attests.
+
+A shape (B) journal from an older engine, such as 0.12.0's stop after a
+conclusion, is recovered the same way on a copy opened with this release:
+acknowledge, repair, then the proof, `settle`, or `release` as above, and
+never a hand edit. The copy must sit at the path the reservation names for
+its journal, because that is the journal the proof and the record both read;
+a journal under the worktree itself refuses fail-closed, since a writer of
+the run could reach it.
 
 ### Gate entries on a run
 

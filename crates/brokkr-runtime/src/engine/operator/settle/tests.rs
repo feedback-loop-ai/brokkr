@@ -42,6 +42,16 @@ fn ask() -> Settle<'static> {
     }
 }
 
+/// A later run's claim on the fixture's worktree: what the release admits
+/// or refuses.
+fn next(
+    fixture: &Fixture,
+) -> Result<crate::engine::broker::admission::Held, crate::engine::broker::admission::Unadmitted> {
+    fixture
+        .host
+        .admit(&boxed_claim(&fixture.work, ["run-b", "b1"]))
+}
+
 /// Settle writes the contract's record where the records prove nothing but
 /// the host does, reads it back by type, follows it with no acceptance, and
 /// leaves the run as unfolded as it found it: settle is no repair.
@@ -49,9 +59,7 @@ fn ask() -> Settle<'static> {
 fn settle_writes_the_record_its_contract_names_and_leaves_the_run_unfolded() {
     let mut fixture = quarantined(&[Witnessed::Settling], Some(dead_group()));
     assert_eq!(
-        fixture
-            .host
-            .admit(&boxed_claim(&fixture.work, ["run-b", "b1"])),
+        next(&fixture),
         cr2(Conflict::Held("run-a".into())),
         "the records do not prove the attempt, so the worktree holds"
     );
@@ -66,7 +74,7 @@ fn settle_writes_the_record_its_contract_names_and_leaves_the_run_unfolded() {
     payload["command_id"] = json!("the id");
     assert_eq!(written.event_type, EventType::OperatorCommanded);
     assert!(!id.is_empty());
-    let group = written.payload["args"]["attempts"][0]["group"].clone();
+    let group = written.payload["args"]["attempts"][0]["groups"][0].clone();
     assert_eq!(
         payload,
         json!({
@@ -75,23 +83,22 @@ fn settle_writes_the_record_its_contract_names_and_leaves_the_run_unfolded() {
             "operator": "operator",
             "args": {
                 "run": "run-a",
-                "lock": "free",
-                "attempts": [{"attempt": "a1", "proof": "group", "group": group}],
+                "attempts": [{"attempt": "a1", "proof": "group", "groups": [group]}],
                 "reason": "the group is gone",
             },
         }),
-        "the record names the run, the lock and the attempt it proved"
+        "the record names the run, the attempt and the group it proved"
     );
     // The args are the published contract, not this test's idea of it.
     published_args(
         "contracts/operator-settle.v1.schema.json",
         &written.payload["args"],
-        &json!({"lock": "free", "attempts": [], "reason": "why"}),
+        &json!({"attempts": [], "reason": "why"}),
     );
     published_args(
         "contracts/operator-settle.v1.schema.json",
         &written.payload["args"],
-        &json!({"run": "run-a", "lock": "free", "attempts": [],
+        &json!({"run": "run-a", "attempts": [],
                 "reason": "why", "extra": true}),
     );
     let after = fixture.store.load("run-a").unwrap();
@@ -228,7 +235,11 @@ fn settle_refuses_a_head_a_peer_moved_and_writes_nothing() {
 /// the broker's settled drivers are the proof.
 #[test]
 fn settle_settles_a_repaired_run_the_acknowledgement_lapsed() {
-    let mut fixture = unacknowledged(&[Witnessed::Settled], None);
+    let mut fixture = quarantined(&[Witnessed::Settled], None);
+    assert!(
+        fixture.store.acknowledgement("run-a").unwrap().is_some(),
+        "the run is acknowledged before the repair lapses it"
+    );
     crate::engine::operator_repair(
         &mut fixture.store,
         "run-a",
@@ -247,13 +258,24 @@ fn settle_settles_a_repaired_run_the_acknowledgement_lapsed() {
     assert_eq!(written.payload["args"]["attempts"][0]["proof"], "records");
 }
 
-/// A run whose lock file never stood is settled with `lock: none`: a run a
-/// binary before decision 0108 journaled has no lock, and its lock is free.
+/// The settle record carries no `lock` fact: whether a lock file stood says
+/// nothing of the run, and a refused dispatch creates the file before this
+/// verb ever looks (decision 0071 ruling 6). The record names only what it
+/// proved.
 #[test]
-fn settle_names_a_run_that_had_no_lock_file() {
+fn settle_writes_no_lock_fact_about_the_run() {
     let mut fixture = quarantined(&[Witnessed::Settling], Some(dead_group()));
+    assert_eq!(
+        next(&fixture),
+        cr2(Conflict::Held("run-a".into())),
+        "a refused dispatch comes first, and creates the lock file"
+    );
     let written = operator_settle(&mut fixture.store, "run-a", &ask()).unwrap();
-    assert_eq!(written.payload["args"]["lock"], "none");
+    assert!(
+        written.payload["args"].get("lock").is_none(),
+        "the record states no fact about the lock file: {}",
+        written.payload["args"]
+    );
     assert_eq!(
         written.payload["args"]["attempts"][0]["proof"], "group",
         "the host's word is the proof where no driver is settled"
@@ -285,7 +307,7 @@ fn a_settle_record_whose_args_do_not_read_is_no_record() {
                 "command_id": "c",
                 "command": "settle",
                 "operator": "operator",
-                "args": {"run": "run-a", "lock": "free", "attempts": [{"attempt": "a1",
+                "args": {"run": "run-a", "attempts": [{"attempt": "a1",
                           "proof": "vibes"}], "reason": "why"},
             }),
             None,
