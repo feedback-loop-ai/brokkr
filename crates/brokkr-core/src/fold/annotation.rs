@@ -5,13 +5,17 @@
 //! (decision 0108 ruling 3, unit 3b). The bridge's door refuses every one
 //! before it journals it; the list has one home here.
 
+/// The command word an operator's settle record carries: `operator/commanded`
+/// with this word and the args of contracts/operator-settle.v1.schema.json
+/// (decision 0108 ruling 3, in ruling 4's erratum shape after decision 0047).
+pub const SETTLE: &str = "settle";
+
 /// The annotation words, one list the bridge reads.
 pub(crate) const RESERVED_ANNOTATIONS: [&str; 4] = [
     super::REPAIR,
     crate::ending::CLASSIFY,
     crate::residual::SUPERSEDE,
-    // 440d builds `operator settle`; a command word cannot stand in for it.
-    "settle",
+    SETTLE,
 ];
 
 /// Is `word` reserved for an operator annotation? The bridge asks before

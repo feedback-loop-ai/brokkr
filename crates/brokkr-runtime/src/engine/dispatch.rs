@@ -528,9 +528,16 @@ pub(super) fn spawn_site(
     if let Some(Door { held, site, begun }) = door {
         settlement::spawning(held, site, begun).map_err(|refusal| refusal.to_string())?;
     }
-    DriverProcess::spawn(&spawn.argv, workdir, Some(deadline), &spawn.env)
-        .map(|process| (process, input))
-        .map_err(|error| error.to_string())
+    let process = DriverProcess::spawn(&spawn.argv, workdir, Some(deadline), &spawn.env)
+        .map_err(|error| error.to_string())?;
+    // The attempt's process group is recorded before the driver is told
+    // anything, so a later release can ask the host whether it is gone
+    // (decision 0108 ruling 3). A seal that fails leaves it unrecorded:
+    // the release then reads the driver records and never guesses.
+    if let Some(Door { held, .. }) = door {
+        settlement::release::spawned(held, process.group());
+    }
+    Ok((process, input))
 }
 
 /// Decision 0048's walk refusal, worded for the spawn it refused (#832).

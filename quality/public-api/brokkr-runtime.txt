@@ -1394,6 +1394,7 @@ pub brokkr_runtime::engine::EngineError::ReservedCommand
 pub brokkr_runtime::engine::EngineError::ReservedCommand::run_id: alloc::string::String
 pub brokkr_runtime::engine::EngineError::ReservedCommand::word: alloc::string::String
 pub brokkr_runtime::engine::EngineError::RunLock(brokkr_runtime::RunLockError)
+pub brokkr_runtime::engine::EngineError::SettleRefused(alloc::string::String)
 pub brokkr_runtime::engine::EngineError::Store(brokkr_store::StoreError)
 pub brokkr_runtime::engine::EngineError::SupersedeRefused(alloc::string::String)
 pub brokkr_runtime::engine::EngineError::UnbuiltBoundary
@@ -1469,6 +1470,9 @@ pub brokkr_runtime::engine::Named::reason: &'a str
 pub struct brokkr_runtime::engine::Repair<'a>
 pub brokkr_runtime::engine::Repair::operator: &'a str
 pub brokkr_runtime::engine::Repair::reason: &'a str
+pub struct brokkr_runtime::engine::Settle<'a>
+pub brokkr_runtime::engine::Settle::operator: &'a str
+pub brokkr_runtime::engine::Settle::reason: &'a str
 pub struct brokkr_runtime::engine::SiteSpawn
 pub brokkr_runtime::engine::SiteSpawn::argv: alloc::vec::Vec<alloc::string::String>
 pub brokkr_runtime::engine::SiteSpawn::charter: core::option::Option<brokkr_runtime::bundle::CharterPin>
@@ -1507,6 +1511,7 @@ pub fn brokkr_runtime::engine::named_cause(brokkr_runtime::Verb, core::option::O
 pub fn brokkr_runtime::engine::operator_classify(&mut brokkr_store::Store, &brokkr_store::Store, &str, &brokkr_runtime::Named<'_>) -> core::result::Result<brokkr_core::envelope::EventEnvelope, brokkr_runtime::engine::EngineError>
 pub fn brokkr_runtime::engine::operator_command(&mut brokkr_store::Store, &str, brokkr_core::fold::OperatorCommand, &str, &str) -> core::result::Result<brokkr_runtime::FencedCommandOutcome, brokkr_runtime::engine::EngineError>
 pub fn brokkr_runtime::engine::operator_repair(&mut brokkr_store::Store, &str, &brokkr_runtime::Repair<'_>) -> core::result::Result<brokkr_core::envelope::EventEnvelope, brokkr_runtime::engine::EngineError>
+pub fn brokkr_runtime::engine::operator_settle(&mut brokkr_store::Store, &str, &brokkr_runtime::Settle<'_>) -> core::result::Result<brokkr_core::envelope::EventEnvelope, brokkr_runtime::engine::EngineError>
 pub fn brokkr_runtime::engine::operator_stop(&mut brokkr_store::Store, &brokkr_store::Store, &str, &brokkr_runtime::Named<'_>) -> core::result::Result<brokkr_runtime::FencedCommandOutcome, brokkr_runtime::engine::EngineError>
 pub fn brokkr_runtime::engine::operator_supersede(&mut brokkr_store::Store, &brokkr_store::Store, &str, &brokkr_runtime::Supersede<'_>) -> core::result::Result<brokkr_core::envelope::EventEnvelope, brokkr_runtime::engine::EngineError>
 pub fn brokkr_runtime::engine::result_door(brokkr_core::realms::Boundary, bool, core::option::Option<&brokkr_runtime::bundle::SiteFacts>, core::option::Option<&brokkr_runtime::agents::Candidate>) -> brokkr_runtime::agents::ResultDoor
@@ -1938,6 +1943,7 @@ pub brokkr_runtime::EngineError::ReservedCommand
 pub brokkr_runtime::EngineError::ReservedCommand::run_id: alloc::string::String
 pub brokkr_runtime::EngineError::ReservedCommand::word: alloc::string::String
 pub brokkr_runtime::EngineError::RunLock(brokkr_runtime::RunLockError)
+pub brokkr_runtime::EngineError::SettleRefused(alloc::string::String)
 pub brokkr_runtime::EngineError::Store(brokkr_store::StoreError)
 pub brokkr_runtime::EngineError::SupersedeRefused(alloc::string::String)
 pub brokkr_runtime::EngineError::UnbuiltBoundary
@@ -2226,6 +2232,9 @@ pub brokkr_runtime::SequenceStep::ends_on: alloc::vec::Vec<alloc::string::String
 pub brokkr_runtime::SequenceStep::hard_results: alloc::vec::Vec<alloc::string::String>
 pub brokkr_runtime::SequenceStep::name: alloc::string::String
 pub brokkr_runtime::SequenceStep::results: alloc::vec::Vec<alloc::string::String>
+pub struct brokkr_runtime::Settle<'a>
+pub brokkr_runtime::Settle::operator: &'a str
+pub brokkr_runtime::Settle::reason: &'a str
 pub struct brokkr_runtime::Supersede<'a>
 pub brokkr_runtime::Supersede::by_realm: core::option::Option<&'a str>
 pub brokkr_runtime::Supersede::by_run: &'a str
@@ -2269,6 +2278,7 @@ pub fn brokkr_runtime::named_cause(brokkr_runtime::Verb, core::option::Option<&s
 pub fn brokkr_runtime::operator_classify(&mut brokkr_store::Store, &brokkr_store::Store, &str, &brokkr_runtime::Named<'_>) -> core::result::Result<brokkr_core::envelope::EventEnvelope, brokkr_runtime::engine::EngineError>
 pub fn brokkr_runtime::operator_command(&mut brokkr_store::Store, &str, brokkr_core::fold::OperatorCommand, &str, &str) -> core::result::Result<brokkr_runtime::FencedCommandOutcome, brokkr_runtime::engine::EngineError>
 pub fn brokkr_runtime::operator_repair(&mut brokkr_store::Store, &str, &brokkr_runtime::Repair<'_>) -> core::result::Result<brokkr_core::envelope::EventEnvelope, brokkr_runtime::engine::EngineError>
+pub fn brokkr_runtime::operator_settle(&mut brokkr_store::Store, &str, &brokkr_runtime::Settle<'_>) -> core::result::Result<brokkr_core::envelope::EventEnvelope, brokkr_runtime::engine::EngineError>
 pub fn brokkr_runtime::operator_stop(&mut brokkr_store::Store, &brokkr_store::Store, &str, &brokkr_runtime::Named<'_>) -> core::result::Result<brokkr_runtime::FencedCommandOutcome, brokkr_runtime::engine::EngineError>
 pub fn brokkr_runtime::operator_supersede(&mut brokkr_store::Store, &brokkr_store::Store, &str, &brokkr_runtime::Supersede<'_>) -> core::result::Result<brokkr_core::envelope::EventEnvelope, brokkr_runtime::engine::EngineError>
 pub fn brokkr_runtime::plant_keep_refs(&brokkr_store::Store, &std::path::Path, &str) -> core::result::Result<brokkr_runtime::keep_refs::Planted, brokkr_runtime::keep_refs::KeepRefsError>

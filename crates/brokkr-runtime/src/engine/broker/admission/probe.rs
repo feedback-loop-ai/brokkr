@@ -360,6 +360,7 @@ mod tests {
             protects: Protects::Nothing,
             writers: Vec::new(),
             cleanup,
+            group: None,
             serves: Vec::new(),
             drivers: drivers
                 .into_iter()

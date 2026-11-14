@@ -100,9 +100,9 @@ use brokkr_core::fold::{
 pub use carry::CarryRefusal;
 pub use operator::{
     apply_fenced_operator_command, conclude, named_cause, operator_classify, operator_command,
-    operator_repair, operator_stop, operator_supersede, Cause, CauseRefusal, CommandWord,
-    ConcludeRefusal, FencedCommand, FencedCommandOutcome, Flag, MemberRetryOutcome, Named, Repair,
-    Supersede, Verb,
+    operator_repair, operator_settle, operator_stop, operator_supersede, Cause, CauseRefusal,
+    CommandWord, ConcludeRefusal, FencedCommand, FencedCommandOutcome, Flag, MemberRetryOutcome,
+    Named, Repair, Settle, Supersede, Verb,
 };
 #[cfg(test)]
 use operator::{
@@ -220,6 +220,12 @@ pub enum EngineError {
     /// read and the journal stays exactly as it was.
     #[error("repair refused, nothing was written: {0}")]
     RepairRefused(String),
+    /// `settle` refused the run or a fact it would prove, and wrote
+    /// nothing (decision 0108 ruling 3). Like a repair there is no pending
+    /// command to dispose of, so the refusal is the operator's to read and
+    /// the journal stays exactly as it was.
+    #[error("settle refused, nothing was written: {0}")]
+    SettleRefused(String),
     /// The bridge was sent a word an operator annotation carries
     /// (`repair`, `settle`, `classify`, `supersede`). It refuses before
     /// journaling anything: a word a remote caller can choose must never

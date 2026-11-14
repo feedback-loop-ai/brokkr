@@ -940,9 +940,28 @@ events stay in the journal, and they are marked as the tail an operator
 named. It refuses, writing nothing, a run with no terminal event, a run
 that already folds (no late tail, or already repaired and left alone),
 and a journal that faults for any other reason. Whether the worktree is
-released is the broker's proof from its own records, not the run's fold;
-when the record still names an attempt with no sealed settlement, that is
-`operator settle`'s job, which 440d builds (decision 0108 ruling 3).
+released is the broker's proof from its own records, not the run's fold
+(decision 0108 ruling 3).
+
+#### A worktree a broken run holds
+
+A run that stopped folding holds its worktree until its writers are proven
+ended: every later dispatch there refuses with "run '…' holds this
+worktree, its writers not proven settled". The way back is three operator
+acts, and none of them edits the journal. First `brokkr operator
+acknowledge --run <id> --reason <why>`, which records that the run was
+looked at beside its chain; acknowledgement alone releases nothing. Then,
+optionally and only for the history, `brokkr operator repair --run <id>
+--reason <why>`, so the run folds again with its late tail kept and never
+applied. Finally the release itself: a new dispatch admits once the run's
+lock is free and every attempt the broker's own reservation names is
+proven ended, and where its records cannot prove one, `brokkr operator
+settle --run <id> --reason <why>` re-checks the same facts from the
+records and the host and journals what it proved — refusing, and writing
+nothing, while a lock holder, a live process group or an unproven attempt
+still stands. A shape (B) journal from an older engine, such as 0.12.0's
+stop after a conclusion, is recovered the same way on a copy opened with
+this release: acknowledge, repair, settle, and never a hand edit.
 
 ### Gate entries on a run
 

@@ -564,6 +564,7 @@ fn a_standing_unbounded_writer_refuses_a_retirement() {
                     reach: Reach::Unbounded,
                 }],
                 cleanup: Witnessed::Settling,
+                group: None,
                 serves: Vec::new(),
                 drivers: Vec::new(),
             },

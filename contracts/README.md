@@ -566,6 +566,7 @@ Decision 0047 adds one more file and changes none of the bytes above:
 | Operator ending args | `operator-ending.v1.schema.json` | brokkr-runtime (the verb), brokkr-core (the ending reading), the fleet dossier |
 | Operator supersede args | `operator-supersede.v1.schema.json` | brokkr-runtime (the verb), brokkr-view, the fleet dossier |
 | Operator repair args | `operator-repair.v1.schema.json` | brokkr-runtime (the verb), brokkr-core (the fold reading), brokkr-view, the fleet dossier |
+| Operator settle args | `operator-settle.v1.schema.json` | brokkr-runtime (the verb and the broker's release proof) |
 
 `operator-supersede.v1` is a payload schema over `operator/commanded.args`
 for `command: "supersede"` and nothing else. The v1 event envelope, the
@@ -626,6 +627,27 @@ when it is folded; a repair that names any other range, or that stands
 before the terminal event, is refused by name. An unrepaired late tail still
 fails the fold as it did before, and the hash chain is untouched: nothing is
 edited or deleted.
+
+Decision 0108 ruling 3, in the same erratum shape, adds one more file and
+changes none of the bytes above either:
+
+`operator-settle.v1` is a payload schema over `operator/commanded.args` for
+`command: "settle"` and nothing else. It is written only on a run that has
+already reached a terminal event, and only after `brokkr operator settle`
+re-checks the release's facts: the run is acknowledged (or repaired), its run
+lock is free or absent, and every attempt the broker's reservation names is
+proven ended by the broker's own settlement records or by the attempt's
+recorded process group being gone from the host. `run` names the run, `lock`
+says whether a lock file stood at all, `attempts` names each standing attempt
+and how it was proven, and `reason` carries the operator's sentence.
+
+Nothing folds this one, and it is deliberately not read by the fold: the
+run's worktree only needs the record, and a run this verb exists for does not
+fold at all. The broker's exclusion reads it by type after the same guarded
+journal read the settlement proof uses — a journal no participant's writer
+could reach — and honours it as the proof for that run. A record that names
+an attempt the reservation does not name, or one whose process group the
+host still shows alive, does not release. No `operator/accepted` follows it.
 
 Proposed decision 0056 (same-instance session resumption) adds one file and
 changes none of the bytes above:

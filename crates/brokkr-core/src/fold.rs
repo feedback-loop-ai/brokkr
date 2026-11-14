@@ -26,7 +26,7 @@ mod late;
 pub use late::{LateTail, REPAIR};
 
 mod annotation;
-pub use annotation::reserved_annotation;
+pub use annotation::{reserved_annotation, SETTLE};
 
 mod run;
 pub use run::{ParkReason, Run};

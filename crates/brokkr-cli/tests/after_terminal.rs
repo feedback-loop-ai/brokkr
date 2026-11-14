@@ -393,3 +393,53 @@ fn an_operator_repair_on_a_live_run_refuses_and_writes_nothing() {
     let after = brokkr_store::Store::open_read_only(Path::new(&db)).unwrap();
     assert_eq!(after.load("late").unwrap().len(), before);
 }
+
+/// `brokkr operator settle` on a run no acknowledgement stands on refuses,
+/// writes nothing, and names the command that answers it (decision 0108
+/// ruling 3): the proof never runs against a journal the operator has not
+/// looked at.
+#[test]
+fn an_operator_settle_of_an_unacknowledged_run_refuses_and_writes_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db").to_str().unwrap().to_string();
+    started(Path::new(&db));
+    let concluded = brokkr(
+        dir.path(),
+        &[
+            "conclude",
+            "--run",
+            "late",
+            "--cause",
+            "withdrawn",
+            "--reason",
+            "closing",
+            "--db",
+            &db,
+        ],
+    );
+    assert_eq!(concluded.status.code(), Some(3), "{concluded:?}");
+    let before = brokkr_store::Store::open_read_only(Path::new(&db))
+        .unwrap()
+        .load("late")
+        .unwrap()
+        .len();
+    let refused = brokkr(
+        dir.path(),
+        &[
+            "operator", "settle", "--run", "late", "--reason", "why", "--db", &db,
+        ],
+    );
+    assert_eq!(refused.status.code(), Some(1), "{refused:?}");
+    let said = String::from_utf8_lossy(&refused.stderr);
+    assert!(
+        said.contains("settle refused, nothing was written: run 'late' is not acknowledged")
+            && said.contains("brokkr operator acknowledge --run late"),
+        "{said}"
+    );
+    let after = brokkr_store::Store::open_read_only(Path::new(&db))
+        .unwrap()
+        .load("late")
+        .unwrap()
+        .len();
+    assert_eq!(after, before, "nothing was written");
+}

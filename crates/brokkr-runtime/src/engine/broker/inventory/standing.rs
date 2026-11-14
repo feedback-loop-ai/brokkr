@@ -110,8 +110,9 @@ impl Attempt {
     }
 
     /// Whether its engine sealed its positive settlement fact (M1): never
-    /// one this build does not know.
-    fn proved(&self) -> bool {
+    /// one this build does not know. The release's proof reads it through
+    /// the view of another build's record (decision 0108 ruling 3).
+    pub(in crate::engine::broker) fn proved(&self) -> bool {
         match self.cleanup {
             Tolerated::Known(Witnessed::Settled) => true,
             Tolerated::Known(Witnessed::Settling | Witnessed::Unresolved)

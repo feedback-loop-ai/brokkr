@@ -73,6 +73,7 @@ use crate::engine::{Engine, EngineError};
 
 mod attestation;
 pub(in crate::engine) use attestation::attested;
+pub(in crate::engine) mod release;
 
 /// How an attempt's terminal event ended it, as its settlement reads it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -654,8 +655,7 @@ pub(super) fn recovered(
     // Every participant's writers, the incoming attempt's and every
     // standing one's: recovery trusts a reservation's journal only where
     // none of them could have forged its unkeyed hash chain (R2).
-    let mut writers: Vec<Writing> = incoming.iter().map(Writing::from).collect();
-    writers.extend(found.iter().flat_map(Standing::writers).cloned());
+    let writers = reaching(incoming, &found);
     let writers: Vec<&Writing> = writers.iter().collect();
     let (mut standing, mut commit) = (Vec::with_capacity(found.len()), Commit::Synced);
     for mut reservation in found {
@@ -675,6 +675,16 @@ pub(super) fn recovered(
         standing.push(Standing::from(recovered));
     }
     Ok((standing, commit))
+}
+
+/// Every participant's writers, the incoming attempt's and every standing
+/// one's: the one set recovery and the release's proof both read, so a
+/// journal either of them trusts is a journal none of them could have
+/// forged (R2; decision 0108 ruling 3).
+pub(super) fn reaching(incoming: &[Writer], standing: &[Standing]) -> Vec<Writing> {
+    let mut writers: Vec<Writing> = incoming.iter().map(Writing::from).collect();
+    writers.extend(standing.iter().flat_map(Standing::writers).cloned());
+    writers
 }
 
 /// The standing attempts of `reservation` whose engine sealed their
@@ -705,6 +715,16 @@ fn journal(
     writers: &[&Writing],
     budget: &Budget,
 ) -> Option<Vec<EventEnvelope>> {
+    opened(path, writers, budget)?.load(run).ok()
+}
+
+/// The journal at `path` opened read-only under the proof's guards: no
+/// participant's writer may reach it, its directory or a WAL sibling (R2),
+/// the deadline must still be ahead, and the journal and any sibling that
+/// stands must be regular files of one link, opened without following a
+/// link or blocking (L5). One home for every read of a run that decides a
+/// release, so the fold's absence is never the only thing that proves it.
+pub(super) fn opened(path: &Path, writers: &[&Writing], budget: &Budget) -> Option<Store> {
     if reachable(path, writers) {
         return None;
     }
@@ -714,7 +734,7 @@ fn journal(
     (regular(path).is_some() & siblings.iter().all(standing)).then_some(())?;
     let mut store = Store::open_read_only(path).ok()?;
     store.set_patience(budget.left()).ok()?;
-    store.load(run).ok()
+    Some(store)
 }
 
 /// The SQLite sibling of the journal at `path` that ends in `suffix`.

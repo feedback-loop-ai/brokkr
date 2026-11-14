@@ -30,6 +30,7 @@ pub use retry::MemberRetryOutcome;
 mod receipt;
 mod release;
 mod repair;
+mod settle;
 mod supersede;
 pub use classify::operator_classify;
 pub(super) use conclusion::operator_stop_reason;
@@ -40,6 +41,7 @@ pub use ending::{named_cause, operator_stop, Cause, CauseRefusal, Flag, Named, V
 #[cfg(test)]
 pub(super) use release::released_racing;
 pub use repair::{operator_repair, Repair};
+pub use settle::{operator_settle, Settle};
 #[cfg(test)]
 pub(super) use supersede::operator_supersede_racing;
 pub use supersede::{operator_supersede, Supersede};

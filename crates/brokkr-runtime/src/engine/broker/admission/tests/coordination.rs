@@ -576,10 +576,10 @@ fn every_step_under_the_lock_spends_the_shared_deadline() {
         coordination: &host.root,
     };
     let expired = || Budget::new(Instant::now());
-    let unknown = |unknown| Err(Unadmitted::Identity(unknown));
+    let unknown = |unknown| Err::<(), Unadmitted>(Unadmitted::Identity(unknown));
     assert_eq!(
-        compared(&comparison, &mut expired()),
-        unknown(Unknown::Expired)
+        compared(&comparison, &mut expired()).err(),
+        unknown(Unknown::Expired).err()
     );
     let held = host
         .admit(&claim(&work, ["run-a", "a1"], Protects::Nothing, &[]))
@@ -997,7 +997,7 @@ fn aliased(dir: &Path) {
             historical: &evidence,
             coordination: &coordination,
         };
-        compared(&comparison, &mut Budget::new(soon()))
+        compared(&comparison, &mut Budget::new(soon())).map(drop)
     };
     assert_eq!(judged("alias", &alias), Ok(()), "before the bind");
     assert_eq!(judged("holder", &holder), Ok(()), "before the bind");

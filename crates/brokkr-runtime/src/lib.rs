@@ -37,9 +37,10 @@ pub use bundle::{
 pub use dispatch::{reconcile, take_dispatch, Dispatcher, DispatcherError, Settled};
 pub use engine::{
     apply_fenced_operator_command, conclude, git_head, named_cause, operator_classify,
-    operator_command, operator_repair, operator_stop, operator_supersede, CarryRefusal, Cause,
-    CauseRefusal, CommandWord, ConcludeRefusal, DriveEnd, Engine, EngineError, FencedCommand,
-    FencedCommandOutcome, Flag, MemberRetryOutcome, Named, Repair, Supersede, Verb,
+    operator_command, operator_repair, operator_settle, operator_stop, operator_supersede,
+    CarryRefusal, Cause, CauseRefusal, CommandWord, ConcludeRefusal, DriveEnd, Engine, EngineError,
+    FencedCommand, FencedCommandOutcome, Flag, MemberRetryOutcome, Named, Repair, Settle,
+    Supersede, Verb,
 };
 pub use keep_refs::{
     delete as delete_keep_refs, list as list_keep_refs, plant as plant_keep_refs, plant_or_report,

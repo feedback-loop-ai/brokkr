@@ -1,0 +1,51 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://feedback-loop.ai/forge/contracts/operator-settle.v1.json",
+  "title": "Forge operator settle args v1 (a payload value at event_schema 1)",
+  "description": "The shape of operator/commanded.args for command 'settle', and for nothing else (decision 0108 ruling 3, in the shape its 2026-11-13 erratum gives it after decision 0047). This is not a widening of the v1 event envelope: 'command' is already an open string there and 'args' an already-legal open object the reducer never reads, so a new command word with structured args is a v1 event byte for byte - no new event type, no new payload field, no manifest digest moved. The operator writes it only on a run that has already reached a terminal event, and only after re-checking the release's facts: the run is acknowledged (or repaired), its run lock is free or absent, and every attempt the broker's reservation names is proven ended by the broker's own settlement records or by the process group it records being gone from the host. 'run' names the run the facts were checked for, 'lock' says whether a lock file stood at all, 'attempts' names each attempt the broker's record still held standing and how it was proven, and 'reason' carries the operator's sentence. The exclusion honours the record as the proof for that run, read by type and never by folding the run; a record that names an attempt the broker's reservation does not name, or one whose process group the host still shows alive, does not release. No operator/accepted follows: there is nothing to execute, and fold refuses an acceptance on a terminal run by design.",
+  "type": "object",
+  "required": ["run", "lock", "attempts", "reason"],
+  "additionalProperties": false,
+  "properties": {
+    "run": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The run whose worktree the record releases: the run the reservation and the lock were read for."
+    },
+    "lock": {
+      "type": "string",
+      "enum": ["free", "none"],
+      "description": "What stood of the run's lock: 'free' where its lock file stood and the lock was free when it was taken, 'none' where a binary before decision 0108 left no file at all."
+    },
+    "attempts": {
+      "type": "array",
+      "description": "Each attempt the broker's own reservation still named standing, and how it was proven ended. An empty list is a run whose record names no standing attempt.",
+      "items": {
+        "type": "object",
+        "required": ["attempt", "proof"],
+        "additionalProperties": false,
+        "properties": {
+          "attempt": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The attempt id the broker's reservation names."
+          },
+          "proof": {
+            "type": "string",
+            "enum": ["records", "group"],
+            "description": "'records' where every driver it spawned sealed Settled in the reservation, or it spawned none; 'group' where the records prove nothing and the process group the reservation records is gone from the host."
+          },
+          "group": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "The attempt's process group as the reservation records it, when it records one. The exclusion asks the host again before it honours the record."
+          }
+        }
+      }
+    },
+    "reason": {
+      "type": "string",
+      "description": "The operator's own sentence. It rides here rather than on an operator/accepted, because a settle has no acceptance: the commanded event is the whole record."
+    }
+  }
+}

@@ -64,7 +64,7 @@ pub(in crate::engine) fn attested(
 /// inventory reads them within `budget`, each read whole; refused where one
 /// was read only through the view, for that is never sealed (decision
 /// 0090).
-fn reserved_for(
+pub(super) fn reserved_for(
     root: &Root,
     run: &str,
     journal: &Path,

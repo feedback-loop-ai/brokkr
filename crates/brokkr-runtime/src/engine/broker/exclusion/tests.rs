@@ -1,103 +1,110 @@
-//! Decision 0108 ruling 4's worktree release, as far as this unit owns it.
-//!
-//! Repair makes a broken run fold again as its terminal status. It does
-//! NOT release the worktree, because the broker's exclusion counts the
-//! run's standing attempts in its own reservation records, not its fold:
-//! `leased` refuses any other run while an attempt stands, and an attempt
-//! whose engine never sealed its positive settlement fact still stands
-//! after the repair. That release is decision 0108 ruling 3 (440d).
+//! Decision 0108 ruling 3's worktree release: a quarantined run stops
+//! holding its worktree once its run lock is free and every attempt its own
+//! reservation names is proven ended by the broker's records and the host,
+//! never by the run's fold. The proof's own unit tests live beside the
+//! verb; these are the admission's, over the comparison that refuses.
 
 use brokkr_core::envelope::EventType;
 use brokkr_core::fold::{fold, Run};
-use brokkr_store::test_support::{lags, plant_chained};
-use brokkr_store::{Attribution, Store};
 use serde_json::json;
-use std::path::Path;
 
-use crate::engine::broker::admission::tests::{cr2, open, Host};
+use crate::engine::broker::admission::tests::cr2;
+use crate::engine::broker::admission::tests::{
+    acknowledge, boxed_claim, dead_group, quarantined, unacknowledged, Fixture, LiveGroup,
+};
+use crate::engine::broker::admission::{Conflict, Unadmitted, Witnessed};
+use crate::engine::operator::{operator_repair, operator_settle, Repair, Settle};
+use crate::run_lock;
 
-use crate::engine::broker::admission::Conflict;
-use crate::engine::operator::{operator_repair, Repair};
-
-/// Run `run`'s journal at `db`, stopped at seq 5.
-fn concluded(db: &Path, run: &str) {
-    let mut store = crate::engine::tests::in_flight_store(db, run);
-    store
-        .append_next(
-            run,
-            EventType::RunStopped,
-            json!({"reason": "concluded"}),
-            None,
-            None,
-        )
-        .unwrap();
+/// A claim of the fixture's worktree that is not run A's: what a later
+/// admission compares.
+fn next(fixture: &Fixture) -> Result<crate::engine::broker::admission::Held, Unadmitted> {
+    fixture
+        .host
+        .admit(&boxed_claim(&fixture.work, ["run-b", "b1"]))
 }
 
-/// Shape (B) planted behind the store: the stop command and acceptance
-/// 0.12.0 left after the conclusion.
-fn broken(db: &Path, run: &str) -> Store {
-    let store = Store::open(db).unwrap();
-    let head = store.load(run).unwrap().pop().unwrap();
-    drop(store);
-    let connection = rusqlite::Connection::open(db).unwrap();
-    plant_chained(&connection, run, &head, &crate::late::late_stop()).unwrap();
-    drop(connection);
-    Store::open(db).unwrap()
-}
-
-/// A worktree held by run A's standing attempt is still held after run A
-/// is repaired: the run folds as stopped, and the broker's own record
-/// keeps a1 standing because no positive settlement fact was ever sealed.
-/// Releasing it is decision 0108 ruling 3, unit 3b (440d).
+/// The binding: an acknowledged, unfoldable run whose driver ended settled
+/// releases its worktree, and a new claim in that worktree is admitted. The
+/// proof reads the broker's record, not the run's fold, which still fails.
 #[test]
-fn a_repaired_run_still_holds_its_worktree_until_its_attempt_is_settled() {
-    let host = Host::new();
-    let work = host.worktree("work");
-    let held = host
-        .admit(&open(&work, ["run-a", "a1"]))
-        .expect("run A's attempt is admitted");
-    let second = || host.admit(&open(&work, ["run-b", "b1"]));
+fn a_quarantined_run_whose_writers_are_settled_releases_its_worktree() {
+    let mut fixture = unacknowledged(&[Witnessed::Settled], None);
     assert_eq!(
-        second(),
-        cr2(Conflict::Held("run-a".into())),
-        "run A holds the worktree while a1 stands"
-    );
-
-    let db = work.join("forge.db");
-    concluded(&db, "run-a");
-    let mut store = broken(&db, "run-a");
-    assert_eq!(
-        fold(&store.load("run-a").unwrap()).unwrap_err(),
+        fold(&fixture.store.load("run-a").unwrap()).unwrap_err(),
         brokkr_core::FoldError::AfterTerminal { seq: 7 },
         "shape (B) does not fold"
     );
-    // 0.12.0's operator acknowledged the quarantined run before anything
-    // else: the acknowledgement stands beside the chain at the broken
-    // head. The worktree is still held after it, because admission reads
-    // the broker's reservation, never the journal's fold.
-    let (seq, hash) = store.head_hash("run-a").unwrap();
-    store
-        .acknowledge_quarantine(
-            "run-a",
-            (seq, &hash),
-            Attribution {
-                operator: "operator",
-                reason: "0.12.0 left a stop after the conclusion",
-            },
-        )
-        .expect("the broken run is acknowledged where it stands");
-    assert!(
-        store.acknowledgement("run-a").unwrap().is_some(),
-        "the acknowledgement stands at the broken head"
-    );
     assert_eq!(
-        second(),
+        next(&fixture),
         cr2(Conflict::Held("run-a".into())),
-        "acknowledging the run does not release the worktree"
+        "an unacknowledged run holds the worktree, its writers proven or not"
     );
+    acknowledge(&mut fixture.store, "run-a");
+    assert!(
+        next(&fixture).is_ok(),
+        "the acknowledged run's settled attempt releases the worktree"
+    );
+}
 
+/// The binding's other half: one attempt's process group still alive keeps
+/// the worktree held, with today's words. The record says every driver
+/// settled; the host says a member of the group still runs.
+#[test]
+fn a_quarantined_run_with_a_live_process_group_still_holds_its_worktree() {
+    let live = LiveGroup::new();
+    let fixture = quarantined(&[Witnessed::Settled], Some(live.group()));
+    assert_eq!(
+        next(&fixture),
+        cr2(Conflict::Held("run-a".into())),
+        "the host still shows the attempt's process group, so it holds"
+    );
+    drop(live);
+}
+
+/// A process that holds the run's lock keeps the worktree held, and the
+/// refusal names it. A separate open description excludes exactly as a
+/// child's copy does (decision 0108 ruling 1).
+#[test]
+fn a_quarantined_run_whose_lock_a_process_holds_is_refused_naming_it() {
+    let fixture = quarantined(&[Witnessed::Settled], None);
+    let held = run_lock::take(&fixture.store, "run-a").expect("the run's lock is taken");
+    let refused = next(&fixture).unwrap_err();
+    let words = refused.to_string();
+    assert!(
+        words.contains(&format!(
+            "run 'run-a' is driven by pid {}",
+            std::process::id()
+        )),
+        "{words}"
+    );
+    drop(held);
+    assert!(
+        next(&fixture).is_ok(),
+        "once the lock is let go, the settled run releases"
+    );
+}
+
+/// Acknowledgement alone never releases: a run with an attempt no record
+/// proves keeps its worktree however it is looked at.
+#[test]
+fn an_acknowledged_run_whose_record_proves_nothing_still_holds() {
+    let fixture = quarantined(&[Witnessed::Settling], None);
+    assert_eq!(
+        next(&fixture),
+        cr2(Conflict::Held("run-a".into())),
+        "an unsettled driver with no group record keeps the worktree held"
+    );
+}
+
+/// The same run repaired (440c): the repair record stands for the
+/// acknowledgement a repair lapses (#511), so the settled attempt releases
+/// the worktree and the run folds again.
+#[test]
+fn a_repaired_run_whose_writers_are_settled_releases_its_worktree() {
+    let mut fixture = unacknowledged(&[Witnessed::Settled], None);
     operator_repair(
-        &mut store,
+        &mut fixture.store,
         "run-a",
         &Repair {
             operator: "repairer",
@@ -105,28 +112,167 @@ fn a_repaired_run_still_holds_its_worktree_until_its_attempt_is_settled() {
         },
     )
     .expect("the repair names the late tail");
-    let state = fold(&store.load("run-a").unwrap()).unwrap();
+    let state = fold(&fixture.store.load("run-a").unwrap()).unwrap();
     assert_eq!(state.run, Run::Stopped, "the repaired run folds again");
-    assert!(state.late_tail.is_some());
     assert_eq!(
-        store.acknowledgement("run-a").unwrap(),
+        fixture.store.acknowledgement("run-a").unwrap(),
         None,
-        "the repair moved the head past the acknowledgement; the fold is the record now"
+        "the repair moved the head past the acknowledgement"
     );
-    lags(&mut store, &["run-a"]);
-
-    let (standing, settled) = host.attempts(&work, "run-a");
-    assert_eq!(standing, ["a1"], "the broker's record still names a1");
     assert!(
-        settled.is_empty(),
-        "no positive settlement fact was sealed for a1"
+        next(&fixture).is_ok(),
+        "the repaired run's settled attempt releases the worktree"
+    );
+}
+
+/// Where the records prove nothing, the operator's settle record is the
+/// proof the exclusion honours: a run whose only driver is not sealed
+/// Settled, and whose recorded process group is gone from the host, is
+/// released once `brokkr operator settle` names it. This is 440c's F5 test
+/// rewritten to the new truth.
+#[test]
+fn a_settle_record_releases_what_the_records_cannot_prove() {
+    let mut fixture = quarantined(&[Witnessed::Settling], Some(dead_group()));
+    assert_eq!(
+        next(&fixture),
+        cr2(Conflict::Held("run-a".into())),
+        "the broker's own records do not prove a Settling driver ended"
+    );
+    let written = operator_settle(
+        &mut fixture.store,
+        "run-a",
+        &Settle {
+            reason: "the group is gone",
+            operator: "operator",
+        },
+    )
+    .expect("the operator proves the group gone");
+    assert_eq!(written.payload["command"], "settle");
+    assert!(
+        next(&fixture).is_ok(),
+        "the settle record is the proof the exclusion honours"
+    );
+}
+
+/// A settle record that names an attempt the host still shows alive does
+/// not release, even with the lock free.
+#[test]
+fn a_settle_record_naming_a_live_group_does_not_release() {
+    use crate::engine::broker::settlement::release::{LockState, Proof, Proven, SettleArgs};
+    let live = LiveGroup::new();
+    let mut fixture = quarantined(&[Witnessed::Settling], Some(live.group()));
+    // A record written when the group was still live: it names the attempt
+    // and its group, and the exclusion asks the host again.
+    let args = SettleArgs {
+        run: "run-a".into(),
+        lock: LockState::Free,
+        attempts: vec![Proven {
+            attempt: "a1".into(),
+            proof: Proof::Records,
+            group: Some(live.group()),
+        }],
+        reason: "the group was gone when I looked".into(),
+    };
+    let payload = json!({
+        "command_id": "c-settle",
+        "command": brokkr_core::fold::SETTLE,
+        "operator": "operator",
+        "args": args,
+    });
+    let (seq, hash) = fixture.store.head_hash("run-a").unwrap();
+    fixture
+        .store
+        .append_next_if_head(
+            "run-a",
+            seq,
+            &hash,
+            EventType::OperatorCommanded,
+            payload,
+            None,
+            None,
+        )
+        .unwrap();
+    assert_eq!(
+        next(&fixture),
+        cr2(Conflict::Held("run-a".into())),
+        "the record names a group the host still shows alive"
+    );
+    drop(live);
+}
+
+/// A journal any participant's writer could reach proves nothing, whatever
+/// it says: an unkeyed chain a writer can forge is no proof (R2). The
+/// release refuses rather than trust it.
+#[test]
+fn a_journal_a_writer_could_reach_proves_nothing() {
+    let fixture = quarantined(&[Witnessed::Settled], None);
+    let inside = fixture.work.join("forge.db");
+    std::fs::copy(&fixture.db, &inside).unwrap();
+    let at = crate::engine::broker::admission::tests::reservation_path(
+        fixture.host.home(),
+        &fixture.work,
+        "run-a",
+    );
+    let bytes = std::fs::read(&at).unwrap();
+    let mut reserved: crate::engine::broker::admission::Reservation =
+        serde_json::from_slice(&bytes).unwrap();
+    reserved.journal = inside;
+    std::fs::write(&at, serde_json::to_vec(&reserved).unwrap()).unwrap();
+    assert_eq!(
+        next(&fixture),
+        cr2(Conflict::Held("run-a".into())),
+        "a reachable journal is no proof"
+    );
+}
+
+/// A released run's later commands still refuse: the release frees the
+/// worktree, not the run. `retry` and `stop` meet the terminal gate (or the
+/// unfoldable journal) before they write, and a `resume` meets the fold.
+#[test]
+fn a_released_run_still_refuses_retry_and_stop() {
+    use crate::engine::operator::{operator_stop, Cause, Named};
+    let mut fixture = unacknowledged(&[Witnessed::Settled], None);
+    acknowledge(&mut fixture.store, "run-a");
+    assert!(next(&fixture).is_ok(), "the worktree is released");
+    let head = fixture.store.head_hash("run-a").unwrap();
+    let refused = crate::engine::operator_command(
+        &mut fixture.store,
+        "run-a",
+        brokkr_core::fold::OperatorCommand::Retry,
+        "operator",
+        "again",
+    );
+    assert!(
+        matches!(
+            refused,
+            Err(crate::engine::EngineError::Fold(_)
+                | crate::engine::EngineError::AlreadyConcluded { .. })
+        ),
+        "retry: {refused:?}"
+    );
+    let cited = brokkr_store::Store::open_read_only(fixture.store.path()).unwrap();
+    let named = Named {
+        cause: Cause {
+            ending: brokkr_core::ending::Ending::Withdrawn,
+            by_realm: None,
+            by_run: None,
+            by_ref: None,
+        },
+        reason: "again",
+        operator: "operator",
+    };
+    let refused = operator_stop(&mut fixture.store, &cited, "run-a", &named);
+    assert!(
+        matches!(
+            refused,
+            Err(crate::engine::EngineError::Fold(_)
+                | crate::engine::EngineError::AlreadyConcluded { .. })
+        ),
+        "stop: {refused:?}"
     );
     assert_eq!(
-        second(),
-        cr2(Conflict::Held("run-a".into())),
-        "`operator repair` alone does NOT release the worktree a broken run held: admission \
-         reads the broker's own reservation, and a1 still stands because no positive \
-         settlement fact was sealed. Decision 0108 ruling 3 (440d) is what releases it"
+        fixture.store.head_hash("run-a").unwrap(),
+        head,
+        "neither command wrote anything"
     );
-    let _ = held;
 }

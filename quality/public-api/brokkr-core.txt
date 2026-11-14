@@ -410,6 +410,7 @@ impl brokkr_core::fold::RunState
 pub fn brokkr_core::fold::RunState::stopping_seq(&self) -> core::option::Option<u64>
 pub const brokkr_core::fold::FAILURE_RESULTS: [&str; 2]
 pub const brokkr_core::fold::REPAIR: &str
+pub const brokkr_core::fold::SETTLE: &str
 pub const brokkr_core::fold::TERMINAL_EVENTS: [(brokkr_core::envelope::EventType, brokkr_core::fold::Status); 2]
 pub fn brokkr_core::fold::acceptance_refusal(&brokkr_core::fold::RunState, brokkr_core::fold::OperatorCommand) -> core::option::Option<brokkr_core::fold::Refusal>
 pub fn brokkr_core::fold::computed_inputs(&brokkr_core::fold::RunState, &str, &str, bool) -> serde_json::map::Map<alloc::string::String, serde_json::value::Value>
