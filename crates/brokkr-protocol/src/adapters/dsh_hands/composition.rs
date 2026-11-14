@@ -15,12 +15,37 @@
 //! package, and so does a second MCP client, a repeated id, a hands row
 //! left disabled or a dump that cannot be read. A hands seat is never
 //! served a composition nobody measured.
+//!
+//! The whole dump is read by two passes, not only the one `sandbox-policy`
+//! row. First every line is refused for a break, control or tab. Then the
+//! line-property closure refuses any line that leaves a quote, a non-empty
+//! flow collection or an empty sequence item open, independent of the row
+//! grammar and its block bookkeeping. Only then does the row grammar read
+//! the dump: every row's two-space keys are closed to `name:`, `disabled:`,
+//! `config:` and `inject:` each at most once, and a deeper line is admitted
+//! only while `config:` or `inject:` opened a block. The closure's home is
+//! [`rows::carriers`] and the grammar's one home is [`rows`];
+//! [`closure`] stays a `pub(crate)` forwarder to the closure so the unit
+//! tests read one seam without a second path into the module.
 
 use std::process::{Command, Stdio};
 
 use thiserror::Error;
 
-use super::{Release, HANDS_ID, MCP_CLIENT};
+use super::{Mode, Release, HANDS_ID, MCP_CLIENT, SANDBOX_POLICY};
+
+mod rows;
+
+pub(crate) use self::rows::rows;
+
+/// The dump's line-property closure: refuse [`Composition::Unreadable`] if
+/// any line leaves a quote, a non-empty flow collection or an empty
+/// sequence item open. [`rows`] runs it after the dump-wide break, control
+/// and tab rule and before the row grammar; the closure's unit tests read
+/// this one seam alone.
+pub(crate) fn closure(text: &str) -> Result<(), Composition> {
+    rows::carriers::check(text)
+}
 
 /// A dump larger than this is not the measured shape, and is refused
 /// before it is parsed.
@@ -39,13 +64,6 @@ pub(crate) enum Composition {
         name: String,
         release: &'static str,
     },
-    #[error(
-        "refusing to invoke the dsh driver: the composed dsh tree's release cannot be read as \
-         one the hands rows were measured on ({}), so the seat is admitted on no measured \
-         composition (#896 D1)",
-        super::MEASURED_VERSIONS.join(", ")
-    )]
-    UnknownRelease,
     #[error(
         "refusing to invoke the dsh driver: the composed dsh tree carries no '{HANDS_ID}' row, \
          so the seat's one effectful tool would not be served (#896 D1)"
@@ -68,6 +86,26 @@ pub(crate) enum Composition {
          so the seat's one effectful tool would not be served (#896 D1)"
     )]
     HandsDisabled { id: String },
+    #[error(
+        "refusing to invoke the dsh driver: the composed dsh tree carries the \
+         '{id}' row disabled, so dsh's own sandbox policy is not in force and the \
+         mode the gate reads is not the mode the seat runs under (#896 D1)"
+    )]
+    PolicyDisabled { id: String },
+    #[error(
+        "refusing to invoke the dsh driver: the composed dsh tree's '{SANDBOX_POLICY}' mode is \
+         '{composed}', not the seat's '{expected}', so dsh's own sandbox would not be the mode \
+         the office's access selected (#896 D1)"
+    )]
+    Mode {
+        composed: String,
+        expected: &'static str,
+    },
+    #[error(
+        "refusing to invoke the dsh driver: the composed dsh tree carries no '{SANDBOX_POLICY}' \
+         mode, so the seat's sandbox mode cannot be read and the seat is not launched (#896 D1)"
+    )]
+    NoMode,
     #[error(
         "refusing to invoke the dsh driver: the composed dsh tree names row '{id}' twice, so no \
          row it reads can be trusted (#896 D1)"
@@ -92,18 +130,10 @@ pub(crate) struct Row {
     pub(crate) id: String,
     pub(crate) name: String,
     pub(crate) disabled: bool,
-}
-
-/// The release the composed tree's own binary answers, through the same
-/// bounded `--version` probe the launch used. The gate reads it again
-/// rather than threading it through the launch's mode carrier, which is
-/// outside this unit's files. An unreadable answer is no release; the gate
-/// still runs the dump first, so a driver the probe cannot start keeps
-/// today's unreadable-tree refusal.
-pub(super) fn release(command: &Command) -> Option<Release> {
-    let program = command.get_program().to_string_lossy().into_owned();
-    let observed = super::super::observed_version(&[program, "--version".to_string()]);
-    observed.as_deref().and_then(Release::named)
+    /// The `config.mode` a `sandbox-policy` row carries, `None` for any
+    /// other row or a row that names no mode. Read by the same bounded
+    /// parse as `name:` and `disabled:`, never by a general YAML reader.
+    pub(crate) mode: Option<String>,
 }
 
 /// Judge what `run` makes of `command` under `release`. `run` is the one
@@ -115,7 +145,8 @@ pub(super) fn release(command: &Command) -> Option<Release> {
 /// removals.
 pub(super) fn composed_with(
     mut command: Command,
-    release: Option<Release>,
+    release: Release,
+    mode: Mode,
     run: impl FnOnce(&mut Command) -> std::io::Result<std::process::Output>,
 ) -> Result<(), Composition> {
     command
@@ -135,65 +166,8 @@ pub(super) fn composed_with(
         return Err(Composition::Unreadable);
     }
     let rows = rows(&output.stdout)?;
-    judge(release.ok_or(Composition::UnknownRelease)?, &rows)
-}
-
-/// Every row of a `--dump-config` sequence. dsh writes `- id:` at column
-/// zero and the row's `name:` directly beneath it; any other shape is not
-/// read as a row.
-pub(crate) fn rows(bytes: &[u8]) -> Result<Vec<Row>, Composition> {
-    let text = std::str::from_utf8(bytes).map_err(|_| Composition::Unreadable)?;
-    let mut rows = Vec::new();
-    let mut awaiting: Option<Row> = None;
-    for line in text.lines() {
-        if let Some(rest) = line.strip_prefix("- id: ") {
-            if let Some(row) = awaiting.take() {
-                rows.push(row);
-            }
-            awaiting = Some(Row {
-                id: unquote(rest.trim()),
-                name: String::new(),
-                disabled: false,
-            });
-            continue;
-        }
-        let Some(row) = awaiting.as_mut() else {
-            continue;
-        };
-        if let Some(rest) = line.strip_prefix("  name: ") {
-            if !row.name.is_empty() {
-                return Err(Composition::Unreadable);
-            }
-            row.name = unquote(rest.trim());
-        } else if let Some(rest) = line.strip_prefix("  disabled: ") {
-            row.disabled = rest.trim() == "true";
-        } else if !line.is_empty() && !line.starts_with('#') && !line.starts_with("  ") {
-            return Err(Composition::Unreadable);
-        }
-    }
-    if let Some(row) = awaiting.take() {
-        rows.push(row);
-    }
-    if rows.is_empty() {
-        return Err(Composition::Unreadable);
-    }
-    for row in &rows {
-        if row.name.is_empty() {
-            return Err(Composition::Unreadable);
-        }
-    }
-    Ok(rows)
-}
-
-/// One YAML single-quoted scalar's body, or the bare text as written.
-fn unquote(value: &str) -> String {
-    match value
-        .strip_prefix('\'')
-        .and_then(|rest| rest.strip_suffix('\''))
-    {
-        Some(body) => body.replace("''", "'"),
-        None => value.to_string(),
-    }
+    judge(release, &rows)?;
+    judge_mode(&rows, mode)
 }
 
 /// Judge the rows against `release`'s measured composition.
@@ -225,6 +199,28 @@ pub(crate) fn judge(release: Release, rows: &[Row]) -> Result<(), Composition> {
     match seen.contains(&HANDS_ID) {
         true => Ok(()),
         false => Err(Composition::NoHands),
+    }
+}
+
+/// Judge the composed `sandbox-policy` mode against the mode the seat's
+/// office selected. A tree with no such row, or a row naming no mode, is
+/// refused: an unread mode cannot be shown to be the seat's own, and
+/// `danger-full-access` must never reach a hands seat (1052f's chief
+/// finding, #1052 c-6821890847). This is a sibling of [`judge`] so the row
+/// judge keeps its one signature and every existing exact-text test stays
+/// as it was.
+pub(crate) fn judge_mode(rows: &[Row], expected: Mode) -> Result<(), Composition> {
+    let composed = rows
+        .iter()
+        .find(|row| row.id == SANDBOX_POLICY)
+        .and_then(|row| row.mode.as_deref());
+    match composed {
+        None => Err(Composition::NoMode),
+        Some(mode) if mode == expected.word() => Ok(()),
+        Some(composed) => Err(Composition::Mode {
+            composed: composed.to_string(),
+            expected: expected.word(),
+        }),
     }
 }
 

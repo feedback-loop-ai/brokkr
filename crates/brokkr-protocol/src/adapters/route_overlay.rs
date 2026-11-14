@@ -27,7 +27,7 @@ use sha2::{Digest, Sha256};
 
 mod refusal;
 
-use super::dsh_hands::{Mode, DISABLED_ROWS, SANDBOX_POLICY};
+use super::dsh_hands::{Mode, Release, SANDBOX_POLICY};
 pub(super) use refusal::Refused;
 use refusal::{Field, Overlay, Part};
 
@@ -293,40 +293,47 @@ fn validate_model_item(item: &[(String, Node)], model: &str) -> Result<(), Refus
 
 /// Validate a dsh seat's hands rows (#896) against the one shape they may
 /// take, read by the same bounded reader: each effectful tool row of the
-/// measured release `disabled: true`, once, and the `sandbox-policy` row's
-/// `mode`, `read-only` or `workspace-write`, once, and nothing else. A row
-/// in any other shape, a row named twice and a measured row left out are
+/// measured release `release` `disabled: true`, once, and the
+/// `sandbox-policy` row's `mode`, `read-only` or `workspace-write`, once,
+/// and nothing else. `release` is the one the launch's `--version` read
+/// named, so 0.2.2-rc.1's programmatic-executor pin is a row this reader
+/// requires and reads like the ten common rows; 0.2.1 names none. A row in
+/// any other shape, a row named twice and a measured row left out are
 /// refused, each naming the row: these rows are the engine's own, never a
 /// recipe's, so naming them hands a seat nothing it did not write.
-pub(super) fn hands(bytes: &[u8]) -> Result<(), Refused> {
+pub(super) fn hands(bytes: &[u8], release: Release) -> Result<(), Refused> {
     let text = std::str::from_utf8(bytes).map_err(|_| Overlay::NotUtf8)?;
     let Node::Sequence(items) = parse(&lex(text)?)? else {
         return Err(Overlay::NotASequence.into());
     };
     let mut seen: Vec<&str> = Vec::with_capacity(items.len());
     for item in &items {
-        let row = hands_row(mapping(item, Part::HandsRow)?)?;
+        let row = hands_row(mapping(item, Part::HandsRow)?, release)?;
         if seen.contains(&row) {
             return Err(Overlay::HandsRowRepeated(row.to_string()).into());
         }
         seen.push(row);
     }
-    let mut owed = DISABLED_ROWS.into_iter().chain([SANDBOX_POLICY]);
+    let mut owed = release.pinned_rows().ids().chain([SANDBOX_POLICY]);
     match owed.find(|row| !seen.contains(row)) {
         Some(missing) => Err(Overlay::HandsRowMissing(missing).into()),
         None => Ok(()),
     }
 }
 
-/// One hands row's id, where the row is in the one shape its id may take.
-fn hands_row(pairs: &[(String, Node)]) -> Result<&str, Overlay> {
+/// One hands row's id, where the row is in the one shape its id may take:
+/// an effectful row the release pins disabled — one of the ten common rows
+/// or a row that release adds after the sandbox — or the sandbox row with
+/// one admitted mode.
+fn hands_row(pairs: &[(String, Node)], release: Release) -> Result<&str, Overlay> {
     let id = scalar_field(pairs, Field::Id, Part::HandsRow)?;
     let rest: Vec<(&str, &Node)> = (pairs.iter())
         .filter(|(key, _)| key != Field::Id.spelling())
         .map(|(key, value)| (key.as_str(), value))
         .collect();
+    let pinned = release.pinned_rows().contains(id);
     let shaped = match rest[..] {
-        [("disabled", Node::Scalar(flag))] => DISABLED_ROWS.contains(&id) && flag == "true",
+        [("disabled", Node::Scalar(flag))] => pinned && flag == "true",
         [("config", Node::Mapping(config))] => {
             id == SANDBOX_POLICY
                 && matches!(&config[..], [(key, Node::Scalar(mode))]

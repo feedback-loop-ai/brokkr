@@ -127,8 +127,10 @@ pub(super) fn invoke_dsh_launch_observed(
         Ok(run) => run,
         Err(problem) => return Err(dsh_failure_before_promotion(problem, staged)),
     };
-    if let Some(mode) = launch.mode {
-        if let Err(refusal) = dsh_hands::startup_gate(startup, &mut invocation.session_meta, mode) {
+    if let Some(hands) = launch.hands {
+        if let Err(refusal) =
+            dsh_hands::startup_gate(startup, &mut invocation.session_meta, hands.mode)
+        {
             return Err(dsh_failure_before_promotion(refusal.to_string(), staged));
         }
     }
@@ -441,8 +443,12 @@ fn refused_before_spawn(
 ) -> Result<(), PreSpawnRefusal> {
     let declared = bindings.iter().map(secret::BoundSecret::name);
     launch.home.serve(&dsh_child_env(launch), declared)?;
-    if launch.mode.is_some() {
-        dsh_hands::composition_gate(probe_command(launch, workdir, bindings)?)?;
+    if let Some(hands) = launch.hands {
+        dsh_hands::composition_gate(
+            probe_command(launch, workdir, bindings)?,
+            hands.release,
+            hands.mode,
+        )?;
     }
     Ok(())
 }
@@ -490,7 +496,10 @@ mod tests {
             facts: crate::hands::GitFacts::default(),
             staged: None,
             home,
-            mode: Some(dsh_hands::Mode::ReadOnly),
+            hands: Some(dsh_hands::Hands {
+                release: dsh_hands::Release::V0_2_1,
+                mode: dsh_hands::Mode::ReadOnly,
+            }),
         }
     }
 
