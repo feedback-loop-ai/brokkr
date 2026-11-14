@@ -12,7 +12,7 @@
 use super::super::composition::{closure, Composition};
 use super::super::{Mode, Release};
 use super::composed::{gate, with_sandbox_mode};
-use super::composed_rows::{policy_dump, tool_bash_row};
+use super::composed_rows::{grammar_refuses, policy_dump, tool_bash_row};
 use super::{measured_dump, measured_dump_0_2_2};
 
 /// The measured sandbox row's own id and name, the row C1e and C2 mutate.
@@ -661,12 +661,6 @@ fn the_grammar_refuses_a_doubled_space_and_text_after_a_closed_quote() {
             "  config:\n    k: 'a' b\n  disabled: true\n",
         ),
     ] {
-        let tree = tool_bash_row(&dump, body);
-        assert_eq!(closure(&tree), Ok(()), "{what}: the closure admits it");
-        assert_eq!(
-            gate(tree, Release::V0_2_1, Mode::ReadOnly),
-            Err(Composition::Unreadable),
-            "{what}: gate"
-        );
+        grammar_refuses(&dump, what, body);
     }
 }

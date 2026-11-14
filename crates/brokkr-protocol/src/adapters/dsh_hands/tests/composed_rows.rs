@@ -735,14 +735,21 @@ fn a_marker_followed_by_more_than_one_space_is_refused() {
             "  config:\n    -  \"k\": >-\n  disabled: true\n",
         ),
     ] {
-        let tree = tool_bash_row(&dump, body);
-        assert_eq!(closure(&tree), Ok(()), "{what}: the closure admits it");
-        assert_eq!(
-            gate(tree, Release::V0_2_1, Mode::ReadOnly),
-            Err(Composition::Unreadable),
-            "{what}"
-        );
+        grammar_refuses(&dump, what, body);
     }
+}
+
+/// `body` on tool-bash's row is a line the closure admits, since it leaves
+/// nothing open, and that the row grammar alone refuses: a line the dump
+/// never writes.
+pub(super) fn grammar_refuses(dump: &str, what: &str, body: &str) {
+    let tree = tool_bash_row(dump, body);
+    assert_eq!(closure(&tree), Ok(()), "{what}: the closure admits it");
+    assert_eq!(
+        gate(tree, Release::V0_2_1, Mode::ReadOnly),
+        Err(Composition::Unreadable),
+        "{what}: gate"
+    );
 }
 
 /// glm's LOW: js-yaml's dump writes no comment, so a ` #` inside a
