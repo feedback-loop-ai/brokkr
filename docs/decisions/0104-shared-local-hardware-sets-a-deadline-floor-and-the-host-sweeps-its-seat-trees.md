@@ -182,6 +182,25 @@ There is no retention period: rule 6 says "on its next pass". The dry-run
 listing (ruling 9) is the window to look before a pass. A declared
 `keep_hours` in the host file is possible, but it is not recommended.
 
+*Amended, 2026-11-13 (controller, #430):* R4 to R6 narrow this ruling.
+- **R4. A row whose attempt no event names is kept.** A cool-down probe's
+  row is the known case: a probe is not an attempt (0103 ruling 4), and its
+  id is journaled nowhere. The attempt has no terminal event this ruling can
+  read, so its row is kept and reported by name, and 5c sweeps it never. A
+  follow-up may give a probe a journaled close; that is 0103's code.
+- **R5. The root is checked against itself, since the journal records no
+  run-local directory.** The run manifest (`contracts/run-manifest.v14`) and
+  the `runs` table carry no workdir or state path. So a row's `root` must
+  equal its own canonical path, with no `.`, no `..` and no link in any
+  component, and every open row of one run must name the same `root`.
+  `root/attempt_id` must be a real directory, not a link, on `root`'s
+  filesystem. A row that fails any of these is kept and reported by name,
+  never removed. Recording the run-local directory in the journal is a
+  separate decision.
+- **R6. A terminal run is `Completed` or `Stopped`.** The fold has no failed
+  run (`Running`, `AwaitingOperator`, `Completed`, `Stopped`), so this
+  ruling's "completed, failed or stopped" reads as those two.
+
 ### 8. The removal and its record
 
 **Recommended:**
@@ -217,6 +236,13 @@ demand.**
   - Slice 6's `brokkr dispatch` calls the same function on every pass, as 0068 ruling 7 has it ("starts runs, records cool-downs and sweeps").
 - **(b) Sweep at every run start, beside the hands reaper.** Automatic now. But a start is not the dispatcher, holds no dispatch lock, and puts removal work into a run's startup.
 - **(c) Build the function for slice 6 only.** Nothing sweeps until slice 6 exists.
+
+*Amended, 2026-11-13 (controller, #430):* R3. A dry run takes no hold.
+Ruling 9 says `--dry-run` "writes nothing", but `take_dispatch` writes a
+holder row. So a dry run opens the journal read-only and takes no dispatch
+hold; it lists what a pass would remove, with sizes, and writes nothing: no
+row, no holder and no migration. A listing may race a dispatcher's pass,
+which is harmless for a listing.
 
 ## Ruled (operator, in chat, 2026-11-08)
 
