@@ -1823,18 +1823,13 @@ pub fn brokkr_runtime::realms::World::verify_crossings(&self, &std::path::Path) 
 pub mod brokkr_runtime::sweep
 pub enum brokkr_runtime::sweep::SweepError
 pub brokkr_runtime::sweep::SweepError::Dispatcher(brokkr_runtime::DispatcherError)
+pub brokkr_runtime::sweep::SweepError::Record
+pub brokkr_runtime::sweep::SweepError::Record::cause: alloc::string::String
+pub brokkr_runtime::sweep::SweepError::Record::report: alloc::boxed::Box<brokkr_runtime::sweep::Swept>
 pub brokkr_runtime::sweep::SweepError::Store(brokkr_store::StoreError)
-pub brokkr_runtime::sweep::SweepError::Unrecorded
-pub struct brokkr_runtime::sweep::Failed
-pub struct brokkr_runtime::sweep::Kept
-pub struct brokkr_runtime::sweep::Removed
 pub struct brokkr_runtime::sweep::Swept
 impl brokkr_runtime::sweep::Swept
-pub fn brokkr_runtime::sweep::Swept::failed(&self) -> &[brokkr_runtime::sweep::Failed]
-pub fn brokkr_runtime::sweep::Swept::freed(&self) -> u64
-pub fn brokkr_runtime::sweep::Swept::kept(&self) -> &[brokkr_runtime::sweep::Kept]
 pub fn brokkr_runtime::sweep::Swept::lines_with(&self, fn(&str) -> alloc::string::String, bool) -> alloc::string::String
-pub fn brokkr_runtime::sweep::Swept::removed(&self) -> &[brokkr_runtime::sweep::Removed]
 pub fn brokkr_runtime::sweep::pass(&mut brokkr_store::Store, &brokkr_runtime::Dispatcher) -> core::result::Result<brokkr_runtime::sweep::Swept, brokkr_runtime::sweep::SweepError>
 pub fn brokkr_runtime::sweep::plan(&brokkr_store::Store) -> core::result::Result<brokkr_runtime::sweep::Swept, brokkr_runtime::sweep::SweepError>
 pub enum brokkr_runtime::Aggregate

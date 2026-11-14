@@ -15,7 +15,7 @@ use serde_json::json;
 
 use super::*;
 use crate::tests::env_guard::EnvGuard;
-use crate::{Cli, Cmd};
+use crate::{Cli, Cmd, GroupedCmd};
 
 const RUN: &str = "run-sweep";
 const EFFECT: &str = "effect-sweep";
@@ -113,7 +113,7 @@ fn parsed(database: &Path, dry_run: bool) -> SweepArgs {
         argv.push("--dry-run");
     }
     argv.extend(["--db", database.to_str().unwrap()]);
-    let Cmd::Sweep(args) = Cli::try_parse_from(argv).unwrap().command else {
+    let Cmd::Grouped(GroupedCmd::Sweep(args)) = Cli::try_parse_from(argv).unwrap().command else {
         panic!("parsed as a sweep command")
     };
     args
@@ -222,6 +222,54 @@ fn a_pass_removes_records_and_prints_its_lines() {
     assert_eq!(rows[0].path, tree);
     assert_eq!(rows[0].bytes, Some(freed as i64));
     assert_eq!(rows[0].generation, 1);
+}
+
+#[test]
+fn a_record_refusal_prints_the_removal_and_exits_non_zero() {
+    let (_env, places, database, store, tree, freed) = ready("run");
+    drop(store);
+    rusqlite::Connection::open(&database)
+        .unwrap()
+        .execute_batch(
+            "CREATE TRIGGER forced_sweep_record BEFORE INSERT ON tree_sweeps
+             BEGIN SELECT RAISE(ABORT, 'forced record failure'); END;",
+        )
+        .unwrap();
+
+    let mut out = Vec::new();
+    let exit = sweep(places.as_path(), parsed(&database, false), &mut out).unwrap();
+
+    assert_eq!(exit, ExitCode::from(Exit::Failed));
+    let said = String::from_utf8(out).unwrap();
+    assert!(
+        said.contains(&format!("sweep: removed {}: {freed} bytes", tree.display())),
+        "{said}"
+    );
+    assert!(said.contains("sweep: could not record"), "{said}");
+    assert!(said.contains("forced record failure"), "{said}");
+    assert!(!tree.exists());
+}
+
+#[test]
+fn the_grouped_dispatch_runs_a_sweep() {
+    let (_env, places, database, store, tree, _freed) = ready("run");
+    drop(store);
+    let cli = Cli {
+        command: Cmd::Grouped(GroupedCmd::Sweep(parsed(&database, false))),
+    };
+
+    let exit = crate::run_with(
+        cli,
+        places.as_path(),
+        |_, _, _| Ok(()),
+        None,
+        None,
+        |_, _, _| panic!("a sweep opens no console"),
+    )
+    .unwrap();
+
+    assert_eq!(exit, completed());
+    assert!(!tree.exists());
 }
 
 #[test]

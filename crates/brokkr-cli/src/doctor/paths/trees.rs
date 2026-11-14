@@ -52,9 +52,36 @@ fn by_root(rows: &[SeatTree]) -> BTreeMap<PathBuf, BTreeSet<OsString>> {
 }
 
 /// Each directory under `root` no row names, with the bytes the walk
-/// counts. A file, a link, an entry that vanished and an unreadable root
-/// add no line; nothing is removed.
+/// counts. A root that is not its own canonical path is named as the
+/// sweep sees it, because every row under it is kept; a root that is gone
+/// adds no line. A file, a link, an entry that vanished and an unreadable
+/// root add no line; nothing is removed.
 fn list(report: &mut Report, root: &Path, named: &BTreeSet<OsString>) {
+    list_with(report, root, named, |path| std::fs::symlink_metadata(path));
+}
+
+/// [`list`] with the stat a test drives, so an entry that vanishes between
+/// the directory read and its own stat is provable on one host.
+fn list_with(
+    report: &mut Report,
+    root: &Path,
+    named: &BTreeSet<OsString>,
+    stat: impl Fn(&Path) -> std::io::Result<std::fs::Metadata>,
+) {
+    match std::fs::canonicalize(root) {
+        Ok(canonical) if canonical.as_os_str() == root.as_os_str() => {}
+        Ok(_) => {
+            report.warn(
+                "tree",
+                format!(
+                    "{}: not its own canonical path, so the sweep keeps its trees",
+                    safe(&root.display().to_string())
+                ),
+            );
+            return;
+        }
+        Err(_) => return,
+    }
     let Ok(entries) = std::fs::read_dir(root) else {
         return;
     };
@@ -63,7 +90,7 @@ fn list(report: &mut Report, root: &Path, named: &BTreeSet<OsString>) {
             continue;
         }
         let path = entry.path();
-        let Ok(meta) = std::fs::symlink_metadata(&path) else {
+        let Ok(meta) = stat(&path) else {
             continue;
         };
         if !meta.file_type().is_dir() {

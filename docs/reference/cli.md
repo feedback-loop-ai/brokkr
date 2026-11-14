@@ -16,7 +16,6 @@ Every `brokkr` verb and argument with its default, and every exit code, as the b
 - [`brokkr tui`](#brokkr-tui): Explore runs interactively in the terminal: the fleet as a navigable table, one run's phase graph, seats and decision trail, and one seat's own checkpoint and session stream. Read-only like every other readout (decision 0014) — it issues no operator commands and writes nothing to the journal
 - [`brokkr doctor`](#brokkr-doctor): Verify tools, drivers, the workspace database, and optionally a bundle, without executing any agent
 - [`brokkr compile`](#brokkr-compile): Validate a bundle and print its pinned manifest and digest
-- [`brokkr sweep`](#brokkr-sweep): Remove the run-local seat scratch trees the journal proves free and record what each complete removal freed, and reap the hands session trees whose owners are dead. One pass under the journal's dispatch lock; `--dry-run` lists what a pass would remove, with sizes, and writes nothing
 - [`brokkr run`](#brokkr-run): Start a new run and drive it until it parks or finishes
 - [`brokkr resume`](#brokkr-resume): Resume an existing run under its exact pinned bundle
 - [`brokkr rerun`](#brokkr-rerun): Re-run a past run's feature as a NEW run under another bundle or recipe, so outcomes can be compared by run id. No stored linkage
@@ -35,6 +34,7 @@ Every `brokkr` verb and argument with its default, and every exit code, as the b
 - [`brokkr secrets set`](#brokkr-secrets-set): Bind NAME to a value read from STDIN (never argv — the CLI obeys its own injection discipline). Creates the store 0600
 - [`brokkr secrets list`](#brokkr-secrets-list): Print bound names, one per line — names, never values
 - [`brokkr secrets remove`](#brokkr-secrets-remove): Remove NAME from the store
+- [`brokkr sweep`](#brokkr-sweep): Remove the run-local seat scratch trees the journal proves free and record what each complete removal freed, and reap the hands session trees whose owners are dead. One pass under the journal's dispatch lock; `--dry-run` lists what a pass would remove, with sizes, and writes nothing
 - [`brokkr conclude`](#brokkr-conclude): Close a stopped or parked run from its journal alone — no bundle, no recipe, no effect. `resume` compiles the exact pinned recipe and refuses on any drift, which is right for the branches that spend money but leaves a run from a moved engine with no lawful ending. This appends the operator stop conclusion and nothing else, so it needs no pinned recipe to be honest about what it wrote. It cannot retry: that re-enters the policy loop, and the policy loop needs the bundle by construction. For a run believed dead: every write is fenced, so a journal that moves beneath the conclusion — something still driving the run — refuses instead of being closed over (decision 0029). Check `brokkr runs` first
 - [`brokkr operator`](#brokkr-operator): Record an operator command (retry \| stop \| release \| supersede \| classify \| repair) as journal events, or acknowledge a quarantined run beside its journal
 - [`brokkr queue`](#brokkr-queue): The dispatcher's queue (decision 0068): runs waiting to start, in the journal's own database. Add, list, judge, move, hold, release, re-pin and drop entries; each change is journaled with its reason
@@ -238,20 +238,6 @@ Usage: brokkr compile --bundle <BUNDLE>
 | Argument | Default | Selector | Description |
 | --- | --- | --- | --- |
 | `--bundle <BUNDLE>` |  |  | The bundle directory to validate, compiled against the workspace |
-
-## brokkr sweep
-
-Remove the run-local seat scratch trees the journal proves free and record what each complete removal freed, and reap the hands session trees whose owners are dead. One pass under the journal's dispatch lock; `--dry-run` lists what a pass would remove, with sizes, and writes nothing
-
-```text
-Usage: brokkr sweep [OPTIONS]
-```
-
-| Argument | Default | Selector | Description |
-| --- | --- | --- | --- |
-| `--dry-run` |  |  | List what a pass would remove, with sizes, and write nothing: no tree-sweep row, no dispatch holder and no migration |
-| `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
-| `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
 
 ## brokkr run
 
@@ -494,6 +480,20 @@ Usage: brokkr secrets remove [OPTIONS] <NAME>
 | --- | --- | --- | --- |
 | `<NAME>` |  |  | The bound name to remove |
 | `--secrets-file <SECRETS_FILE>` |  |  | The store file to remove it from (default .brokkr/state/secrets.env, or a library's .forge/secrets.env) |
+
+## brokkr sweep
+
+Remove the run-local seat scratch trees the journal proves free and record what each complete removal freed, and reap the hands session trees whose owners are dead. One pass under the journal's dispatch lock; `--dry-run` lists what a pass would remove, with sizes, and writes nothing
+
+```text
+Usage: brokkr sweep [OPTIONS]
+```
+
+| Argument | Default | Selector | Description |
+| --- | --- | --- | --- |
+| `--dry-run` |  |  | List what a pass would remove, with sizes, and write nothing: no tree-sweep row, no dispatch holder and no migration |
+| `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
+| `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
 
 ## brokkr conclude
 

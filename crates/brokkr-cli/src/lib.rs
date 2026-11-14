@@ -121,12 +121,6 @@ enum Cmd {
     Doctor(DoctorArgs),
     /// Validate a bundle and print its pinned manifest and digest.
     Compile(CompileArgs),
-    /// Remove the run-local seat scratch trees the journal proves free and
-    /// record what each complete removal freed, and reap the hands session
-    /// trees whose owners are dead. One pass under the journal's dispatch
-    /// lock; `--dry-run` lists what a pass would remove, with sizes, and
-    /// writes nothing.
-    Sweep(SweepArgs),
     /// Start a new run and drive it until it parks or finishes.
     #[command(group(ArgGroup::new("delivery").args(["bundle", "recipe"])))]
     Run(RunArgs),
@@ -141,7 +135,7 @@ enum Cmd {
     /// divergence, phases visited, per-seat costs. Read-only.
     Compare(CompareArgs),
     #[command(flatten)]
-    Library(LibraryCmd),
+    Grouped(GroupedCmd),
     /// Close a stopped or parked run from its journal alone — no bundle,
     /// no recipe, no effect. `resume` compiles the exact pinned recipe
     /// and refuses on any drift, which is right for the branches that
@@ -1465,7 +1459,7 @@ fn run_with(
     watch_iteration_limit: Option<usize>,
     run_tui: impl FnOnce(Vec<Hearth>, Option<String>, usize) -> Result<tui::Closed>,
 ) -> Result<ExitCode> {
-    use verbs::{backup, delivery, evidence, exchange, probe, queue, readouts, setup, sweep};
+    use verbs::{backup, delivery, evidence, exchange, probe, queue, readouts, setup};
     match cli.command {
         Cmd::Init(args) => setup::init(args),
         Cmd::Costs(args) => readouts::costs(workspace, args),
@@ -1476,7 +1470,6 @@ fn run_with(
         Cmd::Tui(args) => readouts::tui(workspace, args, run_tui),
         Cmd::Doctor(args) => setup::doctor(args),
         Cmd::Compile(args) => setup::compile(workspace, args),
-        Cmd::Sweep(args) => sweep::sweep(workspace, args, &mut std::io::stdout()),
         Cmd::Run(args) => delivery::run(workspace, args, &run_view::PRODUCTION),
         Cmd::Resume(args) => delivery::resume(workspace, args, &run_view::PRODUCTION),
         Cmd::Rerun(args) => delivery::rerun(workspace, args),
@@ -1515,19 +1508,20 @@ fn run_with(
         Cmd::Broker { command } => broker::run(command),
         Cmd::Driver(args) => setup::driver(args),
         Cmd::Compare(args) => readouts::compare(workspace, args),
-        Cmd::Library(command) => library(workspace, command),
+        Cmd::Grouped(command) => grouped(workspace, command),
         Cmd::FakeDriver(args) => setup::fake_driver(args),
     }
 }
 
-/// The library verbs `Cmd::Library` groups, each to its handler.
-fn library(workspace: &std::path::Path, command: LibraryCmd) -> Result<ExitCode> {
-    use verbs::setup;
+/// The small verb groups `Cmd::Grouped` flattens, each to its handler.
+fn grouped(workspace: &std::path::Path, command: GroupedCmd) -> Result<ExitCode> {
+    use verbs::{setup, sweep};
     match command {
-        LibraryCmd::Recipes { command } => setup::recipes(workspace, command),
-        LibraryCmd::Agents { command } => setup::agents(workspace, command),
-        LibraryCmd::Muninn { command } => setup::muninn(workspace, command),
-        LibraryCmd::Secrets { command } => setup::secrets(workspace, command),
+        GroupedCmd::Recipes { command } => setup::recipes(workspace, command),
+        GroupedCmd::Agents { command } => setup::agents(workspace, command),
+        GroupedCmd::Muninn { command } => setup::muninn(workspace, command),
+        GroupedCmd::Secrets { command } => setup::secrets(workspace, command),
+        GroupedCmd::Sweep(args) => sweep::sweep(workspace, args, &mut std::io::stdout()),
     }
 }
 

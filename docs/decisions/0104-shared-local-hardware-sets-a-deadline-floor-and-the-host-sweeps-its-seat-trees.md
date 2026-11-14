@@ -201,6 +201,33 @@ listing (ruling 9) is the window to look before a pass. A declared
   run (`Running`, `AwaitingOperator`, `Completed`, `Stopped`), so this
   ruling's "completed, failed or stopped" reads as those two.
 
+*Amended, 2026-11-14 (operator, #430 c-6885062627):* R7 fails closed. A tree
+goes only when its attempt was ended by its own driver, as the journal's
+typed facts show; text is never the evidence (0071 ruling 8). This replaces
+the second clause's "no unproven-cleanup evidence" test, which read an
+evidence-free terminal as proof that no process held the tree, and it
+narrows the first clause to a close the driver itself wrote:
+- **Every `effect/indeterminate` terminal keeps its tree,** whatever evidence
+  it carries, and is reported as ending indeterminate. `close_riding_attempt`
+  and `ended_restarted` both write one for an attempt whose process they never
+  saw end.
+- **A terminal event a conclude wrote keeps its tree,** identified by its
+  `causation_id` naming the run's `operator/accepted` for a stop command (the
+  acceptance whose `command_id` matches an `operator/commanded` whose command
+  is `stop`). It is reported as closed by a conclude.
+- **An attempt a restarted engine closed keeps its tree.** `ended_restarted`
+  writes `effect/failed` from its broker tallies after appending the attempt's
+  checkpoints, so an `effect/failed` terminal whose `causation_id` names an
+  `effect/checkpointed` event of the same attempt is kept and reported as
+  closed by a restarted engine. No typed fact separates that from a driver's
+  own failure that follows a checkpoint, so the rule deliberately over-keeps
+  the latter; a driver's terminal caused by its `effect/started` is the shape
+  a sweep may remove. A checkpointless restart failure is consequently swept;
+  its adoption succeeded, which proves every driver settled, so no process it
+  owned still stands.
+- **Every kept tree is reported by name with its reason,** in the pass, the
+  dry run and doctor's view. The words claim no more than the journal shows.
+
 ### 8. The removal and its record
 
 **Recommended:**
@@ -243,6 +270,16 @@ holder row. So a dry run opens the journal read-only and takes no dispatch
 hold; it lists what a pass would remove, with sizes, and writes nothing: no
 row, no holder and no migration. A listing may race a dispatcher's pass,
 which is harmless for a listing.
+
+*Amended, 2026-11-14 (operator, #430 c-6885062627):* R3's report says a lower
+bound when it is one:
+- a dry-run total says `at least N bytes` whenever any tree it would remove is
+  a lower bound;
+- the hands half refuses a `TMPDIR` that is not an absolute, UTF-8 path before
+  it reads a tree, and reports why;
+- a removal whose sweep row a store error or an unrecorded queue refuses keeps
+  its removal in the report beside the record's refusal, and the verb exits
+  non-zero rather than dropping the report.
 
 ## Ruled (operator, in chat, 2026-11-08)
 

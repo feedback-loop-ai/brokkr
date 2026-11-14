@@ -9,7 +9,7 @@ use std::path::Path;
 use std::process::ExitCode;
 
 use anyhow::{anyhow, Result};
-use brokkr_runtime::sweep as sweep_run;
+use brokkr_runtime::sweep::{self as sweep_run, SweepError};
 
 use crate::cli_args::SweepArgs;
 use crate::render::Safe;
@@ -33,7 +33,17 @@ pub(crate) fn sweep(
                 Ok(held) => held,
                 Err(refused) => return Err(anyhow!(refused)),
             };
-            sweep_run::pass(&mut store, &held)?
+            match sweep_run::pass(&mut store, &held) {
+                Ok(report) => report,
+                // The removal completed but its sweep row did not: paint
+                // the report of every removal made beside the refusal, and
+                // exit non-zero rather than claiming the pass recorded it.
+                Err(SweepError::Record { report, .. }) => {
+                    out.write_all(report.lines_with(safe, dry).as_bytes())?;
+                    return Ok(Exit::Failed.into());
+                }
+                Err(error) => return Err(error.into()),
+            }
         }
     };
     out.write_all(report.lines_with(safe, dry).as_bytes())?;

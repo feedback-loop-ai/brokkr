@@ -9,10 +9,13 @@
 #[path = "../../../../tests/support/env_guard.rs"]
 mod env_guard;
 
+use std::ffi::OsString;
+use std::os::unix::ffi::OsStringExt;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use brokkr_core::ending::Ending;
 use brokkr_core::envelope::{EventEnvelope, EventType};
 use brokkr_protocol::hands::Listed;
 use brokkr_protocol::tree::{self, TreeError};
@@ -23,6 +26,7 @@ use uuid::Uuid;
 use env_guard::EnvGuard;
 
 use super::*;
+use crate::engine::{Cause, Named};
 use crate::envelope_builder::EnvelopeBuilder;
 
 const RUN: &str = "run-sweep";
@@ -56,8 +60,25 @@ fn append(
     payload: Value,
     attempt: Option<&str>,
 ) -> EventEnvelope {
+    append_caused(store, run, event_type, payload, attempt, None)
+}
+
+fn append_caused(
+    store: &mut Store,
+    run: &str,
+    event_type: EventType,
+    payload: Value,
+    attempt: Option<&str>,
+    cause: Option<&str>,
+) -> EventEnvelope {
     store
-        .append_next(run, event_type, payload, None, attempt.map(str::to_string))
+        .append_next(
+            run,
+            event_type,
+            payload,
+            cause.map(str::to_string),
+            attempt.map(str::to_string),
+        )
         .unwrap()
 }
 
@@ -89,34 +110,46 @@ fn opened(store: &mut Store, run: &str) {
     );
 }
 
-fn started(store: &mut Store, run: &str, attempt: &str) {
+fn started(store: &mut Store, run: &str, attempt: &str) -> EventEnvelope {
     append(
         store,
         run,
         EventType::EffectStarted,
         json!({"effect_id": EFFECT, "attempt_id": attempt}),
         Some(attempt),
-    );
+    )
 }
 
-fn succeeded(store: &mut Store, run: &str, attempt: &str) {
+fn succeeded(store: &mut Store, run: &str, attempt: &str) -> EventEnvelope {
     append(
         store,
         run,
         EventType::EffectSucceeded,
         json!({"effect_id": EFFECT, "result": {"result": "ok"}}),
         Some(attempt),
-    );
+    )
 }
 
-fn failed(store: &mut Store, run: &str, attempt: &str) {
+fn failed(store: &mut Store, run: &str, attempt: &str) -> EventEnvelope {
     append(
         store,
         run,
         EventType::EffectFailed,
         json!({"effect_id": EFFECT}),
         Some(attempt),
-    );
+    )
+}
+
+/// A checkpoint of the attempt, as a driver's sink or a restarted
+/// engine's broker tallies journal one.
+fn checkpoint(store: &mut Store, run: &str, attempt: &str) -> EventEnvelope {
+    append(
+        store,
+        run,
+        EventType::EffectCheckpointed,
+        json!({"effect_id": EFFECT, "attempt_id": attempt, "checkpoint": {"step": "seat-turn"}}),
+        Some(attempt),
+    )
 }
 
 fn indeterminate(store: &mut Store, run: &str, attempt: &str, extra: Value) {
@@ -256,22 +289,51 @@ fn walk(
 }
 
 /// The one reason a pass kept a tree.
-fn kept_reason(swept: &Swept) -> &str {
+fn kept_reason(swept: &Swept) -> &KeptReason {
     assert_eq!(swept.kept().len(), 1);
     &swept.kept()[0].reason
 }
 
 /// Run a pass and hand back the one reason it kept the tree for.
-fn kept_after_pass(fixture: &mut Fixture) -> String {
+fn kept_after_pass(fixture: &mut Fixture) -> KeptReason {
     let (swept, _) = pass_one(&mut fixture.store);
-    kept_reason(&swept).to_string()
+    kept_reason(&swept).clone()
 }
 
 /// Assert the pass kept `tree` for `reason` and recorded no sweep.
-fn kept(fixture: &mut Fixture, tree: &Path, reason: &str) {
+fn kept(fixture: &mut Fixture, tree: &Path, reason: KeptReason) {
     assert!(tree.exists());
     assert_eq!(kept_after_pass(fixture), reason);
     assert_eq!(fixture.store.tree_sweeps().unwrap(), vec![]);
+}
+
+/// Run a pass under the journal's own dispatcher and hand back its refusal.
+fn pass_refusal(fixture: &mut Fixture) -> SweepError {
+    let held = held(fixture);
+    pass(&mut fixture.store, &held).unwrap_err()
+}
+
+/// Make every `tree_sweeps` insert fail, so a complete removal's record
+/// refusal is provable without a queue this binary cannot write.
+fn refuse_records(store: &Store) {
+    rusqlite::Connection::open(store.path())
+        .unwrap()
+        .execute_batch(
+            "CREATE TRIGGER forced_sweep_record BEFORE INSERT ON tree_sweeps
+             BEGIN SELECT RAISE(ABORT, 'forced record failure'); END;",
+        )
+        .unwrap();
+}
+
+/// Assert `pass` returned a record refusal whose report names one removal
+/// and one record failure, and hand the report back.
+fn record_refusal(refused: &SweepError) -> &Swept {
+    let SweepError::Record { report, .. } = refused else {
+        panic!("a record refusal carries its report: {refused:?}");
+    };
+    assert_eq!(report.removed().len(), 1);
+    assert!(matches!(report.failed()[0].cause, FailedCause::Record(_)));
+    report
 }
 
 /// A run whose first attempt failed and whose second succeeded: its effect
@@ -383,12 +445,12 @@ fn a_parked_runs_open_effect_keeps_every_tree() {
     let tree = fixture.here(RUN, ATTEMPT);
 
     assert!(tree.exists());
-    assert_eq!(kept_after_pass(&mut fixture), "its effect is still open");
+    assert_eq!(kept_after_pass(&mut fixture), KeptReason::EffectOpen);
     assert_eq!(fixture.store.tree_sweeps().unwrap(), vec![]);
 }
 
 #[test]
-fn an_attempt_with_unproven_cleanup_keeps_its_tree() {
+fn an_attempt_that_ended_indeterminate_keeps_its_tree_whatever_evidence() {
     for evidence in [seat_evidence(), panel_evidence()] {
         let mut fixture = Fixture::new();
         fixture.opened(RUN);
@@ -397,11 +459,7 @@ fn an_attempt_with_unproven_cleanup_keeps_its_tree() {
         stopped(&mut fixture.store, RUN);
         let tree = fixture.here(RUN, ATTEMPT);
 
-        kept(
-            &mut fixture,
-            &tree,
-            "its attempt carries unproven cleanup evidence",
-        );
+        kept(&mut fixture, &tree, KeptReason::Indeterminate);
     }
 }
 
@@ -412,7 +470,7 @@ fn an_attempt_with_no_terminal_event_keeps_its_tree() {
     started(&mut fixture.store, RUN, ATTEMPT);
     let tree = stopped_with_tree(&mut fixture);
 
-    kept(&mut fixture, &tree, "no terminal event names its attempt");
+    kept(&mut fixture, &tree, KeptReason::NoTerminalEvent);
 }
 
 #[test]
@@ -422,20 +480,9 @@ fn a_row_whose_attempt_no_event_names_is_kept() {
     let tree = fixture.here(RUN, ATTEMPT2);
 
     assert!(tree.exists());
-    assert_eq!(kept_after_pass(&mut fixture), "no event names its attempt");
-    assert_eq!(fixture.store.tree_sweeps().unwrap(), vec![]);
-}
-
-#[test]
-fn a_root_that_is_not_its_canonical_path_is_kept() {
-    let mut fixture = Fixture::new();
-    fixture.succeeded(RUN, ATTEMPT);
-    let root = PathBuf::from("/x/../scratch");
-    seat(&mut fixture.store, RUN, EFFECT, ATTEMPT, &root);
-
     assert_eq!(
         kept_after_pass(&mut fixture),
-        "its root is not its own canonical path"
+        KeptReason::NoEventNamesAttempt
     );
     assert_eq!(fixture.store.tree_sweeps().unwrap(), vec![]);
 }
@@ -453,10 +500,7 @@ fn a_root_through_a_symlinked_component_is_kept() {
     seat(&mut fixture.store, RUN, EFFECT, ATTEMPT, &named);
 
     assert!(tree.exists());
-    assert_eq!(
-        kept_after_pass(&mut fixture),
-        "its root is not its own canonical path"
-    );
+    assert_eq!(kept_after_pass(&mut fixture), KeptReason::RootNotCanonical);
     assert_eq!(fixture.store.tree_sweeps().unwrap(), vec![]);
 }
 
@@ -475,7 +519,7 @@ fn two_roots_in_one_run_keep_both_trees() {
     assert!(second.exists());
     assert_eq!(swept.kept().len(), 2);
     for kept in swept.kept() {
-        assert_eq!(kept.reason, "another row of its run names a different root");
+        assert_eq!(kept.reason, KeptReason::AnotherRoot);
     }
     assert_eq!(fixture.store.tree_sweeps().unwrap(), vec![]);
 }
@@ -495,10 +539,7 @@ fn a_later_row_naming_another_root_keeps_the_runs_first_tree() {
     let (swept, _) = pass_one(&mut fixture.store);
 
     assert!(second.exists());
-    assert_eq!(
-        kept_reason(&swept),
-        "another row of its run names a different root"
-    );
+    assert_eq!(kept_reason(&swept), &KeptReason::AnotherRoot);
     assert_eq!(fixture.store.tree_sweeps().unwrap().len(), 1);
 }
 
@@ -520,7 +561,7 @@ fn a_completed_runs_tree_goes_without_a_succeeded_effect() {
 }
 
 #[test]
-fn a_reused_attempt_keeps_its_tree_when_any_terminal_event_is_unproven() {
+fn a_reused_attempt_keeps_its_tree_when_any_terminal_event_ended_indeterminate() {
     let mut fixture = Fixture::new();
     fixture.opened(RUN);
     started(&mut fixture.store, RUN, ATTEMPT);
@@ -557,11 +598,7 @@ fn a_reused_attempt_keeps_its_tree_when_any_terminal_event_is_unproven() {
     failed(&mut fixture.store, RUN, ATTEMPT);
     let tree = stopped_with_tree(&mut fixture);
 
-    kept(
-        &mut fixture,
-        &tree,
-        "its attempt carries unproven cleanup evidence",
-    );
+    kept(&mut fixture, &tree, KeptReason::Indeterminate);
 }
 
 #[test]
@@ -583,7 +620,7 @@ fn a_root_spelled_with_a_dot_or_dot_dot_component_is_kept() {
 
         assert_eq!(
             kept_after_pass(&mut fixture),
-            "its root is not its own canonical path",
+            KeptReason::RootNotCanonical,
             "{spelling}"
         );
         assert!(tree.exists(), "{spelling}");
@@ -625,10 +662,7 @@ fn a_link_at_the_attempt_path_is_kept_and_not_followed() {
     seat(&mut fixture.store, RUN, EFFECT, ATTEMPT, &fixture.root);
 
     assert!(target.join("kept").is_dir());
-    assert_eq!(
-        kept_after_pass(&mut fixture),
-        "its tree is a link, not a directory"
-    );
+    assert_eq!(kept_after_pass(&mut fixture), KeptReason::TreeIsLink);
     assert_eq!(fixture.store.tree_sweeps().unwrap(), vec![]);
 }
 
@@ -647,10 +681,7 @@ fn a_tree_on_another_filesystem_is_kept() {
     );
 
     assert!(tree.exists());
-    assert_eq!(
-        kept_reason(&swept),
-        "its tree is on another filesystem than its root"
-    );
+    assert_eq!(kept_reason(&swept), &KeptReason::ForeignFilesystem);
     assert_eq!(fixture.store.tree_sweeps().unwrap(), vec![]);
 }
 
@@ -672,7 +703,10 @@ fn a_partial_removal_records_nothing() {
     assert!(tree.exists());
     assert_eq!(swept.failed().len(), 1);
     assert_eq!(swept.failed()[0].path, tree);
-    assert_eq!(swept.failed()[0].cause, "Permission denied (os error 13)");
+    assert_eq!(
+        swept.failed()[0].cause.to_string(),
+        "Permission denied (os error 13)"
+    );
     assert_eq!(fixture.store.tree_sweeps().unwrap(), vec![]);
     assert_eq!(fixture.store.open_seat_trees().unwrap().len(), 1);
 }
@@ -760,8 +794,11 @@ fn a_hands_tree_with_no_lock_is_kept_and_reported() {
     assert_eq!(swept.kept().len(), 1);
     assert_eq!(
         swept.kept()[0].reason,
-        "its lock cannot be probed: it holds no lock file; trees from before #415 are no \
-         longer reaped (0.13.0)"
+        KeptReason::Hands(
+            "its lock cannot be probed: it holds no lock file; trees from before #415 are no \
+             longer reaped (0.13.0)"
+                .to_string()
+        )
     );
     assert_eq!(fixture.store.tree_sweeps().unwrap(), vec![]);
 }
@@ -816,12 +853,17 @@ fn a_queue_that_does_not_record_sweeps_refuses_the_removal() {
     let refused = pass(&mut fixture.store, &held).unwrap_err();
 
     assert!(!tree.exists());
-    assert!(matches!(&refused, SweepError::Unrecorded));
+    assert_eq!(record_refusal(&refused).removed()[0].path, tree);
+    let SweepError::Record { cause, .. } = &refused else {
+        unreachable!("record_refusal checked the variant");
+    };
+    assert_eq!(cause, UNRECORDED);
     assert_eq!(
         refused.to_string(),
-        "a tree was removed but not recorded: the journal's queue is not one this binary writes \
-         tree sweeps in"
+        "a tree was removed but its sweep could not be recorded: the journal's queue is not one \
+         this binary writes tree sweeps in"
     );
+    assert_eq!(fixture.store.tree_sweeps().unwrap(), vec![]);
 }
 
 #[test]
@@ -841,12 +883,13 @@ fn the_lines_name_every_tree_and_the_total() {
         ],
         kept: vec![Kept {
             path: PathBuf::from("/run/scratch/two"),
-            reason: "its effect is still open".into(),
+            reason: KeptReason::EffectOpen,
         }],
         failed: vec![Failed {
             path: PathBuf::from("/run/scratch/three"),
-            cause: "Permission denied".into(),
+            cause: FailedCause::Walk("Permission denied".into()),
         }],
+        hands: None,
     };
     let done = swept.lines_with(safe, false);
     assert_eq!(
@@ -885,7 +928,7 @@ fn a_run_that_does_not_load_keeps_its_row() {
     let (swept, _) = pass_one(&mut fixture.store);
 
     assert!(tree.exists());
-    assert_eq!(swept.kept()[0].reason, "its run cannot be read");
+    assert_eq!(swept.kept()[0].reason, KeptReason::RunCannotBeRead);
     assert_eq!(fixture.store.tree_sweeps().unwrap(), vec![]);
     brokkr_store::test_support::lags(&mut fixture.store, &[RUN]);
 }
@@ -914,13 +957,16 @@ fn a_run_that_does_not_fold_keeps_its_row() {
     let (swept, _) = pass_one(&mut fixture.store);
 
     assert!(tree.exists());
-    assert_eq!(swept.kept()[0].reason, "its run does not fold");
+    assert_eq!(swept.kept()[0].reason, KeptReason::RunDoesNotFold);
     assert_eq!(fixture.store.tree_sweeps().unwrap(), vec![]);
     brokkr_store::test_support::lags(&mut fixture.store, &[RUN]);
 }
 
 #[test]
 fn a_row_the_checks_should_refuse_is_kept_by_its_shape() {
+    if rustix::process::geteuid().is_root() {
+        return;
+    }
     let mut fixture = Fixture::new();
     let unreadable = scratch(&fixture.tmp.join("sealed").join("scratch"));
     for run in ["bad-uuid", "bad-root", "bad-file", "unreadable"] {
@@ -964,13 +1010,13 @@ fn a_row_the_checks_should_refuse_is_kept_by_its_shape() {
         swept
             .kept()
             .iter()
-            .map(|kept| kept.reason.as_str())
+            .map(|kept| kept.reason.clone())
             .collect::<Vec<_>>(),
         [
-            "its attempt id is not the one the engine mints",
-            "its root is not an absolute path ending in 'scratch'",
-            "its tree is not a directory",
-            "its tree cannot be read",
+            KeptReason::AttemptNotEngineUuid,
+            KeptReason::RootNotAbsolute,
+            KeptReason::TreeNotDirectory,
+            KeptReason::TreeUnreadable,
         ]
     );
     assert_eq!(fixture.store.tree_sweeps().unwrap(), vec![]);
@@ -982,17 +1028,25 @@ fn a_plan_count_that_refuses_is_reported_and_removes_nothing() {
     let (tree, _) = fixture.closed(ATTEMPT);
     let empty = tempfile::tempdir().unwrap();
 
-    let plan = plan_with(&fixture.store, empty.path(), super::same_device, |_| {
-        Err(TreeError::Io {
-            path: PathBuf::from("/x"),
-            cause: std::io::Error::from_raw_os_error(13),
-        })
-    })
+    let plan = plan_with(
+        &fixture.store,
+        Ok(empty.path().to_path_buf()),
+        super::same_device,
+        |_| {
+            Err(TreeError::Io {
+                path: PathBuf::from("/x"),
+                cause: std::io::Error::from_raw_os_error(13),
+            })
+        },
+    )
     .unwrap();
 
     assert!(tree.exists());
     assert_eq!(plan.removed(), &[]);
-    assert_eq!(plan.failed()[0].cause, "Permission denied (os error 13)");
+    assert_eq!(
+        plan.failed()[0].cause.to_string(),
+        "Permission denied (os error 13)"
+    );
     assert_eq!(fixture.store.tree_sweeps().unwrap(), vec![]);
 }
 
@@ -1002,12 +1056,17 @@ fn a_plan_that_cannot_read_every_name_says_at_least() {
     fixture.succeeded(RUN, ATTEMPT);
     let tree = fixture.here(RUN, ATTEMPT);
 
-    let plan = plan_with(&fixture.store, &fixture.tmp, super::same_device, |_| {
-        Ok(Some(tree::Counted {
-            bytes: 7,
-            unreadable: Some(PathBuf::from("/x/sealed")),
-        }))
-    })
+    let plan = plan_with(
+        &fixture.store,
+        Ok(fixture.tmp.clone()),
+        super::same_device,
+        |_| {
+            Ok(Some(tree::Counted {
+                bytes: 7,
+                unreadable: Some(PathBuf::from("/x/sealed")),
+            }))
+        },
+    )
     .unwrap();
 
     assert_eq!(plan.removed()[0].bytes, Some(7));
@@ -1015,7 +1074,7 @@ fn a_plan_that_cannot_read_every_name_says_at_least() {
     assert_eq!(
         plan.lines_with(safe, true),
         format!(
-            "sweep: would remove {}: at least 7 bytes\nsweep: would free 7 bytes\n",
+            "sweep: would remove {}: at least 7 bytes\nsweep: would free at least 7 bytes\n",
             tree.display()
         )
     );
@@ -1057,7 +1116,10 @@ fn a_hands_listing_whose_count_refuses_is_reported() {
     assert!(!swept.removed()[0].lower_bound);
     assert_eq!(swept.removed()[1].bytes, Some(3));
     assert!(swept.removed()[1].lower_bound);
-    assert_eq!(swept.failed()[0].cause, "Permission denied (os error 13)");
+    assert_eq!(
+        swept.failed()[0].cause.to_string(),
+        "Permission denied (os error 13)"
+    );
 }
 
 #[test]
@@ -1071,6 +1133,325 @@ fn a_foreign_removal_cause_names_no_path() {
         cause(&foreign),
         "is on another filesystem (device 2, not 1); a tree is removed on its own filesystem"
     );
+}
+
+/// The chief's case: a running run whose attempt has a live child in its
+/// tree, closed by `conclude`. The terminal is a conclude's, so the tree
+/// stands, the report names the conclude, and no sweep row is written.
+#[test]
+fn a_conclude_closing_a_live_attempt_keeps_its_tree() {
+    let mut fixture = Fixture::new();
+    fixture.opened(RUN);
+    started(&mut fixture.store, RUN, ATTEMPT);
+    let tree = fixture.here(RUN, ATTEMPT);
+    let mut child = Command::new("sleep")
+        .arg("30")
+        .current_dir(&tree)
+        .spawn()
+        .unwrap();
+    let by = Store::open_read_only(fixture.store.path()).unwrap();
+    let named = Named {
+        cause: Cause {
+            ending: Ending::OperatorStopped,
+            by_realm: None,
+            by_run: None,
+            by_ref: None,
+        },
+        reason: "its engine died",
+        operator: "operator",
+    };
+    crate::engine::conclude(&mut fixture.store, &by, RUN, &named).unwrap();
+
+    let (swept, _) = pass_one(&mut fixture.store);
+
+    let killed = child.kill();
+    let reaped = child.wait();
+    assert!(killed.is_ok(), "{killed:?}");
+    assert!(reaped.is_ok(), "{reaped:?}");
+    assert!(tree.exists());
+    assert_eq!(kept_reason(&swept), &KeptReason::Concluded);
+    assert_eq!(fixture.store.tree_sweeps().unwrap(), vec![]);
+}
+
+/// A restarted engine's broker tallies append the attempt's checkpoints
+/// before `ended_restarted` ends it as failed; that terminal is the typed
+/// mark, so the tree stands and is named.
+#[test]
+fn a_restarted_engines_failed_attempt_keeps_its_tree() {
+    let mut fixture = Fixture::new();
+    fixture.opened(RUN);
+    started(&mut fixture.store, RUN, ATTEMPT);
+    let checkpoint = checkpoint(&mut fixture.store, RUN, ATTEMPT);
+    append_caused(
+        &mut fixture.store,
+        RUN,
+        EventType::EffectFailed,
+        json!({"effect_id": EFFECT, "error": "a broker call failed"}),
+        Some(ATTEMPT),
+        Some(&checkpoint.event_id),
+    );
+    completed(&mut fixture.store, RUN);
+    let tree = fixture.here(RUN, ATTEMPT);
+
+    kept(&mut fixture, &tree, KeptReason::Restarted);
+}
+
+/// A driver's own succeeded and failed terminals are swept with their
+/// bytes: neither carries a conclude's acceptance nor a checkpoint cause.
+#[test]
+fn a_driver_written_succeeded_and_failed_are_swept_with_their_bytes() {
+    let mut fixture = Fixture::new();
+    fixture.opened(RUN);
+    started(&mut fixture.store, RUN, ATTEMPT);
+    checkpoint(&mut fixture.store, RUN, ATTEMPT);
+    succeeded(&mut fixture.store, RUN, ATTEMPT);
+    let succeeded = fixture.here(RUN, ATTEMPT);
+    let succeeded_bytes = bytes(&succeeded);
+    fixture.opened(RUN2);
+    started(&mut fixture.store, RUN2, ATTEMPT2);
+    failed(&mut fixture.store, RUN2, ATTEMPT2);
+    completed(&mut fixture.store, RUN2);
+    let failed = fixture.here(RUN2, ATTEMPT2);
+    let failed_bytes = bytes(&failed);
+
+    let (swept, _) = pass_one(&mut fixture.store);
+
+    assert!(!succeeded.exists());
+    assert!(!failed.exists());
+    assert_eq!(swept.removed().len(), 2);
+    assert_eq!(swept.removed()[0].bytes, Some(succeeded_bytes));
+    assert_eq!(swept.removed()[1].bytes, Some(failed_bytes));
+    assert_eq!(fixture.store.tree_sweeps().unwrap().len(), 2);
+}
+
+/// Every indeterminate terminal keeps its tree, with or without the
+/// cleanup evidence ruling 7 used to read.
+#[test]
+fn an_indeterminate_keeps_its_tree_with_and_without_evidence() {
+    let mut fixture = Fixture::new();
+    let mut trees = Vec::new();
+    for (run, attempt, evidence) in [(RUN, ATTEMPT, json!({})), (RUN2, ATTEMPT2, seat_evidence())] {
+        fixture.opened(run);
+        started(&mut fixture.store, run, attempt);
+        indeterminate(&mut fixture.store, run, attempt, evidence);
+        stopped(&mut fixture.store, run);
+        trees.push(fixture.here(run, attempt));
+    }
+
+    let (swept, _) = pass_one(&mut fixture.store);
+
+    assert!(trees.iter().all(|tree| tree.exists()));
+    assert_eq!(swept.kept().len(), 2);
+    for kept in swept.kept() {
+        assert_eq!(kept.reason, KeptReason::Indeterminate);
+    }
+    assert_eq!(fixture.store.tree_sweeps().unwrap(), vec![]);
+}
+
+/// A succeeded event the fold read names its effect, so an effect id the
+/// sweep could not read never closes a row: the invariant is the fold's.
+#[test]
+fn a_succeeded_event_names_the_effect_the_fold_read() {
+    let mut fixture = Fixture::new();
+    fixture.opened(RUN);
+    started(&mut fixture.store, RUN, ATTEMPT);
+    succeeded(&mut fixture.store, RUN, ATTEMPT);
+    let tree = fixture.here(RUN, ATTEMPT);
+
+    let (swept, _) = pass_one(&mut fixture.store);
+
+    assert!(!tree.exists());
+    assert_eq!(swept.removed().len(), 1);
+}
+
+/// A relative root is refused before the canonical check: the first half
+/// of R5's absolute-and-scratch spelling.
+#[test]
+fn a_relative_root_ending_in_scratch_is_kept() {
+    let mut fixture = Fixture::new();
+    fixture.succeeded(RUN, ATTEMPT);
+    fixture
+        .store
+        .create_run("relative", "a feature", "self", &json!({}))
+        .unwrap();
+    append(
+        &mut fixture.store,
+        "relative",
+        EventType::RunStarted,
+        json!({"feature": "a feature", "manifest": {}}),
+        None,
+    );
+    let conn = rusqlite::Connection::open(fixture.store.path()).unwrap();
+    conn.execute_batch("PRAGMA ignore_check_constraints = ON")
+        .unwrap();
+    conn.execute(
+        "INSERT INTO seat_trees (run_id, effect_id, attempt_id, root, recorded_at)
+         VALUES ('relative', 'effect', ?1, 'relative/scratch', 0)",
+        rusqlite::params![ATTEMPT],
+    )
+    .unwrap();
+
+    let (swept, _) = pass_one(&mut fixture.store);
+
+    assert_eq!(
+        swept
+            .kept()
+            .iter()
+            .map(|kept| kept.reason.clone())
+            .collect::<Vec<_>>(),
+        [KeptReason::RootNotAbsolute]
+    );
+    assert_eq!(fixture.store.tree_sweeps().unwrap(), vec![]);
+}
+
+/// A root that is itself gone closes its row as gone, with no bytes, so a
+/// removed directory never keeps a row forever.
+#[test]
+fn a_gone_root_closes_its_row_as_gone() {
+    let mut fixture = Fixture::new();
+    fixture.succeeded(RUN, ATTEMPT);
+    let tree = fixture.here(RUN, ATTEMPT);
+    std::fs::remove_dir_all(&fixture.root).unwrap();
+
+    let (swept, _) = pass_one(&mut fixture.store);
+
+    assert!(!tree.exists());
+    assert_eq!(swept.removed()[0].bytes, None);
+    assert_eq!(swept.freed(), 0);
+    let rows = fixture.store.tree_sweeps().unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].bytes, None);
+    assert_eq!(fixture.store.open_seat_trees().unwrap(), vec![]);
+}
+
+/// A `TMPDIR` that is relative or not UTF-8 refuses the hands half before
+/// it reads a tree, and says why. A good `TMPDIR` is tested by every hands
+/// case above.
+#[test]
+fn a_relative_or_non_utf8_tmpdir_refuses_the_hands_half() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = journal(dir.path());
+    let cases: [(OsString, KeptReason); 2] = [
+        (OsString::from("relative/tmp"), KeptReason::TmpdirRelative),
+        (
+            OsString::from_vec(b"/tmp/brokkr-not-utf8-\xff".to_vec()),
+            KeptReason::TmpdirNotUtf8,
+        ),
+    ];
+    for (value, reason) in cases {
+        let mut env = EnvGuard::lock();
+        env.set("TMPDIR", &value);
+        let plan = plan(&store).unwrap();
+        assert_eq!(plan.hands, Some(reason.clone()));
+        assert!(plan.removed().is_empty());
+        assert!(plan.kept().is_empty());
+        let said = plan.lines_with(safe, true);
+        assert!(said.contains("sweep: hands trees kept: "), "{said}");
+        if matches!(reason, KeptReason::TmpdirRelative) {
+            let held = crate::dispatch::take_dispatch(&mut store).unwrap().unwrap();
+            let swept = pass(&mut store, &held).unwrap();
+            assert_eq!(swept.hands, Some(KeptReason::TmpdirRelative));
+            assert!(swept.removed().is_empty());
+        }
+        drop(env);
+    }
+    let mut env = EnvGuard::lock();
+    env.remove("TMPDIR");
+    let plan = plan(&store).unwrap();
+    assert_eq!(plan.hands, None);
+    drop(env);
+}
+
+/// A record refusal after a complete removal carries the report of every
+/// removal made, names the tree's record failure beside it, and is an
+/// error so the verb exits non-zero.
+#[test]
+fn a_record_refusal_carries_every_removal_it_made() {
+    let mut fixture = Fixture::new();
+    let (tree, freed) = fixture.closed(ATTEMPT);
+    refuse_records(&fixture.store);
+    let refused = pass_refusal(&mut fixture);
+
+    assert!(!tree.exists());
+    assert_eq!(record_refusal(&refused).removed()[0].bytes, Some(freed));
+    let SweepError::Record { cause, .. } = &refused else {
+        unreachable!("record_refusal checked the variant");
+    };
+    assert!(cause.contains("forced record failure"), "{cause}");
+    assert_eq!(fixture.store.tree_sweeps().unwrap(), vec![]);
+}
+
+/// Every kept reason has words, so the report's match arms all run and
+/// none of the vocabulary is silent.
+#[test]
+fn every_kept_reason_has_words() {
+    for reason in [
+        KeptReason::Indeterminate,
+        KeptReason::Concluded,
+        KeptReason::Restarted,
+        KeptReason::EffectOpen,
+        KeptReason::NoEventNamesAttempt,
+        KeptReason::NoTerminalEvent,
+        KeptReason::AnotherRoot,
+        KeptReason::RootNotAbsolute,
+        KeptReason::AttemptNotEngineUuid,
+        KeptReason::RootNotCanonical,
+        KeptReason::RootUnreadable,
+        KeptReason::TreeIsLink,
+        KeptReason::TreeNotDirectory,
+        KeptReason::TreeUnreadable,
+        KeptReason::ForeignFilesystem,
+        KeptReason::RunCannotBeRead,
+        KeptReason::RunDoesNotFold,
+        KeptReason::TmpdirRelative,
+        KeptReason::TmpdirNotUtf8,
+        KeptReason::Hands("the reaper's words".to_string()),
+    ] {
+        assert!(!reason.to_string().is_empty(), "{reason:?}");
+    }
+}
+
+/// A hands removal whose sweep row is refused keeps its removal in the
+/// report beside the record refusal, and the report says so.
+#[test]
+fn a_hands_record_refusal_carries_its_removal() {
+    let mut fixture = Fixture::new();
+    let tree = hands_tree(&fixture.tmp, exited_pid(), "record");
+    std::fs::write(tree.join(".owner.lock"), "").unwrap();
+    refuse_records(&fixture.store);
+
+    let refused = pass_refusal(&mut fixture);
+
+    assert!(!tree.exists());
+    let report = record_refusal(&refused);
+    assert_eq!(report.removed()[0].path, tree);
+    let said = report.lines_with(safe, false);
+    assert!(said.contains("sweep: could not record"), "{said}");
+}
+
+/// A root that cannot be resolved for a reason other than absence keeps
+/// its row: a symlink loop is not a gone directory.
+#[test]
+fn a_root_that_cannot_be_canonicalized_is_kept() {
+    let mut fixture = Fixture::new();
+    fixture.succeeded(RUN, ATTEMPT);
+    let looped = fixture.tmp.join("loop");
+    std::os::unix::fs::symlink(&looped, &looped).unwrap();
+    let root = looped.join("scratch");
+    let conn = rusqlite::Connection::open(fixture.store.path()).unwrap();
+    conn.execute_batch("PRAGMA ignore_check_constraints = ON")
+        .unwrap();
+    conn.execute(
+        "INSERT INTO seat_trees (run_id, effect_id, attempt_id, root, recorded_at)
+         VALUES (?1, ?2, ?3, ?4, 0)",
+        rusqlite::params![RUN, EFFECT, ATTEMPT, root.to_str().unwrap()],
+    )
+    .unwrap();
+
+    let reason = kept_after_pass(&mut fixture);
+
+    assert_eq!(reason, KeptReason::RootNotCanonical);
+    assert_eq!(fixture.store.tree_sweeps().unwrap(), vec![]);
 }
 
 /// A hands tree named the way the reaper parses it.

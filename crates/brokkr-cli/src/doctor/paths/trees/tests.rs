@@ -137,6 +137,9 @@ fn a_count_that_finds_the_tree_gone_or_refuses_is_a_warning() {
 
 #[test]
 fn a_lower_bound_count_says_at_least_and_removes_nothing() {
+    if rustix::process::geteuid().is_root() {
+        return;
+    }
     let dir = tempfile::tempdir().unwrap();
     let tree = dir.path().join("tree");
     let sealed = tree.join("sealed");
@@ -159,6 +162,53 @@ fn a_lower_bound_count_says_at_least_and_removes_nothing() {
         )]
     );
     assert!(tree.is_dir(), "nothing removes an unreadable tree");
+}
+
+#[test]
+fn a_root_that_is_not_its_own_canonical_path_is_named() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = journal(dir.path());
+    let real = dir.path().join("real");
+    let root = real.join("scratch");
+    std::fs::create_dir_all(root.join("orphan")).unwrap();
+    let link = dir.path().join("link");
+    std::os::unix::fs::symlink(&real, &link).unwrap();
+    let named_root = link.join("scratch");
+    store
+        .record_seat_tree(
+            RUN,
+            "effect",
+            "11111111-1111-4111-8111-111111111111",
+            &named_root,
+        )
+        .unwrap();
+
+    let mut report = empty_report();
+    self::report(&mut report, &store);
+
+    assert!(report.healthy);
+    assert_eq!(
+        report.lines,
+        [format!(
+            "warn     tree: {}: not its own canonical path, so the sweep keeps its trees",
+            named_root.display()
+        )]
+    );
+}
+
+#[test]
+fn an_entry_that_vanishes_before_its_stat_adds_no_line() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("scratch");
+    std::fs::create_dir_all(root.join("orphan")).unwrap();
+    let mut report = empty_report();
+
+    list_with(&mut report, &root, &BTreeSet::new(), |_| {
+        Err(std::io::Error::from(std::io::ErrorKind::NotFound))
+    });
+
+    assert!(report.healthy);
+    assert!(report.lines.is_empty());
 }
 
 #[test]
