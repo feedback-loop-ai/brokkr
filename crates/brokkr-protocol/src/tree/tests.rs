@@ -202,12 +202,11 @@ fn unsealing_a_name_that_became_a_link_leaves_its_target_alone() {
     std::fs::create_dir(&outside).unwrap();
     std::fs::write(outside.join("kept"), "").unwrap();
     set_mode(&outside, 0o500);
-    let stat = statat(CWD, &outside, AtFlags::SYMLINK_NOFOLLOW).unwrap();
     let work = tree.join("work");
     std::os::unix::fs::symlink(&outside, &work).unwrap();
     let tree_fd = std::fs::File::open(&tree).unwrap();
 
-    let refused = unseal_at(&tree_fd, "work", &work, stat.st_mode);
+    let refused = unseal_at(&tree_fd, "work", &work);
     assert_eq!(
         std::fs::metadata(&outside).unwrap().permissions().mode() & 0o777,
         0o500,

@@ -219,7 +219,7 @@ fn open_root<'a>(tree: &'a Path, remove: bool) -> Result<Root<'a>, TreeError> {
 fn unseal_root(parent: &OwnedFd, name: &OsStr, tree: &Path) -> Result<(), TreeError> {
     match statat(parent, name, AtFlags::SYMLINK_NOFOLLOW) {
         Ok(stat) if FileType::from_raw_mode(stat.st_mode) == FileType::Directory => {
-            unseal_at(parent, name, tree, stat.st_mode)
+            unseal_at(parent, name, tree)
         }
         Ok(_) => Err(io_error(tree, Errno::NOTDIR)),
         Err(Errno::NOENT) => Ok(()),
@@ -391,7 +391,7 @@ fn descend_entry(
     }
     walk.count(&stat);
     if FileType::from_raw_mode(stat.st_mode) == FileType::Directory {
-        descend_directory(dir, &child, name, &stat, tree_device, walk, device_of)
+        descend_directory(dir, &child, name, tree_device, walk, device_of)
     } else if walk.remove {
         io(&child, unlinkat(dir, name, AtFlags::empty()))
     } else {
@@ -408,13 +408,12 @@ fn descend_directory(
     dir: &OwnedFd,
     child: &Path,
     name: &CString,
-    stat: &Stat,
     tree_device: u64,
     walk: &mut Walk,
     device_of: &impl Fn(&Path, u64) -> u64,
 ) -> Result<(), TreeError> {
     if walk.remove {
-        unseal_at(dir, name, child, stat.st_mode)?;
+        unseal_at(dir, name, child)?;
     }
     let opened = openat(dir, name, dir_flags(), Mode::empty());
     if !walk.remove && matches!(&opened, Err(Errno::ACCESS)) {
@@ -440,22 +439,21 @@ fn entry_names(dir: &OwnedFd) -> Result<Vec<CString>, Errno> {
 
 /// Give the owner read, write and search on `name` in `dir` before the walk
 /// opens and reads it: hands overlays leave directories with no bit for
-/// their owner. The other bits stay as they were. A mode SQLite could not
+/// their owner. The mode is exactly 0700: the directory is about to be
+/// removed, so no group or other bit is worth keeping, and a planted mode
+/// cannot put a bit on whatever the name became. A mode SQLite could not
 /// open first (0200 has no read) is changed from its parent, so the walk
 /// never has to open what it cannot yet read. The mode is set through a
 /// descriptor opened no-follow, never by the name: a writer who swaps the
 /// name for a link between the stat and the change cannot reach the link's
 /// target. The operator's 2026-09-26 ruling covers the tree, and this makes
 /// the change itself not follow.
-fn unseal_at<P: rustix::path::Arg>(
-    dir: impl AsFd,
-    name: P,
-    path: &Path,
-    mode: u32,
-) -> Result<(), TreeError> {
-    let mode = Mode::from_bits_truncate((mode & 0o7777) | 0o700);
-    set_dir_mode(dir, name, path, mode)
+fn unseal_at<P: rustix::path::Arg>(dir: impl AsFd, name: P, path: &Path) -> Result<(), TreeError> {
+    set_dir_mode(dir, name, path)
 }
+
+/// What an unseal writes: owner read, write and search, and nothing else.
+const UNSEALED: Mode = Mode::from_bits_truncate(0o700);
 
 /// Linux opens the directory itself with `O_PATH`, needing no read bit, and
 /// changes it through the descriptor's `/proc/self/fd` name: that names the
@@ -465,7 +463,6 @@ fn set_dir_mode<P: rustix::path::Arg>(
     dir: impl AsFd,
     name: P,
     path: &Path,
-    mode: Mode,
 ) -> Result<(), TreeError> {
     let opened = io(
         path,
@@ -477,7 +474,7 @@ fn set_dir_mode<P: rustix::path::Arg>(
         ),
     )?;
     let named = format!("/proc/self/fd/{}", opened.as_raw_fd());
-    io(path, chmodat(CWD, named, mode, AtFlags::empty()))
+    io(path, chmodat(CWD, named, UNSEALED, AtFlags::empty()))
 }
 
 /// macOS's `fchmodat` takes `AT_SYMLINK_NOFOLLOW`, so the final component
@@ -487,9 +484,11 @@ fn set_dir_mode<P: rustix::path::Arg>(
     dir: impl AsFd,
     name: P,
     path: &Path,
-    mode: Mode,
 ) -> Result<(), TreeError> {
-    io(path, chmodat(dir, name, mode, AtFlags::SYMLINK_NOFOLLOW))
+    io(
+        path,
+        chmodat(dir, name, UNSEALED, AtFlags::SYMLINK_NOFOLLOW),
+    )
 }
 
 /// Run one filesystem call and name `path` in whatever it refuses. One
