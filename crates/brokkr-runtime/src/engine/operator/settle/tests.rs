@@ -10,7 +10,8 @@ use serde_json::json;
 use super::{operator_settle, settle_with, Settle};
 use crate::engine::broker::admission::tests::cr2;
 use crate::engine::broker::admission::tests::{
-    boxed_claim, dead_group, quarantined, reservation_path, unacknowledged, Fixture, LiveGroup,
+    boxed_claim, dead_group, isolated, quarantined, reservation_path, unacknowledged, Fixture,
+    LiveGroup,
 };
 use crate::engine::broker::admission::{Conflict, Witnessed};
 use crate::engine::broker::settlement::release;
@@ -123,6 +124,9 @@ fn settle_refuses_a_run_that_is_not_acknowledged_and_names_acknowledge() {
 /// nothing is written.
 #[test]
 fn settle_refuses_a_live_process_group_naming_it_and_writes_nothing() {
+    if !isolated("engine::operator::settle::tests::settle_refuses_a_live_process_group_naming_it_and_writes_nothing") {
+        return;
+    }
     let live = LiveGroup::new();
     let mut fixture = quarantined(&[Witnessed::Settling], Some(live.group()));
     refused(

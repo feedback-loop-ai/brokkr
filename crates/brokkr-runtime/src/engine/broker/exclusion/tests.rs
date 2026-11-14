@@ -10,11 +10,11 @@ use serde_json::json;
 
 use crate::engine::broker::admission::tests::cr2;
 use crate::engine::broker::admission::tests::{
-    acknowledge, boxed_claim, dead_group, quarantined, unacknowledged, Fixture, LiveGroup,
+    acknowledge, boxed_claim, child_lock, dead_group, isolated, quarantined, unacknowledged,
+    Fixture, LiveGroup,
 };
 use crate::engine::broker::admission::{Conflict, Unadmitted, Witnessed};
 use crate::engine::operator::{operator_repair, operator_settle, Repair, Settle};
-use crate::run_lock;
 
 /// A claim of the fixture's worktree that is not run A's: what a later
 /// admission compares.
@@ -52,6 +52,9 @@ fn a_quarantined_run_whose_writers_are_settled_releases_its_worktree() {
 /// settled; the host says a member of the group still runs.
 #[test]
 fn a_quarantined_run_with_a_live_process_group_still_holds_its_worktree() {
+    if !isolated("engine::broker::exclusion::tests::a_quarantined_run_with_a_live_process_group_still_holds_its_worktree") {
+        return;
+    }
     let live = LiveGroup::new();
     let fixture = quarantined(&[Witnessed::Settled], Some(live.group()));
     assert_eq!(
@@ -62,26 +65,23 @@ fn a_quarantined_run_with_a_live_process_group_still_holds_its_worktree() {
     drop(live);
 }
 
-/// A process that holds the run's lock keeps the worktree held, and the
-/// refusal names it. A separate open description excludes exactly as a
-/// child's copy does (decision 0108 ruling 1).
+/// A child process that holds the run's lock keeps the worktree held, and
+/// the refusal names the child (decision 0108 ruling 1): the kernel excludes
+/// across processes, not only across open descriptions.
 #[test]
-fn a_quarantined_run_whose_lock_a_process_holds_is_refused_naming_it() {
+fn a_quarantined_run_whose_lock_a_child_holds_is_refused_naming_it() {
     let fixture = quarantined(&[Witnessed::Settled], None);
-    let held = run_lock::take(&fixture.store, "run-a").expect("the run's lock is taken");
+    let held = child_lock(&fixture.store, "run-a");
     let refused = next(&fixture).unwrap_err();
     let words = refused.to_string();
     assert!(
-        words.contains(&format!(
-            "run 'run-a' is driven by pid {}",
-            std::process::id()
-        )),
+        words.contains(&format!("run 'run-a' is driven by pid {}", held.holder())),
         "{words}"
     );
     drop(held);
     assert!(
         next(&fixture).is_ok(),
-        "once the lock is let go, the settled run releases"
+        "once the child lets go, the settled run releases"
     );
 }
 
@@ -159,6 +159,11 @@ fn a_settle_record_releases_what_the_records_cannot_prove() {
 #[test]
 fn a_settle_record_naming_a_live_group_does_not_release() {
     use crate::engine::broker::settlement::release::{LockState, Proof, Proven, SettleArgs};
+    if !isolated(
+        "engine::broker::exclusion::tests::a_settle_record_naming_a_live_group_does_not_release",
+    ) {
+        return;
+    }
     let live = LiveGroup::new();
     let mut fixture = quarantined(&[Witnessed::Settling], Some(live.group()));
     // A record written when the group was still live: it names the attempt

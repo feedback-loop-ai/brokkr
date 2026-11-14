@@ -3,7 +3,7 @@
 //! operator's settle record must name to release a standing reservation.
 
 use super::*;
-use crate::engine::broker::admission::tests::{dead_group, LiveGroup};
+use crate::engine::broker::admission::tests::{dead_group, isolated, LiveGroup};
 use crate::engine::broker::admission::Reserved;
 use crate::engine::broker::settlement::Driver;
 
@@ -76,6 +76,9 @@ fn standing(run: &str) -> Standing {
 /// releases a worktree.
 #[test]
 fn only_the_kernels_no_such_process_proves_a_group_gone() {
+    if !isolated("engine::broker::settlement::release::tests::only_the_kernels_no_such_process_proves_a_group_gone") {
+        return;
+    }
     assert!(!alive(dead_group()), "a reaped group is gone");
     let live = LiveGroup::new();
     assert!(alive(live.group()), "a running child is alive");
@@ -91,6 +94,9 @@ fn only_the_kernels_no_such_process_proves_a_group_gone() {
 /// the group can, and the exclusion will not use it alone.
 #[test]
 fn the_records_and_the_host_prove_an_attempt_by_their_own_facts() {
+    if !isolated("engine::broker::settlement::release::tests::the_records_and_the_host_prove_an_attempt_by_their_own_facts") {
+        return;
+    }
     let none = reserved(Witnessed::Settling, &[], None);
     assert_eq!(proven(&none, "a1"), Ok(Proof::Records));
     assert_eq!(proven_records(&none, "a1"), Ok(()));
@@ -228,6 +234,9 @@ fn a_repair_record_counts_only_after_the_terminal_event() {
 /// another alive does not release.
 #[test]
 fn a_group_proof_must_name_the_group_the_broker_recorded() {
+    if !isolated("engine::broker::settlement::release::tests::a_group_proof_must_name_the_group_the_broker_recorded") {
+        return;
+    }
     let live = LiveGroup::new();
     let mut whole = serde_json::from_value::<crate::engine::broker::admission::Reservation>(
         serde_json::json!({
@@ -255,6 +264,9 @@ fn a_group_proof_must_name_the_group_the_broker_recorded() {
 /// never one naming a group the host still shows alive.
 #[test]
 fn a_settle_record_releases_only_the_reservation_it_covers() {
+    if !isolated("engine::broker::settlement::release::tests::a_settle_record_releases_only_the_reservation_it_covers") {
+        return;
+    }
     let held = standing("a");
     assert!(
         honoured(

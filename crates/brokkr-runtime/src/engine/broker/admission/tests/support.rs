@@ -14,6 +14,13 @@ use super::{boxed, claim, Coordinated, Host};
 use crate::engine::broker::admission::{Held, Protects, Witnessed};
 use crate::engine::broker::settlement::Driver;
 
+/// Whether the live-group test `test` may run here: it runs alone in its
+/// own engine, so a sibling test's attempt tracker cannot take the child
+/// whose group the proof asks about for an orphan and kill it.
+pub(in crate::engine) fn isolated(test: &str) -> bool {
+    crate::engine::tests::in_its_own_engine(test)
+}
+
 /// A real child process leading a process group of its own, alive until
 /// dropped: the attempt's process group a test keeps standing on Linux and
 /// macOS alike (decision 0063; decision 0108 ruling 3).
@@ -39,6 +46,78 @@ impl Drop for LiveGroup {
     fn drop(&mut self) {
         let _ = self.0.kill();
         let _ = self.0.wait();
+    }
+}
+
+const LOCK_DB: &str = "BROKKR_RELEASE_LOCK_DB";
+const LOCK_RUN: &str = "BROKKR_RELEASE_LOCK_RUN";
+const LOCK_FILE: &str = "BROKKR_RELEASE_LOCK_FILE";
+
+/// A child process holding the run `run`'s lock until dropped: the kernel's
+/// exclusion across processes, not only across open descriptions (decision
+/// 0108 ruling 1).
+pub(in crate::engine) struct ChildLock(std::process::Child);
+
+impl ChildLock {
+    /// The holder's pid, which the refusal names.
+    pub(in crate::engine) fn holder(&self) -> u32 {
+        self.0.id()
+    }
+}
+
+impl Drop for ChildLock {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
+/// [`ChildLock`] holding `run`'s lock: the child takes it, records its
+/// facts, and leaves a marker the parent waits on before it compares.
+pub(in crate::engine) fn child_lock(store: &Store, run: &str) -> ChildLock {
+    let marker = store.path().with_extension("locked");
+    let child = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "engine::broker::admission::tests::support::lock_child",
+            "--nocapture",
+        ])
+        .env(LOCK_DB, store.path())
+        .env(LOCK_RUN, run)
+        .env(LOCK_FILE, &marker)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .expect("the lock holder starts");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while std::fs::metadata(&marker).is_err() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the lock holder never took the lock"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    ChildLock(child)
+}
+
+/// The child entry [`child_lock`] starts: takes the run's lock and holds it
+/// until the parent's drop kills it or a minute passes. Inert without the
+/// environment, so a plain suite run passes over it.
+#[test]
+fn lock_child() {
+    let (Ok(db), Ok(run), Ok(marker)) = (
+        std::env::var(LOCK_DB),
+        std::env::var(LOCK_RUN),
+        std::env::var(LOCK_FILE),
+    ) else {
+        return;
+    };
+    let store = Store::open(Path::new(&db)).unwrap();
+    let _held = crate::run_lock::take(&store, &run).expect("the child takes the lock");
+    std::fs::write(&marker, b"").unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    while std::fs::metadata(&marker).is_ok() && std::time::Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(20));
     }
 }
 
