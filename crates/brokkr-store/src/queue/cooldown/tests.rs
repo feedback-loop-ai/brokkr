@@ -1086,14 +1086,19 @@ fn a_probe_round_refuses_a_missing_or_non_terminal_event_and_an_unknown_site() {
         "the journal's event 'run-a' 99 is not a terminal effect event a probe round can append to"
     );
     // Seq 1 is the effect request, not a terminal effect event. The refusal
-    // is the one the `absent` closure builds, named by the event it names.
+    // is the one the `absent` closure builds; the missing event above pins
+    // the variant's text once, so this arm matches the variant and the
+    // run and seq it names (0071 ruling 9).
     let request = store
         .append_cooldown_round(next_round("run-a", 1, "a", at(90), 2))
         .unwrap_err();
-    assert_eq!(
-        request.to_string(),
-        "the journal's event 'run-a' 1 is not a terminal effect event a probe round can append to"
-    );
+    match request {
+        StoreError::Queue(QueueRefusal::CooldownRoundEvent {
+            run_id,
+            event_seq: 1,
+        }) => assert_eq!(run_id, "run-a", "the refusal named another run"),
+        other => panic!("the non-terminal event's refusal read as {other:?}"),
+    }
 
     let event = append_waited(&mut store, "run-a", at(60));
     let unknown = store
