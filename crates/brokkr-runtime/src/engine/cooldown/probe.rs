@@ -586,12 +586,38 @@ impl Engine {
             |_| {},
         );
         settlement::ended(&mut self.held, at.site_name, &report.cleanup);
-        self.probe_end(wait, report)
+        self.probe_end(at.effect_id, wait, report)
     }
 }
 
-/// What a probe leaves.
+/// A rate-limited probe's next round before anything is written: the
+/// terminal event it extends, the site and round it names, its length and
+/// the episode through it. The wait judges the maximum with its own
+/// remainders included and appends the row (decision 0103 ruling 2(a),
+/// choice 3), so a round past the maximum writes nothing.
+pub(super) struct NextRound {
+    pub(super) event_seq: u64,
+    pub(super) site: Option<String>,
+    pub(super) provider: String,
+    pub(super) route: String,
+    pub(super) words: String,
+    pub(super) retry_after_seconds: Option<u64>,
+    /// The row's round: the store's next one, which the append requires.
+    pub(super) rounds: u64,
+    /// The site's episode round this wait is: the count its length doubles
+    /// from and the round a park names. A fill at round one can be the
+    /// site's second wait, so this need not equal `rounds` (finding 3).
+    pub(super) round: u64,
+    pub(super) seconds: u64,
+    /// The episode's seconds through the round's terminal, before it.
+    pub(super) episode: u64,
+}
+
+/// What a probe leaves: an answer, a rate-limit refusal's next round the
+/// caller judges and writes before waiting and probing again, or the
+/// park's reason.
 pub(super) enum Probe {
     Answered(ProbeAnswer),
+    Extended(NextRound),
     Parked(String),
 }

@@ -77,7 +77,7 @@ fn sequence(steps: Vec<SequenceStep>) -> SeatBody {
 
 /// A sequence engine with the standard host and a test clock.
 fn sequence_engine(dir: &Path, body: SeatBody, attempts: u64) -> Engine {
-    let mut engine = started(dir, body, work(attempts));
+    let mut engine = started(dir, body, super::probe_rounds::patient(attempts));
     engine.cooldown.host = Some(host(dir, 1, 10));
     with_clock(engine).0
 }
@@ -993,6 +993,9 @@ fn a_member_wait_resolves_the_declared_step_and_member_pair() {
         crate::engine::cooldown::probe::Probe::Parked(reason) => {
             panic!("a:b:c was not a:b's member c: {reason}")
         }
+        crate::engine::cooldown::probe::Probe::Extended(_) => {
+            panic!("a:b:c extended a wait instead of answering")
+        }
     }
     assert_eq!(logs(dir.path(), "c"), ["probe"]);
 }
@@ -1078,6 +1081,9 @@ fn a_sequence_wait_at_a_form_it_does_not_name_parks_by_name() {
             }
             crate::engine::cooldown::probe::Probe::Answered(_) => {
                 panic!("{site} was probed")
+            }
+            crate::engine::cooldown::probe::Probe::Extended(_) => {
+                panic!("{site} extended a wait")
             }
         }
     }

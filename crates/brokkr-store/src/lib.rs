@@ -103,8 +103,9 @@ pub use opening::Opened;
 pub use page::{keyed, place_of, Keyed, Paged, RowRefusal, Unread};
 pub use queue::{
     claim_stands, Attribution, Claim, ClaimFacts, Claiming, Cooldown, CooldownAggregate,
-    CooldownDuplicate, Cooling, EntryId, EntryState, Generation, Latch, NewEntry, NotAWait,
-    QueueCommand, QueueEntry, QueueRefusal, Seen, StartRefusal, Wait, WaitOn,
+    CooldownDuplicate, CooldownRound, CooldownRoundMismatch, Cooling, EntryId, EntryState,
+    Generation, Latch, NewEntry, NotAWait, QueueCommand, QueueEntry, QueueRefusal, RoundAppend,
+    Seen, StartRefusal, Wait, WaitOn,
 };
 pub use redact::{redact_export, Redactor};
 pub use run_read::RunRead;
@@ -295,9 +296,8 @@ fn refuse_existing(conn: &Connection, run_id: &str) -> Result<(), StoreError> {
     }
 }
 
-/// A run's head: its last event's seq and hash, or 0 and [`ZERO_HASH`]
-/// for a run with none. The one read both [`Store::head_hash`] and an
-/// append's transaction make.
+/// A run's head: its last event's seq and hash, or 0 and [`ZERO_HASH`] for a
+/// run with none. [`Store::head_hash`] and an append's transaction read it.
 fn head_of(conn: &Connection, run_id: &str) -> Result<(u64, String), StoreError> {
     let head: Option<(i64, String)> = conn
         .query_row(

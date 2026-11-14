@@ -200,6 +200,14 @@ pub brokkr_store::QueueRefusal::Claimed
 pub brokkr_store::QueueRefusal::Claimed::entry: brokkr_store::EntryId
 pub brokkr_store::QueueRefusal::Claimed::run: alloc::string::String
 pub brokkr_store::QueueRefusal::CooldownDuplicate(alloc::boxed::Box<brokkr_store::CooldownDuplicate>)
+pub brokkr_store::QueueRefusal::CooldownRoundEvent
+pub brokkr_store::QueueRefusal::CooldownRoundEvent::event_seq: u64
+pub brokkr_store::QueueRefusal::CooldownRoundEvent::run_id: alloc::string::String
+pub brokkr_store::QueueRefusal::CooldownRoundNotNext(alloc::boxed::Box<brokkr_store::CooldownRoundMismatch>)
+pub brokkr_store::QueueRefusal::CooldownRoundWait
+pub brokkr_store::QueueRefusal::CooldownRoundWait::event_seq: u64
+pub brokkr_store::QueueRefusal::CooldownRoundWait::run_id: alloc::string::String
+pub brokkr_store::QueueRefusal::CooldownRoundWait::site: alloc::string::String
 pub brokkr_store::QueueRefusal::CooldownTime
 pub brokkr_store::QueueRefusal::CooldownTime::seq: i64
 pub brokkr_store::QueueRefusal::Dropped(brokkr_store::EntryId)
@@ -232,6 +240,9 @@ pub brokkr_store::QueueRefusal::UnknownWait(brokkr_store::EntryId)
 pub brokkr_store::QueueRefusal::Unmeasured
 pub brokkr_store::QueueRefusal::Unmeasured::entry: brokkr_store::EntryId
 pub brokkr_store::QueueRefusal::Unseen(brokkr_store::EntryId)
+pub enum brokkr_store::RoundAppend
+pub brokkr_store::RoundAppend::NoTable
+pub brokkr_store::RoundAppend::Written
 pub enum brokkr_store::RowRefusal
 pub brokkr_store::RowRefusal::Column(alloc::string::String)
 pub brokkr_store::RowRefusal::Ending(alloc::string::String)
@@ -404,6 +415,23 @@ pub brokkr_store::CooldownDuplicate::event_seq: i64
 pub brokkr_store::CooldownDuplicate::rounds: i64
 pub brokkr_store::CooldownDuplicate::run_id: alloc::string::String
 pub brokkr_store::CooldownDuplicate::site: alloc::string::String
+pub struct brokkr_store::CooldownRound<'a>
+pub brokkr_store::CooldownRound::event_seq: u64
+pub brokkr_store::CooldownRound::provider: &'a str
+pub brokkr_store::CooldownRound::reason: &'a str
+pub brokkr_store::CooldownRound::retry_after_seconds: core::option::Option<u64>
+pub brokkr_store::CooldownRound::rounds: u64
+pub brokkr_store::CooldownRound::route: &'a str
+pub brokkr_store::CooldownRound::run_id: &'a str
+pub brokkr_store::CooldownRound::seconds: u64
+pub brokkr_store::CooldownRound::site: &'a str
+pub brokkr_store::CooldownRound::until_at: time::offset_date_time::OffsetDateTime
+pub struct brokkr_store::CooldownRoundMismatch
+pub brokkr_store::CooldownRoundMismatch::event_seq: u64
+pub brokkr_store::CooldownRoundMismatch::rounds: u64
+pub brokkr_store::CooldownRoundMismatch::run_id: alloc::string::String
+pub brokkr_store::CooldownRoundMismatch::site: alloc::string::String
+pub brokkr_store::CooldownRoundMismatch::standing: u64
 pub struct brokkr_store::Cooling
 pub brokkr_store::Cooling::provider: alloc::string::String
 pub brokkr_store::Cooling::reason: alloc::string::String
@@ -478,6 +506,11 @@ impl brokkr_store::Store
 pub fn brokkr_store::Store::append_chain<T>(&mut self, &str, brokkr_core::envelope::EventType, brokkr_store::Rows<'_, T>, core::option::Option<alloc::string::String>, core::option::Option<alloc::string::String>) -> core::result::Result<brokkr_store::Chain, brokkr_store::StoreError>
 pub fn brokkr_store::Store::append_chain_without_waiting<T>(&mut self, &str, brokkr_core::envelope::EventType, brokkr_store::Rows<'_, T>, core::option::Option<alloc::string::String>, core::option::Option<alloc::string::String>) -> core::result::Result<brokkr_store::Chain, brokkr_store::StoreError>
 impl brokkr_store::Store
+pub fn brokkr_store::Store::append_cooldown_round(&mut self, brokkr_store::CooldownRound<'_>) -> core::result::Result<brokkr_store::RoundAppend, brokkr_store::StoreError>
+pub fn brokkr_store::Store::cooldown(&self, &str, &str, time::offset_date_time::OffsetDateTime) -> core::result::Result<core::option::Option<brokkr_store::CooldownAggregate>, brokkr_store::StoreError>
+pub fn brokkr_store::Store::cooldown_rounds(&self, &str, u64, &str) -> core::result::Result<alloc::vec::Vec<brokkr_store::Cooldown>, brokkr_store::StoreError>
+pub fn brokkr_store::Store::cooldowns_in_force(&self, time::offset_date_time::OffsetDateTime) -> core::result::Result<alloc::vec::Vec<brokkr_store::Cooldown>, brokkr_store::StoreError>
+impl brokkr_store::Store
 pub fn brokkr_store::Store::append_next(&mut self, &str, brokkr_core::envelope::EventType, serde_json::value::Value, core::option::Option<alloc::string::String>, core::option::Option<alloc::string::String>) -> core::result::Result<brokkr_core::envelope::EventEnvelope, brokkr_store::StoreError>
 pub fn brokkr_store::Store::append_next_if_head(&mut self, &str, u64, &str, brokkr_core::envelope::EventType, serde_json::value::Value, core::option::Option<alloc::string::String>, core::option::Option<alloc::string::String>) -> core::result::Result<brokkr_core::envelope::EventEnvelope, brokkr_store::StoreError>
 pub fn brokkr_store::Store::append_with_cooldowns(&mut self, brokkr_store::CooldownAppend<'_>, &[brokkr_store::Cooling]) -> core::result::Result<brokkr_core::envelope::EventEnvelope, brokkr_store::StoreError>
@@ -507,9 +540,6 @@ pub fn brokkr_store::Store::whole(&self, &mut brokkr_core::page::Row) -> core::r
 impl brokkr_store::Store
 pub fn brokkr_store::Store::carry(&mut self, brokkr_core::summary::Account)
 pub fn brokkr_store::Store::summary_disagreements(&self) -> core::result::Result<alloc::vec::Vec<brokkr_store::Disagreement>, brokkr_store::StoreError>
-impl brokkr_store::Store
-pub fn brokkr_store::Store::cooldown(&self, &str, &str, time::offset_date_time::OffsetDateTime) -> core::result::Result<core::option::Option<brokkr_store::CooldownAggregate>, brokkr_store::StoreError>
-pub fn brokkr_store::Store::cooldowns_in_force(&self, time::offset_date_time::OffsetDateTime) -> core::result::Result<alloc::vec::Vec<brokkr_store::Cooldown>, brokkr_store::StoreError>
 impl brokkr_store::Store
 pub fn brokkr_store::Store::dispatch_bound(&self) -> core::result::Result<core::num::nonzero::NonZeroU32, brokkr_store::StoreError>
 pub fn brokkr_store::Store::dispatch_hold(&mut self, u32) -> core::result::Result<brokkr_store::Generation, brokkr_store::StoreError>

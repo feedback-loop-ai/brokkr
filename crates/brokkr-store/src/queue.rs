@@ -38,12 +38,12 @@ pub use beside::Seen;
 use beside::{beside_once, Beside};
 pub use claim::{claim_stands, Claim, ClaimFacts, Claiming, Generation, StartRefusal};
 pub(crate) use cooldown::insert as insert_cooldowns;
-pub use cooldown::{Cooldown, CooldownAggregate, Cooling};
+pub use cooldown::{Cooldown, CooldownAggregate, CooldownRound, Cooling, RoundAppend};
 #[cfg(test)]
 use entry::UnknownWord;
 use entry::{read_word, Standing};
 pub use entry::{EntryState, Latch, NewEntry, NotAWait, QueueCommand, WaitOn};
-pub use refusal::{CooldownDuplicate, QueueRefusal};
+pub use refusal::{CooldownDuplicate, CooldownRoundMismatch, QueueRefusal};
 #[cfg(test)]
 use storage::QUEUE_SCHEMA;
 use storage::{

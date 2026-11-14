@@ -20,9 +20,15 @@ use crate::admission::Bounds;
 /// fix round): one function the terminal path, the cap and the resume all
 /// call, so the record's text cannot drift apart from the live one. Every
 /// fact it names is one the failed event carries, so a resume that never saw
-/// the first park says exactly what that park said.
-pub(super) fn refusal_text(refused: &ProviderRefusal, episode: Option<u64>) -> String {
-    let body = refusal_body(refused, episode);
+/// the first park says exactly what that park said; `episode_error` is the
+/// live store's words when the reader itself failed, which a resume had no
+/// record of until it re-read.
+pub(super) fn refusal_text(
+    refused: &ProviderRefusal,
+    episode: Option<u64>,
+    episode_error: Option<&str>,
+) -> String {
+    let body = refusal_body(refused, episode, episode_error);
     match refused.site.as_deref() {
         Some(site) => format!("member {site}: {body}"),
         None => body,
@@ -30,7 +36,11 @@ pub(super) fn refusal_text(refused: &ProviderRefusal, episode: Option<u64>) -> S
 }
 
 /// [`refusal_text`]'s facts, without the member the record may name.
-fn refusal_body(refused: &ProviderRefusal, episode: Option<u64>) -> String {
+fn refusal_body(
+    refused: &ProviderRefusal,
+    episode: Option<u64>,
+    episode_error: Option<&str>,
+) -> String {
     let route = refused.route.as_deref().unwrap_or("an unresolved route");
     let retry = refused
         .retry_after_seconds
@@ -49,10 +59,19 @@ fn refusal_body(refused: &ProviderRefusal, episode: Option<u64>) -> String {
              be read or is not a valid host file{retry}: {}",
             refused.provider, refused.words
         ),
-        RefusalCause::EpisodeUnreadable => format!(
-            "refusing to retry {}/{route}: an earlier wait does not read{retry}: {}",
-            refused.provider, refused.words
-        ),
+        RefusalCause::EpisodeUnreadable => {
+            // The error's own text is the detail: `EarlierWaitUnreadable`
+            // already opens with "an earlier wait does not read", so adding
+            // that opening again would say it twice (INFO, this fix round).
+            let detail = episode_error.map_or_else(
+                || "an earlier wait does not read".to_string(),
+                str::to_string,
+            );
+            format!(
+                "refusing to retry {}/{route}: {detail}{retry}: {}",
+                refused.provider, refused.words
+            )
+        }
         RefusalCause::PastMaximum => {
             let (seconds, max) = recorded_length(refused);
             match episode {
@@ -204,15 +223,19 @@ impl Engine {
     }
 
     /// The reason a crash-before-the-park resume gives: the same function
-    /// the terminal path used, over the episode the journal still holds.
+    /// the terminal path used, over the episode the journal still holds. A
+    /// store that still cannot read parks with its own words, so the resume
+    /// does not fall back to the record's generic text (finding 2).
     pub(in crate::engine) fn refused_park_reason(
         &self,
         events: &[EventEnvelope],
         effect_id: &str,
         refused: &ProviderRefusal,
     ) -> String {
-        let episode = episode(events, effect_id).ok().map(|(_, seconds)| seconds);
-        refusal_text(refused, episode)
+        match episode(&self.store, &self.run_id, events, effect_id) {
+            Ok((_, seconds)) => refusal_text(refused, Some(seconds), None),
+            Err(error) => refusal_text(refused, None, Some(&error.to_string())),
+        }
     }
 
     /// The failed payload, with the wait a typed rate-limit refusal records
@@ -242,7 +265,7 @@ impl Engine {
                 None,
             );
             record_refusal(&mut payload, &refused);
-            return Ok(self.refusal_terminal(&events, effect_id, payload, refused, None));
+            return Ok(self.refusal_terminal(&events, effect_id, payload, refused, None, None));
         };
         let bounds = match self.cooldown_bounds(provider, route) {
             Ok(Some(bounds)) => bounds,
@@ -264,7 +287,7 @@ impl Engine {
                     None,
                 );
                 record_refusal(&mut payload, &refused);
-                return Ok(self.refusal_terminal(&events, effect_id, payload, refused, None));
+                return Ok(self.refusal_terminal(&events, effect_id, payload, refused, None, None));
             }
         };
         Ok(self.recorded_terminal(&events, effect_id, payload, route, refusal, bounds))
@@ -284,21 +307,29 @@ impl Engine {
         bounds: Bounds,
     ) -> Terminal {
         let provider = refusal.provider();
-        let (prior_rounds, prior_seconds) = match episode(events, effect_id) {
-            Ok(episode) => episode,
-            Err(_) => {
-                let refused = refusal_record(
-                    RefusalCause::EpisodeUnreadable,
-                    None,
-                    refusal,
-                    Some(route),
-                    None,
-                    None,
-                );
-                record_refusal(&mut payload, &refused);
-                return self.refusal_terminal(events, effect_id, payload, refused, None);
-            }
-        };
+        let (prior_rounds, prior_seconds) =
+            match episode(&self.store, &self.run_id, events, effect_id) {
+                Ok(episode) => episode,
+                Err(error) => {
+                    let refused = refusal_record(
+                        RefusalCause::EpisodeUnreadable,
+                        None,
+                        refusal,
+                        Some(route),
+                        None,
+                        None,
+                    );
+                    record_refusal(&mut payload, &refused);
+                    return self.refusal_terminal(
+                        events,
+                        effect_id,
+                        payload,
+                        refused,
+                        None,
+                        Some(error.to_string()),
+                    );
+                }
+            };
         let rounds = prior_rounds.saturating_add(1);
         let retry_after = refusal.retry_after_seconds();
         let seconds = sites::wait_seconds(retry_after, bounds.default_seconds.get(), rounds);
@@ -333,7 +364,7 @@ impl Engine {
             let refused =
                 refusal_record(cause, None, refusal, Some(route), Some(seconds), Some(max));
             record_refusal(&mut payload, &refused);
-            return self.refusal_terminal(events, effect_id, payload, refused, episode);
+            return self.refusal_terminal(events, effect_id, payload, refused, episode, None);
         }
         Terminal::Plain(payload)
     }
@@ -349,13 +380,14 @@ impl Engine {
         payload: Value,
         refused: ProviderRefusal,
         episode: Option<u64>,
+        episode_error: Option<String>,
     ) -> Terminal {
         if self.at_attempt_cap(events, effect_id) {
             return Terminal::Plain(payload);
         }
         Terminal::Park {
             payload,
-            reason: refusal_text(&refused, episode),
+            reason: refusal_text(&refused, episode, episode_error.as_deref()),
         }
     }
 }

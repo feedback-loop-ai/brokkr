@@ -32,6 +32,12 @@ fn started(dir: &Path, body: SeatBody, limits: Limits) -> Engine {
     Engine::start(store, compiled, "Feature", Some(dir.join("work"))).unwrap()
 }
 
+/// A single-seat engine over the unused command, with `attempts` allowed:
+/// the fixtures that only need a journal and a seat share it.
+pub(super) fn bare_engine(dir: &Path, attempts: u64) -> Engine {
+    started(dir, single_body(vec!["unused".into()]), work(attempts))
+}
+
 fn work(attempts: u64) -> Limits {
     Limits {
         max_attempts: attempts,
@@ -129,6 +135,15 @@ enum Probed {
     /// The first probe hangs before answering; every later probe answers.
     /// The live-probe crash test's first engine is killed in that hang.
     HangThenAnswer,
+    /// The first probe refuses with a rate limit; every later probe answers.
+    RefuseThenAnswer,
+    /// Every probe refuses with a class other than a rate limit.
+    OtherRefusal,
+    /// Every probe ends with a refusal object the edge cannot read.
+    MalformedRefusal,
+    /// The probe waits for its release marker, then refuses with a rate
+    /// limit: a stop can land while it runs (this round's stop case).
+    BarrierRefuse,
 }
 
 /// A `forge-driver/v1` participant in `sh`: its attempts read a verdict
@@ -326,6 +341,13 @@ fn starts(engine: &Engine) -> Vec<Value> {
         .collect()
 }
 
+/// Drive the run to the stop it was given, the ending the stop tests share.
+fn drive_to_stop(engine: &mut Engine) {
+    engine.drive().unwrap();
+    let events = engine.store.load(&engine.run_id).unwrap();
+    assert_eq!(fold(&events).unwrap().run.status(), Status::Stopped);
+}
+
 /// Drive the run and pin the log it read, the one assertion the seat tests
 /// share.
 fn drove(engine: &mut Engine, dir: &Path, expected: &[&str]) {
@@ -509,18 +531,6 @@ fn the_cap_parks_naming_the_cool_down_and_starts_no_third_attempt() {
     assert_eq!(starts(&engine).len(), 2);
 }
 
-#[test]
-fn a_probe_refused_again_parks_without_a_second_probe_or_attempt() {
-    let (dir, mut engine, _now) = seated!(&["refuse", "succeed"], Probed::Refuse, None, 3);
-    engine.drive().unwrap();
-    assert_eq!(logs(dir.path(), "work"), ["attempt:refuse", "probe"]);
-    assert_eq!(starts(&engine).len(), 1);
-    assert_eq!(failed(&engine).len(), 1, "the probe spent no attempt");
-    let reason = park_reason(&engine);
-    assert!(reason.contains("was refused again"), "{reason}");
-    assert!(reason.contains("rate_limit: slow down"), "{reason}");
-}
-
 fn parked_probe(probed: Probed) -> (tempfile::TempDir, Engine, Arc<Mutex<OffsetDateTime>>) {
     let (dir, mut engine, now) = seated!(&["refuse", "succeed"], probed, None, 2);
     engine.drive().unwrap();
@@ -576,11 +586,7 @@ fn a_one_candidate_chain_retries_the_cooled_route() {
 fn a_malformed_wait_refuses_by_name_at_and_below_the_cap() {
     for attempts in [2u64, 1] {
         let dir = tempfile::tempdir().unwrap();
-        let mut engine = started(
-            dir.path(),
-            single_body(vec!["unused".into()]),
-            work(attempts),
-        );
+        let mut engine = bare_engine(dir.path(), attempts);
         append_waited(
             &mut engine,
             json!([{"route": "first", "words": "w", "seconds": 1,
@@ -721,9 +727,19 @@ fn a_wait_past_the_maximum_parks_with_the_words_and_the_maximum() {
 
 #[test]
 fn an_accumulated_episode_past_the_maximum_parks() {
-    let (dir, mut engine, _now) =
-        seated!(&["refuse", "refuse", "succeed"], Probed::Answer, None, 3);
+    let dir = tempfile::tempdir().unwrap();
+    let command = driver(
+        dir.path(),
+        "work",
+        &["refuse", "refuse", "succeed"],
+        Probed::Answer,
+        None,
+        "claude",
+        "first",
+    );
+    let mut engine = started(dir.path(), single_body(command), probe_rounds::patient(3));
     engine.cooldown.host = Some(host(dir.path(), 2, 3));
+    let (mut engine, _now) = with_clock(engine);
     drove(
         &mut engine,
         dir.path(),
@@ -1355,8 +1371,9 @@ fn a_resume_late_keeps_the_recorded_maximum_refusal() {
 fn an_episode_sums_each_routes_recorded_length() {
     let dir = tempfile::tempdir().unwrap();
     let body = two_route_body(dir.path(), &["refuse"], &["refuse", "succeed"]);
-    let (dir, mut engine, _now) = seated!(@in dir, body, 3);
+    let mut engine = started(dir.path(), body, probe_rounds::patient(3));
     engine.cooldown.host = Some(routes_host(dir.path()));
+    let (mut engine, _now) = with_clock(engine);
     engine.drive().unwrap();
     assert_eq!(logs(dir.path(), "claude"), ["attempt:refuse", "probe"]);
     assert_eq!(logs(dir.path(), "codex"), ["attempt:refuse"]);
@@ -1412,6 +1429,7 @@ fn a_driver_that_does_not_advertise_the_probe_parks_naming_it() {
 
 mod lease;
 mod probe_driver;
+mod probe_rounds;
 mod sequence;
 
 fn no_waits(engine: &Engine) {
@@ -1490,6 +1508,8 @@ fn the_host_seam_reads_absent_unreadable_invalid_and_undeclared_files() {
 #[test]
 fn the_episode_sums_each_waits_own_round() {
     use crate::envelope_builder::EnvelopeBuilder;
+    let dir = tempfile::tempdir().unwrap();
+    let store = brokkr_store::Store::open(&dir.path().join("forge.db")).unwrap();
     let event = |seq, effect, waits| {
         EnvelopeBuilder::new(
             EventType::EffectFailed,
@@ -1503,11 +1523,19 @@ fn the_episode_sums_each_waits_own_round() {
                "until": "2026-11-01T00:00:00Z", "rounds": rounds})
     };
     assert_eq!(
-        super::episode(&[event(1, "effect", json!([wait(10, 1)]))], "effect").unwrap(),
+        super::episode(
+            &store,
+            "run",
+            &[event(1, "effect", json!([wait(10, 1)]))],
+            "effect"
+        )
+        .unwrap(),
         (1, 10)
     );
     assert_eq!(
         super::episode(
+            &store,
+            "run",
             &[
                 event(1, "effect", json!([wait(10, 1)])),
                 event(2, "effect", json!([wait(2, 2)])),
@@ -1520,6 +1548,8 @@ fn the_episode_sums_each_waits_own_round() {
     // A terminal with no waits counts nothing, and is not a malformed one.
     assert_eq!(
         super::episode(
+            &store,
+            "run",
             &[
                 EnvelopeBuilder::new(EventType::EffectFailed, json!({"effect_id": "effect"}),)
                     .seq(5)
@@ -1540,7 +1570,7 @@ fn the_episode_sums_each_waits_own_round() {
         json!([{"route": "first", "words": "w", "seconds": 1,
                 "until": "2026-11-01T00:00:00Z", "rounds": 1}]),
     );
-    match super::episode(&[skipped, other, malformed], "effect") {
+    match super::episode(&store, "run", &[skipped, other, malformed], "effect") {
         Err(super::CooldownError::EarlierWaitUnreadable {
             seq: 3,
             source: brokkr_core::ProviderWaitError::Field { field, .. },
@@ -1599,11 +1629,7 @@ fn malformed_earlier() -> Value {
 /// second one, with the host declared and `attempts` allowed.
 fn two_terminal_engine(attempts: u64) -> (tempfile::TempDir, Engine) {
     let dir = tempfile::tempdir().unwrap();
-    let mut engine = started(
-        dir.path(),
-        single_body(vec!["unused".into()]),
-        work(attempts),
-    );
+    let mut engine = bare_engine(dir.path(), attempts);
     engine.cooldown.host = Some(host(dir.path(), 1, 10));
     two_terminals(&mut engine, malformed_earlier());
     (dir, engine)
@@ -1722,10 +1748,11 @@ fn wait() -> super::ProviderWait {
     }
 }
 
-fn probe_reason(engine: &Engine, report: brokkr_protocol::AttemptReport) -> String {
-    match engine.probe_end(&wait(), report) {
+fn probe_reason(engine: &mut Engine, report: brokkr_protocol::AttemptReport) -> String {
+    match engine.probe_end("effect", &wait(), report) {
         super::Probe::Parked(reason) => reason,
         super::Probe::Answered(_) => panic!("a probe that never answered is not an answer"),
+        super::Probe::Extended(_) => panic!("a probe with no rate limit extended the wait"),
     }
 }
 
@@ -1752,9 +1779,9 @@ fn report(
 #[test]
 fn a_probe_that_does_not_answer_parks_naming_its_end() {
     let dir = tempfile::tempdir().unwrap();
-    let engine = started(dir.path(), single_body(vec!["unused".into()]), work(1));
+    let mut engine = started(dir.path(), single_body(vec!["unused".into()]), work(1));
     let reason = probe_reason(
-        &engine,
+        &mut engine,
         report(
             None,
             brokkr_protocol::Cleanup::Unresolved {
@@ -1766,7 +1793,7 @@ fn a_probe_that_does_not_answer_parks_naming_its_end() {
     assert!(reason.contains("cleanup failure"), "{reason}");
     assert!(reason.contains("group 7"), "{reason}");
     let reason = probe_reason(
-        &engine,
+        &mut engine,
         report(None, brokkr_protocol::Cleanup::Settled, Vec::new()),
     );
     assert!(reason.contains("no answer checkpoint"), "{reason}");
@@ -1775,7 +1802,7 @@ fn a_probe_that_does_not_answer_parks_naming_its_end() {
     }))
     .unwrap();
     let reason = probe_reason(
-        &engine,
+        &mut engine,
         report(
             Some(Box::new(other)),
             brokkr_protocol::Cleanup::Settled,
@@ -1950,6 +1977,7 @@ fn a_cooldown_error_names_an_unreadable_refusal() {
 }
 
 mod coverage;
+mod coverage_430s4d2d;
 mod coverage_4c2a;
 mod panel;
 mod rows;

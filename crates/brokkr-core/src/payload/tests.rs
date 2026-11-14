@@ -725,6 +725,34 @@ fn every_wait_bound_admits_its_edge() {
     }
 }
 
+/// A present `site` is never empty: an empty string is not the absent key,
+/// so the reader refuses it by name. This is the invariant the removed
+/// emptiness guard in `maximum_reason` relied on (fix round 430s4d2d); its
+/// other half is `recorded_waits_refuses_an_absent_site_beside_a_member`.
+#[test]
+fn an_empty_site_is_not_an_absent_one() {
+    let absent = event(
+        Type::EffectFailed,
+        json!({"effect_id": "e", "waits": [{
+            "provider": "claude", "route": "first", "words": "w",
+            "seconds": 1, "until": "2026-11-01T00:00:01Z", "rounds": 1
+        }]}),
+    );
+    assert_eq!(provider_waits(&absent).unwrap().unwrap()[0].site, None);
+    let empty = event(
+        Type::EffectFailed,
+        json!({"effect_id": "e", "waits": [{
+            "site": "", "provider": "claude", "route": "first", "words": "w",
+            "seconds": 1, "until": "2026-11-01T00:00:01Z", "rounds": 1
+        }]}),
+    );
+    let error = provider_waits(&empty).unwrap_err();
+    assert!(
+        matches!(&error, ProviderWaitError::Field { field, .. } if field == "site"),
+        "{error:?} did not name site"
+    );
+}
+
 /// Every cause of the closed vocabulary reads back as itself, the two the
 /// other tests do not name among them: an unreadable episode, which names
 /// its route and no computed length, and a wait with no end, which carries

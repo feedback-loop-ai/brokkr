@@ -9,6 +9,7 @@ use std::path::Path;
 use brokkr_core::envelope::EventType;
 use rusqlite::{params, Connection};
 use serde_json::json;
+use time::format_description::well_known::Rfc3339;
 use time::{Duration, OffsetDateTime};
 
 use super::*;
@@ -918,4 +919,338 @@ fn the_claim_reads_the_rows_in_force_inside_its_transaction() {
     let (refused, seen) = judged(&mut store, at(60));
     assert!(matches!(refused, Ok(Ok(_))), "{refused:?}");
     assert_eq!(seen, Vec::<String>::new());
+}
+
+/// A terminal event for `run` carrying one `waits` entry for site `a`, and
+/// its attempt's row: the event a probe round appends to.
+fn append_waited(
+    store: &mut Store,
+    run: &str,
+    until: OffsetDateTime,
+) -> brokkr_core::EventEnvelope {
+    let waits = json!([{"site": "a", "provider": "claude", "route": "first",
+        "words": "rate_limit: slow down", "seconds": 60,
+        "until": until.format(&Rfc3339).unwrap(), "rounds": 1}]);
+    store
+        .append_with_cooldowns(
+            crate::CooldownAppend {
+                run_id: run,
+                fenced: None,
+                event_type: EventType::EffectFailed,
+                payload: json!({"effect_id": "effect", "waits": waits}),
+                causation_id: None,
+                attempt_id: None,
+            },
+            &[named("a", "first", until, "rate_limit: slow down", 1)],
+        )
+        .unwrap()
+}
+
+/// A journal with one waited terminal event for run-a, ready for a probe
+/// round: the store and the terminal event's envelope.
+fn waited_journal(dir: &Path) -> (Store, brokkr_core::EventEnvelope) {
+    let mut store = journal(dir);
+    let event = append_waited(&mut store, "run-a", at(60));
+    (store, event)
+}
+
+/// One probe round for site `a`, ending at `until` with a 60-second length.
+fn next_round<'a>(
+    run: &'a str,
+    event_seq: u64,
+    site: &'a str,
+    until: OffsetDateTime,
+    rounds: u64,
+) -> CooldownRound<'a> {
+    CooldownRound {
+        run_id: run,
+        event_seq,
+        site,
+        provider: "claude",
+        route: "first",
+        until_at: until,
+        reason: "rate_limit: slow down",
+        retry_after_seconds: Some(30),
+        rounds,
+        seconds: 60,
+    }
+}
+
+/// Append one probe round the store accepts, and return the site's rows in
+/// round order.
+fn append_round(
+    store: &mut Store,
+    run: &str,
+    event_seq: u64,
+    site: &str,
+    until: OffsetDateTime,
+    rounds: u64,
+) -> Vec<Cooldown> {
+    assert_eq!(
+        store
+            .append_cooldown_round(next_round(run, event_seq, site, until, rounds))
+            .unwrap(),
+        RoundAppend::Written
+    );
+    store.cooldown_rounds(run, event_seq, site).unwrap()
+}
+
+/// A probe round is the next one for its site and reads back with the
+/// attempt's row; a gap or a duplicate refuses by name and writes nothing.
+#[test]
+fn a_probe_round_is_the_next_one_and_reads_back() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = journal(dir.path());
+    let event = append_waited(&mut store, "run-a", at(60));
+    assert_eq!(event.seq, 2);
+
+    let rounds = append_round(&mut store, "run-a", event.seq, "a", at(90), 2);
+    assert_eq!(
+        rounds.iter().map(|row| row.rounds).collect::<Vec<_>>(),
+        [1, 2]
+    );
+    // The row's two times are its length apart: the episode sums the round
+    // back without recomputing it under today's bounds.
+    assert_eq!(
+        (rounds[1].until_at - rounds[1].recorded_at).whole_seconds(),
+        60
+    );
+
+    let gap = store
+        .append_cooldown_round(next_round("run-a", event.seq, "a", at(120), 4))
+        .unwrap_err();
+    assert_eq!(
+        gap.to_string(),
+        "the journal's provider cool-downs for run 'run-a' event 2 site 'a' stand at round 2; \
+         round 4 is not the next one"
+    );
+    let duplicate = store
+        .append_cooldown_round(next_round("run-a", event.seq, "a", at(120), 2))
+        .unwrap_err();
+    assert_eq!(
+        duplicate.to_string(),
+        "the journal's provider cool-downs for run 'run-a' event 2 site 'a' stand at round 2; \
+         round 2 is not the next one"
+    );
+    assert_eq!(
+        store
+            .cooldown_rounds("run-a", event.seq, "a")
+            .unwrap()
+            .len(),
+        2,
+        "a refused round wrote a row"
+    );
+}
+
+/// A terminal whose own row never landed (a version 3 journal migrated, or
+/// an `insert` whose end had already passed) stands at round zero: the
+/// probe's round one fills it, the next round the store accepts.
+#[test]
+fn a_round_one_fills_a_terminal_whose_own_row_is_absent() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = journal(dir.path());
+    let event = append_waited(
+        &mut store,
+        "run-a",
+        OffsetDateTime::now_utc() - Duration::seconds(10),
+    );
+    assert_eq!(raw(&store.conn).len(), 0, "a past row landed");
+    assert!(store
+        .cooldown_rounds("run-a", event.seq, "a")
+        .unwrap()
+        .is_empty());
+    let rounds = append_round(&mut store, "run-a", event.seq, "a", at(90), 1);
+    assert_eq!(
+        rounds.iter().map(|row| row.rounds).collect::<Vec<_>>(),
+        [1],
+        "round one was not the next round"
+    );
+    assert_eq!(
+        rounds[0].recorded_at,
+        at(30),
+        "the row's two times are not its length apart"
+    );
+}
+
+/// A round whose event is missing or is not a terminal effect event
+/// refuses by name, and so does a site the event carries no wait for.
+#[test]
+fn a_probe_round_refuses_a_missing_or_non_terminal_event_and_an_unknown_site() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = journal(dir.path());
+    let missing = store
+        .append_cooldown_round(next_round("run-a", 99, "a", at(90), 2))
+        .unwrap_err();
+    assert_eq!(
+        missing.to_string(),
+        "the journal's event 'run-a' 99 is not a terminal effect event a probe round can append to"
+    );
+    // Seq 1 is the effect request, not a terminal effect event. The refusal
+    // is the one the `absent` closure builds; the missing event above pins
+    // the variant's text once, so this arm matches the variant and the
+    // run and seq it names (0071 ruling 9).
+    let request = store
+        .append_cooldown_round(next_round("run-a", 1, "a", at(90), 2))
+        .unwrap_err();
+    match request {
+        StoreError::Queue(QueueRefusal::CooldownRoundEvent {
+            run_id,
+            event_seq: 1,
+        }) => assert_eq!(run_id, "run-a", "the refusal named another run"),
+        other => panic!("the non-terminal event's refusal read as {other:?}"),
+    }
+
+    let event = append_waited(&mut store, "run-a", at(60));
+    let unknown = store
+        .append_cooldown_round(next_round("run-a", event.seq, "b", at(90), 2))
+        .unwrap_err();
+    assert_eq!(
+        unknown.to_string(),
+        "the journal's event 'run-a' 2 carries no readable wait for site 'b', so it has no probe \
+         round"
+    );
+    assert_eq!(raw(&store.conn).len(), 1, "a refused round wrote a row");
+}
+
+/// The table's CHECK constraints still judge a probe round: an empty provider, route
+/// or reason, a zero retry-after, and a length of zero (an `until` not
+/// after its record) each refuse and write nothing.
+#[test]
+fn a_probe_round_keeps_the_tables_checks() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = journal(dir.path());
+    let event = append_waited(&mut store, "run-a", at(60));
+    type Change = fn(&mut CooldownRound<'_>);
+    let changes: [(Change, &str); 5] = [
+        (|round| round.provider = "", "provider_named"),
+        (|round| round.route = "", "route_named"),
+        (|round| round.reason = "", "reason_named"),
+        (
+            |round| round.retry_after_seconds = Some(0),
+            "retry_after_positive",
+        ),
+        (|round| round.seconds = 0, "until_after_record"),
+    ];
+    for (change, check) in changes {
+        let mut round = next_round("run-a", event.seq, "a", at(90), 2);
+        change(&mut round);
+        let error = store.append_cooldown_round(round).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            format!("sqlite: CHECK constraint failed: {check}")
+        );
+    }
+    assert_eq!(
+        store
+            .cooldown_rounds("run-a", event.seq, "a")
+            .unwrap()
+            .len(),
+        1,
+        "a refused round wrote a row"
+    );
+}
+
+/// A version 1, 2 or 3 queue answers no rounds and writes no probe round:
+/// the event's own wait stays the attempt's record.
+#[test]
+fn a_probe_round_and_the_rounds_read_judge_the_queue_version_first() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut store, event) = waited_journal(dir.path());
+    store
+        .conn
+        .execute("UPDATE meta SET value = '3' WHERE key = 'queue_schema'", [])
+        .unwrap();
+    assert_eq!(
+        store.cooldown_rounds("run-a", event.seq, "a").unwrap(),
+        Vec::new()
+    );
+    assert_eq!(
+        store
+            .append_cooldown_round(next_round("run-a", event.seq, "a", at(90), 2))
+            .unwrap(),
+        RoundAppend::NoTable
+    );
+    assert_eq!(
+        raw(&store.conn).len(),
+        1,
+        "an older queue gained a probe round"
+    );
+}
+
+/// A version 4 queue whose cool-down table is lost refuses a probe round on
+/// SQLite's own text and writes nothing.
+#[test]
+fn a_probe_round_on_a_lost_table_refuses() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut store, event) = waited_journal(dir.path());
+    store
+        .conn
+        .execute_batch("DROP TABLE provider_cooldowns")
+        .unwrap();
+    let error = store
+        .append_cooldown_round(next_round("run-a", event.seq, "a", at(90), 2))
+        .unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        "sqlite: no such table: provider_cooldowns"
+    );
+}
+
+/// A terminal event carrying no `waits` has no probe round for any site:
+/// the store refuses by name and writes nothing.
+#[test]
+fn a_probe_round_refuses_a_terminal_with_no_wait() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = journal(dir.path());
+    let event = append(&mut store, "run-a", &[]).unwrap();
+    let error = store
+        .append_cooldown_round(next_round("run-a", event.seq, "a", at(90), 2))
+        .unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        "the journal's event 'run-a' 2 carries no readable wait for site 'a', so it has no probe \
+         round"
+    );
+    assert_eq!(raw(&store.conn).len(), 0);
+}
+
+/// An event whose stored envelope does not parse refuses a probe round with
+/// the journal's own JSON error and writes nothing.
+#[test]
+fn a_probe_round_refuses_an_event_it_cannot_read() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut store, event) = waited_journal(dir.path());
+    store
+        .conn
+        .execute_batch(
+            "DROP TRIGGER events_append_only_update;
+             UPDATE events SET envelope = 'not json'
+             WHERE run_id = 'run-a' AND seq = 2;",
+        )
+        .unwrap();
+    let error = store
+        .append_cooldown_round(next_round("run-a", event.seq, "a", at(90), 2))
+        .unwrap_err();
+    assert!(matches!(error, StoreError::Json(_)), "{error:?}");
+    assert_eq!(raw(&store.conn).len(), 1);
+}
+
+/// A round whose stored instant this reader cannot spell refuses by its
+/// row, as the aggregate's read does.
+#[test]
+fn the_rounds_read_refuses_a_time_it_cannot_spell() {
+    let dir = tempfile::tempdir().unwrap();
+    let (store, event) = waited_journal(dir.path());
+    store
+        .conn
+        .execute_batch(
+            "DROP TRIGGER provider_cooldowns_append_only_update;
+             UPDATE provider_cooldowns SET until_at = 9223372036854775807;",
+        )
+        .unwrap();
+    let error = store.cooldown_rounds("run-a", event.seq, "a").unwrap_err();
+    assert!(matches!(
+        error,
+        StoreError::Queue(QueueRefusal::CooldownTime { .. })
+    ));
 }

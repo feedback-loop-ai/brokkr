@@ -21,6 +21,20 @@ pub(super) fn probe_action(
              {accepted}\n    sleep 30\n  else\n    {accepted}\n    {checkpoint}\n    \
              {succeeded}\n  fi"
         ),
+        Probed::RefuseThenAnswer => format!(
+            "p=$(cat '@PROBECOUNT@' 2>/dev/null || echo 0)\n  p=$((p+1)); \
+             printf '%s' \"$p\" > '@PROBECOUNT@'\n  if [ \"$p\" -eq 1 ]; then\n    \
+             {refused}\n  else\n    {accepted}\n    {checkpoint}\n    {succeeded}\n  fi"
+        ),
+        Probed::OtherRefusal => "printf '%s,\"type\":\"result\",\"effect_id\":\"%s\",\
+             \"attempt_id\":\"%s\",\"status\":\"failed\",\"error\":\"provider refused\",\
+             \"refusal\":{\"class\":\"other\",\"provider\":\"claude\",\"route\":\"first\",\
+             \"words\":\"auth failed\"}}\\n' \"$base\" \"$eid\" \"$aid\""
+            .to_string(),
+        Probed::MalformedRefusal => "printf '%s,\"type\":\"result\",\"effect_id\":\"%s\",\
+             \"attempt_id\":\"%s\",\"status\":\"failed\",\"error\":\"provider refused\",\
+             \"refusal\":{\"class\":\"rate_limit\"}}\\n' \"$base\" \"$eid\" \"$aid\""
+            .to_string(),
         Probed::Error => format!(
             "{accepted}\n  printf '%s,\"type\":\"result\",\"effect_id\":\"%s\",\
              \"attempt_id\":\"%s\",\"status\":\"failed\",\"error\":\"probe exploded\"}}\\n' \
@@ -30,6 +44,10 @@ pub(super) fn probe_action(
         Probed::Barrier => format!(
             "{accepted}\n  : > '@STARTED@'\n  i=0\n  while [ ! -e '@RELEASE@' ] && \
              [ $i -lt 600 ]; do sleep 0.05; i=$((i+1)); done\n  {checkpoint}\n  {succeeded}"
+        ),
+        Probed::BarrierRefuse => format!(
+            "{accepted}\n  : > '@STARTED@'\n  i=0\n  while [ ! -e '@RELEASE@' ] && \
+             [ $i -lt 600 ]; do sleep 0.05; i=$((i+1)); done\n  {refused}"
         ),
     }
 }
