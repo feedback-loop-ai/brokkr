@@ -187,23 +187,24 @@ fn composed(
     state: Option<&RunState>,
 ) -> Option<RunView> {
     let applied = crate::live::derived(parts.trail, state);
-    let scan = scanned(&applied, parts.seats)?;
-    let mut buckets = bucket(&applied);
+    let applied = applied.as_slice();
+    let scan = scanned(applied, parts.seats)?;
+    let mut buckets = bucket(applied);
     for (effect_id, _) in buckets.newest.values() {
         buckets
             .listed
             .insert(effect_id, inner(parts.seats, effect_id));
     }
-    let marks = supersedes(&applied);
+    let marks = supersedes(applied);
     let commands = commands_of_the_read(parts.page, parts.trail);
     let lines = live(parts.seats).into_iter();
     let read = Read {
         live: lines.map(|(label, turn)| live_line(label, turn)).collect(),
         journal: journal_rows(parts.page, &scan, &buckets, &marks, &commands, cause),
         event_count: usize::try_from(parts.head_seq).unwrap_or(usize::MAX),
-        dashboard: dashboard::kept(&applied, parts.seats, parts.last_at),
+        dashboard: dashboard::kept(applied, parts.seats, parts.last_at),
     };
-    Some(viewed(&applied, &scan, &buckets, &marks, read, state))
+    Some(viewed(applied, &scan, &buckets, &marks, read, state))
 }
 
 /// The columns a row's participant is read by (`SeatRow::COLUMNS`): the

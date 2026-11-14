@@ -2320,19 +2320,20 @@ fn ruling_of(decision: Option<&Decided>, superseded: Option<Superseded>) -> Opti
 /// The whole readout for one run: one derivation, every surface.
 pub fn run_view(events: &[EventEnvelope], state: Option<&RunState>) -> RunView {
     let applied = derived(events, state);
-    let scan = scan_participants(&applied);
-    let buckets = bucket(&applied);
-    let marks = supersedes(&applied);
+    let applied = applied.as_slice();
+    let scan = scan_participants(applied);
+    let buckets = bucket(applied);
+    let marks = supersedes(applied);
     let commands = commands_of(events);
     let by_id = ids(events);
     let cause = |id: &str| by_id.get(id).copied();
     let read = Read {
-        live: live_lines(&applied),
+        live: live_lines(applied),
         journal: journal_rows(events, &scan, &buckets, &marks, &commands, cause),
         event_count: events.len(),
-        dashboard: dashboard(&applied),
+        dashboard: dashboard(applied),
     };
-    viewed(&applied, &scan, &buckets, &marks, read, state)
+    viewed(applied, &scan, &buckets, &marks, read, state)
 }
 
 /// What a run view reads beside its trail: the live block, the journal's
