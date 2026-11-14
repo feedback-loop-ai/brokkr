@@ -1,6 +1,6 @@
 //! The host exact-coverage misses this fix round reaches (decision 0103
 //! slice 4d2b, fix round 430s4d2d): a crash resume whose episode now reads
-//! states the record's generic cause, the wait round's store failure
+//! states the record's generic cause, the wait round's fold failure
 //! propagates through `step`, and a panel's later member re-reads the
 //! aggregate before its probe. The last test binds the record invariants
 //! that make `maximum_reason`'s emptiness guard unreachable. Every test
