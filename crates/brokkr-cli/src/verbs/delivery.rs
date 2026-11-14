@@ -528,12 +528,13 @@ fn repair(
          applied, and the run folds as it ended. Read it with: brokkr inspect --run {run}",
         written.seq
     );
-    // L8: a lawful annotation that landed between the terminal event and
-    // the break is in the tail, so the repair makes it late too. The one
-    // home reads which ones from the tail the repair names; this verb
-    // prints them and derives nothing. The words fail closed and never
-    // imply the annotation still applies: a reserved word with no record
-    // was never applied, so it is not named.
+    // L8: a lawful annotation that landed after the terminal event before
+    // this repair is in the tail, so the repair makes it late too. The one
+    // home reads which ones this repair NEWLY makes late from the tail it
+    // names; this verb prints them and derives nothing. The words fail
+    // closed and never imply the annotation still applies: a reserved word
+    // with no record was never applied, and an annotation an earlier
+    // repair already skipped is not newly late, so neither is named.
     let skipped = brokkr_core::fold::skipped_annotations(&before, &written)?;
     if !skipped.is_empty() {
         eprintln!(

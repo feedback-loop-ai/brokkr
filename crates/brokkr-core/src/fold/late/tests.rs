@@ -846,7 +846,8 @@ fn a_repair_skips_the_lawful_annotations_in_the_tail_it_names() {
     );
 
     // A later repair's tail is not a list of annotations: no repair word
-    // is one to record again.
+    // is one to record again. This second repair is itself foldable: it
+    // names seqs 6..9, the first repair at 8 included.
     let mut events = old_word_tail(REPAIR);
     push(&mut events, settlement().0, settlement().1);
     push(
@@ -855,14 +856,16 @@ fn a_repair_skips_the_lawful_annotations_in_the_tail_it_names() {
         repaired(
             5,
             6,
-            8,
+            9,
             &[
                 "operator/commanded",
                 "operator/rejected",
+                "operator/commanded",
                 "effect/succeeded",
             ],
         ),
     );
+    assert_eq!(fold(&events).unwrap().run, Run::Stopped);
     let repair = events.last().unwrap();
     assert!(
         skipped_annotations(&events, repair).unwrap().is_empty(),
@@ -888,4 +891,122 @@ fn a_settle_word_is_a_late_event_until_its_reader_exists() {
         &[EventType::OperatorCommanded, EventType::OperatorRejected],
     );
     assert_eq!(state.run, Run::Stopped);
+}
+
+/// M2 (c): a word after the terminal event whose args are NOT the
+/// bridge's empty object is admitted and not read, as an annotation
+/// always was (decision 0064 ruling 5). A newer binary's word must not
+/// break this build's fold merely because this build cannot read it; the
+/// late rule is the `args: {}` shape alone.
+#[test]
+fn a_commanded_with_args_this_build_does_not_read_is_admitted() {
+    let unread = [
+        // A classify for an ending this build does not know, with an
+        // extra field its closed contract refuses.
+        json!({"command_id": "c-classify", "command": "classify", "operator": "operator",
+               "args": {"cause": "withdrawn", "reason": "later", "extra": 1}}),
+        // A supersede with half a citation.
+        json!({"command_id": "c-supersede", "command": "supersede", "operator": "operator",
+               "args": {"by": {"run_id": "later"}, "findings": [3]}}),
+        // A settle with any args: 440d's reader does not exist here.
+        json!({"command_id": "c-settle", "command": "settle", "operator": "operator",
+               "args": {"future": true}}),
+        // A commanded with no word.
+        json!({"command_id": "c-wordless", "args": {"cause": "x"}}),
+        // A commanded with no payload at all.
+        json!({}),
+    ];
+    for payload in unread {
+        let mut events = stopped();
+        push(&mut events, EventType::OperatorCommanded, payload.clone());
+        let state = fold(&events).unwrap_or_else(|error| {
+            panic!("{payload} stands after the terminal as an unread annotation: {error}")
+        });
+        assert_eq!(state.run, Run::Stopped, "{payload}");
+        assert!(state.late_tail.is_none(), "{payload}");
+    }
+}
+
+/// M2 (b) and R2's same rule: every reserved word carrying the bridge's
+/// empty args is a late event after the terminal one, not just `repair`
+/// and `settle`. The one typed word list decides each.
+#[test]
+fn every_reserved_word_with_empty_args_is_a_late_event() {
+    for word in ["repair", "classify", "supersede", "settle"] {
+        let events = old_word_before_repair(word);
+        assert_eq!(
+            fold(&events).unwrap_err(),
+            FoldError::AfterTerminal { seq: 6 },
+            "{word}: the bridge's word is a late event, never an annotation"
+        );
+    }
+}
+
+/// M2 (d): a repair word whose args are absent, `null` or an array is a
+/// malformed record, not the bridge's empty object and not an ordinary
+/// command. Directly after the terminal event it is the record that names
+/// no tail, and the fold refuses it by name.
+#[test]
+fn a_repair_word_without_an_args_object_is_refused_as_a_repair() {
+    for args in [None, Some(Value::Null), Some(json!([]))] {
+        let mut payload = json!({"command_id": "bad", "command": REPAIR, "operator": "operator"});
+        if let Some(args) = args {
+            payload["args"] = args;
+        }
+        let mut events = stopped();
+        push(&mut events, EventType::OperatorCommanded, payload);
+        assert!(
+            matches!(
+                fold(&events),
+                Err(FoldError::BadRepair { seq: 6, ref detail })
+                    if detail.starts_with("it names no late tail")
+            ),
+            "a repair with no args object is a record the fold refuses"
+        );
+    }
+}
+
+/// L3: a second repair that names the whole tail again is newly
+/// responsible only for the events past the first repair. The classify
+/// the first repair already skipped is not listed again; the annotation
+/// that landed after the first repair is.
+#[test]
+fn a_second_repair_lists_only_the_annotations_it_newly_makes_late() {
+    let mut events = stopped();
+    push(&mut events, classified().0, classified().1);
+    push(&mut events, settlement().0, settlement().1);
+    // First repair at 8 names seqs 6..7.
+    push(
+        &mut events,
+        EventType::OperatorCommanded,
+        repaired(5, 6, 7, &["operator/commanded", "effect/succeeded"]),
+    );
+    // A lawful annotation after the first repair, at seq 9.
+    push(&mut events, classified().0, classified().1);
+    // Second repair at 10 names the whole tail, 6..9.
+    push(
+        &mut events,
+        EventType::OperatorCommanded,
+        repaired(
+            5,
+            6,
+            9,
+            &[
+                "operator/commanded",
+                "effect/succeeded",
+                "operator/commanded",
+                "operator/commanded",
+            ],
+        ),
+    );
+    let repair = events.last().unwrap();
+    assert_eq!(
+        skipped_annotations(&events, repair).unwrap(),
+        [SkippedAnnotation {
+            seq: 9,
+            event_type: EventType::OperatorCommanded,
+            word: crate::ending::CLASSIFY,
+        }],
+        "only the annotation after the first repair is newly made late"
+    );
 }

@@ -362,6 +362,8 @@ pub brokkr_core::fold::Refusal::PreviouslyRejected
 pub brokkr_core::fold::Refusal::RunNotAwaitingOperator
 pub brokkr_core::fold::Refusal::StaleCursor
 impl brokkr_core::fold::Refusal
+pub fn brokkr_core::fold::Refusal::parse(&str) -> core::option::Option<brokkr_core::fold::Refusal>
+impl brokkr_core::fold::Refusal
 pub const fn brokkr_core::fold::Refusal::word(self) -> &'static str
 pub enum brokkr_core::fold::Run
 pub brokkr_core::fold::Run::AwaitingOperator
@@ -430,6 +432,7 @@ pub fn brokkr_core::fold::concluded_command_text(&str, brokkr_core::fold::Status
 pub fn brokkr_core::fold::concluded_text(&str, brokkr_core::fold::Status) -> alloc::string::String
 pub fn brokkr_core::fold::fold(&[brokkr_core::envelope::EventEnvelope]) -> core::result::Result<brokkr_core::fold::RunState, brokkr_core::fold::FoldError>
 pub fn brokkr_core::fold::fold_onto(brokkr_core::fold::RunState, &[brokkr_core::envelope::EventEnvelope]) -> core::result::Result<brokkr_core::fold::RunState, brokkr_core::fold::FoldError>
+pub fn brokkr_core::fold::is_late_word(&brokkr_core::envelope::EventEnvelope) -> bool
 pub fn brokkr_core::fold::lawful_after_terminal(brokkr_core::envelope::EventType) -> bool
 pub fn brokkr_core::fold::reserved_annotation(&str) -> bool
 pub fn brokkr_core::fold::reserved_word(&brokkr_core::envelope::EventEnvelope) -> core::option::Option<&'static str>

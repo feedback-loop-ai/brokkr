@@ -18,6 +18,27 @@ pub enum ReceiptReason {
     ReservedCommand,
 }
 
+impl Refusal {
+    /// The refusal `word` names, or `None` for a word this build does not
+    /// know. A receipt read from a journal turns its reason back into the
+    /// typed vocabulary with this, and falls back to
+    /// [`Refusal::PreviouslyRejected`] when an older binary's word is not
+    /// one of ours (decision 0108 ruling 4, #440 fix round 440c4).
+    pub fn parse(word: &str) -> Option<Refusal> {
+        const ALL: [Refusal; 8] = [
+            Refusal::CommandNotAllowed,
+            Refusal::AfterTerminal,
+            Refusal::RunNotAwaitingOperator,
+            Refusal::NoPhaseToRetry,
+            Refusal::LostFence,
+            Refusal::StaleCursor,
+            Refusal::IncompleteCommandReplay,
+            Refusal::PreviouslyRejected,
+        ];
+        ALL.into_iter().find(|refusal| refusal.word() == word)
+    }
+}
+
 impl ReceiptReason {
     /// The word the receipt carries.
     pub const fn word(self) -> &'static str {

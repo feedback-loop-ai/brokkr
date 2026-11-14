@@ -820,14 +820,15 @@ fn stopped_at_five(store: &mut Store, run_id: &str) {
 }
 
 /// Sync one redelivered command through the bridge, at the current head,
-/// and return every receipt it acknowledged.
+/// and return every receipt it acknowledged and the report that says how
+/// far the cursor moved.
 fn sync_word(
     store: &mut Store,
     now: OffsetDateTime,
     id: &str,
     word: &str,
     reason: &str,
-) -> Vec<CommandReceipt> {
+) -> (Vec<CommandReceipt>, SyncReport) {
     let (seq, hash) = store.head_hash("forge-run-1").unwrap();
     let mut bridge = Bridge::new(MockTransport {
         commands: vec![ProducerCommand {
@@ -841,15 +842,19 @@ fn sync_word(
         }],
         ..Default::default()
     });
-    bridge.sync_once(store, "forge-run-1", now, 0).unwrap();
-    bridge.into_transport().receipts
+    let report = bridge.sync_once(store, "forge-run-1", now, 0).unwrap();
+    (bridge.into_transport().receipts, report)
 }
 
 /// A run stopped at five with `word` journaled after it under `id`; when
 /// `disposed`, the older binary's rejection follows it. The bridge then
 /// redelivers `id` once. Answers the store, the receipt, the journal's
-/// length before the delivery, and the word's seq.
-fn redelivery(word: &str, id: &str, disposed: bool) -> (Store, CommandReceipt, usize, u64) {
+/// length before the delivery, the word's seq and the sync's report.
+fn redelivery(
+    word: &str,
+    id: &str,
+    disposed: bool,
+) -> (Store, CommandReceipt, usize, u64, SyncReport) {
     let (manifest, _, now) = fixture();
     let (dir, mut store) = store_with_manifest(&manifest, "forge-run-1");
     stopped_at_five(&mut store, "forge-run-1");
@@ -871,11 +876,12 @@ fn redelivery(word: &str, id: &str, disposed: bool) -> (Store, CommandReceipt, u
     let db = dir.path().join("forge.db");
     let mut store = Store::open(&db).unwrap();
     let before = store.load("forge-run-1").unwrap().len();
-    let receipt = sync_word(&mut store, now, id, word, "redelivered")
+    let (receipts, report) = sync_word(&mut store, now, id, word, "redelivered");
+    let receipt = receipts
         .into_iter()
         .next()
         .expect("the bridge acknowledged its one command");
-    (store, receipt, before, stopped.seq + 1)
+    (store, receipt, before, stopped.seq + 1, report)
 }
 
 #[test]
@@ -1127,7 +1133,7 @@ fn a_reserved_word_is_answered_and_the_command_behind_it_runs() {
 /// the redelivered word again.
 #[test]
 fn a_redelivered_reserved_word_returns_the_receipt_it_holds() {
-    let (store, receipt, before, word_seq) = redelivery("repair", "old-repair", true);
+    let (store, receipt, before, word_seq, report) = redelivery("repair", "old-repair", true);
     assert_eq!(receipt.outcome, "rejected");
     assert_eq!(
         receipt.reason.as_deref(),
@@ -1138,6 +1144,10 @@ fn a_redelivered_reserved_word_returns_the_receipt_it_holds() {
         store.load("forge-run-1").unwrap().len(),
         before,
         "a redelivery writes nothing"
+    );
+    assert_eq!(
+        report.last_command_cursor, 1,
+        "the cursor advances even when the receipt is the journal's"
     );
     assert_eq!(
         brokkr_core::fold::fold(&store.load("forge-run-1").unwrap()).unwrap_err(),
@@ -1154,7 +1164,7 @@ fn a_redelivered_reserved_word_returns_the_receipt_it_holds() {
 fn a_redelivered_undisposed_reserved_word_is_answered_and_writes_nothing() {
     for word in ["repair", "settle", "classify", "supersede"] {
         let id = format!("old-{word}");
-        let (store, receipt, before, _) = redelivery(word, &id, false);
+        let (store, receipt, before, _, report) = redelivery(word, &id, false);
         assert_eq!(receipt.outcome, "rejected", "{word}");
         assert_eq!(
             receipt.reason.as_deref(),
@@ -1166,7 +1176,36 @@ fn a_redelivered_undisposed_reserved_word_is_answered_and_writes_nothing() {
             before,
             "{word} wrote nothing"
         );
+        assert_eq!(
+            report.last_command_cursor, 1,
+            "{word}: the cursor advances so the words behind it run"
+        );
     }
+}
+
+/// M1: a NON-reserved word an older binary journaled with no disposition
+/// after the terminal event is a late word too. Its redelivery is
+/// answered from the journal with the fold's own refusal, the cursor
+/// advances, and nothing is written — the replay's incomplete-command
+/// rejection is for a word that is still the pending command it was.
+#[test]
+fn a_redelivered_undisposed_late_word_is_answered_and_writes_nothing() {
+    let (store, receipt, before, _, report) = redelivery("dance", "old-dance", false);
+    assert_eq!(receipt.outcome, "rejected");
+    assert_eq!(
+        receipt.reason.as_deref(),
+        Some(brokkr_core::fold::Refusal::AfterTerminal.word()),
+        "the receipt is the late word's own refusal"
+    );
+    assert_eq!(
+        store.load("forge-run-1").unwrap().len(),
+        before,
+        "the late word's redelivery wrote nothing"
+    );
+    assert_eq!(
+        report.last_command_cursor, 1,
+        "the cursor advances so the words behind it run"
+    );
 }
 
 /// INFO c's terminal rule, at the door: a word the engine does not know
@@ -1178,12 +1217,13 @@ fn a_dance_word_on_a_terminal_run_is_answered_and_writes_nothing() {
     let (_dir, mut store) = store_with_manifest(&manifest, "forge-run-1");
     stopped_at_five(&mut store, "forge-run-1");
     let before = store.load("forge-run-1").unwrap().len();
-    let receipts = sync_word(&mut store, now, "dance", "dance", "please");
+    let (receipts, report) = sync_word(&mut store, now, "dance", "dance", "please");
     assert_eq!(receipts[0].outcome, "rejected");
     assert_eq!(
         receipts[0].reason.as_deref(),
         Some(brokkr_core::fold::Refusal::CommandNotAllowed.word())
     );
+    assert_eq!(report.last_command_cursor, 1, "the cursor advances");
     let events = store.load("forge-run-1").unwrap();
     assert_eq!(events.len(), before, "the word is answered, not journaled");
     assert_eq!(

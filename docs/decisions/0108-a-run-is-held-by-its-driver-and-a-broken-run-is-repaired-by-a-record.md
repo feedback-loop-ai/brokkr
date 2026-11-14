@@ -167,23 +167,39 @@ questions are left, and they are this decision's:
      word with no disposition, the door answers it `reserved_command` from
      the journal and writes nothing, so it never adds the rejection the
      older binary did not.
-   - **The old word, 2026-11-13 (#440 fix round 440c4).** A repair record
-     is only an `operator/commanded` with command `repair` whose `args`
-     are the non-empty object `contracts/operator-repair.v1.schema.json`
-     describes. A `repair` word carrying exactly the bridge's `args: {}`
-     is an ordinary command word, as `dance` is: before the terminal event
-     it is the pending command the fold has always read an
-     `operator/commanded` as, and after it, it is a late event like any
-     other, so a real `operator repair` names it and the run folds again.
-     Such a word no longer refuses the run as a bad repair. The same rule
-     decides the other reserved words from one home in `brokkr-core`:
-     `classify` and `supersede` are annotations only when their `args` read
-     as their contracts, and `settle` has no reader until 440d builds it.
-     A `repair` word with non-empty args that do not read as the contract
-     is still a record, and the fold still refuses it by name: a malformed
-     record never becomes an ordinary command. So a word the older bridge
-     left after the terminal event is an unrepaired late tail until the
-     operator's record names it, and the run reads again.
+   - **The old word, 2026-11-13 (#440 fix rounds 440c4 and its return).**
+     A repair record is only an `operator/commanded` with command `repair`
+     whose `args` are the non-empty object
+     `contracts/operator-repair.v1.schema.json` describes. A `repair` word
+     carrying exactly the bridge's `args: {}` is an ordinary command word,
+     as `dance` is: before the terminal event it is the pending command the
+     fold has always read an `operator/commanded` as, and after it, it is a
+     late event like any other, so a real `operator repair` names it and
+     the run folds again. Such a word no longer refuses the run as a bad
+     repair. The same rule decides the other reserved words from one home
+     in `brokkr-core`: `classify`, `supersede` and `settle` with exactly
+     `args: {}` are ordinary command words too, because no fold or readout
+     reads that shape as their annotation, and `settle` has no reader until
+     440d builds it. A reserved word whose NON-empty args this build does
+     not read is admitted and not read, as an annotation always was
+     (decision 0064 ruling 5): a newer binary's word does not break this
+     build's fold. A `repair` word with non-empty args that do not read as
+     the contract is still a record, and the fold still refuses it by name:
+     a malformed record never becomes an ordinary command. So a word the
+     older bridge left after the terminal event is an unrepaired late tail
+     until the operator's record names it, and the run reads again.
+   - **The gate and the late word, 2026-11-13 (#440 fix round 440c4's
+     return).** The store's terminal gate is by event TYPE, as the fold's
+     relation is; the fold reads the annotation's payload and is the
+     authority on whether it is lawful, so a payload the gate admits can
+     still be a late event the fold refuses. A redelivered word the fold
+     reads as late — reserved or not — is answered from the journal with
+     nothing written: `reserved_command` for a reserved word, and the
+     fold's own refusal (`after_terminal`) for an ordinary one. A word
+     before the terminal event stays the pending command it is, and the
+     engine's own later command disposes of it as for any word. A known
+     word the bridge does not take on a terminal run (`release`) is
+     answered without writing too, even though it would fold.
 
 ## What this decision does not do
 

@@ -128,7 +128,8 @@ fn repair_of(state: &RunState, suffix: &[EventEnvelope]) -> Result<Option<LateTa
 /// shape, `operator/commanded{command: "repair", args: {}}`, is an
 /// ordinary command word, never a record (decision 0108 ruling 4, #440
 /// fix round 440c4). A non-empty but malformed args is still a record, so
-/// the fold refuses it by name rather than reading it as a command.
+/// the fold refuses it by name rather than reading it as a command; args
+/// absent, `null` or an array are malformed records too, refused the same.
 pub(crate) fn is_repair(event: &EventEnvelope) -> bool {
     event.event_type == EventType::OperatorCommanded
         && event.payload.get("command").and_then(Value::as_str) == Some(REPAIR)
@@ -151,19 +152,34 @@ pub struct SkippedAnnotation {
     pub word: &'static str,
 }
 
-/// The annotations `repair` skips: the reserved annotation records inside
-/// the tail it names, in journal order, the repair word itself excluded.
+/// The annotations `repair` newly makes late: the reserved annotation
+/// records inside the tail it names that an earlier repair did not
+/// already make late, in journal order, the repair word itself excluded.
 /// A reserved word with no record — the bridge's empty args — was never
 /// applied and is no annotation to record again. The CLI prints this and
 /// derives nothing itself (decision 0108 ruling 4, L8).
+///
+/// An earlier repair already named its own range, so this repair is newly
+/// responsible only for the events past that repair's last seq: a
+/// classify the first repair skipped is not newly skipped by a later
+/// repair that names the whole tail again (#440 fix round 440c4, L3).
 pub fn skipped_annotations(
     events: &[EventEnvelope],
     repair: &EventEnvelope,
 ) -> Result<Vec<SkippedAnnotation>, FoldError> {
     let args = args_of(repair)?;
+    let already_late = events
+        .iter()
+        .filter(|event| event.seq < repair.seq && is_repair(event))
+        .filter_map(|event| args_of(event).ok())
+        .map(|args| args.last_seq)
+        .max()
+        .unwrap_or(0);
     Ok(events
         .iter()
-        .filter(|event| (args.first_seq..=args.last_seq).contains(&event.seq))
+        .filter(|event| {
+            event.seq > already_late && (args.first_seq..=args.last_seq).contains(&event.seq)
+        })
         .filter_map(|event| {
             let word = super::annotation::record_word(event)?;
             (word != REPAIR).then_some(SkippedAnnotation {

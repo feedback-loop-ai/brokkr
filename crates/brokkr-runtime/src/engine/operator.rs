@@ -239,10 +239,12 @@ impl Rejection<'_> {
         json!({"command_id": id, "operator": operator, "reason": reason})
     }
 
-    /// The refusal reported at the rejection that just landed.
+    /// The refusal reported at the rejection that just landed. Its reason
+    /// is the typed receipt vocabulary's word, never a second spelling
+    /// written here (decision 0108 ruling 4, #440 fix round 440c4).
     fn landed(&self, rejected: EventEnvelope) -> FencedCommandOutcome {
         FencedCommandOutcome::Rejected {
-            reason: self.refusal.word().into(),
+            reason: ReceiptReason::Refusal(self.refusal).word().into(),
             head_seq: rejected.seq,
             head_hash: rejected.event_hash,
         }
@@ -617,17 +619,15 @@ pub(super) fn riding_attempt(
 /// so an engine append between that check and either write loses the
 /// fence instead of slipping under it.
 ///
-/// The bridge parsed Looper's word into a [`CommandWord`] at its edge: a
-/// word outside the set is journaled as sent and refused as
-/// [`Refusal::CommandNotAllowed`], so the evidence says what was asked,
-/// except when it is an operator annotation's word — `repair`, `settle`,
-/// `classify` or `supersede`. That one is answered with a rejected
-/// receipt whose reason is [`ReceiptReason::ReservedCommand`] and nothing
-/// is journaled at all, so a remote word can never reach the fold or a
-/// readout as an annotation nobody wrote (decision 0108 ruling 4, #440).
-/// A word the engine does not know is not journaled on a terminal run
-/// either: after the terminal event it is a late event, and no door
-/// writes one on a remote caller's behalf (fix round 440c4).
+/// The bridge parsed Looper's word at its edge: an unknown word on a live
+/// run is journaled as sent and refused as [`Refusal::CommandNotAllowed`],
+/// so the evidence says what was asked — except a reserved annotation
+/// word (`repair`, `settle`, `classify`, `supersede`), which is answered
+/// with a [`ReceiptReason::ReservedCommand`] receipt and never journaled
+/// (decision 0108 ruling 4, #440). A word it does not take on a terminal
+/// run — unknown with the bridge's empty args, or a known word such as
+/// `release` — is answered without writing, so the run grows no refusal
+/// it did not have to (fix round 440c4; the known-word case is an ask).
 pub fn apply_fenced_operator_command(
     store: &mut Store,
     run_id: &str,
@@ -707,10 +707,10 @@ pub(super) fn apply_fenced_windows(
     let (state, head) = decided(store, run_id, &events)?;
     let cursor_holds = head.seq == wire.expected_seq && head.hash == wire.expected_hash;
     let rejection = fenced_refusal(&state, wire.command, cursor_holds);
-    // A word the bridge does not take, on a terminal run, is a late
-    // event rather than the journal evidence a live run keeps: answering
-    // it without writing keeps a remote caller from stopping the run
-    // folding until an operator repairs it (fix round 440c4).
+    // A word the bridge does not take on a terminal run is answered
+    // without writing, so no remote caller stops the run folding until an
+    // operator repairs it. A known word it refuses (`release`) is covered
+    // too; that one would fold, and the narrower choice is an ask.
     if state.terminal_seq.is_some() && rejection == Some(Refusal::CommandNotAllowed) {
         let reason = ReceiptReason::Refusal(Refusal::CommandNotAllowed);
         return Ok(receipt::answered(reason, &head));

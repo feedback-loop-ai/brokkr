@@ -127,12 +127,15 @@ pub(super) const fn arm(event: EventType, position: Position) -> Arm {
     ROWS[event as usize][position as usize]
 }
 
-/// May `event` be appended to a run that has reached a terminal event?
-/// Its answer is the relation's terminal column, so the store, the
-/// operator verbs and `fold` read one rule (decision 0071 ruling 5):
-/// only an annotation that changes nothing (the relation's `Annotates`
-/// arm) is lawful. Everything else, a type a newer engine might add
-/// included until the relation admits it, is after terminal.
+/// May an event of `event_type` be appended to a run that has reached a
+/// terminal event? Its answer is the relation's terminal column, so the
+/// store's gate and `fold` read one rule (decision 0071 ruling 5): only a
+/// type the relation's `Annotates` arm admits. The rule is by TYPE. The
+/// fold then reads the annotation's payload, so the store's gate is a
+/// necessary guard, not a sufficient one: it admits an
+/// `operator/commanded` whose word the fold later refuses as a late
+/// event, and the fold is the authority on whether an annotation's
+/// payload is lawful (decision 0108 ruling 4, #440 fix round 440c4, M3).
 pub fn lawful_after_terminal(event: EventType) -> bool {
     matches!(arm(event, Position::Terminal), Arm::Annotates)
 }

@@ -26,7 +26,7 @@ pub(crate) mod late;
 pub use late::{skipped_annotations, LateTail, SkippedAnnotation, REPAIR};
 
 mod annotation;
-pub use annotation::{reserved_annotation, reserved_word};
+pub use annotation::{is_late_word, reserved_annotation, reserved_word};
 mod receipt;
 pub use receipt::ReceiptReason;
 
@@ -294,11 +294,11 @@ impl FoldError {
 /// The commands an operator gives a live run, through `brokkr operator`
 /// or the Looper bridge, and the word the journal records for each. A
 /// word outside the set can still reach the journal as an
-/// `operator/commanded` (the bridge journals the word it was sent, and
-/// `supersede` is an annotation), and an acceptance of one folds to
-/// [`FoldError::UnknownCommand`] — except a reserved annotation word,
-/// which the bridge's door refuses and answers without journaling, so the
-/// fold never sees one from that door (decision 0108 ruling 4, #440).
+/// `operator/commanded` on a live run (the bridge journals the word it
+/// was sent), and an acceptance of one folds to
+/// [`FoldError::UnknownCommand`]. The bridge's door answers a word it
+/// does not take on a terminal run, and a reserved annotation word, with
+/// nothing journaled (decision 0108 ruling 4, #440 fix round 440c4).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OperatorCommand {
     /// Moves a parked run back to running, into the phase it parked in.
@@ -531,8 +531,10 @@ pub fn fold_onto(state: RunState, suffix: &[EventEnvelope]) -> Result<RunState, 
     late::onto(state, suffix)
 }
 
-/// Apply one event: the relation ([`relation::arm`]) answers for the
-/// event at the run's position, and a transition it names is taken.
+/// Apply one event: a word that stands after the terminal event as a
+/// late event is refused first, by [`annotation::late_refusal`]; then the
+/// relation ([`relation::arm`]) answers for the event at the run's
+/// position, and a transition it names is taken.
 pub(super) fn apply(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> {
     annotation::late_refusal(state, event)?;
     match relation::arm(event.event_type, Position::of(state)) {

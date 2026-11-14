@@ -8,6 +8,14 @@
 //! event before it writes anything — no event, no cool-down row, no
 //! projection.
 //!
+//! The gate is by event TYPE, as the relation is. The fold reads an
+//! annotation's payload too, so a type this gate admits can still be a
+//! late event the fold refuses: an `operator/commanded` carrying the
+//! bridge's empty args after the terminal is exactly that. The store is a
+//! necessary guard, the fold is the authority on the payload (decision
+//! 0108 ruling 4, #440 fix round 440c4, M3; the split is pinned by
+//! `the_gate_admits_a_commanded_by_type_and_the_fold_refuses_its_late_payload`).
+//!
 //! The answer is bounded. The summary's fold is read by key, and while it
 //! stands at the head it is the whole answer. A row that is absent or
 //! behind falls back to the terminal index (`event_index_terminal`, a

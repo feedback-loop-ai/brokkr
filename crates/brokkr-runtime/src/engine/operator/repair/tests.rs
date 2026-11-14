@@ -48,6 +48,27 @@ fn length(store: &Store, run: &str) -> usize {
     store.load(run).unwrap().len()
 }
 
+/// Redeliver `command_id` for `word` through the bridge's door at the
+/// journal's current head, and answer its receipt.
+fn redeliver(
+    store: &mut Store,
+    run: &str,
+    command_id: &str,
+    word: &str,
+    operator: &str,
+) -> crate::engine::FencedCommandOutcome {
+    let (seq, hash) = store.head_hash(run).unwrap();
+    let wire = crate::engine::FencedCommand {
+        command_id,
+        command: crate::engine::CommandWord::parse(word),
+        operator,
+        reason: "redelivered",
+        expected_seq: seq,
+        expected_hash: &hash,
+    };
+    apply_fenced_operator_command(store, run, &wire).unwrap()
+}
+
 /// The operator's repair of shape (A): the settlement is named, the run
 /// folds again as stopped, and the tail is kept and never applied.
 #[test]
@@ -484,8 +505,9 @@ fn a_repair_whose_read_back_refuses_reports_the_fold_error() {
 
 /// C1(a), S1: the bridge refuses every annotation word before journaling
 /// it, ANSWERING it as a refused command with a rejected receipt, and the
-/// terminal run still folds. The `dance` control still journals the word
-/// it was sent and refuses it by name, exactly as before.
+/// terminal run still folds. The `dance` control is answered the same way
+/// on a terminal run and writes nothing, because there it is a late event
+/// (fix round 440c4).
 #[test]
 fn the_bridge_refuses_annotation_words_and_the_run_still_folds() {
     let dir = tempfile::tempdir().unwrap();
@@ -626,16 +648,7 @@ fn a_redelivered_undisposed_reserved_word_is_answered_and_writes_nothing() {
             )],
         );
         let before = length(&store, "late");
-        let (seq, hash) = store.head_hash("late").unwrap();
-        let wire = crate::engine::FencedCommand {
-            command_id: &id,
-            command: crate::engine::CommandWord::parse(word),
-            operator: "looper",
-            reason: "redelivered",
-            expected_seq: seq,
-            expected_hash: &hash,
-        };
-        let answered = apply_fenced_operator_command(&mut store, "late", &wire).unwrap();
+        let answered = redeliver(&mut store, "late", &id, word, "looper");
         assert!(
             matches!(&answered, crate::engine::FencedCommandOutcome::Rejected { reason, .. }
                 if reason == brokkr_core::fold::ReceiptReason::ReservedCommand.word()),
@@ -669,16 +682,7 @@ fn a_redelivered_undisposed_reserved_word_on_a_live_run_is_answered() {
         )
         .unwrap();
     let before = length(&store, "live");
-    let (seq, hash) = store.head_hash("live").unwrap();
-    let wire = crate::engine::FencedCommand {
-        command_id: id,
-        command: crate::engine::CommandWord::parse("repair"),
-        operator: "looper",
-        reason: "redelivered",
-        expected_seq: seq,
-        expected_hash: &hash,
-    };
-    let answered = apply_fenced_operator_command(&mut store, "live", &wire).unwrap();
+    let answered = redeliver(&mut store, "live", id, "repair", "looper");
     assert!(
         matches!(&answered, crate::engine::FencedCommandOutcome::Rejected { reason, .. }
             if reason == brokkr_core::fold::ReceiptReason::ReservedCommand.word()),
@@ -696,28 +700,20 @@ fn a_redelivered_undisposed_reserved_word_on_a_live_run_is_answered() {
         "the old word is the pending command it always was"
     );
 
-    // What disposes of it is what disposes of any pending word: a later
-    // command takes the pending place. The next stop is accepted and the
-    // run concludes.
-    store
-        .append_next(
-            "live",
-            EventType::OperatorCommanded,
-            json!({"command_id": "c-stop", "command": "stop", "operator": "operator",
-                   "args": {}}),
-            None,
-            None,
-        )
-        .unwrap();
-    store
-        .append_next(
-            "live",
-            EventType::OperatorAccepted,
-            json!({"command_id": "c-stop", "operator": "operator"}),
-            None,
-            None,
-        )
-        .unwrap();
+    // What disposes of it is what disposes of any pending word, through
+    // the ENGINE's own stop path: the next command takes the pending
+    // place, its acceptance clears it, and the run stays foldable. This is
+    // not a hand-appended journal (L2).
+    let answered =
+        crate::engine::operator::ending::tests::stop_as(&mut store, "live", "operator", "enough")
+            .unwrap();
+    assert!(
+        matches!(
+            answered,
+            crate::engine::FencedCommandOutcome::Accepted { .. }
+        ),
+        "{answered:?}"
+    );
     let state = fold(&store.load("live").unwrap()).unwrap();
     assert!(
         state.pending_command.is_none(),
@@ -772,4 +768,109 @@ fn an_operator_repair_names_an_old_repair_word_and_the_run_folds() {
         [EventType::OperatorCommanded, EventType::OperatorRejected]
     );
     lags(&mut store, &["late"]);
+}
+
+/// M1: a redelivered NON-reserved word an older binary journaled with no
+/// disposition, after the terminal event, is a late word. It is answered
+/// with the fold's own refusal and nothing is written for it: no door
+/// writes a late event on a remote caller's behalf.
+#[test]
+fn a_redelivered_undisposed_late_word_is_answered_and_writes_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("undisposed-dance.db");
+    let store = concluded(&db, "late");
+    let mut store = planted(
+        store,
+        &db,
+        "late",
+        &[(
+            EventType::OperatorCommanded,
+            json!({"command_id": "old-dance", "command": "dance", "operator": "looper",
+                   "args": {}}),
+        )],
+    );
+    let before = length(&store, "late");
+    let answered = redeliver(&mut store, "late", "old-dance", "dance", "looper");
+    assert!(
+        matches!(&answered, crate::engine::FencedCommandOutcome::Rejected { reason, .. }
+            if reason == brokkr_core::fold::Refusal::AfterTerminal.word()),
+        "the receipt is the fold's own refusal: {answered:?}"
+    );
+    assert_eq!(
+        length(&store, "late"),
+        before,
+        "the late word's redelivery wrote nothing"
+    );
+    assert_eq!(
+        fold(&store.load("late").unwrap()).unwrap_err(),
+        brokkr_core::fold::FoldError::AfterTerminal { seq: 6 },
+        "the run is the unrepaired late tail it was"
+    );
+}
+
+/// L6: a known word the bridge does not take (`release`) on a terminal
+/// run is answered without writing, the same as a word it does not know.
+/// It would fold as an annotation, so the no-write answer is the narrower
+/// choice and is named as an ask.
+#[test]
+fn a_known_word_the_bridge_does_not_take_is_answered_and_writes_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("terminal-release.db");
+    let mut store = concluded(&db, "late");
+    let before = length(&store, "late");
+    let answered = redeliver(&mut store, "late", "release", "release", "operator");
+    assert!(
+        matches!(&answered, crate::engine::FencedCommandOutcome::Rejected { reason, .. }
+            if reason == brokkr_core::fold::Refusal::CommandNotAllowed.word()),
+        "{answered:?}"
+    );
+    assert_eq!(
+        length(&store, "late"),
+        before,
+        "the known word is answered, not journaled"
+    );
+    assert_eq!(
+        fold(&store.load("late").unwrap()).unwrap().run,
+        Run::Stopped,
+        "the terminal run still folds"
+    );
+}
+
+/// M1's other half: a NON-reserved word left undisposed BEFORE the
+/// terminal event is still the pending command it was, so the engine's
+/// own replay writes the incomplete-command rejection, clears the pending
+/// place, and the run keeps folding. The late-word no-write answer is only
+/// for a word after the terminal event.
+#[test]
+fn a_redelivered_undisposed_live_word_takes_the_incomplete_replay() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("live-dance.db");
+    let mut store = in_flight_store(&db, "live");
+    store
+        .append_next(
+            "live",
+            EventType::OperatorCommanded,
+            json!({"command_id": "old-dance", "command": "dance", "operator": "looper",
+                   "args": {}}),
+            None,
+            None,
+        )
+        .unwrap();
+    let before = length(&store, "live");
+    let answered = redeliver(&mut store, "live", "old-dance", "dance", "looper");
+    assert!(
+        matches!(&answered, crate::engine::FencedCommandOutcome::Rejected { reason, .. }
+            if reason == brokkr_core::fold::Refusal::IncompleteCommandReplay.word()),
+        "{answered:?}"
+    );
+    assert_eq!(
+        length(&store, "live"),
+        before + 1,
+        "the engine's replay writes the one rejection it owes a pending word"
+    );
+    let state = fold(&store.load("live").unwrap()).unwrap();
+    assert!(
+        state.pending_command.is_none(),
+        "the rejection disposed of the pending word"
+    );
 }

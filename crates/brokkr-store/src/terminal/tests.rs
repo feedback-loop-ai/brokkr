@@ -438,3 +438,31 @@ fn the_terminal_index_is_repaired_when_its_definition_is_not_this_builds() {
         "{plan:?}"
     );
 }
+
+/// M3: the gate is by event TYPE, the fold is the authority on the
+/// annotation's payload. An `operator/commanded` carrying the bridge's
+/// empty args is admitted by the gate and refused by the next fold as a
+/// late event; that split is named in the gate's docs and pinned here, so
+/// a payload-aware claim the store cannot keep does not creep back in.
+#[test]
+fn the_gate_admits_a_commanded_by_type_and_the_fold_refuses_its_late_payload() {
+    let (_dir, mut store) = store();
+    terminal_run(&mut store, "r", EventType::RunStopped);
+    let appended = store
+        .append_next(
+            "r",
+            EventType::OperatorCommanded,
+            json!({"command_id": "old-dance", "command": "dance", "operator": "looper",
+                   "args": {}}),
+            None,
+            None,
+        )
+        .expect("the gate admits the annotation's type");
+    assert_eq!(appended.event_type, EventType::OperatorCommanded);
+    assert_eq!(
+        brokkr_core::fold::fold(&store.load("r").unwrap()).unwrap_err(),
+        brokkr_core::fold::FoldError::AfterTerminal { seq: appended.seq },
+        "the fold refuses the payload the gate admitted"
+    );
+    lags(&mut store, &["r"]);
+}

@@ -461,27 +461,31 @@ fn an_ordinary_word_on_an_empty_run_errors_from_the_fold() {
     );
 }
 
-/// R5: the receipt's reason vocabulary has one typed home. The reserved
-/// reason is receipt-only and never journaled; every journaled refusal's
-/// receipt reason is the refusal's own word.
+/// R5/L4: the receipt's reason vocabulary has one typed home. The
+/// reserved reason is receipt-only and never journaled; every journaled
+/// refusal's receipt reason is the refusal's own word, pinned HERE as a
+/// literal so the test cannot pass by asking the enum to agree with
+/// itself. A variant added without its word fails the literal table.
 #[test]
 fn every_receipt_reason_comes_from_the_typed_home() {
     use brokkr_core::fold::{ReceiptReason, Refusal};
-    assert_eq!(ReceiptReason::ReservedCommand.word(), "reserved_command");
-    for refusal in [
-        Refusal::CommandNotAllowed,
-        Refusal::AfterTerminal,
-        Refusal::RunNotAwaitingOperator,
-        Refusal::NoPhaseToRetry,
-        Refusal::LostFence,
-        Refusal::StaleCursor,
-        Refusal::IncompleteCommandReplay,
-        Refusal::PreviouslyRejected,
-    ] {
-        assert_eq!(
-            ReceiptReason::Refusal(refusal).word(),
-            refusal.word(),
-            "{refusal:?}"
-        );
+    let words = [
+        (Refusal::CommandNotAllowed, "command_not_allowed"),
+        (Refusal::AfterTerminal, "after_terminal"),
+        (Refusal::RunNotAwaitingOperator, "run_not_awaiting_operator"),
+        (Refusal::NoPhaseToRetry, "no_phase_to_retry"),
+        (Refusal::LostFence, "lost_fence"),
+        (Refusal::StaleCursor, "stale_cursor"),
+        (
+            Refusal::IncompleteCommandReplay,
+            "incomplete_command_replay",
+        ),
+        (Refusal::PreviouslyRejected, "previously_rejected"),
+    ];
+    for (refusal, word) in words {
+        assert_eq!(ReceiptReason::Refusal(refusal).word(), word, "{refusal:?}");
+        assert_eq!(Refusal::parse(word), Some(refusal), "{word}");
     }
+    assert_eq!(ReceiptReason::ReservedCommand.word(), "reserved_command");
+    assert_eq!(Refusal::parse("reserved_command"), None);
 }

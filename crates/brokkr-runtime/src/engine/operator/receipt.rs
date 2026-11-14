@@ -5,7 +5,7 @@
 
 use brokkr_core::canonical::ZERO_HASH;
 use brokkr_core::envelope::EventType;
-use brokkr_core::fold::{ReceiptReason, Refusal};
+use brokkr_core::fold::{terminal_event, ReceiptReason, Refusal};
 use brokkr_core::EventEnvelope;
 use brokkr_store::{Store, StoreError};
 use serde_json::Value;
@@ -40,13 +40,15 @@ fn recorded(
     Some(if disposition.event_type == EventType::OperatorAccepted {
         accepted_at(disposition)
     } else {
+        let reason = disposition
+            .payload
+            .get("reason")
+            .and_then(Value::as_str)
+            .and_then(Refusal::parse)
+            .map(ReceiptReason::Refusal)
+            .unwrap_or(ReceiptReason::Refusal(Refusal::PreviouslyRejected));
         FencedCommandOutcome::Rejected {
-            reason: disposition
-                .payload
-                .get("reason")
-                .and_then(Value::as_str)
-                .unwrap_or(ReceiptReason::Refusal(Refusal::PreviouslyRejected).word())
-                .to_string(),
+            reason: reason.word().to_string(),
             head_seq: disposition.seq,
             head_hash: disposition.event_hash.clone(),
         }
@@ -71,20 +73,43 @@ pub(super) fn answered(reason: ReceiptReason, head: &Head) -> FencedCommandOutco
     }
 }
 
-/// A reserved annotation word's answer at a journal's tip, with nothing
-/// journaled. The one home for both the fresh word and the redelivery an
-/// older binary left undisposed (decision 0108 ruling 4, #440 fix round
-/// 440c4).
-pub(super) fn reserved_receipt(events: &[EventEnvelope]) -> FencedCommandOutcome {
-    let head = events.last().map_or_else(
+/// The head a receipt answers at: the journal's tip, or the empty run's
+/// head before its first event.
+fn tip(events: &[EventEnvelope]) -> Head {
+    events.last().map_or_else(
         || Head {
             seq: 0,
             hash: ZERO_HASH.to_string(),
             event_id: String::new(),
         },
         Head::of,
-    );
-    answered(ReceiptReason::ReservedCommand, &head)
+    )
+}
+
+/// A reserved annotation word's answer at a journal's tip, with nothing
+/// journaled. The one home for both the fresh word and the redelivery an
+/// older binary left undisposed (decision 0108 ruling 4, #440 fix round
+/// 440c4).
+pub(super) fn reserved_receipt(events: &[EventEnvelope]) -> FencedCommandOutcome {
+    answered(ReceiptReason::ReservedCommand, &tip(events))
+}
+
+/// A journaled late word's answer at a journal's tip, with nothing
+/// journaled: after the terminal event the word is a late event, so no
+/// door writes its disposition on a remote caller's behalf. The reason is
+/// the fold error the word would mint (decision 0108 ruling 4, #440 fix
+/// round 440c4).
+fn late_receipt(events: &[EventEnvelope]) -> FencedCommandOutcome {
+    answered(ReceiptReason::Refusal(Refusal::AfterTerminal), &tip(events))
+}
+
+/// Does the journal hold a terminal event before `seq`? A word after that
+/// event is a late event; before it, the word is the pending command it
+/// is.
+fn late_after(events: &[EventEnvelope], seq: u64) -> bool {
+    events
+        .iter()
+        .any(|event| event.seq < seq && terminal_event(event.event_type).is_some())
 }
 
 /// The receipt a command id already holds, if any: a journaled command
@@ -107,9 +132,11 @@ pub(super) fn journaled(
 /// refusal of the incomplete replay. A reserved annotation word is the
 /// exception: its journaled command has no disposition to replay, so it
 /// is answered with the reserved refusal and nothing is written for it.
-/// An older binary could journal the word and crash between its two
-/// appends; this delivery must not add the rejection it never wrote
-/// (decision 0108 ruling 4, #440 fix round 440c4).
+/// So is a word the fold reads as late after the terminal event, reserved
+/// or not: no door writes a late event on a remote caller's behalf. An
+/// older binary could journal the word and crash between its two appends;
+/// this delivery must not add the rejection it never wrote (decision 0108
+/// ruling 4, #440 fix round 440c4).
 fn replay(
     store: &mut Store,
     run_id: &str,
@@ -123,6 +150,9 @@ fn replay(
     }
     if brokkr_core::fold::reserved_word(commanded).is_some() {
         return Ok(reserved_receipt(events));
+    }
+    if brokkr_core::fold::is_late_word(commanded) && late_after(events, commanded.seq) {
+        return Ok(late_receipt(events));
     }
     let rejection = Rejection {
         command_id,
