@@ -262,6 +262,50 @@ fn a_release_refuses_a_live_recorded_group() {
     );
 }
 
+/// 440d's one group slot is asked for a multi-driver record too: the slot is
+/// the attempt's, not a driver's, and a live one keeps the worktree held
+/// even where every driver recorded no group (S1; decision 0108 ruling 3).
+#[test]
+fn a_release_asks_440d_s_one_slot_for_a_multi_driver_record() {
+    if !isolated(
+        "engine::operator_tests::release_tests::a_release_asks_440d_s_one_slot_for_a_multi_driver_record",
+    ) {
+        return;
+    }
+    let live = LiveGroup::new();
+    let mut killed = Killed::with_group(false, Some(live.group()));
+    killed.concluded();
+    let reservation = killed.at.join("reservation.json");
+    let mut held: Value = serde_json::from_slice(&std::fs::read(&reservation).unwrap()).unwrap();
+    let attempt = &mut held["attempts"][ATTEMPT];
+    for driver in attempt["drivers"].as_array_mut().unwrap() {
+        driver.as_object_mut().unwrap().remove("group");
+    }
+    attempt["drivers"][0]["site"] = json!("m1");
+    attempt["drivers"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"site": "m2", "cleanup": "settling"}));
+    attempt["group"] = json!(live.group());
+    std::fs::write(&reservation, serde_json::to_vec(&held).unwrap()).unwrap();
+    let refused = unreleased(killed.released());
+    assert_eq!(
+        refused,
+        Unreleased::refused(Refused::Alive {
+            attempt: ATTEMPT.into(),
+            group: live.group(),
+        }),
+        "the recorded slot still runs, so release names it and writes nothing"
+    );
+    assert!(killed.standing(), "the refused release sealed nothing");
+    assert_eq!(killed.conflicting(), killed.held());
+    drop(live);
+    killed
+        .released()
+        .expect("once the slot's group is gone, the operator's release attests");
+    assert_eq!(killed.conflicting(), Ok(()));
+}
+
 /// U8e3's refusals, each by its own cause, nothing journaled and nothing
 /// released: an attempt not yet ended, its driver possibly running; one
 /// whose every driver is sealed Settled, which a restart recovers; a run

@@ -39,8 +39,8 @@ pub use engine::{
     apply_fenced_operator_command, conclude, git_head, named_cause, operator_classify,
     operator_command, operator_repair, operator_settle, operator_stop, operator_supersede,
     CarryRefusal, Cause, CauseRefusal, CommandWord, ConcludeRefusal, DriveEnd, Engine, EngineError,
-    FencedCommand, FencedCommandOutcome, Flag, Live, MemberRetryOutcome, Named, Repair, Settle,
-    SettleRefusal, Supersede, UnprovenWhy, Verb,
+    FencedCommand, FencedCommandOutcome, Flag, MemberRetryOutcome, Named, Repair, Settle,
+    Supersede, Verb,
 };
 pub use keep_refs::{
     delete as delete_keep_refs, list as list_keep_refs, plant as plant_keep_refs, plant_or_report,

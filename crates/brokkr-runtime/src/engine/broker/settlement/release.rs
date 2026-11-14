@@ -89,7 +89,7 @@ pub(in crate::engine) struct Settled {
 /// a member on this host, or nothing proves it and no group was recorded to
 /// ask about.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
-pub enum Live {
+pub(in crate::engine) enum Live {
     #[error(
         "attempt '{attempt}' stands, and its process group {group} still has members on this host"
     )]
@@ -99,7 +99,7 @@ pub enum Live {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
-pub enum UnprovenWhy {
+pub(in crate::engine) enum UnprovenWhy {
     #[error(
         "its driver records are not sealed Settled, and it recorded no process group to ask the \
          host about; repair the run, then `brokkr operator release` is the operator's route where \
@@ -107,8 +107,10 @@ pub enum UnprovenWhy {
     )]
     NoGroup,
     #[error(
-        "its cleanup was witnessed unresolved, so its drivers' records do not prove that the tree \
-         it left over has ended"
+        "its cleanup was witnessed unresolved: a stray or a descendant outside the process \
+         groups it recorded, or a process still holding its stdout or stderr, may still run, \
+         which no group question can disprove; `brokkr operator release` is the operator's \
+         route where the attempt's journaled ending is indeterminate"
     )]
     Unresolved,
     /// The exclusion's proof alone: the broker's own records, never the
@@ -148,6 +150,12 @@ pub(in crate::engine::broker) fn alive(group: u32) -> bool {
 /// about *each* driver, never about one group standing in for all of them
 /// (decision 0108 ruling 3).
 ///
+/// An attempt whose cleanup was witnessed unresolved is never group-proven,
+/// even where every recorded group is gone: that witness covers a
+/// descendant, a stray outside the group, or a process holding the output,
+/// none of which a group question can answer. The operator's own release is
+/// its route, and [`UnprovenWhy::Unresolved`] names it (S2).
+///
 /// Only a driver the records do not prove is asked about. A group recorded
 /// for a driver sealed Settled is not a writer: the seal is the settlement
 /// proof, and the kernel may since have reused that group id for an
@@ -173,48 +181,53 @@ pub(in crate::engine::broker) fn proven(reserved: &Reserved, attempt: &str) -> R
             group,
         });
     }
+    // A cleanup witnessed unresolved covers what no group question can see:
+    // a descendant, a stray outside every recorded group, or a process still
+    // holding the driver's output. Its group being gone proves the driver
+    // ended, never that the tree it left over did, so the attempt is never
+    // group-proven here; the operator's own release is its route (S2;
+    // decision 0108 ruling 3).
+    if reserved.cleanup == Witnessed::Unresolved {
+        return Err(unproven(attempt, UnprovenWhy::Unresolved));
+    }
     if reserved.drivers.is_empty() {
         // No driver was listed. For a #822-or-later record that is none
         // spawned; an older record's view or reachable journal refuses
         // before this arm is reached (see above).
-        return match reserved.cleanup {
-            Witnessed::Unresolved => Err(unproven(attempt, UnprovenWhy::Unresolved)),
-            Witnessed::Settling | Witnessed::Settled => Ok(Proof::Records),
-        };
+        return Ok(Proof::Records);
     }
     let Some(groups) = unsettled_groups(reserved) else {
-        let why = match reserved.cleanup {
-            Witnessed::Unresolved => UnprovenWhy::Unresolved,
-            Witnessed::Settling | Witnessed::Settled => UnprovenWhy::NoGroup,
-        };
-        return Err(unproven(attempt, why));
+        return Err(unproven(attempt, UnprovenWhy::NoGroup));
     };
-    match (groups.is_empty(), reserved.cleanup) {
-        // A driver's own group gone proves the process it led ended, even
-        // where a driver's cleanup was witnessed unresolved: the host's
-        // answer is the proof for that driver, and every driver not sealed
-        // Settled was asked (H1; decision 0108 ruling 3).
-        (false, _) => Ok(Proof::Group),
-        (true, Witnessed::Unresolved) => Err(unproven(attempt, UnprovenWhy::Unresolved)),
-        (true, Witnessed::Settling | Witnessed::Settled) => Ok(Proof::Records),
+    if groups.is_empty() {
+        Ok(Proof::Records)
+    } else {
+        Ok(Proof::Group)
     }
 }
 
-/// The first process group `reserved` records for a driver it does not seal
-/// Settled that the host still shows alive, if any. A group recorded for a
-/// Settled driver is not asked (F9's correction), and a driver with no
-/// recorded group is not guessed at here: [`unsettled_groups`] refuses it.
+/// The first process group `reserved` records that the host still shows
+/// alive, if any: the attempt's one 440d slot wherever it stands, and every
+/// driver's own group for each driver the records do not seal Settled.
+///
+/// The 440d slot is the attempt's, not a driver's, and it names the *last*
+/// driver: it is asked for every attempt with a driver still unsettled,
+/// including a multi-driver 440d record whose slot [`unsettled_groups`] will
+/// not let prove one, so a live slot is named rather than hidden behind
+/// `NoGroup` (S1). A group recorded for a Settled driver is not asked (F9's
+/// correction), and a driver with no recorded group is not guessed at here:
+/// [`unsettled_groups`] refuses it.
 pub(in crate::engine::broker) fn live_group(reserved: &Reserved) -> Option<u32> {
-    let groups: Vec<u32> = match reserved.drivers.is_empty() {
-        true => reserved.group.into_iter().collect(),
-        false => reserved
-            .drivers
-            .iter()
-            .filter(|driver| !settled(driver))
-            .filter_map(|driver| effective_group(reserved, driver))
-            .collect(),
-    };
-    groups.into_iter().find(|group| alive(*group))
+    let any_unsettled = reserved.drivers.iter().any(|driver| !settled(driver));
+    let slot = (reserved.drivers.is_empty() || any_unsettled)
+        .then_some(reserved.group)
+        .flatten();
+    let drivers = reserved
+        .drivers
+        .iter()
+        .filter(|driver| !settled(driver))
+        .filter_map(|driver| driver.group);
+    slot.into_iter().chain(drivers).find(|group| alive(*group))
 }
 
 /// The refusal of attempt `attempt` for `why`.
@@ -345,12 +358,10 @@ pub(in crate::engine) fn settle_locked(
 pub(in crate::engine) fn spawned(held: &Held, site: &str, group: u32) {
     let deadline = startup(Instant::now(), Duration::MAX);
     let recorded = amend(held, deadline, |mut reservation| {
-        let reserved = reservation.attempts.get_mut(&held.attempt);
-        let driver = reserved
-            .ok_or(Unknown::Lost)?
-            .drivers
-            .iter_mut()
-            .rfind(|driver| driver.site == site)
+        let driver = reservation
+            .attempts
+            .get_mut(&held.attempt)
+            .and_then(|reserved| super::driver_at(&mut reserved.drivers, site))
             .ok_or(Unknown::Lost)?;
         driver.group = Some(group);
         Ok(reservation)
@@ -530,6 +541,12 @@ fn group_supports(standing: &Standing, proven: &Proven) -> bool {
     let Some(reserved) = reservation.attempts.get(&proven.attempt) else {
         return false;
     };
+    // The record may not prove by the host what the proof itself refuses: a
+    // cleanup witnessed unresolved is never group-proven, so a record
+    // naming its groups does not release (S2; decision 0108 ruling 3).
+    if reserved.cleanup == Witnessed::Unresolved {
+        return false;
+    }
     let Some(expected) = unsettled_groups(reserved) else {
         return false;
     };

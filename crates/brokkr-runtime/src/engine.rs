@@ -47,9 +47,6 @@ mod boxed;
 mod broker;
 use boxed::{artifact_root, boxed_spawn};
 pub use broker::evidence;
-/// The typed refusal `settle` carries: the host's answer or the run's own
-/// word (decision 0071 ruling 8).
-pub use broker::settlement::release::{Live, UnprovenWhy};
 // The test modules compare a box's argv through `use super::*`.
 #[cfg(test)]
 use boxed::hands_command;
@@ -160,18 +157,10 @@ struct Indeterminate<'a> {
     unproven: Unproven,
 }
 
-/// Why `settle` refused, nothing written (decision 0108 ruling 3): the typed
-/// fact the proof refused on, or the run's own word before a proof was
-/// taken. The typed arm keeps the host's answer (`group` still alive,
-/// `NoGroup`, `Unresolved`) a variant the caller matches, never text
-/// (decision 0071 ruling 8).
-#[derive(Debug, Clone, PartialEq, Eq, Error)]
-pub enum SettleRefusal {
-    #[error(transparent)]
-    Live(#[from] broker::settlement::release::Live),
-    #[error("{0}")]
-    Refused(String),
-}
+/// The typed refusal `settle` carries, defined where the verb is: the host's
+/// answer, the unread reservation's typed refusal, and the run's own
+/// pre-proof reasons (decision 0071 ruling 8; S8).
+pub(in crate::engine) use operator::SettleRefusal;
 
 #[derive(Debug, Error)]
 pub enum EngineError {
@@ -239,7 +228,13 @@ pub enum EngineError {
     /// `settle` refused the run or a fact it would prove, and wrote
     /// nothing (decision 0108 ruling 3). Like a repair there is no pending
     /// command to dispose of, so the refusal is the operator's to read and
-    /// the journal stays exactly as it was.
+    /// the journal stays exactly as it was. The payload stays the crate's
+    /// typed fact: no consumer outside this crate names it (S8).
+    #[expect(
+        private_interfaces,
+        reason = "the typed refusal is the crate's fact; the operator reads its text (S8, decision \
+                  0071 ruling 6)"
+    )]
     #[error("settle refused, nothing was written: {0}")]
     SettleRefused(SettleRefusal),
     /// The bridge was sent a word an operator annotation carries

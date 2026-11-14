@@ -406,6 +406,14 @@ pub(super) struct Driver {
     pub(super) group: Option<u32>,
 }
 
+/// The driver record for the site `site`, the last one written for it: a
+/// site may spawn more than one driver (a cool-down probe, then the seat's),
+/// and the last is the one in flight. The one derivation the settlement's
+/// own seal and the dispatch door's group record both read (S7).
+fn driver_at<'a>(drivers: &'a mut [Driver], site: &str) -> Option<&'a mut Driver> {
+    drivers.iter_mut().rfind(|driver| driver.site == site)
+}
+
 /// The driver about to spawn at the site `site` of the attempt in flight
 /// under the lease `held`, which began at `begun`: its own settlement
 /// record written Settling in the attempt's reservation under the
@@ -468,7 +476,7 @@ fn settled_driver(held: &mut Option<Held>, site: &str, cleanup: &Cleanup) {
     let sealed = amend(held, deadline, |mut reservation| {
         let reserved = reservation.attempts.get_mut(&held.attempt);
         let drivers = &mut reserved.ok_or(Unknown::Lost)?.drivers;
-        let driver = drivers.iter_mut().rfind(|driver| driver.site == site);
+        let driver = driver_at(drivers, site);
         driver.ok_or(Unknown::Lost)?.cleanup = Witnessed::Settled;
         Ok(reservation)
     });

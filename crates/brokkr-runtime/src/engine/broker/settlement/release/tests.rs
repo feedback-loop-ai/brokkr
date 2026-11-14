@@ -262,19 +262,27 @@ fn the_records_and_the_host_prove_an_attempt_by_their_own_facts() {
             why: UnprovenWhy::Unresolved,
         }
         .to_string(),
-        "attempt 'a1' stands: its cleanup was witnessed unresolved, so its drivers' records do \
-         not prove that the tree it left over has ended",
-        "the unresolved refusal says what it knows, and no missing group it never asked about"
+        "attempt 'a1' stands: its cleanup was witnessed unresolved: a stray or a descendant \
+         outside the process groups it recorded, or a process still holding its stdout or stderr, \
+         may still run, which no group question can disprove; `brokkr operator release` is the \
+         operator's route where the attempt's journaled ending is indeterminate",
+        "the unresolved refusal names the witness's reason and the operator's route"
     );
-    // A driver's own group gone proves the process it led ended, even when
-    // its cleanup was witnessed unresolved: the host answers the driver the
-    // records do not (S2; H1's rule, decision 0108 ruling 3).
+    // A driver's own group gone proves the process it led ended, but a
+    // cleanup witnessed unresolved is never group-proven: the witness may
+    // have seen a stray beyond the group (S2; decision 0108 ruling 3).
     let unresolved_gone = reserved(
         Witnessed::Unresolved,
         &[Witnessed::Settling],
         Some(dead_group()),
     );
-    assert_eq!(proven(&unresolved_gone, "a1"), Ok(Proof::Group));
+    assert_eq!(
+        proven(&unresolved_gone, "a1"),
+        Err(Live::Unproven {
+            attempt: "a1".into(),
+            why: UnprovenWhy::Unresolved,
+        })
+    );
 }
 
 /// A panel attempt has one record per driver, each with its own group: a
@@ -368,6 +376,40 @@ fn a_panels_drivers_are_asked_each_by_its_own_group() {
             why: UnprovenWhy::NoGroup,
         }),
         "a legacy single slot never proves a multi-driver attempt"
+    );
+    drop(live);
+}
+
+/// 440d's one slot is the attempt's, not a driver's: it is asked for a
+/// multi-driver attempt too, so a live slot is named rather than hidden
+/// behind `NoGroup`, even though the slot may not *prove* a sibling. The
+/// slot names the last driver, and the proof still refuses it for a
+/// multi-driver attempt (S1; decision 0108 ruling 3).
+#[test]
+fn a_recorded_one_slot_group_is_asked_for_a_multi_driver_attempt() {
+    if !isolated(
+        "engine::broker::settlement::release::tests::a_recorded_one_slot_group_is_asked_for_a_multi_driver_attempt",
+    ) {
+        return;
+    }
+    let live = LiveGroup::new();
+    let legacy = reserved(
+        Witnessed::Settling,
+        &[Witnessed::Settling, Witnessed::Settling],
+        Some(live.group()),
+    );
+    assert_eq!(
+        live_group(&legacy),
+        Some(live.group()),
+        "the recorded slot is asked for every attempt with an unsettled driver"
+    );
+    assert_eq!(
+        proven(&legacy, "a1"),
+        Err(Live::Group {
+            attempt: "a1".into(),
+            group: live.group(),
+        }),
+        "a live slot is named, not hidden behind NoGroup"
     );
     drop(live);
 }
@@ -555,59 +597,36 @@ fn a_group_proof_must_name_every_unsettled_drivers_own_group() {
     drop(live);
 }
 
-/// A group proof and the records proof agree on a cleanup witnessed
-/// unresolved: where `proven` writes a Group proof (every unsettled driver's
-/// own group gone), `honoured` accepts it; where it refuses (no driver left
-/// to ask), `honoured` refuses it too (S2's chief addition; 0071 ruling 5).
+/// An attempt whose cleanup was witnessed unresolved is never group-proven:
+/// a dead group answers for the driver, never for the stray, descendant or
+/// output-holder the witness saw. Its route is the operator's release, and
+/// the refusal names it (S2; decision 0108 ruling 3).
 #[test]
-fn a_group_proof_and_the_records_agree_on_an_unresolved_cleanup() {
-    if !isolated("engine::broker::settlement::release::tests::a_group_proof_and_the_records_agree_on_an_unresolved_cleanup") {
+fn an_unresolved_cleanup_is_never_group_proven() {
+    if !isolated(
+        "engine::broker::settlement::release::tests::an_unresolved_cleanup_is_never_group_proven",
+    ) {
         return;
     }
     let gone = dead_group();
-    let proven_group = Standing::from(grouped_whole(
-        Witnessed::Unresolved,
-        &[(Witnessed::Settling, Some(gone))],
-    ));
+    let unresolved = grouped_whole(Witnessed::Unresolved, &[(Witnessed::Settling, Some(gone))]);
+    let held = Standing::from(unresolved.clone());
+    let refused = proven(unresolved.attempts.get("a1").unwrap(), "a1").unwrap_err();
     assert_eq!(
-        proven(
-            proven_group
-                .whole
-                .as_ref()
-                .unwrap()
-                .attempts
-                .get("a1")
-                .unwrap(),
-            "a1"
-        ),
-        Ok(Proof::Group)
-    );
-    assert!(
-        honoured(&proven_group, &settled("a", vec![grouped("a1", &[gone])])),
-        "a group proof `proven` writes is honoured"
-    );
-    let proven_records = Standing::from(grouped_whole(
-        Witnessed::Unresolved,
-        &[(Witnessed::Settled, None)],
-    ));
-    assert_eq!(
-        proven(
-            proven_records
-                .whole
-                .as_ref()
-                .unwrap()
-                .attempts
-                .get("a1")
-                .unwrap(),
-            "a1"
-        ),
-        Err(Live::Unproven {
+        refused,
+        Live::Unproven {
             attempt: "a1".into(),
             why: UnprovenWhy::Unresolved,
-        })
+        }
+    );
+    let words = refused.to_string();
+    assert!(words.contains("stray"), "the witness's reason: {words}");
+    assert!(
+        words.contains("`brokkr operator release`"),
+        "the operator's route: {words}"
     );
     assert!(
-        !honoured(&proven_records, &settled("a", vec![grouped("a1", &[])])),
+        !honoured(&held, &settled("a", vec![grouped("a1", &[gone])])),
         "a group proof `proven` refuses is not honoured"
     );
 }
@@ -681,22 +700,22 @@ fn a_settle_record_releases_only_the_reservation_it_covers() {
 }
 
 /// The contract says a record that names an attempt the reservation does
-/// not name does not release: it is not a superset, it is a mismatch.
+/// not name does not release: it is not a superset, it is a mismatch. The
+/// refusal is `known`'s, alone: `covered` and `supports` both accept the
+/// record, so removing `known` honours it (S3; decision 0071 ruling 9).
 #[test]
-fn a_settle_record_naming_an_unknown_attempt_does_not_release() {
-    let gone = dead_group();
-    let mut reservation = grouped_whole(Witnessed::Settling, &[(Witnessed::Settling, Some(gone))]);
-    reservation.settled.insert("a9".into());
-    let held = Standing::from(reservation);
+fn a_settle_record_naming_an_attempt_the_reservation_does_not_is_not_honoured() {
+    let held = Standing::from(whole("settled", None));
+    assert!(
+        honoured(&held, &settled("a", vec![record_proven("a1")])),
+        "the reservation's own attempt is honoured"
+    );
     assert!(
         !honoured(
             &held,
-            &settled(
-                "a",
-                vec![grouped("a1", &[gone]), grouped("a9", &[dead_group()])],
-            )
+            &settled("a", vec![record_proven("a1"), record_proven("a9")])
         ),
-        "an attempt the reservation does not name is not covered by naming it"
+        "an attempt the reservation names nowhere is not covered by naming it"
     );
 }
 

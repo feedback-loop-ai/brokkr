@@ -15,8 +15,9 @@ use crate::engine::broker::admission::tests::{
 };
 use crate::engine::broker::admission::{Conflict, Witnessed};
 use crate::engine::broker::settlement::release;
+use crate::engine::broker::settlement::release::{Live, UnprovenWhy};
 use crate::engine::tests::published_args;
-use crate::engine::{Live, SettleRefusal, UnprovenWhy};
+use crate::engine::SettleRefusal;
 use crate::run_lock;
 use crate::EngineError;
 
@@ -353,5 +354,47 @@ fn settle_refuses_where_no_coordination_root_can_be_protected() {
     refused(
         &mut fixture,
         "this host names no protected coordination root",
+    );
+}
+
+/// Every settle refusal a test asserts is a type, and each of those words is
+/// pinned once here: the live group, the group-less attempt's route to
+/// release, and the unread reservation's participant (S4, S5; decision 0071
+/// ruling 8).
+#[test]
+fn every_settle_refusal_is_typed_and_its_words_are_pinned_once() {
+    assert_eq!(
+        Live::Group {
+            attempt: "a1".into(),
+            group: 7,
+        }
+        .to_string(),
+        "attempt 'a1' stands, and its process group 7 still has members on this host"
+    );
+    assert_eq!(
+        Live::Unproven {
+            attempt: "a1".into(),
+            why: UnprovenWhy::NoGroup,
+        }
+        .to_string(),
+        "attempt 'a1' stands: its driver records are not sealed Settled, and it recorded no \
+         process group to ask the host about; repair the run, then `brokkr operator release` is \
+         the operator's route where the attempt's journaled ending is indeterminate"
+    );
+    let at = std::path::PathBuf::from("/protected/run-a/reservation.json");
+    let unread = EngineError::SettleRefused(SettleRefusal::Unadmitted(
+        crate::engine::broker::admission::Unadmitted::Identity(
+            crate::engine::broker::admission::Unknown::Participant(at.clone()),
+        ),
+    ));
+    assert_eq!(
+        unread.to_string(),
+        format!(
+            "settle refused, nothing was written: dispatch refused: MCP server box filesystem \
+             identity is not protected: the protected inventory holds an unknown participant at \
+             '{}': a build that cannot read it leaves the run quarantined, so archive the \
+             journal, re-provision the worktree, and repair the archived copy for its history",
+            at.display()
+        )
     );
 }

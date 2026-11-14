@@ -103,7 +103,12 @@ pub(in crate::engine) enum Unknown {
     Bounds,
     #[error("the retirement history of a historical root has no sequence left")]
     Overflow,
-    #[error("the protected inventory holds an unknown participant at '{}'", .0.display())]
+    #[error(
+        "the protected inventory holds an unknown participant at '{}': a build that cannot read \
+         it leaves the run quarantined, so archive the journal, re-provision the worktree, and \
+         repair the archived copy for its history",
+        .0.display()
+    )]
     Participant(PathBuf),
     #[error(
         "the protected inventory holds a reservation at '{}' in format {format}, which this \

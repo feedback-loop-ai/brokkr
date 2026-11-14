@@ -979,12 +979,20 @@ attempt that ended indeterminate, and refuses while one still has a member;
 a driver that recorded no group, as v0.13.0's drivers did not, is not asked.
 It refuses an attempt that ended a success or a failure, and one with no
 journaled ending; it is the route only where the attempt ended
-indeterminate. A failed spawn before a group was recorded leaves the same
-`NoGroup` refusal, and the repair-then-release route where the attempt
-ended indeterminate. A recorded group id the host reuses for an unrelated
-process, or one still alive when the last driver ended, keeps the worktree
-held: no verb here releases it, which is the operator's ask (F9). One whose
-attempt ended a success or a failure has no route here either.
+indeterminate. A spawn that failed before its process group was recorded
+leaves the same choice: repair the run, then `brokkr operator release` where
+the attempt ended indeterminate. A recorded group id the host reuses for an
+unrelated process, or one still alive when the last driver ended, keeps the
+worktree held, and no verb will release it: archive the journal, re-provision
+the worktree, and repair the archived copy for its history. One whose attempt
+ended a success or a failure has no route here either.
+
+An attempt whose cleanup was witnessed unresolved is never released by the
+broker's proof or by `settle`, even when every recorded process group is gone:
+the witness saw a stray, a descendant, or a process still holding the
+driver's output, which no group question can disprove. That attempt is the
+operator's to attest: repair the run, then `brokkr operator release --run <id>
+--reason <why>`, where the attempt ended indeterminate.
 
 A shape (B) journal from an older engine, such as the stop after a
 conclusion in decision 0108's context, is recovered on a copy opened with
@@ -993,16 +1001,17 @@ above, and never a hand edit. The copy must sit at the path the reservation
 names for its journal, because that is the journal the proof and the record
 both read; a journal under the worktree itself is refused fail-closed by the
 exclusion's guarded read, since a writer of the run could reach it — `settle`
-may still write its record there, but no claim is released by it. The tag v0.12.0 wrote no reservation at
-all. A workspace whose binary reported 0.12.0 was built from main between
-#745 (2026-10-18) and the 0.13.0 version bump (2026-11-02), and its
-reservation's shape depends on the commit: before b8e2caff8 (2026-10-25) a
-boxed writer's sealed reach has no `store`, so this build reads the record
-only through the view and both `settle` and, after a repair, `release`
-refuse "unknown participant" — that shape has no route here, and naming the
-commit its binary was built at is the operator's ask. From b8e2caff8 through
-v0.13.0 the record reads whole, with drivers and no group, and the repair
-then release route holds where the attempt ended indeterminate.
+may still write its record there, but no claim is released by it. The tag
+v0.12.0 wrote no reservation at all. A workspace whose binary reported 0.12.0
+was built from main between #745 (2026-10-18) and the 0.13.0 version bump
+(2026-11-02), and its reservation's shape depends on the commit: before
+b8e2caff8 (2026-10-25) a boxed writer's sealed reach has no `store`, so this
+build reads the record only through the view and both `settle` and, after a
+repair, `release` refuse and name it an unknown participant. That refusal
+names the route: archive the journal, re-provision the worktree, and repair
+the archived copy for its history. From b8e2caff8 through v0.13.0 the record
+reads whole, with drivers and no group, and the repair-then-release route
+holds where the attempt ended indeterminate.
 
 ### Gate entries on a run
 

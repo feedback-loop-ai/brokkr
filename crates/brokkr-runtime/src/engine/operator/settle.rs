@@ -23,16 +23,45 @@ use brokkr_core::fold::{terminal_event, SETTLE};
 use brokkr_core::EventEnvelope;
 use brokkr_store::Store;
 use serde_json::json;
+use thiserror::Error;
 use uuid::Uuid;
 
 use super::{fenced_append, EngineError, Head};
 use crate::engine::broker::settlement;
 use crate::engine::broker::settlement::release::{provenances, Proven, SettleArgs};
-use crate::engine::SettleRefusal;
 use crate::run_lock;
 
 #[cfg(test)]
 mod tests;
+
+/// Why `settle` refused, nothing written (decision 0108 ruling 3): the typed
+/// fact the proof refused on, or the run's own word before a proof was
+/// taken. Every arm is a type, never text: the host's answer (`group` still
+/// alive, `NoGroup`, `Unresolved`), the unread reservation's typed
+/// [`crate::engine::broker::admission::Unadmitted`], and the run's own
+/// pre-proof refusals are variants the caller matches (decision 0071 ruling
+/// 8; S8).
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub(in crate::engine) enum SettleRefusal {
+    #[error(transparent)]
+    Live(#[from] crate::engine::broker::settlement::release::Live),
+    /// The reservation could not be read whole, exactly as admission refuses
+    /// it: the typed participant or root, never flattened to its text.
+    #[error(transparent)]
+    Unadmitted(#[from] crate::engine::broker::admission::Unadmitted),
+    #[error(
+        "run '{run}' has no terminal event; settle records that a run which has already ended \
+         no longer holds its worktree"
+    )]
+    NoTerminal { run: String },
+    #[error(
+        "run '{run}' is not acknowledged, so it is not quarantined; answer it with \
+         `brokkr operator acknowledge --run {run} --reason <why>` first"
+    )]
+    Unacknowledged { run: String },
+    #[error("this host names no protected coordination root, so no reservation can be read")]
+    NoRoot,
+}
 
 /// What `brokkr operator settle` says, as the operator typed it: why the
 /// release is recorded, and who recorded it.
@@ -67,7 +96,7 @@ fn settle_with(
     ask: &Settle<'_>,
     before_write: impl FnOnce(&mut Store),
 ) -> Result<EventEnvelope, EngineError> {
-    let refused = |why: String| EngineError::SettleRefused(SettleRefusal::Refused(why));
+    let refused = |why: SettleRefusal| EngineError::SettleRefused(why);
     // The run's own record decides the cheap refusals first: a run that
     // has not ended, or that no acknowledgement stands on, is refused
     // before any coordination root is opened or any lock is taken.
@@ -76,10 +105,9 @@ fn settle_with(
         .iter()
         .find(|event| terminal_event(event.event_type).is_some())
     else {
-        return Err(refused(format!(
-            "run '{run_id}' has no terminal event; settle records that a run which has already \
-             ended no longer holds its worktree"
-        )));
+        return Err(refused(SettleRefusal::NoTerminal {
+            run: run_id.to_string(),
+        }));
     };
     let acknowledged = store.acknowledgement(run_id)?.is_some();
     // A repair moves the head past the acknowledgement and lapses it
@@ -87,22 +115,16 @@ fn settle_with(
     // looked at, and stands in its place (decision 0108 ruling 4).
     let repaired = settlement::release::repaired(&events);
     if !(acknowledged | repaired) {
-        return Err(refused(format!(
-            "run '{run_id}' is not acknowledged, so it is not quarantined; answer it with \
-             `brokkr operator acknowledge --run {run_id} --reason <why>` first"
-        )));
+        return Err(refused(SettleRefusal::Unacknowledged {
+            run: run_id.to_string(),
+        }));
     }
     let observed = crate::engine::broker::observed();
     let root = observed
         .home
         .as_deref()
         .and_then(observed.open)
-        .ok_or_else(|| {
-            refused(
-                "this host names no protected coordination root, so no reservation can be read"
-                    .to_string(),
-            )
-        })?;
+        .ok_or_else(|| refused(SettleRefusal::NoRoot))?;
     // The locks are taken in admission's own order, the admission lock and
     // then the run's, and the proof's facts are read and the record written
     // under them, so no driver of the run starts between the proof and the
@@ -111,7 +133,7 @@ fn settle_with(
     // the write refuses.
     let (reservations, _admission) =
         settlement::release::settle_locked(&root, run_id, store.path())
-            .map_err(|unadmitted| refused(unadmitted.to_string()))?;
+            .map_err(|unadmitted| refused(SettleRefusal::Unadmitted(unadmitted)))?;
     let _held = run_lock::held_at(store.path(), run_id).map_err(EngineError::RunLock)?;
     let attempts = proved(&reservations)
         .map_err(|live| EngineError::SettleRefused(SettleRefusal::Live(live)))?;
