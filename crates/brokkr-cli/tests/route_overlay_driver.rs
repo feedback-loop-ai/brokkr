@@ -243,18 +243,30 @@ fn real_fixture() -> (tempfile::TempDir, PathBuf, Bundle) {
     (home, root, bundle)
 }
 
-/// Run `bundle` from `run` and return its journal.
+/// Run `bundle` from `run` and return its journal. How the drive ended and
+/// what the journal holds are printed, which libtest shows only for a test
+/// that fails, so a failure says why its run ended (#1082).
 fn run(run: &Path, bundle: Bundle) -> Vec<brokkr_core::envelope::EventEnvelope> {
     std::fs::create_dir_all(run.join("work")).unwrap();
     let store = Store::open(&run.join("forge.db")).unwrap();
     let mut engine = Engine::start(store, bundle, "route", Some(run.to_path_buf())).unwrap();
-    let _ = engine.drive();
-    engine.store.load(&engine.run_id).unwrap()
+    let driven = engine.drive();
+    let events = engine.store.load(&engine.run_id).unwrap();
+    let journal: Vec<_> = events
+        .iter()
+        .map(|event| (event.seq, event.event_type))
+        .collect();
+    eprintln!(
+        "the drive ended {driven:?}; the journal holds {journal:?}; its last reason: {:?}",
+        failure(&events)
+    );
+    events
 }
 
 /// The private start context the logging shim received.
 fn start_context(root: &Path) -> Value {
-    let logged = std::fs::read_to_string(root.join("start.log")).expect("the shim logs one start");
+    let logged = std::fs::read_to_string(root.join("start.log"))
+        .expect("the shim logs one start (the drive's end is printed above)");
     let start: Value = serde_json::from_str(logged.trim()).expect("the logged line is a message");
     start["input"]["resume_context"].clone()
 }
