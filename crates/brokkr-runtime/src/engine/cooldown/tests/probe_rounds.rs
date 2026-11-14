@@ -278,7 +278,7 @@ fn clock_on_probe(
 /// [`clock_on_probe`] over a named marker: the panel's per-member `a.done`
 /// lets a test plant a row while one member's probe runs and before the
 /// next member's.
-fn clock_on_marker(
+pub(super) fn clock_on_marker(
     now: &Arc<Mutex<OffsetDateTime>>,
     marker: &Path,
     once: bool,

@@ -401,10 +401,14 @@ fn maximum_reason(
         .site
         .as_deref()
         .map_or_else(String::new, |site| format!("member {site}: "));
-    // `passed` is only ever a member's own non-empty site: the journal
-    // refuses an empty `site`, and a single seat's waits name none, so the
-    // `Some("")` the old emptiness guard tested cannot be read from a
-    // terminal event (fix round 430s4d2d).
+    // `passed` is only ever a member's own non-empty site. The journal
+    // refuses a present empty `site` (`an_empty_site_is_not_an_absent_one`),
+    // and `recorded_waits` refuses a panel mixing a site-less wait with a
+    // member's (`recorded_waits_refuses_an_absent_site_beside_a_member`).
+    // `NextRound.site` is the probing wait's own site, so a site-less wait
+    // forms a site-less round and `passed` — `Some` only where the round's
+    // site and the wait's differ — stays `None`. The old emptiness guard's
+    // `Some("")` therefore has no caller (fix round 430s4d2d).
     let declared = match passed {
         Some(site) => format!("member {site}'s declared {max}s maximum"),
         None => format!("the declared {max}s maximum"),
