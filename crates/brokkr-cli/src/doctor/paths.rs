@@ -9,6 +9,8 @@ use brokkr_store::Store;
 use super::Report;
 use crate::folder::FolderError;
 
+mod trees;
+
 /// The paths a report reads, one parameter (decision 0071 ruling 10):
 /// the journal, or why it has none, the agent library, the adapters and
 /// the secrets store.
@@ -32,6 +34,7 @@ pub(super) fn report_database(report: &mut Report, db: Result<&Path, &FolderErro
                 format!("{} opens (WAL, append-only triggers)", db.display()),
             );
             report_summaries(report, &store);
+            trees::report(report, &store);
         }
         Ok((db, Err(e))) => report.missing("database", format!("{}: {e}", db.display())),
         Err(none) => report.warn("database", format!("none: {none}")),

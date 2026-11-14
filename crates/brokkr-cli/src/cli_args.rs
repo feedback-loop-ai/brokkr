@@ -155,6 +155,19 @@ pub(super) struct DoctorArgs {
     pub(super) secrets_file: Option<PathBuf>,
 }
 
+/// Where a sweep pass reads and writes its journal, and whether it is a
+/// dry run (decision 0104 ruling 9, as R3 amends it).
+#[derive(clap::Args)]
+#[group(skip)]
+pub(super) struct SweepArgs {
+    /// List what a pass would remove, with sizes, and write nothing: no
+    /// tree-sweep row, no dispatch holder and no migration.
+    #[arg(long = "dry-run")]
+    pub(super) dry: bool,
+    #[command(flatten)]
+    pub(super) journal: JournalArgs,
+}
+
 /// What a delivering verb runs and what its seats are given, asked the
 /// same way by `run`, `resume` and `rerun`.
 #[derive(clap::Args, Default)]

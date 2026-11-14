@@ -16,6 +16,7 @@ Every `brokkr` verb and argument with its default, and every exit code, as the b
 - [`brokkr tui`](#brokkr-tui): Explore runs interactively in the terminal: the fleet as a navigable table, one run's phase graph, seats and decision trail, and one seat's own checkpoint and session stream. Read-only like every other readout (decision 0014) — it issues no operator commands and writes nothing to the journal
 - [`brokkr doctor`](#brokkr-doctor): Verify tools, drivers, the workspace database, and optionally a bundle, without executing any agent
 - [`brokkr compile`](#brokkr-compile): Validate a bundle and print its pinned manifest and digest
+- [`brokkr sweep`](#brokkr-sweep): Remove the run-local seat scratch trees the journal proves free and record what each complete removal freed, and reap the hands session trees whose owners are dead. One pass under the journal's dispatch lock; `--dry-run` lists what a pass would remove, with sizes, and writes nothing
 - [`brokkr run`](#brokkr-run): Start a new run and drive it until it parks or finishes
 - [`brokkr resume`](#brokkr-resume): Resume an existing run under its exact pinned bundle
 - [`brokkr rerun`](#brokkr-rerun): Re-run a past run's feature as a NEW run under another bundle or recipe, so outcomes can be compared by run id. No stored linkage
@@ -237,6 +238,20 @@ Usage: brokkr compile --bundle <BUNDLE>
 | Argument | Default | Selector | Description |
 | --- | --- | --- | --- |
 | `--bundle <BUNDLE>` |  |  | The bundle directory to validate, compiled against the workspace |
+
+## brokkr sweep
+
+Remove the run-local seat scratch trees the journal proves free and record what each complete removal freed, and reap the hands session trees whose owners are dead. One pass under the journal's dispatch lock; `--dry-run` lists what a pass would remove, with sizes, and writes nothing
+
+```text
+Usage: brokkr sweep [OPTIONS]
+```
+
+| Argument | Default | Selector | Description |
+| --- | --- | --- | --- |
+| `--dry-run` |  |  | List what a pass would remove, with sizes, and write nothing: no tree-sweep row, no dispatch holder and no migration |
+| `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
+| `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
 
 ## brokkr run
 
