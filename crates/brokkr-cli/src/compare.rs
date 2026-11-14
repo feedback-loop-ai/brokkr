@@ -142,10 +142,13 @@ struct RunFacts {
     resolution: BTreeMap<String, Resolution>,
 }
 
-/// What `compare` reads of one run once it is opened: its trail (every
-/// event but its checkpoints, or every event where it is read whole,
-/// which the trail's figures read alike), its event count and last stamp,
-/// its fold, its seats' accounting and what its sites resolved to.
+/// What `compare` reads of one run once it is opened: its applied trail
+/// (every event the fold applied but its checkpoints, or every applied
+/// event where it is read whole, which the trail's figures read alike),
+/// its event count and last stamp, its fold, its seats' accounting and
+/// what its sites resolved to. A repaired late tail is kept and shown in
+/// the journal, and it is never part of the trail (decision 0108 ruling
+/// 4).
 struct Read {
     trail: Vec<EventEnvelope>,
     events: usize,

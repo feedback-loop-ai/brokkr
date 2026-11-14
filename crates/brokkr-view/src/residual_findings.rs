@@ -9,15 +9,11 @@ use brokkr_core::EventEnvelope;
 
 use crate::{stated_finding, ResidualFinding};
 
-/// Every residual finding a run's journal carries, with its supersede mark.
-pub fn residual_findings(run_id: &str, events: &[EventEnvelope]) -> Vec<ResidualFinding> {
-    residual_findings_at(run_id, events, None)
-}
-
-/// [`residual_findings`] with `state`, the run's fold, so a repaired run's
-/// late tail closes no finding and states none: the same rule the fold and
-/// the summary keep (decision 0108 ruling 4). The range test is
-/// `RunState::applies`.
+/// Every residual finding a run's journal carries, with its supersede
+/// mark, read with `state`, the run's fold, so a repaired run's late tail
+/// closes no finding and states none: the same rule the fold and the
+/// summary keep (decision 0108 ruling 4). The range test is
+/// `RunState::applies`. A caller with no fold passes `None`.
 pub fn residual_findings_at(
     run_id: &str,
     events: &[EventEnvelope],

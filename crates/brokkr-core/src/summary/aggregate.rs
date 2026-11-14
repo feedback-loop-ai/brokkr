@@ -112,7 +112,7 @@ struct PinnedRealm {
 }
 
 /// What a run's events say of it so far, carried event by event.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct Reading {
     /// Whether its first event has been read.
     begun: bool,

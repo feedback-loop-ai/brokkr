@@ -34,6 +34,14 @@ pub struct LateTail {
     pub operator: String,
 }
 
+impl RunState {
+    /// Does the fold apply `seq`? False in a repaired late tail, which is
+    /// kept and shown and never applied (decision 0108 ruling 4).
+    pub fn applies(&self, seq: u64) -> bool {
+        !self.late_tail.as_ref().is_some_and(|tail| tail.holds(seq))
+    }
+}
+
 impl LateTail {
     /// The tail's events, seq and type, in order: what `inspect` lists.
     pub fn events(&self) -> impl Iterator<Item = (u64, EventType)> + '_ {
@@ -115,10 +123,56 @@ fn repair_of(state: &RunState, suffix: &[EventEnvelope]) -> Result<Option<LateTa
     Ok(honoured)
 }
 
-/// Is `event` an `operator/commanded` carrying the repair word?
+/// Is `event` an `operator/commanded` carrying a repair record? A record
+/// is the repair word with args other than exactly `{}`: the bridge's own
+/// shape, `operator/commanded{command: "repair", args: {}}`, is an
+/// ordinary command word, never a record (decision 0108 ruling 4, #440
+/// fix round 440c4). A non-empty but malformed args is still a record, so
+/// the fold refuses it by name rather than reading it as a command.
 pub(crate) fn is_repair(event: &EventEnvelope) -> bool {
-    (event.event_type == EventType::OperatorCommanded)
-        & (event.payload.get("command").and_then(Value::as_str) == Some(REPAIR))
+    event.event_type == EventType::OperatorCommanded
+        && event.payload.get("command").and_then(Value::as_str) == Some(REPAIR)
+        && !carries_empty_args(event)
+}
+
+/// Does `event` carry exactly the bridge's empty `args` object?
+fn carries_empty_args(event: &EventEnvelope) -> bool {
+    matches!(event.payload.get("args"), Some(Value::Object(args)) if args.is_empty())
+}
+
+/// An operator annotation a repair makes late: the event's seq and type,
+/// and the reserved word it carries. The one home for what `operator
+/// repair` tells the operator to record again (decision 0108 ruling 4,
+/// L8).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SkippedAnnotation {
+    pub seq: u64,
+    pub event_type: EventType,
+    pub word: &'static str,
+}
+
+/// The annotations `repair` skips: the reserved annotation records inside
+/// the tail it names, in journal order, the repair word itself excluded.
+/// A reserved word with no record — the bridge's empty args — was never
+/// applied and is no annotation to record again. The CLI prints this and
+/// derives nothing itself (decision 0108 ruling 4, L8).
+pub fn skipped_annotations(
+    events: &[EventEnvelope],
+    repair: &EventEnvelope,
+) -> Result<Vec<SkippedAnnotation>, FoldError> {
+    let args = args_of(repair)?;
+    Ok(events
+        .iter()
+        .filter(|event| (args.first_seq..=args.last_seq).contains(&event.seq))
+        .filter_map(|event| {
+            let word = super::annotation::record_word(event)?;
+            (word != REPAIR).then_some(SkippedAnnotation {
+                seq: event.seq,
+                event_type: event.event_type,
+                word,
+            })
+        })
+        .collect())
 }
 
 /// The late tail `event` names, checked against the run's terminal event

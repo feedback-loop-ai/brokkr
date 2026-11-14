@@ -228,7 +228,7 @@ pub enum Carried {
 /// What a writer holds of a run: the run's head as it last judged it, the
 /// fold there or the fold's refusal, and the residual findings and
 /// closing marks the journal carries up to it.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Account {
     run_id: String,
     head: (u64, String),
@@ -311,8 +311,8 @@ impl Account {
             // A carried refusal is only judged whole: a later repair in
             // the suffix may name the event the prefix refused at, which
             // only the whole fold can lift. A suffix with no repair leaves
-            // the refusal standing, as a whole fold does.
-            Err(FoldError::Empty) => false,
+            // the refusal standing, as a whole fold does. A non-empty
+            // suffix never leaves the read empty: the carry folds it.
             Err(_) => suffix.iter().any(is_repair),
             Ok(state) => state
                 .late_tail

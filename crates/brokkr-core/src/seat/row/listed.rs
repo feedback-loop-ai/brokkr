@@ -200,7 +200,7 @@ fn lines(text: Option<&str>) -> Option<Vec<Early>> {
 /// it, by effect id across its requests, not by request as a participant
 /// reads it; and the effect and attempt the run's last start names, as
 /// the live block reads them (`said`), until a terminal names both.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub(super) struct Aside {
     early: BTreeMap<String, Listed>,
     open: BTreeMap<String, String>,

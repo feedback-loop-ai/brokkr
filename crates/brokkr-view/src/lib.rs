@@ -74,7 +74,7 @@ mod live;
 pub use live::applied_events;
 use live::derived;
 mod residual_findings;
-pub use residual_findings::{residual_findings, residual_findings_at};
+pub use residual_findings::residual_findings_at;
 mod seat_view;
 pub use commands::{Admission, Command, CommandRefusal, Disabled, Offered, Unavailable};
 pub use compare::{
@@ -220,7 +220,7 @@ pub struct RunEntry<'a> {
     /// does not load or fold rather than losing the whole fleet with it, and
     /// the refusal is the row's whole account of itself, never repaired here.
     pub detail: Option<Refusal<'a>>,
-    /// What [`residual_findings`] derived for this run, marks included; none
+    /// What [`residual_findings_at`] derived for this run, marks included; none
     /// from a caller that read none of its events, as before decision 0047.
     pub residuals: &'a [ResidualFinding],
     /// Its ending, as `brokkr_core::ending::closing` reads its events.
@@ -860,7 +860,7 @@ pub struct ResidualFinding {
 /// (ruling 2).
 /// A residual finding of run `run_id` as every surface shows it, from the
 /// finding as its summary's `residuals` column states it (decision 0089
-/// ruling 2) or as [`residual_findings`] reads it from the journal: the
+/// ruling 2) or as [`residual_findings_at`] reads it from the journal: the
 /// one rendering of its line.
 pub(crate) fn stated_finding(run_id: &str, stated: Stated) -> ResidualFinding {
     let Stated {

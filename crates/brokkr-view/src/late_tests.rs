@@ -6,7 +6,7 @@ use brokkr_core::fold::fold;
 use serde_json::{json, Value};
 
 use crate::tests::ev;
-use crate::{residual_findings, residual_findings_at, resolutions_at, run_view};
+use crate::{residual_findings_at, resolutions_at, run_view};
 
 const T0: &str = "2026-01-01T00:00:00Z";
 const T1: &str = "2026-01-01T00:00:05Z";
@@ -67,7 +67,7 @@ fn a_late_supersede_closes_no_finding_in_a_repaired_tail() {
         shown[0].superseded.is_none(),
         "the late supersede is never applied"
     );
-    let unguarded = residual_findings("r1", &events);
+    let unguarded = residual_findings_at("r1", &events, None);
     assert!(
         unguarded[0].superseded.is_some(),
         "without the state the same scan reads the annotation"

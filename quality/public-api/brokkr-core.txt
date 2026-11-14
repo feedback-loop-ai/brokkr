@@ -347,6 +347,11 @@ pub brokkr_core::fold::ParkReason::Stated(alloc::string::String)
 impl brokkr_core::fold::ParkReason
 pub fn brokkr_core::fold::ParkReason::as_str(&self) -> &str
 pub fn brokkr_core::fold::ParkReason::read(alloc::string::String) -> brokkr_core::fold::ParkReason
+pub enum brokkr_core::fold::ReceiptReason
+pub brokkr_core::fold::ReceiptReason::Refusal(brokkr_core::fold::Refusal)
+pub brokkr_core::fold::ReceiptReason::ReservedCommand
+impl brokkr_core::fold::ReceiptReason
+pub const fn brokkr_core::fold::ReceiptReason::word(self) -> &'static str
 pub enum brokkr_core::fold::Refusal
 pub brokkr_core::fold::Refusal::AfterTerminal
 pub brokkr_core::fold::Refusal::CommandNotAllowed
@@ -409,7 +414,12 @@ pub brokkr_core::fold::RunState::terminal_seq: core::option::Option<u64>
 pub brokkr_core::fold::RunState::visits: alloc::collections::btree::map::BTreeMap<alloc::string::String, u64>
 impl brokkr_core::fold::RunState
 pub fn brokkr_core::fold::RunState::applies(&self, u64) -> bool
+impl brokkr_core::fold::RunState
 pub fn brokkr_core::fold::RunState::stopping_seq(&self) -> core::option::Option<u64>
+pub struct brokkr_core::fold::SkippedAnnotation
+pub brokkr_core::fold::SkippedAnnotation::event_type: brokkr_core::envelope::EventType
+pub brokkr_core::fold::SkippedAnnotation::seq: u64
+pub brokkr_core::fold::SkippedAnnotation::word: &'static str
 pub const brokkr_core::fold::FAILURE_RESULTS: [&str; 2]
 pub const brokkr_core::fold::REPAIR: &str
 pub const brokkr_core::fold::TERMINAL_EVENTS: [(brokkr_core::envelope::EventType, brokkr_core::fold::Status); 2]
@@ -422,6 +432,8 @@ pub fn brokkr_core::fold::fold(&[brokkr_core::envelope::EventEnvelope]) -> core:
 pub fn brokkr_core::fold::fold_onto(brokkr_core::fold::RunState, &[brokkr_core::envelope::EventEnvelope]) -> core::result::Result<brokkr_core::fold::RunState, brokkr_core::fold::FoldError>
 pub fn brokkr_core::fold::lawful_after_terminal(brokkr_core::envelope::EventType) -> bool
 pub fn brokkr_core::fold::reserved_annotation(&str) -> bool
+pub fn brokkr_core::fold::reserved_word(&brokkr_core::envelope::EventEnvelope) -> core::option::Option<&'static str>
+pub fn brokkr_core::fold::skipped_annotations(&[brokkr_core::envelope::EventEnvelope], &brokkr_core::envelope::EventEnvelope) -> core::result::Result<alloc::vec::Vec<brokkr_core::fold::SkippedAnnotation>, brokkr_core::fold::FoldError>
 pub fn brokkr_core::fold::terminal_event(brokkr_core::envelope::EventType) -> core::option::Option<brokkr_core::fold::Status>
 pub mod brokkr_core::gate_moved_head
 pub struct brokkr_core::gate_moved_head::MovedHead
@@ -1423,6 +1435,7 @@ pub brokkr_core::RunState::terminal_seq: core::option::Option<u64>
 pub brokkr_core::RunState::visits: alloc::collections::btree::map::BTreeMap<alloc::string::String, u64>
 impl brokkr_core::fold::RunState
 pub fn brokkr_core::fold::RunState::applies(&self, u64) -> bool
+impl brokkr_core::fold::RunState
 pub fn brokkr_core::fold::RunState::stopping_seq(&self) -> core::option::Option<u64>
 pub fn brokkr_core::cited_shas(&[brokkr_core::envelope::EventEnvelope]) -> alloc::collections::btree::set::BTreeSet<alloc::string::String>
 pub fn brokkr_core::fold(&[brokkr_core::envelope::EventEnvelope]) -> core::result::Result<brokkr_core::fold::RunState, brokkr_core::fold::FoldError>

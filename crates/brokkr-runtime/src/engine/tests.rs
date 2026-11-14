@@ -2492,8 +2492,10 @@ fn an_operator_command_the_run_cannot_take_is_refused_never_accepted() {
 
 /// A command the vocabulary does not know is refused by NAME before any
 /// question of fences or cursors: `OperatorCommand` closes the verb set,
-/// and the bridge's door, which journals the word it was sent, refuses
-/// one it does not parse even under a cursor that still holds.
+/// and the bridge's door, which journals the word it was sent on a live
+/// run, refuses one it does not parse even under a cursor that still
+/// holds. After the terminal event the word is a late event, so the door
+/// answers it and writes nothing (decision 0108 ruling 4, #440).
 #[test]
 fn a_command_outside_the_vocabulary_is_refused_by_name() {
     let dir = tempfile::tempdir().unwrap();
@@ -6273,7 +6275,7 @@ fn an_operator_supersede_closes_a_finding_by_name_and_changes_nothing_else() {
     assert_eq!(after.last_decision, before.last_decision);
     assert!(after.pending_command.is_none());
 
-    let findings = brokkr_view::residual_findings("held", &events);
+    let findings = brokkr_view::residual_findings_at("held", &events, None);
     let mark = findings[0]
         .superseded
         .as_ref()
@@ -6293,7 +6295,7 @@ fn an_operator_supersede_closes_a_finding_by_name_and_changes_nothing_else() {
         Run::Stopped,
         "the superseding run has moved on",
     );
-    let again = brokkr_view::residual_findings("held", &store.load("held").unwrap());
+    let again = brokkr_view::residual_findings_at("held", &store.load("held").unwrap(), None);
     assert_eq!(
         again[0].line, findings[0].line,
         "what was true when it was written stays true when it is read",
@@ -6461,10 +6463,9 @@ fn a_supersede_refuses_a_finding_that_stands_only_in_a_repaired_tail() {
     let cited = Store::open_read_only(&db).unwrap();
     let refusal = operator_supersede(&mut store, &cited, "held", &ask(&[8], "later", 6))
         .expect_err("a finding only the late tail holds is not shown, so it is not closed");
-    assert!(
-        format!("{refusal}").contains("seq 8 is not a residual finding"),
-        "{refusal}"
-    );
+    let typed = matches!(&refusal, crate::EngineError::SupersedeRefused(detail)
+        if detail.contains("seq 8 is not a residual finding"));
+    assert!(typed, "{refusal}");
     assert_eq!(store.load("held").unwrap().len(), 9, "no write");
     brokkr_store::test_support::lags(&mut store, &["held"]);
 }

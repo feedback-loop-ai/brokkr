@@ -63,7 +63,7 @@ fn is_operator(event_type: EventType) -> bool {
 
 /// The parks read so far, carried event by event: the run's phase, the
 /// park it has open, and those it has ended.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct Parking {
     phase: Option<String>,
     open: Option<Park>,

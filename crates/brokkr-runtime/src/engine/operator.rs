@@ -6,11 +6,11 @@
 //! read ([`fenced_append`]), and the rule for whether an acceptance folds
 //! at all is `fold`'s own ([`acceptance_refusal`]).
 
-use brokkr_core::canonical::ZERO_HASH;
 use brokkr_core::ending::ended;
 use brokkr_core::envelope::EventType;
 use brokkr_core::fold::{
-    acceptance_refusal, concluded, fold, Cursor, OperatorCommand, Refusal, Run, RunState, Status,
+    acceptance_refusal, concluded, fold, Cursor, OperatorCommand, ReceiptReason, Refusal, Run,
+    RunState, Status,
 };
 use brokkr_core::summary::Account;
 use brokkr_core::EventEnvelope;
@@ -148,12 +148,6 @@ pub enum FencedCommandOutcome {
         head_hash: String,
     },
 }
-
-/// The receipt reason for a reserved annotation word. Nothing is
-/// journaled for it — neither `operator/commanded` nor `operator/rejected`
-/// — so this receipt is the refusal's only record (decision 0108 ruling
-/// 4, #440 fix round 440c3).
-pub(crate) const RESERVED_COMMAND_REASON: &str = "reserved_command";
 
 /// The word a Looper command carries, parsed once at the bridge's edge: a
 /// verb of the closed set, or a word outside it, kept as sent so the
@@ -628,9 +622,12 @@ pub(super) fn riding_attempt(
 /// [`Refusal::CommandNotAllowed`], so the evidence says what was asked,
 /// except when it is an operator annotation's word — `repair`, `settle`,
 /// `classify` or `supersede`. That one is answered with a rejected
-/// receipt whose reason is [`RESERVED_COMMAND_REASON`] and nothing is
-/// journaled at all, so a remote word can never reach the fold or a
+/// receipt whose reason is [`ReceiptReason::ReservedCommand`] and nothing
+/// is journaled at all, so a remote word can never reach the fold or a
 /// readout as an annotation nobody wrote (decision 0108 ruling 4, #440).
+/// A word the engine does not know is not journaled on a terminal run
+/// either: after the terminal event it is a late event, and no door
+/// writes one on a remote caller's behalf (fix round 440c4).
 pub fn apply_fenced_operator_command(
     store: &mut Store,
     run_id: &str,
@@ -702,15 +699,7 @@ pub(super) fn apply_fenced_windows(
     // still run. Nothing is journaled, so the receipt is the only record.
     if let CommandWord::Unknown(word) = wire.command {
         if brokkr_core::fold::reserved_annotation(word) {
-            let (head_seq, head_hash) = events.last().map_or_else(
-                || (0, ZERO_HASH.to_string()),
-                |event| (event.seq, event.event_hash.clone()),
-            );
-            return Ok(FencedCommandOutcome::Rejected {
-                reason: RESERVED_COMMAND_REASON.to_string(),
-                head_seq,
-                head_hash,
-            });
+            return Ok(receipt::reserved_receipt(&events));
         }
     }
     // The head this fold read: the one the wire's cursor is checked
@@ -718,6 +707,14 @@ pub(super) fn apply_fenced_windows(
     let (state, head) = decided(store, run_id, &events)?;
     let cursor_holds = head.seq == wire.expected_seq && head.hash == wire.expected_hash;
     let rejection = fenced_refusal(&state, wire.command, cursor_holds);
+    // A word the bridge does not take, on a terminal run, is a late
+    // event rather than the journal evidence a live run keeps: answering
+    // it without writing keeps a remote caller from stopping the run
+    // folding until an operator repairs it (fix round 440c4).
+    if state.terminal_seq.is_some() && rejection == Some(Refusal::CommandNotAllowed) {
+        let reason = ReceiptReason::Refusal(Refusal::CommandNotAllowed);
+        return Ok(receipt::answered(reason, &head));
+    }
     before_command(store);
     // A peer appended after the fold, so what was decided on it stands on
     // a head that is gone: nothing of the command is written, no winner is

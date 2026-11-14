@@ -23,10 +23,12 @@ mod relation;
 pub use relation::lawful_after_terminal;
 use relation::{Arm, Position, Transition};
 pub(crate) mod late;
-pub use late::{LateTail, REPAIR};
+pub use late::{skipped_annotations, LateTail, SkippedAnnotation, REPAIR};
 
 mod annotation;
-pub use annotation::reserved_annotation;
+pub use annotation::{reserved_annotation, reserved_word};
+mod receipt;
+pub use receipt::ReceiptReason;
 
 mod run;
 pub use run::{ParkReason, Run};
@@ -179,7 +181,7 @@ impl fmt::Display for Cursor {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct RunState {
     pub run_id: String,
     pub seq: u64,
@@ -238,12 +240,6 @@ impl RunState {
             }) => self.stop_accepted_seq,
             Run::Running(_) | Run::AwaitingOperator { .. } | Run::Completed | Run::Stopped => None,
         }
-    }
-
-    /// Does the fold apply `seq`? False in a repaired late tail, which is
-    /// kept and shown and never applied (decision 0108 ruling 4).
-    pub fn applies(&self, seq: u64) -> bool {
-        !self.late_tail.as_ref().is_some_and(|tail| tail.holds(seq))
     }
 }
 
@@ -538,6 +534,7 @@ pub fn fold_onto(state: RunState, suffix: &[EventEnvelope]) -> Result<RunState, 
 /// Apply one event: the relation ([`relation::arm`]) answers for the
 /// event at the run's position, and a transition it names is taken.
 pub(super) fn apply(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> {
+    annotation::late_refusal(state, event)?;
     match relation::arm(event.event_type, Position::of(state)) {
         Arm::Moves(transition) => take(transition, state, event),
         Arm::OutOfPlace => Err(payload::unplaced(event, out_of_place(state, event))),

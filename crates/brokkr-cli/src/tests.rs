@@ -4232,7 +4232,7 @@ fn the_supersede_verb_records_one_annotation_and_refuses_the_rest() {
     assert_eq!(events.len(), 8);
     assert_eq!(events[7].event_type, EventType::OperatorCommanded);
     assert_eq!(events[7].payload["command"], "supersede");
-    let findings = brokkr_view::residual_findings("held", &events);
+    let findings = brokkr_view::residual_findings_at("held", &events, None);
     assert_eq!(
         findings[0]
             .superseded

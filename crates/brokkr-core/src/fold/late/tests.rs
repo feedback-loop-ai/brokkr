@@ -114,11 +114,14 @@ fn commanded() -> (EventType, Value) {
     )
 }
 
-/// A lawful classify annotation, admitted after any terminal run.
+/// A lawful classify annotation, admitted after any terminal run: its
+/// `args` are the operator-ending contract's, so the ending reader reads
+/// it and a repair that names it late takes that ending away.
 fn classified() -> (EventType, Value) {
     (
         EventType::OperatorCommanded,
-        json!({"command_id": "c-classify", "command": "classify", "operator": "operator", "args": {}}),
+        json!({"command_id": "c-classify", "command": "classify", "operator": "operator",
+               "args": {"cause": "withdrawn", "reason": "the tail classified it"}}),
     )
 }
 
@@ -259,12 +262,11 @@ fn a_repaired_late_command_folds_as_stopped() {
 #[test]
 fn a_multi_event_late_tail_is_named_as_one_range() {
     let events = multi_tail();
-    let state = fold(&events).unwrap();
-    let tail = state.late_tail.unwrap();
-    assert_eq!((tail.first_seq, tail.last_seq), (6, 7));
-    assert_eq!(
-        tail.event_types,
-        [EventType::OperatorCommanded, EventType::OperatorRejected]
+    let state = assert_tail(
+        &events,
+        6,
+        7,
+        &[EventType::OperatorCommanded, EventType::OperatorRejected],
     );
     // The rejection disposed of a command this run never took: the late
     // command was never applied, so nothing is pending.
@@ -474,10 +476,84 @@ fn annotations_after_the_repair_are_admitted() {
     assert_eq!(state.late_tail.unwrap().last_seq, 6);
 }
 
+/// An older binary's bridge word and its rejection after the terminal
+/// event: `operator/commanded` with the bridge's empty args, then
+/// `operator/rejected`, as 0.12.0 wrote them.
+fn old_word(word: &str) -> Vec<(EventType, Value)> {
+    let id = format!("old-{word}");
+    vec![
+        (
+            EventType::OperatorCommanded,
+            json!({"command_id": id, "command": word, "operator": "looper", "args": {}}),
+        ),
+        (
+            EventType::OperatorRejected,
+            json!({"command_id": id, "operator": "looper", "reason": "command_not_allowed"}),
+        ),
+    ]
+}
+
+/// `word`'s old pair after the terminal event, before any repair.
+fn old_word_before_repair(word: &str) -> Vec<EventEnvelope> {
+    let mut events = stopped();
+    for (event_type, payload) in old_word(word) {
+        push(&mut events, event_type, payload);
+    }
+    events
+}
+
+/// `word`'s old pair after the terminal event, repaired as one tail.
+fn old_word_tail(word: &str) -> Vec<EventEnvelope> {
+    stopped_with(
+        &old_word(word),
+        repaired(5, 6, 7, &["operator/commanded", "operator/rejected"]),
+    )
+}
+
+/// A lawful classify before an old bridge word, before any repair.
+fn annotated_old_word_before_repair() -> Vec<EventEnvelope> {
+    let mut events = stopped();
+    push(&mut events, classified().0, classified().1);
+    for (event_type, payload) in old_word(REPAIR) {
+        push(&mut events, event_type, payload);
+    }
+    events
+}
+
+/// A lawful classify before an old bridge word: the repair names both.
+fn annotated_old_word_tail() -> Vec<EventEnvelope> {
+    let mut events = annotated_old_word_before_repair();
+    push(
+        &mut events,
+        EventType::OperatorCommanded,
+        repaired(
+            5,
+            6,
+            8,
+            &[
+                "operator/commanded",
+                "operator/commanded",
+                "operator/rejected",
+            ],
+        ),
+    );
+    events
+}
+
+/// Fold `events` and assert the honoured tail is `first..=last` with
+/// `types`, answering the state.
+fn assert_tail(events: &[EventEnvelope], first: u64, last: u64, types: &[EventType]) -> RunState {
+    let state = fold(events).unwrap();
+    let tail = state.late_tail.as_ref().expect("the repair is honoured");
+    assert_eq!((tail.first_seq, tail.last_seq), (first, last));
+    assert_eq!(tail.event_types, types);
+    state
+}
+
 /// Every planted shape the two property tests read: (A), (B), the
 /// multi-event tail, the wrong-range repair, the lying-types repairs
-/// (suffix and carried prefix), the honest late classify and the
-/// pre-terminal repair.
+/// (suffix and carried prefix), the honest late classify, the
+/// pre-terminal repair, and the bridge's old word beside a dance control.
 fn shapes() -> Vec<Vec<EventEnvelope>> {
     vec![
         stopped_with(&[settlement()], repaired(5, 6, 6, &["effect/succeeded"])),
@@ -488,6 +564,9 @@ fn shapes() -> Vec<Vec<EventEnvelope>> {
         lying_carried_types_tail(),
         late_classify_tail(),
         pre_terminal_repair(),
+        old_word_tail(REPAIR),
+        old_word_tail("dance"),
+        annotated_old_word_tail(),
     ]
 }
 
@@ -505,8 +584,7 @@ fn the_whole_and_carried_folds_agree_at_every_cut_point() {
             };
             let carried = fold_onto(prefix, &events[split..]);
             assert_eq!(
-                format!("{carried:?}"),
-                format!("{whole:?}"),
+                carried, whole,
                 "shape {at} carried over split {split} is the whole fold"
             );
         }
@@ -527,8 +605,7 @@ fn the_whole_and_carried_accounts_agree_or_ask_for_a_whole_refold() {
             let prefix = Account::whole("r1", &events[..split]);
             match prefix.onto(&events[split..]) {
                 Carried::Account(carried) => assert_eq!(
-                    format!("{carried:?}"),
-                    format!("{whole:?}"),
+                    *carried, whole,
                     "shape {at} carried over split {split} is the whole account"
                 ),
                 Carried::Refold => {
@@ -554,6 +631,23 @@ fn the_whole_and_carried_accounts_agree_or_ask_for_a_whole_refold() {
         "a repair naming a carried classify asks for a whole refold"
     );
 
+    // R6: the cut at the terminal event carries, and the account it
+    // carries is the whole one by value. The suffix holds the tail and
+    // its first repair, and the repair names only suffix events, so no
+    // refold is owed; a signal for any suffix holding a repair fails here.
+    let events = stopped_with(&[settlement()], repaired(5, 6, 6, &["effect/succeeded"]));
+    let whole = Account::whole("r1", &events);
+    let carried = match Account::whole("r1", &events[..5]).onto(&events[5..]) {
+        Carried::Account(carried) => *carried,
+        Carried::Refold => {
+            panic!("the terminal cut carries: the repair names only suffix events")
+        }
+    };
+    assert_eq!(
+        carried, whole,
+        "the carried account is the whole account, by value"
+    );
+
     // A cut after the repair is no repair at all: the tail is the carried
     // state's own, and the suffix's later annotation carries onto it, so
     // the account is the whole one (L2).
@@ -567,8 +661,7 @@ fn the_whole_and_carried_accounts_agree_or_ask_for_a_whole_refold() {
         }
     };
     assert_eq!(
-        format!("{carried:?}"),
-        format!("{whole:?}"),
+        carried, whole,
         "the annotation after the repair carries onto the repaired account"
     );
 }
@@ -639,4 +732,160 @@ fn a_carried_repair_checks_the_types_it_names_in_the_carried_prefix() {
         refused,
         "the carried fold refuses at the same cut with the same words"
     );
+}
+
+/// R2: a `repair` word an older binary journaled after the terminal event
+/// carries exactly the bridge's empty args, so it is an ordinary command
+/// word, never a repair record. The run does not fold with a `BadRepair`:
+/// it is an unrepaired late tail, and `AfterTerminal` names it as one.
+#[test]
+fn an_old_repair_word_is_a_late_event_not_a_repair_record() {
+    let events = old_word_before_repair(REPAIR);
+    assert_eq!(
+        fold(&events).unwrap_err(),
+        FoldError::AfterTerminal { seq: 6 },
+        "the bridge's repair word is the late event it is, not a bad repair"
+    );
+}
+
+/// R2: a real repair names the old word's pair, and the run folds as
+/// stopped with a late tail of two events.
+#[test]
+fn a_repair_names_the_old_repair_word_as_one_late_tail() {
+    let events = old_word_tail(REPAIR);
+    let state = assert_tail(
+        &events,
+        6,
+        7,
+        &[EventType::OperatorCommanded, EventType::OperatorRejected],
+    );
+    assert_eq!(state.run, Run::Stopped);
+}
+
+/// R2: a lawful annotation standing before the old word is part of the
+/// tail the real repair names, and the run folds with all three late.
+#[test]
+fn a_repair_names_a_lawful_annotation_and_an_old_repair_word_together() {
+    let events = annotated_old_word_before_repair();
+    assert_eq!(
+        fold(&events).unwrap_err(),
+        FoldError::AfterTerminal { seq: 7 },
+        "the old word is the first late event after the lawful classify"
+    );
+    let events = annotated_old_word_tail();
+    let state = assert_tail(
+        &events,
+        6,
+        8,
+        &[
+            EventType::OperatorCommanded,
+            EventType::OperatorCommanded,
+            EventType::OperatorRejected,
+        ],
+    );
+    assert_eq!(state.run, Run::Stopped);
+}
+
+/// R2's control: the same shapes with `dance`, an ordinary word the
+/// engine does not know, behave identically.
+#[test]
+fn an_old_dance_word_is_a_late_event_like_the_old_repair_word() {
+    let events = old_word_before_repair("dance");
+    assert_eq!(
+        fold(&events).unwrap_err(),
+        FoldError::AfterTerminal { seq: 6 }
+    );
+    let events = old_word_tail("dance");
+    let state = assert_tail(
+        &events,
+        6,
+        7,
+        &[EventType::OperatorCommanded, EventType::OperatorRejected],
+    );
+    assert_eq!(state.run, Run::Stopped);
+}
+
+/// R2: a repair word with non-empty args that do not read as the contract
+/// is still a record, and the fold refuses it by name. Malformed records
+/// stay fail-closed.
+#[test]
+fn a_repair_word_with_malformed_args_is_still_refused_as_a_repair() {
+    let mut events = stopped();
+    push(&mut events, settlement().0, settlement().1);
+    push(
+        &mut events,
+        EventType::OperatorCommanded,
+        json!({"command_id": "bad", "command": REPAIR, "operator": "operator",
+               "args": {"first_seq": 6}}),
+    );
+    assert!(
+        matches!(
+            fold(&events),
+            Err(FoldError::BadRepair { seq: 7, ref detail })
+                if detail.starts_with("its args do not read")
+        ),
+        "a malformed non-empty record is refused, never read as a command"
+    );
+}
+
+/// R4: the annotations a repair skips come from the tail it names, by
+/// seq, type and word, the repair word itself excluded. A reserved word
+/// with no record was never applied and is not one to record again.
+#[test]
+fn a_repair_skips_the_lawful_annotations_in_the_tail_it_names() {
+    let events = annotated_old_word_tail();
+    let repair = events.last().unwrap();
+    assert_eq!(
+        skipped_annotations(&events, repair).unwrap(),
+        [SkippedAnnotation {
+            seq: 6,
+            event_type: EventType::OperatorCommanded,
+            word: crate::ending::CLASSIFY,
+        }],
+        "the lawful classify is the one annotation to record again"
+    );
+
+    // A later repair's tail is not a list of annotations: no repair word
+    // is one to record again.
+    let mut events = old_word_tail(REPAIR);
+    push(&mut events, settlement().0, settlement().1);
+    push(
+        &mut events,
+        EventType::OperatorCommanded,
+        repaired(
+            5,
+            6,
+            8,
+            &[
+                "operator/commanded",
+                "operator/rejected",
+                "effect/succeeded",
+            ],
+        ),
+    );
+    let repair = events.last().unwrap();
+    assert!(
+        skipped_annotations(&events, repair).unwrap().is_empty(),
+        "an earlier repair record is not an annotation to record again"
+    );
+}
+
+/// R2's same rule for `settle`: it has no reader until 440d builds one, so
+/// after the terminal event it is a late event, as `dance` is, and a real
+/// repair names it. The one home answers the word from the same match.
+#[test]
+fn a_settle_word_is_a_late_event_until_its_reader_exists() {
+    let events = old_word_before_repair("settle");
+    assert_eq!(
+        fold(&events).unwrap_err(),
+        FoldError::AfterTerminal { seq: 6 }
+    );
+    let events = old_word_tail("settle");
+    let state = assert_tail(
+        &events,
+        6,
+        7,
+        &[EventType::OperatorCommanded, EventType::OperatorRejected],
+    );
+    assert_eq!(state.run, Run::Stopped);
 }

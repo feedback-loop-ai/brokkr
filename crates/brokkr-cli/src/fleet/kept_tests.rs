@@ -792,9 +792,9 @@ fn the_kept_rulings_are_what_the_residual_findings_read() {
         .filter(|event| rules(event.event_type))
         .cloned()
         .collect();
-    let whole = brokkr_view::residual_findings("run", &journal);
+    let whole = brokkr_view::residual_findings_at("run", &journal, None);
     assert_eq!(
-        serde_json::to_value(brokkr_view::residual_findings("run", &kept)).unwrap(),
+        serde_json::to_value(brokkr_view::residual_findings_at("run", &kept, None)).unwrap(),
         serde_json::to_value(&whole).unwrap()
     );
     assert_eq!(whole.len(), 1);

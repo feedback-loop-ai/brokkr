@@ -90,12 +90,15 @@ pub struct ProducerCommand {
 
 impl ProducerCommand {
     /// The command as the engine's fenced door takes it, its word parsed
-    /// here at the edge. A word outside the verb set stays as sent, so the
-    /// journal records it before the door refuses it — unless it is an
-    /// operator annotation's word (`repair`, `settle`, `classify`,
-    /// `supersede`): the door refuses that one and writes nothing, and the
-    /// bridge acknowledges a rejected receipt in its place (decision 0108
-    /// ruling 4, #440).
+    /// here at the edge. A word outside the verb set stays as sent on a
+    /// live run, so the journal records it before the door refuses it —
+    /// unless it is an operator annotation's word (`repair`, `settle`,
+    /// `classify`, `supersede`): the door refuses that one and writes
+    /// nothing, and the bridge acknowledges a rejected receipt in its
+    /// place (decision 0108 ruling 4, #440). After the terminal event the
+    /// door writes nothing for a word it does not know either: the word
+    /// would be a late event, and no door makes one on a remote caller's
+    /// behalf (fix round 440c4).
     fn fenced(&self) -> FencedCommand<'_> {
         FencedCommand {
             command_id: &self.id,

@@ -418,6 +418,57 @@ fn a_repair_names_the_lawful_annotation_it_skips() {
     inspect_shows(dir.path(), &db, &["stopped", "a late tail of 2 events"]);
 }
 
+/// R4: the verb anchors on the FIRST terminal event, as the fold and
+/// `operator_repair` do. A lawful classify after it is named even when a
+/// second terminal-looking event is the break.
+#[test]
+fn a_repair_names_the_lawful_annotation_before_a_second_terminal_event() {
+    let (dir, db) = staged();
+    concluded_at_five(Path::new(&db));
+    planted(
+        Path::new(&db),
+        &[
+            late::classified(),
+            (
+                EventType::RunCompleted,
+                json!({"reason": "the second terminal event is the break"}),
+            ),
+        ],
+    );
+    let stderr = repair_naming_the_classify(dir.path(), &db, 8);
+    assert!(
+        stderr.contains("record it again after the repair"),
+        "the operator is told to record it again: {stderr}"
+    );
+}
+
+/// R4: a second repair's tail holds the first repair record, which is no
+/// lawful annotation to record again. The verb names only the annotations
+/// the tail's read finds.
+#[test]
+fn a_repair_does_not_list_an_earlier_repair_as_an_annotation_to_record_again() {
+    let (dir, db) = staged();
+    concluded_at_five(Path::new(&db));
+    planted(Path::new(&db), &[late::settlement(), late::settlement()]);
+    repaired_at(dir.path(), &db, "repairer", "first", 8);
+    planted(Path::new(&db), &[late::settlement()]);
+    let repaired = repair_as(dir.path(), &db, "repairer", "second");
+    let stderr = String::from_utf8_lossy(&repaired.stderr);
+    assert_eq!(repaired.status.code(), Some(0), "{stderr}");
+    assert!(
+        stderr.contains("recorded repair at seq 10 on late"),
+        "{stderr}"
+    );
+    assert!(
+        !stderr.contains("(repair)"),
+        "an earlier repair record is not an annotation to record again: {stderr}"
+    );
+    assert!(
+        !stderr.contains("record it again after the repair"),
+        "there is no lawful annotation to record again: {stderr}"
+    );
+}
+
 /// A live run refuses the verb, naming it, and writes nothing.
 #[test]
 fn an_operator_repair_on_a_live_run_refuses_and_writes_nothing() {

@@ -7,12 +7,13 @@
 
 use brokkr_core::envelope::EventType;
 use brokkr_core::fold::{fold, terminal_event, FoldError, REPAIR};
+use brokkr_core::summary::Account;
 use brokkr_core::EventEnvelope;
 use brokkr_store::Store;
 use serde_json::json;
 use uuid::Uuid;
 
-use super::{fenced_append, EngineError, Head};
+use super::{fenced_append, read_back, EngineError, Head};
 
 /// What `brokkr operator repair` says, as the operator typed it: why the
 /// late tail is kept, and who repaired it.
@@ -124,6 +125,12 @@ fn repair_with(
         },
     });
     let cause = &head.event_id;
+    // The deciding read's account goes to the store, as every writer's
+    // does, so the append writes the summary it seals. The carried
+    // account is the broken journal's, and a repair in the sealed event
+    // answers `Refold` in the append's transaction: the row is the whole
+    // journal's, not a refusal's (decision 0089 ruling 3).
+    store.carry(Account::whole(run_id, &events));
     before_write(store);
     let written = fenced_append(
         store,
@@ -136,10 +143,11 @@ fn repair_with(
     )?;
     after_write(store);
     // The record must read back: the run folds again, as its terminal
-    // status, with the tail the operator named. The load and the fold sit
-    // on one line, so the exact-coverage gate reads the arm a peer's
-    // append can reach as the arm it exercises (INFO a).
-    fold(&store.load(run_id)?)?;
+    // status, with the tail the operator named. The shared read-back is
+    // the load and the fold on one line, as `disposition` keeps them, so
+    // the exact-coverage gate reads the arm a peer's append can reach as
+    // the arm it exercises (INFO a).
+    read_back(store, run_id)?;
     Ok(written)
 }
 

@@ -20,7 +20,7 @@ use crate::summary::{Bounded, MODEL_BYTES, NAME_BYTES};
 /// whether its stamp parses, and the provenance, boundary and carried
 /// entries it states. Read once, so a start held before its effect's
 /// request keeps no payload (decision 0071 ruling 3).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub(super) struct Start {
     pub(super) seq: u64,
     pub(super) at: String,
@@ -34,7 +34,7 @@ pub(super) struct Start {
 
 /// One provenance entry a start states: the member it names, where it
 /// names one, and its provider, where it names one.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub(super) struct Entry {
     pub(super) member: Option<String>,
     pub(super) provider: Option<String>,

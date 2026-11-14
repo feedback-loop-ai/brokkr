@@ -7,7 +7,6 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use anyhow::Result;
-use brokkr_core::envelope::EventType;
 use brokkr_core::fold::OperatorCommand;
 use brokkr_runtime::launch::{self, LaunchRequest, NewRun, RunMap};
 use brokkr_runtime::realms::World;
@@ -530,47 +529,23 @@ fn repair(
         written.seq
     );
     // L8: a lawful annotation that landed between the terminal event and
-    // the break is in the tail, so the repair makes it late too. Say so,
-    // by seq and type, and tell the operator to record it again after the
-    // repair; the words fail closed and never imply it still applies. Only
-    // what folded before the break was lawful: a reserved word past it was
-    // never applied, so it is not named.
-    let terminal = before
-        .iter()
-        .rev()
-        .find(|event| brokkr_core::fold::terminal_event(event.event_type).is_some())
-        .map_or(0, |event| event.seq);
-    let broke_at = brokkr_core::fold::fold(&before)
-        .err()
-        .map_or(u64::MAX, |error| error.seq());
-    let skipped: Vec<_> = before
-        .iter()
-        .filter(|event| {
-            event.seq > terminal
-                && event.seq < broke_at
-                && event.event_type == EventType::OperatorCommanded
-                && event
-                    .payload
-                    .get("command")
-                    .and_then(|word| word.as_str())
-                    .is_some_and(brokkr_core::fold::reserved_annotation)
-        })
-        .collect();
+    // the break is in the tail, so the repair makes it late too. The one
+    // home reads which ones from the tail the repair names; this verb
+    // prints them and derives nothing. The words fail closed and never
+    // imply the annotation still applies: a reserved word with no record
+    // was never applied, so it is not named.
+    let skipped = brokkr_core::fold::skipped_annotations(&before, &written)?;
     if !skipped.is_empty() {
         eprintln!(
             "the late tail also holds lawful annotation(s) this repair makes late; \
              each is NOT applied, so record it again after the repair if it still holds:"
         );
         for event in skipped {
-            let word = event
-                .payload
-                .get("command")
-                .and_then(|word| word.as_str())
-                .unwrap_or("?");
             eprintln!(
-                "  seq {} · {} ({word})",
+                "  seq {} · {} ({})",
                 event.seq,
-                event.event_type.as_str()
+                event.event_type.as_str(),
+                event.word
             );
         }
     }

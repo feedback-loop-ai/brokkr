@@ -33,7 +33,7 @@ use crate::seat::{count_item, reported_cost, stamp_of, transcript_of, Transcript
 /// An effect's record before its first request, typed as the rows read it:
 /// a start with the site it states, a checkpoint's dated facts, or the
 /// terminal that concluded its attempt.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub(super) enum Deferred {
     Start(Start),
     Checkpoint(Box<Record>),
@@ -45,7 +45,7 @@ pub(super) enum Deferred {
 /// cost, its meter, its session and finish, and the site model the row
 /// keeps. Read from the event once, so a replayed checkpoint costs no
 /// payload.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub(super) struct Record {
     pub(super) seq: u64,
     pub(super) at: String,
@@ -103,7 +103,7 @@ impl Record {
 
 /// One terminal's dated facts, as the row of the attempt in flight reads
 /// them: its outcome, and the model, stamp and effort its result states.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub(super) struct End {
     seq: u64,
     attempt: Option<String>,

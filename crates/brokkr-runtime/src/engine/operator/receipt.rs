@@ -3,8 +3,9 @@
 //! the same id that lost the fence to it (decision 0029), so every
 //! delivery of one command reads one disposition.
 
+use brokkr_core::canonical::ZERO_HASH;
 use brokkr_core::envelope::EventType;
-use brokkr_core::fold::Refusal;
+use brokkr_core::fold::{ReceiptReason, Refusal};
 use brokkr_core::EventEnvelope;
 use brokkr_store::{Store, StoreError};
 use serde_json::Value;
@@ -44,7 +45,7 @@ fn recorded(
                 .payload
                 .get("reason")
                 .and_then(Value::as_str)
-                .unwrap_or(Refusal::PreviouslyRejected.word())
+                .unwrap_or(ReceiptReason::Refusal(Refusal::PreviouslyRejected).word())
                 .to_string(),
             head_seq: disposition.seq,
             head_hash: disposition.event_hash.clone(),
@@ -56,6 +57,34 @@ fn recorded(
 /// a command journaled with no disposition yet holds none.
 fn disposition(events: &[EventEnvelope], command_id: &str) -> Option<FencedCommandOutcome> {
     recorded(events, commanded_of(events, command_id), command_id)
+}
+
+/// The answer a word that is not journaled gets: a rejected receipt at
+/// the head the door found. The one home for both the reserved word and
+/// the terminal word the door writes nothing for (decision 0108 ruling 4,
+/// #440 fix round 440c4).
+pub(super) fn answered(reason: ReceiptReason, head: &Head) -> FencedCommandOutcome {
+    FencedCommandOutcome::Rejected {
+        reason: reason.word().to_string(),
+        head_seq: head.seq,
+        head_hash: head.hash.clone(),
+    }
+}
+
+/// A reserved annotation word's answer at a journal's tip, with nothing
+/// journaled. The one home for both the fresh word and the redelivery an
+/// older binary left undisposed (decision 0108 ruling 4, #440 fix round
+/// 440c4).
+pub(super) fn reserved_receipt(events: &[EventEnvelope]) -> FencedCommandOutcome {
+    let head = events.last().map_or_else(
+        || Head {
+            seq: 0,
+            hash: ZERO_HASH.to_string(),
+            event_id: String::new(),
+        },
+        Head::of,
+    );
+    answered(ReceiptReason::ReservedCommand, &head)
 }
 
 /// The receipt a command id already holds, if any: a journaled command
@@ -75,7 +104,12 @@ pub(super) fn journaled(
 }
 
 /// A journaled command's recorded disposition, or — none after it — a
-/// refusal of the incomplete replay.
+/// refusal of the incomplete replay. A reserved annotation word is the
+/// exception: its journaled command has no disposition to replay, so it
+/// is answered with the reserved refusal and nothing is written for it.
+/// An older binary could journal the word and crash between its two
+/// appends; this delivery must not add the rejection it never wrote
+/// (decision 0108 ruling 4, #440 fix round 440c4).
 fn replay(
     store: &mut Store,
     run_id: &str,
@@ -86,6 +120,9 @@ fn replay(
 ) -> Result<FencedCommandOutcome, EngineError> {
     if let Some(receipt) = recorded(events, Some(commanded), command_id) {
         return Ok(receipt);
+    }
+    if brokkr_core::fold::reserved_word(commanded).is_some() {
+        return Ok(reserved_receipt(events));
     }
     let rejection = Rejection {
         command_id,

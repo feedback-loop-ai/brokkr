@@ -344,10 +344,8 @@ fn an_account_at_another_head_writes_nothing_folded_and_is_dropped() {
     append(
         &mut store,
         "r2",
-        EventType::OperatorCommanded,
-        json!({
-            "command_id": "c", "command": "note", "args": {}, "operator": "op"
-        }),
+        EventType::OperatorRejected,
+        json!({"command_id": "c", "operator": "op", "reason": "after_terminal"}),
     );
     assert_eq!(lane(&store, "r2"), text("behind"));
     assert!(
