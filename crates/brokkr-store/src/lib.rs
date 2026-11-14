@@ -296,9 +296,8 @@ fn refuse_existing(conn: &Connection, run_id: &str) -> Result<(), StoreError> {
     }
 }
 
-/// A run's head: its last event's seq and hash, or 0 and [`ZERO_HASH`]
-/// for a run with none. The one read both [`Store::head_hash`] and an
-/// append's transaction make.
+/// A run's head: its last event's seq and hash, or 0 and [`ZERO_HASH`] for a
+/// run with none. [`Store::head_hash`] and an append's transaction read it.
 fn head_of(conn: &Connection, run_id: &str) -> Result<(u64, String), StoreError> {
     let head: Option<(i64, String)> = conn
         .query_row(
