@@ -4,6 +4,13 @@
 //! no filesystem, makes each directory owner-writable before removing its
 //! entries, counts every inode's allocated bytes once, and removes the
 //! tree's own root last.
+//!
+//! The root's parent is opened as a directory and the root by its final
+//! name, so the root's own name is never resolved through a link: POSIX
+//! resolves `<link>/` and `<link>/..` through the link when the whole path
+//! is opened, and both are refused by spelling here. The listing form
+//! removes nothing and never changes a mode; a directory it cannot read
+//! makes its count a lower bound that names the first unreadable path.
 
 use std::collections::HashSet;
 use std::ffi::{CString, OsStr};
@@ -31,11 +38,7 @@ pub enum TreeError {
     /// An entry the tree's own filesystem does not hold. A tree is removed
     /// whole or not at all, so the walk refuses rather than leaving a
     /// mount point's contents behind.
-    #[error(
-        "{} is on another filesystem (device {device}, not {tree}); a tree is removed on its \
-         own filesystem",
-        path.display()
-    )]
+    #[error("{} {}", path.display(), foreign(*device, *tree))]
     Foreign {
         path: PathBuf,
         device: u64,
@@ -73,16 +76,48 @@ impl PartialEq for TreeError {
 
 impl Eq for TreeError {}
 
+impl TreeError {
+    /// The refusal's cause alone, without its path: the reaper's kept line
+    /// already names the tree, through `safe`, so the reason must not name
+    /// a path a seat wrote inside the tree a second time.
+    pub(crate) fn cause(&self) -> String {
+        match self {
+            TreeError::Io { cause, .. } => cause.to_string(),
+            TreeError::Foreign { device, tree, .. } => foreign(*device, *tree),
+        }
+    }
+}
+
+/// The cause after a `Foreign` path: one home for the words `Display` and
+/// [`TreeError::cause`] use.
+fn foreign(device: u64, tree: u64) -> String {
+    format!(
+        "is on another filesystem (device {device}, not {tree}); a tree is removed on its own \
+         filesystem"
+    )
+}
+
+/// What a listing counted: the bytes, and the first directory it could not
+/// read. When `unreadable` names a path, `bytes` is a lower bound: that
+/// directory's own blocks are counted, and nothing below it is.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Counted {
+    pub bytes: u64,
+    pub unreadable: Option<PathBuf>,
+}
+
 /// Remove `tree` whole and return the bytes it freed, or `None` when it was
 /// already absent. A partial removal returns the first error and leaves the
 /// rest, so the caller records nothing and a later pass tries again.
 pub fn remove_tree(tree: &Path) -> Result<Option<u64>, TreeError> {
-    walk(tree, true, same_device)
+    walk(tree, true, same_device).map(|counted| counted.map(|counted| counted.bytes))
 }
 
-/// The bytes [`remove_tree`] would free, counting the same inodes and
-/// removing nothing: the listing form a `--dry-run` paints.
-pub fn count_tree(tree: &Path) -> Result<Option<u64>, TreeError> {
+/// What [`remove_tree`] would free, counting the same inodes and removing
+/// nothing: the listing form a `--dry-run` paints. A directory the count
+/// cannot read makes the figure a lower bound rather than an error; one the
+/// walk cannot stat is still the walk's refusal.
+pub fn count_tree(tree: &Path) -> Result<Option<Counted>, TreeError> {
     walk(tree, false, same_device)
 }
 
@@ -108,19 +143,154 @@ fn dir_flags() -> OFlags {
     OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC
 }
 
+/// Opening the root's parent resolves a caller's path as any open does; the
+/// root's own final name is the component this walk refuses to resolve
+/// through a link, and it is opened with [`dir_flags`] from this descriptor.
+fn parent_flags() -> OFlags {
+    OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC
+}
+
+/// The root's parent and final name. A spelling whose final component is a
+/// separator, `.` or `..`, or that has no parent, is refused before anything
+/// opens: POSIX resolves `<link>/` and `<link>/..` through the link, and a
+/// name is the only thing the walk can open no-follow.
+fn root_name(tree: &Path) -> Result<(&Path, &OsStr), TreeError> {
+    let bytes = tree.as_os_str().as_bytes();
+    let last = bytes.rsplit(|byte| *byte == b'/').next().unwrap_or(b"");
+    let name = match last {
+        [] | [b'.'] | [b'.', b'.'] => return Err(io_error(tree, Errno::INVAL)),
+        _ => OsStr::from_bytes(last),
+    };
+    let parent = match tree.parent() {
+        Some(parent) if !parent.as_os_str().is_empty() => parent,
+        _ => return Err(io_error(tree, Errno::INVAL)),
+    };
+    Ok((parent, name))
+}
+
+/// The root's parent as a directory, or `None` when it is already absent so
+/// the root is too.
+fn open_parent(parent: &Path, tree: &Path) -> Result<Option<OwnedFd>, TreeError> {
+    match openat(CWD, parent, parent_flags(), Mode::empty()) {
+        Ok(parent) => Ok(Some(parent)),
+        Err(Errno::NOENT) => Ok(None),
+        Err(cause) => Err(io_error(tree, cause)),
+    }
+}
+
+/// The root a walk opened, with the parent descriptor and name it was
+/// opened from: the root is unlinked from the same parent, never by path.
+struct Opened<'a> {
+    root: OwnedFd,
+    stat: Stat,
+    parent: OwnedFd,
+    name: &'a OsStr,
+}
+
+/// What opening the root found.
+enum Root<'a> {
+    Opened(Opened<'a>),
+    Absent,
+    /// A listing's root it can stat but not read: its own blocks are
+    /// counted and the count is a lower bound naming it.
+    Unreadable(Stat),
+}
+
+/// Open the root from its parent, never by its whole path. A removal
+/// unseals the root before opening it, so an overlay's 0200 directory is
+/// reached; a listing never changes a mode.
+fn open_root<'a>(tree: &'a Path, remove: bool) -> Result<Root<'a>, TreeError> {
+    let (parent, name) = root_name(tree)?;
+    let parent = match open_parent(parent, tree)? {
+        Some(parent) => parent,
+        None => return Ok(Root::Absent),
+    };
+    if remove {
+        unseal_root(&parent, name, tree)?;
+    }
+    open_final(parent, name, tree, remove)
+}
+
+/// Unseal the root before opening it for removal, refusing an entry that is
+/// not a directory. An absent root is left to the open, which answers
+/// [`Root::Absent`].
+fn unseal_root(parent: &OwnedFd, name: &OsStr, tree: &Path) -> Result<(), TreeError> {
+    match statat(parent, name, AtFlags::SYMLINK_NOFOLLOW) {
+        Ok(stat) if FileType::from_raw_mode(stat.st_mode) == FileType::Directory => {
+            unseal_at(parent, name, tree, stat.st_mode)
+        }
+        Ok(_) => Err(io_error(tree, Errno::NOTDIR)),
+        Err(Errno::NOENT) => Ok(()),
+        Err(cause) => Err(io_error(tree, cause)),
+    }
+}
+
+/// Open the root by its final name from its parent's descriptor. A listing
+/// that is refused the read still counts the root's own blocks and names it
+/// as the first unreadable path.
+fn open_final<'a>(
+    parent: OwnedFd,
+    name: &'a OsStr,
+    tree: &Path,
+    remove: bool,
+) -> Result<Root<'a>, TreeError> {
+    match openat(&parent, name, dir_flags(), Mode::empty()) {
+        Ok(root) => Ok(Root::Opened(Opened {
+            stat: io(tree, fstat(&root))?,
+            root,
+            parent,
+            name,
+        })),
+        Err(Errno::NOENT) => Ok(Root::Absent),
+        Err(cause) => match (remove, cause) {
+            (false, Errno::ACCESS) => Ok(Root::Unreadable(stat_root(&parent, name, tree)?)),
+            _ => Err(io_error(tree, cause)),
+        },
+    }
+}
+
+/// The root's stat, named in whatever refuses it: a listing refused the
+/// open still counts the root's own blocks.
+fn stat_root(parent: &OwnedFd, name: &OsStr, tree: &Path) -> Result<Stat, TreeError> {
+    io(tree, statat(parent, name, AtFlags::SYMLINK_NOFOLLOW))
+}
+
 /// One walk's own state.
 struct Walk {
     remove: bool,
     bytes: u64,
     seen: HashSet<(u64, u64)>,
+    unreadable: Option<PathBuf>,
 }
 
 impl Walk {
+    fn new(remove: bool) -> Walk {
+        Walk {
+            remove,
+            bytes: 0,
+            seen: HashSet::new(),
+            unreadable: None,
+        }
+    }
+
     /// Count `stat`'s allocated bytes once, keyed by its inode: a hard link
     /// names one inode and frees its blocks once.
     fn count(&mut self, stat: &Stat) {
         if self.seen.insert((stat_device(stat), stat.st_ino)) {
             self.bytes += stat.st_blocks as u64 * 512;
+        }
+    }
+
+    /// Remember the first directory the listing could not read. A removal
+    /// never reaches this: what it cannot read is the walk's error.
+    fn unreadable(&mut self, path: &Path) {
+        self.unreadable.get_or_insert_with(|| path.to_path_buf());
+    }
+
+    fn finish(self) -> Counted {
+        Counted {
+            bytes: self.bytes,
+            unreadable: self.unreadable,
         }
     }
 }
@@ -133,35 +303,28 @@ fn walk(
     tree: &Path,
     remove: bool,
     device_of: impl Fn(&Path, u64) -> u64,
-) -> Result<Option<u64>, TreeError> {
-    if remove {
-        match statat(CWD, tree, AtFlags::SYMLINK_NOFOLLOW) {
-            Ok(stat) if FileType::from_raw_mode(stat.st_mode) == FileType::Directory => {
-                unseal_at(CWD, tree, tree, stat.st_mode)?;
-            }
-            Ok(_) => return Err(io_error(tree, Errno::NOTDIR)),
-            Err(Errno::NOENT) => return Ok(None),
-            Err(cause) => return Err(io_error(tree, cause)),
+) -> Result<Option<Counted>, TreeError> {
+    let opened = match open_root(tree, remove)? {
+        Root::Absent => return Ok(None),
+        Root::Unreadable(stat) => {
+            let mut walk = Walk::new(false);
+            walk.count(&stat);
+            walk.unreadable(tree);
+            return Ok(Some(walk.finish()));
         }
-    }
-    let root = match openat(CWD, tree, dir_flags(), Mode::empty()) {
-        Ok(root) => root,
-        Err(Errno::NOENT) => return Ok(None),
-        Err(cause) => return Err(io_error(tree, cause)),
+        Root::Opened(opened) => opened,
     };
-    let stat = io(tree, fstat(&root))?;
-    let tree_device = stat_device(&stat);
-    let mut walk = Walk {
-        remove,
-        bytes: 0,
-        seen: HashSet::new(),
-    };
-    walk.count(&stat);
-    descend(&root, tree, tree_device, &mut walk, &device_of)?;
+    let tree_device = stat_device(&opened.stat);
+    let mut walk = Walk::new(remove);
+    walk.count(&opened.stat);
+    descend(&opened.root, tree, tree_device, &mut walk, &device_of)?;
     if remove {
-        io(tree, unlinkat(CWD, tree, AtFlags::REMOVEDIR))?;
+        io(
+            tree,
+            unlinkat(&opened.parent, opened.name, AtFlags::REMOVEDIR),
+        )?;
     }
-    Ok(Some(walk.bytes))
+    Ok(Some(walk.finish()))
 }
 
 /// Walk one directory's entries, deepest first, removing each as it goes
@@ -175,14 +338,18 @@ fn descend(
     walk: &mut Walk,
     device_of: &impl Fn(&Path, u64) -> u64,
 ) -> Result<(), TreeError> {
-    let entries = io(path, Dir::read_from(dir))?
-        .flatten()
-        .filter_map(|entry| {
-            let name = entry.file_name();
-            (!matches!(name.to_bytes(), b"." | b"..")).then(|| name.to_owned())
-        })
-        .collect::<Vec<CString>>();
-    for name in entries {
+    let names = match entry_names(dir) {
+        Ok(names) => names,
+        Err(_) if !walk.remove => {
+            walk.unreadable(path);
+            return Ok(());
+        }
+        Err(cause) => return Err(io_error(path, cause)),
+    };
+    for name in names {
+        if matches!(name.to_bytes(), b"." | b"..") {
+            continue;
+        }
         let child = path.join(OsStr::from_bytes(name.to_bytes()));
         let stat = io(&child, statat(dir, &name, AtFlags::SYMLINK_NOFOLLOW))?;
         let device = device_of(&child, stat_device(&stat));
@@ -197,6 +364,9 @@ fn descend(
         if FileType::from_raw_mode(stat.st_mode) == FileType::Directory {
             if walk.remove {
                 unseal_at(dir, &name, &child, stat.st_mode)?;
+            } else if !readable(stat.st_mode) {
+                walk.unreadable(&child);
+                continue;
             }
             let opened = io(&child, openat(dir, &name, dir_flags(), Mode::empty()))?;
             descend(&opened, &child, tree_device, walk, device_of)?;
@@ -208,6 +378,21 @@ fn descend(
         }
     }
     Ok(())
+}
+
+/// Every name in `dir`, or the errno the listing met. The whole listing is
+/// one result, so an entry the iterator refuses is the directory's error
+/// rather than dropped the way `flatten` drops it.
+fn entry_names(dir: &OwnedFd) -> Result<Vec<CString>, Errno> {
+    Dir::read_from(dir)?
+        .map(|entry| entry.map(|entry| entry.file_name().to_owned()))
+        .collect()
+}
+
+/// Whether the walk's owner can read and search a directory. A listing
+/// never adds the bits, so it asks before opening what it cannot read.
+fn readable(mode: u32) -> bool {
+    mode & 0o500 == 0o500
 }
 
 /// Give the owner read, write and search on `name` in `dir` before the walk

@@ -581,11 +581,22 @@ fn a_free_tree_that_cannot_be_removed_is_kept_and_said() {
         (unlistable.clone(), Kept::Unremovable(denied(&unlistable))),
     ];
     kept.sort_by(|a, b| a.0.cmp(&b.0));
-    let lines: Vec<String> = kept
+    // The line is pinned exactly, never built from the reason's `Display`:
+    // it is the words it had before the one walk, the cause alone after the
+    // tree.
+    let mut ordered = [tree.clone(), unlistable.clone()];
+    ordered.sort();
+    let lines: String = ordered
         .iter()
-        .map(|(tree, why)| format!("hands: kept {}: {}\n", tree.display(), why))
+        .map(|tree| {
+            format!(
+                "hands: kept {}: it cannot be removed: {}\n",
+                tree.display(),
+                said(Errno::ACCESS)
+            )
+        })
         .collect();
-    assert_eq!(reaped.to_string(), lines.concat());
+    assert_eq!(reaped.to_string(), lines);
     assert_eq!(
         reaped,
         Reaped {
@@ -642,7 +653,7 @@ fn a_dead_owner_s_free_tree_reports_its_bytes() {
     let tree = unheld(tmp.path(), "exec", &dead_pid().to_string());
     std::fs::write(tree.join("payload"), vec![9u8; 12_345]).unwrap();
     let (_held, live) = held_under(tmp.path(), &dead_pid().to_string());
-    let expected = crate::tree::count_tree(&tree).unwrap().unwrap();
+    let expected = crate::tree::count_tree(&tree).unwrap().unwrap().bytes;
 
     let reaped = reap_dead_sessions_in(tmp.path(), flock);
     let removed: Vec<_> = reaped.removed().collect();
@@ -660,11 +671,21 @@ fn the_listing_removes_nothing_and_counts_what_the_reaping_would() {
     let tree = unheld(tmp.path(), "exec", &dead_pid().to_string());
     std::fs::write(tree.join("payload"), vec![3u8; 9_000]).unwrap();
     let (_held, live) = held_under(tmp.path(), &dead_pid().to_string());
-    let expected = crate::tree::count_tree(&tree).unwrap().unwrap();
+    let expected = crate::tree::count_tree(&tree).unwrap().unwrap().bytes;
 
     assert_eq!(
         list_reapable_under(tmp.path()),
-        vec![(tree.clone(), expected)]
+        vec![Listed {
+            tree: tree.clone(),
+            count: Ok(Some(crate::tree::Counted {
+                bytes: expected,
+                unreadable: None,
+            })),
+        }]
+    );
+    assert_eq!(
+        list_reapable_under(tmp.path())[0].line_with(|path| path.to_owned()),
+        format!("hands: listed {}: {expected} bytes\n", tree.display())
     );
     assert!(
         tree.join("payload").is_file(),
@@ -707,4 +728,195 @@ fn the_overlay_walk_follows_no_symlink_out_of_the_tree() {
     );
     assert_eq!(mode, 0o500, "the link's target was not changed");
     assert!(outside.join("kept").is_file(), "nor removed");
+}
+
+/// What the next lock probe does to its own tree before answering: a tree
+/// can vanish or become a link between the candidate read and the count,
+/// and neither may be dropped.
+enum OnProbe {
+    Vanish(PathBuf),
+    Link { tree: PathBuf, target: PathBuf },
+}
+
+thread_local! {
+    static ON_PROBE: std::cell::RefCell<Option<OnProbe>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+fn changing(fd: BorrowedFd<'_>) -> Result<(), Errno> {
+    match ON_PROBE.with_borrow_mut(|slot| slot.take()) {
+        Some(OnProbe::Vanish(tree)) => std::fs::remove_dir_all(tree).unwrap(),
+        Some(OnProbe::Link { tree, target }) => {
+            std::fs::remove_dir_all(&tree).unwrap();
+            std::os::unix::fs::symlink(target, tree).unwrap();
+        }
+        None => {}
+    }
+    flock(fd)
+}
+
+/// A hostile name at the reaping root and below it never reaches a kept or
+/// a removed line: the tree's path goes through `safe`, and the kept reason
+/// carries the cause alone, never the removal's own path.
+#[test]
+fn a_hostile_name_never_reaches_a_kept_or_a_removed_line() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dead = dead_pid().to_string();
+    let safe = |text: &str| {
+        text.chars()
+            .filter(|character| !character.is_control())
+            .collect::<String>()
+    };
+
+    let removed_root = tmp.path().join("evil\n\u{1b}[31mremoved");
+    std::fs::create_dir(&removed_root).unwrap();
+    let removed = unheld(&removed_root, "exec\t\u{7}", &dead);
+    std::fs::create_dir(removed.join("sub\n\u{1b}[32m")).unwrap();
+    let removed_line = reap_dead_sessions_in(&removed_root, flock).lines_with(safe);
+    assert_eq!(
+        removed_line,
+        format!(
+            "hands: reaped {}: its owner is dead and holds no lock\n",
+            safe(&removed.display().to_string())
+        )
+    );
+    assert!(!removed.exists());
+
+    let kept_root = tmp.path().join("evil\n\u{1b}[31mkept");
+    std::fs::create_dir(&kept_root).unwrap();
+    let kept = unheld(&kept_root, "serve\r\u{1b}[33m", &dead);
+    std::fs::create_dir(kept.join("sub\n\u{1b}[34m")).unwrap();
+    set_mode(&kept_root, 0o500);
+    let kept_line = reap_dead_sessions_in(&kept_root, flock).lines_with(safe);
+    set_mode(&kept_root, 0o700);
+    assert_eq!(
+        kept_line,
+        format!(
+            "hands: kept {}: it cannot be removed: {}\n",
+            safe(&kept.display().to_string()),
+            said(Errno::ACCESS)
+        )
+    );
+
+    for line in [removed_line, kept_line] {
+        assert!(
+            line.trim_end_matches('\n')
+                .chars()
+                .all(|character| !character.is_control()),
+            "{line:?}"
+        );
+    }
+}
+
+/// The listing names a tree's lower bound and the directory it cannot read,
+/// and a removal still takes that tree whole.
+#[test]
+fn the_listing_names_a_lower_bound_and_the_unreadable_directory() {
+    let tmp = tempfile::tempdir().unwrap();
+    let tree = unheld(tmp.path(), "exec", &dead_pid().to_string());
+    let work = tree.join("overlay").join("0").join("work").join("work");
+    std::fs::create_dir_all(&work).unwrap();
+    std::fs::write(work.join("index"), vec![3u8; 4096]).unwrap();
+    let whole = crate::tree::count_tree(&tree).unwrap().unwrap().bytes;
+    set_mode(&work, 0o000);
+
+    let listed = list_reapable_under(tmp.path());
+    assert_eq!(listed.len(), 1);
+    let counted = listed[0].count.as_ref().unwrap().as_ref().unwrap();
+    assert_eq!(counted.unreadable.as_deref(), Some(work.as_path()));
+    assert!(
+        counted.bytes < whole,
+        "{} is not below {whole}",
+        counted.bytes
+    );
+    assert_eq!(
+        listed[0].line_with(|path| path.to_owned()),
+        format!(
+            "hands: listed {}: at least {} bytes; it cannot read {}\n",
+            tree.display(),
+            counted.bytes,
+            work.display()
+        )
+    );
+
+    let reaped = reap_dead_sessions_in(tmp.path(), flock);
+    assert_eq!(
+        reaped.removed().collect::<Vec<_>>(),
+        vec![(tree.as_path(), whole)]
+    );
+    assert!(!tree.exists());
+}
+
+/// A tree whose count fails is listed with the refusal, never dropped; the
+/// hostile link it became is not followed.
+#[test]
+fn the_listing_names_a_count_that_failed() {
+    let tmp = tempfile::tempdir().unwrap();
+    let tree = unheld(tmp.path(), "serve", &dead_pid().to_string());
+    let outside = tmp.path().join("outside");
+    std::fs::create_dir(&outside).unwrap();
+    std::fs::write(outside.join("kept"), "").unwrap();
+    ON_PROBE.set(Some(OnProbe::Link {
+        tree: tree.clone(),
+        target: outside.clone(),
+    }));
+
+    let listed = list_reapable_in(tmp.path(), changing);
+    assert_eq!(listed.len(), 1);
+    match &listed[0].count {
+        Err(TreeError::Io { path, cause }) => {
+            assert_eq!(path, &tree);
+            assert_eq!(cause.raw_os_error(), Some(Errno::NOTDIR.raw_os_error()));
+        }
+        other => panic!("{other:?}"),
+    }
+    assert_eq!(
+        listed[0].line_with(|path| path.to_owned()),
+        format!(
+            "hands: listed {}: the count failed: {}\n",
+            tree.display(),
+            said(Errno::NOTDIR)
+        )
+    );
+    assert!(outside.join("kept").is_file());
+    assert!(tree.is_symlink());
+}
+
+/// A fresh root holding one session tree the next probe vanishes.
+fn vanishing_tree() -> (tempfile::TempDir, PathBuf) {
+    let tmp = tempfile::tempdir().unwrap();
+    let tree = unheld(tmp.path(), "exec", &dead_pid().to_string());
+    ON_PROBE.set(Some(OnProbe::Vanish(tree.clone())));
+    (tmp, tree)
+}
+
+/// A tree gone before the count is listed as gone, not dropped.
+#[test]
+fn the_listing_names_a_tree_gone_before_the_count() {
+    let (tmp, tree) = vanishing_tree();
+
+    let listed = list_reapable_in(tmp.path(), changing);
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].count, Ok(None));
+    assert_eq!(
+        listed[0].line_with(|path| path.to_owned()),
+        format!(
+            "hands: listed {}: it was gone before the count\n",
+            tree.display()
+        )
+    );
+    assert!(!tree.exists());
+}
+
+/// A tree that vanishes between the probe and the removal is not kept and
+/// not counted: the removal found it already absent.
+#[test]
+fn a_tree_gone_between_the_probe_and_the_removal_is_not_kept() {
+    let (tmp, tree) = vanishing_tree();
+
+    assert_eq!(
+        reap_dead_sessions_in(tmp.path(), changing),
+        Reaped::default()
+    );
+    assert!(!tree.exists());
 }

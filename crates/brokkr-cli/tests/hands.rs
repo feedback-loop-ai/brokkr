@@ -377,9 +377,7 @@ fn an_unremovable_dead_tree_is_said_at_the_start() {
         stderr.lines().nth(1),
         Some(
             format!(
-                "hands: kept {}: it cannot be removed: removing {}: \
-                 Permission denied (os error 13)",
-                tree.display(),
+                "hands: kept {}: it cannot be removed: Permission denied (os error 13)",
                 tree.display()
             )
             .as_str()

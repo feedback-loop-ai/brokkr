@@ -40,7 +40,7 @@ use signal_hook::consts::{SIGHUP, SIGINT, SIGTERM};
 use signal_hook::iterator::Signals;
 use thiserror::Error;
 
-use crate::tree::{self, TreeError};
+use crate::tree::{self, Counted, TreeError};
 
 const PREFIX: &str = "brokkr-hands-";
 /// What a session's tree is named before its lock is held: a prefix the
@@ -284,6 +284,40 @@ impl fmt::Display for Reaped {
     }
 }
 
+/// One tree a listing read: the tree, and what a removal would free. A
+/// `Some` count whose `unreadable` names a path is a lower bound; `None`
+/// names a tree gone before the count; an `Err` is the walk's refusal.
+/// Nothing is dropped.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Listed {
+    pub tree: PathBuf,
+    pub count: Result<Option<Counted>, TreeError>,
+}
+
+impl Listed {
+    /// The listing's line, every named path through `safe` before it is
+    /// joined: a seat can write a control byte into a directory's name
+    /// inside a dead tree.
+    pub fn line_with(&self, safe: fn(&str) -> String) -> String {
+        let tree = safe(&self.tree.display().to_string());
+        match &self.count {
+            Ok(Some(counted)) => match &counted.unreadable {
+                Some(path) => format!(
+                    "hands: listed {tree}: at least {} bytes; it cannot read {}\n",
+                    counted.bytes,
+                    safe(&path.display().to_string())
+                ),
+                None => format!("hands: listed {tree}: {} bytes\n", counted.bytes),
+            },
+            Ok(None) => format!("hands: listed {tree}: it was gone before the count\n"),
+            Err(error) => format!(
+                "hands: listed {tree}: the count failed: {}\n",
+                error.cause()
+            ),
+        }
+    }
+}
+
 /// Why a dead owner's tree was kept.
 #[derive(Debug, Error, PartialEq, Eq)]
 enum Kept {
@@ -293,9 +327,12 @@ enum Kept {
     Unremovable(Unremovable),
 }
 
-/// The error a tree's removal met, as the walk names it.
+/// The error a tree's removal met, as the walk names it: the cause alone.
+/// The kept line already names the tree through `safe`, so the reason never
+/// carries a second path, which a seat could have written inside the dead
+/// tree with a control byte in it.
 #[derive(Debug, Error, PartialEq, Eq)]
-#[error(transparent)]
+#[error("{}", .0.cause())]
 struct Unremovable(TreeError);
 
 /// Why the reaper could not tell whether a tree's lock is held.
@@ -327,24 +364,24 @@ pub fn reap_dead_sessions() -> Reaped {
     reap_dead_sessions_in(&std::env::temp_dir(), flock)
 }
 
-/// The trees the reaping would remove under `tmp`, with the bytes a removal
-/// would free, in the directory's order. Nothing is removed, and a tree
-/// whose count fails is left off the listing rather than guessed at.
-pub fn list_reapable_under(tmp: &Path) -> Vec<(PathBuf, u64)> {
+/// The trees the reaping would remove under `tmp`, in the directory's order.
+/// Nothing is removed. A tree whose count failed is listed with the walk's
+/// refusal, and one gone before the count is listed as gone; neither is
+/// dropped, and a count that met an unreadable directory names its lower
+/// bound and that directory.
+pub fn list_reapable_under(tmp: &Path) -> Vec<Listed> {
     list_reapable_in(tmp, flock)
 }
 
-fn list_reapable_in(tmp: &Path, lock: Flock) -> Vec<(PathBuf, u64)> {
-    let mut listed = Vec::new();
-    for (tree, dead) in candidates(tmp) {
-        let answered = probe(&tree, lock);
-        if reapable(&answered, dead) {
-            if let Ok(Some(bytes)) = tree::count_tree(&tree) {
-                listed.push((tree, bytes));
-            }
-        }
-    }
-    listed
+fn list_reapable_in(tmp: &Path, lock: Flock) -> Vec<Listed> {
+    candidates(tmp)
+        .into_iter()
+        .filter(|(tree, dead)| reapable(&probe(tree, lock), *dead))
+        .map(|(tree, _)| Listed {
+            count: tree::count_tree(&tree),
+            tree,
+        })
+        .collect()
 }
 
 fn reap_dead_sessions_in(tmp: &Path, lock: Flock) -> Reaped {
