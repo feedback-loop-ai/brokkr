@@ -208,7 +208,8 @@ fn supersede_arguments_are_refused_on_acknowledge() {
     };
     assert_eq!(
         failure_line(&operator(dir.path(), unknown).unwrap_err()),
-        "error: operator command must be 'retry', 'stop', 'supersede', 'classify', 'repair' or 'acknowledge'"
+        "error: operator command must be 'retry', 'stop', 'supersede', 'classify', 'repair', \
+         'settle' or 'acknowledge'"
     );
     let store = Store::open_read_only(&db).unwrap();
     assert_eq!(store.acknowledgement("unfolded").unwrap(), None);
