@@ -89,7 +89,7 @@ mod schema;
 mod seat_read;
 mod seat_record;
 mod seat_summary;
-pub mod seat_tree;
+mod seat_tree;
 mod start;
 mod summary;
 mod terminal;
@@ -112,7 +112,7 @@ pub use schema::DATABASE_SCHEMA;
 pub use seat_read::SeatRead;
 pub use seat_record::{validate_seat_record, SeatRecordError, SeatRecordVersion};
 pub use seat_summary::SeatRows;
-pub use seat_tree::{SeatTree, SeatTreeRecord, SeatTreeRefusal};
+pub use seat_tree::{SeatTree, SeatTreeRecord, SeatTreeRefusal, Swept, TreeSweep, TreeSweepRecord};
 pub use summary::Disagreement;
 
 use brokkr_core::summary::Account;
