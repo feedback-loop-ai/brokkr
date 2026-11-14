@@ -2,7 +2,9 @@
 //! 2026-10-21, "A"), moved out of `settlement.rs`, which it would take past
 //! its 800 lines (operator ruling of 2026-10-11): the operator's release of
 //! a run's attempts that ended indeterminate, on the operator's journaled
-//! attestation that every process each owned has ended.
+//! attestation that every process each owned has ended — asked of the host
+//! for every process group a driver recorded, so a recorded live group
+//! keeps the lease standing (decision 0108 ruling 3).
 
 use std::path::Path;
 use std::time::{Duration, Instant};
@@ -11,9 +13,9 @@ use brokkr_core::EventEnvelope;
 use brokkr_store::Store;
 
 use super::{
-    beside, ending, inventory, locked, recorded_settled, sealed, settled, startup, Budget, Commit,
-    Ending, Refused, Reservation, Root, Standing, Unadmitted, Unknown, Unreleased, Witnessed,
-    RESERVATION,
+    beside, ending, inventory, locked, recorded_settled, release, sealed, settled, startup, Budget,
+    Commit, Ending, Refused, Reservation, Root, Standing, Unadmitted, Unknown, Unreleased,
+    Witnessed, RESERVATION,
 };
 use crate::engine::EngineError;
 
@@ -28,9 +30,10 @@ use crate::engine::EngineError;
 /// operator, and the attempt settled. Nothing is folded, replayed or
 /// journaled of an attempt, which stays as it ended. Refused, nothing
 /// journaled or sealed, where no attempt of the run stands, where one has
-/// not ended or ended other than indeterminate, or where one's every
-/// driver is sealed Settled ([`Refused`]); and, as any seal is, where the
-/// lock, the inventory or the seal fails, or a reservation is not read
+/// not ended or ended other than indeterminate, where a process group a
+/// driver recorded for it still has a member on the host, or where one's
+/// every driver is sealed Settled ([`Refused`]); and, as any seal is, where
+/// the lock, the inventory or the seal fails, or a reservation is not read
 /// whole. One committed without its directory proven synced was released,
 /// its seal not proven durable.
 pub(in crate::engine) fn attested(
@@ -90,7 +93,8 @@ pub(super) fn reserved_for(
 /// Why the operator's release of the run `run`'s standing attempts in
 /// `reservations` is refused against its journal's `events`, if it is:
 /// only an attempt that ended indeterminate, a driver of it never sealed
-/// Settled, is the operator's to release.
+/// Settled, is the operator's to release, and only once no process group
+/// its record names still runs (decision 0108 ruling 3).
 fn judged(
     run: &str,
     reservations: &[Reservation],
@@ -105,7 +109,10 @@ fn judged(
             (true, Some(_)) => Err(Refused::Settled(attempt)),
             (false, None) => Err(Refused::Running(attempt)),
             (false, Some(Ending::Certified)) => Err(Refused::Certified(attempt)),
-            (false, Some(Ending::Uncertain)) => Ok(()),
+            (false, Some(Ending::Uncertain)) => match release::live_group(reserved) {
+                Some(group) => Err(Refused::Alive { attempt, group }),
+                None => Ok(()),
+            },
         }?;
     }
     Ok(())

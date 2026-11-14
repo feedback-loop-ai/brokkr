@@ -122,9 +122,10 @@ enum Cause {
 /// Why the operator's release of a run's attempts is refused, nothing of
 /// it sealed (U8e3; operator ruling 2026-10-21): no attempt of the run's
 /// stands; one has not ended; one ended a success or a failure, not
-/// indeterminate; one whose every driver is sealed Settled is U8e2's to
-/// recover, in flight or, once ended, no one's; or the journal moved
-/// beneath the release.
+/// indeterminate; one's recorded process group still has a member on this
+/// host; one whose every driver is sealed Settled is U8e2's to recover, in
+/// flight or, once ended, no one's; or the journal moved beneath the
+/// release.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub(in crate::engine) enum Refused {
     #[error("run '{0}' holds no standing reservation, so there is nothing to release")]
@@ -139,6 +140,11 @@ pub(in crate::engine) enum Refused {
          attempt that ended indeterminate"
     )]
     Certified(String),
+    #[error(
+        "attempt '{attempt}' stands, and its process group {group} still has members on this \
+         host; release only once every process it owned has ended"
+    )]
+    Alive { attempt: String, group: u32 },
     #[error(
         "every driver of attempt '{0}' is sealed Settled, so an engine restarted with it in \
          flight recovers it: resume the run instead"

@@ -974,21 +974,26 @@ A reservation written before this release records its drivers but no group
 (v0.13.0's shape), so `settle` cannot prove one of its drivers: repair the
 run first, then `brokkr operator release --run <id> --reason <why>`, the
 operator's attestation that every process those attempts owned has ended.
-Release refuses an attempt that ended a success or a failure, and one with
-no journaled ending; it is the route only where the attempt ended
-indeterminate. It asks the host no process question — that is what the
-attestation is for — so look at the process group a refusal names, and
-confirm it has ended, before attesting. An unsettled driver whose recorded
-group id is still alive is held until that attestation; one whose attempt
-ended a success or a failure has no route here, which is an operator ask.
+Release asks the host about every process group a driver recorded for an
+attempt that ended indeterminate, and refuses while one still has a member;
+a driver that recorded no group, as v0.13.0's drivers did not, is not asked.
+It refuses an attempt that ended a success or a failure, and one with no
+journaled ending; it is the route only where the attempt ended
+indeterminate. A failed spawn before a group was recorded leaves the same
+`NoGroup` refusal, and the repair-then-release route where the attempt
+ended indeterminate. A recorded group id the host reuses for an unrelated
+process, or one still alive when the last driver ended, keeps the worktree
+held: no verb here releases it, which is the operator's ask (F9). One whose
+attempt ended a success or a failure has no route here either.
 
 A shape (B) journal from an older engine, such as the stop after a
 conclusion in decision 0108's context, is recovered on a copy opened with
 this release: acknowledge, repair, then the proof, `settle`, or `release` as
 above, and never a hand edit. The copy must sit at the path the reservation
 names for its journal, because that is the journal the proof and the record
-both read; a journal under the worktree itself refuses fail-closed, since a
-writer of the run could reach it. The tag v0.12.0 wrote no reservation at
+both read; a journal under the worktree itself is refused fail-closed by the
+exclusion's guarded read, since a writer of the run could reach it — `settle`
+may still write its record there, but no claim is released by it. The tag v0.12.0 wrote no reservation at
 all. A workspace whose binary reported 0.12.0 was built from main between
 #745 (2026-10-18) and the 0.13.0 version bump (2026-11-02), and its
 reservation's shape depends on the commit: before b8e2caff8 (2026-10-25) a

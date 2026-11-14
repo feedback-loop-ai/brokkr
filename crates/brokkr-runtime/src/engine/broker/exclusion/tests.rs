@@ -263,7 +263,8 @@ fn a_journal_a_writer_could_reach_proves_nothing() {
 
 /// A released run's later commands still refuse: the release frees the
 /// worktree, not the run. `retry` and `stop` meet the terminal gate before
-/// they write, exactly, and `resume` meets the run's fold.
+/// they write, exactly; `resume` on a released run is proved by
+/// [`a_released_run_resumes_to_its_fold`].
 #[test]
 fn a_released_run_still_refuses_retry_and_stop() {
     use crate::engine::operator::{operator_stop, Cause, Named};
@@ -333,6 +334,85 @@ fn a_released_run_still_refuses_retry_and_stop() {
         head,
         "neither command wrote anything"
     );
+}
+
+/// A released run resumes to its fold: the release frees the worktree, not
+/// the run (S4). The run is shape (B), repaired, its settled attempt
+/// released by the broker's own records; `Engine::resume` takes it again and
+/// drives it to the status its terminal event states. The run's own start
+/// record carries the empty charter record this test bundle pins.
+#[test]
+fn a_released_run_resumes_to_its_fold() {
+    use crate::engine::broker::admission::tests::{planted_drivers, Coordinated, Host};
+    use crate::engine::tests::{bundle, single_body};
+    use brokkr_core::fold::Run;
+
+    let host = Host::new();
+    let work = host.worktree("work");
+    let db = host.journal("run-a.db");
+    let mut store = crate::engine::tests::in_flight_store_started(
+        &db,
+        "run-a",
+        json!({"feature": "feature", "manifest": {"files": {}}, "charters": []}),
+    );
+    store
+        .append_next(
+            "run-a",
+            EventType::EffectIndeterminate,
+            json!({"effect_id": "effect", "attempt_id": "attempt"}),
+            None,
+            Some("attempt".into()),
+        )
+        .unwrap();
+    store
+        .append_next(
+            "run-a",
+            EventType::RunStopped,
+            json!({"reason": "concluded"}),
+            None,
+            None,
+        )
+        .unwrap();
+    drop(store);
+    let mut store = crate::engine::broker::admission::tests::broken(&db, "run-a");
+    planted_drivers(
+        &host,
+        &work,
+        ["run-a", "attempt"],
+        &[("work", Witnessed::Settled, None)],
+        None,
+        &db,
+    );
+    acknowledge(&mut store, "run-a");
+    let _stood = Coordinated::at(host.home());
+    operator_repair(
+        &mut store,
+        "run-a",
+        &Repair {
+            operator: "operator",
+            reason: "kept as evidence",
+        },
+    )
+    .expect("the repair names the late tail");
+    assert!(
+        host.admit(&boxed_claim(&work, ["run-b", "b1"])).is_ok(),
+        "the settled attempt's records release the worktree"
+    );
+    let bundle_dir = tempfile::tempdir().unwrap();
+    let mut bundle = bundle(
+        bundle_dir.path(),
+        single_body(vec!["missing-driver".into()]),
+    );
+    bundle.manifest = json!({"files": {}});
+    let mut resumed = crate::engine::Engine::resume(
+        brokkr_store::Store::open(&db).unwrap(),
+        bundle,
+        "run-a",
+        Some(work),
+    )
+    .expect("the released run resumes");
+    let end = resumed.drive().unwrap();
+    assert_eq!(end.state.run, Run::Stopped, "resume meets the run's fold");
 }
 
 /// A panel attempt has one driver per member, each leading its own process
@@ -519,6 +599,33 @@ fn release_before_the_repair_refuses(store: &mut brokkr_store::Store) {
     );
 }
 
+/// The shape (B) journal 0.12.0 left for `run`: the attempt closed
+/// indeterminate, a conclusion, and the stop an older binary journaled
+/// after it, so the run does not fold until repaired.
+fn old_shape_b_journal(db: &std::path::Path, run: &str) -> brokkr_store::Store {
+    let mut store = crate::engine::tests::in_flight_store(db, run);
+    store
+        .append_next(
+            run,
+            EventType::EffectIndeterminate,
+            json!({"effect_id": "effect", "attempt_id": "attempt"}),
+            None,
+            Some("attempt".into()),
+        )
+        .unwrap();
+    store
+        .append_next(
+            run,
+            EventType::RunStopped,
+            json!({"reason": "concluded"}),
+            None,
+            None,
+        )
+        .unwrap();
+    drop(store);
+    crate::engine::broker::admission::tests::broken(db, run)
+}
+
 /// The route for a reservation written before this build (v0.13.0's shape:
 /// drivers, no process group): `operator settle` cannot prove it, and the
 /// operator repairs the run and then uses the existing
@@ -537,50 +644,42 @@ fn an_old_shape_b_reservation_is_released_by_repair_then_operator_release() {
     let host = Host::new();
     let work = host.worktree("work");
     let db = host.journal("run-a.db");
-    let mut store = crate::engine::tests::in_flight_store(&db, "run-a");
-    store
-        .append_next(
-            "run-a",
-            EventType::EffectIndeterminate,
-            json!({"effect_id": "effect", "attempt_id": "attempt"}),
-            None,
-            Some("attempt".into()),
-        )
-        .unwrap();
-    store
-        .append_next(
-            "run-a",
-            EventType::RunStopped,
-            json!({"reason": "concluded"}),
-            None,
-            None,
-        )
-        .unwrap();
-    let head = store.load("run-a").unwrap().pop().unwrap();
-    drop(store);
-    let connection = rusqlite::Connection::open(&db).unwrap();
-    brokkr_store::test_support::plant_chained(
-        &connection,
-        "run-a",
-        &head,
-        &crate::late::late_stop(),
-    )
-    .unwrap();
-    drop(connection);
-    let mut store = brokkr_store::Store::open(&db).unwrap();
+    let mut store = old_shape_b_journal(&db, "run-a");
     // v0.13.0 wrote the drivers' own records and no process group
-    // (crates/brokkr-runtime/src/engine/broker/admission.rs:204 and
-    // settlement.rs:362 at the tag). The tag v0.12.0 wrote no reservation
-    // at all; a workspace that reported 0.12.0 from main is tested below.
+    // (crates/brokkr-runtime/src/engine/broker/admission.rs:220 and
+    // settlement.rs:362 at the tag). This is the tag's own field list as a
+    // JSON fixture, not this build's `Driver`: `site`, `begun` and
+    // `cleanup`, and no `group`. The tag v0.12.0 wrote no reservation at
+    // all; a workspace that reported 0.12.0 from main is tested below.
+    let v0_13_0_driver: Driver = serde_json::from_value(json!({
+        "site": "work",
+        "begun": null,
+        "cleanup": "settling",
+    }))
+    .expect("v0.13.0's driver shape reads");
     let mut claim = boxed_claim(&work, ["run-a", "attempt"]);
     claim.journal = db.clone();
-    claim.reserved.drivers = vec![Driver {
-        site: "work".into(),
-        begun: None,
-        cleanup: Witnessed::Settling,
-        group: None,
-    }];
+    claim.reserved.drivers = vec![v0_13_0_driver];
     host.admit(&claim).expect("the old reservation is admitted");
+    // The bytes on disk are the tag's, not this build's structs' addition.
+    let at = crate::engine::broker::admission::tests::reservation_path(host.home(), &work, "run-a");
+    let planted: serde_json::Value = serde_json::from_slice(&std::fs::read(&at).unwrap()).unwrap();
+    let attempt = &planted["attempts"]["attempt"];
+    assert!(
+        attempt.get("group").is_none(),
+        "v0.13.0's Reserved has no one-group slot (admission.rs:220 at the tag)"
+    );
+    let keys: std::collections::BTreeSet<&str> = attempt["drivers"][0]
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(String::as_str)
+        .collect();
+    assert_eq!(
+        keys,
+        ["begun", "cleanup", "site"].into_iter().collect(),
+        "v0.13.0's Driver has site, begun and cleanup (settlement.rs:362 at the tag)"
+    );
     acknowledge(&mut store, "run-a");
     let _stood = Coordinated::at(host.home());
     assert_eq!(

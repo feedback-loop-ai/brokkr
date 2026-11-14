@@ -207,17 +207,14 @@ fn the_operators_release_lets_a_conflicting_run_admit_and_moves_nothing() {
     }
 }
 
-/// `operator release` is the operator's attestation and asks the host no
-/// process question: a driver's own recorded group still alive keeps the
-/// automatic proof and `settle` refusing, and the release — after the
-/// operator has looked — is the route that ends the attempt
-/// indeterminate. The guide tells the operator to check the group the
-/// refusal named before attesting (L-1).
+/// `operator release` asks the host about every process group a driver
+/// recorded and refuses a live one: the operator's attestation may not admit
+/// a claim while a recorded writer lives (S1; decision 0108 ruling 3). Once
+/// the group is gone the same attestation releases, and a driver that
+/// recorded no group is not asked — the v0.13.0 shape's route.
 #[test]
-fn a_release_attests_over_a_live_recorded_group() {
-    if !isolated(
-        "engine::operator_tests::release_tests::a_release_attests_over_a_live_recorded_group",
-    ) {
+fn a_release_refuses_a_live_recorded_group() {
+    if !isolated("engine::operator_tests::release_tests::a_release_refuses_a_live_recorded_group") {
         return;
     }
     let live = LiveGroup::new();
@@ -228,9 +225,31 @@ fn a_release_attests_over_a_live_recorded_group() {
         killed.held(),
         "the recorded group still runs, so the automatic proof holds the worktree"
     );
+    let refused = unreleased(killed.released());
+    assert_eq!(
+        refused,
+        Unreleased::refused(Refused::Alive {
+            attempt: ATTEMPT.into(),
+            group: live.group(),
+        }),
+        "the release names the live group and writes nothing"
+    );
+    assert_eq!(
+        refused.to_string(),
+        format!(
+            "the operator's release was refused, and the run's writer lease stands: attempt 'a1' \
+             stands, and its process group {} still has members on this host; release only once \
+             every process it owned has ended",
+            live.group()
+        ),
+        "the refusal names the live group, not a missing record"
+    );
+    assert!(killed.standing(), "the refused release sealed nothing");
+    assert_eq!(killed.conflicting(), killed.held());
+    drop(live);
     killed
         .released()
-        .expect("the operator attests the process ended");
+        .expect("once the group is gone, the operator's release attests");
     assert_eq!(
         killed.reservation(),
         (Vec::<String>::new(), json!([ATTEMPT])),

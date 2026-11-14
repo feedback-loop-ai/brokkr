@@ -47,6 +47,9 @@ mod boxed;
 mod broker;
 use boxed::{artifact_root, boxed_spawn};
 pub use broker::evidence;
+/// The typed refusal `settle` carries: the host's answer or the run's own
+/// word (decision 0071 ruling 8).
+pub use broker::settlement::release::{Live, UnprovenWhy};
 // The test modules compare a box's argv through `use super::*`.
 #[cfg(test)]
 use boxed::hands_command;
@@ -157,6 +160,19 @@ struct Indeterminate<'a> {
     unproven: Unproven,
 }
 
+/// Why `settle` refused, nothing written (decision 0108 ruling 3): the typed
+/// fact the proof refused on, or the run's own word before a proof was
+/// taken. The typed arm keeps the host's answer (`group` still alive,
+/// `NoGroup`, `Unresolved`) a variant the caller matches, never text
+/// (decision 0071 ruling 8).
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum SettleRefusal {
+    #[error(transparent)]
+    Live(#[from] broker::settlement::release::Live),
+    #[error("{0}")]
+    Refused(String),
+}
+
 #[derive(Debug, Error)]
 pub enum EngineError {
     #[error(transparent)]
@@ -225,7 +241,7 @@ pub enum EngineError {
     /// command to dispose of, so the refusal is the operator's to read and
     /// the journal stays exactly as it was.
     #[error("settle refused, nothing was written: {0}")]
-    SettleRefused(String),
+    SettleRefused(SettleRefusal),
     /// The bridge was sent a word an operator annotation carries
     /// (`repair`, `settle`, `classify`, `supersede`). It refuses before
     /// journaling anything: a word a remote caller can choose must never

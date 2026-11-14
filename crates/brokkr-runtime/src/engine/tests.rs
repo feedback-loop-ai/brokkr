@@ -2334,16 +2334,18 @@ fn decide_covers_schema_no_rule_review_head_and_ship_drift() {
 /// spends most of its life in, and the one where an operator's command
 /// meets a concurrently-appending engine.
 pub(super) fn in_flight_store(path: &Path, run_id: &str) -> Store {
+    in_flight_store_started(path, run_id, json!({"feature":"feature","manifest":{}}))
+}
+
+/// [`in_flight_store`] with the `RunStarted` payload a test names: the
+/// charter record and manifest a resume needs, instead of the empty ones.
+pub(super) fn in_flight_store_started(path: &Path, run_id: &str, started: Value) -> Store {
     let mut store = Store::open(path).unwrap();
     store
         .create_run(run_id, "feature", "test", &json!({"files":{}}))
         .unwrap();
     for (event_type, payload, attempt_id) in [
-        (
-            EventType::RunStarted,
-            json!({"feature":"feature","manifest":{}}),
-            None,
-        ),
+        (EventType::RunStarted, started, None),
         (EventType::PhaseEntered, json!({"phase":"work"}), None),
         (
             EventType::EffectRequested,

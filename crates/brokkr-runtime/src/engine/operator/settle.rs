@@ -28,6 +28,7 @@ use uuid::Uuid;
 use super::{fenced_append, EngineError, Head};
 use crate::engine::broker::settlement;
 use crate::engine::broker::settlement::release::{provenances, Proven, SettleArgs};
+use crate::engine::SettleRefusal;
 use crate::run_lock;
 
 #[cfg(test)]
@@ -66,7 +67,7 @@ fn settle_with(
     ask: &Settle<'_>,
     before_write: impl FnOnce(&mut Store),
 ) -> Result<EventEnvelope, EngineError> {
-    let refused = |why: String| EngineError::SettleRefused(why);
+    let refused = |why: String| EngineError::SettleRefused(SettleRefusal::Refused(why));
     // The run's own record decides the cheap refusals first: a run that
     // has not ended, or that no acknowledgement stands on, is refused
     // before any coordination root is opened or any lock is taken.
@@ -112,7 +113,8 @@ fn settle_with(
         settlement::release::settle_locked(&root, run_id, store.path())
             .map_err(|unadmitted| refused(unadmitted.to_string()))?;
     let _held = run_lock::held_at(store.path(), run_id).map_err(EngineError::RunLock)?;
-    let attempts = proved(&reservations).map_err(|live| refused(live.to_string()))?;
+    let attempts = proved(&reservations)
+        .map_err(|live| EngineError::SettleRefused(SettleRefusal::Live(live)))?;
     let payload = json!({
         "command_id": Uuid::new_v4().to_string(),
         "command": SETTLE,

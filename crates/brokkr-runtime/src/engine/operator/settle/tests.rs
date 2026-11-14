@@ -16,6 +16,7 @@ use crate::engine::broker::admission::tests::{
 use crate::engine::broker::admission::{Conflict, Witnessed};
 use crate::engine::broker::settlement::release;
 use crate::engine::tests::published_args;
+use crate::engine::{Live, SettleRefusal, UnprovenWhy};
 use crate::run_lock;
 use crate::EngineError;
 
@@ -171,14 +172,26 @@ fn settle_refuses_a_run_a_driver_holds_naming_the_holder() {
 }
 
 /// A record that proves nothing and names no group is refused: only what
-/// the broker's own record names can be proven.
+/// the broker's own record names can be proven, and the refusal carries the
+/// typed fact (`Live::Unproven` with `NoGroup`), never only its text (S3;
+/// decision 0071 ruling 8).
 #[test]
 fn settle_refuses_where_the_records_prove_nothing_and_name_no_group() {
     let mut fixture = quarantined(&[Witnessed::Settling], None);
-    refused(
+    let refused = refused(
         &mut fixture,
         "attempt 'a1' stands: its driver records are not sealed Settled, and it recorded no \
          process group",
+    );
+    assert!(
+        matches!(
+            refused,
+            EngineError::SettleRefused(SettleRefusal::Live(Live::Unproven {
+                ref attempt,
+                why: UnprovenWhy::NoGroup,
+            })) if attempt == "a1"
+        ),
+        "the typed refusal is the fact, not flattened text: {refused:?}"
     );
 }
 
