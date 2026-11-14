@@ -216,6 +216,11 @@ fn the_records_and_the_host_prove_an_attempt_by_their_own_facts() {
         }),
         "the exclusion never releases on the host's word alone"
     );
+    assert_eq!(
+        proven_records(&gone, "a1").unwrap_err().to_string(),
+        "attempt 'a1' stands: only the host's word proves it: its process group is gone, and no \
+         driver record is sealed Settled; `brokkr operator settle` is the operator's route"
+    );
 
     // A group recorded for a Settled driver is not asked: the seal is the
     // settlement proof, and a reused id names an unrelated process (F9's
@@ -380,6 +385,11 @@ fn the_views_settled_fact_proves_it_and_nothing_else_does() {
             attempt: "a1".into(),
             why: UnprovenWhy::Unrecorded,
         })
+    );
+    assert_eq!(
+        view_records(&settling, "a1").unwrap_err().to_string(),
+        "attempt 'a1' stands: the record names no settled attempt, and carries no process group \
+         to ask about"
     );
 }
 
@@ -627,6 +637,13 @@ fn a_settle_record_releases_only_the_reservation_it_covers() {
     assert!(
         honoured(&proven_by_records, &settled("a", vec![record_proven("a1")])),
         "a record that names settled drivers releases"
+    );
+    assert!(
+        !honoured(
+            &proven_by_records,
+            &settled("a", vec![grouped("a1", &[dead_group()])])
+        ),
+        "a group proof over a reservation with no unsettled driver proves nothing"
     );
     assert!(
         !honoured(&held, &settled("b", vec![grouped("a1", &[gone])])),
