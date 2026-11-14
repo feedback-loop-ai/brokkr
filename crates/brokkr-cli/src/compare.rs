@@ -54,7 +54,7 @@ pub(crate) fn costs_at(store: &Store, run: String, opened: &Opened) -> Result<Co
             // ruling 4).
             let events = store.load(&run)?;
             let state = fold(&events).ok();
-            seat_costs(&applied_events(&events, state.as_ref()))
+            seat_costs(&applied_events(events, state.as_ref()))
         }
     };
     Ok(Costs {
@@ -165,10 +165,11 @@ fn kept(store: &Store, run_id: &str) -> Result<Read> {
     // The figures read the applied events: a repaired tail is kept and
     // shown and is never costed, resolved or walked (decision 0108
     // ruling 4).
-    let applied = applied_events(&events, Some(&state));
+    let (count, last) = (events.len(), events.last().map(|e| e.recorded_at.clone()));
+    let applied = applied_events(events, Some(&state));
     Ok(Read {
-        events: events.len(),
-        last_recorded_at: events.last().map(|e| e.recorded_at.clone()),
+        events: count,
+        last_recorded_at: last,
         seats: seat_costs(&applied),
         resolution: resolutions_at(&applied, Some(&state)),
         trail: applied,
@@ -209,7 +210,7 @@ fn current(store: &Store, run_id: &str, opened: &Opened) -> Result<Option<Read>>
     };
     // The trail `walked` and `ended` read is the applied one: a repaired
     // tail adds no attempt, phase or ending (decision 0108 ruling 4).
-    let applied = applied_events(&trail, Some(state.as_ref()));
+    let applied = applied_events(trail, Some(state.as_ref()));
     Ok(Some(Read {
         events: view.event_count,
         last_recorded_at: Some(last_at),

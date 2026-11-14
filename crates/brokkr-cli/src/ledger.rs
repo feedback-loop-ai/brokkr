@@ -111,7 +111,7 @@ pub(crate) fn render(run_id: &str, events: &[EventEnvelope], repo: &Path) -> Res
     // a repaired tail is kept and shown and never delivered (decision
     // 0108 ruling 4).
     let state = brokkr_core::fold::fold(events).ok();
-    let applied = applied_events(events, state.as_ref());
+    let applied = applied_events(events.to_vec(), state.as_ref());
     let events = applied.as_slice();
     let feature = events
         .first()

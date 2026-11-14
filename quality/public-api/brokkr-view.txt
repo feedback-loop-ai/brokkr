@@ -850,7 +850,7 @@ pub fn brokkr_core::page::LateTail::late_operator(&self) -> &str
 pub fn brokkr_view::age(&str, &str) -> core::option::Option<alloc::string::String>
 pub fn brokkr_view::analytics(&brokkr_view::Query<'_>) -> core::result::Result<brokkr_view::Analytics, brokkr_view::AnalyticsError>
 pub fn brokkr_view::analytics_with(&dyn brokkr_view::FactSource, &brokkr_view::Query<'_>) -> core::result::Result<brokkr_view::Analytics, brokkr_view::AnalyticsError>
-pub fn brokkr_view::applied_events(&[brokkr_core::envelope::EventEnvelope], core::option::Option<&brokkr_core::fold::RunState>) -> alloc::vec::Vec<brokkr_core::envelope::EventEnvelope>
+pub fn brokkr_view::applied_events(alloc::vec::Vec<brokkr_core::envelope::EventEnvelope>, core::option::Option<&brokkr_core::fold::RunState>) -> alloc::vec::Vec<brokkr_core::envelope::EventEnvelope>
 pub fn brokkr_view::at_work<'a>(&'a brokkr_view::RunRow, &str) -> core::option::Option<&'a brokkr_view::Hire>
 pub fn brokkr_view::behind_line(u64) -> core::option::Option<alloc::string::String>
 pub fn brokkr_view::cited(&brokkr_view::SupersededBy) -> alloc::string::String

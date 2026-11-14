@@ -40,8 +40,18 @@ pub(crate) fn derived<'a>(events: &'a [EventEnvelope], state: Option<&RunState>)
     )
 }
 
-/// The applied events as owned values, for a reader outside this crate
-/// that derives a figure from them: the CLI's compare and ledger scans.
-pub fn applied_events(events: &[EventEnvelope], state: Option<&RunState>) -> Vec<EventEnvelope> {
-    derived(events, state).as_slice().to_vec()
+/// The applied events from a journal the caller already owns, for a reader
+/// outside this crate that derives a figure from them: the CLI's compare
+/// and ledger scans. A journal no repair withholds is handed back without
+/// a copy, and one a repair withholds is filtered in place, so a read
+/// holds one journal and not two. The range test is `RunState::applies`,
+/// the one home this scan shares with `derived`.
+pub fn applied_events(
+    mut events: Vec<EventEnvelope>,
+    state: Option<&RunState>,
+) -> Vec<EventEnvelope> {
+    if let Some(state) = state.filter(|state| state.late_tail.is_some()) {
+        events.retain(|event| state.applies(event.seq));
+    }
+    events
 }

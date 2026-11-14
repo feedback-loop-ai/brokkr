@@ -224,20 +224,6 @@ pub enum Carried {
     Refold,
 }
 
-impl Carried {
-    /// The carried account. A caller that may meet [`Carried::Refold`]
-    /// matches instead; `Account::whole` never can, because an empty
-    /// account has applied no prefix event.
-    pub fn account(self) -> Account {
-        match self {
-            Carried::Account(account) => *account,
-            Carried::Refold => {
-                panic!("a repair named a carried event: the caller must refold the whole journal")
-            }
-        }
-    }
-}
-
 /// What a writer holds of a run: the run's head as it last judged it, the
 /// fold there or the fold's refusal, and the residual findings and
 /// closing marks the journal carries up to it.
@@ -287,7 +273,7 @@ impl Account {
 
     /// The account of a run's whole journal, `events` in order from seq 1.
     pub fn whole(run_id: &str, events: &[EventEnvelope]) -> Account {
-        Account::empty(run_id).onto(events).account()
+        Account::empty(run_id).carry(events)
     }
 
     /// The account carried over `suffix`, the events after this head in
@@ -300,29 +286,43 @@ impl Account {
     /// applied — its range reaches at or below this head — the account
     /// cannot carry: it answers [`Carried::Refold`] and the caller
     /// refolds the run's whole journal (decision 0108 ruling 4, L7).
-    pub fn onto(mut self, suffix: &[EventEnvelope]) -> Carried {
-        let Some(last) = suffix.last() else {
+    pub fn onto(self, suffix: &[EventEnvelope]) -> Carried {
+        if suffix.is_empty() {
             return Carried::Account(Box::new(self));
-        };
+        }
         let carried_head = self.head.0;
+        let account = self.carry(suffix);
+        // A repair read from the suffix that names a seq at or below the
+        // carried head names an event this account has already applied.
+        // Marking it late now cannot undo that, so the only honest answer
+        // is a whole refold. An empty account has applied no prefix, so
+        // [`Account::whole`] never meets this arm.
+        let refold = account
+            .read
+            .as_ref()
+            .ok()
+            .and_then(|state| state.late_tail.as_ref())
+            .is_some_and(|tail| tail.first_seq <= carried_head);
+        if refold {
+            Carried::Refold
+        } else {
+            Carried::Account(Box::new(account))
+        }
+    }
+
+    /// [`Account::onto`]'s body: this account with `suffix` applied, the
+    /// events a repair names late never applied. The caller decides
+    /// whether a suffix repair that named a carried event means the
+    /// account may not be carried at all.
+    fn carry(mut self, suffix: &[EventEnvelope]) -> Account {
+        let Some(last) = suffix.last() else {
+            return self;
+        };
         self.read = match self.read {
             Err(FoldError::Empty) => fold(suffix),
             Err(refused) => Err(refused),
             Ok(state) => fold_onto(state, suffix),
         };
-        // A repair read from the suffix that names a seq at or below the
-        // carried head names an event this account has already applied.
-        // Marking it late now cannot undo that, so the only honest answer
-        // is a whole refold.
-        if self
-            .read
-            .as_ref()
-            .ok()
-            .and_then(|state| state.late_tail.as_ref())
-            .is_some_and(|tail| tail.first_seq <= carried_head)
-        {
-            return Carried::Refold;
-        }
         // A late event is kept in the journal and shown as the tail, never
         // applied by any scan that derives a figure from it (decision 0108
         // ruling 4): a late classify moves no ending, a late supersede
@@ -386,7 +386,7 @@ impl Account {
         }
         self.head = (last.seq, last.event_hash.clone());
         self.last_recorded_at = Some(last.recorded_at.clone());
-        Carried::Account(Box::new(self))
+        self
     }
 
     /// The run this account is of.

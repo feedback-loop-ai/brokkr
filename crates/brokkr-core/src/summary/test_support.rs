@@ -4,6 +4,21 @@
 use crate::envelope::{EventEnvelope, EventType};
 use crate::envelope_builder::EnvelopeBuilder;
 
+use super::{Account, Carried};
+
+impl Carried {
+    /// The carried account, for a test whose cut cannot meet a repair
+    /// naming a carried event. Production callers match [`Carried`]
+    /// instead, because the refold is theirs to do; `Account::whole`
+    /// never meets the signal, so it reads `Account::carry` directly.
+    pub(crate) fn account(self) -> Account {
+        match self {
+            Carried::Account(account) => *account,
+            Carried::Refold => panic!("the caller must refold the whole journal"),
+        }
+    }
+}
+
 /// The run's events at seq 1 onward, each stamped as its step names,
 /// sealed from their content.
 pub(crate) fn journal(steps: &[(EventType, serde_json::Value, &str)]) -> Vec<EventEnvelope> {

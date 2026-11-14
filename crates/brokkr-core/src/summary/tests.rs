@@ -532,11 +532,13 @@ fn a_late_classify_and_supersede_change_no_figure_the_summary_states() {
     assert!(after.late_tail.is_some(), "the tail is still shown");
 }
 
-/// The one guard `Account::whole` cannot reach: an empty account has
-/// applied no prefix, so `onto` never answers `Refold`. This test is the
-/// removal control for that invariant and covers the helper's arm.
+/// The test helper's guard: a cut these tests designed cannot meet a
+/// repair naming a carried event, so its `Refold` arm panics rather than
+/// handing back an account that is not the carried one. Production
+/// callers match [`Carried`] and refold whole; `Account::whole` reads the
+/// same body and never meets the signal.
 #[test]
 #[should_panic(expected = "the caller must refold the whole journal")]
-fn the_whole_account_helper_refuses_a_refold() {
+fn the_test_account_helper_refuses_a_refold() {
     let _ = Carried::Refold.account();
 }

@@ -1101,8 +1101,6 @@ pub mod brokkr_core::summary
 pub enum brokkr_core::summary::Carried
 pub brokkr_core::summary::Carried::Account(alloc::boxed::Box<brokkr_core::summary::Account>)
 pub brokkr_core::summary::Carried::Refold
-impl brokkr_core::summary::Carried
-pub fn brokkr_core::summary::Carried::account(self) -> brokkr_core::summary::Account
 pub struct brokkr_core::summary::Account
 impl brokkr_core::summary::Account
 pub fn brokkr_core::summary::Account::carried(self) -> brokkr_core::summary::Account
