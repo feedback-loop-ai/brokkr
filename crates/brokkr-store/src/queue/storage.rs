@@ -6,6 +6,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 
 use super::{CooldownDuplicate, EntryId, Latch, QueueRefusal, Wait};
 use crate::schema::{all_present, objects};
+use crate::seat_tree::sweep::{refuse_sweep_duplicates, TREE_SWEEP_INDEX, TREE_SWEEP_TABLE};
 use crate::seat_tree::{refuse_duplicates, SEAT_TREE_INDEX, SEAT_TREE_TABLE};
 use crate::StoreError;
 
@@ -60,8 +61,10 @@ pub(super) fn wait_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Wait> {
 /// `provider_cooldowns` table a rate-limited attempt's refused sites are
 /// recorded in (decision 0103 ruling 2(a), slice 4d1). Version 5 adds the
 /// `seat_trees` table a run-local seat scratch tree is recorded in before
-/// it is made (decision 0104 ruling 6, slice 5b).
-pub(crate) const QUEUE_SCHEMA: u32 = 5;
+/// it is made (decision 0104 ruling 6, slice 5b). Version 6 adds the
+/// `tree_sweeps` table a complete removal is recorded in (decision 0104
+/// ruling 8, slice 5c1).
+pub(crate) const QUEUE_SCHEMA: u32 = 6;
 
 /// The `meta` key a journal records [`QUEUE_SCHEMA`] under: one home for
 /// the spelling, read by this module and by a backup's missing-schema
@@ -84,6 +87,10 @@ pub(crate) const QUEUE_SCHEMA_V3: u32 = 3;
 /// is.
 pub(crate) const QUEUE_SCHEMA_V4: u32 = 4;
 
+/// The fifth, which held no tree sweeps: read and migrated as the fourth
+/// is.
+pub(crate) const QUEUE_SCHEMA_V5: u32 = 5;
+
 /// A queue storage version this brokkr reads, matched by version wherever
 /// what it holds differs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -93,6 +100,7 @@ pub(crate) enum Stored {
     V3,
     V4,
     V5,
+    V6,
 }
 
 impl Stored {
@@ -104,7 +112,8 @@ impl Stored {
             QUEUE_SCHEMA_V2 => Some(Stored::V2),
             QUEUE_SCHEMA_V3 => Some(Stored::V3),
             QUEUE_SCHEMA_V4 => Some(Stored::V4),
-            QUEUE_SCHEMA => Some(Stored::V5),
+            QUEUE_SCHEMA_V5 => Some(Stored::V5),
+            QUEUE_SCHEMA => Some(Stored::V6),
             _ => None,
         }
     }
@@ -116,7 +125,8 @@ impl Stored {
             Stored::V2 => 5,
             Stored::V3 => QUEUE_TABLES_V3,
             Stored::V4 => QUEUE_TABLES_V4,
-            Stored::V5 => QUEUE_TABLES.len(),
+            Stored::V5 => QUEUE_TABLES_V5,
+            Stored::V6 => QUEUE_TABLES.len(),
         }
     }
 }
@@ -355,9 +365,44 @@ CREATE TRIGGER IF NOT EXISTS seat_trees_append_only_delete
     BEGIN SELECT RAISE(ABORT, 'seat trees are append-only'); END;
 "#;
 
+/// Version 6's addition (decision 0104 ruling 8, slice 5c1): one append-only
+/// row per complete removal of a tree Brokkr made. A scratch row names the
+/// `seat_trees` row it closes; a hands row names no seat tree, because a
+/// hands tree belongs to a process and not to an effect. `bytes` is the
+/// space the walk freed, and NULL when the tree was gone before the pass;
+/// `removed_at` and `generation` are the integers the table records, the
+/// latter the dispatch hold the pass took, which every pass takes. The path
+/// is absolute and holds no NUL, as version 5's root is.
+const MIGRATION_QUEUE_V6: &str = r#"
+CREATE TABLE IF NOT EXISTS tree_sweeps (
+    seq INTEGER PRIMARY KEY,
+    kind TEXT NOT NULL CONSTRAINT sweep_kind_named
+        CHECK (kind IN ('scratch', 'hands')),
+    tree_seq INTEGER REFERENCES seat_trees(seq)
+        CONSTRAINT sweep_tree_matches_kind CHECK (
+            (kind = 'scratch' AND tree_seq IS NOT NULL)
+            OR (kind = 'hands' AND tree_seq IS NULL)),
+    path TEXT NOT NULL
+        CONSTRAINT sweep_path_absolute CHECK (substr(path, 1, 1) = '/')
+        CONSTRAINT sweep_path_has_no_nul CHECK (instr(CAST(path AS BLOB), x'00') = 0),
+    bytes INTEGER CONSTRAINT sweep_bytes_whole
+        CHECK (bytes IS NULL OR (typeof(bytes) = 'integer' AND bytes >= 0)),
+    removed_at INTEGER NOT NULL CONSTRAINT sweep_removed_is_seconds
+        CHECK (typeof(removed_at) = 'integer'),
+    generation INTEGER NOT NULL REFERENCES dispatch_holders(generation)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS tree_sweeps_once ON tree_sweeps (tree_seq);
+CREATE TRIGGER IF NOT EXISTS tree_sweeps_append_only_update
+    BEFORE UPDATE ON tree_sweeps
+    BEGIN SELECT RAISE(ABORT, 'tree sweeps are append-only'); END;
+CREATE TRIGGER IF NOT EXISTS tree_sweeps_append_only_delete
+    BEFORE DELETE ON tree_sweeps
+    BEGIN SELECT RAISE(ABORT, 'tree sweeps are append-only'); END;
+"#;
+
 /// The guards the migrations install, by name, so an open can ask
 /// whether a journal still carries every one.
-const QUEUE_TRIGGERS: [&str; 25] = [
+const QUEUE_TRIGGERS: [&str; 27] = [
     "queue_entries_fixed",
     "queue_entries_run_once",
     "queue_entries_kept",
@@ -383,6 +428,8 @@ const QUEUE_TRIGGERS: [&str; 25] = [
     "provider_cooldowns_append_only_delete",
     "seat_trees_append_only_update",
     "seat_trees_append_only_delete",
+    "tree_sweeps_append_only_update",
+    "tree_sweeps_append_only_delete",
 ];
 
 /// The version 4 table and the unique index on it, by name beyond the
@@ -395,13 +442,13 @@ const COOLDOWN_INDEX: &str = "provider_cooldowns_once";
 /// a journal still carries every one. A table's guards go with it when it
 /// is dropped, and so does its unique index, which no trigger can stand in
 /// for: without it two rows of one site and round both commit.
-const QUEUE_INDEXES: [&str; 2] = [COOLDOWN_INDEX, SEAT_TREE_INDEX];
+const QUEUE_INDEXES: [&str; 3] = [COOLDOWN_INDEX, SEAT_TREE_INDEX, TREE_SWEEP_INDEX];
 
 /// The queue's tables, in the order the migrations create them: version
 /// 1's three, then version 2's latches and pins, then version 3's claims,
 /// refusals, holders and settings, then version 4's provider cool-downs,
-/// then version 5's seat trees.
-const QUEUE_TABLES: [&str; 11] = [
+/// then version 5's seat trees, then version 6's tree sweeps.
+const QUEUE_TABLES: [&str; 12] = [
     "queue_entries",
     "queue_waits",
     "queue_commands",
@@ -413,6 +460,7 @@ const QUEUE_TABLES: [&str; 11] = [
     "dispatch_settings",
     COOLDOWN_TABLE,
     SEAT_TREE_TABLE,
+    TREE_SWEEP_TABLE,
 ];
 
 /// How many of [`QUEUE_TABLES`] version 3 held: all but the version 4 and
@@ -421,9 +469,13 @@ const QUEUE_TABLES: [&str; 11] = [
 /// may hold [`QUEUE_TABLES_UNHELD`] of them.
 const QUEUE_TABLES_V3: usize = 9;
 
-/// How many of [`QUEUE_TABLES`] version 4 held: all but the version 5
-/// table.
+/// How many of [`QUEUE_TABLES`] version 4 held: all but the version 5 and
+/// version 6 tables.
 const QUEUE_TABLES_V4: usize = 10;
+
+/// How many of [`QUEUE_TABLES`] version 5 held: all but the version 6
+/// table.
+const QUEUE_TABLES_V5: usize = 11;
 
 /// How many of [`QUEUE_TABLES`] version 3 held as slice 3a's build wrote
 /// it: all but the holders and the settings (decision 0095 slice 3b).
@@ -482,8 +534,9 @@ pub(crate) fn queue_intact(conn: &Connection) -> Result<bool, StoreError> {
 }
 
 /// Create the queue's tables and guards and record its version, on a
-/// connection already holding the write lock. A version 1, 2 or 3 queue
-/// is moved to this version; a version this binary does not know is not.
+/// connection already holding the write lock. A version 1, 2, 3, 4 or 5
+/// queue is moved to this version; a version this binary does not know is
+/// not.
 pub(crate) fn migrate_queue(conn: &Connection) -> Result<(), StoreError> {
     conn.execute_batch(MIGRATION_QUEUE_V1)?;
     conn.execute_batch(MIGRATION_QUEUE_V2)?;
@@ -492,18 +545,38 @@ pub(crate) fn migrate_queue(conn: &Connection) -> Result<(), StoreError> {
     conn.execute_batch(MIGRATION_QUEUE_V4)?;
     refuse_duplicates(conn)?;
     conn.execute_batch(MIGRATION_QUEUE_V5)?;
-    conn.execute(
-        "INSERT INTO meta (key, value) VALUES (?1, ?2)
-         ON CONFLICT (key) DO UPDATE SET value = excluded.value WHERE value IN (?3, ?4, ?5, ?6)",
-        params![
-            QUEUE_SCHEMA_KEY,
-            QUEUE_SCHEMA.to_string(),
-            QUEUE_SCHEMA_V1.to_string(),
-            QUEUE_SCHEMA_V2.to_string(),
-            QUEUE_SCHEMA_V3.to_string(),
-            QUEUE_SCHEMA_V4.to_string()
-        ],
-    )?;
+    refuse_sweep_duplicates(conn)?;
+    conn.execute_batch(MIGRATION_QUEUE_V6)?;
+    record_queue_version(conn)
+}
+
+/// The statement that records this binary's queue version, over every older
+/// version it replaces.
+const RECORD_QUEUE_VERSION: &str = "INSERT INTO meta (key, value) VALUES (?1, ?2)
+     ON CONFLICT (key) DO UPDATE SET value = excluded.value
+     WHERE value IN (?3, ?4, ?5, ?6, ?7)";
+
+/// Record [`QUEUE_SCHEMA`] over a version 1 to 5 queue, and leave any
+/// version this binary does not know as it was found.
+fn record_queue_version(conn: &Connection) -> Result<(), StoreError> {
+    let versions = [
+        QUEUE_SCHEMA_V1.to_string(),
+        QUEUE_SCHEMA_V2.to_string(),
+        QUEUE_SCHEMA_V3.to_string(),
+        QUEUE_SCHEMA_V4.to_string(),
+        QUEUE_SCHEMA_V5.to_string(),
+    ];
+    let current = QUEUE_SCHEMA.to_string();
+    let values: [&dyn rusqlite::ToSql; 7] = [
+        &QUEUE_SCHEMA_KEY,
+        &current,
+        &versions[0],
+        &versions[1],
+        &versions[2],
+        &versions[3],
+        &versions[4],
+    ];
+    conn.execute(RECORD_QUEUE_VERSION, values)?;
     Ok(())
 }
 
@@ -574,13 +647,13 @@ pub(crate) fn queue_stored(conn: &Connection) -> Result<Option<Stored>, StoreErr
 /// binary can say what it holds.
 pub(super) fn cool_downs_held(conn: &Connection) -> Result<bool, StoreError> {
     match queue_stored(conn)? {
-        Some(Stored::V4 | Stored::V5) => Ok(true),
+        Some(Stored::V4 | Stored::V5 | Stored::V6) => Ok(true),
         Some(Stored::V1 | Stored::V2 | Stored::V3) | None => Ok(false),
     }
 }
 
 /// Does the queue hold the cool-down table a rows-bearing append writes?
-/// Version 5 is the only one this binary writes. A version 1, 2 or 3
+/// Version 6 is the only one this binary writes. A version 1, 2 or 3
 /// queue is from before the table, a version 4 queue is older than this
 /// binary's version (and only an open that may write migrates it), no
 /// queue at all holds none, and a version this binary does not know is a

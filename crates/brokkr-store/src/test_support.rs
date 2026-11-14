@@ -11,6 +11,7 @@
 //! feature, which only dev-dependencies enable.
 
 use std::collections::BTreeSet;
+use std::path::Path;
 
 use brokkr_core::canonical::ZERO_HASH;
 use brokkr_core::envelope::{EventEnvelope, EventType};
@@ -199,6 +200,14 @@ pub fn plant_run(conn: &Connection, run_id: &str, manifest: &str) -> rusqlite::R
          VALUES (?1, 'feat', 'self', ?2, '2026-01-01T00:00:00Z')",
         params![run_id, manifest],
     )
+}
+
+/// A store whose journal holds `run` and nothing else, as the seat-tree
+/// tables' tests need a run for their foreign keys.
+pub fn seat_tree_store(dir: &Path, run: &str) -> Store {
+    let store = Store::open(&dir.join("forge.db")).unwrap();
+    plant_run(&store.conn, run, "{}").unwrap();
+    store
 }
 
 /// Plant an event row exactly as given — any seq SQLite will bind, any

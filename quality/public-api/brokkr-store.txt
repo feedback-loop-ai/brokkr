@@ -278,6 +278,14 @@ pub brokkr_store::SeatTreeRefusal::Mismatch
 pub brokkr_store::SeatTreeRefusal::Mismatch::attempt_id: alloc::string::String
 pub brokkr_store::SeatTreeRefusal::Mismatch::run_id: alloc::string::String
 pub brokkr_store::SeatTreeRefusal::RootUnnameable(std::path::PathBuf)
+pub brokkr_store::SeatTreeRefusal::SweepClosed
+pub brokkr_store::SeatTreeRefusal::SweepClosed::tree_seq: i64
+pub brokkr_store::SeatTreeRefusal::SweepDuplicate
+pub brokkr_store::SeatTreeRefusal::SweepDuplicate::tree_seq: i64
+pub brokkr_store::SeatTreeRefusal::SweepKind
+pub brokkr_store::SeatTreeRefusal::SweepKind::seq: i64
+pub brokkr_store::SeatTreeRefusal::SweepKind::word: alloc::string::String
+pub brokkr_store::SeatTreeRefusal::SweepUnnameable(std::path::PathBuf)
 pub enum brokkr_store::StartRefusal
 pub brokkr_store::StartRefusal::Compile
 pub brokkr_store::StartRefusal::Crossing
@@ -319,6 +327,12 @@ pub brokkr_store::StoreError::UnknownHead
 pub brokkr_store::StoreError::UnknownHead::seq: u64
 impl brokkr_store::StoreError
 pub fn brokkr_store::StoreError::is_contention(&self) -> bool
+pub enum brokkr_store::Swept
+pub brokkr_store::Swept::Hands
+pub brokkr_store::Swept::Scratch(i64)
+pub enum brokkr_store::TreeSweepRecord
+pub brokkr_store::TreeSweepRecord::Unrecorded
+pub brokkr_store::TreeSweepRecord::Written
 pub enum brokkr_store::VerifyError
 pub brokkr_store::VerifyError::Chain(brokkr_core::envelope::ChainError)
 pub brokkr_store::VerifyError::Fold(brokkr_core::fold::FoldError)
@@ -525,6 +539,10 @@ impl brokkr_store::Store
 pub fn brokkr_store::Store::open_kept(&self, &str) -> core::result::Result<(brokkr_store::Opened, alloc::vec::Vec<brokkr_core::envelope::EventEnvelope>), brokkr_store::StoreError>
 pub fn brokkr_store::Store::open_run(&self, &str) -> core::result::Result<brokkr_store::Opened, brokkr_store::StoreError>
 impl brokkr_store::Store
+pub fn brokkr_store::Store::open_seat_trees(&self) -> core::result::Result<alloc::vec::Vec<brokkr_store::SeatTree>, brokkr_store::StoreError>
+pub fn brokkr_store::Store::record_tree_sweep(&mut self, brokkr_store::Swept, &std::path::Path, core::option::Option<i64>, i64) -> core::result::Result<brokkr_store::TreeSweepRecord, brokkr_store::StoreError>
+pub fn brokkr_store::Store::tree_sweeps(&self) -> core::result::Result<alloc::vec::Vec<brokkr_store::TreeSweep>, brokkr_store::StoreError>
+impl brokkr_store::Store
 pub fn brokkr_store::Store::queue_add(&mut self, brokkr_store::NewEntry<'_>, brokkr_store::Attribution<'_>) -> core::result::Result<brokkr_store::EntryId, brokkr_store::StoreError>
 pub fn brokkr_store::Store::queue_command(&mut self, brokkr_store::EntryId, brokkr_store::QueueCommand, brokkr_store::Attribution<'_>) -> core::result::Result<(), brokkr_store::StoreError>
 pub fn brokkr_store::Store::queue_entry(&self, brokkr_store::EntryId) -> core::result::Result<brokkr_store::QueueEntry, brokkr_store::StoreError>
@@ -551,6 +569,13 @@ impl brokkr_store::Store
 pub fn brokkr_store::Store::window_fallbacks(&self, i64, i64, core::option::Option<&str>, impl core::ops::function::FnMut(&brokkr_store::metered::WindowFallback<'_>)) -> core::result::Result<(), brokkr_store::StoreError>
 pub fn brokkr_store::Store::window_sites(&self, i64, i64, core::option::Option<&str>, brokkr_store::metered::SiteOrder, impl core::ops::function::FnMut(&brokkr_store::metered::WindowSite<'_>)) -> core::result::Result<(), brokkr_store::StoreError>
 pub fn brokkr_store::Store::window_spends(&self, i64, i64, core::option::Option<&str>, impl core::ops::function::FnMut(&brokkr_store::metered::WindowSpend<'_>)) -> core::result::Result<(), brokkr_store::StoreError>
+pub struct brokkr_store::TreeSweep
+pub brokkr_store::TreeSweep::bytes: core::option::Option<i64>
+pub brokkr_store::TreeSweep::generation: i64
+pub brokkr_store::TreeSweep::kind: brokkr_store::Swept
+pub brokkr_store::TreeSweep::path: std::path::PathBuf
+pub brokkr_store::TreeSweep::removed_at: i64
+pub brokkr_store::TreeSweep::seq: i64
 pub struct brokkr_store::Unread
 pub brokkr_store::Unread::order_at: i64
 pub brokkr_store::Unread::run_id: alloc::string::String

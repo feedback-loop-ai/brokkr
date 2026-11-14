@@ -27,19 +27,20 @@
 //! keeps the tree and says why. A tree it would reap but cannot remove
 //! it keeps and says too (#620).
 
-use std::ffi::CStr;
 use std::fmt;
 use std::fs::File;
-use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
+use std::os::fd::{AsFd, BorrowedFd};
 use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
-use rustix::fs::{AtFlags, Dir, FileType, FlockOperation, Mode, OFlags};
+use rustix::fs::{FileType, FlockOperation, Mode, OFlags};
 use rustix::io::Errno;
 use rustix::process::Pid;
 use signal_hook::consts::{SIGHUP, SIGINT, SIGTERM};
 use signal_hook::iterator::Signals;
 use thiserror::Error;
+
+use crate::tree::{self, Counted, TreeError};
 
 const PREFIX: &str = "brokkr-hands-";
 /// What a session's tree is named before its lock is held: a prefix the
@@ -202,52 +203,31 @@ impl Drop for Session {
     }
 }
 
-/// Directory opens in a session's tree: never through a symlink.
-fn walk_flags() -> OFlags {
-    OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC
+/// Remove a session's tree whole, through the one removal walk (decision
+/// 0104 ruling 8): it makes every directory owner-writable before removing
+/// its entries, so overlayfs work directories need no separate unseal.
+fn remove_tree(tree: &Path) -> Result<Option<u64>, TreeError> {
+    tree::remove_tree(tree)
 }
 
-/// Remove a session's tree whole, its overlay work directories unsealed
-/// first: overlayfs makes each layer's `overlay/<n>/work/work` with no
-/// bit for its owner, and `remove_dir_all` cannot list it (#620).
-fn remove_tree(tree: &Path) -> std::io::Result<()> {
-    unseal_overlay_work(tree);
-    std::fs::remove_dir_all(tree)
-}
-
-/// Give the owner read, write and search on `overlay/`, each
-/// `overlay/<n>`, its `work` and that `work/work`, and on nothing else.
-/// The walk descends by descriptor, each opened no-follow from the one
-/// above, so it never leaves the tree; an entry that is not a directory,
-/// a symlink included, is neither changed nor entered. What it cannot
-/// reach it leaves to the removal, whose error says it.
-fn unseal_overlay_work(tree: &Path) -> Option<()> {
-    let tree = rustix::fs::open(tree, walk_flags(), Mode::empty()).ok()?;
-    let overlay = unsealed(tree.as_fd(), c"overlay")?;
-    for layer in Dir::read_from(&overlay).ok()?.flatten() {
-        let name = layer.file_name();
-        if matches!(name.to_bytes(), b"." | b"..") {
-            continue;
-        }
-        let _ = unsealed(overlay.as_fd(), name)
-            .and_then(|layer| unsealed(layer.as_fd(), c"work"))
-            .and_then(|work| unsealed(work.as_fd(), c"work"));
-    }
-    Some(())
-}
-
-/// The directory `name` in `dir`, set to 0700 and opened; none when it
-/// is not a directory or cannot be changed or opened. The type is read
-/// without following a symlink, and the open refuses one: under the
-/// accidental-misuse threat model (ruling of 2026-09-26) a dead owner's
-/// tree is not raced between the read and the change.
-fn unsealed(dir: BorrowedFd<'_>, name: &CStr) -> Option<OwnedFd> {
-    let stat = rustix::fs::statat(dir, name, AtFlags::SYMLINK_NOFOLLOW).ok()?;
-    if FileType::from_raw_mode(stat.st_mode) != FileType::Directory {
-        return None;
-    }
-    rustix::fs::chmodat(dir, name, Mode::RWXU, AtFlags::empty()).ok()?;
-    rustix::fs::openat(dir, name, walk_flags(), Mode::empty()).ok()
+/// The trees under `tmp` the reaper reads: a dead owner's, or one holding
+/// no lock file whatever its pid answers. What each probe says decides.
+fn candidates(tmp: &Path) -> Vec<(PathBuf, bool)> {
+    std::fs::read_dir(tmp)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
+        .map(|entry| entry.path())
+        .filter_map(|tree| {
+            let pid = owner_pid(tree.file_name()?.to_str()?)?;
+            let dead = !alive(pid);
+            // A lockless tree is read whatever its pid answers: the pid
+            // may be reused here or be a foreign namespace's, and the
+            // tree is kept and said, never reaped.
+            (dead || lockless(&tree)).then_some((tree, dead))
+        })
+        .collect()
 }
 
 /// Why a reaped tree was removed, as the start prints it.
@@ -259,11 +239,25 @@ const REAPED_BECAUSE: &str = "its owner is dead and holds no lock";
 /// is journaled.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Reaped {
-    removed: Vec<PathBuf>,
+    removed: Vec<(PathBuf, u64)>,
     kept: Vec<(PathBuf, Kept)>,
 }
 
 impl Reaped {
+    /// The trees this reaping removed, each with the bytes it freed.
+    pub fn removed(&self) -> impl Iterator<Item = (&Path, u64)> {
+        self.removed
+            .iter()
+            .map(|(tree, bytes)| (tree.as_path(), *bytes))
+    }
+
+    /// The trees this reaping kept, each with the reason it was kept.
+    pub fn kept(&self) -> impl Iterator<Item = (&Path, String)> {
+        self.kept
+            .iter()
+            .map(|(tree, why)| (tree.as_path(), why.to_string()))
+    }
+
     /// The reaping said on lines, one per tree, each tree's path through
     /// `safe` before the lines are joined: the one derivation of the
     /// line. `Display` paints it with the identity, and the start's
@@ -272,7 +266,7 @@ impl Reaped {
     /// renderer's own separators remain (#468).
     pub fn lines_with(&self, safe: fn(&str) -> String) -> String {
         let mut said = String::new();
-        for tree in &self.removed {
+        for (tree, _) in &self.removed {
             let tree = safe(&tree.display().to_string());
             said.push_str(&format!("hands: reaped {tree}: {REAPED_BECAUSE}\n"));
         }
@@ -290,6 +284,40 @@ impl fmt::Display for Reaped {
     }
 }
 
+/// One tree a listing read: the tree, and what a removal would free. A
+/// `Some` count whose `unreadable` names a path is a lower bound; `None`
+/// names a tree gone before the count; an `Err` is the walk's refusal.
+/// Nothing is dropped.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Listed {
+    pub tree: PathBuf,
+    pub count: Result<Option<Counted>, TreeError>,
+}
+
+impl Listed {
+    /// The listing's line, every named path through `safe` before it is
+    /// joined: a seat can write a control byte into a directory's name
+    /// inside a dead tree.
+    pub fn line_with(&self, safe: fn(&str) -> String) -> String {
+        let tree = safe(&self.tree.display().to_string());
+        match &self.count {
+            Ok(Some(counted)) => match &counted.unreadable {
+                Some(path) => format!(
+                    "hands: listed {tree}: at least {} bytes; it cannot read {}\n",
+                    counted.bytes,
+                    safe(&path.display().to_string())
+                ),
+                None => format!("hands: listed {tree}: {} bytes\n", counted.bytes),
+            },
+            Ok(None) => format!("hands: listed {tree}: it was gone before the count\n"),
+            Err(error) => format!(
+                "hands: listed {tree}: the count failed: {}\n",
+                error.cause()
+            ),
+        }
+    }
+}
+
 /// Why a dead owner's tree was kept.
 #[derive(Debug, Error, PartialEq, Eq)]
 enum Kept {
@@ -299,20 +327,13 @@ enum Kept {
     Unremovable(Unremovable),
 }
 
-/// The error a tree's removal met, as `std::io::Error` prints it.
-#[derive(Debug, Error)]
-#[error(transparent)]
-struct Unremovable(std::io::Error);
-
-/// `std::io::Error` has no equality: two are one when their kind and
-/// errno are.
-impl PartialEq for Unremovable {
-    fn eq(&self, other: &Unremovable) -> bool {
-        (self.0.kind(), self.0.raw_os_error()) == (other.0.kind(), other.0.raw_os_error())
-    }
-}
-
-impl Eq for Unremovable {}
+/// The error a tree's removal met, as the walk names it: the cause alone.
+/// The kept line already names the tree through `safe`, so the reason never
+/// carries a second path, which a seat could have written inside the dead
+/// tree with a control byte in it.
+#[derive(Debug, Error, PartialEq, Eq)]
+#[error("{}", .0.cause())]
+struct Unremovable(TreeError);
 
 /// Why the reaper could not tell whether a tree's lock is held.
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -343,27 +364,34 @@ pub fn reap_dead_sessions() -> Reaped {
     reap_dead_sessions_in(&std::env::temp_dir(), flock)
 }
 
+/// The trees the reaping would remove under `tmp`, in the directory's order.
+/// Nothing is removed. A tree whose count failed is listed with the walk's
+/// refusal, and one gone before the count is listed as gone; neither is
+/// dropped, and a count that met an unreadable directory names its lower
+/// bound and that directory.
+pub fn list_reapable_under(tmp: &Path) -> Vec<Listed> {
+    list_reapable_in(tmp, flock)
+}
+
+fn list_reapable_in(tmp: &Path, lock: Flock) -> Vec<Listed> {
+    candidates(tmp)
+        .into_iter()
+        .filter(|(tree, dead)| reapable(&probe(tree, lock), *dead))
+        .map(|(tree, _)| Listed {
+            count: tree::count_tree(&tree),
+            tree,
+        })
+        .collect()
+}
+
 fn reap_dead_sessions_in(tmp: &Path, lock: Flock) -> Reaped {
     let mut reaped = Reaped::default();
-    let trees = std::fs::read_dir(tmp)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
-        .map(|entry| entry.path())
-        .filter_map(|tree| {
-            let pid = owner_pid(tree.file_name()?.to_str()?)?;
-            let dead = !alive(pid);
-            // A lockless tree is read whatever its pid answers: the pid
-            // may be reused here or be a foreign namespace's, and the
-            // tree is kept and said, never reaped.
-            (dead || lockless(&tree)).then_some((tree, dead))
-        });
-    for (tree, dead) in trees {
+    for (tree, dead) in candidates(tmp) {
         match probe(&tree, lock) {
             Probe::Unprobed(why) => reaped.kept.push((tree, Kept::Unprobed(why))),
             answered if reapable(&answered, dead) => match remove_tree(&tree) {
-                Ok(()) => reaped.removed.push(tree),
+                Ok(Some(bytes)) => reaped.removed.push((tree, bytes)),
+                Ok(None) => {}
                 Err(error) => reaped
                     .kept
                     .push((tree, Kept::Unremovable(Unremovable(error)))),

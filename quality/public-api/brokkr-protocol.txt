@@ -486,9 +486,16 @@ pub brokkr_protocol::hands::HandsSpec::network: bool
 impl brokkr_protocol::hands::HandsSpec
 pub fn brokkr_protocol::hands::HandsSpec::parse(&serde_json::value::Value) -> core::result::Result<brokkr_protocol::hands::HandsSpec, alloc::string::String>
 pub fn brokkr_protocol::hands::HandsSpec::to_value(&self) -> serde_json::value::Value
+pub struct brokkr_protocol::hands::Listed
+pub brokkr_protocol::hands::Listed::count: core::result::Result<core::option::Option<brokkr_protocol::tree::Counted>, brokkr_protocol::tree::TreeError>
+pub brokkr_protocol::hands::Listed::tree: std::path::PathBuf
+impl brokkr_protocol::hands::Listed
+pub fn brokkr_protocol::hands::Listed::line_with(&self, fn(&str) -> alloc::string::String) -> alloc::string::String
 pub struct brokkr_protocol::hands::Reaped
 impl brokkr_protocol::hands::Reaped
+pub fn brokkr_protocol::hands::Reaped::kept(&self) -> impl core::iter::traits::iterator::Iterator<Item = (&std::path::Path, alloc::string::String)>
 pub fn brokkr_protocol::hands::Reaped::lines_with(&self, fn(&str) -> alloc::string::String) -> alloc::string::String
+pub fn brokkr_protocol::hands::Reaped::removed(&self) -> impl core::iter::traits::iterator::Iterator<Item = (&std::path::Path, u64)>
 impl core::fmt::Display for brokkr_protocol::hands::Reaped
 pub fn brokkr_protocol::hands::Reaped::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct brokkr_protocol::hands::Sealed
@@ -548,6 +555,7 @@ pub fn brokkr_protocol::hands::handle(&str, &std::path::Path, &std::path::Path, 
 pub fn brokkr_protocol::hands::home_dir(&alloc::collections::btree::map::BTreeMap<alloc::string::String, alloc::string::String>) -> std::path::PathBuf
 pub fn brokkr_protocol::hands::ids() -> (u32, u32)
 pub fn brokkr_protocol::hands::io_context<T>(core::io::error::Result<T>, &str) -> core::result::Result<T, alloc::string::String>
+pub fn brokkr_protocol::hands::list_reapable_under(&std::path::Path) -> alloc::vec::Vec<brokkr_protocol::hands::Listed>
 pub fn brokkr_protocol::hands::mcp_config(&std::path::Path, &std::path::Path, &std::path::Path, &brokkr_protocol::hands::Sealed, &brokkr_protocol::hands::HandsSpec) -> serde_json::value::Value
 pub fn brokkr_protocol::hands::namespace_join(&str, &std::path::Path) -> alloc::string::String
 pub fn brokkr_protocol::hands::network_prefix(u32, u32) -> alloc::vec::Vec<alloc::string::String>
@@ -1121,6 +1129,23 @@ pub fn brokkr_protocol::secret::valid_name(&str) -> bool
 pub fn brokkr_protocol::secret::validate_name(&str) -> core::result::Result<(), alloc::string::String>
 pub fn brokkr_protocol::secret::validate_value(&str) -> core::result::Result<core::option::Option<alloc::string::String>, alloc::string::String>
 pub type brokkr_protocol::secret::Encoder = fn(&[u8]) -> alloc::vec::Vec<u8>
+pub mod brokkr_protocol::tree
+pub enum brokkr_protocol::tree::TreeError
+pub brokkr_protocol::tree::TreeError::Foreign
+pub brokkr_protocol::tree::TreeError::Foreign::device: u64
+pub brokkr_protocol::tree::TreeError::Foreign::path: std::path::PathBuf
+pub brokkr_protocol::tree::TreeError::Foreign::tree: u64
+pub brokkr_protocol::tree::TreeError::Io
+pub brokkr_protocol::tree::TreeError::Io::cause: core::io::error::Error
+pub brokkr_protocol::tree::TreeError::Io::path: std::path::PathBuf
+impl core::cmp::Eq for brokkr_protocol::tree::TreeError
+impl core::cmp::PartialEq for brokkr_protocol::tree::TreeError
+pub fn brokkr_protocol::tree::TreeError::eq(&self, &brokkr_protocol::tree::TreeError) -> bool
+pub struct brokkr_protocol::tree::Counted
+pub brokkr_protocol::tree::Counted::bytes: u64
+pub brokkr_protocol::tree::Counted::unreadable: core::option::Option<std::path::PathBuf>
+pub fn brokkr_protocol::tree::count_tree(&std::path::Path) -> core::result::Result<core::option::Option<brokkr_protocol::tree::Counted>, brokkr_protocol::tree::TreeError>
+pub fn brokkr_protocol::tree::remove_tree(&std::path::Path) -> core::result::Result<core::option::Option<u64>, brokkr_protocol::tree::TreeError>
 pub mod brokkr_protocol::zstd
 pub enum brokkr_protocol::zstd::Refused
 pub brokkr_protocol::zstd::Refused::Mismatch(u32)

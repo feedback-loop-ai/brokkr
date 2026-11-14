@@ -4,10 +4,11 @@
 //! the attempt's id; the row is the authority the later sweep reads, and a
 //! tree no row names is never removed.
 //!
-//! A version 1, 2, 3 or 4 queue holds no table. A queue this binary does
-//! not write here — older and opened read-only, or newer than this binary
-//! knows — is left as found: the append writes nothing and says so, as a
-//! cool-down append leaves an older or newer queue alone.
+//! A version 1, 2, 3 or 4 queue holds no table, and a version 5 queue holds
+//! `seat_trees` without its sweeps. A queue this binary does not write here
+//! — older and opened read-only, or newer than this binary knows — is left
+//! as found: the append writes nothing and says so, as a cool-down append
+//! leaves an older or newer queue alone.
 
 use std::path::{Path, PathBuf};
 
@@ -17,6 +18,10 @@ use thiserror::Error;
 use crate::queue::storage::{queue_schema, queue_stored, Stored, QUEUE_SCHEMA};
 use crate::schema::objects;
 use crate::{patiently, Store, StoreError};
+
+pub(crate) mod sweep;
+
+pub use sweep::{Swept, TreeSweep, TreeSweepRecord};
 
 /// The version 5 table, by name: the intact check asks for it, its unique
 /// index is repaired by it, and a lost index over rows that already hold a
@@ -75,6 +80,25 @@ pub enum SeatTreeRefusal {
     /// A root path SQLite cannot hold as text.
     #[error("the seat tree root '{}' is not UTF-8, so the journal cannot name it", .0.display())]
     RootUnnameable(PathBuf),
+    /// A second sweep for one seat tree: its removal is already recorded.
+    #[error(
+        "seat tree {tree_seq} already has a complete removal recorded; this one was not recorded"
+    )]
+    SweepClosed { tree_seq: i64 },
+    /// The lost unique index cannot be rebuilt over rows that already hold a
+    /// duplicate of its key.
+    #[error(
+        "the journal's tree sweeps hold seat tree {tree_seq} more than once; the lost unique \
+         index is not rebuilt over them"
+    )]
+    SweepDuplicate { tree_seq: i64 },
+    /// A swept path SQLite cannot hold as text.
+    #[error("the swept path '{}' is not UTF-8, so the journal cannot name it", .0.display())]
+    SweepUnnameable(PathBuf),
+    /// A sweep row's kind is not one the closed set holds, which the table's
+    /// own `CHECK` makes impossible.
+    #[error("tree sweep {seq} records kind '{word}', which is neither 'scratch' nor 'hands'")]
+    SweepKind { seq: i64, word: String },
 }
 
 impl Store {
@@ -112,7 +136,7 @@ impl Store {
 
     fn seat_trees_once(&self, run_id: &str) -> Result<Vec<SeatTree>, StoreError> {
         match queue_stored(&self.conn)? {
-            Some(Stored::V5) => read_trees(&self.conn, run_id),
+            Some(Stored::V5 | Stored::V6) => read_trees(&self.conn, run_id),
             Some(Stored::V1 | Stored::V2 | Stored::V3 | Stored::V4) | None => Ok(Vec::new()),
         }
     }
@@ -167,18 +191,21 @@ const READ_TREES: &str = "SELECT seq, run_id, effect_id, attempt_id, root, recor
 /// call stays on one line: the exact-coverage gate reads a multi-line
 /// call's lone `)?;` as an error arm of its own.
 fn read_trees(conn: &Connection, run_id: &str) -> Result<Vec<SeatTree>, StoreError> {
-    let mut rows = conn.prepare(READ_TREES)?;
-    let trees = rows.query_map([run_id], |row| {
-        Ok(SeatTree {
-            seq: row.get(0)?,
-            run_id: row.get(1)?,
-            effect_id: row.get(2)?,
-            attempt_id: row.get(3)?,
-            root: PathBuf::from(row.get::<_, String>(4)?),
-            recorded_at: row.get(5)?,
-        })
-    })?;
-    Ok(trees.collect::<Result<_, _>>()?)
+    let mut statement = conn.prepare(READ_TREES)?;
+    let rows = statement.query_map([run_id], seat_tree_row)?;
+    Ok(rows.collect::<Result<_, _>>()?)
+}
+
+/// One `seat_trees` row, as every reader of the table maps it.
+fn seat_tree_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SeatTree> {
+    Ok(SeatTree {
+        seq: row.get(0)?,
+        run_id: row.get(1)?,
+        effect_id: row.get(2)?,
+        attempt_id: row.get(3)?,
+        root: PathBuf::from(row.get::<_, String>(4)?),
+        recorded_at: row.get(5)?,
+    })
 }
 
 /// Refuse to rebuild [`SEAT_TREE_INDEX`] over rows that already hold a

@@ -19,6 +19,7 @@ pub mod process;
 pub mod secret;
 mod served_home;
 mod transcript;
+pub mod tree;
 pub mod zstd;
 
 use serde::{Deserialize, Serialize};
