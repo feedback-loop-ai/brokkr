@@ -960,29 +960,44 @@ be acknowledged again.
 
 The release itself is the broker's proof, not the run's fold: a new dispatch
 admits once the run's lock is free and every attempt the broker's own
-reservation names is proven ended — each driver sealed Settled, or that
-driver's own recorded process group gone from the host. Where a driver is
-not sealed and its group cannot be asked, `brokkr operator settle --run <id>
---reason <why>` re-checks the same facts and journals what it proved,
-refusing and writing nothing while a lock holder, a live process group or an
-unproven attempt still stands. A reservation written before this release
-records its drivers but no group (0.13.x; 0.12.0 wrote no reservation at
-all), so `settle` cannot prove one of its drivers: repair the run first, then
-`brokkr operator release --run <id> --reason <why>`, the operator's
-attestation that every process those attempts owned has ended. `release`
-asks the host no process question — that is what the attestation is for —
-so it is the route only after the operator has looked. It is also the route
-where the host shows a recorded group id still alive because an unrelated
-process now reuses it: no proof can tell them apart, so the worktree stays
-held until the operator attests.
+reservation names is proven ended by the broker's settlement records — each
+driver sealed Settled. A driver the records do not prove settled is not the
+records' proof: where its own recorded process group is gone from the host,
+`brokkr operator settle --run <id> --reason <why>` re-checks that fact and
+journals it, and the next dispatch admits. `settle` refuses and writes
+nothing while a lock holder, a live process group or an unproven attempt
+still stands. A group recorded for a driver already sealed Settled is not
+asked: the seal is the settlement proof, and a reused group id names an
+unrelated process, so it does not hold the worktree.
 
-A shape (B) journal from an older engine, such as 0.12.0's stop after a
-conclusion, is recovered the same way on a copy opened with this release:
-acknowledge, repair, then the proof, `settle`, or `release` as above, and
-never a hand edit. The copy must sit at the path the reservation names for
-its journal, because that is the journal the proof and the record both read;
-a journal under the worktree itself refuses fail-closed, since a writer of
-the run could reach it.
+A reservation written before this release records its drivers but no group
+(v0.13.0's shape), so `settle` cannot prove one of its drivers: repair the
+run first, then `brokkr operator release --run <id> --reason <why>`, the
+operator's attestation that every process those attempts owned has ended.
+Release refuses an attempt that ended a success or a failure, and one with
+no journaled ending; it is the route only where the attempt ended
+indeterminate. It asks the host no process question — that is what the
+attestation is for — so look at the process group a refusal names, and
+confirm it has ended, before attesting. An unsettled driver whose recorded
+group id is still alive is held until that attestation; one whose attempt
+ended a success or a failure has no route here, which is an operator ask.
+
+A shape (B) journal from an older engine, such as the stop after a
+conclusion in decision 0108's context, is recovered on a copy opened with
+this release: acknowledge, repair, then the proof, `settle`, or `release` as
+above, and never a hand edit. The copy must sit at the path the reservation
+names for its journal, because that is the journal the proof and the record
+both read; a journal under the worktree itself refuses fail-closed, since a
+writer of the run could reach it. The tag v0.12.0 wrote no reservation at
+all. A workspace whose binary reported 0.12.0 was built from main between
+#745 (2026-10-18) and the 0.13.0 version bump (2026-11-02), and its
+reservation's shape depends on the commit: before b8e2caff8 (2026-10-25) a
+boxed writer's sealed reach has no `store`, so this build reads the record
+only through the view and both `settle` and, after a repair, `release`
+refuse "unknown participant" — that shape has no route here, and naming the
+commit its binary was built at is the operator's ask. From b8e2caff8 through
+v0.13.0 the record reads whole, with drivers and no group, and the repair
+then release route holds where the attempt ended indeterminate.
 
 ### Gate entries on a run
 

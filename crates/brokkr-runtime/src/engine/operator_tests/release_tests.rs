@@ -13,7 +13,7 @@ use brokkr_protocol::Cleanup;
 
 use super::*;
 use crate::engine::broker::admission::tests::{
-    conflicting, in_flight, unstaked_lease, Coordinated,
+    conflicting, in_flight, isolated, unstaked_lease, Coordinated, LiveGroup,
 };
 use crate::engine::broker::admission::{Conflict, Unadmitted, Unknown};
 use crate::engine::broker::settlement::{ended, spawning, Refused, Unreleased};
@@ -41,11 +41,20 @@ impl Killed {
     /// barrier where `settled`; then the engine gone, its lease neither
     /// settled nor released.
     fn new(settled: bool) -> Killed {
+        Killed::with_group(settled, None)
+    }
+
+    /// [`Killed::new`], its driver's own process group recorded before the
+    /// engine goes: what a release meets where the group still runs.
+    fn with_group(settled: bool, group: Option<u32>) -> Killed {
         let (dir, mut engine) = engine(single_body(Vec::new()));
         let (home, at) = unstaked_lease(&mut engine, ATTEMPT);
         in_flight(&mut engine, ATTEMPT);
         let held = engine.held.as_ref().unwrap();
         assert_eq!(spawning(held, "work", None), Ok(()));
+        if let Some(group) = group {
+            crate::engine::broker::settlement::release::spawned(held, "work", group);
+        }
         if settled {
             ended(&mut engine.held, "work", &Cleanup::Settled);
         }
@@ -196,6 +205,42 @@ fn the_operators_release_lets_a_conflicting_run_admit_and_moves_nothing() {
         assert_eq!(killed.reservation(), released, "{concluded}");
         assert_eq!(killed.conflicting(), Ok(()), "{concluded}");
     }
+}
+
+/// `operator release` is the operator's attestation and asks the host no
+/// process question: a driver's own recorded group still alive keeps the
+/// automatic proof and `settle` refusing, and the release — after the
+/// operator has looked — is the route that ends the attempt
+/// indeterminate. The guide tells the operator to check the group the
+/// refusal named before attesting (L-1).
+#[test]
+fn a_release_attests_over_a_live_recorded_group() {
+    if !isolated(
+        "engine::operator_tests::release_tests::a_release_attests_over_a_live_recorded_group",
+    ) {
+        return;
+    }
+    let live = LiveGroup::new();
+    let mut killed = Killed::with_group(false, Some(live.group()));
+    killed.concluded();
+    assert_eq!(
+        killed.conflicting(),
+        killed.held(),
+        "the recorded group still runs, so the automatic proof holds the worktree"
+    );
+    killed
+        .released()
+        .expect("the operator attests the process ended");
+    assert_eq!(
+        killed.reservation(),
+        (Vec::<String>::new(), json!([ATTEMPT])),
+        "the released attempt is settled, its group no longer consulted"
+    );
+    assert_eq!(
+        killed.conflicting(),
+        Ok(()),
+        "the operator's attestation releases the worktree"
+    );
 }
 
 /// U8e3's refusals, each by its own cause, nothing journaled and nothing

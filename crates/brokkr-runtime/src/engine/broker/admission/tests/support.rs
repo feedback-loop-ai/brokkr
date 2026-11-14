@@ -11,8 +11,22 @@ use brokkr_store::Store;
 use serde_json::json;
 
 use super::{boxed, claim, Coordinated, Host};
-use crate::engine::broker::admission::{Held, Protects, Witnessed};
+use crate::engine::broker::admission::{Held, Protects, Reservation, Witnessed};
 use crate::engine::broker::settlement::Driver;
+
+impl Host {
+    /// The driver records `run` of `worktree` holds, in spawn order: each
+    /// one's site, cleanup and own process group, as the dispatch door wrote
+    /// them.
+    pub(in crate::engine::broker) fn drivers(&self, worktree: &Path, run: &str) -> Vec<Driver> {
+        let bytes = std::fs::read(self.reservation(worktree, run)).unwrap();
+        let held: Reservation = serde_json::from_slice(&bytes).unwrap();
+        held.attempts
+            .into_values()
+            .flat_map(|reserved| reserved.drivers)
+            .collect()
+    }
+}
 
 /// Whether the live-group test `test` may run here: it runs alone in its
 /// own engine, so a sibling test's attempt tracker cannot take the child

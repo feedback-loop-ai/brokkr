@@ -102,7 +102,8 @@ pub(in crate::engine) enum Live {
 pub(in crate::engine) enum Unproven {
     #[error(
         "its driver records are not sealed Settled, and it recorded no process group to ask the \
-         host about; repair the run, then `brokkr operator release` is the operator's route"
+         host about; repair the run, then `brokkr operator release` is the operator's route where \
+         the attempt's journaled ending is indeterminate"
     )]
     NoGroup,
     #[error("its cleanup was witnessed unresolved, and it recorded no process group")]
@@ -140,49 +141,56 @@ pub(in crate::engine::broker) fn alive(group: u32) -> bool {
 /// `attempt` of `reserved`: `Records` when every driver it spawned is
 /// sealed Settled (or it spawned none), otherwise `Group` once the host
 /// shows every driver not sealed Settled gone. A live group refused first,
-/// wherever it is recorded, and a driver with no recorded group refuses by
-/// name: the host is asked about *each* driver, never about one group
-/// standing in for all of them (decision 0108 ruling 3).
+/// and a driver with no recorded group refuses by name: the host is asked
+/// about *each* driver, never about one group standing in for all of them
+/// (decision 0108 ruling 3).
+///
+/// Only a driver the records do not prove is asked about. A group recorded
+/// for a driver sealed Settled is not a writer: the seal is the settlement
+/// proof, and the kernel may since have reused that group id for an
+/// unrelated process, which no host question could tell apart (F9's
+/// correction). Asking it would keep the worktree held with no route.
 ///
 /// An empty driver list is the fact that none spawned only for a record
-/// written by #822 or later, first released in 0.13.0: an unreleased build
-/// between #745 and #822 could write an empty list after spawning, so its
-/// empty list would not prove that on its own. No released version wrote
-/// that shape, and the limit is stated here rather than guessed away
-/// (decision 0089 ruling 9).
+/// written by #822 or later. A main build that still reported version
+/// 0.12.0 could write that shape between #745 and #822, when it spawned
+/// without listing; its empty list does not prove none spawned. What keeps
+/// that closed is not the release of a version: such a build's boxed
+/// reservation has no `sealed.store` (before b8e2caff8, 2026-10-25), so it
+/// reads only through the view and its unsettled attempt holds; an
+/// unbounded writer's journal is reachable, so the guarded read refuses.
+/// Both facts are pinned by
+/// `an_old_boxed_reservation_without_store_is_read_through_the_view` and
+/// `a_journal_a_writer_could_reach_proves_nothing`; the limit is stated
+/// here rather than guessed away (decision 0089 ruling 9).
 pub(in crate::engine::broker) fn proven(reserved: &Reserved, attempt: &str) -> Result<Proof, Live> {
-    let mut live = reserved
-        .group
-        .into_iter()
-        .chain(reserved.drivers.iter().filter_map(|driver| driver.group));
-    if let Some(group) = live.find(|group| alive(*group)) {
+    let groups = unsettled_groups(reserved);
+    if let Some(group) = groups.iter().flatten().copied().find(|group| alive(*group)) {
         return Err(Live::Group {
             attempt: attempt.to_string(),
             group,
         });
     }
     if reserved.drivers.is_empty() {
+        // No driver was listed. For a #822-or-later record that is none
+        // spawned; an older record's view or reachable journal refuses
+        // before this arm is reached (see above).
         return match reserved.cleanup {
             Witnessed::Unresolved => Err(unproven(attempt, Unproven::Unresolved)),
             Witnessed::Settling | Witnessed::Settled => Ok(Proof::Records),
         };
     }
-    let mut host = false;
-    let unsettled = reserved.drivers.iter().filter(|driver| !settled(driver));
-    for driver in unsettled {
-        host = true;
-        if effective_group(reserved, driver).is_none() {
-            let why = match reserved.cleanup {
-                Witnessed::Unresolved => Unproven::Unresolved,
-                Witnessed::Settling | Witnessed::Settled => Unproven::NoGroup,
-            };
-            return Err(unproven(attempt, why));
-        }
-    }
-    match (host, reserved.cleanup) {
-        (true, _) => Ok(Proof::Group),
-        (false, Witnessed::Unresolved) => Err(unproven(attempt, Unproven::Unresolved)),
-        (false, Witnessed::Settling | Witnessed::Settled) => Ok(Proof::Records),
+    let Some(groups) = groups else {
+        let why = match reserved.cleanup {
+            Witnessed::Unresolved => Unproven::Unresolved,
+            Witnessed::Settling | Witnessed::Settled => Unproven::NoGroup,
+        };
+        return Err(unproven(attempt, why));
+    };
+    match (groups.is_empty(), reserved.cleanup) {
+        (_, Witnessed::Unresolved) => Err(unproven(attempt, Unproven::Unresolved)),
+        (true, Witnessed::Settling | Witnessed::Settled) => Ok(Proof::Records),
+        (false, Witnessed::Settling | Witnessed::Settled) => Ok(Proof::Group),
     }
 }
 
@@ -216,8 +224,12 @@ fn effective_group(
 
 /// The groups of every driver `reserved` does not seal Settled, in spawn
 /// order; none where one of them recorded no group, for no host question
-/// can prove that driver.
+/// can prove that driver. A record with no driver list and 440d's single
+/// slot names that slot, the only group it can ask about.
 fn unsettled_groups(reserved: &Reserved) -> Option<Vec<u32>> {
+    if reserved.drivers.is_empty() {
+        return Some(reserved.group.into_iter().collect());
+    }
     reserved
         .drivers
         .iter()
@@ -229,6 +241,9 @@ fn unsettled_groups(reserved: &Reserved) -> Option<Vec<u32>> {
 /// Every process group `reserved` records on any of its drivers, one set
 /// for the exclusion's "the record names a group the broker recorded" check.
 fn recorded_groups(reserved: &Reserved) -> BTreeSet<u32> {
+    if reserved.drivers.is_empty() {
+        return reserved.group.into_iter().collect();
+    }
     reserved
         .drivers
         .iter()
@@ -410,18 +425,19 @@ pub(in crate::engine) fn repaired(events: &[EventEnvelope]) -> bool {
 /// erratum, read through the same [`terminal_seq`] as [`repaired`]).
 pub(in crate::engine) fn record(events: &[EventEnvelope]) -> Option<Settled> {
     let terminal = terminal_seq(events)?;
-    events.iter().rev().find_map(|event| {
+    let last = events.iter().rev().find(|event| {
         let after = event.seq > terminal;
         let commanded = event.event_type == EventType::OperatorCommanded;
         let settled = event.payload.get("command").and_then(Value::as_str) == Some(SETTLE);
-        (after & commanded & settled)
-            .then(|| event.payload.get("args"))
-            .flatten()
-            .and_then(|args| serde_json::from_value(args.clone()).ok())
-            .map(|args| Settled {
-                seq: event.seq,
-                args,
-            })
+        after & commanded & settled
+    })?;
+    let args = last
+        .payload
+        .get("args")
+        .and_then(|args| serde_json::from_value(args.clone()).ok())?;
+    Some(Settled {
+        seq: last.seq,
+        args,
     })
 }
 
@@ -456,26 +472,12 @@ pub(in crate::engine::broker) fn honoured(standing: &Standing, settled: &Settled
         .attempts
         .iter()
         .flat_map(|proven| &proven.groups)
-        .any(|group| alive(*group))
-        | standing.whole.as_ref().is_some_and(reservation_alive);
+        .any(|group| alive(*group));
     let supported = names
         .attempts
         .iter()
         .all(|proven| supports(standing, proven));
     ours & known & covered & !living & supported
-}
-
-/// Whether any process group `reservation` records still has a member on
-/// this host: a live recorded group keeps the worktree held whatever the
-/// settle record says (decision 0108 ruling 3).
-fn reservation_alive(reservation: &Reservation) -> bool {
-    reservation.attempts.values().any(|reserved| {
-        let mut recorded = reserved
-            .group
-            .into_iter()
-            .chain(reserved.drivers.iter().filter_map(|driver| driver.group));
-        recorded.find(|group| alive(*group)).is_some()
-    })
 }
 
 /// Whether `proven`'s proof for its attempt is one `standing`'s record and

@@ -17,6 +17,20 @@ use crate::engine::broker::admission::{Conflict, Unadmitted, Witnessed};
 use crate::engine::broker::settlement::release;
 use crate::engine::operator::{operator_repair, operator_settle, Repair, Settle};
 
+/// Rewrite the reservation of `fixture`'s run through `edit`, as a build
+/// that wrote another shape would have left it.
+fn rewrite_reservation(fixture: &Fixture, edit: impl FnOnce(&mut serde_json::Value)) {
+    let at = crate::engine::broker::admission::tests::reservation_path(
+        fixture.host.home(),
+        &fixture.work,
+        "run-a",
+    );
+    let mut reservation: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&at).unwrap()).unwrap();
+    edit(&mut reservation);
+    std::fs::write(&at, serde_json::to_vec(&reservation).unwrap()).unwrap();
+}
+
 /// A claim of the fixture's worktree that is not run A's: what a later
 /// admission compares.
 fn next(fixture: &Fixture) -> Result<crate::engine::broker::admission::Held, Unadmitted> {
@@ -49,19 +63,38 @@ fn a_quarantined_run_whose_writers_are_settled_releases_its_worktree() {
 }
 
 /// The binding's other half: one attempt's process group still alive keeps
-/// the worktree held, with today's words. The record says every driver
-/// settled; the host says a member of the group still runs.
+/// the worktree held, with today's words. Its driver is not sealed Settled,
+/// and the host says a member of the group still runs.
 #[test]
 fn a_quarantined_run_with_a_live_process_group_still_holds_its_worktree() {
     if !isolated("engine::broker::exclusion::tests::a_quarantined_run_with_a_live_process_group_still_holds_its_worktree") {
         return;
     }
     let live = LiveGroup::new();
-    let fixture = quarantined(&[Witnessed::Settled], Some(live.group()));
+    let fixture = quarantined(&[Witnessed::Settling], Some(live.group()));
     assert_eq!(
         next(&fixture),
         cr2(Conflict::Held("run-a".into())),
         "the host still shows the attempt's process group, so it holds"
+    );
+    drop(live);
+}
+
+/// A group id recorded for a driver sealed Settled is not a writer: the
+/// seal is the settlement proof, and the kernel may have reused the id for
+/// an unrelated process. Asking it would keep the worktree held with no
+/// route (F9's correction; M-D).
+#[test]
+fn a_settled_drivers_reused_group_id_does_not_hold_the_worktree() {
+    if !isolated("engine::broker::exclusion::tests::a_settled_drivers_reused_group_id_does_not_hold_the_worktree") {
+        return;
+    }
+    let live = LiveGroup::new();
+    let (fixture, held) = quarantined_drivers(&[("m1", Witnessed::Settled)]);
+    release::spawned(&held, "m1", live.group());
+    assert!(
+        next(&fixture).is_ok(),
+        "a settled driver's group is not asked, so a reused id does not hold"
     );
     drop(live);
 }
@@ -218,16 +251,9 @@ fn a_journal_a_writer_could_reach_proves_nothing() {
     let fixture = quarantined(&[Witnessed::Settled], None);
     let inside = fixture.work.join("forge.db");
     std::fs::copy(&fixture.db, &inside).unwrap();
-    let at = crate::engine::broker::admission::tests::reservation_path(
-        fixture.host.home(),
-        &fixture.work,
-        "run-a",
-    );
-    let bytes = std::fs::read(&at).unwrap();
-    let mut reserved: crate::engine::broker::admission::Reservation =
-        serde_json::from_slice(&bytes).unwrap();
-    reserved.journal = inside;
-    std::fs::write(&at, serde_json::to_vec(&reserved).unwrap()).unwrap();
+    rewrite_reservation(&fixture, |reservation| {
+        reservation["journal"] = serde_json::json!(inside);
+    });
     assert_eq!(
         next(&fixture),
         cr2(Conflict::Held("run-a".into())),
@@ -373,13 +399,135 @@ fn a_panel_attempt_with_one_live_group_still_holds_its_worktree() {
     );
 }
 
+/// A same-site spawn sequence (a cool-down probe, then the seat's driver)
+/// writes each group on its own driver's record, never on the first one
+/// again: with the later driver sealed and its group gone, the earlier
+/// driver's live group still refuses. Reading the first record of the site
+/// would overwrite it and prove the wrong driver (M-C).
+#[test]
+fn a_same_site_spawn_records_each_drivers_own_group() {
+    if !isolated(
+        "engine::broker::exclusion::tests::a_same_site_spawn_records_each_drivers_own_group",
+    ) {
+        return;
+    }
+    use brokkr_protocol::Cleanup;
+    let g1 = LiveGroup::new();
+    let mut g2 = LiveGroup::new();
+    let (mut fixture, held) = quarantined_drivers(&[("work", Witnessed::Settling)]);
+    release::spawned(&held, "work", g1.group());
+    crate::engine::broker::settlement::spawning(&held, "work", None)
+        .expect("the second driver at the same site starts");
+    release::spawned(&held, "work", g2.group());
+    let drivers = fixture.host.drivers(&fixture.work, "run-a");
+    assert_eq!(drivers.len(), 2, "the two drivers are two records");
+    assert_eq!(
+        drivers[0].group,
+        Some(g1.group()),
+        "the first driver's own group"
+    );
+    assert_eq!(
+        drivers[1].group,
+        Some(g2.group()),
+        "the second driver's own group"
+    );
+    // The later driver seals Settled and its group ends; the earlier one
+    // still lives, so its own group is the one that decides.
+    let mut held = Some(held);
+    crate::engine::broker::settlement::ended(&mut held, "work", &Cleanup::Settled);
+    g2.end();
+    let refused = operator_settle(
+        &mut fixture.store,
+        "run-a",
+        &Settle {
+            reason: "both are done",
+            operator: "operator",
+        },
+    )
+    .unwrap_err();
+    assert!(
+        refused
+            .to_string()
+            .contains(&format!("process group {} still", g1.group())),
+        "the earlier driver's own group is still asked: {refused}"
+    );
+    assert_eq!(
+        next(&fixture),
+        cr2(Conflict::Held("run-a".into())),
+        "the live earlier driver keeps the worktree held"
+    );
+}
+
+/// A spawn whose amend writes no group — the site has no driver record —
+/// leaves the driver refusing: the spawn path never stands an earlier
+/// group in for the one it failed to record (H1's third test; L-8).
+#[test]
+fn a_spawn_without_a_driver_record_leaves_it_refusing() {
+    let (mut fixture, held) = quarantined_drivers(&[("work", Witnessed::Settling)]);
+    release::spawned(&held, "no-such-site", dead_group());
+    let drivers = fixture.host.drivers(&fixture.work, "run-a");
+    assert_eq!(drivers.len(), 1, "the failed amend added no record");
+    assert_eq!(
+        drivers[0].group, None,
+        "the failed amend wrote no group on an earlier driver"
+    );
+    let refused = operator_settle(
+        &mut fixture.store,
+        "run-a",
+        &Settle {
+            reason: "the driver is gone",
+            operator: "operator",
+        },
+    )
+    .unwrap_err();
+    assert!(
+        refused.to_string().contains("recorded no process group"),
+        "the driver with no group refuses by name: {refused}"
+    );
+    assert_eq!(
+        next(&fixture),
+        cr2(Conflict::Held("run-a".into())),
+        "nothing released it"
+    );
+}
+
+/// `operator release` reads the run's fold to journal its command: before
+/// the repair a shape (B) run does not fold, so the command refuses and
+/// writes nothing.
+fn release_before_the_repair_refuses(store: &mut brokkr_store::Store) {
+    use brokkr_core::fold::OperatorCommand;
+    let head = store.head_hash("run-a").unwrap();
+    let refused = crate::engine::operator_command(
+        store,
+        "run-a",
+        OperatorCommand::Release,
+        "operator",
+        "every process the attempt owned has ended",
+    )
+    .unwrap_err();
+    assert!(
+        matches!(
+            refused,
+            crate::engine::EngineError::Fold(brokkr_core::FoldError::AfterTerminal { .. })
+        ),
+        "release before repair meets the unfoldable tail: {refused:?}"
+    );
+    assert_eq!(
+        store.head_hash("run-a").unwrap(),
+        head,
+        "the refused release wrote nothing"
+    );
+}
+
 /// The route for a reservation written before this build (v0.13.0's shape:
 /// drivers, no process group): `operator settle` cannot prove it, and the
 /// operator repairs the run and then uses the existing
 /// `brokkr operator release` attestation. The 0.12.0-era journal is the
 /// shape (B) one; the reservation is the first released shape that records
-/// drivers, because 0.12.0 wrote no reservation at all. The next claim is
-/// admitted only after that release.
+/// drivers. A build that reported 0.12.0 from main between #745 and #822
+/// wrote an earlier shape, whose view or reachable journal this test
+/// separately shows cannot release. The next claim is admitted only after
+/// that release, and only where the attempt ended indeterminate.
 #[test]
 fn an_old_shape_b_reservation_is_released_by_repair_then_operator_release() {
     use crate::engine::broker::admission::tests::{Coordinated, Host};
@@ -420,8 +568,10 @@ fn an_old_shape_b_reservation_is_released_by_repair_then_operator_release() {
     .unwrap();
     drop(connection);
     let mut store = brokkr_store::Store::open(&db).unwrap();
-    // v0.13.0 wrote the drivers' own records and no process group: 0.12.0
-    // wrote no reservation at all (see the commit message's tag facts).
+    // v0.13.0 wrote the drivers' own records and no process group
+    // (crates/brokkr-runtime/src/engine/broker/admission.rs:204 and
+    // settlement.rs:362 at the tag). The tag v0.12.0 wrote no reservation
+    // at all; a workspace that reported 0.12.0 from main is tested below.
     let mut claim = boxed_claim(&work, ["run-a", "attempt"]);
     claim.journal = db.clone();
     claim.reserved.drivers = vec![Driver {
@@ -451,6 +601,9 @@ fn an_old_shape_b_reservation_is_released_by_repair_then_operator_release() {
         refused.to_string().contains("recorded no process group"),
         "settle cannot prove a reservation with no group: {refused}"
     );
+    // `release` needs the repaired fold: before the repair the run does not
+    // fold, and the operator's command refuses before it writes.
+    release_before_the_repair_refuses(&mut store);
     operator_repair(
         &mut store,
         "run-a",
@@ -471,6 +624,96 @@ fn an_old_shape_b_reservation_is_released_by_repair_then_operator_release() {
     assert!(
         host.admit(&boxed_claim(&work, ["run-b", "b1"])).is_ok(),
         "the released old run no longer holds the worktree"
+    );
+}
+
+/// The workspace this unit serves: a binary that reported 0.12.0 from main
+/// between #745 and b8e2caff8 wrote a reservation whose boxed reader has no
+/// `sealed.store`, and a #745..#822 build listed no drivers. This build
+/// reads such a record only through the view, so the attempt holds, and
+/// both `settle` and, after a repair, `release` refuse "unknown
+/// participant": the F4 route does not hold, and the commit is the
+/// operator's ask. The test pins the refusal, not a new proof.
+#[test]
+fn an_old_boxed_reservation_without_store_is_read_through_the_view() {
+    use crate::engine::broker::admission::tests::Coordinated;
+    use brokkr_core::fold::OperatorCommand;
+
+    fn without_store(value: &mut serde_json::Value) {
+        match value {
+            serde_json::Value::Object(map) => {
+                map.remove("store");
+                for value in map.values_mut() {
+                    without_store(value);
+                }
+            }
+            serde_json::Value::Array(items) => {
+                for value in items {
+                    without_store(value);
+                }
+            }
+            serde_json::Value::Null
+            | serde_json::Value::Bool(_)
+            | serde_json::Value::Number(_)
+            | serde_json::Value::String(_) => {}
+        }
+    }
+
+    let mut fixture = quarantined(&[Witnessed::Settling], None);
+    rewrite_reservation(&fixture, |reservation| {
+        for attempt in reservation["attempts"]
+            .as_object_mut()
+            .unwrap()
+            .values_mut()
+        {
+            attempt.as_object_mut().unwrap().remove("drivers");
+        }
+        without_store(reservation);
+    });
+    let _stood = Coordinated::at(fixture.host.home());
+    assert_eq!(
+        next(&fixture),
+        cr2(Conflict::Held("run-a".into())),
+        "a record read only through the view proves no driver ended"
+    );
+    let refused = operator_settle(
+        &mut fixture.store,
+        "run-a",
+        &Settle {
+            reason: "the old driver is gone",
+            operator: "operator",
+        },
+    )
+    .unwrap_err();
+    assert!(
+        refused.to_string().contains("unknown participant"),
+        "settle refuses the record it cannot read whole: {refused}"
+    );
+    operator_repair(
+        &mut fixture.store,
+        "run-a",
+        &Repair {
+            operator: "operator",
+            reason: "keep the old stop as evidence",
+        },
+    )
+    .expect("the repair names the late tail");
+    let refused = crate::engine::operator_command(
+        &mut fixture.store,
+        "run-a",
+        OperatorCommand::Release,
+        "operator",
+        "every process the attempt owned has ended",
+    )
+    .unwrap_err();
+    assert!(
+        refused.to_string().contains("unknown participant"),
+        "release also refuses the view-only record: {refused}"
+    );
+    assert_eq!(
+        next(&fixture),
+        cr2(Conflict::Held("run-a".into())),
+        "the worktree stays held: this shape has no route here"
     );
 }
 

@@ -108,6 +108,37 @@ fn whole(cleanup: &str, group: Option<u32>) -> crate::engine::broker::admission:
     reservation
 }
 
+/// The whole reservation of attempt `a1` with each driver's own cleanup and
+/// process group, as the dispatch door writes it: what `honoured` reads when
+/// a settle record's group proof names its drivers' groups.
+fn grouped_whole(
+    cleanup: Witnessed,
+    drivers: &[(Witnessed, Option<u32>)],
+) -> crate::engine::broker::admission::Reservation {
+    let drivers: Vec<Value> = drivers
+        .iter()
+        .enumerate()
+        .map(|(index, (cleanup, group))| {
+            let mut driver = serde_json::json!({
+                "site": format!("work:{index}"),
+                "cleanup": cleanup,
+            });
+            if let Some(group) = group {
+                driver["group"] = serde_json::json!(group);
+            }
+            driver
+        })
+        .collect();
+    serde_json::from_value(serde_json::json!({
+        "repo": "r", "run": "a", "workdir": "/w", "artifacts": "/a", "journal": "/j",
+        "attempts": {"a1": {
+            "protects": "nothing", "writers": [], "cleanup": cleanup, "drivers": drivers,
+        }},
+        "settled": [],
+    }))
+    .unwrap()
+}
+
 /// The standing reservation `run` `attempt` of a boxed writer, for the
 /// inventory's own view of it.
 fn standing(run: &str) -> Standing {
@@ -185,21 +216,40 @@ fn the_records_and_the_host_prove_an_attempt_by_their_own_facts() {
         "the exclusion never releases on the host's word alone"
     );
 
+    // A group recorded for a Settled driver is not asked: the seal is the
+    // settlement proof, and a reused id names an unrelated process (F9's
+    // correction). Asking it would hold the worktree with no route.
     let live = LiveGroup::new();
-    let still = reserved(
+    let reused = reserved(
         Witnessed::Settled,
         &[Witnessed::Settled],
         Some(live.group()),
     );
     assert_eq!(
-        proven(&still, "a1"),
-        Err(Live::Group {
-            attempt: "a1".into(),
-            group: live.group(),
-        }),
-        "the host's live group refuses whatever the record says"
+        proven(&reused, "a1"),
+        Ok(Proof::Records),
+        "a settled driver's reused group id is not the driver"
     );
     drop(live);
+
+    // A cleanup witnessed unresolved refuses even when every driver record
+    // is Settled, or when an unsettled driver recorded no group.
+    let unresolved_driver = reserved(Witnessed::Unresolved, &[Witnessed::Settling], None);
+    assert_eq!(
+        proven(&unresolved_driver, "a1"),
+        Err(Live::Unproven {
+            attempt: "a1".into(),
+            why: Unproven::Unresolved,
+        })
+    );
+    let unresolved_settled = reserved(Witnessed::Unresolved, &[Witnessed::Settled], None);
+    assert_eq!(
+        proven(&unresolved_settled, "a1"),
+        Err(Live::Unproven {
+            attempt: "a1".into(),
+            why: Unproven::Unresolved,
+        })
+    );
 }
 
 /// A panel attempt has one record per driver, each with its own group: a
@@ -333,6 +383,24 @@ fn the_last_settle_annotation_is_the_record() {
         record(&[terminal.clone(), first, second]).expect("the last settle reads after the end");
     assert_eq!(found.seq, 9);
     assert_eq!(found.args.reason, "second");
+    // A malformed last record is no record at all: it never falls back to
+    // an earlier one (decision 0089 ruling 9).
+    let mut malformed = crate::engine::tests::event(
+        EventType::OperatorCommanded,
+        serde_json::json!({"command": "settle", "args": {"run": "a"}}),
+    );
+    malformed.seq = 10;
+    let mut earlier = crate::engine::tests::event(
+        EventType::OperatorCommanded,
+        serde_json::json!({"command": "settle", "args": {
+            "run": "a", "attempts": [], "reason": "first"}}),
+    );
+    earlier.seq = 6;
+    assert_eq!(
+        record(&[terminal.clone(), earlier, malformed]),
+        None,
+        "a malformed last record is never an earlier one"
+    );
     let mut before = crate::engine::tests::event(
         EventType::OperatorCommanded,
         serde_json::json!({"command": "settle", "args": {
@@ -379,6 +447,61 @@ fn a_group_proof_must_name_the_group_the_broker_recorded() {
     assert!(
         !honoured(&held, &settled("a", vec![grouped("a1", &[dead_group()])])),
         "the broker's live group is the one that decides"
+    );
+    drop(live);
+}
+
+/// A group proof must name every group of every driver the records do not
+/// prove settled, and no group the reservation does not record: a dead
+/// sibling's group cannot stand for a live one, and a name invented by the
+/// record proves nothing (F6, decision 0108 ruling 3).
+#[test]
+fn a_group_proof_must_name_every_unsettled_drivers_own_group() {
+    if !isolated("engine::broker::settlement::release::tests::a_group_proof_must_name_every_unsettled_drivers_own_group") {
+        return;
+    }
+    let (g1, g2) = (dead_group(), dead_group());
+    let both = Standing::from(grouped_whole(
+        Witnessed::Settling,
+        &[
+            (Witnessed::Settling, Some(g1)),
+            (Witnessed::Settling, Some(g2)),
+        ],
+    ));
+    assert!(
+        honoured(&both, &settled("a", vec![grouped("a1", &[g1, g2])])),
+        "both recorded groups gone prove both drivers"
+    );
+    assert!(
+        !honoured(&both, &settled("a", vec![grouped("a1", &[g1])])),
+        "one of two unsettled drivers' groups is not every one"
+    );
+    assert!(
+        !honoured(
+            &both,
+            &settled("a", vec![grouped("a1", &[g1, g2, dead_group()])])
+        ),
+        "a group the reservation does not record proves nothing"
+    );
+    let missing = Standing::from(grouped_whole(
+        Witnessed::Settling,
+        &[(Witnessed::Settling, Some(g1)), (Witnessed::Settling, None)],
+    ));
+    assert!(
+        !honoured(&missing, &settled("a", vec![grouped("a1", &[g1])])),
+        "a driver with no recorded group cannot be stood in for by a sibling's"
+    );
+    let live = LiveGroup::new();
+    let alive_sibling = Standing::from(grouped_whole(
+        Witnessed::Settling,
+        &[
+            (Witnessed::Settling, Some(g1)),
+            (Witnessed::Settling, Some(live.group())),
+        ],
+    ));
+    assert!(
+        !honoured(&alive_sibling, &settled("a", vec![grouped("a1", &[g1])])),
+        "the reservation's own live group is asked whatever the record names"
     );
     drop(live);
 }
