@@ -136,18 +136,14 @@ impl LateRange {
     }
 
     /// The row's compact tail, from the whole wire tail a summary states:
-    /// what the store writes into its column.
+    /// what the store writes into its column. A repair names a non-empty
+    /// tail, so the fold's tail always has a first and a last event.
     pub fn of_tail(tail: &LateTail) -> LateRange {
-        let (Some(first), Some(last)) = (tail.events.first(), tail.events.last()) else {
-            return LateRange {
-                repaired_at: tail.repaired_at,
-                terminal_seq: tail.terminal_seq,
-                first_seq: tail.repaired_at,
-                last_seq: tail.repaired_at,
-                count: 0,
-                operator: cut_operator(&tail.operator),
-            };
-        };
+        let (first, last) = tail
+            .events
+            .first()
+            .zip(tail.events.last())
+            .expect("a repair names a non-empty tail");
         LateRange {
             repaired_at: tail.repaired_at,
             terminal_seq: tail.terminal_seq,
