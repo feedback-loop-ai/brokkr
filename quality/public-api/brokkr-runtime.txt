@@ -1822,21 +1822,12 @@ pub fn brokkr_runtime::realms::World::realm_for(&self, &std::path::Path) -> core
 pub fn brokkr_runtime::realms::World::verify_crossings(&self, &std::path::Path) -> core::result::Result<(), brokkr_runtime::realms::WorldError>
 pub mod brokkr_runtime::sweep
 pub enum brokkr_runtime::sweep::SweepError
+pub brokkr_runtime::sweep::SweepError::Dispatcher(brokkr_runtime::DispatcherError)
 pub brokkr_runtime::sweep::SweepError::Store(brokkr_store::StoreError)
 pub brokkr_runtime::sweep::SweepError::Unrecorded
-pub enum brokkr_runtime::sweep::SweepKind
-pub brokkr_runtime::sweep::SweepKind::Hands
-pub brokkr_runtime::sweep::SweepKind::Scratch
 pub struct brokkr_runtime::sweep::Failed
-pub brokkr_runtime::sweep::Failed::cause: alloc::string::String
-pub brokkr_runtime::sweep::Failed::path: std::path::PathBuf
 pub struct brokkr_runtime::sweep::Kept
-pub brokkr_runtime::sweep::Kept::path: std::path::PathBuf
-pub brokkr_runtime::sweep::Kept::reason: alloc::string::String
 pub struct brokkr_runtime::sweep::Removed
-pub brokkr_runtime::sweep::Removed::bytes: core::option::Option<u64>
-pub brokkr_runtime::sweep::Removed::kind: brokkr_runtime::sweep::SweepKind
-pub brokkr_runtime::sweep::Removed::path: std::path::PathBuf
 pub struct brokkr_runtime::sweep::Swept
 impl brokkr_runtime::sweep::Swept
 pub fn brokkr_runtime::sweep::Swept::failed(&self) -> &[brokkr_runtime::sweep::Failed]

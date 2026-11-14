@@ -1,8 +1,9 @@
 //! Doctor's unrecorded-tree line (decision 0104 ruling 6): a directory
 //! under a recorded root that no seat-tree row names is listed with its
-//! size, a hostile name is stripped, a count that refuses or finds the
-//! tree gone warns, and nothing is removed.
+//! size, a hostile name is stripped, a count that refuses, finds the tree
+//! gone or reads only a lower bound warns, and nothing is removed.
 
+use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
 use brokkr_core::envelope::EventType;
@@ -132,6 +133,32 @@ fn a_count_that_finds_the_tree_gone_or_refuses_is_a_warning() {
         ]
     );
     assert!(file.is_file(), "nothing removes a tree whose count refused");
+}
+
+#[test]
+fn a_lower_bound_count_says_at_least_and_removes_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let tree = dir.path().join("tree");
+    let sealed = tree.join("sealed");
+    std::fs::create_dir_all(&sealed).unwrap();
+    std::fs::write(sealed.join("data"), b"x").unwrap();
+    std::fs::set_permissions(&sealed, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let counted = brokkr_protocol::tree::count_tree(&tree).unwrap().unwrap();
+    assert!(counted.unreadable.is_some());
+    let mut report = empty_report();
+    line(&mut report, &tree);
+    std::fs::set_permissions(&sealed, std::fs::Permissions::from_mode(0o700)).unwrap();
+
+    assert!(report.healthy);
+    assert_eq!(
+        report.lines,
+        [format!(
+            "warn     tree: {}: at least {} bytes, named by no seat tree",
+            tree.display(),
+            counted.bytes
+        )]
+    );
+    assert!(tree.is_dir(), "nothing removes an unreadable tree");
 }
 
 #[test]

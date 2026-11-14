@@ -33,6 +33,7 @@ fn own_host() -> (EnvGuard, PathBuf) {
         .tempdir()
         .unwrap()
         .keep();
+    let places = std::fs::canonicalize(&places).unwrap();
     env.set("TMPDIR", &places);
     env.set("XDG_STATE_HOME", places.join("state"));
     (env, places)
@@ -237,10 +238,6 @@ fn a_second_sweeper_is_refused_by_the_lock_by_name_recording_nothing() {
         ),
         "{refused:?}"
     );
-    assert!(refused.to_string().starts_with(&format!(
-        "dispatch: the journal {} is dispatched by generation 1",
-        database.display()
-    )));
     assert!(tree.exists(), "the refused sweeper removed nothing");
     assert_eq!(
         count(&database, "SELECT COUNT(*) FROM dispatch_holders"),

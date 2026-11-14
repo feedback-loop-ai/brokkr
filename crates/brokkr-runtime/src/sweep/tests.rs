@@ -40,6 +40,7 @@ fn own_temp() -> (EnvGuard, PathBuf) {
     // inside this one while the guard holds `TMPDIR`, and deleting it
     // would take that test's journal with it.
     let tmp = tempfile::tempdir().unwrap().keep();
+    let tmp = std::fs::canonicalize(&tmp).unwrap();
     env.set("TMPDIR", &tmp);
     (env, tmp)
 }
@@ -266,6 +267,36 @@ fn kept_after_pass(fixture: &mut Fixture) -> String {
     kept_reason(&swept).to_string()
 }
 
+/// Assert the pass kept `tree` for `reason` and recorded no sweep.
+fn kept(fixture: &mut Fixture, tree: &Path, reason: &str) {
+    assert!(tree.exists());
+    assert_eq!(kept_after_pass(fixture), reason);
+    assert_eq!(fixture.store.tree_sweeps().unwrap(), vec![]);
+}
+
+/// A run whose first attempt failed and whose second succeeded: its effect
+/// is closed and both attempts have a terminal event.
+fn failed_then_succeeded(fixture: &mut Fixture) {
+    fixture.opened(RUN);
+    started(&mut fixture.store, RUN, ATTEMPT);
+    failed(&mut fixture.store, RUN, ATTEMPT);
+    started(&mut fixture.store, RUN, ATTEMPT2);
+    succeeded(&mut fixture.store, RUN, ATTEMPT2);
+}
+
+/// Stop the run and plant its attempt's tree and row, handing the tree
+/// back.
+fn stopped_with_tree(fixture: &mut Fixture) -> PathBuf {
+    append(
+        &mut fixture.store,
+        RUN,
+        EventType::RunStopped,
+        json!({}),
+        None,
+    );
+    fixture.here(RUN, ATTEMPT)
+}
+
 /// One test's own machine and journal, with the scratch root a closed
 /// effect's tree is planted under.
 struct Fixture {
@@ -329,7 +360,6 @@ fn a_closed_effects_tree_goes_with_its_bytes_and_the_generation() {
 
     assert!(!tree.exists());
     let removal = removed(&swept);
-    assert_eq!(removal.kind, SweepKind::Scratch);
     assert_eq!(removal.path, tree);
     assert_eq!(removal.bytes, Some(freed));
     assert!(swept.kept().is_empty());
@@ -367,12 +397,11 @@ fn an_attempt_with_unproven_cleanup_keeps_its_tree() {
         stopped(&mut fixture.store, RUN);
         let tree = fixture.here(RUN, ATTEMPT);
 
-        assert!(tree.exists());
-        assert_eq!(
-            kept_after_pass(&mut fixture),
-            "its attempt carries unproven cleanup evidence"
+        kept(
+            &mut fixture,
+            &tree,
+            "its attempt carries unproven cleanup evidence",
         );
-        assert_eq!(fixture.store.tree_sweeps().unwrap(), vec![]);
     }
 }
 
@@ -381,21 +410,9 @@ fn an_attempt_with_no_terminal_event_keeps_its_tree() {
     let mut fixture = Fixture::new();
     fixture.opened(RUN);
     started(&mut fixture.store, RUN, ATTEMPT);
-    append(
-        &mut fixture.store,
-        RUN,
-        EventType::RunStopped,
-        json!({}),
-        None,
-    );
-    let tree = fixture.here(RUN, ATTEMPT);
+    let tree = stopped_with_tree(&mut fixture);
 
-    assert!(tree.exists());
-    assert_eq!(
-        kept_after_pass(&mut fixture),
-        "no terminal event names its attempt"
-    );
-    assert_eq!(fixture.store.tree_sweeps().unwrap(), vec![]);
+    kept(&mut fixture, &tree, "no terminal event names its attempt");
 }
 
 #[test]
@@ -446,11 +463,7 @@ fn a_root_through_a_symlinked_component_is_kept() {
 #[test]
 fn two_roots_in_one_run_keep_both_trees() {
     let mut fixture = Fixture::new();
-    fixture.opened(RUN);
-    started(&mut fixture.store, RUN, ATTEMPT);
-    failed(&mut fixture.store, RUN, ATTEMPT);
-    started(&mut fixture.store, RUN, ATTEMPT2);
-    succeeded(&mut fixture.store, RUN, ATTEMPT2);
+    failed_then_succeeded(&mut fixture);
     let one = scratch(&fixture.tmp.join("one"));
     let two = scratch(&fixture.tmp.join("two"));
     let first = fixture.seated(RUN, ATTEMPT, &one);
@@ -465,6 +478,141 @@ fn two_roots_in_one_run_keep_both_trees() {
         assert_eq!(kept.reason, "another row of its run names a different root");
     }
     assert_eq!(fixture.store.tree_sweeps().unwrap(), vec![]);
+}
+
+#[test]
+fn a_later_row_naming_another_root_keeps_the_runs_first_tree() {
+    let mut fixture = Fixture::new();
+    failed_then_succeeded(&mut fixture);
+    let one = scratch(&fixture.tmp.join("one"));
+    let first = fixture.seated(RUN, ATTEMPT, &one);
+    let (swept, _) = pass_one(&mut fixture.store);
+    assert!(!first.exists(), "the closed effect's first row goes");
+    assert_eq!(swept.removed().len(), 1);
+
+    let two = scratch(&fixture.tmp.join("two"));
+    let second = fixture.seated(RUN, ATTEMPT2, &two);
+    let (swept, _) = pass_one(&mut fixture.store);
+
+    assert!(second.exists());
+    assert_eq!(
+        kept_reason(&swept),
+        "another row of its run names a different root"
+    );
+    assert_eq!(fixture.store.tree_sweeps().unwrap().len(), 1);
+}
+
+#[test]
+fn a_completed_runs_tree_goes_without_a_succeeded_effect() {
+    let mut fixture = Fixture::new();
+    fixture.opened(RUN);
+    started(&mut fixture.store, RUN, ATTEMPT);
+    failed(&mut fixture.store, RUN, ATTEMPT);
+    completed(&mut fixture.store, RUN);
+    let tree = fixture.here(RUN, ATTEMPT);
+    let freed = bytes(&tree);
+
+    let (swept, _) = pass_one(&mut fixture.store);
+
+    assert!(!tree.exists());
+    assert_eq!(removed(&swept).bytes, Some(freed));
+    assert_eq!(fixture.store.tree_sweeps().unwrap().len(), 1);
+}
+
+#[test]
+fn a_reused_attempt_keeps_its_tree_when_any_terminal_event_is_unproven() {
+    let mut fixture = Fixture::new();
+    fixture.opened(RUN);
+    started(&mut fixture.store, RUN, ATTEMPT);
+    indeterminate(&mut fixture.store, RUN, ATTEMPT, seat_evidence());
+    append(
+        &mut fixture.store,
+        RUN,
+        EventType::RunParked,
+        json!({"reason": "the attempt's cleanup is unresolved"}),
+        None,
+    );
+    append(
+        &mut fixture.store,
+        RUN,
+        EventType::OperatorCommanded,
+        json!({"command_id": "retry-1", "command": "retry"}),
+        None,
+    );
+    append(
+        &mut fixture.store,
+        RUN,
+        EventType::OperatorAccepted,
+        json!({"command_id": "retry-1"}),
+        None,
+    );
+    append(
+        &mut fixture.store,
+        RUN,
+        EventType::EffectRequested,
+        json!({"effect_id": EFFECT, "seat": "worker"}),
+        None,
+    );
+    started(&mut fixture.store, RUN, ATTEMPT);
+    failed(&mut fixture.store, RUN, ATTEMPT);
+    let tree = stopped_with_tree(&mut fixture);
+
+    kept(
+        &mut fixture,
+        &tree,
+        "its attempt carries unproven cleanup evidence",
+    );
+}
+
+#[test]
+fn a_root_spelled_with_a_dot_or_dot_dot_component_is_kept() {
+    for spelling in ["dot", "dot-dot"] {
+        let mut fixture = Fixture::new();
+        fixture.succeeded(RUN, ATTEMPT);
+        let root = match spelling {
+            "dot" => fixture.tmp.join("run").join(".").join("scratch"),
+            _ => fixture
+                .tmp
+                .join("run")
+                .join("..")
+                .join("run")
+                .join("scratch"),
+        };
+        let tree = plant(&root, ATTEMPT);
+        seat(&mut fixture.store, RUN, EFFECT, ATTEMPT, &root);
+
+        assert_eq!(
+            kept_after_pass(&mut fixture),
+            "its root is not its own canonical path",
+            "{spelling}"
+        );
+        assert!(tree.exists(), "{spelling}");
+        assert_eq!(fixture.store.tree_sweeps().unwrap(), vec![], "{spelling}");
+    }
+}
+
+#[test]
+fn a_pass_refuses_a_dispatcher_that_took_another_journal() {
+    let one = tempfile::tempdir().unwrap();
+    let two = tempfile::tempdir().unwrap();
+    let mut first = journal(one.path());
+    let mut second = journal(two.path());
+    let held = crate::dispatch::take_dispatch(&mut first).unwrap().unwrap();
+    opened(&mut second, RUN);
+    started(&mut second, RUN, ATTEMPT);
+    succeeded(&mut second, RUN, ATTEMPT);
+    let root = scratch(&two.path().join("run"));
+    let tree = plant(&root, ATTEMPT);
+    seat(&mut second, RUN, EFFECT, ATTEMPT, &root);
+
+    let refused = pass(&mut second, &held).unwrap_err();
+
+    assert!(matches!(
+        refused,
+        SweepError::Dispatcher(crate::dispatch::DispatcherError::OtherJournal(_, _))
+    ));
+    assert!(tree.exists());
+    assert_eq!(second.tree_sweeps().unwrap(), vec![]);
 }
 
 #[test]
@@ -592,7 +740,6 @@ fn a_dead_owners_free_hands_tree_is_recorded_as_hands() {
 
     assert!(!tree.exists());
     let removal = removed(&swept);
-    assert_eq!(removal.kind, SweepKind::Hands);
     assert_eq!(removal.bytes, Some(freed));
     let sweeps = fixture.store.tree_sweeps().unwrap();
     assert_eq!(sweeps.len(), 1);
@@ -611,7 +758,11 @@ fn a_hands_tree_with_no_lock_is_kept_and_reported() {
 
     assert!(tree.exists());
     assert_eq!(swept.kept().len(), 1);
-    assert!(swept.kept()[0].reason.contains("holds no lock file"));
+    assert_eq!(
+        swept.kept()[0].reason,
+        "its lock cannot be probed: it holds no lock file; trees from before #415 are no \
+         longer reaped (0.13.0)"
+    );
     assert_eq!(fixture.store.tree_sweeps().unwrap(), vec![]);
 }
 
@@ -644,7 +795,6 @@ fn a_dry_run_lists_a_dead_hands_tree_with_its_size() {
     let plan = plan(&fixture.store).unwrap();
 
     assert!(tree.exists());
-    assert_eq!(plan.removed()[0].kind, SweepKind::Hands);
     assert_eq!(plan.removed()[0].path, tree);
     assert_eq!(plan.removed()[0].bytes, Some(freed));
     assert_eq!(fixture.store.tree_sweeps().unwrap(), vec![]);
@@ -666,6 +816,7 @@ fn a_queue_that_does_not_record_sweeps_refuses_the_removal() {
     let refused = pass(&mut fixture.store, &held).unwrap_err();
 
     assert!(!tree.exists());
+    assert!(matches!(&refused, SweepError::Unrecorded));
     assert_eq!(
         refused.to_string(),
         "a tree was removed but not recorded: the journal's queue is not one this binary writes \
@@ -678,14 +829,14 @@ fn the_lines_name_every_tree_and_the_total() {
     let swept = Swept {
         removed: vec![
             Removed {
-                kind: SweepKind::Scratch,
                 path: PathBuf::from("/run/scratch/one"),
                 bytes: Some(10),
+                lower_bound: false,
             },
             Removed {
-                kind: SweepKind::Hands,
                 path: PathBuf::from("/tmp/hands\x1b[2J"),
                 bytes: None,
+                lower_bound: false,
             },
         ],
         kept: vec![Kept {
@@ -846,6 +997,32 @@ fn a_plan_count_that_refuses_is_reported_and_removes_nothing() {
 }
 
 #[test]
+fn a_plan_that_cannot_read_every_name_says_at_least() {
+    let mut fixture = Fixture::new();
+    fixture.succeeded(RUN, ATTEMPT);
+    let tree = fixture.here(RUN, ATTEMPT);
+
+    let plan = plan_with(&fixture.store, &fixture.tmp, super::same_device, |_| {
+        Ok(Some(tree::Counted {
+            bytes: 7,
+            unreadable: Some(PathBuf::from("/x/sealed")),
+        }))
+    })
+    .unwrap();
+
+    assert_eq!(plan.removed()[0].bytes, Some(7));
+    assert!(plan.removed()[0].lower_bound);
+    assert_eq!(
+        plan.lines_with(safe, true),
+        format!(
+            "sweep: would remove {}: at least 7 bytes\nsweep: would free 7 bytes\n",
+            tree.display()
+        )
+    );
+    assert!(tree.exists());
+}
+
+#[test]
 fn a_hands_listing_whose_count_refuses_is_reported() {
     let mut swept = Swept::default();
     plan_hands_with(
@@ -861,6 +1038,13 @@ fn a_hands_listing_whose_count_refuses_is_reported() {
                 tree: PathBuf::from("/tmp/brokkr-hands-gone"),
                 count: Ok(None),
             },
+            Listed {
+                tree: PathBuf::from("/tmp/brokkr-hands-part"),
+                count: Ok(Some(tree::Counted {
+                    bytes: 3,
+                    unreadable: Some(PathBuf::from("/tmp/brokkr-hands-part/sealed")),
+                })),
+            },
         ]
         .into_iter(),
         &mut swept,
@@ -870,6 +1054,9 @@ fn a_hands_listing_whose_count_refuses_is_reported() {
         swept.removed()[0].path,
         PathBuf::from("/tmp/brokkr-hands-gone")
     );
+    assert!(!swept.removed()[0].lower_bound);
+    assert_eq!(swept.removed()[1].bytes, Some(3));
+    assert!(swept.removed()[1].lower_bound);
     assert_eq!(swept.failed()[0].cause, "Permission denied (os error 13)");
 }
 

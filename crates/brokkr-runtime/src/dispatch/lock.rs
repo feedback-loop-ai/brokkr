@@ -49,7 +49,7 @@ impl Dispatcher {
     /// Refuse a store whose journal, `named` as the store's own
     /// transaction reads it, is not the one this dispatcher took; a
     /// journal with no id is none it took.
-    pub(super) fn took(&self, named: Option<Uuid>) -> Result<(), DispatcherError> {
+    pub(crate) fn took(&self, named: Option<Uuid>) -> Result<(), DispatcherError> {
         match self.journal.is_some() && named == self.journal {
             true => Ok(()),
             false => Err(DispatcherError::OtherJournal(self.journal, named)),

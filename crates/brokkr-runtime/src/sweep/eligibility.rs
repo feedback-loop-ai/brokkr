@@ -4,7 +4,6 @@
 //! shape. The pass and the dry run read this one derivation, so they can
 //! never disagree on what a pass would remove.
 
-use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsStr;
 use std::os::unix::fs::MetadataExt;
@@ -57,12 +56,15 @@ pub(super) fn decide(
     device_of: impl Fn(&Path, u64) -> u64,
 ) -> Result<Vec<Verdict>, brokkr_store::StoreError> {
     let rows = store.open_seat_trees()?;
-    let roots = roots_of(&rows);
+    let mut roots: HashMap<String, Option<PathBuf>> = HashMap::new();
     let mut facts: HashMap<String, Facts> = HashMap::new();
     for row in &rows {
-        facts
-            .entry(row.run_id.clone())
-            .or_insert_with(|| Facts::of(store, &row.run_id));
+        if roots.contains_key(&row.run_id) {
+            continue;
+        }
+        let all = store.seat_trees(&row.run_id)?;
+        roots.insert(row.run_id.clone(), one_root(&all));
+        facts.insert(row.run_id.clone(), Facts::of(store, &row.run_id));
     }
     let mut verdicts = Vec::with_capacity(rows.len());
     for row in rows {
@@ -72,23 +74,15 @@ pub(super) fn decide(
     Ok(verdicts)
 }
 
-/// The one root each run names, or `None` where its open rows disagree
-/// (R5).
-fn roots_of(rows: &[SeatTree]) -> HashMap<String, Option<PathBuf>> {
-    let mut roots: HashMap<String, Option<PathBuf>> = HashMap::new();
-    for row in rows {
-        match roots.entry(row.run_id.clone()) {
-            Entry::Vacant(slot) => {
-                slot.insert(Some(row.root.clone()));
-            }
-            Entry::Occupied(mut slot) => {
-                if slot.get().as_deref() != Some(row.root.as_path()) {
-                    slot.insert(None);
-                }
-            }
-        }
+/// The one root every row of a run names, or `None` where they disagree
+/// (R5). The rows include those a sweep already closed: the journal's
+/// history of a run is what says which root was its own.
+fn one_root(rows: &[SeatTree]) -> Option<PathBuf> {
+    let roots: HashSet<&Path> = rows.iter().map(|row| row.root.as_path()).collect();
+    match roots.len() {
+        1 => roots.into_iter().next().map(Path::to_path_buf),
+        _ => None,
     }
-    roots
 }
 
 impl Facts {
@@ -132,12 +126,14 @@ fn folded(events: &[EventEnvelope]) -> Result<Folded, &'static str> {
         );
         match terminal {
             true => {
-                attempts.insert(
-                    attempt.to_string(),
-                    Attempt::Terminal {
-                        unproven: carries_evidence(event),
-                    },
-                );
+                let unproven = carries_evidence(event);
+                attempts
+                    .entry(attempt.to_string())
+                    .and_modify(|attempt| match attempt {
+                        Attempt::Terminal { unproven: held } => *held |= unproven,
+                        Attempt::Unended => *attempt = Attempt::Terminal { unproven },
+                    })
+                    .or_insert(Attempt::Terminal { unproven });
             }
             false => {
                 attempts
@@ -220,7 +216,9 @@ fn shaped(
     }
     let canonical =
         std::fs::canonicalize(&row.root).map_err(|_| "its root is not its own canonical path")?;
-    if canonical != row.root {
+    // Byte equality, not `Path` equality: the latter ignores `.`, repeated
+    // separators and a trailing slash (R5).
+    if canonical.as_os_str() != row.root.as_os_str() {
         return Err("its root is not its own canonical path");
     }
     let root = std::fs::metadata(&row.root).map_err(|_| "its root cannot be read")?;

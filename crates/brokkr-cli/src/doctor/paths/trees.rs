@@ -78,10 +78,19 @@ fn list(report: &mut Report, root: &Path, named: &BTreeSet<OsString>) {
 pub(super) fn line(report: &mut Report, path: &Path) {
     let named = safe(&path.display().to_string());
     match count_tree(path) {
-        Ok(Some(counted)) => report.warn(
-            "tree",
-            format!("{named}: {} bytes, named by no seat tree", counted.bytes),
-        ),
+        Ok(Some(counted)) => match counted.unreadable {
+            Some(_) => report.warn(
+                "tree",
+                format!(
+                    "{named}: at least {} bytes, named by no seat tree",
+                    counted.bytes
+                ),
+            ),
+            None => report.warn(
+                "tree",
+                format!("{named}: {} bytes, named by no seat tree", counted.bytes),
+            ),
+        },
         Ok(None) => report.warn(
             "tree",
             format!("{named}: gone before the count, named by no seat tree"),

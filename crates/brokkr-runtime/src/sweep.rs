@@ -22,37 +22,30 @@ use eligibility::Verdict;
 /// spells it.
 const SCRATCH: &str = "scratch";
 
-/// Which tree a removal closed: a run-local seat scratch tree, or a hands
-/// session tree.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SweepKind {
-    Scratch,
-    Hands,
-}
-
 /// One tree a pass removed, or a dry run would remove. `bytes` is `None`
-/// when the tree was gone before the pass.
+/// when the tree was gone before the pass; `lower_bound` says a dry run
+/// could not read every directory, so `bytes` is the least it holds.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Removed {
-    pub kind: SweepKind,
-    pub path: PathBuf,
-    pub bytes: Option<u64>,
+    pub(crate) path: PathBuf,
+    pub(crate) bytes: Option<u64>,
+    pub(crate) lower_bound: bool,
 }
 
 /// One tree kept, with the reason the journal gave. The reason names no
 /// path: the line names the tree once, through the renderer's `safe`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Kept {
-    pub path: PathBuf,
-    pub reason: String,
+    pub(crate) path: PathBuf,
+    pub(crate) reason: String,
 }
 
 /// One tree a pass could not remove, with the walk's cause. The cause
 /// names no path, for the same reason [`Kept::reason`] does not.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Failed {
-    pub path: PathBuf,
-    pub cause: String,
+    pub(crate) path: PathBuf,
+    pub(crate) cause: String,
 }
 
 /// What one pass did, or what a dry run would do.
@@ -69,6 +62,10 @@ pub struct Swept {
 pub enum SweepError {
     #[error(transparent)]
     Store(#[from] StoreError),
+    /// The dispatcher handed to [`pass`] took another journal, so nothing
+    /// was read or written.
+    #[error(transparent)]
+    Dispatcher(#[from] crate::dispatch::DispatcherError),
     /// The removal completed but the journal is a queue this binary does
     /// not write its sweep rows in, so nothing was recorded.
     #[error(
@@ -106,22 +103,18 @@ impl Swept {
     /// run says what it would do and writes nothing.
     pub fn lines_with(&self, safe: fn(&str) -> String, dry_run: bool) -> String {
         let mut said = String::new();
+        let (verb, gone) = match dry_run {
+            true => ("would remove", "it is already gone"),
+            false => ("removed", "it was already gone"),
+        };
         for removed in &self.removed {
             let path = safe(&removed.path.display().to_string());
-            match (dry_run, removed.bytes) {
-                (true, Some(bytes)) => {
-                    said.push_str(&format!("sweep: would remove {path}: {bytes} bytes\n"))
-                }
-                (true, None) => {
-                    said.push_str(&format!("sweep: would remove {path}: it is already gone\n"))
-                }
-                (false, Some(bytes)) => {
-                    said.push_str(&format!("sweep: removed {path}: {bytes} bytes\n"))
-                }
-                (false, None) => {
-                    said.push_str(&format!("sweep: removed {path}: it was already gone\n"))
-                }
-            }
+            let outcome = match (removed.bytes, removed.lower_bound) {
+                (Some(bytes), true) => format!("at least {bytes} bytes"),
+                (Some(bytes), false) => format!("{bytes} bytes"),
+                (None, _) => gone.to_string(),
+            };
+            said.push_str(&format!("sweep: {verb} {path}: {outcome}\n"));
         }
         for kept in &self.kept {
             let path = safe(&kept.path.display().to_string());
@@ -157,6 +150,7 @@ fn pass_with(
     device_of: impl Fn(&Path, u64) -> u64,
     remove: impl Fn(&Path) -> Result<Option<u64>, TreeError>,
 ) -> Result<Swept, SweepError> {
+    held.took(store.journal()?)?;
     let verdicts = eligibility::decide(store, device_of)?;
     let mut swept = Swept::default();
     for verdict in verdicts {
@@ -173,9 +167,9 @@ fn pass_with(
                     held.generation.0,
                 )?;
                 swept.removed.push(Removed {
-                    kind: SweepKind::Scratch,
                     path,
                     bytes,
+                    lower_bound: false,
                 });
             }
             Err(error) => swept.failed.push(Failed {
@@ -194,9 +188,9 @@ fn pass_hands(store: &mut Store, held: &Dispatcher, swept: &mut Swept) -> Result
     for (path, bytes) in reaped.removed() {
         record(store, Closed::Hands, path, Some(bytes), held.generation.0)?;
         swept.removed.push(Removed {
-            kind: SweepKind::Hands,
             path: path.to_path_buf(),
             bytes: Some(bytes),
+            lower_bound: false,
         });
     }
     for (path, reason) in reaped.kept() {
@@ -228,11 +222,7 @@ fn plan_with(
             continue;
         };
         match count(&path) {
-            Ok(counted) => swept.removed.push(Removed {
-                kind: SweepKind::Scratch,
-                path,
-                bytes: counted.map(|counted| counted.bytes),
-            }),
+            Ok(counted) => swept.removed.push(removed(path, counted)),
             Err(error) => swept.failed.push(Failed {
                 path,
                 cause: cause(&error),
@@ -241,6 +231,22 @@ fn plan_with(
     }
     plan_hands(tmp, &mut swept);
     Ok(swept)
+}
+
+/// One planned removal, saying whether its count is a lower bound.
+fn removed(path: PathBuf, counted: Option<tree::Counted>) -> Removed {
+    match counted {
+        Some(counted) => Removed {
+            path,
+            bytes: Some(counted.bytes),
+            lower_bound: counted.unreadable.is_some(),
+        },
+        None => Removed {
+            path,
+            bytes: None,
+            lower_bound: false,
+        },
+    }
 }
 
 /// The trees the hands reaper would remove under `tmp`, with their sizes.
@@ -253,11 +259,7 @@ fn plan_hands(tmp: &Path, swept: &mut Swept) {
 fn plan_hands_with(listed: impl Iterator<Item = hands::Listed>, swept: &mut Swept) {
     for listed in listed {
         match listed.count {
-            Ok(counted) => swept.removed.push(Removed {
-                kind: SweepKind::Hands,
-                path: listed.tree,
-                bytes: counted.map(|counted| counted.bytes),
-            }),
+            Ok(counted) => swept.removed.push(removed(listed.tree, counted)),
             Err(error) => swept.failed.push(Failed {
                 path: listed.tree,
                 cause: cause(&error),

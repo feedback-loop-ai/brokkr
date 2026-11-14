@@ -192,7 +192,7 @@ listing (ruling 9) is the window to look before a pass. A declared
   run-local directory.** The run manifest (`contracts/run-manifest.v14`) and
   the `runs` table carry no workdir or state path. So a row's `root` must
   equal its own canonical path, with no `.`, no `..` and no link in any
-  component, and every open row of one run must name the same `root`.
+  component, and every row of one run must name the same `root`.
   `root/attempt_id` must be a real directory, not a link, on `root`'s
   filesystem. A row that fails any of these is kept and reported by name,
   never removed. Recording the run-local directory in the journal is a

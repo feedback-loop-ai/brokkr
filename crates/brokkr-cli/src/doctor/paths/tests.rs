@@ -249,3 +249,53 @@ fn seat_rows_behind_their_head_add_no_line() {
     assert!(report.healthy);
     assert_eq!(report.lines, Vec::<String>::new());
 }
+
+/// Doctor reaches the unrecorded-tree child after its database line: a
+/// directory under a recorded root that no seat row names is warned with
+/// its size, the report stays healthy, and nothing is removed (decision
+/// 0104 ruling 6).
+#[test]
+fn a_tree_no_row_names_is_warned_after_the_database_line_and_kept() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = journal(dir.path(), &[]);
+    requested(&db, "seated");
+    let root = dir.path().join("scratch");
+    let named = root.join("11111111-1111-4111-8111-111111111111");
+    let orphan = root.join("orphan");
+    std::fs::create_dir_all(&named).unwrap();
+    std::fs::create_dir_all(&orphan).unwrap();
+    std::fs::write(orphan.join("data"), b"x").unwrap();
+    let bytes = brokkr_protocol::tree::count_tree(&orphan)
+        .unwrap()
+        .unwrap()
+        .bytes;
+    let mut store = Store::open(&db).unwrap();
+    store
+        .record_seat_tree(
+            "seated",
+            "fx",
+            "11111111-1111-4111-8111-111111111111",
+            &root,
+        )
+        .unwrap();
+    drop(store);
+
+    let mut report = report();
+    report_database(&mut report, Ok(&db));
+
+    assert!(report.healthy, "an unrecorded tree is a warning");
+    assert_eq!(
+        report.lines,
+        [
+            format!(
+                "ok       database: {} opens (WAL, append-only triggers)",
+                db.display()
+            ),
+            format!(
+                "warn     tree: {}: {bytes} bytes, named by no seat tree",
+                orphan.display()
+            ),
+        ]
+    );
+    assert!(orphan.is_dir(), "doctor removes nothing");
+}
