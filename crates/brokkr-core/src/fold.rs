@@ -20,6 +20,7 @@ use crate::policy::{CONSECUTIVE_FAILURES, REVIEWED_HEADS, STRATEGIES, STRATEGY, 
 mod operator;
 use operator::{accept, command};
 mod relation;
+pub use relation::lawful_after_terminal;
 use relation::{Arm, Position, Transition};
 mod run;
 pub use run::{ParkReason, Run};
@@ -405,10 +406,40 @@ pub fn concluded(state: &RunState) -> Option<Status> {
     terminal(status).then_some(status)
 }
 
+/// The event types that conclude a run, each with the status it states:
+/// the one list the store's terminal gate and its index read, and the
+/// fold's own ending, name. [`EventType`]'s closed set is read here once,
+/// so a terminal type added beside it is admitted in one place.
+pub const TERMINAL_EVENTS: [(EventType, Status); 2] = [
+    (EventType::RunCompleted, Status::Completed),
+    (EventType::RunStopped, Status::Stopped),
+];
+
+/// The status an event that concludes a run states, or `None` for an
+/// event that concludes nothing.
+pub fn terminal_event(event: EventType) -> Option<Status> {
+    TERMINAL_EVENTS
+        .into_iter()
+        .find(|(kind, _)| *kind == event)
+        .map(|(_, status)| status)
+}
+
 /// The words `conclude` refuses a concluded run with, the run named in them.
 pub fn concluded_text(run_id: &str, status: Status) -> String {
+    concluded_named_text(run_id, status, "conclude")
+}
+
+/// The words the operator verbs refuse a concluded run with, one skeleton
+/// for every verb that would append a disposition to it (#440): the run,
+/// its status and the verb that appends nothing.
+pub fn concluded_command_text(run_id: &str, status: Status, command: OperatorCommand) -> String {
+    concluded_named_text(run_id, status, command.as_str())
+}
+
+/// The one skeleton `concluded_text` and `concluded_command_text` share.
+fn concluded_named_text(run_id: &str, status: Status, verb: &str) -> String {
     format!(
-        "run '{run_id}' is already concluded ({}); conclude appends nothing",
+        "run '{run_id}' is already concluded ({}); {verb} appends nothing",
         status.as_str()
     )
 }

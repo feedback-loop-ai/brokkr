@@ -1355,8 +1355,24 @@ fn a_run_that_moved_and_cannot_be_read_refuses_the_claim() {
             run, why: Unmeasurable::Manifest(_) }) if run == "unpinned"),
         "{refused:?}"
     );
-    let completed = || (EventType::RunCompleted, json!({}));
-    appended(&mut fixture, "r1", vec![completed(), completed()]);
+    appended(
+        &mut fixture,
+        "r1",
+        vec![(EventType::RunCompleted, json!({}))],
+    );
+    // The second completion is the row no writer may append any more
+    // (#440), so it is planted past the store exactly as an older build
+    // left it, and the run keeps no summary at its broken head.
+    let (seq, previous) = (fixture.store).head_hash("r1").unwrap();
+    let after = crate::envelope_builder::EnvelopeBuilder::new(EventType::RunCompleted, json!({}))
+        .run("r1")
+        .seq(seq + 1)
+        .event_id("r1-after-terminal")
+        .at("2026-01-01T00:00:09Z")
+        .previous(previous)
+        .sealed();
+    let conn = rusqlite::Connection::open(fixture.root.join("forge.db")).unwrap();
+    brokkr_store::test_support::plant_envelope(&conn, &after).unwrap();
     // A run that does not fold stands behind its head on purpose.
     brokkr_store::test_support::lags(&mut fixture.store, &["r1"]);
     let error = (room.claim(&mut fixture.store, Generation(1), "admitted")).unwrap_err();

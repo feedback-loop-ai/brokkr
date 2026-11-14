@@ -814,8 +814,22 @@ an engine process driving the same run can conclude it or un-park it in
 that window. A command the run can no longer take is refused — `retry`
 anywhere but `awaiting_operator`, either command on a run that has
 already finished — and `brokkr operator` then exits **1** and prints the
-journaled reason. It never accepts a command the fold would refuse to
-read back.
+refusal, the journaled reason where the refusal was journaled. It never
+accepts a command the fold would refuse to read back. On a run that has
+already finished, `stop` and `retry` are judged before their first
+append: nothing is written (not even `operator/commanded`), so nothing
+is journaled, and the refusal says the run is already concluded and that
+the verb appends nothing. `classify` and `supersede` are annotations, so
+they still land on a finished run.
+
+The rule is the store's as well as the verbs': every append refuses a
+non-annotation event after `run/completed` or `run/stopped`, inside the
+transaction that would write it, while an operator annotation still
+lands. The refusal is `AfterTerminal`, whose words name the run as
+already concluded, and it writes no event, cool-down row or projection. A
+late driver that was mid-attempt when its run was concluded therefore
+stops with the conclusion named instead of appending `effect/succeeded`
+after the terminal event (decision 0029).
 
 **There is no `park` command.** Parking is something the engine does,
 never an operator verb. A run parks when the machine cannot rule:
@@ -894,6 +908,16 @@ not an inconvenience: a moved head means the run is not dead, and
 finds open included, lands only on the head that fold read, and a
 moved journal ends it with the drift named. Either way, `brokkr runs`
 is how you look before closing.
+
+The fence is not the last guard: a non-annotation event appended to a run
+that already reached `run/completed` or `run/stopped` is refused by the
+store as `after terminal`, inside the append's own transaction, and no
+event, cool-down row or projection is written. So a driver that was still
+mid-attempt when the conclusion landed meets that refusal at its next
+write, ends with the conclusion named, and leaves the journal folding.
+An operator annotation (`classify`, `supersede`) is still lawful there,
+and `stop` or `retry` on a concluded run is refused before its first
+append (decision 0029).
 
 #### Re-run under another strategy
 

@@ -126,3 +126,13 @@ const ROWS: [[Arm; COLUMNS]; EventType::RunStopped as usize + 1] = {
 pub(super) const fn arm(event: EventType, position: Position) -> Arm {
     ROWS[event as usize][position as usize]
 }
+
+/// May `event` be appended to a run that has reached a terminal event?
+/// Its answer is the relation's terminal column, so the store, the
+/// operator verbs and `fold` read one rule (decision 0071 ruling 5):
+/// only an annotation that changes nothing (the relation's `Annotates`
+/// arm) is lawful. Everything else, a type a newer engine might add
+/// included until the relation admits it, is after terminal.
+pub fn lawful_after_terminal(event: EventType) -> bool {
+    matches!(arm(event, Position::Terminal), Arm::Annotates)
+}

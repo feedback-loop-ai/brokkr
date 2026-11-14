@@ -169,6 +169,9 @@ pub brokkr_view::Command::Retry::phase: core::option::Option<alloc::string::Stri
 pub brokkr_view::Command::Stop
 pub enum brokkr_view::CommandRefusal
 pub brokkr_view::CommandRefusal::Concluded(brokkr_core::fold::Status)
+pub brokkr_view::CommandRefusal::ConcludedCommand
+pub brokkr_view::CommandRefusal::ConcludedCommand::command: brokkr_core::fold::OperatorCommand
+pub brokkr_view::CommandRefusal::ConcludedCommand::status: brokkr_core::fold::Status
 pub brokkr_view::CommandRefusal::Ended(brokkr_core::fold::Status)
 pub brokkr_view::CommandRefusal::Operator
 pub brokkr_view::CommandRefusal::Operator::command: brokkr_core::fold::OperatorCommand

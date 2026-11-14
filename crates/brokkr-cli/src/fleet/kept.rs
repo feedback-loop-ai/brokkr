@@ -386,10 +386,12 @@ impl KeptRun {
 /// Whether a load refused with `error` was refused by the journal's own
 /// bytes, which refuse it again for as long as its head stands. Anything
 /// else — a peer's lock, SQLite's own error, a run the store cannot find
-/// — may read cleanly next time, so it is never kept. Matched
-/// exhaustively, so a new refusal is decided here: the tests read a
-/// broken chain kept and a refusal of timing read again.
-fn lasting(error: &StoreError) -> bool {
+/// — may read cleanly next time, so it is never kept. `AfterTerminal` is
+/// the append gate's verdict, which no load returns, so it is not a
+/// lasting read here. Matched exhaustively, so a new refusal is decided
+/// here: the tests read a broken chain kept and a refusal of timing read
+/// again.
+pub(super) fn lasting(error: &StoreError) -> bool {
     match error {
         StoreError::Json(_) | StoreError::Chain(_) | StoreError::RowBeforeChain { .. } => true,
         StoreError::Sqlite(_)
@@ -401,6 +403,7 @@ fn lasting(error: &StoreError) -> bool {
         | StoreError::SchemaMismatch { .. }
         | StoreError::AppendConflict { .. }
         | StoreError::HeadMoved { .. }
+        | StoreError::AfterTerminal { .. }
         | StoreError::UnknownHead { .. }
         | StoreError::Queue(_)
         | StoreError::SeatTree(_)

@@ -5,7 +5,8 @@
 //! nothing itself (decision 0013); the engine never admits by it.
 
 use brokkr_core::fold::{
-    acceptance_refusal, concluded, concluded_text, OperatorCommand, Refusal, RunState, Status,
+    acceptance_refusal, concluded, concluded_command_text, concluded_text, OperatorCommand,
+    Refusal, RunState, Status,
 };
 use brokkr_core::residual::ResidualPhase;
 use serde::{Serialize, Serializer};
@@ -49,6 +50,14 @@ pub enum CommandRefusal {
         command: OperatorCommand,
         refusal: Refusal,
     },
+    /// `retry` or `stop` on a run that already has its conclusion: the
+    /// verb refuses it before its first append, so the view offers the
+    /// verb's own words rather than a journaled refusal's ([`concluded`],
+    /// [`concluded_command_text`]).
+    ConcludedCommand {
+        command: OperatorCommand,
+        status: Status,
+    },
     /// `conclude` on a run that already has its conclusion ([`concluded`]).
     Concluded(Status),
     /// `resume` on a parked run: it is driven again only once a command
@@ -60,10 +69,13 @@ pub enum CommandRefusal {
 
 impl CommandRefusal {
     /// The word the refusal is known by: the journal's word for the fold's
-    /// refusals and the status's for the rest.
+    /// refusals and the status's for the rest. A concluded run's `stop`
+    /// and `retry` keep the terminal condition's word; the verb refuses
+    /// before anything is journaled.
     pub(crate) fn word(self) -> &'static str {
         match self {
             CommandRefusal::Operator { refusal, .. } => refusal.word(),
+            CommandRefusal::ConcludedCommand { .. } => Refusal::AfterTerminal.word(),
             CommandRefusal::Concluded(_) => "already_concluded",
             CommandRefusal::Parked => Status::AwaitingOperator.as_str(),
             CommandRefusal::Ended(_) => Refusal::AfterTerminal.word(),
@@ -75,6 +87,9 @@ impl CommandRefusal {
         match self {
             CommandRefusal::Operator { command, refusal } => {
                 operator_refusal(command.as_str(), refusal.word(), run_id)
+            }
+            CommandRefusal::ConcludedCommand { command, status } => {
+                concluded_command_text(run_id, status, command)
             }
             CommandRefusal::Concluded(status) => concluded_text(run_id, status),
             CommandRefusal::Parked => format!(
@@ -97,7 +112,10 @@ impl Serialize for CommandRefusal {
 
 /// What `brokkr operator` prints when the journal refuses `command` with
 /// the word `reason`, on run `run_id`. The verb prints this and the view
-/// offers it, so the two never say it two ways.
+/// offers it, so the two never say it two ways where the refusal was
+/// journaled. A concluded run's `stop` and `retry` are judged before their
+/// first append, so they say [`concluded_command_text`] instead and
+/// nothing is journaled (#440).
 pub fn operator_refusal(command: &str, reason: &str, run_id: &str) -> String {
     format!(
         "refused operator {command} ({reason}): the run is not in a state this command can \
@@ -143,8 +161,14 @@ impl Offered {
     }
 }
 
-/// The fold's rule for `command`, as a [`CommandRefusal`].
+/// The fold's rule for `command`, as a [`CommandRefusal`]. A concluded run
+/// is judged before the fold's acceptance rule: the verb refuses it before
+/// its first append, so the view offers the verb's words and not the
+/// journaled refusal's (#440).
 fn operator_rule(state: &RunState, command: OperatorCommand) -> Option<CommandRefusal> {
+    if let Some(status) = concluded(state) {
+        return Some(CommandRefusal::ConcludedCommand { command, status });
+    }
     acceptance_refusal(state, command).map(|refusal| CommandRefusal::Operator { command, refusal })
 }
 

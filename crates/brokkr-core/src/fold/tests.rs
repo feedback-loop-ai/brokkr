@@ -1327,6 +1327,31 @@ fn the_relation_answers_every_pair_and_the_fold_answers_by_it() {
     assert_eq!(Position::of(&stopped), Terminal);
 }
 
+/// The after-terminal rule the store and the operator verbs read is the
+/// relation's terminal column, not a table beside it (decision 0071
+/// ruling 5): every event type answers as its row's last column says, so
+/// a new type or a changed column cannot move one without the other.
+#[test]
+fn lawful_after_terminal_is_the_relations_terminal_column() {
+    let mut lawful = Vec::new();
+    for event_type in EVENT_TYPES {
+        let expected = matches!(
+            relation::arm(event_type, Position::Terminal),
+            Arm::Annotates
+        );
+        assert_eq!(
+            lawful_after_terminal(event_type),
+            expected,
+            "{event_type:?}"
+        );
+        if expected {
+            lawful.push(event_type);
+        }
+    }
+    use EventType::{OperatorCommanded, OperatorRejected};
+    assert_eq!(lawful, [OperatorCommanded, OperatorRejected]);
+}
+
 /// An event that is both malformed and out of place is refused for the
 /// field it names its target by, as the fold's arms always read it first;
 /// an event that names no target first is refused for its place.
@@ -1396,6 +1421,45 @@ fn a_run_is_concluded_only_once_it_completed_or_stopped() {
         concluded_text("r", Status::Completed),
         "run 'r' is already concluded (completed); conclude appends nothing"
     );
+    // The operator verbs read one skeleton with the verb varied, so the
+    // view's offer and the verb cannot word a concluded run two ways
+    // (#440). Only the two commands that would append a disposition take
+    // it; `release` moves nothing and `retry`/`stop` are the pair.
+    assert_eq!(
+        concluded_command_text("r", Status::Stopped, OperatorCommand::Stop),
+        "run 'r' is already concluded (stopped); stop appends nothing"
+    );
+    assert_eq!(
+        concluded_command_text("r", Status::Completed, OperatorCommand::Retry),
+        "run 'r' is already concluded (completed); retry appends nothing"
+    );
+}
+
+/// The terminal types are one list in core, and the fold's relation reads
+/// the same two: each concludes a run in the status it names, and no other
+/// event type does. Every terminal type is after terminal to append, so a
+/// terminal event never follows a terminal event.
+#[test]
+fn the_terminal_events_are_the_relations_two_concluding_types() {
+    assert_eq!(
+        TERMINAL_EVENTS,
+        [
+            (EventType::RunCompleted, Status::Completed),
+            (EventType::RunStopped, Status::Stopped),
+        ]
+    );
+    for event_type in EVENT_TYPES {
+        let expected = match event_type {
+            EventType::RunCompleted => Some(Status::Completed),
+            EventType::RunStopped => Some(Status::Stopped),
+            _ => None,
+        };
+        assert_eq!(terminal_event(event_type), expected, "{event_type:?}");
+    }
+    for (event_type, status) in TERMINAL_EVENTS {
+        assert_eq!(Status::named(status.as_str()), Some(status));
+        assert!(!lawful_after_terminal(event_type), "{event_type:?}");
+    }
 }
 
 #[test]

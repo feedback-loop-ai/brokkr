@@ -28,6 +28,7 @@ mod workflow;
 mod workspace_root;
 
 mod acknowledge;
+mod after_terminal;
 mod agent_fallback;
 mod agent_readouts;
 mod analytics;

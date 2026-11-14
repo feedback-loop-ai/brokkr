@@ -332,13 +332,25 @@ fn the_kept_rows_are_the_whole_reads_rows_as_the_journal_moves() {
     assert_eq!(acknowledged, Some(seq), "acknowledged where it stood");
 
     // An event after the run stopped: the fold refuses it in the suffix,
-    // and the run is quarantined where the whole read quarantines it.
-    append(
-        &db,
-        "held",
+    // and the run is quarantined where the whole read quarantines it. No
+    // writer may append it any more (#440), so it is planted as an older
+    // build left it.
+    let head = Store::open(&db).unwrap();
+    let (seq, previous) = head.head_hash("held").unwrap();
+    drop(head);
+    let late = EnvelopeBuilder::new(
         EventType::EffectRequested,
         json!({"effect_id": "late", "seat": "review", "phase": "review"}),
-    );
+    )
+    .run("held")
+    .seq(seq + 1)
+    .event_id("held-after-terminal")
+    .at(STAMP)
+    .previous(previous)
+    .sealed();
+    let conn = rusqlite::Connection::open(&db).unwrap();
+    plant_envelope(&conn, &late).unwrap();
+    drop(conn);
     assert_eq!(refreshed(&mut kept, &db), 1);
     assert_eq!(kept_rows(&kept), whole_rows(&db));
     assert_eq!(refreshed(&mut kept, &db), 0, "refused, and unmoved");

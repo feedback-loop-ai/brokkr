@@ -10,7 +10,7 @@ use std::process::Command;
 
 use brokkr_core::dispatch::{bundle_manifest_from_run, DispatchEnvelopeV2, DispatchError};
 use brokkr_core::envelope::EventType;
-use brokkr_core::fold::{Cursor, Run, RunState};
+use brokkr_core::fold::{Cursor, OperatorCommand, Run, RunState, Status};
 use brokkr_core::gate_moved_head::{self, MovedHead};
 use brokkr_core::realms::Boundary;
 use brokkr_core::EventEnvelope;
@@ -94,7 +94,7 @@ use panel::MemberRun;
 #[cfg(test)]
 use brokkr_core::fold::{
     fold,
-    OperatorCommand::{self, Retry, Stop},
+    OperatorCommand::{Retry, Stop},
     ParkReason, Refusal,
 };
 pub use carry::CarryRefusal;
@@ -173,6 +173,33 @@ pub enum EngineError {
     ConcludeRefused {
         run_id: String,
         why: ConcludeRefusal,
+    },
+    /// An operator command that would dispose of itself on a concluded
+    /// run is refused before its first append (#440): a `stop` or `retry`
+    /// would otherwise journal `operator/commanded` and then an
+    /// `operator/accepted` the fold refuses after terminal.
+    #[error("{}", brokkr_core::fold::concluded_command_text(run_id, *status, *verb))]
+    AlreadyConcluded {
+        run_id: String,
+        status: Status,
+        verb: OperatorCommand,
+    },
+    /// A driver that was still working when its run was concluded beneath
+    /// it met the store's terminal gate (#440). Nothing was written, and
+    /// the conclusion already closed the attempt indeterminate, so the
+    /// report it was carrying is lost to the journal. Every engine append
+    /// path that can meet the gate ends here: the attempt's settlement,
+    /// the checkpoint sink's flush and settle, and the broker calls it
+    /// settles.
+    #[error(
+        "{}",
+        concluded_beneath_text(run_id, *status, *event_type, attempt_id.as_deref())
+    )]
+    ConcludedBeneath {
+        run_id: String,
+        status: Status,
+        event_type: EventType,
+        attempt_id: Option<String>,
     },
     /// `supersede` refused a citation, and wrote nothing (decision 0047
     /// ruling 2). Unlike `retry` and `stop`, a refused supersede leaves
@@ -338,7 +365,51 @@ fn charter_moved((owner, key): (String, String)) -> EngineError {
     EngineError::CharterMoved { owner, key }
 }
 
+/// The words [`EngineError::ConcludedBeneath`] says: the run, the
+/// conclusion's status, the refused event and the attempt whose report is
+/// lost, or the driver where the event names no attempt.
+fn concluded_beneath_text(
+    run_id: &str,
+    status: Status,
+    event_type: EventType,
+    attempt: Option<&str>,
+) -> String {
+    let who = attempt.map_or_else(
+        || "this driver".to_string(),
+        |attempt| format!("attempt '{attempt}'"),
+    );
+    format!(
+        "run '{run_id}' was concluded ({}) while {who} was still working, so its {} could not \
+         be appended and nothing was written; the driver stops here, and the conclusion already \
+         closed the attempt as effect/indeterminate — the report this driver was carrying is \
+         lost to the journal",
+        status.as_str(),
+        event_type.as_str()
+    )
+}
+
 impl EngineError {
+    /// The store's terminal refusal as the driver's typed ending (#440):
+    /// the run, the conclusion's status, the event refused and the attempt
+    /// whose report is lost. Every engine append path that can meet the
+    /// refusal ends here, so none reports the store's words as a bare
+    /// storage error.
+    pub(super) fn concluded_beneath(error: StoreError, attempt_id: Option<&str>) -> EngineError {
+        match error {
+            StoreError::AfterTerminal {
+                run_id,
+                status,
+                event_type,
+            } => EngineError::ConcludedBeneath {
+                run_id,
+                status,
+                event_type,
+                attempt_id: attempt_id.map(str::to_string),
+            },
+            error => EngineError::Store(error),
+        }
+    }
+
     /// The contention this error carries, if that is what it is.
     ///
     /// [`EngineError::Store`] is `transparent`, so the store error it

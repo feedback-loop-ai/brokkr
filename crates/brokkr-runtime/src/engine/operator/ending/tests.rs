@@ -5,6 +5,7 @@
 use super::*;
 use brokkr_core::ending::ended;
 use brokkr_core::envelope::EventType;
+use brokkr_core::fold::{fold, Status};
 use brokkr_core::EventEnvelope;
 use brokkr_core::RunState;
 use std::path::Path;
@@ -345,6 +346,38 @@ fn conclude_refuses_every_misfit_cause_and_writes_nothing() {
     refusals(Verb::Conclude, |store, cited, named| {
         conclude(store, cited, "held", named).map(drop)
     });
+}
+
+/// Shape (B) of #440: a stop after a conclusion is judged before its
+/// first append. It names the conclusion and the verb, writes nothing —
+/// not even the `operator/commanded` an unwritten stop would leave — and
+/// the run still folds.
+#[test]
+fn a_stop_after_a_conclusion_is_refused_before_any_append() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = in_flight_store(&dir.path().join("after.db"), "after");
+    conclude_as(&mut store, "after", "operator", "believed dead").unwrap();
+    let before = bytes(&store.load("after").unwrap());
+    let error = stop_as(&mut store, "after", "late", "again").unwrap_err();
+    assert!(
+        matches!(
+            &error,
+            EngineError::AlreadyConcluded {
+                run_id,
+                status: Status::Stopped,
+                verb: OperatorCommand::Stop,
+            } if run_id == "after"
+        ),
+        "{error:?}"
+    );
+    assert_eq!(
+        error.to_string(),
+        "run 'after' is already concluded (stopped); stop appends nothing"
+    );
+    let after = store.load("after").unwrap();
+    assert_eq!(bytes(&after), before);
+    assert_eq!(after.last().unwrap().event_type, EventType::RunStopped);
+    fold(&after).unwrap();
 }
 
 /// Ruling 4: `--cause` is required. A missing one is refused where it was

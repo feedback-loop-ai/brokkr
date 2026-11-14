@@ -5,6 +5,8 @@
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 
+use brokkr_core::fold::Status;
+
 use super::super::tests::{bundle, single_body};
 use super::super::*;
 
@@ -144,6 +146,95 @@ fn a_fresh_process_does_not_close_an_attempt_its_live_driver_moved() {
     assert_eq!(events.last().unwrap().event_type, checkpointed);
 }
 
+/// A journal whose in-flight attempt was concluded beneath its driver,
+/// and the fresh engine a resume builds over it: the shape (A) fixture
+/// both late-append tests meet first.
+fn concluded_beneath_driver(dir: &Path) -> (String, Engine) {
+    let run_id = journaled(dir, in_flight());
+    let mut store = Store::open(&db(dir)).unwrap();
+    conclude_as(&mut store, &run_id, "operator", "believed dead").unwrap();
+    let engine = resumed(dir, &run_id);
+    (run_id, engine)
+}
+
+/// Shape (A) of #440: the run is concluded while its attempt is open,
+/// and the attempt's settlement then meets the store's terminal gate.
+/// Nothing is written, the driver ends on a typed error naming the
+/// conclusion, and the run still folds as stopped.
+#[test]
+fn a_late_settlement_over_a_conclusion_ends_the_driver_and_the_run_still_folds() {
+    let dir = tempfile::tempdir().unwrap();
+    let (run_id, mut engine) = concluded_beneath_driver(dir.path());
+    let settlement = json!({"effect_id": "effect-1", "result": {"result": "complete"}});
+    let error = engine
+        .append_raw(
+            EventType::EffectSucceeded,
+            settlement,
+            Some("attempt-1".into()),
+        )
+        .unwrap_err();
+    assert!(
+        matches!(
+            &error,
+            EngineError::ConcludedBeneath {
+                run_id: named,
+                status: Status::Stopped,
+                event_type: EventType::EffectSucceeded,
+                attempt_id: Some(attempt),
+            } if named == &run_id && attempt == "attempt-1"
+        ),
+        "{error:?}"
+    );
+    assert_eq!(
+        error.to_string(),
+        format!(
+            "run '{run_id}' was concluded (stopped) while attempt 'attempt-1' was still working, \
+             so its effect/succeeded could not be appended and nothing was written; the driver \
+             stops here, and the conclusion already closed the attempt as effect/indeterminate — \
+             the report this driver was carrying is lost to the journal"
+        )
+    );
+    let events = engine.store.load(&run_id).unwrap();
+    assert_eq!(events.last().unwrap().event_type, EventType::RunStopped);
+    assert!(events.iter().any(|event| {
+        event.event_type == EventType::EffectIndeterminate
+            && event.attempt_id.as_deref() == Some("attempt-1")
+    }));
+    assert_eq!(fold(&events).unwrap().run, Run::Stopped);
+}
+
+/// The same ending for an event that names no attempt: the driver is
+/// named as itself, and the typed value still says no attempt's report is
+/// lost, so a late non-attempt append cannot be mistaken for a settlement.
+#[test]
+fn a_late_event_that_names_no_attempt_ends_concluded_beneath() {
+    let dir = tempfile::tempdir().unwrap();
+    let (run_id, mut engine) = concluded_beneath_driver(dir.path());
+    let error = engine
+        .append_raw(EventType::RunParked, json!({}), None)
+        .unwrap_err();
+    assert!(
+        matches!(
+            &error,
+            EngineError::ConcludedBeneath {
+                run_id: named,
+                status: Status::Stopped,
+                event_type: EventType::RunParked,
+                attempt_id: None,
+            } if named == &run_id
+        ),
+        "{error:?}"
+    );
+    assert!(
+        error
+            .to_string()
+            .contains("while this driver was still working"),
+        "{error}"
+    );
+    let events = engine.store.load(&run_id).unwrap();
+    assert_eq!(events.last().unwrap().event_type, EventType::RunStopped);
+}
+
 /// A step the engine decides between effects: an operator's stop is
 /// accepted after the engine folded `Cursor::Start` and before it enters
 /// the phase. Unfenced, `phase/entered` landed at `Cursor::Stop` and the
@@ -204,4 +295,19 @@ fn the_refusal_names_the_drift_and_says_to_look_first() {
          so something else may be driving the run; nothing was written — look with \
          `brokkr runs` before resuming (decision 0029)"
     );
+}
+
+/// Only the store's terminal refusal becomes the driver's typed ending: any
+/// other store error stays a storage error, so a contended or moved head is
+/// never reported as a conclusion beneath the driver (#440).
+#[test]
+fn a_store_error_other_than_the_terminal_refusal_stays_a_store_error() {
+    let error = StoreError::HeadMoved {
+        expected_seq: 3,
+        found_seq: 4,
+    };
+    assert!(matches!(
+        EngineError::concluded_beneath(error, Some("attempt")),
+        EngineError::Store(StoreError::HeadMoved { .. })
+    ));
 }

@@ -421,7 +421,11 @@ impl<'a, B: FnMut(&mut Store)> Checkpoints<'a, B> {
 
     /// The seat has stopped: journal what is held, within
     /// [`SETTLING_PATIENCES`]. What the lock outlasts is stranded and
-    /// counted against its site; a storage failure is handed up.
+    /// counted against its site; a storage failure is handed up. A
+    /// checkpoint the run's conclusion refused (the run was concluded
+    /// beneath the driver) ends the driver in [`EngineError::ConcludedBeneath`],
+    /// naming the attempt whose report is lost, rather than reporting the
+    /// store's words as a bare storage error (#440).
     pub(super) fn settle(mut self) -> Result<Settled, EngineError> {
         let flushed = within_patiences(SETTLING_PATIENCES, || {
             self.flush(Store::append_chain).map_or(Ok(()), Err)
@@ -432,7 +436,12 @@ impl<'a, B: FnMut(&mut Store)> Checkpoints<'a, B> {
             }
         }
         if let Some(failure) = self.failure {
-            return Err(failure.into());
+            return Err(match failure {
+                failure @ StoreError::AfterTerminal { .. } => {
+                    EngineError::concluded_beneath(failure, Some(self.attempt.attempt_id))
+                }
+                failure => failure.into(),
+            });
         }
         Ok(Settled {
             refusal: self.refusal,

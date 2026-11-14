@@ -70,7 +70,7 @@ const WIRE_NAMES: [&str; EventType::RunStopped as usize + 1] = [
 
 impl EventType {
     /// Every type, in declaration order: what a wire name is read back to.
-    const ALL: [EventType; EventType::RunStopped as usize + 1] = {
+    const EVERY: [EventType; EventType::RunStopped as usize + 1] = {
         use EventType::*;
         [
             RunStarted,
@@ -90,6 +90,18 @@ impl EventType {
             RunStopped,
         ]
     };
+
+    /// Every type, in declaration order. Public only through the
+    /// `test-support` feature, which a dev-dependency alone enables: the
+    /// store's table test holds its terminal gate to the relation for
+    /// every type (decision 0071 ruling 9), and no shipped reader iterates
+    /// the set.
+    #[cfg(any(test, feature = "test-support"))]
+    pub const ALL: [EventType; EventType::RunStopped as usize + 1] = Self::EVERY;
+
+    /// [`EventType::EVERY`] for this crate's own readers; not public API.
+    #[cfg(not(any(test, feature = "test-support")))]
+    pub(crate) const ALL: [EventType; EventType::RunStopped as usize + 1] = Self::EVERY;
 
     /// The wire name serde writes for this type, for readers that name an
     /// event without serializing it.

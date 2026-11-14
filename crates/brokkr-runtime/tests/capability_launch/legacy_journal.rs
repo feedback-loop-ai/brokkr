@@ -632,13 +632,30 @@ fn the_shared_observation_decodes_in_the_engine_crate_and_refuses_extras() {
 }
 
 /// A direct append of a partial attribution group or a private
-/// observation, each beside a legacy native row, is refused with the
-/// exact v6 violation at the seq it would have taken, and the journal
-/// stands still. A whole engine-owned group is v6's to admit (SC4), and
-/// the export sweep passes the journal that takes it: append and export
-/// read one contract. (Verify also folds, and a completed run takes no
-/// further event, so store's own suite proves verify on a live run.)
+/// observation is refused with the exact v6 violation at the seq it
+/// would have taken, and the journal stands still. A whole engine-owned
+/// group is v6's to admit (SC4), and the export sweep passes the journal
+/// that takes it: append and export read one contract. This opens its own
+/// live run inside the journal under test, because #440 now refuses every
+/// non-annotation after a terminal event; the completed legacy run is the
+/// export-and-verify subject, and `brokkr-store`'s terminal suite owns
+/// that refusal.
 fn fences_the_attribution_group(store: &mut Store, run_id: &str) {
+    let live = format!("{run_id}-attribution");
+    let manifest = json!({"engine": env!("CARGO_PKG_VERSION")});
+    store
+        .create_run(&live, "legacy", "test", &manifest)
+        .unwrap();
+    store
+        .append_next(
+            &live,
+            EventType::RunStarted,
+            json!({"feature": "legacy", "manifest": manifest}),
+            None,
+            None,
+        )
+        .unwrap();
+    let run_id = live.as_str();
     let head = store.head_hash(run_id).unwrap();
     let base = json!({"step": "seat-turn", "turn": 3, "model": "claude-opus-5-5",
                       "tool": "WebSearch"});

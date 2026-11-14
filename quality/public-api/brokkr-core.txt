@@ -394,12 +394,16 @@ pub brokkr_core::fold::RunState::visits: alloc::collections::btree::map::BTreeMa
 impl brokkr_core::fold::RunState
 pub fn brokkr_core::fold::RunState::stopping_seq(&self) -> core::option::Option<u64>
 pub const brokkr_core::fold::FAILURE_RESULTS: [&str; 2]
+pub const brokkr_core::fold::TERMINAL_EVENTS: [(brokkr_core::envelope::EventType, brokkr_core::fold::Status); 2]
 pub fn brokkr_core::fold::acceptance_refusal(&brokkr_core::fold::RunState, brokkr_core::fold::OperatorCommand) -> core::option::Option<brokkr_core::fold::Refusal>
 pub fn brokkr_core::fold::computed_inputs(&brokkr_core::fold::RunState, &str, &str, bool) -> serde_json::map::Map<alloc::string::String, serde_json::value::Value>
 pub fn brokkr_core::fold::concluded(&brokkr_core::fold::RunState) -> core::option::Option<brokkr_core::fold::Status>
+pub fn brokkr_core::fold::concluded_command_text(&str, brokkr_core::fold::Status, brokkr_core::fold::OperatorCommand) -> alloc::string::String
 pub fn brokkr_core::fold::concluded_text(&str, brokkr_core::fold::Status) -> alloc::string::String
 pub fn brokkr_core::fold::fold(&[brokkr_core::envelope::EventEnvelope]) -> core::result::Result<brokkr_core::fold::RunState, brokkr_core::fold::FoldError>
 pub fn brokkr_core::fold::fold_onto(brokkr_core::fold::RunState, &[brokkr_core::envelope::EventEnvelope]) -> core::result::Result<brokkr_core::fold::RunState, brokkr_core::fold::FoldError>
+pub fn brokkr_core::fold::lawful_after_terminal(brokkr_core::envelope::EventType) -> bool
+pub fn brokkr_core::fold::terminal_event(brokkr_core::envelope::EventType) -> core::option::Option<brokkr_core::fold::Status>
 pub mod brokkr_core::gate_moved_head
 pub struct brokkr_core::gate_moved_head::MovedHead
 pub brokkr_core::gate_moved_head::MovedHead::head_at_end: core::option::Option<alloc::string::String>

@@ -692,8 +692,8 @@ fn an_engine_version_that_moved_refuses_resume_and_concludes_anyway() {
 /// The fences, each proven against the live driver it exists to refuse
 /// (the operator's park ruling, 2026-09-01). First: the driver concludes
 /// the run in the window between `conclude`'s fold and the stop command
-/// — the command re-decides against the moved journal and its refusal
-/// ends the conclusion with the look-first instruction.
+/// — the command is judged before it writes and ends the conclusion with
+/// the conclusion's own words, appending nothing.
 #[test]
 fn a_run_the_driver_finishes_mid_conclusion_refuses_the_stop() {
     let dir = tempfile::tempdir().unwrap();
@@ -724,8 +724,8 @@ fn a_run_the_driver_finishes_mid_conclusion_refuses_the_stop() {
         }
     })
     .unwrap_err();
-    let why = ConcludeRefusal::StopRefused {
-        refusal: Refusal::AfterTerminal,
+    let why = ConcludeRefusal::AlreadyConcluded {
+        status: Status::Completed,
     };
     assert_eq!(refusal_of(refused), (name.to_string(), why));
     assert!(
@@ -774,5 +774,68 @@ fn a_result_landing_inside_the_fence_window_refuses_the_close() {
     assert!(
         fold(&events(&store, name)).is_ok(),
         "the journal still folds; the driver's result stands and the run lives"
+    );
+}
+
+/// Third: a peer's stop lands inside the window of the stop `conclude`
+/// commands itself, after its command was journaled and before it was
+/// accepted. The command loses the fence, the conclusion ends as
+/// [`ConcludeRefusal::StopRefused`], and the journal keeps folding (#440).
+#[test]
+fn a_peer_stop_inside_the_stop_window_refuses_the_conclusion() {
+    let dir = tempfile::tempdir().unwrap();
+    let name = "conclude-parked-hand-built";
+    let mut store = store_for(&dir, name);
+    let mut calls = 0;
+    let refused = conclude_racing_as(&mut store, name, ("operator", "believed dead"), |store| {
+        calls += 1;
+        // Call 1 is before the stop command; call 2 is inside the stop's
+        // disposition, the window under test.
+        if calls == 2 {
+            stop_as(store, name, "peer", "a second operator").unwrap();
+        }
+    })
+    .unwrap_err();
+    let (run_id, why) = refusal_of(refused);
+    assert_eq!(run_id, name);
+    assert!(
+        matches!(why, ConcludeRefusal::StopRefused { .. }),
+        "{why:?}"
+    );
+    assert!(
+        fold(&events(&store, name)).is_ok(),
+        "the journal still folds"
+    );
+}
+
+/// Fourth: the store refuses the acceptance of the stop `conclude`
+/// commanded itself. That error is not a conclusion refusal: it ends the
+/// conclusion as it is, only the command has landed, and the journal keeps
+/// folding (#440).
+#[test]
+fn a_stop_the_store_refuses_to_accept_ends_the_conclusion_with_its_error() {
+    let dir = tempfile::tempdir().unwrap();
+    let name = "conclude-parked-hand-built";
+    let db = dir.path().join("refused-acceptance.db");
+    let mut store = replay(&db, name, &pinned(name));
+    let before = events(&store, name).len();
+    super::tests::fail_event(&db, "operator/accepted");
+    let refused = conclude_as(&mut store, name, "vyanakiev", "close it").unwrap_err();
+    assert!(
+        refused.to_string().contains("forced event failure"),
+        "{refused}"
+    );
+    assert!(
+        !matches!(refused, EngineError::ConcludeRefused { .. }),
+        "{refused:?}"
+    );
+    assert_eq!(
+        events(&store, name).len(),
+        before + 1,
+        "only the stop's command landed"
+    );
+    assert!(
+        fold(&events(&store, name)).is_ok(),
+        "the journal still folds"
     );
 }

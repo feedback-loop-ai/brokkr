@@ -1347,6 +1347,10 @@ pub brokkr_runtime::engine::ConcludeRefusal::JournalMoved
 pub brokkr_runtime::engine::ConcludeRefusal::StopRefused
 pub brokkr_runtime::engine::ConcludeRefusal::StopRefused::refusal: brokkr_core::fold::Refusal
 pub enum brokkr_runtime::engine::EngineError
+pub brokkr_runtime::engine::EngineError::AlreadyConcluded
+pub brokkr_runtime::engine::EngineError::AlreadyConcluded::run_id: alloc::string::String
+pub brokkr_runtime::engine::EngineError::AlreadyConcluded::status: brokkr_core::fold::Status
+pub brokkr_runtime::engine::EngineError::AlreadyConcluded::verb: brokkr_core::fold::OperatorCommand
 pub brokkr_runtime::engine::EngineError::BoundaryMismatch
 pub brokkr_runtime::engine::EngineError::BoundaryMismatch::compiled: brokkr_core::realms::Boundary
 pub brokkr_runtime::engine::EngineError::BoundaryMismatch::world: brokkr_core::realms::Boundary
@@ -1366,6 +1370,11 @@ pub brokkr_runtime::engine::EngineError::ClassifyRefused(alloc::string::String)
 pub brokkr_runtime::engine::EngineError::ConcludeRefused
 pub brokkr_runtime::engine::EngineError::ConcludeRefused::run_id: alloc::string::String
 pub brokkr_runtime::engine::EngineError::ConcludeRefused::why: brokkr_runtime::ConcludeRefusal
+pub brokkr_runtime::engine::EngineError::ConcludedBeneath
+pub brokkr_runtime::engine::EngineError::ConcludedBeneath::attempt_id: core::option::Option<alloc::string::String>
+pub brokkr_runtime::engine::EngineError::ConcludedBeneath::event_type: brokkr_core::envelope::EventType
+pub brokkr_runtime::engine::EngineError::ConcludedBeneath::run_id: alloc::string::String
+pub brokkr_runtime::engine::EngineError::ConcludedBeneath::status: brokkr_core::fold::Status
 pub brokkr_runtime::engine::EngineError::Dispatch(brokkr_core::dispatch::DispatchError)
 pub brokkr_runtime::engine::EngineError::Entry(brokkr_runtime::bundle::entry::EntryError)
 pub brokkr_runtime::engine::EngineError::EntryRecord(brokkr_core::entry::EntryRead)
@@ -1871,6 +1880,10 @@ pub const brokkr_runtime::agents::EgressClass::VOCABULARY: &'static str
 pub fn brokkr_runtime::agents::EgressClass::name(&self) -> &'static str
 pub fn brokkr_runtime::agents::EgressClass::parse(&str) -> core::option::Option<brokkr_runtime::agents::EgressClass>
 pub enum brokkr_runtime::EngineError
+pub brokkr_runtime::EngineError::AlreadyConcluded
+pub brokkr_runtime::EngineError::AlreadyConcluded::run_id: alloc::string::String
+pub brokkr_runtime::EngineError::AlreadyConcluded::status: brokkr_core::fold::Status
+pub brokkr_runtime::EngineError::AlreadyConcluded::verb: brokkr_core::fold::OperatorCommand
 pub brokkr_runtime::EngineError::BoundaryMismatch
 pub brokkr_runtime::EngineError::BoundaryMismatch::compiled: brokkr_core::realms::Boundary
 pub brokkr_runtime::EngineError::BoundaryMismatch::world: brokkr_core::realms::Boundary
@@ -1890,6 +1903,11 @@ pub brokkr_runtime::EngineError::ClassifyRefused(alloc::string::String)
 pub brokkr_runtime::EngineError::ConcludeRefused
 pub brokkr_runtime::EngineError::ConcludeRefused::run_id: alloc::string::String
 pub brokkr_runtime::EngineError::ConcludeRefused::why: brokkr_runtime::ConcludeRefusal
+pub brokkr_runtime::EngineError::ConcludedBeneath
+pub brokkr_runtime::EngineError::ConcludedBeneath::attempt_id: core::option::Option<alloc::string::String>
+pub brokkr_runtime::EngineError::ConcludedBeneath::event_type: brokkr_core::envelope::EventType
+pub brokkr_runtime::EngineError::ConcludedBeneath::run_id: alloc::string::String
+pub brokkr_runtime::EngineError::ConcludedBeneath::status: brokkr_core::fold::Status
 pub brokkr_runtime::EngineError::Dispatch(brokkr_core::dispatch::DispatchError)
 pub brokkr_runtime::EngineError::Entry(brokkr_runtime::bundle::entry::EntryError)
 pub brokkr_runtime::EngineError::EntryRecord(brokkr_core::entry::EntryRead)
