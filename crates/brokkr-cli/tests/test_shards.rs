@@ -65,7 +65,8 @@ fn metadata() -> Metadata {
 /// and records how a raised SIGINT ends a child shell. `STUB_FAIL` fails the
 /// shard, `STUB_EMPTY` runs no test, `STUB_PLANT` prints `STUB_LINES` instead
 /// of its summary, `STUB_KILL` kills its runner and waits for `release`, and
-/// `STUB_RECORD` writes a status record then kills its runner.
+/// `STUB_RECORD` writes a status record then kills its runner. Both kill only
+/// once the runner has copied the summary into the shard's log.
 ///
 /// `dep` copies a real executable into a directory named `deps`, so the kernel
 /// reports the copy (never a script's interpreter) as the executable and the
@@ -119,6 +120,17 @@ summary() {
   printf 'test result: %s. %s passed; %s failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n' "$1" "$2" "$3"
 }
 names() { local word="$1"; shift; [ -n "$word" ] && [[ " $* " == *" $word "* ]]; }
+# Waits, for at most 30 s, until the runner has copied the summary into each
+# log that has no status yet, so a kill that follows cannot lose it. A fixed
+# sleep lost that race to a runner a loaded host had not yet scheduled.
+copied() {
+  local log tries
+  for log in "$TMPDIR"/brokkr-test-shards.*/[0-9]*.log; do
+    [ -e "${log%.log}.status" ] && continue
+    tries=0
+    until grep -q "^test result: " "$log" ||[ "$tries" -ge 600 ]; do tries=$((tries + 1)); sleep 0.05; done
+  done
+}
 printf 'start %s\n' "$*" >> "$dir/events"
 printf '%s\n' "${BROKKR_TEST_MACHINE-unset}" >> "$dir/machine"
 printf '%s\n' "${BROKKR_TEST_SHARD_BOUND_SECONDS-unset}" >> "$dir/bound"
@@ -205,14 +217,14 @@ else
   summary ok 1 0
 fi
 if names "${STUB_KILL:-}" "$@"; then
-  # Let the runner copy the summary the test expects in the kept log before
-  # the stub kills it; the runner still dies before it writes its status.
-  sleep 0.5
+  # The runner still dies before it writes its status.
+  copied
   kill -KILL "$PPID"
   tries=0
   while [ ! -e "$dir/release" ] && [ "$tries" -lt 600 ]; do tries=$((tries + 1)); sleep 0.05; done
 fi
 if names "${STUB_RECORD:-}" "$@"; then
+  copied
   for log in "$TMPDIR"/brokkr-test-shards.*/*.log; do
     [ -e "${log%.log}.status" ] || cp "$dir/record" "${log%.log}.status"
   done
