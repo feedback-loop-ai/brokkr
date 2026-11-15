@@ -677,10 +677,8 @@ pub(super) fn apply_fenced_windows(
     // ANSWERED as any refused command is — a rejected receipt at the head
     // it found — so the cursor advances and the words queued behind it
     // still run. Nothing is journaled, so the receipt is the only record.
-    if let CommandWord::Unknown(word) = wire.command {
-        if brokkr_core::fold::reserved_annotation(word) {
-            return Ok(receipt::reserved_receipt(&events));
-        }
+    if let Some(answer) = receipt::reserved_answer(wire, &events) {
+        return Ok(answer);
     }
     // The head this fold read: the one the wire's cursor is checked
     // against, and the one the command must still find (decision 0029).
@@ -705,19 +703,7 @@ pub(super) fn apply_fenced_windows(
         return Ok(refused);
     };
     between(store);
-    let cause = &commanded.event_id;
-    let disposition = match rejection {
-        Some(refusal) => {
-            let rejection = Rejection {
-                command_id,
-                operator,
-                refusal,
-                cause,
-            };
-            receipt::refuse_undisposed(store, run_id, rejection)?
-        }
-        None => fenced_acceptance(store, run_id, wire, &commanded)?,
-    };
+    let disposition = receipt::fenced_disposition(store, run_id, wire, rejection, &commanded)?;
     // Prove the newly appended pair does not corrupt fold semantics before the
     // bridge acknowledges it to Looper.
     read_back(store, run_id)?;

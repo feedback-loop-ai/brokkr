@@ -13,8 +13,8 @@ use brokkr_store::{Store, StoreError};
 use serde_json::Value;
 
 use super::{
-    accepted_at, command_id_of, fenced_append, read_back, CommandWord, EngineError,
-    FencedCommandOutcome, Head, Rejection, FENCE_ATTEMPTS,
+    accepted_at, command_id_of, fenced_acceptance, fenced_append, read_back, CommandWord,
+    EngineError, FencedCommand, FencedCommandOutcome, Head, Rejection, FENCE_ATTEMPTS,
 };
 
 /// The `operator/commanded` journaled for `command_id`, if any.
@@ -230,4 +230,38 @@ pub(super) fn fenced_refusal(
         return Some(Refusal::RunNotAwaitingOperator);
     }
     acceptance_refusal(state, command)
+}
+
+/// A reserved word's answer, when `wire` carries one: the rejected receipt
+/// at the head `events` end on, with nothing written.
+pub(super) fn reserved_answer(
+    wire: &FencedCommand,
+    events: &[EventEnvelope],
+) -> Option<FencedCommandOutcome> {
+    let CommandWord::Unknown(word) = wire.command else {
+        return None;
+    };
+    brokkr_core::fold::reserved_annotation(word).then(|| reserved_receipt(events))
+}
+
+/// The command's disposition, written against the `operator/commanded` it
+/// landed as: the fold's rejection where it refused one, else its
+/// acceptance.
+pub(super) fn fenced_disposition(
+    store: &mut Store,
+    run_id: &str,
+    wire: &FencedCommand,
+    rejection: Option<Refusal>,
+    commanded: &EventEnvelope,
+) -> Result<FencedCommandOutcome, EngineError> {
+    let Some(refusal) = rejection else {
+        return fenced_acceptance(store, run_id, wire, commanded);
+    };
+    let rejection = Rejection {
+        command_id: wire.command_id,
+        operator: wire.operator,
+        refusal,
+        cause: &commanded.event_id,
+    };
+    refuse_undisposed(store, run_id, rejection)
 }
