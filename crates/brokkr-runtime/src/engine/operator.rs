@@ -10,7 +10,7 @@ use brokkr_core::ending::ended;
 use brokkr_core::envelope::EventType;
 use brokkr_core::fold::{
     acceptance_refusal, concluded, fold, Cursor, OperatorCommand, ReceiptReason, Refusal, Run,
-    RunState, Status,
+    RunState,
 };
 use brokkr_core::summary::Account;
 use brokkr_core::EventEnvelope;
@@ -636,26 +636,6 @@ pub fn apply_fenced_operator_command(
     apply_fenced_windows(store, run_id, command, |_| {}, |_| {})
 }
 
-/// The refusal a bridge command meets before it is journaled, if any, in
-/// the order the bridge has always answered: an unknown word, a stale
-/// cursor, a run that is not parked, and then `fold`'s own rule. A
-/// parked run is non-terminal, so what [`acceptance_refusal`] can still
-/// add is a retry with no phase to return to. `release` is the operator's
-/// console's alone (U8e3): the bridge refuses it as a word it does not take.
-fn fenced_refusal(state: &RunState, command: CommandWord, cursor_holds: bool) -> Option<Refusal> {
-    let CommandWord::Known(command @ (OperatorCommand::Retry | OperatorCommand::Stop)) = command
-    else {
-        return Some(Refusal::CommandNotAllowed);
-    };
-    if !cursor_holds {
-        return Some(Refusal::StaleCursor);
-    }
-    if state.run.status() != Status::AwaitingOperator {
-        return Some(Refusal::RunNotAwaitingOperator);
-    }
-    acceptance_refusal(state, command)
-}
-
 /// [`apply_fenced_operator_command`] with the acceptance's window held
 /// open: `between` runs after `operator/commanded` lands and before the
 /// acceptance is written against it.
@@ -706,7 +686,7 @@ pub(super) fn apply_fenced_windows(
     // against, and the one the command must still find (decision 0029).
     let (state, head) = decided(store, run_id, &events)?;
     let cursor_holds = head.seq == wire.expected_seq && head.hash == wire.expected_hash;
-    let rejection = fenced_refusal(&state, wire.command, cursor_holds);
+    let rejection = receipt::fenced_refusal(&state, wire.command, cursor_holds);
     // A word the bridge does not take on a terminal run is answered
     // without writing, so no remote caller stops the run folding until an
     // operator repairs it. A known word it refuses (`release`) is covered

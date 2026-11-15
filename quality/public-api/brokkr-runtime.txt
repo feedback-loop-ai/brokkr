@@ -1390,9 +1390,6 @@ pub brokkr_runtime::engine::EngineError::ManifestMismatch
 pub brokkr_runtime::engine::EngineError::ManifestMismatch::detail: alloc::string::String
 pub brokkr_runtime::engine::EngineError::ManifestMismatch::run_id: alloc::string::String
 pub brokkr_runtime::engine::EngineError::RepairRefused(alloc::string::String)
-pub brokkr_runtime::engine::EngineError::ReservedCommand
-pub brokkr_runtime::engine::EngineError::ReservedCommand::run_id: alloc::string::String
-pub brokkr_runtime::engine::EngineError::ReservedCommand::word: alloc::string::String
 pub brokkr_runtime::engine::EngineError::RunLock(brokkr_runtime::RunLockError)
 pub brokkr_runtime::engine::EngineError::Store(brokkr_store::StoreError)
 pub brokkr_runtime::engine::EngineError::SupersedeRefused(alloc::string::String)
@@ -1934,9 +1931,6 @@ pub brokkr_runtime::EngineError::ManifestMismatch
 pub brokkr_runtime::EngineError::ManifestMismatch::detail: alloc::string::String
 pub brokkr_runtime::EngineError::ManifestMismatch::run_id: alloc::string::String
 pub brokkr_runtime::EngineError::RepairRefused(alloc::string::String)
-pub brokkr_runtime::EngineError::ReservedCommand
-pub brokkr_runtime::EngineError::ReservedCommand::run_id: alloc::string::String
-pub brokkr_runtime::EngineError::ReservedCommand::word: alloc::string::String
 pub brokkr_runtime::EngineError::RunLock(brokkr_runtime::RunLockError)
 pub brokkr_runtime::EngineError::Store(brokkr_store::StoreError)
 pub brokkr_runtime::EngineError::SupersedeRefused(alloc::string::String)

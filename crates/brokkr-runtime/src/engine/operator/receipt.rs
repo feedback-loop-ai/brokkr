@@ -5,14 +5,16 @@
 
 use brokkr_core::canonical::ZERO_HASH;
 use brokkr_core::envelope::EventType;
-use brokkr_core::fold::{terminal_event, ReceiptReason, Refusal};
+use brokkr_core::fold::{
+    acceptance_refusal, terminal_event, OperatorCommand, ReceiptReason, Refusal, RunState, Status,
+};
 use brokkr_core::EventEnvelope;
 use brokkr_store::{Store, StoreError};
 use serde_json::Value;
 
 use super::{
-    accepted_at, command_id_of, fenced_append, read_back, EngineError, FencedCommandOutcome, Head,
-    Rejection, FENCE_ATTEMPTS,
+    accepted_at, command_id_of, fenced_append, read_back, CommandWord, EngineError,
+    FencedCommandOutcome, Head, Rejection, FENCE_ATTEMPTS,
 };
 
 /// The `operator/commanded` journaled for `command_id`, if any.
@@ -204,4 +206,28 @@ pub(super) fn refuse_undisposed(
             written => return Ok(rejection.landed(written?)),
         }
     }
+}
+
+/// The refusal a bridge command meets before it is journaled, if any, in
+/// the order the bridge has always answered: an unknown word, a stale
+/// cursor, a run that is not parked, and then `fold`'s own rule. A
+/// parked run is non-terminal, so what [`acceptance_refusal`] can still
+/// add is a retry with no phase to return to. `release` is the operator's
+/// console's alone (U8e3): the bridge refuses it as a word it does not take.
+pub(super) fn fenced_refusal(
+    state: &RunState,
+    command: CommandWord,
+    cursor_holds: bool,
+) -> Option<Refusal> {
+    let CommandWord::Known(command @ (OperatorCommand::Retry | OperatorCommand::Stop)) = command
+    else {
+        return Some(Refusal::CommandNotAllowed);
+    };
+    if !cursor_holds {
+        return Some(Refusal::StaleCursor);
+    }
+    if state.run.status() != Status::AwaitingOperator {
+        return Some(Refusal::RunNotAwaitingOperator);
+    }
+    acceptance_refusal(state, command)
 }

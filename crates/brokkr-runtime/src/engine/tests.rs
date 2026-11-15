@@ -6214,15 +6214,11 @@ fn ask<'a>(findings: &'a [u64], by_run: &'a str, by_seq: u64) -> Supersede<'a> {
 /// `relative`, and that `invalid` is refused: the contract, not a test's
 /// idea of it.
 pub(in crate::engine) fn published_args(relative: &str, args: &Value, invalid: &Value) {
-    let schema: Value = serde_json::from_slice(
-        &std::fs::read(
-            Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("../..")
-                .join(relative),
-        )
-        .expect("the published payload schema is beside the frozen contracts"),
-    )
-    .unwrap();
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .join(relative);
+    let read = std::fs::read(path).expect("the published schema is beside the contracts");
+    let schema: Value = serde_json::from_slice(&read).unwrap();
     let contract = jsonschema::draft7::new(&schema).unwrap();
     assert!(contract.is_valid(args), "{args}");
     assert!(!contract.is_valid(invalid), "{invalid}");
