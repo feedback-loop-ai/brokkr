@@ -57,6 +57,10 @@ pub brokkr_store::backup::BackupError::Integrity
 pub brokkr_store::backup::BackupError::Integrity::reported: alloc::string::String
 pub brokkr_store::backup::BackupError::InvalidInventory
 pub brokkr_store::backup::BackupError::InvalidInventory::source: serde_json::error::Error
+pub brokkr_store::backup::BackupError::InventoryNotRegular(std::path::PathBuf)
+pub brokkr_store::backup::BackupError::InventoryTooLarge
+pub brokkr_store::backup::BackupError::InventoryTooLarge::bound: u64
+pub brokkr_store::backup::BackupError::InventoryTooLarge::path: std::path::PathBuf
 pub brokkr_store::backup::BackupError::Io(core::io::error::Error)
 pub brokkr_store::backup::BackupError::Json(serde_json::error::Error)
 pub brokkr_store::backup::BackupError::MissingInventory(std::path::PathBuf)

@@ -59,17 +59,6 @@ fn refused_shape(shape: &str, ghost: bool) -> String {
     error.to_string()
 }
 
-/// Every name under `dir` that a restore's temporary would carry.
-fn temporaries_in(dir: &Path) -> Vec<PathBuf> {
-    files_under(dir)
-        .into_iter()
-        .filter(|path| {
-            path.file_name()
-                .is_some_and(|name| name.to_string_lossy().starts_with(".brokkr-restore-"))
-        })
-        .collect()
-}
-
 #[test]
 fn a_backup_into_an_existing_empty_directory_is_taken() {
     let dir = tempfile::tempdir().unwrap();
@@ -480,11 +469,7 @@ fn a_snapshot_that_is_a_link_to_dev_zero_is_refused_after_one_byte() {
             ),
             "{refused:?}"
         );
-        assert_absent(&destination);
-        assert_eq!(
-            temporaries_in(backup.parent().unwrap()),
-            Vec::<PathBuf>::new()
-        );
+        assert_refused_without_trace(&backup, &destination);
         return;
     }
     let dir = tempfile::tempdir().unwrap();

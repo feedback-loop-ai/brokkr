@@ -12,6 +12,7 @@ use brokkr_core::canonical::ZERO_HASH;
 use brokkr_core::envelope::EventType;
 use serde_json::json;
 
+use super::inventory::INVENTORY_MAX_BYTES;
 use super::*;
 use crate::test_support::{append, lags, plant_event};
 use crate::Store;
@@ -365,6 +366,27 @@ fn files_under(dir: &Path) -> Vec<PathBuf> {
     found
 }
 
+/// Every name under `dir` that a restore's temporary would carry.
+fn temporaries_in(dir: &Path) -> Vec<PathBuf> {
+    files_under(dir)
+        .into_iter()
+        .filter(|path| {
+            path.file_name()
+                .is_some_and(|name| name.to_string_lossy().starts_with(".brokkr-restore-"))
+        })
+        .collect()
+}
+
+/// A child's refusal left its destination absent and no restore temporary
+/// behind.
+fn assert_refused_without_trace(backup: &Path, destination: &Path) {
+    assert_absent(destination);
+    assert_eq!(
+        temporaries_in(backup.parent().unwrap()),
+        Vec::<PathBuf>::new()
+    );
+}
+
 #[test]
 fn a_backup_during_appends_restores_a_coherent_prefix() {
     let dir = tempfile::tempdir().unwrap();
@@ -610,20 +632,27 @@ fn a_missing_snapshot_is_refused_by_name() {
     assert_absent(&destination);
 }
 
+#[cfg(unix)]
 #[test]
 fn an_unreadable_inventory_is_refused_by_name() {
     let dir = tempfile::tempdir().unwrap();
     let (_, backup) = completed(dir.path());
     let inventory = backup.to.join(INVENTORY_FILE);
     std::fs::remove_file(&inventory).unwrap();
-    std::fs::create_dir(&inventory).unwrap();
+    // A link to itself: present, and never openable.
+    std::os::unix::fs::symlink(INVENTORY_FILE, &inventory).unwrap();
     let destination = absent_destination(dir.path());
     let refused = restore(&backup.to, &destination).unwrap_err();
     let BackupError::UnreadableInventory { path, source } = refused else {
         panic!("an unreadable inventory is refused by name: {refused:?}");
     };
     assert_eq!(path, inventory);
-    assert_eq!(source.kind(), std::io::ErrorKind::IsADirectory);
+    assert!(
+        source
+            .to_string()
+            .starts_with("Too many levels of symbolic links"),
+        "{source}"
+    );
     assert_absent(&destination);
 }
 
@@ -1203,6 +1232,23 @@ fn inventory_refusals() -> Vec<(BackupError, String)> {
                 .to_string(),
         ),
         (
+            BackupError::InventoryNotRegular(backup.join(INVENTORY_FILE)),
+            "the backup's inventory.json at '/a/backup/inventory.json' is not a regular file; \
+             a backup's inventory must be one"
+                .to_string(),
+        ),
+        (
+            BackupError::InventoryTooLarge {
+                path: backup.join(INVENTORY_FILE),
+                bound: INVENTORY_MAX_BYTES,
+            },
+            format!(
+                "the backup's inventory.json at '/a/backup/inventory.json' is larger than this \
+                 build's {}-byte bound",
+                INVENTORY_MAX_BYTES
+            ),
+        ),
+        (
             BackupError::InvalidInventory { source: invalid },
             format!("the backup's inventory.json is not one this build reads: {invalid_text}"),
         ),
@@ -1399,3 +1445,4 @@ fn each_refusal_names_itself_once() {
 }
 
 mod edges;
+mod inventory;
