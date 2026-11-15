@@ -9,7 +9,7 @@
 //! [`recovery`].
 
 use std::cell::{Cell, RefCell};
-use std::os::fd::{AsFd, OwnedFd};
+use std::os::fd::AsFd;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
 use std::path::{Path, PathBuf};
@@ -21,13 +21,13 @@ use brokkr_core::envelope::EventType;
 use brokkr_protocol::hands::{Bind, BindMode, HandsSpec};
 use brokkr_protocol::process::Unsettled;
 use brokkr_protocol::Cleanup;
-use rustix::fs::{flock, AtFlags, FlockOperation};
+use rustix::fs::{flock, FlockOperation};
 use serde_json::json;
 
 use super::*;
 use crate::bundle::{SeatBody, SequenceStep};
 use crate::engine::broker::inventory::Budget;
-use crate::engine::broker::root::{coordination, seal_with, Commit, Step, PRIOR};
+use crate::engine::broker::root::{coordination, seal_with, Commit};
 use crate::engine::broker::settlement::{proved, witnessed, witnessed_by};
 use crate::engine::broker::{
     owned, surveyed, Host as Hosting, Surveyor, Unprovisioned, PROTECTED_ROOT,
@@ -40,6 +40,7 @@ use crate::engine::{spawn_site, Door, SiteSpawn};
 
 mod coordination;
 mod foreign;
+mod late;
 mod probe;
 mod processes;
 mod reach;
@@ -47,6 +48,7 @@ mod recovery;
 mod retirement;
 mod sealing;
 mod support;
+use late::{late, Late, LATE};
 pub(in crate::engine) use support::{
     acknowledge, boxed_claim, broken, child_lock, dead_group, isolated, planted_drivers,
     quarantined, quarantined_drivers, unacknowledged, Fixture, LiveGroup,
@@ -77,40 +79,11 @@ enum Stand {
     Host,
 }
 
-/// What the next seal on a root this thread opened does at its final steps
-/// (H1; R1 of run four's review): before its commit, spends the time given,
-/// removes its staged copy so its commit fails, or plants a file at the
-/// record's prior name so it cannot link the record that stood there while
-/// the rename after the link stays possible (R3, U8a2c); once renamed in,
-/// spends the time given, fails as its directory sync failing would, or
-/// spends it with the directory's write permission taken, or spends it and
-/// then fails the sync of its undoing (M2 of run four's second review); as
-/// it retires the record that stood, spends the time given or fails as the
-/// removal of its prior name failing would; and once committed, fails as
-/// its last directory sync failing would (R1, U8a2c).
-#[derive(Debug, Clone, Copy)]
-enum Late {
-    Sleep(Duration),
-    Unstage,
-    UnstageSuperseded,
-    Occupy,
-    SleepCommitted(Duration),
-    FailCommitted,
-    DenyCommitted(Duration),
-    FailUndone(Duration),
-    Undoing,
-    SleepRetiring(Duration),
-    FailRetiring,
-    FailFinal,
-}
-
 thread_local! {
     static STAND: RefCell<Stand> = const { RefCell::new(Stand::Own) };
     /// The HOME of this thread's own a test that stands none in admits
     /// under, removed as the thread ends.
     static OWN: tempfile::TempDir = fresh(&base());
-    /// What the next seal does before its commit, once ([`late`]).
-    static LATE: Cell<Option<Late>> = const { Cell::new(None) };
 }
 
 /// The host as dispatch observes it under test, the house's seam as
@@ -164,57 +137,6 @@ pub(in crate::engine) fn opened(home: &Path) -> Root {
     let flags = rustix::fs::OFlags::RDONLY | rustix::fs::OFlags::DIRECTORY;
     let dir = rustix::fs::open(&path, flags, rustix::fs::Mode::empty()).unwrap();
     Root::opened(dir, path, (late, shown)).expect("an owner-only root")
-}
-
-/// The hook of every root a test opens: what [`LATE`] arms, at the step of
-/// the next seal on this thread it names, and then nothing.
-fn late(step: Step, dir: &OwnedFd, staged: &str) -> std::io::Result<()> {
-    match (step, LATE.take()) {
-        (Step::Staged, Some(Late::Sleep(spent)))
-        | (Step::Committed, Some(Late::SleepCommitted(spent)))
-        | (Step::Retiring, Some(Late::SleepRetiring(spent))) => std::thread::sleep(spent),
-        (Step::Retiring, Some(Late::FailRetiring)) => {
-            return Err(std::io::Error::other("the prior name could not be removed"))
-        }
-        (Step::Staged, Some(Late::Unstage)) => {
-            rustix::fs::unlinkat(dir, staged, AtFlags::empty()).unwrap()
-        }
-        (Step::Staged, Some(Late::UnstageSuperseded)) if staged.starts_with("superseded-") => {
-            rustix::fs::unlinkat(dir, staged, AtFlags::empty()).unwrap()
-        }
-        (Step::Staged, Some(Late::Occupy)) => occupied(dir, staged),
-        (Step::Committed, Some(Late::DenyCommitted(spent))) => {
-            denied(dir);
-            std::thread::sleep(spent)
-        }
-        (Step::Committed, Some(Late::FailUndone(spent))) => {
-            LATE.set(Some(Late::Undoing));
-            std::thread::sleep(spent)
-        }
-        (Step::Committed, Some(Late::FailCommitted))
-        | (Step::Undone, Some(Late::Undoing))
-        | (Step::Final, Some(Late::FailFinal)) => {
-            return Err(std::io::Error::other("the directory sync failed"))
-        }
-        (_, armed) => LATE.set(armed),
-    }
-    Ok(())
-}
-
-/// An empty file of this user's own made at the prior name of the record
-/// `staged` stages in `dir`: a link of the record that stood to that name
-/// fails, and the directory stays writable.
-fn occupied(dir: &OwnedFd, staged: &str) {
-    let name = staged.strip_suffix(STAGED).unwrap();
-    let flags = rustix::fs::OFlags::RDWR | rustix::fs::OFlags::CREATE | rustix::fs::OFlags::EXCL;
-    let mode = rustix::fs::Mode::RUSR | rustix::fs::Mode::WUSR;
-    drop(rustix::fs::openat(dir, format!("{name}{PRIOR}").as_str(), flags, mode).unwrap());
-}
-
-/// The directory `dir` left readable and searchable, but not writable.
-fn denied(dir: &OwnedFd) {
-    let kept = rustix::fs::Mode::RUSR | rustix::fs::Mode::XUSR;
-    rustix::fs::fchmod(dir, kept).unwrap()
 }
 
 /// `held`'s positive settlement fact sealed, and then its lease released,

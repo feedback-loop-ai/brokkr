@@ -24,7 +24,8 @@ use crate::capabilities::McpFence;
 use crate::engine::artifacts::tests::{sha, Provisioned};
 use crate::engine::artifacts::Unpublished;
 use crate::engine::broker::root::Commit;
-use crate::engine::broker::settlement::{Lease, Unreleased};
+use crate::engine::broker::settlement::release::spawned;
+use crate::engine::broker::settlement::{spawning, Lease, Unreleased};
 
 /// A fresh engine holding on `host` the lease of its run's attempt `a1` on
 /// its own worktree, protecting `protects`, the reservation naming that
@@ -599,4 +600,77 @@ fn settlement_publishes_what_its_attempt_retained_before_its_release() {
         let kept = !unresolved & !unsealed;
         assert_eq!(found, (case, expected, case == "verified", kept));
     }
+}
+
+/// A fresh host whose run `run-a` holds its attempt `a1` standing on the
+/// worktree `work`, with a driver record at its site: the lease, the host,
+/// and where its reservation stands (#440 fix round 440d5).
+fn spawning_attempt() -> (Host, PathBuf, Held, PathBuf) {
+    let host = Host::new();
+    let work = host.worktree("work");
+    let held = host.admit(&open(&work, ["run-a", "a1"])).unwrap();
+    spawning(&held, "work", None).unwrap();
+    let at = host.reservation(&work, "run-a");
+    (host, work, held, at)
+}
+
+/// #440 fix round 440d5 (decision 0108 ruling 3): a spawn record's
+/// amendment never writes back a reservation that is gone. The driver
+/// removes the run's reservation inside the seal's window; the amendment
+/// writes nothing, and the reservation stays absent, so the next step's
+/// door meets the lost lease and refuses it.
+#[test]
+fn a_spawn_record_never_writes_back_a_reservation_that_is_gone() {
+    let (_host, _work, held, at) = spawning_attempt();
+    LATE.set(Some(Late::Remove));
+    spawned(&held, "work", 4242);
+    assert!(!at.exists(), "the amendment wrote nothing back");
+    let staged = at.with_file_name("reservation.json.new");
+    assert!(!staged.exists(), "nothing staged left beside it");
+    assert!(!prior(&at).exists(), "no prior name left");
+}
+
+/// The reseal replaces only the very record it read: a different file
+/// planted at its name inside the window is refused, never overwritten, so
+/// a record another writer made is not silently discarded (#440 fix round
+/// 440d5).
+#[test]
+fn a_reseal_never_replaces_a_record_it_did_not_read() {
+    let (_host, _work, held, at) = spawning_attempt();
+    LATE.set(Some(Late::Replace));
+    spawned(&held, "work", 4242);
+    assert_eq!(
+        std::fs::metadata(&at).unwrap().len(),
+        0,
+        "the file planted at its name stays"
+    );
+    let staged = at.with_file_name("reservation.json.new");
+    assert!(!staged.exists(), "nothing staged left beside it");
+}
+
+/// An operator's release leaves the attempt settled; a driver's spawn
+/// record that arrives late seals nothing, and one that arrives after the
+/// release removed the reservation does not make it again (#440 fix round
+/// 440d5).
+#[test]
+fn a_late_spawn_record_does_not_bring_back_a_reservation_a_release_removed() {
+    let (host, work, held, at) = spawning_attempt();
+    assert_eq!(proved(&held, soon()), Ok(Commit::Synced));
+    assert_eq!(release(&held, soon()), Ok(Commit::Synced));
+    let released = (Vec::<String>::new(), vec!["a1".to_string()]);
+    assert_eq!(
+        host.attempts(&work, "run-a"),
+        released,
+        "the release settled it"
+    );
+    let before = std::fs::read(&at).unwrap();
+    spawned(&held, "work", 4242);
+    assert_eq!(
+        std::fs::read(&at).unwrap(),
+        before,
+        "the late record sealed nothing"
+    );
+    std::fs::remove_file(&at).unwrap();
+    spawned(&held, "work", 4242);
+    assert!(!at.exists(), "the late record did not make it again");
 }

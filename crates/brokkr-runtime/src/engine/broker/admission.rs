@@ -49,7 +49,7 @@ pub use super::conflict::Conflict;
 use super::exclusion::{compared, staked, Comparison};
 use super::historical::{recorded, superseded::superseded};
 use super::inventory::{inventory, Budget, Standing};
-use super::root::{locked, read, Commit, Root};
+use super::root::{identified, locked, read, Commit, Identity, Root};
 use super::settlement::{keyed, recovered, reserved_in, unchanged, Driver};
 use super::sources::{records_unopened, unserved, Served, Unroutable};
 use super::{startup, Observed};
@@ -621,7 +621,7 @@ pub(super) fn admit_with(
     if claim.protects() & !has_record {
         commit = commit.and(recorded(root, claim, &budget)?);
     }
-    commit = commit.and(sealed(root, &joined(claim, standing), &budget)?);
+    commit = commit.and(sealed(root, &joined(claim, standing), &budget, None)?);
     // Committed last: a refused admission never moves a retirement into history.
     commit = commit.and(superseded(root, &mut found.historical, claim, &budget)?);
     Ok(Held {
@@ -728,7 +728,9 @@ pub(super) fn release(held: &Held, deadline: Instant) -> Result<Commit, Unadmitt
 
 /// The lease `held`'s reservation, read and sealed again as `amended`
 /// leaves it, under the admission lock taken before `deadline`; or, where
-/// `amended` refuses it, left as it stands.
+/// `amended` refuses it, left as it stands. The seal replaces the very
+/// record read, and never writes one back that a driver or an operator
+/// removed inside its window (decision 0108 ruling 3, #440 fix round 440d5).
 pub(super) fn amend(
     held: &Held,
     deadline: Instant,
@@ -736,9 +738,10 @@ pub(super) fn amend(
 ) -> Result<Commit, Unadmitted> {
     let _lock = locked(held.coordination.dir(), deadline)?;
     let (run, at) = reserved_at(held)?;
-    let reservation: Reservation = read(&run, RESERVATION, &at)?;
+    let (reservation, stood): (Reservation, Identity) = identified(&run, RESERVATION, &at)?;
     let budget = Budget::new(deadline);
-    Ok(sealed(&held.coordination, &amended(reservation)?, &budget)?)
+    let amended = amended(reservation)?;
+    Ok(sealed(&held.coordination, &amended, &budget, Some(stood))?)
 }
 
 /// `reservation` with its standing attempt `attempt` settled, where its
@@ -763,14 +766,20 @@ pub(super) fn identity(path: &Path) -> Result<(u64, u64), Unrooted> {
         .ok_or_else(|| Unrooted::Foreign(path.to_path_buf()))
 }
 
-/// `reservation` sealed in its run's directory below `root`
-/// ([`Root::seal`]).
+/// `reservation` sealed in its run's directory below `root`; over the very
+/// record `stood` where one is named, which the caller read, so a record
+/// gone when the seal commits is refused and never made again
+/// ([`Root::reseal`]; decision 0108 ruling 3, #440 fix round 440d5).
 pub(super) fn sealed(
     root: &Root,
     reservation: &Reservation,
     budget: &Budget,
+    stood: Option<Identity>,
 ) -> Result<Commit, Unknown> {
     let run = root.below(&[reservation.repo.as_str(), reservation.run.as_str()])?;
     let bytes = serde_json::to_vec(reservation).or(Err(Unknown::Unsealed))?;
-    root.seal(&run, RESERVATION, &bytes, budget)
+    match stood {
+        Some(stood) => root.reseal(&run, RESERVATION, &bytes, budget, stood),
+        None => root.seal(&run, RESERVATION, &bytes, budget),
+    }
 }

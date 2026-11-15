@@ -704,6 +704,10 @@ pub(super) fn extended_with(
     between();
     reserved.serves = reserves;
     reservation.attempts.insert(held.attempt.clone(), reserved);
-    commits.set(commits.get().and(sealed(root, &reservation, &budget)?));
+    commits.set(
+        commits
+            .get()
+            .and(sealed(root, &reservation, &budget, None)?),
+    );
     Ok(())
 }

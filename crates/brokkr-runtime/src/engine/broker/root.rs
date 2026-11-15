@@ -57,6 +57,21 @@ pub(super) enum Step {
     Undone,
 }
 
+/// A record's device and inode: the file a reseal proves it replaces is the
+/// one it read, never a record made in its place (decision 0108 ruling 3,
+/// #440 fix round 440d5).
+pub(super) type Identity = (u64, u64);
+
+/// Whether a seal may make the record it writes where none stands: a first
+/// seal does, and a reseal of a record that must still stand never does, so
+/// a removal inside its window is refused rather than written back
+/// (decision 0108 ruling 3, #440 fix round 440d5).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Make {
+    May,
+    Never(Identity),
+}
+
 /// What a seal that committed reports (R1 of U8a2a's fourth run, fixed by
 /// U8a2c): its directory synced as it was committed, or not proven synced
 /// once its record that stood was retired, its successor then the record
@@ -221,6 +236,20 @@ impl Root {
     ) -> Result<Commit, Unknown> {
         seal_with(dir, name, bytes, budget, self.hook)
     }
+
+    /// `bytes` sealed as `name` in `dir` only over the very record `stood`
+    /// named, which the caller read: a record gone when the seal commits is
+    /// never written back (decision 0108 ruling 3, #440 fix round 440d5).
+    pub(super) fn reseal(
+        &self,
+        dir: &OwnedFd,
+        name: &str,
+        bytes: &[u8],
+        budget: &Budget,
+        stood: Identity,
+    ) -> Result<Commit, Unknown> {
+        reseal_with(dir, name, bytes, budget, self.hook, stood)
+    }
 }
 
 /// Production's hook: nothing.
@@ -383,21 +412,42 @@ pub(super) fn read<T: DeserializeOwned>(
     name: &str,
     at: &Path,
 ) -> Result<T, Unknown> {
+    identified(dir, name, at).map(|(record, _)| record)
+}
+
+/// [`read`], with the device and inode of the very file it read: what a
+/// reseal proves the record it replaces still is (decision 0108 ruling 3,
+/// #440 fix round 440d5).
+pub(super) fn identified<T: DeserializeOwned>(
+    dir: &OwnedFd,
+    name: &str,
+    at: &Path,
+) -> Result<(T, Identity), Unknown> {
     let refused = || Unknown::Participant(at.join(name));
-    serde_json::from_slice(&bytes(dir, name, at)?).or(Err(refused()))
+    let (bytes, identity) = bytes_identified(dir, name, at)?;
+    let record = serde_json::from_slice(&bytes).or(Err(refused()))?;
+    Ok((record, identity))
 }
 
 /// The bytes of the record `name` in the directory `dir` at `at`, as it
 /// stands ([`standing`]), within MB3's request bound; or an unknown
 /// participant there.
 pub(super) fn bytes(dir: &OwnedFd, name: &str, at: &Path) -> Result<Vec<u8>, Unknown> {
+    bytes_identified(dir, name, at).map(|(bytes, _)| bytes)
+}
+
+/// [`bytes`], with the device and inode of the file it read.
+fn bytes_identified(dir: &OwnedFd, name: &str, at: &Path) -> Result<(Vec<u8>, Identity), Unknown> {
     let refused = || Unknown::Participant(at.join(name));
     let file = standing(dir, name).ok_or_else(refused)?;
+    let stat = fstat(&file).or(Err(refused()))?;
     let mut bytes = Vec::new();
     let file = std::fs::File::from(file);
     let read = file.take(REPLY_BYTES_MAX + 1).read_to_end(&mut bytes);
     let within = read.is_ok_and(|_| bytes.len() as u64 <= REPLY_BYTES_MAX);
-    within.then_some(bytes).ok_or_else(refused)
+    within
+        .then_some((bytes, (stat.st_dev, stat.st_ino)))
+        .ok_or_else(refused)
 }
 
 /// The file `name` in `dir` as it stands for every read: the one also
@@ -470,12 +520,40 @@ pub(super) fn seal_with(
     budget: &Budget,
     hook: Hook,
 ) -> Result<Commit, Unknown> {
+    seal_made(dir, name, bytes, budget, hook, Make::May)
+}
+
+/// [`seal_with`] of a record that must still stand: the very file `stood`
+/// names, whose deletion inside the seal's window is refused, never undone
+/// into a record that was gone (decision 0108 ruling 3, #440 fix round
+/// 440d5).
+pub(super) fn reseal_with(
+    dir: &OwnedFd,
+    name: &str,
+    bytes: &[u8],
+    budget: &Budget,
+    hook: Hook,
+    stood: Identity,
+) -> Result<Commit, Unknown> {
+    seal_made(dir, name, bytes, budget, hook, Make::Never(stood))
+}
+
+/// [`seal_with`], `make` deciding whether the record may be made where none
+/// stands.
+fn seal_made(
+    dir: &OwnedFd,
+    name: &str,
+    bytes: &[u8],
+    budget: &Budget,
+    hook: Hook,
+    make: Make,
+) -> Result<Commit, Unknown> {
     budget.check()?;
     restored(dir, name)?;
     let staged = format!("{name}{STAGED}");
     let committed = (staged_as(dir, &staged, bytes, hook))
         .and_then(|()| budget.check())
-        .and_then(|()| commit(dir, &staged, name));
+        .and_then(|()| commit(dir, &staged, name, make));
     let stood = match committed {
         Ok(stood) => stood,
         Err(refused) => {
@@ -531,16 +609,29 @@ fn staged_as(dir: &OwnedFd, staged: &str, bytes: &[u8], hook: Hook) -> Result<()
 
 /// The staged copy committed as `name`: the record that stands there
 /// first linked under its prior name, so a seal undone puts that very file
-/// back, then the copy renamed over it; or, where none stands, renamed in.
-/// Whether one stood. Where the rename fails, the record still is `name`,
-/// and its second link goes.
-fn commit(dir: &OwnedFd, staged: &str, name: &str) -> Result<bool, Unknown> {
+/// back, then the copy renamed over it; or, where none stands and `make`
+/// lets it, renamed in. Whether one stood. Where the rename fails, the
+/// record still is `name`, and its second link goes.
+///
+/// A reseal (`Make::Never`) proves the linked record is the very inode it
+/// read and still holds its name link, then renames: a removal inside the
+/// window, or a record made in its place, is refused and writes nothing
+/// back (decision 0108 ruling 3, #440 fix round 440d5).
+fn commit(dir: &OwnedFd, staged: &str, name: &str, make: Make) -> Result<bool, Unknown> {
     let prior = format!("{name}{PRIOR}");
     let stood = match linkat(dir, name, dir, prior.as_str(), AtFlags::empty()) {
         Ok(()) => true,
-        Err(Errno::NOENT) => false,
+        Err(Errno::NOENT) if make == Make::May => false,
         Err(_) => return Err(Unknown::Unsealed),
     };
+    if let Make::Never(read) = make {
+        let ours = |stat: &Stat| ((stat.st_dev, stat.st_ino) == read) & (stat.st_nlink == 2);
+        let held = regular_at(dir, &prior).is_some_and(|(_, stat)| ours(&stat));
+        if !held {
+            let _ = unlinkat(dir, prior.as_str(), AtFlags::empty());
+            return Err(Unknown::Unsealed);
+        }
+    }
     let renamed = renameat(dir, staged, dir, name);
     if renamed.is_err() & stood {
         let _ = unlinkat(dir, prior.as_str(), AtFlags::empty());

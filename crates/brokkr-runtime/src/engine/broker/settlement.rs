@@ -574,7 +574,7 @@ pub(super) fn adopted(
     let identified = identified.transpose()?;
     let adopting = reservation.attempts.get_mut(attempt).into_iter();
     adopting.for_each(|reserved| reserved.cleanup = Witnessed::Settled);
-    let commit = sealed(root, &reservation, &Budget::new(deadline))?;
+    let commit = sealed(root, &reservation, &Budget::new(deadline), None)?;
     let held = Held {
         coordination: Arc::clone(root),
         repo: repo.to_string(),
@@ -695,7 +695,7 @@ pub(super) fn recovered(
         };
         let settle = |held, attempt: &String| settled(held, attempt);
         let recovered = proven.iter().try_fold(whole, settle)?;
-        commit = commit.and(sealed(root, &recovered, budget)?);
+        commit = commit.and(sealed(root, &recovered, budget, None)?);
         standing.push(Standing::from(recovered));
     }
     Ok((standing, commit))
