@@ -555,6 +555,7 @@ pub fn brokkr_protocol::hands::handle(&str, &std::path::Path, &std::path::Path, 
 pub fn brokkr_protocol::hands::home_dir(&alloc::collections::btree::map::BTreeMap<alloc::string::String, alloc::string::String>) -> std::path::PathBuf
 pub fn brokkr_protocol::hands::ids() -> (u32, u32)
 pub fn brokkr_protocol::hands::io_context<T>(core::io::error::Result<T>, &str) -> core::result::Result<T, alloc::string::String>
+pub fn brokkr_protocol::hands::list_kept_under(&std::path::Path) -> alloc::vec::Vec<(std::path::PathBuf, alloc::string::String)>
 pub fn brokkr_protocol::hands::list_reapable_under(&std::path::Path) -> alloc::vec::Vec<brokkr_protocol::hands::Listed>
 pub fn brokkr_protocol::hands::mcp_config(&std::path::Path, &std::path::Path, &std::path::Path, &brokkr_protocol::hands::Sealed, &brokkr_protocol::hands::HandsSpec) -> serde_json::value::Value
 pub fn brokkr_protocol::hands::namespace_join(&str, &std::path::Path) -> alloc::string::String

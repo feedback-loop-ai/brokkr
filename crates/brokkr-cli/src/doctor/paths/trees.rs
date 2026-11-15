@@ -1,20 +1,23 @@
-//! Doctor's line for the trees under a recorded root that no `seat_trees`
-//! row names (decision 0104 ruling 6): trees an older engine or a person
-//! made. It is a warning, never a refusal, and it removes nothing: the
-//! row is the sweep's only work list.
+//! Doctor's lines for the trees under a recorded root (decision 0104
+//! rulings 6 and 7): a directory no `seat_trees` row names is listed with
+//! its size, and every tree the sweep would keep is listed with the
+//! sweep's own reason. Both are warnings, never refusals, and neither
+//! removes anything: the row is the sweep's only work list.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 use brokkr_protocol::tree::count_tree;
+use brokkr_runtime::sweep;
 use brokkr_store::{SeatTree, Store, StoreError};
 
 use crate::doctor::Report;
 use crate::render::Safe;
 
 /// Report each directory under a root the seat-tree rows name that no row
-/// names. A journal with no rows adds no line.
+/// names, then each tree the sweep would keep with its reason. A journal
+/// with no rows adds no line.
 pub(super) fn report(report: &mut Report, store: &Store) {
     let rows = match rows(store) {
         Ok(rows) => rows,
@@ -25,6 +28,20 @@ pub(super) fn report(report: &mut Report, store: &Store) {
     };
     for (root, named) in by_root(&rows) {
         list(report, &root, &named);
+    }
+    report_kept(report, store);
+}
+
+/// Each tree the sweep would keep, by the sweep's own derivation, with its
+/// reason and the bytes the count gives. Doctor only paints the verdict.
+fn report_kept(report: &mut Report, store: &Store) {
+    match sweep::kept(store) {
+        Ok(kept) => {
+            for kept in kept {
+                kept_line(report, kept.path(), &kept.reason());
+            }
+        }
+        Err(error) => report.warn("tree", format!("kept trees not read: {error}")),
     }
 }
 
@@ -125,6 +142,37 @@ pub(super) fn line(report: &mut Report, path: &Path) {
         Err(error) => report.warn(
             "tree",
             format!("the count failed: {}", safe(&error.to_string())),
+        ),
+    }
+}
+
+/// One kept tree's warning: the path and the sweep's reason through
+/// `safe`, then the size. A count that refuses, finds the tree gone or
+/// reads only a lower bound still names the tree and its reason.
+pub(super) fn kept_line(report: &mut Report, path: &Path, reason: &str) {
+    let named = safe(&path.display().to_string());
+    let reason = safe(reason);
+    match count_tree(path) {
+        Ok(Some(counted)) => match counted.unreadable {
+            Some(_) => report.warn(
+                "tree",
+                format!("{named}: at least {} bytes, kept: {reason}", counted.bytes),
+            ),
+            None => report.warn(
+                "tree",
+                format!("{named}: {} bytes, kept: {reason}", counted.bytes),
+            ),
+        },
+        Ok(None) => report.warn(
+            "tree",
+            format!("{named}: gone before the count, kept: {reason}"),
+        ),
+        Err(error) => report.warn(
+            "tree",
+            format!(
+                "{named}: the count failed: {}, kept: {reason}",
+                safe(&error.to_string())
+            ),
         ),
     }
 }

@@ -175,9 +175,70 @@ fn an_event_index_that_is_not_its_events_is_a_failure_named_by_its_seq() {
 fn requested(db: &Path, run: &str) {
     let mut store = Store::open(db).unwrap();
     started(&mut store, run);
+    let phase = json!({"phase": "work"});
+    store
+        .append_next(run, EventType::PhaseEntered, phase, None, None)
+        .unwrap();
     let requested = json!({"effect_id": "fx", "seat": "worker"});
     store
         .append_next(run, EventType::EffectRequested, requested, None, None)
+        .unwrap();
+}
+
+/// `run`'s effect `effect` started and succeeded on `attempt`, so its tree
+/// is one the sweep would remove rather than keep.
+/// Append one event to `run`, opening the journal for it, and hand the
+/// store back so a helper can append the next.
+fn append(
+    db: &Path,
+    run: &str,
+    event: EventType,
+    payload: serde_json::Value,
+    attempt: Option<&str>,
+) -> Store {
+    let mut store = Store::open(db).unwrap();
+    store
+        .append_next(run, event, payload, None, attempt.map(str::to_string))
+        .unwrap();
+    store
+}
+
+fn succeeded(db: &Path, run: &str, effect: &str, attempt: &str) {
+    let began = json!({"effect_id": effect, "attempt_id": attempt});
+    let mut store = append(db, run, EventType::EffectStarted, began, Some(attempt));
+    let result = json!({"effect_id": effect, "result": {"result": "ok"}});
+    store
+        .append_next(
+            run,
+            EventType::EffectSucceeded,
+            result,
+            None,
+            Some(attempt.to_string()),
+        )
+        .unwrap();
+}
+
+/// `run`'s effect `effect` ended indeterminate on `attempt`, and the run
+/// stopped: the sweep keeps the attempt's tree and doctor names it.
+fn indeterminate(db: &Path, run: &str, effect: &str, attempt: &str) {
+    let began = json!({"effect_id": effect, "attempt_id": attempt});
+    let mut store = append(db, run, EventType::EffectStarted, began, Some(attempt));
+    let ended = json!({
+        "effect_id": effect,
+        "attempt_id": attempt,
+        "reason": "the driver stopped answering",
+    });
+    store
+        .append_next(
+            run,
+            EventType::EffectIndeterminate,
+            ended,
+            None,
+            Some(attempt.to_string()),
+        )
+        .unwrap();
+    store
+        .append_next(run, EventType::RunStopped, json!({}), None, None)
         .unwrap();
 }
 
@@ -259,6 +320,7 @@ fn a_tree_no_row_names_is_warned_after_the_database_line_and_kept() {
     let dir = tempfile::tempdir().unwrap();
     let db = journal(dir.path(), &[]);
     requested(&db, "seated");
+    succeeded(&db, "seated", "fx", "11111111-1111-4111-8111-111111111111");
     let root = dir.path().join("scratch");
     let named = root.join("11111111-1111-4111-8111-111111111111");
     let orphan = root.join("orphan");
@@ -298,4 +360,49 @@ fn a_tree_no_row_names_is_warned_after_the_database_line_and_kept() {
         ]
     );
     assert!(orphan.is_dir(), "doctor removes nothing");
+}
+
+/// Doctor names each tree the sweep would keep, with the sweep's own
+/// reason and the bytes it holds, after its database line; it removes
+/// nothing (decision 0104 ruling 7 as the operator's succeeded-only
+/// ruling amends it).
+#[test]
+fn a_kept_attempt_tree_is_warned_with_its_reason_after_the_database_line() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = journal(dir.path(), &[]);
+    requested(&db, "kept");
+    let attempt = "22222222-2222-4222-8222-222222222222";
+    indeterminate(&db, "kept", "fx", attempt);
+    let root = dir.path().join("scratch");
+    let tree = root.join(attempt);
+    std::fs::create_dir_all(&tree).unwrap();
+    std::fs::write(tree.join("data"), b"x").unwrap();
+    let bytes = brokkr_protocol::tree::count_tree(&tree)
+        .unwrap()
+        .unwrap()
+        .bytes;
+    let mut store = Store::open(&db).unwrap();
+    store
+        .record_seat_tree("kept", "fx", attempt, &root)
+        .unwrap();
+    drop(store);
+
+    let mut report = report();
+    report_database(&mut report, Ok(&db));
+
+    assert!(report.healthy, "a kept tree is a warning");
+    assert_eq!(
+        report.lines,
+        [
+            format!(
+                "ok       database: {} opens (WAL, append-only triggers)",
+                db.display()
+            ),
+            format!(
+                "warn     tree: {}: {bytes} bytes, kept: its attempt ended indeterminate",
+                tree.display()
+            ),
+        ]
+    );
+    assert!(tree.is_dir(), "doctor removes nothing");
 }

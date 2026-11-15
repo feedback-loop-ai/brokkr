@@ -201,32 +201,16 @@ listing (ruling 9) is the window to look before a pass. A declared
   run (`Running`, `AwaitingOperator`, `Completed`, `Stopped`), so this
   ruling's "completed, failed or stopped" reads as those two.
 
-*Amended, 2026-11-14 (operator, #430 c-6885062627):* R7 fails closed. A tree
-goes only when its attempt was ended by its own driver, as the journal's
-typed facts show; text is never the evidence (0071 ruling 8). This replaces
-the second clause's "no unproven-cleanup evidence" test, which read an
-evidence-free terminal as proof that no process held the tree, and it
-narrows the first clause to a close the driver itself wrote:
-- **Every `effect/indeterminate` terminal keeps its tree,** whatever evidence
-  it carries, and is reported as ending indeterminate. `close_riding_attempt`
-  and `ended_restarted` both write one for an attempt whose process they never
-  saw end.
-- **A terminal event a conclude wrote keeps its tree,** identified by its
-  `causation_id` naming the run's `operator/accepted` for a stop command (the
-  acceptance whose `command_id` matches an `operator/commanded` whose command
-  is `stop`). It is reported as closed by a conclude.
-- **An attempt a restarted engine closed keeps its tree.** `ended_restarted`
-  writes `effect/failed` from its broker tallies after appending the attempt's
-  checkpoints, so an `effect/failed` terminal whose `causation_id` names an
-  `effect/checkpointed` event of the same attempt is kept and reported as
-  closed by a restarted engine. No typed fact separates that from a driver's
-  own failure that follows a checkpoint, so the rule deliberately over-keeps
-  the latter; a driver's terminal caused by its `effect/started` is the shape
-  a sweep may remove. A checkpointless restart failure is consequently swept;
-  its adoption succeeded, which proves every driver settled, so no process it
-  owned still stands.
-- **Every kept tree is reported by name with its reason,** in the pass, the
-  dry run and doctor's view. The words claim no more than the journal shows.
+*Amended, 2026-11-14 and 2026-11-15 (operator, #430 c-6885062627,
+c-6890916504):* R7 is succeeded-only. A tree goes only when its attempt's
+terminal event is `effect/succeeded`; every attempt whose terminal event is
+`effect/failed` or `effect/indeterminate`, or that has none, keeps its tree.
+Every kept tree is reported by name with its reason: where typed context shows
+a conclude closed it, the reason says so, and otherwise it says the attempt
+ended failed or indeterminate. The words claim no more than the journal shows,
+and none is read from an event's text. Accepted cost: a failed attempt's tree
+stays until the operator removes it, or until a later slice gives conclude and
+restart a typed close mark that lets it go.
 
 ### 8. The removal and its record
 

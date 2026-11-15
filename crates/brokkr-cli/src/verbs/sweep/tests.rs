@@ -103,6 +103,18 @@ fn plant(root: &Path) -> PathBuf {
     tree
 }
 
+/// A hands tree with no `.owner.lock`: the reaper keeps it whatever its
+/// pid answers, and a dry run must name it the same way.
+fn lockless_hands_tree(places: &Path, uuid: &str) -> PathBuf {
+    let tree = places.join(format!(
+        "brokkr-hands-lockless-{}-{uuid}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&tree).unwrap();
+    std::fs::write(tree.join("payload"), b"x").unwrap();
+    tree
+}
+
 fn seat(store: &mut Store, root: &Path) {
     store.record_seat_tree(RUN, EFFECT, ATTEMPT, root).unwrap();
 }
@@ -121,6 +133,14 @@ fn parsed(database: &Path, dry_run: bool) -> SweepArgs {
 
 fn completed() -> ExitCode {
     ExitCode::from(Exit::Completed)
+}
+
+/// Run a dry run and hand back its painted lines.
+fn dry_run(places: &Path, database: &Path) -> String {
+    let mut out = Vec::new();
+    let exit = sweep(places, parsed(database, true), &mut out).unwrap();
+    assert_eq!(exit, completed());
+    String::from_utf8(out).unwrap()
 }
 
 fn count(db: &Path, sql: &str) -> i64 {
@@ -160,11 +180,7 @@ fn a_dry_run_writes_nothing_and_lists_what_a_pass_would_remove() {
         )
         .unwrap();
 
-    let mut out = Vec::new();
-    let exit = sweep(places.as_path(), parsed(&database, true), &mut out).unwrap();
-
-    assert_eq!(exit, completed());
-    let said = String::from_utf8(out).unwrap();
+    let said = dry_run(places.as_path(), &database);
     assert_eq!(
         said,
         format!(
@@ -298,4 +314,25 @@ fn a_second_sweeper_is_refused_by_the_lock_by_name_recording_nothing() {
         "the refused sweeper recorded no sweep"
     );
     drop(held);
+}
+
+/// A dry run names a lockless hands tree the pass would keep, with the
+/// reaper's own reason, and removes nothing.
+#[test]
+fn a_dry_run_names_a_lockless_hands_tree_as_kept() {
+    let (_env, places) = own_host();
+    let database = db(&places);
+    let _store = Store::open(&database).unwrap();
+    let tree = lockless_hands_tree(&places, "33333333-3333-4333-8333-333333333333");
+
+    let said = dry_run(places.as_path(), &database);
+    assert_eq!(
+        said,
+        format!(
+            "sweep: kept {}: its lock cannot be probed: it holds no lock file; trees from before \
+             #415 are no longer reaped (0.13.0)\nsweep: would free 0 bytes\n",
+            tree.display()
+        )
+    );
+    assert!(tree.exists(), "a dry run removes nothing");
 }

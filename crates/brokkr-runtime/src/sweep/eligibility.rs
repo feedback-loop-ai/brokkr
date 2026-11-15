@@ -1,10 +1,12 @@
 //! Which open `seat_trees` row may go, and why one may not (decision 0104
-//! rulings 7 to 8, as R4 to R6 and the operator's fail-closed ruling amend
-//! them): the effect is closed, the attempt's own driver ended it, and the
-//! path is the row's and the engine's shape. The pass and the dry run read
-//! this one derivation, so they can never disagree on what a pass would
-//! remove.
+//! rulings 7 to 8, as R4 to R6 and the operator's succeeded-only ruling
+//! amend them): the effect is closed, the attempt's terminal event is
+//! `effect/succeeded`, and the path is the row's and the engine's shape.
+//! The pass and the dry run read this one derivation, so they can never
+//! disagree on what a pass would remove. The only typed reading kept
+//! beside the rule words a conclude's keep; no other cause is keyed on.
 
+use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsStr;
 use std::os::unix::fs::MetadataExt;
@@ -48,17 +50,50 @@ enum Attempt {
     Terminal(Terminal),
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+/// One terminal event's typed ending.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Ending {
+    Succeeded,
+    Failed,
+    Indeterminate,
+}
+
+/// The typed endings that named one attempt, and the one typed reading
+/// kept beside the rule: a conclude's acceptance. A reused attempt id may
+/// carry more than one ending; the tree goes only when all are
+/// `effect/succeeded`.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 struct Terminal {
-    /// An `effect/indeterminate` ended the attempt.
-    indeterminate: bool,
-    /// The terminal's `causation_id` names the `operator/accepted` of a
+    /// Every ending a terminal event named the attempt with.
+    endings: Vec<Ending>,
+    /// A terminal's `causation_id` names the `operator/accepted` of a
     /// stop command, which only `close_riding_attempt` writes.
     concluded: bool,
-    /// The terminal's `causation_id` names one of the attempt's
-    /// checkpoints, which a restarted engine's broker tallies append
-    /// before `ended_restarted` ends the attempt.
-    restarted: bool,
+}
+
+impl Terminal {
+    /// The attempt may go only when every terminal event that names it is
+    /// `effect/succeeded`. A reused attempt id with any other ending keeps
+    /// the tree.
+    fn succeeded_only(&self) -> bool {
+        !self.endings.is_empty()
+            && self
+                .endings
+                .iter()
+                .all(|ending| *ending == Ending::Succeeded)
+    }
+
+    /// The terminal that names the attempt is `effect/indeterminate`.
+    fn indeterminate(&self) -> bool {
+        self.endings.contains(&Ending::Indeterminate)
+    }
+
+    fn of(ending: Ending, concluded: bool) -> Terminal {
+        Terminal {
+            endings: vec![ending],
+            concluded,
+        }
+    }
 }
 
 /// One verdict per open row, in `seq` order, with each run's events loaded
@@ -123,11 +158,6 @@ impl Facts {
 fn folded(events: &[EventEnvelope]) -> Result<Folded, KeptReason> {
     let state = fold(events).map_err(|_| KeptReason::RunDoesNotFold)?;
     let stops = stop_acceptances(events);
-    let checkpoints: HashSet<(&str, &str)> = events
-        .iter()
-        .filter(|event| event.event_type == EventType::EffectCheckpointed)
-        .filter_map(|event| Some((event.event_id.as_str(), event.attempt_id.as_deref()?)))
-        .collect();
     let mut effects = HashSet::new();
     let mut attempts = HashMap::new();
     for event in events {
@@ -142,36 +172,30 @@ fn folded(events: &[EventEnvelope]) -> Result<Folded, KeptReason> {
         let Some(attempt) = event.attempt_id.as_deref() else {
             continue;
         };
-        let terminal = matches!(
-            event.event_type,
-            EventType::EffectSucceeded | EventType::EffectFailed | EventType::EffectIndeterminate
-        );
-        match terminal {
-            true => {
-                let ending = Terminal {
-                    indeterminate: event.event_type == EventType::EffectIndeterminate,
-                    concluded: named(event.causation_id.as_deref(), &stops),
-                    // Only a failed end can be `ended_restarted`'s: a
-                    // succeeded event is never one a restart writes.
-                    restarted: event.event_type == EventType::EffectFailed
-                        && event
-                            .causation_id
-                            .as_deref()
-                            .is_some_and(|cause| checkpoints.contains(&(cause, attempt))),
-                };
-                attempts
-                    .entry(attempt.to_string())
-                    .and_modify(|attempt| match attempt {
+        let concluded = named(event.causation_id.as_deref(), &stops);
+        let ending = match event.event_type {
+            EventType::EffectSucceeded => Some(Ending::Succeeded),
+            EventType::EffectFailed => Some(Ending::Failed),
+            EventType::EffectIndeterminate => Some(Ending::Indeterminate),
+            _ => None,
+        };
+        match ending {
+            Some(ending) => {
+                let terminal = Terminal::of(ending, concluded);
+                match attempts.entry(attempt.to_string()) {
+                    Entry::Occupied(mut entry) => match entry.get_mut() {
                         Attempt::Terminal(held) => {
-                            held.indeterminate |= ending.indeterminate;
-                            held.concluded |= ending.concluded;
-                            held.restarted |= ending.restarted;
+                            held.endings.extend(terminal.endings);
+                            held.concluded |= terminal.concluded;
                         }
-                        Attempt::Unended => *attempt = Attempt::Terminal(ending),
-                    })
-                    .or_insert(Attempt::Terminal(ending));
+                        Attempt::Unended => *entry.get_mut() = Attempt::Terminal(terminal),
+                    },
+                    Entry::Vacant(entry) => {
+                        entry.insert(Attempt::Terminal(terminal));
+                    }
+                }
             }
-            false => {
+            None => {
                 attempts
                     .entry(attempt.to_string())
                     .or_insert(Attempt::Unended);
@@ -239,8 +263,8 @@ fn verdict(
     }
 }
 
-/// Why the journal keeps the row, or `None` when it may go (rulings 7 and
-/// 8 as amended).
+/// Why the journal keeps the row, or `None` when it may go (ruling 7 as
+/// amended: succeeded-only).
 fn held(folded: &Folded, row: &SeatTree) -> Option<KeptReason> {
     if !folded.terminal && !folded.effects.contains(&row.effect_id) {
         return Some(KeptReason::EffectOpen);
@@ -248,14 +272,16 @@ fn held(folded: &Folded, row: &SeatTree) -> Option<KeptReason> {
     match folded.attempts.get(&row.attempt_id) {
         None => Some(KeptReason::NoEventNamesAttempt),
         Some(Attempt::Unended) => Some(KeptReason::NoTerminalEvent),
-        // The most specific typed ending first: a conclude's indeterminate
-        // is reported as a conclude's, not as the indeterminate it is.
+        Some(Attempt::Terminal(terminal)) if terminal.succeeded_only() => None,
+        // The one typed reading kept: a conclude's acceptance is named, so
+        // the keep's words can say the attempt was closed by a conclude.
         Some(Attempt::Terminal(terminal)) if terminal.concluded => Some(KeptReason::Concluded),
-        Some(Attempt::Terminal(terminal)) if terminal.restarted => Some(KeptReason::Restarted),
-        Some(Attempt::Terminal(terminal)) if terminal.indeterminate => {
+        Some(Attempt::Terminal(terminal)) if terminal.indeterminate() => {
             Some(KeptReason::Indeterminate)
         }
-        Some(Attempt::Terminal(_)) => None,
+        // Every remaining ending is a failure: a reused attempt id with any
+        // terminal that is not `effect/succeeded` keeps the tree.
+        Some(Attempt::Terminal(_)) => Some(KeptReason::Failed),
     }
 }
 

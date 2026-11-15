@@ -1827,9 +1827,14 @@ pub brokkr_runtime::sweep::SweepError::Record
 pub brokkr_runtime::sweep::SweepError::Record::cause: alloc::string::String
 pub brokkr_runtime::sweep::SweepError::Record::report: alloc::boxed::Box<brokkr_runtime::sweep::Swept>
 pub brokkr_runtime::sweep::SweepError::Store(brokkr_store::StoreError)
+pub struct brokkr_runtime::sweep::Kept
+impl brokkr_runtime::sweep::Kept
+pub fn brokkr_runtime::sweep::Kept::path(&self) -> &std::path::Path
+pub fn brokkr_runtime::sweep::Kept::reason(&self) -> alloc::string::String
 pub struct brokkr_runtime::sweep::Swept
 impl brokkr_runtime::sweep::Swept
 pub fn brokkr_runtime::sweep::Swept::lines_with(&self, fn(&str) -> alloc::string::String, bool) -> alloc::string::String
+pub fn brokkr_runtime::sweep::kept(&brokkr_store::Store) -> core::result::Result<alloc::vec::Vec<brokkr_runtime::sweep::Kept>, brokkr_runtime::sweep::SweepError>
 pub fn brokkr_runtime::sweep::pass(&mut brokkr_store::Store, &brokkr_runtime::Dispatcher) -> core::result::Result<brokkr_runtime::sweep::Swept, brokkr_runtime::sweep::SweepError>
 pub fn brokkr_runtime::sweep::plan(&brokkr_store::Store) -> core::result::Result<brokkr_runtime::sweep::Swept, brokkr_runtime::sweep::SweepError>
 pub enum brokkr_runtime::Aggregate

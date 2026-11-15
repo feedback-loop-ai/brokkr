@@ -1,13 +1,13 @@
 //! The sweep (decision 0104 rulings 7 to 9, as R3 to R6 and the operator's
-//! fail-closed ruling amend them): one pass removes each run-local seat
-//! scratch tree the journal proves its own driver let go, runs the hands
+//! succeeded-only ruling amend them): one pass removes each run-local seat
+//! scratch tree whose attempt ended `effect/succeeded`, runs the hands
 //! reaper, and records every complete removal in `tree_sweeps`. A tree is
-//! kept, and reported by name, whenever its attempt ended indeterminate,
-//! was closed by a conclude or a restarted engine, or the journal cannot
-//! prove the driver ended it. A dry run reads the same verdicts and counts
-//! what a pass would free, writing nothing. Nothing here prints: a
-//! [`Swept`] names every tree it removed, kept or could not remove, and
-//! the CLI paints it.
+//! kept, and reported by name, whenever its attempt ended failed or
+//! indeterminate, was closed by a conclude, has no terminal event, or the
+//! journal cannot prove the driver ended it. A dry run reads the same
+//! verdicts and counts what a pass would free, writing nothing. Nothing
+//! here prints: a [`Swept`] names every tree it removed, kept or could not
+//! remove, and the CLI paints it.
 
 use std::path::{Path, PathBuf};
 
@@ -34,16 +34,13 @@ const UNRECORDED: &str = "the journal's queue is not one this binary writes tree
 /// may still hold the tree.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum KeptReason {
-    /// The effect closed only because the run is terminal, and an
-    /// `effect/indeterminate` ended the attempt.
+    /// The attempt's terminal event is `effect/indeterminate`.
     Indeterminate,
+    /// The attempt's terminal event is `effect/failed`.
+    Failed,
     /// The terminal event is caused by the `operator/accepted` of a stop
     /// command, which only `close_riding_attempt` writes.
     Concluded,
-    /// The terminal event is caused by one of the attempt's checkpoints,
-    /// which a restarted engine's broker tallies append before it ends the
-    /// attempt.
-    Restarted,
     EffectOpen,
     NoEventNamesAttempt,
     NoTerminalEvent,
@@ -68,9 +65,9 @@ pub(crate) enum KeptReason {
 impl std::fmt::Display for KeptReason {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let words = match self {
-            KeptReason::Indeterminate => "it ended indeterminate",
+            KeptReason::Indeterminate => "its attempt ended indeterminate",
+            KeptReason::Failed => "its attempt ended failed",
             KeptReason::Concluded => "its attempt was closed by a conclude",
-            KeptReason::Restarted => "its attempt was closed by a restarted engine",
             KeptReason::EffectOpen => "its effect is still open",
             KeptReason::NoEventNamesAttempt => "no event names its attempt",
             KeptReason::NoTerminalEvent => "no terminal event names its attempt",
@@ -124,9 +121,22 @@ pub(crate) struct Removed {
 /// One tree kept, with the reason the journal gave. The reason names no
 /// path: the line names the tree once, through the renderer's `safe`.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Kept {
+pub struct Kept {
     pub(crate) path: PathBuf,
     pub(crate) reason: KeptReason,
+}
+
+impl Kept {
+    /// The tree the journal kept.
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    /// Why the journal kept it, in the report's words. They claim no more
+    /// than the journal shows.
+    pub fn reason(&self) -> String {
+        self.reason.to_string()
+    }
 }
 
 /// One tree a pass could not remove, with the walk's or the record's
@@ -275,34 +285,19 @@ fn pass_with(
                 continue;
             }
         };
-        if let Err(cause) = record(
+        record_removal(
             store,
-            Closed::Scratch(row.seq),
-            &path,
-            bytes,
             held.generation.0,
-        ) {
-            swept.removed.push(Removed {
-                path: path.clone(),
-                bytes,
-                lower_bound: false,
-            });
-            swept.failed.push(Failed {
-                path,
-                cause: FailedCause::Record(cause.clone()),
-            });
-            refusal = Some(cause);
-            break;
-        }
-        swept.removed.push(Removed {
+            Closed::Scratch(row.seq),
             path,
             bytes,
-            lower_bound: false,
-        });
+            &mut swept,
+            &mut refusal,
+        );
     }
-    if refusal.is_none() {
-        pass_hands(store, held, &mut swept, &mut refusal)?;
-    }
+    // Every removal is reported, in both halves, whatever a record
+    // refused: a refusal never drops a later removal from the report.
+    pass_hands(store, held, &mut swept, &mut refusal)?;
     match refusal {
         Some(cause) => Err(SweepError::Record {
             report: Box::new(swept),
@@ -310,6 +305,31 @@ fn pass_with(
         }),
         None => Ok(swept),
     }
+}
+
+/// Record one completed removal and keep its report beside a refusal, so a
+/// record failure never drops the removal it belongs to or a later one.
+fn record_removal(
+    store: &mut Store,
+    generation: i64,
+    closed: Closed,
+    path: PathBuf,
+    bytes: Option<u64>,
+    swept: &mut Swept,
+    refusal: &mut Option<String>,
+) {
+    if let Err(cause) = record(store, closed, &path, bytes, generation) {
+        swept.failed.push(Failed {
+            path: path.clone(),
+            cause: FailedCause::Record(cause.clone()),
+        });
+        refusal.get_or_insert(cause);
+    }
+    swept.removed.push(Removed {
+        path,
+        bytes,
+        lower_bound: false,
+    });
 }
 
 /// Run the hands reaper and record each dead owner's free tree it removes.
@@ -327,24 +347,15 @@ fn pass_hands(
     }
     let reaped = hands::reap_dead_sessions();
     for (path, bytes) in reaped.removed() {
-        if let Err(cause) = record(store, Closed::Hands, path, Some(bytes), held.generation.0) {
-            swept.removed.push(Removed {
-                path: path.to_path_buf(),
-                bytes: Some(bytes),
-                lower_bound: false,
-            });
-            swept.failed.push(Failed {
-                path: path.to_path_buf(),
-                cause: FailedCause::Record(cause.clone()),
-            });
-            *refusal = Some(cause);
-            return Ok(());
-        }
-        swept.removed.push(Removed {
-            path: path.to_path_buf(),
-            bytes: Some(bytes),
-            lower_bound: false,
-        });
+        record_removal(
+            store,
+            held.generation.0,
+            Closed::Hands,
+            path.to_path_buf(),
+            Some(bytes),
+            swept,
+            refusal,
+        );
     }
     for (path, reason) in reaped.kept() {
         swept.kept.push(Kept {
@@ -355,10 +366,25 @@ fn pass_hands(
     Ok(())
 }
 
-/// What a pass would remove, with the bytes it would free, writing
-/// nothing (R3): no row, no holder and no migration.
+/// What a pass would remove, with the bytes it would free, and every tree
+/// it would keep with its reason, writing nothing (R3): no row, no holder
+/// and no migration.
 pub fn plan(store: &Store) -> Result<Swept, SweepError> {
     plan_with(store, hands_tmp(), same_device, tree::count_tree)
+}
+
+/// Every tree the journal keeps, with the reason it gives, derived by the
+/// same eligibility the pass and the dry run read. Doctor paints each one;
+/// it removes nothing and reads no hands tree.
+pub fn kept(store: &Store) -> Result<Vec<Kept>, SweepError> {
+    let verdicts = eligibility::decide(store, same_device)?;
+    Ok(verdicts
+        .into_iter()
+        .filter_map(|verdict| match verdict {
+            Verdict::Kept { path, reason } => Some(Kept { path, reason }),
+            Verdict::Ready { .. } => None,
+        })
+        .collect())
 }
 
 /// [`plan`], with the same seams the pass has.
@@ -405,9 +431,17 @@ fn removed(path: PathBuf, counted: Option<tree::Counted>) -> Removed {
     }
 }
 
-/// The trees the hands reaper would remove under `tmp`, with their sizes.
+/// The trees the hands reaper would remove under `tmp`, with their sizes,
+/// and every tree it would keep, with the reaper's reason: the dry run
+/// names a kept hands tree exactly as a pass does.
 fn plan_hands(tmp: &Path, swept: &mut Swept) {
     plan_hands_with(hands::list_reapable_under(tmp).into_iter(), swept);
+    for (path, reason) in hands::list_kept_under(tmp) {
+        swept.kept.push(Kept {
+            path,
+            reason: KeptReason::Hands(reason),
+        });
+    }
 }
 
 /// [`plan_hands`] over one listing, so a count that refuses is provable

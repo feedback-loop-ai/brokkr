@@ -384,6 +384,24 @@ fn list_reapable_in(tmp: &Path, lock: Flock) -> Vec<Listed> {
         .collect()
 }
 
+/// The trees a reaping under `tmp` would keep, each with the reason it
+/// would keep it, in the directory's order. Nothing is removed and no
+/// tree is counted; a tree a reaping would remove is not here.
+pub fn list_kept_under(tmp: &Path) -> Vec<(PathBuf, String)> {
+    list_kept_in(tmp, flock)
+}
+
+fn list_kept_in(tmp: &Path, lock: Flock) -> Vec<(PathBuf, String)> {
+    let mut kept = Vec::new();
+    for (tree, _) in candidates(tmp) {
+        match probe(&tree, lock) {
+            Probe::Unprobed(why) => kept.push((tree, Kept::Unprobed(why).to_string())),
+            Probe::Free | Probe::Held => {}
+        }
+    }
+    kept
+}
+
 fn reap_dead_sessions_in(tmp: &Path, lock: Flock) -> Reaped {
     let mut reaped = Reaped::default();
     for (tree, dead) in candidates(tmp) {
