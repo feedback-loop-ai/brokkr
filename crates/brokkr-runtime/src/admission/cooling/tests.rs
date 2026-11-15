@@ -286,15 +286,17 @@ fn an_unreadable_row_refuses_the_pass() {
         .store
         .append_next("run-bad", EventType::RunStopped, json!({}), None, None)
         .unwrap();
-    // A stored instant past the last second the reader can spell, on a
-    // row the table's own constraints accept.
+    // The largest instant the table's own constraints accept: no `time`
+    // range spells it. A second past 9999 is not enough, because the
+    // workspace test build enables `time`'s `large-dates` through a
+    // dev-dependency, and then year 10000 is readable.
     rusqlite::Connection::open(fixture.root.join("forge.db"))
         .unwrap()
         .execute(
             "INSERT INTO provider_cooldowns
                 (run_id, event_seq, site, provider, route, until_at, reason, rounds, recorded_at)
-             VALUES (?1, ?2, '', 'beta', 'cloud', 253402300800, 'unreadable', 1, 1)",
-            rusqlite::params!["run-bad", event.seq as i64],
+             VALUES (?1, ?2, '', 'beta', 'cloud', ?3, 'unreadable', 1, 1)",
+            rusqlite::params!["run-bad", event.seq as i64, i64::MAX],
         )
         .unwrap();
 
