@@ -13,7 +13,7 @@ use brokkr_protocol::Cleanup;
 
 use super::*;
 use crate::engine::broker::admission::tests::{
-    conflicting, in_flight, unstaked_lease, Coordinated,
+    conflicting, in_flight, isolated, unstaked_lease, Coordinated, LiveGroup,
 };
 use crate::engine::broker::admission::{Conflict, Unadmitted, Unknown};
 use crate::engine::broker::settlement::{ended, spawning, Refused, Unreleased};
@@ -41,11 +41,20 @@ impl Killed {
     /// barrier where `settled`; then the engine gone, its lease neither
     /// settled nor released.
     fn new(settled: bool) -> Killed {
+        Killed::with_group(settled, None)
+    }
+
+    /// [`Killed::new`], its driver's own process group recorded before the
+    /// engine goes: what a release meets where the group still runs.
+    fn with_group(settled: bool, group: Option<u32>) -> Killed {
         let (dir, mut engine) = engine(single_body(Vec::new()));
         let (home, at) = unstaked_lease(&mut engine, ATTEMPT);
         in_flight(&mut engine, ATTEMPT);
         let held = engine.held.as_ref().unwrap();
         assert_eq!(spawning(held, "work", None), Ok(()));
+        if let Some(group) = group {
+            crate::engine::broker::settlement::release::spawned(held, "work", group);
+        }
         if settled {
             ended(&mut engine.held, "work", &Cleanup::Settled);
         }
@@ -196,6 +205,105 @@ fn the_operators_release_lets_a_conflicting_run_admit_and_moves_nothing() {
         assert_eq!(killed.reservation(), released, "{concluded}");
         assert_eq!(killed.conflicting(), Ok(()), "{concluded}");
     }
+}
+
+/// `operator release` asks the host about every process group a driver
+/// recorded and refuses a live one: the operator's attestation may not admit
+/// a claim while a recorded writer lives (S1; decision 0108 ruling 3). Once
+/// the group is gone the same attestation releases, and a driver that
+/// recorded no group is not asked — the v0.13.0 shape's route.
+#[test]
+fn a_release_refuses_a_live_recorded_group() {
+    if !isolated("engine::operator_tests::release_tests::a_release_refuses_a_live_recorded_group") {
+        return;
+    }
+    let live = LiveGroup::new();
+    let mut killed = Killed::with_group(false, Some(live.group()));
+    killed.concluded();
+    assert_eq!(
+        killed.conflicting(),
+        killed.held(),
+        "the recorded group still runs, so the automatic proof holds the worktree"
+    );
+    let refused = unreleased(killed.released());
+    assert_eq!(
+        refused,
+        Unreleased::refused(Refused::Alive {
+            attempt: ATTEMPT.into(),
+            group: live.group(),
+        }),
+        "the release names the live group and writes nothing"
+    );
+    assert_eq!(
+        refused.to_string(),
+        format!(
+            "the operator's release was refused, and the run's writer lease stands: attempt 'a1' \
+             stands, and its process group {} still has members on this host; release only once \
+             every process it owned has ended",
+            live.group()
+        ),
+        "the refusal names the live group, not a missing record"
+    );
+    assert!(killed.standing(), "the refused release sealed nothing");
+    assert_eq!(killed.conflicting(), killed.held());
+    drop(live);
+    killed
+        .released()
+        .expect("once the group is gone, the operator's release attests");
+    assert_eq!(
+        killed.reservation(),
+        (Vec::<String>::new(), json!([ATTEMPT])),
+        "the released attempt is settled, its group no longer consulted"
+    );
+    assert_eq!(
+        killed.conflicting(),
+        Ok(()),
+        "the operator's attestation releases the worktree"
+    );
+}
+
+/// 440d's one group slot is asked for a multi-driver record too: the slot is
+/// the attempt's, not a driver's, and a live one keeps the worktree held
+/// even where every driver recorded no group (S1; decision 0108 ruling 3).
+#[test]
+fn a_release_asks_440d_s_one_slot_for_a_multi_driver_record() {
+    if !isolated(
+        "engine::operator_tests::release_tests::a_release_asks_440d_s_one_slot_for_a_multi_driver_record",
+    ) {
+        return;
+    }
+    let live = LiveGroup::new();
+    let mut killed = Killed::with_group(false, Some(live.group()));
+    killed.concluded();
+    let reservation = killed.at.join("reservation.json");
+    let mut held: Value = serde_json::from_slice(&std::fs::read(&reservation).unwrap()).unwrap();
+    let attempt = &mut held["attempts"][ATTEMPT];
+    for driver in attempt["drivers"].as_array_mut().unwrap() {
+        driver.as_object_mut().unwrap().remove("group");
+    }
+    attempt["drivers"][0]["site"] = json!("m1");
+    attempt["drivers"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"site": "m2", "cleanup": "settling"}));
+    attempt["group"] = json!(live.group());
+    std::fs::write(&reservation, serde_json::to_vec(&held).unwrap()).unwrap();
+    let refused = unreleased(killed.released());
+    assert_eq!(
+        refused,
+        Unreleased::refused(Refused::Alive {
+            attempt: ATTEMPT.into(),
+            group: live.group(),
+        }),
+        "the recorded slot still runs, so release names it and writes nothing"
+    );
+    assert!(killed.standing(), "the refused release sealed nothing");
+    assert_eq!(killed.conflicting(), killed.held());
+    drop(live);
+    killed
+        .released()
+        .expect("once the slot's group is gone, the operator's release attests");
+    assert_eq!(killed.conflicting(), Ok(()));
 }
 
 /// U8e3's refusals, each by its own cause, nothing journaled and nothing
@@ -386,18 +494,36 @@ fn the_bridge_refuses_a_release() {
     assert_eq!(refused, refused_by_name);
 }
 
-/// U8e3: a reservation this build reads only through the view cannot be
-/// sealed whole again, so the release names the participant it could not
-/// read, and nothing is attested.
+/// R5: a reservation that names a field this build does not know is a newer
+/// writer's, even where it also carries a driver group that may still run.
+/// The release refuses it with the format advice, to use the build that
+/// wrote it, and never tells the operator to re-provision a worktree that
+/// newer writer may hold.
 #[test]
-fn a_release_of_a_reservation_read_only_through_the_view_names_the_participant() {
-    let mut killed = Killed::new(false);
+fn a_release_of_a_newer_builds_reservation_takes_the_format_advice() {
+    let live = LiveGroup::new();
+    let mut killed = Killed::with_group(false, Some(live.group()));
     let reservation = killed.at.join("reservation.json");
     let mut value: Value = serde_json::from_slice(&std::fs::read(&reservation).unwrap()).unwrap();
-    // An older build's record: this build's whole `Reservation` refuses it
-    // by the field it does not know, and the view reads it.
+    // The newer writer's field: this build's whole `Reservation` refuses it
+    // by the field it does not know, and the view reads it. The record also
+    // states a driver group, so the view-only advice would be false about it.
     value["format"] = json!(1);
     std::fs::write(&reservation, serde_json::to_vec(&value).unwrap()).unwrap();
-    let expected = Unreleased::standing(Unadmitted::Identity(Unknown::Participant(reservation)));
-    assert_eq!(unreleased(killed.released()), expected);
+    let refused = unreleased(killed.released());
+    assert_eq!(
+        refused,
+        Unreleased::standing(Unadmitted::Identity(Unknown::Formatted(reservation, 1))),
+        "the newer writer's record takes the format advice"
+    );
+    let said = refused.to_string();
+    assert!(
+        !said.contains("names no process group"),
+        "a record carrying a driver group does not claim it names none: {said}"
+    );
+    assert!(
+        said.contains("use a build that reads it"),
+        "the advice is the build that wrote it: {said}"
+    );
+    drop(live);
 }

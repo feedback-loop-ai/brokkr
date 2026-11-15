@@ -44,7 +44,9 @@ use super::historical::verified;
 use super::inventory::{Budget, Reaching, Standing, Writing};
 use super::resolved;
 use super::root::Root;
+use super::settlement;
 use super::sources::records_kept;
+use crate::run_lock::{self, RunLockError};
 
 /// What admission compares under its lock: every standing reservation as
 /// the view every build writes reads it (decision 0090).
@@ -110,11 +112,30 @@ pub(super) fn staked(comparison: &Comparison<'_>) -> bool {
     guarded(comparison).len() > 1
 }
 
+/// The run locks this admission took to release quarantined runs'
+/// worktrees, held until the claim's reservation is sealed so no driver of a
+/// released run starts between the proof and the claim (decision 0108
+/// ruling 3). Dropping them lets go.
+pub(super) struct Released {
+    _locks: Vec<crate::run_lock::RunLock>,
+}
+
 /// Whether `comparison` admits its claim: by the lease, by its boxed writers
 /// kept from the coordination root on every run, then, where evidence is at
-/// stake, by every participant's writers.
-pub(super) fn compared(comparison: &Comparison<'_>, budget: &mut Budget) -> Result<(), Unadmitted> {
-    leased(comparison)?;
+/// stake, by every participant's writers. The locks that released a
+/// quarantined run's worktree are held until the caller's claim is sealed.
+pub(super) fn compared(
+    comparison: &Comparison<'_>,
+    budget: &mut Budget,
+) -> Result<Released, Unadmitted> {
+    let released = leased(comparison, budget)?;
+    compared_rest(comparison, budget)?;
+    Ok(released)
+}
+
+/// [`compared`] past the lease: the coordination root each boxed writer is
+/// kept from, and, where evidence is at stake, every participant's writers.
+fn compared_rest(comparison: &Comparison<'_>, budget: &mut Budget) -> Result<(), Unadmitted> {
     let root = comparison.coordination;
     records_kept(comparison.claim, root.path(), root.mounts(), budget)?;
     if !staked(comparison) {
@@ -215,14 +236,63 @@ pub(super) fn beneath(path: &Guarded, root: &Guarded) -> bool {
 
 /// Whether no other run of the claim's worktree holds it: a run is its
 /// worktree's key and its id, and a reservation with no attempt standing
-/// holds nothing.
-fn leased(comparison: &Comparison<'_>) -> Result<(), Conflict> {
+/// holds nothing. A quarantined run whose writers are proven settled lets go
+/// of its worktree, its run lock held from the proof to the claim (decision
+/// 0108 ruling 3).
+fn leased(comparison: &Comparison<'_>, budget: &Budget) -> Result<Released, Unadmitted> {
     let claim = comparison.claim;
     let other = |held: &&Standing| {
         (held.repo == claim.repo) & (held.run != claim.run) & !held.attempts.is_empty()
     };
-    let holder = comparison.standing.iter().find(other);
-    holder.map_or(Ok(()), |held| Err(Conflict::Held(held.run.clone())))
+    let holders: Vec<&Standing> = comparison.standing.iter().filter(other).collect();
+    let writers = settlement::reaching(&claim.reserved.writers, comparison.standing);
+    let writers: Vec<&Writing> = writers.iter().collect();
+    let mut released = Vec::new();
+    for held in holders {
+        released.push(released_run(held, &writers, budget)?);
+    }
+    Ok(Released { _locks: released })
+}
+
+/// The run lock taken for the standing run `held`, once its worktree is
+/// released: acknowledged, its lock free and held from here, and every
+/// attempt its record names proven ended by the broker's own settlement
+/// proof, or by the operator's settle record where that proof cannot be
+/// read. A lock another process holds refuses, naming it.
+fn released_run(
+    held: &Standing,
+    writers: &[&Writing],
+    budget: &Budget,
+) -> Result<crate::run_lock::RunLock, Unadmitted> {
+    let run = held.run.clone();
+    let refused = || Unadmitted::Evidence(Conflict::Held(run.clone()));
+    let journal = &held.journal;
+    let (looked, settled) =
+        settlement::release::quarantine(journal, &run, writers, budget).ok_or_else(refused)?;
+    // The settle record is the operator's word too, and it lapses the
+    // acknowledgement it follows (#511): a run it names has been looked at.
+    if !(looked.known() | settled.is_some()) {
+        return Err(refused());
+    }
+    let lock = run_lock::held_at(journal, &run).map_err(|error| match error {
+        RunLockError::Driven { holder, .. } => Unadmitted::Evidence(Conflict::Driven {
+            run: run.clone(),
+            holder,
+        }),
+        _ => refused(),
+    })?;
+    let proved = match &held.whole {
+        Some(reservation) => settlement::release::reservation_records(reservation),
+        None => held
+            .attempts
+            .iter()
+            .try_for_each(|(attempt, view)| settlement::release::view_records(view, attempt)),
+    };
+    let honour = settled.filter(|record| settlement::release::honoured(held, record));
+    match (proved, honour) {
+        (Ok(()), _) | (Err(_), Some(_)) => Ok(lock),
+        (Err(_), None) => Err(refused()),
+    }
 }
 
 /// Every root nothing may replace, the coordination root first, each once.

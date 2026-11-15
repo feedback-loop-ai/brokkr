@@ -22,6 +22,7 @@ use std::path::{Path, PathBuf};
 
 use serde::de::IgnoredAny;
 use serde::Deserialize;
+use serde_json::Value;
 
 use crate::engine::broker::admission::{
     Protects, Reach, Reservation, Unknown, Witnessed, Writer, RESERVATION,
@@ -49,6 +50,13 @@ pub(in crate::engine::broker) struct Standing {
     pub(in crate::engine::broker) settled: BTreeSet<String>,
     #[serde(skip)]
     pub(in crate::engine::broker) whole: Option<Reservation>,
+    /// The format a newer writer stated, where this build read its record
+    /// only through the view because it names a field this build does not
+    /// know. `None` for a record from before b8e2caff8, whose missing field
+    /// is why the whole read failed: that one keeps the view-only route
+    /// (R5; decision 0090 ruling 4).
+    #[serde(skip)]
+    pub(in crate::engine::broker) newer: Option<u64>,
 }
 
 /// One standing attempt, as admission compares it: whether it protects
@@ -100,6 +108,73 @@ struct Format {
     format: Option<u64>,
 }
 
+/// The object field names the whole record this build reads knows, at every
+/// level its objects hold them: `Reservation`, `Reserved`, `Driver`,
+/// `Writer`, `Reach`, `hands::Sealed` with its `Git`, `Source` and `Store`,
+/// and `Served`. A field outside this set is one this build does not know,
+/// which a newer build stated; decision 0090 ruling 4 lets an additive
+/// change or one outside the view name no new format, so the field is the
+/// only fact that tells it from a record written before b8e2caff8, whose
+/// missing field (not an extra one) fails the whole read (R5).
+const KNOWN: [&str; 36] = [
+    "repo",
+    "run",
+    "workdir",
+    "artifacts",
+    "journal",
+    "attempts",
+    "settled",
+    "protects",
+    "writers",
+    "cleanup",
+    "group",
+    "serves",
+    "drivers",
+    "site",
+    "begun",
+    "reach",
+    "boxed",
+    "unbounded",
+    "writable",
+    "readable",
+    "sources",
+    "sealed",
+    "home",
+    "worktree",
+    "git",
+    "binds",
+    "store",
+    "dir",
+    "common",
+    "path",
+    "identity",
+    "place",
+    "spelling",
+    "source",
+    "entries",
+    "link",
+];
+
+/// Whether `value` names any object field outside [`KNOWN`]. The `attempts`
+/// map's keys are attempt ids, not fields, so only its values are judged.
+fn names_unknown(value: &Value) -> bool {
+    if let Some(fields) = value.as_object() {
+        return fields.iter().any(|(key, value)| {
+            if key == "attempts" {
+                value
+                    .as_object()
+                    .is_some_and(|attempts| attempts.values().any(names_unknown))
+            } else {
+                !KNOWN.contains(&key.as_str()) || names_unknown(value)
+            }
+        });
+    }
+    if let Some(items) = value.as_array() {
+        return items.iter().any(names_unknown);
+    }
+    false
+}
+
 impl Attempt {
     /// Whether it protects evidence: one this build does not know does.
     fn protects(&self) -> bool {
@@ -110,8 +185,9 @@ impl Attempt {
     }
 
     /// Whether its engine sealed its positive settlement fact (M1): never
-    /// one this build does not know.
-    fn proved(&self) -> bool {
+    /// one this build does not know. The release's proof reads it through
+    /// the view of another build's record (decision 0108 ruling 3).
+    pub(in crate::engine::broker) fn proved(&self) -> bool {
         match self.cleanup {
             Tolerated::Known(Witnessed::Settled) => true,
             Tolerated::Known(Witnessed::Settling | Witnessed::Unresolved)
@@ -174,6 +250,7 @@ impl From<Reservation> for Standing {
             attempts: attempts.collect(),
             settled: whole.settled.clone(),
             whole: Some(whole),
+            newer: None,
         }
     }
 }
@@ -199,7 +276,11 @@ impl From<&Writer> for Writing {
 /// The reservation in the run's directory `dir` at `at`: whole where this
 /// build reads it so; else, where it is not this run's own (`own`), through
 /// the view, in a format the view reads. Otherwise an unknown participant
-/// there, or one written in a format this build does not read.
+/// there, or one written in a format this build does not read. A record the
+/// whole read refused only because it names a field this build does not
+/// know is a newer writer's, and carries the format it stated (or this
+/// build's own) for the format advice, never the re-provisioning route
+/// (R5).
 pub(in crate::engine::broker) fn standing(
     dir: &OwnedFd,
     at: &Path,
@@ -212,9 +293,12 @@ pub(in crate::engine::broker) fn standing(
         return Ok(Standing::from(whole));
     }
     (!own).then_some(()).ok_or_else(refused)?;
-    let Format { format } = serde_json::from_slice(&bytes).or(Err(refused()))?;
+    let stated: Value = serde_json::from_slice(&bytes).or(Err(refused()))?;
+    let Format { format } = serde_json::from_value(stated.clone()).or(Err(refused()))?;
     if let Some(format) = format.filter(|format| *format != FORMAT) {
         return Err(Unknown::Formatted(path, format));
     }
-    serde_json::from_slice(&bytes).or(Err(refused()))
+    let mut view: Standing = serde_json::from_value(stated.clone()).or(Err(refused()))?;
+    view.newer = names_unknown(&stated).then_some(format.unwrap_or(FORMAT));
+    Ok(view)
 }

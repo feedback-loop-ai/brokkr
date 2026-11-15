@@ -1251,6 +1251,8 @@ pub brokkr_runtime::engine::evidence::EvidenceError::Unnamed(std::path::PathBuf)
 pub brokkr_runtime::engine::evidence::EvidenceError::Unprotected(std::path::PathBuf)
 pub brokkr_runtime::engine::evidence::EvidenceError::Unreadable(std::path::PathBuf, core::io::error::ErrorKind)
 pub brokkr_runtime::engine::evidence::EvidenceError::Unresolved(std::path::PathBuf)
+impl core::convert::From<brokkr_runtime::engine::Unknown> for brokkr_runtime::engine::evidence::EvidenceError
+pub fn brokkr_runtime::engine::evidence::EvidenceError::from(brokkr_runtime::engine::Unknown) -> brokkr_runtime::engine::evidence::EvidenceError
 pub enum brokkr_runtime::engine::evidence::RetireAction<'a>
 pub brokkr_runtime::engine::evidence::RetireAction::Archived
 pub brokkr_runtime::engine::evidence::RetireAction::Archived::to: &'a std::path::Path
@@ -1353,6 +1355,27 @@ pub brokkr_runtime::engine::ConcludeRefusal::Driven::holder: core::option::Optio
 pub brokkr_runtime::engine::ConcludeRefusal::JournalMoved
 pub brokkr_runtime::engine::ConcludeRefusal::StopRefused
 pub brokkr_runtime::engine::ConcludeRefusal::StopRefused::refusal: brokkr_core::fold::Refusal
+pub enum brokkr_runtime::engine::Conflict
+pub brokkr_runtime::engine::Conflict::Corrupt(std::path::PathBuf)
+pub brokkr_runtime::engine::Conflict::Driven
+pub brokkr_runtime::engine::Conflict::Driven::holder: core::option::Option<brokkr_runtime::Holder>
+pub brokkr_runtime::engine::Conflict::Driven::run: alloc::string::String
+pub brokkr_runtime::engine::Conflict::Held(alloc::string::String)
+pub brokkr_runtime::engine::Conflict::Reaches
+pub brokkr_runtime::engine::Conflict::Reaches::root: std::path::PathBuf
+pub brokkr_runtime::engine::Conflict::Reaches::run: alloc::string::String
+pub brokkr_runtime::engine::Conflict::Reaches::site: alloc::string::String
+pub brokkr_runtime::engine::Conflict::Redirected(std::path::PathBuf)
+pub brokkr_runtime::engine::Conflict::Replaceable
+pub brokkr_runtime::engine::Conflict::Replaceable::bind: std::path::PathBuf
+pub brokkr_runtime::engine::Conflict::Replaceable::run: alloc::string::String
+pub brokkr_runtime::engine::Conflict::Replaceable::site: alloc::string::String
+pub brokkr_runtime::engine::Conflict::Replaced(std::path::PathBuf)
+pub brokkr_runtime::engine::Conflict::Retirement(std::path::PathBuf)
+pub brokkr_runtime::engine::Conflict::Shown(std::path::PathBuf)
+pub brokkr_runtime::engine::Conflict::Unboxed
+pub brokkr_runtime::engine::Conflict::Unboxed::run: alloc::string::String
+pub brokkr_runtime::engine::Conflict::Unboxed::site: alloc::string::String
 pub enum brokkr_runtime::engine::EngineError
 pub brokkr_runtime::engine::EngineError::AlreadyConcluded
 pub brokkr_runtime::engine::EngineError::AlreadyConcluded::run_id: alloc::string::String
@@ -1396,6 +1419,7 @@ pub brokkr_runtime::engine::EngineError::ManifestMismatch::detail: alloc::string
 pub brokkr_runtime::engine::EngineError::ManifestMismatch::run_id: alloc::string::String
 pub brokkr_runtime::engine::EngineError::RepairRefused(alloc::string::String)
 pub brokkr_runtime::engine::EngineError::RunLock(brokkr_runtime::RunLockError)
+pub brokkr_runtime::engine::EngineError::SettleRefused(brokkr_runtime::SettleRefusal)
 pub brokkr_runtime::engine::EngineError::Store(brokkr_store::StoreError)
 pub brokkr_runtime::engine::EngineError::SupersedeRefused(alloc::string::String)
 pub brokkr_runtime::engine::EngineError::UnbuiltBoundary
@@ -1421,10 +1445,74 @@ pub enum brokkr_runtime::engine::Flag
 pub brokkr_runtime::engine::Flag::ByRealm
 pub brokkr_runtime::engine::Flag::ByRef
 pub brokkr_runtime::engine::Flag::ByRun
+pub enum brokkr_runtime::engine::Live
+pub brokkr_runtime::engine::Live::Group
+pub brokkr_runtime::engine::Live::Group::attempt: alloc::string::String
+pub brokkr_runtime::engine::Live::Group::group: u32
+pub brokkr_runtime::engine::Live::Unproven
+pub brokkr_runtime::engine::Live::Unproven::attempt: alloc::string::String
+pub brokkr_runtime::engine::Live::Unproven::why: brokkr_runtime::UnprovenWhy
 pub enum brokkr_runtime::engine::MemberRetryOutcome
 pub brokkr_runtime::engine::MemberRetryOutcome::CarryRefused(brokkr_runtime::CarryRefusal)
 pub brokkr_runtime::engine::MemberRetryOutcome::Disposed(brokkr_runtime::FencedCommandOutcome)
 pub brokkr_runtime::engine::MemberRetryOutcome::FoldRefused(brokkr_core::fold::Refusal)
+pub enum brokkr_runtime::engine::SettleRefusal
+pub brokkr_runtime::engine::SettleRefusal::Live(brokkr_runtime::Live)
+pub brokkr_runtime::engine::SettleRefusal::NoRoot
+pub brokkr_runtime::engine::SettleRefusal::NoTerminal
+pub brokkr_runtime::engine::SettleRefusal::NoTerminal::run: alloc::string::String
+pub brokkr_runtime::engine::SettleRefusal::Unacknowledged
+pub brokkr_runtime::engine::SettleRefusal::Unacknowledged::run: alloc::string::String
+pub brokkr_runtime::engine::SettleRefusal::Unadmitted(brokkr_runtime::engine::Unadmitted)
+pub enum brokkr_runtime::engine::Unadmitted
+pub brokkr_runtime::engine::Unadmitted::Evidence(brokkr_runtime::engine::Conflict)
+pub brokkr_runtime::engine::Unadmitted::Identity(brokkr_runtime::engine::Unknown)
+pub brokkr_runtime::engine::Unadmitted::Unrooted(brokkr_runtime::engine::Unrooted)
+impl core::convert::From<brokkr_runtime::engine::Unknown> for brokkr_runtime::engine::Unadmitted
+pub fn brokkr_runtime::engine::Unadmitted::from(brokkr_runtime::engine::Unknown) -> brokkr_runtime::engine::Unadmitted
+pub enum brokkr_runtime::engine::Unknown
+pub brokkr_runtime::engine::Unknown::Bounds
+pub brokkr_runtime::engine::Unknown::Expired
+pub brokkr_runtime::engine::Unknown::Formatted(std::path::PathBuf, u64)
+pub brokkr_runtime::engine::Unknown::Homeless
+pub brokkr_runtime::engine::Unknown::Lock
+pub brokkr_runtime::engine::Unknown::Lost
+pub brokkr_runtime::engine::Unknown::Orphaned
+pub brokkr_runtime::engine::Unknown::Orphaned::attempt: alloc::string::String
+pub brokkr_runtime::engine::Unknown::Orphaned::run: alloc::string::String
+pub brokkr_runtime::engine::Unknown::Overflow
+pub brokkr_runtime::engine::Unknown::Participant(std::path::PathBuf)
+pub brokkr_runtime::engine::Unknown::Root
+pub brokkr_runtime::engine::Unknown::Serving
+pub brokkr_runtime::engine::Unknown::Serving::run: alloc::string::String
+pub brokkr_runtime::engine::Unknown::Serving::served: std::path::PathBuf
+pub brokkr_runtime::engine::Unknown::Serving::site: alloc::string::String
+pub brokkr_runtime::engine::Unknown::Unconfined
+pub brokkr_runtime::engine::Unknown::Unconfined::run: alloc::string::String
+pub brokkr_runtime::engine::Unknown::Unconfined::site: alloc::string::String
+pub brokkr_runtime::engine::Unknown::Unmounted(std::path::PathBuf)
+pub brokkr_runtime::engine::Unknown::Unproven
+pub brokkr_runtime::engine::Unknown::Unrouted(std::path::PathBuf, brokkr_runtime::engine::Unroutable)
+pub brokkr_runtime::engine::Unknown::Unsealed
+pub brokkr_runtime::engine::Unknown::Unsynced
+pub brokkr_runtime::engine::Unknown::ViewOnly(std::path::PathBuf)
+pub brokkr_runtime::engine::Unknown::Worktree
+impl core::convert::From<brokkr_runtime::engine::Unknown> for brokkr_runtime::engine::Unadmitted
+pub fn brokkr_runtime::engine::Unadmitted::from(brokkr_runtime::engine::Unknown) -> brokkr_runtime::engine::Unadmitted
+impl core::convert::From<brokkr_runtime::engine::Unknown> for brokkr_runtime::engine::evidence::EvidenceError
+pub fn brokkr_runtime::engine::evidence::EvidenceError::from(brokkr_runtime::engine::Unknown) -> brokkr_runtime::engine::evidence::EvidenceError
+pub enum brokkr_runtime::engine::UnprovenWhy
+pub brokkr_runtime::engine::UnprovenWhy::NoGroup
+pub brokkr_runtime::engine::UnprovenWhy::NoRecords
+pub brokkr_runtime::engine::UnprovenWhy::Unrecorded
+pub brokkr_runtime::engine::UnprovenWhy::Unresolved
+pub enum brokkr_runtime::engine::Unrooted
+pub brokkr_runtime::engine::Unrooted::Foreign(std::path::PathBuf)
+pub brokkr_runtime::engine::Unrooted::Unmade(std::path::PathBuf, core::io::error::ErrorKind)
+pub enum brokkr_runtime::engine::Unroutable
+pub brokkr_runtime::engine::Unroutable::Hops
+pub brokkr_runtime::engine::Unroutable::Relative
+pub brokkr_runtime::engine::Unroutable::Unread
 pub enum brokkr_runtime::engine::Verb
 pub brokkr_runtime::engine::Verb::Classify
 pub brokkr_runtime::engine::Verb::Conclude
@@ -1471,6 +1559,9 @@ pub brokkr_runtime::engine::Named::reason: &'a str
 pub struct brokkr_runtime::engine::Repair<'a>
 pub brokkr_runtime::engine::Repair::operator: &'a str
 pub brokkr_runtime::engine::Repair::reason: &'a str
+pub struct brokkr_runtime::engine::Settle<'a>
+pub brokkr_runtime::engine::Settle::operator: &'a str
+pub brokkr_runtime::engine::Settle::reason: &'a str
 pub struct brokkr_runtime::engine::SiteSpawn
 pub brokkr_runtime::engine::SiteSpawn::argv: alloc::vec::Vec<alloc::string::String>
 pub brokkr_runtime::engine::SiteSpawn::charter: core::option::Option<brokkr_runtime::bundle::CharterPin>
@@ -1509,6 +1600,7 @@ pub fn brokkr_runtime::engine::named_cause(brokkr_runtime::Verb, core::option::O
 pub fn brokkr_runtime::engine::operator_classify(&mut brokkr_store::Store, &brokkr_store::Store, &str, &brokkr_runtime::Named<'_>) -> core::result::Result<brokkr_core::envelope::EventEnvelope, brokkr_runtime::engine::EngineError>
 pub fn brokkr_runtime::engine::operator_command(&mut brokkr_store::Store, &str, brokkr_core::fold::OperatorCommand, &str, &str) -> core::result::Result<brokkr_runtime::FencedCommandOutcome, brokkr_runtime::engine::EngineError>
 pub fn brokkr_runtime::engine::operator_repair(&mut brokkr_store::Store, &str, &brokkr_runtime::Repair<'_>) -> core::result::Result<brokkr_core::envelope::EventEnvelope, brokkr_runtime::engine::EngineError>
+pub fn brokkr_runtime::engine::operator_settle(&mut brokkr_store::Store, &str, &brokkr_runtime::Settle<'_>) -> core::result::Result<brokkr_core::envelope::EventEnvelope, brokkr_runtime::engine::EngineError>
 pub fn brokkr_runtime::engine::operator_stop(&mut brokkr_store::Store, &brokkr_store::Store, &str, &brokkr_runtime::Named<'_>) -> core::result::Result<brokkr_runtime::FencedCommandOutcome, brokkr_runtime::engine::EngineError>
 pub fn brokkr_runtime::engine::operator_supersede(&mut brokkr_store::Store, &brokkr_store::Store, &str, &brokkr_runtime::Supersede<'_>) -> core::result::Result<brokkr_core::envelope::EventEnvelope, brokkr_runtime::engine::EngineError>
 pub fn brokkr_runtime::engine::result_door(brokkr_core::realms::Boundary, bool, core::option::Option<&brokkr_runtime::bundle::SiteFacts>, core::option::Option<&brokkr_runtime::agents::Candidate>) -> brokkr_runtime::agents::ResultDoor
@@ -1937,6 +2029,7 @@ pub brokkr_runtime::EngineError::ManifestMismatch::detail: alloc::string::String
 pub brokkr_runtime::EngineError::ManifestMismatch::run_id: alloc::string::String
 pub brokkr_runtime::EngineError::RepairRefused(alloc::string::String)
 pub brokkr_runtime::EngineError::RunLock(brokkr_runtime::RunLockError)
+pub brokkr_runtime::EngineError::SettleRefused(brokkr_runtime::SettleRefusal)
 pub brokkr_runtime::EngineError::Store(brokkr_store::StoreError)
 pub brokkr_runtime::EngineError::SupersedeRefused(alloc::string::String)
 pub brokkr_runtime::EngineError::UnbuiltBoundary
@@ -1983,6 +2076,13 @@ pub brokkr_runtime::LibraryError::Charter(brokkr_runtime::agents::charter_data::
 pub brokkr_runtime::LibraryError::Invalid(alloc::string::String)
 pub brokkr_runtime::LibraryError::Io(core::io::error::Error)
 pub brokkr_runtime::LibraryError::Mcp(brokkr_runtime::agents::McpRefusal)
+pub enum brokkr_runtime::Live
+pub brokkr_runtime::Live::Group
+pub brokkr_runtime::Live::Group::attempt: alloc::string::String
+pub brokkr_runtime::Live::Group::group: u32
+pub brokkr_runtime::Live::Unproven
+pub brokkr_runtime::Live::Unproven::attempt: alloc::string::String
+pub brokkr_runtime::Live::Unproven::why: brokkr_runtime::UnprovenWhy
 pub enum brokkr_runtime::MemberRetryOutcome
 pub brokkr_runtime::MemberRetryOutcome::CarryRefused(brokkr_runtime::CarryRefusal)
 pub brokkr_runtime::MemberRetryOutcome::Disposed(brokkr_runtime::FencedCommandOutcome)
@@ -2040,6 +2140,14 @@ pub fn brokkr_runtime::bundle::SeatBody::selected_is_gate(&self, core::option::O
 pub enum brokkr_runtime::SeatClass
 pub brokkr_runtime::SeatClass::Gate
 pub brokkr_runtime::SeatClass::Work
+pub enum brokkr_runtime::SettleRefusal
+pub brokkr_runtime::SettleRefusal::Live(brokkr_runtime::Live)
+pub brokkr_runtime::SettleRefusal::NoRoot
+pub brokkr_runtime::SettleRefusal::NoTerminal
+pub brokkr_runtime::SettleRefusal::NoTerminal::run: alloc::string::String
+pub brokkr_runtime::SettleRefusal::Unacknowledged
+pub brokkr_runtime::SettleRefusal::Unacknowledged::run: alloc::string::String
+pub brokkr_runtime::SettleRefusal::Unadmitted(brokkr_runtime::engine::Unadmitted)
 pub enum brokkr_runtime::Settled
 pub brokkr_runtime::Settled::Reclaimed(brokkr_store::queue::claim::Claim)
 pub brokkr_runtime::Settled::ToSpawn(brokkr_store::queue::claim::Claim, alloc::string::String)
@@ -2052,6 +2160,11 @@ pub brokkr_runtime::TrustTier::Trusted
 pub brokkr_runtime::TrustTier::Untrusted
 impl brokkr_runtime::agents::TrustTier
 pub fn brokkr_runtime::agents::TrustTier::parse(&str) -> core::option::Option<brokkr_runtime::agents::TrustTier>
+pub enum brokkr_runtime::UnprovenWhy
+pub brokkr_runtime::UnprovenWhy::NoGroup
+pub brokkr_runtime::UnprovenWhy::NoRecords
+pub brokkr_runtime::UnprovenWhy::Unrecorded
+pub brokkr_runtime::UnprovenWhy::Unresolved
 pub enum brokkr_runtime::Verb
 pub brokkr_runtime::Verb::Classify
 pub brokkr_runtime::Verb::Conclude
@@ -2225,6 +2338,9 @@ pub brokkr_runtime::SequenceStep::ends_on: alloc::vec::Vec<alloc::string::String
 pub brokkr_runtime::SequenceStep::hard_results: alloc::vec::Vec<alloc::string::String>
 pub brokkr_runtime::SequenceStep::name: alloc::string::String
 pub brokkr_runtime::SequenceStep::results: alloc::vec::Vec<alloc::string::String>
+pub struct brokkr_runtime::Settle<'a>
+pub brokkr_runtime::Settle::operator: &'a str
+pub brokkr_runtime::Settle::reason: &'a str
 pub struct brokkr_runtime::Supersede<'a>
 pub brokkr_runtime::Supersede::by_realm: core::option::Option<&'a str>
 pub brokkr_runtime::Supersede::by_run: &'a str
@@ -2268,6 +2384,7 @@ pub fn brokkr_runtime::named_cause(brokkr_runtime::Verb, core::option::Option<&s
 pub fn brokkr_runtime::operator_classify(&mut brokkr_store::Store, &brokkr_store::Store, &str, &brokkr_runtime::Named<'_>) -> core::result::Result<brokkr_core::envelope::EventEnvelope, brokkr_runtime::engine::EngineError>
 pub fn brokkr_runtime::operator_command(&mut brokkr_store::Store, &str, brokkr_core::fold::OperatorCommand, &str, &str) -> core::result::Result<brokkr_runtime::FencedCommandOutcome, brokkr_runtime::engine::EngineError>
 pub fn brokkr_runtime::operator_repair(&mut brokkr_store::Store, &str, &brokkr_runtime::Repair<'_>) -> core::result::Result<brokkr_core::envelope::EventEnvelope, brokkr_runtime::engine::EngineError>
+pub fn brokkr_runtime::operator_settle(&mut brokkr_store::Store, &str, &brokkr_runtime::Settle<'_>) -> core::result::Result<brokkr_core::envelope::EventEnvelope, brokkr_runtime::engine::EngineError>
 pub fn brokkr_runtime::operator_stop(&mut brokkr_store::Store, &brokkr_store::Store, &str, &brokkr_runtime::Named<'_>) -> core::result::Result<brokkr_runtime::FencedCommandOutcome, brokkr_runtime::engine::EngineError>
 pub fn brokkr_runtime::operator_supersede(&mut brokkr_store::Store, &brokkr_store::Store, &str, &brokkr_runtime::Supersede<'_>) -> core::result::Result<brokkr_core::envelope::EventEnvelope, brokkr_runtime::engine::EngineError>
 pub fn brokkr_runtime::plant_keep_refs(&brokkr_store::Store, &std::path::Path, &str) -> core::result::Result<brokkr_runtime::keep_refs::Planted, brokkr_runtime::keep_refs::KeepRefsError>

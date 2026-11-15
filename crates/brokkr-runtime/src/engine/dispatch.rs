@@ -528,9 +528,17 @@ pub(super) fn spawn_site(
     if let Some(Door { held, site, begun }) = door {
         settlement::spawning(held, site, begun).map_err(|refusal| refusal.to_string())?;
     }
-    DriverProcess::spawn(&spawn.argv, workdir, Some(deadline), &spawn.env)
-        .map(|process| (process, input))
-        .map_err(|error| error.to_string())
+    let process = DriverProcess::spawn(&spawn.argv, workdir, Some(deadline), &spawn.env)
+        .map_err(|error| error.to_string())?;
+    // The driver's own process group is recorded on its own record before
+    // it is told anything, so a later release asks the host about every
+    // driver that is not settled and never about a sibling's group
+    // (decision 0108 ruling 3). A seal that fails leaves this driver
+    // without a group: the release refuses for it and never guesses.
+    if let Some(Door { held, site, .. }) = door {
+        settlement::release::spawned(held, site, process.group());
+    }
+    Ok((process, input))
 }
 
 /// Decision 0048's walk refusal, worded for the spawn it refused (#832).

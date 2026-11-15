@@ -248,6 +248,14 @@ fn read_stderr(stderr: impl Read + Send + 'static, stderr_bytes: usize) -> mpsc:
 }
 
 impl DriverProcess {
+    /// The process group the driver leads: its own pid, because it is
+    /// spawned as a session leader (`attempts`). The settlement proof
+    /// records it before the driver is told anything, so a later release
+    /// can ask the host whether it is gone (decision 0108 ruling 3).
+    pub fn group(&self) -> u32 {
+        self.child.id()
+    }
+
     /// Spawn the driver as the leader of a session, and so a process
     /// group, of its own (`attempts`). With a
     /// deadline, a watchdog kills the group when it expires; the attempt

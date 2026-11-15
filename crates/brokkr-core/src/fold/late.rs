@@ -136,7 +136,7 @@ fn after(terminal: u64, event: &EventEnvelope) -> bool {
 /// fix round 440c4). A non-empty but malformed args is still a record, so
 /// the fold refuses it by name rather than reading it as a command; args
 /// absent, `null` or an array are malformed records too, refused the same.
-pub(crate) fn is_repair(event: &EventEnvelope) -> bool {
+pub fn is_repair(event: &EventEnvelope) -> bool {
     event.event_type == EventType::OperatorCommanded
         && event.payload.get("command").and_then(Value::as_str) == Some(REPAIR)
         && !carries_empty_args(event)

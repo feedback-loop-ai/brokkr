@@ -217,7 +217,16 @@ fn settled_at(site: &str, begun: Option<(u64, String)>) -> Driver {
         site,
         begun,
         cleanup,
+        group: None,
     }
+}
+
+/// `drivers` with the process groups the spawn recorded cleared, for a
+/// comparison about the records' sites, heads and cleanups (the group is
+/// asserted separately).
+fn ungrouped(mut drivers: Vec<Driver>) -> Vec<Driver> {
+    drivers.iter_mut().for_each(|driver| driver.group = None);
+    drivers
 }
 
 /// A site whose spawn runs `argv`, its plan's ledger holding `calls`
@@ -263,7 +272,12 @@ fn a_restart_after_its_drivers_settled_appends_every_call_once_and_releases() {
     );
     site.died_before_its_fold();
     let settled = settled_at("work", Some(head));
-    assert_eq!((site.drivers(), site.rows()), (vec![settled], vec![]));
+    let drivers = site.drivers();
+    assert!(
+        drivers.iter().all(|driver| driver.group.is_some()),
+        "each real driver's own group was recorded"
+    );
+    assert_eq!((ungrouped(drivers), site.rows()), (vec![settled], vec![]));
     let from = site.length();
     assert!(site.turn().unwrap().is_none(), "the run drives on");
     let ended = ending_of(&effect, EventType::EffectIndeterminate, "reason", RESTARTED);
@@ -801,7 +815,14 @@ fn a_real_panels_members_are_recorded_and_recovered_from_their_heads() {
         settled_at("work:bare", None),
         settled_at("work:docs", Some(head)),
     ];
-    assert_eq!((records, site.rows()), (expected.to_vec(), vec![]));
+    assert!(
+        records.iter().all(|driver| driver.group.is_some()),
+        "each panel member's own group was recorded"
+    );
+    assert_eq!(
+        (ungrouped(records), site.rows()),
+        (expected.to_vec(), vec![])
+    );
     assert_eq!(restart(&mut site), indeterminate());
     assert_eq!(site.rows(), [owned_row("work:docs", "notes", 1)]);
     assert!(site.released());
@@ -832,7 +853,12 @@ fn a_sequences_later_step_is_folded_through_its_own_plans_from_its_own_head() {
         settled_at("work", Some(first)),
         settled_at("work:check", Some(second)),
     ];
-    assert_eq!(site.drivers(), records);
+    let drivers = site.drivers();
+    assert!(
+        drivers.iter().all(|driver| driver.group.is_some()),
+        "each step's own group was recorded"
+    );
+    assert_eq!(ungrouped(drivers), records);
     assert_eq!(restart(&mut site), indeterminate());
     let rows = [
         row(1, "lookup", "succeeded"),

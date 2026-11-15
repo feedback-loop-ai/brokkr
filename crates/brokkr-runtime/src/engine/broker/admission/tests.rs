@@ -46,6 +46,11 @@ mod reach;
 mod recovery;
 mod retirement;
 mod sealing;
+mod support;
+pub(in crate::engine) use support::{
+    acknowledge, boxed_claim, broken, child_lock, dead_group, isolated, planted_drivers,
+    quarantined, quarantined_drivers, unacknowledged, Fixture, LiveGroup,
+};
 // U8a2b's proofs read the mount table, which only Linux has (decision 0063).
 #[cfg(target_os = "linux")]
 mod sources;
@@ -285,7 +290,7 @@ pub(in crate::engine) fn reservation_path(home: &Path, worktree: &Path, run: &st
 
 /// A HOME of a test's own, its coordination root opened, and the worktrees
 /// it makes beside it.
-pub(in crate::engine::broker) struct Host {
+pub(in crate::engine) struct Host {
     dir: tempfile::TempDir,
     home: PathBuf,
     root: Arc<Root>,
@@ -294,8 +299,14 @@ pub(in crate::engine::broker) struct Host {
 impl Host {
     /// A fresh one in TMPDIR, whatever TMPDIR's ancestors are: its root is
     /// handed to admission opened, as production's resolution would.
-    pub(in crate::engine::broker) fn new() -> Host {
+    pub(in crate::engine) fn new() -> Host {
         Host::in_dir(fresh(&base()))
+    }
+
+    /// The HOME this host's root is opened under: the one a verb that
+    /// resolves its coordination from HOME would stand in.
+    pub(in crate::engine) fn home(&self) -> &Path {
+        &self.home
     }
 
     /// The one made in `dir`.
@@ -326,8 +337,14 @@ impl Host {
         made.map(Host::in_dir)
     }
 
+    /// A journal beside the HOME, outside every worktree: a boxed writer
+    /// cannot reach it (R2), as the recovery fixtures keep theirs.
+    pub(in crate::engine) fn journal(&self, name: &str) -> PathBuf {
+        self.dir.path().join(name)
+    }
+
     /// The worktree `name` beside the HOME, made.
-    pub(in crate::engine::broker) fn worktree(&self, name: &str) -> PathBuf {
+    pub(in crate::engine) fn worktree(&self, name: &str) -> PathBuf {
         let worktree = self.dir.path().join(name);
         std::fs::create_dir_all(&worktree).unwrap();
         worktree
@@ -346,7 +363,7 @@ impl Host {
 
     /// The reservation `run` of `worktree` holds: its standing attempts,
     /// and its settled ones.
-    pub(in crate::engine::broker) fn attempts(
+    pub(in crate::engine) fn attempts(
         &self,
         worktree: &Path,
         run: &str,
@@ -360,7 +377,7 @@ impl Host {
     }
 
     /// `claim` admitted in this HOME's root within five seconds.
-    pub(in crate::engine::broker) fn admit(&self, claim: &Claim) -> Result<Held, Unadmitted> {
+    pub(in crate::engine) fn admit(&self, claim: &Claim) -> Result<Held, Unadmitted> {
         admit(&self.root, claim, soon())
     }
 }
@@ -477,6 +494,7 @@ pub(in crate::engine::broker) fn claim(
             protects,
             writers: writers.to_vec(),
             cleanup: Witnessed::Settling,
+            group: None,
             serves: Vec::new(),
             drivers: Vec::new(),
         },
@@ -486,7 +504,7 @@ pub(in crate::engine::broker) fn claim(
 
 /// [`claim`] of a run on `worktree` that protects nothing, its one `work`
 /// site outside any box.
-pub(in crate::engine::broker) fn open(worktree: &Path, ids: [&str; 2]) -> Claim {
+pub(in crate::engine) fn open(worktree: &Path, ids: [&str; 2]) -> Claim {
     claim(worktree, ids, Protects::Nothing, &[unbounded("work")])
 }
 
@@ -558,7 +576,7 @@ fn unbounded(site: &str) -> Writer {
 }
 
 /// CR2's refusal of `conflict`, as a variant.
-pub(in crate::engine::broker) fn cr2(conflict: Conflict) -> Result<Held, Unadmitted> {
+pub(in crate::engine) fn cr2(conflict: Conflict) -> Result<Held, Unadmitted> {
     Err(Unadmitted::Evidence(conflict))
 }
 

@@ -202,7 +202,7 @@ pub(super) enum Unprepared {
 /// Why the engine cannot hand a box its artifact root, in the operator's
 /// words its spawn refuses with: CR2's cause, never a box without it.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
-pub(super) enum Unrooted {
+pub enum Unrooted {
     #[error(
         "dispatch refused: {UNPROTECTED_EVIDENCE}: the artifact root '{}' cannot be made or \
          observed: {}", .0.display(), .1

@@ -127,6 +127,17 @@ pub(crate) fn take(store: &Store, run_id: &str) -> Result<RunLock, RunLockError>
     )
 }
 
+/// The run `run_id`'s lock taken by this process without recording a
+/// holder: the broker's admission holds a quarantined run's lock across
+/// the claim that releases its worktree, and `operator settle` holds it
+/// while it writes, so no driver of that run starts beneath either. A
+/// holder's facts stand as the last driver wrote them (decision 0108
+/// ruling 3).
+pub(crate) fn held_at(journal: &Path, run_id: &str) -> Result<RunLock, RunLockError> {
+    let held = locked_at(journal, run_id)?;
+    Ok(RunLock { _held: held })
+}
+
 /// What the lock records of its holder.
 struct Facts {
     host: Option<String>,
@@ -136,6 +147,13 @@ struct Facts {
 
 /// [`take`], over the journal's path and the facts to record.
 fn take_at(journal: &Path, run_id: &str, facts: &Facts) -> Result<RunLock, RunLockError> {
+    let held = locked_at(journal, run_id)?;
+    record(&held, facts);
+    Ok(RunLock { _held: held })
+}
+
+/// The opened run lock `run_id` of `journal`, taken at once or not at all.
+fn locked_at(journal: &Path, run_id: &str) -> Result<lock_file::Held, RunLockError> {
     if !safe(run_id) {
         return Err(RunLockError::UnsafeId(run_id.to_string()));
     }
@@ -145,17 +163,13 @@ fn take_at(journal: &Path, run_id: &str, facts: &Facts) -> Result<RunLock, RunLo
         return Err(RunLockError::File(beside(journal, run_id)));
     };
     // A lock that cannot be taken now, for whatever reason, is another's.
-    let held = match lock_file::hold(opened) {
-        Ok(held) => held,
-        Err(opened) => {
-            return Err(RunLockError::Driven {
-                run_id: run_id.to_string(),
-                holder: recorded(opened),
-            })
-        }
-    };
-    record(&held, facts);
-    Ok(RunLock { _held: held })
+    match lock_file::hold(opened) {
+        Ok(held) => Ok(held),
+        Err(opened) => Err(RunLockError::Driven {
+            run_id: run_id.to_string(),
+            holder: recorded(opened),
+        }),
+    }
 }
 
 /// The run lock directory: made owner-only where it is missing, opened

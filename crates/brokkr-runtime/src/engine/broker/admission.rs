@@ -45,6 +45,7 @@ use brokkr_protocol::hands::{self, HandsSpec, UNPROTECTED_EVIDENCE};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+pub use super::conflict::Conflict;
 use super::exclusion::{compared, staked, Comparison};
 use super::historical::{recorded, superseded::superseded};
 use super::inventory::{inventory, Budget, Standing};
@@ -77,7 +78,7 @@ pub(super) const STAGED: &str = ".new";
 /// cause where the artifact root cannot be kept from every managed writer,
 /// MB3's identity cause where participation cannot be established.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
-pub(in crate::engine) enum Unadmitted {
+pub enum Unadmitted {
     #[error("dispatch refused: {UNPROTECTED_EVIDENCE}: {0}")]
     Evidence(#[from] Conflict),
     #[error("dispatch refused: {identity}: {0}", identity = Refusal::Identity)]
@@ -87,59 +88,9 @@ pub(in crate::engine) enum Unadmitted {
     Unrooted(#[from] Unrooted),
 }
 
-/// What keeps protected evidence or the coordination root from being kept
-/// from every managed writer (CR2; the operator's ruling of 2026-10-18).
-#[derive(Debug, Clone, PartialEq, Eq, Error)]
-pub(in crate::engine) enum Conflict {
-    #[error("run '{0}' holds this worktree, its writers not proven settled")]
-    Held(String),
-    #[error(
-        "site '{site}' of run '{run}' writes outside a workspace box, which cannot be kept from \
-         protected evidence or the coordination root"
-    )]
-    Unboxed { site: String, run: String },
-    #[error(
-        "site '{site}' of run '{run}' can reach '{}', which evidence or coordination depends on",
-        .root.display()
-    )]
-    Reaches {
-        site: String,
-        run: String,
-        root: PathBuf,
-    },
-    #[error(
-        "site '{site}' of run '{run}' binds '{}', which a managed writable root could replace \
-         to redirect the box it is rebuilt into",
-        .bind.display()
-    )]
-    Replaceable {
-        site: String,
-        run: String,
-        bind: PathBuf,
-    },
-    #[error("'{}' is visible at a second mount point, or its mount cannot be read", .0.display())]
-    Shown(PathBuf),
-    #[error(
-        "the artifact '{}' is not one file of one link holding the bytes its name digests",
-        .0.display()
-    )]
-    Corrupt(PathBuf),
-    /// A retirement that cannot be read refuses with CR2's cause (0105).
-    #[error("the retirement of the historical root '{}' cannot be read", .0.display())]
-    Retirement(PathBuf),
-    #[error("the artifact root '{}' was replaced since its attempt was admitted", .0.display())]
-    Replaced(PathBuf),
-    #[error(
-        "'{}', which a box of the attempt is built from, no longer resolves as when its attempt \
-         was admitted",
-        .0.display()
-    )]
-    Redirected(PathBuf),
-}
-
 /// What keeps participation from being established (MB3).
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
-pub(in crate::engine) enum Unknown {
+pub enum Unknown {
     #[error("the capability coordination root is not protected")]
     Root,
     #[error("the operated worktree does not resolve")]
@@ -154,6 +105,23 @@ pub(in crate::engine) enum Unknown {
     Overflow,
     #[error("the protected inventory holds an unknown participant at '{}'", .0.display())]
     Participant(PathBuf),
+    /// A reservation from before b8e2caff8 that this build reads only
+    /// through the view: its whole read failed on a field it lacks, and it
+    /// names no process group, so neither `settle` nor `release` can prove
+    /// its attempt ended here. Only this refusal names the archive and
+    /// re-provisioning route; a record that names a newer format or a field
+    /// this build does not know is [`Unknown::Formatted`] instead, whose
+    /// advice is the build that wrote it (R5). A foreign entry in the
+    /// coordination root is an [`Unknown::Participant`], with nothing of the
+    /// release's to say.
+    #[error(
+        "the protected inventory holds a reservation at '{}' which this build reads only \
+         through the view: it names no process group, so settle and release cannot prove its \
+         attempt ended here; archive the journal, re-provision the worktree, and repair the \
+         archived copy for its history",
+        .0.display()
+    )]
+    ViewOnly(PathBuf),
     #[error(
         "the protected inventory holds a reservation at '{}' in format {format}, which this \
          build does not read: conclude its run with the build that wrote it, or use a build \
@@ -217,7 +185,7 @@ impl From<Unknown> for Unadmitted {
 /// settled with the reach it reserved, and each attempt that was.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct Reservation {
+pub(in crate::engine) struct Reservation {
     pub(super) repo: String,
     pub(super) run: String,
     pub(super) workdir: PathBuf,
@@ -231,13 +199,21 @@ pub(super) struct Reservation {
 /// every writer its body may start, what its engine witnessed of its
 /// drivers' cleanup, sealed as it witnesses it (R2; M1), the sources its
 /// MCP servers are built from, none where it brokers nothing (U8a2b), and
-/// each driver it spawned's own settlement record, in spawn order (U8e2).
+/// each driver it spawned's own settlement record, in spawn order (U8e2),
+/// the process group that driver leads included (decision 0108 ruling 3).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Reserved {
     pub(super) protects: Protects,
     pub(super) writers: Vec<Writer>,
     pub(super) cleanup: Witnessed,
+    /// The one process group 440d's shape recorded for the attempt, kept so
+    /// a record it wrote still reads. It names the *last* driver 440d
+    /// spawned, so it may prove only a single-driver attempt; every driver
+    /// spawned since records its own group on its own [`Driver`] record. A
+    /// new record leaves this absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) group: Option<u32>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(super) serves: Vec<Served>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -250,7 +226,7 @@ pub(super) struct Reserved {
 /// seals once its body ran and before it releases the attempt (M1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
-pub(super) enum Witnessed {
+pub(in crate::engine) enum Witnessed {
     Settling,
     Unresolved,
     Settled,
@@ -303,7 +279,7 @@ pub(super) enum Reach {
 /// seals, and the authored hands its boxed writers' reach was resolved
 /// from, which the door rebuilds it from.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct Claim {
+pub(in crate::engine) struct Claim {
     pub(super) repo: String,
     pub(super) run: String,
     pub(super) attempt: String,
@@ -475,6 +451,7 @@ impl Engine {
                 protects,
                 writers,
                 cleanup,
+                group: None,
                 serves: Vec::new(),
                 drivers: Vec::new(),
             },
@@ -633,7 +610,7 @@ pub(super) fn admit_with(
         historical: &historical,
         coordination: root,
     };
-    compared(&comparison, &mut budget)?;
+    let _released = compared(&comparison, &mut budget)?;
     unserved(claim, &standing, root, &budget)?;
     let staked = staked(&comparison);
     between();

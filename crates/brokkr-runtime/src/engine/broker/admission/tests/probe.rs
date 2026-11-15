@@ -118,6 +118,7 @@ fn a_release_that_cannot_be_sealed_parks_naming_the_attempt() {
         site: "work".into(),
         begun: None,
         cleanup: Witnessed::Settled,
+        group: None,
     };
     reserved.drivers.push(driver);
     std::fs::write(&at, serde_json::to_vec(&held).unwrap()).unwrap();
@@ -239,6 +240,7 @@ fn standing_with(host: &Host, work: &Path, run: &str, sites: &[&str]) -> (String
             site: (*site).into(),
             begun: None,
             cleanup: Witnessed::Settling,
+            group: None,
         });
     }
     std::fs::write(&at, serde_json::to_vec(&held).unwrap()).unwrap();
