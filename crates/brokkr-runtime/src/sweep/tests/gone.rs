@@ -356,3 +356,63 @@ fn a_late_event_naming_an_attempt_keeps_its_tree() {
     assert_eq!(fixture.store.tree_sweeps().unwrap(), vec![]);
     brokkr_store::test_support::lags(&mut fixture.store, &[RUN]);
 }
+
+/// A dry run lists a gone row as the pass would close it, with no bytes,
+/// and never counts it: a tree planted at its path after the verdict is
+/// never reported with bytes for a row a pass would never walk (ruling 9).
+#[test]
+fn a_dry_run_never_counts_a_gone_row() {
+    let mut fixture = Fixture::new();
+    gone_succeeded_on_completed(&mut fixture);
+    let empty = tempfile::tempdir().unwrap();
+
+    let plan = plan_with(
+        &fixture.store,
+        Ok(empty.path().to_path_buf()),
+        super::same_device,
+        |_| panic!("a gone row is never counted"),
+    )
+    .unwrap();
+
+    assert_eq!(plan.removed().len(), 1);
+    assert_eq!(plan.removed()[0].bytes, None);
+    assert!(plan.kept().is_empty());
+    assert_eq!(fixture.store.tree_sweeps().unwrap(), vec![]);
+    assert_eq!(fixture.store.open_seat_trees().unwrap().len(), 1);
+}
+
+/// A dry run lists a kept tree with the reason a pass would give, counts
+/// nothing for it, and leaves it standing.
+#[test]
+fn a_dry_run_lists_a_kept_tree_with_its_reason() {
+    let mut fixture = Fixture::new();
+    failed_on_completed(&mut fixture.store, RUN, ATTEMPT);
+    let tree = fixture.here(RUN, ATTEMPT);
+
+    let plan = plan(&fixture.store).unwrap();
+
+    assert!(tree.exists());
+    assert!(plan.removed().is_empty());
+    assert_eq!(kept_reason(&plan), &KeptReason::Failed);
+    assert_eq!(plan.kept()[0].reason(), "its attempt ended failed");
+    assert_eq!(fixture.store.tree_sweeps().unwrap(), vec![]);
+}
+
+/// A gone row whose attempt no event names is kept on an ended run: only
+/// an attempt the journal saw end can close as gone.
+#[test]
+fn a_gone_row_whose_attempt_no_event_names_is_kept() {
+    let mut fixture = Fixture::new();
+    fixture.succeeded(RUN, ATTEMPT);
+    completed(&mut fixture.store, RUN);
+    seat(&mut fixture.store, RUN, EFFECT, ATTEMPT2, &fixture.root);
+    assert!(!fixture.root.join(ATTEMPT2).exists());
+
+    let (swept, _) = pass_one(&mut fixture.store);
+
+    assert!(swept.removed().is_empty());
+    assert_eq!(kept_reason(&swept), &KeptReason::NoEventNamesAttempt);
+    assert_eq!(swept.kept()[0].reason(), "no event names its attempt");
+    assert_eq!(fixture.store.tree_sweeps().unwrap(), vec![]);
+    assert_eq!(fixture.store.open_seat_trees().unwrap().len(), 1);
+}

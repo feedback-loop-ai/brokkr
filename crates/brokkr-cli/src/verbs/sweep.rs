@@ -34,7 +34,6 @@ pub(crate) fn sweep(
                 Err(refused) => return Err(anyhow!(refused)),
             };
             match sweep_run::pass(&mut store, &held) {
-                Ok(report) => report,
                 // The removal completed but its sweep row did not: paint
                 // the report of every removal made beside the refusal, and
                 // exit non-zero rather than claiming the pass recorded it.
@@ -42,7 +41,8 @@ pub(crate) fn sweep(
                     out.write_all(report.lines_with(safe, dry).as_bytes())?;
                     return Ok(Exit::Failed.into());
                 }
-                Err(error) => return Err(error.into()),
+                // A report, or any other refusal, which is the caller's.
+                passed => passed?,
             }
         }
     };

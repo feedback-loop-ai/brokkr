@@ -1,13 +1,15 @@
 //! The sweep (decision 0104 rulings 7 to 9, as R3 to R6 and the operator's
-//! succeeded-only ruling amend them): one pass removes each run-local seat
-//! scratch tree whose attempt ended `effect/succeeded`, runs the hands
-//! reaper, and records every complete removal in `tree_sweeps`. A tree is
-//! kept, and reported by name, whenever its attempt ended failed or
-//! indeterminate, was closed by a conclude, has no terminal event, or the
-//! journal cannot prove the driver ended it. A dry run reads the same
-//! verdicts and counts what a pass would free, writing nothing. Nothing
-//! here prints: a [`Swept`] names every tree it removed, kept or could not
-//! remove, and the CLI paints it.
+//! succeeded-only and gone-close rulings amend them): one pass removes each
+//! run-local seat scratch tree whose attempt ended `effect/succeeded`,
+//! closes with no walk each row whose tree is gone once its attempt has a
+//! terminal event and its run has ended, runs the hands reaper, and records
+//! every complete removal and close in `tree_sweeps`. A tree is kept, and
+//! reported by name, whenever its attempt ended failed or indeterminate,
+//! was closed under an accepted stop, has no terminal event, or the journal
+//! cannot prove the driver ended it. A dry run reads the same verdicts and
+//! counts what a pass would free, writing nothing. Nothing here prints: a
+//! [`Swept`] names every tree it removed, kept or could not remove, and the
+//! CLI paints it.
 
 use std::path::{Path, PathBuf};
 

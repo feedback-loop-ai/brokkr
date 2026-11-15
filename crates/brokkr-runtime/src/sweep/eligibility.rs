@@ -260,7 +260,8 @@ fn late_attempts(events: &[EventEnvelope], state: &brokkr_core::fold::RunState) 
 }
 
 /// The ids of the `operator/accepted` events that dispose of a stop
-/// command: a terminal caused by one of them is a conclude's.
+/// command: a terminal caused by one of them closed its attempt under an
+/// accepted stop, whether a conclude or a resumed engine's restart wrote it.
 fn stop_acceptances(events: &[EventEnvelope]) -> HashSet<&str> {
     let commands: HashSet<&str> = events
         .iter()
@@ -405,8 +406,11 @@ fn shaped(
     if canonical.as_os_str() != row.root.as_os_str() {
         return Err(KeptReason::Shape(ShapeReason::RootNotCanonical));
     }
-    let root =
-        std::fs::metadata(&row.root).map_err(|_| KeptReason::Shape(ShapeReason::RootUnreadable))?;
+    // Only a root that went between the two reads refuses here, so the
+    // refusal is a value, not a closure no test can enter.
+    let root = std::fs::metadata(&row.root)
+        .ok()
+        .ok_or(KeptReason::Shape(ShapeReason::RootUnreadable))?;
     let tree = row.root.join(&row.attempt_id);
     let meta = match std::fs::symlink_metadata(&tree) {
         Ok(meta) => meta,

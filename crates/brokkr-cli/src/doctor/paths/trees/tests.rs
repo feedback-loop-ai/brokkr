@@ -377,6 +377,26 @@ fn an_entry_that_vanishes_before_its_stat_adds_no_line() {
 }
 
 #[test]
+fn an_unreadable_root_adds_no_line_and_is_left_alone() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("scratch");
+    let orphan = root.join("orphan");
+    std::fs::create_dir_all(&orphan).unwrap();
+    std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o300)).unwrap();
+    let mut report = empty_report();
+
+    list(&mut report, &root, &Named::default());
+
+    std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700)).unwrap();
+    assert!(report.healthy);
+    assert!(report.lines.is_empty());
+    assert!(
+        orphan.is_dir(),
+        "nothing removes a tree under an unreadable root"
+    );
+}
+
+#[test]
 fn a_tree_recreated_at_a_closed_rows_path_is_named_with_its_size() {
     let dir = tempfile::tempdir().unwrap();
     let mut store = journal(dir.path());
