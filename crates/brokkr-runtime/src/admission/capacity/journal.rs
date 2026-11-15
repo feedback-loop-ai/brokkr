@@ -57,13 +57,10 @@ impl Room {
         path: &Path,
     ) -> impl FnMut(ClaimFacts<'_>) -> Result<(), Recheck> + '_ {
         let path = path.to_path_buf();
-        // `facts.cooling` is every cool-down row in force inside the claim's
-        // transaction; admission's cool-down leg re-checks it in decision
-        // 0103 slice 4e, so it is dropped here (slice 4d1).
         move |facts| {
             let other = |error| Recheck::Failed(Box::new(error));
             measured_in(self.journal, facts.journal, &path).map_err(other)?;
-            self.recheck(facts.waits, facts.moved)
+            self.recheck(facts.waits, facts.moved, facts.cooling)
         }
     }
 }

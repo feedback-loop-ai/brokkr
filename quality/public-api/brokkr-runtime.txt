@@ -24,6 +24,11 @@ pub enum brokkr_runtime::admission::Capacity
 pub brokkr_runtime::admission::Capacity::BoxedFull
 pub brokkr_runtime::admission::Capacity::BoxedFull::ceiling: u32
 pub brokkr_runtime::admission::Capacity::BoxedFull::running: usize
+pub brokkr_runtime::admission::Capacity::CoolingDown
+pub brokkr_runtime::admission::Capacity::CoolingDown::provider: alloc::string::String
+pub brokkr_runtime::admission::Capacity::CoolingDown::route: alloc::string::String
+pub brokkr_runtime::admission::Capacity::CoolingDown::until: time::offset_date_time::OffsetDateTime
+pub brokkr_runtime::admission::Capacity::CoolingDown::words: alloc::string::String
 pub brokkr_runtime::admission::Capacity::FloorLow
 pub brokkr_runtime::admission::Capacity::FloorLow::at: brokkr_runtime::admission::Measured
 pub brokkr_runtime::admission::Capacity::FloorLow::floor: u64

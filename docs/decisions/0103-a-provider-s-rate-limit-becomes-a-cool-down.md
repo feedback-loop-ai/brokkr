@@ -3,7 +3,7 @@
 Status: accepted — operator ruled in chat 2026-10-31, "go with recommended" (https://github.com/feedback-loop-ai/brokkr/issues/430#issuecomment-6548910347)
 Date: 2026-10-30
 
-Built: unbuilt (#430)
+Built: partial (#430) — slice 4e, admission's cool-down leg
 
 ## Context
 
