@@ -1463,3 +1463,58 @@ fn a_first_seals_failed_rename_removes_the_link_it_made() {
     assert!(!prior(&at).exists(), "the link it made is removed");
     nothing_staged(&at);
 }
+
+/// A reservation standing in another build's byte form, with the successor
+/// a seal cut short after its exchange would leave at the name: the name,
+/// the prior name holding the record that stood as that build wrote it, the
+/// record read, and the lease that stands on it.
+fn another_byte_form() -> (Host, PathBuf, Held, Reservation) {
+    let (host, _work, held, at) = spawning_attempt();
+    let record: Reservation = serde_json::from_slice(&std::fs::read(&at).unwrap()).unwrap();
+    let written = serde_json::to_vec_pretty(&record).unwrap();
+    assert_ne!(
+        written,
+        serde_json::to_vec(&record).unwrap(),
+        "another build's byte form"
+    );
+    plant(&at, &written);
+    plant(&prior(&at), &written);
+    plant(&at, &successor(&at));
+    (host, at, held, record)
+}
+
+/// Run four's review, S7: a reseal restores the record that stood from its
+/// own bytes, not a re-serialisation, so a cut-short state another build
+/// wrote in another byte form is undone rather than refused.
+#[test]
+fn a_reseal_restores_a_record_written_in_another_byte_form() {
+    let (host, at, _held, record) = another_byte_form();
+    assert_eq!(
+        resealed(&host.root, &record, &record, &Budget::new(soon())),
+        Ok(Commit::Synced),
+        "the cut-short state is restored"
+    );
+    assert_eq!(
+        std::fs::read(&at).unwrap(),
+        serde_json::to_vec(&record).unwrap(),
+        "the resealed record stands"
+    );
+    assert!(!prior(&at).exists(), "no prior name left");
+    nothing_staged(&at);
+}
+
+/// Run four's review, S7: an amend reads and restores a record another build
+/// wrote in another byte form by the bytes it read, not a re-serialisation.
+#[test]
+fn an_amend_restores_a_record_written_in_another_byte_form() {
+    let (_host, at, held, record) = another_byte_form();
+    let amended = amend(&held, soon(), Ok);
+    assert_eq!(amended, Ok(Commit::Synced), "the amend restores it");
+    assert_eq!(
+        std::fs::read(&at).unwrap(),
+        serde_json::to_vec(&record).unwrap(),
+        "the amended record stands"
+    );
+    assert!(!prior(&at).exists(), "no prior name left");
+    nothing_staged(&at);
+}
