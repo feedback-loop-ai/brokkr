@@ -17,7 +17,7 @@ use brokkr_core::fold::{fold, Run};
 use brokkr_store::{SeatTree, Store};
 use uuid::Uuid;
 
-use super::{KeptReason, SCRATCH};
+use super::{KeptReason, ShapeReason, SCRATCH};
 
 /// What the row decided: remove it, or keep it for one stated reason.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -296,13 +296,13 @@ fn shaped(
     device_of: &impl Fn(&Path, u64) -> u64,
 ) -> Result<(), KeptReason> {
     if !same_root {
-        return Err(KeptReason::AnotherRoot);
+        return Err(KeptReason::Shape(ShapeReason::AnotherRoot));
     }
     if !row.root.is_absolute() || row.root.file_name() != Some(OsStr::new(SCRATCH)) {
-        return Err(KeptReason::RootNotAbsolute);
+        return Err(KeptReason::Shape(ShapeReason::RootNotAbsolute));
     }
     if !engine_uuid(&row.attempt_id) {
-        return Err(KeptReason::AttemptNotEngineUuid);
+        return Err(KeptReason::Shape(ShapeReason::AttemptNotEngineUuid));
     }
     // A root that is itself gone closes the row as gone, with no bytes, as
     // ruling 8 does for an absent tree.
@@ -312,23 +312,24 @@ fn shaped(
     // Byte equality, not `Path` equality: the latter ignores `.`, repeated
     // separators and a trailing slash (R5).
     if canonical.as_os_str() != row.root.as_os_str() {
-        return Err(KeptReason::RootNotCanonical);
+        return Err(KeptReason::Shape(ShapeReason::RootNotCanonical));
     }
-    let root = std::fs::metadata(&row.root).map_err(|_| KeptReason::RootUnreadable)?;
+    let root =
+        std::fs::metadata(&row.root).map_err(|_| KeptReason::Shape(ShapeReason::RootUnreadable))?;
     let tree = row.root.join(&row.attempt_id);
     let meta = match std::fs::symlink_metadata(&tree) {
         Ok(meta) => meta,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-        Err(_) => return Err(KeptReason::TreeUnreadable),
+        Err(_) => return Err(KeptReason::Shape(ShapeReason::TreeUnreadable)),
     };
     if meta.file_type().is_symlink() {
-        return Err(KeptReason::TreeIsLink);
+        return Err(KeptReason::Shape(ShapeReason::TreeIsLink));
     }
     if !meta.file_type().is_dir() {
-        return Err(KeptReason::TreeNotDirectory);
+        return Err(KeptReason::Shape(ShapeReason::TreeNotDirectory));
     }
     if device_of(&tree, meta.dev()) != root.dev() {
-        return Err(KeptReason::ForeignFilesystem);
+        return Err(KeptReason::Shape(ShapeReason::ForeignFilesystem));
     }
     Ok(())
 }
@@ -338,7 +339,7 @@ fn canonical(row: &SeatTree) -> Result<Option<PathBuf>, KeptReason> {
     match std::fs::canonicalize(&row.root) {
         Ok(canonical) => Ok(Some(canonical)),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(_) => Err(KeptReason::RootNotCanonical),
+        Err(_) => Err(KeptReason::Shape(ShapeReason::RootNotCanonical)),
     }
 }
 

@@ -295,6 +295,15 @@ fn kept_reason(swept: &Swept) -> &KeptReason {
     &swept.kept()[0].reason
 }
 
+/// Every reason a pass kept its trees for, in the order it kept them.
+fn kept_reasons(swept: &Swept) -> Vec<KeptReason> {
+    swept
+        .kept()
+        .iter()
+        .map(|kept| kept.reason.clone())
+        .collect()
+}
+
 /// Run a pass and hand back the one reason it kept the tree for.
 fn kept_after_pass(fixture: &mut Fixture) -> KeptReason {
     let (swept, _) = pass_one(&mut fixture.store);
@@ -501,7 +510,10 @@ fn a_root_through_a_symlinked_component_is_kept() {
     seat(&mut fixture.store, RUN, EFFECT, ATTEMPT, &named);
 
     assert!(tree.exists());
-    assert_eq!(kept_after_pass(&mut fixture), KeptReason::RootNotCanonical);
+    assert_eq!(
+        kept_after_pass(&mut fixture),
+        KeptReason::Shape(ShapeReason::RootNotCanonical)
+    );
     assert_eq!(fixture.store.tree_sweeps().unwrap(), vec![]);
 }
 
@@ -520,7 +532,7 @@ fn two_roots_in_one_run_keep_both_trees() {
     assert!(second.exists());
     assert_eq!(swept.kept().len(), 2);
     for kept in swept.kept() {
-        assert_eq!(kept.reason, KeptReason::AnotherRoot);
+        assert_eq!(kept.reason, KeptReason::Shape(ShapeReason::AnotherRoot));
     }
     assert_eq!(fixture.store.tree_sweeps().unwrap(), vec![]);
 }
@@ -540,7 +552,10 @@ fn a_later_row_naming_another_root_keeps_the_runs_first_tree() {
     let (swept, _) = pass_one(&mut fixture.store);
 
     assert!(second.exists());
-    assert_eq!(kept_reason(&swept), &KeptReason::AnotherRoot);
+    assert_eq!(
+        kept_reason(&swept),
+        &KeptReason::Shape(ShapeReason::AnotherRoot)
+    );
     assert_eq!(fixture.store.tree_sweeps().unwrap().len(), 1);
 }
 
@@ -616,7 +631,7 @@ fn a_root_spelled_with_a_dot_or_dot_dot_component_is_kept() {
 
         assert_eq!(
             kept_after_pass(&mut fixture),
-            KeptReason::RootNotCanonical,
+            KeptReason::Shape(ShapeReason::RootNotCanonical),
             "{spelling}"
         );
         assert!(tree.exists(), "{spelling}");
@@ -658,7 +673,10 @@ fn a_link_at_the_attempt_path_is_kept_and_not_followed() {
     seat(&mut fixture.store, RUN, EFFECT, ATTEMPT, &fixture.root);
 
     assert!(target.join("kept").is_dir());
-    assert_eq!(kept_after_pass(&mut fixture), KeptReason::TreeIsLink);
+    assert_eq!(
+        kept_after_pass(&mut fixture),
+        KeptReason::Shape(ShapeReason::TreeIsLink)
+    );
     assert_eq!(fixture.store.tree_sweeps().unwrap(), vec![]);
 }
 
@@ -677,7 +695,10 @@ fn a_tree_on_another_filesystem_is_kept() {
     );
 
     assert!(tree.exists());
-    assert_eq!(kept_reason(&swept), &KeptReason::ForeignFilesystem);
+    assert_eq!(
+        kept_reason(&swept),
+        &KeptReason::Shape(ShapeReason::ForeignFilesystem)
+    );
     assert_eq!(fixture.store.tree_sweeps().unwrap(), vec![]);
 }
 
@@ -1027,16 +1048,12 @@ fn a_row_the_checks_should_refuse_is_kept_by_its_shape() {
 
     std::fs::set_permissions(&unreadable, std::fs::Permissions::from_mode(0o700)).unwrap();
     assert_eq!(
-        swept
-            .kept()
-            .iter()
-            .map(|kept| kept.reason.clone())
-            .collect::<Vec<_>>(),
+        kept_reasons(&swept),
         [
-            KeptReason::AttemptNotEngineUuid,
-            KeptReason::RootNotAbsolute,
-            KeptReason::TreeNotDirectory,
-            KeptReason::TreeUnreadable,
+            KeptReason::Shape(ShapeReason::AttemptNotEngineUuid),
+            KeptReason::Shape(ShapeReason::RootNotAbsolute),
+            KeptReason::Shape(ShapeReason::TreeNotDirectory),
+            KeptReason::Shape(ShapeReason::TreeUnreadable),
         ]
     );
     assert_eq!(fixture.store.tree_sweeps().unwrap(), vec![]);
@@ -1352,12 +1369,8 @@ fn a_relative_root_ending_in_scratch_is_kept() {
     let (swept, _) = pass_one(&mut fixture.store);
 
     assert_eq!(
-        swept
-            .kept()
-            .iter()
-            .map(|kept| kept.reason.clone())
-            .collect::<Vec<_>>(),
-        [KeptReason::RootNotAbsolute]
+        kept_reasons(&swept),
+        [KeptReason::Shape(ShapeReason::RootNotAbsolute)]
     );
     assert_eq!(fixture.store.tree_sweeps().unwrap(), vec![]);
 }
@@ -1450,15 +1463,15 @@ fn every_kept_reason_has_words() {
         KeptReason::EffectOpen,
         KeptReason::NoEventNamesAttempt,
         KeptReason::NoTerminalEvent,
-        KeptReason::AnotherRoot,
-        KeptReason::RootNotAbsolute,
-        KeptReason::AttemptNotEngineUuid,
-        KeptReason::RootNotCanonical,
-        KeptReason::RootUnreadable,
-        KeptReason::TreeIsLink,
-        KeptReason::TreeNotDirectory,
-        KeptReason::TreeUnreadable,
-        KeptReason::ForeignFilesystem,
+        KeptReason::Shape(ShapeReason::AnotherRoot),
+        KeptReason::Shape(ShapeReason::RootNotAbsolute),
+        KeptReason::Shape(ShapeReason::AttemptNotEngineUuid),
+        KeptReason::Shape(ShapeReason::RootNotCanonical),
+        KeptReason::Shape(ShapeReason::RootUnreadable),
+        KeptReason::Shape(ShapeReason::TreeIsLink),
+        KeptReason::Shape(ShapeReason::TreeNotDirectory),
+        KeptReason::Shape(ShapeReason::TreeUnreadable),
+        KeptReason::Shape(ShapeReason::ForeignFilesystem),
         KeptReason::RunCannotBeRead,
         KeptReason::RunDoesNotFold,
         KeptReason::TmpdirRelative,
@@ -1546,7 +1559,7 @@ fn a_root_that_cannot_be_canonicalized_is_kept() {
 
     let reason = kept_after_pass(&mut fixture);
 
-    assert_eq!(reason, KeptReason::RootNotCanonical);
+    assert_eq!(reason, KeptReason::Shape(ShapeReason::RootNotCanonical));
     assert_eq!(fixture.store.tree_sweeps().unwrap(), vec![]);
 }
 

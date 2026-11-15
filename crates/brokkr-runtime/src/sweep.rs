@@ -44,6 +44,21 @@ pub(crate) enum KeptReason {
     EffectOpen,
     NoEventNamesAttempt,
     NoTerminalEvent,
+    RunCannotBeRead,
+    RunDoesNotFold,
+    TmpdirRelative,
+    TmpdirNotUtf8,
+    /// The row's path is not the engine's shape (R5).
+    Shape(ShapeReason),
+    /// The hands reaper kept the tree for its own reason, whose words are
+    /// the reaper's (a lock it could not probe, a walk it could not do).
+    Hands(String),
+}
+
+/// The path-shape reasons, their own closed set: `KeptReason::fmt` groups
+/// them so neither reading reaches ruling 4's ceiling.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ShapeReason {
     AnotherRoot,
     RootNotAbsolute,
     AttemptNotEngineUuid,
@@ -53,13 +68,6 @@ pub(crate) enum KeptReason {
     TreeNotDirectory,
     TreeUnreadable,
     ForeignFilesystem,
-    RunCannotBeRead,
-    RunDoesNotFold,
-    TmpdirRelative,
-    TmpdirNotUtf8,
-    /// The hands reaper kept the tree for its own reason, whose words are
-    /// the reaper's (a lock it could not probe, a walk it could not do).
-    Hands(String),
 }
 
 impl std::fmt::Display for KeptReason {
@@ -71,20 +79,29 @@ impl std::fmt::Display for KeptReason {
             KeptReason::EffectOpen => "its effect is still open",
             KeptReason::NoEventNamesAttempt => "no event names its attempt",
             KeptReason::NoTerminalEvent => "no terminal event names its attempt",
-            KeptReason::AnotherRoot => "another row of its run names a different root",
-            KeptReason::RootNotAbsolute => "its root is not an absolute path ending in 'scratch'",
-            KeptReason::AttemptNotEngineUuid => "its attempt id is not the one the engine mints",
-            KeptReason::RootNotCanonical => "its root is not its own canonical path",
-            KeptReason::RootUnreadable => "its root cannot be read",
-            KeptReason::TreeIsLink => "its tree is a link, not a directory",
-            KeptReason::TreeNotDirectory => "its tree is not a directory",
-            KeptReason::TreeUnreadable => "its tree cannot be read",
-            KeptReason::ForeignFilesystem => "its tree is on another filesystem than its root",
             KeptReason::RunCannotBeRead => "its run cannot be read",
             KeptReason::RunDoesNotFold => "its run does not fold",
             KeptReason::TmpdirRelative => "its TMPDIR is not an absolute path",
             KeptReason::TmpdirNotUtf8 => "its TMPDIR is not UTF-8",
+            KeptReason::Shape(reason) => return reason.fmt(f),
             KeptReason::Hands(words) => words,
+        };
+        f.write_str(words)
+    }
+}
+
+impl std::fmt::Display for ShapeReason {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let words = match self {
+            ShapeReason::AnotherRoot => "another row of its run names a different root",
+            ShapeReason::RootNotAbsolute => "its root is not an absolute path ending in 'scratch'",
+            ShapeReason::AttemptNotEngineUuid => "its attempt id is not the one the engine mints",
+            ShapeReason::RootNotCanonical => "its root is not its own canonical path",
+            ShapeReason::RootUnreadable => "its root cannot be read",
+            ShapeReason::TreeIsLink => "its tree is a link, not a directory",
+            ShapeReason::TreeNotDirectory => "its tree is not a directory",
+            ShapeReason::TreeUnreadable => "its tree cannot be read",
+            ShapeReason::ForeignFilesystem => "its tree is on another filesystem than its root",
         };
         f.write_str(words)
     }
@@ -104,6 +121,17 @@ impl std::fmt::Display for FailedCause {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             FailedCause::Walk(cause) | FailedCause::Record(cause) => f.write_str(cause),
+        }
+    }
+}
+
+impl FailedCause {
+    /// The line's verb: a walk refusal removed nothing, a record refusal
+    /// follows a removal that completed.
+    fn verb(&self) -> &'static str {
+        match self {
+            FailedCause::Walk(_) => "could not remove",
+            FailedCause::Record(_) => "could not record",
         }
     }
 }
@@ -229,10 +257,7 @@ impl Swept {
         for failed in &self.failed {
             let path = safe(&failed.path.display().to_string());
             let cause = safe(&failed.cause.to_string());
-            let verb = match failed.cause {
-                FailedCause::Walk(_) => "could not remove",
-                FailedCause::Record(_) => "could not record",
-            };
+            let verb = failed.cause.verb();
             said.push_str(&format!("sweep: {verb} {path}: {cause}\n"));
         }
         if let Some(ref reason) = self.hands {
