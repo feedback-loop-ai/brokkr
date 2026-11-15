@@ -38,8 +38,12 @@ pub(super) enum Late {
     Occupy,
     Remove,
     RemoveLinked,
+    RemoveRestored,
     Replace,
     RemoveCommitted,
+    ReplaceCommitted,
+    CutUndo,
+    FailExchanged,
     SleepCommitted(Duration),
     FailCommitted,
     DenyCommitted(Duration),
@@ -87,6 +91,12 @@ pub(super) fn late(step: Step, dir: &OwnedFd, staged: &str) -> std::io::Result<(
         (Step::Linked, Some(Late::RemoveLinked)) => {
             rustix::fs::unlinkat(dir, staged, AtFlags::empty()).unwrap()
         }
+        // A restore's last point before its exchange: the name is removed,
+        // so the exchange must meet it gone and write nothing (#440 fix
+        // round 440d6).
+        (Step::Restored, Some(Late::RemoveRestored)) => {
+            rustix::fs::unlinkat(dir, staged, AtFlags::empty()).unwrap()
+        }
         // After a reseal's exchange: the name is removed, and the sync that
         // follows fails, so the undo must not write the old record back
         // (#440 fix round 440d6).
@@ -94,6 +104,30 @@ pub(super) fn late(step: Step, dir: &OwnedFd, staged: &str) -> std::io::Result<(
             let name = staged.strip_suffix(STAGED).unwrap();
             rustix::fs::unlinkat(dir, name, AtFlags::empty()).unwrap();
             return Err(std::io::Error::other("the directory sync failed"));
+        }
+        // The directory's sync after the commit fails, and the undo that
+        // follows is cut short after its exchange, as a kill there would cut
+        // it (#440 fix round 440d6).
+        (Step::Committed, Some(Late::CutUndo)) => {
+            LATE.set(Some(Late::FailExchanged));
+            return Err(std::io::Error::other("the directory sync failed"));
+        }
+        // After a reseal's exchange: a file a hand made stands at the name,
+        // and the sync that follows fails, so the undo must leave it there
+        // (#440 fix round 440d6).
+        (Step::Committed, Some(Late::ReplaceCommitted)) => {
+            let name = staged.strip_suffix(STAGED).unwrap();
+            rustix::fs::unlinkat(dir, name, AtFlags::empty()).unwrap();
+            empty(dir, name);
+            return Err(std::io::Error::other("the directory sync failed"));
+        }
+        // An undo's exchange has put the record that stood back at its
+        // name, before the successor it swapped out is removed: the seal is
+        // cut short there, as a kill would cut it (#440 fix round 440d6).
+        (Step::Exchanged, Some(Late::FailExchanged)) => {
+            return Err(std::io::Error::other(
+                "the undo was cut short after its exchange",
+            ))
         }
         (Step::Committed, Some(Late::DenyCommitted(spent))) => {
             denied(dir);
@@ -132,4 +166,60 @@ fn empty(dir: &OwnedFd, name: &str) {
 fn denied(dir: &OwnedFd) {
     let kept = rustix::fs::Mode::RUSR | rustix::fs::Mode::XUSR;
     rustix::fs::fchmod(dir, kept).unwrap()
+}
+
+thread_local! {
+    /// The error [`refusing_exchange`] reports on this thread, `EINVAL`
+    /// until a test asks another.
+    static REFUSAL: Cell<rustix::io::Errno> = const { Cell::new(rustix::io::Errno::INVAL) };
+}
+
+/// A filesystem's exchange refusal, reporting [`REFUSAL`]: `EINVAL`,
+/// `ENOTSUP`, `EOPNOTSUPP` or `ENOSYS`, the four ways a filesystem says it
+/// has no atomic exchange (decision 0108 ruling 3, #440 fix round 440d6).
+pub(super) fn refusing_exchange(
+    _: &std::os::fd::OwnedFd,
+    _: &str,
+    _: &std::os::fd::OwnedFd,
+    _: &str,
+) -> Result<(), rustix::io::Errno> {
+    Err(REFUSAL.with(Cell::get))
+}
+
+/// The error the next [`refusing_exchange`] reports.
+pub(super) fn refusing(error: rustix::io::Errno) {
+    REFUSAL.with(|refusal| refusal.set(error));
+}
+
+thread_local! {
+    /// How many exchanges [`failing_second_exchange`] has refused, the
+    /// second and later, on this thread.
+    pub(super) static SWAPS: Cell<usize> = const { Cell::new(0) };
+}
+
+/// Production's exchange for the first swap on this thread, and `EINVAL`
+/// after it: a reseal whose foreign file cannot be exchanged back, which is
+/// what its swap after the proof must handle (decision 0108 ruling 3, #440
+/// fix round 440d6).
+pub(super) fn failing_second_exchange(
+    one: &std::os::fd::OwnedFd,
+    a: &str,
+    two: &std::os::fd::OwnedFd,
+    b: &str,
+) -> Result<(), rustix::io::Errno> {
+    let swaps = SWAPS.with(|swaps| {
+        let next = swaps.get() + 1;
+        swaps.set(next);
+        next
+    });
+    if swaps == 1 {
+        rustix::fs::renameat_with(one, a, two, b, rustix::fs::RenameFlags::EXCHANGE)
+    } else {
+        Err(rustix::io::Errno::INVAL)
+    }
+}
+
+/// [`failing_second_exchange`] counts from one again.
+pub(super) fn swaps_again() {
+    SWAPS.with(|swaps| swaps.set(0));
 }

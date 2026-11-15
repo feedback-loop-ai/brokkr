@@ -16,10 +16,12 @@
 
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::MetadataExt;
+use std::sync::Arc;
 
 use brokkr_protocol::broker::ledger::Outcome;
 
 use super::coordination::{died_after_its_end, settled_a1};
+use super::late::{failing_second_exchange, refusing, refusing_exchange, swaps_again};
 use super::*;
 use crate::capabilities::McpFence;
 use crate::engine::artifacts::tests::{sha, Provisioned};
@@ -107,7 +109,9 @@ fn a_first_seal_that_fails_or_runs_late_leaves_no_record() {
         let host = Host::new();
         let budget = Budget::new(within(100));
         LATE.set(Some(armed));
-        let sealed = seal_with(host.root.dir(), "probe.json", b"{}", &budget, late);
+        let sealed = host
+            .root
+            .seal(host.root.dir(), "probe.json", b"{}", &budget);
         assert_eq!(sealed, Err(refused), "{how}");
         let staged = host.root().join("probe.json.new");
         assert!(!host.root().join("probe.json").exists(), "{how}: no record");
@@ -603,16 +607,60 @@ fn settlement_publishes_what_its_attempt_retained_before_its_release() {
     }
 }
 
-/// A fresh host whose run `run-a` holds its attempt `a1` standing on the
-/// worktree `work`, with a driver record at its site: the lease, the host,
-/// and where its reservation stands (#440 fix round 440d5).
-fn spawning_attempt() -> (Host, PathBuf, Held, PathBuf) {
-    let host = Host::new();
+/// A fresh host whose root exchanges by `exchange`, for the swap a reseal
+/// makes after its proof (decision 0108 ruling 3, #440 fix round 440d6).
+fn host_exchanging(exchange: Exchange) -> Host {
+    let dir = fresh(&base());
+    let home = dir.path().join("home");
+    let root = Arc::new(super::opened_by(&home, Some(exchange)));
+    Host { dir, home, root }
+}
+
+/// Nothing is staged beside the record at `at`.
+fn nothing_staged(at: &Path) {
+    let staged = at.with_file_name("reservation.json.new");
+    assert!(!staged.exists(), "nothing staged left beside it");
+}
+
+/// The empty file a hand planted at `at` is still there.
+fn planted_stays(at: &Path) {
+    assert_eq!(
+        std::fs::metadata(at).unwrap().len(),
+        0,
+        "the file planted at its name stays"
+    );
+}
+
+/// [`spawning_attempt`] on `host`.
+fn spawning_attempt_in(host: Host) -> (Host, PathBuf, Held, PathBuf) {
     let work = host.worktree("work");
     let held = host.admit(&open(&work, ["run-a", "a1"])).unwrap();
     spawning(&held, "work", None).unwrap();
     let at = host.reservation(&work, "run-a");
     (host, work, held, at)
+}
+
+/// A fresh host whose run `run-a` holds its attempt `a1` standing on the
+/// worktree `work`, with a driver record at its site: the lease, the host,
+/// and where its reservation stands (#440 fix round 440d5).
+fn spawning_attempt() -> (Host, PathBuf, Held, PathBuf) {
+    spawning_attempt_in(Host::new())
+}
+
+/// The record at `at` with one more settled attempt: a valid reservation a
+/// hand made in its place, different from the one that stood.
+fn successor(at: &Path) -> Vec<u8> {
+    let mut held: Reservation = serde_json::from_slice(&std::fs::read(at).unwrap()).unwrap();
+    held.settled.insert("planted".into());
+    serde_json::to_vec(&held).unwrap()
+}
+
+/// `bytes` made the file at `at`, replacing whatever stands there.
+fn plant(at: &Path, bytes: &[u8]) {
+    let temp = at.with_file_name("planted.json");
+    std::fs::write(&temp, bytes).unwrap();
+    std::fs::set_permissions(&temp, std::fs::Permissions::from_mode(0o600)).unwrap();
+    std::fs::rename(&temp, at).unwrap();
 }
 
 /// #440 fix round 440d5 (decision 0108 ruling 3): a spawn record's
@@ -626,8 +674,7 @@ fn a_spawn_record_never_writes_back_a_reservation_that_is_gone() {
     LATE.set(Some(Late::Remove));
     spawned(&held, "work", 4242);
     assert!(!at.exists(), "the amendment wrote nothing back");
-    let staged = at.with_file_name("reservation.json.new");
-    assert!(!staged.exists(), "nothing staged left beside it");
+    nothing_staged(&at);
     assert!(!prior(&at).exists(), "no prior name left");
 }
 
@@ -640,13 +687,8 @@ fn a_reseal_never_replaces_a_record_it_did_not_read() {
     let (_host, _work, held, at) = spawning_attempt();
     LATE.set(Some(Late::Replace));
     spawned(&held, "work", 4242);
-    assert_eq!(
-        std::fs::metadata(&at).unwrap().len(),
-        0,
-        "the file planted at its name stays"
-    );
-    let staged = at.with_file_name("reservation.json.new");
-    assert!(!staged.exists(), "nothing staged left beside it");
+    planted_stays(&at);
+    nothing_staged(&at);
 }
 
 /// An operator's release seals the attempt settled; a late driver's spawn
@@ -683,8 +725,7 @@ fn a_reseal_writes_nothing_when_the_name_is_removed_before_its_exchange() {
     spawned(&held, "work", 4242);
     assert!(!at.exists(), "the reseal wrote nothing");
     assert!(!prior(&at).exists(), "no prior name left");
-    let staged = at.with_file_name("reservation.json.new");
-    assert!(!staged.exists(), "nothing staged left beside it");
+    nothing_staged(&at);
 }
 
 /// #440 fix round 440d6 (decision 0108 ruling 3): a reseal whose committed
@@ -697,8 +738,12 @@ fn a_committed_reseals_undo_never_brings_back_a_removed_record() {
     spawned(&held, "work", 4242);
     assert!(!at.exists(), "the removal stands");
     assert!(!prior(&at).exists(), "the record that stood is removed");
-    let staged = at.with_file_name("reservation.json.new");
-    assert!(!staged.exists(), "nothing staged left beside it");
+    nothing_staged(&at);
+    assert_eq!(
+        recheck(&held),
+        Err(Unadmitted::Identity(Unknown::Lost)),
+        "the next door meets the lost lease"
+    );
 }
 
 /// #440 fix round 440d6 (decision 0108 ruling 3): a seal's restore of a
@@ -723,7 +768,7 @@ fn a_reseal_refused_by_its_filesystem_writes_nothing() {
     let (host, at, before) = stood();
     let root = opened_refusing(host.home());
     let reservation: Reservation = serde_json::from_slice(&std::fs::read(&at).unwrap()).unwrap();
-    let refused = resealed(&root, &reservation, &Budget::new(soon()));
+    let refused = resealed(&root, &reservation, &reservation, &Budget::new(soon()));
     assert_eq!(refused, Err(Unknown::Exchange));
     assert_eq!(
         Unknown::Exchange.to_string(),
@@ -731,8 +776,7 @@ fn a_reseal_refused_by_its_filesystem_writes_nothing() {
     );
     assert_eq!(standing(&at), before, "the record that stood, unchanged");
     assert!(!prior(&at).exists(), "no prior name left");
-    let staged = at.with_file_name("reservation.json.new");
-    assert!(!staged.exists(), "nothing staged left beside it");
+    nothing_staged(&at);
 }
 
 /// #440 fix round 440d6 (decision 0108 ruling 3): a run's next attempt on a
@@ -815,4 +859,133 @@ fn an_operators_release_never_writes_back_a_reservation_removed_at_its_seal() {
         other => panic!("not a settlement refusal: {other:?}"),
     }
     assert!(!at.exists(), "the release wrote nothing back");
+}
+
+/// #440 fix round 440d6 (decision 0108 ruling 3): the reseal proves the
+/// record it read is still the one at its name. A valid record a hand puts
+/// there after the admission's read is refused, never replaced, so the
+/// record another writer made stands byte for byte.
+#[test]
+fn a_second_attempts_admission_refuses_a_record_planted_after_its_read() {
+    let (host, at, _) = stood();
+    let work = host.worktree("work");
+    let next = open(&work, ["run-a", "a2"]);
+    let planted = successor(&at);
+    let between = || plant(&at, &planted);
+    let refused = admit_with(&host.root, &next, soon(), &between);
+    assert_eq!(refused, mb3(Unknown::Participant(at.clone())));
+    assert_eq!(
+        std::fs::read(&at).unwrap(),
+        planted,
+        "the record planted at its name stays"
+    );
+    assert!(!prior(&at).exists(), "no prior name left");
+}
+
+/// #440 fix round 440d6 (decision 0108 ruling 3): a restore whose name is
+/// removed at its last point before the exchange meets it gone and writes
+/// nothing: the removal stands, not the record the restore would put back.
+#[test]
+fn a_restore_writes_nothing_when_the_name_is_removed_before_its_exchange() {
+    let (_host, _work, held, at) = spawning_attempt();
+    std::fs::hard_link(&at, prior(&at)).unwrap();
+    let planted = successor(&at);
+    plant(&at, &planted);
+    LATE.set(Some(Late::RemoveRestored));
+    spawned(&held, "work", 4242);
+    assert!(!at.exists(), "the restore wrote nothing");
+    assert!(!prior(&at).exists(), "no prior name left");
+    nothing_staged(&at);
+}
+
+/// #440 fix round 440d6 (decision 0108 ruling 3): an undo cut short after
+/// its exchange leaves the record that stood at its name and the successor
+/// under the staged name, never the reverse. The next seal removes the
+/// successor and writes nothing over the record that stood.
+#[test]
+fn a_restore_keeps_the_record_that_stood_after_an_undo_is_cut_short() {
+    let (_host, _work, held, at) = spawning_attempt();
+    let before = standing(&at);
+    LATE.set(Some(Late::CutUndo));
+    spawned(&held, "work", 4242);
+    assert_eq!(
+        standing(&at),
+        before,
+        "the record that stood is back at its name"
+    );
+    let staged = at.with_file_name("reservation.json.new");
+    assert!(staged.exists(), "the successor is under the staged name");
+    assert!(
+        prior(&at).exists(),
+        "the record that stood keeps its prior name"
+    );
+    LATE.set(Some(Late::Unstage));
+    spawned(&held, "work", 4242);
+    assert_eq!(
+        standing(&at),
+        before,
+        "the next seal kept the record that stood"
+    );
+    assert!(!prior(&at).exists(), "no prior name left");
+    assert!(!staged.exists(), "the successor is gone");
+}
+
+/// #440 fix round 440d6 (decision 0108 ruling 3): a committed reseal's undo
+/// leaves a file a hand planted at the name: the exchange that put it out
+/// of the way is put back, and the record that stood is removed rather than
+/// written over the hand's file.
+#[test]
+fn a_committed_undo_leaves_a_file_planted_at_the_name() {
+    let (_host, _work, held, at) = spawning_attempt();
+    LATE.set(Some(Late::ReplaceCommitted));
+    spawned(&held, "work", 4242);
+    planted_stays(&at);
+    assert!(!prior(&at).exists(), "the record that stood is removed");
+    nothing_staged(&at);
+}
+
+/// #440 fix round 440d6 (decision 0108 ruling 3): where the exchange back
+/// a foreign file needs fails, a plain rename still puts that file back at
+/// its name, and the record that stood is removed rather than left over it.
+#[test]
+fn a_reseal_whose_exchange_back_fails_leaves_the_planted_file() {
+    swaps_again();
+    let host = host_exchanging(failing_second_exchange);
+    let (_host, _work, held, at) = spawning_attempt_in(host);
+    swaps_again();
+    LATE.set(Some(Late::Replace));
+    spawned(&held, "work", 4242);
+    planted_stays(&at);
+    assert!(!prior(&at).exists(), "no prior name left");
+    nothing_staged(&at);
+}
+
+/// #440 fix round 440d6 (decision 0108 ruling 3): every way a filesystem
+/// says it has no atomic exchange refuses by name, and the record that
+/// stood is unchanged byte for byte and inode for inode.
+#[test]
+fn a_reseal_refused_by_each_exchange_refusal_writes_nothing() {
+    let refusals: [(rustix::io::Errno, &str); 4] = [
+        (rustix::io::Errno::INVAL, "EINVAL"),
+        (rustix::io::Errno::NOTSUP, "ENOTSUP"),
+        (rustix::io::Errno::OPNOTSUPP, "EOPNOTSUPP"),
+        (rustix::io::Errno::NOSYS, "ENOSYS"),
+    ];
+    for (error, why) in refusals {
+        refusing(error);
+        let (host, at, before) = stood();
+        let root = super::opened_by(host.home(), Some(refusing_exchange));
+        let reservation: Reservation =
+            serde_json::from_slice(&std::fs::read(&at).unwrap()).unwrap();
+        let refused = resealed(&root, &reservation, &reservation, &Budget::new(soon()));
+        assert_eq!(refused, Err(Unknown::Exchange), "{why}");
+        assert_eq!(
+            standing(&at),
+            before,
+            "{why}: the record that stood, unchanged"
+        );
+        assert!(!prior(&at).exists(), "{why}: no prior name left");
+        let staged = at.with_file_name("reservation.json.new");
+        assert!(!staged.exists(), "{why}: nothing staged left beside it");
+    }
 }

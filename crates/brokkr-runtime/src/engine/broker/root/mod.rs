@@ -27,8 +27,8 @@ use super::{directory, owned, protected, Synced, Unprovisioned, PROTECTED_ROOT, 
 use crate::lock_file::{self, user};
 
 mod seal;
-use seal::seal_made;
-pub(super) use seal::seal_with;
+pub(in crate::engine::broker) use seal::seal_with;
+use seal::{seal_made, Sheet};
 
 /// The protected root's path under `home`.
 pub(super) fn coordination(home: &Path) -> PathBuf {
@@ -61,6 +61,17 @@ pub(super) enum Step {
     /// the name and have the exchange meet it gone (decision 0108 ruling 3,
     /// #440 fix round 440d6).
     Linked,
+    /// A restore's record that stood linked under its prior name, before
+    /// the exchange that puts it back: the last point a hand can remove the
+    /// name and have the restore meet it gone (decision 0108 ruling 3,
+    /// #440 fix round 440d6).
+    Restored,
+    /// An undo's record that stood exchanged back over the name it was
+    /// replaced from, before the successor it swapped out is removed: a
+    /// seal cut short here leaves the record that stood at its name and the
+    /// successor under the staged name, never the other way round (decision
+    /// 0108 ruling 3, #440 fix round 440d6).
+    Exchanged,
     Committed,
     Retiring,
     Final,
@@ -71,6 +82,17 @@ pub(super) enum Step {
 /// one it read, never a record made in its place (decision 0108 ruling 3,
 /// #440 fix rounds 440d5 and 440d6).
 pub(super) type Identity = (u64, u64);
+
+/// A record this build read and keeps open until its proof: the device and
+/// inode it read, and the descriptor that keeps that inode from being freed
+/// and reused by a file planted at its name (decision 0108 ruling 3, #440
+/// fix round 440d6). Numbers alone are not a proof on a filesystem that
+/// reuses a freed inode at once, which ext4 does.
+#[derive(Debug)]
+pub(super) struct Record {
+    pub(super) file: OwnedFd,
+    pub(super) id: Identity,
+}
 
 /// How a reseal replaces a record by one atomic exchange of two names, or
 /// the error that refuses it: production's [`exchanged`], a test's seam
@@ -93,7 +115,7 @@ fn exchanged(dir: &OwnedFd, one: &str, other: &OwnedFd, two: &str) -> Result<(),
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Make {
     May,
-    Never(Identity),
+    Never,
 }
 
 /// What a seal that committed reports (R1 of U8a2a's fourth run, fixed by
@@ -277,31 +299,36 @@ impl Root {
         bytes: &[u8],
         budget: &Budget,
     ) -> Result<Commit, Unknown> {
-        seal_with(dir, name, bytes, budget, self.hook)
+        seal_with(dir, name, bytes, budget, self.hook, self.exchange)
     }
 
     /// `bytes` sealed as `name` in `dir` only over the very record `stood`
-    /// named, which the caller read, by one atomic exchange: a record gone
-    /// when the exchange runs, or a filesystem without an exchange, is never
-    /// written back (decision 0108 ruling 3, #440 fix rounds 440d5 and
-    /// 440d6).
+    /// named, which the caller read and holds open, by one atomic exchange:
+    /// a record gone when the exchange runs, or a filesystem without an
+    /// exchange, is never written back (decision 0108 ruling 3, #440 fix
+    /// rounds 440d5 and 440d6). `read` is that record's own bytes, which the
+    /// undo and the next seal's restore use to tell the record that stood
+    /// from a successor left by a seal cut short.
     pub(super) fn reseal(
         &self,
         dir: &OwnedFd,
         name: &str,
         bytes: &[u8],
         budget: &Budget,
-        stood: Identity,
+        stood: &Record,
+        read: &[u8],
     ) -> Result<Commit, Unknown> {
-        seal_made(
+        seal_made(Sheet {
             dir,
             name,
             bytes,
             budget,
-            self.hook,
-            self.exchange,
-            Make::Never(stood),
-        )
+            hook: self.hook,
+            exchange: self.exchange,
+            make: Make::Never,
+            stood: Some(stood),
+            read,
+        })
     }
 }
 
@@ -468,18 +495,19 @@ pub(super) fn read<T: DeserializeOwned>(
     identified(dir, name, at).map(|(record, _)| record)
 }
 
-/// [`read`], with the device and inode of the very file it read: what a
-/// reseal proves the record it replaces still is (decision 0108 ruling 3,
-/// #440 fix round 440d5).
+/// [`read`], with the very file it read kept open: what a reseal proves the
+/// record it replaces still is, and why a freed inode number cannot be
+/// reused under its name before the proof (decision 0108 ruling 3, #440 fix
+/// rounds 440d5 and 440d6).
 pub(super) fn identified<T: DeserializeOwned>(
     dir: &OwnedFd,
     name: &str,
     at: &Path,
-) -> Result<(T, Identity), Unknown> {
+) -> Result<(T, Record), Unknown> {
     let refused = || Unknown::Participant(at.join(name));
-    let (bytes, identity) = bytes_identified(dir, name, at)?;
+    let (bytes, held) = bytes_identified(dir, name, at)?;
     let record = serde_json::from_slice(&bytes).or(Err(refused()))?;
-    Ok((record, identity))
+    Ok((record, held))
 }
 
 /// The bytes of the record `name` in the directory `dir` at `at`, as it
@@ -489,8 +517,8 @@ pub(super) fn bytes(dir: &OwnedFd, name: &str, at: &Path) -> Result<Vec<u8>, Unk
     bytes_identified(dir, name, at).map(|(bytes, _)| bytes)
 }
 
-/// [`bytes`], with the device and inode of the file it read.
-fn bytes_identified(dir: &OwnedFd, name: &str, at: &Path) -> Result<(Vec<u8>, Identity), Unknown> {
+/// [`bytes`], with the very file it read kept open.
+fn bytes_identified(dir: &OwnedFd, name: &str, at: &Path) -> Result<(Vec<u8>, Record), Unknown> {
     let refused = || Unknown::Participant(at.join(name));
     let file = standing(dir, name).ok_or_else(refused)?;
     // Read the identity through std's metadata of the same descriptor,
@@ -498,11 +526,18 @@ fn bytes_identified(dir: &OwnedFd, name: &str, at: &Path) -> Result<(Vec<u8>, Id
     // on macOS (decision 0063; 0105 M2's home for that rule).
     let file = std::fs::File::from(file);
     let found = file.metadata().or(Err(refused()))?;
+    let held = file.try_clone().or(Err(refused()))?;
     let mut bytes = Vec::new();
     let read = file.take(REPLY_BYTES_MAX + 1).read_to_end(&mut bytes);
     let within = read.is_ok_and(|_| bytes.len() as u64 <= REPLY_BYTES_MAX);
     within
-        .then_some((bytes, (found.dev(), found.ino())))
+        .then_some((
+            bytes,
+            Record {
+                file: held.into(),
+                id: (found.dev(), found.ino()),
+            },
+        ))
         .ok_or_else(refused)
 }
 

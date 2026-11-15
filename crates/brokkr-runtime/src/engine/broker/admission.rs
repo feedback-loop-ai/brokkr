@@ -49,7 +49,7 @@ pub use super::conflict::Conflict;
 use super::exclusion::{compared, staked, Comparison};
 use super::historical::{recorded, superseded::superseded};
 use super::inventory::{inventory, Budget};
-use super::root::{identified, locked, read, Commit, Identity, Root};
+use super::root::{identified, locked, read, Commit, Record, Root};
 use super::settlement::{keyed, recovered, reserved_in, unchanged, Driver};
 use super::sources::{records_unopened, unserved, Served, Unroutable};
 use super::{startup, Observed};
@@ -632,11 +632,10 @@ pub(super) fn admit_with(
     if claim.protects() & !has_record {
         commit = commit.and(recorded(root, claim, &budget)?);
     }
-    let (reservation, reused) = joined(claim, standing);
-    let established = if reused {
-        resealed(root, &reservation, &budget)?
-    } else {
-        sealed(root, &reservation, &budget, None)?
+    let (reservation, read) = joined(claim, standing);
+    let established = match read {
+        Some(read) => resealed(root, &reservation, &read, &budget)?,
+        None => sealed(root, &reservation, &budget, None)?,
     };
     commit = commit.and(established);
     // Committed last: a refused admission never moves a retirement into history.
@@ -732,10 +731,16 @@ pub(super) fn amend(
 ) -> Result<Commit, Unadmitted> {
     let _lock = locked(held.coordination.dir(), deadline)?;
     let (run, at) = reserved_at(held)?;
-    let (reservation, stood): (Reservation, Identity) = identified(&run, RESERVATION, &at)?;
+    let (reservation, stood): (Reservation, Record) = identified(&run, RESERVATION, &at)?;
+    let read = serde_json::to_vec(&reservation).or(Err(Unknown::Unsealed))?;
     let budget = Budget::new(deadline);
     let amended = amended(reservation)?;
-    Ok(sealed(&held.coordination, &amended, &budget, Some(stood))?)
+    Ok(sealed(
+        &held.coordination,
+        &amended,
+        &budget,
+        Some((stood, read)),
+    )?)
 }
 
 /// `reservation` with its standing attempt `attempt` settled, where its

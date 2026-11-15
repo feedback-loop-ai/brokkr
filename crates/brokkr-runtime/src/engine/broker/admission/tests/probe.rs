@@ -373,6 +373,17 @@ fn chief_uncased_seat_siteless_wait_does_not_name_a_cased_driver() {
 /// refused and never made again.
 #[test]
 fn a_probes_release_never_writes_back_a_reservation_removed_at_its_seal() {
-    let (_host, at, _refused) = parked(Late::Remove);
+    let (_host, at, refused) = parked(Late::Remove);
+    assert!(
+        matches!(
+            refused.held.as_ref(),
+            Held::Unsealed {
+                attempt,
+                source: Unknown::Unsealed,
+                ..
+            } if attempt == "a1"
+        ),
+        "{refused:?}"
+    );
     assert!(!at.exists(), "the release wrote nothing back");
 }

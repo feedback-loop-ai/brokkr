@@ -27,7 +27,7 @@ use serde_json::json;
 use super::*;
 use crate::bundle::{SeatBody, SequenceStep};
 use crate::engine::broker::inventory::Budget;
-use crate::engine::broker::root::{coordination, seal_with, Commit, Exchange};
+use crate::engine::broker::root::{coordination, Commit, Exchange};
 use crate::engine::broker::settlement::{proved, witnessed, witnessed_by};
 use crate::engine::broker::{
     owned, surveyed, Host as Hosting, Surveyor, Unprovisioned, PROTECTED_ROOT,
@@ -48,7 +48,7 @@ mod recovery;
 mod retirement;
 mod sealing;
 mod support;
-use late::{late, Late, LATE};
+use late::{late, refusing_exchange, Late, LATE};
 pub(in crate::engine) use support::{
     acknowledge, boxed_claim, broken, child_lock, dead_group, isolated, planted_drivers,
     quarantined, quarantined_drivers, unacknowledged, Fixture, LiveGroup,
@@ -137,7 +137,7 @@ pub(in crate::engine) fn opened(home: &Path) -> Root {
 /// that has no atomic exchange (decision 0108 ruling 3, #440 fix round
 /// 440d6).
 pub(in crate::engine) fn opened_refusing(home: &Path) -> Root {
-    opened_by(home, Some(no_exchange))
+    opened_by(home, Some(refusing_exchange))
 }
 
 /// The root under `home`, made owner-only where it is missing and opened,
@@ -155,17 +155,6 @@ fn opened_by(home: &Path, exchange: Option<Exchange>) -> Root {
         None => Root::opened(dir, path, (late, shown)),
     };
     opened.expect("an owner-only root")
-}
-
-/// A filesystem's exchange refusal: `EINVAL`, as a filesystem with no atomic
-/// exchange reports it (decision 0108 ruling 3, #440 fix round 440d6).
-fn no_exchange(
-    _: &std::os::fd::OwnedFd,
-    _: &str,
-    _: &std::os::fd::OwnedFd,
-    _: &str,
-) -> Result<(), rustix::io::Errno> {
-    Err(rustix::io::Errno::INVAL)
 }
 
 /// `held`'s positive settlement fact sealed, and then its lease released,

@@ -53,9 +53,10 @@ pub(in crate::engine) fn attested(
     attest(store, &events)?;
     let mut commit = Commit::Synced;
     for reservation in reservations {
+        let read = reservation.clone();
         let released = released_by_operator(reservation).map_err(Unadmitted::from);
         let released = released.map_err(Unreleased::standing)?;
-        let seal = resealed(root, &released, &budget).map_err(Unadmitted::from);
+        let seal = resealed(root, &released, &read, &budget).map_err(Unadmitted::from);
         commit = commit.and(seal.map_err(Unreleased::standing)?);
     }
     let unsynced = Unreleased::released(Unknown::Unsynced.into());

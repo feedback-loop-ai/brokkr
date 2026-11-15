@@ -689,6 +689,7 @@ pub(super) fn extended_with(
         .find(mine)
         .and_then(|found| found.whole.clone());
     let mut reservation = mine.ok_or(Unknown::Lost)?;
+    let read = reservation.clone();
     let mut reserved = (reservation.attempts.remove(&held.attempt)).ok_or(Unknown::Lost)?;
     let mut reserves = reserved.serves.clone();
     for met in routed(&serves, &budget)? {
@@ -704,6 +705,10 @@ pub(super) fn extended_with(
     between();
     reserved.serves = reserves;
     reservation.attempts.insert(held.attempt.clone(), reserved);
-    commits.set(commits.get().and(resealed(root, &reservation, &budget)?));
+    commits.set(
+        commits
+            .get()
+            .and(resealed(root, &reservation, &read, &budget)?),
+    );
     Ok(())
 }

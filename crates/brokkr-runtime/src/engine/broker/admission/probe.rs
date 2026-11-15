@@ -217,6 +217,7 @@ pub(super) fn settle_orphaned(
     else {
         return Ok(());
     };
+    let read = reservation.clone();
     let orphans = orphans(reservation.attempts.keys().cloned(), events);
     let Some(first) = orphans.first() else {
         return Ok(());
@@ -250,7 +251,7 @@ pub(super) fn settle_orphaned(
         reservation = settled(reservation, attempt)
             .expect("a proven probe's attempt holds its positive settlement fact");
     }
-    resealed(root, &reservation, &Budget::new(deadline))
+    resealed(root, &reservation, &read, &Budget::new(deadline))
         .map(drop)
         .map_err(|source| {
             Recovery::at(
