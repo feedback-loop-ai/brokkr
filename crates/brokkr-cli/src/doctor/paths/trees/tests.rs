@@ -124,7 +124,7 @@ fn no_line(store: &Store) -> Vec<String> {
 }
 
 #[test]
-fn a_journal_with_no_seat_rows_or_a_root_that_cannot_be_listed_adds_no_line() {
+fn a_journal_with_no_seat_rows_adds_no_line_and_a_gone_root_is_reported() {
     let empty = tempfile::tempdir().unwrap();
     let store = journal(empty.path());
     assert_eq!(no_line(&store), Vec::<String>::new());
@@ -132,15 +132,18 @@ fn a_journal_with_no_seat_rows_or_a_root_that_cannot_be_listed_adds_no_line() {
     let dir = tempfile::tempdir().unwrap();
     let mut store = journal(dir.path());
     succeeded(&mut store, "11111111-1111-4111-8111-111111111111");
+    let root = dir.path().join("missing").join("scratch");
     store
-        .record_seat_tree(
-            RUN,
-            "effect",
-            "11111111-1111-4111-8111-111111111111",
-            &dir.path().join("missing").join("scratch"),
-        )
+        .record_seat_tree(RUN, "effect", "11111111-1111-4111-8111-111111111111", &root)
         .unwrap();
-    assert_eq!(no_line(&store), Vec::<String>::new());
+    let tree = root.join("11111111-1111-4111-8111-111111111111");
+    assert_eq!(
+        no_line(&store),
+        [format!(
+            "warn     tree: {}: gone before the count, kept: its root is gone",
+            tree.display()
+        )]
+    );
 }
 
 #[test]
@@ -213,9 +216,15 @@ fn a_hostile_kept_name_and_reason_are_stripped_from_the_line() {
 
     let path = Safe::new(&tree.display().to_string()).as_str().to_string();
     let reason = Safe::new(reason).as_str().to_string();
+    let bytes = brokkr_protocol::tree::count_tree(&tree)
+        .unwrap()
+        .unwrap()
+        .bytes;
     assert_eq!(
         report.lines,
-        [format!("warn     tree: {path}: 0 bytes, kept: {reason}")]
+        [format!(
+            "warn     tree: {path}: {bytes} bytes, kept: {reason}"
+        )]
     );
     assert!(!report.lines[0].contains('\x1b'));
 }
@@ -254,13 +263,23 @@ fn one_warning_after(store: &Store, statement: &str) -> String {
 }
 
 /// A kept-tree read that refuses is a warning, never a silent drop: the
-/// sweep's derivation is surfaced the way the row read is.
+/// sweep's derivation is surfaced the way the row read is. Read directly,
+/// because the row read also needs the sweep table and would refuse first.
 #[test]
 fn a_kept_trees_read_that_refuses_is_a_warning() {
     let dir = tempfile::tempdir().unwrap();
     let store = journal(dir.path());
-    let line = one_warning_after(&store, "DROP TABLE tree_sweeps");
+    let db = store.path().to_path_buf();
+    rusqlite::Connection::open(&db)
+        .unwrap()
+        .execute_batch("DROP TABLE tree_sweeps")
+        .unwrap();
+    let mut report = empty_report();
+    report_kept(&mut report, &store);
 
+    assert!(report.healthy);
+    assert_eq!(report.lines.len(), 1);
+    let line = &report.lines[0];
     assert!(
         line.starts_with("warn     tree: kept trees not read: "),
         "{line}"
@@ -349,12 +368,50 @@ fn an_entry_that_vanishes_before_its_stat_adds_no_line() {
     std::fs::create_dir_all(root.join("orphan")).unwrap();
     let mut report = empty_report();
 
-    list_with(&mut report, &root, &BTreeSet::new(), |_| {
+    list_with(&mut report, &root, &Named::default(), |_| {
         Err(std::io::Error::from(std::io::ErrorKind::NotFound))
     });
 
     assert!(report.healthy);
     assert!(report.lines.is_empty());
+}
+
+#[test]
+fn a_tree_recreated_at_a_closed_rows_path_is_named_with_its_size() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = journal(dir.path());
+    let root = dir.path().join("scratch");
+    std::fs::create_dir_all(&root).unwrap();
+    let attempt = "11111111-1111-4111-8111-111111111111";
+    let tree = root.join(attempt);
+    store
+        .record_seat_tree(RUN, "effect", attempt, &root)
+        .unwrap();
+    let row = store.seat_trees(RUN).unwrap()[0].clone();
+    let held = brokkr_runtime::take_dispatch(&mut store).unwrap().unwrap();
+    store
+        .record_tree_sweep(
+            brokkr_store::Swept::Scratch(row.seq),
+            &tree,
+            None,
+            held.generation.0,
+        )
+        .unwrap();
+    std::fs::create_dir_all(tree.join("home")).unwrap();
+    std::fs::write(tree.join("home").join("cache"), b"x").unwrap();
+    let bytes = brokkr_protocol::tree::count_tree(&tree)
+        .unwrap()
+        .unwrap()
+        .bytes;
+
+    let path = Safe::new(&tree.display().to_string()).as_str().to_string();
+    assert_eq!(
+        no_line(&store),
+        [format!(
+            "warn     tree: {path}: {bytes} bytes, named only by a closed seat tree"
+        )]
+    );
+    assert!(tree.is_dir(), "doctor removes nothing");
 }
 
 #[test]

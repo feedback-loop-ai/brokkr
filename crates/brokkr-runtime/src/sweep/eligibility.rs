@@ -1,10 +1,12 @@
 //! Which open `seat_trees` row may go, and why one may not (decision 0104
-//! rulings 7 to 8, as R4 to R6 and the operator's succeeded-only ruling
-//! amend them): the effect is closed, the attempt's terminal event is
-//! `effect/succeeded`, and the path is the row's and the engine's shape.
-//! The pass and the dry run read this one derivation, so they can never
-//! disagree on what a pass would remove. The only typed reading kept
-//! beside the rule words a conclude's keep; no other cause is keyed on.
+//! rulings 7 to 8, as R4 to R6 and the operator's succeeded-only and
+//! gone-close rulings amend them): the effect is closed, the attempt's
+//! terminal event is `effect/succeeded`, and the path is the row's and the
+//! engine's shape. A row whose tree is gone closes as gone only once its
+//! run has ended too; an absent tree of a live run keeps its row. The pass
+//! and the dry run read this one derivation, so they can never disagree on
+//! what a pass would remove. The only typed reading kept beside the rule
+//! words a conclude's keep; no other cause is keyed on.
 
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
@@ -17,13 +19,27 @@ use brokkr_core::fold::{fold, Run};
 use brokkr_store::{SeatTree, Store};
 use uuid::Uuid;
 
-use super::{KeptReason, ShapeReason, SCRATCH};
+use super::{HeldReason, KeptReason, ShapeReason, SCRATCH};
 
-/// What the row decided: remove it, or keep it for one stated reason.
+/// What the row decided: remove it, close it as gone, or keep it for one
+/// stated reason.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum Verdict {
-    Ready { row: SeatTree, path: PathBuf },
-    Kept { path: PathBuf, reason: KeptReason },
+    Ready {
+        row: SeatTree,
+        path: PathBuf,
+        /// Whether this row's root is its run's one root (R5), carried so
+        /// the pass can re-run the shape check before walking.
+        same_root: bool,
+    },
+    Gone {
+        row: SeatTree,
+        path: PathBuf,
+    },
+    Kept {
+        path: PathBuf,
+        reason: KeptReason,
+    },
 }
 
 /// The journal facts one run contributes, read once per pass. A run the
@@ -36,10 +52,15 @@ struct Facts {
 struct Folded {
     /// The fold reached `Completed` or `Stopped` (R6).
     terminal: bool,
-    /// The effects an `effect/succeeded` names, compared as stored.
+    /// The effects an applied `effect/succeeded` names, compared as stored.
     effects: HashSet<String>,
-    /// Every attempt an event names, and the terminal events that ended it.
+    /// Every attempt an event the fold applies names, and the terminal
+    /// events that ended it.
     attempts: HashMap<String, Attempt>,
+    /// Every attempt a late event names: the fold keeps and shows such an
+    /// event and never applies it, and its process stood after the run
+    /// ended, so its tree stays.
+    late: HashSet<String>,
 }
 
 enum Attempt {
@@ -67,7 +88,9 @@ struct Terminal {
     /// Every ending a terminal event named the attempt with.
     endings: Vec<Ending>,
     /// A terminal's `causation_id` names the `operator/accepted` of a
-    /// stop command, which only `close_riding_attempt` writes.
+    /// stop command. `close_riding_attempt` writes one, and so does a
+    /// resumed engine's `ended_restarted` terminal while that acceptance
+    /// is the journal's tip.
     concluded: bool,
 }
 
@@ -100,7 +123,7 @@ impl Terminal {
 /// filesystem, as 5c1's walk has.
 pub(super) fn decide(
     store: &Store,
-    device_of: impl Fn(&Path, u64) -> u64,
+    device_of: &impl Fn(&Path, u64) -> u64,
 ) -> Result<Vec<Verdict>, brokkr_store::StoreError> {
     let rows = store.open_seat_trees()?;
     let mut roots: HashMap<String, Option<PathBuf>> = HashMap::new();
@@ -116,7 +139,7 @@ pub(super) fn decide(
     let mut verdicts = Vec::with_capacity(rows.len());
     for row in rows {
         let run_id = row.run_id.clone();
-        verdicts.push(verdict(row, &roots, &facts[&run_id], &device_of));
+        verdicts.push(verdict(row, &roots, &facts[&run_id], device_of));
     }
     Ok(verdicts)
 }
@@ -154,12 +177,34 @@ impl Facts {
 }
 
 /// The facts a run's events state, or the reason the fold refused them.
+/// Only the events the fold applies are read: a repaired late tail is kept
+/// and shown and never applied, so it neither ends an attempt nor closes
+/// an effect, and an attempt it names keeps its tree.
 fn folded(events: &[EventEnvelope]) -> Result<Folded, KeptReason> {
     let state = fold(events).map_err(|_| KeptReason::RunDoesNotFold)?;
     let stops = stop_acceptances(events);
+    let (effects, attempts) = applied(events, &state, &stops);
+    Ok(Folded {
+        terminal: matches!(state.run, Run::Completed | Run::Stopped),
+        effects,
+        attempts,
+        late: late_attempts(events, &state),
+    })
+}
+
+/// The effects an applied `effect/succeeded` closes and the attempts the
+/// applied events name, with every terminal ending they carry.
+fn applied(
+    events: &[EventEnvelope],
+    state: &brokkr_core::fold::RunState,
+    stops: &HashSet<&str>,
+) -> (HashSet<String>, HashMap<String, Attempt>) {
     let mut effects = HashSet::new();
     let mut attempts = HashMap::new();
     for event in events {
+        if !state.applies(event.seq) {
+            continue;
+        }
         if event.event_type == EventType::EffectSucceeded {
             // The fold read the effect id as a string before this loop runs,
             // so the read is an invariant, not a branch the pass can miss.
@@ -171,7 +216,7 @@ fn folded(events: &[EventEnvelope]) -> Result<Folded, KeptReason> {
         let Some(attempt) = event.attempt_id.as_deref() else {
             continue;
         };
-        let concluded = named(event.causation_id.as_deref(), &stops);
+        let concluded = named(event.causation_id.as_deref(), stops);
         let ending = match event.event_type {
             EventType::EffectSucceeded => Some(Ending::Succeeded),
             EventType::EffectFailed => Some(Ending::Failed),
@@ -201,11 +246,17 @@ fn folded(events: &[EventEnvelope]) -> Result<Folded, KeptReason> {
             }
         }
     }
-    Ok(Folded {
-        terminal: matches!(state.run, Run::Completed | Run::Stopped),
-        effects,
-        attempts,
-    })
+    (effects, attempts)
+}
+
+/// The attempts a late event names: the fold keeps and shows such an event
+/// and never applies it, so its process stood after the run ended.
+fn late_attempts(events: &[EventEnvelope], state: &brokkr_core::fold::RunState) -> HashSet<String> {
+    events
+        .iter()
+        .filter(|event| !state.applies(event.seq))
+        .filter_map(|event| event.attempt_id.clone())
+        .collect()
 }
 
 /// The ids of the `operator/accepted` events that dispose of a stop
@@ -257,14 +308,19 @@ fn verdict(
             }
         }
     };
-    match held(folded, &row, presence) {
-        Some(reason) => Verdict::Kept { path, reason },
-        None => Verdict::Ready { row, path },
+    match (held(folded, &row, presence), presence) {
+        (Some(reason), _) => Verdict::Kept { path, reason },
+        (None, Presence::Present) => Verdict::Ready {
+            row,
+            path,
+            same_root,
+        },
+        (None, Presence::Absent) => Verdict::Gone { row, path },
     }
 }
 
-/// Whether the row's tree stands under its root. An absent root or tree is
-/// not a shape refusal: the row may close as gone.
+/// Whether the row's tree stands under its root. A present root with an
+/// absent tree is reported absent: the row may close as gone.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Presence {
     Absent,
@@ -272,24 +328,47 @@ enum Presence {
 }
 
 /// Why the journal keeps the row, or `None` when it may go (ruling 7 as
-/// amended: succeeded-only).
+/// amended: succeeded-only for a present tree, and a gone tree only once
+/// its run has ended).
 fn held(folded: &Folded, row: &SeatTree, presence: Presence) -> Option<KeptReason> {
-    let attempt = folded.attempts.get(&row.attempt_id);
-    // An absent tree whose attempt has a terminal event closes as gone
-    // (ruling 8). An attempt with no terminal event may still be being
-    // made, so its absent tree is kept.
-    if presence == Presence::Absent && matches!(attempt, Some(Attempt::Terminal(_))) {
-        return None;
-    }
+    // The effect is closed before any close, as R7 has it.
     if !folded.terminal && !folded.effects.contains(&row.effect_id) {
         return Some(KeptReason::EffectOpen);
     }
-    match attempt {
+    // A late event shows the attempt's process stood after its run ended:
+    // the fold never applies it, and no reading of it decides a close.
+    if folded.late.contains(&row.attempt_id) {
+        return Some(KeptReason::Held(HeldReason::LateEvent));
+    }
+    match presence {
+        Presence::Absent => gone(folded, row),
+        Presence::Present => present(folded, row),
+    }
+}
+
+/// Why a gone row stays, or `None` when it closes as gone: every check in
+/// ruling 7 as amended passed before this point.
+fn gone(folded: &Folded, row: &SeatTree) -> Option<KeptReason> {
+    match folded.attempts.get(&row.attempt_id) {
+        None => Some(KeptReason::NoEventNamesAttempt),
+        Some(Attempt::Unended) => Some(KeptReason::NoTerminalEvent),
+        Some(Attempt::Terminal(_)) if !folded.terminal => {
+            Some(KeptReason::Held(HeldReason::RunNotEnded))
+        }
+        Some(Attempt::Terminal(_)) => None,
+    }
+}
+
+/// Why a present tree stays, or `None` when it may go: its attempt ended
+/// succeeded and R5 held, and the caller re-checks the shape before a walk.
+fn present(folded: &Folded, row: &SeatTree) -> Option<KeptReason> {
+    match folded.attempts.get(&row.attempt_id) {
         None => Some(KeptReason::NoEventNamesAttempt),
         Some(Attempt::Unended) => Some(KeptReason::NoTerminalEvent),
         Some(Attempt::Terminal(terminal)) if terminal.succeeded_only() => None,
         // The one typed reading kept: a conclude's acceptance is named, so
-        // the keep's words can say the attempt was closed by a conclude.
+        // the keep's words can say the attempt was closed under an accepted
+        // stop.
         Some(Attempt::Terminal(terminal)) if terminal.concluded => Some(KeptReason::Concluded),
         Some(Attempt::Terminal(terminal)) if terminal.indeterminate() => {
             Some(KeptReason::Indeterminate)
@@ -303,8 +382,9 @@ fn held(folded: &Folded, row: &SeatTree, presence: Presence) -> Option<KeptReaso
 /// The path is the row's and the engine's shape (R5): an absolute root
 /// ending in `scratch` that is its own canonical path, one root per run,
 /// the engine's attempt UUID, and a real directory on the root's
-/// filesystem. An absent root or tree is reported as [`Presence::Absent`],
-/// so a row whose tree is gone can close.
+/// filesystem. A present root with an absent tree is reported as
+/// [`Presence::Absent`], so a row whose tree is gone can close; a root
+/// that is itself gone is kept, because R5 checks a root that exists.
 fn shaped(
     row: &SeatTree,
     same_root: bool,
@@ -319,12 +399,7 @@ fn shaped(
     if !engine_uuid(&row.attempt_id) {
         return Err(KeptReason::Shape(ShapeReason::AttemptNotEngineUuid));
     }
-    // A root that is itself gone is reported absent, not refused: a row
-    // whose attempt has a terminal event then closes as gone, as ruling 8
-    // does for an absent tree.
-    let Some(canonical) = canonical(row)? else {
-        return Ok(Presence::Absent);
-    };
+    let canonical = canonical(row)?;
     // Byte equality, not `Path` equality: the latter ignores `.`, repeated
     // separators and a trailing slash (R5).
     if canonical.as_os_str() != row.root.as_os_str() {
@@ -350,11 +425,27 @@ fn shaped(
     Ok(Presence::Present)
 }
 
-/// The root's canonical path, or `None` where the root itself is gone.
-fn canonical(row: &SeatTree) -> Result<Option<PathBuf>, KeptReason> {
+/// Re-run the row's R5 shape check immediately before a walk, so a tree
+/// whose shape or presence changed since the verdict is kept, not removed.
+pub(super) fn still_present(
+    row: &SeatTree,
+    same_root: bool,
+    device_of: &impl Fn(&Path, u64) -> u64,
+) -> Result<bool, KeptReason> {
+    Ok(matches!(
+        shaped(row, same_root, device_of)?,
+        Presence::Present
+    ))
+}
+
+/// The root's canonical path. A root that is itself gone is a shape
+/// refusal, not an absent tree: R5 checks a root that exists.
+fn canonical(row: &SeatTree) -> Result<PathBuf, KeptReason> {
     match std::fs::canonicalize(&row.root) {
-        Ok(canonical) => Ok(Some(canonical)),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Ok(canonical) => Ok(canonical),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            Err(KeptReason::Shape(ShapeReason::RootGone))
+        }
         Err(_) => Err(KeptReason::Shape(ShapeReason::RootNotCanonical)),
     }
 }

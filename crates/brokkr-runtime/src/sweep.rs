@@ -39,7 +39,9 @@ pub(crate) enum KeptReason {
     /// The attempt's terminal event is `effect/failed`.
     Failed,
     /// The terminal event is caused by the `operator/accepted` of a stop
-    /// command, which only `close_riding_attempt` writes.
+    /// command: `close_riding_attempt` writes one, and so does a resumed
+    /// engine's `ended_restarted` terminal while that acceptance is the
+    /// tip.
     Concluded,
     EffectOpen,
     NoEventNamesAttempt,
@@ -50,9 +52,23 @@ pub(crate) enum KeptReason {
     TmpdirNotUtf8,
     /// The row's path is not the engine's shape (R5).
     Shape(ShapeReason),
+    /// A reason the pass's own reading gives, grouped so neither `Display`
+    /// reaches ruling 4's ceiling.
+    Held(HeldReason),
     /// The hands reaper kept the tree for its own reason, whose words are
     /// the reaper's (a lock it could not probe, a walk it could not do).
     Hands(String),
+}
+
+/// The reasons the pass's own reading holds a row for, its own closed set:
+/// a late event, a run that has not ended, a tree that went before the
+/// walk, or a record refusal that stopped the pass.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum HeldReason {
+    RunNotEnded,
+    LateEvent,
+    Vanished,
+    NotReached,
 }
 
 /// The path-shape reasons, their own closed set: `KeptReason::fmt` groups
@@ -63,6 +79,7 @@ pub(crate) enum ShapeReason {
     RootNotAbsolute,
     AttemptNotEngineUuid,
     RootNotCanonical,
+    RootGone,
     RootUnreadable,
     TreeIsLink,
     TreeNotDirectory,
@@ -75,7 +92,7 @@ impl std::fmt::Display for KeptReason {
         let words = match self {
             KeptReason::Indeterminate => "its attempt ended indeterminate",
             KeptReason::Failed => "its attempt ended failed",
-            KeptReason::Concluded => "its attempt was closed by a conclude",
+            KeptReason::Concluded => "its attempt was closed under an accepted stop",
             KeptReason::EffectOpen => "its effect is still open",
             KeptReason::NoEventNamesAttempt => "no event names its attempt",
             KeptReason::NoTerminalEvent => "no terminal event names its attempt",
@@ -84,7 +101,20 @@ impl std::fmt::Display for KeptReason {
             KeptReason::TmpdirRelative => "its TMPDIR is not an absolute path",
             KeptReason::TmpdirNotUtf8 => "its TMPDIR is not UTF-8",
             KeptReason::Shape(reason) => return reason.fmt(f),
+            KeptReason::Held(reason) => return reason.fmt(f),
             KeptReason::Hands(words) => words,
+        };
+        f.write_str(words)
+    }
+}
+
+impl std::fmt::Display for HeldReason {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let words = match self {
+            HeldReason::RunNotEnded => "its run has not ended",
+            HeldReason::LateEvent => "a late event names its attempt",
+            HeldReason::Vanished => "its tree went before the walk",
+            HeldReason::NotReached => "not reached: a record was refused",
         };
         f.write_str(words)
     }
@@ -97,6 +127,7 @@ impl std::fmt::Display for ShapeReason {
             ShapeReason::RootNotAbsolute => "its root is not an absolute path ending in 'scratch'",
             ShapeReason::AttemptNotEngineUuid => "its attempt id is not the one the engine mints",
             ShapeReason::RootNotCanonical => "its root is not its own canonical path",
+            ShapeReason::RootGone => "its root is gone",
             ShapeReason::RootUnreadable => "its root cannot be read",
             ShapeReason::TreeIsLink => "its tree is a link, not a directory",
             ShapeReason::TreeNotDirectory => "its tree is not a directory",
@@ -293,38 +324,22 @@ fn pass_with(
     remove: impl Fn(&Path) -> Result<Option<u64>, TreeError>,
 ) -> Result<Swept, SweepError> {
     held.took(store.journal()?)?;
-    let verdicts = eligibility::decide(store, device_of)?;
+    let verdicts = eligibility::decide(store, &device_of)?;
     let mut swept = Swept::default();
     let mut refusal = None;
     for verdict in verdicts {
-        let Some((row, path)) = keeps(&mut swept, verdict) else {
+        let Some(act) = keeps(&mut swept, verdict) else {
             continue;
         };
-        let bytes = match remove(&path) {
-            Ok(bytes) => bytes,
-            Err(error) => {
-                swept.failed.push(Failed {
-                    path,
-                    cause: FailedCause::Walk(cause(&error)),
-                });
-                continue;
-            }
-        };
-        record_removal(
+        act_one(
             store,
             held.generation.0,
-            Closed::Scratch(row.seq),
-            path,
-            bytes,
+            act,
+            &device_of,
+            &remove,
             &mut swept,
             &mut refusal,
         );
-        // One refused record stops the removals still ahead: a tree may
-        // only go when a row can record it. A removal this loop already
-        // made stays in the report.
-        if refusal.is_some() {
-            break;
-        }
     }
     // The reaper removes every tree it finds before the pass can record
     // one, so a pass that has already refused a record does not start it.
@@ -338,6 +353,104 @@ fn pass_with(
         }),
         None => Ok(swept),
     }
+}
+
+/// What the pass or the dry run must do with one verdict once the kept
+/// lines are folded into the report.
+enum Act {
+    /// A present tree: re-check its shape, then walk it.
+    Walk {
+        row: SeatTree,
+        path: PathBuf,
+        same_root: bool,
+    },
+    /// A gone tree: close its row with no bytes and no walk.
+    Gone { row: SeatTree, path: PathBuf },
+}
+
+impl Act {
+    fn path(&self) -> &Path {
+        match self {
+            Act::Walk { path, .. } | Act::Gone { path, .. } => path,
+        }
+    }
+}
+
+/// Act on one verdict: a gone row closes, a present tree is re-checked and
+/// walked, and a pass that refused a record reports the rest as not
+/// reached. One refused record stops every removal and close still ahead.
+fn act_one(
+    store: &mut Store,
+    generation: i64,
+    act: Act,
+    device_of: &impl Fn(&Path, u64) -> u64,
+    remove: &impl Fn(&Path) -> Result<Option<u64>, TreeError>,
+    swept: &mut Swept,
+    refusal: &mut Option<String>,
+) {
+    if refusal.is_some() {
+        swept.kept.push(Kept {
+            path: act.path().to_path_buf(),
+            reason: KeptReason::Held(HeldReason::NotReached),
+        });
+        return;
+    }
+    match act {
+        Act::Gone { row, path } => {
+            record_removal(
+                store,
+                generation,
+                Closed::Scratch(row.seq),
+                path,
+                None,
+                swept,
+                refusal,
+            );
+        }
+        Act::Walk {
+            row,
+            path,
+            same_root,
+        } => match eligibility::still_present(&row, same_root, device_of) {
+            Ok(true) => remove_present(store, generation, row, path, remove, swept, refusal),
+            Ok(false) => swept.kept.push(Kept {
+                path,
+                reason: KeptReason::Held(HeldReason::Vanished),
+            }),
+            Err(reason) => swept.kept.push(Kept { path, reason }),
+        },
+    }
+}
+
+/// Walk one re-checked present tree, then record the removal it completed.
+fn remove_present(
+    store: &mut Store,
+    generation: i64,
+    row: SeatTree,
+    path: PathBuf,
+    remove: &impl Fn(&Path) -> Result<Option<u64>, TreeError>,
+    swept: &mut Swept,
+    refusal: &mut Option<String>,
+) {
+    let bytes = match remove(&path) {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            swept.failed.push(Failed {
+                path,
+                cause: FailedCause::Walk(cause(&error)),
+            });
+            return;
+        }
+    };
+    record_removal(
+        store,
+        generation,
+        Closed::Scratch(row.seq),
+        path,
+        bytes,
+        swept,
+        refusal,
+    );
 }
 
 /// Record one completed removal and keep its report beside a refusal, so a
@@ -399,9 +512,10 @@ fn pass_hands(
     }
 }
 
-/// What a pass would remove, with the bytes it would free, and every tree
-/// it would keep with its reason, writing nothing (R3): no row, no holder
-/// and no migration.
+/// What a pass would remove, with the bytes it would free and every seat
+/// tree it would keep with its reason, writing nothing (R3): no row, no
+/// holder and no migration. The hands half lists only the trees it would
+/// remove; a lockless hands tree it would keep is not on this listing.
 pub fn plan(store: &Store) -> Result<Swept, SweepError> {
     plan_with(store, hands_tmp(), same_device, tree::count_tree)
 }
@@ -410,12 +524,12 @@ pub fn plan(store: &Store) -> Result<Swept, SweepError> {
 /// same eligibility the pass and the dry run read. Doctor paints each one;
 /// it removes nothing and reads no hands tree.
 pub fn kept(store: &Store) -> Result<Vec<Kept>, SweepError> {
-    let verdicts = eligibility::decide(store, same_device)?;
+    let verdicts = eligibility::decide(store, &same_device)?;
     Ok(verdicts
         .into_iter()
         .filter_map(|verdict| match verdict {
             Verdict::Kept { path, reason } => Some(Kept { path, reason }),
-            Verdict::Ready { .. } => None,
+            Verdict::Ready { .. } | Verdict::Gone { .. } => None,
         })
         .collect())
 }
@@ -427,18 +541,19 @@ fn plan_with(
     device_of: impl Fn(&Path, u64) -> u64,
     count: impl Fn(&Path) -> Result<Option<tree::Counted>, TreeError>,
 ) -> Result<Swept, SweepError> {
-    let verdicts = eligibility::decide(store, device_of)?;
+    let verdicts = eligibility::decide(store, &device_of)?;
     let mut swept = Swept::default();
     for verdict in verdicts {
-        let Some((_row, path)) = keeps(&mut swept, verdict) else {
-            continue;
-        };
-        match count(&path) {
-            Ok(counted) => swept.removed.push(removed(path, counted)),
-            Err(error) => swept.failed.push(Failed {
-                path,
-                cause: FailedCause::Walk(cause(&error)),
-            }),
+        match keeps(&mut swept, verdict) {
+            None => {}
+            Some(Act::Gone { path, .. }) => swept.removed.push(removed(path, None)),
+            Some(Act::Walk { path, .. }) => match count(&path) {
+                Ok(counted) => swept.removed.push(removed(path, counted)),
+                Err(error) => swept.failed.push(Failed {
+                    path,
+                    cause: FailedCause::Walk(cause(&error)),
+                }),
+            },
         }
     }
     match tmp {
@@ -502,16 +617,26 @@ fn hands_tmp() -> Result<PathBuf, KeptReason> {
     Ok(path)
 }
 
-/// Fold a kept verdict into the report, or hand back the row and path a
-/// removal or a count may act on. One home for the kept line, so the pass
-/// and the dry run cannot disagree about why a tree stayed.
-fn keeps(swept: &mut Swept, verdict: Verdict) -> Option<(SeatTree, PathBuf)> {
+/// Fold a kept verdict into the report, or hand back what a pass or a dry
+/// run must do with the row: walk a present tree, or close a gone one. One
+/// home for the kept line, so the pass and the dry run cannot disagree
+/// about why a tree stayed.
+fn keeps(swept: &mut Swept, verdict: Verdict) -> Option<Act> {
     match verdict {
         Verdict::Kept { path, reason } => {
             swept.kept.push(Kept { path, reason });
             None
         }
-        Verdict::Ready { row, path } => Some((row, path)),
+        Verdict::Ready {
+            row,
+            path,
+            same_root,
+        } => Some(Act::Walk {
+            row,
+            path,
+            same_root,
+        }),
+        Verdict::Gone { row, path } => Some(Act::Gone { row, path }),
     }
 }
 

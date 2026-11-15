@@ -9,6 +9,7 @@
 
 #[path = "../../../../tests/support/env_guard.rs"]
 mod env_guard;
+mod gone;
 
 use std::ffi::OsString;
 use std::os::unix::ffi::OsStringExt;
@@ -192,6 +193,23 @@ fn panel_evidence() -> Value {
     })
 }
 
+/// A run opened, and `attempt` started and failed.
+fn opened_failed(store: &mut Store, run: &str, attempt: &str) {
+    opened(store, run);
+    started(store, run, attempt);
+    failed(store, run, attempt);
+}
+
+/// Assert the pass kept the row for a gone root, and closed it for nothing
+/// else.
+fn kept_root_gone(swept: &Swept) {
+    assert_eq!(
+        kept_reason(swept),
+        &KeptReason::Shape(ShapeReason::RootGone)
+    );
+    assert_eq!(swept.kept()[0].reason(), "its root is gone");
+}
+
 /// Park a run after a failed attempt, so its effect stays open with a
 /// terminal event on the attempt.
 fn parked_after_failure(store: &mut Store, run: &str, attempt: &str) {
@@ -263,6 +281,14 @@ fn bytes(tree: &Path) -> u64 {
 fn removed(swept: &Swept) -> &Removed {
     assert_eq!(swept.removed().len(), 1);
     &swept.removed()[0]
+}
+
+/// A succeeded attempt on a completed run, its row recorded with no tree:
+/// the row a pass closes as gone.
+fn gone_succeeded_on_completed(fixture: &mut Fixture) {
+    fixture.succeeded(RUN, ATTEMPT);
+    completed(&mut fixture.store, RUN);
+    seat(&mut fixture.store, RUN, EFFECT, ATTEMPT, &fixture.root);
 }
 
 /// A closed effect's tree and a named copy of its path, held for a seam.
@@ -661,9 +687,7 @@ fn a_reused_attempt_keeps_its_tree_when_any_terminal_event_ended_indeterminate()
 #[test]
 fn a_reused_attempt_whose_last_ending_succeeded_keeps_its_tree() {
     let mut fixture = Fixture::new();
-    fixture.opened(RUN);
-    started(&mut fixture.store, RUN, ATTEMPT);
-    failed(&mut fixture.store, RUN, ATTEMPT);
+    opened_failed(&mut fixture.store, RUN, ATTEMPT);
     started(&mut fixture.store, RUN, ATTEMPT);
     succeeded(&mut fixture.store, RUN, ATTEMPT);
     completed(&mut fixture.store, RUN);
@@ -796,8 +820,7 @@ fn a_partial_removal_records_nothing() {
 #[test]
 fn an_absent_path_closes_with_bytes_null() {
     let mut fixture = Fixture::new();
-    fixture.succeeded(RUN, ATTEMPT);
-    seat(&mut fixture.store, RUN, EFFECT, ATTEMPT, &fixture.root);
+    gone_succeeded_on_completed(&mut fixture);
 
     let (swept, _) = pass_one(&mut fixture.store);
 
@@ -923,6 +946,7 @@ fn a_dry_run_lists_what_a_pass_would_remove_without_removing_it() {
     let mut fixture = Fixture::new();
     fixture.succeeded(RUN, ATTEMPT);
     fixture.succeeded(RUN2, ATTEMPT2);
+    completed(&mut fixture.store, RUN2);
     let tree = fixture.here(RUN, ATTEMPT);
     let freed = bytes(&tree);
     seat(&mut fixture.store, RUN2, EFFECT, ATTEMPT2, &fixture.root);
@@ -1283,7 +1307,7 @@ fn a_conclude_closing_a_live_attempt_keeps_its_tree() {
     assert_eq!(kept_reason(&swept), &KeptReason::Concluded);
     assert_eq!(
         swept.kept()[0].reason(),
-        "its attempt was closed by a conclude"
+        "its attempt was closed under an accepted stop"
     );
     assert_eq!(fixture.store.tree_sweeps().unwrap(), vec![]);
 }
@@ -1458,15 +1482,23 @@ fn a_relative_root_ending_in_scratch_is_kept() {
     assert_eq!(fixture.store.tree_sweeps().unwrap(), vec![]);
 }
 
-/// A root that is itself gone closes its row as gone, with no bytes, so a
-/// removed directory never keeps a row forever.
+/// A root that is itself gone is kept and reported, not read as an absent
+/// tree: R5 checks a root that exists. Recreating the empty root lets the
+/// next pass close the row as gone.
 #[test]
-fn a_gone_root_closes_its_row_as_gone() {
+fn a_gone_root_keeps_its_row_until_the_root_is_recreated() {
     let mut fixture = Fixture::new();
     fixture.succeeded(RUN, ATTEMPT);
+    completed(&mut fixture.store, RUN);
     let tree = fixture.here(RUN, ATTEMPT);
     std::fs::remove_dir_all(&fixture.root).unwrap();
 
+    let (swept, _) = pass_one(&mut fixture.store);
+
+    kept_root_gone(&swept);
+    assert_eq!(fixture.store.tree_sweeps().unwrap(), vec![]);
+
+    std::fs::create_dir_all(&fixture.root).unwrap();
     let (swept, _) = pass_one(&mut fixture.store);
 
     assert!(!tree.exists());
@@ -1582,6 +1614,7 @@ fn every_kept_reason_has_words() {
         KeptReason::Shape(ShapeReason::RootNotAbsolute),
         KeptReason::Shape(ShapeReason::AttemptNotEngineUuid),
         KeptReason::Shape(ShapeReason::RootNotCanonical),
+        KeptReason::Shape(ShapeReason::RootGone),
         KeptReason::Shape(ShapeReason::RootUnreadable),
         KeptReason::Shape(ShapeReason::TreeIsLink),
         KeptReason::Shape(ShapeReason::TreeNotDirectory),
@@ -1591,6 +1624,10 @@ fn every_kept_reason_has_words() {
         KeptReason::RunDoesNotFold,
         KeptReason::TmpdirRelative,
         KeptReason::TmpdirNotUtf8,
+        KeptReason::Held(HeldReason::RunNotEnded),
+        KeptReason::Held(HeldReason::LateEvent),
+        KeptReason::Held(HeldReason::Vanished),
+        KeptReason::Held(HeldReason::NotReached),
         KeptReason::Hands("the reaper's words".to_string()),
     ] {
         assert!(!reason.to_string().is_empty(), "{reason:?}");

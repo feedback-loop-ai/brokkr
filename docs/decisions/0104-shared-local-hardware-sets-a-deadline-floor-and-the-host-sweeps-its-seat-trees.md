@@ -202,12 +202,12 @@ listing (ruling 9) is the window to look before a pass. A declared
   ruling's "completed, failed or stopped" reads as those two.
 
 *Amended, 2026-11-14 and 2026-11-15 (operator, #430 c-6885062627,
-c-6890916504):* R7 is succeeded-only. A tree goes only when its attempt's
-terminal event is `effect/succeeded`; every attempt whose terminal event is
-`effect/failed` or `effect/indeterminate`, or that has none, keeps its tree.
-Accepted cost: a failed attempt's tree stays until the operator removes it, or
-until a later slice gives conclude and restart a typed close mark that lets it
-go.
+c-6890916504):* This ruling is succeeded-only. A tree goes only when its
+attempt's terminal event is `effect/succeeded`; every attempt whose terminal
+event is `effect/failed` or `effect/indeterminate`, or that has none, keeps
+its tree. Accepted cost: a failed attempt's tree stays until the operator
+removes it, or until a later slice gives conclude and restart a typed close
+mark that lets it go.
 
 ### 8. The removal and its record
 
@@ -223,6 +223,13 @@ go.
   - A unique index is on `tree_seq`. Triggers refuse update and delete.
 - **A partial removal** records nothing, and the pass reports its error. The next pass tries again.
 - **A recorded tree whose path is already absent** is recorded with `bytes` absent, meaning gone before the pass. So every `seat_trees` row closes.
+
+*Amended, 2026-11-15 (operator, #430 c-6898529728):* a recorded tree whose
+path is absent is recorded with `bytes` absent and no walk, only once the
+checks in ruling 7 as amended pass: R5 holds against a root that exists (a
+gone root is kept), the run's facts read, the effect is closed, the attempt
+has a terminal event, and the run has ended. Otherwise the row is kept and
+reported, so not every row closes.
 
 *Amended, 2026-11-13 (controller, #430):* `tree_sweeps` is queue storage
 v6, not the version `seat_trees` shipped in. Ruling 8 put both in "the same
