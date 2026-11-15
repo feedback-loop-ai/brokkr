@@ -1033,10 +1033,10 @@ fn a_zero_reach_park_is_in_no_window() {
 #[test]
 fn every_aggregate_read_is_indexed() {
     let (_dir, store) = store();
-    for (order, index) in [
-        (RunOrder::Unordered, "run_summary_finished"),
-        (RunOrder::ByEndingRule, "run_summary_page"),
-        (RunOrder::ByRealmThenRecipe, "run_summary_page"),
+    for (order, index, sorts) in [
+        (RunOrder::Unordered, "run_summary_finished", 0),
+        (RunOrder::ByEndingRule, "run_summary_page", 2),
+        (RunOrder::ByRealmThenRecipe, "run_summary_page", 2),
     ] {
         let plan = explain(
             &store,
@@ -1050,6 +1050,14 @@ fn every_aggregate_read_is_indexed() {
         assert!(
             !plan.iter().any(|step| step.starts_with("SCAN run_summary")),
             "{order:?}: {plan:?}"
+        );
+        assert!(!materializes_whole(&plan), "{order:?}: {plan:?}");
+        assert_eq!(
+            plan.iter()
+                .filter(|step| step.as_str() == "USE TEMP B-TREE FOR ORDER BY")
+                .count(),
+            sorts,
+            "{order:?}: one sort an arm, none unordered: {plan:?}"
         );
     }
     let plan = explain(&store, &BEHIND, []);
@@ -1065,6 +1073,7 @@ fn every_aggregate_read_is_indexed() {
             !plan.iter().any(|step| step.starts_with("SCAN run_summary")),
             "{plan:?}"
         );
+        assert!(!materializes_whole(&plan), "{plan:?}");
     }
     let taken = explain(&store, &PARK_STALE, []);
     assert!(
@@ -1078,6 +1087,37 @@ fn every_aggregate_read_is_indexed() {
         park_sql(true),
         params_from_iter(park_bounds(0, 1, 2, None)),
     );
+    assert_park_plan(&taken);
+}
+
+/// The parks' one plan: the 64 ranges, each a key probe of the two seat
+/// keys and the checkpoint index, collected once and sorted once.
+fn assert_park_plan(taken: &[String]) {
+    // The exclusion is key probes, never a materialized set: every arm
+    // seeks the set's two keys and the checkpoint index by the run's key.
+    assert!(!materializes_whole(taken), "{taken:?}");
+    assert_eq!(
+        taken
+            .iter()
+            .filter(|step| step.as_str() == "MATERIALIZE parks")
+            .count(),
+        1,
+        "the ranges are collected once: {taken:?}"
+    );
+    for (probe, count) in [
+        ("SEARCH seat_lag USING PRIMARY KEY", 64),
+        ("SEARCH seat_head USING PRIMARY KEY", 64),
+        (
+            "SEARCH event_index USING INDEX event_index_checkpoint_stale",
+            64,
+        ),
+    ] {
+        assert_eq!(
+            taken.iter().filter(|step| step.contains(probe)).count(),
+            count,
+            "{probe} in {taken:?}"
+        );
+    }
     assert_eq!(
         taken
             .iter()
@@ -1089,7 +1129,7 @@ fn every_aggregate_read_is_indexed() {
     assert_eq!(
         taken
             .iter()
-            .filter(|step| step.contains("SEARCH s USING INDEX"))
+            .filter(|step| step.contains("SEARCH s USING INDEX sqlite_autoindex_run_summary_1"))
             .count(),
         64,
         "each arm joins the run summary by its key: {taken:?}"
@@ -1098,19 +1138,25 @@ fn every_aggregate_read_is_indexed() {
         taken
             .iter()
             .filter(|step| step.starts_with("SCAN "))
-            .all(
-                |step| ["SCAN parks", "SCAN seat_lag", "SCAN l"].contains(&step.as_str())
-                    || step.contains("USING INDEX seat_head_shape")
-                    || step.contains("USING INDEX event_index_checkpoint_stale")
-            ),
-        "only the set's tables and the materialized CTEs are scanned: {taken:?}"
+            .all(|step| step.as_str() == "SCAN parks"),
+        "only the materialized park range is scanned: {taken:?}"
     );
-    assert!(
+    assert_eq!(
         taken
             .iter()
-            .any(|step| step.contains("USE TEMP B-TREE FOR ORDER BY")),
-        "{taken:?}"
+            .filter(|step| step.as_str() == "USE TEMP B-TREE FOR ORDER BY")
+            .count(),
+        1,
+        "one sort over the collected ranges: {taken:?}"
     );
+}
+
+/// Whether `plan` names a materialized whole read or an automatic index
+/// SQLite builds to answer one: either holds the stale set in SQLite's
+/// heap (ruling 9's aggregate exception).
+fn materializes_whole(plan: &[String]) -> bool {
+    plan.iter()
+        .any(|step| step.contains("MATERIALIZE whole") || step.contains("AUTOMATIC COVERING INDEX"))
 }
 
 /// One park row's dated facts, as the writer leaves it.

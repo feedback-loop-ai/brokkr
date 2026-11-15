@@ -1163,11 +1163,9 @@ fn scans(plan: &[String], table: &str) -> bool {
         let Some(rest) = step.strip_prefix("SCAN ") else {
             return false;
         };
-        // An index scan visits the index's rows, not the projection whole:
-        // the window statements' exclusion reads the stale-set indexes.
-        if rest.contains(" USING INDEX ") {
-            return false;
-        }
+        // A scan visits the projection's rows whichever index it walks: an
+        // index walk of `event_index` or `seat_summary` is still the whole
+        // projection, and the window reads must reach them by a key seek.
         let scanned = rest.split_whitespace().next().unwrap_or_default();
         scanned == table || aliases.contains(&scanned)
     })

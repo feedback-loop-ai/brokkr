@@ -4,5 +4,6 @@
 //! is not.
 
 mod concurrent_processes;
+mod exclusion_heap;
 mod incremental_replay;
 mod patience;

@@ -16,7 +16,6 @@ fn steps(statement: &mut Statement<'_>, bound: impl rusqlite::Params) -> Result<
 
 impl Store {
     /// The VM steps [`Store::window_runs`]' statement takes.
-    #[cfg(test)]
     pub(crate) fn window_runs_steps(
         &self,
         from: i64,
@@ -30,7 +29,6 @@ impl Store {
     }
 
     /// The VM steps [`Store::durations`]' statement takes.
-    #[cfg(test)]
     pub(crate) fn durations_steps(&self, from: i64, to: i64) -> Result<i64, StoreError> {
         let intact = stale_intact(&self.conn)?;
         let mut statement = self.conn.prepare(durations_sql(intact))?;
@@ -38,7 +36,6 @@ impl Store {
     }
 
     /// The VM steps [`Store::finished_between`]' statement takes.
-    #[cfg(test)]
     pub(crate) fn finished_between_steps(&self, from: i64, to: i64) -> Result<i64, StoreError> {
         let intact = stale_intact(&self.conn)?;
         let mut statement = self.conn.prepare(finished_sql(intact))?;

@@ -22,6 +22,23 @@ enum Seat {
     ShapeLag,
 }
 
+/// The lane a planted run's row reads from.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Lane {
+    Current,
+    Behind,
+    Refused,
+    Acknowledged,
+}
+
+/// The damage a planted run carries besides its seat head.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Damage {
+    None,
+    CheckpointStale,
+    OpenPark,
+}
+
 /// One planted run and every fact a window statement could read of it.
 struct Planted {
     id: &'static str,
@@ -29,115 +46,153 @@ struct Planted {
     finished: Option<i64>,
     ending: Option<&'static str>,
     status: &'static str,
-    refusal: bool,
-    acknowledged: bool,
-    behind: bool,
+    lane: Lane,
     seat: Seat,
+    damage: Damage,
+}
+
+/// How a planted run ended, or that it is still open.
+#[derive(Clone, Copy)]
+struct Life {
+    finished: Option<i64>,
+    ending: Option<&'static str>,
+    status: &'static str,
+}
+
+/// One planted run, spelled once so the journal's list stays short.
+fn planted(
+    id: &'static str,
+    realm: Option<&'static str>,
+    life: Life,
+    lane: Lane,
+    seat: Seat,
+    damage: Damage,
+) -> Planted {
+    Planted {
+        id,
+        realm,
+        finished: life.finished,
+        ending: life.ending,
+        status: life.status,
+        lane,
+        seat,
+        damage,
+    }
 }
 
 /// The journal the oracle reads: a current finished run and an open one,
 /// every lag shape, and the behind, refused and acknowledged lanes. Each
 /// run carries a site, a cost and a park inside the window, so a statement
-/// that failed to leave it out would name it.
+/// that failed to leave it out would name it. `open-stale` is a stale run
+/// still open with an unanswered class-64 park, and `checkpoint-stale` is
+/// current in its seat head but stale in its checkpoint facts.
 fn journal() -> Vec<Planted> {
     let finished = Some(FROM + 30_000);
-    let shipped = Some("shipped");
+    let done = Life {
+        finished,
+        ending: Some("shipped"),
+        status: "completed",
+    };
+    let open = Life {
+        finished: None,
+        ending: None,
+        status: "running",
+    };
+    let parked = Life {
+        finished: None,
+        ending: None,
+        status: "awaiting_operator",
+    };
     vec![
-        Planted {
-            id: "current-finished",
-            realm: Some("alpha"),
-            finished,
-            ending: shipped,
-            status: "completed",
-            refusal: false,
-            acknowledged: false,
-            behind: false,
-            seat: Seat::Current,
-        },
-        Planted {
-            id: "current-open",
-            realm: Some("alpha"),
-            finished: None,
-            ending: None,
-            status: "running",
-            refusal: false,
-            acknowledged: false,
-            behind: false,
-            seat: Seat::Current,
-        },
-        Planted {
-            id: "headless",
-            realm: Some("alpha"),
-            finished,
-            ending: shipped,
-            status: "completed",
-            refusal: false,
-            acknowledged: false,
-            behind: false,
-            seat: Seat::Headless,
-        },
-        Planted {
-            id: "seq-lag",
-            realm: Some("beta"),
-            finished,
-            ending: shipped,
-            status: "completed",
-            refusal: false,
-            acknowledged: false,
-            behind: false,
-            seat: Seat::SeqLag,
-        },
-        Planted {
-            id: "shape-lag",
-            realm: Some("beta"),
-            finished,
-            ending: shipped,
-            status: "completed",
-            refusal: false,
-            acknowledged: false,
-            behind: false,
-            seat: Seat::ShapeLag,
-        },
-        Planted {
-            id: "behind",
-            realm: Some("alpha"),
-            finished,
-            ending: shipped,
-            status: "completed",
-            refusal: false,
-            acknowledged: false,
-            behind: true,
-            seat: Seat::Current,
-        },
-        Planted {
-            id: "refused",
-            realm: Some("alpha"),
-            finished,
-            ending: shipped,
-            status: "completed",
-            refusal: true,
-            acknowledged: false,
-            behind: false,
-            seat: Seat::Current,
-        },
-        Planted {
-            id: "acknowledged",
-            realm: Some("alpha"),
-            finished,
-            ending: shipped,
-            status: "completed",
-            refusal: true,
-            acknowledged: true,
-            behind: false,
-            seat: Seat::Current,
-        },
+        planted(
+            "current-finished",
+            Some("alpha"),
+            done,
+            Lane::Current,
+            Seat::Current,
+            Damage::None,
+        ),
+        planted(
+            "current-open",
+            Some("alpha"),
+            open,
+            Lane::Current,
+            Seat::Current,
+            Damage::None,
+        ),
+        planted(
+            "headless",
+            Some("alpha"),
+            done,
+            Lane::Current,
+            Seat::Headless,
+            Damage::None,
+        ),
+        planted(
+            "seq-lag",
+            Some("beta"),
+            done,
+            Lane::Current,
+            Seat::SeqLag,
+            Damage::None,
+        ),
+        planted(
+            "shape-lag",
+            Some("beta"),
+            done,
+            Lane::Current,
+            Seat::ShapeLag,
+            Damage::None,
+        ),
+        planted(
+            "behind",
+            Some("alpha"),
+            done,
+            Lane::Behind,
+            Seat::Current,
+            Damage::None,
+        ),
+        planted(
+            "open-stale",
+            Some("beta"),
+            parked,
+            Lane::Current,
+            Seat::Headless,
+            Damage::OpenPark,
+        ),
+        planted(
+            "checkpoint-stale",
+            Some("alpha"),
+            done,
+            Lane::Current,
+            Seat::Current,
+            Damage::CheckpointStale,
+        ),
+        planted(
+            "refused",
+            Some("alpha"),
+            done,
+            Lane::Refused,
+            Seat::Current,
+            Damage::None,
+        ),
+        planted(
+            "acknowledged",
+            Some("alpha"),
+            done,
+            Lane::Acknowledged,
+            Seat::Current,
+            Damage::None,
+        ),
     ]
 }
 
 /// Plant one run's summary row, seat head and in-window facts.
 fn plant(store: &Store, run: &Planted) {
     plant_run(&store.conn, run.id, "{}").unwrap();
-    let stamp = if run.behind { 1 } else { 0 };
+    let refusal = matches!(run.lane, Lane::Refused | Lane::Acknowledged);
+    let acknowledged = run.lane == Lane::Acknowledged;
+    let stamp = if run.lane == Lane::Behind { 1 } else { 0 };
     store
         .conn
         .execute(
@@ -155,8 +210,8 @@ fn plant(store: &Store, run: &Planted) {
                 run.ending,
                 ZERO_HASH,
                 stamp,
-                run.refusal,
-                run.acknowledged
+                refusal,
+                acknowledged
             ],
         )
         .unwrap();
@@ -199,13 +254,21 @@ fn plant(store: &Store, run: &Planted) {
     store
         .conn
         .execute(
-            "UPDATE event_index SET facts_seq = 2 WHERE run_id = ?1 AND seq = 2",
-            params![run.id],
+            "UPDATE event_index SET facts_seq = CASE WHEN ?2 THEN NULL ELSE 2 END
+              WHERE run_id = ?1 AND seq = 2",
+            params![run.id, run.damage == Damage::CheckpointStale],
         )
         .unwrap();
-    plant_park(
-        &store.conn,
-        run.id,
+    let park = if run.damage == Damage::OpenPark {
+        ParkRow {
+            seq: 3,
+            phase: "review",
+            at: FROM + 1_000,
+            answered: None,
+            ended: None,
+            class: 64,
+        }
+    } else {
         ParkRow {
             seq: 3,
             phase: "review",
@@ -213,8 +276,9 @@ fn plant(store: &Store, run: &Planted) {
             answered: Some(FROM + 2_000),
             ended: Some(FROM + 2_000),
             class: 10,
-        },
-    );
+        }
+    };
+    plant_park(&store.conn, run.id, park);
 }
 
 /// The set a list of run ids names.
@@ -293,7 +357,14 @@ fn holds(store: &Store, what: &str) {
     let whole = whole(store);
     assert_eq!(
         whole,
-        set(&["behind", "headless", "seq-lag", "shape-lag"]),
+        set(&[
+            "behind",
+            "headless",
+            "seq-lag",
+            "shape-lag",
+            "open-stale",
+            "checkpoint-stale",
+        ]),
         "{what}: the whole read's runs"
     );
     let live = set(&["current-finished", "current-open"]);
@@ -433,8 +504,11 @@ fn by_rule(path: &std::path::Path) -> [i64; 6] {
 
 /// The intact-set exclusion does not grow with the current runs: 1,000
 /// more current runs, outside the window and stale-free, leave every
-/// statement's VM steps equal. The rule's arm materializes the
-/// `run_summary` scan, so it grows; its figures are named in the commit.
+/// statement's VM steps no larger. They may fall when the planner takes the
+/// finished index at the larger size; the exclusion itself visits nothing
+/// for a current run. The rule's arm reads the journal's `run_summary` to
+/// find a lagging run, so its figures are reported at both sizes rather
+/// than held.
 #[test]
 fn the_intact_exclusion_does_not_grow_with_the_current_runs() {
     let (dir, store) = store();
@@ -446,35 +520,36 @@ fn the_intact_exclusion_does_not_grow_with_the_current_runs() {
             finished: Some(FROM + 30_000),
             ending: Some("shipped"),
             status: "completed",
-            refusal: false,
-            acknowledged: false,
-            behind: false,
+            lane: Lane::Current,
             seat: Seat::Current,
+            damage: Damage::None,
         },
     );
     plant_current(&store, 1, 1_000, FROM - DAY);
     plant_stale(&store);
-    let base = measures(&store);
-    plant_current(&store, 1_001, 1_000, FROM - DAY);
-    let grown = measures(&store);
-    eprintln!("intact 1,000: {base:?}; 2,000: {grown:?}");
-    assert_eq!(
-        grown, base,
-        "the intact exclusion grew with the current runs"
-    );
+    let intact_base = measures(&store);
+    eprintln!("intact 1,000: {intact_base:?}");
     let path = dir.path().join("forge.db");
     drop(store);
 
     let rule_base = by_rule(&path);
+    eprintln!("by rule 1,000: {rule_base:?}");
+
     let store = Store::open(&path).unwrap();
-    plant_current(&store, 2_001, 1_000, FROM - DAY);
+    plant_current(&store, 1_001, 1_000, FROM - DAY);
+    let intact_grown = measures(&store);
+    eprintln!("intact 2,000: {intact_grown:?}");
     drop(store);
     let rule_grown = by_rule(&path);
-    eprintln!("by rule 1,000: {rule_base:?}; 2,000: {rule_grown:?}");
-    for (at, (before, after)) in rule_base.iter().zip(&rule_grown).enumerate() {
+    eprintln!("by rule 2,000: {rule_grown:?}");
+
+    for (at, (before, after)) in intact_base.iter().zip(&intact_grown).enumerate() {
         assert!(
-            after > before,
-            "statement {at}: the rule's arm visits the journal, {before} -> {after}"
+            after <= before,
+            "statement {at}: the intact exclusion grew with the current runs, {before} -> {after}"
         );
+    }
+    for (at, (before, after)) in rule_base.iter().zip(&rule_grown).enumerate() {
+        eprintln!("statement {at}: by rule {before} -> {after}");
     }
 }

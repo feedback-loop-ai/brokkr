@@ -24,9 +24,11 @@
 //! by asking the stale-seat set's intact check once and preparing the
 //! set's or the rule's text.
 //!
-//! Their caller is slice 4's unit U5b2, the streamed row source; until it
-//! lands, the tests alone call them. They are `pub` on [`Store`] so it
-//! can, and each is in the public API snapshot until then.
+//! `window_runs` and `window_parks` are called by the row path today.
+//! `durations` and `finished_between` have no production caller until
+//! slice 4's unit U5b2, the streamed row source; until it lands, the tests
+//! alone call them. They are `pub` on [`Store`] so it can, and each is in
+//! the public API snapshot until then.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::LazyLock;

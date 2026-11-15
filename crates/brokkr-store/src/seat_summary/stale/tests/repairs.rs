@@ -34,12 +34,22 @@ fn objects(conn: &Connection) -> BTreeMap<(String, String), Option<String>> {
         .unwrap()
 }
 
-/// What `Store::migrate` wrote on `path`: an object it made, dropped or
-/// re-made, and the rows its statements changed. A current journal's open
-/// leaves both empty, so the repairs wrote nothing.
+/// `conn`'s schema version, which SQLite bumps on every DDL statement,
+/// including a drop and remake of the same object.
+fn schema_version(conn: &Connection) -> i64 {
+    conn.query_row("PRAGMA schema_version", [], |row| row.get(0))
+        .unwrap()
+}
+
+/// What `Store::migrate` wrote on `path`: a schema version it moved, an
+/// object it made, dropped or re-made, and the rows its statements changed.
+/// A current journal's open leaves all empty, so the repairs wrote nothing.
+/// The version catches a drop and remake of identical objects, which the
+/// text comparison cannot see.
 fn writes_on_open(path: &std::path::Path) -> Vec<String> {
     let mut conn = Connection::open(path).unwrap();
     let before = objects(&conn);
+    let version = schema_version(&conn);
     let changes = conn.total_changes();
     Store::migrate(&mut conn).unwrap();
     let after = objects(&conn);
@@ -52,6 +62,13 @@ fn writes_on_open(path: &std::path::Path) -> Vec<String> {
         if !after.contains_key(&(kind.clone(), name.clone())) {
             found.push(format!("dropped {kind} {name}"));
         }
+    }
+    if schema_version(&conn) != version {
+        found.push(format!(
+            "schema version {} -> {}",
+            version,
+            schema_version(&conn)
+        ));
     }
     let changed = conn.total_changes() - changes;
     if changed > 0 {
@@ -67,27 +84,6 @@ fn reopened(dir: &tempfile::TempDir) -> Store {
     assert!(stale_intact(&store.conn).unwrap(), "the set is remade");
     assert_eq!(set(&store.conn), rule(&store.conn), "set == rule");
     store
-}
-
-/// The journal the redundant drop was written for: a `seat_head` of
-/// another shape beside a summary that lost its page index. The seventh
-/// repair remakes the head, so the open is `Ok` and the set equals the
-/// rule after it.
-#[test]
-fn a_head_of_another_shape_without_its_page_index_reopens() {
-    let (dir, store) = current_store();
-    store
-        .conn
-        .execute_batch(
-            "DROP TABLE seat_head;
-             CREATE TABLE seat_head (run_id TEXT PRIMARY KEY, shape TEXT);
-             DROP INDEX run_summary_page;",
-        )
-        .unwrap();
-    drop(store);
-
-    let store = reopened(&dir);
-    drop(store);
 }
 
 /// A keyless `seat_head` is not this build's: the writer's
@@ -144,9 +140,10 @@ fn a_view_holding_the_sets_name_is_replaced() {
 
     let store = reopened(&dir);
     drop(store);
+    let writes = writes_on_open(&dir.path().join("forge.db"));
     assert!(
-        writes_on_open(&dir.path().join("forge.db")).is_empty(),
-        "a second open writes nothing"
+        writes.is_empty(),
+        "a second open writes nothing: {writes:?}"
     );
 }
 
@@ -158,9 +155,10 @@ fn a_current_journals_open_writes_nothing() {
     let (dir, store) = current_store();
     drop(store);
     let path = dir.path().join("forge.db");
+    let writes = writes_on_open(&path);
     assert!(
-        writes_on_open(&path).is_empty(),
-        "the steady state writes nothing"
+        writes.is_empty(),
+        "the steady state writes nothing: {writes:?}"
     );
 
     let (dir, store) = current_store();

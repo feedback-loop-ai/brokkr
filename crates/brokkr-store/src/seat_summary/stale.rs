@@ -265,7 +265,8 @@ fn definitions() -> [(&'static str, String); 5] {
 fn drop_set(conn: &Connection) -> Result<(), StoreError> {
     let kind: Option<String> = conn
         .query_row(
-            "SELECT type FROM sqlite_master WHERE name = ?1",
+            "SELECT type FROM sqlite_master
+              WHERE name = ?1 AND type IN ('table', 'view')",
             [STALE],
             |row| row.get(0),
         )
@@ -433,6 +434,7 @@ pub(crate) fn stale_intact(conn: &Connection) -> Result<bool, StoreError> {
 /// answers this build's shape rather than trusting the index. The one home
 /// of what the write-side set and the read-time shape comparison together
 /// mean.
+#[cfg(test)]
 pub(crate) fn stale_runs(shape: &str) -> String {
     format!(
         "SELECT run_id FROM {STALE}

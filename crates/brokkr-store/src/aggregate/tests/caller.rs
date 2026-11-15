@@ -73,11 +73,13 @@ fn a_stale_seat_run_is_counted_by_neither() {
     assert_eq!(named, ["shipped"], "the whole read names it");
 }
 
-/// The preceding window's count equals `shipped_in` over the whole read of
-/// the same journal: a run finished in the window whose ending completed is
-/// one count, and the caller's groups sum to it.
+/// The preceding window's count agrees with the window's runs filtered the
+/// same way in this test: a run finished in the window whose ending
+/// completed is one count, and the groups sum to it. The comparison with
+/// `brokkr-view`'s `shipped_in` over a whole read is U5b2's, when the
+/// streamed source lands.
 #[test]
-fn the_preceding_count_is_shipped_in_over_the_whole_read() {
+fn the_preceding_count_agrees_with_the_window_runs_count() {
     let (_dir, store) = store();
     for (run_id, realm, start, steps) in [
         ("before", Some("alpha"), 0, finished_steps("before")),
