@@ -18,6 +18,7 @@ use crate::capabilities::McpFence;
 use crate::engine::broker::exclusion::{self, Shown};
 use crate::engine::broker::exclusion::{compared, covers_spelled, Comparison};
 use crate::engine::broker::historical;
+use crate::engine::broker::inventory::Standing;
 use crate::engine::broker::sources::records_kept;
 
 /// The artifact root of a [`claim`] on `worktree`.

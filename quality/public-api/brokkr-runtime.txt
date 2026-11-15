@@ -1472,6 +1472,7 @@ impl core::convert::From<brokkr_runtime::engine::Unknown> for brokkr_runtime::en
 pub fn brokkr_runtime::engine::Unadmitted::from(brokkr_runtime::engine::Unknown) -> brokkr_runtime::engine::Unadmitted
 pub enum brokkr_runtime::engine::Unknown
 pub brokkr_runtime::engine::Unknown::Bounds
+pub brokkr_runtime::engine::Unknown::Exchange
 pub brokkr_runtime::engine::Unknown::Expired
 pub brokkr_runtime::engine::Unknown::Formatted(std::path::PathBuf, u64)
 pub brokkr_runtime::engine::Unknown::Homeless

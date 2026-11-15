@@ -20,7 +20,10 @@ use crate::engine::broker::root::{Step, PRIOR};
 /// record's prior name so it cannot link the record that stood there while
 /// the rename after the link stays possible (R3, U8a2c), or removes or
 /// replaces the record that stood at its name, so a reseal meets it gone or
-/// changed ([`Late::Remove`], [`Late::Replace`]; #440 fix round 440d5);
+/// changed ([`Late::Remove`], [`Late::Replace`]; #440 fix round 440d5), or
+/// removes it after the link and before the exchange, or after the exchange
+/// and before the directory is synced ([`Late::RemoveLinked`],
+/// [`Late::RemoveCommitted`]; #440 fix round 440d6);
 /// once renamed in, spends the time given, fails as its directory sync
 /// failing would, or spends it with the directory's write permission taken,
 /// or spends it and then fails the sync of its undoing (M2 of run four's
@@ -34,7 +37,9 @@ pub(super) enum Late {
     UnstageSuperseded,
     Occupy,
     Remove,
+    RemoveLinked,
     Replace,
+    RemoveCommitted,
     SleepCommitted(Duration),
     FailCommitted,
     DenyCommitted(Duration),
@@ -75,6 +80,20 @@ pub(super) fn late(step: Step, dir: &OwnedFd, staged: &str) -> std::io::Result<(
             let name = staged.strip_suffix(STAGED).unwrap();
             rustix::fs::unlinkat(dir, name, AtFlags::empty()).unwrap();
             empty(dir, name);
+        }
+        // The last point before a reseal's exchange: the name is removed
+        // after the record that stood was linked, so the exchange must meet
+        // it gone and write nothing (#440 fix round 440d6).
+        (Step::Linked, Some(Late::RemoveLinked)) => {
+            rustix::fs::unlinkat(dir, staged, AtFlags::empty()).unwrap()
+        }
+        // After a reseal's exchange: the name is removed, and the sync that
+        // follows fails, so the undo must not write the old record back
+        // (#440 fix round 440d6).
+        (Step::Committed, Some(Late::RemoveCommitted)) => {
+            let name = staged.strip_suffix(STAGED).unwrap();
+            rustix::fs::unlinkat(dir, name, AtFlags::empty()).unwrap();
+            return Err(std::io::Error::other("the directory sync failed"));
         }
         (Step::Committed, Some(Late::DenyCommitted(spent))) => {
             denied(dir);

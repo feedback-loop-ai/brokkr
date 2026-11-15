@@ -13,8 +13,8 @@ use brokkr_core::EventEnvelope;
 use brokkr_store::Store;
 
 use super::{
-    beside, ending, inventory, locked, recorded_settled, release, sealed, settled, startup, Budget,
-    Commit, Ending, Refused, Reservation, Root, Standing, Unadmitted, Unknown, Unreleased,
+    beside, ending, inventory, locked, recorded_settled, release, resealed, settled, startup,
+    Budget, Commit, Ending, Refused, Reservation, Root, Standing, Unadmitted, Unknown, Unreleased,
     Witnessed, RESERVATION,
 };
 use crate::engine::EngineError;
@@ -55,7 +55,7 @@ pub(in crate::engine) fn attested(
     for reservation in reservations {
         let released = released_by_operator(reservation).map_err(Unadmitted::from);
         let released = released.map_err(Unreleased::standing)?;
-        let seal = sealed(root, &released, &budget, None).map_err(Unadmitted::from);
+        let seal = resealed(root, &released, &budget).map_err(Unadmitted::from);
         commit = commit.and(seal.map_err(Unreleased::standing)?);
     }
     let unsynced = Unreleased::released(Unknown::Unsynced.into());

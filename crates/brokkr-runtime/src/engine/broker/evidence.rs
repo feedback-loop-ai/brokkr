@@ -278,6 +278,7 @@ impl From<Unknown> for EvidenceError {
             | Unknown::ViewOnly(..)
             | Unknown::Formatted(..)
             | Unknown::Unsealed
+            | Unknown::Exchange
             | Unknown::Unsynced
             | Unknown::Lost
             | Unknown::Unproven

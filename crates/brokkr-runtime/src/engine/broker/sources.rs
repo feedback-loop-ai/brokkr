@@ -79,7 +79,7 @@ use brokkr_protocol::broker::{Plan, Tree};
 use brokkr_protocol::hands::{ServerProgram, HOST_TOOLCHAIN_BINDS, SERVER_RESOLVER};
 use serde::{Deserialize, Serialize};
 
-use super::admission::{sealed, Claim, Held, Unadmitted, Unknown};
+use super::admission::{resealed, Claim, Held, Unadmitted, Unknown};
 use super::exclusion::{beneath, covers, covers_spelled, Guarded};
 use super::inventory::{inventory, Budget, Reaching, Standing, Writing};
 use super::resolved;
@@ -704,10 +704,6 @@ pub(super) fn extended_with(
     between();
     reserved.serves = reserves;
     reservation.attempts.insert(held.attempt.clone(), reserved);
-    commits.set(
-        commits
-            .get()
-            .and(sealed(root, &reservation, &budget, None)?),
-    );
+    commits.set(commits.get().and(resealed(root, &reservation, &budget)?));
     Ok(())
 }

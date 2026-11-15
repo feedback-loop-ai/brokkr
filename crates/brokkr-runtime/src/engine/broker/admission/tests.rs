@@ -27,7 +27,7 @@ use serde_json::json;
 use super::*;
 use crate::bundle::{SeatBody, SequenceStep};
 use crate::engine::broker::inventory::Budget;
-use crate::engine::broker::root::{coordination, seal_with, Commit};
+use crate::engine::broker::root::{coordination, seal_with, Commit, Exchange};
 use crate::engine::broker::settlement::{proved, witnessed, witnessed_by};
 use crate::engine::broker::{
     owned, surveyed, Host as Hosting, Surveyor, Unprovisioned, PROTECTED_ROOT,
@@ -130,13 +130,42 @@ pub(in crate::engine) fn observed() -> Option<Observed> {
 /// judged, its seals handed to [`late`]: the handle every fixture admits in
 /// (R5).
 pub(in crate::engine) fn opened(home: &Path) -> Root {
+    opened_by(home, None)
+}
+
+/// [`opened`], its reseals exchanging by `exchange`: a test's own filesystem
+/// that has no atomic exchange (decision 0108 ruling 3, #440 fix round
+/// 440d6).
+pub(in crate::engine) fn opened_refusing(home: &Path) -> Root {
+    opened_by(home, Some(no_exchange))
+}
+
+/// The root under `home`, made owner-only where it is missing and opened,
+/// its seals handed to [`late`], reseals exchanging by `exchange` where a
+/// test names one and production's own exchange otherwise.
+fn opened_by(home: &Path, exchange: Option<Exchange>) -> Root {
     let path = coordination(home);
     let mut made = std::fs::DirBuilder::new();
     made.recursive(true).mode(0o700).create(&path).unwrap();
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700)).unwrap();
     let flags = rustix::fs::OFlags::RDONLY | rustix::fs::OFlags::DIRECTORY;
     let dir = rustix::fs::open(&path, flags, rustix::fs::Mode::empty()).unwrap();
-    Root::opened(dir, path, (late, shown)).expect("an owner-only root")
+    let opened = match exchange {
+        Some(exchange) => Root::opened_exchanging(dir, path, (late, shown), exchange),
+        None => Root::opened(dir, path, (late, shown)),
+    };
+    opened.expect("an owner-only root")
+}
+
+/// A filesystem's exchange refusal: `EINVAL`, as a filesystem with no atomic
+/// exchange reports it (decision 0108 ruling 3, #440 fix round 440d6).
+fn no_exchange(
+    _: &std::os::fd::OwnedFd,
+    _: &str,
+    _: &std::os::fd::OwnedFd,
+    _: &str,
+) -> Result<(), rustix::io::Errno> {
+    Err(rustix::io::Errno::INVAL)
 }
 
 /// `held`'s positive settlement fact sealed, and then its lease released,

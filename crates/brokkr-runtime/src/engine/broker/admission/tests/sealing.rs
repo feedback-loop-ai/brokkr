@@ -14,6 +14,7 @@
 //! sealed keeps the reservation standing and, where the fence rule asks it,
 //! fails the run that settles; a release without one is refused.
 
+use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::MetadataExt;
 
 use brokkr_protocol::broker::ledger::Outcome;
@@ -25,7 +26,7 @@ use crate::engine::artifacts::tests::{sha, Provisioned};
 use crate::engine::artifacts::Unpublished;
 use crate::engine::broker::root::Commit;
 use crate::engine::broker::settlement::release::spawned;
-use crate::engine::broker::settlement::{spawning, Lease, Unreleased};
+use crate::engine::broker::settlement::{adopted, attested, ended, spawning, Lease, Unreleased};
 
 /// A fresh engine holding on `host` the lease of its run's attempt `a1` on
 /// its own worktree, protecting `protects`, the reservation naming that
@@ -648,12 +649,11 @@ fn a_reseal_never_replaces_a_record_it_did_not_read() {
     assert!(!staged.exists(), "nothing staged left beside it");
 }
 
-/// An operator's release leaves the attempt settled; a driver's spawn
-/// record that arrives late seals nothing, and one that arrives after the
-/// release removed the reservation does not make it again (#440 fix round
-/// 440d5).
+/// An operator's release seals the attempt settled; a late driver's spawn
+/// record after it leaves the released record exactly as the release sealed
+/// it, and never makes one that is gone (#440 fix rounds 440d5 and 440d6).
 #[test]
-fn a_late_spawn_record_does_not_bring_back_a_reservation_a_release_removed() {
+fn a_late_spawn_record_leaves_the_released_record_as_the_release_sealed_it() {
     let (host, work, held, at) = spawning_attempt();
     assert_eq!(proved(&held, soon()), Ok(Commit::Synced));
     assert_eq!(release(&held, soon()), Ok(Commit::Synced));
@@ -668,9 +668,151 @@ fn a_late_spawn_record_does_not_bring_back_a_reservation_a_release_removed() {
     assert_eq!(
         std::fs::read(&at).unwrap(),
         before,
-        "the late record sealed nothing"
+        "the late record left the released record"
     );
+}
+
+/// #440 fix round 440d6 (decision 0108 ruling 3): a reseal whose name is
+/// removed after the record that stood was linked, at the last hook before
+/// the atomic exchange, meets `ENOENT` and writes nothing. That is the
+/// window 440d5's link-and-rename proof only narrowed.
+#[test]
+fn a_reseal_writes_nothing_when_the_name_is_removed_before_its_exchange() {
+    let (_host, _work, held, at) = spawning_attempt();
+    LATE.set(Some(Late::RemoveLinked));
+    spawned(&held, "work", 4242);
+    assert!(!at.exists(), "the reseal wrote nothing");
+    assert!(!prior(&at).exists(), "no prior name left");
+    let staged = at.with_file_name("reservation.json.new");
+    assert!(!staged.exists(), "nothing staged left beside it");
+}
+
+/// #440 fix round 440d6 (decision 0108 ruling 3): a reseal whose committed
+/// record is removed before its post-rename sync fails never writes the old
+/// record back. The removal stands, and the record that stood is removed.
+#[test]
+fn a_committed_reseals_undo_never_brings_back_a_removed_record() {
+    let (_host, _work, held, at) = spawning_attempt();
+    LATE.set(Some(Late::RemoveCommitted));
+    spawned(&held, "work", 4242);
+    assert!(!at.exists(), "the removal stands");
+    assert!(!prior(&at).exists(), "the record that stood is removed");
+    let staged = at.with_file_name("reservation.json.new");
+    assert!(!staged.exists(), "nothing staged left beside it");
+}
+
+/// #440 fix round 440d6 (decision 0108 ruling 3): a seal's restore of a
+/// record that must still stand puts the prior name back by the same
+/// exchange, but where the name is gone the removal stands: it removes the
+/// prior name and writes nothing at the name.
+#[test]
+fn a_restore_never_brings_back_a_removed_record() {
+    let (_host, _work, held, at) = spawning_attempt();
+    std::fs::hard_link(&at, prior(&at)).unwrap();
     std::fs::remove_file(&at).unwrap();
     spawned(&held, "work", 4242);
-    assert!(!at.exists(), "the late record did not make it again");
+    assert!(!at.exists(), "the removal stands");
+    assert!(!prior(&at).exists(), "the record that stood is removed");
+}
+
+/// #440 fix round 440d6 (decision 0108 ruling 3): where the filesystem has
+/// no atomic exchange, a reseal fails closed: it refuses by name and the
+/// record that stood is unchanged, byte for byte and inode for inode.
+#[test]
+fn a_reseal_refused_by_its_filesystem_writes_nothing() {
+    let (host, at, before) = stood();
+    let root = opened_refusing(host.home());
+    let reservation: Reservation = serde_json::from_slice(&std::fs::read(&at).unwrap()).unwrap();
+    let refused = resealed(&root, &reservation, &Budget::new(soon()));
+    assert_eq!(refused, Err(Unknown::Exchange));
+    assert_eq!(
+        Unknown::Exchange.to_string(),
+        "the attempt's reservation could not be sealed: this filesystem has no atomic exchange"
+    );
+    assert_eq!(standing(&at), before, "the record that stood, unchanged");
+    assert!(!prior(&at).exists(), "no prior name left");
+    let staged = at.with_file_name("reservation.json.new");
+    assert!(!staged.exists(), "nothing staged left beside it");
+}
+
+/// #440 fix round 440d6 (decision 0108 ruling 3): a run's next attempt on a
+/// standing reservation reseals the record its admission read. Removed
+/// between that read and the seal, the record is refused and never made
+/// again; it is the reproducer the two reviewers planted.
+#[test]
+fn a_second_attempts_admission_never_writes_back_a_record_removed_after_its_read() {
+    let (host, at, _) = stood();
+    let work = host.worktree("work");
+    let next = open(&work, ["run-a", "a2"]);
+    let between = || std::fs::remove_file(&at).unwrap();
+    let refused = admit_with(&host.root, &next, soon(), &between);
+    assert_eq!(refused, mb3(Unknown::Participant(at.clone())));
+    assert!(!at.exists(), "the admission wrote nothing back");
+}
+
+/// #440 fix round 440d6 (decision 0108 ruling 3): recovery at a later
+/// admission reseals the reservation it read. Removed at the seal, the
+/// record is refused and never made again.
+#[test]
+fn recovery_never_writes_back_a_reservation_removed_at_its_seal() {
+    let host = Host::new();
+    let (_dir, _engine, work, run) = died_after_its_end(&host);
+    let at = host.reservation(&work, &run);
+    LATE.set(Some(Late::Remove));
+    let next = claim(&work, ["run-b", "b1"], Protects::Nothing, &[]);
+    let admitted = admit(&host.root, &next, soon());
+    assert_eq!(admitted, mb3(Unknown::Unsealed));
+    assert!(!at.exists(), "recovery wrote nothing back");
+}
+
+/// #440 fix round 440d6 (decision 0108 ruling 3): a restarted engine's
+/// re-adoption reseals the reservation it read. Removed at the seal, the
+/// record is refused and never made again.
+#[test]
+fn a_re_adoption_never_writes_back_a_reservation_removed_at_its_seal() {
+    let host = Host::new();
+    let (_dir, mut engine, work, run) = leasing(&host, Protects::Nothing);
+    let held = engine.held.clone().unwrap();
+    spawning(&held, "work", None).unwrap();
+    ended(&mut engine.held, "work", &Cleanup::Settled);
+    let at = host.reservation(&work, &run);
+    let repo = canonical::sha256_bytes(work.as_os_str().as_bytes());
+    LATE.set(Some(Late::Remove));
+    let readopted = adopted(&host.root, [&repo, &run, "a1"], soon());
+    assert_eq!(
+        readopted.map(|adoption| adoption.is_some()),
+        Err(Unadmitted::Identity(Unknown::Unsealed))
+    );
+    assert!(!at.exists(), "the adoption wrote nothing back");
+}
+
+/// #440 fix round 440d6 (decision 0108 ruling 3): the operator's release
+/// reseals the reservation it read. Removed at the seal, the record is
+/// refused and never made again.
+#[test]
+fn an_operators_release_never_writes_back_a_reservation_removed_at_its_seal() {
+    let host = Host::new();
+    let (_dir, mut engine, work, run) = leasing(&host, Protects::Nothing);
+    let payload = serde_json::json!({"effect_id": "e", "attempt_id": "a1", "reason": "killed"});
+    engine
+        .store
+        .append_next(
+            &run,
+            EventType::EffectIndeterminate,
+            payload,
+            None,
+            Some("a1".into()),
+        )
+        .unwrap();
+    let at = host.reservation(&work, &run);
+    LATE.set(Some(Late::Remove));
+    let released = attested(&host.root, &run, &mut engine.store, |_, _| Ok(()));
+    match released {
+        Err(EngineError::Unreleased(unreleased)) => assert_eq!(
+            unreleased,
+            Unreleased::standing(Unadmitted::Identity(Unknown::Unsealed))
+        ),
+        other => panic!("not a settlement refusal: {other:?}"),
+    }
+    assert!(!at.exists(), "the release wrote nothing back");
 }

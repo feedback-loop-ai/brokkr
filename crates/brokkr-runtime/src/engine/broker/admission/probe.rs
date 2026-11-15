@@ -250,7 +250,7 @@ pub(super) fn settle_orphaned(
         reservation = settled(reservation, attempt)
             .expect("a proven probe's attempt holds its positive settlement fact");
     }
-    sealed(root, &reservation, &Budget::new(deadline), None)
+    resealed(root, &reservation, &Budget::new(deadline))
         .map(drop)
         .map_err(|source| {
             Recovery::at(

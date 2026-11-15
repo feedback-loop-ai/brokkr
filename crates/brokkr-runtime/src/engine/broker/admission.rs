@@ -48,7 +48,7 @@ use thiserror::Error;
 pub use super::conflict::Conflict;
 use super::exclusion::{compared, staked, Comparison};
 use super::historical::{recorded, superseded::superseded};
-use super::inventory::{inventory, Budget, Standing};
+use super::inventory::{inventory, Budget};
 use super::root::{identified, locked, read, Commit, Identity, Root};
 use super::settlement::{keyed, recovered, reserved_in, unchanged, Driver};
 use super::sources::{records_unopened, unserved, Served, Unroutable};
@@ -61,6 +61,9 @@ use crate::engine::{
 };
 
 mod probe;
+mod seal;
+pub(super) use seal::resealed;
+use seal::{joined, sealed};
 
 #[cfg(test)]
 pub(in crate::engine) mod tests;
@@ -132,6 +135,14 @@ pub enum Unknown {
     Formatted(PathBuf, u64),
     #[error("the attempt's reservation could not be sealed")]
     Unsealed,
+    /// The filesystem offers no atomic exchange, so a reseal of a record
+    /// that must still stand fails closed rather than rename over a name a
+    /// hand could have removed (decision 0108 ruling 3, #440 fix round
+    /// 440d6).
+    #[error(
+        "the attempt's reservation could not be sealed: this filesystem has no atomic exchange"
+    )]
+    Exchange,
     #[error("the attempt's reservation was committed, but its directory was not proven synced")]
     Unsynced,
     #[error("the attempt's reservation no longer stands")]
@@ -621,7 +632,13 @@ pub(super) fn admit_with(
     if claim.protects() & !has_record {
         commit = commit.and(recorded(root, claim, &budget)?);
     }
-    commit = commit.and(sealed(root, &joined(claim, standing), &budget, None)?);
+    let (reservation, reused) = joined(claim, standing);
+    let established = if reused {
+        resealed(root, &reservation, &budget)?
+    } else {
+        sealed(root, &reservation, &budget, None)?
+    };
+    commit = commit.and(established);
     // Committed last: a refused admission never moves a retirement into history.
     commit = commit.and(superseded(root, &mut found.historical, claim, &budget)?);
     Ok(Held {
@@ -637,29 +654,6 @@ pub(super) fn admit_with(
         authored: claim.authored.clone(),
         adopted: None,
     })
-}
-
-/// The run's reservation with `claim`'s attempt standing in it: the one
-/// `standing` holds for that very worktree and run, which the inventory
-/// read whole, or a new one.
-fn joined(claim: &Claim, standing: Vec<Standing>) -> Reservation {
-    let mine = |held: &Reservation| (held.repo == claim.repo) & (held.run == claim.run);
-    let mut reservation = standing
-        .into_iter()
-        .filter_map(|held| held.whole)
-        .find(mine)
-        .unwrap_or_else(|| Reservation {
-            repo: claim.repo.clone(),
-            run: claim.run.clone(),
-            workdir: claim.workdir.clone(),
-            artifacts: claim.artifacts.clone(),
-            journal: claim.journal.clone(),
-            attempts: BTreeMap::new(),
-            settled: BTreeSet::new(),
-        });
-    let reserved = claim.reserved.clone();
-    reservation.attempts.insert(claim.attempt.clone(), reserved);
-    reservation
 }
 
 /// Whether the lease `held` still stands at the dispatch door: its
@@ -764,22 +758,4 @@ pub(super) fn identity(path: &Path) -> Result<(u64, u64), Unrooted> {
     let own = found.file_type().is_dir();
     own.then_some((found.dev(), found.ino()))
         .ok_or_else(|| Unrooted::Foreign(path.to_path_buf()))
-}
-
-/// `reservation` sealed in its run's directory below `root`; over the very
-/// record `stood` where one is named, which the caller read, so a record
-/// gone when the seal commits is refused and never made again
-/// ([`Root::reseal`]; decision 0108 ruling 3, #440 fix round 440d5).
-pub(super) fn sealed(
-    root: &Root,
-    reservation: &Reservation,
-    budget: &Budget,
-    stood: Option<Identity>,
-) -> Result<Commit, Unknown> {
-    let run = root.below(&[reservation.repo.as_str(), reservation.run.as_str()])?;
-    let bytes = serde_json::to_vec(reservation).or(Err(Unknown::Unsealed))?;
-    match stood {
-        Some(stood) => root.reseal(&run, RESERVATION, &bytes, budget, stood),
-        None => root.seal(&run, RESERVATION, &bytes, budget),
-    }
 }
