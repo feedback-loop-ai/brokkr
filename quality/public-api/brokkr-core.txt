@@ -1111,7 +1111,9 @@ pub struct brokkr_core::shape::Object<T>(pub T)
 impl<'de, T: serde_core::de::Deserialize<'de>> serde_core::de::Deserialize<'de> for brokkr_core::shape::Object<T>
 pub fn brokkr_core::shape::Object<T>::deserialize<D>(D) -> core::result::Result<brokkr_core::shape::Object<T>, <D as serde_core::de::Deserializer>::Error> where D: serde_core::de::Deserializer<'de>
 pub mod brokkr_core::stamp
+pub struct brokkr_core::stamp::Unwritable
 pub fn brokkr_core::stamp::parse_millis(&str) -> core::option::Option<i64>
+pub fn brokkr_core::stamp::write_millis(time::offset_date_time::OffsetDateTime) -> core::result::Result<alloc::string::String, brokkr_core::stamp::Unwritable>
 pub mod brokkr_core::summary
 pub enum brokkr_core::summary::Carried
 pub brokkr_core::summary::Carried::Account(alloc::boxed::Box<brokkr_core::summary::Account>)
@@ -1346,6 +1348,7 @@ pub enum brokkr_core::ProviderWaitError
 pub brokkr_core::ProviderWaitError::Field
 pub brokkr_core::ProviderWaitError::Field::field: alloc::string::String
 pub brokkr_core::ProviderWaitError::Field::seq: u64
+pub brokkr_core::ProviderWaitError::Until
 pub enum brokkr_core::RefusalCause
 pub brokkr_core::RefusalCause::EpisodeUnreadable
 pub brokkr_core::RefusalCause::HostUnreadable
@@ -1419,6 +1422,8 @@ pub brokkr_core::ProviderWait::seconds: u64
 pub brokkr_core::ProviderWait::site: core::option::Option<alloc::string::String>
 pub brokkr_core::ProviderWait::until: time::offset_date_time::OffsetDateTime
 pub brokkr_core::ProviderWait::words: alloc::string::String
+impl brokkr_core::ProviderWait
+pub fn brokkr_core::ProviderWait::until_stamp(&self) -> core::result::Result<alloc::string::String, brokkr_core::ProviderWaitError>
 pub struct brokkr_core::RunState
 pub brokkr_core::RunState::consecutive_failures: alloc::collections::btree::map::BTreeMap<alloc::string::String, u64>
 pub brokkr_core::RunState::feature: core::option::Option<alloc::string::String>

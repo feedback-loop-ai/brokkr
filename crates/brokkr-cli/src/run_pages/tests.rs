@@ -94,9 +94,21 @@ fn painted(view: &RunView) -> Vec<String> {
     ] {
         for scope in &scopes {
             let lens = lens_for(view, scope.as_ref()).unwrap();
-            frames.push(render::inspect(view, lens.as_ref(), true, &style));
+            frames.push(render::inspect(
+                view,
+                lens.as_ref(),
+                true,
+                &crate::now_rfc3339(),
+                &style,
+            ));
         }
-        frames.push(render::inspect(view, None, false, &style));
+        frames.push(render::inspect(
+            view,
+            None,
+            false,
+            &crate::now_rfc3339(),
+            &style,
+        ));
         frames.push(render::seats(view, &style));
     }
     frames
@@ -369,6 +381,12 @@ fn a_run_past_its_opening_is_read_the_kept_way() {
 /// envelope.
 const PROJECTIONS: usize = 33;
 
+/// The aggregate's two reads, which a whole read makes once (decision 0103
+/// slice 4f): the queue's storage version, then every row in force at the
+/// readout's clock. Neither reads an envelope, and neither grows with the
+/// run.
+const AGGREGATE: usize = 2;
+
 /// The view whole reads its run once (ruling 7): on the grown run, 7,510
 /// events and 151 journal pages, the read `inspect --json`, `seats --json`
 /// and `/api/view` make begins the opening, which verifies and keeps every
@@ -376,7 +394,8 @@ const PROJECTIONS: usize = 33;
 /// for each event of the trail, its 17 events but the checkpoints, by its
 /// seq, and no other: no journal page and no participant's checkpoint
 /// page, so its statements grow with the run's trail and never with its
-/// journal.
+/// journal; and last, the aggregate's two reads, once, which paint a
+/// waiting run (decision 0103 slice 4f).
 #[test]
 fn the_view_whole_reads_its_opening_its_trail_its_summary_and_its_seat_rows() {
     let dir = tempfile::tempdir().unwrap();
@@ -409,7 +428,18 @@ fn the_view_whole_reads_its_opening_its_trail_its_summary_and_its_seat_rows() {
         (format!("{keyed} ORDER BY seq"), 17)
     );
     assert_eq!(envelopes[1..], trail);
-    assert_eq!(begun.len(), 1 + PROJECTIONS + trail.len());
+    let aggregate = |sql: &str| {
+        sql.starts_with("SELECT value FROM meta WHERE key = 'queue_schema'")
+            || sql.starts_with(concat!(
+                "SELECT seq, site, provider, route, until_at, reason, retry_after_seconds, ",
+                "rounds, recorded_at FROM provider_cooldowns WHERE until_at > ",
+            ))
+    };
+    assert_eq!(
+        begun.iter().filter(|sql| aggregate(sql.as_str())).count(),
+        AGGREGATE
+    );
+    assert_eq!(begun.len(), 1 + PROJECTIONS + AGGREGATE + trail.len());
 }
 
 /// The console's frame over the journal at `db`, forced, open on `run`, at

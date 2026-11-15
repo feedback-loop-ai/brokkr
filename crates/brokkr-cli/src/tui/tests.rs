@@ -21,9 +21,7 @@ pub(super) const T0: &str = "2026-01-01T00:00:00Z";
 const T1: &str = "2026-01-01T00:00:05Z";
 const T2: &str = "2026-01-01T00:02:03Z";
 pub(super) const NOW: &str = "2026-01-01T00:07:03Z";
-
 // -------------------------------------------------------------- fixtures
-
 /// The console's read of the one-hearth journal `db`, frame by frame, at the test clock.
 pub(super) fn reading(db: &Path) -> impl FnMut(Ask) -> Result<Refreshed> + '_ {
     let mut head = None;
@@ -33,18 +31,16 @@ pub(super) fn reading(db: &Path) -> impl FnMut(Ask) -> Result<Refreshed> + '_ {
 fn ev(seq: u64, event_type: EventType, payload: Value, at: &str) -> EventEnvelope {
     EnvelopeBuilder::new(event_type, payload)
         .run("run-7")
-        .correlation("corr")
+        .correlation("corr-tui")
         .seq(seq)
         .event_id(format!("ev{seq}"))
-        .at(at)
         .previous("")
+        .at(at)
         .build()
 }
-
 fn state() -> RunState {
     state_of(Status::Running)
 }
-
 pub(super) fn state_of(status: Status) -> RunState {
     let mut state = run_state("run-7", 18, standing(status, "needs a human"));
     state.phase = Some("design".to_string());
@@ -53,7 +49,6 @@ pub(super) fn state_of(status: Status) -> RunState {
     state.feature = Some("one derivation, three surfaces".to_string());
     state
 }
-
 /// An intake seat that concluded, then a design sequence: a forked step
 /// with two members, a one-member step, and a bare member still working.
 /// Every shape the graph draws, in one run.
@@ -168,16 +163,15 @@ pub(super) fn journal(seat: &str) -> Vec<EventEnvelope> {
     ));
     events
 }
-
 fn run_view_for(seat: &str) -> RunView {
     brokkr_view::run_view(&journal(seat), Some(&state()))
 }
-
 /// Two runs, and one whose journal does not fold and whose stamp does not parse.
 fn fleet() -> RunsView {
     let folded = state();
     let refused = brokkr_view::Quarantine::DoesNotFold.in_words("event 4: refused");
     let entry = |run_id, feature, created_at, state| brokkr_view::RunEntry {
+        waits: Default::default(),
         run_id,
         feature,
         created_at,
@@ -197,9 +191,8 @@ fn fleet() -> RunsView {
         entry("run-old", "an older feature", T0, Some(&folded)),
         entry("run-7", "one derivation, three surfaces", T1, Some(&folded)),
     ];
-    brokkr_view::run_rows(&entries)
+    brokkr_view::run_rows(&entries, &[])
 }
-
 /// The fixture fleet at the fixture clock, `run` read beside it.
 pub(super) fn over_fleet(run: Option<RunView>) -> Views {
     Views {
@@ -209,7 +202,6 @@ pub(super) fn over_fleet(run: Option<RunView>) -> Views {
         ..Views::empty()
     }
 }
-
 fn views_with(seat: &str) -> Views {
     over_fleet(Some(run_view_for(seat)))
 }
@@ -668,16 +660,20 @@ fn a_second_selection_replaces_the_first_and_a_vanished_subject_clears_itself() 
     assert_eq!(tui.run.as_deref(), Some("run-7"), "no fleet, no evidence");
     let others = Views {
         now: NOW.to_string(),
-        runs: brokkr_view::run_rows(&[brokkr_view::RunEntry {
-            run_id: "run-other",
-            feature: "another run",
-            created_at: T0,
-            last_recorded_at: None,
-            state: None,
-            detail: None,
-            residuals: &[],
-            closing: None,
-        }]),
+        runs: brokkr_view::run_rows(
+            &[brokkr_view::RunEntry {
+                waits: Default::default(),
+                run_id: "run-other",
+                feature: "another run",
+                created_at: T0,
+                last_recorded_at: None,
+                state: None,
+                detail: None,
+                residuals: &[],
+                closing: None,
+            }],
+            &[],
+        ),
         run: None,
         transcript: None,
         note: None,
@@ -1496,16 +1492,20 @@ pub(super) fn panel_views() -> Views {
     let stopped = state_of(Status::Stopped);
     Views {
         now: NOW.to_string(),
-        runs: brokkr_view::run_rows(&[brokkr_view::RunEntry {
-            run_id: "run-stopped",
-            feature: "a run that stopped",
-            created_at: T0,
-            last_recorded_at: None,
-            state: Some(&stopped),
-            detail: None,
-            residuals: &[],
-            closing: None,
-        }]),
+        runs: brokkr_view::run_rows(
+            &[brokkr_view::RunEntry {
+                waits: Default::default(),
+                run_id: "run-stopped",
+                feature: "a run that stopped",
+                created_at: T0,
+                last_recorded_at: None,
+                state: Some(&stopped),
+                detail: None,
+                residuals: &[],
+                closing: None,
+            }],
+            &[],
+        ),
         run: Some(brokkr_view::run_view(&events, Some(&stopped))),
         transcript: None,
         note: None,

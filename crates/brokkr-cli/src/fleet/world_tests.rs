@@ -239,7 +239,7 @@ fn a_one_hearth_listing_a_page_of_which_will_not_read_is_refused_in_the_stores_w
 
 /// [`world`] as `brokkr runs --json` prints it.
 const WORLD_JSON: &str = r#"{
-  "view_version": 30,
+  "view_version": 31,
   "realms": [
     {
       "realm": "alpha",
@@ -271,6 +271,9 @@ const WORLD_JSON: &str = r#"{
             "reason": null,
             "text": "does not fold",
             "detail": null
+          },
+          "waits": {
+            "waits": []
           },
           "hire": null
         },
@@ -312,6 +315,9 @@ const WORLD_JSON: &str = r#"{
             "text": "HOLD",
             "detail": null
           },
+          "waits": {
+            "waits": []
+          },
           "hire": null
         },
         {
@@ -341,6 +347,9 @@ const WORLD_JSON: &str = r#"{
             "text": "",
             "detail": null
           },
+          "waits": {
+            "waits": []
+          },
           "hire": null
         },
         {
@@ -369,6 +378,9 @@ const WORLD_JSON: &str = r#"{
             "reason": null,
             "text": "—",
             "detail": null
+          },
+          "waits": {
+            "waits": []
           },
           "hire": null
         }
@@ -424,6 +436,9 @@ const WORLD_JSON: &str = r#"{
             "reason": null,
             "text": "",
             "detail": null
+          },
+          "waits": {
+            "waits": []
           },
           "hire": null
         }

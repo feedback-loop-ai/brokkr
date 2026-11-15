@@ -58,6 +58,27 @@ impl Store {
         })
     }
 
+    /// The event a run holds at `seq`, or `None` where no row is there:
+    /// the one event a readout needs from a summary row whose head stands
+    /// (decision 0103 slice 4f), read by its primary key and never the
+    /// run whole.
+    pub fn last_event(&self, run_id: &str, seq: u64) -> Result<Option<EventEnvelope>, StoreError> {
+        let seq = i64::try_from(seq).map_err(|_| StoreError::UnknownHead { seq })?;
+        patiently("last_event", self.patience, || {
+            let raw: Option<String> = self
+                .conn
+                .query_row(
+                    "SELECT envelope FROM events WHERE run_id = ?1 AND seq = ?2",
+                    params![run_id, seq],
+                    |row| row.get(0),
+                )
+                .optional()?;
+            raw.map(|raw| serde_json::from_str(&raw))
+                .transpose()
+                .map_err(StoreError::from)
+        })
+    }
+
     /// How many rows each run of `heads` holds at or below its seq, in
     /// `heads`' order: one query, counted over the `(run_id, seq)` key with
     /// no envelope read. A chain verified from seq 1 to a head holds

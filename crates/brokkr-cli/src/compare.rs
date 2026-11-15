@@ -206,6 +206,8 @@ fn current(store: &Store, run_id: &str, opened: &Opened) -> Result<Option<Read>>
         causes: &causes,
         head_seq: opened.seq,
         last_at: &last_at,
+        waits: brokkr_view::WaitFact::of(trail.last()),
+        cooling: Vec::new(),
     };
     let Some(view) = composed_view(&parts, Some(state.as_ref())) else {
         return Ok(None);

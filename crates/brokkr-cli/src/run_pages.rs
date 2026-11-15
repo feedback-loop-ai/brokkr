@@ -29,7 +29,9 @@ use brokkr_core::fold::{fold, FoldError, RunState};
 use brokkr_core::seat::row::SeatRow;
 use brokkr_core::{EventEnvelope, EventType};
 use brokkr_store::{Opened, RunRead, Store, StoreError};
-use brokkr_view::{composed_view, composed_whole, seat_keys, Participant, Parts, RunView};
+use brokkr_view::{
+    composed_view, composed_whole, seat_keys, Cooling, Participant, Parts, RunView, WaitFact,
+};
 
 /// What a reader shows of a run, and so what it reads.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -103,7 +105,8 @@ pub(crate) fn participants(
 fn whole(store: &Store, run: &str) -> Result<Viewed, StoreError> {
     let events = store.load(run)?;
     let folded = fold(&events);
-    let view = brokkr_view::run_view(&events, folded.as_ref().ok());
+    let cooling = crate::fleet::cooling(store, &crate::now_rfc3339())?;
+    let view = brokkr_view::run_view_with(&events, folded.as_ref().ok(), &cooling);
     Ok(Viewed { view, folded })
 }
 
@@ -118,6 +121,8 @@ struct Frame {
     causes: BTreeMap<String, u64>,
     state: Box<RunState>,
     last_at: String,
+    /// The aggregate read with this frame, passed into the view as data.
+    cooling: Vec<Cooling>,
 }
 
 impl Frame {
@@ -143,6 +148,7 @@ impl Frame {
             causes,
             state,
             last_at,
+            cooling: crate::fleet::cooling(store, &crate::now_rfc3339())?,
         }))
     }
 
@@ -157,6 +163,8 @@ impl Frame {
             causes: &self.causes,
             head_seq: self.head,
             last_at: &self.last_at,
+            waits: WaitFact::of(self.trail.last()),
+            cooling: self.cooling.clone(),
         };
         composed_view(&parts, Some(&self.state))
     }
@@ -179,7 +187,7 @@ fn composed(
     let view = match journal {
         Some(journal) => {
             let (trail, seats, state) = (&frame.trail, &frame.seats, Some(&*frame.state));
-            composed_whole(trail, seats, journal, &frame.last_at, state)
+            composed_whole(trail, seats, journal, &frame.last_at, state, &frame.cooling)
         }
         None => frame.view(),
     };
@@ -218,9 +226,9 @@ enum Held {
     /// Through the pages: one read's frame, and a bounded window of each
     /// participant the screen shows, by its key, oldest first by seq.
     Paged(Frame, Checkpoints),
-    /// Read whole, as before the pages (ruling 8): the run's events and
-    /// their fold, none where it refuses.
-    Whole(Vec<EventEnvelope>, Option<Box<RunState>>),
+    /// Read whole, as before the pages (ruling 8): the run's events, their
+    /// fold (none where it refuses), and the aggregate its waits read.
+    Whole(Vec<EventEnvelope>, Option<Box<RunState>>, Vec<Cooling>),
 }
 
 impl Shown {
@@ -243,7 +251,9 @@ impl Shown {
                 }
                 view
             }
-            Held::Whole(events, state) => brokkr_view::run_view(events, state.as_deref()),
+            Held::Whole(events, state, cooling) => {
+                brokkr_view::run_view_with(events, state.as_deref(), cooling)
+            }
         }
     }
 
@@ -263,7 +273,7 @@ impl Shown {
     pub(crate) fn end(&self, asked: &Console) -> Option<usize> {
         match &self.read {
             Held::Paged(_, held) => held.total,
-            Held::Whole(_, state) => match asked {
+            Held::Whole(_, state, _) => match asked {
                 Console::Run => None,
                 Console::Detail => {
                     // The column's stream is the hired seat's, as the paged
@@ -573,8 +583,9 @@ fn read_at(
 /// `run` read whole and folded, as before the pages (ruling 8).
 fn whole_read(store: &Store, run: &str) -> Result<(Held, usize), StoreError> {
     let events = store.load(run)?;
+    let cooling = crate::fleet::cooling(store, &crate::now_rfc3339())?;
     let (state, loaded) = (fold(&events).ok().map(Box::new), events.len());
-    Ok((Held::Whole(events, state), loaded))
+    Ok((Held::Whole(events, state, cooling), loaded))
 }
 
 /// One read's frame and a page of each participant `asked` shows, extended

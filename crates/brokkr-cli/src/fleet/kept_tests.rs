@@ -21,12 +21,12 @@ fn whole_rows(db: &Path) -> String {
     let store = Store::open_read_only(db).unwrap();
     let listed = read_hearth(&store).listed().unwrap();
     let entries: Vec<_> = listed.iter().map(ListedRun::entry).collect();
-    serde_json::to_string_pretty(&brokkr_view::run_rows(&entries)).unwrap()
+    serde_json::to_string_pretty(&brokkr_view::run_rows(&entries, &[])).unwrap()
 }
 
 /// The fleet as `kept` derives it.
 fn kept_rows(kept: &KeptFleet) -> String {
-    serde_json::to_string_pretty(&brokkr_view::run_rows(&kept.entries())).unwrap()
+    serde_json::to_string_pretty(&brokkr_view::run_rows(&kept.entries(), &[])).unwrap()
 }
 
 /// One refresh of `kept` over a fresh read-only connection, as the

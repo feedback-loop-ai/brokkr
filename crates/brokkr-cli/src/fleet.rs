@@ -16,6 +16,8 @@ use brokkr_core::fold::{fold, FoldError, RunState};
 use brokkr_core::EventEnvelope;
 use brokkr_runtime::realms::Hearth;
 use brokkr_store::Store;
+use time::format_description::well_known::Rfc3339;
+use time::OffsetDateTime;
 
 mod kept;
 #[cfg(test)]
@@ -31,6 +33,32 @@ pub(crate) use kept::{Journal, KeptFleet};
 pub(crate) use listing::{cursor, list_hearth, Called, Filter, PageRefused};
 pub(crate) use page::{one, refused_row, Ask, Pages};
 pub(crate) use world::list_world;
+
+/// The aggregate every readout paints: every cool-down in force at `now`,
+/// read once by the caller and passed into brokkr-view as data (decision
+/// 0103 slice 4f). The view is pure and opens no store; a clock that does
+/// not read falls back to the wall clock rather than reading no row. Its
+/// end is written by brokkr-core's one stamp writer, never by the raw
+/// `Display` of a time: a row whose end cannot be written is not passed
+/// on, and the event's own end stands.
+pub(crate) fn cooling(
+    store: &Store,
+    now: &str,
+) -> Result<Vec<brokkr_view::Cooling>, brokkr_store::StoreError> {
+    let at = OffsetDateTime::parse(now, &Rfc3339).unwrap_or_else(|_| OffsetDateTime::now_utc());
+    Ok(store
+        .cooldowns_in_force(at)?
+        .into_iter()
+        .filter_map(|row| {
+            let until = brokkr_core::stamp::write_millis(row.until_at).ok()?;
+            Some(brokkr_view::Cooling {
+                provider: row.provider,
+                route: row.route,
+                until,
+            })
+        })
+        .collect())
+}
 
 /// Why a listed run carries no state, and where its citation points.
 pub(crate) struct Quarantine {
@@ -74,6 +102,7 @@ impl ListedRun {
             self.events.last().map(|event| event.recorded_at.as_str()),
             state,
             (&self.residuals, ended(&self.events, state)),
+            &brokkr_view::WaitFact::of(self.events.last()),
         )
     }
 }
@@ -101,6 +130,7 @@ fn entry<'a>(
     last_recorded_at: Option<&'a str>,
     state: Result<&'a RunState, &'a Quarantine>,
     (residuals, closing): (&'a [brokkr_view::ResidualFinding], Option<Closing>),
+    waits: &brokkr_view::WaitFact,
 ) -> brokkr_view::RunEntry<'a> {
     brokkr_view::RunEntry {
         run_id: listing.run_id,
@@ -114,6 +144,7 @@ fn entry<'a>(
         }),
         residuals,
         closing,
+        waits: waits.clone(),
     }
 }
 

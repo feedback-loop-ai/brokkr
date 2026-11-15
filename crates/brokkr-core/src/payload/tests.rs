@@ -294,6 +294,36 @@ fn the_provider_wait_extension_reads() {
     assert_eq!(provider_waits(&none).unwrap(), None);
 }
 
+/// Decision 0103 slice 4f: a wait's end is written by brokkr-core, beside
+/// `stamp::parse_millis`, so the view paints the same stamp the parser
+/// reads and needs no clock crate. A wait built past the reader, whose end
+/// the RFC cannot spell, refuses by the field's name instead of painting
+/// its `Display`.
+#[test]
+fn a_wait_s_until_is_written_by_core_and_round_trips_through_parse_millis() {
+    let valid = event(
+        Type::EffectFailed,
+        json!({"effect_id": "e", "waits": [{
+            "site": "a", "provider": "claude", "route": "anthropic",
+            "words": "rate_limit", "seconds": 30,
+            "until": "2026-11-01T00:00:30Z", "rounds": 1
+        }]}),
+    );
+    let wait = provider_waits(&valid).unwrap().unwrap().remove(0);
+    let stamp = wait.until_stamp().unwrap();
+    assert_eq!(stamp, "2026-11-01T00:00:30Z");
+    assert_eq!(
+        crate::stamp::parse_millis(&stamp),
+        crate::stamp::parse_millis("2026-11-01T00:00:30Z")
+    );
+
+    let mut unspellable = wait;
+    unspellable.until = unspellable.until.replace_year(-1).unwrap();
+    let error = unspellable.until_stamp().unwrap_err();
+    assert_eq!(error, ProviderWaitError::Until);
+    assert_eq!(error.to_string(), "the waits entry does not read: until");
+}
+
 /// The reader refuses `payload` naming `field`, never as no wait.
 fn refuses_by_name(payload: Value, field: &str) {
     let error = provider_waits(&event(Type::EffectFailed, payload)).unwrap_err();

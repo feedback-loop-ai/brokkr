@@ -52,6 +52,10 @@ pub(crate) enum Shape {
     Parked,
     Finished,
     Refused,
+    /// A running run standing in a provider wait that ends an hour from
+    /// the test's `now`, so a clock past the staleness bound still finds
+    /// it waiting and not stale.
+    Waiting,
 }
 
 fn steps(shape: Shape) -> Vec<(EventType, Value)> {
@@ -59,6 +63,17 @@ fn steps(shape: Shape) -> Vec<(EventType, Value)> {
         EventType::RunStarted,
         json!({"feature": "f", "manifest": {}}),
     );
+    let in_flight = [
+        (EventType::PhaseEntered, json!({"phase": "review"})),
+        (
+            EventType::EffectRequested,
+            json!({"effect_id": "e1", "seat": "worker"}),
+        ),
+        (
+            EventType::EffectStarted,
+            json!({"effect_id": "e1", "attempt_id": "a1"}),
+        ),
+    ];
     let reviewed = [
         (EventType::PhaseEntered, json!({"phase": "review"})),
         (
@@ -93,6 +108,14 @@ fn steps(shape: Shape) -> Vec<(EventType, Value)> {
             EventType::OperatorAccepted,
             json!({"command_id": "none", "operator": "op", "reason": "r"}),
         )),
+        Shape::Waiting => steps.extend(in_flight.into_iter().chain([(
+            EventType::EffectFailed,
+            json!({"effect_id": "e1", "waits": [{
+                "site": "a", "provider": "claude", "route": "anthropic",
+                "words": "rate_limit", "seconds": 3600,
+                "until": stamp(now() + HOUR), "rounds": 1
+            }]}),
+        )])),
     }
     steps
 }
@@ -223,7 +246,7 @@ pub(crate) fn whole_rows(db: &Path) -> Vec<RunRow> {
     let store = Store::open_read_only(db).unwrap();
     let listed = read_hearth(&store).listed().unwrap();
     let entries: Vec<_> = listed.iter().map(ListedRun::entry).collect();
-    brokkr_view::run_rows(&entries).runs
+    brokkr_view::run_rows(&entries, &[]).runs
 }
 
 /// `rows` as the whole read lists them by section at [`NOW`].
@@ -324,7 +347,7 @@ fn by_section(rows: &[(Section, RunRow)]) -> Vec<(Section, Vec<String>)> {
 fn refreshed(db: &Path, behind: usize) -> (Store, Pages, usize) {
     let store = Store::open_read_only(db).unwrap();
     let mut pages = Pages::default();
-    let read = pages.refresh(&store, Journal::at(db), behind).unwrap();
+    let read = pages.refresh(&store, Journal::at(db), behind, NOW).unwrap();
     (store, pages, read)
 }
 
@@ -332,13 +355,20 @@ fn refreshed(db: &Path, behind: usize) -> (Store, Pages, usize) {
 /// and the generated one, at a clock either side of every staleness and
 /// day bound, the rows each section pages, in order, are the rows the
 /// whole read lists there; and read with their values whole, every row
-/// is the whole read's, byte for byte.
+/// is the whole read's, byte for byte. A run whose wait is live past the
+/// staleness bound pages in the section its own facts place it in, not
+/// the range the index files it under.
 #[test]
 fn every_page_is_its_sections() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("forge.db");
     fixture_journal(&db);
-    let keyed = generated(&db);
+    let mut keyed = generated(&db);
+    let waiting_at = now() - (STALE + 30 * MINUTE);
+    folded(&db, |conn| {
+        plant(conn, "waiting", Shape::Waiting, &stamp(waiting_at));
+    });
+    keyed.push(("waiting", waiting_at));
     let whole = whole_rows(&db);
     let (store, pages, _) = refreshed(&db, AHEAD_ROWS);
     assert!(matches!(pages, Pages::Summary(_)));
@@ -366,6 +396,64 @@ fn every_page_is_its_sections() {
         .map(|(_, row)| row.run_id.as_str())
         .collect();
     assert_eq!(first, ["park-new", "stale-new", "refused-00"]);
+}
+
+/// Rulings 5, 6 and 7 (decision 0089 ruling 5): a run the index files in
+/// the Running lane below the staleness bound is read by NeedsYou's stale
+/// range and by Running's whole lane. Read whole -- a summary value no
+/// writer writes, or an unread residual -- it lists once, in the section
+/// its fold places it in, in both the paged walk and the whole-values
+/// walk. The stale run with no wait proves the regression is not confined
+/// to waiting runs.
+#[test]
+fn a_run_read_whole_from_the_running_lane_lists_once() {
+    let cases = [
+        (
+            "a summary value no writer writes on a waiting run",
+            "UPDATE run_summary SET residuals = '{not json' WHERE run_id = 'waiting'",
+        ),
+        (
+            "a summary value no writer writes on a stale run",
+            "UPDATE run_summary SET residuals = '{not json' WHERE run_id = 'stale-new'",
+        ),
+        (
+            "a residual no writer words on a waiting run",
+            "UPDATE run_summary SET residual_open = 'bogus' WHERE run_id = 'waiting'",
+        ),
+    ];
+    for (case, write) in cases {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("forge.db");
+        fixture_journal(&db);
+        generated(&db);
+        folded(&db, |conn| {
+            plant(
+                conn,
+                "waiting",
+                Shape::Waiting,
+                &stamp(now() - (STALE + 30 * MINUTE)),
+            );
+        });
+        rusqlite::Connection::open(&db)
+            .unwrap()
+            .execute_batch(write)
+            .unwrap();
+        let whole = whole_rows(&db);
+        let (store, pages, _) = refreshed(&db, AHEAD_ROWS);
+        for (whole_values, limit) in [(false, 7), (true, PAGE_ROWS)] {
+            let listed = paged(&pages, &store, NOW, limit, whole_values);
+            let ids: Vec<&str> = listed.iter().map(|(_, row)| row.run_id.as_str()).collect();
+            let mut once = ids.clone();
+            once.sort_unstable();
+            let repeats = once.windows(2).filter(|pair| pair[0] == pair[1]).count();
+            assert_eq!(repeats, 0, "{case}, whole {whole_values}: {ids:?}");
+            assert_eq!(
+                by_section(&listed),
+                sectioned(&whole, NOW),
+                "{case}, whole {whole_values}"
+            );
+        }
+    }
 }
 
 /// A fresh journal at `db`, its runs planted by `plant_with` and then
@@ -485,7 +573,9 @@ fn a_run_behind_its_summary_is_placed_by_its_fold() {
     assert_eq!(held.verdict.standing, brokkr_view::Standing::Parked);
     assert_eq!(listed.len(), 100);
     assert_eq!(
-        pages.refresh(&store, Journal::at(&db), AHEAD_ROWS).unwrap(),
+        pages
+            .refresh(&store, Journal::at(&db), AHEAD_ROWS, NOW)
+            .unwrap(),
         0
     );
     assert!(!pages.was_read_whole("held"));
@@ -655,7 +745,9 @@ fn refused_ids_cut_alike_are_kept_by_their_whole_ids() {
     let (store, mut pages, _) = refreshed(&db, AHEAD_ROWS);
     assert!(!pages.was_read_whole(&cut) && !pages.was_read_whole(&long));
     assert_eq!(
-        pages.refresh(&store, Journal::at(&db), AHEAD_ROWS).unwrap(),
+        pages
+            .refresh(&store, Journal::at(&db), AHEAD_ROWS, NOW)
+            .unwrap(),
         0
     );
     let ask = Ask {
@@ -714,7 +806,7 @@ fn a_behind_run_whose_head_moves_is_read_whole_again() {
     assert_eq!(read, 2);
     appended_by_an_older_writer(&db, "moving", EventType::RunCompleted, json!({}));
     let journal = Journal::at(&db);
-    assert_eq!(pages.refresh(&store, journal, AHEAD_ROWS).unwrap(), 3);
+    assert_eq!(pages.refresh(&store, journal, AHEAD_ROWS, NOW).unwrap(), 3);
     assert!(pages.was_read_whole("moving"));
     let listed = paged(&pages, &store, NOW, PAGE_ROWS, false);
     let rows: Vec<(Section, Option<&str>)> = listed
@@ -756,10 +848,10 @@ fn a_behind_run_acknowledged_at_its_unmoved_head_lists_acknowledged() {
     )
     .unwrap();
     let journal = Journal::at(&db);
-    assert_eq!(pages.refresh(&store, journal, AHEAD_ROWS).unwrap(), 2);
+    assert_eq!(pages.refresh(&store, journal, AHEAD_ROWS, NOW).unwrap(), 2);
     assert!(pages.was_read_whole("refused"));
     assert_eq!(listed(&pages), [(Section::Older, refused, Some(seq))]);
-    assert_eq!(pages.refresh(&store, journal, AHEAD_ROWS).unwrap(), 0);
+    assert_eq!(pages.refresh(&store, journal, AHEAD_ROWS, NOW).unwrap(), 0);
 }
 
 /// Ruling 6: a run a refresh read whole as behind its summary, which a
@@ -853,7 +945,9 @@ fn every_run_lists_the_runs_behind_past_a_refresh_where_the_whole_read_does() {
     behind_in_every_section(&db);
     let store = Store::open_read_only(&db).unwrap();
     assert_eq!(
-        Pages::listing(&store, Journal::at(&db)).unwrap().unread(),
+        Pages::listing(&store, Journal::at(&db), NOW)
+            .unwrap()
+            .unread(),
         130
     );
     let whole = whole_rows(&db);
@@ -957,7 +1051,9 @@ fn a_journal_the_summary_does_not_page_is_read_the_kept_way() {
     assert!(pages.was_read_whole("conclude-parked-hand-built"));
     assert!(!pages.replaced(Journal::at(&db)));
     drop(Store::open(&db).unwrap());
-    pages.refresh(&store, Journal::at(&db), AHEAD_ROWS).unwrap();
+    pages
+        .refresh(&store, Journal::at(&db), AHEAD_ROWS, NOW)
+        .unwrap();
     assert!(matches!(pages, Pages::Summary(_)));
     assert_eq!(pages.older(&store, NOW).unwrap(), older);
 }
@@ -1359,7 +1455,7 @@ fn listed_rows(db: &Path) -> brokkr_view::RunsView {
     let store = Store::open_read_only(db).unwrap();
     let read = read_hearth(&store);
     let entries: Vec<_> = read.runs.iter().map(ListedRun::entry).collect();
-    brokkr_view::run_rows(&entries)
+    brokkr_view::run_rows(&entries, &[])
 }
 
 /// #909: a run whose accepted stop has no ending reads as stopping on
@@ -1428,7 +1524,7 @@ fn inspect_shows_the_stop_accepted_with_no_ending_and_its_ending_reads_as_before
         let events = store.load(run_id).unwrap();
         let state = fold(&events).unwrap();
         let view = brokkr_view::run_view(&events, Some(&state));
-        let text = crate::render::inspect(&view, None, true, &STYLE);
+        let text = crate::render::inspect(&view, None, true, NOW, &STYLE);
         assert!(text.contains("stopping · phase"), "{run_id}: {text}");
         assert!(
             text.contains(brokkr_view::stopping_detail(seq).as_str()),

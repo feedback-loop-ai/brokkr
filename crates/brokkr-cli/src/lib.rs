@@ -623,7 +623,7 @@ fn watch_loop(
                     last = Some(head);
                     let read = run_pages::viewed(&store, run, run_pages::Shows::Frame)?;
                     let (view, state) = (read.view, read.folded.ok());
-                    let frame = render::inspect(&view, None, false, style);
+                    let frame = render::inspect(&view, None, false, &crate::now_rfc3339(), style);
                     write_frame(out, &frame, is_tty, clock)?;
                     // A park admits no further events until a human acts,
                     // so "keep watching" is an unbounded CI hang. The park

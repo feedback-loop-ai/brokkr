@@ -28,8 +28,8 @@ fn head(phase: &str, decision: Option<Value>, events: &[(EventType, Value)]) -> 
         .collect();
     let view = brokkr_view::run_view(&events, Some(&state));
     let style = Style::plain(100);
-    let inspected = inspect(&view, None, true, &style);
-    let watched = inspect(&view, None, false, &style);
+    let inspected = inspect(&view, None, true, &crate::now_rfc3339(), &style);
+    let watched = inspect(&view, None, false, &crate::now_rfc3339(), &style);
     let lines = |text: &str| text.split("\n\n").next().unwrap().trim_end().to_string();
     assert_eq!(
         lines(&inspected),
@@ -119,7 +119,7 @@ fn the_ending_is_painted_in_its_tone() {
         color: true,
         width: 100,
     };
-    let out = inspect(&view, None, false, &coloured);
+    let out = inspect(&view, None, false, &crate::now_rfc3339(), &coloured);
     let line = "     status stopped · ending \x1b[33mrefused\x1b[0m · phase stop · seq 14\n";
     assert!(out.contains(line), "{out:?}");
 }

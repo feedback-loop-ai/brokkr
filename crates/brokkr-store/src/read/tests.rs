@@ -208,3 +208,25 @@ fn judged(error: StoreError) -> Result<ChainError, (Category, usize, usize)> {
         other => panic!("{other:?}"),
     }
 }
+
+/// The one event a readout reads from a summary row: the row at its seq
+/// and no other, absent where no row is there, and a seq no row can hold
+/// refused as unknown (decision 0103 slice 4f).
+#[test]
+fn last_event_reads_one_row_by_its_key() {
+    let dir = tempfile::tempdir().unwrap();
+    let (store, run) = imported(dir.path());
+    let events = store.load(&run).unwrap();
+    let last = events.last().unwrap();
+    let read = store.last_event(&run, last.seq).unwrap().unwrap();
+    assert_eq!(
+        (read.seq, read.event_hash.as_str(), read.event_type),
+        (last.seq, last.event_hash.as_str(), last.event_type)
+    );
+    assert!(store.last_event(&run, last.seq + 1).unwrap().is_none());
+    assert!(store.last_event("no-such-run", 1).unwrap().is_none());
+    assert!(matches!(
+        store.last_event(&run, u64::MAX),
+        Err(StoreError::UnknownHead { seq }) if seq == u64::MAX
+    ));
+}

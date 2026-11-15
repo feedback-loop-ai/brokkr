@@ -370,7 +370,7 @@ fn fleet_page_with(
     keep: &dyn Fn(&brokkr_view::RunRow) -> bool,
 ) -> Result<Listed, StoreError> {
     let ((page, ahead), older) = store.as_one_read(|| {
-        kept.read = kept.fleet.refresh(store, before, AHEAD_ROWS)?;
+        kept.read = kept.fleet.refresh(store, before, AHEAD_ROWS, now)?;
         let ask = Ask {
             now,
             whole: &|run| Some(run) == selected,

@@ -95,6 +95,7 @@ fn fleet_of_every_status() -> Views {
     let entries: Vec<brokkr_view::RunEntry> = states
         .iter()
         .map(|(run_id, state)| brokkr_view::RunEntry {
+            waits: Default::default(),
             run_id,
             feature: "a run in one status",
             created_at: T0,
@@ -107,7 +108,7 @@ fn fleet_of_every_status() -> Views {
         .collect();
     let mut views = Views::empty();
     views.now = NOW.to_string();
-    views.runs = brokkr_view::run_rows(&entries);
+    views.runs = brokkr_view::run_rows(&entries, &[]);
     views
 }
 

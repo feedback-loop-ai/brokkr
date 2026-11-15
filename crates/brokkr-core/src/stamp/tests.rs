@@ -1,6 +1,24 @@
 use super::*;
 
 #[test]
+fn write_millis_writes_the_stamp_parse_millis_reads() {
+    for stamp in [
+        "1970-01-01T00:00:00Z",
+        "2026-01-02T00:00:00.123Z",
+        "1970-01-01T01:00:00+01:00",
+    ] {
+        let at = OffsetDateTime::parse(stamp, &Rfc3339).unwrap();
+        let written = write_millis(at).unwrap();
+        assert_eq!(parse_millis(&written), parse_millis(stamp), "{stamp}");
+    }
+    let ancient = OffsetDateTime::from_unix_timestamp_nanos(0)
+        .unwrap()
+        .replace_year(-1)
+        .unwrap();
+    assert_eq!(write_millis(ancient), Err(Unwritable));
+}
+
+#[test]
 fn parse_millis_reads_journal_stamps_and_refuses_everything_else() {
     assert_eq!(parse_millis("1970-01-01T00:00:00Z"), Some(0));
     assert_eq!(parse_millis("1970-01-01T00:00:01Z"), Some(1_000));

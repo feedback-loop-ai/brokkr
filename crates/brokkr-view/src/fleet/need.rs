@@ -142,8 +142,10 @@ fn resume(run_id: &str) -> String {
 /// acknowledged where it stands (#511), or a running journal silent for longer
 /// than the bound — the longest attempt deadline a shipped seat holds
 /// and a margin past it, against the time of the run's last event. A
-/// run is stale only on that evidence: a clock or a last event whose
-/// time does not read never makes one.
+/// waiting run is not stale while its wait's end has not passed: the
+/// wait's end extends the bound, and the ordinary bound applies once it
+/// has. A run is stale only on that evidence: a clock or a last event
+/// whose time does not read never makes one.
 pub fn need(row: &RunRow, now: &str) -> Option<Need> {
     match row.verdict.standing {
         Standing::Quarantined if row.acknowledgement.is_some() => None,
@@ -154,6 +156,9 @@ pub fn need(row: &RunRow, now: &str) -> Option<Need> {
             .detail
             .clone()
             .map(|detail| Need::Stopping { detail }),
+        // A wait is not a park: a run standing in one is never "needs you"
+        // while its end has not passed (decision 0103 ruling 2(a)).
+        Standing::Running if row.waits.live(now) => None,
         Standing::Running => silence(row, now).map(|silent| Need::Stale { silent }),
         Standing::Shipped | Standing::Stopped | Standing::OperatorStopped => None,
     }

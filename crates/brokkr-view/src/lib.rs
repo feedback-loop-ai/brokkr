@@ -86,11 +86,12 @@ use dashboard::dashboard;
 pub use dashboard::working_participants;
 pub use dashboard::{working_checkpoints, Concluded, Dashboard, Decision, Outcome, Ruled, Visit};
 pub use fleet::{
-    at_work, behind_line, fleet_rows, late_line, need, page, ranges, run_row, run_rows, section_of,
-    section_of_rows, sections, stopping_detail, summary_row, title, title_within, window, wrap,
-    Acknowledgement, Cursor, CursorError, HearthEntries, Hire, LateEvent, LateRange, LateTail,
-    Need, Page, Paged, Quarantine, Refusal, RunRow, Section, Standing, Verdict, AHEAD_ROWS,
-    PAGE_ROWS, TITLE_COLUMNS, VERDICT_COLUMNS,
+    at_work, behind_line, fleet_rows, late_line, need, page, ranges, run_row, run_rows,
+    run_view_with, section_of, section_of_rows, sections, stopping_detail, summary_row, title,
+    title_within, window, wrap, Acknowledgement, Cooling, Cursor, CursorError, HearthEntries, Hire,
+    LateEvent, LateRange, LateTail, Need, Page, Paged, Quarantine, Refusal, RunRow, Section,
+    Standing, Verdict, Wait, WaitFact, Waits, AHEAD_ROWS, PAGE_ROWS, TITLE_COLUMNS,
+    VERDICT_COLUMNS,
 };
 pub use graph::{
     graph, GraphError, GraphQuery, GraphResolution, GraphTable, GraphView, Table,
@@ -172,7 +173,8 @@ use serde_json::Value;
 /// Bumped to 29 by decision 0064: rows and summaries carry `ending`, `ending_cited`, `wants`.
 /// Bumped to 30 by decision 0108 ruling 4: a row and a summary carry the late
 /// tail an operator's repair named, kept and never applied.
-pub const VIEW_VERSION: u32 = 30;
+/// Bumped to 31 by decision 0103 slice 4f: a run row and the run view carry `waits`.
+pub const VIEW_VERSION: u32 = 31;
 
 /// The note every absent boundary cell carries (decision 0046 ruling 3;
 /// design DD13): a journal written before the boundary was named, a
@@ -225,6 +227,8 @@ pub struct RunEntry<'a> {
     pub residuals: &'a [ResidualFinding],
     /// Its ending, as `brokkr_core::ending::closing` reads its events.
     pub closing: Option<brokkr_core::ending::Closing>,
+    /// The waits its last event states (decision 0103 slice 4f).
+    pub waits: WaitFact,
 }
 
 #[derive(Serialize)]
@@ -576,6 +580,7 @@ pub struct RunView {
     pub worktree: Option<String>,
     /// The recipe the run started under, as its start recorded it (#568).
     pub recipe: Option<String>,
+    pub waits: Waits,
 }
 
 // --------------------------------------------------------------- helpers
@@ -2334,7 +2339,10 @@ pub fn run_view(events: &[EventEnvelope], state: Option<&RunState>) -> RunView {
         event_count: events.len(),
         dashboard: dashboard(applied),
     };
-    viewed(applied, &scan, &buckets, &marks, read, state)
+    // The applied trail's last event: a late tail's event is kept and
+    // never applied (decision 0108 ruling 4), so it never stands a wait.
+    let waits = Waits::of(&WaitFact::of(applied.last()), &[]);
+    viewed(applied, &scan, &buckets, &marks, read, state, waits)
 }
 
 /// What a run view reads beside its trail: the live block, the journal's
@@ -2356,6 +2364,7 @@ fn viewed(
     marks: &BTreeMap<u64, Superseded>,
     read: Read,
     state: Option<&RunState>,
+    waits: Waits,
 ) -> RunView {
     // The ruling the summary carries is the LAST one ruled, so that is
     // the seq an annotation must name for the header line to be marked
@@ -2396,6 +2405,7 @@ fn viewed(
         worktree: worktree(events),
         recipe: brokkr_core::summary::aggregate(events, None).recipe,
         entry: entry::of_events(events),
+        waits,
     }
 }
 

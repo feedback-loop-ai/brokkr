@@ -108,7 +108,7 @@ fn every_run_reader_reads_through_the_pages() {
     let frame = viewed(&store, "r1", Shows::Frame).unwrap().view;
     let clock = || "2026-01-01T00:00:00Z".to_string();
     let mut painted = Vec::new();
-    let frame = render::inspect(&frame, None, false, &style);
+    let frame = render::inspect(&frame, None, false, &crate::now_rfc3339(), &style);
     write_frame(&mut painted, &frame, false, &mut clock.clone()).unwrap();
     let mut watched = Vec::new();
     let mut tick = clock;
@@ -206,7 +206,7 @@ fn inspect_and_seats_print_the_pages_by_their_own_entry_points() {
     };
     for run in ["r1", "r2"] {
         let frame = read(run, Shows::Frame);
-        let inspected = render::inspect(&frame, None, true, &style);
+        let inspected = render::inspect(&frame, None, true, &crate::now_rfc3339(), &style);
         assert_eq!(inspect(run, false, None).unwrap(), inspected, "{run}");
         assert_eq!(seats(run, false), render::seats(&frame, &style), "{run}");
         let whole = served(read(run, Shows::Everything));
@@ -227,7 +227,7 @@ fn inspect_and_seats_print_the_pages_by_their_own_entry_points() {
     assert_eq!(asked.take(), [&shown[..], &shown, &both].concat());
     // What the bytes tell apart: `r1`'s pages from its run read whole, and
     // `r2`'s view whole from its frame.
-    let painted = |view| render::inspect(&view, None, true, &style);
+    let painted = |view| render::inspect(&view, None, true, &crate::now_rfc3339(), &style);
     assert_ne!(painted(read("r1", Shows::Frame)), painted(today("r1")));
     assert_ne!(served(read("r1", Shows::Everything)), served(today("r1")));
     let framed = served(read("r2", Shows::Frame));
@@ -307,4 +307,49 @@ fn a_retired_call_prints_its_words_and_a_host_with_no_home_has_no_history() {
     env.remove("HOME");
     let history = retired_at(Path::new("/evidence/root")).unwrap();
     assert_eq!((history.current, history.superseded), (None, Vec::new()));
+}
+
+/// `brokkr runs` paints a cooling run's wait on its row: the provider, the
+/// route, the aggregate's later end and the provider's words (decision
+/// 0103 slice 4f). The row reads `running`, never "needs you", and the
+/// summary read paints the probe's later round, not the event's first end.
+#[test]
+fn runs_paints_a_cooling_run_with_the_aggregate_s_later_end() {
+    use crate::fleet::Called;
+    use crate::tests::cooling::{assert_painted, cooling_journal};
+
+    let (_dir, db) = cooling_journal();
+    let style = render::Style::plain(200);
+    let mut out = Vec::new();
+    crate::verbs::readouts::hearth_runs(
+        (&db, "realm"),
+        (false, None, None),
+        (
+            crate::fleet::Filter::default(),
+            Called {
+                db: Some(&db),
+                realms: None,
+            },
+        ),
+        &style,
+        &mut out,
+    )
+    .unwrap();
+    let printed = String::from_utf8(out).unwrap();
+    assert!(printed.contains("running"), "{printed}");
+    assert_painted(&printed);
+    assert!(!printed.contains("needs you"), "{printed}");
+}
+
+/// `brokkr inspect` shows the same wait from the same derivation: its
+/// aggregate end and the provider's words, and not the event's first end.
+#[test]
+fn inspect_shows_a_cooling_run_s_wait_with_the_aggregate_s_later_end() {
+    use crate::tests::cooling::{assert_painted, cooling_journal};
+
+    let (dir, db) = cooling_journal();
+    let mut out = Vec::new();
+    super::inspect(dir.path(), inspect_args(&db, "r1", false, None), &mut out).unwrap();
+    let printed = String::from_utf8(out).unwrap();
+    assert_painted(&printed);
 }

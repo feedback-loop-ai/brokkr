@@ -290,6 +290,7 @@ fn the_behind_lane_refuses_an_id_no_writer_admits() {
     let refused = Unread {
         run_id: long.clone(),
         order_at: i64::MAX,
+        lane_running: false,
         why: RowRefusal::RunIdPastBound,
     };
     assert_eq!((listed, beyond), (vec![Err(refused)], 1));
@@ -487,15 +488,25 @@ fn an_acknowledged_refusal_reads_its_copy_and_its_words_whole() {
 fn a_row_no_writer_writes_is_refused_at_the_edge() {
     let null = "Invalid column type Null at index: 2, name: feature_line";
     let edits = [
-        ("status = 'paused'", RowRefusal::Status("paused".into())),
+        (
+            "status = 'paused'",
+            false,
+            RowRefusal::Status("paused".into()),
+        ),
         (
             "residual_open = 'dire'",
+            true,
             RowRefusal::Severity("dire".into()),
         ),
-        ("feature_line = NULL", RowRefusal::Column(null.into())),
-        ("ending = 'by_rule'", RowRefusal::Ending("by_rule".into())),
+        ("feature_line = NULL", true, RowRefusal::Column(null.into())),
+        (
+            "ending = 'by_rule'",
+            true,
+            RowRefusal::Ending("by_rule".into()),
+        ),
         (
             "ending = 'shipped'",
+            true,
             RowRefusal::Column(
                 "Invalid column type Null at index: 27, name: ending_stood_over".into(),
             ),
@@ -503,7 +514,7 @@ fn a_row_no_writer_writes_is_refused_at_the_edge() {
     ];
     // A status no writer words lists as finished, as the lane reads it.
     let running = [lane(Lane::Running, None), lane(Lane::Finished, None)];
-    for (edit, why) in edits {
+    for (edit, lane_running, why) in edits {
         let (_dir, store) = one(Width::Narrow, Standing::Running);
         let edit = format!("UPDATE run_summary SET {edit}");
         store.conn.execute_batch(&edit).unwrap();
@@ -514,6 +525,7 @@ fn a_row_no_writer_writes_is_refused_at_the_edge() {
             [Err(Unread {
                 run_id,
                 order_at: now(),
+                lane_running,
                 why
             })]
         );

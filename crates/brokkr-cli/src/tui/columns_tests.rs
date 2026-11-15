@@ -694,6 +694,7 @@ fn many_older(count: usize) -> Views {
     let entries: Vec<brokkr_view::RunEntry> = ids
         .iter()
         .map(|id| brokkr_view::RunEntry {
+            waits: Default::default(),
             run_id: id,
             feature: "An older run",
             created_at: OLDER,
@@ -705,7 +706,10 @@ fn many_older(count: usize) -> Views {
         })
         .collect();
     let mut views = fleet_with_a_dead_run();
-    views.runs.runs.extend(brokkr_view::run_rows(&entries).runs);
+    views
+        .runs
+        .runs
+        .extend(brokkr_view::run_rows(&entries, &[]).runs);
     views
 }
 

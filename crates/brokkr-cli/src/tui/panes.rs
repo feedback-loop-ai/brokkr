@@ -290,6 +290,10 @@ pub(super) fn title_lines(tui: &Tui, views: &Views, row: &RunRow) -> Vec<String>
             .as_ref()
             .map(brokkr_view::Acknowledgement::line),
     );
+    // The provider waits the row's last event states, with the aggregate's
+    // later end (decision 0103 slice 4f): the same lines `brokkr runs`
+    // prints, derived once in brokkr-view.
+    lines.extend(row.waits.lines(&views.now));
     if opened(tui, row) {
         lines.extend(opened_lines(row, &views.now));
     }

@@ -29,6 +29,7 @@ pub fn run_frame_for_budget(
     let first = events.first();
     let run_id = first.map_or("", |event| event.run_id.as_str());
     let entry = brokkr_view::RunEntry {
+        waits: Default::default(),
         run_id,
         feature: state
             .as_ref()
@@ -46,7 +47,7 @@ pub fn run_frame_for_budget(
     let views = Views {
         start: 0,
         now: now.to_string(),
-        runs: brokkr_view::run_rows(&[entry]),
+        runs: brokkr_view::run_rows(&[entry], &[]),
         run: Some(brokkr_view::run_view(events, state.as_ref())),
         transcript: None,
         note: None,
@@ -275,6 +276,6 @@ pub fn run_readout_for_budget(db: &Path, run: &str, whole: bool) -> Result<Strin
     };
     Ok(match whole {
         true => serde_json::to_string_pretty(&view.with_scopes()).expect("the run view serializes"),
-        false => crate::render::inspect(&view, None, false, &style),
+        false => crate::render::inspect(&view, None, false, &crate::now_rfc3339(), &style),
     })
 }

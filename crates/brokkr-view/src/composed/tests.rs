@@ -3,6 +3,7 @@ use serde_json::json;
 
 use super::*;
 use crate::tests::ev;
+use crate::WaitFact;
 
 /// A participant is read by its row's request, effect and member, and its
 /// own model and pin, at the places `SeatRow::COLUMNS` names them.
@@ -172,6 +173,8 @@ fn rows_naming_a_request_the_trail_does_not_ask_compose_no_view() {
             causes: &causes,
             head_seq: 3,
             last_at: at,
+            waits: WaitFact::default(),
+            cooling: Vec::new(),
         };
         composed_view(&parts, None).map(|view| view.participants.len())
     };
@@ -223,7 +226,7 @@ fn a_run_composed_whole_is_its_run_view() {
     };
     let whole = |events: &[EventEnvelope], trail: &[EventEnvelope]| {
         let account = Account::whole("r", events);
-        let view = composed_whole(trail, account.seats(), events, at, None);
+        let view = composed_whole(trail, account.seats(), events, at, None, &[]);
         view.map(|view| serde_json::to_string(&view).unwrap())
     };
     events.push(checkpoint(8, "e:x", None));
@@ -285,6 +288,8 @@ fn a_page_holding_the_acceptance_keeps_the_command_its_trail_holds() {
         causes: &causes,
         head_seq: 4,
         last_at: at,
+        waits: WaitFact::NoWait,
+        cooling: Vec::new(),
     };
     let composed = composed_view(&parts, None).unwrap();
     let whole = crate::run_view(&events, None);
@@ -359,6 +364,8 @@ fn a_reused_command_id_keeps_each_disposition_at_its_own_time() {
         causes: &causes,
         head_seq: 8,
         last_at: AT,
+        waits: WaitFact::default(),
+        cooling: Vec::new(),
     };
     let composed = composed_view(&parts, None).unwrap();
     let whole = crate::run_view(&events, None);
@@ -404,7 +411,7 @@ fn an_early_checkpoint_keeps_its_journal_time_label() {
         !account.seats_kept(),
         "a checkpoint before its request keeps no seat head"
     );
-    let composed = composed_whole(&trail, account.seats(), &events, AT, None).unwrap();
+    let composed = composed_whole(&trail, account.seats(), &events, AT, None, &[]).unwrap();
     let whole = crate::run_view(&events, None);
     let lines = |view: &RunView| {
         view.live

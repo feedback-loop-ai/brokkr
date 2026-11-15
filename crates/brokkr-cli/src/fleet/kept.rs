@@ -43,6 +43,7 @@ use brokkr_core::ending::{closing, Closing};
 use brokkr_core::fold::{fold_onto, RunState};
 use brokkr_core::{EventEnvelope, EventType};
 use brokkr_store::{Store, StoreError};
+use brokkr_view::WaitFact;
 
 use super::{acknowledged, did_not_fold, entry, judged, Listing, Quarantine};
 
@@ -163,6 +164,7 @@ impl KeptFleet {
                     run.last_recorded_at.as_deref(),
                     state,
                     (&run.residuals, run.closing.clone()),
+                    &run.waits,
                 )
             })
             .collect()
@@ -277,6 +279,9 @@ struct KeptRun {
     residuals: Vec<brokkr_view::ResidualFinding>,
     /// Its ending, read from `rulings` at the fold's head (decision 0064).
     closing: Option<Closing>,
+    /// The waits its last event states (decision 0103 slice 4f), kept as the
+    /// typed fact so the fleet carries no event body.
+    waits: WaitFact,
 }
 
 /// How far a kept run has been read.
@@ -315,6 +320,7 @@ impl KeptRun {
             rulings: Vec::new(),
             residuals: Vec::new(),
             closing: None,
+            waits: WaitFact::NoWait,
         };
         let read = events.len();
         (run.ruled_by(run_id, events), read)
@@ -368,6 +374,9 @@ impl KeptRun {
     fn ruled_by(mut self, run_id: &str, events: Vec<EventEnvelope>) -> KeptRun {
         let before = self.rulings.len();
         let landed = !events.is_empty();
+        if let Some(last) = events.last() {
+            self.waits = WaitFact::of(Some(last));
+        }
         self.rulings
             .extend(events.into_iter().filter(|event| rules(event.event_type)));
         if self.rulings.len() > before {

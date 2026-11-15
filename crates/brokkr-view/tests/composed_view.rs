@@ -14,7 +14,7 @@ use brokkr_core::fold::fold;
 use brokkr_core::seat::row::{facts, Member};
 use brokkr_core::summary::Account;
 use brokkr_core::{EventEnvelope, EventType};
-use brokkr_view::{composed_view, run_view, Parts, RunView};
+use brokkr_view::{composed_view, run_view, Parts, RunView, WaitFact};
 use serde_json::{json, Value};
 
 use crate::{committed_journals, journals};
@@ -56,6 +56,8 @@ fn composed_pages(
             causes: &causes,
             head_seq: head.seq,
             last_at: &head.recorded_at,
+            waits: WaitFact::default(),
+            cooling: Vec::new(),
         };
         composed_view(&parts, state.as_ref()).unwrap()
     };
@@ -218,6 +220,8 @@ fn two_participants_whose_node_keys_are_one_are_not_composed() {
         causes: &BTreeMap::new(),
         head_seq: 6,
         last_at: "2026-01-01T00:00:06Z",
+        waits: WaitFact::default(),
+        cooling: Vec::new(),
     };
     let state = fold(&events).ok();
     let composed = composed_view(&parts, state.as_ref());

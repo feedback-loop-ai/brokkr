@@ -13,8 +13,8 @@ use brokkr_core::summary::Bounded;
 use serde::{Serialize, Serializer};
 
 use super::{
-    said, title, verdict_of, Acknowledgement, Facts, Hire, Quarantine, RunRow, Section,
-    KNOWN_STATUS, RECENT_MILLIS, STALE_AFTER_SECONDS,
+    said, title, verdict_of, Acknowledgement, Cooling, Facts, Hire, Quarantine, RunRow, Section,
+    WaitFact, Waits, KNOWN_STATUS, RECENT_MILLIS, STALE_AFTER_SECONDS,
 };
 use crate::stated_finding;
 
@@ -49,10 +49,14 @@ pub(super) fn order_at(last_recorded_at: Option<&str>, created_at: &str) -> i64 
 
 /// The ranges `section` reads at `now`, beside the runs behind their
 /// summary, which a reader reads whole and places itself. Each is the
-/// range [`super::sections`] places a row of that lane and time in, so a
-/// page lists what the whole read lists (`every_page_is_its_sections`).
-/// A `now` that does not read bounds nothing, as it stales and ages
-/// nothing there.
+/// lane [`super::sections`] places a row of that section in. A Running
+/// row's section can also turn on a wait the summary does not carry: a
+/// stale row still waiting out a cool-down lists under Running, and a
+/// live one the index files below the stale bound lists under NeedsYou,
+/// so NeedsYou reads the Running lane below the stale bound and Running
+/// reads the whole lane; a page keeps each row once, in the section the
+/// row's own facts place it in (`Pages::section`). A `now` that does not
+/// read bounds nothing, as it stales and ages nothing there.
 pub fn ranges(section: Section, now: &str) -> Vec<Range> {
     let now = parse_millis(now);
     let stale = now.map(|now| now.saturating_sub(STALE_AFTER_SECONDS * 1000));
@@ -68,7 +72,7 @@ pub fn ranges(section: Section, now: &str) -> Vec<Range> {
             held.extend(stale.map(|at| range(Lane::Running, Some(Bound::Below(at)))));
             held
         }
-        Section::Running => vec![range(Lane::Running, stale.map(Bound::AtOrAbove))],
+        Section::Running => vec![range(Lane::Running, None)],
         Section::Recent => vec![range(Lane::Finished, day.map(Bound::Above))],
         Section::Older => {
             let older = day.map(|at| range(Lane::Finished, Some(Bound::AtOrBelow(at))));
@@ -90,7 +94,12 @@ fn shown(value: &Bounded) -> &str {
 /// a run's values whole reads it, and then the row is the whole read's.
 /// A page reads none, so its row lists each value within its bound, the
 /// feature as its first line and no finding.
-pub fn summary_row(row: &Row, whole: Option<&Whole>) -> RunRow {
+pub fn summary_row(
+    row: &Row,
+    whole: Option<&Whole>,
+    waits: &WaitFact,
+    cooling: &[Cooling],
+) -> RunRow {
     let facts = row.status.map(|status| Facts {
         status,
         phase: row.phase.as_ref().map(shown),
@@ -155,6 +164,7 @@ pub fn summary_row(row: &Row, whole: Option<&Whole>) -> RunRow {
         }),
         order_at: row.order_at,
         paged_at: None,
+        waits: Waits::of(waits, cooling),
     }
 }
 
