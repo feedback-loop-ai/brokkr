@@ -1061,25 +1061,41 @@ pub(super) fn older_table(older: &rusqlite::Connection, kept: &str) {
 /// intact, and the repair makes it anew and refolds the stopping run.
 #[test]
 fn a_summary_with_its_aggregates_but_not_the_stop_columns_is_made_anew() {
-    let (_dir, mut store) = store();
+    // The older build's table: every column but the stop's two.
+    let (_dir, store) = made_anew_without("name NOT IN ('stop_accepted_seq', 'stop_folded_seq')");
+    stopping_row(&store);
+}
+
+/// A stopping run's journal whose summary table is an older build's: the
+/// columns `kept` selects. It reads as not intact, the repair makes it
+/// anew, and the reopened store's summary is intact.
+fn made_anew_without(kept: &str) -> (tempfile::TempDir, Store) {
+    let (dir, mut store) = store();
     stopping_without_ending(&mut store);
     let path = store.path().to_path_buf();
     drop(store);
     let older = rusqlite::Connection::open(&path).unwrap();
-    // The older build's table: every column but the stop's two.
-    older_table(
-        &older,
-        "name NOT IN ('stop_accepted_seq', 'stop_folded_seq')",
-    );
+    older_table(&older, kept);
     assert!(
         !summary_intact(&older).unwrap(),
-        "the stop's columns are gone"
+        "the older table is not intact: {kept}"
     );
     migrate_summary(&older).unwrap();
     drop(older);
     let store = Store::open(&path).unwrap();
     assert!(summary_intact(&store.conn).unwrap());
-    stopping_row(&store);
+    (dir, store)
+}
+
+/// A journal a build from before the late-tail columns wrote carries
+/// every other column: the summary reads as not intact, and the repair
+/// makes it anew with the late tail's two columns. Removal control: drop
+/// the late part from `migrate_summary`'s check, and the reopened summary
+/// is still not intact.
+#[test]
+fn a_summary_with_every_column_but_the_late_tail_is_made_anew() {
+    let (_dir, store) = made_anew_without("name NOT IN ('late_tail', 'late_folded_seq')");
+    assert_eq!(row(&store, "r", "late_tail"), vec![Value::Null]);
 }
 
 /// A writer from before the accepted-stop columns may fold while their

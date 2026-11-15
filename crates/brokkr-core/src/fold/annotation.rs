@@ -100,21 +100,21 @@ pub(crate) fn record_word(event: &EventEnvelope) -> Option<&'static str> {
     annotation.is_record(event).then_some(word)
 }
 
-/// Is `event` an annotation a terminal run admits? A recognized record,
-/// or a command word the engine knows, whose journaled refusal evidence
-/// must not break the run. Anything else is decided by
-/// [`is_late_word`].
+/// Is the `operator/commanded` `event` an annotation a terminal run
+/// admits? A recognized record, or a command word the engine knows, whose
+/// journaled refusal evidence must not break the run. Anything else is
+/// decided by [`is_late_word`], its one caller, which asks the event's
+/// type first.
 pub(crate) fn terminal_annotation(event: &EventEnvelope) -> bool {
     if record_word(event).is_some() {
         return true;
     }
-    event.event_type == EventType::OperatorCommanded
-        && event
-            .payload
-            .get("command")
-            .and_then(Value::as_str)
-            .and_then(OperatorCommand::parse)
-            .is_some()
+    event
+        .payload
+        .get("command")
+        .and_then(Value::as_str)
+        .and_then(OperatorCommand::parse)
+        .is_some()
 }
 
 /// Is `event` one the fold reads as a late event when it stands after the

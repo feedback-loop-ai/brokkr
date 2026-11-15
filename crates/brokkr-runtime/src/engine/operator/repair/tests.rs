@@ -836,6 +836,34 @@ fn a_known_word_the_bridge_does_not_take_is_answered_and_writes_nothing() {
     );
 }
 
+/// A word the bridge takes (`stop`) on a terminal run is not the
+/// not-allowed word answered without writing: it is journaled and refused
+/// as the run not awaiting the operator, an annotation the terminal run
+/// admits, so the run still folds. Removal control: answer every word on
+/// a terminal run without writing, and the journal does not grow.
+#[test]
+fn a_word_the_bridge_takes_on_a_terminal_run_is_journaled_and_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("terminal-stop.db");
+    let mut store = concluded(&db, "late");
+    let before = length(&store, "late");
+    let answered = redeliver(&mut store, "late", "stop-late", "stop", "operator");
+    assert!(
+        matches!(&answered, crate::engine::FencedCommandOutcome::Rejected { reason, .. }
+            if reason == brokkr_core::fold::Refusal::RunNotAwaitingOperator.word()),
+        "{answered:?}"
+    );
+    assert!(
+        length(&store, "late") > before,
+        "the word the bridge takes is journaled with its refusal"
+    );
+    assert_eq!(
+        fold(&store.load("late").unwrap()).unwrap().run,
+        Run::Stopped,
+        "the terminal run still folds"
+    );
+}
+
 /// M1's other half: a NON-reserved word left undisposed BEFORE the
 /// terminal event is still the pending command it was, so the engine's
 /// own replay writes the incomplete-command rejection, clears the pending

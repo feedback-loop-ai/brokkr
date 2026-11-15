@@ -469,6 +469,35 @@ fn a_repair_does_not_list_an_earlier_repair_as_an_annotation_to_record_again() {
     );
 }
 
+/// `repair` takes `--run`, `--reason` and the journal: each flag that
+/// belongs to another verb refuses before anything is read or written.
+/// Removal control: drop any one operand of the check, and that flag's
+/// case reaches the verb and says something else.
+#[test]
+fn an_operator_repair_refuses_every_flag_another_verb_takes() {
+    let (dir, db) = staged();
+    started(Path::new(&db));
+    for flag in [
+        ["--findings", "1"],
+        ["--by-run", "other"],
+        ["--cause", "superseded"],
+        ["--by-ref", "ref"],
+    ] {
+        let mut args = vec![
+            "operator", "repair", "--run", "late", "--reason", "why", "--db", &db,
+        ];
+        args.extend(flag);
+        let refused = brokkr(dir.path(), &args);
+        let stderr = String::from_utf8_lossy(&refused.stderr);
+        assert_eq!(refused.status.code(), Some(1), "{flag:?}: {stderr}");
+        assert!(
+            stderr
+                .contains("belong to other verbs; 'repair' takes --run, --reason and the journal"),
+            "{flag:?}: {stderr}"
+        );
+    }
+}
+
 /// A live run refuses the verb, naming it, and writes nothing.
 #[test]
 fn an_operator_repair_on_a_live_run_refuses_and_writes_nothing() {
