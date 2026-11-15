@@ -465,12 +465,44 @@ pub(crate) fn holds<'a>(
     table: &str,
     columns: impl IntoIterator<Item = &'a str>,
 ) -> Result<bool, StoreError> {
-    let mut statement = conn.prepare("SELECT name FROM pragma_table_info(?1)")?;
-    let found: Vec<String> = statement
-        .query_map([table], |row| row.get(0))?
+    holds_at(conn, table, columns, None)
+}
+
+/// Does `table` declare every one of `columns` and key it by `key`
+/// alone? The same one read [`holds`] makes, so a table's shape and its
+/// key are one question and one statement: a table of another shape, a
+/// column absent, or a `key` that is not its one primary key fails.
+pub(crate) fn holds_keyed<'a>(
+    conn: &Connection,
+    table: &str,
+    columns: impl IntoIterator<Item = &'a str>,
+    key: &str,
+) -> Result<bool, StoreError> {
+    holds_at(conn, table, columns, Some(key))
+}
+
+/// [`holds`] and [`holds_keyed`]'s one read: every column present, and
+/// `key`, where named, the table's one primary key.
+fn holds_at<'a>(
+    conn: &Connection,
+    table: &str,
+    columns: impl IntoIterator<Item = &'a str>,
+    key: Option<&str>,
+) -> Result<bool, StoreError> {
+    let mut statement = conn.prepare("SELECT name, pk FROM pragma_table_info(?1)")?;
+    let found: Vec<(String, i64)> = statement
+        .query_map([table], |row| Ok((row.get(0)?, row.get(1)?)))?
         .collect::<Result<_, _>>()?;
     let mut columns = columns.into_iter();
-    Ok(columns.all(|column| found.iter().any(|name| name == column)))
+    let present = columns.all(|column| found.iter().any(|(name, _)| name == column));
+    let keyed = key.is_none_or(|key| {
+        let mut primary = found
+            .iter()
+            .filter(|(_, pk)| *pk > 0)
+            .map(|(name, _)| name.as_str());
+        primary.next() == Some(key) && primary.next().is_none()
+    });
+    Ok(present && keyed)
 }
 
 /// The schema a journal records, or `None` for a file that has never

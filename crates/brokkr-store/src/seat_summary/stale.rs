@@ -46,7 +46,7 @@
 
 use rusqlite::{Connection, OptionalExtension};
 
-use crate::schema::holds;
+use crate::schema::holds_keyed;
 use crate::seat_summary::{SHAPE, SHAPED};
 use crate::StoreError;
 
@@ -367,35 +367,19 @@ pub(crate) fn forget_summary_triggers(conn: &Connection) -> Result<(), StoreErro
 /// build's" has one home: a remade head fails both the seventh repair and
 /// this drop, and neither trusts a shape it cannot read.
 pub(super) fn shaped_head(conn: &Connection) -> Result<bool, StoreError> {
-    Ok(holds(
+    holds_keyed(
         conn,
         "seat_head",
         ["run_id", "folded_seq", "folded_hash", SHAPED],
-    )? && keyed_at(conn, "seat_head", "run_id")?)
+        "run_id",
+    )
 }
 
 /// Does `seat_lag` declare `run_id` as its one primary key? One read of
-/// its columns: a table of another shape, a column that is not the key, or
-/// a composite key fails.
+/// its columns, [`holds_keyed`]'s: a table of another shape, a column that
+/// is not the key, or a composite key fails.
 fn keyed(conn: &Connection) -> Result<bool, StoreError> {
-    keyed_at(conn, STALE, "run_id")
-}
-
-/// Does `table` declare `column` as its one primary key? One read of its
-/// columns: a table of another shape, a column that is not the key, or a
-/// composite key fails.
-fn keyed_at(conn: &Connection, table: &str, column: &str) -> Result<bool, StoreError> {
-    let mut statement = conn.prepare("SELECT name, pk FROM pragma_table_info(?1)")?;
-    let found: Vec<(String, i64)> = statement
-        .query_map([table], |row| Ok((row.get(0)?, row.get(1)?)))?
-        .collect::<Result<_, _>>()?;
-    let present = found.iter().any(|(name, _)| name == column);
-    let primary: Vec<&String> = found
-        .iter()
-        .filter(|(_, pk)| *pk > 0)
-        .map(|(name, _)| name)
-        .collect();
-    Ok(present && primary.len() == 1 && primary[0].as_str() == column)
+    holds_keyed(conn, STALE, ["run_id"], "run_id")
 }
 
 /// Does every trigger this build writes carry this build's body? One read
