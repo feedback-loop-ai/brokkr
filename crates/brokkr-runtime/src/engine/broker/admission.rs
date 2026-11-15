@@ -103,13 +103,21 @@ pub(in crate::engine) enum Unknown {
     Bounds,
     #[error("the retirement history of a historical root has no sequence left")]
     Overflow,
+    #[error("the protected inventory holds an unknown participant at '{}'", .0.display())]
+    Participant(PathBuf),
+    /// A reservation this build reads only through the view of another
+    /// build: it names no process group, so neither `settle` nor `release`
+    /// can prove its attempt ended here. Only this refusal names the
+    /// operator's route; a foreign entry in the coordination root is an
+    /// [`Unknown::Participant`], with nothing of the release's to say.
     #[error(
-        "the protected inventory holds an unknown participant at '{}': a build that cannot read \
-         it leaves the run quarantined, so archive the journal, re-provision the worktree, and \
-         repair the archived copy for its history",
+        "the protected inventory holds a reservation at '{}' which this build reads only \
+         through the view: it names no process group, so settle and release cannot prove its \
+         attempt ended here; archive the journal, re-provision the worktree, and repair the \
+         archived copy for its history",
         .0.display()
     )]
-    Participant(PathBuf),
+    ViewOnly(PathBuf),
     #[error(
         "the protected inventory holds a reservation at '{}' in format {format}, which this \
          build does not read: conclude its run with the build that wrote it, or use a build \

@@ -13,7 +13,7 @@ use crate::engine::broker::admission::tests::{
     boxed_claim, dead_group, isolated, quarantined, reservation_path, unacknowledged, Fixture,
     LiveGroup,
 };
-use crate::engine::broker::admission::{Conflict, Witnessed};
+use crate::engine::broker::admission::{Conflict, Unadmitted, Unknown, Witnessed};
 use crate::engine::broker::settlement::release;
 use crate::engine::broker::settlement::release::{Live, UnprovenWhy};
 use crate::engine::tests::published_args;
@@ -21,13 +21,13 @@ use crate::engine::SettleRefusal;
 use crate::run_lock;
 use crate::EngineError;
 
-/// `operator_settle` on `fixture` refused, saying `words` and writing
-/// nothing: the head it found is the head it leaves.
-fn refused(fixture: &mut Fixture, words: &str) -> EngineError {
+/// `operator_settle` on `fixture` refused and wrote nothing: the head it
+/// found is the head it leaves. The caller matches the typed refusal and
+/// its words are pinned once in [`every_settle_refusal_is_typed_and_its_words_are_pinned_once`]
+/// (S4; decision 0071 ruling 8).
+fn refused(fixture: &mut Fixture) -> EngineError {
     let head = fixture.store.head_hash("run-a").unwrap();
     let refused = operator_settle(&mut fixture.store, "run-a", &ask()).unwrap_err();
-    let said = refused.to_string();
-    assert!(said.contains(words), "{said}");
     assert_eq!(
         fixture.store.head_hash("run-a").unwrap(),
         head,
@@ -120,13 +120,19 @@ fn settle_writes_the_record_its_contract_names_and_leaves_the_run_unfolded() {
     assert_eq!(read.args.run, "run-a");
 }
 
-/// A run no acknowledgement stands on is refused, and the refusal names the
-/// command that answers it. Nothing is written.
+/// A run no acknowledgement stands on is refused by its typed cause,
+/// naming the command that answers it. Nothing is written.
 #[test]
 fn settle_refuses_a_run_that_is_not_acknowledged_and_names_acknowledge() {
     let mut fixture = unacknowledged(&[Witnessed::Settling], None);
-    let refused = refused(&mut fixture, "brokkr operator acknowledge --run run-a");
-    assert!(matches!(refused, EngineError::SettleRefused(_)));
+    let refused = refused(&mut fixture);
+    assert!(
+        matches!(
+            refused,
+            EngineError::SettleRefused(SettleRefusal::Unacknowledged { ref run }) if run == "run-a"
+        ),
+        "the unacknowledged run is refused by type: {refused:?}"
+    );
 }
 
 /// A process group the host still shows alive is refused by name, and
@@ -138,12 +144,16 @@ fn settle_refuses_a_live_process_group_naming_it_and_writes_nothing() {
     }
     let live = LiveGroup::new();
     let mut fixture = quarantined(&[Witnessed::Settling], Some(live.group()));
-    refused(
-        &mut fixture,
-        &format!(
-            "attempt 'a1' stands, and its process group {} still has members on this host",
-            live.group()
+    let refused = refused(&mut fixture);
+    assert!(
+        matches!(
+            refused,
+            EngineError::SettleRefused(SettleRefusal::Live(Live::Group {
+                attempt: ref found,
+                group,
+            })) if found == "a1" && group == live.group()
         ),
+        "the live group is named by its type: {refused:?}"
     );
     drop(live);
 }
@@ -179,11 +189,7 @@ fn settle_refuses_a_run_a_driver_holds_naming_the_holder() {
 #[test]
 fn settle_refuses_where_the_records_prove_nothing_and_name_no_group() {
     let mut fixture = quarantined(&[Witnessed::Settling], None);
-    let refused = refused(
-        &mut fixture,
-        "attempt 'a1' stands: its driver records are not sealed Settled, and it recorded no \
-         process group",
-    );
+    let refused = refused(&mut fixture);
     assert!(
         matches!(
             refused,
@@ -205,8 +211,13 @@ fn settle_refuses_a_run_with_no_terminal_event() {
     let mut store = crate::engine::tests::in_flight_store(&db, "live");
     let head = store.head_hash("live").unwrap();
     let refused = operator_settle(&mut store, "live", &ask()).unwrap_err();
-    let words = refused.to_string();
-    assert!(words.contains("has no terminal event"), "{words}");
+    assert!(
+        matches!(
+            refused,
+            EngineError::SettleRefused(SettleRefusal::NoTerminal { ref run }) if run == "live"
+        ),
+        "a run with no terminal event is refused by type: {refused:?}"
+    );
     assert_eq!(
         store.head_hash("live").unwrap(),
         head,
@@ -297,14 +308,22 @@ fn settle_writes_no_lock_fact_about_the_run() {
 }
 
 /// A reservation this build cannot read through the view refuses the
-/// settle, naming the participant: the proof never guesses.
+/// settle by its typed format, naming the record: the proof never guesses.
 #[test]
 fn settle_refuses_a_reservation_the_inventory_cannot_read() {
     let mut fixture = quarantined(&[Witnessed::Settling], Some(dead_group()));
     let at = reservation_path(fixture.host.home(), &fixture.work, "run-a");
     std::fs::write(&at, json!({"format": 99}).to_string()).unwrap();
-    let refused = refused(&mut fixture, "format 99");
-    assert!(matches!(refused, EngineError::SettleRefused(_)));
+    let refused = refused(&mut fixture);
+    assert!(
+        matches!(
+            refused,
+            EngineError::SettleRefused(SettleRefusal::Unadmitted(Unadmitted::Identity(
+                Unknown::Formatted(ref found, 99)
+            ))) if found == &at
+        ),
+        "the unreadable reservation is refused by its typed format: {refused:?}"
+    );
 }
 
 /// A settle record whose args are not the contract is no record: the
@@ -351,16 +370,17 @@ fn settle_refuses_where_no_coordination_root_can_be_protected() {
     let mut fixture = quarantined(&[Witnessed::Settling], Some(dead_group()));
     let _unrooted =
         crate::engine::broker::admission::tests::Coordinated::unrooted(fixture.host.home());
-    refused(
-        &mut fixture,
-        "this host names no protected coordination root",
+    let refused = refused(&mut fixture);
+    assert!(
+        matches!(refused, EngineError::SettleRefused(SettleRefusal::NoRoot)),
+        "no protected root is refused by type: {refused:?}"
     );
 }
 
 /// Every settle refusal a test asserts is a type, and each of those words is
 /// pinned once here: the live group, the group-less attempt's route to
-/// release, and the unread reservation's participant (S4, S5; decision 0071
-/// ruling 8).
+/// release, the run's own pre-proof refusals, and the view-only record's
+/// route (S4, S5; decision 0071 ruling 8).
 #[test]
 fn every_settle_refusal_is_typed_and_its_words_are_pinned_once() {
     assert_eq!(
@@ -381,20 +401,39 @@ fn every_settle_refusal_is_typed_and_its_words_are_pinned_once() {
          process group to ask the host about; repair the run, then `brokkr operator release` is \
          the operator's route where the attempt's journaled ending is indeterminate"
     );
+    assert_eq!(
+        SettleRefusal::NoTerminal { run: "live".into() }.to_string(),
+        "run 'live' has no terminal event; settle records that a run which has already ended no \
+         longer holds its worktree"
+    );
+    assert_eq!(
+        SettleRefusal::Unacknowledged {
+            run: "run-a".into(),
+        }
+        .to_string(),
+        "run 'run-a' is not acknowledged, so it is not quarantined; answer it with `brokkr \
+         operator acknowledge --run run-a --reason <why>` first"
+    );
+    assert_eq!(
+        SettleRefusal::NoRoot.to_string(),
+        "this host names no protected coordination root, so no reservation can be read"
+    );
     let at = std::path::PathBuf::from("/protected/run-a/reservation.json");
     let unread = EngineError::SettleRefused(SettleRefusal::Unadmitted(
         crate::engine::broker::admission::Unadmitted::Identity(
-            crate::engine::broker::admission::Unknown::Participant(at.clone()),
+            crate::engine::broker::admission::Unknown::ViewOnly(at.clone()),
         ),
     ));
     assert_eq!(
         unread.to_string(),
         format!(
             "settle refused, nothing was written: dispatch refused: MCP server box filesystem \
-             identity is not protected: the protected inventory holds an unknown participant at \
-             '{}': a build that cannot read it leaves the run quarantined, so archive the \
-             journal, re-provision the worktree, and repair the archived copy for its history",
+             identity is not protected: the protected inventory holds a reservation at '{}' \
+             which this build reads only through the view: it names no process group, so settle \
+             and release cannot prove its attempt ended here; archive the journal, re-provision \
+             the worktree, and repair the archived copy for its history",
             at.display()
-        )
+        ),
+        "the view-only record names the operator's route once"
     );
 }

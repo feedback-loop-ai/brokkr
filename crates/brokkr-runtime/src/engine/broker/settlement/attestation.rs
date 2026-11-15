@@ -66,7 +66,9 @@ pub(in crate::engine) fn attested(
 /// journal is the one at `journal`, holding an attempt standing, as the
 /// inventory reads them within `budget`, each read whole; refused where one
 /// was read only through the view, for that is never sealed (decision
-/// 0090).
+/// 0090). That refusal is [`Unknown::ViewOnly`] and names the operator's
+/// route; an entry that is no reservation at all stays
+/// [`Unknown::Participant`], with no route of the release's.
 pub(super) fn reserved_for(
     root: &Root,
     run: &str,
@@ -85,7 +87,7 @@ pub(super) fn reserved_for(
     let whole = |held: Standing| {
         let at = root.path().join(&held.repo).join(run).join(RESERVATION);
         held.whole
-            .ok_or_else(|| Unadmitted::from(Unknown::Participant(at)))
+            .ok_or_else(|| Unadmitted::from(Unknown::ViewOnly(at)))
     };
     ours.map(whole).collect()
 }

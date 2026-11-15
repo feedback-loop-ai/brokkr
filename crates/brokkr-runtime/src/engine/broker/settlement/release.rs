@@ -187,7 +187,7 @@ pub(in crate::engine::broker) fn proven(reserved: &Reserved, attempt: &str) -> R
     // ended, never that the tree it left over did, so the attempt is never
     // group-proven here; the operator's own release is its route (S2;
     // decision 0108 ruling 3).
-    if reserved.cleanup == Witnessed::Unresolved {
+    if unresolved(reserved) {
         return Err(unproven(attempt, UnprovenWhy::Unresolved));
     }
     if reserved.drivers.is_empty() {
@@ -241,6 +241,15 @@ fn unproven(attempt: &str, why: UnprovenWhy) -> Live {
 /// Whether `driver`'s own record seals it Settled.
 fn settled(driver: &crate::engine::broker::settlement::Driver) -> bool {
     driver.cleanup == Witnessed::Settled
+}
+
+/// Whether the attempt `reserved` names had a cleanup witnessed unresolved:
+/// the one predicate both [`proven`] and [`group_supports`] read, so the
+/// proof and the record it honours agree that a group question cannot
+/// answer for a stray, a descendant or an output-holder (S2; decision 0108
+/// ruling 3).
+fn unresolved(reserved: &Reserved) -> bool {
+    reserved.cleanup == Witnessed::Unresolved
 }
 
 /// The process group recorded for `driver`: its own, or — for a record
@@ -544,7 +553,7 @@ fn group_supports(standing: &Standing, proven: &Proven) -> bool {
     // The record may not prove by the host what the proof itself refuses: a
     // cleanup witnessed unresolved is never group-proven, so a record
     // naming its groups does not release (S2; decision 0108 ruling 3).
-    if reserved.cleanup == Witnessed::Unresolved {
+    if unresolved(reserved) {
         return false;
     }
     let Some(expected) = unsettled_groups(reserved) else {

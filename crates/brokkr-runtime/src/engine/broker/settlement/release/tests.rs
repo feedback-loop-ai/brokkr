@@ -619,12 +619,9 @@ fn an_unresolved_cleanup_is_never_group_proven() {
             why: UnprovenWhy::Unresolved,
         }
     );
-    let words = refused.to_string();
-    assert!(words.contains("stray"), "the witness's reason: {words}");
-    assert!(
-        words.contains("`brokkr operator release`"),
-        "the operator's route: {words}"
-    );
+    // The refusal's words are pinned exactly in
+    // `the_records_and_the_host_prove_an_attempt_by_their_own_facts`; this
+    // is the variant, alone.
     assert!(
         !honoured(&held, &settled("a", vec![grouped("a1", &[gone])])),
         "a group proof `proven` refuses is not honoured"

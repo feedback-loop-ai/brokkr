@@ -695,7 +695,7 @@ fn old_shape_b_journal(db: &std::path::Path, run: &str) -> brokkr_store::Store {
 /// - `Driver`: `site` (settlement.rs:363), `begun` (:364), `cleanup`
 ///   (:365); the tag has no `group` field there either;
 /// - `Writer`: `site` (admission.rs:255), `reach` (:256);
-/// - `Reach::Boxed` (:275): `writable`, `readable`, `sources`, `sealed`;
+/// - `Reach::Boxed` (:276): `writable`, `readable`, `sources`, `sealed`;
 /// - `Sealed`: `home`, `worktree`, `git`, `binds`, `store`
 ///   (brokkr-protocol/src/hands/sealed.rs:72 at the tag).
 const V0_13_0_RESERVATION: &str = concat!(
@@ -725,9 +725,10 @@ fn v0_13_0_reservation(
 /// Assert the planted reservation is v0.13.0's: its top level in the tag's
 /// order and names, its attempt and driver without a group, and the whole
 /// record reads as this build's `Reservation` (S6).
-fn assert_v0_13_0_reservation(fixture: &str, at: &std::path::Path) {
-    // The top level is the tag's, in its order: a field added, dropped or
-    // reordered by this build would fail here.
+fn assert_v0_13_0_reservation(at: &std::path::Path) {
+    // The order is read from the planted bytes, not from the constant that
+    // wrote them, so an edit to either is caught where it stands.
+    let fixture = std::fs::read_to_string(at).unwrap();
     let order = [
         "\"repo\"",
         "\"run\"",
@@ -811,7 +812,7 @@ fn an_old_shape_b_reservation_is_released_by_repair_then_operator_release() {
     let fixture = v0_13_0_reservation(&repo, &work, &artifacts, &db);
     let at = reservation_path(host.home(), &work, "run-a");
     std::fs::write(&at, fixture.as_bytes()).unwrap();
-    assert_v0_13_0_reservation(&fixture, &at);
+    assert_v0_13_0_reservation(&at);
     let _stood = old_run_holds(&host, &work, &mut store);
     let refused = operator_settle(
         &mut store,
@@ -962,9 +963,10 @@ fn settle_names_a_recorded_slot_that_still_runs_for_a_multi_driver_record() {
 /// between #745 and b8e2caff8 wrote a reservation whose boxed reader has no
 /// `sealed.store`, and a #745..#822 build listed no drivers. This build
 /// reads such a record only through the view, so the attempt holds, and
-/// both `settle` and, after a repair, `release` refuse "unknown
-/// participant": the F4 route does not hold, and the commit is the
-/// operator's ask. The test pins the refusal, not a new proof.
+/// both `settle` and, after a repair, `release` refuse it as a view-only
+/// record and name the operator's route: the F4 route does not hold here,
+/// and the commit is the operator's ask. The test pins the refusal, not a
+/// new proof.
 #[test]
 fn an_old_boxed_reservation_without_store_is_read_through_the_view() {
     use crate::engine::broker::admission::tests::Coordinated;
@@ -1021,10 +1023,10 @@ fn an_old_boxed_reservation_without_store_is_read_through_the_view() {
         matches!(
             refused,
             EngineError::SettleRefused(SettleRefusal::Unadmitted(Unadmitted::Identity(
-                Unknown::Participant(ref found)
+                Unknown::ViewOnly(ref found)
             ))) if found == &at
         ),
-        "settle refuses the record it cannot read whole, by its typed participant: {refused:?}"
+        "settle refuses the view-only record, naming its route: {refused:?}"
     );
     operator_repair(
         &mut fixture.store,
@@ -1045,8 +1047,8 @@ fn an_old_boxed_reservation_without_store_is_read_through_the_view() {
     .unwrap_err();
     assert_eq!(
         unreleased(refused),
-        Unreleased::standing(Unadmitted::Identity(Unknown::Participant(at))),
-        "release also refuses the view-only record, by its typed participant"
+        Unreleased::standing(Unadmitted::Identity(Unknown::ViewOnly(at))),
+        "release also refuses the view-only record, naming its route"
     );
     assert_eq!(
         next(&fixture),

@@ -414,6 +414,16 @@ fn every_internal_refusal_keeps_its_cause_or_its_words() {
         EvidenceError::from(Unknown::Participant(at.clone())),
         EvidenceError::Participant(found) if found == at
     ));
+    match EvidenceError::from(Unknown::ViewOnly(at.clone())) {
+        EvidenceError::Refused(source) => assert!(
+            matches!(
+                source.downcast_ref::<Unknown>(),
+                Some(Unknown::ViewOnly(found)) if found == &at
+            ),
+            "a view-only refusal keeps its typed route: {source:?}"
+        ),
+        other => panic!("a view-only refusal must keep its route: {other:?}"),
+    }
     match EvidenceError::from(Unknown::Unsealed) {
         EvidenceError::Refused(source) => assert!(
             matches!(source.downcast_ref::<Unknown>(), Some(Unknown::Unsealed)),

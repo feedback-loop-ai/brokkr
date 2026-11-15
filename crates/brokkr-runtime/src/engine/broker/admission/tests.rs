@@ -666,7 +666,7 @@ fn every_refusal_reads_as_its_cause() {
         (Unknown::Lock.into(), format!("{mb3}: the admission lock is not this user's own single file")),
         (Unknown::Expired.into(), format!("{mb3}: admission did not complete before its startup deadline")),
         (Unknown::Bounds.into(), format!("{mb3}: the protected inventory exceeds its entry bound")),
-        (Unknown::Participant(path).into(), format!("{mb3}: the protected inventory holds an unknown participant at '/r': a build that cannot read it leaves the run quarantined, so archive the journal, re-provision the worktree, and repair the archived copy for its history")),
+        (Unknown::Participant(path).into(), format!("{mb3}: the protected inventory holds an unknown participant at '/r'")),
         (Unknown::Unsealed.into(), format!("{mb3}: the attempt's reservation could not be sealed")),
         (Unknown::Unsynced.into(), format!("{mb3}: the attempt's reservation was committed, but its directory was not proven synced")),
         (Unknown::Lost.into(), format!("{mb3}: the attempt's reservation no longer stands")),

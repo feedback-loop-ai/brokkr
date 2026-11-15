@@ -1006,12 +1006,12 @@ v0.12.0 wrote no reservation at all. A workspace whose binary reported 0.12.0
 was built from main between #745 (2026-10-18) and the 0.13.0 version bump
 (2026-11-02), and its reservation's shape depends on the commit: before
 b8e2caff8 (2026-10-25) a boxed writer's sealed reach has no `store`, so this
-build reads the record only through the view and both `settle` and, after a
-repair, `release` refuse and name it an unknown participant. That refusal
-names the route: archive the journal, re-provision the worktree, and repair
-the archived copy for its history. From b8e2caff8 through v0.13.0 the record
-reads whole, with drivers and no group, and the repair-then-release route
-holds where the attempt ended indeterminate.
+build reads the record only through the view; both `settle` and, after a
+repair, `release` refuse it as a record that names no process group, and
+their refusal names the route: archive the journal, re-provision the
+worktree, and repair the archived copy for its history. From b8e2caff8
+through v0.13.0 the record reads whole, with drivers and no group, and the
+repair-then-release route holds where the attempt ended indeterminate.
 
 ### Gate entries on a run
 
