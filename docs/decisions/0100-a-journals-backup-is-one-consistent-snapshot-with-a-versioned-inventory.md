@@ -140,6 +140,34 @@ never carry their values), and 0068 (nothing is claimed by reading).
    Dropping the early destination check changes the variant
    `a_live_destination_is_refused_by_name_and_left_byte_equal` matches.
 
+   *Amended, 2026-11-15 (the operator's standing ruling of 2026-11-04,
+   recorded on #945):* the inventory has one bound, 16 MiB
+   (`INVENTORY_MAX_BYTES`), on both ends.
+   - **The restore** opens `inventory.json` without blocking and asks the
+     handle's own metadata first. A FIFO, a directory, a device or a link
+     to `/dev/zero` is refused as `InventoryNotRegular` before a byte is
+     read. A socket cannot be opened, so it is refused as
+     `UnreadableInventory`. A symlink to a regular file reads as it always
+     has. It then reads at most one byte past the
+     bound, and a longer file is refused as `InventoryTooLarge`. So no file
+     a backup directory holds at that name can grow a restore's memory past
+     the bound or block it.
+   - **The backup** holds its own inventory to the same bound before the
+     snapshot is published, so every inventory this build writes is one it
+     reads. A journal whose inventory would pass the bound is refused with
+     its destination still empty. A head is under 512 bytes, so that is
+     past 32,000 runs at their largest. A restore also refuses an inventory
+     past the bound that an earlier build wrote.
+   - **Enforcement:** `inventory::read_inventory` and `inventory::serialize`,
+     with `backup::tests::inventory`'s
+     `a_fifo_at_the_inventory_is_refused_by_name_without_a_writer`,
+     `a_directory_or_a_device_at_the_inventory_is_refused_by_name`,
+     `a_socket_at_the_inventory_is_refused_by_name`,
+     `a_symlinked_inventory_to_a_regular_file_is_read`,
+     `an_inventory_at_the_bound_is_read_and_one_byte_past_is_refused`,
+     `an_inventory_that_is_a_regular_file_past_the_bound_dies_small` and
+     `a_backup_whose_inventory_would_exceed_the_bound_is_refused_by_name`.
+
 5. **The later slices, in order, and none built here.** After this journal
    half: (a) Git objects and refs/forge anchors; (b) artifacts outside the
    journal; (c) retention with a dry-run inventory; (d) the offline restore
