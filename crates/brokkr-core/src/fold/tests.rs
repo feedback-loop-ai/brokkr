@@ -1526,3 +1526,27 @@ fn panel_carry_extension_fields_do_not_change_the_fold() {
     journal[9].payload["carried"] = json!([{"member":"a","attempt_id":"a1"}]);
     assert_eq!(format!("{:?}", fold(&journal).unwrap()), original);
 }
+
+/// The receipt vocabulary reads back: every refusal's word parses to that
+/// refusal and to no other, a word no build wrote parses to none, and a
+/// receipt's reason carries its refusal's word, or `reserved_command`.
+#[test]
+fn every_receipt_reason_reads_back_from_its_word() {
+    use crate::fold::{ReceiptReason, Refusal};
+    let all = [
+        Refusal::CommandNotAllowed,
+        Refusal::AfterTerminal,
+        Refusal::RunNotAwaitingOperator,
+        Refusal::NoPhaseToRetry,
+        Refusal::LostFence,
+        Refusal::StaleCursor,
+        Refusal::IncompleteCommandReplay,
+        Refusal::PreviouslyRejected,
+    ];
+    for refusal in all {
+        assert_eq!(Refusal::parse(refusal.word()), Some(refusal));
+        assert_eq!(ReceiptReason::Refusal(refusal).word(), refusal.word());
+    }
+    assert_eq!(Refusal::parse("dance"), None);
+    assert_eq!(ReceiptReason::ReservedCommand.word(), "reserved_command");
+}

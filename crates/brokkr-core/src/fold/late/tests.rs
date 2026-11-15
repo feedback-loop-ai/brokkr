@@ -1010,3 +1010,66 @@ fn a_second_repair_lists_only_the_annotations_it_newly_makes_late() {
         "only the annotation after the first repair is newly made late"
     );
 }
+
+/// The late-tail boundary: the terminal event itself is not after it, and
+/// the next event is. Every read of the tail asks this one test.
+#[test]
+fn only_an_event_past_the_terminal_seq_stands_after_it() {
+    let events = stopped();
+    let terminal = events.last().unwrap();
+    assert!(
+        !after(terminal.seq, terminal),
+        "the terminal event is not late"
+    );
+    let mut events = events;
+    push(&mut events, settlement().0, settlement().1);
+    assert!(after(5, events.last().unwrap()), "the next event is");
+}
+
+/// A repair is newly responsible only for events past the last seq an
+/// earlier repair named, the earlier tail's own last event included: a
+/// classify that closed the first tail is the first repair's to name,
+/// never the second's.
+#[test]
+fn a_later_repair_does_not_name_the_last_event_an_earlier_one_named() {
+    let mut events = stopped();
+    push(&mut events, settlement().0, settlement().1);
+    push(&mut events, classified().0, classified().1);
+    push(
+        &mut events,
+        EventType::OperatorCommanded,
+        repaired(5, 6, 7, &["effect/succeeded", "operator/commanded"]),
+    );
+    let first = events.last().unwrap().clone();
+    assert_eq!(
+        skipped_annotations(&events, &first)
+            .unwrap()
+            .iter()
+            .map(|skipped| skipped.seq)
+            .collect::<Vec<_>>(),
+        vec![7],
+        "the first repair names the classify it skips"
+    );
+    push(&mut events, settlement().0, settlement().1);
+    push(
+        &mut events,
+        EventType::OperatorCommanded,
+        repaired(
+            5,
+            6,
+            9,
+            &[
+                "effect/succeeded",
+                "operator/commanded",
+                "operator/commanded",
+                "effect/succeeded",
+            ],
+        ),
+    );
+    assert_eq!(fold(&events).unwrap().run, Run::Stopped);
+    let second = events.last().unwrap();
+    assert!(
+        skipped_annotations(&events, second).unwrap().is_empty(),
+        "the classify at seq 7 was the first repair's to name"
+    );
+}

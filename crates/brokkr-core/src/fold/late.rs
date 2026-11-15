@@ -110,17 +110,23 @@ fn repair_of(state: &RunState, suffix: &[EventEnvelope]) -> Result<Option<LateTa
     types.extend(
         suffix
             .iter()
-            .filter(|event| event.seq > terminal)
+            .filter(|event| after(terminal, event))
             .map(|event| (event.seq, event.event_type)),
     );
     let mut honoured = None;
     for event in suffix
         .iter()
-        .filter(|event| event.seq > terminal && is_repair(event))
+        .filter(|event| after(terminal, event) && is_repair(event))
     {
         honoured = Some(named(event, terminal, &types)?);
     }
     Ok(honoured)
+}
+
+/// Does `event` stand after the run's terminal event at `terminal`? The
+/// one test every late-tail read makes, so the boundary has one home.
+fn after(terminal: u64, event: &EventEnvelope) -> bool {
+    event.seq > terminal
 }
 
 /// Is `event` an `operator/commanded` carrying a repair record? A record
@@ -296,7 +302,7 @@ fn record_terminal(state: &mut RunState, event: &EventEnvelope) {
 fn record_tail_type(state: &mut RunState, event: &EventEnvelope) {
     if state
         .terminal_seq
-        .is_some_and(|terminal| event.seq > terminal)
+        .is_some_and(|terminal| after(terminal, event))
     {
         state.tail_types.insert(event.seq, event.event_type);
     }

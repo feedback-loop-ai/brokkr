@@ -141,3 +141,20 @@ fn a_section_lists_its_newest_first_and_an_unreadable_time_before_all() {
     );
     assert_eq!(newest_first((5, "b")), Reverse((5, "b")));
 }
+
+/// The tail's count is its events, what the row's sentence states.
+#[test]
+fn a_late_tail_counts_its_events() {
+    let tail = LateTail {
+        repaired_at: 9,
+        terminal_seq: 5,
+        operator: "repairer".to_string(),
+        events: (6..=8)
+            .map(|seq| LateEvent {
+                seq,
+                event_type: crate::envelope::EventType::EffectSucceeded,
+            })
+            .collect(),
+    };
+    assert_eq!(tail.count(), 3);
+}
