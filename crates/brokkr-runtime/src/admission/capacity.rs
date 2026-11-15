@@ -22,13 +22,13 @@
 //! The checks run in a fixed order, and the first unmet one is the reason
 //! recorded: the host configuration is declared and readable; the entry's
 //! seats can be measured, and every running run says what it seats; every
-//! provider and route the entry seats is declared; each provider and
-//! cloud route is below its ceiling; each shared-local route is below its
-//! own; each free-space floor, in the file's order, finds the free bytes
-//! of the filesystem it names at or above it, each judged by its own
-//! number though another on the same filesystem holds; and, for an entry
-//! that builds in a box, the boxed builds running are below their
-//! ceiling. Nothing here latches: each pass measures afresh.
+//! provider and route the entry seats is declared, and out of a cool-down;
+//! each provider and cloud route is below its ceiling; each shared-local
+//! route is below its own; each free-space floor, in the file's order,
+//! finds the free bytes of the filesystem it names at or above it, each
+//! judged by its own number though another on the same filesystem holds;
+//! and, for an entry that builds in a box, the boxed builds running are
+//! below their ceiling. Nothing latches: each pass measures afresh.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -117,7 +117,7 @@ pub enum Capacity {
     CoolingDown {
         provider: String,
         route: String,
-        until: time::OffsetDateTime,
+        until: Stamp,
         words: String,
     },
 }
@@ -276,7 +276,7 @@ impl fmt::Display for Capacity {
 pub(super) fn sized(
     store: &Store,
     host: &Host<'_>,
-    now: time::OffsetDateTime,
+    now: Stamp,
     mut queue: Vec<Judged>,
 ) -> Result<(Vec<Judged>, Vec<Reason>), AdmissionError> {
     let unstopped = |judged: &&mut Judged| {
@@ -367,16 +367,16 @@ impl<'h> Measure<'h> {
 }
 
 /// The entry's lanes bound, out of cool-down and below their ceilings,
-/// with the runs of `live` counted.
+/// with the runs of `live` counted first.
 fn ceilings<'a>(
     config: &HostConfig,
     live: impl IntoIterator<Item = &'a Live>,
     lanes: &BTreeSet<Lane>,
     cooling: cooling::Leg<'_>,
 ) -> Result<Running, Capacity> {
+    let running = Running::count(live, config)?;
     let bound = bind(config, lanes)?;
     cooling.room(lanes)?;
-    let running = Running::count(live, config)?;
     bound
         .iter()
         .filter(|bound| bound.class() == RouteClass::Cloud)
@@ -450,7 +450,7 @@ impl Room {
             high_water: self.high_water,
             digest: &self.digest,
             generation,
-            now: time::OffsetDateTime::now_utc(),
+            now: Stamp::now_utc(),
         };
         let claimed = store.queue_claim_with(&over, reason, self.judge(store.path()));
         match claimed? {

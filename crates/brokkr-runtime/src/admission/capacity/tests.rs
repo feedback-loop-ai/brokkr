@@ -9,9 +9,11 @@ use std::ffi::OsString;
 use std::io;
 use std::path::{Path, PathBuf};
 
+use brokkr_core::envelope::EventEnvelope;
 use brokkr_core::EventType;
 use brokkr_store::{
-    Attribution, EntryId, NewEntry, QueueCommand, QueueRefusal, StoreError, WaitOn,
+    Attribution, CooldownAppend, Cooling as Row, EntryId, NewEntry, QueueCommand, QueueRefusal,
+    StoreError, WaitOn,
 };
 use serde_json::{json, Value};
 
@@ -243,6 +245,57 @@ fn enqueue(store: &mut Store, launch: &QueuedLaunch) -> EntryId {
         waits: &[],
     };
     store.queue_add(entry, BY).unwrap()
+}
+
+/// Create `run` and record the start every run's writer expects.
+pub(crate) fn started_run(store: &mut Store, run: &str) {
+    store.create_run(run, "f", "b", &json!({})).unwrap();
+    store
+        .append_next(
+            run,
+            EventType::RunStarted,
+            json!({"feature": "f"}),
+            None,
+            None,
+        )
+        .unwrap();
+}
+
+/// Write `rows` as `run`'s first terminal event, through the store's own
+/// writer, and answer the event.
+pub(crate) fn refused_rows(store: &mut Store, run: &str, rows: &[Row]) -> EventEnvelope {
+    started_run(store, run);
+    store
+        .append_with_cooldowns(
+            CooldownAppend {
+                run_id: run,
+                fenced: None,
+                event_type: EventType::RunStopped,
+                payload: json!({}),
+                causation_id: None,
+                attempt_id: None,
+            },
+            rows,
+        )
+        .unwrap()
+}
+
+/// Write one beta/cloud cool-down row through the store's own writer, in
+/// force for the next five minutes.
+fn write_cooling(store: &mut Store, run: &str) {
+    refused_rows(
+        store,
+        run,
+        &[Row {
+            site: String::new(),
+            provider: "beta".into(),
+            route: "cloud".into(),
+            until_at: Stamp::now_utc() + time::Duration::minutes(5),
+            reason: "cooling".into(),
+            retry_after_seconds: None,
+            rounds: 1,
+        }],
+    );
 }
 
 /// A plenty-free host reading the configuration at `file`, and the
@@ -672,6 +725,62 @@ fn a_provider_or_route_the_host_does_not_declare_waits_as_undeclared() {
             ),
         ]
     );
+}
+
+/// The checks keep ce09400a1's order (decision 0103 ruling 6): the running
+/// runs are counted before the entry's lanes are declared, so a run whose
+/// manifest does not say what it seats is the reason even when the entry
+/// names an undeclared provider.
+#[test]
+fn a_running_run_that_does_not_say_what_it_seats_is_the_reason_before_a_declaration() {
+    let mut fixture = Fixture::new();
+    fixture.seat("cloudy", "cloudy");
+    fixture.queue();
+    fixture.running("odd", &json!({}));
+    let file = fixture.declare(&host(json!({"alpha": {"ceiling": 2}})));
+    assert_eq!(
+        fixture.room(&file).map(|room| room.kind()),
+        Some("run_unmeasured")
+    );
+}
+
+/// The cool-down leg comes after the running runs (decision 0103 ruling 6):
+/// an unreadable running run is the reason even when a declared lane is
+/// cooling.
+#[test]
+fn a_running_run_that_does_not_say_what_it_seats_is_the_reason_before_a_cool_down() {
+    let mut fixture = Fixture::new();
+    fixture.seat("cloudy", "cloudy");
+    fixture.queue();
+    fixture.running("odd", &json!({}));
+    let routes = json!({"cloud": route(2, "cloud")});
+    let file = fixture.declare(&host(json!({"beta": {"ceiling": 2, "routes": routes}})));
+    write_cooling(&mut fixture.store, "run-cooling");
+    assert_eq!(
+        fixture.room(&file).map(|room| room.kind()),
+        Some("run_unmeasured")
+    );
+}
+
+/// The claim's recheck keeps the same order: a run that moved and does not
+/// say what it seats refuses before a lane recorded cooling after the pass.
+#[test]
+fn the_claims_recheck_counts_the_moved_runs_before_it_judges_a_cool_down() {
+    let mut fixture = Fixture::new();
+    fixture.seat("cloudy", "cloudy");
+    fixture.queue();
+    let routes = json!({"cloud": route(2, "cloud")});
+    let file = fixture.declare(&host(json!({"beta": {"ceiling": 2, "routes": routes}})));
+    let room = admitted(&fixture, &file);
+    write_cooling(&mut fixture.store, "run-cooling");
+    fixture.running("odd", &json!({}));
+    match room
+        .claim(&mut fixture.store, Generation(1), "admitted")
+        .unwrap()
+    {
+        Err(reason) => assert_eq!(reason.kind(), "run_unmeasured"),
+        Ok(claim) => panic!("the claim took {claim:?} over an unreadable run"),
+    }
 }
 
 /// `declared` with `floors` in place of its own.
@@ -1215,6 +1324,12 @@ fn every_capacity_reason_has_its_word() {
             running: 1,
             ceiling: 1,
         },
+        Capacity::CoolingDown {
+            provider: "p".into(),
+            route: "r".into(),
+            until: Stamp::UNIX_EPOCH,
+            words: "w".into(),
+        },
     ];
     let words = reasons.map(|reason| {
         let reason = Reason::Capacity(reason);
@@ -1234,6 +1349,7 @@ fn every_capacity_reason_has_its_word() {
             ("floor_unmeasured", false),
             ("floor_low", false),
             ("boxed_full", false),
+            ("cooling_down", false),
         ]
     );
 }

@@ -7,13 +7,15 @@
 use std::path::{Path, PathBuf};
 
 use brokkr_core::envelope::{EventEnvelope, EventType};
-use brokkr_store::{CooldownAppend, Cooling as Row, Generation, QueueRefusal, Store, StoreError};
+use brokkr_store::{Cooling as Row, Generation, QueueRefusal, Store, StoreError};
 use serde_json::json;
 use time::format_description::well_known::Rfc3339;
 use time::{Duration, OffsetDateTime};
 
-use crate::admission::capacity::tests::{ceilings, route, verdicts, Fixture, PLENTY, TEMP};
-use crate::admission::capacity::Capacity;
+use crate::admission::capacity::tests::{
+    ceilings, refused_rows as refuse, route, started_run, verdicts, Fixture, PLENTY, TEMP,
+};
+use crate::admission::capacity::{Capacity, Room};
 use crate::admission::{pass_within_at, AdmissionError, Host, Judged, Reason, Standing};
 
 /// A fixed instant after every row this file writes records at, so a row
@@ -40,32 +42,26 @@ fn row(provider: &str, route: &str, until: OffsetDateTime, words: &str) -> Row {
     }
 }
 
-/// Write `rows` as a new run's first terminal event, through the store's
-/// own writer, and answer the event.
-fn refuse(store: &mut Store, run: &str, rows: &[Row]) -> EventEnvelope {
-    store.create_run(run, "f", "b", &json!({})).unwrap();
+/// Create `run`, record its start and its stop, and answer the stop.
+fn stopped_run(store: &mut Store, run: &str) -> EventEnvelope {
+    started_run(store, run);
     store
-        .append_next(
-            run,
-            EventType::RunStarted,
-            json!({"feature": "f"}),
-            None,
-            None,
-        )
-        .unwrap();
-    store
-        .append_with_cooldowns(
-            CooldownAppend {
-                run_id: run,
-                fenced: None,
-                event_type: EventType::RunStopped,
-                payload: json!({}),
-                causation_id: None,
-                attempt_id: None,
-            },
-            rows,
-        )
+        .append_next(run, EventType::RunStopped, json!({}), None, None)
         .unwrap()
+}
+
+/// A fixture whose one entry seats beta's cloud route and is admitted, its
+/// host file, and the room the pass found before any row.
+fn room_before_rows() -> (Fixture, PathBuf, Room) {
+    let mut fixture = Fixture::new();
+    fixture.seat("cloudy", "cloudy");
+    fixture.queue();
+    let file = fixture.declare(&declared());
+    let room = judged_at(&fixture, &file, base())
+        .remove(0)
+        .room
+        .expect("the pass admits the entry before any row");
+    (fixture, file, room)
 }
 
 /// The entry's reasons under a pass measuring at `now`, every filesystem
@@ -250,6 +246,41 @@ fn two_overlapping_refusals_hold_until_the_longer_ends() {
     assert_eq!(reasons_at(&fixture, &file, longer), vec![vec![]]);
 }
 
+/// At one end, the latest row speaks for the lane (decision 0103 ruling 2):
+/// the store reads rows by rising seq and keeps the latest row at the
+/// latest `until_at`, and the pass and the claim both keep it.
+#[test]
+fn the_latest_row_at_the_latest_end_speaks_for_the_lane() {
+    let until = at(300);
+    let (fixture, file) = refused(&[
+        row("beta", "cloud", until, "first"),
+        row("beta", "cloud", until, "second"),
+    ]);
+    assert_eq!(
+        reasons_at(&fixture, &file, base()),
+        vec![vec![cooling("beta", "cloud", until, "second")]]
+    );
+
+    let (mut fixture, _file, room) = room_before_rows();
+    refuse(
+        &mut fixture.store,
+        "run-first",
+        &[row("beta", "cloud", until, "first")],
+    );
+    refuse(
+        &mut fixture.store,
+        "run-second",
+        &[row("beta", "cloud", until, "second")],
+    );
+    match room
+        .claim(&mut fixture.store, Generation(1), "admitted")
+        .unwrap()
+    {
+        Err(reason) => assert_eq!(reason, cooling("beta", "cloud", until, "second")),
+        Ok(claim) => panic!("the claim took {claim:?} over a cool-down"),
+    }
+}
+
 #[test]
 fn an_expired_row_never_holds() {
     let (fixture, file) = refused(&[row("beta", "cloud", at(-60), "expired")]);
@@ -262,44 +293,35 @@ fn an_expired_row_never_holds() {
     );
 }
 
-#[test]
-fn an_unreadable_row_refuses_the_pass() {
+/// A fixture whose one entry seats beta's cloud route, with a stopped run's
+/// cool-down row planted by SQL at `until_at` and `words`, and the host
+/// file. The row bypasses the writer's bound, as a journal written by
+/// another build can.
+fn planted(until_at: i64, words: &str) -> (Fixture, PathBuf) {
     let mut fixture = Fixture::new();
     fixture.seat("cloudy", "cloudy");
     fixture.queue();
     let file = fixture.declare(&declared());
-    fixture
-        .store
-        .create_run("run-bad", "f", "b", &json!({}))
-        .unwrap();
-    fixture
-        .store
-        .append_next(
-            "run-bad",
-            EventType::RunStarted,
-            json!({"feature": "f"}),
-            None,
-            None,
-        )
-        .unwrap();
-    let event = fixture
-        .store
-        .append_next("run-bad", EventType::RunStopped, json!({}), None, None)
-        .unwrap();
-    // The largest instant the table's own constraints accept: no `time`
-    // range spells it. A second past 9999 is not enough, because the
-    // workspace test build enables `time`'s `large-dates` through a
-    // dev-dependency, and then year 10000 is readable.
+    let event = stopped_run(&mut fixture.store, "run-planted");
     rusqlite::Connection::open(fixture.root.join("forge.db"))
         .unwrap()
         .execute(
             "INSERT INTO provider_cooldowns
                 (run_id, event_seq, site, provider, route, until_at, reason, rounds, recorded_at)
-             VALUES (?1, ?2, '', 'beta', 'cloud', ?3, 'unreadable', 1, 1)",
-            rusqlite::params!["run-bad", event.seq as i64, i64::MAX],
+             VALUES (?1, ?2, '', 'beta', 'cloud', ?3, ?4, 1, 1)",
+            rusqlite::params!["run-planted", event.seq as i64, until_at, words],
         )
         .unwrap();
+    (fixture, file)
+}
 
+#[test]
+fn an_unreadable_row_refuses_the_pass() {
+    let (fixture, file) = planted(i64::MAX, "unreadable");
+    // The largest instant the table's own constraints accept: no `time`
+    // range spells it. A second past 9999 is not enough, because the
+    // workspace test build enables `time`'s `large-dates` through a
+    // dev-dependency, and then year 10000 is readable.
     let probe = |_: &Path| Ok(PLENTY);
     let host = Host {
         file: &file,
@@ -315,16 +337,40 @@ fn an_unreadable_row_refuses_the_pass() {
     }
 }
 
+/// An end RFC 3339 cannot spell still refuses, and printing its reason
+/// never panics: a stored second of year 10000 is readable where `time`'s
+/// `large-dates` is on (the workspace test build), and the fallback names
+/// it in words; without it the reader refuses the row by name instead.
+#[test]
+fn a_reason_for_an_end_no_rfc_3339_text_can_spell_still_refuses_and_never_panics() {
+    let (fixture, file) = planted(253_402_300_800, "the provider's words");
+    let probe = |_: &Path| Ok(PLENTY);
+    let host = Host {
+        file: &file,
+        temp: TEMP.as_ref(),
+        free: &probe,
+    };
+    match pass_within_at(&fixture.store, &host, base()) {
+        Ok((judged, _)) => {
+            let reason = judged[0].verdict.as_ref().expect("a waiting entry").reasons[0].clone();
+            assert_eq!(reason.kind(), "cooling_down");
+            let text = reason.to_string();
+            assert!(
+                text.contains("a time RFC 3339 cannot spell (second 253402300800)"),
+                "the reason names the end it cannot spell: {text}"
+            );
+            assert!(text.contains("the provider's words"), "{text}");
+        }
+        Err(AdmissionError::Store(StoreError::Queue(QueueRefusal::CooldownTime { seq }))) => {
+            assert_eq!(seq, 1);
+        }
+        Err(other) => panic!("a row no time range spells was not refused: {other:?}"),
+    }
+}
+
 #[test]
 fn the_claim_refuses_a_row_recorded_after_the_pass_read() {
-    let mut fixture = Fixture::new();
-    fixture.seat("cloudy", "cloudy");
-    fixture.queue();
-    let file = fixture.declare(&declared());
-    let room = judged_at(&fixture, &file, base())
-        .remove(0)
-        .room
-        .expect("the pass admits the entry before any row");
+    let (mut fixture, _file, room) = room_before_rows();
     let until = at(60);
     refuse(
         &mut fixture.store,

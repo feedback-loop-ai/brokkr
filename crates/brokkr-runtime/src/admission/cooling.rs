@@ -99,7 +99,8 @@ impl Leg<'_> {
 }
 
 /// The reason's text, naming the provider, route, end and the provider's
-/// words.
+/// words. An end no RFC 3339 text can spell is named by its whole second
+/// instead, so printing a refusal never panics.
 pub(super) fn word(
     f: &mut fmt::Formatter<'_>,
     provider: &str,
@@ -110,10 +111,21 @@ pub(super) fn word(
     write!(
         f,
         "provider {provider} is cooling on route {route} until {}: {words}",
-        until
-            .format(&Rfc3339)
-            .expect("an RFC 3339 time formats as RFC 3339")
+        spelled(until)
     )
+}
+
+/// `at` as RFC 3339, or words naming an end that text cannot spell: a
+/// stored second outside RFC 3339's range (year 10000, under `time`'s
+/// `large-dates`) is printed by its second, never by an `expect` that
+/// would panic while a reason is shown.
+fn spelled(at: OffsetDateTime) -> String {
+    at.format(&Rfc3339).unwrap_or_else(|_| {
+        format!(
+            "a time RFC 3339 cannot spell (second {})",
+            at.unix_timestamp()
+        )
+    })
 }
 
 #[cfg(test)]
