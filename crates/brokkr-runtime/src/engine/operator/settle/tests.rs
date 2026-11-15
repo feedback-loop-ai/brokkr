@@ -158,22 +158,26 @@ fn settle_refuses_a_live_process_group_naming_it_and_writes_nothing() {
     drop(live);
 }
 
-/// A run another process drives is refused with the lock's own words, and
-/// nothing is written.
+/// A run another process drives is refused with the lock's typed cause,
+/// naming this process as the holder, and nothing is written. The holder's
+/// sentence is pinned once, exactly, in
+/// `run_lock_tests::a_held_run_refuses_resume_naming_its_driver` (R1;
+/// decision 0071 ruling 8).
 #[test]
 fn settle_refuses_a_run_a_driver_holds_naming_the_holder() {
     let mut fixture = quarantined(&[Witnessed::Settling], Some(dead_group()));
     let held = run_lock::take(&fixture.store, "run-a").expect("the run's lock is taken");
     let head = fixture.store.head_hash("run-a").unwrap();
     let refused = operator_settle(&mut fixture.store, "run-a", &ask()).unwrap_err();
-    let words = refused.to_string();
-    assert!(
-        words.contains(&format!(
-            "run 'run-a' is driven by pid {}",
-            std::process::id()
-        )),
-        "{words}"
-    );
+    let EngineError::RunLock(crate::RunLockError::Driven {
+        run_id,
+        holder: Some(holder),
+    }) = refused
+    else {
+        panic!("a driver's lock is refused by its type: {refused:?}");
+    };
+    assert_eq!(run_id, "run-a");
+    assert_eq!(holder.pid, std::process::id());
     assert_eq!(
         fixture.store.head_hash("run-a").unwrap(),
         head,

@@ -968,15 +968,21 @@ journals it, and the next dispatch admits. `settle` refuses and writes
 nothing while a lock holder, a live process group or an unproven attempt
 still stands. A group recorded for a driver already sealed Settled is not
 asked: the seal is the settlement proof, and a reused group id names an
-unrelated process, so it does not hold the worktree.
+unrelated process, so it does not hold the worktree. If an engine failed
+its seal, its driver stays Settling, so a later `settle` proves only the
+process group that driver recorded ended — not what the attempt's cleanup
+witnessed — and `brokkr operator release` is the route where that
+distinction matters.
 
 A reservation written before this release records its drivers but no group
 (v0.13.0's shape), so `settle` cannot prove one of its drivers: repair the
 run first, then `brokkr operator release --run <id> --reason <why>`, the
 operator's attestation that every process those attempts owned has ended.
-Release asks the host about every process group a driver recorded for an
-attempt that ended indeterminate, and refuses while one still has a member;
-a driver that recorded no group, as v0.13.0's drivers did not, is not asked.
+Release asks the host about every group recorded for a driver the records do
+not seal Settled, and about an attempt's one older single-group slot where a
+440d build wrote one, for an attempt that ended indeterminate, and refuses
+while one still has a member; a driver that recorded no group, as v0.13.0's
+drivers did not, is not asked.
 It refuses an attempt that ended a success or a failure, and one with no
 journaled ending; it is the route only where the attempt ended
 indeterminate. A spawn that failed before its process group was recorded
@@ -1011,7 +1017,11 @@ repair, `release` refuse it as a record that names no process group, and
 their refusal names the route: archive the journal, re-provision the
 worktree, and repair the archived copy for its history. From b8e2caff8
 through v0.13.0 the record reads whole, with drivers and no group, and the
-repair-then-release route holds where the attempt ended indeterminate.
+repair-then-release route holds where the attempt ended indeterminate. A
+record that instead names a newer format, or a field this build does not
+know, takes the other advice: conclude or resume that run with the build
+that wrote it, or use a build that reads it, and never re-provision a
+worktree a newer writer may still hold.
 
 ### Gate entries on a run
 

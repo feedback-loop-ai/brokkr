@@ -157,10 +157,16 @@ struct Indeterminate<'a> {
     unproven: Unproven,
 }
 
+pub use boxed::Unrooted;
+pub use broker::admission::{Conflict, Unadmitted, Unknown};
+pub use broker::settlement::release::{Live, UnprovenWhy};
+pub use broker::Unroutable;
 /// The typed refusal `settle` carries, defined where the verb is: the host's
 /// answer, the unread reservation's typed refusal, and the run's own
-/// pre-proof reasons (decision 0071 ruling 8; S8).
-pub(in crate::engine) use operator::SettleRefusal;
+/// pre-proof reasons (decision 0071 rulings 6 and 8; S8, R4). Its payloads
+/// are public at the narrowest paths that name them, so a caller outside
+/// this crate can match every arm.
+pub use operator::SettleRefusal;
 
 #[derive(Debug, Error)]
 pub enum EngineError {
@@ -228,13 +234,9 @@ pub enum EngineError {
     /// `settle` refused the run or a fact it would prove, and wrote
     /// nothing (decision 0108 ruling 3). Like a repair there is no pending
     /// command to dispose of, so the refusal is the operator's to read and
-    /// the journal stays exactly as it was. The payload stays the crate's
-    /// typed fact: no consumer outside this crate names it (S8).
-    #[expect(
-        private_interfaces,
-        reason = "the typed refusal is the crate's fact; the operator reads its text (S8, decision \
-                  0071 ruling 6)"
-    )]
+    /// the journal stays exactly as it was. The payload is public with the
+    /// types its arms carry, so a caller can name the fact it refused on
+    /// (R4; decision 0071 rulings 6 and 8).
     #[error("settle refused, nothing was written: {0}")]
     SettleRefused(SettleRefusal),
     /// The bridge was sent a word an operator annotation carries

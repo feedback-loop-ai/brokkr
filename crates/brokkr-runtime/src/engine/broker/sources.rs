@@ -361,7 +361,7 @@ pub(super) const HOPS_MAX: usize = 40;
 /// Why an input's route cannot be reserved: each refuses by MB3's identity
 /// cause naming the input, never reserving less.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-pub(in crate::engine) enum Unroutable {
+pub enum Unroutable {
     #[error("is not absolute, as a relative or empty PATH entry or a relative TMPDIR names it")]
     Relative,
     #[error("meets a component that cannot be read")]

@@ -13,7 +13,7 @@ use crate::run_lock;
 /// What keeps protected evidence or the coordination root from being kept
 /// from every managed writer (CR2; the operator's ruling of 2026-10-18).
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
-pub(in crate::engine) enum Conflict {
+pub enum Conflict {
     #[error("run '{0}' holds this worktree, its writers not proven settled")]
     Held(String),
     /// A quarantined run's writers are proven ended, but a process still

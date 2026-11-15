@@ -41,8 +41,7 @@ pub use ending::{named_cause, operator_stop, Cause, CauseRefusal, Flag, Named, V
 #[cfg(test)]
 pub(super) use release::released_racing;
 pub use repair::{operator_repair, Repair};
-pub(in crate::engine) use settle::SettleRefusal;
-pub use settle::{operator_settle, Settle};
+pub use settle::{operator_settle, Settle, SettleRefusal};
 #[cfg(test)]
 pub(super) use supersede::operator_supersede_racing;
 pub use supersede::{operator_supersede, Supersede};

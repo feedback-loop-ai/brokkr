@@ -206,18 +206,25 @@ fn a_settled_drivers_reused_group_id_does_not_hold_the_worktree() {
 }
 
 /// A child process that holds the run's lock keeps the worktree held, and
-/// the refusal names the child (decision 0108 ruling 1): the kernel excludes
-/// across processes, not only across open descriptions.
+/// the refusal names the child by its typed cause (decision 0108 ruling 1):
+/// the kernel excludes across processes, not only across open descriptions.
+/// The holder's sentence is pinned once, exactly, in
+/// `run_lock_tests::a_held_run_refuses_resume_naming_its_driver` (R1;
+/// decision 0071 ruling 8).
 #[test]
 fn a_quarantined_run_whose_lock_a_child_holds_is_refused_naming_it() {
     let fixture = quarantined(&[Witnessed::Settled], None);
     let held = child_lock(&fixture.store, "run-a");
     let refused = next(&fixture).unwrap_err();
-    let words = refused.to_string();
-    assert!(
-        words.contains(&format!("run 'run-a' is driven by pid {}", held.holder())),
-        "{words}"
-    );
+    let Unadmitted::Evidence(Conflict::Driven {
+        run,
+        holder: Some(holder),
+    }) = refused
+    else {
+        panic!("a child's lock is refused by its type: {refused:?}");
+    };
+    assert_eq!(run, "run-a");
+    assert_eq!(holder.pid, held.holder());
     drop(held);
     assert!(
         next(&fixture).is_ok(),
@@ -684,8 +691,9 @@ fn old_shape_b_journal(db: &std::path::Path, run: &str) -> brokkr_store::Store {
 /// v0.13.0's reservation serialisation, in the tag's own field order and
 /// optionality, with `{repo}`, `{workdir}`, `{artifacts}` and `{journal}`
 /// replaced by JSON strings (S6). Field for field, from
-/// `git show v0.13.0:crates/brokkr-runtime/src/engine/broker/admission.rs`
-/// and `.../settlement.rs`:
+/// `git show v0.13.0:crates/brokkr-runtime/src/engine/broker/admission.rs`,
+/// `.../settlement.rs` and
+/// `crates/brokkr-protocol/src/hands/sealed.rs`:
 /// - `Reservation`: `repo` (:204), `run` (:205), `workdir` (:206),
 ///   `artifacts` (:207), `journal` (:208), `attempts` (:209), `settled`
 ///   (:210);
@@ -695,9 +703,15 @@ fn old_shape_b_journal(db: &std::path::Path, run: &str) -> brokkr_store::Store {
 /// - `Driver`: `site` (settlement.rs:363), `begun` (:364), `cleanup`
 ///   (:365); the tag has no `group` field there either;
 /// - `Writer`: `site` (admission.rs:255), `reach` (:256);
-/// - `Reach::Boxed` (:276): `writable`, `readable`, `sources`, `sealed`;
-/// - `Sealed`: `home`, `worktree`, `git`, `binds`, `store`
-///   (brokkr-protocol/src/hands/sealed.rs:72 at the tag).
+/// - `Reach::Boxed` (:276): `writable` (:277), `readable` (:278), `sources`
+///   (:279), `sealed` (:280);
+/// - `Sealed`: `home` (sealed.rs:73), `worktree` (:74), `git` (:75),
+///   `binds` (:76), `store` (:78), `store` null;
+/// - `Source` (sealed.rs:93): `path` (:94), `identity` (:95), both `null`
+///   or empty here; `Git` (:84) is null, so `dir` (:85) and `common` (:86)
+///   are absent;
+/// - `Store` (sealed/hidden/place.rs:21): `place` (:22), `spelling` (:23),
+///   absent with the null store.
 const V0_13_0_RESERVATION: &str = concat!(
     r#"{"repo":{repo},"run":"run-a","workdir":{workdir},"artifacts":{artifacts},"#,
     r#""journal":{journal},"attempts":{"attempt":{"protects":"nothing","writers":"#,
@@ -722,53 +736,114 @@ fn v0_13_0_reservation(
         .replace("{journal}", &quote(&journal.to_string_lossy()))
 }
 
-/// Assert the planted reservation is v0.13.0's: its top level in the tag's
-/// order and names, its attempt and driver without a group, and the whole
-/// record reads as this build's `Reservation` (S6).
-fn assert_v0_13_0_reservation(at: &std::path::Path) {
-    // The order is read from the planted bytes, not from the constant that
-    // wrote them, so an edit to either is caught where it stands.
-    let fixture = std::fs::read_to_string(at).unwrap();
-    let order = [
-        "\"repo\"",
-        "\"run\"",
-        "\"workdir\"",
-        "\"artifacts\"",
-        "\"journal\"",
-        "\"attempts\"",
-        "\"settled\"",
-    ];
-    let mut at_key = 0;
-    for key in order {
-        let found = fixture[at_key..]
-            .find(key)
-            .unwrap_or_else(|| panic!("{key} is missing or out of order"));
-        at_key += found + key.len();
+/// Assert the fields `keys` appear, each as a quoted name, in that order in
+/// the object that begins at `start` in `fixture`.
+fn assert_field_order(fixture: &str, start: &str, keys: &[&str]) {
+    let mut at = fixture
+        .find(start)
+        .unwrap_or_else(|| panic!("{start} is missing"))
+        + start.len();
+    for key in keys {
+        let quoted = format!("\"{key}\"");
+        let found = fixture[at..]
+            .find(&quoted)
+            .unwrap_or_else(|| panic!("{quoted} is missing or out of order after {start}"));
+        at += found + quoted.len();
     }
+}
+
+/// The object keys of `value`, as the fixture states them.
+fn object_keys(value: &serde_json::Value) -> std::collections::BTreeSet<&str> {
+    value
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(String::as_str)
+        .collect()
+}
+
+/// Assert the planted reservation is v0.13.0's: its top level and every
+/// nested object in the tag's order and names, its attempt and driver
+/// without a group, and the whole record reads as this build's `Reservation`
+/// (S6). The order is read from the planted bytes, not from the constant
+/// that wrote them, so an edit to either is caught where it stands.
+fn assert_v0_13_0_reservation(at: &std::path::Path) {
+    let fixture = std::fs::read_to_string(at).unwrap();
+    assert_field_order(
+        &fixture,
+        "",
+        &[
+            "repo",
+            "run",
+            "workdir",
+            "artifacts",
+            "journal",
+            "attempts",
+            "settled",
+        ],
+    );
+    assert_field_order(
+        &fixture,
+        r#""attempts":{"attempt":{"#,
+        &["protects", "writers", "cleanup", "drivers"],
+    );
+    assert_field_order(&fixture, r#""writers":[{"#, &["site", "reach"]);
+    assert_field_order(
+        &fixture,
+        r#""reach":{"boxed":{"#,
+        &["writable", "readable", "sources", "sealed"],
+    );
+    assert_field_order(
+        &fixture,
+        r#""sealed":{"#,
+        &["home", "worktree", "git", "binds", "store"],
+    );
+    assert_field_order(&fixture, r#""worktree":{"#, &["path", "identity"]);
+    assert_field_order(&fixture, r#""drivers":[{"#, &["site", "begun", "cleanup"]);
     let planted: serde_json::Value = serde_json::from_slice(&std::fs::read(at).unwrap()).unwrap();
     let attempt = &planted["attempts"]["attempt"];
     assert!(
         attempt.get("group").is_none(),
         "v0.13.0's Reserved has no one-group slot (admission.rs:220 at the tag)"
     );
-    let keys: std::collections::BTreeSet<&str> = attempt["drivers"][0]
-        .as_object()
-        .unwrap()
-        .keys()
-        .map(String::as_str)
-        .collect();
     assert_eq!(
-        keys,
+        object_keys(attempt),
+        ["cleanup", "drivers", "protects", "writers"]
+            .into_iter()
+            .collect(),
+        "v0.13.0's Reserved names these four fields, and no `group` or `serves`"
+    );
+    assert_eq!(
+        object_keys(&attempt["writers"][0]),
+        ["reach", "site"].into_iter().collect(),
+        "v0.13.0's Writer has site and reach (admission.rs:255 at the tag)"
+    );
+    assert_eq!(
+        object_keys(&attempt["writers"][0]["reach"]["boxed"]),
+        ["readable", "sealed", "sources", "writable"]
+            .into_iter()
+            .collect(),
+        "v0.13.0's Reach::Boxed names these four fields (admission.rs:276 at the tag)"
+    );
+    assert_eq!(
+        object_keys(&attempt["writers"][0]["reach"]["boxed"]["sealed"]),
+        ["binds", "git", "home", "store", "worktree"]
+            .into_iter()
+            .collect(),
+        "v0.13.0's Sealed names these five fields (sealed.rs:72 at the tag)"
+    );
+    assert_eq!(
+        object_keys(&attempt["writers"][0]["reach"]["boxed"]["sealed"]["worktree"]),
+        ["identity", "path"].into_iter().collect(),
+        "v0.13.0's Source names path and identity (sealed.rs:93 at the tag)"
+    );
+    assert_eq!(
+        object_keys(&attempt["drivers"][0]),
         ["begun", "cleanup", "site"].into_iter().collect(),
         "v0.13.0's Driver has site, begun and cleanup (settlement.rs:362 at the tag)"
     );
     assert_eq!(
-        planted
-            .as_object()
-            .unwrap()
-            .keys()
-            .map(String::as_str)
-            .collect::<std::collections::BTreeSet<_>>(),
+        object_keys(&planted),
         [
             "repo",
             "run",
@@ -965,8 +1040,10 @@ fn settle_names_a_recorded_slot_that_still_runs_for_a_multi_driver_record() {
 /// reads such a record only through the view, so the attempt holds, and
 /// both `settle` and, after a repair, `release` refuse it as a view-only
 /// record and name the operator's route: the F4 route does not hold here,
-/// and the commit is the operator's ask. The test pins the refusal, not a
-/// new proof.
+/// and the commit is the operator's ask. The missing `store` is a field the
+/// record lacks, not one it names, so it keeps `ViewOnly`'s words and route,
+/// unlike a newer writer's unknown field, which takes the format advice
+/// (R5). The test pins the refusal, not a new proof.
 #[test]
 fn an_old_boxed_reservation_without_store_is_read_through_the_view() {
     use crate::engine::broker::admission::tests::Coordinated;

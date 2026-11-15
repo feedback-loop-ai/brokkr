@@ -45,7 +45,7 @@ use brokkr_protocol::hands::{self, HandsSpec, UNPROTECTED_EVIDENCE};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-pub(in crate::engine) use super::conflict::Conflict;
+pub use super::conflict::Conflict;
 use super::exclusion::{compared, staked, Comparison};
 use super::historical::{recorded, superseded::superseded};
 use super::inventory::{inventory, Budget, Standing};
@@ -78,7 +78,7 @@ pub(super) const STAGED: &str = ".new";
 /// cause where the artifact root cannot be kept from every managed writer,
 /// MB3's identity cause where participation cannot be established.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
-pub(in crate::engine) enum Unadmitted {
+pub enum Unadmitted {
     #[error("dispatch refused: {UNPROTECTED_EVIDENCE}: {0}")]
     Evidence(#[from] Conflict),
     #[error("dispatch refused: {identity}: {0}", identity = Refusal::Identity)]
@@ -90,7 +90,7 @@ pub(in crate::engine) enum Unadmitted {
 
 /// What keeps participation from being established (MB3).
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
-pub(in crate::engine) enum Unknown {
+pub enum Unknown {
     #[error("the capability coordination root is not protected")]
     Root,
     #[error("the operated worktree does not resolve")]
@@ -105,11 +105,15 @@ pub(in crate::engine) enum Unknown {
     Overflow,
     #[error("the protected inventory holds an unknown participant at '{}'", .0.display())]
     Participant(PathBuf),
-    /// A reservation this build reads only through the view of another
-    /// build: it names no process group, so neither `settle` nor `release`
-    /// can prove its attempt ended here. Only this refusal names the
-    /// operator's route; a foreign entry in the coordination root is an
-    /// [`Unknown::Participant`], with nothing of the release's to say.
+    /// A reservation from before b8e2caff8 that this build reads only
+    /// through the view: its whole read failed on a field it lacks, and it
+    /// names no process group, so neither `settle` nor `release` can prove
+    /// its attempt ended here. Only this refusal names the archive and
+    /// re-provisioning route; a record that names a newer format or a field
+    /// this build does not know is [`Unknown::Formatted`] instead, whose
+    /// advice is the build that wrote it (R5). A foreign entry in the
+    /// coordination root is an [`Unknown::Participant`], with nothing of the
+    /// release's to say.
     #[error(
         "the protected inventory holds a reservation at '{}' which this build reads only \
          through the view: it names no process group, so settle and release cannot prove its \

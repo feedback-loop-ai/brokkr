@@ -38,17 +38,16 @@ mod tests;
 /// fact the proof refused on, or the run's own word before a proof was
 /// taken. Every arm is a type, never text: the host's answer (`group` still
 /// alive, `NoGroup`, `Unresolved`), the unread reservation's typed
-/// [`crate::engine::broker::admission::Unadmitted`], and the run's own
-/// pre-proof refusals are variants the caller matches (decision 0071 ruling
-/// 8; S8).
+/// [`crate::engine::Unadmitted`], and the run's own pre-proof refusals are
+/// variants the caller matches (decision 0071 rulings 6 and 8; S8, R4).
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
-pub(in crate::engine) enum SettleRefusal {
+pub enum SettleRefusal {
     #[error(transparent)]
-    Live(#[from] crate::engine::broker::settlement::release::Live),
+    Live(#[from] crate::engine::Live),
     /// The reservation could not be read whole, exactly as admission refuses
     /// it: the typed participant or root, never flattened to its text.
     #[error(transparent)]
-    Unadmitted(#[from] crate::engine::broker::admission::Unadmitted),
+    Unadmitted(#[from] crate::engine::Unadmitted),
     #[error(
         "run '{run}' has no terminal event; settle records that a run which has already ended \
          no longer holds its worktree"

@@ -89,7 +89,7 @@ pub(in crate::engine) struct Settled {
 /// a member on this host, or nothing proves it and no group was recorded to
 /// ask about.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
-pub(in crate::engine) enum Live {
+pub enum Live {
     #[error(
         "attempt '{attempt}' stands, and its process group {group} still has members on this host"
     )]
@@ -99,7 +99,7 @@ pub(in crate::engine) enum Live {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
-pub(in crate::engine) enum UnprovenWhy {
+pub enum UnprovenWhy {
     #[error(
         "its driver records are not sealed Settled, and it recorded no process group to ask the \
          host about; repair the run, then `brokkr operator release` is the operator's route where \

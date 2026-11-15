@@ -82,6 +82,7 @@ mod sources;
 mod terminal;
 pub(super) use admission::{Authored, Held};
 pub(super) use observation::{observed, Observed};
+pub use sources::Unroutable;
 pub(super) use terminal::Host;
 
 /// One attempt's retention budget, which its retaining plans share (CR3).

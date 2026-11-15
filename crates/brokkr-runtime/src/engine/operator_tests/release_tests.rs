@@ -494,18 +494,36 @@ fn the_bridge_refuses_a_release() {
     assert_eq!(refused, refused_by_name);
 }
 
-/// U8e3: a reservation this build reads only through the view cannot be
-/// sealed whole again, so the release refuses it as view-only, naming the
-/// operator's route, and nothing is attested.
+/// R5: a reservation that names a field this build does not know is a newer
+/// writer's, even where it also carries a driver group that may still run.
+/// The release refuses it with the format advice, to use the build that
+/// wrote it, and never tells the operator to re-provision a worktree that
+/// newer writer may hold.
 #[test]
-fn a_release_of_a_reservation_read_only_through_the_view_names_the_route() {
-    let mut killed = Killed::new(false);
+fn a_release_of_a_newer_builds_reservation_takes_the_format_advice() {
+    let live = LiveGroup::new();
+    let mut killed = Killed::with_group(false, Some(live.group()));
     let reservation = killed.at.join("reservation.json");
     let mut value: Value = serde_json::from_slice(&std::fs::read(&reservation).unwrap()).unwrap();
-    // An older build's record: this build's whole `Reservation` refuses it
-    // by the field it does not know, and the view reads it.
+    // The newer writer's field: this build's whole `Reservation` refuses it
+    // by the field it does not know, and the view reads it. The record also
+    // states a driver group, so the view-only advice would be false about it.
     value["format"] = json!(1);
     std::fs::write(&reservation, serde_json::to_vec(&value).unwrap()).unwrap();
-    let expected = Unreleased::standing(Unadmitted::Identity(Unknown::ViewOnly(reservation)));
-    assert_eq!(unreleased(killed.released()), expected);
+    let refused = unreleased(killed.released());
+    assert_eq!(
+        refused,
+        Unreleased::standing(Unadmitted::Identity(Unknown::Formatted(reservation, 1))),
+        "the newer writer's record takes the format advice"
+    );
+    let said = refused.to_string();
+    assert!(
+        !said.contains("names no process group"),
+        "a record carrying a driver group does not claim it names none: {said}"
+    );
+    assert!(
+        said.contains("use a build that reads it"),
+        "the advice is the build that wrote it: {said}"
+    );
+    drop(live);
 }

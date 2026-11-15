@@ -66,8 +66,12 @@ pub(in crate::engine) fn attested(
 /// journal is the one at `journal`, holding an attempt standing, as the
 /// inventory reads them within `budget`, each read whole; refused where one
 /// was read only through the view, for that is never sealed (decision
-/// 0090). That refusal is [`Unknown::ViewOnly`] and names the operator's
-/// route; an entry that is no reservation at all stays
+/// 0090). A record written before b8e2caff8, whose whole read failed on a
+/// field it lacks, is [`Unknown::ViewOnly`] and names the archive and
+/// re-provisioning route; one that names a newer format or a field this
+/// build does not know is [`Unknown::Formatted`], whose advice is to use the
+/// build that wrote it, never to re-provision under a possibly live newer
+/// writer (R5). An entry that is no reservation at all stays
 /// [`Unknown::Participant`], with no route of the release's.
 pub(super) fn reserved_for(
     root: &Root,
@@ -86,8 +90,11 @@ pub(super) fn reserved_for(
         .filter(|held| (held.run == run) & (held.journal == journal) & !held.attempts.is_empty());
     let whole = |held: Standing| {
         let at = root.path().join(&held.repo).join(run).join(RESERVATION);
-        held.whole
-            .ok_or_else(|| Unadmitted::from(Unknown::ViewOnly(at)))
+        match (held.whole, held.newer) {
+            (Some(whole), _) => Ok(whole),
+            (None, Some(format)) => Err(Unadmitted::from(Unknown::Formatted(at, format))),
+            (None, None) => Err(Unadmitted::from(Unknown::ViewOnly(at))),
+        }
     };
     ours.map(whole).collect()
 }
