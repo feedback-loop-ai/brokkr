@@ -62,7 +62,7 @@ enum Ending {
 /// kept beside the rule: a conclude's acceptance. A reused attempt id may
 /// carry more than one ending; the tree goes only when all are
 /// `effect/succeeded`.
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct Terminal {
     /// Every ending a terminal event named the attempt with.
     endings: Vec<Ending>,
@@ -74,13 +74,12 @@ struct Terminal {
 impl Terminal {
     /// The attempt may go only when every terminal event that names it is
     /// `effect/succeeded`. A reused attempt id with any other ending keeps
-    /// the tree.
+    /// the tree. A `Terminal` is made only by [`Terminal::of`], so it always
+    /// holds at least one ending.
     fn succeeded_only(&self) -> bool {
-        !self.endings.is_empty()
-            && self
-                .endings
-                .iter()
-                .all(|ending| *ending == Ending::Succeeded)
+        self.endings
+            .iter()
+            .all(|ending| *ending == Ending::Succeeded)
     }
 
     /// The terminal that names the attempt is `effect/indeterminate`.
@@ -245,9 +244,10 @@ fn verdict(
     let path = row.root.join(&row.attempt_id);
     let same_root =
         roots.get(&row.run_id).and_then(|root| root.as_deref()) == Some(row.root.as_path());
-    if let Err(reason) = shaped(&row, same_root, device_of) {
-        return Verdict::Kept { path, reason };
-    }
+    let presence = match shaped(&row, same_root, device_of) {
+        Ok(presence) => presence,
+        Err(reason) => return Verdict::Kept { path, reason },
+    };
     let folded = match &facts.folded {
         Ok(folded) => folded,
         Err(reason) => {
@@ -257,19 +257,34 @@ fn verdict(
             }
         }
     };
-    match held(folded, &row) {
+    match held(folded, &row, presence) {
         Some(reason) => Verdict::Kept { path, reason },
         None => Verdict::Ready { row, path },
     }
 }
 
+/// Whether the row's tree stands under its root. An absent root or tree is
+/// not a shape refusal: the row may close as gone.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Presence {
+    Absent,
+    Present,
+}
+
 /// Why the journal keeps the row, or `None` when it may go (ruling 7 as
 /// amended: succeeded-only).
-fn held(folded: &Folded, row: &SeatTree) -> Option<KeptReason> {
+fn held(folded: &Folded, row: &SeatTree, presence: Presence) -> Option<KeptReason> {
+    let attempt = folded.attempts.get(&row.attempt_id);
+    // An absent tree whose attempt has a terminal event closes as gone
+    // (ruling 8). An attempt with no terminal event may still be being
+    // made, so its absent tree is kept.
+    if presence == Presence::Absent && matches!(attempt, Some(Attempt::Terminal(_))) {
+        return None;
+    }
     if !folded.terminal && !folded.effects.contains(&row.effect_id) {
         return Some(KeptReason::EffectOpen);
     }
-    match folded.attempts.get(&row.attempt_id) {
+    match attempt {
         None => Some(KeptReason::NoEventNamesAttempt),
         Some(Attempt::Unended) => Some(KeptReason::NoTerminalEvent),
         Some(Attempt::Terminal(terminal)) if terminal.succeeded_only() => None,
@@ -288,13 +303,13 @@ fn held(folded: &Folded, row: &SeatTree) -> Option<KeptReason> {
 /// The path is the row's and the engine's shape (R5): an absolute root
 /// ending in `scratch` that is its own canonical path, one root per run,
 /// the engine's attempt UUID, and a real directory on the root's
-/// filesystem. A root that is itself absent closes the row as gone, so a
-/// tree is never kept forever by a directory that no longer exists.
+/// filesystem. An absent root or tree is reported as [`Presence::Absent`],
+/// so a row whose tree is gone can close.
 fn shaped(
     row: &SeatTree,
     same_root: bool,
     device_of: &impl Fn(&Path, u64) -> u64,
-) -> Result<(), KeptReason> {
+) -> Result<Presence, KeptReason> {
     if !same_root {
         return Err(KeptReason::Shape(ShapeReason::AnotherRoot));
     }
@@ -304,10 +319,11 @@ fn shaped(
     if !engine_uuid(&row.attempt_id) {
         return Err(KeptReason::Shape(ShapeReason::AttemptNotEngineUuid));
     }
-    // A root that is itself gone closes the row as gone, with no bytes, as
-    // ruling 8 does for an absent tree.
+    // A root that is itself gone is reported absent, not refused: a row
+    // whose attempt has a terminal event then closes as gone, as ruling 8
+    // does for an absent tree.
     let Some(canonical) = canonical(row)? else {
-        return Ok(());
+        return Ok(Presence::Absent);
     };
     // Byte equality, not `Path` equality: the latter ignores `.`, repeated
     // separators and a trailing slash (R5).
@@ -319,7 +335,7 @@ fn shaped(
     let tree = row.root.join(&row.attempt_id);
     let meta = match std::fs::symlink_metadata(&tree) {
         Ok(meta) => meta,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Presence::Absent),
         Err(_) => return Err(KeptReason::Shape(ShapeReason::TreeUnreadable)),
     };
     if meta.file_type().is_symlink() {
@@ -331,7 +347,7 @@ fn shaped(
     if device_of(&tree, meta.dev()) != root.dev() {
         return Err(KeptReason::Shape(ShapeReason::ForeignFilesystem));
     }
-    Ok(())
+    Ok(Presence::Present)
 }
 
 /// The root's canonical path, or `None` where the root itself is gone.

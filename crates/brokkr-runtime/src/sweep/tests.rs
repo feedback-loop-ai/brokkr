@@ -317,6 +317,16 @@ fn kept(fixture: &mut Fixture, tree: &Path, reason: KeptReason) {
     assert_eq!(fixture.store.tree_sweeps().unwrap(), vec![]);
 }
 
+/// Assert the pass kept `tree` for `reason`, said exactly `words`, and
+/// recorded no sweep.
+fn kept_saying(fixture: &mut Fixture, tree: &Path, reason: KeptReason, words: &str) {
+    assert!(tree.exists());
+    let (swept, _) = pass_one(&mut fixture.store);
+    assert_eq!(kept_reason(&swept), &reason);
+    assert_eq!(swept.kept()[0].reason(), words);
+    assert_eq!(fixture.store.tree_sweeps().unwrap(), vec![]);
+}
+
 /// Run a pass under the journal's own dispatcher and hand back its refusal.
 fn pass_refusal(fixture: &mut Fixture) -> SweepError {
     let held = held(fixture);
@@ -354,6 +364,22 @@ fn failed_then_succeeded(fixture: &mut Fixture) {
     failed(&mut fixture.store, RUN, ATTEMPT);
     started(&mut fixture.store, RUN, ATTEMPT2);
     succeeded(&mut fixture.store, RUN, ATTEMPT2);
+}
+
+/// A run whose one attempt failed, then completed: its effect is closed and
+/// the attempt has a terminal event.
+fn failed_on_completed(store: &mut Store, run: &str, attempt: &str) {
+    opened(store, run);
+    started(store, run, attempt);
+    failed(store, run, attempt);
+    completed(store, run);
+}
+
+/// Assert the pass closed one row as gone, with no bytes and no open row.
+fn closed_gone(fixture: &Fixture, swept: &Swept) {
+    assert_eq!(swept.removed()[0].bytes, None);
+    assert_eq!(fixture.store.tree_sweeps().unwrap()[0].bytes, None);
+    assert_eq!(fixture.store.open_seat_trees().unwrap(), vec![]);
 }
 
 /// Stop the run and plant its attempt's tree and row, handing the tree
@@ -497,6 +523,25 @@ fn a_row_whose_attempt_no_event_names_is_kept() {
     assert_eq!(fixture.store.tree_sweeps().unwrap(), vec![]);
 }
 
+/// A terminal event names an attempt no earlier event names: the attempt's
+/// one typed ending is the event's, and the tree is kept by it.
+#[test]
+fn a_terminal_event_naming_an_unstarted_attempt_keeps_its_tree() {
+    let mut fixture = Fixture::new();
+    fixture.opened(RUN);
+    started(&mut fixture.store, RUN, ATTEMPT);
+    failed(&mut fixture.store, RUN, ATTEMPT2);
+    completed(&mut fixture.store, RUN);
+    let tree = fixture.here(RUN, ATTEMPT2);
+
+    kept_saying(
+        &mut fixture,
+        &tree,
+        KeptReason::Failed,
+        "its attempt ended failed",
+    );
+}
+
 #[test]
 fn a_root_through_a_symlinked_component_is_kept() {
     let mut fixture = Fixture::new();
@@ -562,10 +607,7 @@ fn a_later_row_naming_another_root_keeps_the_runs_first_tree() {
 #[test]
 fn a_failed_attempt_on_a_completed_run_keeps_its_tree() {
     let mut fixture = Fixture::new();
-    fixture.opened(RUN);
-    started(&mut fixture.store, RUN, ATTEMPT);
-    failed(&mut fixture.store, RUN, ATTEMPT);
-    completed(&mut fixture.store, RUN);
+    failed_on_completed(&mut fixture.store, RUN, ATTEMPT);
     let tree = fixture.here(RUN, ATTEMPT);
 
     kept(&mut fixture, &tree, KeptReason::Failed);
@@ -610,6 +652,29 @@ fn a_reused_attempt_keeps_its_tree_when_any_terminal_event_ended_indeterminate()
     let tree = stopped_with_tree(&mut fixture);
 
     kept(&mut fixture, &tree, KeptReason::Indeterminate);
+}
+
+/// A reused attempt id whose first ending failed and whose last succeeded.
+/// The tree stays: one terminal event naming the attempt is not
+/// `effect/succeeded`, and a later success does not undo an earlier
+/// failure.
+#[test]
+fn a_reused_attempt_whose_last_ending_succeeded_keeps_its_tree() {
+    let mut fixture = Fixture::new();
+    fixture.opened(RUN);
+    started(&mut fixture.store, RUN, ATTEMPT);
+    failed(&mut fixture.store, RUN, ATTEMPT);
+    started(&mut fixture.store, RUN, ATTEMPT);
+    succeeded(&mut fixture.store, RUN, ATTEMPT);
+    completed(&mut fixture.store, RUN);
+    let tree = fixture.here(RUN, ATTEMPT);
+
+    kept_saying(
+        &mut fixture,
+        &tree,
+        KeptReason::Failed,
+        "its attempt ended failed",
+    );
 }
 
 #[test]
@@ -736,15 +801,48 @@ fn an_absent_path_closes_with_bytes_null() {
 
     let (swept, _) = pass_one(&mut fixture.store);
 
-    assert_eq!(swept.removed()[0].bytes, None);
     assert_eq!(swept.freed(), 0);
     let seq = fixture.store.seat_trees(RUN).unwrap()[0].seq;
     assert_eq!(
         fixture.store.tree_sweeps().unwrap()[0].kind,
         Closed::Scratch(seq)
     );
-    assert_eq!(fixture.store.tree_sweeps().unwrap()[0].bytes, None);
-    assert_eq!(fixture.store.open_seat_trees().unwrap(), vec![]);
+    closed_gone(&fixture, &swept);
+}
+
+/// A failed attempt whose tree the operator already removed closes its row
+/// as gone, with no bytes: the accepted cost keeps the tree while it
+/// stands, not a row forever afterwards.
+#[test]
+fn a_failed_attempt_whose_tree_is_gone_closes_its_row_as_gone() {
+    let mut fixture = Fixture::new();
+    failed_on_completed(&mut fixture.store, RUN, ATTEMPT);
+    seat(&mut fixture.store, RUN, EFFECT, ATTEMPT, &fixture.root);
+
+    let (swept, _) = pass_one(&mut fixture.store);
+
+    assert!(swept.kept().is_empty());
+    closed_gone(&fixture, &swept);
+}
+
+/// An absent tree whose attempt has no terminal event may still be a spawn
+/// in progress: it is kept, not closed as gone.
+#[test]
+fn an_absent_tree_of_an_unended_attempt_is_kept() {
+    let mut fixture = Fixture::new();
+    fixture.opened(RUN);
+    started(&mut fixture.store, RUN, ATTEMPT);
+    completed(&mut fixture.store, RUN);
+    seat(&mut fixture.store, RUN, EFFECT, ATTEMPT, &fixture.root);
+
+    let (swept, _) = pass_one(&mut fixture.store);
+
+    assert!(swept.removed().is_empty());
+    assert_eq!(kept_reason(&swept), &KeptReason::NoTerminalEvent);
+    assert_eq!(fixture.store.tree_sweeps().unwrap(), vec![]);
+    let open = fixture.store.open_seat_trees().unwrap();
+    assert_eq!(open.len(), 1);
+    assert_eq!(open[0].attempt_id, ATTEMPT);
 }
 
 #[test]
@@ -818,30 +916,6 @@ fn a_hands_tree_with_no_lock_is_kept_and_reported() {
         )
     );
     assert_eq!(fixture.store.tree_sweeps().unwrap(), vec![]);
-}
-
-/// A dry run names a lockless hands tree that a pass would keep, with the
-/// reaper's own reason, and removes nothing: the dry run never omits it.
-#[test]
-fn a_dry_run_names_a_lockless_hands_tree_as_kept() {
-    let fixture = Fixture::new();
-    let tree = hands_tree(&fixture.tmp, exited_pid(), "lockless-dry");
-
-    let plan = plan(&fixture.store).unwrap();
-
-    assert!(tree.exists());
-    assert!(plan.removed().is_empty());
-    assert_eq!(plan.kept().len(), 1);
-    assert_eq!(plan.kept()[0].path, tree);
-    assert_eq!(
-        plan.kept()[0].reason,
-        KeptReason::Hands(
-            "its lock cannot be probed: it holds no lock file; trees from before #415 are no \
-             longer reaped (0.13.0)"
-                .to_string()
-        )
-    );
-    assert!(plan.lines_with(safe, true).contains("sweep: kept"));
 }
 
 #[test]
@@ -1207,6 +1281,10 @@ fn a_conclude_closing_a_live_attempt_keeps_its_tree() {
     assert!(reaped.is_ok(), "{reaped:?}");
     assert!(tree.exists());
     assert_eq!(kept_reason(&swept), &KeptReason::Concluded);
+    assert_eq!(
+        swept.kept()[0].reason(),
+        "its attempt was closed by a conclude"
+    );
     assert_eq!(fixture.store.tree_sweeps().unwrap(), vec![]);
 }
 
@@ -1254,7 +1332,12 @@ fn an_effect_failed_caused_by_effect_started_keeps_its_tree() {
     completed(&mut fixture.store, RUN);
     let tree = fixture.here(RUN, ATTEMPT);
 
-    kept(&mut fixture, &tree, KeptReason::Failed);
+    kept_saying(
+        &mut fixture,
+        &tree,
+        KeptReason::Failed,
+        "its attempt ended failed",
+    );
 }
 
 /// Two attempts of one effect: A1 ended failed, A2 succeeded. A2's tree
@@ -1449,6 +1532,38 @@ fn a_record_refusal_carries_every_removal_it_made() {
         unreachable!("record_refusal checked the variant");
     };
     assert!(cause.contains("forced record failure"), "{cause}");
+    assert_eq!(fixture.store.tree_sweeps().unwrap(), vec![]);
+}
+
+/// A refused record stops the removals still ahead: a tree may only go when
+/// a row can record it. The removal already made stays in the report, and
+/// the hands reaper does not start, because it removes every dead tree
+/// before the pass can record one.
+#[test]
+fn a_record_refusal_stops_later_removals_and_the_reaper() {
+    let mut fixture = Fixture::new();
+    let (first, freed) = fixture.closed(ATTEMPT);
+    fixture.succeeded(RUN2, ATTEMPT2);
+    let second = fixture.here(RUN2, ATTEMPT2);
+    let hands = hands_tree(&fixture.tmp, exited_pid(), "after-refusal");
+    std::fs::write(hands.join(".owner.lock"), "").unwrap();
+    refuse_records(&fixture.store);
+
+    let refused = pass_refusal(&mut fixture);
+
+    assert!(!first.exists());
+    assert!(second.exists(), "a refusal stops a later scratch removal");
+    assert!(
+        hands.exists(),
+        "a refusal keeps the reaper from removing hands trees"
+    );
+    let SweepError::Record { report, .. } = &refused else {
+        panic!("a record refusal carries its report: {refused:?}");
+    };
+    assert_eq!(report.removed().len(), 1);
+    assert_eq!(report.removed()[0].bytes, Some(freed));
+    assert_eq!(report.failed().len(), 1);
+    assert!(matches!(report.failed()[0].cause, FailedCause::Record(_)));
     assert_eq!(fixture.store.tree_sweeps().unwrap(), vec![]);
 }
 

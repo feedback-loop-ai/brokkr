@@ -205,12 +205,9 @@ listing (ruling 9) is the window to look before a pass. A declared
 c-6890916504):* R7 is succeeded-only. A tree goes only when its attempt's
 terminal event is `effect/succeeded`; every attempt whose terminal event is
 `effect/failed` or `effect/indeterminate`, or that has none, keeps its tree.
-Every kept tree is reported by name with its reason: where typed context shows
-a conclude closed it, the reason says so, and otherwise it says the attempt
-ended failed or indeterminate. The words claim no more than the journal shows,
-and none is read from an event's text. Accepted cost: a failed attempt's tree
-stays until the operator removes it, or until a later slice gives conclude and
-restart a typed close mark that lets it go.
+Accepted cost: a failed attempt's tree stays until the operator removes it, or
+until a later slice gives conclude and restart a typed close mark that lets it
+go.
 
 ### 8. The removal and its record
 

@@ -200,6 +200,26 @@ fn a_kept_count_that_finds_the_tree_gone_or_refuses_still_names_its_reason() {
     assert!(file.is_file(), "nothing removes a tree whose count refused");
 }
 
+/// A kept tree's path and reason pass through `safe`: a hostile scratch
+/// name and a hostile reason leave no control byte in doctor's line.
+#[test]
+fn a_hostile_kept_name_and_reason_are_stripped_from_the_line() {
+    let dir = tempfile::tempdir().unwrap();
+    let tree = dir.path().join("kept\x1b[2Jname");
+    std::fs::create_dir_all(&tree).unwrap();
+    let reason = "its attempt ended \x1b[2Jfailed";
+    let mut report = empty_report();
+    kept_line(&mut report, &tree, reason);
+
+    let path = Safe::new(&tree.display().to_string()).as_str().to_string();
+    let reason = Safe::new(reason).as_str().to_string();
+    assert_eq!(
+        report.lines,
+        [format!("warn     tree: {path}: 0 bytes, kept: {reason}")]
+    );
+    assert!(!report.lines[0].contains('\x1b'));
+}
+
 /// A tree with one sealed directory, and the count that reads only its
 /// lower bound. The caller restores the directory's mode.
 fn sealed_tree(dir: &Path) -> (PathBuf, brokkr_protocol::tree::Counted) {

@@ -319,10 +319,18 @@ fn pass_with(
             &mut swept,
             &mut refusal,
         );
+        // One refused record stops the removals still ahead: a tree may
+        // only go when a row can record it. A removal this loop already
+        // made stays in the report.
+        if refusal.is_some() {
+            break;
+        }
     }
-    // Every removal is reported, in both halves, whatever a record
-    // refused: a refusal never drops a later removal from the report.
-    pass_hands(store, held, &mut swept, &mut refusal)?;
+    // The reaper removes every tree it finds before the pass can record
+    // one, so a pass that has already refused a record does not start it.
+    if refusal.is_none() {
+        pass_hands(store, held, &mut swept, &mut refusal);
+    }
     match refusal {
         Some(cause) => Err(SweepError::Record {
             report: Box::new(swept),
@@ -357,18 +365,19 @@ fn record_removal(
     });
 }
 
-/// Run the hands reaper and record each dead owner's free tree it removes.
-/// A `TMPDIR` that is not absolute or not UTF-8 refuses the half before
-/// the reaper reads it, so a relative tree is never removed of the host's.
+/// Run the hands reaper and record each dead owner's free tree it removes,
+/// keeping every removal and refusal in the report it is handed. A `TMPDIR`
+/// that is not absolute or not UTF-8 refuses the half before the reaper
+/// reads it, so a relative tree is never removed of the host's.
 fn pass_hands(
     store: &mut Store,
     held: &Dispatcher,
     swept: &mut Swept,
     refusal: &mut Option<String>,
-) -> Result<(), SweepError> {
+) {
     if let Err(reason) = hands_tmp() {
         swept.hands = Some(reason);
-        return Ok(());
+        return;
     }
     let reaped = hands::reap_dead_sessions();
     for (path, bytes) in reaped.removed() {
@@ -388,7 +397,6 @@ fn pass_hands(
             reason: KeptReason::Hands(reason),
         });
     }
-    Ok(())
 }
 
 /// What a pass would remove, with the bytes it would free, and every tree
@@ -456,17 +464,9 @@ fn removed(path: PathBuf, counted: Option<tree::Counted>) -> Removed {
     }
 }
 
-/// The trees the hands reaper would remove under `tmp`, with their sizes,
-/// and every tree it would keep, with the reaper's reason: the dry run
-/// names a kept hands tree exactly as a pass does.
+/// The trees the hands reaper would remove under `tmp`, with their sizes.
 fn plan_hands(tmp: &Path, swept: &mut Swept) {
     plan_hands_with(hands::list_reapable_under(tmp).into_iter(), swept);
-    for (path, reason) in hands::list_kept_under(tmp) {
-        swept.kept.push(Kept {
-            path,
-            reason: KeptReason::Hands(reason),
-        });
-    }
 }
 
 /// [`plan_hands`] over one listing, so a count that refuses is provable

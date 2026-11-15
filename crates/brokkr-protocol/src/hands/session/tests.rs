@@ -700,30 +700,6 @@ fn the_listing_removes_nothing_and_counts_what_the_reaping_would() {
     assert!(!tree.exists());
 }
 
-/// The kept listing names every tree a reaping would keep, with the
-/// reaper's own reason, and leaves out the trees it would remove: the dry
-/// run consumes it so a kept lockless tree is never omitted.
-#[test]
-fn the_kept_listing_names_a_lockless_tree_with_the_reaper_s_reason() {
-    let tmp = tempfile::tempdir().unwrap();
-    let lockless = planted(tmp.path(), "exec", &dead_pid().to_string());
-    let free = unheld(tmp.path(), "exec", &dead_pid().to_string());
-    let (_held, live) = held_under(tmp.path(), &dead_pid().to_string());
-
-    assert_eq!(
-        list_kept_under(tmp.path()),
-        vec![(
-            lockless.clone(),
-            "its lock cannot be probed: it holds no lock file; trees from before #415 are no \
-             longer reaped (0.13.0)"
-                .to_string()
-        )]
-    );
-    assert!(lockless.is_dir(), "the listing removes nothing");
-    assert!(free.is_dir(), "a tree a reaping would remove is not kept");
-    assert!(live.is_dir());
-}
-
 /// The overlay walk follows no symlink: a link at `overlay/<n>/work/work`
 /// to a directory outside the tree leaves that directory's mode alone,
 /// and the link is removed with the tree, never its target.
