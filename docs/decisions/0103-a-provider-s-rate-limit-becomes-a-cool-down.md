@@ -3,7 +3,7 @@
 Status: accepted — operator ruled in chat 2026-10-31, "go with recommended" (https://github.com/feedback-loop-ai/brokkr/issues/430#issuecomment-6548910347)
 Date: 2026-10-30
 
-Built: unbuilt (#430)
+Built: partial (#430) — slices 4a to 4d2b and 4e built; slices 5 and 6 are unbuilt
 
 ## Context
 

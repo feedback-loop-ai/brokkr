@@ -22,13 +22,13 @@
 //! The checks run in a fixed order, and the first unmet one is the reason
 //! recorded: the host configuration is declared and readable; the entry's
 //! seats can be measured, and every running run says what it seats; every
-//! provider and route the entry seats is declared; each provider and
-//! cloud route is below its ceiling; each shared-local route is below its
-//! own; each free-space floor, in the file's order, finds the free bytes
-//! of the filesystem it names at or above it, each judged by its own
-//! number though another on the same filesystem holds; and, for an entry
-//! that builds in a box, the boxed builds running are below their
-//! ceiling. Nothing here latches: each pass measures afresh.
+//! provider and route the entry seats is declared, and out of a cool-down;
+//! each provider and cloud route is below its ceiling; each shared-local
+//! route is below its own; each free-space floor, in the file's order,
+//! finds the free bytes of the filesystem it names at or above it, each
+//! judged by its own number though another on the same filesystem holds;
+//! and, for an entry that builds in a box, the boxed builds running are
+//! below their ceiling. Nothing latches: each pass measures afresh.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -39,7 +39,7 @@ use std::sync::Arc;
 use brokkr_core::envelope::EventEnvelope;
 use brokkr_core::fold::{fold, Status};
 use brokkr_core::realms::Boundary;
-use brokkr_store::{Claim, Claiming, EntryState, Generation, QueueEntry, Store, Wait};
+use brokkr_store::{Claim, Claiming, Cooldown, EntryState, Generation, QueueEntry, Store, Wait};
 use serde::Deserialize;
 use serde_json::Value;
 use thiserror::Error;
@@ -54,6 +54,8 @@ use journal::Journal;
 mod census;
 mod journal;
 
+use super::cooling;
+type Stamp = time::OffsetDateTime;
 /// The machine an admission pass measures, its effects injected: where
 /// its host configuration is, the temp directory a `temp` floor measures,
 /// and how the free bytes under a path are measured.
@@ -111,6 +113,12 @@ pub enum Capacity {
     BoxedFull {
         running: usize,
         ceiling: u32,
+    },
+    CoolingDown {
+        provider: String,
+        route: String,
+        until: Stamp,
+        words: String,
     },
 }
 
@@ -188,6 +196,7 @@ impl Capacity {
             Capacity::FloorUnmeasured { .. } => "floor_unmeasured",
             Capacity::FloorLow { .. } => "floor_low",
             Capacity::BoxedFull { .. } => "boxed_full",
+            Capacity::CoolingDown { .. } => "cooling_down",
         }
     }
 }
@@ -250,18 +259,24 @@ impl fmt::Display for Capacity {
             Capacity::BoxedFull { running, ceiling } => {
                 write!(f, "boxed builds are full: {}", against(running, ceiling))
             }
+            Capacity::CoolingDown {
+                provider,
+                route,
+                until,
+                words,
+            } => cooling::word(f, provider, route, *until, words),
         }
     }
 }
 
 /// Judge the machine's room for each entry in `queue` that nothing else
 /// stops, recording the first unmet check as its reason. The host
-/// configuration is read, and the running runs counted, once, and only
-/// when some entry is judged; the unstarted runs are named on every pass,
-/// by the one reading of the journal's runs it makes.
+/// configuration and the running runs are read once, and only when some
+/// entry is judged; the unstarted runs are named on every pass.
 pub(super) fn sized(
     store: &Store,
     host: &Host<'_>,
+    now: Stamp,
     mut queue: Vec<Judged>,
 ) -> Result<(Vec<Judged>, Vec<Reason>), AdmissionError> {
     let unstopped = |judged: &&mut Judged| {
@@ -273,7 +288,7 @@ pub(super) fn sized(
     if !queue.iter_mut().any(|judged| unstopped(&judged)) {
         return Ok((queue, census(store, false)?.unstarted));
     }
-    let measure = Measure::take(store, host)?;
+    let measure = Measure::take(store, host, now)?;
     for judged in queue.iter_mut().filter(unstopped) {
         match (
             &mut judged.verdict,
@@ -294,15 +309,16 @@ struct Measure<'h> {
     journal: Option<Journal>,
     /// The events high-water, read before the census.
     high_water: i64,
+    cooling: cooling::Cooling,
     live: Arc<Vec<Live>>,
     unstarted: Vec<Reason>,
 }
 
 impl<'h> Measure<'h> {
-    /// Read the host configuration, and the journal's runs: the unstarted
-    /// ones, and when it declares capacity, the ones running now.
-    fn take(store: &Store, host: &'h Host<'h>) -> Result<Measure<'h>, AdmissionError> {
+    /// Read the host, the cool-downs and the journal's runs.
+    fn take(store: &Store, host: &'h Host<'h>, now: Stamp) -> Result<Measure<'h>, AdmissionError> {
         let hosting = host::read(host.file)?;
+        let cooling = cooling::Cooling::of(&store.cooldowns_in_force(now)?);
         let journal = Journal::of(store)?;
         let high_water = store.high_water()?;
         let counted = matches!(hosting, Hosting::Declared(_));
@@ -312,6 +328,7 @@ impl<'h> Measure<'h> {
             hosting,
             journal,
             high_water,
+            cooling,
             live: Arc::new(live),
             unstarted,
         })
@@ -322,7 +339,8 @@ impl<'h> Measure<'h> {
     fn room(&self, read: &QueueEntry, launch: &QueuedLaunch) -> Result<Room, Capacity> {
         let config = self.declared()?;
         let entry = Entry::measure(launch).map_err(Capacity::Unmeasured)?;
-        let running = ceilings(config, self.live.iter(), &entry.lanes)?;
+        let cooling = cooling::Leg::Held(&self.cooling);
+        let running = ceilings(config, self.live.iter(), &entry.lanes, cooling)?;
         floors(config, self.host, entry.scratch)?;
         boxed(config, &running, entry.boxed)?;
         Ok(Room {
@@ -348,16 +366,17 @@ impl<'h> Measure<'h> {
     }
 }
 
-/// The entry's lanes bound to `config`, each below its ceiling with the
-/// runs of `live` counted: each provider and cloud route, then each
-/// shared-local route; and what runs, as counted.
+/// The entry's lanes bound, out of cool-down and below their ceilings,
+/// with the runs of `live` counted first.
 fn ceilings<'a>(
     config: &HostConfig,
     live: impl IntoIterator<Item = &'a Live>,
     lanes: &BTreeSet<Lane>,
+    cooling: cooling::Leg<'_>,
 ) -> Result<Running, Capacity> {
     let running = Running::count(live, config)?;
     let bound = bind(config, lanes)?;
+    cooling.room(lanes)?;
     bound
         .iter()
         .filter(|bound| bound.class() == RouteClass::Cloud)
@@ -413,16 +432,13 @@ type Awaiting = (Wait, EntryState, Vec<EventEnvelope>);
 impl Room {
     /// Claim the entry this room was measured for, as the pass read it,
     /// for the dispatcher of `generation`, journaling `reason`, and record
-    /// this room's digest on the claim, in the journal the pass measured
-    /// alone, by its id ([`Room::judge`]). Inside the claim's transaction the
-    /// entry must still be queued under the pin and latch the pass read,
-    /// each of its waits must hold of what its awaited entry has come to,
-    /// and each run with an event past the pass's high-water is folded
-    /// again and counted in place of what the census held of it, and the
-    /// entry's lanes and the boxed builds are judged again by its
-    /// ceilings: an unmet wait or one at a ceiling now is the inner
-    /// refusal, and nothing is claimed. Free space is the pass's to judge,
-    /// and is not measured again.
+    /// this room's digest on the claim, in the journal the pass measured.
+    /// Inside the transaction the entry must still be queued under the pin
+    /// and latch the pass read, each wait must hold, no lane may be cooling
+    /// now, and each run with an event past the pass's high-water is folded
+    /// again and counted in place of the census; the entry's lanes and the
+    /// boxed builds are judged again by its ceilings. An unmet wait or one
+    /// at a ceiling now is the inner refusal, and nothing is claimed.
     pub fn claim(
         &self,
         store: &mut Store,
@@ -434,12 +450,8 @@ impl Room {
             high_water: self.high_water,
             digest: &self.digest,
             generation,
-            now: time::OffsetDateTime::now_utc(),
+            now: Stamp::now_utc(),
         };
-        // The cool-down rows the claim reads inside its transaction reach
-        // this judge in `ClaimFacts::cooling`; admission's cool-down leg is
-        // decision 0103 slice 4e, so the judge drops them for now (slice
-        // 4d1).
         let claimed = store.queue_claim_with(&over, reason, self.judge(store.path()));
         match claimed? {
             Ok(claim) => Ok(Ok(claim)),
@@ -454,6 +466,7 @@ impl Room {
         &self,
         waits: &[Awaiting],
         moved: &[(String, Vec<EventEnvelope>, String)],
+        cooling: &[Cooldown],
     ) -> Result<(), Recheck> {
         let failed = |error| Recheck::Failed(Box::new(error));
         for (wait, state, events) in waits {
@@ -479,7 +492,9 @@ impl Room {
         }
         let stood =
             (self.census.iter()).filter(|live| moved.iter().all(|(run, ..)| *run != live.run));
-        let running = ceilings(&self.config, stood.chain(&now), &self.lanes).map_err(full)?;
+        let cooling = cooling::Leg::Rows(cooling);
+        let running =
+            ceilings(&self.config, stood.chain(&now), &self.lanes, cooling).map_err(full)?;
         boxed(&self.config, &running, self.boxed).map_err(full)
     }
 }
@@ -622,9 +637,9 @@ impl Seats {
 
 /// A provider, and the route of it, if any, a seat takes.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-struct Lane {
-    provider: String,
-    route: Option<String>,
+pub(super) struct Lane {
+    pub(super) provider: String,
+    pub(super) route: Option<String>,
 }
 
 /// A running run, with what it seats or why its manifest does not say.
@@ -782,4 +797,4 @@ impl Bound<'_> {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

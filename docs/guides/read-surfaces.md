@@ -296,11 +296,22 @@ realm drift) is then measured against this machine, and the first check
 it does not meet is its reason, in this order: the host configuration is
 declared and readable; what the entry seats, and what every running run
 seats, can be read; each provider and route it seats is declared; each
+provider and route it seats is out of cool-down; each
 provider and cloud route is below its ceiling; each shared-local route is
 below its own; each free-space floor, in the file's order, finds its
 filesystem's free bytes at or above it; and an entry that builds in a box finds the boxed builds running
 below their ceiling. Nothing is started, and nothing latches: the next
 `list` measures again.
+
+A cool-down is the one reason here that clears by itself. A provider's
+rate-limit refusal holds its provider and route until the latest end
+across every unexpired row, so a later, shorter refusal never shortens the
+wait; the entry reads `provider <provider> is cooling on route <route>
+until <RFC 3339 end>: <the provider's words>`, waits as `waiting`, and
+needs nothing from the operator. The pass reads the rows and writes
+nothing, so an expired row is history rather than a row it clears. The
+same rows are read again inside a claim's own transaction, so a refusal
+recorded between the pass and the claim refuses the start too.
 
 A seat is every candidate its site may seat, fallbacks included: its
 provider (`claude`, `codex`, `dsh`, `exec`, …) and the route its driver

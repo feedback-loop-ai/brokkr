@@ -42,8 +42,8 @@
 //! machine's own host configuration (the operator's ruling of
 //! 2026-10-10): provider and route concurrency, the free-space floors
 //! and the boxed-build ceiling, in the order `admission/capacity.rs`
-//! documents.
-//! Cool-downs are not judged yet.
+//! documents. A provider's cool-down holds its lane before any ceiling and
+//! clears by itself, never latching ([`Capacity::CoolingDown`]).
 
 use std::fmt;
 
@@ -62,6 +62,7 @@ use crate::realms::WorldError;
 
 mod awaited;
 mod capacity;
+mod cooling;
 mod governing;
 mod host;
 
@@ -487,7 +488,16 @@ pub fn pass_within(
     store: &Store,
     host: &Host<'_>,
 ) -> Result<(Vec<Judged>, Vec<Reason>), AdmissionError> {
-    capacity::sized(store, host, pass(store)?)
+    pass_within_at(store, host, time::OffsetDateTime::now_utc())
+}
+
+/// [`pass_within`] at `now`, as the tests hold a cool-down's end.
+pub(crate) fn pass_within_at(
+    store: &Store,
+    host: &Host<'_>,
+    now: time::OffsetDateTime,
+) -> Result<(Vec<Judged>, Vec<Reason>), AdmissionError> {
+    capacity::sized(store, host, now, pass(store)?)
 }
 
 /// [`judge`], and then the machine's room as [`pass_within`] judges it,
@@ -498,7 +508,7 @@ pub fn judge_within(
     by: Attribution<'_>,
 ) -> Result<(Vec<Judged>, Vec<Reason>), AdmissionError> {
     let judged = judge(store, by)?;
-    capacity::sized(store, host, judged)
+    capacity::sized(store, host, time::OffsetDateTime::now_utc(), judged)
 }
 
 /// Judge the queue as [`pass`] does, and first latch on each waiting

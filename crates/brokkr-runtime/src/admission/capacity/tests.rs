@@ -9,9 +9,11 @@ use std::ffi::OsString;
 use std::io;
 use std::path::{Path, PathBuf};
 
+use brokkr_core::envelope::EventEnvelope;
 use brokkr_core::EventType;
 use brokkr_store::{
-    Attribution, EntryId, NewEntry, QueueCommand, QueueRefusal, StoreError, WaitOn,
+    Attribution, CooldownAppend, Cooling as Row, EntryId, NewEntry, QueueCommand, QueueRefusal,
+    StoreError, WaitOn,
 };
 use serde_json::{json, Value};
 
@@ -29,14 +31,14 @@ const BY: Attribution<'static> = Attribution {
 /// on its `spark-glm` route, `b-cloud` on its `cloud` route and `b-plain`
 /// on none. Its bundle seats `work` and `review` on the agents the test
 /// names.
-struct Fixture {
+pub(crate) struct Fixture {
     _dir: tempfile::TempDir,
-    root: PathBuf,
-    store: Store,
+    pub(crate) root: PathBuf,
+    pub(crate) store: Store,
 }
 
 impl Fixture {
-    fn new() -> Fixture {
+    pub(crate) fn new() -> Fixture {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().canonicalize().unwrap();
         for sub in ["agents/charters", "adapters", "bundle/roles"] {
@@ -102,7 +104,7 @@ impl Fixture {
 
     /// The bundle seats `work` on agent `work` and `review` on agent
     /// `review`.
-    fn seat(&self, work: &str, review: &str) {
+    pub(crate) fn seat(&self, work: &str, review: &str) {
         self.bundle(json!({"results": ["clean"], "agent": review}), work);
     }
 
@@ -116,11 +118,11 @@ impl Fixture {
         );
     }
 
-    /// The launch `brokkr queue add --bundle bundle` makes here.
-    fn launch(&self) -> QueuedLaunch {
+    /// The launch `brokkr queue add --bundle <bundle>` makes here.
+    pub(crate) fn launch_in(&self, bundle: &str) -> QueuedLaunch {
         let request = LaunchRequest {
             workspace: self.root.clone(),
-            bundle: BundleSource::Dir("bundle".into()),
+            bundle: BundleSource::Dir(bundle.into()),
             shelf: None,
             journal: self.root.join("forge.db"),
             repo: None,
@@ -137,10 +139,20 @@ impl Fixture {
         QueuedLaunch::of(&request, &run).unwrap()
     }
 
-    /// Queue that launch in this fixture's journal.
-    fn queue(&mut self) -> EntryId {
-        let launch = self.launch();
+    /// The launch `brokkr queue add --bundle bundle` makes here.
+    fn launch(&self) -> QueuedLaunch {
+        self.launch_in("bundle")
+    }
+
+    /// Queue the launch for `bundle` in this fixture's journal.
+    pub(crate) fn queue_bundle(&mut self, bundle: &str) -> EntryId {
+        let launch = self.launch_in(bundle);
         enqueue(&mut self.store, &launch)
+    }
+
+    /// Queue that launch in this fixture's journal.
+    pub(crate) fn queue(&mut self) -> EntryId {
+        self.queue_bundle("bundle")
     }
 
     /// A run that is running now on the bundle as it compiles here.
@@ -170,7 +182,7 @@ impl Fixture {
     }
 
     /// The host configuration this fixture declares, written.
-    fn declare(&self, host: &Value) -> PathBuf {
+    pub(crate) fn declare(&self, host: &Value) -> PathBuf {
         let file = self.root.join("host.json");
         std::fs::write(&file, host.to_string()).unwrap();
         file
@@ -190,7 +202,7 @@ impl Fixture {
 
     /// The one entry's first unmet capacity check, or `None` when the
     /// machine has room.
-    fn room(&self, file: &Path) -> Option<Capacity> {
+    pub(crate) fn room(&self, file: &Path) -> Option<Capacity> {
         let mut reasons = self.reasons(file, PLENTY).remove(0);
         reasons.pop().map(|reason| match reason {
             Reason::Capacity(capacity) => capacity,
@@ -219,10 +231,10 @@ fn seated(seats: &[(&str, &str)], boxed: bool) -> Value {
     manifest
 }
 
-const PLENTY: u64 = 1 << 40;
+pub(crate) const PLENTY: u64 = 1 << 40;
 
 /// The temp directory every test host injects; never the test process's.
-const TEMP: &str = "/brokkr-test-temp";
+pub(crate) const TEMP: &str = "/brokkr-test-temp";
 
 /// Queue `launch` in `store`.
 fn enqueue(store: &mut Store, launch: &QueuedLaunch) -> EntryId {
@@ -233,6 +245,57 @@ fn enqueue(store: &mut Store, launch: &QueuedLaunch) -> EntryId {
         waits: &[],
     };
     store.queue_add(entry, BY).unwrap()
+}
+
+/// Create `run` and record the start every run's writer expects.
+pub(crate) fn started_run(store: &mut Store, run: &str) {
+    store.create_run(run, "f", "b", &json!({})).unwrap();
+    store
+        .append_next(
+            run,
+            EventType::RunStarted,
+            json!({"feature": "f"}),
+            None,
+            None,
+        )
+        .unwrap();
+}
+
+/// Write `rows` as `run`'s first terminal event, through the store's own
+/// writer, and answer the event.
+pub(crate) fn refused_rows(store: &mut Store, run: &str, rows: &[Row]) -> EventEnvelope {
+    started_run(store, run);
+    store
+        .append_with_cooldowns(
+            CooldownAppend {
+                run_id: run,
+                fenced: None,
+                event_type: EventType::RunStopped,
+                payload: json!({}),
+                causation_id: None,
+                attempt_id: None,
+            },
+            rows,
+        )
+        .unwrap()
+}
+
+/// Write one beta/cloud cool-down row through the store's own writer, in
+/// force for the next five minutes.
+fn write_cooling(store: &mut Store, run: &str) {
+    refused_rows(
+        store,
+        run,
+        &[Row {
+            site: String::new(),
+            provider: "beta".into(),
+            route: "cloud".into(),
+            until_at: Stamp::now_utc() + time::Duration::minutes(5),
+            reason: "cooling".into(),
+            retry_after_seconds: None,
+            rounds: 1,
+        }],
+    );
 }
 
 /// A plenty-free host reading the configuration at `file`, and the
@@ -252,7 +315,7 @@ fn passed_naming(store: &Store, file: &Path) -> Result<(Vec<Judged>, Vec<Reason>
     pass_within(store, &host)
 }
 
-fn verdicts(judged: Vec<Judged>) -> Vec<Vec<Reason>> {
+pub(crate) fn verdicts(judged: Vec<Judged>) -> Vec<Vec<Reason>> {
     judged
         .into_iter()
         .filter_map(|judged| Some(judged.verdict?.reasons))
@@ -269,11 +332,11 @@ fn host(providers: Value) -> Value {
 
 /// `alpha` and `beta` at `alpha` and `beta` runs, `beta`'s routes as
 /// given.
-fn ceilings(alpha: u32, beta: u32, routes: Value) -> Value {
+pub(crate) fn ceilings(alpha: u32, beta: u32, routes: Value) -> Value {
     host(json!({"alpha": {"ceiling": alpha}, "beta": {"ceiling": beta, "routes": routes}}))
 }
 
-fn route(ceiling: u32, class: &str) -> Value {
+pub(crate) fn route(ceiling: u32, class: &str) -> Value {
     json!({"ceiling": ceiling, "class": class})
 }
 
@@ -662,6 +725,62 @@ fn a_provider_or_route_the_host_does_not_declare_waits_as_undeclared() {
             ),
         ]
     );
+}
+
+/// The checks keep ce09400a1's order (decision 0103 ruling 6): the running
+/// runs are counted before the entry's lanes are declared, so a run whose
+/// manifest does not say what it seats is the reason even when the entry
+/// names an undeclared provider.
+#[test]
+fn a_running_run_that_does_not_say_what_it_seats_is_the_reason_before_a_declaration() {
+    let mut fixture = Fixture::new();
+    fixture.seat("cloudy", "cloudy");
+    fixture.queue();
+    fixture.running("odd", &json!({}));
+    let file = fixture.declare(&host(json!({"alpha": {"ceiling": 2}})));
+    assert_eq!(
+        fixture.room(&file).map(|room| room.kind()),
+        Some("run_unmeasured")
+    );
+}
+
+/// The cool-down leg comes after the running runs (decision 0103 ruling 6):
+/// an unreadable running run is the reason even when a declared lane is
+/// cooling.
+#[test]
+fn a_running_run_that_does_not_say_what_it_seats_is_the_reason_before_a_cool_down() {
+    let mut fixture = Fixture::new();
+    fixture.seat("cloudy", "cloudy");
+    fixture.queue();
+    fixture.running("odd", &json!({}));
+    let routes = json!({"cloud": route(2, "cloud")});
+    let file = fixture.declare(&host(json!({"beta": {"ceiling": 2, "routes": routes}})));
+    write_cooling(&mut fixture.store, "run-cooling");
+    assert_eq!(
+        fixture.room(&file).map(|room| room.kind()),
+        Some("run_unmeasured")
+    );
+}
+
+/// The claim's recheck keeps the same order: a run that moved and does not
+/// say what it seats refuses before a lane recorded cooling after the pass.
+#[test]
+fn the_claims_recheck_counts_the_moved_runs_before_it_judges_a_cool_down() {
+    let mut fixture = Fixture::new();
+    fixture.seat("cloudy", "cloudy");
+    fixture.queue();
+    let routes = json!({"cloud": route(2, "cloud")});
+    let file = fixture.declare(&host(json!({"beta": {"ceiling": 2, "routes": routes}})));
+    let room = admitted(&fixture, &file);
+    write_cooling(&mut fixture.store, "run-cooling");
+    fixture.running("odd", &json!({}));
+    match room
+        .claim(&mut fixture.store, Generation(1), "admitted")
+        .unwrap()
+    {
+        Err(reason) => assert_eq!(reason.kind(), "run_unmeasured"),
+        Ok(claim) => panic!("the claim took {claim:?} over an unreadable run"),
+    }
 }
 
 /// `declared` with `floors` in place of its own.
@@ -1205,6 +1324,12 @@ fn every_capacity_reason_has_its_word() {
             running: 1,
             ceiling: 1,
         },
+        Capacity::CoolingDown {
+            provider: "p".into(),
+            route: "r".into(),
+            until: Stamp::UNIX_EPOCH,
+            words: "w".into(),
+        },
     ];
     let words = reasons.map(|reason| {
         let reason = Reason::Capacity(reason);
@@ -1224,6 +1349,7 @@ fn every_capacity_reason_has_its_word() {
             ("floor_unmeasured", false),
             ("floor_low", false),
             ("boxed_full", false),
+            ("cooling_down", false),
         ]
     );
 }
