@@ -240,12 +240,6 @@ fn backup_through(
         bytes: std::fs::metadata(&temporary)?.len(),
         sha256: sha256_file(&temporary)?,
     };
-    // The snapshot is published first and the inventory last: an
-    // interrupted backup therefore leaves a snapshot with no inventory,
-    // which [`restore`] refuses.
-    publish(&temporary, &to.join(SNAPSHOT_FILE))
-        .map_err(|error| backup_publish_error(error, to))?;
-    sync_dir(to)?;
     let inventory = Inventory {
         format: JOURNAL_BACKUP_FORMAT.into(),
         engine: env!("CARGO_PKG_VERSION").into(),
@@ -254,8 +248,19 @@ fn backup_through(
         boundary,
         excluded: EXCLUDED.to_vec(),
     };
+    // The inventory's bound is a fact of its bytes, known before the first
+    // publish: a backup whose inventory would exceed it is refused while
+    // the destination is still empty, rather than after its snapshot has
+    // landed.
+    let inventory_bytes = inventory::serialize(&inventory, &to.join(INVENTORY_FILE))?;
+    // The snapshot is published first and the inventory last: an
+    // interrupted backup therefore leaves a snapshot with no inventory,
+    // which [`restore`] refuses.
+    publish(&temporary, &to.join(SNAPSHOT_FILE))
+        .map_err(|error| backup_publish_error(error, to))?;
+    sync_dir(to)?;
     let written = scratch.path(&format!("{INVENTORY_FILE}.tmp"));
-    inventory::write(&inventory, &written, &to.join(INVENTORY_FILE))?;
+    inventory::write(&inventory_bytes, &written)?;
     publish(&written, &to.join(INVENTORY_FILE)).map_err(|error| backup_publish_error(error, to))?;
     sync_dir(to)?;
     let boundary = inventory.boundary;

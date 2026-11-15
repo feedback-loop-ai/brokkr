@@ -21,44 +21,25 @@ const INVENTORY_DEV_ZERO_CHILD_TEST: &str =
 const INVENTORY_PAST_BOUND_CHILD_TEST: &str =
     "backup::tests::inventory::an_inventory_that_is_a_regular_file_past_the_bound_dies_small";
 
-/// Run `test` in a child under a memory bound, so a read that lost the
-/// inventory's own bound dies at a few hundred megabytes instead of
-/// filling the host. The child's instrumentation profile goes to
-/// `/dev/null`, so the bound kills only a regression, never a passing child
-/// at its exit.
+/// The memory bound a child that plants an inventory dies under: 256 MiB,
+/// replaced by `ulimit -d` where the host does not enforce `-v`. A read
+/// that lost the inventory's bound dies there instead of filling the host.
+#[cfg(unix)]
+const INVENTORY_MEMORY_LIMIT: &str = "ulimit -v 262144 2>/dev/null || ulimit -d 262144";
+
+/// Run one inventory test in a child under [`INVENTORY_MEMORY_LIMIT`],
+/// with the backup directory and destination handed through the
+/// environment.
 #[cfg(unix)]
 fn inventory_child(test: &str, backup: &Path, destination: &Path) -> std::process::Output {
-    std::process::Command::new("sh")
-        .arg("-c")
-        .arg(
-            "ulimit -c 0; ulimit -v 262144 2>/dev/null || ulimit -d 262144; \
-             exec \"$0\" --exact \"$1\"",
-        )
-        .arg(std::env::current_exe().unwrap())
-        .arg(test)
-        .env(INVENTORY_BACKUP, backup)
-        .env(INVENTORY_DESTINATION, destination)
-        .env("LLVM_PROFILE_FILE", "/dev/null")
-        .output()
-        .unwrap()
-}
-
-/// Assert the child ran one test and passed; a child killed by the memory
-/// bound, or one that never ran, does not prove the refusal.
-#[cfg(unix)]
-fn assert_inventory_child_passed(output: &std::process::Output, what: &str) {
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(
-        output.status.success(),
-        "{what} did not refuse within its memory bound ({status}):\n\
-         stdout:\n{stdout}\nstderr:\n{stderr}",
-        status = output.status,
-        stderr = String::from_utf8_lossy(&output.stderr)
-    );
-    assert!(
-        stdout.contains("1 passed"),
-        "{what} ran no test, so its exit status proves nothing:\n{stdout}"
-    );
+    child_under(
+        INVENTORY_MEMORY_LIMIT,
+        test,
+        &[
+            (INVENTORY_BACKUP, backup.as_os_str()),
+            (INVENTORY_DESTINATION, destination.as_os_str()),
+        ],
+    )
 }
 
 /// A completed backup whose inventory name is free for a test to plant.
@@ -161,12 +142,10 @@ fn a_socket_at_the_inventory_is_refused_by_name() {
     let _socket = UnixListener::bind(&inventory).unwrap();
     let destination = absent_destination(dir.path());
     let refused = restore(&taken.to, &destination).unwrap_err();
-    let found = match refused {
-        BackupError::InventoryNotRegular(found)
-        | BackupError::UnreadableInventory { path: found, .. } => found,
-        other => panic!("a socket at the inventory is refused by name: {other:?}"),
+    let BackupError::UnreadableInventory { path, .. } = refused else {
+        panic!("a socket at the inventory is refused by name: {refused:?}");
     };
-    assert_eq!(found, inventory);
+    assert_eq!(path, inventory);
     assert_absent(&destination);
 }
 
@@ -207,7 +186,7 @@ fn an_inventory_that_is_a_link_to_dev_zero_is_refused_by_name() {
     std::os::unix::fs::symlink("/dev/zero", &inventory).unwrap();
     let destination = absent_destination(dir.path());
     let output = inventory_child(INVENTORY_DEV_ZERO_CHILD_TEST, &taken.to, &destination);
-    assert_inventory_child_passed(&output, "the /dev/zero inventory");
+    assert_child_passed(&output, "the /dev/zero inventory");
 }
 
 /// A backup that would write an inventory past the bound refuses before it
@@ -240,6 +219,15 @@ fn a_backup_whose_inventory_would_exceed_the_bound_is_refused_by_name() {
     assert!(
         !to.join(INVENTORY_FILE).exists(),
         "a refused backup published no inventory"
+    );
+    assert!(
+        !to.join(SNAPSHOT_FILE).exists(),
+        "the bound was checked before the snapshot was published"
+    );
+    assert_eq!(
+        std::fs::read_dir(&to).unwrap().count(),
+        0,
+        "a refused backup left nothing in the destination"
     );
 }
 
@@ -310,7 +298,7 @@ fn an_inventory_that_is_a_regular_file_past_the_bound_dies_small() {
     drop(sparse);
     let destination = absent_destination(dir.path());
     let output = inventory_child(INVENTORY_PAST_BOUND_CHILD_TEST, &taken.to, &destination);
-    assert_inventory_child_passed(&output, "the sparse inventory");
+    assert_child_passed(&output, "the sparse inventory");
 }
 
 /// `/proc/self/mem` is a regular file whose first read is `EIO`: it passes

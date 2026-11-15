@@ -387,6 +387,49 @@ fn assert_refused_without_trace(backup: &Path, destination: &Path) {
     );
 }
 
+/// Run `test` in a child process under `limits`, whose backup directory and
+/// destination arrive through `environment`, so a regression that reads or
+/// writes without its bound dies at a few hundred megabytes rather than
+/// filling the host. `ulimit -c 0` keeps a dying child from writing a core,
+/// and the child's instrumentation profile goes to `/dev/null`, so the
+/// limit kills only a regression, never a passing child at its exit.
+#[cfg(unix)]
+fn child_under(
+    limits: &str,
+    test: &str,
+    environment: &[(&str, &std::ffi::OsStr)],
+) -> std::process::Output {
+    let mut command = std::process::Command::new("sh");
+    command
+        .arg("-c")
+        .arg(format!("ulimit -c 0; {limits}; exec \"$0\" --exact \"$1\""))
+        .arg(std::env::current_exe().unwrap())
+        .arg(test)
+        .env("LLVM_PROFILE_FILE", "/dev/null");
+    for &(name, value) in environment {
+        command.env(name, value);
+    }
+    command.output().unwrap()
+}
+
+/// Assert the child ran exactly one test and passed; a child killed by its
+/// limit, or one that never ran, does not prove the refusal.
+#[cfg(unix)]
+fn assert_child_passed(output: &std::process::Output, what: &str) {
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "{what} did not pass within its limit ({status}):\n\
+         stdout:\n{stdout}\nstderr:\n{stderr}",
+        status = output.status,
+        stderr = String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        stdout.contains("1 passed"),
+        "{what} ran no test, so its exit status proves nothing:\n{stdout}"
+    );
+}
+
 #[test]
 fn a_backup_during_appends_restores_a_coherent_prefix() {
     let dir = tempfile::tempdir().unwrap();
@@ -632,6 +675,13 @@ fn a_missing_snapshot_is_refused_by_name() {
     assert_absent(&destination);
 }
 
+/// The errno a self-referential symlink answers: `ELOOP`, 40 on Linux and
+/// 62 on macOS (decision 0063's two hosts). `ErrorKind::FilesystemLoop` is
+/// unstable on this toolchain, so the number is stated and the test pins
+/// the cause by its errno rather than its libc- and locale-dependent text.
+#[cfg(unix)]
+const ELOOP: i32 = if cfg!(target_os = "linux") { 40 } else { 62 };
+
 #[cfg(unix)]
 #[test]
 fn an_unreadable_inventory_is_refused_by_name() {
@@ -647,12 +697,7 @@ fn an_unreadable_inventory_is_refused_by_name() {
         panic!("an unreadable inventory is refused by name: {refused:?}");
     };
     assert_eq!(path, inventory);
-    assert!(
-        source
-            .to_string()
-            .starts_with("Too many levels of symbolic links"),
-        "{source}"
-    );
+    assert_eq!(source.raw_os_error(), Some(ELOOP), "{source}");
     assert_absent(&destination);
 }
 

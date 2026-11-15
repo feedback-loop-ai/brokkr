@@ -481,28 +481,13 @@ fn a_snapshot_that_is_a_link_to_dev_zero_is_refused_after_one_byte() {
     inventory.snapshot.bytes = 0;
     rewrite_inventory(&taken, &inventory);
     let destination = absent_destination(dir.path());
-    let output = std::process::Command::new("sh")
-        .arg("-c")
-        .arg("ulimit -c 0; ulimit -f 64; exec \"$0\" --exact \"$1\"")
-        .arg(std::env::current_exe().unwrap())
-        .arg(DEV_ZERO_CHILD_TEST)
-        .env(DEV_ZERO_BACKUP, &taken.to)
-        .env(DEV_ZERO_DESTINATION, &destination)
-        // The instrumentation profile is written at exit; a passing child
-        // must not die of the limit that bounds a regression.
-        .env("LLVM_PROFILE_FILE", "/dev/null")
-        .output()
-        .unwrap();
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(
-        output.status.success(),
-        "the /dev/zero restore did not refuse after one byte ({status}):\n\
-         stdout:\n{stdout}\nstderr:\n{stderr}",
-        status = output.status,
-        stderr = String::from_utf8_lossy(&output.stderr)
+    let output = child_under(
+        "ulimit -f 64",
+        DEV_ZERO_CHILD_TEST,
+        &[
+            (DEV_ZERO_BACKUP, taken.to.as_os_str()),
+            (DEV_ZERO_DESTINATION, destination.as_os_str()),
+        ],
     );
-    assert!(
-        stdout.contains("1 passed"),
-        "the child ran no test, so its exit status proves nothing:\n{stdout}"
-    );
+    assert_child_passed(&output, "the /dev/zero restore");
 }

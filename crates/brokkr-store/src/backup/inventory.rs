@@ -24,8 +24,10 @@ pub const JOURNAL_BACKUP_FORMAT: &str = "brokkr.journal-backup.v1";
 /// backup publishes, and the mark that makes a backup complete.
 pub(crate) const INVENTORY_FILE: &str = "inventory.json";
 
-/// The most bytes a backup's `inventory.json` may hold, and so the most a
-/// restore reads into memory.
+/// The most bytes a backup's `inventory.json` may hold. A longer file is
+/// refused by name before it is parsed, and the read asks for one byte past
+/// this bound so that a longer file is distinguishable from one exactly at
+/// it.
 ///
 /// The inventory is not bounded by its field types, so this is a stated
 /// constant rather than a figure derived from the leaf types: the
@@ -35,7 +37,7 @@ pub(crate) const INVENTORY_FILE: &str = "inventory.json";
 /// head and the JSON around them, under 512 bytes; 16 MiB therefore holds
 /// more than 32,000 runs at their largest, far beyond the journals this
 /// build records, while keeping one restore's inventory to a fixed handful
-/// of megabytes. A longer file is refused by name before it is parsed.
+/// of megabytes.
 pub(crate) const INVENTORY_MAX_BYTES: u64 = 16 * 1024 * 1024;
 
 /// The journal's schema versions, as the store records them, plus the
@@ -148,15 +150,13 @@ pub(crate) fn read_inventory(from: &Path) -> Result<Inventory, BackupError> {
     Ok(inventory)
 }
 
-/// Write `inventory` to a new file at `temporary` under a temporary name
-/// and fsync it. The bytes are this build's own serialization, and a
-/// backup holds its own inventory to the same bound the read enforces, so
-/// an inventory this build writes is one it can read.
-pub(crate) fn write(
-    inventory: &Inventory,
-    temporary: &Path,
-    final_path: &Path,
-) -> Result<(), BackupError> {
+/// Serialize `inventory` for publication, refusing a file past
+/// [`INVENTORY_MAX_BYTES`] before anything is published: the bound is a
+/// fact of the bytes, so a backup whose inventory would exceed it is
+/// refused while its destination is still empty. A backup holds its own
+/// inventory to the same bound the read enforces, so an inventory this
+/// build writes is one it can read.
+pub(crate) fn serialize(inventory: &Inventory, final_path: &Path) -> Result<Vec<u8>, BackupError> {
     let bytes = serde_json::to_vec_pretty(inventory)?;
     if bytes.len() as u64 > INVENTORY_MAX_BYTES {
         return Err(BackupError::InventoryTooLarge {
@@ -164,11 +164,18 @@ pub(crate) fn write(
             bound: INVENTORY_MAX_BYTES,
         });
     }
+    Ok(bytes)
+}
+
+/// Write `bytes`, already [`serialize`]'s, to a new file at `temporary`
+/// and fsync it. The bytes are this build's own serialization, held to the
+/// bound the read enforces before the snapshot was published.
+pub(crate) fn write(bytes: &[u8], temporary: &Path) -> Result<(), BackupError> {
     let mut file = OpenOptions::new()
         .write(true)
         .create_new(true)
         .open(temporary)?;
-    file.write_all(&bytes)?;
+    file.write_all(bytes)?;
     file.sync_all()?;
     Ok(())
 }
