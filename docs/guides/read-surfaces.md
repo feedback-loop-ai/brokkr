@@ -848,10 +848,10 @@ $ brokkr muninn run
 $ brokkr muninn list          # every past invocation, citations included
 ```
 
-### `brokkr operator` — the three commands that write
+### `brokkr operator` — the commands that write
 
 Everything above reads. `brokkr operator` is where an operator writes,
-and it admits three commands. `retry` re-runs a parked run's phase and
+and it admits these commands. `retry` re-runs a parked run's phase and
 `stop` ends a run where it stands. `retry --member <tag>` on a parked panel
 runs only the named members and names the carried verdicts and their source
 attempts in participant readouts (decision 0093); a sequence member's
@@ -907,6 +907,50 @@ Un-superseding is not a command. The record is append-only, so a
 mistaken annotation is answered by another `supersede` naming the right
 run, or by a run that re-reviews the tree — and both stay on the record,
 with a name on them.
+
+`repair` is the way back for a run an event after its terminal one
+stopped folding: a driver's settlement that landed after a `conclude`, or
+a `stop` an older binary journaled after the conclusion. Nothing reads
+such a run — not `inspect`, not `runs`, not `release`, and every later
+dispatch in its worktree refuses while the broker still counts its
+attempts as standing. `repair` reads the run's events, finds its terminal
+event, and names the late tail exactly: from the event after the terminal
+one to the head as it now stands.
+
+```console
+$ brokkr operator repair --run spec--8bf6d692 --reason "0.12.0 left a stop after the conclusion"
+recorded repair at seq 48 on spec--8bf6d692; the late tail is kept, shown, and never
+applied, and the run folds as it ended.
+```
+
+The run then folds as the status its terminal event states, and `inspect`
+and `runs` show the tail it keeps:
+
+```console
+$ brokkr inspect --run spec--8bf6d692
+run  spec--8bf6d692
+     status stopped · ending unclassified · phase implement · seq 48
+late  a late tail of 2 events, repaired by operator
+      seq 46 · operator/commanded
+      seq 47 · operator/accepted
+```
+
+A lawful annotation that landed between the terminal event and the break
+is part of that tail too, so the repair makes it late as well: an ending
+a `classify` had named `withdrawn` reads `unclassified` after the repair,
+and a `supersede` there reopens the findings it had closed. The verb names
+each such annotation by seq and type and says to record it again after the
+repair. That is the fail-closed reading: the whole tail is kept, shown and
+not applied, with no annotation quietly surviving inside it.
+
+`repair` never deletes anything: the hash chain is untouched, the late
+events stay in the journal, and they are marked as the tail an operator
+named. It refuses, writing nothing, a run with no terminal event, a run
+that already folds (no late tail, or already repaired and left alone),
+and a journal that faults for any other reason. Whether the worktree is
+released is the broker's proof from its own records, not the run's fold;
+when the record still names an attempt with no sealed settlement, that is
+`operator settle`'s job, which 440d builds (decision 0108 ruling 3).
 
 ### Gate entries on a run
 

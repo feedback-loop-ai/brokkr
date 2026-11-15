@@ -237,7 +237,7 @@ pub struct SeatRow {
 /// What a participant has stated so far, across its rows in journal
 /// order: its reported costs summed, and the tokens of its last metered
 /// turn, which a turn repeating its message carries again.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 struct Running {
     spent: Option<f64>,
     last_turn: Option<Meter>,
@@ -246,7 +246,7 @@ struct Running {
 /// A request occurrence: the effect it asked for, the seat it hired, the
 /// phase it names, and its attempt in flight, the last started until a
 /// terminal names it.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 struct Request {
     seq: u64,
     effect_id: String,
@@ -260,7 +260,7 @@ type Attempt = (usize, Option<String>);
 
 /// Every seat row of a run, carried event by event: what the writer's
 /// account holds of its seats.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct Seats {
     phase: Option<String>,
     requests: Vec<Request>,

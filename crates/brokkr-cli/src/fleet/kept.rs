@@ -271,7 +271,7 @@ struct KeptRun {
     /// other event, which is what the fleet dates a run by.
     last_recorded_at: Option<String>,
     read: Read,
-    /// The events [`brokkr_view::residual_findings`] and the ending's
+    /// The events [`brokkr_view::residual_findings_at`] and the ending's
     /// reading read (see [`rules`]), and no others.
     rulings: Vec<EventEnvelope>,
     residuals: Vec<brokkr_view::ResidualFinding>,
@@ -371,7 +371,11 @@ impl KeptRun {
         self.rulings
             .extend(events.into_iter().filter(|event| rules(event.event_type)));
         if self.rulings.len() > before {
-            self.residuals = brokkr_view::residual_findings(run_id, &self.rulings);
+            let state = match &self.read {
+                Read::Folded(state) => Some(state.as_ref()),
+                Read::Refused { .. } => None,
+            };
+            self.residuals = brokkr_view::residual_findings_at(run_id, &self.rulings, state);
         }
         if landed {
             self.closing = match &self.read {
@@ -413,7 +417,7 @@ pub(super) fn lasting(error: &StoreError) -> bool {
     }
 }
 
-/// Whether [`brokkr_view::residual_findings`] or the ending's reading
+/// Whether [`brokkr_view::residual_findings_at`] or the ending's reading
 /// (`brokkr_core::ending::closing`) reads an event of this type: the
 /// rulings the findings and a completed run's ending are read from, the
 /// operator's commands that supersede a finding, name a stop's cause or

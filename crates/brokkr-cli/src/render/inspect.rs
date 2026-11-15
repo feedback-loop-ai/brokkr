@@ -38,6 +38,25 @@ pub(super) fn summary_lines(out: &mut String, summary: Option<&Summary>, style: 
             if let Some(ruled) = policy_reason(summary) {
                 push_line(out, &format!("stop  {}", Safe::new(&ruled).as_str()));
             }
+            if let Some(tail) = &summary.late_tail {
+                push_line(
+                    out,
+                    &format!(
+                        "late  {}",
+                        Safe::new(&brokkr_view::late_line(tail.count(), &tail.operator)).as_str()
+                    ),
+                );
+                for event in &tail.events {
+                    push_line(
+                        out,
+                        &format!(
+                            "      seq {} · {}",
+                            event.seq,
+                            Safe::new(event.event_type.as_str()).as_str()
+                        ),
+                    );
+                }
+            }
         }
         None => push_line(out, "run  — this journal does not fold"),
     }

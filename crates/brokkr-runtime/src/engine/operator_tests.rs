@@ -396,3 +396,96 @@ fn a_feature_of_control_characters_derives_an_id_the_writer_records() {
 }
 
 mod release_tests;
+
+/// L3: a reserved word on a run whose journal holds no event is answered
+/// with the empty run's head, never a panic out of a public door. The
+/// receipt is the refusal's only record: nothing is journaled.
+#[test]
+fn a_reserved_word_on_an_empty_run_is_answered() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&dir.path().join("empty.db")).unwrap();
+    store
+        .create_run("empty", "feature", "test", &json!({}))
+        .unwrap();
+    let wire = FencedCommand {
+        command_id: "reserved",
+        command: CommandWord::parse("repair"),
+        operator: "operator",
+        reason: "please",
+        expected_seq: 0,
+        expected_hash: brokkr_core::canonical::ZERO_HASH,
+    };
+    let refused = apply_fenced_operator_command(&mut store, "empty", &wire).unwrap();
+    assert_eq!(
+        refused,
+        FencedCommandOutcome::Rejected {
+            reason: brokkr_core::fold::ReceiptReason::ReservedCommand
+                .word()
+                .into(),
+            head_seq: 0,
+            head_hash: brokkr_core::canonical::ZERO_HASH.into(),
+        }
+    );
+    assert!(
+        store.load("empty").unwrap().is_empty(),
+        "nothing was journaled"
+    );
+}
+
+/// INFO d: a word the engine does not know on a run with no event still
+/// reaches the fold, which refuses the empty journal, while a reserved
+/// word is answered without it. The asymmetry is named in the PR's asks.
+#[test]
+fn an_ordinary_word_on_an_empty_run_errors_from_the_fold() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&dir.path().join("empty-dance.db")).unwrap();
+    store
+        .create_run("empty", "feature", "test", &json!({}))
+        .unwrap();
+    let wire = FencedCommand {
+        command_id: "ordinary",
+        command: CommandWord::parse("dance"),
+        operator: "operator",
+        reason: "please",
+        expected_seq: 0,
+        expected_hash: brokkr_core::canonical::ZERO_HASH,
+    };
+    let refused = apply_fenced_operator_command(&mut store, "empty", &wire).unwrap_err();
+    assert!(
+        matches!(refused, EngineError::Fold(brokkr_core::FoldError::Empty)),
+        "{refused:?}"
+    );
+    assert!(
+        store.load("empty").unwrap().is_empty(),
+        "nothing was journaled"
+    );
+}
+
+/// R5/L4: the receipt's reason vocabulary has one typed home. The
+/// reserved reason is receipt-only and never journaled; every journaled
+/// refusal's receipt reason is the refusal's own word, pinned HERE as a
+/// literal so the test cannot pass by asking the enum to agree with
+/// itself. A variant added without its word fails the literal table.
+#[test]
+fn every_receipt_reason_comes_from_the_typed_home() {
+    use brokkr_core::fold::{ReceiptReason, Refusal};
+    let words = [
+        (Refusal::CommandNotAllowed, "command_not_allowed"),
+        (Refusal::AfterTerminal, "after_terminal"),
+        (Refusal::RunNotAwaitingOperator, "run_not_awaiting_operator"),
+        (Refusal::NoPhaseToRetry, "no_phase_to_retry"),
+        (Refusal::LostFence, "lost_fence"),
+        (Refusal::StaleCursor, "stale_cursor"),
+        (
+            Refusal::IncompleteCommandReplay,
+            "incomplete_command_replay",
+        ),
+        (Refusal::PreviouslyRejected, "previously_rejected"),
+    ];
+    for (refusal, word) in words {
+        assert_eq!(ReceiptReason::Refusal(refusal).word(), word, "{refusal:?}");
+        assert_eq!(Refusal::parse(word), Some(refusal), "{word}");
+    }
+    assert_eq!(ReceiptReason::ReservedCommand.word(), "reserved_command");
+    assert_eq!(Refusal::parse("reserved_command"), None);
+}

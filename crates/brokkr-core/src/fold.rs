@@ -22,6 +22,14 @@ use operator::{accept, command};
 mod relation;
 pub use relation::lawful_after_terminal;
 use relation::{Arm, Position, Transition};
+pub(crate) mod late;
+pub use late::{skipped_annotations, LateTail, SkippedAnnotation, REPAIR};
+
+mod annotation;
+pub use annotation::{is_late_word, reserved_annotation, reserved_word};
+mod receipt;
+pub use receipt::ReceiptReason;
+
 mod run;
 pub use run::{ParkReason, Run};
 
@@ -173,7 +181,7 @@ impl fmt::Display for Cursor {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct RunState {
     pub run_id: String,
     pub seq: u64,
@@ -207,6 +215,16 @@ pub struct RunState {
     /// The seq of an operator stop accepted while no `run/stopped` has
     /// been written yet: the run is stopping, not running.
     pub stop_accepted_seq: Option<u64>,
+    /// The late tail an operator's repair named, kept and shown, never
+    /// applied (decision 0108 ruling 4).
+    pub late_tail: Option<LateTail>,
+    /// The seq of the event that concluded the run, once one has: what a
+    /// repair read from the rest of the journal is anchored to.
+    pub terminal_seq: Option<u64>,
+    /// The types of the events after `terminal_seq`, carried across
+    /// [`fold_onto`] so a repair read from the rest of the journal checks
+    /// exactly the types the whole fold checks.
+    pub tail_types: BTreeMap<u64, EventType>,
 }
 
 impl RunState {
@@ -247,6 +265,8 @@ pub enum FoldError {
     AfterTerminal { seq: u64 },
     #[error("event {seq}: operator/accepted without a matching command")]
     NoMatchingCommand { seq: u64 },
+    #[error("event {seq}: operator repair does not name the late tail: {detail}")]
+    BadRepair { seq: u64, detail: String },
     #[error("event {seq}: unknown operator command '{command}'")]
     UnknownCommand { seq: u64, command: String },
 }
@@ -265,6 +285,7 @@ impl FoldError {
             | FoldError::BadDecision { seq, .. }
             | FoldError::AfterTerminal { seq }
             | FoldError::NoMatchingCommand { seq }
+            | FoldError::BadRepair { seq, .. }
             | FoldError::UnknownCommand { seq, .. } => *seq,
         }
     }
@@ -273,9 +294,11 @@ impl FoldError {
 /// The commands an operator gives a live run, through `brokkr operator`
 /// or the Looper bridge, and the word the journal records for each. A
 /// word outside the set can still reach the journal as an
-/// `operator/commanded` (the bridge journals the word it was sent, and
-/// `supersede` is an annotation), and an acceptance of one folds to
-/// [`FoldError::UnknownCommand`].
+/// `operator/commanded` on a live run (the bridge journals the word it
+/// was sent), and an acceptance of one folds to
+/// [`FoldError::UnknownCommand`]. The bridge's door answers a word it
+/// does not take on a terminal run, and a reserved annotation word, with
+/// nothing journaled (decision 0108 ruling 4, #440 fix round 440c4).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OperatorCommand {
     /// Moves a parked run back to running, into the phase it parked in.
@@ -490,6 +513,9 @@ pub fn fold(events: &[EventEnvelope]) -> Result<RunState, FoldError> {
         feature: payload::RunStarted::read(first).feature.map(str::to_string),
         pending_command: None,
         stop_accepted_seq: None,
+        late_tail: None,
+        terminal_seq: None,
+        tail_types: BTreeMap::new(),
     };
     fold_onto(state, events)
 }
@@ -501,21 +527,16 @@ pub fn fold(events: &[EventEnvelope]) -> Result<RunState, FoldError> {
 /// the head the state names first (`envelope::verify_chain_after` with
 /// `state.seq` and `state.last_hash`); like [`fold`], this checks
 /// protocol shape only.
-pub fn fold_onto(mut state: RunState, suffix: &[EventEnvelope]) -> Result<RunState, FoldError> {
-    for event in suffix {
-        state.seq = event.seq;
-        state.last_hash = event.event_hash.clone();
-        if event.seq == 1 {
-            continue; // run/started opened the state in `fold`
-        }
-        apply(&mut state, event)?;
-    }
-    Ok(state)
+pub fn fold_onto(state: RunState, suffix: &[EventEnvelope]) -> Result<RunState, FoldError> {
+    late::onto(state, suffix)
 }
 
-/// Apply one event: the relation ([`relation::arm`]) answers for the
-/// event at the run's position, and a transition it names is taken.
-fn apply(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> {
+/// Apply one event: a word that stands after the terminal event as a
+/// late event is refused first, by [`annotation::late_refusal`]; then the
+/// relation ([`relation::arm`]) answers for the event at the run's
+/// position, and a transition it names is taken.
+pub(super) fn apply(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> {
+    annotation::late_refusal(state, event)?;
     match relation::arm(event.event_type, Position::of(state)) {
         Arm::Moves(transition) => take(transition, state, event),
         Arm::OutOfPlace => Err(payload::unplaced(event, out_of_place(state, event))),

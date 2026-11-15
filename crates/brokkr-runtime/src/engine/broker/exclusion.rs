@@ -544,3 +544,6 @@ fn unescaped(field: &str) -> Option<PathBuf> {
     }
     Some(PathBuf::from(std::ffi::OsString::from_vec(bytes)))
 }
+
+#[cfg(test)]
+mod tests;

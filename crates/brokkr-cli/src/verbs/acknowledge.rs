@@ -19,7 +19,7 @@ use brokkr_store::{Attribution, StoreError};
 
 use super::delivery::operator_name;
 use crate::cli_args::JournalArgs;
-use crate::{open_journal, selector, Access, Exit};
+use crate::Exit;
 
 /// Acknowledge quarantined run `run` in the journal `journal` names, for
 /// `reason`.
@@ -29,8 +29,7 @@ pub(super) fn acknowledge(
     reason: &str,
     journal: JournalArgs,
 ) -> Result<ExitCode> {
-    let mut store = open_journal(&journal.journal(workspace)?, Access::Append)?;
-    let run = selector::resolve_run(&store, run)?;
+    let (mut store, run) = super::delivery::writable_run(workspace, run, journal)?;
     // The head before the journal is judged: one that moves after this
     // read refuses the write below rather than acknowledging a journal
     // nobody judged.

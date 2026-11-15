@@ -54,12 +54,6 @@ fn lane() -> String {
     )
 }
 
-/// Any stamp off the folded head sends the row behind, whichever writer folded it.
-fn stale(prefix: &str) -> String {
-    let [stopping, ended] = [stop::PART, ending::PART].map(|part| part.stale(prefix));
-    format!("{} OR {stopping} OR {ended}", aggregate::stale(prefix))
-}
-
 /// The meta key that records the backfill finished (ruling 8).
 pub(crate) const BACKFILLED: &str = "run_summary_backfill";
 
@@ -71,23 +65,15 @@ mod columns;
 mod comparison;
 mod disagreement;
 mod ending;
+mod late;
 mod stop;
 
 pub(crate) use columns::not_behind;
 pub use disagreement::Disagreement;
+pub(crate) use late::read as late_of;
 
 const TABLE: [&str; 1] = ["run_summary"];
 const INDEX: [&str; 3] = ["run_summary_page", aggregate::INDEX, columns::REALM_INDEX];
-
-const TRIGGERS: [&str; 7] = [
-    "run_summary_of_a_run",
-    columns::HEAD_TRIGGER,
-    "run_summary_of_an_acknowledgement",
-    "run_summary_stamp_bounded",
-    stop::PART.trigger,
-    ending::PART.trigger,
-    aggregate::TRIGGER,
-];
 
 /// The stamp an envelope's text carries, NULL where it carries none as
 /// text, and read only from text that is JSON, so an envelope no reader
@@ -167,14 +153,14 @@ fn migration() -> String {
             {aggregated}, feature TEXT, residuals TEXT, created_at_whole TEXT,
             last_recorded_at_whole TEXT, phase_whole TEXT, park_reason_whole TEXT,
             rule_id_whole TEXT, rule_from_whole TEXT, hire_seat_whole TEXT,
-            refusal_words_whole TEXT, {ended_whole}
+            refusal_words_whole TEXT, {ended_whole}, {late}
         );
         CREATE INDEX IF NOT EXISTS run_summary_page
             ON run_summary (lane, order_at DESC, run_id DESC);
         CREATE INDEX IF NOT EXISTS {REALM_INDEX}
             ON run_summary (created_at, run_id, realm, folded_seq, head_seq,
                             aggregated_seq, stop_folded_seq, ending_folded_seq,
-                            refusal_words);
+                            late_folded_seq, refusal_words);
         CREATE TRIGGER IF NOT EXISTS run_summary_of_a_run AFTER INSERT ON runs BEGIN
             INSERT OR IGNORE INTO run_summary (run_id, head_seq, head_hash)
                 VALUES (NEW.run_id, 0, '{ZERO_HASH}');
@@ -194,9 +180,11 @@ fn migration() -> String {
                 last_recorded_at = {cut}
                 WHERE run_id = NEW.run_id;
         END;
-        {stopping_trigger} {ended_trigger} {indexed}",
+        {stopping_trigger} {ended_trigger} {late_trigger} {indexed}",
         lane = lane(),
         aggregated = aggregate::defined(),
+        late = late::PART.defined(),
+        late_trigger = late::PART.migration(),
         indexed = aggregate::migration(),
         REALM_INDEX = columns::REALM_INDEX,
         head_trigger = columns::head_trigger(),
@@ -242,7 +230,7 @@ fn send_stale_behind() -> String {
     format!(
         "UPDATE run_summary SET folded_seq = NULL, folded_hash = NULL
          WHERE {stale}",
-        stale = stale("")
+        stale = columns::stale("")
     )
 }
 
@@ -254,15 +242,20 @@ pub(crate) fn summary_intact(conn: &Connection) -> Result<bool, StoreError> {
         && aggregate::shaped(conn)?
         && stop::PART.shaped(conn)?
         && ending::shaped(conn)?
+        && late::PART.shaped(conn)?
         && all_present(conn, "index", &INDEX)?
-        && columns::triggers_intact(conn, &TRIGGERS)?)
+        && columns::triggers_intact(conn, &columns::TRIGGERS)?)
 }
 
 /// Create the summary, anew where its table lacks a column, seed a row for
 /// every run already here, and send behind any row a stamp says the repair
 /// did not see written, holding the write lock: the fifth additive repair.
 pub(crate) fn migrate_summary(conn: &Connection) -> Result<(), StoreError> {
-    if !aggregate::shaped(conn)? || !stop::PART.shaped(conn)? || !ending::shaped(conn)? {
+    if !aggregate::shaped(conn)?
+        || !stop::PART.shaped(conn)?
+        || !ending::shaped(conn)?
+        || !late::PART.shaped(conn)?
+    {
         conn.execute_batch(&aggregate::rebuild())?;
     }
     let unwatched = ending::unwatched(conn)?;
@@ -354,6 +347,7 @@ fn written(summary: &Summary) -> Vec<(&'static str, Value)> {
     .into_iter()
     .chain(aggregate::written(&summary.aggregate, summary.folded_seq))
     .chain(ending::written(summary))
+    .chain(late::written(summary))
     .collect()
 }
 
@@ -495,7 +489,13 @@ pub(crate) fn judge(
         write_sealed(tx, &first.run_id, sealed)?;
         return Ok(Settled::Lost);
     }
-    let account = carried.account.clone().onto(sealed);
+    // A repair in `sealed` may name a carried event: the account answers
+    // `Refold`, and the writer refolds the whole journal in this
+    // transaction (decision 0108 ruling 4, L7).
+    let account = match carried.account.clone().onto(sealed) {
+        brokkr_core::summary::Carried::Account(account) => *account,
+        brokkr_core::summary::Carried::Refold => late::refold(tx, &first.run_id)?,
+    };
     let listed = match &carried.listed {
         Some(listed) => listed.clone(),
         None => Listed::of(tx, &first.run_id)?,

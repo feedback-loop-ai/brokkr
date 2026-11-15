@@ -12,7 +12,7 @@ use brokkr_core::fold::RunState;
 use brokkr_core::EventEnvelope;
 use serde::Serialize;
 
-use crate::fleet::{said, stopping_detail, Facts, Standing};
+use crate::fleet::{late_tail, said, stopping_detail, Facts, LateTail, Standing};
 
 /// The `summarize()` keys, verbatim and in the same order the
 /// existing `brokkr inspect` prints them, and the standing the fleet
@@ -30,6 +30,10 @@ pub struct Summary {
     pub ending_cited: Option<Citation>,
     pub feature: Option<String>,
     pub last_decision: Option<Decided>,
+    /// The late tail an operator's repair named (decision 0108 ruling 4):
+    /// kept and shown, never applied. It sits in its alphabetical place,
+    /// as every key does, so the struct's bytes and `json!`'s agree.
+    pub late_tail: Option<LateTail>,
     pub park_reason: Option<String>,
     pub phase: Option<String>,
     pub run_id: String,
@@ -73,6 +77,7 @@ pub fn summary(state: &RunState, events: &[EventEnvelope]) -> Summary {
         ending_cited: said.ending_cited,
         feature: state.feature.clone(),
         last_decision: state.last_decision.clone(),
+        late_tail: late_tail(state),
         park_reason: state
             .run
             .park_reason()

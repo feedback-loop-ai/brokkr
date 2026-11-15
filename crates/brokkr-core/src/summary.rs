@@ -17,10 +17,12 @@ use thiserror::Error;
 use crate::canonical::ZERO_HASH;
 use crate::ending::{self, Closing};
 use crate::envelope::EventEnvelope;
+use crate::fold::late::is_repair;
 use crate::fold::{fold, fold_onto, FoldError, RunState, Status};
+use crate::page::LateRange;
 use crate::policy::Severity;
 use crate::residual::{
-    note_closing, open_severity, residuals, Claim, Mark, Residual, ResidualPhase,
+    note_closing, open_severity, residuals_of, Claim, Mark, Residual, ResidualPhase,
 };
 use crate::seat::row::{SeatRow, Seats};
 use crate::stamp::parse_millis;
@@ -209,10 +211,24 @@ impl<'de> Deserialize<'de> for Stated {
     }
 }
 
+/// What carrying an account over a suffix came to (decision 0108 ruling
+/// 4, L7). A repair in the suffix can name events the carried prefix has
+/// already applied; those events are late, so the carried account's
+/// figures are not the whole journal's, and the caller must refold whole.
+#[derive(Debug)]
+pub enum Carried {
+    /// The suffix was carried onto the account. Boxed because the account
+    /// is much larger than the signal beside it.
+    Account(Box<Account>),
+    /// A repair in the suffix names events the carried prefix already
+    /// applied: refold the run's whole journal.
+    Refold,
+}
+
 /// What a writer holds of a run: the run's head as it last judged it, the
 /// fold there or the fold's refusal, and the residual findings and
 /// closing marks the journal carries up to it.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Account {
     run_id: String,
     head: (u64, String),
@@ -258,7 +274,7 @@ impl Account {
 
     /// The account of a run's whole journal, `events` in order from seq 1.
     pub fn whole(run_id: &str, events: &[EventEnvelope]) -> Account {
-        Account::empty(run_id).onto(events)
+        Account::empty(run_id).carry(events)
     }
 
     /// The account carried over `suffix`, the events after this head in
@@ -266,7 +282,55 @@ impl Account {
     /// by [`fold_onto`]; a refusal stands, as a whole fold stops at the
     /// event it refuses. The caller verifies the suffix chains onto this
     /// head first; like [`fold`], this checks protocol shape only.
-    pub fn onto(mut self, suffix: &[EventEnvelope]) -> Account {
+    ///
+    /// When a repair in `suffix` names events this account already
+    /// applied — its range reaches at or below this head — the account
+    /// cannot carry: it answers [`Carried::Refold`] and the caller
+    /// refolds the run's whole journal (decision 0108 ruling 4, L7). A
+    /// carried refusal answers the same signal when the suffix carries a
+    /// repair, because only the whole fold can tell whether that repair
+    /// lifts the refusal. An append that neither breaks nor repairs
+    /// carries, including every annotation after a tail this account
+    /// already has.
+    pub fn onto(self, suffix: &[EventEnvelope]) -> Carried {
+        if suffix.is_empty() {
+            return Carried::Account(Box::new(self));
+        }
+        let carried_head = self.head.0;
+        let first = suffix[0].seq;
+        let account = self.carry(suffix);
+        // A repair read from THIS suffix that names a seq at or below the
+        // carried head names an event this account has already applied.
+        // Marking it late now cannot undo that, so the only honest answer
+        // is a whole refold. A tail the carried account already holds is
+        // not this suffix's repair: a later annotation carries, and the
+        // account stays the one the whole journal reads. An empty account
+        // has applied no prefix, so [`Account::whole`] never meets the
+        // signal.
+        let refold = match &account.read {
+            // A carried refusal is only judged whole: a later repair in
+            // the suffix may name the event the prefix refused at, which
+            // only the whole fold can lift. A suffix with no repair leaves
+            // the refusal standing, as a whole fold does. A non-empty
+            // suffix never leaves the read empty: the carry folds it.
+            Err(_) => suffix.iter().any(is_repair),
+            Ok(state) => state
+                .late_tail
+                .as_ref()
+                .is_some_and(|tail| tail.repaired_at >= first && tail.first_seq <= carried_head),
+        };
+        if refold {
+            Carried::Refold
+        } else {
+            Carried::Account(Box::new(account))
+        }
+    }
+
+    /// [`Account::onto`]'s body: this account with `suffix` applied, the
+    /// events a repair names late never applied. The caller decides
+    /// whether a suffix repair that named a carried event means the
+    /// account may not be carried at all.
+    fn carry(mut self, suffix: &[EventEnvelope]) -> Account {
         let Some(last) = suffix.last() else {
             return self;
         };
@@ -275,12 +339,27 @@ impl Account {
             Err(refused) => Err(refused),
             Ok(state) => fold_onto(state, suffix),
         };
+        // A late event is kept in the journal and shown as the tail, never
+        // applied by any scan that derives a figure from it (decision 0108
+        // ruling 4): a late classify moves no ending, a late supersede
+        // closes no finding. The tail's own rule, [`crate::fold::LateTail::holds`], is
+        // the one test; `RunState::applies` wraps it for a whole scan.
+        let late = self
+            .read
+            .as_ref()
+            .ok()
+            .and_then(|state| state.late_tail.clone());
+        let applies =
+            |event: &EventEnvelope| late.as_ref().is_none_or(|tail| !tail.holds(event.seq));
         self.findings.extend(
-            residuals(suffix)
+            residuals_of(suffix.iter().filter(|event| applies(event)))
                 .iter()
                 .map(|residual| Stated::of(residual, None)),
         );
         for event in suffix {
+            if !applies(event) {
+                continue;
+            }
             note_closing(&mut self.marks, event);
             let replayed = self.seats.note(event);
             self.reading.note(event);
@@ -404,6 +483,19 @@ impl Account {
     }
 }
 
+/// The events a derived scan may apply: every event, less a repaired run's
+/// late tail, which is kept and shown and never applied (decision 0108
+/// ruling 4). The range test itself is [`RunState::applies`], the one home
+/// the fold, the account and every readout share.
+pub(crate) fn live<'a>(
+    events: &'a [EventEnvelope],
+    state: Option<&'a RunState>,
+) -> impl Iterator<Item = &'a EventEnvelope> + 'a {
+    events
+        .iter()
+        .filter(move |event| state.is_none_or(|state| state.applies(event.seq)))
+}
+
 /// What the run's `runs` row states: its feature and when it was created.
 #[derive(Debug, Clone, Copy)]
 pub struct Listing<'a> {
@@ -468,6 +560,9 @@ pub struct Summary {
     pub aggregate: Aggregate,
     /// Its ending, once its fold states it is over (decision 0064).
     pub closing: Option<Closing>,
+    /// The late tail a repair named (decision 0108 ruling 4), so a summary
+    /// row carries the sentence a whole read prints.
+    pub late_tail: Option<LateRange>,
 }
 
 impl Summary {
@@ -514,6 +609,9 @@ impl Summary {
             last_recorded_at: stamp.map(|stamp| Bounded::within(stamp, STAMP_BYTES)),
             aggregate: account.reading.of(state, closing.as_ref()),
             closing,
+            late_tail: state
+                .and_then(|state| state.late_tail.as_ref())
+                .map(LateRange::of),
         }
     }
 }

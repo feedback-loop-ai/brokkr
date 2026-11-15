@@ -662,7 +662,7 @@ fn rows_carried_over_any_split_are_the_rows_read_whole() {
         let step = if events.len() > 20 { 7 } else { 1 };
         for split in (0..=events.len()).step_by(step) {
             let (head, tail) = events.split_at(split);
-            let carried = Account::whole("run", head).onto(tail);
+            let carried = Account::whole("run", head).onto(tail).account();
             assert_eq!(carried.seats(), whole.seats(), "{name} split at {split}");
             let kept = (carried.seats_kept(), whole.seats_kept());
             assert_eq!(kept.0, kept.1, "{name} split at {split}");
@@ -1368,7 +1368,7 @@ fn a_reopened_session_moves_the_earlier_site_s_rule() {
     let whole = Account::whole("run", &steps);
     let mut carried = Account::empty("run");
     for event in &steps {
-        carried = carried.onto(std::slice::from_ref(event));
+        carried = carried.onto(std::slice::from_ref(event)).account();
     }
     let rules = |account: &Account| -> Vec<Metering> {
         account.sites().iter().map(|site| site.metering).collect()

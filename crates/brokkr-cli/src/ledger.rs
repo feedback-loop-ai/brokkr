@@ -6,6 +6,7 @@ use std::process::Command;
 
 use anyhow::{Context, Result};
 use brokkr_core::{EventEnvelope, EventType};
+use brokkr_view::applied_events;
 use serde_json::Value;
 
 fn git(repo: &Path, args: &[&str]) -> Option<String> {
@@ -105,7 +106,13 @@ fn is_commit_id(value: &str) -> bool {
 /// the v1 journal has no run-start Git head, so the bounded range is the
 /// repository's commits timestamped after the first journal event, augmented by
 /// any commit IDs a newer result records explicitly.
-pub(crate) fn render(run_id: &str, events: &[EventEnvelope], repo: &Path) -> Result<String> {
+pub(crate) fn render(run_id: &str, events: Vec<EventEnvelope>, repo: &Path) -> Result<String> {
+    // The ledger derives its commits and results from the applied events:
+    // a repaired tail is kept and shown and never delivered (decision
+    // 0108 ruling 4). It owns the one journal it filters, in place.
+    let state = brokkr_core::fold::fold(&events).ok();
+    let applied = applied_events(events, state.as_ref());
+    let events = applied.as_slice();
     let feature = events
         .first()
         .and_then(|event| event.payload.get("feature"))
@@ -162,7 +169,7 @@ pub(crate) fn render(run_id: &str, events: &[EventEnvelope], repo: &Path) -> Res
 
 pub(crate) fn write(
     run_id: &str,
-    events: &[EventEnvelope],
+    events: Vec<EventEnvelope>,
     repo: &Path,
 ) -> Result<std::path::PathBuf> {
     let ledger = render(run_id, events, repo)?;

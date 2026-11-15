@@ -1,0 +1,36 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://feedback-loop.ai/forge/contracts/operator-repair.v1.json",
+  "title": "Forge operator repair args v1 (a payload value at event_schema 1)",
+  "description": "The shape of operator/commanded.args for command 'repair', and for nothing else (decision 0108 ruling 4, in the shape its 2026-11-13 erratum gives it after decision 0047). This is not a widening of the v1 event envelope: 'command' is already an open string there and 'args' an already-legal open object the reducer never reads, so a new command word with structured args is a v1 event byte for byte - no new event type, no new payload field, no manifest digest moved. The event is written only on a run that has already reached a terminal event and has a late tail above it: the events a broken run left after its terminal one. The range is checked against the journal when it is written and again when it is folded: first_seq must be the event after the terminal one, last_seq must be the head the repair was written at less one, and event_types must name every event in the range, in order. fold reads the range before it applies events and treats each event in it as late: kept and shown, never applied. An event inside a repaired range was not applied, so the run reads as its terminal status. No operator/accepted follows: there is nothing to execute, and fold refuses an acceptance on a terminal run by design.",
+  "type": "object",
+  "required": ["first_seq", "last_seq", "terminal_seq", "event_types", "reason"],
+  "additionalProperties": false,
+  "properties": {
+    "first_seq": {
+      "type": "integer",
+      "minimum": 2,
+      "description": "The late tail's first sequence number: always the seq of the terminal event plus one."
+    },
+    "last_seq": {
+      "type": "integer",
+      "minimum": 2,
+      "description": "The late tail's last sequence number: the head the repair was written at, less one. Only the tail as it stands can be named, so it is never an event the repair itself brought."
+    },
+    "terminal_seq": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "The sequence number of the run's terminal event (completed or stopped), the event the tail follows."
+    },
+    "event_types": {
+      "type": "array",
+      "minItems": 1,
+      "description": "The tail's event types, in order, one per sequence number from first_seq to last_seq. The fold refuses a list that does not name exactly the events the journal holds at those seqs.",
+      "items": { "type": "string" }
+    },
+    "reason": {
+      "type": "string",
+      "description": "The operator's own sentence. It rides here rather than on an operator/accepted, because a repair has no acceptance: the commanded event is the whole record."
+    }
+  }
+}

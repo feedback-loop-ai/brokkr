@@ -70,10 +70,15 @@ mod started;
 mod told;
 use told::{Finish, Told};
 mod composed;
+mod live;
+pub use live::applied_events;
+use live::derived;
+mod residual_findings;
+pub use residual_findings::residual_findings_at;
 mod seat_view;
 pub use commands::{Admission, Command, CommandRefusal, Disabled, Offered, Unavailable};
 pub use compare::{
-    first_divergence, resolution_divergence, resolutions, resolved, FirstDivergence, Resolution,
+    first_divergence, resolution_divergence, resolutions_at, resolved, FirstDivergence, Resolution,
     Sides,
 };
 pub use composed::{composed_view, composed_whole, seat_keys, Parts};
@@ -81,11 +86,11 @@ use dashboard::dashboard;
 pub use dashboard::working_participants;
 pub use dashboard::{working_checkpoints, Concluded, Dashboard, Decision, Outcome, Ruled, Visit};
 pub use fleet::{
-    at_work, behind_line, fleet_rows, need, page, ranges, run_row, run_rows, section_of,
+    at_work, behind_line, fleet_rows, late_line, need, page, ranges, run_row, run_rows, section_of,
     section_of_rows, sections, stopping_detail, summary_row, title, title_within, window, wrap,
-    Acknowledgement, Cursor, CursorError, HearthEntries, Hire, Need, Page, Paged, Quarantine,
-    Refusal, RunRow, Section, Standing, Verdict, AHEAD_ROWS, PAGE_ROWS, TITLE_COLUMNS,
-    VERDICT_COLUMNS,
+    Acknowledgement, Cursor, CursorError, HearthEntries, Hire, LateEvent, LateRange, LateTail,
+    Need, Page, Paged, Quarantine, Refusal, RunRow, Section, Standing, Verdict, AHEAD_ROWS,
+    PAGE_ROWS, TITLE_COLUMNS, VERDICT_COLUMNS,
 };
 pub use graph::{
     graph, GraphError, GraphQuery, GraphResolution, GraphTable, GraphView, Table,
@@ -107,7 +112,7 @@ use std::collections::BTreeMap;
 use brokkr_core::decision::Decision as Decided;
 use brokkr_core::fold::RunState;
 use brokkr_core::realms::Boundary;
-use brokkr_core::residual::{closings, residuals, Mark};
+use brokkr_core::residual::{closings, Mark};
 use brokkr_core::summary::Stated;
 use brokkr_core::{EventEnvelope, EventType};
 use serde::Serialize;
@@ -165,7 +170,9 @@ use serde_json::Value;
 /// Bumped to 28 by #909: a run whose accepted stop has no ending stands
 /// as `stopping`, with its detail, instead of `running`.
 /// Bumped to 29 by decision 0064: rows and summaries carry `ending`, `ending_cited`, `wants`.
-pub const VIEW_VERSION: u32 = 29;
+/// Bumped to 30 by decision 0108 ruling 4: a row and a summary carry the late
+/// tail an operator's repair named, kept and never applied.
+pub const VIEW_VERSION: u32 = 30;
 
 /// The note every absent boundary cell carries (decision 0046 ruling 3;
 /// design DD13): a journal written before the boundary was named, a
@@ -213,7 +220,7 @@ pub struct RunEntry<'a> {
     /// does not load or fold rather than losing the whole fleet with it, and
     /// the refusal is the row's whole account of itself, never repaired here.
     pub detail: Option<Refusal<'a>>,
-    /// What [`residual_findings`] derived for this run, marks included; none
+    /// What [`residual_findings_at`] derived for this run, marks included; none
     /// from a caller that read none of its events, as before decision 0047.
     pub residuals: &'a [ResidualFinding],
     /// Its ending, as `brokkr_core::ending::closing` reads its events.
@@ -851,20 +858,9 @@ pub struct ResidualFinding {
 /// write time stays true. A superseding run concluded, stopped or ruled
 /// again afterwards changes nothing about a mark already written
 /// (ruling 2).
-pub fn residual_findings(run_id: &str, events: &[EventEnvelope]) -> Vec<ResidualFinding> {
-    let marks: BTreeMap<u64, Mark> = closings(events).into_iter().collect();
-    residuals(events)
-        .iter()
-        .map(|residual| {
-            let superseded = marks.get(&residual.ruling.seq).cloned();
-            stated_finding(run_id, Stated::of(residual, superseded))
-        })
-        .collect()
-}
-
 /// A residual finding of run `run_id` as every surface shows it, from the
 /// finding as its summary's `residuals` column states it (decision 0089
-/// ruling 2) or as [`residual_findings`] reads it from the journal: the
+/// ruling 2) or as [`residual_findings_at`] reads it from the journal: the
 /// one rendering of its line.
 pub(crate) fn stated_finding(run_id: &str, stated: Stated) -> ResidualFinding {
     let Stated {
@@ -2324,19 +2320,21 @@ fn ruling_of(decision: Option<&Decided>, superseded: Option<Superseded>) -> Opti
 
 /// The whole readout for one run: one derivation, every surface.
 pub fn run_view(events: &[EventEnvelope], state: Option<&RunState>) -> RunView {
-    let scan = scan_participants(events);
-    let buckets = bucket(events);
-    let marks = supersedes(events);
+    let applied = derived(events, state);
+    let applied = applied.as_slice();
+    let scan = scan_participants(applied);
+    let buckets = bucket(applied);
+    let marks = supersedes(applied);
     let commands = commands_of(events);
     let by_id = ids(events);
     let cause = |id: &str| by_id.get(id).copied();
     let read = Read {
-        live: live_lines(events),
+        live: live_lines(applied),
         journal: journal_rows(events, &scan, &buckets, &marks, &commands, cause),
         event_count: events.len(),
-        dashboard: dashboard(events),
+        dashboard: dashboard(applied),
     };
-    viewed(events, &scan, &buckets, &marks, read, state)
+    viewed(applied, &scan, &buckets, &marks, read, state)
 }
 
 /// What a run view reads beside its trail: the live block, the journal's
@@ -2388,7 +2386,10 @@ fn viewed(
         scopes: None,
         commands: state.map_or_else(Vec::new, commands),
         unavailable: state.map_or_else(Vec::new, |state| {
-            let residuals = residual_findings(&state.run_id, events);
+            // A late supersede in a repaired tail closes no finding the
+            // commands show, and a late ruling states none: the same
+            // reading the findings list takes (decision 0108 ruling 4).
+            let residuals = residual_findings_at(&state.run_id, events, Some(state));
             unavailable(state, &residuals, clarify.as_ref())
         }),
         clarify,
@@ -2398,5 +2399,7 @@ fn viewed(
     }
 }
 
+#[cfg(test)]
+mod late_tests;
 #[cfg(test)]
 mod tests;

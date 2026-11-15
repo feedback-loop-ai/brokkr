@@ -15,7 +15,7 @@
 
 use brokkr_core::envelope::EventEnvelope;
 use brokkr_core::fold::{FoldError, RunState};
-use brokkr_core::summary::Account;
+use brokkr_core::summary::{Account, Carried};
 use brokkr_store::Store;
 
 use super::EngineError;
@@ -47,10 +47,15 @@ impl Replay {
             Some(account) => {
                 let (seq, hash) = account.head();
                 let suffix = store.load_after(run_id, seq, hash)?;
-                let account = account.onto(&suffix);
-                account.state().map_err(FoldError::clone)?;
+                let carried = account.onto(&suffix);
                 self.events.extend(suffix);
-                account
+                match carried {
+                    Carried::Account(account) => *account,
+                    // A repair in the suffix named events this replay
+                    // already applied: refold the whole journal it holds
+                    // (decision 0108 ruling 4, L7).
+                    Carried::Refold => Account::whole(run_id, &self.events),
+                }
             }
             None => {
                 self.events = store.load(run_id)?;

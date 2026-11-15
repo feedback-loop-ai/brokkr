@@ -3,15 +3,18 @@
 //! the same id that lost the fence to it (decision 0029), so every
 //! delivery of one command reads one disposition.
 
+use brokkr_core::canonical::ZERO_HASH;
 use brokkr_core::envelope::EventType;
-use brokkr_core::fold::Refusal;
+use brokkr_core::fold::{
+    acceptance_refusal, terminal_event, OperatorCommand, ReceiptReason, Refusal, RunState, Status,
+};
 use brokkr_core::EventEnvelope;
 use brokkr_store::{Store, StoreError};
 use serde_json::Value;
 
 use super::{
-    accepted_at, command_id_of, fenced_append, read_back, EngineError, FencedCommandOutcome, Head,
-    Rejection, FENCE_ATTEMPTS,
+    accepted_at, command_id_of, fenced_acceptance, fenced_append, read_back, CommandWord,
+    EngineError, FencedCommand, FencedCommandOutcome, Head, Rejection, FENCE_ATTEMPTS,
 };
 
 /// The `operator/commanded` journaled for `command_id`, if any.
@@ -39,13 +42,15 @@ fn recorded(
     Some(if disposition.event_type == EventType::OperatorAccepted {
         accepted_at(disposition)
     } else {
+        let reason = disposition
+            .payload
+            .get("reason")
+            .and_then(Value::as_str)
+            .and_then(Refusal::parse)
+            .map(ReceiptReason::Refusal)
+            .unwrap_or(ReceiptReason::Refusal(Refusal::PreviouslyRejected));
         FencedCommandOutcome::Rejected {
-            reason: disposition
-                .payload
-                .get("reason")
-                .and_then(Value::as_str)
-                .unwrap_or(Refusal::PreviouslyRejected.word())
-                .to_string(),
+            reason: reason.word().to_string(),
             head_seq: disposition.seq,
             head_hash: disposition.event_hash.clone(),
         }
@@ -56,6 +61,57 @@ fn recorded(
 /// a command journaled with no disposition yet holds none.
 fn disposition(events: &[EventEnvelope], command_id: &str) -> Option<FencedCommandOutcome> {
     recorded(events, commanded_of(events, command_id), command_id)
+}
+
+/// The answer a word that is not journaled gets: a rejected receipt at
+/// the head the door found. The one home for both the reserved word and
+/// the terminal word the door writes nothing for (decision 0108 ruling 4,
+/// #440 fix round 440c4).
+pub(super) fn answered(reason: ReceiptReason, head: &Head) -> FencedCommandOutcome {
+    FencedCommandOutcome::Rejected {
+        reason: reason.word().to_string(),
+        head_seq: head.seq,
+        head_hash: head.hash.clone(),
+    }
+}
+
+/// The head a receipt answers at: the journal's tip, or the empty run's
+/// head before its first event.
+fn tip(events: &[EventEnvelope]) -> Head {
+    events.last().map_or_else(
+        || Head {
+            seq: 0,
+            hash: ZERO_HASH.to_string(),
+            event_id: String::new(),
+        },
+        Head::of,
+    )
+}
+
+/// A reserved annotation word's answer at a journal's tip, with nothing
+/// journaled. The one home for both the fresh word and the redelivery an
+/// older binary left undisposed (decision 0108 ruling 4, #440 fix round
+/// 440c4).
+pub(super) fn reserved_receipt(events: &[EventEnvelope]) -> FencedCommandOutcome {
+    answered(ReceiptReason::ReservedCommand, &tip(events))
+}
+
+/// A journaled late word's answer at a journal's tip, with nothing
+/// journaled: after the terminal event the word is a late event, so no
+/// door writes its disposition on a remote caller's behalf. The reason is
+/// the fold error the word would mint (decision 0108 ruling 4, #440 fix
+/// round 440c4).
+fn late_receipt(events: &[EventEnvelope]) -> FencedCommandOutcome {
+    answered(ReceiptReason::Refusal(Refusal::AfterTerminal), &tip(events))
+}
+
+/// Does the journal hold a terminal event before `seq`? A word after that
+/// event is a late event; before it, the word is the pending command it
+/// is.
+fn late_after(events: &[EventEnvelope], seq: u64) -> bool {
+    events
+        .iter()
+        .any(|event| event.seq < seq && terminal_event(event.event_type).is_some())
 }
 
 /// The receipt a command id already holds, if any: a journaled command
@@ -75,7 +131,14 @@ pub(super) fn journaled(
 }
 
 /// A journaled command's recorded disposition, or — none after it — a
-/// refusal of the incomplete replay.
+/// refusal of the incomplete replay. A reserved annotation word is the
+/// exception: its journaled command has no disposition to replay, so it
+/// is answered with the reserved refusal and nothing is written for it.
+/// So is a word the fold reads as late after the terminal event, reserved
+/// or not: no door writes a late event on a remote caller's behalf. An
+/// older binary could journal the word and crash between its two appends;
+/// this delivery must not add the rejection it never wrote (decision 0108
+/// ruling 4, #440 fix round 440c4).
 fn replay(
     store: &mut Store,
     run_id: &str,
@@ -86,6 +149,12 @@ fn replay(
 ) -> Result<FencedCommandOutcome, EngineError> {
     if let Some(receipt) = recorded(events, Some(commanded), command_id) {
         return Ok(receipt);
+    }
+    if brokkr_core::fold::reserved_word(commanded).is_some() {
+        return Ok(reserved_receipt(events));
+    }
+    if brokkr_core::fold::is_late_word(commanded) && late_after(events, commanded.seq) {
+        return Ok(late_receipt(events));
     }
     let rejection = Rejection {
         command_id,
@@ -137,4 +206,62 @@ pub(super) fn refuse_undisposed(
             written => return Ok(rejection.landed(written?)),
         }
     }
+}
+
+/// The refusal a bridge command meets before it is journaled, if any, in
+/// the order the bridge has always answered: an unknown word, a stale
+/// cursor, a run that is not parked, and then `fold`'s own rule. A
+/// parked run is non-terminal, so what [`acceptance_refusal`] can still
+/// add is a retry with no phase to return to. `release` is the operator's
+/// console's alone (U8e3): the bridge refuses it as a word it does not take.
+pub(super) fn fenced_refusal(
+    state: &RunState,
+    command: CommandWord,
+    cursor_holds: bool,
+) -> Option<Refusal> {
+    let CommandWord::Known(command @ (OperatorCommand::Retry | OperatorCommand::Stop)) = command
+    else {
+        return Some(Refusal::CommandNotAllowed);
+    };
+    if !cursor_holds {
+        return Some(Refusal::StaleCursor);
+    }
+    if state.run.status() != Status::AwaitingOperator {
+        return Some(Refusal::RunNotAwaitingOperator);
+    }
+    acceptance_refusal(state, command)
+}
+
+/// A reserved word's answer, when `wire` carries one: the rejected receipt
+/// at the head `events` end on, with nothing written.
+pub(super) fn reserved_answer(
+    wire: &FencedCommand,
+    events: &[EventEnvelope],
+) -> Option<FencedCommandOutcome> {
+    let CommandWord::Unknown(word) = wire.command else {
+        return None;
+    };
+    brokkr_core::fold::reserved_annotation(word).then(|| reserved_receipt(events))
+}
+
+/// The command's disposition, written against the `operator/commanded` it
+/// landed as: the fold's rejection where it refused one, else its
+/// acceptance.
+pub(super) fn fenced_disposition(
+    store: &mut Store,
+    run_id: &str,
+    wire: &FencedCommand,
+    rejection: Option<Refusal>,
+    commanded: &EventEnvelope,
+) -> Result<FencedCommandOutcome, EngineError> {
+    let Some(refusal) = rejection else {
+        return fenced_acceptance(store, run_id, wire, commanded);
+    };
+    let rejection = Rejection {
+        command_id: wire.command_id,
+        operator: wire.operator,
+        refusal,
+        cause: &commanded.event_id,
+    };
+    refuse_undisposed(store, run_id, rejection)
 }

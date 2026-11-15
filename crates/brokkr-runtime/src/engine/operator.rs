@@ -9,7 +9,8 @@
 use brokkr_core::ending::ended;
 use brokkr_core::envelope::EventType;
 use brokkr_core::fold::{
-    acceptance_refusal, concluded, fold, Cursor, OperatorCommand, Refusal, Run, RunState, Status,
+    acceptance_refusal, concluded, fold, Cursor, OperatorCommand, ReceiptReason, Refusal, Run,
+    RunState,
 };
 use brokkr_core::summary::Account;
 use brokkr_core::EventEnvelope;
@@ -29,6 +30,7 @@ use disposition::{disposed, Commanded, Disposition};
 pub use retry::MemberRetryOutcome;
 mod receipt;
 mod release;
+mod repair;
 mod supersede;
 pub use classify::operator_classify;
 pub(super) use conclusion::operator_stop_reason;
@@ -38,6 +40,7 @@ pub(super) use ending::tests::{conclude_as, conclude_racing_as, stop_as, stop_ra
 pub use ending::{named_cause, operator_stop, Cause, CauseRefusal, Flag, Named, Verb};
 #[cfg(test)]
 pub(super) use release::released_racing;
+pub use repair::{operator_repair, Repair};
 #[cfg(test)]
 pub(super) use supersede::operator_supersede_racing;
 pub use supersede::{operator_supersede, Supersede};
@@ -148,7 +151,9 @@ pub enum FencedCommandOutcome {
 
 /// The word a Looper command carries, parsed once at the bridge's edge: a
 /// verb of the closed set, or a word outside it, kept as sent so the
-/// journal records what was asked before the door refuses it by name.
+/// journal records what was asked before the door refuses it by name —
+/// except a reserved annotation word, which the door refuses and answers
+/// without journaling (decision 0108 ruling 4, #440).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CommandWord<'a> {
     Known(OperatorCommand),
@@ -234,10 +239,12 @@ impl Rejection<'_> {
         json!({"command_id": id, "operator": operator, "reason": reason})
     }
 
-    /// The refusal reported at the rejection that just landed.
+    /// The refusal reported at the rejection that just landed. Its reason
+    /// is the typed receipt vocabulary's word, never a second spelling
+    /// written here (decision 0108 ruling 4, #440 fix round 440c4).
     fn landed(&self, rejected: EventEnvelope) -> FencedCommandOutcome {
         FencedCommandOutcome::Rejected {
-            reason: self.refusal.word().into(),
+            reason: ReceiptReason::Refusal(self.refusal).word().into(),
             head_seq: rejected.seq,
             head_hash: rejected.event_hash,
         }
@@ -612,35 +619,21 @@ pub(super) fn riding_attempt(
 /// so an engine append between that check and either write loses the
 /// fence instead of slipping under it.
 ///
-/// The bridge parsed Looper's word into a [`CommandWord`] at its edge: a
-/// word outside the set is journaled as sent and refused as
-/// [`Refusal::CommandNotAllowed`], so the evidence says what was asked.
+/// The bridge parsed Looper's word at its edge: an unknown word on a live
+/// run is journaled as sent and refused as [`Refusal::CommandNotAllowed`],
+/// so the evidence says what was asked — except a reserved annotation
+/// word (`repair`, `settle`, `classify`, `supersede`), which is answered
+/// with a [`ReceiptReason::ReservedCommand`] receipt and never journaled
+/// (decision 0108 ruling 4, #440). A word it does not take on a terminal
+/// run — unknown with the bridge's empty args, or a known word such as
+/// `release` — is answered without writing, so the run grows no refusal
+/// it did not have to (fix round 440c4; the known-word case is an ask).
 pub fn apply_fenced_operator_command(
     store: &mut Store,
     run_id: &str,
     command: &FencedCommand,
 ) -> Result<FencedCommandOutcome, EngineError> {
     apply_fenced_windows(store, run_id, command, |_| {}, |_| {})
-}
-
-/// The refusal a bridge command meets before it is journaled, if any, in
-/// the order the bridge has always answered: an unknown word, a stale
-/// cursor, a run that is not parked, and then `fold`'s own rule. A
-/// parked run is non-terminal, so what [`acceptance_refusal`] can still
-/// add is a retry with no phase to return to. `release` is the operator's
-/// console's alone (U8e3): the bridge refuses it as a word it does not take.
-fn fenced_refusal(state: &RunState, command: CommandWord, cursor_holds: bool) -> Option<Refusal> {
-    let CommandWord::Known(command @ (OperatorCommand::Retry | OperatorCommand::Stop)) = command
-    else {
-        return Some(Refusal::CommandNotAllowed);
-    };
-    if !cursor_holds {
-        return Some(Refusal::StaleCursor);
-    }
-    if state.run.status() != Status::AwaitingOperator {
-        return Some(Refusal::RunNotAwaitingOperator);
-    }
-    acceptance_refusal(state, command)
 }
 
 /// [`apply_fenced_operator_command`] with the acceptance's window held
@@ -671,14 +664,35 @@ pub(super) fn apply_fenced_windows(
 ) -> Result<FencedCommandOutcome, EngineError> {
     let (command_id, operator) = (wire.command_id, wire.operator);
     let events = store.load(run_id)?;
+    // A redelivery answers with the receipt its command id already holds,
+    // before any word is judged: a word an older binary already journaled
+    // and rejected returns that receipt instead of being refused again.
     if let Some(receipt) = receipt::journaled(store, run_id, &events, command_id, operator)? {
         return Ok(receipt);
+    }
+    // A reserved word is an operator annotation's, never a command a
+    // remote caller may journal: refusing here writes nothing at all, so
+    // the fold never reads a `repair` (or `settle`, `classify`,
+    // `supersede`) nobody wrote (decision 0108 ruling 4, #440). It is
+    // ANSWERED as any refused command is — a rejected receipt at the head
+    // it found — so the cursor advances and the words queued behind it
+    // still run. Nothing is journaled, so the receipt is the only record.
+    if let Some(answer) = receipt::reserved_answer(wire, &events) {
+        return Ok(answer);
     }
     // The head this fold read: the one the wire's cursor is checked
     // against, and the one the command must still find (decision 0029).
     let (state, head) = decided(store, run_id, &events)?;
     let cursor_holds = head.seq == wire.expected_seq && head.hash == wire.expected_hash;
-    let rejection = fenced_refusal(&state, wire.command, cursor_holds);
+    let rejection = receipt::fenced_refusal(&state, wire.command, cursor_holds);
+    // A word the bridge does not take on a terminal run is answered
+    // without writing, so no remote caller stops the run folding until an
+    // operator repairs it. A known word it refuses (`release`) is covered
+    // too; that one would fold, and the narrower choice is an ask.
+    if state.terminal_seq.is_some() && rejection == Some(Refusal::CommandNotAllowed) {
+        let reason = ReceiptReason::Refusal(Refusal::CommandNotAllowed);
+        return Ok(receipt::answered(reason, &head));
+    }
     before_command(store);
     // A peer appended after the fold, so what was decided on it stands on
     // a head that is gone: nothing of the command is written, no winner is
@@ -689,19 +703,7 @@ pub(super) fn apply_fenced_windows(
         return Ok(refused);
     };
     between(store);
-    let cause = &commanded.event_id;
-    let disposition = match rejection {
-        Some(refusal) => {
-            let rejection = Rejection {
-                command_id,
-                operator,
-                refusal,
-                cause,
-            };
-            receipt::refuse_undisposed(store, run_id, rejection)?
-        }
-        None => fenced_acceptance(store, run_id, wire, &commanded)?,
-    };
+    let disposition = receipt::fenced_disposition(store, run_id, wire, rejection, &commanded)?;
     // Prove the newly appended pair does not corrupt fold semantics before the
     // bridge acknowledges it to Looper.
     read_back(store, run_id)?;

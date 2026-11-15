@@ -754,7 +754,7 @@ fn a_whole_read_that_cannot_open_its_connection_refuses_the_refresh() {
     assert_eq!(kept.entries().len(), 0);
 }
 
-/// [`rules`] keeps what [`brokkr_view::residual_findings`] reads: over a
+/// [`rules`] keeps what [`brokkr_view::residual_findings_at`] reads: over a
 /// journal of every event type, each carrying a residual ruling's inputs
 /// and a supersede's arguments, the findings from the kept rulings are
 /// the findings from the whole journal. Dropping `operator/commanded`
@@ -792,9 +792,9 @@ fn the_kept_rulings_are_what_the_residual_findings_read() {
         .filter(|event| rules(event.event_type))
         .cloned()
         .collect();
-    let whole = brokkr_view::residual_findings("run", &journal);
+    let whole = brokkr_view::residual_findings_at("run", &journal, None);
     assert_eq!(
-        serde_json::to_value(brokkr_view::residual_findings("run", &kept)).unwrap(),
+        serde_json::to_value(brokkr_view::residual_findings_at("run", &kept, None)).unwrap(),
         serde_json::to_value(&whole).unwrap()
     );
     assert_eq!(whole.len(), 1);

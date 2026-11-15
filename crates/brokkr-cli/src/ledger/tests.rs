@@ -1,5 +1,6 @@
 use super::*;
 use crate::tests::envelope_builder::EnvelopeBuilder;
+use brokkr_store::Store;
 use serde_json::json;
 
 fn event(seq: u64, event_type: EventType, payload: Value) -> EventEnvelope {
@@ -18,7 +19,7 @@ fn a_known_journal_renders_a_known_ledger() {
         event(
             2,
             EventType::EffectRequested,
-            json!({"effect_id": "verify-effect", "phase": "verify"}),
+            json!({"effect_id": "verify-effect", "phase": "verify", "seat": "work"}),
         ),
         event(
             3,
@@ -52,7 +53,7 @@ fn a_known_journal_renders_a_known_ledger() {
             }}),
         ),
     ];
-    let rendered = render("known-run", &events, Path::new("/not/a/repository")).unwrap();
+    let rendered = render("known-run", events.clone(), Path::new("/not/a/repository")).unwrap();
     assert_eq!(
         rendered,
         "# Delivery ledger — known-run\n\n## Delivered\n\nboxed seats\n\n\
@@ -132,7 +133,7 @@ fn commits_absent_evidence_and_the_file_writer_are_all_literal() {
         ),
     ];
 
-    let rendered = render("known-run", &events, dir.path()).unwrap();
+    let rendered = render("known-run", events.clone(), dir.path()).unwrap();
     assert!(rendered.contains("boxed delivery"), "{rendered}");
     assert!(
         rendered.contains("absent-commit (not a valid commit id)"),
@@ -160,22 +161,101 @@ fn commits_absent_evidence_and_the_file_writer_are_all_literal() {
     );
 
     crate::folder::folder_tests::plant_library(dir.path());
-    let path = write("known-run", &events, dir.path()).unwrap();
+    let path = write("known-run", events.clone(), dir.path()).unwrap();
     assert_eq!(std::fs::read_to_string(path).unwrap(), rendered);
 
     let ordinary_directory = tempfile::tempdir().unwrap();
     assert_eq!(git(ordinary_directory.path(), &["rev-parse", "HEAD"]), None);
-    let empty = render("empty-run", &[], ordinary_directory.path()).unwrap();
+    let empty = render("empty-run", Vec::new(), ordinary_directory.path()).unwrap();
     assert!(empty.contains("no delivery description recorded"));
 
     library_root(ordinary_directory.path());
     let repo_file = ordinary_directory.path().join("not-a-directory");
     std::fs::write(&repo_file, "x").unwrap();
-    let error = write("known-run", &events, &repo_file).unwrap_err();
+    let error = write("known-run", events.clone(), &repo_file).unwrap_err();
     assert!(error.to_string().contains("creating ledger directory"));
 
     let obstructed = ordinary_directory.path().join("obstructed");
     std::fs::create_dir_all(obstructed.join(".forge/ledger/known-run.md")).unwrap();
-    let error = write("known-run", &events, &obstructed).unwrap_err();
+    let error = write("known-run", events.clone(), &obstructed).unwrap_err();
     assert!(error.to_string().contains("writing ledger"));
+}
+
+/// M3: the ledger derives its commits and results from the applied events,
+/// so a repaired late pass and its notes never reach the document. The
+/// repaired journal renders byte for byte as its terminal cut does.
+#[test]
+fn a_repaired_ledgers_late_evidence_is_never_delivered() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("ledger.db");
+    let mut store = Store::open(&db).unwrap();
+    store
+        .create_run("known-run", "boxed seats", "bundle", &json!({}))
+        .unwrap();
+    for (event_type, payload) in [
+        (
+            EventType::RunStarted,
+            json!({"feature": "boxed seats", "manifest": {}}),
+        ),
+        (EventType::PhaseEntered, json!({"phase": "work"})),
+        (
+            EventType::EffectRequested,
+            json!({"effect_id": "verify-effect", "phase": "verify", "seat": "work"}),
+        ),
+        (
+            EventType::EffectStarted,
+            json!({"effect_id": "verify-effect", "attempt_id": "a1"}),
+        ),
+        (
+            EventType::EffectSucceeded,
+            json!({"effect_id": "verify-effect",
+                   "result": {"result": "pass", "notes": "12 tests passed"}}),
+        ),
+        (EventType::RunStopped, json!({"reason": "concluded"})),
+    ] {
+        store
+            .append_next("known-run", event_type, payload, None, None)
+            .unwrap();
+    }
+    let cut = store.load("known-run").unwrap();
+    let head = cut.last().unwrap().clone();
+    drop(store);
+    let connection = rusqlite::Connection::open(&db).unwrap();
+    brokkr_store::test_support::plant_chained(
+        &connection,
+        "known-run",
+        &head,
+        &[
+            (
+                EventType::EffectRequested,
+                json!({"effect_id": "late-effect", "phase": "verify", "seat": "work"}),
+            ),
+            (
+                EventType::EffectStarted,
+                json!({"effect_id": "late-effect", "attempt_id": "late"}),
+            ),
+            (
+                EventType::EffectSucceeded,
+                json!({"effect_id": "late-effect",
+                       "result": {"result": "pass", "notes": "late notes"}}),
+            ),
+            (
+                EventType::OperatorCommanded,
+                json!({"command_id": "c-repair", "command": "repair", "operator": "operator",
+                       "args": {"first_seq": 7, "last_seq": 9, "terminal_seq": 6,
+                                "event_types": ["effect/requested", "effect/started",
+                                                "effect/succeeded"],
+                                "reason": "kept"}}),
+            ),
+        ],
+    )
+    .unwrap();
+    drop(connection);
+    let store = Store::open(&db).unwrap();
+    let repaired_events = store.load("known-run").unwrap();
+
+    let repaired = render("known-run", repaired_events, Path::new("/not/a/repository")).unwrap();
+    let terminal = render("known-run", cut, Path::new("/not/a/repository")).unwrap();
+    assert_eq!(repaired, terminal, "the ledger is the terminal cut's");
+    assert!(!repaired.contains("late notes"), "{repaired}");
 }

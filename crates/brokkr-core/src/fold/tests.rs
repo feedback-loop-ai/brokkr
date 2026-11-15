@@ -932,6 +932,11 @@ fn derived(state: &RunState) -> String {
     let mut state = state.clone();
     state.seq = 0;
     state.last_hash = String::new();
+    // The carried type ledger is not a fact about the run: it is how the
+    // carried fold checks a later repair against the events before it
+    // (decision 0108 ruling 4, #440). The annotation tests assert it
+    // beside this comparison.
+    state.tail_types.clear();
     format!("{state:?}")
 }
 
@@ -1015,6 +1020,11 @@ fn a_supersede_annotation_folds_a_stopped_run_to_the_same_state() {
         derived(&after),
         "the fold derives nothing at all from a supersede annotation"
     );
+    assert_eq!(
+        after.tail_types,
+        std::collections::BTreeMap::from([(8, EventType::OperatorCommanded)]),
+        "the annotation's own type is carried, and nothing else"
+    );
     assert_eq!(after.run, Run::Stopped, "a mark is not a conclusion");
     assert!(
         after.pending_command.is_none(),
@@ -1085,6 +1095,11 @@ fn a_classify_annotation_folds_a_finished_run_to_the_same_state() {
         derived(&before),
         derived(&after),
         "the fold derives nothing at all from a classify annotation"
+    );
+    assert_eq!(
+        after.tail_types,
+        std::collections::BTreeMap::from([(6, EventType::OperatorCommanded)]),
+        "the annotation's own type is carried, and nothing else"
     );
     assert_eq!(after.run, Run::Stopped, "an annotation is not a conclusion");
     assert!(
@@ -1510,4 +1525,28 @@ fn panel_carry_extension_fields_do_not_change_the_fold() {
     journal[6].payload["args"] = json!({"members":["b"]});
     journal[9].payload["carried"] = json!([{"member":"a","attempt_id":"a1"}]);
     assert_eq!(format!("{:?}", fold(&journal).unwrap()), original);
+}
+
+/// The receipt vocabulary reads back: every refusal's word parses to that
+/// refusal and to no other, a word no build wrote parses to none, and a
+/// receipt's reason carries its refusal's word, or `reserved_command`.
+#[test]
+fn every_receipt_reason_reads_back_from_its_word() {
+    use crate::fold::{ReceiptReason, Refusal};
+    let all = [
+        Refusal::CommandNotAllowed,
+        Refusal::AfterTerminal,
+        Refusal::RunNotAwaitingOperator,
+        Refusal::NoPhaseToRetry,
+        Refusal::LostFence,
+        Refusal::StaleCursor,
+        Refusal::IncompleteCommandReplay,
+        Refusal::PreviouslyRejected,
+    ];
+    for refusal in all {
+        assert_eq!(Refusal::parse(refusal.word()), Some(refusal));
+        assert_eq!(ReceiptReason::Refusal(refusal).word(), refusal.word());
+    }
+    assert_eq!(Refusal::parse("dance"), None);
+    assert_eq!(ReceiptReason::ReservedCommand.word(), "reserved_command");
 }

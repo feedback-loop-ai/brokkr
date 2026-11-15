@@ -10,7 +10,7 @@ use crate::fleet::tests::ruled;
 use crate::tests::{ev, state};
 use crate::{AnalyticsRun, Ledger, ABSENT};
 use brokkr_core::ending::Ending;
-use brokkr_core::fold::{RunState, Status};
+use brokkr_core::fold::{fold, RunState, Status};
 use brokkr_core::{EventEnvelope, EventType};
 use serde_json::json;
 
@@ -149,6 +149,66 @@ fn verify_failed(run_id: &'static str, day: u8, minutes: u32) -> Journal {
     to_verify(journal, day, minutes)
         .ruled("VERIFY-FAIL", "verify", "stop", &on(day, "02:00:00"))
         .ended(EventType::RunStopped, &on(day, "02:00:00"))
+}
+
+/// M3's graph scan: a repaired tail's late stay, ruling, pin and attempt
+/// are kept and shown, never counted. The graph is the terminal cut's.
+#[test]
+fn a_repaired_tail_adds_no_stay_ruling_pin_or_attempt_to_the_graph() {
+    let at = |minute: u8| on(13, &format!("10:{minute:02}:00"));
+    let base = Journal::started("repaired", "self", "alpha", &at(10))
+        .then(
+            EventType::PhaseEntered,
+            json!({"phase": "implement"}),
+            &at(11),
+        )
+        .then(
+            EventType::EffectRequested,
+            json!({"effect_id": "e", "seat": "s"}),
+            &at(12),
+        )
+        .then(
+            EventType::EffectStarted,
+            json!({"effect_id": "e", "attempt_id": "a1",
+                   "provenance": [{"agent": "a", "provider": "p"}]}),
+            &at(13),
+        )
+        .then(
+            EventType::EffectCheckpointed,
+            json!({"effect_id": "e", "attempt_id": "a1",
+                   "checkpoint": {"step": "turn", "total_cost_usd": 1.5}}),
+            &at(14),
+        )
+        .ended(EventType::RunStopped, &at(15));
+    let terminal = base.events.len() as u64;
+    let mut repaired = Journal {
+        run_id: "repaired",
+        events: base.events.clone(),
+    };
+    repaired = repaired
+        .entered("done", &at(16))
+        .then(
+            EventType::TransitionDecided,
+            json!({"from": "verify", "result": "pass", "rule_id": "LATE",
+                   "next": "done", "severity": "normal", "inputs": {}}),
+            &at(17),
+        )
+        .seat("late", "p", json!({"total_cost_usd": 100.0}), &at(18))
+        .then(
+            EventType::OperatorCommanded,
+            json!({"command_id": "c-repair", "command": "repair", "operator": "operator",
+                   "args": {"first_seq": terminal + 1, "last_seq": terminal + 4,
+                            "terminal_seq": terminal,
+                            "event_types": ["phase/entered", "transition/decided",
+                                            "effect/started", "effect/checkpointed"],
+                            "reason": "kept"}}),
+            &at(19),
+        );
+    let state = fold(&repaired.events).expect("the repaired run folds");
+    let cut = fold(&base.events).expect("the terminal cut folds");
+    let full = read_over(vec![(repaired, Some(state))], "self", true).unwrap();
+    let terminal_cut = read_over(vec![(base, Some(cut))], "self", true).unwrap();
+    assert_eq!(full, terminal_cut);
 }
 
 /// The fleet and the state each run folds to.

@@ -5,7 +5,7 @@
 
 use brokkr_core::envelope::EventType;
 use brokkr_core::fold::Status;
-use brokkr_core::residual::{residuals, SUPERSEDE};
+use brokkr_core::residual::{residuals_of, SUPERSEDE};
 use brokkr_core::EventEnvelope;
 use brokkr_store::Store;
 use serde_json::json;
@@ -97,7 +97,11 @@ pub(in crate::engine) fn operator_supersede_racing(
              name the seq of every ruling whose residual is closed"
         )));
     }
-    let derived = residuals(&events);
+    // The pre-check reads the run's APPLIED events, the same reading every
+    // readout takes: a finding that stands only in a repaired late tail is
+    // one no surface shows, so it is not a residual finding to close
+    // (decision 0108 ruling 4, #440).
+    let derived = residuals_of(events.iter().filter(|event| state.applies(event.seq)));
     for finding in ask.findings {
         if !derived.iter().any(|known| known.ruling.seq == *finding) {
             return Err(refused(format!(

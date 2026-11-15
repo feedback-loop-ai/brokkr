@@ -5,7 +5,8 @@
 //! plants it here rather than in its own SQL, so the statements a planted
 //! row goes through are the ones the store's own writers use. The `runs`
 //! and `events` tables admit anything the schema's guards do; nothing
-//! here chains, seals or validates.
+//! here validates. [`plant_chained`] seals and chains the events it
+//! plants, and nothing else does.
 //!
 //! Compiled for this crate's own tests and behind the `test-support`
 //! feature, which only dev-dependencies enable.
@@ -14,18 +15,35 @@ use std::collections::BTreeSet;
 use std::path::Path;
 
 use brokkr_core::canonical::ZERO_HASH;
-use brokkr_core::envelope::{EventEnvelope, EventType};
+use brokkr_core::envelope::{EventEnvelope, EventType, EVENT_SCHEMA_VERSION};
 use brokkr_core::summary::{Account, Summary};
 use rusqlite::types::Value;
 use rusqlite::{params, Connection, ToSql};
+use serde_json::Value as Json;
 
 use crate::import::INSERT_EVENT;
 use crate::summary::{Compared, Listed};
 use crate::{Disagreement, IndexFault, Store};
 
 mod generated;
+mod older;
 
 pub use generated::{fleet, generate, Generated, Standing, Width};
+pub use older::{unindex, unmigrate, unname, unseat};
+
+/// The folded columns at the head a row names, so a planted row is not
+/// `behind`: the caller names the hash, and every stamped part stands at
+/// seq 0. The one statement both stale-set tests make.
+pub fn settle_summary(conn: &Connection, run_id: &str, hash: &str) {
+    conn.execute(
+        "UPDATE run_summary
+            SET folded_seq = 0, folded_hash = ?2, aggregated_seq = 0,
+                stop_folded_seq = 0, ending_folded_seq = 0, late_folded_seq = 0
+          WHERE run_id = ?1",
+        params![run_id, hash],
+    )
+    .unwrap();
+}
 
 /// Every run's summary row and seat rows stand at its head and read as its
 /// fold (decision 0089 ruling 4): each run folded whole, and its rows
@@ -235,6 +253,42 @@ pub fn plant_envelope(conn: &Connection, envelope: &EventEnvelope) -> rusqlite::
     )
 }
 
+/// Plant `events` after `head`, `run_id`'s last event: each sealed as the
+/// store seals one and chained onto the one before it, behind the store's
+/// back. The shapes a late driver or an older binary left, kept whole.
+pub fn plant_chained(
+    conn: &Connection,
+    run_id: &str,
+    head: &EventEnvelope,
+    events: &[(EventType, Json)],
+) -> rusqlite::Result<Vec<EventEnvelope>> {
+    let (mut seq, mut previous) = (head.seq, head.event_hash.clone());
+    let mut planted = Vec::with_capacity(events.len());
+    for (event_type, payload) in events {
+        seq += 1;
+        let envelope = EventEnvelope {
+            run_id: run_id.to_string(),
+            seq,
+            event_id: uuid::Uuid::new_v4().to_string(),
+            event_schema_version: EVENT_SCHEMA_VERSION,
+            event_type: *event_type,
+            payload: payload.clone(),
+            causation_id: None,
+            correlation_id: run_id.to_string(),
+            attempt_id: None,
+            recorded_at: "2026-11-13T00:00:00Z".to_string(),
+            previous_hash: previous,
+            event_hash: String::new(),
+        }
+        .sealed();
+        let text = serde_json::to_string(&envelope).expect("an envelope serializes");
+        plant_event(conn, run_id, &(seq as i64), &envelope.event_hash, &text)?;
+        previous = envelope.event_hash.clone();
+        planted.push(envelope);
+    }
+    Ok(planted)
+}
+
 /// Plant a copy of `event` at `seq` that chains onto no event — its
 /// `previous_hash` is [`ZERO_HASH`] and its recorded hash still `event`'s
 /// — as a chain broken behind the store's back.
@@ -324,51 +378,6 @@ pub fn import_fixtures(store: &mut Store) -> (Vec<String>, Vec<String>) {
         runs.push(run_id);
     }
     (runs, refused)
-}
-
-/// Leave a journal as a binary from before the summary (decision 0089)
-/// left it: none of the summary's table, index or triggers, none of the
-/// event index's or the seat summary's, and no backfill recorded. Opening
-/// it read-write migrates it again.
-pub fn unmigrate(conn: &Connection) -> rusqlite::Result<()> {
-    let unsummarized = conn.execute_batch(
-        "DROP TABLE run_summary;
-         DROP TRIGGER run_summary_of_a_run;
-         DROP TRIGGER run_summary_of_an_event;
-         DROP TRIGGER run_summary_of_an_acknowledgement;
-         DELETE FROM meta WHERE key = 'run_summary_backfill';",
-    );
-    unsummarized?;
-    unindex(conn)?;
-    unseat(conn)
-}
-
-/// Leave a journal as a binary from before the seat summary (decision
-/// 0089 slice 2) left it: neither of its tables, and no backfill
-/// recorded.
-pub fn unseat(conn: &Connection) -> rusqlite::Result<()> {
-    conn.execute_batch(
-        "DROP TABLE seat_summary;
-         DROP TABLE seat_head;
-         DELETE FROM meta WHERE key = 'seat_summary_backfill';",
-    )
-}
-
-/// Leave a journal as a binary from before the event index (decision
-/// 0089 slice 2) left it: no table, indexes or triggers of it, and no
-/// backfill recorded.
-pub fn unindex(conn: &Connection) -> rusqlite::Result<()> {
-    conn.execute_batch(
-        "DROP TABLE event_index;
-         DROP TRIGGER event_index_of_an_event;
-         DELETE FROM meta WHERE key = 'event_index_backfill';",
-    )
-}
-
-/// Leave a journal as a binary from before journals named themselves
-/// (decision 0095, #430) left it: no id. Opening it read-write names it.
-pub fn unname(conn: &Connection) -> rusqlite::Result<()> {
-    conn.execute_batch("DELETE FROM meta WHERE key = 'journal_id'")
 }
 
 /// The plan SQLite takes for `run_id`'s trail read (decision 0089 ruling

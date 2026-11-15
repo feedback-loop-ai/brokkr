@@ -285,9 +285,13 @@ struct WholeRun {
 }
 
 fn whole_run(run: &AnalyticsRun, label: &str, now: i64) -> WholeRun {
-    let Attempts { costs, sites } = attempts(run.events);
-    let read = aggregate(run.events, run.state);
-    let mut parks = parks(run.events, now);
+    // One reading of which events this run applies: a repaired tail is
+    // kept and shown and never enters a figure (decision 0108 ruling 4).
+    let applied = crate::live::derived(run.events, run.state);
+    let events = applied.as_slice();
+    let Attempts { costs, sites } = attempts(events);
+    let read = aggregate(events, run.state);
+    let mut parks = parks(events, now);
     // Phase order within the run, stable so the parks of one phase keep
     // their journal order.
     parks.sort_by(|left, right| {

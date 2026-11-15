@@ -319,7 +319,8 @@ pub(crate) fn lines_within(
 /// readout: `?` alone tells an operator nothing they can act on. An
 /// acknowledged one says who answered it, when and why, under the refusal
 /// it keeps (#511). A terminal row names its ending's citation, or the
-/// rule that ruled a policy ending, dim.
+/// rule that ruled a policy ending, dim; a repaired one names the late
+/// tail it keeps and never applies (decision 0108 ruling 4).
 fn under_row(run: &RunRow, style: &Style) -> Vec<String> {
     let refusal = run
         .detail
@@ -334,10 +335,21 @@ fn under_row(run: &RunRow, style: &Style) -> Vec<String> {
         .detail
         .as_deref()
         .map(|detail| format!("    {}", Safe::new(detail).as_str()));
+    let late = run.late_tail.as_ref().map(|tail| {
+        format!(
+            "    late  {}",
+            Safe::new(&brokkr_view::late_line(
+                usize::try_from(tail.count).unwrap_or(usize::MAX),
+                &tail.operator
+            ))
+            .as_str()
+        )
+    });
     refusal
         .into_iter()
         .chain(acknowledged)
         .chain(stopping)
+        .chain(late)
         .chain(ending::ended_line(run, style))
         .collect()
 }

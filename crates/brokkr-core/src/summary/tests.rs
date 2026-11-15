@@ -1,6 +1,7 @@
 use super::*;
 use crate::envelope::EventType;
 use crate::envelope_builder::EnvelopeBuilder;
+use crate::residual::residuals;
 use serde_json::{json, Value};
 
 const LISTING: Listing<'static> = Listing {
@@ -181,6 +182,7 @@ fn a_run_with_no_event_reads_as_an_empty_journal_at_the_zero_head() {
             last_recorded_at: None,
             aggregate: unread(None),
             closing: None,
+            late_tail: None,
         }
     );
 }
@@ -230,6 +232,7 @@ fn a_parked_run_reads_its_ruling_its_reason_and_its_open_residuals() {
             last_recorded_at: Some(bounded("2026-01-01T00:00:13Z")),
             aggregate: unread(Some(1_767_225_601_000)),
             closing: None,
+            late_tail: None,
         }
     );
 }
@@ -290,12 +293,14 @@ fn an_account_carried_event_by_event_is_the_account_read_whole() {
     let whole = Summary::of(&Account::whole("run", &events), LISTING);
     let mut carried = Account::empty("run");
     for event in &events {
-        carried = carried.onto(std::slice::from_ref(event));
+        carried = carried.onto(std::slice::from_ref(event)).account();
     }
     assert_eq!(Summary::of(&carried, LISTING), whole);
-    let halves = Account::whole("run", &events[..6]).onto(&events[6..]);
+    let halves = Account::whole("run", &events[..6])
+        .onto(&events[6..])
+        .account();
     assert_eq!(Summary::of(&halves, LISTING), whole);
-    let unmoved = Account::whole("run", &events).onto(&[]);
+    let unmoved = Account::whole("run", &events).onto(&[]).account();
     assert_eq!(Summary::of(&unmoved, LISTING), whole);
 }
 
@@ -318,7 +323,7 @@ fn an_account_carries_the_ending_the_run_read_whole_states() {
     let events = journal(&steps);
     let mut carried = Account::empty("run");
     for event in &events {
-        carried = carried.onto(std::slice::from_ref(event));
+        carried = carried.onto(std::slice::from_ref(event)).account();
     }
     let superseded = Some(Closing {
         ended: crate::ending::Ended {
@@ -346,7 +351,7 @@ fn a_seat_at_work_is_hired_while_its_effect_is_requested_or_in_flight() {
         failed_attempts: 0,
     });
     assert_eq!(Summary::of(&requested, LISTING).hired, hired);
-    let in_flight = requested.onto(&events[3..]);
+    let in_flight = requested.onto(&events[3..]).account();
     let summary = Summary::of(&in_flight, LISTING);
     assert_eq!(summary.hired, hired);
     assert_eq!(summary.status, Some(Status::Running));
@@ -400,7 +405,9 @@ fn a_refusal_stands_as_the_journal_moves_past_it() {
     );
     assert_eq!((summary.status, &summary.hired), (None, &None));
     assert_eq!(summary.folded_seq, 5);
-    let carried = Account::whole("run", &events[..2]).onto(&events[2..]);
+    let carried = Account::whole("run", &events[..2])
+        .onto(&events[2..])
+        .account();
     assert_eq!(Summary::of(&carried, LISTING), summary);
 }
 
@@ -428,4 +435,110 @@ fn a_value_past_its_bound_is_cut_and_kept_whole() {
         empty.last_at_ms, None,
         "a stamp that does not parse orders as none"
     );
+}
+
+/// Decision 0108 ruling 4, F7: a late classify and a late supersede
+/// inside a repaired tail are kept and shown as the tail, never applied by
+/// the scans that derive a figure — the shown ending, the open residual
+/// and the findings' marks are exactly the terminal-only read's.
+#[test]
+fn a_late_classify_and_supersede_change_no_figure_the_summary_states() {
+    fn append(events: &mut Vec<EventEnvelope>, event_type: EventType, payload: Value) {
+        let seq = events.len() as u64 + 1;
+        let previous = events
+            .last()
+            .map_or_else(String::new, |event| event.event_hash.clone());
+        events.push(
+            EnvelopeBuilder::new(event_type, payload)
+                .run("run")
+                .seq(seq)
+                .event_id(format!("e{seq}"))
+                .at(format!("2026-01-02T00:00:{seq:02}Z"))
+                .previous(previous)
+                .sealed(),
+        );
+    }
+
+    let mut base = parked();
+    append(
+        &mut base,
+        EventType::OperatorCommanded,
+        json!({"command_id": "c-stop", "command": "stop", "operator": "operator",
+               "args": {}}),
+    );
+    append(
+        &mut base,
+        EventType::OperatorAccepted,
+        json!({"command_id": "c-stop", "operator": "operator", "reason": "concluded"}),
+    );
+    append(
+        &mut base,
+        EventType::RunStopped,
+        json!({"reason": "concluded"}),
+    );
+    let terminal = base.len() as u64;
+    let mut repaired = base.clone();
+    append(
+        &mut repaired,
+        EventType::OperatorCommanded,
+        json!({"command_id": "c-classify", "command": "classify",
+               "operator": "operator",
+               "args": {"cause": "withdrawn", "reason": "late"}}),
+    );
+    append(
+        &mut repaired,
+        EventType::OperatorCommanded,
+        json!({"command_id": "c-supersede", "command": "supersede",
+               "operator": "operator",
+               "args": {"findings": [11],
+                        "by": {"realm": null, "run_id": "later", "seq": 1},
+                        "reason": "late"}}),
+    );
+    append(
+        &mut repaired,
+        EventType::OperatorCommanded,
+        json!({"command_id": "c-repair", "command": "repair",
+               "operator": "operator",
+               "args": {"first_seq": terminal + 1, "last_seq": terminal + 2,
+                        "terminal_seq": terminal,
+                        "event_types": ["operator/commanded", "operator/commanded"],
+                        "reason": "kept"}}),
+    );
+    let state = crate::fold::fold(&repaired).expect("the repaired run folds");
+    assert_eq!(state.run.status(), Status::Stopped);
+    assert_eq!(
+        state.late_tail.as_ref().map(|tail| tail.last_seq),
+        Some(terminal + 2)
+    );
+
+    let before = Summary::of(&Account::whole("run", &base), LISTING);
+    let after = Summary::of(&Account::whole("run", &repaired), LISTING);
+    assert_eq!(after.status, before.status);
+    assert_eq!(
+        after.closing, before.closing,
+        "the late classify moves no ending"
+    );
+    assert_eq!(
+        after.residual_open, before.residual_open,
+        "the late supersede closes no finding"
+    );
+    assert_eq!(after.residual_count, before.residual_count);
+    assert_eq!(after.residuals, before.residuals);
+    assert_eq!(
+        crate::ending::closing(&repaired, &state),
+        before.closing,
+        "the one closing read skips the late tail too"
+    );
+    assert!(after.late_tail.is_some(), "the tail is still shown");
+}
+
+/// The test helper's guard: a cut these tests designed cannot meet a
+/// repair naming a carried event, so its `Refold` arm panics rather than
+/// handing back an account that is not the carried one. Production
+/// callers match [`Carried`] and refold whole; `Account::whole` reads the
+/// same body and never meets the signal.
+#[test]
+#[should_panic(expected = "the caller must refold the whole journal")]
+fn the_test_account_helper_refuses_a_refold() {
+    let _ = Carried::Refold.account();
 }

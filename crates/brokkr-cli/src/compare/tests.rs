@@ -1,5 +1,6 @@
 use super::*;
 use crate::tests::envelope_builder;
+use brokkr_view::resolutions_at;
 
 #[path = "../../../../tests/support/seat_journal.rs"]
 mod seat_journal;
@@ -18,6 +19,130 @@ fn printed(resolution: &BTreeMap<String, Resolution>) -> Value {
 /// A printed document, read back as a value.
 fn value(document: impl Serialize) -> Value {
     serde_json::to_value(document).unwrap()
+}
+
+#[test]
+fn a_repaired_runs_compare_facts_are_the_terminal_cuts() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&dir.path().join("forge.db")).unwrap();
+    let prefix = [
+        (
+            EventType::RunStarted,
+            json!({"feature": "f", "manifest": {}}),
+        ),
+        (EventType::PhaseEntered, json!({"phase": "work"})),
+        (
+            EventType::EffectRequested,
+            json!({"effect_id": "e", "seat": "work"}),
+        ),
+        (
+            EventType::EffectStarted,
+            json!({"effect_id": "e", "attempt_id": "a1"}),
+        ),
+        (
+            EventType::EffectCheckpointed,
+            json!({"effect_id": "e", "attempt_id": "a1",
+                   "checkpoint": {"step": "turn", "total_cost_usd": 1.5}}),
+        ),
+        (EventType::RunStopped, json!({"reason": "concluded"})),
+    ];
+    for run in ["repaired", "cut"] {
+        store
+            .create_run(run, run, "bundle", &json!({"bundle_name": "bundle"}))
+            .unwrap();
+        for (event_type, payload) in &prefix {
+            store
+                .append_next(run, *event_type, payload.clone(), None, None)
+                .unwrap();
+        }
+    }
+    let head = store.load("repaired").unwrap().pop().unwrap();
+    let db = store.path().to_path_buf();
+    drop(store);
+    let connection = rusqlite::Connection::open(&db).unwrap();
+    brokkr_store::test_support::plant_chained(
+        &connection,
+        "repaired",
+        &head,
+        &[
+            (
+                EventType::EffectStarted,
+                json!({"effect_id": "late", "attempt_id": "late"}),
+            ),
+            (
+                EventType::EffectCheckpointed,
+                json!({"effect_id": "late", "attempt_id": "late",
+                       "checkpoint": {"step": "turn", "total_cost_usd": 100.0}}),
+            ),
+            (
+                EventType::OperatorCommanded,
+                json!({"command_id": "c-repair", "command": "repair",
+                       "operator": "operator",
+                       "args": {"first_seq": 7, "last_seq": 8, "terminal_seq": 6,
+                                "event_types": ["effect/started", "effect/checkpointed"],
+                                "reason": "kept"}}),
+            ),
+        ],
+    )
+    .unwrap();
+    drop(connection);
+    let stale = run_facts(&Store::open_read_only(&db).unwrap(), "repaired").unwrap();
+    let repaired_cost = costs(&Store::open_read_only(&db).unwrap(), "repaired").unwrap();
+    let store = Store::open(&db).unwrap();
+
+    let full = run_facts(&store, "repaired").unwrap();
+    let cut = run_facts(&store, "cut").unwrap();
+    assert_eq!(full.attempts, cut.attempts, "no late attempt is counted");
+    assert_eq!(
+        value(&full.summary)["total_cost_usd"],
+        value(&cut.summary)["total_cost_usd"],
+        "no late cost is counted"
+    );
+    assert_eq!(
+        value(&full.summary)["phases_visited"],
+        value(&cut.summary)["phases_visited"]
+    );
+    assert_eq!(
+        value(&full.summary)["decision_trail"],
+        value(&cut.summary)["decision_trail"]
+    );
+    assert_eq!(
+        serde_json::to_value(&full.resolution).unwrap(),
+        serde_json::to_value(&cut.resolution).unwrap(),
+        "no late invocation site resolves"
+    );
+
+    assert_stale_read_is_current(
+        &stale,
+        &full,
+        &repaired_cost,
+        &costs(&store, "cut").unwrap(),
+    );
+}
+
+/// L11: the kept path (stale rows) reads the same document and the same
+/// facts as the current path, and its cost refuses the late checkpoint.
+fn assert_stale_read_is_current(
+    stale: &RunFacts,
+    full: &RunFacts,
+    repaired_cost: &Costs,
+    cut_cost: &Costs,
+) {
+    assert_eq!(stale.attempts, full.attempts);
+    assert_eq!(
+        value(&stale.summary),
+        value(&full.summary),
+        "the stale read is the current read"
+    );
+    assert_eq!(
+        serde_json::to_value(&stale.resolution).unwrap(),
+        serde_json::to_value(&full.resolution).unwrap()
+    );
+    assert_eq!(
+        value(repaired_cost)["total_cost_usd"],
+        value(cut_cost)["total_cost_usd"],
+        "the stale cost scan applies no late checkpoint"
+    );
 }
 
 #[test]
@@ -246,7 +371,7 @@ fn a_run_whose_rows_compose_no_view_is_compared_whole() {
     let read = current(&store, "run", &opened).unwrap();
     assert_eq!(read.map(|read| read.events), None);
     let facts = run_facts(&store, "run").unwrap();
-    let whole = resolutions(&store.load("run").unwrap());
+    let whole = resolutions_at(&store.load("run").unwrap(), None);
     assert_eq!(value(&facts.summary)["resolution"], printed(&whole));
     assert_eq!(value(&facts.summary)["events"], 10);
 }
@@ -481,8 +606,8 @@ const COMPARED: &str = r#"{
 /// exactly as it names a model difference.
 #[test]
 fn the_resolution_map_carries_the_pair_and_diverges_on_the_boundary() {
-    let harness = resolutions(&boxed_seat("verify", "harness"));
-    let namespace = resolutions(&boxed_seat("verify", "namespace"));
+    let harness = resolutions_at(&boxed_seat("verify", "harness"), None);
+    let namespace = resolutions_at(&boxed_seat("verify", "namespace"), None);
     assert_eq!(
         printed(&harness),
         json!({"verify": {"model": "claude-fable-5-1", "boundary": "harness",
@@ -499,7 +624,7 @@ fn the_resolution_map_carries_the_pair_and_diverges_on_the_boundary() {
     old[1].payload.as_object_mut().unwrap().remove("boundary");
     old[2].payload["checkpoint"]["boundary"] = Value::Null;
     old[3].payload["result"]["boundary"] = Value::Null;
-    let old = resolutions(&old);
+    let old = resolutions_at(&old, None);
     assert_eq!(printed(&old)["verify"]["boundary"], brokkr_view::ABSENT);
     assert_eq!(
         printed_divergence(&namespace, &old)["verify"]["b"]["boundary"],

@@ -5,7 +5,7 @@
 use super::*;
 use crate::fleet::run_row;
 use crate::tests::envelope_builder::EnvelopeBuilder;
-use crate::{residual_findings, Refusal, RunEntry};
+use crate::{residual_findings_at, Refusal, RunEntry};
 use brokkr_core::ending::{closing, Citation, Closing, Ended, Ending, Wants};
 use brokkr_core::envelope::{EventEnvelope, EventType};
 use brokkr_core::fold::fold;
@@ -84,6 +84,7 @@ fn row_of(summary: &Summary) -> Row {
         folded: (summary.folded_seq, summary.folded_hash.clone()),
         acknowledged: None,
         closing: summary.closing.clone(),
+        late_tail: summary.late_tail.clone(),
     }
 }
 
@@ -111,7 +112,7 @@ fn closed(events: &[EventEnvelope], ended: Option<Closing>) -> (RunRow, Summary)
     let mut summary = Summary::of(&Account::whole("run", events), listing);
     summary.closing = ended.clone();
     let state = fold(events);
-    let residuals = residual_findings("run", events);
+    let residuals = residual_findings_at("run", events, None);
     let words = state.as_ref().err().map(ToString::to_string);
     let acknowledgement = Acknowledgement {
         seq: summary.folded_seq,

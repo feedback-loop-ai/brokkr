@@ -222,6 +222,21 @@ impl<'a> OperatorCommanded<'a> {
     }
 }
 
+/// `operator/commanded`'s `args` for command `repair`
+/// (contracts/operator-repair.v1.schema.json): the late tail an operator's
+/// record names (decision 0108 ruling 4, shaped after decision 0047).
+/// Closed at every level, so a field no reader knows is refused here
+/// rather than carried into a fold.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RepairArgs {
+    pub(crate) first_seq: u64,
+    pub(crate) last_seq: u64,
+    pub(crate) terminal_seq: u64,
+    pub(crate) event_types: Vec<EventType>,
+    pub(crate) reason: String,
+}
+
 /// `operator/accepted`: the command accepted.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub(crate) struct OperatorAccepted<'a> {

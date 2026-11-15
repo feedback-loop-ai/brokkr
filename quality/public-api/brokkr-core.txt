@@ -316,6 +316,9 @@ pub brokkr_core::fold::FoldError::BadDecision::seq: u64
 pub brokkr_core::fold::FoldError::BadPayload
 pub brokkr_core::fold::FoldError::BadPayload::field: alloc::string::String
 pub brokkr_core::fold::FoldError::BadPayload::seq: u64
+pub brokkr_core::fold::FoldError::BadRepair
+pub brokkr_core::fold::FoldError::BadRepair::detail: alloc::string::String
+pub brokkr_core::fold::FoldError::BadRepair::seq: u64
 pub brokkr_core::fold::FoldError::Empty
 pub brokkr_core::fold::FoldError::FirstEventNotRunStarted
 pub brokkr_core::fold::FoldError::FirstEventNotRunStarted::seq: u64
@@ -344,6 +347,11 @@ pub brokkr_core::fold::ParkReason::Stated(alloc::string::String)
 impl brokkr_core::fold::ParkReason
 pub fn brokkr_core::fold::ParkReason::as_str(&self) -> &str
 pub fn brokkr_core::fold::ParkReason::read(alloc::string::String) -> brokkr_core::fold::ParkReason
+pub enum brokkr_core::fold::ReceiptReason
+pub brokkr_core::fold::ReceiptReason::Refusal(brokkr_core::fold::Refusal)
+pub brokkr_core::fold::ReceiptReason::ReservedCommand
+impl brokkr_core::fold::ReceiptReason
+pub const fn brokkr_core::fold::ReceiptReason::word(self) -> &'static str
 pub enum brokkr_core::fold::Refusal
 pub brokkr_core::fold::Refusal::AfterTerminal
 pub brokkr_core::fold::Refusal::CommandNotAllowed
@@ -353,6 +361,8 @@ pub brokkr_core::fold::Refusal::NoPhaseToRetry
 pub brokkr_core::fold::Refusal::PreviouslyRejected
 pub brokkr_core::fold::Refusal::RunNotAwaitingOperator
 pub brokkr_core::fold::Refusal::StaleCursor
+impl brokkr_core::fold::Refusal
+pub fn brokkr_core::fold::Refusal::parse(&str) -> core::option::Option<brokkr_core::fold::Refusal>
 impl brokkr_core::fold::Refusal
 pub const fn brokkr_core::fold::Refusal::word(self) -> &'static str
 pub enum brokkr_core::fold::Run
@@ -375,12 +385,23 @@ pub brokkr_core::fold::Status::Stopped
 impl brokkr_core::fold::Status
 pub const fn brokkr_core::fold::Status::as_str(self) -> &'static str
 pub fn brokkr_core::fold::Status::named(&str) -> core::option::Option<brokkr_core::fold::Status>
+pub struct brokkr_core::fold::LateTail
+pub brokkr_core::fold::LateTail::event_types: alloc::vec::Vec<brokkr_core::envelope::EventType>
+pub brokkr_core::fold::LateTail::first_seq: u64
+pub brokkr_core::fold::LateTail::last_seq: u64
+pub brokkr_core::fold::LateTail::operator: alloc::string::String
+pub brokkr_core::fold::LateTail::repaired_at: u64
+pub brokkr_core::fold::LateTail::terminal_seq: u64
+impl brokkr_core::fold::LateTail
+pub fn brokkr_core::fold::LateTail::events(&self) -> impl core::iter::traits::iterator::Iterator<Item = (u64, brokkr_core::envelope::EventType)> + '_
+pub fn brokkr_core::fold::LateTail::holds(&self, u64) -> bool
 pub struct brokkr_core::fold::RunState
 pub brokkr_core::fold::RunState::consecutive_failures: alloc::collections::btree::map::BTreeMap<alloc::string::String, u64>
 pub brokkr_core::fold::RunState::feature: core::option::Option<alloc::string::String>
 pub brokkr_core::fold::RunState::last_decision: core::option::Option<brokkr_core::decision::Decision>
 pub brokkr_core::fold::RunState::last_hash: alloc::string::String
 pub brokkr_core::fold::RunState::last_result: core::option::Option<serde_json::value::Value>
+pub brokkr_core::fold::RunState::late_tail: core::option::Option<brokkr_core::fold::LateTail>
 pub brokkr_core::fold::RunState::pending_command: core::option::Option<(alloc::string::String, alloc::string::String)>
 pub brokkr_core::fold::RunState::phase: core::option::Option<alloc::string::String>
 pub brokkr_core::fold::RunState::phase_results: alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_core::decision::PhaseResult>
@@ -390,10 +411,19 @@ pub brokkr_core::fold::RunState::run_id: alloc::string::String
 pub brokkr_core::fold::RunState::seq: u64
 pub brokkr_core::fold::RunState::stop_accepted_seq: core::option::Option<u64>
 pub brokkr_core::fold::RunState::strategy: core::option::Option<alloc::string::String>
+pub brokkr_core::fold::RunState::tail_types: alloc::collections::btree::map::BTreeMap<u64, brokkr_core::envelope::EventType>
+pub brokkr_core::fold::RunState::terminal_seq: core::option::Option<u64>
 pub brokkr_core::fold::RunState::visits: alloc::collections::btree::map::BTreeMap<alloc::string::String, u64>
 impl brokkr_core::fold::RunState
+pub fn brokkr_core::fold::RunState::applies(&self, u64) -> bool
+impl brokkr_core::fold::RunState
 pub fn brokkr_core::fold::RunState::stopping_seq(&self) -> core::option::Option<u64>
+pub struct brokkr_core::fold::SkippedAnnotation
+pub brokkr_core::fold::SkippedAnnotation::event_type: brokkr_core::envelope::EventType
+pub brokkr_core::fold::SkippedAnnotation::seq: u64
+pub brokkr_core::fold::SkippedAnnotation::word: &'static str
 pub const brokkr_core::fold::FAILURE_RESULTS: [&str; 2]
+pub const brokkr_core::fold::REPAIR: &str
 pub const brokkr_core::fold::TERMINAL_EVENTS: [(brokkr_core::envelope::EventType, brokkr_core::fold::Status); 2]
 pub fn brokkr_core::fold::acceptance_refusal(&brokkr_core::fold::RunState, brokkr_core::fold::OperatorCommand) -> core::option::Option<brokkr_core::fold::Refusal>
 pub fn brokkr_core::fold::computed_inputs(&brokkr_core::fold::RunState, &str, &str, bool) -> serde_json::map::Map<alloc::string::String, serde_json::value::Value>
@@ -402,7 +432,11 @@ pub fn brokkr_core::fold::concluded_command_text(&str, brokkr_core::fold::Status
 pub fn brokkr_core::fold::concluded_text(&str, brokkr_core::fold::Status) -> alloc::string::String
 pub fn brokkr_core::fold::fold(&[brokkr_core::envelope::EventEnvelope]) -> core::result::Result<brokkr_core::fold::RunState, brokkr_core::fold::FoldError>
 pub fn brokkr_core::fold::fold_onto(brokkr_core::fold::RunState, &[brokkr_core::envelope::EventEnvelope]) -> core::result::Result<brokkr_core::fold::RunState, brokkr_core::fold::FoldError>
+pub fn brokkr_core::fold::is_late_word(&brokkr_core::envelope::EventEnvelope) -> bool
 pub fn brokkr_core::fold::lawful_after_terminal(brokkr_core::envelope::EventType) -> bool
+pub fn brokkr_core::fold::reserved_annotation(&str) -> bool
+pub fn brokkr_core::fold::reserved_word(&brokkr_core::envelope::EventEnvelope) -> core::option::Option<&'static str>
+pub fn brokkr_core::fold::skipped_annotations(&[brokkr_core::envelope::EventEnvelope], &brokkr_core::envelope::EventEnvelope) -> core::result::Result<alloc::vec::Vec<brokkr_core::fold::SkippedAnnotation>, brokkr_core::fold::FoldError>
 pub fn brokkr_core::fold::terminal_event(brokkr_core::envelope::EventType) -> core::option::Option<brokkr_core::fold::Status>
 pub mod brokkr_core::gate_moved_head
 pub struct brokkr_core::gate_moved_head::MovedHead
@@ -433,6 +467,25 @@ pub struct brokkr_core::page::Copied
 pub brokkr_core::page::Copied::at: alloc::string::String
 pub brokkr_core::page::Copied::operator: alloc::string::String
 pub brokkr_core::page::Copied::reason: alloc::string::String
+pub struct brokkr_core::page::LateEvent
+pub brokkr_core::page::LateEvent::event_type: brokkr_core::envelope::EventType
+pub brokkr_core::page::LateEvent::seq: u64
+pub struct brokkr_core::page::LateRange
+pub brokkr_core::page::LateRange::count: u64
+pub brokkr_core::page::LateRange::first_seq: u64
+pub brokkr_core::page::LateRange::last_seq: u64
+pub brokkr_core::page::LateRange::operator: alloc::string::String
+pub brokkr_core::page::LateRange::repaired_at: u64
+impl brokkr_core::page::LateRange
+pub fn brokkr_core::page::LateRange::of(&brokkr_core::fold::LateTail) -> brokkr_core::page::LateRange
+pub struct brokkr_core::page::LateTail
+pub brokkr_core::page::LateTail::events: alloc::vec::Vec<brokkr_core::page::LateEvent>
+pub brokkr_core::page::LateTail::operator: alloc::string::String
+pub brokkr_core::page::LateTail::repaired_at: u64
+pub brokkr_core::page::LateTail::terminal_seq: u64
+impl brokkr_core::page::LateTail
+pub fn brokkr_core::page::LateTail::count(&self) -> usize
+pub fn brokkr_core::page::LateTail::of(&brokkr_core::fold::LateTail) -> brokkr_core::page::LateTail
 pub struct brokkr_core::page::Range
 pub brokkr_core::page::Range::bound: core::option::Option<brokkr_core::page::Bound>
 pub brokkr_core::page::Range::lane: brokkr_core::page::Lane
@@ -444,6 +497,7 @@ pub brokkr_core::page::Row::feature_line: alloc::string::String
 pub brokkr_core::page::Row::folded: (u64, alloc::string::String)
 pub brokkr_core::page::Row::hired: core::option::Option<brokkr_core::summary::Hired>
 pub brokkr_core::page::Row::last_recorded_at: core::option::Option<brokkr_core::summary::Bounded>
+pub brokkr_core::page::Row::late_tail: core::option::Option<brokkr_core::page::LateRange>
 pub brokkr_core::page::Row::order_at: i64
 pub brokkr_core::page::Row::park_reason: core::option::Option<brokkr_core::summary::Bounded>
 pub brokkr_core::page::Row::phase: core::option::Option<brokkr_core::summary::Bounded>
@@ -944,8 +998,10 @@ pub brokkr_core::residual::Residual::phase: brokkr_core::residual::ResidualPhase
 pub brokkr_core::residual::Residual::ruling: &'a brokkr_core::envelope::EventEnvelope
 pub const brokkr_core::residual::SUPERSEDE: &str
 pub fn brokkr_core::residual::closings(&[brokkr_core::envelope::EventEnvelope]) -> alloc::collections::btree::map::BTreeMap<u64, brokkr_core::residual::Mark>
+pub fn brokkr_core::residual::closings_of<'a>(impl core::iter::traits::collect::IntoIterator<Item = &'a brokkr_core::envelope::EventEnvelope>) -> alloc::collections::btree::map::BTreeMap<u64, brokkr_core::residual::Mark>
 pub fn brokkr_core::residual::open_severity(impl core::iter::traits::collect::IntoIterator<Item = (core::option::Option<brokkr_core::policy::Severity>, bool)>) -> core::option::Option<brokkr_core::policy::Severity>
 pub fn brokkr_core::residual::residuals(&[brokkr_core::envelope::EventEnvelope]) -> alloc::vec::Vec<brokkr_core::residual::Residual<'_>>
+pub fn brokkr_core::residual::residuals_of<'a>(impl core::iter::traits::collect::IntoIterator<Item = &'a brokkr_core::envelope::EventEnvelope>) -> alloc::vec::Vec<brokkr_core::residual::Residual<'a>>
 pub mod brokkr_core::seat
 pub mod brokkr_core::seat::meter
 pub enum brokkr_core::seat::meter::Metering
@@ -1055,6 +1111,9 @@ pub fn brokkr_core::shape::Object<T>::deserialize<D>(D) -> core::result::Result<
 pub mod brokkr_core::stamp
 pub fn brokkr_core::stamp::parse_millis(&str) -> core::option::Option<i64>
 pub mod brokkr_core::summary
+pub enum brokkr_core::summary::Carried
+pub brokkr_core::summary::Carried::Account(alloc::boxed::Box<brokkr_core::summary::Account>)
+pub brokkr_core::summary::Carried::Refold
 pub struct brokkr_core::summary::Account
 impl brokkr_core::summary::Account
 pub fn brokkr_core::summary::Account::carried(self) -> brokkr_core::summary::Account
@@ -1062,7 +1121,7 @@ pub fn brokkr_core::summary::Account::checkpoint(&self, u64) -> core::option::Op
 pub fn brokkr_core::summary::Account::checkpoint_rows(&self) -> &[u64]
 pub fn brokkr_core::summary::Account::empty(&str) -> brokkr_core::summary::Account
 pub fn brokkr_core::summary::Account::head(&self) -> (u64, &str)
-pub fn brokkr_core::summary::Account::onto(self, &[brokkr_core::envelope::EventEnvelope]) -> brokkr_core::summary::Account
+pub fn brokkr_core::summary::Account::onto(self, &[brokkr_core::envelope::EventEnvelope]) -> brokkr_core::summary::Carried
 pub fn brokkr_core::summary::Account::park_rows(&self) -> &[u64]
 pub fn brokkr_core::summary::Account::parks(&self) -> alloc::vec::Vec<brokkr_core::summary::Park>
 pub fn brokkr_core::summary::Account::run_id(&self) -> &str
@@ -1159,6 +1218,7 @@ pub brokkr_core::summary::Summary::head_seq: u64
 pub brokkr_core::summary::Summary::hired: core::option::Option<brokkr_core::summary::Hired>
 pub brokkr_core::summary::Summary::last_at_ms: core::option::Option<i64>
 pub brokkr_core::summary::Summary::last_recorded_at: core::option::Option<brokkr_core::summary::Bounded>
+pub brokkr_core::summary::Summary::late_tail: core::option::Option<brokkr_core::page::LateRange>
 pub brokkr_core::summary::Summary::park_reason: core::option::Option<brokkr_core::summary::Bounded>
 pub brokkr_core::summary::Summary::phase: core::option::Option<brokkr_core::summary::Bounded>
 pub brokkr_core::summary::Summary::refused: core::option::Option<brokkr_core::summary::Refused>
@@ -1241,6 +1301,9 @@ pub brokkr_core::FoldError::BadDecision::seq: u64
 pub brokkr_core::FoldError::BadPayload
 pub brokkr_core::FoldError::BadPayload::field: alloc::string::String
 pub brokkr_core::FoldError::BadPayload::seq: u64
+pub brokkr_core::FoldError::BadRepair
+pub brokkr_core::FoldError::BadRepair::detail: alloc::string::String
+pub brokkr_core::FoldError::BadRepair::seq: u64
 pub brokkr_core::FoldError::Empty
 pub brokkr_core::FoldError::FirstEventNotRunStarted
 pub brokkr_core::FoldError::FirstEventNotRunStarted::seq: u64
@@ -1360,6 +1423,7 @@ pub brokkr_core::RunState::feature: core::option::Option<alloc::string::String>
 pub brokkr_core::RunState::last_decision: core::option::Option<brokkr_core::decision::Decision>
 pub brokkr_core::RunState::last_hash: alloc::string::String
 pub brokkr_core::RunState::last_result: core::option::Option<serde_json::value::Value>
+pub brokkr_core::RunState::late_tail: core::option::Option<brokkr_core::fold::LateTail>
 pub brokkr_core::RunState::pending_command: core::option::Option<(alloc::string::String, alloc::string::String)>
 pub brokkr_core::RunState::phase: core::option::Option<alloc::string::String>
 pub brokkr_core::RunState::phase_results: alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_core::decision::PhaseResult>
@@ -1369,7 +1433,11 @@ pub brokkr_core::RunState::run_id: alloc::string::String
 pub brokkr_core::RunState::seq: u64
 pub brokkr_core::RunState::stop_accepted_seq: core::option::Option<u64>
 pub brokkr_core::RunState::strategy: core::option::Option<alloc::string::String>
+pub brokkr_core::RunState::tail_types: alloc::collections::btree::map::BTreeMap<u64, brokkr_core::envelope::EventType>
+pub brokkr_core::RunState::terminal_seq: core::option::Option<u64>
 pub brokkr_core::RunState::visits: alloc::collections::btree::map::BTreeMap<alloc::string::String, u64>
+impl brokkr_core::fold::RunState
+pub fn brokkr_core::fold::RunState::applies(&self, u64) -> bool
 impl brokkr_core::fold::RunState
 pub fn brokkr_core::fold::RunState::stopping_seq(&self) -> core::option::Option<u64>
 pub fn brokkr_core::cited_shas(&[brokkr_core::envelope::EventEnvelope]) -> alloc::collections::btree::set::BTreeSet<alloc::string::String>

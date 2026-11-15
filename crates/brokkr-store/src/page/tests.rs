@@ -539,6 +539,39 @@ fn a_row_no_writer_writes_is_refused_at_the_edge() {
     assert_eq!(RowRefusal::Ending("by_rule".into()).to_string(), words);
 }
 
+/// L5 and INFO a: the row's compact late tail refuses both error arms —
+/// a column that does not read as text, and text that does not parse —
+/// and a field no writer writes.
+#[test]
+fn a_rows_late_tail_refuses_an_unreadable_column_and_an_unknown_field() {
+    let running = [lane(Lane::Running, None)];
+    let unknown = serde_json::json!({
+        "repaired_at": 8, "first_seq": 6, "last_seq": 7,
+        "count": 2, "operator": "repairer", "extra": 1,
+    })
+    .to_string();
+    for (column, needle) in [
+        (
+            "late_tail = x'00'".to_string(),
+            "Invalid column type Blob at index: 28, name: late_tail".to_string(),
+        ),
+        ("late_tail = '{'".to_string(), "late_tail: EOF".to_string()),
+        (
+            format!("late_tail = '{unknown}'"),
+            "late_tail: unknown field `extra`".to_string(),
+        ),
+    ] {
+        let (_dir, store) = one(Width::Narrow, Standing::Running);
+        let edit = format!("UPDATE run_summary SET {column}");
+        store.conn.execute_batch(&edit).unwrap();
+        let read = store.section(&running, None, 1).unwrap();
+        let RowRefusal::Column(words) = &read[0].as_ref().unwrap_err().why else {
+            panic!("not a column refusal: {read:?}");
+        };
+        assert!(words.contains(&needle), "{words} does not name {needle}");
+    }
+}
+
 /// A finished row reads its ending in decision 0064's words, what it
 /// cites, a run in a realm or none or a ref, and whether it stood over an
 /// earlier one.

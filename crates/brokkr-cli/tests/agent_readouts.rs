@@ -252,6 +252,7 @@ fn a_run_off_a_terminal_prints_what_it_always_has() {
     "rule_id": "REVIEW-CLEAN",
     "severity": "normal"
   },
+  "late_tail": null,
   "park_reason": null,
   "phase": "done",
   "run_id": "<run>",

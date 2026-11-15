@@ -2492,8 +2492,10 @@ fn an_operator_command_the_run_cannot_take_is_refused_never_accepted() {
 
 /// A command the vocabulary does not know is refused by NAME before any
 /// question of fences or cursors: `OperatorCommand` closes the verb set,
-/// and the bridge's door, which journals the word it was sent, refuses
-/// one it does not parse even under a cursor that still holds.
+/// and the bridge's door, which journals the word it was sent on a live
+/// run, refuses one it does not parse even under a cursor that still
+/// holds. After the terminal event the word is a late event, so the door
+/// answers it and writes nothing (decision 0108 ruling 4, #440).
 #[test]
 fn a_command_outside_the_vocabulary_is_refused_by_name() {
     let dir = tempfile::tempdir().unwrap();
@@ -6208,6 +6210,20 @@ fn ask<'a>(findings: &'a [u64], by_run: &'a str, by_seq: u64) -> Supersede<'a> {
     }
 }
 
+/// Assert `args` is a valid instance of the published payload schema at
+/// `relative`, and that `invalid` is refused: the contract, not a test's
+/// idea of it.
+pub(in crate::engine) fn published_args(relative: &str, args: &Value, invalid: &Value) {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .join(relative);
+    let read = std::fs::read(path).expect("the published schema is beside the contracts");
+    let schema: Value = serde_json::from_slice(&read).unwrap();
+    let contract = jsonschema::draft7::new(&schema).unwrap();
+    assert!(contract.is_valid(args), "{args}");
+    assert!(!contract.is_valid(invalid), "{invalid}");
+}
+
 /// Decision 0047 rulings 1, 2 and 6: one annotation, verified before it
 /// is written, changing nothing about the run it annotates. No
 /// `operator/accepted` follows it — there is nothing to execute — and
@@ -6235,24 +6251,10 @@ fn an_operator_supersede_closes_a_finding_by_name_and_changes_nothing_else() {
     );
     // …and that shape is the published contract, not this test's idea
     // of it: the schema is read from the file the README's table names.
-    let schema: Value = serde_json::from_slice(
-        &std::fs::read(
-            Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("../..")
-                .join("contracts/operator-supersede.v1.schema.json"),
-        )
-        .expect("the published payload schema is beside the frozen contracts"),
-    )
-    .unwrap();
-    let contract = jsonschema::draft7::new(&schema).unwrap();
-    assert!(
-        contract.is_valid(&written.payload["args"]),
-        "{}",
-        written.payload["args"]
-    );
-    assert!(
-        !contract.is_valid(&json!({"findings": [], "by": {}, "reason": ""})),
-        "the schema refuses an annotation that cites nothing",
+    published_args(
+        "contracts/operator-supersede.v1.schema.json",
+        &written.payload["args"],
+        &json!({"findings": [], "by": {}, "reason": ""}),
     );
 
     let events = store.load("held").unwrap();
@@ -6269,7 +6271,7 @@ fn an_operator_supersede_closes_a_finding_by_name_and_changes_nothing_else() {
     assert_eq!(after.last_decision, before.last_decision);
     assert!(after.pending_command.is_none());
 
-    let findings = brokkr_view::residual_findings("held", &events);
+    let findings = brokkr_view::residual_findings_at("held", &events, None);
     let mark = findings[0]
         .superseded
         .as_ref()
@@ -6289,7 +6291,7 @@ fn an_operator_supersede_closes_a_finding_by_name_and_changes_nothing_else() {
         Run::Stopped,
         "the superseding run has moved on",
     );
-    let again = brokkr_view::residual_findings("held", &store.load("held").unwrap());
+    let again = brokkr_view::residual_findings_at("held", &store.load("held").unwrap(), None);
     assert_eq!(
         again[0].line, findings[0].line,
         "what was true when it was written stays true when it is read",
@@ -6414,4 +6416,52 @@ fn a_supersede_racing_a_growing_journal_refuses_rather_than_writing() {
         8,
         "the peer's event is there and the supersede is not",
     );
+}
+
+/// L4: the pre-check reads the run's APPLIED events. A finding that stands
+/// only in a repaired late tail — one no readout shows — is not a residual
+/// finding to close, so naming it refuses and writes nothing.
+#[test]
+fn a_supersede_refuses_a_finding_that_stands_only_in_a_repaired_tail() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("tail-finding.db");
+    let store = held_store(&db, "held");
+    shipped_store(&db, "later");
+    let head = store.load("held").unwrap().pop().unwrap();
+    drop(store);
+    let connection = rusqlite::Connection::open(&db).unwrap();
+    brokkr_store::test_support::plant_chained(
+        &connection,
+        "held",
+        &head,
+        &[(
+            EventType::TransitionDecided,
+            json!({"from":"review","result":"residual","rule_id":"REVIEW-SECURITY-HOLD",
+                   "next":null,"severity":null,
+                   "inputs":{"has_security_residual":true},
+                   "problem":"a residual the run never applied"}),
+        )],
+    )
+    .unwrap();
+    drop(connection);
+    let mut store = Store::open(&db).unwrap();
+    let repair = crate::engine::Repair {
+        operator: "repairer",
+        reason: "the tail is evidence",
+    };
+    crate::engine::operator_repair(&mut store, "held", &repair).unwrap();
+    assert_eq!(
+        store.load("held").unwrap().len(),
+        9,
+        "the late ruling and the repair are journaled"
+    );
+
+    let cited = Store::open_read_only(&db).unwrap();
+    let refusal = operator_supersede(&mut store, &cited, "held", &ask(&[8], "later", 6))
+        .expect_err("a finding only the late tail holds is not shown, so it is not closed");
+    let typed = matches!(&refusal, crate::EngineError::SupersedeRefused(detail)
+        if detail.contains("seq 8 is not a residual finding"));
+    assert!(typed, "{refusal}");
+    assert_eq!(store.load("held").unwrap().len(), 9, "no write");
+    brokkr_store::test_support::lags(&mut store, &["held"]);
 }

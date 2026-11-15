@@ -46,8 +46,8 @@ pub(crate) fn ledger(
     let run = selector::resolve_run(&store, &run)?;
     let events = store.load(&run)?;
     match repo {
-        Some(repo) => println!("{}", ledger::write(&run, &events, &repo)?.display()),
-        None => print!("{}", ledger::render(&run, &events, workspace)?),
+        Some(repo) => println!("{}", ledger::write(&run, events, &repo)?.display()),
+        None => print!("{}", ledger::render(&run, events, workspace)?),
     }
     Ok(Exit::Completed.into())
 }

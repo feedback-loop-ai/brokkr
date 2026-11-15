@@ -544,6 +544,96 @@ fn read_one(runs: &[AnalyticsRun], range: Range) -> Analytics {
     .unwrap()
 }
 
+/// M3's analytics scan: a repaired tail's late attempt, cost and park are
+/// kept and shown, never counted. The readout is the terminal cut's.
+#[test]
+fn a_repaired_tail_adds_no_attempt_cost_or_park_to_analytics() {
+    let at = |minute: u8| format!("2026-10-13T10:{minute:02}:00Z");
+    let mut events = vec![
+        ev(
+            1,
+            EventType::RunStarted,
+            json!({"feature": "f", "manifest": {}}),
+            &at(0),
+        ),
+        ev(
+            2,
+            EventType::PhaseEntered,
+            json!({"phase": "implement"}),
+            &at(1),
+        ),
+        ev(
+            3,
+            EventType::EffectRequested,
+            json!({"effect_id": "e", "seat": "s"}),
+            &at(2),
+        ),
+        ev(
+            4,
+            EventType::EffectStarted,
+            json!({"effect_id": "e", "attempt_id": "a1",
+                   "provenance": [{"agent": "a", "model": "m", "provider": "p"}]}),
+            &at(3),
+        ),
+        ev(
+            5,
+            EventType::EffectCheckpointed,
+            json!({"effect_id": "e", "attempt_id": "a1",
+                   "checkpoint": {"step": "turn", "total_cost_usd": 1.5}}),
+            &at(4),
+        ),
+        ev(
+            6,
+            EventType::RunStopped,
+            json!({"reason": "concluded"}),
+            &at(5),
+        ),
+    ];
+    let cut = events.clone();
+    events.push(ev(
+        7,
+        EventType::EffectStarted,
+        json!({"effect_id": "late", "attempt_id": "late",
+               "provenance": [{"agent": "a", "model": "m", "provider": "p"}]}),
+        &at(6),
+    ));
+    events.push(ev(
+        8,
+        EventType::EffectCheckpointed,
+        json!({"effect_id": "late", "attempt_id": "late",
+               "checkpoint": {"step": "turn", "total_cost_usd": 100.0}}),
+        &at(7),
+    ));
+    events.push(ev(9, EventType::RunParked, json!({}), &at(8)));
+    events.push(ev(
+        10,
+        EventType::OperatorCommanded,
+        json!({"command_id": "c-repair", "command": "repair", "operator": "operator",
+               "args": {"first_seq": 7, "last_seq": 9, "terminal_seq": 6,
+                        "event_types": ["effect/started", "effect/checkpointed",
+                                        "run/parked"],
+                        "reason": "kept"}}),
+        &at(9),
+    ));
+    let state = fold(&events).expect("the repaired run folds");
+    let terminal_cut = fold(&cut).expect("the terminal cut folds");
+    let full = read_one(
+        &[AnalyticsRun {
+            events: &events,
+            state: Some(&state),
+        }],
+        Range::Day,
+    );
+    let terminal = read_one(
+        &[AnalyticsRun {
+            events: &cut,
+            state: Some(&terminal_cut),
+        }],
+        Range::Day,
+    );
+    assert_eq!(full, terminal);
+}
+
 /// What the journal can hold that the main fleet does not: a run its
 /// operator stopped, rules that tie and rules that do not, an event with no
 /// readable time, operator events that are not the answer, a second answer,
@@ -880,7 +970,7 @@ fn a_recipe_with_no_reported_cost_is_off_the_plot_and_dominates_nothing() {
     );
     assert_eq!(row(&rows, "alpha", "priced").on_frontier, Some(true));
     let wire = serde_json::to_value(read_one(&runs(&journals), Range::Week)).unwrap();
-    assert_eq!(wire["view_version"], json!(29));
+    assert_eq!(wire["view_version"], json!(30));
     assert_eq!(wire["recipes"][1]["on_frontier"], Value::Null);
     assert_eq!(
         wire["recipes"][1]["cost_per_run"]["cost"],

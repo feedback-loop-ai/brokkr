@@ -153,7 +153,7 @@ fn the_account_s_sites_are_the_sites_read_whole() {
     let steps = journal(&steps);
     let mut carried = Account::empty("r");
     for event in &steps {
-        carried = carried.onto(std::slice::from_ref(event));
+        carried = carried.onto(std::slice::from_ref(event)).account();
     }
     let whole = Account::whole("r", &steps);
     for (carried, whole) in carried.sites().iter().zip(whole.sites()) {

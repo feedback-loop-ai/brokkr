@@ -72,7 +72,7 @@ pub(crate) fn listed<'a>(
 }
 
 /// A single seat that starts, turns, finishes its session and succeeds.
-fn seat_journal() -> Vec<EventEnvelope> {
+pub(crate) fn seat_journal() -> Vec<EventEnvelope> {
     vec![
         ev(1, EventType::RunStarted, json!({"feature": "build it"}), T0),
         ev(2, EventType::PhaseEntered, json!({"phase": "intake"}), T0),
@@ -2922,7 +2922,7 @@ fn residual_findings_come_from_the_structured_rule_inputs_only() {
             T0,
         ),
     ];
-    let findings = residual_findings("r1", &events);
+    let findings = residual_findings_at("r1", &events, None);
     let lines: Vec<&str> = findings.iter().map(|f| f.line.as_str()).collect();
     assert_eq!(
         lines,
@@ -2948,10 +2948,10 @@ fn residual_findings_come_from_the_structured_rule_inputs_only() {
         T0,
     )];
     assert_eq!(
-        residual_findings("r2", &uncovered)[0].line,
+        residual_findings_at("r2", &uncovered, None)[0].line,
         "r2 seq 1 · review · REVIEW-RESIDUAL-OK · high_risk_uncovered: true"
     );
-    assert!(residual_findings("r3", &[]).is_empty());
+    assert!(residual_findings_at("r3", &[], None).is_empty());
 }
 
 #[test]
@@ -3269,11 +3269,11 @@ fn an_entry_outside_the_vocabulary_is_not_recorded() {
 /// null-bearing cell rather than a skipped key.
 #[test]
 fn the_wire_version_moves() {
-    assert_eq!(VIEW_VERSION, 29); // 29 (0064): ending, ending_cited, wants. 28 (#909): stopping. 27 (0094): entry. 26 (#787): carried_from. 25 (#753): a page's next. 24 (#568): visit. 23 (#568): analytics recipes. 22 (#568): tokens. 21 (#511): acknowledgement. 20 (#568): recipe. 19 (#568): commands. 18 (#351): scopes. 17: working. 16 (0065): capability call.
+    assert_eq!(VIEW_VERSION, 30); // 30 (0108): a repair's late tail. 29 (0064): ending, ending_cited, wants. 28 (#909): stopping. 27 (0094): entry. 26 (#787): carried_from. 25 (#753): a page's next. 24 (#568): visit. 23 (#568): analytics recipes. 22 (#568): tokens. 21 (#511): acknowledgement. 20 (#568): recipe. 19 (#568): commands. 18 (#351): scopes. 17: working. 16 (0065): capability call.
                                   // 15: quarantine. 14: dashboard. 13: hire. 12: title. 11 (#376): `cost` is every attempt's spend,
                                   // and the last attempt's own figure stands beside it on the wire.
     let retried = serde_json::to_value(run_view(&two_attempt_journal(), None)).unwrap();
-    assert_eq!(retried["view_version"], 29);
+    assert_eq!(retried["view_version"], 30);
     // 22: every participant carries its token cells, each a cell even when absent.
     assert_eq!(
         retried["participants"][0]["tokens"]["cache_hit"]["absent"],
@@ -3283,7 +3283,7 @@ fn the_wire_version_moves() {
     assert_eq!(retried["participants"][0]["last_attempt_cost"], json!(0.5));
     let view = run_view(&boxed_journal(plain_manifest(), Value::Null, None), None);
     let json = serde_json::to_value(&view).unwrap();
-    assert_eq!(json["view_version"], 29);
+    assert_eq!(json["view_version"], 30);
     let seat = &json["participants"][0];
     assert_eq!(seat["model"]["text"], "claude-fable-5-1");
     assert_eq!(seat["boundary"]["absent"], json!(true));
@@ -3544,22 +3544,20 @@ fn security_hold(seq: u64) -> EventEnvelope {
 #[test]
 fn a_superseded_finding_carries_the_operators_mark_and_stays_a_finding() {
     let ruling = security_hold(4);
-    let plain = residual_findings("r1", std::slice::from_ref(&ruling));
+    let plain = residual_findings_at("r1", std::slice::from_ref(&ruling), None);
     assert_eq!(plain.len(), 1);
     assert!(plain[0].superseded.is_none(), "no annotation, no mark");
 
-    let marked = residual_findings(
-        "r1",
-        &[
-            ruling.clone(),
-            annotation(
-                9,
-                json!([4]),
-                json!({"realm": null, "run_id": "later", "seq": 21}),
-                T1,
-            ),
-        ],
-    );
+    let marked_events = [
+        ruling.clone(),
+        annotation(
+            9,
+            json!([4]),
+            json!({"realm": null, "run_id": "later", "seq": 21}),
+            T1,
+        ),
+    ];
+    let marked = residual_findings_at("r1", &marked_events, None);
     assert_eq!(marked.len(), 1, "a superseded finding is still a finding");
     let mark = marked[0]
         .superseded
@@ -3581,18 +3579,16 @@ fn a_superseded_finding_carries_the_operators_mark_and_stays_a_finding() {
 
     // The same fact, keyed by the realm it was read in (decision 0026
     // ruling 3), reads as `realm/run` wherever a citation is rendered.
-    let keyed = residual_findings(
-        "r1",
-        &[
-            ruling.clone(),
-            annotation(
-                9,
-                json!([4]),
-                json!({"realm": "brokkr", "run_id": "later", "seq": 21}),
-                T1,
-            ),
-        ],
-    );
+    let keyed_events = [
+        ruling.clone(),
+        annotation(
+            9,
+            json!([4]),
+            json!({"realm": "brokkr", "run_id": "later", "seq": 21}),
+            T1,
+        ),
+    ];
+    let keyed = residual_findings_at("r1", &keyed_events, None);
     let by = &keyed[0].superseded.as_ref().expect("the mark reads").by;
     assert_eq!(by.realm.as_deref(), Some("brokkr"));
     assert_eq!(cited(by), "brokkr/later seq 21");
@@ -3600,7 +3596,7 @@ fn a_superseded_finding_carries_the_operators_mark_and_stays_a_finding() {
 
     // A finding named by more than one supersede carries the LAST in
     // journal order; the earlier annotation stays in the journal.
-    let twice = residual_findings(
+    let twice = residual_findings_at(
         "r1",
         &[
             ruling,
@@ -3617,6 +3613,7 @@ fn a_superseded_finding_carries_the_operators_mark_and_stays_a_finding() {
                 T2,
             ),
         ],
+        None,
     );
     assert_eq!(
         twice[0]
@@ -3692,7 +3689,7 @@ fn an_unreadable_supersede_annotation_marks_nothing() {
             ),
         ),
     ] {
-        let findings = residual_findings("r1", &[ruling.clone(), event]);
+        let findings = residual_findings_at("r1", &[ruling.clone(), event], None);
         assert!(
             findings[0].superseded.is_none(),
             "{what} marks nothing: {}",
@@ -3702,13 +3699,14 @@ fn an_unreadable_supersede_annotation_marks_nothing() {
     // A well-formed annotation with no operator and no reason recorded
     // still reads, with the absence mark where the words would be, and
     // a findings entry that is not a sequence number names nothing.
-    let bare = residual_findings(
+    let bare = residual_findings_at(
         "r1",
         &[
             ruling,
             commanded(json!({"command_id": "c", "command": "supersede",
                              "args": {"findings": [4, "not a seq"], "by": by}})),
         ],
+        None,
     );
     let mark = bare[0].superseded.as_ref().expect("the citation reads");
     assert_eq!(mark.operator, ABSENT);
@@ -3773,7 +3771,7 @@ fn the_ruling_line_and_the_run_rows_carry_the_mark() {
 
     // `brokkr runs --json` is a surface that prints a residual finding,
     // so it prints the mark.
-    let residuals = residual_findings("r1", &events);
+    let residuals = residual_findings_at("r1", &events, None);
     let entries = [RunEntry {
         residuals: &residuals,
         ..listed("r1", "the finding is closed by name", T0, Some(&stopped))

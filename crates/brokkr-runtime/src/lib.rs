@@ -37,9 +37,9 @@ pub use bundle::{
 pub use dispatch::{reconcile, take_dispatch, Dispatcher, DispatcherError, Settled};
 pub use engine::{
     apply_fenced_operator_command, conclude, git_head, named_cause, operator_classify,
-    operator_command, operator_stop, operator_supersede, CarryRefusal, Cause, CauseRefusal,
-    CommandWord, ConcludeRefusal, DriveEnd, Engine, EngineError, FencedCommand,
-    FencedCommandOutcome, Flag, MemberRetryOutcome, Named, Supersede, Verb,
+    operator_command, operator_repair, operator_stop, operator_supersede, CarryRefusal, Cause,
+    CauseRefusal, CommandWord, ConcludeRefusal, DriveEnd, Engine, EngineError, FencedCommand,
+    FencedCommandOutcome, Flag, MemberRetryOutcome, Named, Repair, Supersede, Verb,
 };
 pub use keep_refs::{
     delete as delete_keep_refs, list as list_keep_refs, plant as plant_keep_refs, plant_or_report,
@@ -61,6 +61,9 @@ mod dispatch_fixture;
 #[cfg(test)]
 #[path = "../../../tests/support/envelope.rs"]
 mod envelope_builder;
+#[cfg(test)]
+#[path = "../../../tests/support/late.rs"]
+mod late;
 #[cfg(test)]
 #[path = "../../../tests/support/run_state.rs"]
 mod run_state;

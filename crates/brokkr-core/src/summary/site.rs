@@ -60,7 +60,7 @@ pub struct Site {
 /// opened last for them, the one a later checkpoint belongs to. A start
 /// naming an attempt and member already opened opens another site and
 /// repoints the key, as the analytics walk reads it.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct SiteMap {
     next: u64,
     at: BTreeMap<(String, Option<String>), u64>,
@@ -102,7 +102,7 @@ impl SiteMap {
 }
 
 /// The sites read so far, carried event by event.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct Siting {
     phase: Option<String>,
     sites: Vec<Site>,

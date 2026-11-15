@@ -378,7 +378,7 @@ fn the_row_and_the_summary_serve_the_ending_its_citation_and_its_want() {
         entry.closing = brokkr_core::ending::closing(events, &state);
         let view = serde_json::to_value(run_rows(&[entry])).expect("the rows serialize");
         let summary = serde_json::to_value(summary(&state, events)).expect("it serializes");
-        assert_eq!(view["view_version"], 29);
+        assert_eq!(view["view_version"], 30);
         let word = ending.as_str().unwrap_or("running");
         for said in [&view["runs"][0], &summary] {
             let read = (&said["ending"], &said["ending_cited"], &said["wants"]);
@@ -731,7 +731,7 @@ fn a_run_row_carries_its_title_and_verdict_beside_the_whole_feature() {
         closing: None,
     }]);
     let json = serde_json::to_value(&view).unwrap();
-    assert_eq!(json["view_version"], 29);
+    assert_eq!(json["view_version"], 30);
     assert_eq!(json["runs"][0]["hire"], Value::Null);
     assert_eq!(json["runs"][0]["acknowledgement"], Value::Null);
     assert_eq!(json["runs"][0]["feature"], feature);
@@ -1002,4 +1002,73 @@ fn a_cut_first_line_titles_as_its_feature() {
         joiner.to_string().repeat(341)
     );
     assert_eq!(title_within(&marked, TITLE_COLUMNS), marked);
+}
+
+/// Decision 0108 ruling 4: a repaired run's row and summary carry the late
+/// tail the operator named, its sentence derived once, and the run still
+/// reads as the terminal status it ended at.
+#[test]
+fn a_repaired_run_carries_its_late_tail_on_the_row_and_the_summary() {
+    let mut repaired = settled(Status::Stopped, "work", None);
+    repaired.late_tail = Some(brokkr_core::fold::LateTail {
+        repaired_at: 8,
+        terminal_seq: 5,
+        first_seq: 6,
+        last_seq: 7,
+        event_types: vec![EventType::OperatorCommanded, EventType::OperatorAccepted],
+        operator: "repairer".to_string(),
+    });
+    let row = run_row(&crate::tests::listed(
+        "repaired",
+        "a run",
+        NOW,
+        Some(&repaired),
+    ));
+    let tail = row.late_tail.as_ref().expect("the row carries the tail");
+    assert_eq!(
+        crate::fleet::late_line(usize::try_from(tail.count).unwrap(), &tail.operator),
+        "a late tail of 2 events, repaired by repairer"
+    );
+    assert_eq!(
+        (tail.first_seq, tail.last_seq, tail.count),
+        (6, 7, 2),
+        "the row keeps only the sentence's range and count"
+    );
+    assert_eq!(tail.operator, "repairer");
+    assert_eq!(row.status.as_deref(), Some("stopped"));
+    assert!(
+        row.quarantine.is_none(),
+        "a repaired run is not quarantined"
+    );
+
+    let summary = summary(&repaired, &[]);
+    assert_eq!(summary.status, "stopped");
+    assert_eq!(
+        summary
+            .late_tail
+            .as_ref()
+            .map(|tail| crate::fleet::late_line(tail.count(), &tail.operator)),
+        Some("a late tail of 2 events, repaired by repairer".to_string())
+    );
+    assert_eq!(
+        summary
+            .late_tail
+            .as_ref()
+            .expect("the summary lists the tail's events")
+            .events
+            .iter()
+            .map(|event| event.event_type)
+            .collect::<Vec<_>>(),
+        [EventType::OperatorCommanded, EventType::OperatorAccepted],
+        "the whole tail keeps the types inspect lists"
+    );
+    let wire = serde_json::to_value(&row).unwrap();
+    assert_eq!(wire["late_tail"]["repaired_at"], 8);
+    assert_eq!(wire["late_tail"]["count"], 2);
+    assert_eq!(wire["late_tail"]["first_seq"], 6);
+    assert_eq!(wire["late_tail"]["last_seq"], 7);
+    assert!(
+        wire["late_tail"].get("events").is_none(),
+        "the row's column keeps no per-event text"
+    );
 }

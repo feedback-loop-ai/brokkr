@@ -109,7 +109,7 @@ type Participant = (String, Option<String>);
 /// every checkpoint's facts, each keyed by its seq. A later finishing
 /// session record of a participant moves the flag off the earlier one as it
 /// is read, so the facts are current at every head (ruling 7).
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct Checking {
     phase: Option<String>,
     facts: BTreeMap<u64, Checkpoint>,

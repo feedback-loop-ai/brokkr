@@ -112,7 +112,7 @@ struct PinnedRealm {
 }
 
 /// What a run's events say of it so far, carried event by event.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct Reading {
     /// Whether its first event has been read.
     begun: bool,
@@ -202,7 +202,7 @@ fn hard_stop(state: &RunState) -> Option<HardStop> {
 /// from its first, folded to `state`, or `None` where it does not fold.
 pub fn aggregate(events: &[EventEnvelope], state: Option<&RunState>) -> Aggregate {
     let mut reading = Reading::default();
-    for event in events {
+    for event in crate::summary::live(events, state) {
         reading.note(event);
     }
     let closing = state.and_then(|state| closing(events, state));

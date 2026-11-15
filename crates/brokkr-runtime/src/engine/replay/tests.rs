@@ -2,10 +2,13 @@ use super::*;
 use crate::engine::sequence::SequenceAt;
 use crate::engine::tests::run_sequence;
 use brokkr_core::envelope::EventType;
-use brokkr_core::fold::{Cursor, Run};
+use brokkr_core::fold::{Cursor, Run, Status};
 use brokkr_store::test_support::{every_run_reads_as_its_fold, lags, lane};
 use brokkr_store::{Store, StoreError};
 use serde_json::json;
+
+#[path = "../../../../../tests/support/repair.rs"]
+mod repair;
 
 #[path = "../../../../../tests/support/seat_facts.rs"]
 mod seat_facts;
@@ -19,6 +22,7 @@ fn carried_disagreements(replay: &Replay) -> Option<(Vec<String>, usize)> {
         &replay.events,
         account.seats(),
         account.seats_kept(),
+        account.state().ok(),
     ))
 }
 
@@ -102,8 +106,96 @@ fn a_turn_reads_only_what_landed_since_the_last() {
     lags(&mut store, &["r1"]);
 }
 
-/// A replay is one run's: asked for another, it reads that run whole
-/// rather than carrying the first run's state onto the second's suffix.
+/// Plant `events` after `run_id`'s head, behind the store.
+fn plant(store: &Store, run_id: &str, events: &[(EventType, serde_json::Value)]) {
+    let head = store.load(run_id).unwrap().pop().unwrap();
+    let connection = rusqlite::Connection::open(store.path()).unwrap();
+    brokkr_store::test_support::plant_chained(&connection, run_id, &head, events).unwrap();
+}
+
+/// L7 and M1: the replay carries at the lawful classify (seq 6, applied,
+/// closing Withdrawn), then reads the break and the repair as one suffix.
+/// The repair names the carried classify late, so the replay answers
+/// `Carried::Refold` and its whole journal closes Unclassified. The
+/// removal control maps the signal to the carried account, whose closing
+/// stays Withdrawn, and this test fails.
+#[test]
+fn a_suffix_repair_that_names_a_carried_classify_refolds_the_replay_whole() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&dir.path().join("forge.db")).unwrap();
+    started(&mut store, "r1");
+    requested(&mut store, "r1");
+    for (event_type, payload) in [
+        (
+            EventType::EffectStarted,
+            json!({"effect_id": "fx", "attempt_id": "a1"}),
+        ),
+        (EventType::RunStopped, json!({"reason": "concluded"})),
+    ] {
+        store
+            .append_next("r1", event_type, payload, None, None)
+            .unwrap();
+    }
+    plant(&store, "r1", &[crate::late::classified()]);
+
+    let mut replay = Replay::default();
+    let first = replay.caught_up(&mut store, "r1").unwrap();
+    assert_eq!(first.seq, 6);
+    assert_eq!(
+        brokkr_core::ending::closing(&replay.events, &first).map(|closing| closing.ended.ending),
+        Some(brokkr_core::ending::Ending::Withdrawn),
+        "the carried classify is applied before the repair"
+    );
+
+    // The break and the repair land together after the carried head: the
+    // suffix's repair names seq 6, which the replay already applied.
+    plant(
+        &store,
+        "r1",
+        &[
+            crate::late::settlement(),
+            (
+                EventType::OperatorCommanded,
+                json!({"command_id": "c-repair", "command": "repair",
+                       "operator": "operator",
+                       "args": repair::repair_args(
+                           5, 6, 7,
+                           &["operator/commanded", "effect/succeeded"],
+                           "kept")}),
+            ),
+        ],
+    );
+    let second = replay.caught_up(&mut store, "r1").unwrap();
+    assert_eq!(
+        second.late_tail.as_ref().map(|tail| tail.last_seq),
+        Some(7),
+        "the whole refold reads the repair's tail"
+    );
+    assert_eq!(second.run.status(), Status::Stopped);
+    // The account's own closing is what the carry would get wrong: the
+    // ending reading has already applied seq 6. A whole refold reaches the
+    // terminal-only closing.
+    let account = replay
+        .account
+        .as_ref()
+        .expect("the replay carried its account");
+    let closing = brokkr_core::summary::Summary::of(
+        account,
+        brokkr_core::summary::Listing {
+            feature: "",
+            created_at: "",
+        },
+    )
+    .closing
+    .map(|closing| closing.ended.ending);
+    assert_eq!(
+        closing,
+        Some(brokkr_core::ending::Ending::Unclassified),
+        "the repair made the carried classify late: the whole closing stands"
+    );
+    lags(&mut store, &["r1"]);
+}
+
 #[test]
 fn a_replay_asked_for_another_run_reads_it_whole() {
     let dir = tempfile::tempdir().unwrap();
@@ -323,7 +415,13 @@ fn an_engine_sequence_s_rows_list_its_steps_tags_and_models_as_its_view() {
     let models: Vec<String> = models.into_iter().collect();
     assert_eq!(view.dashboard.path.len(), 1);
     assert_eq!(Some(models.join(", ")), view.dashboard.path[0].model);
-    let found = seat_facts::disagreements(&engine.run_id, &events, rows, account.seats_kept());
+    let found = seat_facts::disagreements(
+        &engine.run_id,
+        &events,
+        rows,
+        account.seats_kept(),
+        account.state().ok(),
+    );
     // Its seat, its two steps' and its panel's two members, its one phase
     // and its one visit.
     assert_eq!(found, (Vec::new(), 7));

@@ -14,6 +14,9 @@ use brokkr_core::envelope::EventType;
 use brokkr_core::stamp::parse_millis;
 use serde_json::{json, Value as Json};
 
+#[path = "../../../../tests/support/repair.rs"]
+mod repair;
+
 const BY: Attribution<'static> = Attribution {
     operator: "op",
     reason: "looked at it",
@@ -78,6 +81,102 @@ pub(super) fn reopened(store: Store) -> Store {
     let path = store.path().to_path_buf();
     drop(store);
     Store::open(&path).unwrap()
+}
+
+/// L7 and M1: carry at the lawful classify (seq 6, applied, closing
+/// Withdrawn), then seal the break and the repair together. The repair
+/// names the carried classify late, so the row must be the WHOLE account's
+/// closing — Unclassified — not the carried one's Withdrawn. The removal
+/// control maps `Carried::Refold` to the carried account, which keeps the
+/// classify applied and fails this row.
+#[test]
+fn a_repair_that_names_a_carried_classify_refolds_the_whole_account() {
+    let (_dir, mut store) = store();
+    started(&mut store, "run");
+    for (event_type, payload) in [
+        (EventType::PhaseEntered, json!({"phase": "verify"})),
+        (
+            EventType::EffectRequested,
+            json!({"effect_id": "e", "seat": "s"}),
+        ),
+        (
+            EventType::EffectStarted,
+            json!({"effect_id": "e", "attempt_id": "a1"}),
+        ),
+        (EventType::RunStopped, json!({"reason": "concluded"})),
+    ] {
+        append(&mut store, "run", event_type, payload);
+    }
+    planted(
+        &store,
+        "run",
+        EventType::OperatorCommanded,
+        json!({"command_id": "c-classify", "command": "classify", "operator": "operator",
+               "args": {"cause": "withdrawn", "reason": "late"}}),
+    );
+    let events = store.load("run").unwrap();
+    assert_eq!(events.len(), 6, "the classify is the carried head");
+    let carried_closing = Summary::of(
+        &Account::whole("run", &events),
+        Listing {
+            feature: "",
+            created_at: "",
+        },
+    )
+    .closing
+    .expect("the carried classify closes the run");
+    assert_eq!(
+        carried_closing.ended.ending,
+        brokkr_core::ending::Ending::Withdrawn,
+        "the carried classify closes the run Withdrawn before the repair"
+    );
+
+    // The break and the repair are one suffix written after the carried
+    // head: the repair makes seq 6, which the account already applied,
+    // late, so only a whole refold can reach the row.
+    let settlement = planted(
+        &store,
+        "run",
+        EventType::EffectSucceeded,
+        json!({"effect_id": "e", "attempt_id": "a1",
+               "result": {"result": "complete"}}),
+    );
+    let repair = planted(
+        &store,
+        "run",
+        EventType::OperatorCommanded,
+        json!({"command_id": "c-repair", "command": "repair", "operator": "operator",
+               "args": repair::repair_args(5, 6, 7,
+                                        &["operator/commanded", "effect/succeeded"],
+                                        "kept")}),
+    );
+    let head = events.last().unwrap();
+    let carried = Carried {
+        account: Account::whole("run", &events),
+        listed: None,
+    };
+    let tx = store.conn.transaction().unwrap();
+    let settled = judge(
+        &tx,
+        Some(&carried),
+        (6, &head.event_hash),
+        &[settlement, repair],
+    )
+    .unwrap();
+    tx.commit().unwrap();
+    assert!(matches!(settled, Settled::Carried(_)));
+
+    assert_eq!(row(&store, "run", "status"), vec![text("stopped")]);
+    assert_eq!(
+        row(&store, "run", "ending"),
+        vec![text("unclassified")],
+        "the repair made the carried Withdrawn classify late: the whole closing stands"
+    );
+    let Value::Text(tail) = row(&store, "run", "late_tail").remove(0) else {
+        panic!("the late tail column is text");
+    };
+    let tail: brokkr_core::page::LateRange = serde_json::from_str(&tail).unwrap();
+    assert_eq!((tail.first_seq, tail.last_seq, tail.count), (6, 7, 2));
 }
 
 #[test]
@@ -245,10 +344,8 @@ fn an_account_at_another_head_writes_nothing_folded_and_is_dropped() {
     append(
         &mut store,
         "r2",
-        EventType::OperatorCommanded,
-        json!({
-            "command_id": "c", "command": "note", "args": {}, "operator": "op"
-        }),
+        EventType::OperatorRejected,
+        json!({"command_id": "c", "operator": "op", "reason": "after_terminal"}),
     );
     assert_eq!(lane(&store, "r2"), text("behind"));
     assert!(
@@ -964,25 +1061,41 @@ pub(super) fn older_table(older: &rusqlite::Connection, kept: &str) {
 /// intact, and the repair makes it anew and refolds the stopping run.
 #[test]
 fn a_summary_with_its_aggregates_but_not_the_stop_columns_is_made_anew() {
-    let (_dir, mut store) = store();
+    // The older build's table: every column but the stop's two.
+    let (_dir, store) = made_anew_without("name NOT IN ('stop_accepted_seq', 'stop_folded_seq')");
+    stopping_row(&store);
+}
+
+/// A stopping run's journal whose summary table is an older build's: the
+/// columns `kept` selects. It reads as not intact, the repair makes it
+/// anew, and the reopened store's summary is intact.
+fn made_anew_without(kept: &str) -> (tempfile::TempDir, Store) {
+    let (dir, mut store) = store();
     stopping_without_ending(&mut store);
     let path = store.path().to_path_buf();
     drop(store);
     let older = rusqlite::Connection::open(&path).unwrap();
-    // The older build's table: every column but the stop's two.
-    older_table(
-        &older,
-        "name NOT IN ('stop_accepted_seq', 'stop_folded_seq')",
-    );
+    older_table(&older, kept);
     assert!(
         !summary_intact(&older).unwrap(),
-        "the stop's columns are gone"
+        "the older table is not intact: {kept}"
     );
     migrate_summary(&older).unwrap();
     drop(older);
     let store = Store::open(&path).unwrap();
     assert!(summary_intact(&store.conn).unwrap());
-    stopping_row(&store);
+    (dir, store)
+}
+
+/// A journal a build from before the late-tail columns wrote carries
+/// every other column: the summary reads as not intact, and the repair
+/// makes it anew with the late tail's two columns. Removal control: drop
+/// the late part from `migrate_summary`'s check, and the reopened summary
+/// is still not intact.
+#[test]
+fn a_summary_with_every_column_but_the_late_tail_is_made_anew() {
+    let (_dir, store) = made_anew_without("name NOT IN ('late_tail', 'late_folded_seq')");
+    assert_eq!(row(&store, "r", "late_tail"), vec![Value::Null]);
 }
 
 /// A writer from before the accepted-stop columns may fold while their
@@ -1006,8 +1119,8 @@ fn a_row_an_older_writer_folds_without_the_stop_stamp_is_sent_behind_and_refolde
         .conn
         .execute(
             "UPDATE run_summary SET folded_seq = head_seq, folded_hash = head_hash,
-                 aggregated_seq = head_seq, stop_accepted_seq = NULL,
-                 stop_folded_seq = NULL
+                 aggregated_seq = head_seq, late_folded_seq = head_seq,
+                 stop_accepted_seq = NULL, stop_folded_seq = NULL
              WHERE run_id = 'r'",
             [],
         )
@@ -1240,4 +1353,29 @@ fn a_trigger_repair_keeps_a_folded_rows_own_time() {
             "the row did not move at {stamp}"
         );
     }
+}
+
+/// INFO a (the exact-coverage gate's): the refold a carried-event repair
+/// asks for reads the whole journal through `rows_in`, and a journal that
+/// does not parse refuses rather than writing a summary of nothing.
+#[test]
+fn a_refold_of_an_unreadable_journal_refuses() {
+    let (_dir, mut store) = store();
+    started(&mut store, "run");
+    append(
+        &mut store,
+        "run",
+        EventType::PhaseEntered,
+        json!({"phase": "verify"}),
+    );
+    store
+        .conn
+        .execute_batch(
+            "DROP TRIGGER events_append_only_update;
+             UPDATE events SET envelope = '{' WHERE run_id = 'run' AND seq = 1;",
+        )
+        .unwrap();
+    let refused = super::late::refold(&store.conn, "run").unwrap_err();
+    assert!(matches!(refused, crate::StoreError::Json(_)), "{refused:?}");
+    lags(&mut store, &["run"]);
 }

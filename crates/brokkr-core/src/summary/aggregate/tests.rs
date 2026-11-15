@@ -225,7 +225,9 @@ fn an_account_carries_the_aggregates_the_run_reads_whole() {
     let whole = Account::whole("run", &events);
     let expected = aggregate(&events, whole.state().ok());
     assert_eq!(Summary::of(&whole, listing).aggregate, expected);
-    let carried = Account::whole("run", &events[..3]).onto(&events[3..]);
+    let carried = Account::whole("run", &events[..3])
+        .onto(&events[3..])
+        .account();
     assert_eq!(Summary::of(&carried, listing).aggregate, expected);
     assert_eq!(
         (expected.realm.as_deref(), expected.started_ms),

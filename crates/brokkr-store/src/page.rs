@@ -38,7 +38,8 @@ const COLUMNS: &str = "run_id, order_at, feature_line, created_at,
     last_recorded_at, status, phase, park_reason, rule_id, rule_from, rule_routes,
     hire_seat, hire_failed_attempts, residual_open, refusal_seq, refusal_words,
     folded_seq, folded_hash, acknowledged, ack_operator, ack_reason, ack_at,
-    stop_accepted_seq, ending, ending_realm, ending_run, ending_ref, ending_stood_over";
+    stop_accepted_seq, ending, ending_realm, ending_run, ending_ref, ending_stood_over,
+    late_tail";
 
 /// Why a page cannot read a summary row as a run's account: a value no
 /// writer writes. The reader reads such a run whole instead, or, where
@@ -123,11 +124,7 @@ fn cut(text: String) -> Bounded {
 /// The row at `row`, read past its run id and place.
 fn row_of(row: &rusqlite::Row<'_>, run_id: String, order_at: i64) -> Result<Row, RowRefusal> {
     admitted(&run_id)?;
-    let refused = refused_of(row)?;
-    let acknowledged = match refused {
-        Some(_) => copied_of(row)?,
-        None => None,
-    };
+    let (refused, acknowledged) = refusal_of(row)?;
     let (feature_line, created_at, last_recorded_at) = listed_of(row)?;
     let (status, stop_accepted_seq) = standing_of(row)?;
     Ok(Row {
@@ -147,7 +144,19 @@ fn row_of(row: &rusqlite::Row<'_>, run_id: String, order_at: i64) -> Result<Row,
         folded: folded_of(row)?,
         acknowledged,
         closing: closing_of(row)?,
+        late_tail: crate::summary::late_of(row, 28)?,
     })
+}
+
+/// The row's refusal, and the acknowledgement copied for it where it has
+/// one: an acknowledgement stands only beside a refusal.
+fn refusal_of(row: &rusqlite::Row<'_>) -> Result<(Option<Refused>, Option<Copied>), RowRefusal> {
+    let refused = refused_of(row)?;
+    let acknowledged = match refused {
+        Some(_) => copied_of(row)?,
+        None => None,
+    };
+    Ok((refused, acknowledged))
 }
 
 /// The run's ending as the row states it, where it states one: its word

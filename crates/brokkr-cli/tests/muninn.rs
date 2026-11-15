@@ -366,7 +366,7 @@ fn residual_seq(db: &Path, run_id: &str) -> u64 {
         "stopped",
         "the staged run reaches a hard stop on its residual"
     );
-    let findings = brokkr_view::residual_findings(run_id, &events);
+    let findings = brokkr_view::residual_findings_at(run_id, &events, None);
     assert_eq!(findings.len(), 1, "one high residual, from one ruling");
     findings[0].seq
 }
