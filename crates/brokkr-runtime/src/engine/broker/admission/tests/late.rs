@@ -34,6 +34,7 @@ use crate::engine::broker::root::{Step, PRIOR};
 pub(super) enum Late {
     Sleep(Duration),
     Unstage,
+    FailStaged,
     UnstageSuperseded,
     Occupy,
     Remove,
@@ -43,6 +44,8 @@ pub(super) enum Late {
     RemoveCommitted,
     ReplaceCommitted,
     CutUndo,
+    FailLinked,
+    FailRestored,
     FailExchanged,
     SleepCommitted(Duration),
     FailCommitted,
@@ -72,6 +75,11 @@ pub(super) fn late(step: Step, dir: &OwnedFd, staged: &str) -> std::io::Result<(
         (Step::Staged, Some(Late::Unstage)) => {
             rustix::fs::unlinkat(dir, staged, AtFlags::empty()).unwrap()
         }
+        (Step::Staged, Some(Late::FailStaged)) => {
+            return Err(std::io::Error::other(
+                "the staged copy could not be written",
+            ))
+        }
         (Step::Staged, Some(Late::UnstageSuperseded)) if staged.starts_with("superseded-") => {
             rustix::fs::unlinkat(dir, staged, AtFlags::empty()).unwrap()
         }
@@ -91,11 +99,25 @@ pub(super) fn late(step: Step, dir: &OwnedFd, staged: &str) -> std::io::Result<(
         (Step::Linked, Some(Late::RemoveLinked)) => {
             rustix::fs::unlinkat(dir, staged, AtFlags::empty()).unwrap()
         }
+        // The link of the record that stood made, and the step that proves
+        // it failed: nothing is exchanged (#440 fix round 440d6).
+        (Step::Linked, Some(Late::FailLinked)) => {
+            return Err(std::io::Error::other(
+                "the linked record could not be proven",
+            ))
+        }
         // A restore's last point before its exchange: the name is removed,
         // so the exchange must meet it gone and write nothing (#440 fix
         // round 440d6).
         (Step::Restored, Some(Late::RemoveRestored)) => {
             rustix::fs::unlinkat(dir, staged, AtFlags::empty()).unwrap()
+        }
+        // The restore's link of the record that stood made, and the step
+        // that proves it failed: nothing is exchanged (#440 fix round 440d6).
+        (Step::Restored, Some(Late::FailRestored)) => {
+            return Err(std::io::Error::other(
+                "the restored record could not be proven",
+            ))
         }
         // After a reseal's exchange: the name is removed, and the sync that
         // follows fails, so the undo must not write the old record back
@@ -197,27 +219,82 @@ thread_local! {
     pub(super) static SWAPS: Cell<usize> = const { Cell::new(0) };
 }
 
-/// Production's exchange for the first swap on this thread, and `EINVAL`
-/// after it: a reseal whose foreign file cannot be exchanged back, which is
-/// what its swap after the proof must handle (decision 0108 ruling 3, #440
-/// fix round 440d6).
-pub(super) fn failing_second_exchange(
+/// How many exchanges [`failing_second_exchange`] has made on this thread.
+pub(super) fn swaps() -> usize {
+    SWAPS.with(|swaps| {
+        let next = swaps.get() + 1;
+        swaps.set(next);
+        next
+    })
+}
+
+/// Production's exchange for the first swap on this thread, and `after` for
+/// every later one: a reseal whose proof fails must handle a swap it cannot
+/// make (decision 0108 ruling 3, #440 fix round 440d6).
+fn after_first(
     one: &std::os::fd::OwnedFd,
     a: &str,
     two: &std::os::fd::OwnedFd,
     b: &str,
+    after: fn(
+        &std::os::fd::OwnedFd,
+        &str,
+        &std::os::fd::OwnedFd,
+        &str,
+    ) -> Result<(), rustix::io::Errno>,
 ) -> Result<(), rustix::io::Errno> {
-    let swaps = SWAPS.with(|swaps| {
-        let next = swaps.get() + 1;
-        swaps.set(next);
-        next
-    });
-    if swaps == 1 {
-        rustix::fs::renameat_with(one, a, two, b, rustix::fs::RenameFlags::EXCHANGE)
-    } else {
-        Err(rustix::io::Errno::INVAL)
+    if swaps() == 1 {
+        return rustix::fs::renameat_with(one, a, two, b, rustix::fs::RenameFlags::EXCHANGE);
     }
+    after(one, a, two, b)
 }
+
+/// A directory in place of the record's name: both the exchange back and
+/// the plain rename of a planted file fail.
+fn name_a_directory(
+    _: &std::os::fd::OwnedFd,
+    _: &str,
+    two: &std::os::fd::OwnedFd,
+    b: &str,
+) -> Result<(), rustix::io::Errno> {
+    let _ = rustix::fs::unlinkat(two, b, AtFlags::empty());
+    let _ = rustix::fs::mkdirat(two, b, rustix::fs::Mode::RWXU);
+    Err(rustix::io::Errno::INVAL)
+}
+
+/// A directory in place of the staged name: both fail while the name still
+/// holds this seal's successor.
+fn staged_a_directory(
+    one: &std::os::fd::OwnedFd,
+    a: &str,
+    _: &std::os::fd::OwnedFd,
+    _: &str,
+) -> Result<(), rustix::io::Errno> {
+    let _ = rustix::fs::unlinkat(one, a, AtFlags::empty());
+    let _ = rustix::fs::mkdirat(one, a, rustix::fs::Mode::RWXU);
+    Err(rustix::io::Errno::INVAL)
+}
+
+/// One exchange seam: production's swap for the first call on this thread,
+/// and `$after` for every later one.
+macro_rules! seam {
+    ($name:ident, $after:expr) => {
+        pub(super) fn $name(
+            one: &std::os::fd::OwnedFd,
+            a: &str,
+            two: &std::os::fd::OwnedFd,
+            b: &str,
+        ) -> Result<(), rustix::io::Errno> {
+            after_first(one, a, two, b, $after)
+        }
+    };
+}
+
+seam!(failing_second_exchange, |_, _, _, _| Err(
+    rustix::io::Errno::INVAL
+));
+seam!(failing_second_exchange_over_the_name, name_a_directory);
+seam!(failing_second_exchange_over_the_staged, staged_a_directory);
 
 /// [`failing_second_exchange`] counts from one again.
 pub(super) fn swaps_again() {

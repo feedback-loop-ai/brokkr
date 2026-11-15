@@ -63,23 +63,24 @@ fn record_at(
 /// standing takes, so a record gone when its exchange runs is refused and
 /// never made again, and a record another writer put in its place is not
 /// replaced either ([`Root::reseal`]; decision 0108 ruling 3, #440 fix
-/// rounds 440d5 and 440d6). `read` is the record the path itself read; the
-/// one at the name must still be it. Its caller holds the admission lock,
+/// rounds 440d5 and 440d6). `expected` is the record the path itself read;
+/// the one at the name must still be it, and the bytes read are the ones
+/// its undo and the next seal's restore compare. Its caller holds the admission lock,
 /// and the exchange closes the window the lock does not: an unlink from
 /// outside the broker.
 pub(in crate::engine::broker) fn resealed(
     root: &Root,
     reservation: &Reservation,
-    read: &Reservation,
+    expected: &Reservation,
     budget: &Budget,
 ) -> Result<Commit, Unknown> {
     let (run, at) = record_at(root, reservation)?;
     let refused = || Unknown::Participant(at.join(RESERVATION));
-    let (current, stood): (Reservation, Record) = identified(&run, RESERVATION, &at)?;
-    (current == *read).then_some(()).ok_or_else(refused)?;
+    let (current, stood, read): (Reservation, Record, Vec<u8>) =
+        identified(&run, RESERVATION, &at)?;
+    (current == *expected).then_some(()).ok_or_else(refused)?;
     let bytes = serde_json::to_vec(reservation).or(Err(Unknown::Unsealed))?;
-    let stood_bytes = serde_json::to_vec(read).or(Err(Unknown::Unsealed))?;
-    root.reseal(&run, RESERVATION, &bytes, budget, &stood, &stood_bytes)
+    root.reseal(&run, RESERVATION, &bytes, budget, &stood, &read)
 }
 
 /// `reservation` sealed in its run's directory below `root`, making the

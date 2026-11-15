@@ -90,7 +90,9 @@ pub(super) type Identity = (u64, u64);
 /// reuses a freed inode at once, which ext4 does.
 #[derive(Debug)]
 pub(super) struct Record {
-    pub(super) file: OwnedFd,
+    /// The descriptor holds the inode open until the proof, so the
+    /// filesystem cannot free and reuse its number under the name.
+    pub(super) _file: OwnedFd,
     pub(super) id: Identity,
 }
 
@@ -110,12 +112,13 @@ fn exchanged(dir: &OwnedFd, one: &str, other: &OwnedFd, two: &str) -> Result<(),
 
 /// Whether a seal may make the record it writes where none stands: a first
 /// seal does, and a reseal of a record that must still stand never does, so
-/// a removal inside its window is refused rather than written back
-/// (decision 0108 ruling 3, #440 fix round 440d5).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Make {
+/// a removal inside its window is refused rather than written back. A
+/// reseal carries the record it read and holds open, so the pairing is the
+/// type's (decision 0108 ruling 3, #440 fix round 440d5).
+#[derive(Debug, Clone, Copy)]
+enum Make<'a> {
     May,
-    Never,
+    Never(&'a Record),
 }
 
 /// What a seal that committed reports (R1 of U8a2a's fourth run, fixed by
@@ -325,8 +328,7 @@ impl Root {
             budget,
             hook: self.hook,
             exchange: self.exchange,
-            make: Make::Never,
-            stood: Some(stood),
+            make: Make::Never(stood),
             read,
         })
     }
@@ -492,22 +494,32 @@ pub(super) fn read<T: DeserializeOwned>(
     name: &str,
     at: &Path,
 ) -> Result<T, Unknown> {
-    identified(dir, name, at).map(|(record, _)| record)
+    identified(dir, name, at).map(|(record, _, _)| record)
 }
 
-/// [`read`], with the very file it read kept open: what a reseal proves the
-/// record it replaces still is, and why a freed inode number cannot be
-/// reused under its name before the proof (decision 0108 ruling 3, #440 fix
-/// rounds 440d5 and 440d6).
+/// [`read`], with the very file it read kept open and its own bytes: what a
+/// reseal proves the record it replaces still is, why a freed inode number
+/// cannot be reused under its name before the proof, and the record's bytes
+/// as it stood, which its undo and the next seal's restore compare against
+/// (decision 0108 ruling 3, #440 fix rounds 440d5 and 440d6). The bytes are
+/// the file's own, not a re-serialisation, so a record another build wrote
+/// in another byte form still restores (run four's review, S7).
 pub(super) fn identified<T: DeserializeOwned>(
     dir: &OwnedFd,
     name: &str,
     at: &Path,
-) -> Result<(T, Record), Unknown> {
+) -> Result<(T, Record, Vec<u8>), Unknown> {
     let refused = || Unknown::Participant(at.join(name));
     let (bytes, held) = bytes_identified(dir, name, at)?;
     let record = serde_json::from_slice(&bytes).or(Err(refused()))?;
-    Ok((record, held))
+    Ok((record, held, bytes))
+}
+
+/// Whether `name` itself stands in `dir`: a record's name, never its prior
+/// name, which a seal not yet final leaves behind (decision 0108 ruling 3,
+/// #440 fix round 440d6).
+pub(super) fn present(dir: &OwnedFd, name: &str) -> bool {
+    regular_at(dir, name).is_some()
 }
 
 /// The bytes of the record `name` in the directory `dir` at `at`, as it
@@ -534,7 +546,7 @@ fn bytes_identified(dir: &OwnedFd, name: &str, at: &Path) -> Result<(Vec<u8>, Re
         .then_some((
             bytes,
             Record {
-                file: held.into(),
+                _file: held.into(),
                 id: (found.dev(), found.ino()),
             },
         ))

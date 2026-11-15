@@ -49,7 +49,7 @@ pub use super::conflict::Conflict;
 use super::exclusion::{compared, staked, Comparison};
 use super::historical::{recorded, superseded::superseded};
 use super::inventory::{inventory, Budget};
-use super::root::{identified, locked, read, Commit, Record, Root};
+use super::root::{identified, locked, present, read, Commit, Record, Root};
 use super::settlement::{keyed, recovered, reserved_in, unchanged, Driver};
 use super::sources::{records_unopened, unserved, Served, Unroutable};
 use super::{startup, Observed};
@@ -666,6 +666,12 @@ pub(in crate::engine) fn recheck(held: &Held) -> Result<(), Unadmitted> {
         let deadline = startup(Instant::now(), Duration::MAX);
         let _lock = locked(held.coordination.dir(), deadline)?;
         let (run, at) = reserved_at(held)?;
+        // The record's own name, never a prior name left beside one a hand
+        // removed: a lease that is gone is lost, as the inventory reads the
+        // same state (decision 0108 ruling 3, #440 fix round 440d6).
+        present(&run, RESERVATION)
+            .then_some(())
+            .ok_or(Unknown::Lost)?;
         read(&run, RESERVATION, &at).or(Err(Unknown::Lost))?
     };
     let ours = (standing.repo == held.repo) & (standing.run == held.run);
@@ -731,8 +737,8 @@ pub(super) fn amend(
 ) -> Result<Commit, Unadmitted> {
     let _lock = locked(held.coordination.dir(), deadline)?;
     let (run, at) = reserved_at(held)?;
-    let (reservation, stood): (Reservation, Record) = identified(&run, RESERVATION, &at)?;
-    let read = serde_json::to_vec(&reservation).or(Err(Unknown::Unsealed))?;
+    let (reservation, stood, read): (Reservation, Record, Vec<u8>) =
+        identified(&run, RESERVATION, &at)?;
     let budget = Budget::new(deadline);
     let amended = amended(reservation)?;
     Ok(sealed(

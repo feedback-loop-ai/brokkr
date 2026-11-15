@@ -52,8 +52,7 @@ pub(super) struct Sheet<'a> {
     pub(super) budget: &'a Budget,
     pub(super) hook: Hook,
     pub(super) exchange: Exchange,
-    pub(super) make: Make,
-    pub(super) stood: Option<&'a Record>,
+    pub(super) make: Make<'a>,
     pub(super) read: &'a [u8],
 }
 
@@ -102,7 +101,6 @@ pub(in crate::engine::broker) fn seal_with(
         hook,
         exchange,
         make: Make::May,
-        stood: None,
         read: &[],
     })
 }
@@ -128,17 +126,13 @@ pub(super) fn seal_made(write: Sheet<'_>) -> Result<Commit, Unknown> {
             return Err(refused);
         }
     };
-    let made = write
-        .budget
-        .check()
-        .and_then(|()| commit(&seal, write.make, write.stood));
-    let stood = match made {
-        Ok(stood) => stood,
-        Err(refused) => {
-            let _ = unlinkat(write.dir, seal.staged.as_str(), AtFlags::empty());
-            return Err(refused);
-        }
-    };
+    if let Err(refused) = write.budget.check() {
+        let _ = unlinkat(write.dir, seal.staged.as_str(), AtFlags::empty());
+        return Err(refused);
+    }
+    // A commit that fails cleans up the staged copy it still owns; one that
+    // leaves a hand's file under that name keeps it there.
+    let stood = commit(&seal, write.make, &written)?;
     let synced = (seal.hook)(Step::Committed, write.dir, &seal.staged)
         .and_then(|()| fsync(write.dir).map_err(std::io::Error::from));
     let durable = (synced.or(Err(Unknown::Unsealed))).and_then(|()| write.budget.check());
@@ -149,7 +143,7 @@ pub(super) fn seal_made(write: Sheet<'_>) -> Result<Commit, Unknown> {
     if !stood {
         return Ok(Commit::Synced);
     }
-    retired(&seal, &written)
+    retired(&seal, &written, write.make)
 }
 
 /// The reseal of `name` in `dir`, exchanged in and synced, committed by
@@ -158,7 +152,7 @@ pub(super) fn seal_made(write: Sheet<'_>) -> Result<Commit, Unknown> {
 /// directory is then synced. One late or whose prior name cannot be
 /// removed is undone ([`undone`]) and refused, the record that stood still
 /// what every read finds.
-fn retired(seal: &Seal<'_>, written: &Record) -> Result<Commit, Unknown> {
+fn retired(seal: &Seal<'_>, written: &Record, make: Make<'_>) -> Result<Commit, Unknown> {
     let prior = seal.prior();
     let retiring = ((seal.hook)(Step::Retiring, seal.dir, seal.name).or(Err(Unknown::Unsealed)))
         .and_then(|()| seal.budget.check())
@@ -166,7 +160,7 @@ fn retired(seal: &Seal<'_>, written: &Record) -> Result<Commit, Unknown> {
             unlinkat(seal.dir, prior.as_str(), AtFlags::empty()).or(Err(Unknown::Unsealed))
         });
     if let Err(refused) = retiring {
-        let undone = undone(seal, true, written, Make::Never);
+        let undone = undone(seal, true, written, make);
         return Err(undone.map_or(Unknown::Unsealed, |()| refused));
     }
     // Committed: its successor alone is the record, as every read finds it.
@@ -190,7 +184,7 @@ fn staged_as(seal: &Seal<'_>, bytes: &[u8]) -> Result<Record, Unknown> {
         .and_then(|()| (seal.hook)(Step::Staged, seal.dir, staged));
     written.or(Err(Unknown::Unsealed))?;
     Ok(Record {
-        file: held.into(),
+        _file: held.into(),
         id: (found.dev(), found.ino()),
     })
 }
@@ -207,7 +201,7 @@ fn staged_as(seal: &Seal<'_>, bytes: &[u8]) -> Result<Record, Unknown> {
 /// file was planted at the name, and the exchange is put back and the seal
 /// refused (decision 0108 ruling 3, #440 fix round 440d6). Whether one
 /// stood.
-fn commit(seal: &Seal<'_>, make: Make, stood: Option<&Record>) -> Result<bool, Unknown> {
+fn commit(seal: &Seal<'_>, make: Make<'_>, written: &Record) -> Result<bool, Unknown> {
     let prior = seal.prior();
     let linked = linkat(
         seal.dir,
@@ -219,7 +213,10 @@ fn commit(seal: &Seal<'_>, make: Make, stood: Option<&Record>) -> Result<bool, U
     let has = match (linked, make) {
         (Ok(()), _) => true,
         (Err(Errno::NOENT), Make::May) => false,
-        (Err(_), _) => return Err(Unknown::Unsealed),
+        (Err(_), _) => {
+            let _ = unlinkat(seal.dir, seal.staged.as_str(), AtFlags::empty());
+            return Err(Unknown::Unsealed);
+        }
     };
     match make {
         Make::May => {
@@ -227,12 +224,12 @@ fn commit(seal: &Seal<'_>, make: Make, stood: Option<&Record>) -> Result<bool, U
             if renamed.is_err() & has {
                 let _ = unlinkat(seal.dir, prior.as_str(), AtFlags::empty());
             }
+            if renamed.is_err() {
+                let _ = unlinkat(seal.dir, seal.staged.as_str(), AtFlags::empty());
+            }
             renamed.map(|()| has).or(Err(Unknown::Unsealed))
         }
-        Make::Never => {
-            let stood = stood.ok_or(Unknown::Unsealed)?;
-            exchanged_in(seal, stood).map(|()| has)
-        }
+        Make::Never(stood) => exchanged_in(seal, stood, written).map(|()| has),
     }
 }
 
@@ -244,7 +241,7 @@ fn commit(seal: &Seal<'_>, make: Make, stood: Option<&Record>) -> Result<bool, U
 /// name is exchanged back and refused; a filesystem without an exchange
 /// refuses with [`Unknown::Exchange`]. Once the proof holds, the old record
 /// keeps only its prior name until [`retired`] removes it.
-fn exchanged_in(seal: &Seal<'_>, stood: &Record) -> Result<(), Unknown> {
+fn exchanged_in(seal: &Seal<'_>, stood: &Record, written: &Record) -> Result<(), Unknown> {
     let prior = seal.prior();
     if (seal.hook)(Step::Linked, seal.dir, seal.name).is_err() {
         let _ = unlinkat(seal.dir, prior.as_str(), AtFlags::empty());
@@ -259,34 +256,44 @@ fn exchanged_in(seal: &Seal<'_>, stood: &Record) -> Result<(), Unknown> {
             return Err(exchange_error(error));
         }
     }
-    let held = std::fs::File::from(stood.file.try_clone().or(Err(Unknown::Unsealed))?);
-    let held = held.metadata().or(Err(Unknown::Unsealed))?;
-    let held = (held.dev(), held.ino());
-    let ours = (held == stood.id)
-        & regular_at(seal.dir, seal.staged.as_str()).is_some_and(|(_, _, id)| id == held);
+    // The held descriptor keeps the record's inode from being freed and
+    // reused, so the staged name's identity alone proves it is that record.
+    let ours = regular_at(seal.dir, seal.staged.as_str()).is_some_and(|(_, _, id)| id == stood.id);
     if ours {
         // The record that stood keeps only its prior name until retirement.
         let _ = unlinkat(seal.dir, seal.staged.as_str(), AtFlags::empty());
         return Ok(());
     }
     // A foreign file was planted at the name. Swap it back; where even that
-    // fails, a plain rename puts it back without making a name, and where
-    // that fails too both names are left as the exchange left them.
-    put_foreign_back(seal, &prior);
+    // fails, a plain rename puts it back without making a name. Where both
+    // fail it stays under the staged name, and this seal's successor is
+    // removed rather than left as the record.
+    put_foreign_back(seal, &prior, written);
     Err(Unknown::Unsealed)
 }
 
 /// The file the exchange put under the staged name, which is not the record
 /// the reseal read, put back at `name`: by the exchange, else by a rename
 /// that makes no name. The record that stood is removed either way, for the
-/// removal or replacement that met it stands.
-fn put_foreign_back(seal: &Seal<'_>, prior: &str) {
+/// removal or replacement that met it stands. Where neither put-back can
+/// run, the planted file stays under the staged name and this seal's own
+/// successor is removed: a refused seal never leaves a record standing.
+fn put_foreign_back(seal: &Seal<'_>, prior: &str, written: &Record) {
     let (dir, staged, name) = (seal.dir, seal.staged.as_str(), seal.name);
-    if (seal.exchange)(dir, staged, dir, name).is_err() {
-        let _ = renameat(dir, staged, dir, name);
+    let put_back =
+        (seal.exchange)(dir, staged, dir, name).is_ok() || renameat(dir, staged, dir, name).is_ok();
+    // Where neither puts the planted file back, it stays under the staged
+    // name, and this seal's own successor is removed rather than left as
+    // the record: a refusal must never make a record. A file a hand made at
+    // the name is not this seal's and stays.
+    let ours = || regular_at(dir, name).is_some_and(|(_, _, id)| id == written.id);
+    if !put_back && ours() {
+        let _ = unlinkat(dir, name, AtFlags::empty());
     }
     let _ = unlinkat(dir, prior, AtFlags::empty());
-    let _ = unlinkat(dir, staged, AtFlags::empty());
+    if put_back {
+        let _ = unlinkat(dir, staged, AtFlags::empty());
+    }
 }
 
 /// A seal that failed or ran late after its commit, undone: the record
@@ -298,12 +305,12 @@ fn put_foreign_back(seal: &Seal<'_>, prior: &str) {
 /// filesystem without an exchange still undoes what it may create
 /// (decision 0108 ruling 3, M3 amended). Why not, where any of that fails:
 /// the record that stood is then still under its prior name.
-fn undone(seal: &Seal<'_>, stood: bool, written: &Record, make: Make) -> std::io::Result<()> {
+fn undone(seal: &Seal<'_>, stood: bool, written: &Record, make: Make<'_>) -> std::io::Result<()> {
     let prior = seal.prior();
     match (make, stood) {
         (Make::May, true) => put_made_back(seal, &prior, written)?,
         (Make::May, false) => remove_made(seal, written)?,
-        (Make::Never, _) => put_stood_back(seal, &prior, written)?,
+        (Make::Never(_), _) => put_stood_back(seal, &prior, written)?,
     }
     let _ = unlinkat(seal.dir, seal.staged.as_str(), AtFlags::empty());
     (seal.hook)(Step::Undone, seal.dir, seal.name)?;
@@ -358,10 +365,6 @@ fn put_stood_back(seal: &Seal<'_>, prior: &str, written: &Record) -> std::io::Re
         let _ = unlinkat(dir, prior, AtFlags::empty());
         let _ = unlinkat(dir, staged, AtFlags::empty());
     };
-    if regular_at(dir, name).is_none() {
-        gone();
-        return Ok(());
-    }
     let _ = unlinkat(dir, staged, AtFlags::empty());
     linkat(dir, prior, dir, staged, AtFlags::empty()).map_err(std::io::Error::from)?;
     match (seal.exchange)(dir, staged, dir, name) {
@@ -369,7 +372,7 @@ fn put_stood_back(seal: &Seal<'_>, prior: &str, written: &Record) -> std::io::Re
             (seal.hook)(Step::Exchanged, dir, name)?;
             let ours = regular_at(dir, staged).is_some_and(|(_, _, id)| id == written.id);
             if !ours {
-                put_foreign_back(seal, prior);
+                put_foreign_back(seal, prior, written);
                 return Err(std::io::Error::other(
                     "the name holds a file this seal did not write",
                 ));
@@ -396,14 +399,14 @@ fn put_stood_back(seal: &Seal<'_>, prior: &str, written: &Record) -> std::io::Re
 /// name. The record that stood is told from a successor left by a reseal
 /// cut short by its own bytes (`read`). Nothing where no prior name stands;
 /// refused where it cannot be undone.
-fn restored(seal: &Seal<'_>, make: Make, read: &[u8]) -> Result<(), Unknown> {
+fn restored(seal: &Seal<'_>, make: Make<'_>, read: &[u8]) -> Result<(), Unknown> {
     let Some((prior, kept)) = cut_short(seal) else {
         let _ = unlinkat(seal.dir, seal.staged.as_str(), AtFlags::empty());
         return Ok(());
     };
     match make {
         Make::May => restored_made(seal, &prior, kept),
-        Make::Never => restored_stood(seal, read, &prior, kept),
+        Make::Never(_) => restored_stood(seal, read, &prior),
     }
 }
 
@@ -440,17 +443,11 @@ fn restored_made(seal: &Seal<'_>, prior: &str, kept: Identity) -> Result<(), Unk
 /// holding a successor (an undo cut short after its exchange) is removed,
 /// never exchanged in: the record that stood is the one whose own bytes
 /// `read` names. A name holding neither refuses, leaving both as they are.
-fn restored_stood(
-    seal: &Seal<'_>,
-    read: &[u8],
-    prior: &str,
-    kept: Identity,
-) -> Result<(), Unknown> {
+fn restored_stood(seal: &Seal<'_>, read: &[u8], prior: &str) -> Result<(), Unknown> {
     let (dir, staged, name) = (seal.dir, seal.staged.as_str(), seal.name);
     let named = regular_at(dir, name);
-    let stands = named.as_ref().is_some_and(|(_, _, id)| *id == kept);
     let reads = |at: &str| bytes_at(dir, at).is_some_and(|bytes| bytes == read);
-    if named.is_none() || stands || reads(name) {
+    if named.is_none() || reads(name) {
         // The name is gone, or holds the record that stood already: a
         // successor left under the prior name goes, and nothing is written.
         let _ = unlinkat(dir, prior, AtFlags::empty());
