@@ -143,11 +143,11 @@ fn a_text_value_that_is_not_utf8_is_the_probes_one_blind_spot() {
 
 #[test]
 fn the_hard_stop_statement_is_byte_identical() {
-    let sql = super::super::runs_statement("");
+    let sql = super::super::runs_statement("", true);
     assert_eq!(
         sha256_bytes(sql.as_bytes()),
-        "f78baabfd200baa1cc6692ce1bf1c6a04072cca67f697df152aafce354c2347e",
-        "the statement is the one before this unit, byte for byte"
+        "bbdd0c051005443f266f65ce860837fb646aafa317e5be5e07d106cc7f2b2ced",
+        "the statement is this unit's, byte for byte"
     );
 }
 

@@ -4,6 +4,8 @@
 //! it folds through, and the parks' ranges held to the window alone by their
 //! VM steps.
 
+mod caller;
+mod exclusion;
 mod probe;
 
 use brokkr_core::canonical::ZERO_HASH;
@@ -221,14 +223,34 @@ fn finished_in(run: &OwnedRun, from: i64, to: i64) -> bool {
 }
 
 /// The window's durations, as the read hands them back.
-fn durations(store: &Store, from: i64, to: i64, realm: Option<&str>) -> Vec<(Option<String>, i64)> {
+fn durations(store: &Store, from: i64, to: i64) -> Vec<(Option<String>, i64)> {
     let mut spans = Vec::new();
     store
-        .durations(from, to, realm, |realm, span| {
+        .durations(from, to, |realm, span| {
             spans.push((realm.map(str::to_string), span))
         })
         .unwrap();
     spans
+}
+
+/// The preceding window's shipped counts, one group a stored realm key.
+fn finished_groups(store: &Store, from: i64, to: i64) -> Vec<(Option<String>, u64)> {
+    let mut groups = Vec::new();
+    store
+        .finished_between(from, to, |realm, count| {
+            groups.push((realm.map(str::to_string), count))
+        })
+        .unwrap();
+    groups
+}
+
+/// The preceding window's shipped count, all realms summed: the figure a
+/// caller that names every NULL realm and keeps every group reads.
+fn shipped_count(store: &Store, from: i64, to: i64) -> u64 {
+    finished_groups(store, from, to)
+        .into_iter()
+        .map(|(_, count)| count)
+        .sum()
 }
 
 /// Every run's events, once the store has read it, or `None` where it does
@@ -293,10 +315,11 @@ fn compare_windows(
                 "{from}..{to} {realm:?}"
             );
 
+            let by_realm = |named: &Option<String>| realm.is_none() || named.as_deref() == realm;
             let mut spans: Vec<(Option<String>, i64)> = expected
                 .iter()
                 .map(|(run, _)| run)
-                .filter(|run| run.realm.as_deref() == realm || realm.is_none())
+                .filter(|run| by_realm(&run.realm))
                 .filter_map(|run| {
                     let finished = run.finished_ms?;
                     (finished >= from && finished < to).then(|| {
@@ -307,24 +330,27 @@ fn compare_windows(
                     })
                 })
                 .collect();
-            let mut read_spans = durations(store, from, to, realm);
+            let mut read_spans: Vec<(Option<String>, i64)> = durations(store, from, to)
+                .into_iter()
+                .filter(|(named, _)| by_realm(named))
+                .collect();
             spans.sort();
             read_spans.sort();
             assert_eq!(read_spans, spans, "durations {from}..{to} {realm:?}");
-            let wanted_count = expected
-                .iter()
-                .map(|(run, _)| run)
-                .filter(|run| in_realm(run, realm) && finished_in(run, from, to))
-                .filter(|run| {
-                    run.ending
-                        .is_some_and(|ending| ending.status() == Status::Completed)
-                })
-                .count() as u64;
-            assert_eq!(
-                store.finished_between(from, to, realm).unwrap(),
-                wanted_count,
-                "finished_between {from}..{to} {realm:?}"
-            );
+            let mut wanted: BTreeMap<Option<String>, u64> = BTreeMap::new();
+            for run in expected.iter().map(|(run, _)| run) {
+                let ships = run
+                    .ending
+                    .is_some_and(|ending| ending.status() == Status::Completed);
+                if ships && by_realm(&run.realm) && finished_in(run, from, to) {
+                    *wanted.entry(run.realm.clone()).or_default() += 1;
+                }
+            }
+            let read: BTreeMap<Option<String>, u64> = finished_groups(store, from, to)
+                .into_iter()
+                .filter(|(named, _)| by_realm(named))
+                .collect();
+            assert_eq!(read, wanted, "finished_between {from}..{to} {realm:?}");
         }
     }
 }
@@ -674,11 +700,14 @@ fn the_previous_count_counts_only_shipped_runs() {
         ],
         "both runs finished in the window, and only one shipped"
     );
-    assert_eq!(store.finished_between(from, to, None).unwrap(), 1);
-    assert_eq!(store.finished_between(from, to, Some("realm")).unwrap(), 1);
+    assert_eq!(shipped_count(&store, from, to), 1);
+    assert_eq!(
+        finished_groups(&store, from, to),
+        [(Some("realm".to_string()), 1)]
+    );
 
     // The medians still measure every finished run, shipped or not.
-    let mut spans = durations(&store, from, to, None);
+    let mut spans = durations(&store, from, to);
     spans.sort();
     assert_eq!(
         spans,
@@ -778,9 +807,8 @@ fn a_behind_run_is_not_counted_or_measured() {
         window_runs(&store, from, to, RunOrder::Unordered, None),
         Vec::new()
     );
-    assert_eq!(store.finished_between(from, to, None).unwrap(), 0);
-    assert_eq!(store.finished_between(from, to, Some("realm")).unwrap(), 0);
-    let spans = durations(&store, from, to, None);
+    assert_eq!(shipped_count(&store, from, to), 0);
+    let spans = durations(&store, from, to);
     assert!(spans.is_empty(), "{spans:?}");
 }
 
@@ -885,6 +913,15 @@ fn each_readiness_check_refuses_on_its_own() {
 fn class_63_saturates_and_an_open_park_reads_as_now() {
     let (_dir, store) = store();
     crate::test_support::plant_run(&store.conn, "r", "{}").unwrap();
+    crate::test_support::settle_summary(&store.conn, "r", ZERO_HASH);
+    store
+        .conn
+        .execute(
+            "INSERT OR REPLACE INTO seat_head (run_id, folded_seq, folded_hash, shape)
+             VALUES ('r', 0, ?1, ?2)",
+            params![ZERO_HASH, SHAPE.as_str()],
+        )
+        .unwrap();
     let planted = |seq, phase, at, answered, ended, class| ParkRow {
         seq,
         phase,
@@ -1003,8 +1040,8 @@ fn every_aggregate_read_is_indexed() {
     ] {
         let plan = explain(
             &store,
-            runs_sql(order),
-            params_from_iter(run_bounds(0, 1, None)),
+            runs_sql(order, true),
+            params_from_iter(bounds(0, 1, None)),
         );
         assert!(
             plan.iter().any(|step| step.contains(index)),
@@ -1019,10 +1056,10 @@ fn every_aggregate_read_is_indexed() {
     assert!(plan.iter().any(|step| step.contains("run_summary_page")));
     assert!(!plan.iter().any(|step| step.starts_with("SCAN run_summary")));
     for (sql, index) in [
-        (&COUNT_FINISHED, "run_summary_finished"),
-        (&DURATIONS, "run_summary_finished"),
+        (finished_sql(true), "run_summary_finished"),
+        (durations_sql(true), "run_summary_finished"),
     ] {
-        let plan = explain(&store, sql, params![0, 1, None::<&str>]);
+        let plan = explain(&store, sql, params![0, 1, SHAPE.as_str()]);
         assert!(plan.iter().any(|step| step.contains(index)), "{plan:?}");
         assert!(
             !plan.iter().any(|step| step.starts_with("SCAN run_summary")),
@@ -1038,7 +1075,7 @@ fn every_aggregate_read_is_indexed() {
     );
     let taken = explain(
         &store,
-        &PARK_SQL,
+        park_sql(true),
         params_from_iter(park_bounds(0, 1, 2, None)),
     );
     assert_eq!(
@@ -1057,21 +1094,21 @@ fn every_aggregate_read_is_indexed() {
         64,
         "each arm joins the run summary by its key: {taken:?}"
     );
-    assert_eq!(
+    assert!(
         taken
             .iter()
             .filter(|step| step.starts_with("SCAN "))
-            .map(String::as_str)
-            .collect::<Vec<_>>(),
-        ["SCAN parks"],
-        "only the materialized CTE is scanned: {taken:?}"
+            .all(
+                |step| ["SCAN parks", "SCAN seat_lag", "SCAN l"].contains(&step.as_str())
+                    || step.contains("USING INDEX seat_head_shape")
+                    || step.contains("USING INDEX event_index_checkpoint_stale")
+            ),
+        "only the set's tables and the materialized CTEs are scanned: {taken:?}"
     );
-    assert_eq!(
+    assert!(
         taken
             .iter()
-            .filter(|step| step.contains("USE TEMP B-TREE FOR ORDER BY"))
-            .count(),
-        1,
+            .any(|step| step.contains("USE TEMP B-TREE FOR ORDER BY")),
         "{taken:?}"
     );
 }
@@ -1675,11 +1712,19 @@ fn a_refused_or_acknowledged_run_contributes_no_aggregate_row() {
     let present = |store: &Store| {
         (
             window_runs(store, 0, i64::MAX, RunOrder::Unordered, None).len(),
-            store.finished_between(0, i64::MAX, None).unwrap(),
-            durations(store, 0, i64::MAX, None).len(),
+            shipped_count(store, 0, i64::MAX),
+            durations(store, 0, i64::MAX).len(),
             window_parks(store, FROM, TO, TO, None).len(),
         )
     };
+    store
+        .conn
+        .execute(
+            "INSERT OR REPLACE INTO seat_head (run_id, folded_seq, folded_hash, shape)
+             SELECT 'r', head_seq, head_hash, ?1 FROM run_summary WHERE run_id = 'r'",
+            [SHAPE.as_str()],
+        )
+        .unwrap();
     assert_eq!(present(&store), (1, 1, 1, 1), "the folded run is read");
     for (acknowledged, word) in [(0, "refused"), (1, "acknowledged")] {
         store

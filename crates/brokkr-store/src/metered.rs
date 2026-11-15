@@ -35,9 +35,12 @@
 //! never over the window, so a window holding only some of its checkpoints
 //! never reads both a turn and the session record that settles it.
 //!
-//! The reads have no production caller until slice 4's unit U4 lands them
-//! in `brokkr-cli`; they are `pub` on [`Store`] so it can, and each is in
-//! the public API snapshot until then.
+//! Every window statement leaves out, in SQL, the runs the whole read
+//! takes, through the `exclusion` module's one fragment, so a caller
+//! streams without a Rust set of run ids. Their caller is slice 4's
+//! unit U5b2, the streamed row source; until it lands, the tests alone
+//! call them. They are `pub` on [`Store`] so it can, and each is in the
+//! public API snapshot until then.
 
 use std::sync::LazyLock;
 
@@ -47,10 +50,10 @@ use brokkr_core::seat::{finish_usage, TokenUsage};
 use rusqlite::types::Value;
 use rusqlite::{params_from_iter, Row, StatementStatus};
 
-use crate::aggregate::{optional_text, required_text};
-use crate::event_index::{CHECKPOINTED, CHECKPOINT_STALE};
+use crate::aggregate::{bounds, exclusion, optional_text, required_text};
+use crate::event_index::CHECKPOINTED;
 use crate::seat_read::site_of;
-use crate::seat_summary::{lags as seat_lags, stale_intact, stale_runs, SHAPE};
+use crate::seat_summary::{stale_intact, SHAPE};
 use crate::{Store, StoreError};
 
 /// The order a window's sites are folded in (decision 0089 ruling 7): the
@@ -146,7 +149,8 @@ impl Store {
         mut visit: impl FnMut(&WindowSpend<'_>),
         mut stepped: impl FnMut(i64),
     ) -> Result<(), StoreError> {
-        let mut statement = self.conn.prepare(&SPENDS)?;
+        let intact = stale_intact(&self.conn)?;
+        let mut statement = self.conn.prepare(spends_sql(intact))?;
         let bounds = bounds(from, to, realm);
         let mut rows = statement.query(params_from_iter(bounds))?;
         while let Some(row) = rows.next()? {
@@ -194,7 +198,8 @@ impl Store {
         mut visit: impl FnMut(&WindowSite<'_>),
         mut stepped: impl FnMut(i64),
     ) -> Result<(), StoreError> {
-        let mut statement = self.conn.prepare(sites_sql(order))?;
+        let intact = stale_intact(&self.conn)?;
+        let mut statement = self.conn.prepare(sites_sql(order, intact))?;
         let bounds = bounds(from, to, realm);
         let mut rows = statement.query(params_from_iter(bounds))?;
         let mut folded = Folding::default();
@@ -311,17 +316,6 @@ impl Store {
     }
 }
 
-/// The four values every window read binds: the window, the realm key or
-/// NULL for every realm, and this build's seat shape.
-fn bounds(from: i64, to: i64, realm: Option<&str>) -> [Value; 4] {
-    [
-        Value::Integer(from),
-        Value::Integer(to),
-        realm.map_or(Value::Null, |realm| Value::Text(realm.to_string())),
-        Value::Text(SHAPE.to_string()),
-    ]
-}
-
 /// The two values the fallback binds: the realm key or NULL for every
 /// realm, and this build's seat shape.
 fn fallback_bounds(realm: Option<&str>) -> [Value; 2] {
@@ -339,121 +333,67 @@ fn open_lanes() -> String {
         .join(", ")
 }
 
-/// Whether `run`'s seat rows or checkpoint facts are not current (ruling
-/// 8): its seat head lags the summary head it names by the one rule
-/// `seat_summary` keeps, or a checkpoint row's facts are not current by the
-/// one rule `event_index` keeps. A window read leaves such a run whole, so
-/// it never trusts a stale row, and [`Store::window_fallbacks`] names it for
-/// the caller's whole read. `shape` names the bound seat shape.
-fn lags(run: &str, head: &str, shape: &str) -> String {
-    format!(
-        "({} OR EXISTS (SELECT 1 FROM event_index INDEXED BY event_index_checkpoint_stale
-                      WHERE type = '{CHECKPOINTED}' AND run_id = {run}.run_id
-                        AND {CHECKPOINT_STALE}))",
-        seat_lags(run, head, shape)
-    )
-}
+/// The spends' statements, one per arm the open chose: the checkpoint
+/// index's range, each row's run joined by its key, a row no cost reported
+/// left out, and a run the whole read takes left whole (ruling 8; U3c's
+/// R2). The exclusion is [`exclusion`]'s one fragment, so a run the
+/// fallback names is never also served here.
+static SPENDS: LazyLock<[String; 2]> =
+    LazyLock::new(|| [spends_statement(true), spends_statement(false)]);
 
-/// The spends' one statement: the checkpoint index's range, each row's run
-/// joined by its key, a row no cost reported left out, and a run behind its
-/// summary row, refused or acknowledged, or whose projections are not
-/// current left whole (ruling 8; U3c's R2).
-static SPENDS: LazyLock<String> = LazyLock::new(|| {
+fn spends_statement(intact: bool) -> String {
     format!(
-        "SELECT e.run_id, r.realm, e.at_ms, e.phase, e.usd
+        "WITH {whole}
+    SELECT e.run_id, r.realm, e.at_ms, e.phase, e.usd
     FROM event_index AS e INDEXED BY event_index_checkpoint
     JOIN run_summary AS r ON r.run_id = e.run_id
-    LEFT JOIN seat_head AS h ON h.run_id = r.run_id
    WHERE e.type = '{CHECKPOINTED}' AND e.at_ms >= ?1 AND e.at_ms < ?2
-     AND e.usd IS NOT NULL AND {outside} AND NOT {lags}
+     AND e.usd IS NOT NULL AND {outside} AND {not_whole}
      AND (?3 IS NULL OR r.realm = ?3)",
+        whole = exclusion::clause(intact, "?4"),
         outside = crate::aggregate::outside("r."),
-        lags = lags("r", "h", "?4"),
-    )
-});
-
-/// The fallback statements' checkpoint arm: the runs whose checkpoint facts
-/// are not current, read through the stale index's rows alone. Both the
-/// set's statement and the rule's carry it unchanged.
-fn fallback_checkpoints() -> String {
-    format!(
-        "SELECT e.run_id
-           FROM event_index AS e INDEXED BY event_index_checkpoint_stale
-           JOIN run_summary AS r ON r.run_id = e.run_id
-          WHERE e.type = '{CHECKPOINTED}' AND {CHECKPOINT_STALE}
-            AND {outside}
-            AND (?1 IS NULL OR r.realm = ?1)
-          ORDER BY 1",
-        outside = crate::aggregate::outside("r."),
+        not_whole = exclusion::not_whole("r.run_id"),
     )
 }
 
-/// The runs the whole-run fallback reads: every run whose seat rows or
-/// checkpoint facts are not current, each once, store-wide. The seat arm
-/// reads the stale-seat set and the heads of another shape by their
-/// indexes, and the set drives the join (`CROSS JOIN`), so the planner
-/// cannot scan `run_summary` and probe the set instead; the checkpoint arm
-/// reads only the stale index's rows, so neither walks the journal's
-/// current rows.
-static FALLBACKS: LazyLock<String> = LazyLock::new(|| {
-    format!(
-        "SELECT r.run_id
-           FROM ({seat}) AS l CROSS JOIN run_summary AS r ON r.run_id = l.run_id
-          WHERE {outside} AND (?1 IS NULL OR r.realm = ?1)
-         UNION
-         {checkpoint}",
-        outside = crate::aggregate::outside("r."),
-        seat = stale_runs("?2"),
-        checkpoint = fallback_checkpoints(),
-    )
-});
+/// The statement [`Store::window_spends`] prepares for the arm the open
+/// chose.
+fn spends_sql(intact: bool) -> &'static str {
+    SPENDS[usize::from(!intact)].as_str()
+}
 
-/// The fallback for a journal whose stale-seat set is absent or damaged:
-/// the `run_summary` scan under the seat-currentness rule. It is not the
-/// statement U3d replaced byte for byte: `lags` carries the checkpoint
-/// arm's condition as well, and the statement unions the checkpoint arm
-/// too, so a reader that cannot write cannot repair the set (decision
-/// 0014) and still names every lagging run exactly, costing a visit a run
-/// only where no writer has repaired the journal yet.
-static FALLBACKS_BY_RULE: LazyLock<String> = LazyLock::new(|| {
-    format!(
-        "SELECT r.run_id
-           FROM run_summary AS r LEFT JOIN seat_head AS h ON h.run_id = r.run_id
-          WHERE {outside} AND {seat}
-            AND (?1 IS NULL OR r.realm = ?1)
-         UNION
-         {checkpoint}",
-        outside = crate::aggregate::outside("r."),
-        seat = lags("r", "h", "?2"),
-        checkpoint = fallback_checkpoints(),
-    )
-});
+/// The runs the whole-run fallback reads: [`exclusion::fallbacks`] over
+/// the set's arm, or the rule's when the set is absent or damaged. Both
+/// are the one fragment's text, so a caller that reads the fallback beside
+/// a window read leaves out exactly the runs the window statements do.
+static FALLBACKS: LazyLock<String> = LazyLock::new(|| exclusion::fallbacks(true));
+static FALLBACKS_BY_RULE: LazyLock<String> = LazyLock::new(|| exclusion::fallbacks(false));
 
-/// The sites' statements, one per order: the started set and the metered
-/// set as one `UNION ALL`, each site's in-window checkpoints beside it,
-/// then one sort by the order's cut keys. The site key and the marker tie
-/// each site's checkpoint rows before the row its start contributed, so a
-/// site that both started and metered in the window is folded once and
+/// The sites' statements, one per order and arm: the started set and the
+/// metered set as one `UNION ALL`, each site's in-window checkpoints beside
+/// it, then one sort by the order's cut keys. The site key and the marker
+/// tie each site's checkpoint rows before the row its start contributed, so
+/// a site that both started and metered in the window is folded once and
 /// yielded once.
-static SITES_MODEL: LazyLock<String> =
-    LazyLock::new(|| sites_statement("ORDER BY model_key, run_id, opened, header, at_ms, seq"));
-static SITES_PROVIDER: LazyLock<String> =
-    LazyLock::new(|| sites_statement("ORDER BY provider_key, run_id, opened, header, at_ms, seq"));
-static SITES_REALM_PROVIDER: LazyLock<String> = LazyLock::new(|| {
-    sites_statement("ORDER BY realm, provider_key, run_id, opened, header, at_ms, seq")
-});
-static SITES_RECIPE_PROVIDER: LazyLock<String> = LazyLock::new(|| {
-    sites_statement("ORDER BY realm, recipe, provider_key, run_id, opened, header, at_ms, seq")
+static SITES: LazyLock<[[String; 2]; 4]> = LazyLock::new(|| {
+    let each = |order: &str| [sites_statement(order, true), sites_statement(order, false)];
+    [
+        each("ORDER BY model_key, run_id, opened, header, at_ms, seq"),
+        each("ORDER BY provider_key, run_id, opened, header, at_ms, seq"),
+        each("ORDER BY realm, provider_key, run_id, opened, header, at_ms, seq"),
+        each("ORDER BY realm, recipe, provider_key, run_id, opened, header, at_ms, seq"),
+    ]
 });
 
-/// The statement an order folds.
-fn sites_sql(order: SiteOrder) -> &'static str {
-    match order {
-        SiteOrder::Model => &SITES_MODEL,
-        SiteOrder::Provider => &SITES_PROVIDER,
-        SiteOrder::RealmProvider => &SITES_REALM_PROVIDER,
-        SiteOrder::RecipeProvider => &SITES_RECIPE_PROVIDER,
-    }
+/// The statement an order folds on the arm the open chose.
+fn sites_sql(order: SiteOrder, intact: bool) -> &'static str {
+    let at = match order {
+        SiteOrder::Model => 0,
+        SiteOrder::Provider => 1,
+        SiteOrder::RealmProvider => 2,
+        SiteOrder::RecipeProvider => 3,
+    };
+    SITES[at][usize::from(!intact)].as_str()
 }
 
 /// The sites' one statement, `order` over its output column names.
@@ -466,11 +406,11 @@ fn sites_sql(order: SiteOrder) -> &'static str {
 /// behind run whole, and a refused or acknowledged one states no site. A
 /// run's open lane is the one the fleet lists (a stopping run is still
 /// open); the realm filter is on the run's stored key, as the run reads'
-/// is. A run whose seat rows or checkpoint facts are not current is in
-/// neither arm (ruling 8): the caller reads it whole.
-fn sites_statement(order: &str) -> String {
+/// is. A run the whole read takes is in neither arm (ruling 8), through
+/// [`exclusion`]'s one fragment.
+fn sites_statement(order: &str, intact: bool) -> String {
     format!(
-        "WITH metered AS (
+        "WITH {whole}, metered AS (
             SELECT e.run_id AS run_id, e.seq AS seq, e.at_ms AS at_ms,
                    e.reported AS reported, e.turn AS turn, e.session AS session,
                    e.repeat AS repeat,
@@ -500,8 +440,7 @@ fn sites_statement(order: &str) -> String {
           FROM metered AS w
           JOIN run_summary AS r ON r.run_id = w.run_id
           JOIN seat_summary AS s ON s.run_id = w.run_id AND s.opened = w.opened
-          LEFT JOIN seat_head AS h ON h.run_id = r.run_id
-         WHERE {outside} AND NOT {lags}
+         WHERE {outside} AND {not_whole}
            AND (?3 IS NULL OR r.realm = ?3)
         UNION ALL
         SELECT s.run_id, s.opened, r.realm, r.recipe,
@@ -510,15 +449,15 @@ fn sites_statement(order: &str) -> String {
                1, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL
           FROM seat_summary AS s INDEXED BY seat_summary_started
           JOIN run_summary AS r ON r.run_id = s.run_id
-          LEFT JOIN seat_head AS h ON h.run_id = r.run_id
          WHERE s.site IS NOT NULL AND s.started_ms >= ?1 AND s.started_ms < ?2
-           AND {outside} AND NOT {lags}
+           AND {outside} AND {not_whole}
            AND (?3 IS NULL OR r.realm = ?3)
         {order}",
         site_of("s2", "e.run_id", "e.attempt_id", "e.member", "e.seq"),
+        whole = exclusion::clause(intact, "?4"),
         open = open_lanes(),
         outside = crate::aggregate::outside("r."),
-        lags = lags("r", "h", "?4"),
+        not_whole = exclusion::not_whole("r.run_id"),
     )
 }
 

@@ -11,6 +11,8 @@ use crate::seat_summary::lags;
 use crate::test_support::plant_run;
 use crate::Store;
 
+mod repairs;
+
 /// The envelope an older writer's event carries: only its `recorded_at`
 /// matters to the summary's head trigger.
 const ENVELOPE: &str = r#"{"recorded_at":"2026-01-01T00:00:00Z"}"#;

@@ -17,9 +17,16 @@
 //! that reaches the window is in its class's range and no park far before
 //! the window is visited. Class 63's bound saturates at [`i64::MIN`].
 //!
-//! The reads have no production caller until slice 4's unit U4 lands them
-//! in `brokkr-cli`; they are `pub` on [`Store`] so it can, and each is in
-//! the public API snapshot until then.
+//! Every window statement leaves out, in SQL, the runs the whole read
+//! takes: the `exclusion` module holds that one fragment, and
+//! `window_fallbacks` reads the same one, so a run is either the
+//! fallback's or a statement's and never both. A statement learns the arm
+//! by asking the stale-seat set's intact check once and preparing the
+//! set's or the rule's text.
+//!
+//! Their caller is slice 4's unit U5b2, the streamed row source; until it
+//! lands, the tests alone call them. They are `pub` on [`Store`] so it
+//! can, and each is in the public API snapshot until then.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::LazyLock;
@@ -33,8 +40,11 @@ use rusqlite::Connection;
 use rusqlite::{params, params_from_iter, OptionalExtension, Row, StatementStatus};
 
 use crate::event_index::{finished, index_intact, BACKFILLED as INDEXED, PARKED};
+use crate::seat_summary::{stale_intact, SHAPE};
 use crate::summary::{summary_intact, BACKFILLED as SUMMARISED};
 use crate::{patiently, Store, StoreError};
+
+pub(crate) mod exclusion;
 
 /// The order a window's runs are folded in (decision 0089 ruling 7): the
 /// two key orders the figures group by, or no order when the caller keeps
@@ -291,10 +301,10 @@ impl Store {
 
     /// The runs a window reads (ruling 7): those that finished inside it,
     /// through the `(finished_ms)` index, and those still open, through
-    /// the lane index; a behind row is read whole instead, and a refused or
-    /// acknowledged row states no figure, so neither is among them. `order`
-    /// is the figure's key order, `realm` narrows to one stored realm key
-    /// where given.
+    /// the lane index; a run the whole read takes is left out in SQL, so a
+    /// caller streams without a Rust set of run ids. `order` is the
+    /// figure's key order, `realm` narrows to one stored realm key where
+    /// given.
     pub fn window_runs(
         &self,
         from: i64,
@@ -303,8 +313,9 @@ impl Store {
         realm: Option<&str>,
         mut visit: impl FnMut(&WindowRun<'_>),
     ) -> Result<(), StoreError> {
-        let mut statement = self.conn.prepare(runs_sql(order))?;
-        let bounds = run_bounds(from, to, realm);
+        let intact = stale_intact(&self.conn)?;
+        let mut statement = self.conn.prepare(runs_sql(order, intact))?;
+        let bounds = bounds(from, to, realm);
         let mut rows = statement.query(params_from_iter(bounds))?;
         while let Some(row) = rows.next()? {
             visit(&window_run(row)?);
@@ -313,33 +324,44 @@ impl Store {
     }
 
     /// The shipped runs that finished in the equal window before the
-    /// headline's (ruling 7): the headline's `previous` counts the runs
-    /// that completed, as `brokkr-view`'s `shipped_in` does, so one count
-    /// over the `(finished_ms)` index, holding one integer.
+    /// headline's (ruling 7), streamed one stored realm key at a time:
+    /// each group is `(realm, count)`, so the caller names a NULL realm
+    /// after its label and filters by its own realm scope as it does every
+    /// other row. The headline's `previous` sums the groups, which
+    /// counts the runs that completed, as `brokkr-view`'s `shipped_in`
+    /// does, through the `(finished_ms)` index.
+    ///
+    /// Its caller is U5b2, the streamed row source; until that lands, the
+    /// tests alone call it.
     pub fn finished_between(
         &self,
         from: i64,
         to: i64,
-        realm: Option<&str>,
-    ) -> Result<u64, StoreError> {
-        let count: i64 = self
-            .conn
-            .query_row(&COUNT_FINISHED, params![from, to, realm], |row| row.get(0))?;
-        Ok(count as u64)
+        mut visit: impl FnMut(Option<&str>, u64),
+    ) -> Result<(), StoreError> {
+        let intact = stale_intact(&self.conn)?;
+        let mut statement = self.conn.prepare(finished_sql(intact))?;
+        let mut rows = statement.query(params![from, to, SHAPE.as_str()])?;
+        while let Some(row) = rows.next()? {
+            visit(optional_text(row, 0)?, row.get::<_, i64>(1)? as u64);
+        }
+        Ok(())
     }
 
     /// One pass of the median's selection: every finished run's stored
     /// realm key and its span in the window, through the `(finished_ms)`
-    /// index, streamed and holding nothing between passes.
+    /// index, streamed and holding nothing between passes. A run the whole
+    /// read takes is left out in SQL. Its caller is U5b2, the streamed row
+    /// source; until that lands, the tests alone call it.
     pub fn durations(
         &self,
         from: i64,
         to: i64,
-        realm: Option<&str>,
         mut visit: impl FnMut(Option<&str>, i64),
     ) -> Result<(), StoreError> {
-        let mut statement = self.conn.prepare(&DURATIONS)?;
-        let mut rows = statement.query(params![from, to, realm])?;
+        let intact = stale_intact(&self.conn)?;
+        let mut statement = self.conn.prepare(durations_sql(intact))?;
+        let mut rows = statement.query(params![from, to, SHAPE.as_str()])?;
         while let Some(row) = rows.next()? {
             visit(optional_text(row, 0)?, row.get(1)?);
         }
@@ -373,7 +395,8 @@ impl Store {
         mut visit: impl FnMut(&WindowPark<'_>),
         mut stepped: impl FnMut(i64),
     ) -> Result<(), StoreError> {
-        let mut statement = self.conn.prepare(&PARK_SQL)?;
+        let intact = stale_intact(&self.conn)?;
+        let mut statement = self.conn.prepare(park_sql(intact))?;
         let bounds = park_bounds(from, to, now, realm);
         let mut rows = statement.query(params_from_iter(bounds))?;
         while let Some(row) = rows.next()? {
@@ -426,15 +449,6 @@ fn lane_is(lane: Lane) -> String {
 /// `prefix` names the row where a statement aliases it.
 pub(crate) fn outside(prefix: &str) -> String {
     [Lane::Behind, Lane::Refused, Lane::Acknowledged]
-        .map(|lane| format!("{prefix}lane <> '{}'", lane.as_str()))
-        .join(" AND ")
-}
-
-/// The refused or acknowledged rows a window's parks never read: a behind
-/// row's parks come from the caller's whole read instead, so the park scan
-/// keeps them for that caller to leave out.
-fn refused_or_acknowledged(prefix: &str) -> String {
-    [Lane::Refused, Lane::Acknowledged]
         .map(|lane| format!("{prefix}lane <> '{}'", lane.as_str()))
         .join(" AND ")
 }
@@ -495,30 +509,55 @@ static REFUSED_COUNTS: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-/// The preceding window's shipped count through the `(finished_ms)` index,
-/// less a row read whole instead.
-static COUNT_FINISHED: LazyLock<String> = LazyLock::new(|| {
-    format!(
-        "SELECT count(*) FROM run_summary
-    WHERE finished_ms >= ?1 AND finished_ms < ?2 AND {behind}
-      AND ending IN ({shipped}) AND (?3 IS NULL OR realm = ?3)",
-        behind = outside(""),
-        shipped = shipped_endings(),
-    )
-});
+/// The preceding window's shipped count, one row a stored realm key,
+/// through the `(finished_ms)` index and leaving out the runs the whole
+/// read takes. `intact` names the arm the open chose.
+static FINISHED: LazyLock<[String; 2]> =
+    LazyLock::new(|| [finished_statement(true), finished_statement(false)]);
 
-/// The median's one pass: each finished run's realm and span, a start that
-/// does not parse reading as its end, the span floored at zero as
-/// `analytics`' `median` floors it.
-static DURATIONS: LazyLock<String> = LazyLock::new(|| {
+fn finished_statement(intact: bool) -> String {
     format!(
-        "SELECT realm,
-        max(finished_ms - coalesce(started_ms, finished_ms), 0)
-    FROM run_summary
-    WHERE finished_ms >= ?1 AND finished_ms < ?2 AND {behind} AND (?3 IS NULL OR realm = ?3)",
-        behind = outside("")
+        "WITH {whole}
+    SELECT r.realm, count(*) FROM run_summary AS r
+    WHERE r.finished_ms >= ?1 AND r.finished_ms < ?2 AND {behind}
+      AND r.ending IN ({shipped}) AND {not_whole}
+    GROUP BY r.realm",
+        whole = exclusion::clause(intact, "?3"),
+        behind = outside("r."),
+        shipped = shipped_endings(),
+        not_whole = exclusion::not_whole("r.run_id"),
     )
-});
+}
+
+/// The statement [`Store::finished_between`] prepares for the arm the
+/// open chose.
+fn finished_sql(intact: bool) -> &'static str {
+    FINISHED[usize::from(!intact)].as_str()
+}
+
+/// The median's one pass, one statement an arm: each finished run's realm
+/// and span, a start that does not parse reading as its end, the span
+/// floored at zero as `analytics`' `median` floors it, and the runs the
+/// whole read takes left out.
+static DURATIONS: LazyLock<[String; 2]> =
+    LazyLock::new(|| [durations_statement(true), durations_statement(false)]);
+
+fn durations_statement(intact: bool) -> String {
+    format!(
+        "WITH {whole}
+    SELECT r.realm, max(r.finished_ms - coalesce(r.started_ms, r.finished_ms), 0)
+    FROM run_summary AS r
+    WHERE r.finished_ms >= ?1 AND r.finished_ms < ?2 AND {behind} AND {not_whole}",
+        whole = exclusion::clause(intact, "?3"),
+        behind = outside("r."),
+        not_whole = exclusion::not_whole("r.run_id"),
+    )
+}
+
+/// The statement [`Store::durations`] prepares for the arm the open chose.
+fn durations_sql(intact: bool) -> &'static str {
+    DURATIONS[usize::from(!intact)].as_str()
+}
 
 /// The runs a window reads: those that finished in it, less a behind,
 /// refused or acknowledged row, and those still open, through the lane
@@ -533,52 +572,61 @@ static DURATIONS: LazyLock<String> = LazyLock::new(|| {
 /// writer's cut at [`brokkr_core::summary::NAME_BYTES`], and a cut that
 /// reads `stop` is the whole `stop` — a longer phase cannot cut to it — so
 /// `phase_whole` need not be read.
-fn runs_statement(order: &str) -> String {
+fn runs_statement(order: &str, intact: bool) -> String {
     format!(
-        "SELECT run_id, realm, recipe, ending_rule, started_ms, finished_ms, ending,
-                implement_visits, review_first, review_second, review_back,
-                (status = '{stopped}' AND phase IS '{stop}') AS hard_stop, 0 AS open
-           FROM run_summary
-           WHERE finished_ms >= ?1 AND finished_ms < ?2 AND {behind}
-             AND (?3 IS NULL OR realm = ?3)
+        "WITH {whole}
+         SELECT r.run_id, r.realm, r.recipe, r.ending_rule, r.started_ms, r.finished_ms,
+                r.ending, r.implement_visits, r.review_first, r.review_second, r.review_back,
+                (r.status = '{stopped}' AND r.phase IS '{stop}') AS hard_stop, 0 AS open
+           FROM run_summary AS r
+           WHERE r.finished_ms >= ?1 AND r.finished_ms < ?2 AND {behind} AND {not_whole}
+             AND (?3 IS NULL OR r.realm = ?3)
          UNION ALL
-         SELECT run_id, realm, recipe, ending_rule, started_ms, finished_ms, ending,
-                implement_visits, review_first, review_second, review_back,
-                (status = '{stopped}' AND phase IS '{stop}') AS hard_stop, 1 AS open
-           FROM run_summary
-           WHERE lane IN ({open})
-             AND (?3 IS NULL OR realm = ?3)
+         SELECT r.run_id, r.realm, r.recipe, r.ending_rule, r.started_ms, r.finished_ms,
+                r.ending, r.implement_visits, r.review_first, r.review_second, r.review_back,
+                (r.status = '{stopped}' AND r.phase IS '{stop}') AS hard_stop, 1 AS open
+           FROM run_summary AS r
+           WHERE r.lane IN ({open}) AND {not_whole}
+             AND (?3 IS NULL OR r.realm = ?3)
          {order}",
+        whole = exclusion::clause(intact, "?4"),
         stopped = Status::Stopped.as_str(),
         stop = STOP,
-        behind = outside(""),
+        behind = outside("r."),
         open = open_lanes(),
+        not_whole = exclusion::not_whole("r.run_id"),
     )
 }
 
-static RUNS_UNORDERED: LazyLock<String> = LazyLock::new(|| runs_statement(""));
-static RUNS_BY_ENDING: LazyLock<String> =
-    LazyLock::new(|| runs_statement("ORDER BY ending_rule, run_id"));
-static RUNS_BY_REALM: LazyLock<String> =
-    LazyLock::new(|| runs_statement("ORDER BY realm, recipe, run_id"));
+/// The three orders' statements, for the set's arm and the rule's.
+static RUNS: LazyLock<[[String; 2]; 3]> = LazyLock::new(|| {
+    let each = |order: &str| [runs_statement(order, true), runs_statement(order, false)];
+    [
+        each(""),
+        each("ORDER BY ending_rule, run_id"),
+        each("ORDER BY realm, recipe, run_id"),
+    ]
+});
 
-/// The statement an order folds, its keys' order and the run's id for a
-/// stable tie.
-fn runs_sql(order: RunOrder) -> &'static str {
-    match order {
-        RunOrder::Unordered => &RUNS_UNORDERED,
-        RunOrder::ByEndingRule => &RUNS_BY_ENDING,
-        RunOrder::ByRealmThenRecipe => &RUNS_BY_REALM,
-    }
+/// The statement an order folds on the arm the open chose: the order's
+/// keys and the run's id for a stable tie.
+fn runs_sql(order: RunOrder, intact: bool) -> &'static str {
+    let at = match order {
+        RunOrder::Unordered => 0,
+        RunOrder::ByEndingRule => 1,
+        RunOrder::ByRealmThenRecipe => 2,
+    };
+    RUNS[at][usize::from(!intact)].as_str()
 }
 
-/// The bound values `runs_sql` takes: the window, and the realm key or
-/// NULL for every realm.
-fn run_bounds(from: i64, to: i64, realm: Option<&str>) -> [Value; 3] {
+/// The four values every window read binds: the window, the realm key or
+/// NULL for every realm, and this build's seat shape.
+pub(crate) fn bounds(from: i64, to: i64, realm: Option<&str>) -> [Value; 4] {
     [
         Value::Integer(from),
         Value::Integer(to),
         realm.map_or(Value::Null, |realm| Value::Text(realm.to_string())),
+        Value::Text(SHAPE.to_string()),
     ]
 }
 
@@ -646,12 +694,20 @@ pub(crate) fn optional_text<'a>(
     }
 }
 
-/// The parks' one statement: every closed class's range of the partial
-/// index, then the open parks, one `ORDER BY` over their rows.
-static PARK_SQL: LazyLock<String> = LazyLock::new(park_statement);
+/// The parks' statements, one per arm: every closed class's range of the
+/// partial index, then the open parks, one `ORDER BY` over their rows.
+static PARKS: LazyLock<[String; 2]> =
+    LazyLock::new(|| [park_statement(true), park_statement(false)]);
+
+/// The statement [`Store::window_parks`] prepares for the arm the open
+/// chose.
+fn park_sql(intact: bool) -> &'static str {
+    PARKS[usize::from(!intact)].as_str()
+}
 
 /// The bound values [`park_statement`] takes: `from`, `to`, `now`, the
-/// realm key or NULL, then each closed class's saturated start.
+/// realm key or NULL, each closed class's saturated start, and this
+/// build's seat shape.
 fn park_bounds(from: i64, to: i64, now: i64, realm: Option<&str>) -> Vec<Value> {
     let mut bounds = vec![
         Value::Integer(from),
@@ -660,6 +716,7 @@ fn park_bounds(from: i64, to: i64, now: i64, realm: Option<&str>) -> Vec<Value> 
         realm.map_or(Value::Null, |realm| Value::Text(realm.to_string())),
     ];
     bounds.extend((1u8..=63).map(|class| Value::Integer(class_start(from, class))));
+    bounds.push(Value::Text(SHAPE.to_string()));
     bounds
 }
 
@@ -671,9 +728,12 @@ fn class_start(from: i64, class: u8) -> i64 {
 }
 
 /// The parks' ranges, each arm seeking the partial index and the run
-/// summary's key, then one sort by phase and run.
-fn park_statement() -> String {
-    let unread = refused_or_acknowledged("s.");
+/// summary's key, then one sort by phase and run. The run the whole read
+/// takes is left out of every arm by [`exclusion`]'s one fragment; the
+/// shape it binds is `?68`, after the sixty-three class starts.
+fn park_statement(intact: bool) -> String {
+    let unread = outside("s.");
+    let not_whole = exclusion::not_whole("s.run_id");
     let mut ranges: Vec<String> = (1u8..=63)
         .map(|class| {
             let start = 4 + usize::from(class);
@@ -685,7 +745,7 @@ fn park_statement() -> String {
                    WHERE e.type = '{PARKED}' AND e.span_class = {class}
                      AND e.at_ms >= ?{start} AND e.at_ms < ?2
                      AND max(e.answered_ms, e.ended_ms) > ?1
-                     AND (?4 IS NULL OR s.realm = ?4) AND {unread}"
+                     AND (?4 IS NULL OR s.realm = ?4) AND {unread} AND {not_whole}"
             )
         })
         .collect();
@@ -695,18 +755,22 @@ fn park_statement() -> String {
            FROM event_index AS e INDEXED BY event_index_park
            JOIN run_summary AS s ON s.run_id = e.run_id
            WHERE e.type = '{PARKED}' AND e.span_class = 64 AND e.at_ms < ?2
-             AND (?4 IS NULL OR s.realm = ?4) AND {unread}"
+             AND (?4 IS NULL OR s.realm = ?4) AND {unread} AND {not_whole}"
     ));
     // One sort over the ranges' rows: the phase, the run, the park's
-    // start, and its seq for a stable tie. The materialized CTE collects
+    // start, and its seq for a stable tie. The materialized CTEs collect
     // the arms first, so SQLite sorts once rather than sorting every arm
     // beside its merge.
     format!(
-        "WITH parks AS MATERIALIZED ({}) SELECT * FROM parks
+        "WITH {whole}, parks AS MATERIALIZED ({}) SELECT * FROM parks
          ORDER BY phase, run_id, at_ms, seq",
-        ranges.join(" UNION ALL ")
+        ranges.join(" UNION ALL "),
+        whole = exclusion::clause(intact, "?68"),
     )
 }
+
+#[cfg(test)]
+mod steps;
 
 #[cfg(test)]
 mod tests;
