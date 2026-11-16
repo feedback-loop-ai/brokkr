@@ -10,6 +10,13 @@ use serde_json::json;
 
 use super::*;
 
+/// A temporary directory under the canonical temporary root: macOS's
+/// `/var` is a link to `/private/var`, and R5 keeps every tree under a
+/// root that is not its own canonical path.
+fn tempdir() -> tempfile::TempDir {
+    tempfile::tempdir_in(std::env::temp_dir().canonicalize().unwrap()).unwrap()
+}
+
 /// A journal of `runs`, each created and started, written and closed.
 fn journal(dir: &Path, runs: &[&str]) -> PathBuf {
     let db = dir.join("forge.db");
@@ -47,7 +54,7 @@ fn report() -> Report {
 
 #[test]
 fn a_journal_whose_rows_agree_with_their_folds_adds_no_line() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = tempdir();
     let db = journal(dir.path(), &["r1", "r2"]);
     let mut report = report();
     report_database(&mut report, Ok(&db));
@@ -63,7 +70,7 @@ fn a_journal_whose_rows_agree_with_their_folds_adds_no_line() {
 
 #[test]
 fn a_row_at_its_head_that_is_not_its_fold_s_is_a_failure_named_by_its_column() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = tempdir();
     let db = journal(dir.path(), &["edited", "gone", "corrupt"]);
     edit(
         &db,
@@ -107,7 +114,7 @@ fn plant_broken_chain(db: &Path) {
 /// the doctor's sweep reads every run whole).
 #[test]
 fn a_run_that_does_not_load_is_a_failure_behind_its_head_and_at_it() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = tempdir();
     let db = journal(dir.path(), &["healthy"]);
     plant_broken_chain(&db);
     let unread = "MISSING  summary: run 'conclude-broken-chain-hand-built' does not load: \
@@ -124,7 +131,7 @@ fn a_run_that_does_not_load_is_a_failure_behind_its_head_and_at_it() {
 
 #[test]
 fn a_summary_the_journal_cannot_be_read_for_is_a_failure() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = tempdir();
     let db = journal(dir.path(), &["r1"]);
     let store = Store::open(&db).unwrap();
     edit(&db, "DROP TABLE run_summary");
@@ -142,7 +149,7 @@ fn a_summary_the_journal_cannot_be_read_for_is_a_failure() {
 /// 0089 ruling 4): an index row is the trigger's, so it never lags.
 #[test]
 fn an_event_index_that_is_not_its_events_is_a_failure_named_by_its_seq() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = tempdir();
     let db = journal(dir.path(), &["edited", "gone", "stray", "timed"]);
     edit(
         &db,
@@ -247,7 +254,7 @@ fn indeterminate(db: &Path, run: &str, effect: &str, attempt: &str) {
 /// column (decision 0089 ruling 4).
 #[test]
 fn a_seat_row_at_its_head_that_is_not_its_fold_s_is_a_failure_named_by_its_column() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = tempdir();
     let db = journal(dir.path(), &[]);
     requested(&db, "seated");
     edit(&db, "UPDATE seat_summary SET seat = 'other'");
@@ -269,7 +276,7 @@ fn a_seat_row_at_its_head_that_is_not_its_fold_s_is_a_failure_named_by_its_colum
 /// them.
 #[test]
 fn seat_rows_and_heads_of_no_run_are_failures_named_as_strays() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = tempdir();
     let db = journal(dir.path(), &[]);
     requested(&db, "seated");
     edit(
@@ -297,7 +304,7 @@ fn seat_rows_and_heads_of_no_run_are_failures_named_as_strays() {
 /// a summary row's is: no line, whatever they hold.
 #[test]
 fn seat_rows_behind_their_head_add_no_line() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = tempdir();
     let db = journal(dir.path(), &[]);
     requested(&db, "lagging");
     let store = Store::open(&db).unwrap();
@@ -317,7 +324,7 @@ fn seat_rows_behind_their_head_add_no_line() {
 /// 0104 ruling 6).
 #[test]
 fn a_tree_no_row_names_is_warned_after_the_database_line_and_kept() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = tempdir();
     let db = journal(dir.path(), &[]);
     requested(&db, "seated");
     succeeded(&db, "seated", "fx", "11111111-1111-4111-8111-111111111111");
@@ -368,7 +375,7 @@ fn a_tree_no_row_names_is_warned_after_the_database_line_and_kept() {
 /// ruling amends it).
 #[test]
 fn a_kept_attempt_tree_is_warned_with_its_reason_after_the_database_line() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = tempdir();
     let db = journal(dir.path(), &[]);
     requested(&db, "kept");
     let attempt = "22222222-2222-4222-8222-222222222222";

@@ -15,6 +15,13 @@ use crate::render::Safe;
 
 const RUN: &str = "run-doctor";
 
+/// A temporary directory under the canonical temporary root: macOS's
+/// `/var` is a link to `/private/var`, and R5 keeps every tree under a
+/// root that is not its own canonical path.
+fn tempdir() -> tempfile::TempDir {
+    tempfile::tempdir_in(std::env::temp_dir().canonicalize().unwrap()).unwrap()
+}
+
 fn empty_report() -> Report {
     Report {
         healthy: true,
@@ -75,7 +82,7 @@ fn succeeded(store: &mut Store, attempt: &str) {
 
 #[test]
 fn a_tree_no_row_names_is_listed_with_its_size_and_never_removed() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = tempdir();
     let mut store = journal(dir.path());
     succeeded(&mut store, "11111111-1111-4111-8111-111111111111");
     let root = dir.path().join("scratch");
@@ -125,11 +132,11 @@ fn no_line(store: &Store) -> Vec<String> {
 
 #[test]
 fn a_journal_with_no_seat_rows_adds_no_line_and_a_gone_root_is_reported() {
-    let empty = tempfile::tempdir().unwrap();
+    let empty = tempdir();
     let store = journal(empty.path());
     assert_eq!(no_line(&store), Vec::<String>::new());
 
-    let dir = tempfile::tempdir().unwrap();
+    let dir = tempdir();
     let mut store = journal(dir.path());
     succeeded(&mut store, "11111111-1111-4111-8111-111111111111");
     let root = dir.path().join("missing").join("scratch");
@@ -148,7 +155,7 @@ fn a_journal_with_no_seat_rows_adds_no_line_and_a_gone_root_is_reported() {
 
 #[test]
 fn a_count_that_finds_the_tree_gone_or_refuses_is_a_warning() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = tempdir();
     let _store = journal(dir.path());
     let mut report = empty_report();
     let gone = dir.path().join("gone");
@@ -177,7 +184,7 @@ fn a_count_that_finds_the_tree_gone_or_refuses_is_a_warning() {
 /// its reason and the count's words: doctor never drops a kept tree.
 #[test]
 fn a_kept_count_that_finds_the_tree_gone_or_refuses_still_names_its_reason() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = tempdir();
     let mut report = empty_report();
     let gone = dir.path().join("gone");
     kept_line(&mut report, &gone, "its attempt ended failed");
@@ -207,7 +214,7 @@ fn a_kept_count_that_finds_the_tree_gone_or_refuses_still_names_its_reason() {
 /// name and a hostile reason leave no control byte in doctor's line.
 #[test]
 fn a_hostile_kept_name_and_reason_are_stripped_from_the_line() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = tempdir();
     let tree = dir.path().join("kept\x1b[2Jname");
     std::fs::create_dir_all(&tree).unwrap();
     let reason = "its attempt ended \x1b[2Jfailed";
@@ -267,7 +274,7 @@ fn one_warning_after(store: &Store, statement: &str) -> String {
 /// because the row read also needs the sweep table and would refuse first.
 #[test]
 fn a_kept_trees_read_that_refuses_is_a_warning() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = tempdir();
     let store = journal(dir.path());
     let db = store.path().to_path_buf();
     rusqlite::Connection::open(&db)
@@ -292,7 +299,7 @@ fn a_lower_bound_count_says_at_least_and_removes_nothing() {
     if rustix::process::geteuid().is_root() {
         return;
     }
-    let dir = tempfile::tempdir().unwrap();
+    let dir = tempdir();
     let (tree, counted) = sealed_tree(dir.path());
     assert!(counted.unreadable.is_some());
     let mut unrecorded = empty_report();
@@ -322,7 +329,7 @@ fn a_lower_bound_count_says_at_least_and_removes_nothing() {
 
 #[test]
 fn a_root_that_is_not_its_own_canonical_path_is_named() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = tempdir();
     let mut store = journal(dir.path());
     let real = dir.path().join("real");
     let root = real.join("scratch");
@@ -363,7 +370,7 @@ fn a_root_that_is_not_its_own_canonical_path_is_named() {
 
 #[test]
 fn an_entry_that_vanishes_before_its_stat_adds_no_line() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = tempdir();
     let root = dir.path().join("scratch");
     std::fs::create_dir_all(root.join("orphan")).unwrap();
     let mut report = empty_report();
@@ -378,7 +385,7 @@ fn an_entry_that_vanishes_before_its_stat_adds_no_line() {
 
 #[test]
 fn an_unreadable_root_adds_no_line_and_is_left_alone() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = tempdir();
     let root = dir.path().join("scratch");
     let orphan = root.join("orphan");
     std::fs::create_dir_all(&orphan).unwrap();
@@ -398,7 +405,7 @@ fn an_unreadable_root_adds_no_line_and_is_left_alone() {
 
 #[test]
 fn a_tree_recreated_at_a_closed_rows_path_is_named_with_its_size() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = tempdir();
     let mut store = journal(dir.path());
     let root = dir.path().join("scratch");
     std::fs::create_dir_all(&root).unwrap();
@@ -436,7 +443,7 @@ fn a_tree_recreated_at_a_closed_rows_path_is_named_with_its_size() {
 
 #[test]
 fn a_seat_trees_read_that_refuses_is_a_warning() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = tempdir();
     let store = journal(dir.path());
     assert_eq!(
         one_warning_after(&store, "DROP TABLE seat_trees"),
