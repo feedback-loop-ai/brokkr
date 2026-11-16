@@ -1328,7 +1328,7 @@ pub brokkr_runtime::engine::evidence::EvidenceError::Inventory(serde_json::error
 pub brokkr_runtime::engine::evidence::EvidenceError::Io(core::io::error::Error)
 pub brokkr_runtime::engine::evidence::EvidenceError::Link(std::path::PathBuf)
 pub brokkr_runtime::engine::evidence::EvidenceError::Linked(std::path::PathBuf)
-pub brokkr_runtime::engine::evidence::EvidenceError::Lock
+pub brokkr_runtime::engine::evidence::EvidenceError::Lock(brokkr_runtime::lock_file::Unopened)
 pub brokkr_runtime::engine::evidence::EvidenceError::NotDirectory(std::path::PathBuf)
 pub brokkr_runtime::engine::evidence::EvidenceError::NotPlain(std::path::PathBuf)
 pub brokkr_runtime::engine::evidence::EvidenceError::NotRecorded(std::path::PathBuf)
@@ -1571,7 +1571,7 @@ pub brokkr_runtime::engine::Unknown::Exchange
 pub brokkr_runtime::engine::Unknown::Expired
 pub brokkr_runtime::engine::Unknown::Formatted(std::path::PathBuf, u64)
 pub brokkr_runtime::engine::Unknown::Homeless
-pub brokkr_runtime::engine::Unknown::Lock
+pub brokkr_runtime::engine::Unknown::Lock(brokkr_runtime::lock_file::Unopened)
 pub brokkr_runtime::engine::Unknown::Lost
 pub brokkr_runtime::engine::Unknown::Orphaned
 pub brokkr_runtime::engine::Unknown::Orphaned::attempt: alloc::string::String

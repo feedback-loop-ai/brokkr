@@ -28,6 +28,7 @@ use super::historical::{self};
 use super::inventory::{inventory, Budget, Found, HistoricalRoot, Reaching, Standing, Unread};
 use super::root::{locked, locked_existing, Existing, Root};
 use crate::engine::artifacts::{hex, DIGESTS};
+use crate::lock_file::Unopened;
 
 use destination::Destination;
 
@@ -120,8 +121,8 @@ pub enum RetireAction<'a> {
 pub enum EvidenceError {
     #[error("the capability coordination root is not protected")]
     Coordination,
-    #[error("the admission lock is not this user's own single file")]
-    Lock,
+    #[error("the admission lock is not this user's own single file: {0}")]
+    Lock(Unopened),
     #[error("evidence did not complete before its deadline")]
     Expired,
     #[error("the protected inventory exceeds its entry bound")]
@@ -269,7 +270,7 @@ impl From<Unknown> for EvidenceError {
     fn from(unknown: Unknown) -> EvidenceError {
         match unknown {
             Unknown::Root => EvidenceError::Coordination,
-            Unknown::Lock => EvidenceError::Lock,
+            Unknown::Lock(why) => EvidenceError::Lock(why),
             Unknown::Expired => EvidenceError::Expired,
             Unknown::Bounds => EvidenceError::Bounds,
             Unknown::Participant(at) => EvidenceError::Participant(at),

@@ -59,6 +59,7 @@ use crate::engine::{
     built_boundary, invocation_sites, site_label, BuiltBoundary, Engine, EngineError, EventType,
     Selection,
 };
+use crate::lock_file::Unopened;
 
 mod probe;
 mod seal;
@@ -98,8 +99,11 @@ pub enum Unknown {
     Root,
     #[error("the operated worktree does not resolve")]
     Worktree,
-    #[error("the admission lock is not this user's own single file")]
-    Lock,
+    /// The lock file is not this user's own single file, and why: the
+    /// errno its open met or the clause it failed (#1082). Today's
+    /// sentence is the prefix every reader matches.
+    #[error("the admission lock is not this user's own single file: {0}")]
+    Lock(Unopened),
     #[error("admission did not complete before its startup deadline")]
     Expired,
     #[error("the protected inventory exceeds its entry bound")]

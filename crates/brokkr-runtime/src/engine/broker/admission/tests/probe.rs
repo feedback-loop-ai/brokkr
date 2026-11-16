@@ -9,6 +9,7 @@ use time::OffsetDateTime;
 use super::*;
 use crate::engine::broker::admission::probe::{settle_orphaned, Held, Recovery, Unproven};
 use crate::engine::broker::settlement::Driver;
+use crate::lock_file::Unopened;
 
 /// A wait the cleanup refusal names.
 fn wait() -> brokkr_core::ProviderWait {
@@ -216,7 +217,7 @@ fn an_invalid_lock_leaves_the_probe_admission_its_own_refusal() {
     let observed = observed().expect("a coordinated host");
     assert_eq!(
         probe_admission(&mut engine, &observed),
-        Err(Unadmitted::Identity(Unknown::Lock))
+        Err(Unadmitted::Identity(Unknown::Lock(Unopened::Links(2))))
     );
 }
 
