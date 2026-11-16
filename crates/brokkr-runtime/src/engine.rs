@@ -100,9 +100,9 @@ use brokkr_core::fold::{
 pub use carry::CarryRefusal;
 pub use operator::{
     apply_fenced_operator_command, conclude, named_cause, operator_classify, operator_command,
-    operator_repair, operator_stop, operator_supersede, Cause, CauseRefusal, CommandWord,
-    ConcludeRefusal, FencedCommand, FencedCommandOutcome, Flag, MemberRetryOutcome, Named, Repair,
-    Supersede, Verb,
+    operator_repair, operator_settle, operator_stop, operator_supersede, Cause, CauseRefusal,
+    CommandWord, ConcludeRefusal, FencedCommand, FencedCommandOutcome, Flag, MemberRetryOutcome,
+    Named, Repair, Settle, Supersede, Verb,
 };
 #[cfg(test)]
 use operator::{
@@ -156,6 +156,17 @@ struct Indeterminate<'a> {
     #[serde(flatten)]
     unproven: Unproven,
 }
+
+pub use boxed::Unrooted;
+pub use broker::admission::{Conflict, Unadmitted, Unknown};
+pub use broker::settlement::release::{Live, UnprovenWhy};
+pub use broker::Unroutable;
+/// The typed refusal `settle` carries, defined where the verb is: the host's
+/// answer, the unread reservation's typed refusal, and the run's own
+/// pre-proof reasons (decision 0071 rulings 6 and 8; S8, R4). Its payloads
+/// are public at the narrowest paths that name them, so a caller outside
+/// this crate can match every arm.
+pub use operator::SettleRefusal;
 
 #[derive(Debug, Error)]
 pub enum EngineError {
@@ -220,6 +231,14 @@ pub enum EngineError {
     /// read and the journal stays exactly as it was.
     #[error("repair refused, nothing was written: {0}")]
     RepairRefused(String),
+    /// `settle` refused the run or a fact it would prove, and wrote
+    /// nothing (decision 0108 ruling 3). Like a repair there is no pending
+    /// command to dispose of, so the refusal is the operator's to read and
+    /// the journal stays exactly as it was. The payload is public with the
+    /// types its arms carry, so a caller can name the fact it refused on
+    /// (R4; decision 0071 rulings 6 and 8).
+    #[error("settle refused, nothing was written: {0}")]
+    SettleRefused(SettleRefusal),
     /// `classify` refused the run, its cause or its citation, and wrote
     /// nothing (decision 0064 rule 5). The annotation has no acceptance
     /// to carry a rejection, so the typed text is the whole record and

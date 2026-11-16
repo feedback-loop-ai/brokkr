@@ -11,9 +11,14 @@ use serde_json::Value;
 use crate::envelope::{EventEnvelope, EventType};
 use crate::fold::{FoldError, OperatorCommand, RunState};
 
+/// The command word an operator's settle record carries: `operator/commanded`
+/// with this word and the args of contracts/operator-settle.v1.schema.json
+/// (decision 0108 ruling 3, in ruling 4's erratum shape after decision 0047).
+pub const SETTLE: &str = "settle";
+
 /// The annotation words, the closed set a fold or readout reads as an
 /// annotation. One list, matched exhaustively: a word added to it must
-/// answer for its own record, and `settle` says it has none yet.
+/// answer for its own record.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum AnnotationWord {
     Repair,
@@ -37,9 +42,7 @@ impl AnnotationWord {
             AnnotationWord::Repair => super::REPAIR,
             AnnotationWord::Classify => crate::ending::CLASSIFY,
             AnnotationWord::Supersede => crate::residual::SUPERSEDE,
-            // 440d builds `operator settle`; a command word cannot stand
-            // in for it.
-            AnnotationWord::Settle => "settle",
+            AnnotationWord::Settle => SETTLE,
         }
     }
 
@@ -53,7 +56,8 @@ impl AnnotationWord {
     /// Does `event` carry THIS word's record: the args its published
     /// contract describes? `repair` with args other than exactly `{}` is
     /// a record; `classify` and `supersede` with the args a fold or
-    /// readout reads are; `settle` has no reader until 440d builds it.
+    /// readout reads are. No fold or readout reads a `settle` record: the
+    /// broker's release reads it by type, never through the fold.
     fn is_record(self, event: &EventEnvelope) -> bool {
         match self {
             AnnotationWord::Repair => super::late::is_repair(event),

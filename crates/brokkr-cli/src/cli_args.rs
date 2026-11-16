@@ -335,6 +335,8 @@ pub(super) struct OperatorArgs {
     /// ended (decision 0064 ruling 5); "repair" names the late tail an
     /// event after a run's terminal one left, so the run folds again as it
     /// ended, the tail kept and never applied (decision 0108 ruling 4);
+    /// "settle" records that a quarantined run's writers are proven ended,
+    /// so its worktree is released (decision 0108 ruling 3);
     /// "acknowledge" lists a quarantined
     /// run under older until its journal moves (#511).
     pub(super) command: String,

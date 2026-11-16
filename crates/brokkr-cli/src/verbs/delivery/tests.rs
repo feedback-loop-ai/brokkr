@@ -580,3 +580,70 @@ fn stop_and_conclude_write_the_cause_they_name() {
         serde_json::json!({"cause": "delivered-elsewhere", "ref": "abc123"})
     );
 }
+
+/// R4: an outside crate names the settle refusal's payload, variant by
+/// variant, and every type its arms carry. `SettleRefusal` and those types
+/// are public at the narrowest paths that name them, so the operator verb
+/// can match the fact a settle refused on instead of its text (decision
+/// 0071 rulings 6 and 8).
+#[test]
+fn an_outside_crate_names_the_settle_refusals_payload() {
+    use brokkr_runtime::engine::{Conflict, Unadmitted, Unknown, Unrooted, Unroutable};
+    use brokkr_runtime::{EngineError, Live, SettleRefusal, UnprovenWhy};
+
+    let unproven = EngineError::SettleRefused(SettleRefusal::Live(Live::Unproven {
+        attempt: "a1".into(),
+        why: UnprovenWhy::NoGroup,
+    }));
+    assert!(matches!(
+        unproven,
+        EngineError::SettleRefused(SettleRefusal::Live(Live::Unproven {
+            ref attempt,
+            why: UnprovenWhy::NoGroup,
+        })) if attempt == "a1"
+    ));
+
+    let at = std::path::PathBuf::from("/protected/run-a/reservation.json");
+    let view = EngineError::SettleRefused(SettleRefusal::Unadmitted(Unadmitted::Identity(
+        Unknown::ViewOnly(at.clone()),
+    )));
+    assert!(matches!(
+        view,
+        EngineError::SettleRefused(SettleRefusal::Unadmitted(Unadmitted::Identity(
+            Unknown::ViewOnly(ref found)
+        ))) if found == &at
+    ));
+
+    let driven = EngineError::SettleRefused(SettleRefusal::Unadmitted(Unadmitted::Evidence(
+        Conflict::Driven {
+            run: "run-a".into(),
+            holder: None,
+        },
+    )));
+    assert!(matches!(
+        driven,
+        EngineError::SettleRefused(SettleRefusal::Unadmitted(Unadmitted::Evidence(
+            Conflict::Driven { ref run, holder: None }
+        ))) if run == "run-a"
+    ));
+
+    let unrooted = EngineError::SettleRefused(SettleRefusal::Unadmitted(Unadmitted::Unrooted(
+        Unrooted::Foreign(at.clone()),
+    )));
+    assert!(matches!(
+        unrooted,
+        EngineError::SettleRefused(SettleRefusal::Unadmitted(Unadmitted::Unrooted(
+            Unrooted::Foreign(ref found)
+        ))) if found == &at
+    ));
+
+    let unrouted = EngineError::SettleRefused(SettleRefusal::Unadmitted(Unadmitted::Identity(
+        Unknown::Unrouted(at.clone(), Unroutable::Relative),
+    )));
+    assert!(matches!(
+        unrouted,
+        EngineError::SettleRefused(SettleRefusal::Unadmitted(Unadmitted::Identity(
+            Unknown::Unrouted(ref found, Unroutable::Relative)
+        ))) if found == &at
+    ));
+}

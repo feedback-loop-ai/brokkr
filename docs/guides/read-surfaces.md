@@ -959,9 +959,88 @@ events stay in the journal, and they are marked as the tail an operator
 named. It refuses, writing nothing, a run with no terminal event, a run
 that already folds (no late tail, or already repaired and left alone),
 and a journal that faults for any other reason. Whether the worktree is
-released is the broker's proof from its own records, not the run's fold;
-when the record still names an attempt with no sealed settlement, that is
-`operator settle`'s job, which 440d builds (decision 0108 ruling 3).
+released is the broker's proof from its own records, not the run's fold
+(decision 0108 ruling 3).
+
+#### A worktree a broken run holds
+
+A run that stopped folding holds its worktree until its writers are proven
+ended: every later dispatch there refuses with "run '…' holds this
+worktree, its writers not proven settled". The way back is three operator
+acts, and none of them edits the journal. First `brokkr operator
+acknowledge --run <id> --reason <why>`, which records that the run was
+looked at beside its chain; acknowledgement alone releases nothing. Then,
+optionally and only for the history, `brokkr operator repair --run <id>
+--reason <why>`, so the run folds again with its late tail kept and never
+applied. A repair moves the head past the acknowledgement and lapses it
+(#511), but the repair record is itself the operator's word that the run was
+looked at, so it stands where the acknowledgement stood; a folding run cannot
+be acknowledged again.
+
+The release itself is the broker's proof, not the run's fold: a new dispatch
+admits once the run's lock is free and every attempt the broker's own
+reservation names is proven ended by the broker's settlement records — each
+driver sealed Settled. A driver the records do not prove settled is not the
+records' proof: where its own recorded process group is gone from the host,
+`brokkr operator settle --run <id> --reason <why>` re-checks that fact and
+journals it, and the next dispatch admits. `settle` refuses and writes
+nothing while a lock holder, a live process group or an unproven attempt
+still stands. A group recorded for a driver already sealed Settled is not
+asked: the seal is the settlement proof, and a reused group id names an
+unrelated process, so it does not hold the worktree. If an engine failed
+its seal, its driver stays Settling, so a later `settle` proves only the
+process group that driver recorded ended — not what the attempt's cleanup
+witnessed — and `brokkr operator release` is the route where that
+distinction matters.
+
+A reservation written before this release records its drivers but no group
+(v0.13.0's shape), so `settle` cannot prove one of its drivers: repair the
+run first, then `brokkr operator release --run <id> --reason <why>`, the
+operator's attestation that every process those attempts owned has ended.
+Release asks the host about every group recorded for a driver the records do
+not seal Settled, and about an attempt's one older single-group slot where a
+440d build wrote one, for an attempt that ended indeterminate, and refuses
+while one still has a member; a driver that recorded no group, as v0.13.0's
+drivers did not, is not asked.
+It refuses an attempt that ended a success or a failure, and one with no
+journaled ending; it is the route only where the attempt ended
+indeterminate. A spawn that failed before its process group was recorded
+leaves the same choice: repair the run, then `brokkr operator release` where
+the attempt ended indeterminate. A recorded group id the host reuses for an
+unrelated process, or one still alive when the last driver ended, keeps the
+worktree held, and no verb will release it: archive the journal, re-provision
+the worktree, and repair the archived copy for its history. One whose attempt
+ended a success or a failure has no route here either.
+
+An attempt whose cleanup was witnessed unresolved is never released by the
+broker's proof or by `settle`, even when every recorded process group is gone:
+the witness saw a stray, a descendant, or a process still holding the
+driver's output, which no group question can disprove. That attempt is the
+operator's to attest: repair the run, then `brokkr operator release --run <id>
+--reason <why>`, where the attempt ended indeterminate.
+
+A shape (B) journal from an older engine, such as the stop after a
+conclusion in decision 0108's context, is recovered on a copy opened with
+this release: acknowledge, repair, then the proof, `settle`, or `release` as
+above, and never a hand edit. The copy must sit at the path the reservation
+names for its journal, because that is the journal the proof and the record
+both read; a journal under the worktree itself is refused fail-closed by the
+exclusion's guarded read, since a writer of the run could reach it — `settle`
+may still write its record there, but no claim is released by it. The tag
+v0.12.0 wrote no reservation at all. A workspace whose binary reported 0.12.0
+was built from main between #745 (2026-10-18) and the 0.13.0 version bump
+(2026-11-02), and its reservation's shape depends on the commit: before
+b8e2caff8 (2026-10-25) a boxed writer's sealed reach has no `store`, so this
+build reads the record only through the view; both `settle` and, after a
+repair, `release` refuse it as a record that names no process group, and
+their refusal names the route: archive the journal, re-provision the
+worktree, and repair the archived copy for its history. From b8e2caff8
+through v0.13.0 the record reads whole, with drivers and no group, and the
+repair-then-release route holds where the attempt ended indeterminate. A
+record that instead names a newer format, or a field this build does not
+know, takes the other advice: conclude or resume that run with the build
+that wrote it, or use a build that reads it, and never re-provision a
+worktree a newer writer may still hold.
 
 ### Gate entries on a run
 

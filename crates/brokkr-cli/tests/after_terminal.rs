@@ -469,32 +469,32 @@ fn a_repair_does_not_list_an_earlier_repair_as_an_annotation_to_record_again() {
     );
 }
 
-/// `repair` takes `--run`, `--reason` and the journal: each flag that
-/// belongs to another verb refuses before anything is read or written.
-/// Removal control: drop any one operand of the check, and that flag's
-/// case reaches the verb and says something else.
+/// `repair` and `settle` each take `--run`, `--reason` and the journal:
+/// each flag that belongs to another verb refuses before anything is read
+/// or written. Removal control: drop any one operand of either check, and
+/// that flag's case reaches the verb and says something else.
 #[test]
-fn an_operator_repair_refuses_every_flag_another_verb_takes() {
+fn an_operator_repair_or_settle_refuses_every_flag_another_verb_takes() {
     let (dir, db) = staged();
     started(Path::new(&db));
-    for flag in [
-        ["--findings", "1"],
-        ["--by-run", "other"],
-        ["--cause", "superseded"],
-        ["--by-ref", "ref"],
-    ] {
-        let mut args = vec![
-            "operator", "repair", "--run", "late", "--reason", "why", "--db", &db,
-        ];
-        args.extend(flag);
-        let refused = brokkr(dir.path(), &args);
-        let stderr = String::from_utf8_lossy(&refused.stderr);
-        assert_eq!(refused.status.code(), Some(1), "{flag:?}: {stderr}");
-        assert!(
-            stderr
-                .contains("belong to other verbs; 'repair' takes --run, --reason and the journal"),
-            "{flag:?}: {stderr}"
-        );
+    for verb in ["repair", "settle"] {
+        for flag in [
+            ["--findings", "1"],
+            ["--by-run", "other"],
+            ["--cause", "superseded"],
+            ["--by-ref", "ref"],
+        ] {
+            let mut args = vec![
+                "operator", verb, "--run", "late", "--reason", "why", "--db", &db,
+            ];
+            args.extend(flag);
+            let refused = brokkr(dir.path(), &args);
+            let stderr = String::from_utf8_lossy(&refused.stderr);
+            assert_eq!(refused.status.code(), Some(1), "{verb} {flag:?}: {stderr}");
+            let said =
+                format!("belong to other verbs; '{verb}' takes --run, --reason and the journal");
+            assert!(stderr.contains(&said), "{verb} {flag:?}: {stderr}");
+        }
     }
 }
 
@@ -547,4 +547,54 @@ fn a_repair_names_only_the_annotation_that_folded_before_the_break() {
         !stderr.contains("seq 8"),
         "a reserved word past the break was never applied: {stderr}"
     );
+}
+
+/// `brokkr operator settle` on a run no acknowledgement stands on refuses,
+/// writes nothing, and names the command that answers it (decision 0108
+/// ruling 3): the proof never runs against a journal the operator has not
+/// looked at.
+#[test]
+fn an_operator_settle_of_an_unacknowledged_run_refuses_and_writes_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db").to_str().unwrap().to_string();
+    started(Path::new(&db));
+    let concluded = brokkr(
+        dir.path(),
+        &[
+            "conclude",
+            "--run",
+            "late",
+            "--cause",
+            "withdrawn",
+            "--reason",
+            "closing",
+            "--db",
+            &db,
+        ],
+    );
+    assert_eq!(concluded.status.code(), Some(3), "{concluded:?}");
+    let before = brokkr_store::Store::open_read_only(Path::new(&db))
+        .unwrap()
+        .load("late")
+        .unwrap()
+        .len();
+    let refused = brokkr(
+        dir.path(),
+        &[
+            "operator", "settle", "--run", "late", "--reason", "why", "--db", &db,
+        ],
+    );
+    assert_eq!(refused.status.code(), Some(1), "{refused:?}");
+    let said = String::from_utf8_lossy(&refused.stderr);
+    assert!(
+        said.contains("settle refused, nothing was written: run 'late' is not acknowledged")
+            && said.contains("brokkr operator acknowledge --run late"),
+        "{said}"
+    );
+    let after = brokkr_store::Store::open_read_only(Path::new(&db))
+        .unwrap()
+        .load("late")
+        .unwrap()
+        .len();
+    assert_eq!(after, before, "nothing was written");
 }

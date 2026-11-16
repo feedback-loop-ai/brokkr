@@ -33,6 +33,27 @@ fn planted(host: &Host, work: &Path, run: &str) -> (String, PathBuf) {
     (repo, host.reservation(work, run))
 }
 
+/// The reservation at `at` with a settled driver at its one site, as a
+/// crashed probe leaves it: its attempt proven settled by its own driver.
+fn settled_orphan(at: &Path) {
+    let mut held: Reservation = serde_json::from_slice(&std::fs::read(at).unwrap()).unwrap();
+    let driver = Driver {
+        site: "work".into(),
+        begun: None,
+        cleanup: Witnessed::Settled,
+        group: None,
+    };
+    held.attempts.get_mut("a1").unwrap().drivers.push(driver);
+    std::fs::write(at, serde_json::to_vec(&held).unwrap()).unwrap();
+}
+
+/// The release `settle_orphaned` parks with for the run `run-a` of `repo`
+/// when its seal cannot commit.
+fn unsealed(host: &Host, repo: &str) -> Recovery {
+    settle_orphaned(&host.root, [repo, "run-a"], "work", &[], &[wait()], soon())
+        .expect_err("a seal that could not commit was passed over")
+}
+
 /// Ruling 4's cleanup refusal is said once: the probe, the reservation's
 /// attempt, why it is not proven settled, and that nothing may start.
 #[test]
@@ -105,29 +126,28 @@ fn a_reservation_that_does_not_read_parks_naming_where_it_stands() {
     assert!(said.contains(&at.display().to_string()), "{said}");
 }
 
-/// A proven orphan's release whose seal cannot commit parks naming the
-/// attempt, so a later run never reads a release that did not stand.
-#[test]
-fn a_release_that_cannot_be_sealed_parks_naming_the_attempt() {
+/// The release `settle_orphaned` parks with for a proven orphan whose seal
+/// meets `armed`, its attempt named: the host, where the reservation
+/// stands, and the refusal.
+fn parked(armed: Late) -> (Host, PathBuf, Recovery) {
     let host = Host::new();
     let work = host.worktree("work");
     let (repo, at) = planted(&host, &work, "run-a");
-    let mut held: Reservation = serde_json::from_slice(&std::fs::read(&at).unwrap()).unwrap();
-    let reserved = held.attempts.get_mut("a1").unwrap();
-    let driver = Driver {
-        site: "work".into(),
-        begun: None,
-        cleanup: Witnessed::Settled,
-    };
-    reserved.drivers.push(driver);
-    std::fs::write(&at, serde_json::to_vec(&held).unwrap()).unwrap();
-    LATE.set(Some(Late::FailCommitted));
-    let refused = settle_orphaned(&host.root, [&repo, "run-a"], "work", &[], &[wait()], soon())
-        .expect_err("a seal that could not commit was passed over");
+    settled_orphan(&at);
+    LATE.set(Some(armed));
+    let refused = unsealed(&host, &repo);
     assert!(
         matches!(refused.held.as_ref(), Held::Unsealed { attempt, .. } if attempt == "a1"),
         "{refused:?}"
     );
+    (host, at, refused)
+}
+
+/// A proven orphan's release whose seal cannot commit parks naming the
+/// attempt, so a later run never reads a release that did not stand.
+#[test]
+fn a_release_that_cannot_be_sealed_parks_naming_the_attempt() {
+    let (_host, _at, refused) = parked(Late::FailCommitted);
     let said = refused.to_string();
     assert!(said.contains("'a1'"), "{said}");
 }
@@ -239,6 +259,7 @@ fn standing_with(host: &Host, work: &Path, run: &str, sites: &[&str]) -> (String
             site: (*site).into(),
             begun: None,
             cleanup: Witnessed::Settling,
+            group: None,
         });
     }
     std::fs::write(&at, serde_json::to_vec(&held).unwrap()).unwrap();
@@ -345,4 +366,24 @@ fn chief_uncased_seat_does_not_name_a_wait_beyond_its_label() {
 #[test]
 fn chief_uncased_seat_siteless_wait_does_not_name_a_cased_driver() {
     uncased_cleanup("work:b", &[wait()]);
+}
+
+/// #440 fix round 440d6 (decision 0108 ruling 3): a crashed probe's release
+/// reseals the reservation it read. Removed at the seal, the record is
+/// refused and never made again.
+#[test]
+fn a_probes_release_never_writes_back_a_reservation_removed_at_its_seal() {
+    let (_host, at, refused) = parked(Late::Remove);
+    assert!(
+        matches!(
+            refused.held.as_ref(),
+            Held::Unsealed {
+                attempt,
+                source: Unknown::Unsealed,
+                ..
+            } if attempt == "a1"
+        ),
+        "{refused:?}"
+    );
+    assert!(!at.exists(), "the release wrote nothing back");
 }

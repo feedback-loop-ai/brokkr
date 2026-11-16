@@ -1824,3 +1824,19 @@ fn a_root_reaching_writer_refused_unopened_leaves_a_later_broker_alone() {
     assert_eq!(std::fs::read(&lease).unwrap(), bytes);
     freed(&held);
 }
+
+/// #440 fix round 440d6 (decision 0108 ruling 3): extending a lease for an
+/// MCP server reseals the reservation it read. Removed at the seal, the
+/// record is refused and never made again.
+#[test]
+fn an_extension_never_writes_back_a_reservation_removed_at_its_seal() {
+    let host = Host::new();
+    let (a, docs) = (host.worktree("a"), package(&host));
+    let held = host.admit(&writing(&a, ["run-a", "a1"], &[&a])).unwrap();
+    let at = host.reservation(&a, "run-a");
+    let commits = Cell::new(Commit::Synced);
+    LATE.set(Some(Late::Remove));
+    let refused = extended(&held, inputs(&host, &docs), soon(), &commits);
+    assert_eq!(refused, Err(Unknown::Unsealed.into()));
+    assert!(!at.exists(), "the extension wrote nothing back");
+}

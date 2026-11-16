@@ -18,6 +18,7 @@ use crate::capabilities::McpFence;
 use crate::engine::broker::exclusion::{self, Shown};
 use crate::engine::broker::exclusion::{compared, covers_spelled, Comparison};
 use crate::engine::broker::historical;
+use crate::engine::broker::inventory::Standing;
 use crate::engine::broker::sources::records_kept;
 
 /// The artifact root of a [`claim`] on `worktree`.
@@ -576,10 +577,10 @@ fn every_step_under_the_lock_spends_the_shared_deadline() {
         coordination: &host.root,
     };
     let expired = || Budget::new(Instant::now());
-    let unknown = |unknown| Err(Unadmitted::Identity(unknown));
+    let unknown = |unknown| Err::<(), Unadmitted>(Unadmitted::Identity(unknown));
     assert_eq!(
-        compared(&comparison, &mut expired()),
-        unknown(Unknown::Expired)
+        compared(&comparison, &mut expired()).err(),
+        unknown(Unknown::Expired).err()
     );
     let held = host
         .admit(&claim(&work, ["run-a", "a1"], Protects::Nothing, &[]))
@@ -997,7 +998,7 @@ fn aliased(dir: &Path) {
             historical: &evidence,
             coordination: &coordination,
         };
-        compared(&comparison, &mut Budget::new(soon()))
+        compared(&comparison, &mut Budget::new(soon())).map(drop)
     };
     assert_eq!(judged("alias", &alias), Ok(()), "before the bind");
     assert_eq!(judged("holder", &holder), Ok(()), "before the bind");
@@ -1019,4 +1020,29 @@ fn aliased(dir: &Path) {
     assert_eq!(judged("alias", &alias), Err(refused.into()));
     let shown = Conflict::Shown(evidence[0].clone());
     assert_eq!(judged("holder", &holder), Err(shown.into()));
+}
+
+/// The lock taken to release a quarantined run is held from the proof
+/// through the seal of the incoming claim: at the `between` seam the run
+/// still refuses a second driver, and only once `admit_with` returns is it
+/// free (decision 0108 ruling 3).
+#[test]
+fn a_released_runs_lock_is_held_from_the_proof_until_the_claim_is_sealed() {
+    let fixture = quarantined(&[Witnessed::Settled], None);
+    let claim = boxed_claim(&fixture.work, ["run-b", "b1"]);
+    let checked = std::cell::Cell::new(false);
+    let admitted = admit_with(&fixture.host.root, &claim, soon(), &|| {
+        let taken = crate::run_lock::take(&fixture.store, "run-a");
+        assert!(
+            matches!(taken, Err(crate::RunLockError::Driven { .. })),
+            "the released run's lock is held from the proof to the seal: {taken:?}"
+        );
+        checked.set(true);
+    });
+    assert!(checked.get(), "the seam was reached");
+    assert!(admitted.is_ok(), "the settled, quarantined run releases");
+    assert!(
+        crate::run_lock::take(&fixture.store, "run-a").is_ok(),
+        "the lock is let go only after the claim is sealed"
+    );
 }

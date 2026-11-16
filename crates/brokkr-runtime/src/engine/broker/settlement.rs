@@ -59,20 +59,21 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use super::admission::{
-    amend, beside, identity, release, reserved_at, sealed, settled, Authored, Held, Protects,
+    amend, beside, identity, release, resealed, reserved_at, settled, Authored, Held, Protects,
     Reservation, Reserved, Unadmitted, Unknown, Witnessed, Writer, RESERVATION,
 };
 use super::exclusion::reaches;
 use super::fold::Begun;
 use super::historical::regular;
 use super::inventory::{inventory, Budget, Standing, Writing};
-use super::root::{locked, read, Commit, Root};
+use super::root::{locked, present, read, Commit, Root};
 use super::{observed, startup};
 use crate::engine::artifacts::{self, Evidence, Unpublished};
 use crate::engine::{Engine, EngineError};
 
 mod attestation;
 pub(in crate::engine) use attestation::attested;
+pub(in crate::engine) mod release;
 
 /// How an attempt's terminal event ended it, as its settlement reads it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -121,9 +122,10 @@ enum Cause {
 /// Why the operator's release of a run's attempts is refused, nothing of
 /// it sealed (U8e3; operator ruling 2026-10-21): no attempt of the run's
 /// stands; one has not ended; one ended a success or a failure, not
-/// indeterminate; one whose every driver is sealed Settled is U8e2's to
-/// recover, in flight or, once ended, no one's; or the journal moved
-/// beneath the release.
+/// indeterminate; one's recorded process group still has a member on this
+/// host; one whose every driver is sealed Settled is U8e2's to recover, in
+/// flight or, once ended, no one's; or the journal moved beneath the
+/// release.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub(in crate::engine) enum Refused {
     #[error("run '{0}' holds no standing reservation, so there is nothing to release")]
@@ -138,6 +140,11 @@ pub(in crate::engine) enum Refused {
          attempt that ended indeterminate"
     )]
     Certified(String),
+    #[error(
+        "attempt '{attempt}' stands, and its process group {group} still has members on this \
+         host; release only once every process it owned has ended"
+    )]
+    Alive { attempt: String, group: u32 },
     #[error(
         "every driver of attempt '{0}' is sealed Settled, so an engine restarted with it in \
          flight recovers it: resume the run instead"
@@ -377,17 +384,34 @@ pub(super) fn witnessed_by(held: &mut Option<Held>, cleanup: &Cleanup, deadline:
 /// One driver's settlement record in its attempt's reservation (U8e2;
 /// operator ruling 2026-10-21): the label of the site it was spawned for,
 /// the journal head its fold begins from, which [`Engine::begun`] took
-/// before it spawned, none where its site was sealed no broker, and what
-/// its engine witnessed of its cleanup: Settling from before it spawns,
-/// Settled once its report carried #403's proof. It names no process and
-/// starts no scanner: it makes durable a proof the engine already holds,
-/// and is no launch model (D6).
+/// before it spawned, none where its site was sealed no broker, what its
+/// engine witnessed of its cleanup: Settling from before it spawns, Settled
+/// once its report carried #403's proof, and the process group it leads,
+/// recorded after it spawns and before it is told anything (decision 0108
+/// ruling 3). It names no process and starts no scanner: it makes durable a
+/// proof the engine already holds, and is no launch model (D6).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Driver {
     pub(super) site: String,
     pub(super) begun: Option<(u64, String)>,
     pub(super) cleanup: Witnessed,
+    /// The process group this driver leads: its own pid, recorded before it
+    /// is told anything, so a release asks the host about *this* driver and
+    /// never about a sibling's group (decision 0108 ruling 3). Absent where
+    /// the record was written before the field, where the amend that writes
+    /// it failed, or where the spawn wrote none; such a driver is never
+    /// proven by a group.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) group: Option<u32>,
+}
+
+/// The driver record for the site `site`, the last one written for it: a
+/// site may spawn more than one driver (a cool-down probe, then the seat's),
+/// and the last is the one in flight. The one derivation the settlement's
+/// own seal and the dispatch door's group record both read (S7).
+fn driver_at<'a>(drivers: &'a mut [Driver], site: &str) -> Option<&'a mut Driver> {
+    drivers.iter_mut().rfind(|driver| driver.site == site)
 }
 
 /// The driver about to spawn at the site `site` of the attempt in flight
@@ -417,6 +441,7 @@ pub(in crate::engine) fn spawning(
             site,
             begun,
             cleanup,
+            group: None,
         };
         reserved.ok_or(Unknown::Lost)?.drivers.push(driver);
         Ok(reservation)
@@ -451,7 +476,7 @@ fn settled_driver(held: &mut Option<Held>, site: &str, cleanup: &Cleanup) {
     let sealed = amend(held, deadline, |mut reservation| {
         let reserved = reservation.attempts.get_mut(&held.attempt);
         let drivers = &mut reserved.ok_or(Unknown::Lost)?.drivers;
-        let driver = drivers.iter_mut().rfind(|driver| driver.site == site);
+        let driver = driver_at(drivers, site);
         driver.ok_or(Unknown::Lost)?.cleanup = Witnessed::Settled;
         Ok(reservation)
     });
@@ -547,9 +572,10 @@ pub(super) fn adopted(
     let protects = reserved.protects == Protects::Evidence;
     let identified = protects.then(|| identity(artifacts).map(|id| (artifacts.clone(), id)));
     let identified = identified.transpose()?;
+    let read = reservation.clone();
     let adopting = reservation.attempts.get_mut(attempt).into_iter();
     adopting.for_each(|reserved| reserved.cleanup = Witnessed::Settled);
-    let commit = sealed(root, &reservation, &Budget::new(deadline))?;
+    let commit = resealed(root, &reservation, &read, &Budget::new(deadline))?;
     let held = Held {
         coordination: Arc::clone(root),
         repo: repo.to_string(),
@@ -578,6 +604,14 @@ pub(super) fn standing(
         Err(Unknown::Lost) => return Ok(None),
         found => found?,
     };
+    // The record's own name, never a prior name a hand left when it removed
+    // the name: that state is no record, as the door reads it, so this read
+    // refuses where the door is lost (decision 0108 ruling 3, #440 fix
+    // round 440d8). A seal's restore still meets the lone prior name and
+    // removes it; only a read of the record that stands refuses it.
+    present(&dir, RESERVATION)
+        .then_some(())
+        .ok_or(Unknown::Lost)?;
     let reservation: Reservation = read(&dir, RESERVATION, &at)?;
     let ours = (reservation.repo == repo) & (reservation.run == run);
     let refused = Unknown::Participant(at.join(RESERVATION));
@@ -654,8 +688,7 @@ pub(super) fn recovered(
     // Every participant's writers, the incoming attempt's and every
     // standing one's: recovery trusts a reservation's journal only where
     // none of them could have forged its unkeyed hash chain (R2).
-    let mut writers: Vec<Writing> = incoming.iter().map(Writing::from).collect();
-    writers.extend(found.iter().flat_map(Standing::writers).cloned());
+    let writers = reaching(incoming, &found);
     let writers: Vec<&Writing> = writers.iter().collect();
     let (mut standing, mut commit) = (Vec::with_capacity(found.len()), Commit::Synced);
     for mut reservation in found {
@@ -670,11 +703,22 @@ pub(super) fn recovered(
             continue;
         };
         let settle = |held, attempt: &String| settled(held, attempt);
+        let read = whole.clone();
         let recovered = proven.iter().try_fold(whole, settle)?;
-        commit = commit.and(sealed(root, &recovered, budget)?);
+        commit = commit.and(resealed(root, &recovered, &read, budget)?);
         standing.push(Standing::from(recovered));
     }
     Ok((standing, commit))
+}
+
+/// Every participant's writers, the incoming attempt's and every standing
+/// one's: the one set recovery and the release's proof both read, so a
+/// journal either of them trusts is a journal none of them could have
+/// forged (R2; decision 0108 ruling 3).
+pub(super) fn reaching(incoming: &[Writer], standing: &[Standing]) -> Vec<Writing> {
+    let mut writers: Vec<Writing> = incoming.iter().map(Writing::from).collect();
+    writers.extend(standing.iter().flat_map(Standing::writers).cloned());
+    writers
 }
 
 /// The standing attempts of `reservation` whose engine sealed their
@@ -705,6 +749,16 @@ fn journal(
     writers: &[&Writing],
     budget: &Budget,
 ) -> Option<Vec<EventEnvelope>> {
+    opened(path, writers, budget)?.load(run).ok()
+}
+
+/// The journal at `path` opened read-only under the proof's guards: no
+/// participant's writer may reach it, its directory or a WAL sibling (R2),
+/// the deadline must still be ahead, and the journal and any sibling that
+/// stands must be regular files of one link, opened without following a
+/// link or blocking (L5). One home for every read of a run that decides a
+/// release, so the fold's absence is never the only thing that proves it.
+pub(super) fn opened(path: &Path, writers: &[&Writing], budget: &Budget) -> Option<Store> {
     if reachable(path, writers) {
         return None;
     }
@@ -714,7 +768,7 @@ fn journal(
     (regular(path).is_some() & siblings.iter().all(standing)).then_some(())?;
     let mut store = Store::open_read_only(path).ok()?;
     store.set_patience(budget.left()).ok()?;
-    store.load(run).ok()
+    Some(store)
 }
 
 /// The SQLite sibling of the journal at `path` that ends in `suffix`.

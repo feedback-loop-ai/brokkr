@@ -9,7 +9,7 @@
 //! [`recovery`].
 
 use std::cell::{Cell, RefCell};
-use std::os::fd::{AsFd, OwnedFd};
+use std::os::fd::AsFd;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
 use std::path::{Path, PathBuf};
@@ -21,13 +21,13 @@ use brokkr_core::envelope::EventType;
 use brokkr_protocol::hands::{Bind, BindMode, HandsSpec};
 use brokkr_protocol::process::Unsettled;
 use brokkr_protocol::Cleanup;
-use rustix::fs::{flock, AtFlags, FlockOperation};
+use rustix::fs::{flock, FlockOperation};
 use serde_json::json;
 
 use super::*;
 use crate::bundle::{SeatBody, SequenceStep};
 use crate::engine::broker::inventory::Budget;
-use crate::engine::broker::root::{coordination, seal_with, Commit, Step, PRIOR};
+use crate::engine::broker::root::{coordination, Commit, Exchange};
 use crate::engine::broker::settlement::{proved, witnessed, witnessed_by};
 use crate::engine::broker::{
     owned, surveyed, Host as Hosting, Surveyor, Unprovisioned, PROTECTED_ROOT,
@@ -40,12 +40,19 @@ use crate::engine::{spawn_site, Door, SiteSpawn};
 
 mod coordination;
 mod foreign;
+mod late;
 mod probe;
 mod processes;
 mod reach;
 mod recovery;
 mod retirement;
 mod sealing;
+mod support;
+use late::{late, refusing_exchange, Late, LATE};
+pub(in crate::engine) use support::{
+    acknowledge, boxed_claim, broken, child_lock, dead_group, isolated, planted_drivers,
+    quarantined, quarantined_drivers, unacknowledged, Fixture, LiveGroup,
+};
 // U8a2b's proofs read the mount table, which only Linux has (decision 0063).
 #[cfg(target_os = "linux")]
 mod sources;
@@ -72,40 +79,11 @@ enum Stand {
     Host,
 }
 
-/// What the next seal on a root this thread opened does at its final steps
-/// (H1; R1 of run four's review): before its commit, spends the time given,
-/// removes its staged copy so its commit fails, or plants a file at the
-/// record's prior name so it cannot link the record that stood there while
-/// the rename after the link stays possible (R3, U8a2c); once renamed in,
-/// spends the time given, fails as its directory sync failing would, or
-/// spends it with the directory's write permission taken, or spends it and
-/// then fails the sync of its undoing (M2 of run four's second review); as
-/// it retires the record that stood, spends the time given or fails as the
-/// removal of its prior name failing would; and once committed, fails as
-/// its last directory sync failing would (R1, U8a2c).
-#[derive(Debug, Clone, Copy)]
-enum Late {
-    Sleep(Duration),
-    Unstage,
-    UnstageSuperseded,
-    Occupy,
-    SleepCommitted(Duration),
-    FailCommitted,
-    DenyCommitted(Duration),
-    FailUndone(Duration),
-    Undoing,
-    SleepRetiring(Duration),
-    FailRetiring,
-    FailFinal,
-}
-
 thread_local! {
     static STAND: RefCell<Stand> = const { RefCell::new(Stand::Own) };
     /// The HOME of this thread's own a test that stands none in admits
     /// under, removed as the thread ends.
     static OWN: tempfile::TempDir = fresh(&base());
-    /// What the next seal does before its commit, once ([`late`]).
-    static LATE: Cell<Option<Late>> = const { Cell::new(None) };
 }
 
 /// The host as dispatch observes it under test, the house's seam as
@@ -152,64 +130,31 @@ pub(in crate::engine) fn observed() -> Option<Observed> {
 /// judged, its seals handed to [`late`]: the handle every fixture admits in
 /// (R5).
 pub(in crate::engine) fn opened(home: &Path) -> Root {
+    opened_by(home, None)
+}
+
+/// [`opened`], its reseals exchanging by `exchange`: a test's own filesystem
+/// that has no atomic exchange (decision 0108 ruling 3, #440 fix round
+/// 440d6).
+pub(in crate::engine) fn opened_refusing(home: &Path) -> Root {
+    opened_by(home, Some(refusing_exchange))
+}
+
+/// The root under `home`, made owner-only where it is missing and opened,
+/// its seals handed to [`late`], reseals exchanging by `exchange` where a
+/// test names one and production's own exchange otherwise.
+fn opened_by(home: &Path, exchange: Option<Exchange>) -> Root {
     let path = coordination(home);
     let mut made = std::fs::DirBuilder::new();
     made.recursive(true).mode(0o700).create(&path).unwrap();
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700)).unwrap();
     let flags = rustix::fs::OFlags::RDONLY | rustix::fs::OFlags::DIRECTORY;
     let dir = rustix::fs::open(&path, flags, rustix::fs::Mode::empty()).unwrap();
-    Root::opened(dir, path, (late, shown)).expect("an owner-only root")
-}
-
-/// The hook of every root a test opens: what [`LATE`] arms, at the step of
-/// the next seal on this thread it names, and then nothing.
-fn late(step: Step, dir: &OwnedFd, staged: &str) -> std::io::Result<()> {
-    match (step, LATE.take()) {
-        (Step::Staged, Some(Late::Sleep(spent)))
-        | (Step::Committed, Some(Late::SleepCommitted(spent)))
-        | (Step::Retiring, Some(Late::SleepRetiring(spent))) => std::thread::sleep(spent),
-        (Step::Retiring, Some(Late::FailRetiring)) => {
-            return Err(std::io::Error::other("the prior name could not be removed"))
-        }
-        (Step::Staged, Some(Late::Unstage)) => {
-            rustix::fs::unlinkat(dir, staged, AtFlags::empty()).unwrap()
-        }
-        (Step::Staged, Some(Late::UnstageSuperseded)) if staged.starts_with("superseded-") => {
-            rustix::fs::unlinkat(dir, staged, AtFlags::empty()).unwrap()
-        }
-        (Step::Staged, Some(Late::Occupy)) => occupied(dir, staged),
-        (Step::Committed, Some(Late::DenyCommitted(spent))) => {
-            denied(dir);
-            std::thread::sleep(spent)
-        }
-        (Step::Committed, Some(Late::FailUndone(spent))) => {
-            LATE.set(Some(Late::Undoing));
-            std::thread::sleep(spent)
-        }
-        (Step::Committed, Some(Late::FailCommitted))
-        | (Step::Undone, Some(Late::Undoing))
-        | (Step::Final, Some(Late::FailFinal)) => {
-            return Err(std::io::Error::other("the directory sync failed"))
-        }
-        (_, armed) => LATE.set(armed),
-    }
-    Ok(())
-}
-
-/// An empty file of this user's own made at the prior name of the record
-/// `staged` stages in `dir`: a link of the record that stood to that name
-/// fails, and the directory stays writable.
-fn occupied(dir: &OwnedFd, staged: &str) {
-    let name = staged.strip_suffix(STAGED).unwrap();
-    let flags = rustix::fs::OFlags::RDWR | rustix::fs::OFlags::CREATE | rustix::fs::OFlags::EXCL;
-    let mode = rustix::fs::Mode::RUSR | rustix::fs::Mode::WUSR;
-    drop(rustix::fs::openat(dir, format!("{name}{PRIOR}").as_str(), flags, mode).unwrap());
-}
-
-/// The directory `dir` left readable and searchable, but not writable.
-fn denied(dir: &OwnedFd) {
-    let kept = rustix::fs::Mode::RUSR | rustix::fs::Mode::XUSR;
-    rustix::fs::fchmod(dir, kept).unwrap()
+    let opened = match exchange {
+        Some(exchange) => Root::opened_exchanging(dir, path, (late, shown), exchange),
+        None => Root::opened(dir, path, (late, shown)),
+    };
+    opened.expect("an owner-only root")
 }
 
 /// `held`'s positive settlement fact sealed, and then its lease released,
@@ -285,7 +230,7 @@ pub(in crate::engine) fn reservation_path(home: &Path, worktree: &Path, run: &st
 
 /// A HOME of a test's own, its coordination root opened, and the worktrees
 /// it makes beside it.
-pub(in crate::engine::broker) struct Host {
+pub(in crate::engine) struct Host {
     dir: tempfile::TempDir,
     home: PathBuf,
     root: Arc<Root>,
@@ -294,8 +239,14 @@ pub(in crate::engine::broker) struct Host {
 impl Host {
     /// A fresh one in TMPDIR, whatever TMPDIR's ancestors are: its root is
     /// handed to admission opened, as production's resolution would.
-    pub(in crate::engine::broker) fn new() -> Host {
+    pub(in crate::engine) fn new() -> Host {
         Host::in_dir(fresh(&base()))
+    }
+
+    /// The HOME this host's root is opened under: the one a verb that
+    /// resolves its coordination from HOME would stand in.
+    pub(in crate::engine) fn home(&self) -> &Path {
+        &self.home
     }
 
     /// The one made in `dir`.
@@ -326,8 +277,14 @@ impl Host {
         made.map(Host::in_dir)
     }
 
+    /// A journal beside the HOME, outside every worktree: a boxed writer
+    /// cannot reach it (R2), as the recovery fixtures keep theirs.
+    pub(in crate::engine) fn journal(&self, name: &str) -> PathBuf {
+        self.dir.path().join(name)
+    }
+
     /// The worktree `name` beside the HOME, made.
-    pub(in crate::engine::broker) fn worktree(&self, name: &str) -> PathBuf {
+    pub(in crate::engine) fn worktree(&self, name: &str) -> PathBuf {
         let worktree = self.dir.path().join(name);
         std::fs::create_dir_all(&worktree).unwrap();
         worktree
@@ -346,7 +303,7 @@ impl Host {
 
     /// The reservation `run` of `worktree` holds: its standing attempts,
     /// and its settled ones.
-    pub(in crate::engine::broker) fn attempts(
+    pub(in crate::engine) fn attempts(
         &self,
         worktree: &Path,
         run: &str,
@@ -360,7 +317,7 @@ impl Host {
     }
 
     /// `claim` admitted in this HOME's root within five seconds.
-    pub(in crate::engine::broker) fn admit(&self, claim: &Claim) -> Result<Held, Unadmitted> {
+    pub(in crate::engine) fn admit(&self, claim: &Claim) -> Result<Held, Unadmitted> {
         admit(&self.root, claim, soon())
     }
 }
@@ -477,6 +434,7 @@ pub(in crate::engine::broker) fn claim(
             protects,
             writers: writers.to_vec(),
             cleanup: Witnessed::Settling,
+            group: None,
             serves: Vec::new(),
             drivers: Vec::new(),
         },
@@ -486,7 +444,7 @@ pub(in crate::engine::broker) fn claim(
 
 /// [`claim`] of a run on `worktree` that protects nothing, its one `work`
 /// site outside any box.
-pub(in crate::engine::broker) fn open(worktree: &Path, ids: [&str; 2]) -> Claim {
+pub(in crate::engine) fn open(worktree: &Path, ids: [&str; 2]) -> Claim {
     claim(worktree, ids, Protects::Nothing, &[unbounded("work")])
 }
 
@@ -558,7 +516,7 @@ fn unbounded(site: &str) -> Writer {
 }
 
 /// CR2's refusal of `conflict`, as a variant.
-pub(in crate::engine::broker) fn cr2(conflict: Conflict) -> Result<Held, Unadmitted> {
+pub(in crate::engine) fn cr2(conflict: Conflict) -> Result<Held, Unadmitted> {
     Err(Unadmitted::Evidence(conflict))
 }
 

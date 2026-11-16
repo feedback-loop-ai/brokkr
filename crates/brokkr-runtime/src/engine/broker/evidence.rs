@@ -275,8 +275,10 @@ impl From<Unknown> for EvidenceError {
             Unknown::Participant(at) => EvidenceError::Participant(at),
             other @ (Unknown::Worktree
             | Unknown::Overflow
+            | Unknown::ViewOnly(..)
             | Unknown::Formatted(..)
             | Unknown::Unsealed
+            | Unknown::Exchange
             | Unknown::Unsynced
             | Unknown::Lost
             | Unknown::Unproven

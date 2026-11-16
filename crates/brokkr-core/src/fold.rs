@@ -23,10 +23,10 @@ mod relation;
 pub use relation::lawful_after_terminal;
 use relation::{Arm, Position, Transition};
 pub(crate) mod late;
-pub use late::{skipped_annotations, LateTail, SkippedAnnotation, REPAIR};
+pub use late::{is_repair, skipped_annotations, LateTail, SkippedAnnotation, REPAIR};
 
 mod annotation;
-pub use annotation::{is_late_word, reserved_annotation, reserved_word};
+pub use annotation::{is_late_word, reserved_annotation, reserved_word, SETTLE};
 mod receipt;
 pub use receipt::ReceiptReason;
 

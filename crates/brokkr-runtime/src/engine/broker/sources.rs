@@ -79,7 +79,7 @@ use brokkr_protocol::broker::{Plan, Tree};
 use brokkr_protocol::hands::{ServerProgram, HOST_TOOLCHAIN_BINDS, SERVER_RESOLVER};
 use serde::{Deserialize, Serialize};
 
-use super::admission::{sealed, Claim, Held, Unadmitted, Unknown};
+use super::admission::{resealed, Claim, Held, Unadmitted, Unknown};
 use super::exclusion::{beneath, covers, covers_spelled, Guarded};
 use super::inventory::{inventory, Budget, Reaching, Standing, Writing};
 use super::resolved;
@@ -361,7 +361,7 @@ pub(super) const HOPS_MAX: usize = 40;
 /// Why an input's route cannot be reserved: each refuses by MB3's identity
 /// cause naming the input, never reserving less.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-pub(in crate::engine) enum Unroutable {
+pub enum Unroutable {
     #[error("is not absolute, as a relative or empty PATH entry or a relative TMPDIR names it")]
     Relative,
     #[error("meets a component that cannot be read")]
@@ -689,6 +689,7 @@ pub(super) fn extended_with(
         .find(mine)
         .and_then(|found| found.whole.clone());
     let mut reservation = mine.ok_or(Unknown::Lost)?;
+    let read = reservation.clone();
     let mut reserved = (reservation.attempts.remove(&held.attempt)).ok_or(Unknown::Lost)?;
     let mut reserves = reserved.serves.clone();
     for met in routed(&serves, &budget)? {
@@ -704,6 +705,10 @@ pub(super) fn extended_with(
     between();
     reserved.serves = reserves;
     reservation.attempts.insert(held.attempt.clone(), reserved);
-    commits.set(commits.get().and(sealed(root, &reservation, &budget)?));
+    commits.set(
+        commits
+            .get()
+            .and(resealed(root, &reservation, &read, &budget)?),
+    );
     Ok(())
 }

@@ -295,6 +295,14 @@ pub(crate) fn operator(
         );
         return repair(workspace, &run, &reason, journal);
     }
+    if command == brokkr_core::fold::SETTLE {
+        anyhow::ensure!(
+            !cited && cause.is_none() && by_ref.is_none(),
+            "--cause, --by-ref, --findings, --by-run, --by-seq and --by-realm belong to other \
+             verbs; 'settle' takes --run, --reason and the journal"
+        );
+        return settle(workspace, &run, &reason, journal);
+    }
     // The two operator verbs that name how a run ended (decision 0064
     // rulings 4 and 5) take the cause and its citation, and refuse the
     // pair that is supersede's alone.
@@ -329,24 +337,43 @@ pub(crate) fn operator(
     }
     let Some(verb) = OperatorCommand::parse(&command) else {
         anyhow::bail!(
-            "operator command must be 'retry', 'stop', 'supersede', 'classify', 'repair' or \
-             'acknowledge'"
+            "operator command must be 'retry', 'stop', 'supersede', 'classify', 'repair', \
+             'settle' or 'acknowledge'"
         );
     };
+    commanded(
+        workspace,
+        (&run, &reason),
+        journal,
+        member,
+        (verb, &command),
+    )
+}
+
+/// A plain operator command, `retry` with no member or any other word
+/// [`OperatorCommand`] parses, recorded in the journal `run` wrote; a
+/// member's retry goes to [`member_retry::retry`].
+fn commanded(
+    workspace: &Path,
+    (run, reason): (&str, &str),
+    journal: JournalArgs,
+    member: crate::cli_args::MemberRetryArgs,
+    (verb, command): (OperatorCommand, &str),
+) -> Result<ExitCode> {
     if !member.member.is_empty() {
-        return member_retry::retry(workspace, &run, &reason, journal, member);
+        return member_retry::retry(workspace, run, reason, journal, member);
     }
     // The journal `run` wrote (#374): the map's, unless `--db`
     // outranks it.
     let mut store = open_journal(&journal.journal(workspace)?, Access::Append)?;
-    let run = selector::resolve_run(&store, &run)?;
+    let run = selector::resolve_run(&store, run)?;
     let operator = operator_name();
     // The command is fenced against a concurrently-driving
     // engine, so it can come back refused. Saying "recorded"
     // there would tell the operator the opposite of what the
     // journal says.
-    let outcome = operator_command(&mut store, &run, verb, &operator, &reason)?;
-    disposition(outcome, &command, &run)
+    let outcome = operator_command(&mut store, &run, verb, &operator, reason)?;
+    disposition(outcome, command, &run)
 }
 
 /// The journal an operator annotation writes to and the journal its
@@ -508,6 +535,65 @@ fn repair(
     reason: &str,
     journal: JournalArgs,
 ) -> Result<ExitCode> {
+    recorded(
+        workspace,
+        run,
+        journal,
+        "repair",
+        "the late tail is kept, shown, and never applied, and the run folds as it ended",
+        |store, run, operator| {
+            brokkr_runtime::operator_repair(
+                store,
+                run,
+                &brokkr_runtime::Repair { reason, operator },
+            )
+        },
+    )
+}
+
+/// `brokkr operator settle` (decision 0108 ruling 3): one annotation on a
+/// run a broken journal left quarantined, naming the facts that prove its
+/// writers ended so its worktree is released. The verb re-checks the facts
+/// from the broker's records and the host, never from the run's fold, which
+/// a run this verb exists for does not have; a refusal writes nothing.
+fn settle(
+    workspace: &std::path::Path,
+    run: &str,
+    reason: &str,
+    journal: JournalArgs,
+) -> Result<ExitCode> {
+    recorded(
+        workspace,
+        run,
+        journal,
+        "settle",
+        "its writers are proven ended and its worktree is released",
+        |store, run, operator| {
+            brokkr_runtime::operator_settle(
+                store,
+                run,
+                &brokkr_runtime::Settle { reason, operator },
+            )
+        },
+    )
+}
+
+/// The record `repair` and `settle` write, and the one line they say so
+/// with: their arguments and refusals are their own, and neither restates
+/// the other's preamble (decision 0071 ruling 5). A refusal writes nothing
+/// and the error is the verb's own.
+fn recorded(
+    workspace: &std::path::Path,
+    run: &str,
+    journal: JournalArgs,
+    verb: &str,
+    note: &str,
+    annotate: impl FnOnce(
+        &mut Store,
+        &str,
+        &str,
+    ) -> Result<brokkr_core::EventEnvelope, brokkr_runtime::EngineError>,
+) -> Result<ExitCode> {
     let (mut store, run) = writable_run(workspace, run, journal)?;
     // Read the journal before the write: the annotations the repair will
     // make late are the reserved words that folded before the break, and
@@ -515,17 +601,9 @@ fn repair(
     // already landed (L4).
     let before = store.load(&run)?;
     let operator = operator_name();
-    let written = brokkr_runtime::operator_repair(
-        &mut store,
-        &run,
-        &brokkr_runtime::Repair {
-            reason,
-            operator: &operator,
-        },
-    )?;
+    let written = annotate(&mut store, &run, &operator)?;
     eprintln!(
-        "recorded repair at seq {} on {run}; the late tail is kept, shown, and never \
-         applied, and the run folds as it ended. Read it with: brokkr inspect --run {run}",
+        "recorded {verb} at seq {} on {run}; {note}. Read it with: brokkr inspect --run {run}",
         written.seq
     );
     // L8: a lawful annotation that landed after the terminal event before

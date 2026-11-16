@@ -2,7 +2,9 @@
 //! 2026-10-21, "A"), moved out of `settlement.rs`, which it would take past
 //! its 800 lines (operator ruling of 2026-10-11): the operator's release of
 //! a run's attempts that ended indeterminate, on the operator's journaled
-//! attestation that every process each owned has ended.
+//! attestation that every process each owned has ended — asked of the host
+//! for every process group a driver recorded, so a recorded live group
+//! keeps the lease standing (decision 0108 ruling 3).
 
 use std::path::Path;
 use std::time::{Duration, Instant};
@@ -11,9 +13,9 @@ use brokkr_core::EventEnvelope;
 use brokkr_store::Store;
 
 use super::{
-    beside, ending, inventory, locked, recorded_settled, sealed, settled, startup, Budget, Commit,
-    Ending, Refused, Reservation, Root, Standing, Unadmitted, Unknown, Unreleased, Witnessed,
-    RESERVATION,
+    beside, ending, inventory, locked, recorded_settled, release, resealed, settled, startup,
+    Budget, Commit, Ending, Refused, Reservation, Root, Standing, Unadmitted, Unknown, Unreleased,
+    Witnessed, RESERVATION,
 };
 use crate::engine::EngineError;
 
@@ -28,9 +30,10 @@ use crate::engine::EngineError;
 /// operator, and the attempt settled. Nothing is folded, replayed or
 /// journaled of an attempt, which stays as it ended. Refused, nothing
 /// journaled or sealed, where no attempt of the run stands, where one has
-/// not ended or ended other than indeterminate, or where one's every
-/// driver is sealed Settled ([`Refused`]); and, as any seal is, where the
-/// lock, the inventory or the seal fails, or a reservation is not read
+/// not ended or ended other than indeterminate, where a process group a
+/// driver recorded for it still has a member on the host, or where one's
+/// every driver is sealed Settled ([`Refused`]); and, as any seal is, where
+/// the lock, the inventory or the seal fails, or a reservation is not read
 /// whole. One committed without its directory proven synced was released,
 /// its seal not proven durable.
 pub(in crate::engine) fn attested(
@@ -50,9 +53,10 @@ pub(in crate::engine) fn attested(
     attest(store, &events)?;
     let mut commit = Commit::Synced;
     for reservation in reservations {
+        let read = reservation.clone();
         let released = released_by_operator(reservation).map_err(Unadmitted::from);
         let released = released.map_err(Unreleased::standing)?;
-        let seal = sealed(root, &released, &budget).map_err(Unadmitted::from);
+        let seal = resealed(root, &released, &read, &budget).map_err(Unadmitted::from);
         commit = commit.and(seal.map_err(Unreleased::standing)?);
     }
     let unsynced = Unreleased::released(Unknown::Unsynced.into());
@@ -63,8 +67,14 @@ pub(in crate::engine) fn attested(
 /// journal is the one at `journal`, holding an attempt standing, as the
 /// inventory reads them within `budget`, each read whole; refused where one
 /// was read only through the view, for that is never sealed (decision
-/// 0090).
-fn reserved_for(
+/// 0090). A record written before b8e2caff8, whose whole read failed on a
+/// field it lacks, is [`Unknown::ViewOnly`] and names the archive and
+/// re-provisioning route; one that names a newer format or a field this
+/// build does not know is [`Unknown::Formatted`], whose advice is to use the
+/// build that wrote it, never to re-provision under a possibly live newer
+/// writer (R5). An entry that is no reservation at all stays
+/// [`Unknown::Participant`], with no route of the release's.
+pub(super) fn reserved_for(
     root: &Root,
     run: &str,
     journal: &Path,
@@ -81,8 +91,11 @@ fn reserved_for(
         .filter(|held| (held.run == run) & (held.journal == journal) & !held.attempts.is_empty());
     let whole = |held: Standing| {
         let at = root.path().join(&held.repo).join(run).join(RESERVATION);
-        held.whole
-            .ok_or_else(|| Unadmitted::from(Unknown::Participant(at)))
+        match (held.whole, held.newer) {
+            (Some(whole), _) => Ok(whole),
+            (None, Some(format)) => Err(Unadmitted::from(Unknown::Formatted(at, format))),
+            (None, None) => Err(Unadmitted::from(Unknown::ViewOnly(at))),
+        }
     };
     ours.map(whole).collect()
 }
@@ -90,7 +103,8 @@ fn reserved_for(
 /// Why the operator's release of the run `run`'s standing attempts in
 /// `reservations` is refused against its journal's `events`, if it is:
 /// only an attempt that ended indeterminate, a driver of it never sealed
-/// Settled, is the operator's to release.
+/// Settled, is the operator's to release, and only once no process group
+/// its record names still runs (decision 0108 ruling 3).
 fn judged(
     run: &str,
     reservations: &[Reservation],
@@ -105,7 +119,10 @@ fn judged(
             (true, Some(_)) => Err(Refused::Settled(attempt)),
             (false, None) => Err(Refused::Running(attempt)),
             (false, Some(Ending::Certified)) => Err(Refused::Certified(attempt)),
-            (false, Some(Ending::Uncertain)) => Ok(()),
+            (false, Some(Ending::Uncertain)) => match release::live_group(reserved) {
+                Some(group) => Err(Refused::Alive { attempt, group }),
+                None => Ok(()),
+            },
         }?;
     }
     Ok(())

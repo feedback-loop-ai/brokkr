@@ -33,6 +33,7 @@ use super::root::{bytes, read, PRIOR};
 use super::{directory, owned};
 use crate::engine::artifacts::hex;
 use standing::standing;
+pub(in crate::engine::broker) use standing::Attempt;
 pub(super) use standing::{Reaching, Standing, Writing};
 
 mod standing;

@@ -26,6 +26,8 @@ use brokkr_core::EventEnvelope;
 use brokkr_store::Store;
 
 use super::*;
+use crate::engine::tests::{engine, single_body};
+use crate::engine::{spawn_site, SiteSpawn};
 use crate::{Bundle, Engine};
 
 const DB: &str = "BROKKR_WRITERS_DB";
@@ -519,4 +521,49 @@ fn an_engine_killed_mid_attempt_keeps_its_worktree_reserved() {
         "awaiting_operator"
     );
     refused("after-the-resume");
+}
+
+/// The dispatch door records the process group it just spawned on that
+/// driver's own record, and leaves 440d's single slot for reading only:
+/// every group proof and every live-group refusal rests on this write.
+#[test]
+fn the_dispatch_door_records_the_group_on_the_drivers_own_record() {
+    if !crate::engine::tests::in_its_own_engine(
+        "engine::broker::admission::tests::processes::the_dispatch_door_records_the_group_on_the_drivers_own_record",
+    ) {
+        return;
+    }
+    let host = Host::new();
+    let (_dir, engine) = engine(single_body(Vec::new()));
+    let work = worktree(&engine);
+    let held = host
+        .admit(&claim(&work, ["run-a", "a1"], Protects::Nothing, &[]))
+        .unwrap();
+    let spawn = SiteSpawn::inherit(vec!["true".into()]);
+    let deadline = Duration::from_secs(5);
+    let (process, _) = spawn_site(
+        &engine.bundle,
+        &spawn,
+        &json!({}),
+        &work,
+        deadline,
+        Some(at_work(&held)),
+    )
+    .expect("the door spawns under its lease");
+    let group = process.group();
+    drop(process);
+    let bytes = std::fs::read(host.reservation(&work, "run-a")).unwrap();
+    let reservation: Reservation = serde_json::from_slice(&bytes).unwrap();
+    let reserved = &reservation.attempts["a1"];
+    assert_eq!(reserved.drivers.len(), 1, "one driver, one record");
+    assert_eq!(reserved.drivers[0].site, "work");
+    assert_eq!(
+        reserved.drivers[0].group,
+        Some(group),
+        "the driver's own record carries the group it leads"
+    );
+    assert_eq!(
+        reserved.group, None,
+        "the legacy one-slot field is not written by a new record"
+    );
 }

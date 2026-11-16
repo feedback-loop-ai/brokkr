@@ -69,6 +69,7 @@ use super::marks::Brokered;
 use super::{site_label, Engine, EngineError, EventType, Selection};
 use crate::capabilities::{Admitted, Connection, Implementation};
 pub(super) mod admission;
+mod conflict;
 pub mod evidence;
 mod exclusion;
 pub(super) mod fold;
@@ -81,6 +82,7 @@ mod sources;
 mod terminal;
 pub(super) use admission::{Authored, Held};
 pub(super) use observation::{observed, Observed};
+pub use sources::Unroutable;
 pub(super) use terminal::Host;
 
 /// One attempt's retention budget, which its retaining plans share (CR3).
