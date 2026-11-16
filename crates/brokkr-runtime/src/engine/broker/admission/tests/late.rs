@@ -272,8 +272,8 @@ fn after_first(
     after(one, a, two, b)
 }
 
-/// A directory in place of the record's name: both the exchange back and
-/// the plain rename of a planted file fail.
+/// A directory in place of the record's name: the exchange back fails, and
+/// nothing is renamed over the name in its place.
 fn name_a_directory(
     _: &std::os::fd::OwnedFd,
     _: &str,
@@ -285,8 +285,8 @@ fn name_a_directory(
     Err(rustix::io::Errno::INVAL)
 }
 
-/// A directory in place of the staged name: both fail while the name still
-/// holds this seal's successor.
+/// A directory in place of the staged name: the exchange back fails while
+/// the name still holds this seal's successor.
 fn staged_a_directory(
     one: &std::os::fd::OwnedFd,
     a: &str,
@@ -363,6 +363,22 @@ pub(super) fn unlinking_before_third_exchange(
     b: &str,
 ) -> Result<(), rustix::io::Errno> {
     unlinking_at(3, one, a, two, b)
+}
+
+/// Production's exchange for the first two swaps on this thread, and
+/// `EINVAL` for the third and later: an undo's exchange back, for a file a
+/// hand planted at the name, fails for a reason other than a removal (#1099
+/// R2).
+pub(super) fn failing_third_exchange(
+    one: &OwnedFd,
+    a: &str,
+    two: &OwnedFd,
+    b: &str,
+) -> Result<(), rustix::io::Errno> {
+    if swaps() < 3 {
+        return rustix::fs::renameat_with(one, a, two, b, rustix::fs::RenameFlags::EXCHANGE);
+    }
+    Err(rustix::io::Errno::INVAL)
 }
 
 /// One exchange seam: production's swap for the first call on this thread,

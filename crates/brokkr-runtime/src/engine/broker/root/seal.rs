@@ -287,10 +287,16 @@ fn exchanged_in(seal: &Seal<'_>, stood: &Record, written: &Record) -> Result<(),
 /// other reason, no rename runs either, because a plain rename would make
 /// the name if the removal had taken it. In either failure the planted file
 /// stays under the staged name (the next seal of this record removes it
-/// first), and this seal's own successor is removed where it is still at
-/// the name: a file a hand made at the name is never deleted. The prior name
-/// is removed either way, for the removal or replacement that met the record
-/// that stood stands.
+/// first), and the name is left as it is, but for this seal's own successor,
+/// which is removed where it is still there: a file a hand made at the name
+/// is never deleted. What the name holds then depends on the caller. For the
+/// reseal's own proof ([`exchanged_in`]) it holds this seal's successor,
+/// which goes, so no record is left. For the undo ([`put_stood_back`]) it
+/// holds the record that stood, which the undo's exchange put there, and
+/// where the exchange back fails for a reason other than `ENOENT` the name
+/// keeps it: not this seal's, so not removed (fail closed; #1099 R2). The
+/// prior name is removed either way, for the removal or replacement that met
+/// the record that stood stands.
 fn put_foreign_back(seal: &Seal<'_>, prior: &str, written: &Record) {
     let (dir, staged, name) = (seal.dir, seal.staged.as_str(), seal.name);
     let put_back = (seal.exchange)(dir, staged, dir, name).is_ok();

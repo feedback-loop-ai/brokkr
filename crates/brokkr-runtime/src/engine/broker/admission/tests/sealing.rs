@@ -24,8 +24,8 @@ use super::coordination::{died_after_its_end, settled_a1};
 use super::late::{
     failing_second_exchange, failing_second_exchange_over_the_name,
     failing_second_exchange_over_the_staged, failing_second_exchange_over_the_staged_and_the_hand,
-    refusing, refusing_exchange, swaps_again, unlinking_before_second_exchange,
-    unlinking_before_third_exchange,
+    failing_third_exchange, refusing, refusing_exchange, swaps_again,
+    unlinking_before_second_exchange, unlinking_before_third_exchange,
 };
 use super::*;
 use crate::capabilities::McpFence;
@@ -1072,6 +1072,38 @@ fn a_reseal_whose_exchange_back_fails_leaves_a_file_a_hand_planted_at_the_name()
     assert!(!prior(&at).exists(), "the record that stood is removed");
 }
 
+/// R2 (#1099; decision 0108 ruling 3; 0071 ruling 9): an undo's exchange
+/// back for a file a hand planted at the name fails for a reason other than
+/// the name's removal. The name keeps the record that stood, which the undo's
+/// own exchange put there; the hand's file stays under the staged name and
+/// the prior name goes.
+#[test]
+fn an_undos_failed_exchange_back_leaves_the_record_that_stood_at_the_name() {
+    swaps_again();
+    let host = host_exchanging(failing_third_exchange);
+    let (_host, _work, held, at) = spawning_attempt_in(host);
+    swaps_again();
+    let before = std::fs::read(&at).unwrap();
+    LATE.set(Some(Late::ReplaceCommitted));
+    let amended = amend(&held, soon(), |mut reservation| {
+        reservation.settled.insert("planted".into());
+        Ok(reservation)
+    });
+    assert_eq!(amended, Err(Unadmitted::Identity(Unknown::Unsealed)));
+    assert_eq!(
+        std::fs::read(&at).unwrap(),
+        before,
+        "the name keeps the record that stood"
+    );
+    let staged = at.with_file_name("reservation.json.new");
+    assert_eq!(
+        std::fs::metadata(&staged).unwrap().len(),
+        0,
+        "the hand's file stays under the staged name"
+    );
+    assert!(!prior(&at).exists(), "no prior name left");
+}
+
 /// #440 fix round 440d6 (decision 0108 ruling 3): every way a filesystem
 /// says it has no atomic exchange refuses by name, and the record that
 /// stood is unchanged byte for byte and inode for inode.
@@ -1545,7 +1577,7 @@ fn a_lone_prior_name_is_refused_by_the_door_the_amend_and_settlement() {
 /// name is a directory, the planted file stays under the staged name and the
 /// record that stood is removed, rather than the planted file being deleted.
 #[test]
-fn a_reseal_whose_exchange_back_and_rename_both_fail_leaves_the_planted_file() {
+fn a_reseal_whose_exchange_back_fails_over_a_directory_leaves_the_planted_file() {
     let (_host, at, staged) = put_backs_failed(failing_second_exchange_over_the_name);
     assert!(
         std::fs::metadata(&at).unwrap().is_dir(),
@@ -1559,8 +1591,8 @@ fn a_reseal_whose_exchange_back_and_rename_both_fail_leaves_the_planted_file() {
     assert!(!prior(&at).exists(), "the record that stood is removed");
 }
 
-/// Run four's review, S5: where neither put-back can run and the name still
-/// holds this seal's own successor, that successor is removed: a refused
+/// Run four's review, S5: where the exchange back cannot run and the name
+/// still holds this seal's own successor, that successor is removed: a refused
 /// reseal never leaves a record standing.
 #[test]
 fn a_reseals_exchange_back_that_fails_removes_its_successor() {
