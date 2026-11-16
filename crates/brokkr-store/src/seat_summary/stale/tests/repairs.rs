@@ -168,19 +168,17 @@ fn a_view_holding_the_sets_name_is_replaced() {
     );
 }
 
-/// A keyless `seat_summary` is not this build's any more than a keyless
-/// head is: the writer's key is `(run_id, opened)`, and without it two
-/// folds of one run can both stand. The seventh repair asks the key, so
-/// the table is remade with it.
-#[test]
-fn a_keyless_seat_summary_is_remade() {
+/// A current journal whose `seat_summary` is made again with every column
+/// and `key` (a table clause, or none), is not this build's, and is
+/// remade with the writer's key `(run_id, opened)` by the next open.
+fn remade_with(key: &str) {
     let (dir, store) = current_store();
     store
         .conn
         .execute_batch(&format!(
             "DROP TABLE seat_summary;
              CREATE TABLE seat_summary (
-                 run_id TEXT NOT NULL, opened INTEGER NOT NULL, {}, digest TEXT NOT NULL
+                 run_id TEXT NOT NULL, opened INTEGER NOT NULL, {}, digest TEXT NOT NULL{key}
              );
              CREATE INDEX seat_summary_started ON seat_summary (started_ms)
                  WHERE site IS NOT NULL;
@@ -192,7 +190,7 @@ fn a_keyless_seat_summary_is_remade() {
         .unwrap();
     assert!(
         !crate::seat_summary::seats_intact(&store.conn).unwrap(),
-        "a keyless seat_summary is not this build's"
+        "a seat_summary keyed ({key:?}) is not this build's"
     );
     drop(store);
 
@@ -206,6 +204,24 @@ fn a_keyless_seat_summary_is_remade() {
         ["run_id", "opened"],
         "the key is asked and remade"
     );
+}
+
+/// A keyless `seat_summary` is not this build's any more than a keyless
+/// head is: the writer's key is `(run_id, opened)`, and without it two
+/// folds of one run can both stand. The seventh repair asks the key, so
+/// the table is remade with it.
+#[test]
+fn a_keyless_seat_summary_is_remade() {
+    remade_with("");
+}
+
+/// The key's columns are asked in the writer's order: `(opened, run_id)`
+/// names the same two columns and is a different key, whose index serves
+/// no `run_id` seek, so the table is remade as a keyless one is
+/// (`holds_keyed`'s "in that order").
+#[test]
+fn a_seat_summary_keyed_in_another_order_is_remade() {
+    remade_with(", PRIMARY KEY (opened, run_id)");
 }
 
 /// A VIEW named `seat_head` is dropped as a view, not refused by `DROP
