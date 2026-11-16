@@ -815,6 +815,28 @@ fn a_first_seal_whose_prior_name_is_gone_at_its_undo_leaves_no_successor() {
     }
 }
 
+/// #1099's C2, the first seal's other arm: where its undo's rename back
+/// meets anything but a gone prior name (here a hand's directory there, so
+/// the rename fails with ENOTDIR), the undo fails and the seal refuses as
+/// unsealed: the hand's directory stays, and this seal's file is still at
+/// the name, as `undone` states for an undo that fails.
+#[test]
+fn a_first_seal_whose_rename_back_fails_refuses_as_unsealed() {
+    let host = Host::new();
+    let (at, _) = probe(&host);
+    LATE.set(Some(Late::PriorDirectoryRetiring));
+    assert_eq!(sealing(&host.root, SECOND), Err(Unknown::Unsealed));
+    assert!(
+        prior(&at).is_dir(),
+        "the hand's directory stays at the prior name"
+    );
+    assert!(
+        at.is_file(),
+        "a failed undo leaves this seal's file at the name, as undone states"
+    );
+    nothing_staged(&at);
+}
+
 /// #440 fix round 440d6 (decision 0108 ruling 3): a seal's restore of a
 /// record that must still stand puts the prior name back by the same
 /// exchange, but where the name is gone the removal stands: it removes the

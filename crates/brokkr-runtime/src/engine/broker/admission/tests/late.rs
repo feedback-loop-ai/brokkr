@@ -10,7 +10,7 @@ use std::io::Write;
 use std::os::fd::OwnedFd;
 use std::time::Duration;
 
-use rustix::fs::AtFlags;
+use rustix::fs::{AtFlags, Mode};
 
 use crate::engine::broker::admission::STAGED;
 use crate::engine::broker::root::{Step, PRIOR};
@@ -27,7 +27,8 @@ use crate::engine::broker::root::{Step, PRIOR};
 /// [`Late::RemoveCommitted`]; #440 fix round 440d6), or removes the record
 /// that stood from its prior name, as the directory's sync fails after the
 /// commit or as the seal retires it ([`Late::RemovePriorCommitted`],
-/// [`Late::RemovePriorRetiring`]; #1099);
+/// [`Late::RemovePriorRetiring`]; #1099), or replaces that prior name
+/// with a directory as the seal retires it ([`Late::PriorDirectoryRetiring`]);
 /// once renamed in, spends the time given, fails as its directory sync
 /// failing would, or spends it with the directory's write permission taken,
 /// or spends it and then fails the sync of its undoing (M2 of run four's
@@ -49,6 +50,7 @@ pub(super) enum Late {
     ReplaceCommitted,
     RemovePriorCommitted,
     RemovePriorRetiring,
+    PriorDirectoryRetiring,
     CutUndo,
     FailLinked,
     FailRestored,
@@ -145,6 +147,14 @@ pub(super) fn late(step: Step, dir: &OwnedFd, staged: &str) -> std::io::Result<(
         // prior name first, so the retirement meets it gone (#1099). This
         // step is handed the record's own name.
         (Step::Retiring, Some(Late::RemovePriorRetiring)) => remove_prior(dir, staged),
+        // As the seal retires the record that stood: a hand replaces its
+        // prior name with a directory, so the retirement cannot remove it and
+        // the undo's rename back meets something other than a gone name
+        // (#1099, the first seal's ENOTDIR arm).
+        (Step::Retiring, Some(Late::PriorDirectoryRetiring)) => {
+            remove_prior(dir, staged);
+            rustix::fs::mkdirat(dir, format!("{staged}{PRIOR}"), Mode::RWXU).unwrap();
+        }
         // The directory's sync after the commit fails, and the undo that
         // follows is cut short after its exchange, as a kill there would cut
         // it (#440 fix round 440d6).
