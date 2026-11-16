@@ -11,6 +11,7 @@ use brokkr_store::{EntryId, EntryState, Generation, QueueEntry, QueueRefusal};
 use uuid::Uuid;
 
 use super::*;
+use crate::dispatch::pass::tests::support::{commands, runs};
 use crate::dispatch::take_dispatch;
 use crate::launch::start;
 use crate::launch::tests::claimed::{claimed, Claimed};
@@ -70,17 +71,6 @@ fn crashed_at(root: &Path, boundary: Boundary) -> (Store, Dispatcher, Claim, Opt
     (store, next, claim, run)
 }
 
-/// Every queue command the journal holds, in order: its seq, command,
-/// operator and reason.
-fn commands(store: &Store) -> Vec<(i64, String, String, String)> {
-    let conn = rusqlite::Connection::open(store.path()).unwrap();
-    let query = "SELECT seq, command, operator, reason FROM queue_commands ORDER BY seq";
-    let mut rows = conn.prepare(query).unwrap();
-    let read = |row: &rusqlite::Row<'_>| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?));
-    let rows = rows.query_map([], read).unwrap();
-    rows.collect::<Result<_, _>>().unwrap()
-}
-
 /// A command row: `seq`, then `command`, by `operator`, for `reason`.
 fn row(seq: i64, command: &str, operator: &str, reason: &str) -> (i64, String, String, String) {
     (seq, command.into(), operator.into(), reason.into())
@@ -101,12 +91,6 @@ fn added_and_claimed() -> Vec<(i64, String, String, String)> {
         row(1, "add", "vy", "queued"),
         row(2, "claim", "dispatch", "admitted"),
     ]
-}
-
-/// The run ids the journal holds.
-fn runs(store: &Store) -> Vec<String> {
-    let listed = store.list_runs().unwrap().into_iter();
-    listed.map(|(run, ..)| run).collect()
 }
 
 /// What `dispatcher` settled reconciling `store`, refused by neither.

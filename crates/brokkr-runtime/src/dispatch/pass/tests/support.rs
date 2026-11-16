@@ -7,7 +7,7 @@ use std::path::Path;
 
 use brokkr_store::Store;
 
-use super::super::super::{pass, Ending, Passed, Seams, Spawn, SpawnFailed, Spawned};
+use super::super::super::{pass, Ended, Ending, Passed, Seams, Spawn, SpawnFailed, Spawned};
 use crate::admission::Host;
 use crate::dispatch::Dispatcher;
 
@@ -27,7 +27,7 @@ pub(crate) fn run_pass<S, P>(
     dispatcher: &Dispatcher,
     file: &Path,
     seams: Seams<S, P>,
-) -> Result<Passed, Ending>
+) -> Result<Passed, Box<Ended>>
 where
     S: FnMut() -> Result<(), Ending>,
     P: FnMut(&Spawn) -> Result<Spawned, SpawnFailed>,

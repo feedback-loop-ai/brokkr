@@ -36,6 +36,33 @@ fn disposed(root: &Path) -> (Claim, Generation, QueuedLaunch) {
     (claim, claimed.generation, queued)
 }
 
+/// Dispose of `claim` as a bundle-moved refusal, uncounted.
+fn dispose_bundle_moved(
+    store: &mut Store,
+    claim: Claim,
+    generation: Generation,
+    queued: &QueuedLaunch,
+) -> Outcome {
+    dispose(
+        store,
+        claim,
+        generation,
+        NonZeroU32::MIN,
+        Class::BundleMoved("measured".into()),
+        queued,
+    )
+    .unwrap()
+}
+
+/// The `reclaim` row's reason in `store`.
+fn reclaim_reason(store: &Store) -> String {
+    commands(store)
+        .into_iter()
+        .find(|(_, command, ..)| command == "reclaim")
+        .expect("a reclaim")
+        .3
+}
+
 /// One claimed entry whose run has started, its dispatcher still holding
 /// the journal, and a store on the same journal.
 struct Started {
@@ -204,6 +231,26 @@ fn a_class_maps_every_launch_refusal_to_its_disposal() {
 }
 
 #[test]
+fn a_run_lock_ends_and_an_uninstalled_recipe_counts() {
+    // These bind the arms a wildcard would otherwise swallow: a run lock
+    // ends the dispatcher rather than counting, and a recipe that is not
+    // installed counts as a compile.
+    assert!(matches!(
+        class(LaunchError::Engine(EngineError::RunLock(
+            crate::run_lock::RunLockError::UnsafeId("run".into())
+        ))),
+        Class::Start(LaunchError::Engine(EngineError::RunLock(_)))
+    ));
+    assert!(matches!(
+        class(LaunchError::RecipeNotFound {
+            name: "recipe".into(),
+            recipes_dir: "recipes".into(),
+        }),
+        Class::Counted(StartRefusal::Compile)
+    ));
+}
+
+#[test]
 fn a_store_refusal_splits_contention_from_an_ending() {
     assert!(matches!(
         refused(StoreError::Contended {
@@ -310,28 +357,36 @@ fn a_contended_start_is_reclaimed_uncounted() {
 }
 
 #[test]
-fn a_bundle_moved_reclaims_uncounted_naming_both_digests() {
+fn a_bundle_moved_names_both_digests_or_an_unreadable_remeasure() {
     let dir = tempfile::tempdir().unwrap();
     let (claim, generation, queued) = disposed(dir.path());
     let actual = queued.compiled().unwrap().manifest_digest();
     let mut store = Store::open(&dir.path().join("forge.db")).unwrap();
-    let outcome = dispose(
-        &mut store,
-        claim,
-        generation,
-        NonZeroU32::MIN,
-        Class::BundleMoved("measured".into()),
-        &queued,
-    )
-    .unwrap();
+    let outcome = dispose_bundle_moved(&mut store, claim, generation, &queued);
     assert!(matches!(outcome, Outcome::Reclaimed(ref reclaimed) if reclaimed.refused.is_none()));
-    let (_, _, _, reason) = commands(&store)
-        .into_iter()
-        .find(|(_, command, ..)| command == "reclaim")
-        .unwrap();
+    let reason = reclaim_reason(&store);
     assert!(reason.contains("measured"), "{reason}");
     assert!(reason.contains(&actual), "{reason}");
     assert_eq!(refusals(&store), Vec::<String>::new());
+
+    let unreadable = tempfile::tempdir().unwrap();
+    let (claim, generation, queued) = disposed(unreadable.path());
+    std::fs::remove_dir_all(unreadable.path().join("bundle")).unwrap();
+    let mut store = Store::open(&unreadable.path().join("forge.db")).unwrap();
+    let outcome = dispose_bundle_moved(&mut store, claim, generation, &queued);
+    assert!(matches!(outcome, Outcome::Reclaimed(_)));
+    assert!(reclaim_reason(&store).contains("unreadable"));
+}
+
+#[test]
+fn a_bundle_moved_carried_by_the_launch_store_is_uncounted() {
+    let dir = tempfile::tempdir().unwrap();
+    let claimed = claimed(dir.path(), None);
+    let moved = QueueRefusal::BundleMoved(claimed.claim, "measured".into());
+    assert!(matches!(
+        class(LaunchError::Store(StoreError::Queue(moved))),
+        Class::BundleMoved(ref measured) if measured == "measured"
+    ));
 }
 
 #[test]
@@ -534,8 +589,7 @@ fn contention_is_reported_and_any_other_step_refusal_ends() {
             operation: "link",
             waited_ms: 1,
         },
-        brokkr_store::EntryId(1),
-        None,
+        Subject::Entry(brokkr_store::EntryId(1)),
         Stage::Link,
     )
     .unwrap();
@@ -545,8 +599,7 @@ fn contention_is_reported_and_any_other_step_refusal_ends() {
     ));
     let ended = contend(
         StoreError::RunNotFound("gone".into()),
-        brokkr_store::EntryId(1),
-        None,
+        Subject::Entry(brokkr_store::EntryId(1)),
         Stage::Link,
     )
     .unwrap_err();
@@ -580,14 +633,13 @@ fn a_reclaim_that_is_fenced_out_ends_the_disposal() {
 
 #[test]
 fn every_counted_word_and_queue_storage_class_is_named() {
-    assert_eq!(word(StartRefusal::Crossing), "crossing");
-    assert_eq!(word(StartRefusal::Compile), "compile");
-    assert_eq!(word(StartRefusal::Unboxable), "unboxable");
+    assert_eq!(StartRefusal::Crossing.word(), "crossing");
+    assert_eq!(StartRefusal::Compile.word(), "compile");
+    assert_eq!(StartRefusal::Unboxable.word(), "unboxable");
 
     let ended = contend(
         StoreError::Queue(QueueRefusal::SchemaMismatch { found: 9 }),
-        brokkr_store::EntryId(1),
-        None,
+        Subject::Entry(brokkr_store::EntryId(1)),
         Stage::Claim,
     )
     .unwrap_err();

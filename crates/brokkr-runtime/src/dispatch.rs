@@ -3,10 +3,13 @@
 //! how it takes the journal (0095 ruling 2), by its lock and its holder row,
 //! whose generation every step it takes is fenced by in the store; its
 //! reconciliation of what a dispatcher left mid-start (0095 ruling 3); its
-//! one pass under that lock and one entry's start with the start's disposal
-//! by variant (0110 rulings 1 and 2). The `brokkr dispatch` verb, the
-//! process a spawn seam starts and the standing loop are #430's later
-//! slices; this pass starts no process and prints nothing.
+//! one pass under that lock (0110 ruling 1), which reconciles, sweeps, reads
+//! the bound, judges and starts each admitted entry through its claim,
+//! start, link and `spawn` row; and one entry's start with the start's
+//! disposal by variant (0110 ruling 2). The spawn seam stands in for the
+//! process. The `brokkr dispatch` verb, the process that seam starts and the
+//! standing loop are #430's later slices; this pass starts no process and
+//! prints nothing.
 
 use std::path::PathBuf;
 
@@ -21,7 +24,8 @@ mod start;
 
 pub use lock::{take_dispatch, Dispatcher};
 pub use pass::{
-    pass, Contended, Ending, Held, Passed, Reclaimed, Seams, Spawning, Stage, Started, SweepRefused,
+    pass, BoundOutcome, Contended, Ended, Ending, Held, Passed, Reclaimed, Seams, Spawning, Stage,
+    Started, Subject, SweepOutcome, SweepRefused,
 };
 pub use reconcile::{reconcile, Settled};
 pub use start::{ClaimRefused, Spawn, SpawnFailed, Spawned};

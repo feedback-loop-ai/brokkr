@@ -13,7 +13,7 @@ pub mod boundary;
 pub mod bundle;
 pub mod capabilities;
 pub mod dialect;
-mod dispatch;
+pub mod dispatch;
 pub mod engine;
 pub mod keep_refs;
 pub mod launch;
@@ -35,11 +35,7 @@ pub use bundle::{
     Aggregate, Bundle, CompileError, Invocation, PanelMember, Seat, SeatBody, SeatClass,
     SequenceStep, StepBody, ENGINE_VERSION,
 };
-pub use dispatch::{
-    pass, reconcile, take_dispatch, ClaimRefused, Contended, Dispatcher, DispatcherError, Ending,
-    Held, Passed, Reclaimed, Seams, Settled, Spawn, SpawnFailed, Spawned, Spawning, Stage, Started,
-    SweepRefused,
-};
+pub use dispatch::{take_dispatch, DispatcherError};
 pub use engine::{
     apply_fenced_operator_command, conclude, git_head, named_cause, operator_classify,
     operator_command, operator_repair, operator_settle, operator_stop, operator_supersede,

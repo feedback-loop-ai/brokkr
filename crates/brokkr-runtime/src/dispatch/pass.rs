@@ -5,11 +5,14 @@
 //! queue's order. One entry's claim, start, link and `spawn` row complete
 //! before the next entry is claimed (decision 0095 ruling 7).
 //!
-//! What ends the dispatcher is a typed [`Ending`]; everything the next pass
-//! may judge again is a [`Passed`] report. Contention and admission's
-//! refusals are reported, an unreadable bound claims nothing, a claim its
-//! re-check refuses writes nothing, and a sweep record refusal keeps its
-//! report. Nothing here prints: the verb paints the report in slice 6b.
+//! What ends the dispatcher is a typed [`Ending`], carried by the [`Ended`]
+//! that also holds the [`Passed`] report of everything the pass did before
+//! it ended, so 6c's loop never matches on text and never loses a spawn
+//! failure. Everything the next pass may judge again is a [`Passed`] report.
+//! Contention and admission's refusals are reported, an unreadable bound
+//! claims nothing, a claim its re-check refuses writes nothing, and a sweep
+//! record refusal keeps its report. Nothing here prints: the verb paints
+//! the report in slice 6b.
 
 use std::ffi::OsString;
 use std::num::NonZeroU32;
@@ -22,6 +25,9 @@ use super::start::{self, Spawn, SpawnFailed, Spawned};
 use crate::admission::{self, AdmissionError, Host, Judged, Reason, Standing};
 use crate::launch::LaunchError;
 use crate::sweep::{self, SweepError, Swept};
+
+/// The queue admission judged, and the reasons no entry waits on.
+type JudgedQueue = (Vec<Judged>, Vec<Reason>);
 
 /// The two seams a pass is handed in place of a process and a binary check
 /// (decision 0110 ruling 1): `stands` is ruling 4's check, called before
@@ -47,30 +53,70 @@ pub enum Stage {
 }
 
 /// Why the dispatcher ended, typed apart from what its pass reported
-/// (decision 0110 ruling 2).
+/// (decision 0110 ruling 2). [`Ended`] pairs it with the report.
 #[derive(Debug, thiserror::Error)]
 pub enum Ending {
     /// The journal or the sweep refused the dispatcher itself: it took
     /// another journal, or a step was not its to take.
     #[error(transparent)]
-    Dispatcher(#[from] super::DispatcherError),
+    Dispatcher(super::DispatcherError),
     /// `stands` ended the dispatcher: the binary it would spawn is not the
     /// one it started from, or a signal asked it to stop.
     #[error("dispatch: the dispatcher no longer stands")]
     Stood,
     /// A newer dispatcher holds the journal: nothing after was written.
-    #[error("dispatch: the dispatcher was fenced out by generation {}", .0.0)]
+    /// The generation named is the stale one this dispatcher held.
+    #[error(
+        "dispatch: generation {} was fenced out; it is not the journal's latest holder",
+        .0.0
+    )]
     Fenced(Generation),
     /// A start refused outside decision 0095's counted and uncounted
     /// classes: nothing was written and the entry stays `launching`.
     #[error(transparent)]
-    Start(#[from] LaunchError),
+    Start(LaunchError),
     /// The journal's queue storage is not one this binary writes.
     #[error(transparent)]
-    QueueStorage(#[from] brokkr_store::QueueRefusal),
+    QueueStorage(brokkr_store::QueueRefusal),
     /// Any other store error that is not `Contended`.
     #[error(transparent)]
-    Store(#[from] StoreError),
+    Store(StoreError),
+}
+
+/// A pass that ended: the typed [`Ending`] and the [`Passed`] report of
+/// everything it did before it ended. The report is never dropped, so a
+/// spawn failure, a started pid, a hold or a reclaim the pass already saw
+/// reaches 6b even where a later step ends the dispatcher.
+#[derive(Debug, thiserror::Error)]
+#[error("{ending}")]
+pub struct Ended {
+    pub ending: Ending,
+    pub passed: Passed,
+}
+
+/// What a contention stood on: the pass itself, one entry's claim, or one
+/// entry's linked claim.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Subject {
+    Pass,
+    Entry(EntryId),
+    Claim(EntryId, Claim),
+}
+
+/// How reading the journal's bound went: the bound read, or the store's
+/// refusal that left it unreadable, which claims nothing this pass.
+#[derive(Debug)]
+pub enum BoundOutcome {
+    Read(NonZeroU32),
+    Unreadable(StoreError),
+}
+
+/// What one sweep did: its report, or its record refusal's report and
+/// cause.
+#[derive(Debug)]
+pub enum SweepOutcome {
+    Swept(Swept),
+    Refused(SweepRefused),
 }
 
 /// One run reconciliation handed back to spawn: its claim, its run and the
@@ -111,12 +157,13 @@ pub struct Held {
     pub count: u32,
 }
 
-/// A step `Contended` past its patience: reported, and the pass claims no
-/// further entry.
+/// A step `Contended` past its patience: reported. A contention on an
+/// entry's claim, link or `spawn` row leaves no further entry claimed; a
+/// pass-level one (reconcile, sweep, bound or judge) is reported and the
+/// pass goes on where it can.
 #[derive(Debug)]
 pub struct Contended {
-    pub entry: Option<EntryId>,
-    pub claim: Option<Claim>,
+    pub subject: Subject,
     pub stage: Stage,
     pub error: StoreError,
 }
@@ -134,10 +181,8 @@ pub struct SweepRefused {
 #[derive(Debug, Default)]
 pub struct Passed {
     pub reconciled: Vec<Settled>,
-    pub swept: Option<Swept>,
-    pub sweep_refused: Option<SweepRefused>,
-    pub bound: Option<NonZeroU32>,
-    pub bound_refused: Option<StoreError>,
+    pub sweep: Option<SweepOutcome>,
+    pub bound: Option<BoundOutcome>,
     pub admission_refused: Option<AdmissionError>,
     pub unstarted: Vec<Reason>,
     pub started: Vec<Started>,
@@ -155,14 +200,14 @@ pub struct Passed {
 /// Run one pass under the dispatcher's lock, with the machine `host` names
 /// and the boundary tool search path `host_path`: reconcile, sweep, read
 /// the bound, judge the queue and start each admitted entry, reporting what
-/// it did.
+/// it did. A typed [`Ending`] carries the report [`Ended::passed`].
 pub fn pass<S, P>(
     store: &mut Store,
     dispatcher: &Dispatcher,
     host: &Host<'_>,
     host_path: OsString,
     seams: Seams<S, P>,
-) -> Result<Passed, Ending>
+) -> Result<Passed, Box<Ended>>
 where
     S: FnMut() -> Result<(), Ending>,
     P: FnMut(&Spawn) -> Result<Spawned, SpawnFailed>,
@@ -180,55 +225,58 @@ fn pass_with<S, P>(
     host_path: OsString,
     seams: Seams<S, P>,
     mut observe: impl FnMut(Stage),
-) -> Result<Passed, Ending>
+) -> Result<Passed, Box<Ended>>
 where
     S: FnMut() -> Result<(), Ending>,
     P: FnMut(&Spawn) -> Result<Spawned, SpawnFailed>,
 {
-    let mut seams = seams;
     let mut passed = Passed::default();
+    match run(
+        store,
+        dispatcher,
+        host,
+        host_path,
+        seams,
+        &mut passed,
+        &mut observe,
+    ) {
+        Ok(()) => Ok(passed),
+        Err(ending) => Err(Box::new(Ended { ending, passed })),
+    }
+}
+
+/// The pass's steps, keeping everything they did in `passed` so an ending
+/// can carry it.
+fn run<S, P>(
+    store: &mut Store,
+    dispatcher: &Dispatcher,
+    host: &Host<'_>,
+    host_path: OsString,
+    mut seams: Seams<S, P>,
+    passed: &mut Passed,
+    observe: &mut impl FnMut(Stage),
+) -> Result<(), Ending>
+where
+    S: FnMut() -> Result<(), Ending>,
+    P: FnMut(&Spawn) -> Result<Spawned, SpawnFailed>,
+{
     observe(Stage::Reconcile);
-    passed.reconciled = match reconcile(store, dispatcher) {
-        Ok(Ok(settled)) => settled,
-        Ok(Err(error)) => return Err(Ending::Dispatcher(error)),
-        Err(error) => {
-            store_refused(&mut passed, error, Stage::Reconcile)?;
-            return Ok(passed);
-        }
-    };
-    if !spawned_after_reconcile(store, dispatcher, &mut passed, &mut seams)? {
-        return Ok(passed);
+    if !reconcile_once(store, dispatcher, passed)? {
+        return Ok(());
+    }
+    if !spawned_after_reconcile(store, dispatcher, passed, &mut seams)? {
+        return Ok(());
     }
     // 0106d spends an entry's retry budget here.
     observe(Stage::Sweep);
-    sweep_once(store, dispatcher, &mut passed)?;
+    sweep_once(store, dispatcher, passed)?;
     observe(Stage::Bound);
-    match store.dispatch_bound() {
-        Ok(bound) => passed.bound = Some(bound),
-        Err(error) => {
-            passed.bound_refused = Some(error);
-            return Ok(passed);
-        }
-    }
-    let bound = passed.bound.expect("a read bound is kept");
-    observe(Stage::Judge);
-    let reason = format!(
-        "dispatch generation {} judges the queue",
-        dispatcher.generation.0
-    );
-    let by = Attribution {
-        operator: "dispatch",
-        reason: &reason,
+    let Some(bound) = read_bound(store, passed)? else {
+        return Ok(());
     };
-    let (judged, unstarted) = match admission::judge_within(store, host, by) {
-        Ok(judged) => judged,
-        Err(AdmissionError::Store(error)) => {
-            return stop_with_refusal(&mut passed, error, Stage::Judge);
-        }
-        Err(error) => {
-            passed.admission_refused = Some(error);
-            return Ok(passed);
-        }
+    observe(Stage::Judge);
+    let Some((judged, unstarted)) = judge_queue(store, dispatcher, host, passed)? else {
+        return Ok(());
     };
     passed.unstarted = unstarted;
     passed.waiting = judged
@@ -263,11 +311,31 @@ where
             host_path.clone(),
             &mut seams,
         )?;
-        if !record_start(&mut passed, outcome) {
+        if !record_start(passed, outcome) {
             break;
         }
     }
-    Ok(passed)
+    Ok(())
+}
+
+/// Reconcile what a dispatcher left mid-start. A contention is reported and
+/// claims nothing more this pass; a dispatcher or store refusal ends it.
+fn reconcile_once(
+    store: &mut Store,
+    dispatcher: &Dispatcher,
+    passed: &mut Passed,
+) -> Result<bool, Ending> {
+    match reconcile(store, dispatcher) {
+        Ok(Ok(settled)) => {
+            passed.reconciled = settled;
+            Ok(true)
+        }
+        Ok(Err(error)) => Err(Ending::Dispatcher(error)),
+        Err(error) => {
+            store_refused(passed, error, Stage::Reconcile, Subject::Pass)?;
+            Ok(false)
+        }
+    }
 }
 
 /// Take one entry's start into the report. A contention or a claim that
@@ -292,7 +360,9 @@ fn record_start(passed: &mut Passed, outcome: start::Outcome) -> bool {
 }
 
 /// The runs reconciliation handed back to spawn: write each `spawn` row and
-/// hand the run to the seam once, never twice (decision 0095 ruling 3).
+/// hand the run to the seam once, never twice (decision 0095 ruling 3). A
+/// store refusal is reported or ends the pass, and every settled item is
+/// kept in the report for the next pass.
 fn spawned_after_reconcile<S, P>(
     store: &mut Store,
     dispatcher: &Dispatcher,
@@ -305,16 +375,24 @@ where
 {
     let generation = dispatcher.generation;
     let settled = std::mem::take(&mut passed.reconciled);
-    for settled in settled {
+    let mut pending = settled.into_iter();
+    while let Some(settled) = pending.next() {
         match settled {
             Settled::Reclaimed(claim) => passed.reconciled.push(Settled::Reclaimed(claim)),
             Settled::ToSpawn(claim, run) => {
                 (seams.stands)()?;
                 if let Err(error) =
-                    store.queue_spawn(claim, generation, &reconciled_spawn(claim, &run))
+                    store.queue_spawn(claim, generation, &start::spawn_reason(claim, &run))
                 {
                     passed.reconciled.push(Settled::ToSpawn(claim, run));
-                    return Ok(!store_refused(passed, error, Stage::Spawn)?);
+                    passed.reconciled.extend(pending);
+                    store_refused(
+                        passed,
+                        error,
+                        Stage::Spawn,
+                        Subject::Claim(claim.parts().0, claim),
+                    )?;
+                    return Ok(false);
                 }
                 let spawned = (seams.spawn)(&Spawn {
                     entry: claim.parts().0,
@@ -334,58 +412,122 @@ where
     Ok(true)
 }
 
-/// Run the sweep, keeping a record refusal's report and ending on a store
-/// or dispatcher refusal.
+/// Run the sweep. Its record refusal keeps the report and the pass goes on;
+/// a contended store refusal is reported and the pass goes on; any other
+/// store or dispatcher refusal ends it.
 fn sweep_once(
     store: &mut Store,
     dispatcher: &Dispatcher,
     passed: &mut Passed,
 ) -> Result<(), Ending> {
-    record_sweep(passed, sweep::pass(store, dispatcher)).map(|_| ())
+    record_sweep(passed, sweep::pass(store, dispatcher))
 }
 
-/// Keep what a sweep did, or what it refused: a record refusal is reported
-/// beside the removals it made, and a store or dispatcher refusal ends the
-/// pass.
-fn record_sweep(passed: &mut Passed, swept: Result<Swept, SweepError>) -> Result<bool, Ending> {
+/// Keep a sweep's report or its record refusal, and split a store refusal:
+/// contention is reported and the pass goes on, and every other store error
+/// ends the dispatcher.
+fn record_sweep(passed: &mut Passed, swept: Result<Swept, SweepError>) -> Result<(), Ending> {
     match swept {
-        Ok(swept) => passed.swept = Some(swept),
+        Ok(swept) => passed.sweep = Some(SweepOutcome::Swept(swept)),
         Err(SweepError::Record { report, cause }) => {
-            passed.sweep_refused = Some(SweepRefused {
+            passed.sweep = Some(SweepOutcome::Refused(SweepRefused {
                 report: *report,
                 cause,
-            });
+            }));
         }
         Err(SweepError::Dispatcher(error)) => return Err(Ending::Dispatcher(error)),
-        Err(SweepError::Store(error)) => return Ok(!store_refused(passed, error, Stage::Sweep)?),
+        Err(SweepError::Store(error)) => {
+            store_refused(passed, error, Stage::Sweep, Subject::Pass)?;
+        }
     }
-    Ok(true)
+    Ok(())
 }
 
-/// Stop the pass with a store refusal in `passed`: contention is reported
-/// and the pass returns, and every other class ends the dispatcher.
-fn stop_with_refusal(
+/// Read the journal's bound once. An unreadable bound is reported and
+/// claims nothing this pass, and a contention is reported and does the
+/// same; a newer holder or unknown queue storage ends the dispatcher.
+fn read_bound(store: &mut Store, passed: &mut Passed) -> Result<Option<NonZeroU32>, Ending> {
+    match store.dispatch_bound() {
+        Ok(bound) => {
+            passed.bound = Some(BoundOutcome::Read(bound));
+            Ok(Some(bound))
+        }
+        Err(error) => bound_refused(passed, error),
+    }
+}
+
+/// Split the store's refusal of a bound read: contention is reported and
+/// claims nothing, a newer holder or unknown queue storage ends the
+/// dispatcher, and a bound that does not read is reported as unreadable,
+/// claiming nothing.
+fn bound_refused(passed: &mut Passed, error: StoreError) -> Result<Option<NonZeroU32>, Ending> {
+    match start::refused(error) {
+        start::Refused::Contended(error) => {
+            passed.contended.push(Contended {
+                subject: Subject::Pass,
+                stage: Stage::Bound,
+                error,
+            });
+            Ok(None)
+        }
+        start::Refused::Fenced(generation) => Err(Ending::Fenced(generation)),
+        start::Refused::QueueStorage(refusal) => Err(Ending::QueueStorage(refusal)),
+        start::Refused::Store(error) => {
+            passed.bound = Some(BoundOutcome::Unreadable(error));
+            Ok(None)
+        }
+    }
+}
+
+/// Judge the queue as the operator word `dispatch`. A store refusal is
+/// reported or ends the dispatcher; every other admission refusal is
+/// reported and claims nothing this pass.
+fn judge_queue(
+    store: &mut Store,
+    dispatcher: &Dispatcher,
+    host: &Host<'_>,
     passed: &mut Passed,
-    error: StoreError,
-    stage: Stage,
-) -> Result<Passed, Ending> {
-    store_refused(passed, error, stage)?;
-    Ok(std::mem::take(passed))
+) -> Result<Option<JudgedQueue>, Ending> {
+    let reason = format!(
+        "dispatch generation {} judges the queue",
+        dispatcher.generation.0
+    );
+    let by = Attribution {
+        operator: "dispatch",
+        reason: &reason,
+    };
+    match admission::judge_within(store, host, by) {
+        Ok(judged) => Ok(Some(judged)),
+        Err(error) => match start::admission_refused(error) {
+            start::AdmissionRefused::Store(error) => {
+                store_refused(passed, error, Stage::Judge, Subject::Pass)?;
+                Ok(None)
+            }
+            start::AdmissionRefused::Other(error) => {
+                passed.admission_refused = Some(error);
+                Ok(None)
+            }
+        },
+    }
 }
 
 /// Report a store refusal, or end the dispatcher: contention is reported
 /// and claims nothing more; a newer holder, unknown queue storage and every
 /// other store error end it.
-fn store_refused(passed: &mut Passed, error: StoreError, stage: Stage) -> Result<bool, Ending> {
+fn store_refused(
+    passed: &mut Passed,
+    error: StoreError,
+    stage: Stage,
+    subject: Subject,
+) -> Result<(), Ending> {
     match start::refused(error) {
         start::Refused::Contended(error) => {
             passed.contended.push(Contended {
-                entry: None,
-                claim: None,
+                subject,
                 stage,
                 error,
             });
-            Ok(true)
+            Ok(())
         }
         start::Refused::Fenced(generation) => Err(Ending::Fenced(generation)),
         start::Refused::QueueStorage(refusal) => Err(Ending::QueueStorage(refusal)),
@@ -397,12 +539,6 @@ fn store_refused(passed: &mut Passed, error: StoreError, stage: Stage) -> Result
 /// started.
 fn standing(judged: &Judged) -> Option<Standing> {
     judged.verdict.as_ref().map(|verdict| verdict.standing())
-}
-
-/// The `spawn` row's reason for a run reconciliation hands back.
-fn reconciled_spawn(claim: Claim, run: &str) -> String {
-    let (entry, seq) = claim.parts();
-    format!("dispatch: run '{run}' under claim {seq} of entry {entry} is handed to its driver")
 }
 
 #[cfg(test)]

@@ -23,7 +23,7 @@ use brokkr_store::{
     Claim, EntryId, Generation, QueueEntry, QueueRefusal, StartRefusal, Store, StoreError,
 };
 
-use super::pass::{Contended, Ending, Held, Reclaimed, Seams, Stage, Started};
+use super::pass::{Contended, Ending, Held, Reclaimed, Seams, Stage, Started, Subject};
 use super::Dispatcher;
 use crate::admission::{AdmissionError, Reason, Room};
 use crate::launch::{self, LaunchError, QueuedLaunch};
@@ -48,20 +48,13 @@ pub struct Spawned {
 }
 
 /// Why a spawn seam could not start a run. The run's `spawn` row stands,
-/// so it is never spawned again; the report names the run and the words
-/// that resume it.
+/// so it is never spawned again; the report names the run it failed to
+/// start, and 6b's view words the command that resumes it (decision 0071
+/// ruling 7).
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum SpawnFailed {
     #[error("{0}")]
     Refused(String),
-}
-
-impl SpawnFailed {
-    /// The words that resume `run`, the one the failed spawn's `spawn` row
-    /// names: a failed spawn is never retried, so the operator resumes it.
-    pub fn resume(&self, run: &str) -> String {
-        format!("brokkr resume {run}")
-    }
 }
 
 /// One entry's start as its pass reports it.
@@ -128,8 +121,12 @@ where
     let claim = match room.claim(store, generation, &claim_reason(id, generation)) {
         Ok(Ok(claim)) => claim,
         Ok(Err(reason)) => return Ok(Outcome::ClaimRefused(ClaimRefused { entry: id, reason })),
-        Err(AdmissionError::Store(error)) => return contend(error, id, None, Stage::Claim),
-        Err(error) => return Ok(Outcome::Admission(error)),
+        Err(error) => match admission_refused(error) {
+            AdmissionRefused::Store(error) => {
+                return contend(error, Subject::Entry(id), Stage::Claim)
+            }
+            AdmissionRefused::Other(error) => return Ok(Outcome::Admission(error)),
+        },
     };
     let remeasure = launch.clone();
     let (request, mut run) = match launch.rebuild(store.path().to_path_buf(), host_path) {
@@ -169,11 +166,11 @@ pub(crate) fn link_and_spawn(
     let generation = dispatcher.generation;
     let entry = claim.parts().0;
     if let Err(error) = store.queue_link(claim, generation, run, &link_reason(claim, run)) {
-        return contend(error, entry, Some(claim), Stage::Link);
+        return contend(error, Subject::Claim(entry, claim), Stage::Link);
     }
     stands()?;
     if let Err(error) = store.queue_spawn(claim, generation, &spawn_reason(claim, run)) {
-        return contend(error, entry, Some(claim), Stage::Spawn);
+        return contend(error, Subject::Claim(entry, claim), Stage::Spawn);
     }
     let spawned = spawn(&Spawn {
         entry,
@@ -200,7 +197,7 @@ fn link_reason(claim: Claim, run: &str) -> String {
     format!("dispatch: claim {seq} of entry {entry} started run '{run}'")
 }
 
-fn spawn_reason(claim: Claim, run: &str) -> String {
+pub(crate) fn spawn_reason(claim: Claim, run: &str) -> String {
     let (entry, seq) = claim.parts();
     format!("dispatch: run '{run}' under claim {seq} of entry {entry} is handed to its driver")
 }
@@ -208,16 +205,10 @@ fn spawn_reason(claim: Claim, run: &str) -> String {
 /// A refused store step: contention is reported and left for
 /// reconciliation; the other three classes end the dispatcher with nothing
 /// more written.
-fn contend(
-    error: StoreError,
-    entry: EntryId,
-    claim: Option<Claim>,
-    stage: Stage,
-) -> Result<Outcome, Ending> {
+fn contend(error: StoreError, subject: Subject, stage: Stage) -> Result<Outcome, Ending> {
     match refused(error) {
         Refused::Contended(error) => Ok(Outcome::Contended(Contended {
-            entry: Some(entry),
-            claim,
+            subject,
             stage,
             error,
         })),
@@ -258,10 +249,10 @@ fn dispose(
     let (entry, seq) = claim.parts();
     match class {
         Class::BundleMoved(measured) => {
-            let started = remeasure
-                .compiled()
-                .map(|bundle| bundle.manifest_digest())
-                .unwrap_or_else(|_| "unreadable".into());
+            let started = match remeasure.compiled() {
+                Ok(bundle) => bundle.manifest_digest(),
+                Err(_) => "unreadable".into(),
+            };
             let reason = format!(
                 "start refused: claim {seq} of entry {entry} measured bundle {measured}, and this \
                  start compiled {started}"
@@ -278,7 +269,7 @@ fn dispose(
             generation,
             bound,
             Some(refusal),
-            word(refusal),
+            refusal.word().to_string(),
         ),
         Class::Fenced(fenced) => Err(Ending::Fenced(fenced)),
         Class::QueueStorage(refusal) => Err(Ending::QueueStorage(refusal)),
@@ -319,14 +310,28 @@ fn reclaim(
     }
 }
 
-/// The word a counted refusal is held with, as `queue_refusals` stores it.
-fn word(refusal: StartRefusal) -> String {
-    match refusal {
-        StartRefusal::Crossing => "crossing",
-        StartRefusal::Compile => "compile",
-        StartRefusal::Unboxable => "unboxable",
+/// An admission refusal, split into the store's error and the rest, so the
+/// pass and a claim share one closed reading of `AdmissionError` (decision
+/// 0071 rulings 2 and 5).
+pub(crate) enum AdmissionRefused {
+    Store(StoreError),
+    Other(AdmissionError),
+}
+
+/// Split an `AdmissionError` as the pass and a claim both read it.
+pub(crate) fn admission_refused(error: AdmissionError) -> AdmissionRefused {
+    match error {
+        AdmissionError::Store(error) => AdmissionRefused::Store(error),
+        error @ (AdmissionError::Entry { .. }
+        | AdmissionError::Fold { .. }
+        | AdmissionError::Latch { .. }
+        | AdmissionError::NothingLatched(_)
+        | AdmissionError::MapMoved(_)
+        | AdmissionError::LatchMoved { .. }
+        | AdmissionError::Unmeasured(_)
+        | AdmissionError::OtherJournal(_)
+        | AdmissionError::Host(_)) => AdmissionRefused::Other(error),
     }
-    .to_string()
 }
 
 /// A store refusal, split into what the pass reports and what ends it.
@@ -432,7 +437,14 @@ fn class(error: LaunchError) -> Class {
         | LaunchError::QueuedShelfUnplaced { .. }
         | LaunchError::Places(_) => Class::Counted(StartRefusal::Compile),
         LaunchError::World(world) => world_class(world),
+        LaunchError::Store(StoreError::Queue(QueueRefusal::BundleMoved(_, measured))) => {
+            Class::BundleMoved(measured)
+        }
         LaunchError::Store(error) => store_class(error),
+        LaunchError::Engine(EngineError::Store(StoreError::Queue(QueueRefusal::BundleMoved(
+            _,
+            measured,
+        )))) => Class::BundleMoved(measured),
         LaunchError::Engine(error) => engine_class(error),
         error @ (LaunchError::EntryWithDispatch
         | LaunchError::ClaimWithDispatch
@@ -471,16 +483,15 @@ fn world_class(error: WorldError) -> Class {
     }
 }
 
-/// A store refusal carried by a launch, in the disposal's classes.
+/// A store refusal carried by a launch, in the disposal's classes. A
+/// `BundleMoved` is classified by its caller, before this, so the queue
+/// refusal it would otherwise carry reaches the store class.
 fn store_class(error: StoreError) -> Class {
-    match error {
-        StoreError::Queue(QueueRefusal::BundleMoved(_, measured)) => Class::BundleMoved(measured),
-        other => match refused(other) {
-            Refused::Contended(_) => Class::Contended,
-            Refused::Fenced(generation) => Class::Fenced(generation),
-            Refused::QueueStorage(refusal) => Class::QueueStorage(refusal),
-            Refused::Store(error) => Class::Store(error),
-        },
+    match refused(error) {
+        Refused::Contended(_) => Class::Contended,
+        Refused::Fenced(generation) => Class::Fenced(generation),
+        Refused::QueueStorage(refusal) => Class::QueueStorage(refusal),
+        Refused::Store(error) => Class::Store(error),
     }
 }
 

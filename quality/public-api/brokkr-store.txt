@@ -305,6 +305,8 @@ pub enum brokkr_store::StartRefusal
 pub brokkr_store::StartRefusal::Compile
 pub brokkr_store::StartRefusal::Crossing
 pub brokkr_store::StartRefusal::Unboxable
+impl brokkr_store::StartRefusal
+pub fn brokkr_store::StartRefusal::word(self) -> &'static str
 pub enum brokkr_store::StoreError
 pub brokkr_store::StoreError::AfterTerminal
 pub brokkr_store::StoreError::AfterTerminal::event_type: brokkr_core::envelope::EventType

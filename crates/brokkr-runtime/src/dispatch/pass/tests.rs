@@ -85,10 +85,14 @@ fn setup_contended() -> (Fixture, std::path::PathBuf, Dispatcher, EntryId) {
 }
 
 /// Assert a pass ended on a store refusal and claimed nothing for `entry`.
-fn assert_store_refused(store: &Store, entry: EntryId, refused: Ending) {
-    assert!(matches!(refused, Ending::Store(StoreError::Sqlite(_))));
+fn assert_store_refused(store: &Store, entry: EntryId, refused: Box<Ended>) {
+    assert!(matches!(
+        refused.ending,
+        Ending::Store(StoreError::Sqlite(_))
+    ));
     assert!(claims(store).is_empty());
     assert_eq!(state(store, entry), EntryState::Queued);
+    assert!(refused.passed.started.is_empty());
 }
 
 /// A claimed entry whose run exists and is linked with no `spawn` row: what
@@ -161,6 +165,26 @@ fn queue_named(store: &mut Store, root: &Path, realms: serde_json::Value) -> Ent
             },
         )
         .unwrap()
+}
+
+/// A fixture whose one entry is queued under a named map whose house text
+/// changes before the pass judges it, and the host file the tests read.
+fn a_named_map_whose_house_moved() -> (Fixture, EntryId, Dispatcher, std::path::PathBuf) {
+    let mut fixture = Fixture::new();
+    std::fs::write(fixture.root.join("HOUSE.md"), "First rule.\n").unwrap();
+    let entry = queue_named(
+        &mut fixture.store,
+        &fixture.root,
+        json!({
+            "schema": "forge.realms/v7",
+            "journal": "forge.db",
+            "realms": [{"name": "b", "path": ".", "default_branch": "main", "house": "HOUSE.md"}]
+        }),
+    );
+    std::fs::write(fixture.root.join("HOUSE.md"), "Second rule.\n").unwrap();
+    let dispatcher = take_dispatch(&mut fixture.store).unwrap().unwrap();
+    let host = fixture.root.join("absent-host.json");
+    (fixture, entry, dispatcher, host)
 }
 
 /// A stand that stands once and ends on every call after.
@@ -279,12 +303,61 @@ fn an_unreadable_bound_claims_nothing_and_reports_it() {
          VALUES ('not a bound', 'vy', 'test', 'then');",
     );
     let (passed, seen) = one_pass(&mut fixture.store, &dispatcher, &file);
-    assert!(passed.bound.is_none());
-    assert!(passed.bound_refused.is_some());
+    assert!(matches!(
+        passed.bound,
+        Some(BoundOutcome::Unreadable(StoreError::Sqlite(_)))
+    ));
     assert!(passed.started.is_empty());
     assert!(seen.is_empty());
     assert_eq!(state(&fixture.store, entry), EntryState::Queued);
     assert_eq!(claims(&fixture.store), vec![]);
+}
+
+#[test]
+fn a_bound_read_refusal_is_split_by_its_class() {
+    let mut passed = Passed::default();
+    assert!(bound_refused(
+        &mut passed,
+        StoreError::Contended {
+            operation: "dispatch_bound",
+            waited_ms: 1,
+        },
+    )
+    .unwrap()
+    .is_none());
+    assert_eq!(passed.contended[0].subject, Subject::Pass);
+    assert_eq!(passed.contended[0].stage, Stage::Bound);
+
+    let mut passed = Passed::default();
+    let ended = bound_refused(
+        &mut passed,
+        StoreError::Queue(brokkr_store::QueueRefusal::Superseded(Generation(4))),
+    )
+    .unwrap_err();
+    assert!(matches!(ended, Ending::Fenced(Generation(4))));
+
+    let mut passed = Passed::default();
+    let ended = bound_refused(
+        &mut passed,
+        StoreError::Queue(brokkr_store::QueueRefusal::SchemaMismatch { found: 9 }),
+    )
+    .unwrap_err();
+    assert!(matches!(
+        ended,
+        Ending::QueueStorage(brokkr_store::QueueRefusal::SchemaMismatch { found: 9 })
+    ));
+
+    let mut passed = Passed::default();
+    assert!(bound_refused(
+        &mut passed,
+        StoreError::Json(serde_json::from_str::<serde_json::Value>("{").unwrap_err()),
+    )
+    .unwrap()
+    .is_none());
+    assert!(matches!(
+        passed.bound,
+        Some(BoundOutcome::Unreadable(StoreError::Json(_)))
+    ));
 }
 
 #[test]
@@ -349,7 +422,7 @@ fn a_stand_that_ends_before_a_claim_claims_nothing() {
         spawn: spawned_one,
     };
     let refused = run_pass(&mut fixture.store, &dispatcher, &file, seams).unwrap_err();
-    assert!(matches!(refused, Ending::Stood));
+    assert!(matches!(refused.ending, Ending::Stood));
     assert_eq!(claims(&fixture.store), vec![]);
     assert_eq!(state(&fixture.store, entry), EntryState::Queued);
 }
@@ -363,7 +436,7 @@ fn a_stand_that_ends_before_a_spawn_row_leaves_the_entry_for_reconciliation() {
         spawn: spawned_one,
     };
     let refused = run_pass(&mut fixture.store, &dispatcher, &file, seams).unwrap_err();
-    assert!(matches!(refused, Ending::Stood));
+    assert!(matches!(refused.ending, Ending::Stood));
     let read = fixture.store.queue_entry(entry).unwrap();
     assert!(matches!(read.state, EntryState::Claimed { .. }));
     assert_eq!(
@@ -399,7 +472,7 @@ fn a_newer_holder_row_fences_the_pass_out_with_nothing_written_after() {
         spawn: spawned_one,
     };
     let refused = run_pass(&mut fixture.store, &dispatcher, &file, seams).unwrap_err();
-    assert!(matches!(refused, Ending::Fenced(g) if g == generation));
+    assert!(matches!(refused.ending, Ending::Fenced(g) if g == generation));
     let words: Vec<String> = commands(&fixture.store)
         .into_iter()
         .map(|(_, command, ..)| command)
@@ -418,7 +491,10 @@ fn a_planted_store_error_ends_the_pass_and_reconciliation_reclaims_the_entry() {
     );
     let seams = quiet();
     let refused = run_pass(&mut fixture.store, &dispatcher, &file, seams).unwrap_err();
-    assert!(matches!(refused, Ending::Store(StoreError::Sqlite(_))));
+    assert!(matches!(
+        refused.ending,
+        Ending::Store(StoreError::Sqlite(_))
+    ));
     assert_eq!(state(&fixture.store, entry), EntryState::Launching);
     drop(dispatcher);
     sql(&fixture.store, "DROP TRIGGER planted");
@@ -530,8 +606,9 @@ fn a_sweep_record_refusal_is_reported_beside_the_removals_it_made() {
         }),
     )
     .unwrap();
-    assert!(passed.swept.is_none());
-    let refused = passed.sweep_refused.expect("a record refusal");
+    let Some(SweepOutcome::Refused(refused)) = passed.sweep else {
+        panic!("a record refusal");
+    };
     assert_eq!(refused.cause, "forced record failure");
     assert!(refused.report.removed().is_empty());
 }
@@ -548,6 +625,7 @@ fn a_sweep_store_refusal_contended_is_reported_and_any_other_ends() {
     )
     .unwrap();
     assert_eq!(passed.contended[0].stage, Stage::Sweep);
+    assert_eq!(passed.contended[0].subject, Subject::Pass);
 
     let mut passed = Passed::default();
     let ended = record_sweep(
@@ -595,6 +673,7 @@ fn a_store_refusal_that_is_not_contention_ends_the_pass() {
         &mut passed,
         StoreError::RunNotFound("gone".into()),
         Stage::Sweep,
+        Subject::Pass,
     )
     .unwrap_err();
     assert!(matches!(ended, Ending::Store(StoreError::RunNotFound(_))));
@@ -604,6 +683,7 @@ fn a_store_refusal_that_is_not_contention_ends_the_pass() {
         &mut passed,
         StoreError::Queue(brokkr_store::QueueRefusal::Superseded(Generation(4))),
         Stage::Judge,
+        Subject::Pass,
     )
     .unwrap_err();
     assert!(matches!(ended, Ending::Fenced(Generation(4))));
@@ -613,6 +693,7 @@ fn a_store_refusal_that_is_not_contention_ends_the_pass() {
         &mut passed,
         StoreError::Queue(brokkr_store::QueueRefusal::SchemaMismatch { found: 9 }),
         Stage::Reconcile,
+        Subject::Pass,
     )
     .unwrap_err();
     assert!(matches!(
@@ -621,30 +702,32 @@ fn a_store_refusal_that_is_not_contention_ends_the_pass() {
     ));
 
     let mut passed = Passed::default();
-    let stop = store_refused(
+    store_refused(
         &mut passed,
         StoreError::Contended {
             operation: "sweep",
             waited_ms: 1,
         },
         Stage::Sweep,
+        Subject::Pass,
     )
     .unwrap();
-    assert!(stop);
     assert_eq!(passed.contended.len(), 1);
     assert_eq!(passed.contended[0].stage, Stage::Sweep);
+    assert_eq!(passed.contended[0].subject, Subject::Pass);
 
     let mut passed = Passed::default();
-    let stopped = stop_with_refusal(
+    store_refused(
         &mut passed,
         StoreError::Contended {
             operation: "judge",
             waited_ms: 1,
         },
         Stage::Judge,
+        Subject::Pass,
     )
     .unwrap();
-    assert_eq!(stopped.contended[0].stage, Stage::Judge);
+    assert_eq!(passed.contended[0].stage, Stage::Judge);
 }
 
 #[test]
@@ -662,7 +745,7 @@ fn a_pass_over_a_store_that_is_not_its_journal_ends_by_dispatcher() {
         seams,
     )
     .unwrap_err();
-    assert!(matches!(refused, Ending::Dispatcher(_)));
+    assert!(matches!(refused.ending, Ending::Dispatcher(_)));
 }
 
 #[test]
@@ -685,7 +768,7 @@ fn a_pass_over_queue_storage_this_binary_does_not_write_ends_naming_it() {
     )
     .unwrap_err();
     assert!(matches!(
-        refused,
+        refused.ending,
         Ending::QueueStorage(brokkr_store::QueueRefusal::SchemaMismatch { found: 999 })
     ));
 }
@@ -709,13 +792,48 @@ fn a_spawn_failure_is_reported_with_the_run_and_never_retried() {
         Err(crate::dispatch::SpawnFailed::Refused(ref why)) if why == "no descriptor"
     ));
     assert!(!started.run.is_empty());
-    assert_eq!(
-        started.spawned.as_ref().unwrap_err().resume(&started.run),
-        format!("brokkr resume {}", started.run)
-    );
+    // The report names the run beside the seam's refusal; 6b's view words
+    // the command that resumes it (decision 0071 ruling 7).
+    assert_eq!(started.run, passed.started[0].run);
     let second = run_pass(&mut fixture.store, &dispatcher, &file, quiet()).unwrap();
     assert!(second.started.is_empty());
     assert!(second.spawned.is_empty());
+}
+
+#[test]
+fn an_ending_after_a_spawn_failure_keeps_the_report_of_what_the_pass_did() {
+    let (mut fixture, file, dispatcher, entries) = setup(2);
+    let first = entries[0];
+    let mut stands = {
+        let mut calls = 0;
+        move || {
+            calls += 1;
+            match calls {
+                3 => Err(Ending::Stood),
+                _ => Ok(()),
+            }
+        }
+    };
+    // The stand ends before the second entry's claim, after the first
+    // entry's failed spawn has been reported.
+    let seams = Seams {
+        stands: move || stands(),
+        spawn: |_: &crate::dispatch::Spawn| {
+            Err(crate::dispatch::SpawnFailed::Refused(
+                "no descriptor".into(),
+            ))
+        },
+    };
+    let ended = run_pass(&mut fixture.store, &dispatcher, &file, seams).unwrap_err();
+    assert!(matches!(ended.ending, Ending::Stood));
+    assert_eq!(ended.passed.started.len(), 1);
+    let started = &ended.passed.started[0];
+    assert_eq!(started.entry, first);
+    assert!(!started.run.is_empty());
+    assert!(matches!(
+        started.spawned,
+        Err(crate::dispatch::SpawnFailed::Refused(ref why)) if why == "no descriptor"
+    ));
 }
 
 #[test]
@@ -769,8 +887,7 @@ fn every_start_outcome_is_reported_and_only_two_stop_the_claims() {
     let stop = record_start(
         &mut passed,
         crate::dispatch::start::Outcome::Contended(Contended {
-            entry: Some(EntryId(1)),
-            claim: Some(claim),
+            subject: Subject::Claim(EntryId(1), claim),
             stage: Stage::Link,
             error: StoreError::Contended {
                 operation: "link",
@@ -862,6 +979,7 @@ fn a_contended_reconciliation_is_reported_and_claims_nothing() {
     holder.execute_batch("ROLLBACK").unwrap();
     assert_eq!(passed.contended.len(), 1);
     assert_eq!(passed.contended[0].stage, Stage::Reconcile);
+    assert_eq!(passed.contended[0].subject, Subject::Pass);
     assert_eq!(state(&fixture.store, entry), EntryState::Queued);
     assert_eq!(claims(&fixture.store), vec![]);
 }
@@ -925,6 +1043,7 @@ fn a_contended_claim_is_reported_and_no_further_entry_is_claimed() {
     drop(conn);
     assert_eq!(passed.contended.len(), 1);
     assert_eq!(passed.contended[0].stage, Stage::Claim);
+    assert_eq!(passed.contended[0].subject, Subject::Entry(entry));
     assert!(claims(&fixture.store).is_empty());
     assert_eq!(state(&fixture.store, entry), EntryState::Queued);
 }
@@ -950,6 +1069,10 @@ fn a_contended_reconciliation_spawn_row_is_reported_and_stops_the_pass() {
     drop(conn);
     assert_eq!(passed.contended.len(), 1);
     assert_eq!(passed.contended[0].stage, Stage::Spawn);
+    assert_eq!(
+        passed.contended[0].subject,
+        Subject::Claim(claimed.entry, claimed.claim)
+    );
     assert!(matches!(
         passed.reconciled.as_slice(),
         [Settled::ToSpawn(..)]
@@ -964,32 +1087,83 @@ fn a_contended_reconciliation_spawn_row_is_reported_and_stops_the_pass() {
 }
 
 #[test]
-fn a_store_refusal_while_judging_ends_the_pass_and_claims_nothing() {
-    let mut fixture = Fixture::new();
-    std::fs::write(fixture.root.join("HOUSE.md"), "First rule.\n").unwrap();
-    let entry = queue_named(
-        &mut fixture.store,
-        &fixture.root,
-        json!({
-            "schema": "forge.realms/v7",
-            "journal": "forge.db",
-            "realms": [{"name": "b", "path": ".", "default_branch": "main", "house": "HOUSE.md"}]
-        }),
+fn a_contended_reconciliation_spawn_keeps_every_settled_item_for_the_next_pass() {
+    use crate::dispatch::reconcile::Settled;
+
+    let dir = tempfile::tempdir().unwrap();
+    let (claimed, run, mut store) = linked_claimed(dir.path());
+    store
+        .set_patience(std::time::Duration::from_millis(20))
+        .unwrap();
+    let mut passed = Passed {
+        reconciled: vec![
+            Settled::ToSpawn(claimed.claim, run.clone()),
+            Settled::Reclaimed(claimed.claim),
+        ],
+        ..Passed::default()
+    };
+    let (held, mut seams) = lock_seams(store.path().to_owned());
+    assert!(
+        !spawned_after_reconcile(&mut store, &claimed._dispatcher, &mut passed, &mut seams,)
+            .unwrap()
     );
-    std::fs::write(fixture.root.join("HOUSE.md"), "Second rule.\n").unwrap();
+    let conn = held.borrow_mut().take();
+    drop(conn);
+    assert_eq!(
+        passed.reconciled,
+        vec![
+            Settled::ToSpawn(claimed.claim, run),
+            Settled::Reclaimed(claimed.claim),
+        ]
+    );
+}
+
+#[test]
+fn a_contended_judge_is_reported_and_claims_nothing() {
+    let (mut fixture, entry, dispatcher, host_file) = a_named_map_whose_house_moved();
+    fixture
+        .store
+        .set_patience(std::time::Duration::from_millis(20))
+        .unwrap();
+    let path = fixture.store.path().to_path_buf();
+    let held = Rc::new(RefCell::new(None::<rusqlite::Connection>));
+    let lock = Rc::clone(&held);
+    let passed = pass_with(
+        &mut fixture.store,
+        &dispatcher,
+        &host(&host_file),
+        OsString::new(),
+        quiet(),
+        move |stage| {
+            if stage != Stage::Judge {
+                return;
+            }
+            let conn = rusqlite::Connection::open(&path).unwrap();
+            conn.busy_timeout(std::time::Duration::from_millis(20))
+                .unwrap();
+            conn.execute_batch("BEGIN IMMEDIATE").unwrap();
+            *lock.borrow_mut() = Some(conn);
+        },
+    )
+    .unwrap();
+    let conn = held.borrow_mut().take();
+    drop(conn);
+    assert_eq!(passed.contended.len(), 1, "{:?}", passed.contended);
+    assert_eq!(passed.contended[0].stage, Stage::Judge);
+    assert_eq!(passed.contended[0].subject, Subject::Pass);
+    assert!(claims(&fixture.store).is_empty());
+    assert_eq!(state(&fixture.store, entry), EntryState::Queued);
+}
+
+#[test]
+fn a_store_refusal_while_judging_ends_the_pass_and_claims_nothing() {
+    let (mut fixture, entry, dispatcher, host_file) = a_named_map_whose_house_moved();
     sql(
         &fixture.store,
         "CREATE TRIGGER no_latch BEFORE INSERT ON queue_latches \
          BEGIN SELECT RAISE(ABORT, 'no latch'); END;",
     );
-    let dispatcher = take_dispatch(&mut fixture.store).unwrap().unwrap();
-    let refused = run_pass(
-        &mut fixture.store,
-        &dispatcher,
-        &fixture.root.join("absent-host.json"),
-        quiet(),
-    )
-    .unwrap_err();
+    let refused = run_pass(&mut fixture.store, &dispatcher, &host_file, quiet()).unwrap_err();
     assert_store_refused(&fixture.store, entry, refused);
 }
 
