@@ -155,6 +155,19 @@ pub(super) struct DoctorArgs {
     pub(super) secrets_file: Option<PathBuf>,
 }
 
+/// Where a sweep pass reads and writes its journal, and whether it is a
+/// dry run (decision 0104 ruling 9, as R3 amends it).
+#[derive(clap::Args)]
+#[group(skip)]
+pub(super) struct SweepArgs {
+    /// List what a pass would remove, with sizes, and write nothing: no
+    /// tree-sweep row, no dispatch holder and no migration.
+    #[arg(long = "dry-run")]
+    pub(super) dry: bool,
+    #[command(flatten)]
+    pub(super) journal: JournalArgs,
+}
+
 /// What a delivering verb runs and what its seats are given, asked the
 /// same way by `run`, `resume` and `rerun`.
 #[derive(clap::Args, Default)]
@@ -645,11 +658,13 @@ pub(super) enum ProbeCmd {
     Harness(ProbeHarnessArgs),
 }
 
-/// The operator's libraries and stores, flattened into the top-level
-/// verbs so the command line reads as it always has, and dispatched as
-/// one group (`lib::library`).
+/// The small verb groups flattened into the top-level verbs so the
+/// command line reads as it always has, and dispatched as one group
+/// (`lib::grouped`). The sweep sits here because it is one pass over the
+/// host, not a library verb, and grouping it keeps `run_with`'s one arm
+/// per group rather than one per verb.
 #[derive(clap::Subcommand)]
-pub(super) enum LibraryCmd {
+pub(super) enum GroupedCmd {
     /// The recipe library: bundle directories as named, swappable
     /// delivery strategies.
     Recipes {
@@ -679,6 +694,12 @@ pub(super) enum LibraryCmd {
         #[command(subcommand)]
         command: SecretsCmd,
     },
+    /// Remove the run-local seat scratch trees the journal proves free and
+    /// record what each complete removal freed, and reap the hands session
+    /// trees whose owners are dead. One pass under the journal's dispatch
+    /// lock; `--dry-run` lists what a pass would remove, with sizes, and
+    /// writes nothing.
+    Sweep(SweepArgs),
 }
 
 /// The MCP capability broker's one verb (decision 0077), and its private

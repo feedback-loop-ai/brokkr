@@ -135,7 +135,7 @@ enum Cmd {
     /// divergence, phases visited, per-seat costs. Read-only.
     Compare(CompareArgs),
     #[command(flatten)]
-    Library(LibraryCmd),
+    Grouped(GroupedCmd),
     /// Close a stopped or parked run from its journal alone — no bundle,
     /// no recipe, no effect. `resume` compiles the exact pinned recipe
     /// and refuses on any drift, which is right for the branches that
@@ -1508,19 +1508,20 @@ fn run_with(
         Cmd::Broker { command } => broker::run(command),
         Cmd::Driver(args) => setup::driver(args),
         Cmd::Compare(args) => readouts::compare(workspace, args),
-        Cmd::Library(command) => library(workspace, command),
+        Cmd::Grouped(command) => grouped(workspace, command),
         Cmd::FakeDriver(args) => setup::fake_driver(args),
     }
 }
 
-/// The library verbs `Cmd::Library` groups, each to its handler.
-fn library(workspace: &std::path::Path, command: LibraryCmd) -> Result<ExitCode> {
-    use verbs::setup;
+/// The small verb groups `Cmd::Grouped` flattens, each to its handler.
+fn grouped(workspace: &std::path::Path, command: GroupedCmd) -> Result<ExitCode> {
+    use verbs::{setup, sweep};
     match command {
-        LibraryCmd::Recipes { command } => setup::recipes(workspace, command),
-        LibraryCmd::Agents { command } => setup::agents(workspace, command),
-        LibraryCmd::Muninn { command } => setup::muninn(workspace, command),
-        LibraryCmd::Secrets { command } => setup::secrets(workspace, command),
+        GroupedCmd::Recipes { command } => setup::recipes(workspace, command),
+        GroupedCmd::Agents { command } => setup::agents(workspace, command),
+        GroupedCmd::Muninn { command } => setup::muninn(workspace, command),
+        GroupedCmd::Secrets { command } => setup::secrets(workspace, command),
+        GroupedCmd::Sweep(args) => sweep::sweep(workspace, args, &mut std::io::stdout()),
     }
 }
 

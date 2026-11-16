@@ -10,6 +10,13 @@ use serde_json::json;
 
 use super::*;
 
+/// A temporary directory under the canonical temporary root: macOS's
+/// `/var` is a link to `/private/var`, and R5 keeps every tree under a
+/// root that is not its own canonical path.
+fn tempdir() -> tempfile::TempDir {
+    tempfile::tempdir_in(std::env::temp_dir().canonicalize().unwrap()).unwrap()
+}
+
 /// A journal of `runs`, each created and started, written and closed.
 fn journal(dir: &Path, runs: &[&str]) -> PathBuf {
     let db = dir.join("forge.db");
@@ -47,7 +54,7 @@ fn report() -> Report {
 
 #[test]
 fn a_journal_whose_rows_agree_with_their_folds_adds_no_line() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = tempdir();
     let db = journal(dir.path(), &["r1", "r2"]);
     let mut report = report();
     report_database(&mut report, Ok(&db));
@@ -63,7 +70,7 @@ fn a_journal_whose_rows_agree_with_their_folds_adds_no_line() {
 
 #[test]
 fn a_row_at_its_head_that_is_not_its_fold_s_is_a_failure_named_by_its_column() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = tempdir();
     let db = journal(dir.path(), &["edited", "gone", "corrupt"]);
     edit(
         &db,
@@ -107,7 +114,7 @@ fn plant_broken_chain(db: &Path) {
 /// the doctor's sweep reads every run whole).
 #[test]
 fn a_run_that_does_not_load_is_a_failure_behind_its_head_and_at_it() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = tempdir();
     let db = journal(dir.path(), &["healthy"]);
     plant_broken_chain(&db);
     let unread = "MISSING  summary: run 'conclude-broken-chain-hand-built' does not load: \
@@ -124,7 +131,7 @@ fn a_run_that_does_not_load_is_a_failure_behind_its_head_and_at_it() {
 
 #[test]
 fn a_summary_the_journal_cannot_be_read_for_is_a_failure() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = tempdir();
     let db = journal(dir.path(), &["r1"]);
     let store = Store::open(&db).unwrap();
     edit(&db, "DROP TABLE run_summary");
@@ -142,7 +149,7 @@ fn a_summary_the_journal_cannot_be_read_for_is_a_failure() {
 /// 0089 ruling 4): an index row is the trigger's, so it never lags.
 #[test]
 fn an_event_index_that_is_not_its_events_is_a_failure_named_by_its_seq() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = tempdir();
     let db = journal(dir.path(), &["edited", "gone", "stray", "timed"]);
     edit(
         &db,
@@ -175,9 +182,70 @@ fn an_event_index_that_is_not_its_events_is_a_failure_named_by_its_seq() {
 fn requested(db: &Path, run: &str) {
     let mut store = Store::open(db).unwrap();
     started(&mut store, run);
+    let phase = json!({"phase": "work"});
+    store
+        .append_next(run, EventType::PhaseEntered, phase, None, None)
+        .unwrap();
     let requested = json!({"effect_id": "fx", "seat": "worker"});
     store
         .append_next(run, EventType::EffectRequested, requested, None, None)
+        .unwrap();
+}
+
+/// `run`'s effect `effect` started and succeeded on `attempt`, so its tree
+/// is one the sweep would remove rather than keep.
+/// Append one event to `run`, opening the journal for it, and hand the
+/// store back so a helper can append the next.
+fn append(
+    db: &Path,
+    run: &str,
+    event: EventType,
+    payload: serde_json::Value,
+    attempt: Option<&str>,
+) -> Store {
+    let mut store = Store::open(db).unwrap();
+    store
+        .append_next(run, event, payload, None, attempt.map(str::to_string))
+        .unwrap();
+    store
+}
+
+fn succeeded(db: &Path, run: &str, effect: &str, attempt: &str) {
+    let began = json!({"effect_id": effect, "attempt_id": attempt});
+    let mut store = append(db, run, EventType::EffectStarted, began, Some(attempt));
+    let result = json!({"effect_id": effect, "result": {"result": "ok"}});
+    store
+        .append_next(
+            run,
+            EventType::EffectSucceeded,
+            result,
+            None,
+            Some(attempt.to_string()),
+        )
+        .unwrap();
+}
+
+/// `run`'s effect `effect` ended indeterminate on `attempt`, and the run
+/// stopped: the sweep keeps the attempt's tree and doctor names it.
+fn indeterminate(db: &Path, run: &str, effect: &str, attempt: &str) {
+    let began = json!({"effect_id": effect, "attempt_id": attempt});
+    let mut store = append(db, run, EventType::EffectStarted, began, Some(attempt));
+    let ended = json!({
+        "effect_id": effect,
+        "attempt_id": attempt,
+        "reason": "the driver stopped answering",
+    });
+    store
+        .append_next(
+            run,
+            EventType::EffectIndeterminate,
+            ended,
+            None,
+            Some(attempt.to_string()),
+        )
+        .unwrap();
+    store
+        .append_next(run, EventType::RunStopped, json!({}), None, None)
         .unwrap();
 }
 
@@ -186,7 +254,7 @@ fn requested(db: &Path, run: &str) {
 /// column (decision 0089 ruling 4).
 #[test]
 fn a_seat_row_at_its_head_that_is_not_its_fold_s_is_a_failure_named_by_its_column() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = tempdir();
     let db = journal(dir.path(), &[]);
     requested(&db, "seated");
     edit(&db, "UPDATE seat_summary SET seat = 'other'");
@@ -208,7 +276,7 @@ fn a_seat_row_at_its_head_that_is_not_its_fold_s_is_a_failure_named_by_its_colum
 /// them.
 #[test]
 fn seat_rows_and_heads_of_no_run_are_failures_named_as_strays() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = tempdir();
     let db = journal(dir.path(), &[]);
     requested(&db, "seated");
     edit(
@@ -236,7 +304,7 @@ fn seat_rows_and_heads_of_no_run_are_failures_named_as_strays() {
 /// a summary row's is: no line, whatever they hold.
 #[test]
 fn seat_rows_behind_their_head_add_no_line() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = tempdir();
     let db = journal(dir.path(), &[]);
     requested(&db, "lagging");
     let store = Store::open(&db).unwrap();
@@ -248,4 +316,100 @@ fn seat_rows_behind_their_head_add_no_line() {
     report_summaries(&mut report, &store);
     assert!(report.healthy);
     assert_eq!(report.lines, Vec::<String>::new());
+}
+
+/// Doctor reaches the unrecorded-tree child after its database line: a
+/// directory under a recorded root that no seat row names is warned with
+/// its size, the report stays healthy, and nothing is removed (decision
+/// 0104 ruling 6).
+#[test]
+fn a_tree_no_row_names_is_warned_after_the_database_line_and_kept() {
+    let dir = tempdir();
+    let db = journal(dir.path(), &[]);
+    requested(&db, "seated");
+    succeeded(&db, "seated", "fx", "11111111-1111-4111-8111-111111111111");
+    let root = dir.path().join("scratch");
+    let named = root.join("11111111-1111-4111-8111-111111111111");
+    let orphan = root.join("orphan");
+    std::fs::create_dir_all(&named).unwrap();
+    std::fs::create_dir_all(&orphan).unwrap();
+    std::fs::write(orphan.join("data"), b"x").unwrap();
+    let bytes = brokkr_protocol::tree::count_tree(&orphan)
+        .unwrap()
+        .unwrap()
+        .bytes;
+    let mut store = Store::open(&db).unwrap();
+    store
+        .record_seat_tree(
+            "seated",
+            "fx",
+            "11111111-1111-4111-8111-111111111111",
+            &root,
+        )
+        .unwrap();
+    drop(store);
+
+    let mut report = report();
+    report_database(&mut report, Ok(&db));
+
+    assert!(report.healthy, "an unrecorded tree is a warning");
+    assert_eq!(
+        report.lines,
+        [
+            format!(
+                "ok       database: {} opens (WAL, append-only triggers)",
+                db.display()
+            ),
+            format!(
+                "warn     tree: {}: {bytes} bytes, named by no seat tree",
+                orphan.display()
+            ),
+        ]
+    );
+    assert!(orphan.is_dir(), "doctor removes nothing");
+}
+
+/// Doctor names each tree the sweep would keep, with the sweep's own
+/// reason and the bytes it holds, after its database line; it removes
+/// nothing (decision 0104 ruling 7 as the operator's succeeded-only
+/// ruling amends it).
+#[test]
+fn a_kept_attempt_tree_is_warned_with_its_reason_after_the_database_line() {
+    let dir = tempdir();
+    let db = journal(dir.path(), &[]);
+    requested(&db, "kept");
+    let attempt = "22222222-2222-4222-8222-222222222222";
+    indeterminate(&db, "kept", "fx", attempt);
+    let root = dir.path().join("scratch");
+    let tree = root.join(attempt);
+    std::fs::create_dir_all(&tree).unwrap();
+    std::fs::write(tree.join("data"), b"x").unwrap();
+    let bytes = brokkr_protocol::tree::count_tree(&tree)
+        .unwrap()
+        .unwrap()
+        .bytes;
+    let mut store = Store::open(&db).unwrap();
+    store
+        .record_seat_tree("kept", "fx", attempt, &root)
+        .unwrap();
+    drop(store);
+
+    let mut report = report();
+    report_database(&mut report, Ok(&db));
+
+    assert!(report.healthy, "a kept tree is a warning");
+    assert_eq!(
+        report.lines,
+        [
+            format!(
+                "ok       database: {} opens (WAL, append-only triggers)",
+                db.display()
+            ),
+            format!(
+                "warn     tree: {}: {bytes} bytes, kept: its attempt ended indeterminate",
+                tree.display()
+            ),
+        ]
+    );
+    assert!(tree.is_dir(), "doctor removes nothing");
 }

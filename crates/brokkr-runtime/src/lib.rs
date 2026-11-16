@@ -22,6 +22,7 @@ mod phase_name;
 pub mod places;
 pub mod realms;
 mod run_lock;
+pub mod sweep;
 
 pub use agents::{
     report as report_agent, resolve as resolve_agent, resolve_route, Adapters, Availability,

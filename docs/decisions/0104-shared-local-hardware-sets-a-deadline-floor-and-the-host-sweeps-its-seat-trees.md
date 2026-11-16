@@ -182,6 +182,33 @@ There is no retention period: rule 6 says "on its next pass". The dry-run
 listing (ruling 9) is the window to look before a pass. A declared
 `keep_hours` in the host file is possible, but it is not recommended.
 
+*Amended, 2026-11-13 (controller, #430):* R4 to R6 narrow this ruling.
+- **R4. A row whose attempt no event names is kept.** A cool-down probe's
+  row is the known case: a probe is not an attempt (0103 ruling 4), and its
+  id is journaled nowhere. The attempt has no terminal event this ruling can
+  read, so its row is kept and reported by name, and 5c sweeps it never. A
+  follow-up may give a probe a journaled close; that is 0103's code.
+- **R5. The root is checked against itself, since the journal records no
+  run-local directory.** The run manifest (`contracts/run-manifest.v14`) and
+  the `runs` table carry no workdir or state path. So a row's `root` must
+  equal its own canonical path, with no `.`, no `..` and no link in any
+  component, and every row of one run must name the same `root`.
+  `root/attempt_id` must be a real directory, not a link, on `root`'s
+  filesystem. A row that fails any of these is kept and reported by name,
+  never removed. Recording the run-local directory in the journal is a
+  separate decision.
+- **R6. A terminal run is `Completed` or `Stopped`.** The fold has no failed
+  run (`Running`, `AwaitingOperator`, `Completed`, `Stopped`), so this
+  ruling's "completed, failed or stopped" reads as those two.
+
+*Amended, 2026-11-14 and 2026-11-15 (operator, #430 c-6885062627,
+c-6890916504):* This ruling is succeeded-only. A tree goes only when its
+attempt's terminal event is `effect/succeeded`; every attempt whose terminal
+event is `effect/failed` or `effect/indeterminate`, or that has none, keeps
+its tree. Accepted cost: a failed attempt's tree stays until the operator
+removes it, or until a later slice gives conclude and restart a typed close
+mark that lets it go.
+
 ### 8. The removal and its record
 
 **Recommended:**
@@ -196,6 +223,20 @@ listing (ruling 9) is the window to look before a pass. A declared
   - A unique index is on `tree_seq`. Triggers refuse update and delete.
 - **A partial removal** records nothing, and the pass reports its error. The next pass tries again.
 - **A recorded tree whose path is already absent** is recorded with `bytes` absent, meaning gone before the pass. So every `seat_trees` row closes.
+
+*Amended, 2026-11-15 (operator, #430 c-6898529728):* a recorded tree whose
+path is absent is recorded with `bytes` absent and no walk, only once the
+checks in ruling 7 as amended pass: R5 holds against a root that exists (a
+gone root is kept), the run's facts read, the effect is closed, the attempt
+has a terminal event, and the run has ended. Otherwise the row is kept and
+reported, so not every row closes.
+
+*Amended, 2026-11-16 (operator, #430 c-6909508297):* a late event, one the
+fold keeps and never applies, keeps the tree that stands at its attempt's
+path and never decides a removal. A gone row whose attempt a late event names
+closes as gone like any other once the checks above pass, because nothing
+stands at its path to remove. A gone root stays kept as "its root is gone",
+and recreating the empty root lets the next pass close the row.
 
 *Amended, 2026-11-13 (controller, #430):* `tree_sweeps` is queue storage
 v6, not the version `seat_trees` shipped in. Ruling 8 put both in "the same
@@ -217,6 +258,23 @@ demand.**
   - Slice 6's `brokkr dispatch` calls the same function on every pass, as 0068 ruling 7 has it ("starts runs, records cool-downs and sweeps").
 - **(b) Sweep at every run start, beside the hands reaper.** Automatic now. But a start is not the dispatcher, holds no dispatch lock, and puts removal work into a run's startup.
 - **(c) Build the function for slice 6 only.** Nothing sweeps until slice 6 exists.
+
+*Amended, 2026-11-13 (controller, #430):* R3. A dry run takes no hold.
+Ruling 9 says `--dry-run` "writes nothing", but `take_dispatch` writes a
+holder row. So a dry run opens the journal read-only and takes no dispatch
+hold; it lists what a pass would remove, with sizes, and writes nothing: no
+row, no holder and no migration. A listing may race a dispatcher's pass,
+which is harmless for a listing.
+
+*Amended, 2026-11-14 (operator, #430 c-6885062627):* R3's report says a lower
+bound when it is one:
+- a dry-run total says `at least N bytes` whenever any tree it would remove is
+  a lower bound;
+- the hands half refuses a `TMPDIR` that is not an absolute, UTF-8 path before
+  it reads a tree, and reports why;
+- a removal whose sweep row a store error or an unrecorded queue refuses keeps
+  its removal in the report beside the record's refusal, and the verb exits
+  non-zero rather than dropping the report.
 
 ## Ruled (operator, in chat, 2026-11-08)
 
