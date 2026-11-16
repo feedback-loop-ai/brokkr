@@ -442,4 +442,31 @@ mod tests {
             "an unknown field is a newer writer's"
         );
     }
+
+    /// #1099 R1(c): an object where this build's record holds a plain value
+    /// is a newer writer's shape, whatever fields it carries. Removal
+    /// control: answer `false` for a path no level names, and this fails.
+    #[test]
+    fn an_object_where_the_record_holds_none_is_a_newer_writers_record() {
+        let mut shaped = full();
+        shaped["attempts"]["a1"]["cleanup"] = json!({"x": 1});
+        assert!(
+            names_unknown(&shaped),
+            "an object at a level that holds none is a newer writer's"
+        );
+    }
+
+    /// #1099 R1(d): an unknown field inside a list's item is read at the
+    /// item's own level, for the writers and for the drivers alike.
+    #[test]
+    fn an_unknown_field_inside_a_listed_item_is_a_newer_writers_record() {
+        for list in ["writers", "drivers"] {
+            let mut later = full();
+            later["attempts"]["a1"][list][0]["a_field_from_a_later_build"] = json!(1);
+            assert!(
+                names_unknown(&later),
+                "an unknown field in {list}[0] is a newer writer's"
+            );
+        }
+    }
 }

@@ -232,6 +232,29 @@ fn a_quarantined_run_whose_lock_a_child_holds_is_refused_naming_it() {
     );
 }
 
+/// A run lock that is not this user's own single file is never taken, so
+/// the release refuses the worktree as held (decision 0108 ruling 1). Here
+/// the lock carries a second link. Removal control: answer that refusal
+/// with the lock taken, and the planted link releases the worktree.
+#[test]
+fn a_quarantined_run_whose_lock_is_not_one_file_still_holds() {
+    let fixture = quarantined(&[Witnessed::Settled], None);
+    drop(crate::run_lock::held_at(fixture.store.path(), "run-a").unwrap());
+    let directory = crate::run_lock::directory_path(fixture.store.path());
+    let second = directory.join("second-link");
+    std::fs::hard_link(directory.join("run-a.lock"), &second).unwrap();
+    assert_eq!(
+        next(&fixture),
+        cr2(Conflict::Held("run-a".into())),
+        "a lock of two links is not taken, and the worktree stays held"
+    );
+    std::fs::remove_file(&second).unwrap();
+    assert!(
+        next(&fixture).is_ok(),
+        "once the lock is one file again, the settled run releases"
+    );
+}
+
 /// Acknowledgement alone never releases: a run with an attempt no record
 /// proves keeps its worktree however it is looked at.
 #[test]
