@@ -231,6 +231,13 @@ gone root is kept), the run's facts read, the effect is closed, the attempt
 has a terminal event, and the run has ended. Otherwise the row is kept and
 reported, so not every row closes.
 
+*Amended, 2026-11-16 (operator, #430 c-6909508297):* a late event, one the
+fold keeps and never applies, keeps the tree that stands at its attempt's
+path and never decides a removal. A gone row whose attempt a late event names
+closes as gone like any other once the checks above pass, because nothing
+stands at its path to remove. A gone root stays kept as "its root is gone",
+and recreating the empty root lets the next pass close the row.
+
 *Amended, 2026-11-13 (controller, #430):* `tree_sweeps` is queue storage
 v6, not the version `seat_trees` shipped in. Ruling 8 put both in "the same
 storage version", and slice 5b shipped `seat_trees` alone in v5; journals

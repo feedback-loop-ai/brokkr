@@ -357,6 +357,55 @@ fn a_late_event_naming_an_attempt_keeps_its_tree() {
     brokkr_store::test_support::lags(&mut fixture.store, &[RUN]);
 }
 
+/// A late event names a failed attempt whose tree is gone, on a completed
+/// run. Nothing stands at its path to remove, so the row closes as gone with
+/// no walk and no bytes, like any other gone row (the operator's 2026-11-16
+/// ruling): the late check is a standing tree's.
+#[test]
+fn a_gone_tree_a_late_event_names_closes_as_gone() {
+    let mut fixture = Fixture::new();
+    opened_failed(&mut fixture.store, RUN, ATTEMPT);
+    completed(&mut fixture.store, RUN);
+    seat(&mut fixture.store, RUN, EFFECT, ATTEMPT, &fixture.root);
+    let terminal = fixture.store.load(RUN).unwrap().last().unwrap().seq;
+    let late = json!({
+        "effect_id": EFFECT,
+        "attempt_id": ATTEMPT,
+        "result": {"result": "ok"},
+    });
+    plant_after_terminal(
+        &fixture.store,
+        RUN,
+        &[
+            (
+                EventType::EffectSucceeded,
+                late,
+                Some(ATTEMPT),
+                "late-succeeded-gone",
+            ),
+            (
+                EventType::OperatorCommanded,
+                repair(terminal, terminal + 1),
+                None,
+                "repair",
+            ),
+        ],
+    );
+    let tree = fixture.root.join(ATTEMPT);
+    assert!(!tree.exists());
+
+    let (swept, _) = pass_one(&mut fixture.store);
+
+    assert!(swept.kept().is_empty());
+    assert_eq!(removed(&swept).path, tree);
+    assert_eq!(removed(&swept).bytes, None);
+    let sweeps = fixture.store.tree_sweeps().unwrap();
+    assert_eq!(sweeps.len(), 1);
+    assert_eq!(sweeps[0].bytes, None);
+    assert_eq!(fixture.store.open_seat_trees().unwrap(), vec![]);
+    brokkr_store::test_support::lags(&mut fixture.store, &[RUN]);
+}
+
 /// A dry run lists a gone row as the pass would close it, with no bytes,
 /// and never counts it: a tree planted at its path after the verdict is
 /// never reported with bytes for a row a pass would never walk (ruling 9).

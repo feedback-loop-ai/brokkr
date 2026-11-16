@@ -59,7 +59,8 @@ struct Folded {
     attempts: HashMap<String, Attempt>,
     /// Every attempt a late event names: the fold keeps and shows such an
     /// event and never applies it, and its process stood after the run
-    /// ended, so its tree stays.
+    /// ended, so a tree that stands at its path stays. A gone tree has
+    /// nothing left to remove, so its row closes as gone like any other.
     late: HashSet<String>,
 }
 
@@ -336,11 +337,6 @@ fn held(folded: &Folded, row: &SeatTree, presence: Presence) -> Option<KeptReaso
     if !folded.terminal && !folded.effects.contains(&row.effect_id) {
         return Some(KeptReason::EffectOpen);
     }
-    // A late event shows the attempt's process stood after its run ended:
-    // the fold never applies it, and no reading of it decides a close.
-    if folded.late.contains(&row.attempt_id) {
-        return Some(KeptReason::Held(HeldReason::LateEvent));
-    }
     match presence {
         Presence::Absent => gone(folded, row),
         Presence::Present => present(folded, row),
@@ -360,9 +356,15 @@ fn gone(folded: &Folded, row: &SeatTree) -> Option<KeptReason> {
     }
 }
 
-/// Why a present tree stays, or `None` when it may go: its attempt ended
-/// succeeded and R5 held, and the caller re-checks the shape before a walk.
+/// Why a present tree stays, or `None` when it may go: no late event names
+/// its attempt, the attempt ended succeeded and R5 held, and the caller
+/// re-checks the shape before a walk.
 fn present(folded: &Folded, row: &SeatTree) -> Option<KeptReason> {
+    // A late event shows the attempt's process stood after its run ended:
+    // the fold never applies it, and no reading of it decides a removal.
+    if folded.late.contains(&row.attempt_id) {
+        return Some(KeptReason::Held(HeldReason::LateEvent));
+    }
     match folded.attempts.get(&row.attempt_id) {
         None => Some(KeptReason::NoEventNamesAttempt),
         Some(Attempt::Unended) => Some(KeptReason::NoTerminalEvent),
