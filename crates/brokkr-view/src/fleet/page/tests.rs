@@ -561,3 +561,51 @@ fn a_fleet_read_whole_lists_a_section_below_its_cursor() {
         ["a", "c"]
     );
 }
+
+/// The head a running row's wait is read from: an `effect/failed` whose
+/// one wait ends ten minutes into the day `NOW` closes.
+fn waiting_head() -> WaitFact {
+    let wait = json!({"site": "a", "provider": "claude", "route": "anthropic",
+        "words": "rate_limit (HTTP 429)", "seconds": 600,
+        "until": "2026-01-02T00:10:00Z", "rounds": 1});
+    let head = crate::tests::ev(
+        8,
+        EventType::EffectFailed,
+        json!({"effect_id": "e", "waits": [wait]}),
+        "2026-01-01T23:59:00Z",
+    );
+    WaitFact::of(Some(&head))
+}
+
+/// Decision 0103 slice 4f: a row the summary refuses paints no wait, the
+/// one place that rule is kept. A refusal beside a running status is not
+/// one a writer produces (it writes the status null), so the row is the
+/// summary of a running journal with the refusal planted.
+#[test]
+fn a_summary_row_the_summary_refuses_paints_no_wait() {
+    let events = journal(&[(
+        EventType::RunStarted,
+        json!({"feature": "v", "manifest": {}}),
+    )]);
+    let summary = Summary::of(
+        &Account::whole("run", &events),
+        Listing {
+            feature: FEATURE,
+            created_at: CREATED,
+        },
+    );
+    let mut row = row_of(&summary);
+    assert_eq!(row.status, Some(brokkr_core::fold::Status::Running));
+    let fact = waiting_head();
+    let waits = |row: &Row| summary_row(row, None, &fact, &[]).waits;
+    // The control: the same row, unrefused, paints the wait.
+    assert_eq!(waits(&row).waits.len(), 1, "an unrefused row paints it");
+    row.refused = Some(brokkr_core::summary::Refused {
+        seq: 1,
+        words: Bounded {
+            cut: "event 1: refused".to_string(),
+            whole: None,
+        },
+    });
+    assert_eq!(waits(&row), Waits::default());
+}
