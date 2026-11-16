@@ -6,6 +6,9 @@ use clap::Parser;
 use super::*;
 use crate::Cli;
 
+mod rows_heap;
+mod snapshot;
+
 const NOW: &str = "2026-10-13T12:00:00Z";
 
 #[test]
@@ -1562,29 +1565,33 @@ fn a_fallback_run_that_will_not_open_reads_its_hearth_whole() {
     let dir = tempfile::tempdir().unwrap();
     let journal = small_journal(dir.path(), "fallback", 2);
     let base = parse_millis(GENERATED_NOW).unwrap();
-    let events = sealed(
-        "behind-run",
-        &stopped_run(
-            base,
-            RunCase {
-                realm: Some("behind-realm"),
-                recipe: "behind-recipe",
-                rule: LastRuling::Named("behind-rule"),
-                provider: "claude",
-                model: "behind-model",
-                usd: 0.5,
-                finish: -19 * 60,
-            },
-        ),
-    );
-    let store = brokkr_store::Store::open(&journal).unwrap();
-    plant_older_writer(&store, "behind-run", &events);
-    drop(store);
-    // Break the behind run's chain behind the store's back, so the row
-    // path's one-run opening refuses it.
-    let conn = rusqlite::Connection::open(&journal).unwrap();
-    plant_broken_link(&conn, &events[0], 99).unwrap();
-    drop(conn);
+    // Two behind runs, so the stream goes on after the first refusal and
+    // the second is left unread.
+    for run in ["behind-run", "behind-run-too"] {
+        let events = sealed(
+            run,
+            &stopped_run(
+                base,
+                RunCase {
+                    realm: Some("behind-realm"),
+                    recipe: "behind-recipe",
+                    rule: LastRuling::Named("behind-rule"),
+                    provider: "claude",
+                    model: "behind-model",
+                    usd: 0.5,
+                    finish: -19 * 60,
+                },
+            ),
+        );
+        let store = brokkr_store::Store::open(&journal).unwrap();
+        plant_older_writer(&store, run, &events);
+        drop(store);
+        // Break the behind run's chain behind the store's back, so the row
+        // path's one-run opening refuses it.
+        let conn = rusqlite::Connection::open(&journal).unwrap();
+        plant_broken_link(&conn, &events[0], 99).unwrap();
+        drop(conn);
+    }
 
     let hearths = [hearth(Vec::new(), &journal)];
     let (rows, reads) = derive_counting(&hearths, Range::Day, None, GENERATED_NOW);
@@ -1600,11 +1607,11 @@ fn a_fallback_run_that_will_not_open_reads_its_hearth_whole() {
             .map(|realm| (realm.realm.as_str(), realm.unreadable_runs))
             .collect::<Vec<_>>(),
         [
-            ("world", 1),
+            ("world", 2),
             ("fallback-realm-0", 0),
             ("fallback-realm-1", 0)
         ],
-        "the fleet read cannot open the run and counts it under the label"
+        "the fleet read cannot open the runs and counts them under the label"
     );
 }
 
