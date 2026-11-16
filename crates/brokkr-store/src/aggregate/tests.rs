@@ -4,6 +4,7 @@
 //! it folds through, and the parks' ranges held to the window alone by their
 //! VM steps.
 
+mod band;
 mod caller;
 mod exclusion;
 mod probe;
