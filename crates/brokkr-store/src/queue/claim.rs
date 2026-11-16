@@ -138,7 +138,9 @@ impl StartRefusal {
         StartRefusal::Unboxable,
     ];
 
-    fn word(self) -> &'static str {
+    /// The word a counted refusal is stored and held with, as
+    /// `queue_refusals` holds it: the one a disposition's reason names.
+    pub fn word(self) -> &'static str {
         match self {
             StartRefusal::Crossing => "crossing",
             StartRefusal::Compile => "compile",

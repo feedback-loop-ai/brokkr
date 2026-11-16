@@ -61,7 +61,7 @@ use crate::launch::{HeldAndNow, LaunchError, QueuedLaunch};
 use crate::realms::WorldError;
 
 mod awaited;
-mod capacity;
+pub(crate) mod capacity;
 mod cooling;
 mod governing;
 mod host;
