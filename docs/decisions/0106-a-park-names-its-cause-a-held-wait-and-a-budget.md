@@ -1,15 +1,15 @@
 # 0106 — A park names its cause, a long reset is a held wait an operator can lift, and the dispatcher spends a declared retry budget
 
-Status: proposed
+Status: accepted — operator ruled in chat 2026-11-16, "accept 0106 as recommended" (https://github.com/feedback-loop-ai/brokkr/issues/1035#issuecomment-6909503279)
 Date: 2026-11-08
 
 Built: unbuilt (#1035)
+Amends: 0068, 0103
 
-This decision acts on 0068's rulings 4 and 7 and on 0103's rulings 2, 3, 4, 5, 6 and 7. Because
-this story may not edit 0068 or 0103, the header pointer and the two back-pointers are absent until
-acceptance; the exact replacement sentences below are the amendment. They stand in [What 0068 and 0103 say after acceptance](#what-0068-and-0103-say-after-acceptance);
-the older files are not edited here, and the amendments take effect when this decision is
-accepted.
+This decision acts on 0068's rulings 4 and 7 and on 0103's rulings 2, 3, 4, 5, 6 and 7. The exact
+replacement sentences in [What 0068 and 0103 say after acceptance](#what-0068-and-0103-say-after-acceptance)
+are the amendment, kept here so the older files are not edited. They took effect at acceptance,
+2026-11-16, when the header pointer above and the back-pointers in 0068 and 0103 were added.
 
 This revision (fix round 1036c, 2026-11-09) answers the chief's second security hold (#1036,
 c-6730756079) on `25fa2d590` and the review of its first answer at `cfc1b3aeb` (nine findings,
@@ -204,6 +204,14 @@ both unbuilt. This decision numbers its four tables after those, once each: `pro
 `provider_lift_probes` are version 6 (slice 0106c), and `queue_retry_budgets` with
 `queue_retries` is version 7 (slice 0106d). `provider-wait/v2` and `park-cause/v1` are payload
 extension versions, not queue storage.
+
+*Erratum at acceptance, 2026-11-16 (a fact that moved, not a ruling):* main built 0103's version 4
+and 0104's version 5, and then recorded version 6 for 0104's `tree_sweeps` (#1079), so the numbers
+above are taken. Each of this decision's two table sets takes the next free queue storage version
+when its slice is built: 0106c's `provider_lifts` and `provider_lift_probes` first (version 7 if
+nothing lands before it), then 0106d's `queue_retry_budgets` and `queue_retries` (the version after
+it). The order and every table's contents stand as ruled. Where this decision says version 6 or 7
+for its own tables, read the version so taken.
 
 ### The dispatcher and `brokkr operator retry`
 
@@ -643,7 +651,8 @@ at load.
 operator's.**
 
 **Its home.** `queue_retry_budgets` is queue storage version 7, after 0106c's `provider_lifts`
-and `provider_lift_probes` (version 6) and 0104's `seat_trees` (version 5): one row per entry,
+and `provider_lift_probes` (version 6) and 0104's `seat_trees` (version 5); the versions moved, as
+the erratum in [The queue's storage versions](#the-queues-storage-versions) says. One row per entry,
 the budget and the operator and reason that set it, absent meaning 3. It is written by `queue add
 --retry-budget <n>` or `queue set-retry-budget`, and the spends are append-only `queue_retries`
 rows, one per dispatcher retry, naming the run, the park's seq and the cause. The budget belongs
@@ -709,9 +718,9 @@ budget and nothing else. It no longer authorizes an adoption.
 
 ## What 0068 and 0103 say after acceptance
 
-These are the replacement sentences, kept here so the older files are not edited. Each takes
-effect when this decision is accepted; the header pointers and back-pointers are added then, not
-in this story.
+These are the replacement sentences, kept here so the older files are not edited. Each took
+effect when this decision was accepted (2026-11-16), and the header pointer and back-pointers were
+added then.
 
 The 0103 passages this decision touches are its ruling 2's table definition (`:256-272`) and its
 aggregate definition (`:273-276`), its no-clearing paragraph (`:277-286`), ruling 3's
