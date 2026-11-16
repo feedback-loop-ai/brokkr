@@ -57,28 +57,14 @@ impl WaitFact {
         }
     }
 
-    /// The last event the fold applied of `events`: the journal's last one
-    /// unless a repair names a late tail, whose events are kept and shown
-    /// and never applied (decision 0108 ruling 4). `None` where `events`
-    /// holds no applied event at all. The one home every surface reads; a
-    /// surface that reads an event past the fold's head asks
-    /// [`RunState::applies`], never the journal's last row.
-    pub fn applied_event<'a>(
-        events: &'a [EventEnvelope],
-        state: Option<&RunState>,
-    ) -> Option<&'a EventEnvelope> {
-        match state {
-            Some(state) if state.late_tail.is_some() => {
-                events.iter().rev().find(|event| state.applies(event.seq))
-            }
-            _ => events.last(),
-        }
-    }
-
     /// The waits the applied trail's last event states, or no wait where
-    /// `events` holds none.
+    /// the fold applied none. The one home every surface reads: the trail's
+    /// last applied event is `crate::live::last_applied`'s to name, so a
+    /// repaired tail's kept event stands no wait (decision 0108 ruling 4),
+    /// and a fold that refused stands none either, because it applied no
+    /// trail to claim a wait from.
     pub fn applied(events: &[EventEnvelope], state: Option<&RunState>) -> WaitFact {
-        WaitFact::of(WaitFact::applied_event(events, state))
+        WaitFact::of(crate::live::last_applied(events, state))
     }
 }
 

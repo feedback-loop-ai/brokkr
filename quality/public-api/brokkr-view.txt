@@ -310,7 +310,6 @@ pub brokkr_view::WaitFact::Unreadable(brokkr_core::payload::provider_wait::Provi
 pub brokkr_view::WaitFact::Waits(alloc::vec::Vec<brokkr_core::payload::provider_wait::ProviderWait>)
 impl brokkr_view::WaitFact
 pub fn brokkr_view::WaitFact::applied(&[brokkr_core::envelope::EventEnvelope], core::option::Option<&brokkr_core::fold::RunState>) -> brokkr_view::WaitFact
-pub fn brokkr_view::WaitFact::applied_event<'a>(&'a [brokkr_core::envelope::EventEnvelope], core::option::Option<&brokkr_core::fold::RunState>) -> core::option::Option<&'a brokkr_core::envelope::EventEnvelope>
 pub fn brokkr_view::WaitFact::of(core::option::Option<&brokkr_core::envelope::EventEnvelope>) -> brokkr_view::WaitFact
 pub struct brokkr_view::Acknowledgement
 pub brokkr_view::Acknowledgement::event_hash: alloc::string::String

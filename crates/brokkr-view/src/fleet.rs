@@ -699,6 +699,9 @@ pub fn run_row(entry: &RunEntry, cooling: &[Cooling]) -> RunRow {
         acknowledgement: acknowledged,
         title: title(entry.feature),
         verdict,
+        // A quarantined run's entry carries no wait: `WaitFact::applied`
+        // reads none when the fold refused, and the kept read clears the
+        // fact when its fold breaks. The row paints what the entry holds.
         waits: Waits::of(&entry.waits, cooling),
         hire: entry.state.and_then(hire),
         order_at: order_at(entry.last_recorded_at, entry.created_at),

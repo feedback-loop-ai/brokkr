@@ -225,6 +225,19 @@ fn a_late_tail_stands_no_wait_on_the_run_view() {
 }
 
 #[test]
+fn a_refused_fold_stands_no_wait_over_its_late_event() {
+    // A concluded journal whose chained `effect/failed` carries waits and
+    // whose repair record is absent: the fold refuses, so there is no
+    // applied trail to read. The journal's last row is that late wait, and
+    // reading it instead paints a wait on a run the fold refused.
+    let events = late_wait::trail("late");
+    assert_eq!(WaitFact::applied(&events, None), WaitFact::NoWait);
+    let view = crate::run_view_with(&events, None, &[]);
+    assert!(view.waits.waits.is_empty(), "{:?}", view.waits);
+    assert_eq!(view.waits.refused, None);
+}
+
+#[test]
 fn the_run_view_derives_the_same_wait_and_the_same_later_end() {
     let event = failed(json!([entry("a", "claude", "anthropic", FIRST_END, WORDS)]));
     let cooling = [cooling("claude", "anthropic", LATER_END)];

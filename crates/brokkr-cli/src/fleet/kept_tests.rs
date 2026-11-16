@@ -6,8 +6,9 @@ use std::path::Path;
 
 use brokkr_core::canonical::ZERO_HASH;
 use brokkr_core::{EventEnvelope, EventType};
-use brokkr_store::test_support::{plant_envelope, plant_run};
+use brokkr_store::test_support::{plant_chained, plant_envelope, plant_run};
 use brokkr_store::{Attribution, Store};
+use brokkr_view::WaitFact;
 use serde_json::{json, Value};
 
 use super::kept::rules;
@@ -364,6 +365,21 @@ fn kept_running(dir: &Path) -> (std::path::PathBuf, KeptFleet) {
     running_store(&db, "r1");
     let mut kept = KeptFleet::default();
     assert_eq!(refreshed(&mut kept, &db), 2);
+    (db, kept)
+}
+
+/// A kept fleet over a journal holding one running run, `r1`, standing in
+/// the wait its first attempt failed into, ending at `until`: where the
+/// journal is, and the fleet.
+fn kept_in_wait(dir: &Path, until: &str) -> (std::path::PathBuf, KeptFleet) {
+    let (db, mut kept) = kept_running(dir);
+    waited(&db, "r1", "first", until);
+    assert_eq!(refreshed(&mut kept, &db), 3, "carried, not read whole");
+    assert_eq!(
+        kept_until(&kept).as_deref(),
+        Some(until),
+        "the running run stands in its wait"
+    );
     (db, kept)
 }
 
@@ -832,4 +848,120 @@ fn a_kept_run_reads_the_ending_its_whole_read_reads() {
         read,
         Some((brokkr_core::ending::Ending::Superseded, Some(cited)))
     );
+}
+
+/// Append an effect request and its first attempt of `run`, failing into a
+/// provider wait ending at `until`, as the engine writes it.
+fn waited(db: &Path, run: &str, attempt: &str, until: &str) {
+    append(
+        db,
+        run,
+        EventType::EffectRequested,
+        json!({"effect_id": "eff", "seat": "work", "phase": "work"}),
+    );
+    retried(db, run, attempt, until);
+}
+
+/// Append another attempt of `run`'s open effect `eff`, failing into a
+/// provider wait ending at `until`: the fail leaves the effect at
+/// `ExecuteEffect`, so the retry starts it again rather than requesting it.
+fn retried(db: &Path, run: &str, attempt: &str, until: &str) {
+    append(
+        db,
+        run,
+        EventType::EffectStarted,
+        json!({"effect_id": "eff", "attempt_id": attempt}),
+    );
+    append(
+        db,
+        run,
+        EventType::EffectFailed,
+        json!({"effect_id": "eff", "attempt_id": attempt, "error": "rate_limit",
+        "waits": [{
+            "site": "a", "provider": "claude", "route": "anthropic",
+            "words": "rate_limit (HTTP 429)", "seconds": 600,
+            "until": until, "rounds": 1
+        }]}),
+    );
+}
+
+/// The one wait a kept fleet's first entry carries, as its until instant.
+fn kept_until(kept: &KeptFleet) -> Option<String> {
+    match &kept.entries()[0].waits {
+        WaitFact::Waits(waits) => waits
+            .first()
+            .and_then(|wait| brokkr_core::stamp::write_millis(wait.until).ok()),
+        _ => None,
+    }
+}
+
+/// A kept run's waits follow its applied trail's last event as it moves:
+/// a later attempt failing into a wait replaces the earlier one.
+#[test]
+fn a_kept_run_paints_the_wait_its_applied_trail_last_states() {
+    let dir = tempfile::tempdir().unwrap();
+    let (db, mut kept) = kept_in_wait(dir.path(), "2099-01-01T00:10:00Z");
+
+    assert_eq!(
+        kept_until(&kept).as_deref(),
+        Some("2099-01-01T00:10:00Z"),
+        "the kept fact follows the applied trail"
+    );
+
+    retried(&db, "r1", "second", "2099-01-01T00:20:00Z");
+    assert_eq!(refreshed(&mut kept, &db), 2, "carried, not read whole");
+    assert_eq!(
+        kept_until(&kept).as_deref(),
+        Some("2099-01-01T00:20:00Z"),
+        "the last applied event's wait is the one painted"
+    );
+}
+
+/// A kept run whose fold breaks at a chained `effect/failed` carrying
+/// waits, with no repair, paints no wait: the run is quarantined, and the
+/// journal's last row is the late wait (decision 0108 ruling 4; decision
+/// 0103 slice 4f). Reading the raw last event instead paints it.
+#[test]
+fn a_kept_run_refused_at_a_late_wait_paints_none() {
+    let dir = tempfile::tempdir().unwrap();
+    let (db, mut kept) = kept_in_wait(dir.path(), "2099-01-01T00:10:00Z");
+
+    append(
+        db.as_path(),
+        "r1",
+        EventType::RunStopped,
+        json!({"reason": "done"}),
+    );
+    let head = Store::open_read_only(&db)
+        .unwrap()
+        .load("r1")
+        .unwrap()
+        .pop()
+        .unwrap();
+    let connection = rusqlite::Connection::open(&db).unwrap();
+    plant_chained(
+        &connection,
+        "r1",
+        &head,
+        &[(
+            EventType::EffectFailed,
+            json!({"effect_id": "late", "error": "rate_limit",
+            "waits": [{
+                "site": "a", "provider": "claude", "route": "anthropic",
+                "words": "rate_limit (HTTP 429)", "seconds": 600,
+                "until": "2099-01-01T00:20:00Z", "rounds": 1
+            }]}),
+        )],
+    )
+    .unwrap();
+    drop(connection);
+
+    refreshed(&mut kept, &db);
+    let entries = kept.entries();
+    assert!(
+        entries[0].detail.is_some(),
+        "the fold refused the late event"
+    );
+    assert_eq!(entries[0].waits, WaitFact::NoWait);
+    assert_eq!(kept_rows(&kept), whole_rows(&db));
 }

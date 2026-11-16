@@ -164,7 +164,12 @@ pub fn summary_row(
         }),
         order_at: row.order_at,
         paged_at: None,
-        waits: Waits::of(waits, cooling),
+        // A row the summary already refuses paints no wait: the fold the
+        // wait would be read from is the one the refusal names.
+        waits: match refused {
+            Some(_) => Waits::default(),
+            None => Waits::of(waits, cooling),
+        },
     }
 }
 

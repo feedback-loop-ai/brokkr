@@ -283,6 +283,30 @@ fn inspect_json(dir: &Path, db: &str) -> serde_json::Value {
     serde_json::from_slice(&inspect.stdout).unwrap()
 }
 
+/// `brokkr runs` over `db`: its stdout, its exit checked.
+fn runs_out(dir: &Path, db: &str) -> String {
+    let runs = brokkr(dir, &["runs", "--db", db]);
+    assert_eq!(runs.status.code(), Some(0), "{runs:?}");
+    String::from_utf8_lossy(&runs.stdout).into_owned()
+}
+
+/// The first row `brokkr runs --json` prints over `db`.
+fn runs_row(dir: &Path, db: &str) -> serde_json::Value {
+    let json = brokkr(dir, &["runs", "--json", "--db", db]);
+    assert_eq!(json.status.code(), Some(0), "{json:?}");
+    let parsed: serde_json::Value = serde_json::from_slice(&json.stdout).unwrap();
+    parsed["runs"][0].clone()
+}
+
+/// A run concluded at five with a chained `effect/failed` carrying waits
+/// and no repair: its directory and `--db` path.
+fn concluded_with_a_late_wait() -> (tempfile::TempDir, String) {
+    let (dir, db) = staged();
+    concluded_at_five(Path::new(&db));
+    planted(Path::new(&db), &[failed_with_waits()]);
+    (dir, db)
+}
+
 /// A run stopped at five with a settlement planted after it, repaired by
 /// the shipped binary: shape (A)'s setup.
 fn repaired_settlement() -> (tempfile::TempDir, String) {
@@ -552,14 +576,10 @@ fn failed_with_waits() -> (EventType, serde_json::Value) {
 /// decision 0103 slice 4f).
 #[test]
 fn a_late_wait_is_never_painted_and_its_tail_is_shown() {
-    let (dir, db) = staged();
-    concluded_at_five(Path::new(&db));
-    planted(Path::new(&db), &[failed_with_waits()]);
+    let (dir, db) = concluded_with_a_late_wait();
     repaired_at(dir.path(), &db, "repairer", "the tail is evidence", 7);
 
-    let runs = brokkr(dir.path(), &["runs", "--db", &db]);
-    assert_eq!(runs.status.code(), Some(0), "{runs:?}");
-    let listed = String::from_utf8_lossy(&runs.stdout);
+    let listed = runs_out(dir.path(), &db);
     assert!(listed.contains("late"), "{listed}");
     assert!(
         listed.contains("a late tail of 1 event, repaired by repairer"),
@@ -567,10 +587,7 @@ fn a_late_wait_is_never_painted_and_its_tail_is_shown() {
     );
     assert!(!listed.contains("wait      claude/anthropic"), "{listed}");
 
-    let json = brokkr(dir.path(), &["runs", "--json", "--db", &db]);
-    assert_eq!(json.status.code(), Some(0), "{json:?}");
-    let parsed: serde_json::Value = serde_json::from_slice(&json.stdout).unwrap();
-    let row = &parsed["runs"][0];
+    let row = runs_row(dir.path(), &db);
     assert_eq!(row["status"], "stopped");
     assert_eq!(row["waits"]["waits"], json!([]));
     assert!(row["waits"].get("refused").is_none(), "{row}");
@@ -589,6 +606,39 @@ fn a_late_wait_is_never_painted_and_its_tail_is_shown() {
     assert_eq!(view["summary"]["status"], "stopped");
     assert_eq!(view["waits"]["waits"], json!([]));
     assert_eq!(view["summary"]["late_tail"]["terminal_seq"], 5);
+}
+
+/// The same chained `effect/failed` with waits and NO repair: the fold
+/// refuses at that event, and `runs` lists the run quarantined with no
+/// wait. Its last event is the late wait, so reading the journal's last row
+/// instead paints one; the run stays refused either way (decision 0108
+/// ruling 4; decision 0103 slice 4f).
+#[test]
+fn a_fold_refused_by_a_late_wait_is_not_painted_by_runs() {
+    let (dir, db) = concluded_with_a_late_wait();
+
+    let listed = runs_out(dir.path(), &db);
+    assert!(listed.contains("late"), "{listed}");
+    assert!(
+        !listed.contains("wait      claude/anthropic"),
+        "a refused fold paints no wait: {listed}"
+    );
+
+    let row = runs_row(dir.path(), &db);
+    assert_eq!(row["status"], serde_json::Value::Null);
+    assert!(row["quarantine"].is_string(), "{row}");
+    assert_eq!(row["waits"]["waits"], json!([]));
+    assert!(row["waits"].get("refused").is_none(), "{row}");
+
+    // `inspect` refuses the refused fold before it prints, and its read
+    // never paints the late wait either.
+    let inspect = brokkr(dir.path(), &["inspect", "--run", "late", "--db", &db]);
+    assert_ne!(inspect.status.code(), Some(0), "{inspect:?}");
+    assert!(
+        !String::from_utf8_lossy(&inspect.stdout).contains("wait      claude/anthropic"),
+        "{}",
+        String::from_utf8_lossy(&inspect.stdout)
+    );
 }
 
 #[test]

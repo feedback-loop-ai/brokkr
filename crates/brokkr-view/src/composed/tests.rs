@@ -13,9 +13,27 @@ use crate::tests::late_wait;
 /// 4f). Reading the journal's last row instead paints the late wait.
 #[test]
 fn a_late_tail_stands_no_wait_in_the_composed_view() {
-    let events = late_wait::trail("r");
     let mut running = crate::tests::state(None, brokkr_core::fold::Status::Running, None);
     running.late_tail = Some(late_wait::tail());
+    let view = composed_late_wait(Some(&running));
+    assert!(view.waits.waits.is_empty(), "{:?}", view.waits);
+    assert_eq!(view.waits.refused, None);
+}
+
+/// The same trail with no fold at all, which is what the unrepaired
+/// journal leaves compare's composed read: the fold refused, so no applied
+/// trail stands a wait. Reading the trail's last row instead paints the
+/// late wait.
+#[test]
+fn a_refused_fold_stands_no_wait_in_the_composed_view() {
+    let view = composed_late_wait(None);
+    assert!(view.waits.waits.is_empty(), "{:?}", view.waits);
+    assert_eq!(view.waits.refused, None);
+}
+
+/// The composed view of the late-wait trail read at `state`.
+fn composed_late_wait(state: Option<&RunState>) -> RunView {
+    let events = late_wait::trail("r");
     let account = Account::whole("r", &events);
     let parts = Parts {
         trail: &events,
@@ -26,9 +44,7 @@ fn a_late_tail_stands_no_wait_in_the_composed_view() {
         last_at: AT,
         cooling: Vec::new(),
     };
-    let view = composed_view(&parts, Some(&running)).expect("the run composes");
-    assert!(view.waits.waits.is_empty(), "{:?}", view.waits);
-    assert_eq!(view.waits.refused, None);
+    composed_view(&parts, state).expect("the run composes")
 }
 
 /// A participant is read by its row's request, effect and member, and its

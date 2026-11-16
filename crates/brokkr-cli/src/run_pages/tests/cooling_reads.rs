@@ -72,3 +72,53 @@ fn a_frame_kept_at_a_standing_head_re_derives_the_probe_s_later_end() {
         "the kept frame paints the probe's later end"
     );
 }
+
+/// A run concluded, then a chained `effect/failed` carrying waits and no
+/// repair: the fold refuses, so the whole read `inspect` makes paints no
+/// wait from the journal's last row. The run is refused, and the late
+/// event is never applied (decision 0108 ruling 4; decision 0103 slice
+/// 4f).
+#[test]
+fn a_whole_read_refused_by_a_late_wait_paints_none() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    crate::tests::cooling::cooling_attempt(&db);
+    let mut store = Store::open(&db).unwrap();
+    store
+        .append_next(
+            "r1",
+            brokkr_core::EventType::RunStopped,
+            json!({"reason": "concluded"}),
+            None,
+            None,
+        )
+        .unwrap();
+    let head = store.load("r1").unwrap().pop().unwrap();
+    drop(store);
+    let connection = rusqlite::Connection::open(&db).unwrap();
+    brokkr_store::test_support::plant_chained(
+        &connection,
+        "r1",
+        &head,
+        &[(
+            brokkr_core::EventType::EffectFailed,
+            json!({"effect_id": "late", "waits": [{
+                "site": "a", "provider": "claude", "route": "anthropic",
+                "words": "rate_limit (HTTP 429)", "seconds": 600,
+                "until": "2099-01-01T02:00:00Z", "rounds": 1
+            }]}),
+        )],
+    )
+    .unwrap();
+    drop(connection);
+
+    let store = Store::open_read_only(&db).unwrap();
+    let viewed = whole(&store, "r1", "2099-01-01T00:00:00Z").unwrap();
+    assert!(viewed.folded.is_err(), "the fold refuses the late event");
+    assert!(
+        viewed.view.waits.waits.is_empty(),
+        "a refused fold stands no wait: {:?}",
+        viewed.view.waits
+    );
+    assert_eq!(viewed.view.waits.refused, None);
+}

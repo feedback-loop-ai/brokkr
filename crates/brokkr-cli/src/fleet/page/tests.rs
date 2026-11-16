@@ -1849,12 +1849,10 @@ fn a_kept_row_re_derives_its_waits_when_a_probe_extends_the_aggregate() {
     );
 }
 
-/// A repaired run whose late `effect/failed` carries a wait is listed by
-/// the fleet page with its terminal verdict, its late sentence and no
-/// wait: the tail is kept and shown and never applied (decision 0108
-/// ruling 4; decision 0103 slice 4f).
-#[test]
-fn a_repaired_late_wait_is_not_painted_by_the_fleet_page() {
+/// A finished run `late` with a chained `effect/failed` carrying one wait
+/// after its terminal event, as an older writer leaves it: the journal's
+/// directory and path.
+fn a_late_wait_after_a_finished_run() -> (tempfile::TempDir, std::path::PathBuf) {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("forge.db");
     folded(&db, |conn| {
@@ -1874,6 +1872,32 @@ fn a_repaired_late_wait_is_not_painted_by_the_fleet_page() {
         ),
         &stamp(now()),
     );
+    (dir, db)
+}
+
+/// The `late` row a page of `pages` lists.
+fn late_listed_row(pages: &Pages, store: &Store) -> RunRow {
+    paged(pages, store, NOW, PAGE_ROWS, false)
+        .into_iter()
+        .map(|(_, row)| row)
+        .find(|row| row.run_id == "late")
+        .expect("the late run is listed")
+}
+
+/// The `late` row a fresh page of `db` lists at [`NOW`].
+fn late_page_row(db: &Path) -> RunRow {
+    let store = Store::open_read_only(db).unwrap();
+    let pages = Pages::listing(&store, Journal::at(db), NOW).unwrap();
+    late_listed_row(&pages, &store)
+}
+
+/// A repaired run whose late `effect/failed` carries a wait is listed by
+/// the fleet page with its terminal verdict, its late sentence and no
+/// wait: the tail is kept and shown and never applied (decision 0108
+/// ruling 4; decision 0103 slice 4f).
+#[test]
+fn a_repaired_late_wait_is_not_painted_by_the_fleet_page() {
+    let (_dir, db) = a_late_wait_after_a_finished_run();
     let mut store = Store::open(&db).unwrap();
     brokkr_runtime::operator_repair(
         &mut store,
@@ -1895,16 +1919,24 @@ fn a_repaired_late_wait_is_not_painted_by_the_fleet_page() {
         )
         .unwrap();
 
-    let store = Store::open_read_only(&db).unwrap();
-    let pages = Pages::listing(&store, Journal::at(&db), NOW).unwrap();
-    let listed = paged(&pages, &store, NOW, PAGE_ROWS, false);
-    let row = listed
-        .iter()
-        .map(|(_, row)| row)
-        .find(|row| row.run_id == "late")
-        .expect("the repaired run is listed");
+    let row = late_page_row(&db);
     assert_eq!(row.status.as_deref(), Some("completed"));
     assert_eq!(row.late_tail.as_ref().map(|tail| tail.count), Some(1));
+    assert!(row.waits.waits.is_empty(), "{:?}", row.waits);
+    assert_eq!(row.waits.refused, None);
+}
+
+/// A run concluded, then a chained `effect/failed` carrying waits and no
+/// repair: the fold refuses, and the page lists the run quarantined with
+/// no wait. Its last event is the late wait, and reading the journal's last
+/// row instead paints one (decision 0108 ruling 4; decision 0103 slice 4f).
+#[test]
+fn a_fold_refused_by_a_late_wait_is_not_painted_by_the_fleet_page() {
+    let (_dir, db) = a_late_wait_after_a_finished_run();
+
+    let row = late_page_row(&db);
+    assert!(row.quarantine.is_some(), "the fold refused the run");
+    assert_eq!(row.status, None);
     assert!(row.waits.waits.is_empty(), "{:?}", row.waits);
     assert_eq!(row.waits.refused, None);
 }

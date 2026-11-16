@@ -640,8 +640,12 @@ fn listed(
 /// read here is never a late one. A repaired summary whose `folded_seq` is
 /// a late event's seq is behind its head, does not stand, and is read
 /// whole where `WaitFact::applied` decides. Any other standing carries
-/// none, so its event is not read.
+/// none, so its event is not read. A row the summary refuses paints none:
+/// its wait would be a claim about a fold the refusal withheld.
 fn waits_at(store: &Store, row: &Row) -> Result<WaitFact, StoreError> {
+    if row.refused.is_some() {
+        return Ok(WaitFact::NoWait);
+    }
     let Some(brokkr_core::fold::Status::Running) = row.status else {
         return Ok(WaitFact::NoWait);
     };

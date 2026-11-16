@@ -21,8 +21,9 @@ fn value(document: impl Serialize) -> Value {
     serde_json::to_value(document).unwrap()
 }
 
-#[test]
-fn a_repaired_runs_compare_facts_are_the_terminal_cuts() {
+/// A journal holding each of `runs`, stopped at its sixth event after one
+/// attempt: its directory, where it is, and the stopped head of the first.
+fn stopped_runs(runs: &[&str]) -> (tempfile::TempDir, std::path::PathBuf, EventEnvelope) {
     let dir = tempfile::tempdir().unwrap();
     let mut store = Store::open(&dir.path().join("forge.db")).unwrap();
     let prefix = [
@@ -46,7 +47,7 @@ fn a_repaired_runs_compare_facts_are_the_terminal_cuts() {
         ),
         (EventType::RunStopped, json!({"reason": "concluded"})),
     ];
-    for run in ["repaired", "cut"] {
+    for run in runs {
         store
             .create_run(run, run, "bundle", &json!({"bundle_name": "bundle"}))
             .unwrap();
@@ -56,35 +57,16 @@ fn a_repaired_runs_compare_facts_are_the_terminal_cuts() {
                 .unwrap();
         }
     }
-    let head = store.load("repaired").unwrap().pop().unwrap();
+    let head = store.load(runs[0]).unwrap().pop().unwrap();
     let db = store.path().to_path_buf();
-    drop(store);
+    (dir, db, head)
+}
+
+#[test]
+fn a_repaired_runs_compare_facts_are_the_terminal_cuts() {
+    let (_dir, db, head) = stopped_runs(&["repaired", "cut"]);
     let connection = rusqlite::Connection::open(&db).unwrap();
-    brokkr_store::test_support::plant_chained(
-        &connection,
-        "repaired",
-        &head,
-        &[
-            (
-                EventType::EffectStarted,
-                json!({"effect_id": "late", "attempt_id": "late"}),
-            ),
-            (
-                EventType::EffectCheckpointed,
-                json!({"effect_id": "late", "attempt_id": "late",
-                       "checkpoint": {"step": "turn", "total_cost_usd": 100.0}}),
-            ),
-            (
-                EventType::OperatorCommanded,
-                json!({"command_id": "c-repair", "command": "repair",
-                       "operator": "operator",
-                       "args": {"first_seq": 7, "last_seq": 8, "terminal_seq": 6,
-                                "event_types": ["effect/started", "effect/checkpointed"],
-                                "reason": "kept"}}),
-            ),
-        ],
-    )
-    .unwrap();
+    plant_late_tail(&connection, &head, true);
     drop(connection);
     let stale = run_facts(&Store::open_read_only(&db).unwrap(), "repaired").unwrap();
     let repaired_cost = costs(&Store::open_read_only(&db).unwrap(), "repaired").unwrap();
@@ -117,6 +99,69 @@ fn a_repaired_runs_compare_facts_are_the_terminal_cuts() {
         &full,
         &repaired_cost,
         &costs(&store, "cut").unwrap(),
+    );
+}
+
+/// Plant the late tail `a_repaired_runs_compare_facts_are_the_terminal_cuts`
+/// repairs onto `head`: a started attempt, its checkpoint, a failed
+/// attempt carrying one wait, and, where `repaired`, the repair that names
+/// all three. Left unrepaired, the journal's fold refuses at the first.
+fn plant_late_tail(connection: &rusqlite::Connection, head: &EventEnvelope, repaired: bool) {
+    let mut events = vec![
+        (
+            EventType::EffectStarted,
+            json!({"effect_id": "late", "attempt_id": "late"}),
+        ),
+        (
+            EventType::EffectCheckpointed,
+            json!({"effect_id": "late", "attempt_id": "late",
+                   "checkpoint": {"step": "turn", "total_cost_usd": 100.0}}),
+        ),
+        (
+            EventType::EffectFailed,
+            json!({"effect_id": "late", "attempt_id": "late",
+            "error": "rate_limit",
+            "waits": [{
+                "site": "a", "provider": "claude", "route": "anthropic",
+                "words": "rate_limit (HTTP 429)", "seconds": 600,
+                "until": "2099-01-01T00:30:00Z", "rounds": 1
+            }]}),
+        ),
+    ];
+    if repaired {
+        events.push((
+            EventType::OperatorCommanded,
+            json!({"command_id": "c-repair", "command": "repair",
+                   "operator": "operator",
+                   "args": {"first_seq": 7, "last_seq": 9, "terminal_seq": 6,
+                            "event_types": ["effect/started", "effect/checkpointed",
+                                            "effect/failed"],
+                            "reason": "kept"}}),
+        ));
+    }
+    brokkr_store::test_support::plant_chained(connection, "repaired", head, &events).unwrap();
+}
+
+/// The same late tail with NO repair: the fold refuses it, so `compare`
+/// refuses the run by name and reads no applied trail to paint a wait from
+/// (decision 0108 ruling 4; decision 0103 slice 4f). `compare` prints no
+/// wait of its own: its composed read is the view's, which
+/// `composed::tests::a_refused_fold_stands_no_wait_in_the_composed_view`
+/// binds, and this is the reachable journal it is read at.
+#[test]
+fn compare_refuses_an_unrepaired_late_wait_by_name() {
+    let (_dir, db, head) = stopped_runs(&["repaired"]);
+    let connection = rusqlite::Connection::open(&db).unwrap();
+    plant_late_tail(&connection, &head, false);
+    drop(connection);
+    let store = Store::open_read_only(&db).unwrap();
+    let refused = run_facts(&store, "repaired")
+        .err()
+        .expect("the fold refuses");
+    assert_eq!(
+        format!("{refused:#}"),
+        "folding run 'repaired': event 7: event after terminal status",
+        "the run's fold refuses at the late tail"
     );
 }
 

@@ -549,11 +549,11 @@ model the writer keeps in the journal's own file and transaction.
    | Section | Its ranges |
    |---|---|
    | "needs you" | `refused`; `parked`; `running` with `order_at < now - stale`; and the `behind` runs `section_of` places here (below) |
-   | "running" | `running` with `order_at >= now - stale` |
+   | "running" | `running`, the **whole** lane, with no bound (amended below) |
    | "last 24h" | `finished` with `order_at > now - day` |
    | "older" | `finished` with `order_at <= now - day`; `acknowledged`, whatever its time, as `section_of` lists an acknowledged run there however recent (`fleet.rs:279` to `281`) |
 
-   *Amended, 2026-11-15 (the operator's standing ruling of 2026-11-04,
+   *Amended, 2026-11-16 (the operator's standing ruling of 2026-11-04,
    recorded on #430, decision 0103 slice 4f):* the "running" section reads
    the **whole** Running lane, `running` with no bound, and "needs you"
    reads the Running lane below the stale bound. A running run whose last

@@ -376,14 +376,18 @@ impl KeptRun {
         let landed = !events.is_empty();
         // The waits the applied trail's last event states: a late tail's
         // event is kept and shown and never applied, so it stands no wait
-        // (decision 0108 ruling 4). `events` is the suffix since the kept
-        // head, so an empty or all-late read keeps the waits it had.
-        let state = match &self.read {
-            Read::Folded(state) => Some(state.as_ref()),
-            Read::Refused { .. } => None,
-        };
-        if let Some(last) = WaitFact::applied_event(&events, state) {
-            self.waits = WaitFact::of(Some(last));
+        // (decision 0108 ruling 4). A fold that refused stands none: the
+        // row is quarantined, and a wait painted before the break is no
+        // claim about a trail the fold no longer applies. `events` is the
+        // suffix since the kept head, so an empty read keeps the waits it
+        // had.
+        match &self.read {
+            Read::Folded(state) => {
+                if landed {
+                    self.waits = WaitFact::applied(&events, Some(state.as_ref()));
+                }
+            }
+            Read::Refused { .. } => self.waits = WaitFact::NoWait,
         }
         self.rulings
             .extend(events.into_iter().filter(|event| rules(event.event_type)));
