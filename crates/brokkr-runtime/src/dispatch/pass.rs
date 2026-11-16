@@ -314,6 +314,7 @@ where
                 if let Err(error) =
                     store.queue_spawn(claim, generation, &reconciled_spawn(claim, &run))
                 {
+                    passed.reconciled.push(Settled::ToSpawn(claim, run));
                     return Ok(!store_refused(passed, error, Stage::Spawn)?);
                 }
                 let spawned = (seams.spawn)(&Spawn {

@@ -73,6 +73,55 @@ fn state(store: &Store, entry: EntryId) -> EntryState {
     store.queue_entry(entry).unwrap().state
 }
 
+/// A fixture whose one entry is queued and whose store's patience is short
+/// enough for a held lock to contend within the test.
+fn setup_contended() -> (Fixture, std::path::PathBuf, Dispatcher, EntryId) {
+    let (mut fixture, file, dispatcher, entries) = setup(1);
+    fixture
+        .store
+        .set_patience(std::time::Duration::from_millis(20))
+        .unwrap();
+    (fixture, file, dispatcher, entries[0])
+}
+
+/// Assert a pass ended on a store refusal and claimed nothing for `entry`.
+fn assert_store_refused(store: &Store, entry: EntryId, refused: Ending) {
+    assert!(matches!(refused, Ending::Store(StoreError::Sqlite(_))));
+    assert!(claims(store).is_empty());
+    assert_eq!(state(store, entry), EntryState::Queued);
+}
+
+/// A claimed entry whose run exists and is linked with no `spawn` row: what
+/// a pass reconciles.
+fn linked_claimed(root: &Path) -> (crate::launch::tests::claimed::Claimed, String, Store) {
+    use crate::launch::start;
+    use crate::launch::tests::claimed::claimed;
+    let crate::launch::tests::claimed::Claimed {
+        _dispatcher,
+        generation,
+        entry,
+        claim,
+        request,
+        run,
+    } = claimed(root, None);
+    let engine = start(request.clone(), run, &mut |_| {}).unwrap();
+    let run = engine.run_id.clone();
+    drop(engine);
+    let mut store = Store::open(&root.join("forge.db")).unwrap();
+    store
+        .queue_link(claim, generation, &run, "started")
+        .unwrap();
+    let claimed = crate::launch::tests::claimed::Claimed {
+        _dispatcher,
+        generation,
+        entry,
+        claim,
+        request,
+        run: crate::launch::NewRun::default(),
+    };
+    (claimed, run, store)
+}
+
 /// A stand that stands once and ends on every call after.
 fn stands_once() -> impl FnMut() -> Result<(), Ending> {
     let mut calls = 0;
@@ -224,18 +273,9 @@ fn two_admitted_entries_under_one_provider_ceiling_start_only_the_first() {
 #[test]
 fn reconciliation_spawns_a_linked_run_with_no_spawn_row_once() {
     use crate::dispatch::reconcile::Settled;
-    use crate::launch::start;
-    use crate::launch::tests::claimed::claimed;
 
     let dir = tempfile::tempdir().unwrap();
-    let claimed = claimed(dir.path(), None);
-    let engine = start(claimed.request.clone(), claimed.run, &mut |_| {}).unwrap();
-    let run = engine.run_id.clone();
-    drop(engine);
-    let mut store = Store::open(&dir.path().join("forge.db")).unwrap();
-    store
-        .queue_link(claimed.claim, claimed.generation, &run, "started")
-        .unwrap();
+    let (claimed, run, mut store) = linked_claimed(dir.path());
     let (passed, seen) = one_pass_pid(
         &mut store,
         &claimed._dispatcher,
@@ -762,17 +802,8 @@ fn reconciliation_spawn_stops_on_a_stand_that_ends_and_on_a_store_refusal() {
 
 #[test]
 fn a_contended_reconciliation_is_reported_and_claims_nothing() {
-    let (mut fixture, file, dispatcher, entries) = setup(1);
-    let entry = entries[0];
-    fixture
-        .store
-        .set_patience(std::time::Duration::from_millis(20))
-        .unwrap();
-    let holder = rusqlite::Connection::open(fixture.store.path()).unwrap();
-    holder
-        .busy_timeout(std::time::Duration::from_millis(20))
-        .unwrap();
-    holder.execute_batch("BEGIN IMMEDIATE").unwrap();
+    let (mut fixture, file, dispatcher, entry) = setup_contended();
+    let holder = lock_journal(fixture.store.path());
     let seams = quiet();
     let passed = run_pass(&mut fixture.store, &dispatcher, &file, seams).unwrap();
     holder.execute_batch("ROLLBACK").unwrap();
@@ -792,7 +823,152 @@ fn a_store_refusal_at_the_claim_ends_the_pass_and_writes_no_claim() {
          BEGIN SELECT RAISE(ABORT, 'no claim'); END;",
     );
     let refused = run_pass(&mut fixture.store, &dispatcher, &file, quiet()).unwrap_err();
-    assert!(matches!(refused, Ending::Store(StoreError::Sqlite(_))));
+    assert_store_refused(&fixture.store, entry, refused);
+}
+
+/// A stand that takes a write lock on `path` when the pass first calls it,
+/// and the held connection a test releases.
+type LockingSeams = Seams<
+    Box<dyn FnMut() -> Result<(), Ending>>,
+    fn(&crate::dispatch::Spawn) -> Result<crate::dispatch::Spawned, crate::dispatch::SpawnFailed>,
+>;
+
+fn lock_seams(
+    path: std::path::PathBuf,
+) -> (Rc<RefCell<Option<rusqlite::Connection>>>, LockingSeams) {
+    let held = Rc::new(RefCell::new(None));
+    let stands: Box<dyn FnMut() -> Result<(), Ending>> = {
+        let holder = Rc::clone(&held);
+        Box::new(move || {
+            *holder.borrow_mut() = Some(lock_journal(&path));
+            Ok(())
+        })
+    };
+    (
+        held,
+        Seams {
+            stands,
+            spawn: spawned_one,
+        },
+    )
+}
+
+/// A write lock on `path`'s journal, held until its connection is dropped.
+fn lock_journal(path: &Path) -> rusqlite::Connection {
+    let holder = rusqlite::Connection::open(path).unwrap();
+    holder
+        .busy_timeout(std::time::Duration::from_millis(20))
+        .unwrap();
+    holder.execute_batch("BEGIN IMMEDIATE").unwrap();
+    holder
+}
+
+#[test]
+fn a_contended_claim_is_reported_and_no_further_entry_is_claimed() {
+    let (mut fixture, file, dispatcher, entry) = setup_contended();
+    let (held, seams) = lock_seams(fixture.store.path().to_owned());
+    let passed = run_pass(&mut fixture.store, &dispatcher, &file, seams).unwrap();
+    let conn = held.borrow_mut().take();
+    drop(conn);
+    assert_eq!(passed.contended.len(), 1);
+    assert_eq!(passed.contended[0].stage, Stage::Claim);
     assert!(claims(&fixture.store).is_empty());
     assert_eq!(state(&fixture.store, entry), EntryState::Queued);
+}
+
+#[test]
+fn a_contended_reconciliation_spawn_row_is_reported_and_stops_the_pass() {
+    use crate::dispatch::reconcile::Settled;
+
+    let dir = tempfile::tempdir().unwrap();
+    let (claimed, _run, mut store) = linked_claimed(dir.path());
+    store
+        .set_patience(std::time::Duration::from_millis(20))
+        .unwrap();
+    let (held, seams) = lock_seams(store.path().to_owned());
+    let passed = run_pass(
+        &mut store,
+        &claimed._dispatcher,
+        &dir.path().join("absent-host.json"),
+        seams,
+    )
+    .unwrap();
+    let conn = held.borrow_mut().take();
+    drop(conn);
+    assert_eq!(passed.contended.len(), 1);
+    assert_eq!(passed.contended[0].stage, Stage::Spawn);
+    assert!(matches!(
+        passed.reconciled.as_slice(),
+        [Settled::ToSpawn(..)]
+    ));
+    assert_eq!(
+        commands(&store)
+            .into_iter()
+            .filter(|(_, command, ..)| command == "spawn")
+            .count(),
+        0
+    );
+}
+
+#[test]
+fn a_store_refusal_while_judging_ends_the_pass_and_claims_nothing() {
+    use crate::launch::{BundleSource, LaunchRequest, NewRun, QueuedLaunch, RunMap};
+    use crate::realms::World;
+    use brokkr_store::{Attribution, NewEntry};
+
+    let mut fixture = Fixture::new();
+    let map = fixture.root.join("realms.json");
+    let realms = json!({
+        "schema": "forge.realms/v7",
+        "journal": "forge.db",
+        "realms": [{"name": "b", "path": ".", "default_branch": "main", "house": "HOUSE.md"}]
+    });
+    std::fs::write(&map, realms.to_string()).unwrap();
+    std::fs::write(fixture.root.join("HOUSE.md"), "First rule.\n").unwrap();
+    let request = LaunchRequest {
+        workspace: fixture.root.clone(),
+        bundle: BundleSource::Dir("bundle".into()),
+        shelf: None,
+        journal: fixture.root.join("forge.db"),
+        repo: None,
+        secrets: None,
+        host_path: OsString::new(),
+    };
+    let run = NewRun {
+        entry: None,
+        feature: "f".into(),
+        map: RunMap::Named(World::load(&map).unwrap()),
+        dispatch: None,
+        claim: None,
+    };
+    let payload = QueuedLaunch::of(&request, &run).unwrap().encode().unwrap();
+    let entry = fixture
+        .store
+        .queue_add(
+            NewEntry {
+                payload: &payload,
+                priority: 0,
+                waits: &[],
+            },
+            Attribution {
+                operator: "vy",
+                reason: "queued",
+            },
+        )
+        .unwrap();
+    std::fs::write(fixture.root.join("HOUSE.md"), "Second rule.\n").unwrap();
+    sql(
+        &fixture.store,
+        "CREATE TRIGGER no_latch BEFORE INSERT ON queue_latches \
+         BEGIN SELECT RAISE(ABORT, 'no latch'); END;",
+    );
+    let dispatcher = take_dispatch(&mut fixture.store).unwrap().unwrap();
+    let refused = run_pass(
+        &mut fixture.store,
+        &dispatcher,
+        &fixture.root.join("absent-host.json"),
+        quiet(),
+    )
+    .unwrap_err();
+    assert_store_refused(&fixture.store, entry, refused);
 }
