@@ -751,6 +751,58 @@ fn a_committed_reseals_undo_never_brings_back_a_removed_record() {
     );
 }
 
+/// C2 (#1099; decision 0108 ruling 3; 0071 ruling 9): a reseal whose prior
+/// name a hand removed is refused with `Unsealed` and leaves no successor
+/// standing as the record. At its retirement, or as its sync fails, the
+/// undo finds no record that stood to put back: the removal stands, its own
+/// successor goes, and nothing is made at the name.
+#[test]
+fn a_reseal_whose_prior_name_is_gone_at_its_undo_leaves_no_successor() {
+    for (late, how) in [
+        (Late::RemovePriorRetiring, "at its retirement"),
+        (Late::RemovePriorCommitted, "as its sync fails"),
+    ] {
+        let (_host, _work, held, at) = spawning_attempt();
+        LATE.set(Some(late));
+        let amended = amend(&held, soon(), |mut reservation| {
+            reservation.settled.insert("planted".into());
+            Ok(reservation)
+        });
+        assert_eq!(
+            amended,
+            Err(Unadmitted::Identity(Unknown::Unsealed)),
+            "{how}"
+        );
+        assert!(!at.exists(), "{how}: no successor stands at the name");
+        assert!(!prior(&at).exists(), "{how}: no prior name left");
+        nothing_staged(&at);
+        assert_eq!(
+            recheck(&held),
+            Err(Unadmitted::Identity(Unknown::Lost)),
+            "{how}: the next door meets the lost lease"
+        );
+    }
+}
+
+/// C2 (#1099; decision 0108 ruling 3): a first seal over a standing record
+/// whose prior name a hand removed is undone the same way: its successor goes
+/// where it is still its own, and nothing is made at the name.
+#[test]
+fn a_first_seal_whose_prior_name_is_gone_at_its_undo_leaves_no_successor() {
+    for (late, how) in [
+        (Late::RemovePriorRetiring, "at its retirement"),
+        (Late::RemovePriorCommitted, "as its sync fails"),
+    ] {
+        let host = Host::new();
+        let (at, _) = probe(&host);
+        LATE.set(Some(late));
+        assert_eq!(sealing(&host.root, SECOND), Err(Unknown::Unsealed), "{how}");
+        assert!(!at.exists(), "{how}: no successor stands at the name");
+        assert!(!prior(&at).exists(), "{how}: no prior name left");
+        nothing_staged(&at);
+    }
+}
+
 /// #440 fix round 440d6 (decision 0108 ruling 3): a seal's restore of a
 /// record that must still stand puts the prior name back by the same
 /// exchange, but where the name is gone the removal stands: it removes the

@@ -24,7 +24,10 @@ use crate::engine::broker::root::{Step, PRIOR};
 /// changed ([`Late::Remove`], [`Late::Replace`]; #440 fix round 440d5), or
 /// removes it after the link and before the exchange, or after the exchange
 /// and before the directory is synced ([`Late::RemoveLinked`],
-/// [`Late::RemoveCommitted`]; #440 fix round 440d6);
+/// [`Late::RemoveCommitted`]; #440 fix round 440d6), or removes the record
+/// that stood from its prior name, as the directory's sync fails after the
+/// commit or as the seal retires it ([`Late::RemovePriorCommitted`],
+/// [`Late::RemovePriorRetiring`]; #1099);
 /// once renamed in, spends the time given, fails as its directory sync
 /// failing would, or spends it with the directory's write permission taken,
 /// or spends it and then fails the sync of its undoing (M2 of run four's
@@ -44,6 +47,8 @@ pub(super) enum Late {
     Replace,
     RemoveCommitted,
     ReplaceCommitted,
+    RemovePriorCommitted,
+    RemovePriorRetiring,
     CutUndo,
     FailLinked,
     FailRestored,
@@ -128,6 +133,18 @@ pub(super) fn late(step: Step, dir: &OwnedFd, staged: &str) -> std::io::Result<(
             rustix::fs::unlinkat(dir, name, AtFlags::empty()).unwrap();
             return Err(std::io::Error::other("the directory sync failed"));
         }
+        // After a seal's commit: a hand removes the record that stood from
+        // its prior name, and the sync that follows fails, so the undo finds
+        // no prior name to put back (#1099).
+        (Step::Committed, Some(Late::RemovePriorCommitted)) => {
+            let name = staged.strip_suffix(STAGED).unwrap();
+            remove_prior(dir, name);
+            return Err(std::io::Error::other("the directory sync failed"));
+        }
+        // As the seal retires the record that stood: a hand removes its
+        // prior name first, so the retirement meets it gone (#1099). This
+        // step is handed the record's own name.
+        (Step::Retiring, Some(Late::RemovePriorRetiring)) => remove_prior(dir, staged),
         // The directory's sync after the commit fails, and the undo that
         // follows is cut short after its exchange, as a kill there would cut
         // it (#440 fix round 440d6).
@@ -168,6 +185,11 @@ pub(super) fn late(step: Step, dir: &OwnedFd, staged: &str) -> std::io::Result<(
         (_, armed) => LATE.set(armed),
     }
     Ok(())
+}
+
+/// The prior name of the record `name` in `dir` removed, as a hand would.
+fn remove_prior(dir: &OwnedFd, name: &str) {
+    rustix::fs::unlinkat(dir, format!("{name}{PRIOR}"), AtFlags::empty()).unwrap()
 }
 
 /// An empty file of this user's own made at the prior name of the record
