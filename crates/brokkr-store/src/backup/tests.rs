@@ -12,6 +12,7 @@ use brokkr_core::canonical::ZERO_HASH;
 use brokkr_core::envelope::EventType;
 use serde_json::json;
 
+use super::inventory::INVENTORY_MAX_BYTES;
 use super::*;
 use crate::test_support::{append, lags, plant_event};
 use crate::Store;
@@ -365,6 +366,70 @@ fn files_under(dir: &Path) -> Vec<PathBuf> {
     found
 }
 
+/// Every name under `dir` that a restore's temporary would carry.
+fn temporaries_in(dir: &Path) -> Vec<PathBuf> {
+    files_under(dir)
+        .into_iter()
+        .filter(|path| {
+            path.file_name()
+                .is_some_and(|name| name.to_string_lossy().starts_with(".brokkr-restore-"))
+        })
+        .collect()
+}
+
+/// A child's refusal left its destination absent and no restore temporary
+/// behind.
+fn assert_refused_without_trace(backup: &Path, destination: &Path) {
+    assert_absent(destination);
+    assert_eq!(
+        temporaries_in(backup.parent().unwrap()),
+        Vec::<PathBuf>::new()
+    );
+}
+
+/// Run `test` in a child process under `limits`, whose backup directory and
+/// destination arrive through `environment`, so a regression that reads or
+/// writes without its bound dies at a few hundred megabytes rather than
+/// filling the host. `ulimit -c 0` keeps a dying child from writing a core,
+/// and the child's instrumentation profile goes to `/dev/null`, so the
+/// limit kills only a regression, never a passing child at its exit.
+#[cfg(unix)]
+fn child_under(
+    limits: &str,
+    test: &str,
+    environment: &[(&str, &std::ffi::OsStr)],
+) -> std::process::Output {
+    let mut command = std::process::Command::new("sh");
+    command
+        .arg("-c")
+        .arg(format!("ulimit -c 0; {limits}; exec \"$0\" --exact \"$1\""))
+        .arg(std::env::current_exe().unwrap())
+        .arg(test)
+        .env("LLVM_PROFILE_FILE", "/dev/null");
+    for &(name, value) in environment {
+        command.env(name, value);
+    }
+    command.output().unwrap()
+}
+
+/// Assert the child ran exactly one test and passed; a child killed by its
+/// limit, or one that never ran, does not prove the refusal.
+#[cfg(unix)]
+fn assert_child_passed(output: &std::process::Output, what: &str) {
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "{what} did not pass within its limit ({status}):\n\
+         stdout:\n{stdout}\nstderr:\n{stderr}",
+        status = output.status,
+        stderr = String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        stdout.contains("1 passed"),
+        "{what} ran no test, so its exit status proves nothing:\n{stdout}"
+    );
+}
+
 #[test]
 fn a_backup_during_appends_restores_a_coherent_prefix() {
     let dir = tempfile::tempdir().unwrap();
@@ -610,20 +675,29 @@ fn a_missing_snapshot_is_refused_by_name() {
     assert_absent(&destination);
 }
 
+/// The errno a self-referential symlink answers: `ELOOP`, 40 on Linux and
+/// 62 on macOS (decision 0063's two hosts). `ErrorKind::FilesystemLoop` is
+/// unstable on this toolchain, so the number is stated and the test pins
+/// the cause by its errno rather than its libc- and locale-dependent text.
+#[cfg(unix)]
+const ELOOP: i32 = if cfg!(target_os = "linux") { 40 } else { 62 };
+
+#[cfg(unix)]
 #[test]
 fn an_unreadable_inventory_is_refused_by_name() {
     let dir = tempfile::tempdir().unwrap();
     let (_, backup) = completed(dir.path());
     let inventory = backup.to.join(INVENTORY_FILE);
     std::fs::remove_file(&inventory).unwrap();
-    std::fs::create_dir(&inventory).unwrap();
+    // A link to itself: present, and never openable.
+    std::os::unix::fs::symlink(INVENTORY_FILE, &inventory).unwrap();
     let destination = absent_destination(dir.path());
     let refused = restore(&backup.to, &destination).unwrap_err();
     let BackupError::UnreadableInventory { path, source } = refused else {
         panic!("an unreadable inventory is refused by name: {refused:?}");
     };
     assert_eq!(path, inventory);
-    assert_eq!(source.kind(), std::io::ErrorKind::IsADirectory);
+    assert_eq!(source.raw_os_error(), Some(ELOOP), "{source}");
     assert_absent(&destination);
 }
 
@@ -1203,6 +1277,23 @@ fn inventory_refusals() -> Vec<(BackupError, String)> {
                 .to_string(),
         ),
         (
+            BackupError::InventoryNotRegular(backup.join(INVENTORY_FILE)),
+            "the backup's inventory.json at '/a/backup/inventory.json' is not a regular file; \
+             a backup's inventory must be one"
+                .to_string(),
+        ),
+        (
+            BackupError::InventoryTooLarge {
+                path: backup.join(INVENTORY_FILE),
+                bound: INVENTORY_MAX_BYTES,
+            },
+            format!(
+                "the backup's inventory.json at '/a/backup/inventory.json' is larger than this \
+                 build's {}-byte bound",
+                INVENTORY_MAX_BYTES
+            ),
+        ),
+        (
             BackupError::InvalidInventory { source: invalid },
             format!("the backup's inventory.json is not one this build reads: {invalid_text}"),
         ),
@@ -1399,3 +1490,4 @@ fn each_refusal_names_itself_once() {
 }
 
 mod edges;
+mod inventory;

@@ -39,30 +39,26 @@
 //! the journal copies none.
 
 use std::fs::{File, OpenOptions};
-use std::io::{Read, Write};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use brokkr_core::canonical::ZERO_HASH;
 use rusqlite::params;
-use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
+
+pub use crate::schema::SchemaKey;
+pub use inventory::JOURNAL_BACKUP_FORMAT;
+pub(crate) use inventory::{
+    Boundary, Head, Inventory, Schemas, Snapshot, EXCLUDED, INVENTORY_FILE,
+};
 
 use crate::queue::queue_schema;
 use crate::schema::schema_version;
 use crate::{patiently, Store, StoreError};
 
-/// The one inventory format this build writes and reads. A change to the
-/// field set that a previous build could not read takes a new string;
-/// `format` is the whole version rule (decision 0100 ruling 2).
-pub const JOURNAL_BACKUP_FORMAT: &str = "brokkr.journal-backup.v1";
-
 /// The snapshot's one name inside a backup directory.
 pub(crate) const SNAPSHOT_FILE: &str = "journal.db";
-
-/// The inventory's one name inside a backup directory: the last file a
-/// backup publishes, and the mark that makes a backup complete.
-pub(crate) const INVENTORY_FILE: &str = "inventory.json";
 
 /// What a backup is asked for.
 #[derive(Debug, Clone, Copy)]
@@ -98,77 +94,6 @@ pub struct Restored {
     pub events: u64,
 }
 
-/// The journal's schema versions, as the store records them, plus the
-/// projection version the taking build reads.
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Schemas {
-    database: u32,
-    queue: u32,
-    projection: u32,
-}
-
-/// The snapshot file's size and digest.
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Snapshot {
-    bytes: u64,
-    sha256: String,
-}
-
-/// One run's place in the declared boundary: its last event's seq and the
-/// chain head that event sealed, or `0` and the zero hash for a run with
-/// no event.
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
-struct Head {
-    run_id: String,
-    seq: u64,
-    chain_head: String,
-}
-
-/// The instant a snapshot stands at, as the snapshot itself records it.
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Boundary {
-    taken_at: String,
-    runs: u64,
-    events: u64,
-    heads: Vec<Head>,
-}
-
-/// What a slice-1 backup does not carry, each named so a reader never
-/// mistakes the journal for a complete recovery unit.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-enum Excluded {
-    GitObjectsAndAnchors,
-    ArtifactsOutsideTheJournal,
-    HarnessTranscripts,
-    Credentials,
-}
-
-const EXCLUDED: [Excluded; 4] = [
-    Excluded::GitObjectsAndAnchors,
-    Excluded::ArtifactsOutsideTheJournal,
-    Excluded::HarnessTranscripts,
-    Excluded::Credentials,
-];
-
-/// `inventory.json`, exactly as this format states it. `deny_unknown_fields`
-/// keeps a field this build does not read from passing as one it does.
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Inventory {
-    format: String,
-    engine: String,
-    schemas: Schemas,
-    snapshot: Snapshot,
-    boundary: Boundary,
-    excluded: Vec<Excluded>,
-}
-
-pub use crate::schema::SchemaKey;
 /// Which stored fact of an event row a snapshot's envelope disagrees with
 /// (decision 0100 ruling 4): the row's key, or the hash the store appends
 /// under.
@@ -200,6 +125,15 @@ pub enum BackupError {
         path: PathBuf,
         source: std::io::Error,
     },
+    #[error(
+        "the backup's {INVENTORY_FILE} at '{0}' is not a regular file; a backup's inventory \
+         must be one"
+    )]
+    InventoryNotRegular(PathBuf),
+    #[error(
+        "the backup's {INVENTORY_FILE} at '{path}' is larger than this build's {bound}-byte bound"
+    )]
+    InventoryTooLarge { path: PathBuf, bound: u64 },
     #[error("the backup's {INVENTORY_FILE} is not one this build reads: {source}")]
     InvalidInventory { source: serde_json::Error },
     #[error("the backup's format is '{found}'; this build reads '{JOURNAL_BACKUP_FORMAT}'")]
@@ -306,12 +240,6 @@ fn backup_through(
         bytes: std::fs::metadata(&temporary)?.len(),
         sha256: sha256_file(&temporary)?,
     };
-    // The snapshot is published first and the inventory last: an
-    // interrupted backup therefore leaves a snapshot with no inventory,
-    // which [`restore`] refuses.
-    publish(&temporary, &to.join(SNAPSHOT_FILE))
-        .map_err(|error| backup_publish_error(error, to))?;
-    sync_dir(to)?;
     let inventory = Inventory {
         format: JOURNAL_BACKUP_FORMAT.into(),
         engine: env!("CARGO_PKG_VERSION").into(),
@@ -320,8 +248,19 @@ fn backup_through(
         boundary,
         excluded: EXCLUDED.to_vec(),
     };
+    // The inventory's bound is a fact of its bytes, known before the first
+    // publish: a backup whose inventory would exceed it is refused while
+    // the destination is still empty, rather than after its snapshot has
+    // landed.
+    let inventory_bytes = inventory::serialize(&inventory, &to.join(INVENTORY_FILE))?;
+    // The snapshot is published first and the inventory last: an
+    // interrupted backup therefore leaves a snapshot with no inventory,
+    // which [`restore`] refuses.
+    publish(&temporary, &to.join(SNAPSHOT_FILE))
+        .map_err(|error| backup_publish_error(error, to))?;
+    sync_dir(to)?;
     let written = scratch.path(&format!("{INVENTORY_FILE}.tmp"));
-    write_file(&written, &serde_json::to_vec_pretty(&inventory)?)?;
+    inventory::write(&inventory_bytes, &written)?;
     publish(&written, &to.join(INVENTORY_FILE)).map_err(|error| backup_publish_error(error, to))?;
     sync_dir(to)?;
     let boundary = inventory.boundary;
@@ -350,7 +289,7 @@ fn restore_through(
 ) -> Result<Restored, BackupError> {
     let (from, to) = (&literal::literal(from)?, &literal::literal(to)?);
     refuse_existing(to)?;
-    let inventory = read_inventory(from)?;
+    let inventory = inventory::read_inventory(from)?;
     let source = from.join(SNAPSHOT_FILE);
     let metadata = match std::fs::metadata(&source) {
         Ok(metadata) => metadata,
@@ -415,27 +354,6 @@ fn refuse_existing(to: &Path) -> Result<(), BackupError> {
         }
     }
     Ok(())
-}
-
-/// The inventory a backup directory states, parsed and of this build's
-/// format. A missing one is the interrupted backup's own diagnostic.
-fn read_inventory(from: &Path) -> Result<Inventory, BackupError> {
-    let path = from.join(INVENTORY_FILE);
-    let text = match std::fs::read_to_string(&path) {
-        Ok(text) => text,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            return Err(BackupError::MissingInventory(from.to_path_buf()));
-        }
-        Err(source) => return Err(BackupError::UnreadableInventory { path, source }),
-    };
-    let inventory: Inventory =
-        serde_json::from_str(&text).map_err(|source| BackupError::InvalidInventory { source })?;
-    if inventory.format != JOURNAL_BACKUP_FORMAT {
-        return Err(BackupError::UnknownFormat {
-            found: inventory.format,
-        });
-    }
-    Ok(inventory)
 }
 
 /// The checks the copied bytes must pass before they may be published:
@@ -668,14 +586,6 @@ fn destination_error(error: std::io::Error, to: &Path) -> BackupError {
     }
 }
 
-/// Write `bytes` to a new file under a temporary name and fsync it.
-fn write_file(path: &Path, bytes: &[u8]) -> Result<(), BackupError> {
-    let mut file = OpenOptions::new().write(true).create_new(true).open(path)?;
-    file.write_all(bytes)?;
-    file.sync_all()?;
-    Ok(())
-}
-
 /// Copy `from` to a new file at `to`, fsync it, and answer how many bytes
 /// the copy read. The source is `take(inventory + 1)`, so a stream that
 /// outruns its inventory is refused after one byte past it.
@@ -792,6 +702,7 @@ impl Drop for Temp {
 }
 
 mod consistency;
+mod inventory;
 mod literal;
 
 #[cfg(test)]
