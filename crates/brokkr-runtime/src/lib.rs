@@ -35,7 +35,11 @@ pub use bundle::{
     Aggregate, Bundle, CompileError, Invocation, PanelMember, Seat, SeatBody, SeatClass,
     SequenceStep, StepBody, ENGINE_VERSION,
 };
-pub use dispatch::{reconcile, take_dispatch, Dispatcher, DispatcherError, Settled};
+pub use dispatch::{
+    pass, reconcile, take_dispatch, ClaimRefused, Contended, Dispatcher, DispatcherError, Ending,
+    Held, Passed, Reclaimed, Seams, Settled, Spawn, SpawnFailed, Spawned, Spawning, Stage, Started,
+    SweepRefused,
+};
 pub use engine::{
     apply_fenced_operator_command, conclude, git_head, named_cause, operator_classify,
     operator_command, operator_repair, operator_settle, operator_stop, operator_supersede,

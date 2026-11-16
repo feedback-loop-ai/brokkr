@@ -1,9 +1,12 @@
-//! The dispatcher (decision 0068, as decision 0095 amends it): the one
-//! process a journal admits to start its queue's entries. Built so far:
-//! how it takes the journal (ruling 2), by its lock and its holder row,
-//! whose generation every step it takes is fenced by in the store, and its
-//! reconciliation of what a dispatcher left mid-start (ruling 3). Its pass
-//! and the `brokkr dispatch` verb that runs them are #430's later slices.
+//! The dispatcher (decision 0068, as decisions 0095 and 0110 amend it): the
+//! one process a journal admits to start its queue's entries. Built so far:
+//! how it takes the journal (0095 ruling 2), by its lock and its holder row,
+//! whose generation every step it takes is fenced by in the store; its
+//! reconciliation of what a dispatcher left mid-start (0095 ruling 3); its
+//! one pass under that lock and one entry's start with the start's disposal
+//! by variant (0110 rulings 1 and 2). The `brokkr dispatch` verb, the
+//! process a spawn seam starts and the standing loop are #430's later
+//! slices; this pass starts no process and prints nothing.
 
 use std::path::PathBuf;
 
@@ -12,10 +15,16 @@ use thiserror::Error;
 use uuid::Uuid;
 
 mod lock;
+mod pass;
 mod reconcile;
+mod start;
 
 pub use lock::{take_dispatch, Dispatcher};
+pub use pass::{
+    pass, Contended, Ending, Held, Passed, Reclaimed, Seams, Spawning, Stage, Started, SweepRefused,
+};
 pub use reconcile::{reconcile, Settled};
+pub use start::{ClaimRefused, Spawn, SpawnFailed, Spawned};
 
 /// Why this process could not take a journal as its dispatcher, or, as
 /// one, act in a store. Nothing was recorded, and a lock refused is not
