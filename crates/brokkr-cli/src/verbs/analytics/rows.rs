@@ -29,7 +29,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use brokkr_core::fold::fold;
 use brokkr_core::summary::{aggregate, cut, Finished, HardStop, NAME_BYTES};
-use brokkr_store::aggregate::{RunOrder as RowRunOrder, WindowRun};
+use brokkr_store::aggregate::{RunOrder as RowRunOrder, WindowPark, WindowRun};
 use brokkr_store::metered::{SiteOrder as RowSiteOrder, WindowSite};
 use brokkr_store::Store;
 use brokkr_view::{
@@ -157,22 +157,9 @@ impl Reading<'_> {
             self.window.to,
             None,
             |park| {
-                if self.whole.contains(park.run_id) {
-                    return;
+                if let Some(fact) = park_fact(park, self.label, self.realm, self.whole) {
+                    parks.push(fact);
                 }
-                let named = park.realm.unwrap_or(self.label);
-                if !brokkr_view::realm_in_scope(self.realm, named) {
-                    return;
-                }
-                parks.push(ParkFact {
-                    realm: named.to_string(),
-                    hearth: self.label.to_string(),
-                    run: park.run_id.to_string(),
-                    phase: park.phase.map(str::to_string),
-                    at: park.at,
-                    answered: park.answered.unwrap_or(park.ended),
-                    ended: park.ended,
-                });
             },
         )?;
         Ok(parks)
@@ -193,6 +180,36 @@ impl Reading<'_> {
             .filter(|fact| brokkr_view::realm_in_scope(self.realm, &fact.realm))
             .collect())
     }
+}
+
+/// One park's row as the figures fold it, or none for a park of another
+/// realm or of a run the whole read takes. The store's park read already
+/// leaves out the runs its exclusion names (U5b1), but `whole` was read by
+/// earlier statements that share no snapshot with this one: a run whose
+/// lane moved between them is still left to the whole read here, so its
+/// park is counted once.
+fn park_fact(
+    park: &WindowPark<'_>,
+    label: &str,
+    realm: Option<&str>,
+    whole: &BTreeSet<String>,
+) -> Option<ParkFact> {
+    if whole.contains(park.run_id) {
+        return None;
+    }
+    let named = park.realm.unwrap_or(label);
+    if !brokkr_view::realm_in_scope(realm, named) {
+        return None;
+    }
+    Some(ParkFact {
+        realm: named.to_string(),
+        hearth: label.to_string(),
+        run: park.run_id.to_string(),
+        phase: park.phase.map(str::to_string),
+        at: park.at,
+        answered: park.answered.unwrap_or(park.ended),
+        ended: park.ended,
+    })
 }
 
 /// One run's row as the figures fold it, its reported costs from the

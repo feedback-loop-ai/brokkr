@@ -1621,8 +1621,9 @@ fn ready(journal: &std::path::Path) -> brokkr_store::Store {
 
 /// A run the store leaves whole keeps its park out of the rows. Here its
 /// row stands behind its head while its park's dated facts still stand,
-/// so the store's park read still yields the park; the whole fallback
-/// counts it, and the rows must not count it again.
+/// so the store's park read leaves it out with the run the whole read
+/// takes; the whole fallback counts it, and the rows must not count it
+/// again.
 #[test]
 fn a_park_of_a_run_read_whole_is_counted_once() {
     let dir = tempfile::tempdir().unwrap();
@@ -1646,7 +1647,10 @@ fn a_park_of_a_run_read_whole_is_counted_once() {
             parks.push(park.run_id.to_string());
         })
         .unwrap();
-    assert_eq!(parks, ["whole-park-run"], "the park's row still stands");
+    assert!(
+        parks.is_empty(),
+        "the park's row is left out with the run the whole read takes"
+    );
     drop(store);
 
     let hearths = [hearth(Vec::new(), &journal)];

@@ -7,9 +7,12 @@ use brokkr_core::canonical::ZERO_HASH;
 use rusqlite::{params, Connection};
 
 use super::*;
+use crate::aggregate::exclusion::arms;
 use crate::seat_summary::lags;
 use crate::test_support::plant_run;
 use crate::Store;
+
+mod repairs;
 
 /// The envelope an older writer's event carries: only its `recorded_at`
 /// matters to the summary's head trigger.
@@ -46,10 +49,14 @@ fn rule(conn: &Connection) -> Vec<String> {
     rows(conn, &sql, rusqlite::params![SHAPE.as_str()])
 }
 
-/// The runs [`stale_runs`] names, in run id order: the set union the heads
-/// of another shape.
+/// The runs the production exclusion's [`arms`] names on this journal, in
+/// run id order: the set union the heads of another shape, and the
+/// checkpoint-stale arm (no checkpoint is planted here).
 fn stale(conn: &Connection) -> Vec<String> {
-    let sql = format!("SELECT run_id FROM ({}) ORDER BY run_id", stale_runs("?1"));
+    let sql = format!(
+        "SELECT run_id FROM ({}) AS named GROUP BY run_id ORDER BY run_id",
+        arms(true, "?1", None).join(" UNION ALL ")
+    );
     rows(conn, &sql, rusqlite::params![SHAPE.as_str()])
 }
 

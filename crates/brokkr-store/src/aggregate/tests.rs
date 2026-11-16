@@ -4,6 +4,8 @@
 //! it folds through, and the parks' ranges held to the window alone by their
 //! VM steps.
 
+mod caller;
+mod exclusion;
 mod probe;
 
 use brokkr_core::canonical::ZERO_HASH;
@@ -221,14 +223,34 @@ fn finished_in(run: &OwnedRun, from: i64, to: i64) -> bool {
 }
 
 /// The window's durations, as the read hands them back.
-fn durations(store: &Store, from: i64, to: i64, realm: Option<&str>) -> Vec<(Option<String>, i64)> {
+fn durations(store: &Store, from: i64, to: i64) -> Vec<(Option<String>, i64)> {
     let mut spans = Vec::new();
     store
-        .durations(from, to, realm, |realm, span| {
+        .durations(from, to, |realm, span| {
             spans.push((realm.map(str::to_string), span))
         })
         .unwrap();
     spans
+}
+
+/// The preceding window's shipped counts, one group a stored realm key.
+fn finished_groups(store: &Store, from: i64, to: i64) -> Vec<(Option<String>, u64)> {
+    let mut groups = Vec::new();
+    store
+        .finished_between(from, to, |realm, count| {
+            groups.push((realm.map(str::to_string), count))
+        })
+        .unwrap();
+    groups
+}
+
+/// The preceding window's shipped count, all realms summed: the figure a
+/// caller that names every NULL realm and keeps every group reads.
+fn shipped_count(store: &Store, from: i64, to: i64) -> u64 {
+    finished_groups(store, from, to)
+        .into_iter()
+        .map(|(_, count)| count)
+        .sum()
 }
 
 /// Every run's events, once the store has read it, or `None` where it does
@@ -293,10 +315,11 @@ fn compare_windows(
                 "{from}..{to} {realm:?}"
             );
 
+            let by_realm = |named: &Option<String>| realm.is_none() || named.as_deref() == realm;
             let mut spans: Vec<(Option<String>, i64)> = expected
                 .iter()
                 .map(|(run, _)| run)
-                .filter(|run| run.realm.as_deref() == realm || realm.is_none())
+                .filter(|run| by_realm(&run.realm))
                 .filter_map(|run| {
                     let finished = run.finished_ms?;
                     (finished >= from && finished < to).then(|| {
@@ -307,24 +330,27 @@ fn compare_windows(
                     })
                 })
                 .collect();
-            let mut read_spans = durations(store, from, to, realm);
+            let mut read_spans: Vec<(Option<String>, i64)> = durations(store, from, to)
+                .into_iter()
+                .filter(|(named, _)| by_realm(named))
+                .collect();
             spans.sort();
             read_spans.sort();
             assert_eq!(read_spans, spans, "durations {from}..{to} {realm:?}");
-            let wanted_count = expected
-                .iter()
-                .map(|(run, _)| run)
-                .filter(|run| in_realm(run, realm) && finished_in(run, from, to))
-                .filter(|run| {
-                    run.ending
-                        .is_some_and(|ending| ending.status() == Status::Completed)
-                })
-                .count() as u64;
-            assert_eq!(
-                store.finished_between(from, to, realm).unwrap(),
-                wanted_count,
-                "finished_between {from}..{to} {realm:?}"
-            );
+            let mut wanted: BTreeMap<Option<String>, u64> = BTreeMap::new();
+            for run in expected.iter().map(|(run, _)| run) {
+                let ships = run
+                    .ending
+                    .is_some_and(|ending| ending.status() == Status::Completed);
+                if ships && by_realm(&run.realm) && finished_in(run, from, to) {
+                    *wanted.entry(run.realm.clone()).or_default() += 1;
+                }
+            }
+            let read: BTreeMap<Option<String>, u64> = finished_groups(store, from, to)
+                .into_iter()
+                .filter(|(named, _)| by_realm(named))
+                .collect();
+            assert_eq!(read, wanted, "finished_between {from}..{to} {realm:?}");
         }
     }
 }
@@ -674,11 +700,14 @@ fn the_previous_count_counts_only_shipped_runs() {
         ],
         "both runs finished in the window, and only one shipped"
     );
-    assert_eq!(store.finished_between(from, to, None).unwrap(), 1);
-    assert_eq!(store.finished_between(from, to, Some("realm")).unwrap(), 1);
+    assert_eq!(shipped_count(&store, from, to), 1);
+    assert_eq!(
+        finished_groups(&store, from, to),
+        [(Some("realm".to_string()), 1)]
+    );
 
     // The medians still measure every finished run, shipped or not.
-    let mut spans = durations(&store, from, to, None);
+    let mut spans = durations(&store, from, to);
     spans.sort();
     assert_eq!(
         spans,
@@ -778,9 +807,8 @@ fn a_behind_run_is_not_counted_or_measured() {
         window_runs(&store, from, to, RunOrder::Unordered, None),
         Vec::new()
     );
-    assert_eq!(store.finished_between(from, to, None).unwrap(), 0);
-    assert_eq!(store.finished_between(from, to, Some("realm")).unwrap(), 0);
-    let spans = durations(&store, from, to, None);
+    assert_eq!(shipped_count(&store, from, to), 0);
+    let spans = durations(&store, from, to);
     assert!(spans.is_empty(), "{spans:?}");
 }
 
@@ -885,6 +913,15 @@ fn each_readiness_check_refuses_on_its_own() {
 fn class_63_saturates_and_an_open_park_reads_as_now() {
     let (_dir, store) = store();
     crate::test_support::plant_run(&store.conn, "r", "{}").unwrap();
+    crate::test_support::settle_summary(&store.conn, "r", ZERO_HASH);
+    store
+        .conn
+        .execute(
+            "INSERT OR REPLACE INTO seat_head (run_id, folded_seq, folded_hash, shape)
+             VALUES ('r', 0, ?1, ?2)",
+            params![ZERO_HASH, SHAPE.as_str()],
+        )
+        .unwrap();
     let planted = |seq, phase, at, answered, ended, class| ParkRow {
         seq,
         phase,
@@ -996,15 +1033,15 @@ fn a_zero_reach_park_is_in_no_window() {
 #[test]
 fn every_aggregate_read_is_indexed() {
     let (_dir, store) = store();
-    for (order, index) in [
-        (RunOrder::Unordered, "run_summary_finished"),
-        (RunOrder::ByEndingRule, "run_summary_page"),
-        (RunOrder::ByRealmThenRecipe, "run_summary_page"),
+    for (order, index, sorts) in [
+        (RunOrder::Unordered, "run_summary_finished", 0),
+        (RunOrder::ByEndingRule, "run_summary_page", 2),
+        (RunOrder::ByRealmThenRecipe, "run_summary_page", 2),
     ] {
         let plan = explain(
             &store,
-            runs_sql(order),
-            params_from_iter(run_bounds(0, 1, None)),
+            runs_sql(order, true),
+            params_from_iter(bounds(0, 1, None)),
         );
         assert!(
             plan.iter().any(|step| step.contains(index)),
@@ -1014,20 +1051,29 @@ fn every_aggregate_read_is_indexed() {
             !plan.iter().any(|step| step.starts_with("SCAN run_summary")),
             "{order:?}: {plan:?}"
         );
+        assert!(!materializes_whole(&plan), "{order:?}: {plan:?}");
+        assert_eq!(
+            plan.iter()
+                .filter(|step| step.as_str() == "USE TEMP B-TREE FOR ORDER BY")
+                .count(),
+            sorts,
+            "{order:?}: one sort an arm, none unordered: {plan:?}"
+        );
     }
     let plan = explain(&store, &BEHIND, []);
     assert!(plan.iter().any(|step| step.contains("run_summary_page")));
     assert!(!plan.iter().any(|step| step.starts_with("SCAN run_summary")));
     for (sql, index) in [
-        (&COUNT_FINISHED, "run_summary_finished"),
-        (&DURATIONS, "run_summary_finished"),
+        (finished_sql(true), "run_summary_finished"),
+        (durations_sql(true), "run_summary_finished"),
     ] {
-        let plan = explain(&store, sql, params![0, 1, None::<&str>]);
+        let plan = explain(&store, sql, params![0, 1, SHAPE.as_str()]);
         assert!(plan.iter().any(|step| step.contains(index)), "{plan:?}");
         assert!(
             !plan.iter().any(|step| step.starts_with("SCAN run_summary")),
             "{plan:?}"
         );
+        assert!(!materializes_whole(&plan), "{plan:?}");
     }
     let taken = explain(&store, &PARK_STALE, []);
     assert!(
@@ -1038,42 +1084,116 @@ fn every_aggregate_read_is_indexed() {
     );
     let taken = explain(
         &store,
-        &PARK_SQL,
+        park_sql(true),
         params_from_iter(park_bounds(0, 1, 2, None)),
     );
+    assert_park_plan(&taken);
+}
+
+/// The parks' one plan: the classes' table is the outermost source and
+/// the partial index is sought once per class by one plan node, the
+/// exclusion is one key probe per arm (the closed classes and the open
+/// class), and the ranges are collected once and sorted once. No journal
+/// table is scanned and no temporary B-tree holds the whole read.
+fn assert_park_plan(taken: &[String]) {
+    // The exclusion is key probes, never a materialized set: each arm
+    // seeks the set's two keys and the checkpoint index by the run's key.
+    assert!(!materializes_whole(taken), "{taken:?}");
     assert_eq!(
         taken
             .iter()
-            .filter(|step| step.contains("SEARCH e USING INDEX event_index_park"))
+            .filter(|step| step.as_str() == "MATERIALIZE parks")
             .count(),
-        64,
-        "each arm seeks the parks' index: {taken:?}"
+        1,
+        "the ranges are collected once: {taken:?}"
     );
     assert_eq!(
         taken
             .iter()
-            .filter(|step| step.contains("SEARCH s USING INDEX"))
+            .filter(|step| step.as_str() == "CO-ROUTINE classes")
             .count(),
-        64,
+        1,
+        "the classes are one source: {taken:?}"
+    );
+    assert_eq!(
+        taken
+            .iter()
+            .filter(|step| step.as_str() == "SCAN 63 CONSTANT ROWS")
+            .count(),
+        1,
+        "the class table is a constant source: {taken:?}"
+    );
+    for (probe, count) in [
+        ("SEARCH seat_lag USING PRIMARY KEY", 2),
+        ("SEARCH seat_head USING PRIMARY KEY", 2),
+        (
+            "SEARCH event_index USING INDEX event_index_checkpoint_stale",
+            2,
+        ),
+    ] {
+        assert_eq!(
+            taken.iter().filter(|step| step.contains(probe)).count(),
+            count,
+            "{probe}, once an arm, in {taken:?}"
+        );
+    }
+    // One plan node seeks the parks' index per class through the co-routine,
+    // once for the closed classes and once for the open class. The closed
+    // search is the class's own `span_class` and reach.
+    assert_eq!(
+        taken
+            .iter()
+            .filter(|step| {
+                step.contains("SEARCH e USING INDEX event_index_park") && step.contains("at_ms>?")
+            })
+            .count(),
+        1,
+        "the closed classes seek the parks' index by class and reach: {taken:?}"
+    );
+    assert_eq!(
+        taken
+            .iter()
+            .filter(|step| {
+                step.contains("SEARCH e USING INDEX event_index_park") && !step.contains("at_ms>?")
+            })
+            .count(),
+        1,
+        "the open class seeks the parks' index by class alone: {taken:?}"
+    );
+    assert_eq!(
+        taken
+            .iter()
+            .filter(|step| step.contains("SEARCH s USING INDEX sqlite_autoindex_run_summary_1"))
+            .count(),
+        2,
         "each arm joins the run summary by its key: {taken:?}"
     );
-    assert_eq!(
+    assert!(
         taken
             .iter()
             .filter(|step| step.starts_with("SCAN "))
-            .map(String::as_str)
-            .collect::<Vec<_>>(),
-        ["SCAN parks"],
-        "only the materialized CTE is scanned: {taken:?}"
+            .all(|step| matches!(
+                step.as_str(),
+                "SCAN parks" | "SCAN 63 CONSTANT ROWS" | "SCAN c"
+            )),
+        "no journal table is scanned; the class source and the materialized parks alone: {taken:?}"
     );
     assert_eq!(
         taken
             .iter()
-            .filter(|step| step.contains("USE TEMP B-TREE FOR ORDER BY"))
+            .filter(|step| step.as_str() == "USE TEMP B-TREE FOR ORDER BY")
             .count(),
         1,
-        "{taken:?}"
+        "one sort over the collected ranges: {taken:?}"
     );
+}
+
+/// Whether `plan` names a materialized whole read or an automatic index
+/// SQLite builds to answer one: either holds the stale set in SQLite's
+/// heap (ruling 9's aggregate exception).
+fn materializes_whole(plan: &[String]) -> bool {
+    plan.iter()
+        .any(|step| step.contains("MATERIALIZE whole") || step.contains("AUTOMATIC COVERING INDEX"))
 }
 
 /// One park row's dated facts, as the writer leaves it.
@@ -1675,11 +1795,19 @@ fn a_refused_or_acknowledged_run_contributes_no_aggregate_row() {
     let present = |store: &Store| {
         (
             window_runs(store, 0, i64::MAX, RunOrder::Unordered, None).len(),
-            store.finished_between(0, i64::MAX, None).unwrap(),
-            durations(store, 0, i64::MAX, None).len(),
+            shipped_count(store, 0, i64::MAX),
+            durations(store, 0, i64::MAX).len(),
             window_parks(store, FROM, TO, TO, None).len(),
         )
     };
+    store
+        .conn
+        .execute(
+            "INSERT OR REPLACE INTO seat_head (run_id, folded_seq, folded_hash, shape)
+             SELECT 'r', head_seq, head_hash, ?1 FROM run_summary WHERE run_id = 'r'",
+            [SHAPE.as_str()],
+        )
+        .unwrap();
     assert_eq!(present(&store), (1, 1, 1, 1), "the folded run is read");
     for (acknowledged, word) in [(0, "refused"), (1, "acknowledged")] {
         store

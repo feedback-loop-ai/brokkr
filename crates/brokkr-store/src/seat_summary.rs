@@ -64,7 +64,7 @@ use rusqlite::types::{Value, ValueRef};
 use rusqlite::{params, params_from_iter, Connection, OptionalExtension, Row};
 
 use crate::event_index::{finished, first_parted, mark_finished, place, IndexFault};
-use crate::schema::{all_present, holds};
+use crate::schema::{all_present, holds_keyed};
 use crate::summary::{refold_once, Compared};
 use crate::{head_of, patiently, Disagreement, Store, StoreError};
 
@@ -74,7 +74,7 @@ mod stale;
 use seal::{digest, value, Cell, Seal};
 #[cfg(test)]
 pub(crate) use stale::SHAPE_INDEX;
-pub(crate) use stale::{forget_summary_triggers, migrate_stale, stale_intact, stale_runs};
+pub(crate) use stale::{forget_summary_triggers, migrate_stale, stale_intact};
 
 /// The meta key that records the backfill finished (ruling 8): its own,
 /// so keeping seat rows sends no run's summary behind (#753 ruling 4a).
@@ -139,16 +139,20 @@ fn migration() -> String {
 }
 
 /// Does this journal carry both tables, the rows' with every column a
-/// row is kept in and its digest, and the heads' with every column the
-/// set's bodies read and the shape they name? Pure reads. A table without
-/// one is a shape an unreleased build of this slice made, a row without
-/// its digest or without the facts slice 2b keeps, or a head that names no
-/// shape or cannot satisfy the set's bodies, which [`migrate_seats`] makes
-/// anew. The head's question is [`stale::shaped_head`]'s, the same one the
-/// summary repair's drop asks, so a remade head has one home.
+/// row is kept in and its digest, keyed by `(run_id, opened)`, and the
+/// heads' with every column the set's bodies read and the shape they name,
+/// keyed by `run_id`? Pure reads. A table without one is a shape an
+/// unreleased build of this slice made, a row without its digest or
+/// without the facts slice 2b keeps, a keyless remake, or a head that
+/// names no shape or cannot satisfy the set's bodies, which
+/// [`migrate_seats`] makes anew. The head's question is
+/// [`stale::shaped_head`]'s, the same one the summary repair's drop asks,
+/// so a remade head has one home; the rows' key is asked in the same one
+/// read, so a keyless `seat_summary` is no more trusted than a keyless
+/// head.
 pub(crate) fn seats_intact(conn: &Connection) -> Result<bool, StoreError> {
     Ok(all_present(conn, "table", &TABLES)?
-        && holds(conn, "seat_summary", kept())?
+        && holds_keyed(conn, "seat_summary", kept(), &["run_id", "opened"])?
         && stale::shaped_head(conn)?
         && all_present(conn, "index", &INDEXES)?)
 }
@@ -158,12 +162,19 @@ const SHAPED: &str = "shape";
 /// Create the tables, on a connection holding the write lock: the seventh
 /// additive repair. Their presence is asked again under the lock, so an
 /// opener that raced a peer to it drops none of the rows the peer's walk
-/// has written since. Their rows come from the backfill that follows the
-/// open, outside this lock. Remaking the tables drops the heads' triggers
-/// and the shape index with them, so the eighth repair, which names the
-/// runs whose rows lag, runs after this one and sees their loss.
+/// has written since. Whatever object holds either name is dropped as
+/// itself first: a VIEW or an INDEX named `seat_summary` or `seat_head`
+/// would refuse the tables' `DROP TABLE` with "use DROP VIEW" or "use
+/// DROP INDEX", failing the open closed. Their rows come from the backfill
+/// that follows the open, outside this lock. Remaking the tables drops the
+/// heads' triggers and the shape index with them, so the eighth repair,
+/// which names the runs whose rows lag, runs after this one and sees their
+/// loss.
 pub(crate) fn migrate_seats(conn: &Connection) -> Result<(), StoreError> {
     if !seats_intact(conn)? {
+        for name in TABLES {
+            stale::drop_named(conn, name)?;
+        }
         conn.execute_batch(&migration())?;
     }
     Ok(())

@@ -465,12 +465,52 @@ pub(crate) fn holds<'a>(
     table: &str,
     columns: impl IntoIterator<Item = &'a str>,
 ) -> Result<bool, StoreError> {
-    let mut statement = conn.prepare("SELECT name FROM pragma_table_info(?1)")?;
-    let found: Vec<String> = statement
-        .query_map([table], |row| row.get(0))?
+    holds_at(conn, table, columns, None)
+}
+
+/// Does `table` declare every one of `columns` and key it by exactly
+/// `key`, in that order? The same one read [`holds`] makes, so a table's
+/// shape and its key are one question and one statement: a table of
+/// another shape, a column absent, or a primary key that is not `key`
+/// alone fails. A composite key is named by its columns in key order, so
+/// `seat_summary`'s `(run_id, opened)` is one question.
+pub(crate) fn holds_keyed<'a>(
+    conn: &Connection,
+    table: &str,
+    columns: impl IntoIterator<Item = &'a str>,
+    key: &[&str],
+) -> Result<bool, StoreError> {
+    holds_at(conn, table, columns, Some(key))
+}
+
+/// [`holds`] and [`holds_keyed`]'s one read: every column present, and
+/// `key`, where named, the table's primary key in its declared order.
+fn holds_at<'a>(
+    conn: &Connection,
+    table: &str,
+    columns: impl IntoIterator<Item = &'a str>,
+    key: Option<&[&str]>,
+) -> Result<bool, StoreError> {
+    let mut statement = conn.prepare("SELECT name, pk FROM pragma_table_info(?1)")?;
+    let found: Vec<(String, i64)> = statement
+        .query_map([table], |row| Ok((row.get(0)?, row.get(1)?)))?
         .collect::<Result<_, _>>()?;
     let mut columns = columns.into_iter();
-    Ok(columns.all(|column| found.iter().any(|name| name == column)))
+    let present = columns.all(|column| found.iter().any(|(name, _)| name == column));
+    let keyed = key.is_none_or(|key| {
+        let mut primary: Vec<(i64, &str)> = found
+            .iter()
+            .filter(|(_, pk)| *pk > 0)
+            .map(|(name, pk)| (*pk, name.as_str()))
+            .collect();
+        primary.sort_by_key(|(pk, _)| *pk);
+        primary.len() == key.len()
+            && primary
+                .iter()
+                .zip(key)
+                .all(|((_, name), wanted)| name == wanted)
+    });
+    Ok(present && keyed)
 }
 
 /// The schema a journal records, or `None` for a file that has never

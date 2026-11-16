@@ -1087,7 +1087,7 @@ fn the_plans_name_the_indexes_and_scan_no_projection() {
     assert!(scans(&whole, "seat_summary"), "{whole:?}");
     let spends = crate::test_support::plan(
         &store,
-        &SPENDS,
+        spends_sql(true),
         rusqlite::params![FROM, TO, None::<&str>, crate::seat_summary::SHAPE.as_str()],
     )
     .unwrap();
@@ -1130,7 +1130,7 @@ fn the_plans_name_the_indexes_and_scan_no_projection() {
     ] {
         let sites = crate::test_support::plan(
             &store,
-            sites_sql(order),
+            sites_sql(order, true),
             rusqlite::params![FROM, TO, None::<&str>, crate::seat_summary::SHAPE.as_str()],
         )
         .unwrap();
@@ -1163,6 +1163,9 @@ fn scans(plan: &[String], table: &str) -> bool {
         let Some(rest) = step.strip_prefix("SCAN ") else {
             return false;
         };
+        // A scan visits the projection's rows whichever index it walks: an
+        // index walk of `event_index` or `seat_summary` is still the whole
+        // projection, and the window reads must reach them by a key seek.
         let scanned = rest.split_whitespace().next().unwrap_or_default();
         scanned == table || aliases.contains(&scanned)
     })
