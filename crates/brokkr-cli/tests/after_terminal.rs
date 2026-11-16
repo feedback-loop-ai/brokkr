@@ -633,11 +633,12 @@ fn a_fold_refused_by_a_late_wait_is_not_painted_by_runs() {
     // `inspect` refuses the refused fold before it prints, and its read
     // never paints the late wait either.
     let inspect = brokkr(dir.path(), &["inspect", "--run", "late", "--db", &db]);
-    assert_ne!(inspect.status.code(), Some(0), "{inspect:?}");
+    assert_eq!(inspect.status.code(), Some(1), "{inspect:?}");
+    assert_eq!(String::from_utf8_lossy(&inspect.stdout), "");
     assert!(
-        !String::from_utf8_lossy(&inspect.stdout).contains("wait      claude/anthropic"),
+        String::from_utf8_lossy(&inspect.stderr).contains("event 6: event after terminal status"),
         "{}",
-        String::from_utf8_lossy(&inspect.stdout)
+        String::from_utf8_lossy(&inspect.stderr)
     );
 }
 
