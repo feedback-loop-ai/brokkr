@@ -423,12 +423,23 @@ impl Store {
     /// provider and route no unexpired row holds any more, in the order
     /// they were written: what a readout paints, so a probe's later end
     /// survives the instant it passes and the event's earlier end never
-    /// returns (decision 0103 slice 4f). newest's one query; admission
+    /// returns (decision 0103 slice 4f). newest's one statement; admission
     /// keeps reading [`Store::cooldown`] and [`Store::cooldowns_in_force`],
     /// which an expired row never holds. The queue's version is judged
-    /// first, as [`Store::cooldown`] does. It reads the table once, as
-    /// [`Store::cooldowns_in_force`] does: the bound is the history the
-    /// append-only table holds, never the run or its events.
+    /// first, as [`Store::cooldown`] does. One statement is not a linear
+    /// read: `newest`'s correlated `NOT EXISTS` rescans the table for every
+    /// expired row, and the table's only index is `(run_id, event_seq,
+    /// site, rounds)`, so the bound is the append-only table squared, never
+    /// the run or its events. Measured with the bundled SQLite over the
+    /// table's columns and its one index, at an instant past every end (the
+    /// worst case, every row expired): spread over ten routes the statement
+    /// takes 998 VM steps at 10 rows and 380,934,683 at 10,000, and on one
+    /// route 962 and 650,305,007, where [`Store::cooldowns_in_force`] takes
+    /// 38 and 30,008. The history a journal keeps is the rate limits its
+    /// runs met, so the quadratic term is bounded by that count and not by
+    /// a run's size; the console pays the statement twice per refresh, once
+    /// to compare the kept frame's aggregate and once in the frame or whole
+    /// read.
     pub fn cooldowns_newest(&self, now: OffsetDateTime) -> Result<Vec<Cooldown>, StoreError> {
         patiently("cooldowns_newest", self.patience, || {
             if cool_downs_held(&self.conn)? {
