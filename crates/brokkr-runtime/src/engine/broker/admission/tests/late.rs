@@ -10,7 +10,7 @@ use std::io::Write;
 use std::os::fd::OwnedFd;
 use std::time::Duration;
 
-use rustix::fs::AtFlags;
+use rustix::fs::{AtFlags, Mode};
 
 use crate::engine::broker::admission::STAGED;
 use crate::engine::broker::root::{Step, PRIOR};
@@ -24,7 +24,11 @@ use crate::engine::broker::root::{Step, PRIOR};
 /// changed ([`Late::Remove`], [`Late::Replace`]; #440 fix round 440d5), or
 /// removes it after the link and before the exchange, or after the exchange
 /// and before the directory is synced ([`Late::RemoveLinked`],
-/// [`Late::RemoveCommitted`]; #440 fix round 440d6);
+/// [`Late::RemoveCommitted`]; #440 fix round 440d6), or removes the record
+/// that stood from its prior name, as the directory's sync fails after the
+/// commit or as the seal retires it ([`Late::RemovePriorCommitted`],
+/// [`Late::RemovePriorRetiring`]; #1099), or replaces that prior name
+/// with a directory as the seal retires it ([`Late::PriorDirectoryRetiring`]);
 /// once renamed in, spends the time given, fails as its directory sync
 /// failing would, or spends it with the directory's write permission taken,
 /// or spends it and then fails the sync of its undoing (M2 of run four's
@@ -44,6 +48,9 @@ pub(super) enum Late {
     Replace,
     RemoveCommitted,
     ReplaceCommitted,
+    RemovePriorCommitted,
+    RemovePriorRetiring,
+    PriorDirectoryRetiring,
     CutUndo,
     FailLinked,
     FailRestored,
@@ -128,6 +135,26 @@ pub(super) fn late(step: Step, dir: &OwnedFd, staged: &str) -> std::io::Result<(
             rustix::fs::unlinkat(dir, name, AtFlags::empty()).unwrap();
             return Err(std::io::Error::other("the directory sync failed"));
         }
+        // After a seal's commit: a hand removes the record that stood from
+        // its prior name, and the sync that follows fails, so the undo finds
+        // no prior name to put back (#1099).
+        (Step::Committed, Some(Late::RemovePriorCommitted)) => {
+            let name = staged.strip_suffix(STAGED).unwrap();
+            remove_prior(dir, name);
+            return Err(std::io::Error::other("the directory sync failed"));
+        }
+        // As the seal retires the record that stood: a hand removes its
+        // prior name first, so the retirement meets it gone (#1099). This
+        // step is handed the record's own name.
+        (Step::Retiring, Some(Late::RemovePriorRetiring)) => remove_prior(dir, staged),
+        // As the seal retires the record that stood: a hand replaces its
+        // prior name with a directory, so the retirement cannot remove it and
+        // the undo's rename back meets something other than a gone name
+        // (#1099, the first seal's ENOTDIR arm).
+        (Step::Retiring, Some(Late::PriorDirectoryRetiring)) => {
+            remove_prior(dir, staged);
+            rustix::fs::mkdirat(dir, format!("{staged}{PRIOR}"), Mode::RWXU).unwrap();
+        }
         // The directory's sync after the commit fails, and the undo that
         // follows is cut short after its exchange, as a kill there would cut
         // it (#440 fix round 440d6).
@@ -168,6 +195,11 @@ pub(super) fn late(step: Step, dir: &OwnedFd, staged: &str) -> std::io::Result<(
         (_, armed) => LATE.set(armed),
     }
     Ok(())
+}
+
+/// The prior name of the record `name` in `dir` removed, as a hand would.
+fn remove_prior(dir: &OwnedFd, name: &str) {
+    rustix::fs::unlinkat(dir, format!("{name}{PRIOR}"), AtFlags::empty()).unwrap()
 }
 
 /// An empty file of this user's own made at the prior name of the record
@@ -250,8 +282,8 @@ fn after_first(
     after(one, a, two, b)
 }
 
-/// A directory in place of the record's name: both the exchange back and
-/// the plain rename of a planted file fail.
+/// A directory in place of the record's name: the exchange back fails, and
+/// nothing is renamed over the name in its place.
 fn name_a_directory(
     _: &std::os::fd::OwnedFd,
     _: &str,
@@ -263,8 +295,8 @@ fn name_a_directory(
     Err(rustix::io::Errno::INVAL)
 }
 
-/// A directory in place of the staged name: both fail while the name still
-/// holds this seal's successor.
+/// A directory in place of the staged name: the exchange back fails while
+/// the name still holds this seal's successor.
 fn staged_a_directory(
     one: &std::os::fd::OwnedFd,
     a: &str,
@@ -341,6 +373,22 @@ pub(super) fn unlinking_before_third_exchange(
     b: &str,
 ) -> Result<(), rustix::io::Errno> {
     unlinking_at(3, one, a, two, b)
+}
+
+/// Production's exchange for the first two swaps on this thread, and
+/// `EINVAL` for the third and later: an undo's exchange back, for a file a
+/// hand planted at the name, fails for a reason other than a removal (#1099
+/// R2).
+pub(super) fn failing_third_exchange(
+    one: &OwnedFd,
+    a: &str,
+    two: &OwnedFd,
+    b: &str,
+) -> Result<(), rustix::io::Errno> {
+    if swaps() < 3 {
+        return rustix::fs::renameat_with(one, a, two, b, rustix::fs::RenameFlags::EXCHANGE);
+    }
+    Err(rustix::io::Errno::INVAL)
 }
 
 /// One exchange seam: production's swap for the first call on this thread,

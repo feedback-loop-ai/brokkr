@@ -24,8 +24,8 @@ use super::coordination::{died_after_its_end, settled_a1};
 use super::late::{
     failing_second_exchange, failing_second_exchange_over_the_name,
     failing_second_exchange_over_the_staged, failing_second_exchange_over_the_staged_and_the_hand,
-    refusing, refusing_exchange, swaps_again, unlinking_before_second_exchange,
-    unlinking_before_third_exchange,
+    failing_third_exchange, refusing, refusing_exchange, swaps_again,
+    unlinking_before_second_exchange, unlinking_before_third_exchange,
 };
 use super::*;
 use crate::capabilities::McpFence;
@@ -71,6 +71,17 @@ fn within(millis: u64) -> Instant {
     Instant::now() + Duration::from_millis(millis)
 }
 
+/// The deadline a case of [`finals`] is begun under: `millis` from now where
+/// it is refused as late, so its sleep outlasts it, and a minute where it is
+/// refused for another reason, which no load may make late first (#1099).
+fn deadline_for(refused: &Unknown, millis: u64) -> Instant {
+    within(if *refused == Unknown::Expired {
+        millis
+    } else {
+        60_000
+    })
+}
+
 /// The five ways a reseal fails or runs late at its final steps before its
 /// commit, each spending `millis` where it runs late: what arms it, the
 /// refusal it meets, and its name. A first seal meets the first three, its
@@ -112,7 +123,7 @@ fn finals(millis: u64) -> [(Late, Unknown, &'static str); 5] {
 fn a_first_seal_that_fails_or_runs_late_leaves_no_record() {
     for (armed, refused, how) in finals(150).into_iter().take(3) {
         let host = Host::new();
-        let budget = Budget::new(within(100));
+        let budget = Budget::new(deadline_for(&refused, 100));
         LATE.set(Some(armed));
         let sealed = host
             .root
@@ -253,7 +264,8 @@ fn a_late_join_keeps_the_reservation_that_stood() {
     for (armed, refused, how) in finals(600) {
         let (host, at, before) = joining(armed);
         let next = open(&host.worktree("work"), ["run-a", "a2"]);
-        assert_eq!(admit(&host.root, &next, within(400)), mb3(refused), "{how}");
+        let deadline = deadline_for(&refused, 400);
+        assert_eq!(admit(&host.root, &next, deadline), mb3(refused), "{how}");
         kept(&at, &before, how);
     }
 }
@@ -264,7 +276,7 @@ fn a_late_join_keeps_the_reservation_that_stood() {
 /// journaled, never releases the attempt.
 #[test]
 fn a_late_unresolved_mark_keeps_the_reservation_that_stood() {
-    for (armed, _, how) in finals(600) {
+    for (armed, refused, how) in finals(600) {
         let host = Host::new();
         let (_dir, mut engine, work, run) = leasing(&host, Protects::Nothing);
         let at = host.reservation(&work, &run);
@@ -273,7 +285,7 @@ fn a_late_unresolved_mark_keeps_the_reservation_that_stood() {
         let unresolved = Cleanup::Unresolved {
             reason: Unsettled::Stdout,
         };
-        witnessed_by(&mut engine.held, &unresolved, within(400));
+        witnessed_by(&mut engine.held, &unresolved, deadline_for(&refused, 400));
         kept(&at, &before, how);
         settled_a1(&mut engine, &run);
         engine.settle("a1", Ok(())).unwrap();
@@ -293,7 +305,7 @@ fn a_late_release_keeps_the_reservation_that_stood() {
         let at = host.reservation(&work, "run-a");
         let before = standing(&at);
         LATE.set(Some(armed));
-        let released = release(&held, within(400));
+        let released = release(&held, deadline_for(&refused, 400));
         assert_eq!(released, Err(Unadmitted::Identity(refused)), "{how}");
         kept(&at, &before, how);
     }
@@ -312,7 +324,7 @@ fn a_late_recovery_keeps_the_reservation_that_stood() {
         let before = standing(&at);
         LATE.set(Some(armed));
         let next = claim(&work, ["run-b", "b1"], Protects::Nothing, &[]);
-        let admitted = admit(&host.root, &next, within(1_000));
+        let admitted = admit(&host.root, &next, deadline_for(&refused, 1_000));
         assert_eq!(admitted, mb3(refused), "{how}");
         kept(&at, &before, how);
         let sealed = host.reservation(&work, "run-b").exists();
@@ -589,11 +601,7 @@ fn settlement_publishes_what_its_attempt_retained_before_its_release() {
         attempt.served((0, &plans[0]), true, &answered);
         if unresolved {
             let reason = Unsettled::Stdout;
-            witnessed_by(
-                &mut engine.held,
-                &Cleanup::Unresolved { reason },
-                within(400),
-            );
+            witnessed_by(&mut engine.held, &Cleanup::Unresolved { reason }, soon());
         }
         settled_a1(&mut engine, &run);
         let unsealed = case == "unsealed";
@@ -658,6 +666,14 @@ fn successor(at: &Path) -> Vec<u8> {
     let mut held: Reservation = serde_json::from_slice(&std::fs::read(at).unwrap()).unwrap();
     held.settled.insert("planted".into());
     serde_json::to_vec(&held).unwrap()
+}
+
+/// The lease's reservation amended to settle one more id, resealed.
+fn amending(held: &Held) -> Result<Commit, Unadmitted> {
+    amend(held, soon(), |mut reservation| {
+        reservation.settled.insert("planted".into());
+        Ok(reservation)
+    })
 }
 
 /// `bytes` made the file at `at`, replacing whatever stands there.
@@ -749,6 +765,76 @@ fn a_committed_reseals_undo_never_brings_back_a_removed_record() {
         Err(Unadmitted::Identity(Unknown::Lost)),
         "the next door meets the lost lease"
     );
+}
+
+/// C2 (#1099; decision 0108 ruling 3; 0071 ruling 9): a reseal whose prior
+/// name a hand removed is refused with `Unsealed` and leaves no successor
+/// standing as the record. At its retirement, or as its sync fails, the
+/// undo finds no record that stood to put back: the removal stands, its own
+/// successor goes, and nothing is made at the name.
+#[test]
+fn a_reseal_whose_prior_name_is_gone_at_its_undo_leaves_no_successor() {
+    for (late, how) in [
+        (Late::RemovePriorRetiring, "at its retirement"),
+        (Late::RemovePriorCommitted, "as its sync fails"),
+    ] {
+        let (_host, _work, held, at) = spawning_attempt();
+        LATE.set(Some(late));
+        assert_eq!(
+            amending(&held),
+            Err(Unadmitted::Identity(Unknown::Unsealed)),
+            "{how}"
+        );
+        assert!(!at.exists(), "{how}: no successor stands at the name");
+        assert!(!prior(&at).exists(), "{how}: no prior name left");
+        nothing_staged(&at);
+        assert_eq!(
+            recheck(&held),
+            Err(Unadmitted::Identity(Unknown::Lost)),
+            "{how}: the next door meets the lost lease"
+        );
+    }
+}
+
+/// C2 (#1099; decision 0108 ruling 3): a first seal over a standing record
+/// whose prior name a hand removed is undone the same way: its successor goes
+/// where it is still its own, and nothing is made at the name.
+#[test]
+fn a_first_seal_whose_prior_name_is_gone_at_its_undo_leaves_no_successor() {
+    for (late, how) in [
+        (Late::RemovePriorRetiring, "at its retirement"),
+        (Late::RemovePriorCommitted, "as its sync fails"),
+    ] {
+        let host = Host::new();
+        let (at, _) = probe(&host);
+        LATE.set(Some(late));
+        assert_eq!(sealing(&host.root, SECOND), Err(Unknown::Unsealed), "{how}");
+        assert!(!at.exists(), "{how}: no successor stands at the name");
+        assert!(!prior(&at).exists(), "{how}: no prior name left");
+        nothing_staged(&at);
+    }
+}
+
+/// #1099's C2, the first seal's other arm: where its undo's rename back
+/// meets anything but a gone prior name (here a hand's directory there, so
+/// the rename fails with ENOTDIR), the undo fails and the seal refuses as
+/// unsealed: the hand's directory stays, and this seal's file is still at
+/// the name, as `undone` states for an undo that fails.
+#[test]
+fn a_first_seal_whose_rename_back_fails_refuses_as_unsealed() {
+    let host = Host::new();
+    let (at, _) = probe(&host);
+    LATE.set(Some(Late::PriorDirectoryRetiring));
+    assert_eq!(sealing(&host.root, SECOND), Err(Unknown::Unsealed));
+    assert!(
+        prior(&at).is_dir(),
+        "the hand's directory stays at the prior name"
+    );
+    assert!(
+        at.is_file(),
+        "a failed undo leaves this seal's file at the name, as undone states"
+    );
+    nothing_staged(&at);
 }
 
 /// #440 fix round 440d6 (decision 0108 ruling 3): a seal's restore of a
@@ -1018,6 +1104,37 @@ fn a_reseal_whose_exchange_back_fails_leaves_a_file_a_hand_planted_at_the_name()
         "the name reads the hand's bytes"
     );
     assert!(!prior(&at).exists(), "the record that stood is removed");
+}
+
+/// R2 (#1099; decision 0108 ruling 3; 0071 ruling 9): an undo's exchange
+/// back for a file a hand planted at the name fails for a reason other than
+/// the name's removal. The name keeps the record that stood, which the undo's
+/// own exchange put there; the hand's file stays under the staged name and
+/// the prior name goes.
+#[test]
+fn an_undos_failed_exchange_back_leaves_the_record_that_stood_at_the_name() {
+    swaps_again();
+    let host = host_exchanging(failing_third_exchange);
+    let (_host, _work, held, at) = spawning_attempt_in(host);
+    swaps_again();
+    let before = std::fs::read(&at).unwrap();
+    LATE.set(Some(Late::ReplaceCommitted));
+    assert_eq!(
+        amending(&held),
+        Err(Unadmitted::Identity(Unknown::Unsealed))
+    );
+    assert_eq!(
+        std::fs::read(&at).unwrap(),
+        before,
+        "the name keeps the record that stood"
+    );
+    let staged = at.with_file_name("reservation.json.new");
+    assert_eq!(
+        std::fs::metadata(&staged).unwrap().len(),
+        0,
+        "the hand's file stays under the staged name"
+    );
+    assert!(!prior(&at).exists(), "no prior name left");
 }
 
 /// #440 fix round 440d6 (decision 0108 ruling 3): every way a filesystem
@@ -1493,7 +1610,7 @@ fn a_lone_prior_name_is_refused_by_the_door_the_amend_and_settlement() {
 /// name is a directory, the planted file stays under the staged name and the
 /// record that stood is removed, rather than the planted file being deleted.
 #[test]
-fn a_reseal_whose_exchange_back_and_rename_both_fail_leaves_the_planted_file() {
+fn a_reseal_whose_exchange_back_fails_over_a_directory_leaves_the_planted_file() {
     let (_host, at, staged) = put_backs_failed(failing_second_exchange_over_the_name);
     assert!(
         std::fs::metadata(&at).unwrap().is_dir(),
@@ -1507,8 +1624,8 @@ fn a_reseal_whose_exchange_back_and_rename_both_fail_leaves_the_planted_file() {
     assert!(!prior(&at).exists(), "the record that stood is removed");
 }
 
-/// Run four's review, S5: where neither put-back can run and the name still
-/// holds this seal's own successor, that successor is removed: a refused
+/// Run four's review, S5: where the exchange back cannot run and the name
+/// still holds this seal's own successor, that successor is removed: a refused
 /// reseal never leaves a record standing.
 #[test]
 fn a_reseals_exchange_back_that_fails_removes_its_successor() {

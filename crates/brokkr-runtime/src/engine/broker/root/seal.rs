@@ -78,13 +78,16 @@ pub(super) struct Sheet<'a> {
 /// A seal that fails or runs late before its commit is undone
 /// ([`undone`]): the record that stood put back by the same exchange, the
 /// same file, so its bytes and its inode, or the record made removed where
-/// none stood (H1; R1 of run four's review). One whose undoing fails
-/// refuses as unsealed, whatever cut it short, the record that stood still
-/// under its prior name for every read and for the next seal to put back
-/// (M2 of run four's second review). Once committed, no seal reports
-/// failure or lateness: one whose directory is not proven synced after
-/// reports itself committed but [`Commit::Unsynced`] (R1 of the fourth run,
-/// U8a2c).
+/// none stood (H1; R1 of run four's review). Where the record that stood is
+/// itself gone, its prior name removed by a hand, the removal stands: this
+/// seal's successor is removed where it is still the file this seal wrote,
+/// nothing is made at the name, and the seal refuses as it was cut short
+/// (#1099). One whose undoing fails refuses as unsealed, whatever cut it
+/// short, the record that stood still under its prior name for every read
+/// and for the next seal to put back (M2 of run four's second review). Once
+/// committed, no seal reports failure or lateness: one whose directory is
+/// not proven synced after reports itself committed but [`Commit::Unsynced`]
+/// (R1 of the fourth run, U8a2c).
 pub(in crate::engine::broker) fn seal_with(
     dir: &OwnedFd,
     name: &str,
@@ -150,8 +153,10 @@ pub(super) fn seal_made(write: Sheet<'_>) -> Result<Commit, Unknown> {
 /// retiring the record that stood: handed to `hook`, the deadline of
 /// `budget` checked the last time, and its prior name removed; whether the
 /// directory is then synced. One late or whose prior name cannot be
-/// removed is undone ([`undone`]) and refused, the record that stood still
-/// what every read finds.
+/// removed is undone ([`undone`]) and refused: the record that stood is put
+/// back and is what every read finds, or, where a hand removed its prior
+/// name, the removal stands and no record is left, this seal's successor
+/// removed (#1099).
 fn retired(seal: &Seal<'_>, written: &Record, make: Make<'_>) -> Result<Commit, Unknown> {
     let prior = seal.prior();
     let retiring = ((seal.hook)(Step::Retiring, seal.dir, seal.name).or(Err(Unknown::Unsealed)))
@@ -282,10 +287,16 @@ fn exchanged_in(seal: &Seal<'_>, stood: &Record, written: &Record) -> Result<(),
 /// other reason, no rename runs either, because a plain rename would make
 /// the name if the removal had taken it. In either failure the planted file
 /// stays under the staged name (the next seal of this record removes it
-/// first), and this seal's own successor is removed where it is still at
-/// the name: a refused seal never leaves a record standing, and never
-/// deletes a file a hand made at the name. The record that stood is removed
-/// either way, for the removal or replacement that met it stands.
+/// first), and the name is left as it is, but for this seal's own successor,
+/// which is removed where it is still there: a file a hand made at the name
+/// is never deleted. What the name holds then depends on the caller. For the
+/// reseal's own proof ([`exchanged_in`]) it holds this seal's successor,
+/// which goes, so no record is left. For the undo ([`put_stood_back`]) it
+/// holds the record that stood, which the undo's exchange put there, and
+/// where the exchange back fails for a reason other than `ENOENT` the name
+/// keeps it: not this seal's, so not removed (fail closed; #1099 R2). The
+/// prior name is removed either way, for the removal or replacement that met
+/// the record that stood stands.
 fn put_foreign_back(seal: &Seal<'_>, prior: &str, written: &Record) {
     let (dir, staged, name) = (seal.dir, seal.staged.as_str(), seal.name);
     let put_back = (seal.exchange)(dir, staged, dir, name).is_ok();
@@ -304,11 +315,15 @@ fn put_foreign_back(seal: &Seal<'_>, prior: &str, written: &Record) {
 /// that `stood` put back from its prior name by the same exchange, or,
 /// where none stood, the record it made removed; then handed to `hook` and
 /// the directory synced again. Where the name is gone, the removal stands:
-/// the record that stood is removed and nothing is written at the name. A
+/// the record that stood is removed and nothing is written at the name.
+/// Where the prior name is gone, the record that stood is the removal that
+/// stands: this seal's successor is removed where it is still the file this
+/// seal wrote, so no successor is left in the record's place (#1099). A
 /// first seal's undo uses links, renames and removals alone, so a
 /// filesystem without an exchange still undoes what it may create
-/// (decision 0108 ruling 3, M3 amended). Why not, where any of that fails:
-/// the record that stood is then still under its prior name.
+/// (decision 0108 ruling 3, M3 amended). Where any other step of that
+/// fails, the record that stood is still under its prior name and this
+/// seal's successor still at the name, read as the record that stood.
 fn undone(seal: &Seal<'_>, stood: bool, written: &Record, make: Make<'_>) -> std::io::Result<()> {
     let prior = seal.prior();
     match (make, stood) {
@@ -323,7 +338,9 @@ fn undone(seal: &Seal<'_>, stood: bool, written: &Record, make: Make<'_>) -> std
 
 /// The record a first seal found standing put back at `name` by a plain
 /// rename: the file it made is the one this seal wrote, or a hand's file
-/// stays and the undo refuses.
+/// stays and the undo refuses. A prior name already gone leaves nothing to
+/// rename: the removal stands and this seal's file is removed
+/// ([`remove_made`]; #1099).
 fn put_made_back(seal: &Seal<'_>, prior: &str, written: &Record) -> std::io::Result<()> {
     match regular_at(seal.dir, seal.name) {
         None => {
@@ -331,8 +348,13 @@ fn put_made_back(seal: &Seal<'_>, prior: &str, written: &Record) -> std::io::Res
             Ok(())
         }
         Some((_, _, id)) if id == written.id => {
-            renameat(seal.dir, prior, seal.dir, seal.name).map_err(std::io::Error::from)?;
-            Ok(())
+            match renameat(seal.dir, prior, seal.dir, seal.name) {
+                Ok(()) => Ok(()),
+                // The prior name is gone: the removal stands, and this
+                // seal's successor goes with it (#1099).
+                Err(Errno::NOENT) => remove_made(seal, written),
+                Err(error) => Err(std::io::Error::from(error)),
+            }
         }
         Some(_) => {
             let _ = unlinkat(seal.dir, prior, AtFlags::empty());
@@ -344,7 +366,9 @@ fn put_made_back(seal: &Seal<'_>, prior: &str, written: &Record) -> std::io::Res
 }
 
 /// The record a first seal made removed, where it is still the file this
-/// seal wrote; a hand's file stays and the undo refuses.
+/// seal wrote; a hand's file stays and the undo refuses. Also what a seal's
+/// undo does where the record that stood is gone: its successor is removed
+/// and the name is left empty.
 fn remove_made(seal: &Seal<'_>, written: &Record) -> std::io::Result<()> {
     match regular_at(seal.dir, seal.name) {
         None => Ok(()),
@@ -361,8 +385,11 @@ fn remove_made(seal: &Seal<'_>, written: &Record) -> std::io::Result<()> {
 /// record that stood is linked under the staged name first, so the exchange
 /// moves it back in one step and the successor it replaced is what the
 /// staged name then holds. A name gone before the exchange means the
-/// removal stands. A name holding a file this seal did not write is left
-/// as it is and the undo refuses.
+/// removal stands. A prior name gone before the link means the record that
+/// stood was removed: the removal stands, and this seal's successor is
+/// removed where it is still at the name ([`remove_made`]; #1099). A name
+/// holding a file this seal did not write is left as it is and the undo
+/// refuses.
 fn put_stood_back(seal: &Seal<'_>, prior: &str, written: &Record) -> std::io::Result<()> {
     let (dir, staged, name) = (seal.dir, seal.staged.as_str(), seal.name);
     let gone = || {
@@ -370,7 +397,13 @@ fn put_stood_back(seal: &Seal<'_>, prior: &str, written: &Record) -> std::io::Re
         let _ = unlinkat(dir, staged, AtFlags::empty());
     };
     let _ = unlinkat(dir, staged, AtFlags::empty());
-    linkat(dir, prior, dir, staged, AtFlags::empty()).map_err(std::io::Error::from)?;
+    match linkat(dir, prior, dir, staged, AtFlags::empty()) {
+        Ok(()) => {}
+        // The prior name is gone: the removal stands, and this seal's
+        // successor goes with it where it is still at the name (#1099).
+        Err(Errno::NOENT) => return remove_made(seal, written),
+        Err(error) => return Err(std::io::Error::from(error)),
+    }
     match (seal.exchange)(dir, staged, dir, name) {
         Ok(()) => {
             (seal.hook)(Step::Exchanged, dir, name)?;

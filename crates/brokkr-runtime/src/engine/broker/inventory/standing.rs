@@ -456,6 +456,46 @@ mod tests {
         );
     }
 
+    /// #1099 R1(a): a record from before b8e2caff8 sealed `sealed` as a list
+    /// of `{path, identity}` sources, and stays a view-only record, no newer
+    /// writer's; a field beside them in an element is one. Removal control:
+    /// drop the `sealed/*` row from `KNOWN`, or either of its words, and this
+    /// fails.
+    #[test]
+    fn a_sealed_list_from_before_b8e2caff8_is_no_newer_writers_record() {
+        let mut older = full();
+        let sealed = json!([{"path": "/work", "identity": [1, 2]}]);
+        older["attempts"]["a1"]["writers"][0]["reach"]["boxed"]["sealed"] = sealed;
+        assert!(
+            !names_unknown(&older),
+            "a list of sources sealed is this build's view-only record"
+        );
+        let mut later = older.clone();
+        later["attempts"]["a1"]["writers"][0]["reach"]["boxed"]["sealed"][0]["a_field"] = json!(1);
+        assert!(
+            names_unknown(&later),
+            "an unknown field in an element is a newer writer's"
+        );
+    }
+
+    /// #1099 R1(b): each kind of served input this build writes — a source,
+    /// the entries of a directory, a link — serialised from the record's own
+    /// type is a field the level that holds it knows. Removal control: drop
+    /// `entries` or `link` from the `serves/*` row of `KNOWN`, and this
+    /// fails.
+    #[test]
+    fn a_served_input_of_each_kind_is_no_newer_writers_record() {
+        let mut served = full();
+        served["attempts"]["a1"]["serves"] =
+            json!([{"source": "/s"}, {"entries": "/e"}, {"link": "/l"}]);
+        let written: Reservation = serde_json::from_value(served).unwrap();
+        let serialised = serde_json::to_value(&written).unwrap();
+        assert!(
+            !names_unknown(&serialised),
+            "every served kind this build writes is known at its own level"
+        );
+    }
+
     /// #1099 R1(d): an unknown field inside a list's item is read at the
     /// item's own level, for the writers and for the drivers alike.
     #[test]
