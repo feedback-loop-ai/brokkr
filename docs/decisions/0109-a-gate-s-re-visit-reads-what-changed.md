@@ -136,11 +136,13 @@ and `high_risk_uncovered` (`crates/brokkr-core/src/residual.rs:52-106`) — over
 `transition/decided` events from `verify` and `review` (`:23-40`, `:136-170`).
 Prose in `notes` is never re-read as a finding, because deriving structure from
 prose is repair (0001). A panel's aggregate keeps each member's `notes` as
-evidence and joins four inputs — `fixes_applied`, `spec_defect`,
-`max_residual_severity` and `has_security_residual`
-(`crates/brokkr-runtime/src/bundle/aggregate.rs:188-216`); a member's individual
-findings are not typed facts. That is enough for a threshold and a boolean, not
-for #1048(a)'s set comparison.
+evidence and joins up to four inputs — `fixes_applied`, `spec_defect`,
+`max_residual_severity` and `has_security_residual`; today it writes the two
+residual inputs only when a member reports a residual or a rank above none
+(`crates/brokkr-runtime/src/bundle/aggregate.rs:188-216`), and 0109a makes it
+write both always, `none` and `false` on an all-clean panel. A member's
+individual findings are not typed facts. That is enough for a threshold and a
+boolean, not for #1048(a)'s set comparison.
 
 A seat resolves its inputs from its hired agent first, then its own `inputs`, then
 the phase's referenced set (`crates/brokkr-runtime/src/bundle/assemble.rs:303-347`);
@@ -276,10 +278,11 @@ single seat or the engine-written panel aggregate, and each member of a review
 panel is checked before its word is joined. A member declares no input set of its
 own (`crates/brokkr-runtime/src/bundle/site_form.rs:425-428`), so a member is held
 to the compiled input set of the seat that owns the panel; the aggregate is held
-to the same set. The engine's panel aggregate always writes `max_residual_severity` and
-`has_security_residual`, `none` and `false` when no member reports a residual
-(`crates/brokkr-runtime/src/bundle/aggregate.rs:188-216`), so an all-clean panel
-and a charter-shaped clean are admitted and the absent-input clause refuses only a
+to the same set. 0109a makes the engine's panel aggregate write
+`max_residual_severity` and `has_security_residual` on every result, `none` and
+`false` when no member reports a residual (`crates/brokkr-runtime/src/bundle/aggregate.rs:188-216`
+writes them today only when a member does), so an all-clean panel and a
+charter-shaped clean are admitted and the absent-input clause refuses only a
 result that omits what its own compiled set declares. A member's refusal parks the
 panel before its aggregate rules; the member's word never reaches the aggregate.
 
