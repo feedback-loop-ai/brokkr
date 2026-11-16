@@ -91,9 +91,10 @@ fn shown_of(view: &brokkr_view::RunView) -> (Vec<&str>, Vec<usize>) {
 fn every_run_reader_reads_through_the_pages() {
     let (dir, db, store) = keyed_journal();
     let whole = |run| brokkr_view::run_view(&store.load(run).unwrap(), None);
+    let now = crate::now_rfc3339();
     let read = |run, shows| {
         let db = Some(db.clone());
-        run_view_of(dir.path(), None, db, run, shows, &viewed).unwrap()
+        run_view_of(dir.path(), None, db, run, shows, &now, &viewed).unwrap()
     };
     assert_eq!(shown_of(&whole("r2")), (vec!["work"], vec![1]));
     for (shows, checkpoints) in [(Shows::Everything, 1), (Shows::Frame, 0)] {
@@ -105,7 +106,9 @@ fn every_run_reader_reads_through_the_pages() {
     let whole = whole("r1");
     assert_eq!(shown_of(&whole), (vec!["work"], vec![]));
     let style = render::Style::plain(80);
-    let frame = viewed(&store, "r1", Shows::Frame).unwrap().view;
+    let frame = viewed(&store, "r1", Shows::Frame, &crate::now_rfc3339())
+        .unwrap()
+        .view;
     let clock = || "2026-01-01T00:00:00Z".to_string();
     let mut painted = Vec::new();
     let frame = render::inspect(&frame, None, false, &crate::now_rfc3339(), &style);
@@ -128,10 +131,14 @@ fn every_run_reader_reads_through_the_pages() {
         String::from_utf8(watched).unwrap(),
         String::from_utf8(painted).unwrap()
     );
-    let paged = viewed(&store, "r1", Shows::Everything).unwrap().view;
+    let paged = viewed(&store, "r1", Shows::Everything, &crate::now_rfc3339())
+        .unwrap()
+        .view;
     let paged = serde_json::to_string(&paged.with_scopes()).unwrap();
     assert_ne!(paged, serde_json::to_string(&whole.with_scopes()).unwrap());
-    let kept = viewed(&store, "r2", Shows::Everything).unwrap().view;
+    let kept = viewed(&store, "r2", Shows::Everything, &crate::now_rfc3339())
+        .unwrap()
+        .view;
     assert_eq!(shown_of(&kept), (vec!["work"], vec![1]));
     let kept = serde_json::to_string(&kept.with_scopes()).unwrap();
     for (run, body) in [("r1", paged), ("r2", kept)] {
@@ -179,7 +186,8 @@ fn seats_args(db: &Path, run: &str, json: bool) -> SeatsArgs {
 fn inspect_and_seats_print_the_pages_by_their_own_entry_points() {
     let (dir, db, store) = keyed_journal();
     let style = render::Style::detect();
-    let read = |run, shows| viewed(&store, run, shows).unwrap().view;
+    let now = crate::now_rfc3339();
+    let read = |run, shows| viewed(&store, run, shows, &now).unwrap().view;
     let today = |run| {
         let events = store.load(run).unwrap();
         brokkr_view::run_view(&events, brokkr_core::fold::fold(&events).as_ref().ok())
@@ -189,9 +197,9 @@ fn inspect_and_seats_print_the_pages_by_their_own_entry_points() {
         format!("{served}\n")
     };
     let asked = std::cell::RefCell::new(Vec::new());
-    let look = |store: &Store, run: &str, shows| {
+    let look = |store: &Store, run: &str, shows, now: &str| {
         asked.borrow_mut().push(shows);
-        viewed(store, run, shows)
+        viewed(store, run, shows, now)
     };
     let printed = |out: Vec<u8>| String::from_utf8(out).unwrap();
     let inspect = |run, json, call| {

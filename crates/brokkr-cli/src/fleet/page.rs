@@ -17,7 +17,7 @@ use std::cell::RefCell;
 use std::cmp::Reverse;
 use std::collections::{BinaryHeap, HashMap, HashSet};
 
-use brokkr_core::fold::{RunState, Status};
+use brokkr_core::fold::RunState;
 use brokkr_core::page::{newest_first, Bound, Lane, Place, Row};
 use brokkr_core::EventEnvelope;
 use brokkr_store::{keyed, place_of, Keyed, Paged, RowRefusal, Store, StoreError, Unread};
@@ -31,20 +31,18 @@ type Judged = (Vec<EventEnvelope>, Result<RunState, Quarantine>);
 
 /// What a fleet reader keeps of one hearth between refreshes.
 pub(crate) enum Pages {
-    /// A journal the summary pages: its runs behind their summary.
-    Summary(Behind),
+    /// A journal the summary pages: its runs behind their summary. Boxed
+    /// so the kept variant does not make every `Pages` the larger one's
+    /// size (`large_enum_variant`).
+    Summary(Box<Behind>),
     /// A journal no summary pages yet, read the kept way, and its rows
     /// listed whole by last activity.
-    Kept {
-        fleet: KeptFleet,
-        rows: Vec<RunRow>,
-        cooling: Vec<Cooling>,
-    },
+    Kept { fleet: KeptFleet, rows: Vec<RunRow> },
 }
 
 impl Default for Pages {
     fn default() -> Pages {
-        Pages::Summary(Behind::default())
+        Pages::Summary(Box::default())
     }
 }
 
@@ -147,27 +145,26 @@ impl Pages {
         let paged = store.pages()?;
         if paged != matches!(self, Pages::Summary(_)) {
             *self = match paged {
-                true => Pages::Summary(Behind::default()),
+                true => Pages::Summary(Box::default()),
                 false => Pages::Kept {
                     fleet: KeptFleet::default(),
                     rows: Vec::new(),
-                    cooling: Vec::new(),
                 },
             };
         }
         match self {
             Pages::Summary(kept) => {
+                // A row kept from another aggregate was painted from ends
+                // a probe's round or another run's refusal has moved: its
+                // waits are re-derived instead (decision 0103 slice 4f,
+                // LOW 1).
+                let moved = kept.cooling != cooling;
                 kept.cooling = cooling;
-                kept.refresh(store, before, behind)
+                kept.refresh(store, before, behind, moved)
             }
-            Pages::Kept {
-                fleet,
-                rows,
-                cooling: held,
-            } => {
+            Pages::Kept { fleet, rows } => {
                 let read = fleet.refresh(store, before)?;
-                *held = cooling;
-                *rows = brokkr_view::run_rows(&fleet.entries(), held).runs;
+                *rows = brokkr_view::run_rows(&fleet.entries(), &cooling).runs;
                 Ok(read)
             }
         }
@@ -320,6 +317,7 @@ impl Behind {
         store: &Store,
         before: Option<Journal>,
         limit: usize,
+        cooling_moved: bool,
     ) -> Result<usize, StoreError> {
         if !self.stands_on(before) {
             self.runs.clear();
@@ -340,7 +338,11 @@ impl Behind {
             let run_id = resume(&key).1;
             let head = store.head_hash(&run_id)?;
             let row = match (heads.remove(&run_id), kept.remove(&run_id)) {
-                (Some(at), Some(row)) if at == head && answered_alike(store, &run_id, &row) => row,
+                (Some(at), Some(row))
+                    if !cooling_moved && at == head && answered_alike(store, &run_id, &row) =>
+                {
+                    row
+                }
                 _ => {
                     let (row, events) = read_keyed(store, &key, &self.cooling)?;
                     read += events;
@@ -588,7 +590,7 @@ fn listed(
 ) -> Result<(RunRow, bool, bool), StoreError> {
     let at = place_of(&paged).0;
     let lane_running = match &paged {
-        Ok(row) => row.status == Some(Status::Running) && row.stop_accepted_seq.is_none(),
+        Ok(row) => row.lane_running,
         Err(unread) => unread.lane_running,
     };
     let (key, mut row, summary) = match paged {
@@ -596,17 +598,23 @@ fn listed(
             let (read, summary) = if !store.stands_at(&row.run_id, (row.folded.0, &row.folded.1))? {
                 (read_whole(store, &row.run_id, cooling)?.0, false)
             } else if !whole(&row.run_id) {
-                let waits = waits_at(store, &row)?;
-                (brokkr_view::summary_row(&row, None, &waits, cooling), true)
+                match waits_at(store, &row) {
+                    Ok(waits) => (brokkr_view::summary_row(&row, None, &waits, cooling), true),
+                    // One envelope at a running head that is not the
+                    // envelope it claims to be quarantines that run, as
+                    // the whole read quarantines it, and lists the rest
+                    // (decision 0103 slice 4f, LOW 3).
+                    Err(_) => (read_whole(store, &row.run_id, cooling)?.0, false),
+                }
             } else {
                 match store.whole(&mut row)? {
-                    Ok(kept) => {
-                        let waits = waits_at(store, &row)?;
-                        (
+                    Ok(kept) => match waits_at(store, &row) {
+                        Ok(waits) => (
                             brokkr_view::summary_row(&row, Some(&kept), &waits, cooling),
                             true,
-                        )
-                    }
+                        ),
+                        Err(_) => (read_whole(store, &row.run_id, cooling)?.0, false),
+                    },
                     Err(_) => (read_whole(store, &row.run_id, cooling)?.0, false),
                 }
             };
@@ -623,9 +631,16 @@ fn listed(
     Ok((row, summary, lane_running))
 }
 
-/// The waits a summary row's head states, read from that one event: a
-/// running row's last event is where a wait lives (decision 0103 ruling
-/// 2(a)). Any other standing carries none, so its event is not read.
+/// The waits a summary row's fold head states, read from that one event:
+/// a running row's head is where a wait lives (decision 0103 ruling
+/// 2(a)). The reader reaches this only for a row that stands at its head
+/// (`listed` reads every other row whole). For a repaired run that head is
+/// the repair annotation, which the fold applies; the late tail it names
+/// ends at the repair's seq less one (`LateTail::last_seq`), so the event
+/// read here is never a late one. A repaired summary whose `folded_seq` is
+/// a late event's seq is behind its head, does not stand, and is read
+/// whole where `WaitFact::applied` decides. Any other standing carries
+/// none, so its event is not read.
 fn waits_at(store: &Store, row: &Row) -> Result<WaitFact, StoreError> {
     let Some(brokkr_core::fold::Status::Running) = row.status else {
         return Ok(WaitFact::NoWait);
@@ -704,8 +719,9 @@ pub(crate) fn refused_row(
     store: &Store,
     run_id: &str,
     refused: StoreError,
+    now: &str,
 ) -> Result<RunRow, StoreError> {
-    let cooling = cooling(store, &crate::now_rfc3339())?;
+    let cooling = cooling(store, now)?;
     row_of(store, run_id, judged(store, run_id, Err(refused)), &cooling)
 }
 
@@ -732,8 +748,8 @@ fn row_of(
 
 /// One run's row, read whole, as a paged listing lists it: the one row a
 /// one-run read serves, refused by the store when its id names no run.
-pub(crate) fn one(store: &Store, run_id: &str) -> Result<RunRow, StoreError> {
-    let cooling = cooling(store, &crate::now_rfc3339())?;
+pub(crate) fn one(store: &Store, run_id: &str, now: &str) -> Result<RunRow, StoreError> {
+    let cooling = cooling(store, now)?;
     Ok(read_whole(store, run_id, &cooling)?.0)
 }
 

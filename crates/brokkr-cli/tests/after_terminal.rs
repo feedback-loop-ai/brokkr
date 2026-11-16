@@ -276,6 +276,13 @@ fn inspect_shows(dir: &Path, db: &str, needles: &[&str]) {
     }
 }
 
+/// `inspect --run late --json` over `db`, read back.
+fn inspect_json(dir: &Path, db: &str) -> serde_json::Value {
+    let inspect = brokkr(dir, &["inspect", "--run", "late", "--json", "--db", db]);
+    assert_eq!(inspect.status.code(), Some(0), "{inspect:?}");
+    serde_json::from_slice(&inspect.stdout).unwrap()
+}
+
 /// A run stopped at five with a settlement planted after it, repaired by
 /// the shipped binary: shape (A)'s setup.
 fn repaired_settlement() -> (tempfile::TempDir, String) {
@@ -347,12 +354,7 @@ fn an_operator_repair_of_a_late_stop_reads_as_stopped_with_its_late_tail() {
             "seq 7 · operator/accepted",
         ],
     );
-    let inspect = brokkr(
-        dir.path(),
-        &["inspect", "--run", "late", "--json", "--db", &db],
-    );
-    assert_eq!(inspect.status.code(), Some(0), "{inspect:?}");
-    let view: serde_json::Value = serde_json::from_slice(&inspect.stdout).unwrap();
+    let view = inspect_json(dir.path(), &db);
     assert_eq!(view["summary"]["status"], "stopped");
     assert_eq!(
         view["summary"]["late_tail"]["events"]
@@ -522,10 +524,73 @@ fn an_operator_repair_on_a_live_run_refuses_and_writes_nothing() {
     assert_eq!(after.load("late").unwrap().len(), before);
 }
 
-/// L4: a reserved word standing past the break was never applied — an
-/// older binary journaled it and the fold refused it — so the verb does
-/// not name it as a lawful annotation the repair makes late. Only the
-/// classify that folded before the break is named.
+/// Shape (C): a driver's `effect/failed` carrying one provider wait,
+/// planted after the terminal event by an older binary. Read as the
+/// journal's last event it would paint a wait on a concluded run; read as
+/// the fold left it, it is a late tail and stands none (decision 0108
+/// ruling 4; decision 0103 slice 4f).
+fn failed_with_waits() -> (EventType, serde_json::Value) {
+    (
+        EventType::EffectFailed,
+        json!({"effect_id": "late", "error": "rate_limit (HTTP 429)",
+        "waits": [{
+            "site": "a",
+            "provider": "claude",
+            "route": "anthropic",
+            "words": "rate_limit (HTTP 429)",
+            "seconds": 600,
+            "until": "2026-01-02T00:10:00Z",
+            "rounds": 1
+        }]}),
+    )
+}
+
+/// The waits a repaired run's late `effect/failed` carries are never
+/// painted, on `runs` (the summary row) or `inspect` (the composed view):
+/// the tail is kept and shown and never applied, so the run keeps its
+/// terminal verdict and shows only its late line (decision 0108 ruling 4;
+/// decision 0103 slice 4f).
+#[test]
+fn a_late_wait_is_never_painted_and_its_tail_is_shown() {
+    let (dir, db) = staged();
+    concluded_at_five(Path::new(&db));
+    planted(Path::new(&db), &[failed_with_waits()]);
+    repaired_at(dir.path(), &db, "repairer", "the tail is evidence", 7);
+
+    let runs = brokkr(dir.path(), &["runs", "--db", &db]);
+    assert_eq!(runs.status.code(), Some(0), "{runs:?}");
+    let listed = String::from_utf8_lossy(&runs.stdout);
+    assert!(listed.contains("late"), "{listed}");
+    assert!(
+        listed.contains("a late tail of 1 event, repaired by repairer"),
+        "{listed}"
+    );
+    assert!(!listed.contains("wait      claude/anthropic"), "{listed}");
+
+    let json = brokkr(dir.path(), &["runs", "--json", "--db", &db]);
+    assert_eq!(json.status.code(), Some(0), "{json:?}");
+    let parsed: serde_json::Value = serde_json::from_slice(&json.stdout).unwrap();
+    let row = &parsed["runs"][0];
+    assert_eq!(row["status"], "stopped");
+    assert_eq!(row["waits"]["waits"], json!([]));
+    assert!(row["waits"].get("refused").is_none(), "{row}");
+    assert_eq!(row["late_tail"]["count"], 1);
+
+    inspect_shows(
+        dir.path(),
+        &db,
+        &[
+            "stopped",
+            "a late tail of 1 event, repaired by repairer",
+            "seq 6 · effect/failed",
+        ],
+    );
+    let view = inspect_json(dir.path(), &db);
+    assert_eq!(view["summary"]["status"], "stopped");
+    assert_eq!(view["waits"]["waits"], json!([]));
+    assert_eq!(view["summary"]["late_tail"]["terminal_seq"], 5);
+}
+
 #[test]
 fn a_repair_names_only_the_annotation_that_folded_before_the_break() {
     let (dir, db) = staged();

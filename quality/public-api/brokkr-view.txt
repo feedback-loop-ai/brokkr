@@ -309,6 +309,8 @@ pub brokkr_view::WaitFact::NoWait
 pub brokkr_view::WaitFact::Unreadable(brokkr_core::payload::provider_wait::ProviderWaitError)
 pub brokkr_view::WaitFact::Waits(alloc::vec::Vec<brokkr_core::payload::provider_wait::ProviderWait>)
 impl brokkr_view::WaitFact
+pub fn brokkr_view::WaitFact::applied(&[brokkr_core::envelope::EventEnvelope], core::option::Option<&brokkr_core::fold::RunState>) -> brokkr_view::WaitFact
+pub fn brokkr_view::WaitFact::applied_event<'a>(&'a [brokkr_core::envelope::EventEnvelope], core::option::Option<&brokkr_core::fold::RunState>) -> core::option::Option<&'a brokkr_core::envelope::EventEnvelope>
 pub fn brokkr_view::WaitFact::of(core::option::Option<&brokkr_core::envelope::EventEnvelope>) -> brokkr_view::WaitFact
 pub struct brokkr_view::Acknowledgement
 pub brokkr_view::Acknowledgement::event_hash: alloc::string::String
@@ -572,7 +574,6 @@ pub brokkr_view::Parts::last_at: &'a str
 pub brokkr_view::Parts::page: &'a [brokkr_core::envelope::EventEnvelope]
 pub brokkr_view::Parts::seats: &'a [brokkr_core::seat::row::SeatRow]
 pub brokkr_view::Parts::trail: &'a [brokkr_core::envelope::EventEnvelope]
-pub brokkr_view::Parts::waits: brokkr_view::WaitFact
 pub struct brokkr_view::Phase
 pub brokkr_view::Phase::columns: alloc::vec::Vec<brokkr_view::Column>
 pub brokkr_view::Phase::current: bool

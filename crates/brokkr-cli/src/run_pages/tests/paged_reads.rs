@@ -354,6 +354,14 @@ fn a_carried_detail_page_takes_what_landed() {
     );
 }
 
+/// The frame of `run` read at `at`, at the wall clock a test does not
+/// pin.
+fn frame_at(store: &Store, run: &str, at: &Opened) -> Frame {
+    Frame::read(store, run, at, &crate::now_rfc3339())
+        .unwrap()
+        .unwrap()
+}
+
 /// A held page whose frame no longer composes covers no detail row: the
 /// guard `covers` keeps against a frame it cannot paint.
 #[test]
@@ -364,7 +372,7 @@ fn a_frame_that_does_not_compose_covers_no_detail_row() {
     planted(&db, vec![(run.to_string(), collided(run))]);
     let store = Store::open_read_only(&db).unwrap();
     let at = store.open_run(run).unwrap();
-    let frame = Frame::read(&store, run, &at).unwrap().unwrap();
+    let frame = frame_at(&store, run, &at);
     assert!(frame.view().is_none(), "the frame does not compose");
     let shown = Shown {
         head: at,
@@ -383,7 +391,7 @@ fn a_page_for_a_participant_the_frame_lost_covers_nothing() {
     let run = "lost participant";
     let (_dir, _db, store) = at_work_journal(run, 120);
     let at = store.open_run(run).unwrap();
-    let frame = Frame::read(&store, run, &at).unwrap().unwrap();
+    let frame = frame_at(&store, run, &at);
     assert!(frame.view().is_some(), "the frame composes");
     let shown = Shown {
         head: at,

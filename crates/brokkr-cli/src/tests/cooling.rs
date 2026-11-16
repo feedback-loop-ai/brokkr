@@ -25,8 +25,19 @@ pub(crate) fn cooling_journal() -> (tempfile::TempDir, std::path::PathBuf) {
     (dir, db)
 }
 
-/// Build the cooling run at `db`.
+/// Build the cooling run at `db`, with the attempt's row and a probe's
+/// later round.
 pub(crate) fn cooling_store(db: &std::path::Path) {
+    let event_seq = cooling_attempt(db);
+    let mut store = Store::open(db).unwrap();
+    extend_cooling(&mut store, event_seq);
+}
+
+/// Build the cooling run at `db` through its attempt only: its last event
+/// states the wait, its table holds the attempt's row, and no probe round
+/// has extended it yet. Answers the event's seq, which [`extend_cooling`]
+/// appends the probe's later round to.
+pub(crate) fn cooling_attempt(db: &std::path::Path) -> u64 {
     running_store(db, "r1");
     let mut store = Store::open(db).unwrap();
     store
@@ -81,11 +92,16 @@ pub(crate) fn cooling_store(db: &std::path::Path) {
             }],
         )
         .unwrap();
+    event.seq
+}
+
+/// Append the probe's later round to the attempt at `event_seq`.
+pub(crate) fn extend_cooling(store: &mut Store, event_seq: u64) {
     let later = OffsetDateTime::parse(COOLING_LATER, &Rfc3339).unwrap();
     let written = store
         .append_cooldown_round(CooldownRound {
             run_id: "r1",
-            event_seq: event.seq,
+            event_seq,
             site: "a",
             provider: "claude",
             route: "anthropic",

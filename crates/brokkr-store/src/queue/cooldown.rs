@@ -219,15 +219,46 @@ fn until_second(at: OffsetDateTime) -> i64 {
     rounded.min(LAST_SECOND)
 }
 
+/// The columns every cool-down reader selects, in the order [`Raw`] reads
+/// them: one home for the projection, so the in-force read and the
+/// readout's newest read cannot drift apart.
+const ROWS: &str = "seq, site, provider, route, until_at, reason, retry_after_seconds, rounds,
+                recorded_at";
+
 /// Every row in force at `now`, in the order it was written: the claim's
 /// judge and the aggregate share this reading. A row whose stored instant
 /// this reader cannot spell refuses by name, carrying the row's `seq`.
 pub(super) fn in_force(conn: &Connection, now: i64) -> Result<Vec<Cooldown>, StoreError> {
-    let mut statement = conn.prepare(
-        "SELECT seq, site, provider, route, until_at, reason, retry_after_seconds, rounds,
-                recorded_at
-         FROM provider_cooldowns WHERE until_at > ?1 ORDER BY seq",
-    )?;
+    let sql = format!("SELECT {ROWS} FROM provider_cooldowns WHERE until_at > ?1 ORDER BY seq");
+    read_rows(conn, &sql, now)
+}
+
+/// Every row in force at `now`, and, for a provider and route no row holds
+/// any more, the newest row that ended it: what a readout paints, so a
+/// probe's later end survives the instant it passes instead of reverting
+/// to the event's earlier one (decision 0103 slice 4f). Admission reads
+/// [`in_force`], which the expired row never joins. A row whose stored
+/// instant this reader cannot spell refuses by name, carrying the row's
+/// `seq`.
+fn newest(conn: &Connection, now: i64) -> Result<Vec<Cooldown>, StoreError> {
+    let sql = format!(
+        "SELECT {ROWS} FROM provider_cooldowns AS held
+         WHERE held.until_at > ?1
+            OR NOT EXISTS (
+                SELECT 1 FROM provider_cooldowns AS later
+                WHERE later.provider = held.provider AND later.route = held.route
+                  AND (later.until_at > held.until_at
+                       OR (later.until_at = held.until_at AND later.seq > held.seq)))
+         ORDER BY held.seq"
+    );
+    read_rows(conn, &sql, now)
+}
+
+/// The rows `sql` selects at `now`, each read and typed once: the one
+/// home of the prepare, the query and the refusal-by-row every cool-down
+/// reader shares.
+fn read_rows(conn: &Connection, sql: &str, now: i64) -> Result<Vec<Cooldown>, StoreError> {
+    let mut statement = conn.prepare(sql)?;
     let raw = statement.query_map([now], Raw::read)?;
     let rows = raw.collect::<Result<Vec<_>, _>>()?;
     rows.into_iter().map(Raw::typed).collect()
@@ -382,6 +413,26 @@ impl Store {
         patiently("cooldowns_in_force", self.patience, || {
             if cool_downs_held(&self.conn)? {
                 in_force(&self.conn, now.unix_timestamp())
+            } else {
+                Ok(Vec::new())
+            }
+        })
+    }
+
+    /// Every cool-down row in force at `now`, and the newest row of every
+    /// provider and route no unexpired row holds any more, in the order
+    /// they were written: what a readout paints, so a probe's later end
+    /// survives the instant it passes and the event's earlier end never
+    /// returns (decision 0103 slice 4f). newest's one query; admission
+    /// keeps reading [`Store::cooldown`] and [`Store::cooldowns_in_force`],
+    /// which an expired row never holds. The queue's version is judged
+    /// first, as [`Store::cooldown`] does. It reads the table once, as
+    /// [`Store::cooldowns_in_force`] does: the bound is the history the
+    /// append-only table holds, never the run or its events.
+    pub fn cooldowns_newest(&self, now: OffsetDateTime) -> Result<Vec<Cooldown>, StoreError> {
+        patiently("cooldowns_newest", self.patience, || {
+            if cool_downs_held(&self.conn)? {
+                newest(&self.conn, now.unix_timestamp())
             } else {
                 Ok(Vec::new())
             }

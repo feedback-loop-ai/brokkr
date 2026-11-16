@@ -374,7 +374,15 @@ impl KeptRun {
     fn ruled_by(mut self, run_id: &str, events: Vec<EventEnvelope>) -> KeptRun {
         let before = self.rulings.len();
         let landed = !events.is_empty();
-        if let Some(last) = events.last() {
+        // The waits the applied trail's last event states: a late tail's
+        // event is kept and shown and never applied, so it stands no wait
+        // (decision 0108 ruling 4). `events` is the suffix since the kept
+        // head, so an empty or all-late read keeps the waits it had.
+        let state = match &self.read {
+            Read::Folded(state) => Some(state.as_ref()),
+            Read::Refused { .. } => None,
+        };
+        if let Some(last) = WaitFact::applied_event(&events, state) {
             self.waits = WaitFact::of(Some(last));
         }
         self.rulings
@@ -422,6 +430,7 @@ pub(super) fn lasting(error: &StoreError) -> bool {
         | StoreError::SeatTree(_)
         | StoreError::AlreadyAcknowledged { .. }
         | StoreError::TokenCountOutOfRange(..)
+        | StoreError::Clock { .. }
         | StoreError::Contended { .. } => false,
     }
 }

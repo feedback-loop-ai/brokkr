@@ -34,20 +34,23 @@ pub(crate) use listing::{cursor, list_hearth, Called, Filter, PageRefused};
 pub(crate) use page::{one, refused_row, Ask, Pages};
 pub(crate) use world::list_world;
 
-/// The aggregate every readout paints: every cool-down in force at `now`,
-/// read once by the caller and passed into brokkr-view as data (decision
-/// 0103 slice 4f). The view is pure and opens no store; a clock that does
-/// not read falls back to the wall clock rather than reading no row. Its
-/// end is written by brokkr-core's one stamp writer, never by the raw
-/// `Display` of a time: a row whose end cannot be written is not passed
-/// on, and the event's own end stands.
+/// The aggregate every readout paints: every cool-down in force at `now`
+/// and, for a lane no row holds any more, the newest row that ended it, so
+/// a probe's later round is painted after it passes and never reverts to
+/// the event's earlier end. Read once by the caller and passed into
+/// brokkr-view as data (decision 0103 slice 4f). The view is pure and
+/// opens no store; its end is written by brokkr-core's one stamp writer,
+/// never by the raw `Display` of a time: a row whose end cannot be written
+/// is not passed on, and the event's own end stands.
 pub(crate) fn cooling(
     store: &Store,
     now: &str,
 ) -> Result<Vec<brokkr_view::Cooling>, brokkr_store::StoreError> {
-    let at = OffsetDateTime::parse(now, &Rfc3339).unwrap_or_else(|_| OffsetDateTime::now_utc());
+    let at = OffsetDateTime::parse(now, &Rfc3339).map_err(|_| brokkr_store::StoreError::Clock {
+        now: now.to_string(),
+    })?;
     Ok(store
-        .cooldowns_in_force(at)?
+        .cooldowns_newest(at)?
         .into_iter()
         .filter_map(|row| {
             let until = brokkr_core::stamp::write_millis(row.until_at).ok()?;
@@ -102,7 +105,10 @@ impl ListedRun {
             self.events.last().map(|event| event.recorded_at.as_str()),
             state,
             (&self.residuals, ended(&self.events, state)),
-            &brokkr_view::WaitFact::of(self.events.last()),
+            // The fold's own trail, never the journal's last row: a late
+            // tail is kept and shown and stands no wait (decision 0108
+            // ruling 4).
+            &brokkr_view::WaitFact::applied(&self.events, state.ok()),
         )
     }
 }

@@ -21,7 +21,7 @@ use crate::RunView;
 /// One cool-down the store's aggregate holds for a provider and route, as
 /// a reader hands it in: the instant the row that ends last writes.
 /// `brokkr-view` is pure and opens no store; its caller reads the store's
-/// `cooldowns_in_force` and passes the rows here.
+/// `cooldowns_newest` and passes the rows here.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Cooling {
     pub provider: String,
@@ -55,6 +55,30 @@ impl WaitFact {
             Ok(None) => WaitFact::NoWait,
             Err(error) => WaitFact::Unreadable(error),
         }
+    }
+
+    /// The last event the fold applied of `events`: the journal's last one
+    /// unless a repair names a late tail, whose events are kept and shown
+    /// and never applied (decision 0108 ruling 4). `None` where `events`
+    /// holds no applied event at all. The one home every surface reads; a
+    /// surface that reads an event past the fold's head asks
+    /// [`RunState::applies`], never the journal's last row.
+    pub fn applied_event<'a>(
+        events: &'a [EventEnvelope],
+        state: Option<&RunState>,
+    ) -> Option<&'a EventEnvelope> {
+        match state {
+            Some(state) if state.late_tail.is_some() => {
+                events.iter().rev().find(|event| state.applies(event.seq))
+            }
+            _ => events.last(),
+        }
+    }
+
+    /// The waits the applied trail's last event states, or no wait where
+    /// `events` holds none.
+    pub fn applied(events: &[EventEnvelope], state: Option<&RunState>) -> WaitFact {
+        WaitFact::of(WaitFact::applied_event(events, state))
     }
 }
 
@@ -197,6 +221,6 @@ pub fn run_view_with(
     cooling: &[Cooling],
 ) -> RunView {
     let mut view = crate::run_view(events, state);
-    view.waits = Waits::of(&WaitFact::of(events.last()), cooling);
+    view.waits = Waits::of(&WaitFact::applied(events, state), cooling);
     view
 }

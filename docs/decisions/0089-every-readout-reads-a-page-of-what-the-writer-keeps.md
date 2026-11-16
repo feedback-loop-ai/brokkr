@@ -553,6 +553,15 @@ model the writer keeps in the journal's own file and transaction.
    | "last 24h" | `finished` with `order_at > now - day` |
    | "older" | `finished` with `order_at <= now - day`; `acknowledged`, whatever its time, as `section_of` lists an acknowledged run there however recent (`fleet.rs:279` to `281`) |
 
+   *Amended, 2026-11-15 (the operator's standing ruling of 2026-11-04,
+   recorded on #430, decision 0103 slice 4f):* the "running" section reads
+   the **whole** Running lane, `running` with no bound, and "needs you"
+   reads the Running lane below the stale bound. A running run whose last
+   event states a provider wait is still waiting, so it lists under
+   "running" past the three-hour bound until its aggregate end passes;
+   `ranges` is the one home of both reads, and `Pages::section` merges them
+   and places each row once by its own facts.
+
    **A section is its ranges merged into one order.** Each range is read
    in the section's order, `(order_at DESC, run_id DESC)`, below the
    cursor, and its statement is stepped only as far as the merge consumes

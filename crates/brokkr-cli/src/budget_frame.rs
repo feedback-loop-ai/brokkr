@@ -11,7 +11,7 @@ use ratatui::buffer::Buffer;
 use ratatui::Terminal;
 
 use crate::fleet::Journal;
-use crate::run_pages::{console, viewed, Console, Shows};
+use crate::run_pages::{console_with, viewed, Console, Reading, Shows};
 use crate::tui::{asked_window, draw, Scrolled, Tui, Views};
 use crate::tui_read::{fleet_page, Kept};
 
@@ -214,9 +214,17 @@ fn painted_text(mut tui: Tui, views: &Views, (width, height): (u16, u16)) -> Str
 /// checkpoints.
 pub fn console_run_view_for_budget(db: &Path, run: &str) -> Result<RunView, StoreError> {
     let store = Store::open_read_only(db)?;
-    Ok(console(&store, run, Console::Run, None, None, 0, 0)?
-        .0
-        .view())
+    let now = crate::now_rfc3339();
+    Ok(console_with(
+        &store,
+        run,
+        Console::Run,
+        None,
+        None,
+        Reading::new(0, 0, &now),
+    )?
+    .0
+    .view())
 }
 
 /// The view the console's fleet detail pane paints of `run` at `rows`: the
@@ -230,9 +238,17 @@ pub fn console_detail_view_for_budget(
     rows: usize,
 ) -> Result<RunView, StoreError> {
     let store = Store::open_read_only(db)?;
-    Ok(console(&store, run, Console::Detail, None, None, rows, 0)?
-        .0
-        .view())
+    let now = crate::now_rfc3339();
+    Ok(console_with(
+        &store,
+        run,
+        Console::Detail,
+        None,
+        None,
+        Reading::new(rows, 0, &now),
+    )?
+    .0
+    .view())
 }
 
 /// The console's RUN level as it is first painted after `run` is selected
@@ -269,13 +285,14 @@ pub fn console_run_level_for_budget(
 /// read it (decision 0089 slice 3), at 80 columns and no colour.
 pub fn run_readout_for_budget(db: &Path, run: &str, whole: bool) -> Result<String, StoreError> {
     let store = Store::open_read_only(db)?;
-    let view = viewed(&store, run, Shows::of(whole))?.view;
+    let now = crate::now_rfc3339();
+    let view = viewed(&store, run, Shows::of(whole), &now)?.view;
     let style = crate::render::Style {
         color: false,
         width: 80,
     };
     Ok(match whole {
         true => serde_json::to_string_pretty(&view.with_scopes()).expect("the run view serializes"),
-        false => crate::render::inspect(&view, None, false, &crate::now_rfc3339(), &style),
+        false => crate::render::inspect(&view, None, false, &now, &style),
     })
 }

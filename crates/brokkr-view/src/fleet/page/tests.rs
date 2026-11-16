@@ -85,6 +85,8 @@ fn row_of(summary: &Summary) -> Row {
         acknowledged: None,
         closing: summary.closing.clone(),
         late_tail: summary.late_tail.clone(),
+        lane_running: summary.status == Some(brokkr_core::fold::Status::Running)
+            && summary.stop_accepted_seq.is_none(),
     }
 }
 

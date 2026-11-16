@@ -9,6 +9,9 @@ use envelope_builder::EnvelopeBuilder;
 pub(crate) mod cache_hit;
 #[path = "../../../tests/support/run_state.rs"]
 mod run_state;
+
+#[path = "../../../tests/support/late_wait.rs"]
+pub(crate) mod late_wait;
 use run_state::{run_state, standing};
 mod capability_calls;
 mod entry;

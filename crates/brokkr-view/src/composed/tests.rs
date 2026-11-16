@@ -2,8 +2,34 @@ use brokkr_core::summary::Account;
 use serde_json::json;
 
 use super::*;
+
 use crate::tests::ev;
-use crate::WaitFact;
+use crate::tests::late_wait;
+
+/// A trail read that ends in a repaired tail, its repair record outside
+/// this read: the tail's `effect/failed` carries waits, and the composed
+/// view the fleet's frame reads paints none, because the tail is kept and
+/// shown and never applied (decision 0108 ruling 4; decision 0103 slice
+/// 4f). Reading the journal's last row instead paints the late wait.
+#[test]
+fn a_late_tail_stands_no_wait_in_the_composed_view() {
+    let events = late_wait::trail("r");
+    let mut running = crate::tests::state(None, brokkr_core::fold::Status::Running, None);
+    running.late_tail = Some(late_wait::tail());
+    let account = Account::whole("r", &events);
+    let parts = Parts {
+        trail: &events,
+        seats: account.seats(),
+        page: &events,
+        causes: &BTreeMap::new(),
+        head_seq: 8,
+        last_at: AT,
+        cooling: Vec::new(),
+    };
+    let view = composed_view(&parts, Some(&running)).expect("the run composes");
+    assert!(view.waits.waits.is_empty(), "{:?}", view.waits);
+    assert_eq!(view.waits.refused, None);
+}
 
 /// A participant is read by its row's request, effect and member, and its
 /// own model and pin, at the places `SeatRow::COLUMNS` names them.
@@ -173,7 +199,6 @@ fn rows_naming_a_request_the_trail_does_not_ask_compose_no_view() {
             causes: &causes,
             head_seq: 3,
             last_at: at,
-            waits: WaitFact::default(),
             cooling: Vec::new(),
         };
         composed_view(&parts, None).map(|view| view.participants.len())
@@ -288,7 +313,6 @@ fn a_page_holding_the_acceptance_keeps_the_command_its_trail_holds() {
         causes: &causes,
         head_seq: 4,
         last_at: at,
-        waits: WaitFact::NoWait,
         cooling: Vec::new(),
     };
     let composed = composed_view(&parts, None).unwrap();
@@ -364,7 +388,6 @@ fn a_reused_command_id_keeps_each_disposition_at_its_own_time() {
         causes: &causes,
         head_seq: 8,
         last_at: AT,
-        waits: WaitFact::default(),
         cooling: Vec::new(),
     };
     let composed = composed_view(&parts, None).unwrap();

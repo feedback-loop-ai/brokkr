@@ -213,8 +213,8 @@ pub(crate) fn close_array(out: &mut impl Write, count: usize, indent: &str) -> R
     Ok(out.write_all(b"]")?)
 }
 
-/// The store's refusal of a listing, in its own words: of its pages, or
-/// of a page it reads.
+/// A listing's refusal, in its own words: of its pages, or of a page it
+/// reads.
 fn refused(error: StoreError) -> anyhow::Error {
     anyhow::Error::msg(error.to_string())
 }

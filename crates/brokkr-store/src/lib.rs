@@ -188,8 +188,7 @@ pub enum StoreError {
     AppendConflict { seq: u64 },
     #[error("head moved: expected seq {expected_seq}, found {found_seq}")]
     HeadMoved { expected_seq: u64, found_seq: u64 },
-    /// A non-annotation on a run that already reached a terminal event (#440),
-    /// refused inside the append's write transaction: nothing is written.
+    /// A non-annotation on a run that reached a terminal event (#440): nothing is written.
     #[error(
         "run '{run_id}' is already concluded ({}); {} is not an operator \
          annotation, and nothing was written",
@@ -218,10 +217,11 @@ pub enum StoreError {
     /// A seat-tree append or repair refused (decision 0104 ruling 6).
     #[error(transparent)]
     SeatTree(#[from] SeatTreeRefusal),
-    /// The head an operator acknowledged a quarantined run at already
-    /// carries an acknowledgement (#511).
+    /// The head an operator acknowledged a quarantined run at already carries an acknowledgement (#511).
     #[error("run '{run_id}' is already acknowledged at event {seq}; nothing was recorded")]
     AlreadyAcknowledged { run_id: String, seq: u64 },
+    #[error("the clock '{now}' is not an RFC 3339 instant; nothing was read at a guessed one")]
+    Clock { now: String },
     /// A peer still held the journal's write lock when this operation's
     /// whole patience ran out. **Nothing was written.**
     ///

@@ -221,12 +221,14 @@ starter · 1 run · 0 want a ruling · 0 want an action · /home/you/my-app/.bro
 endings  1 shipped
 ```
 
-A run waiting out a provider's cool-down reads `running`, never "needs
-you", and prints the wait under its row: the provider, the route, the
-instant the aggregate ends (a probe's later round included) and the
-provider's own words, `(ended)` once that instant has passed. The same
-line is under `inspect`'s header and in the console's row, derived once in
-brokkr-view.
+A run waiting out a provider's cool-down, while the aggregate's end has
+not passed, reads `running`, never "needs you", and prints the wait under
+its row: the provider, the route, the instant the aggregate ends (a
+probe's later round included) and the provider's own words, `(ended)`
+once that instant has passed. After it passes, only the ordinary
+three-hour staleness bound still holds the run: a silent run past both
+reads "needs you" like any other stale one. The same line is under
+`inspect`'s header and in the console's row, derived once in brokkr-view.
 
 A finished run's status cell names how it ended (decision 0064), and the
 colour says what the row waits on, never whether the run was good: yellow

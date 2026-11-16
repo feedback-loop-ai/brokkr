@@ -3,7 +3,9 @@
 //! the staleness bound, and a present entry that refuses by name.
 
 use super::*;
+
 use crate::fleet::{need, section_of, Section, Standing};
+use crate::tests::late_wait;
 use crate::tests::{ev, listed, state};
 use brokkr_core::envelope::EventType;
 use brokkr_core::fold::Status;
@@ -205,6 +207,21 @@ fn a_wait_whose_end_core_cannot_write_refuses_by_name() {
         painted.lines(AT),
         vec!["wait      refused: the waits entry does not read: until".to_string()]
     );
+}
+
+#[test]
+fn a_late_tail_stands_no_wait_on_the_run_view() {
+    // A trail read that ends in a repaired tail, its repair record outside
+    // this read: the tail's `effect/failed` carries waits, and the view
+    // must paint none, because the tail is kept and shown and never
+    // applied (decision 0108 ruling 4). Reading the journal's last row
+    // instead paints the late wait.
+    let events = late_wait::trail("late");
+    let mut running = state(Some("work"), Status::Running, None);
+    running.late_tail = Some(late_wait::tail());
+    let view = crate::run_view_with(&events, Some(&running), &[]);
+    assert!(view.waits.waits.is_empty(), "{:?}", view.waits);
+    assert_eq!(view.waits.refused, None);
 }
 
 #[test]

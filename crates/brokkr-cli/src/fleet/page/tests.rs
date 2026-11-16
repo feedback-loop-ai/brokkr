@@ -1599,3 +1599,312 @@ fn a_refresh_reads_the_newest_behind_run_first_whatever_its_id_sorts() {
         .collect();
     assert_eq!(running, ["a-newest"]);
 }
+
+/// One envelope at a running run's head that is valid JSON but not an
+/// `EventEnvelope` quarantines that run as the whole read does, by name,
+/// and lists every other run: the parse error never refuses the listing
+/// (decision 0103 slice 4f, LOW 3).
+#[test]
+fn one_unreadable_envelope_at_a_running_head_is_quarantined_not_the_listing() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    drop(Store::open(&db).unwrap());
+    let connection = rusqlite::Connection::open(&db).unwrap();
+    plant(&connection, "bad", Shape::Running, &stamp(now()));
+    plant(&connection, "good", Shape::Finished, &stamp(now() - MINUTE));
+    drop(connection);
+    drop(Store::open(&db).unwrap());
+
+    let connection = rusqlite::Connection::open(&db).unwrap();
+    connection
+        .execute_batch("DROP TRIGGER events_append_only_update")
+        .unwrap();
+    connection
+        .execute(
+            "UPDATE events SET envelope = ?1
+             WHERE run_id = 'bad' AND seq = (SELECT MAX(seq) FROM events WHERE run_id = 'bad')",
+            [r#"{"not":"an envelope"}"#],
+        )
+        .unwrap();
+    connection
+        .execute_batch(
+            "CREATE TRIGGER events_append_only_update
+             BEFORE UPDATE ON events
+             BEGIN SELECT RAISE(ABORT, 'events are append-only'); END",
+        )
+        .unwrap();
+    drop(connection);
+
+    let store = Store::open_read_only(&db).unwrap();
+    let pages = Pages::listing(&store, Journal::at(&db), NOW).unwrap();
+    let yes: &dyn Fn(&str) -> bool = &|_| true;
+    let no: &dyn Fn(&str) -> bool = &|_| false;
+    // Both reads the listing takes: the summary's, whole-valued and page
+    // valued, so each one's parse refusal is quarantined and lists the
+    // rest.
+    for whole in [yes, no] {
+        let ask = Ask {
+            now: NOW,
+            whole,
+            keep: &|_| true,
+        };
+        let page = pages.page(&store, ask, None, 10).unwrap();
+        let row = |run_id: &str| {
+            page.rows
+                .iter()
+                .map(|(_, row)| row)
+                .find(|row| row.run_id == run_id)
+                .unwrap_or_else(|| panic!("{run_id} is listed"))
+        };
+        assert_eq!(row("good").status.as_deref(), Some("completed"));
+        let bad = row("bad");
+        assert!(bad.quarantine.is_some(), "the bad row is quarantined");
+        assert!(
+            bad.detail
+                .as_deref()
+                .is_some_and(|words| words.contains("json:")),
+            "{:?}",
+            bad.detail
+        );
+    }
+}
+
+/// The Running lane is decided once, by the page's own
+/// `(lane = 'running')` column: a row carrying both refusal words and
+/// `status = running` is not running, whatever the status alone says
+/// (decision 0103 slice 4f, LOW 5). The old restatement from the status
+/// and the stop calls it running.
+#[test]
+fn a_row_with_refusal_words_and_a_running_status_is_not_in_the_running_lane() {
+    use brokkr_core::page::{Lane, Range};
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    drop(Store::open(&db).unwrap());
+    let connection = rusqlite::Connection::open(&db).unwrap();
+    plant(&connection, "odd", Shape::Running, &stamp(now()));
+    drop(connection);
+    drop(Store::open(&db).unwrap());
+    let connection = rusqlite::Connection::open(&db).unwrap();
+    connection
+        .execute(
+            "UPDATE run_summary SET refusal_words = 'a refusal beside a running status',
+                 refusal_seq = 4
+             WHERE run_id = 'odd'",
+            [],
+        )
+        .unwrap();
+    drop(connection);
+
+    let store = Store::open_read_only(&db).unwrap();
+    let refused = Range {
+        lane: Lane::Refused,
+        bound: None,
+    };
+    let mut paged = store.section(&[refused], None, 2).unwrap();
+    assert_eq!(paged.len(), 1);
+    let row = paged.remove(0).unwrap();
+    assert_eq!(row.status, Some(brokkr_core::fold::Status::Running));
+    assert!(row.refused.is_some());
+    assert!(!row.lane_running, "the SQL lane is refused, not running");
+    let (_, _, lane_running) = listed(&store, Ok(row), &|_| false, &[]).unwrap();
+    assert!(
+        !lane_running,
+        "the read row carries the lane's one decision"
+    );
+}
+
+/// A read-only store over a fresh journal holding the cooling run.
+fn cooling_read_only() -> (tempfile::TempDir, Store) {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    crate::tests::cooling::cooling_store(&db);
+    let store = Store::open_read_only(&db).unwrap();
+    (dir, store)
+}
+
+/// A probe-extended wait whose later end has passed keeps that later end
+/// and says it has ended; it never reverts to the event's earlier end. The
+/// same row at an earlier fixed instant is not ended, so the readout
+/// decides at the caller's one `now` (decision 0103 slice 4f, LOWs 7 and
+/// 8).
+#[test]
+fn a_passed_probe_end_is_kept_and_reads_ended_at_the_caller_s_instant() {
+    let (_dir, store) = cooling_read_only();
+
+    let early = crate::fleet::one(&store, "r1", "2098-01-01T00:00:00Z").unwrap();
+    assert_eq!(
+        early.waits.waits[0].until,
+        crate::tests::cooling::COOLING_LATER
+    );
+    assert!(
+        !early.waits.lines("2098-01-01T00:00:00Z")[0].contains("(ended)"),
+        "the wait has not ended at the earlier instant"
+    );
+
+    let late = crate::fleet::one(&store, "r1", "2100-01-01T00:00:00Z").unwrap();
+    assert_eq!(
+        late.waits.waits[0].until,
+        crate::tests::cooling::COOLING_LATER,
+        "the probe's later end is kept after it passes"
+    );
+    assert_eq!(
+        late.waits.lines("2100-01-01T00:00:00Z"),
+        vec![format!(
+            "wait      claude/anthropic at a until {} (ended): {}",
+            crate::tests::cooling::COOLING_LATER,
+            crate::tests::cooling::COOLING_WORDS
+        )]
+    );
+}
+
+/// A clock that does not read refuses by name: it never falls back to the
+/// wall clock and reads an aggregate at an instant nobody named (decision
+/// 0103 slice 4f, LOW 7).
+#[test]
+fn a_clock_that_does_not_read_refuses_by_name() {
+    let (_dir, store) = cooling_read_only();
+    let error = crate::fleet::cooling(&store, "yesterday").unwrap_err();
+    assert!(
+        matches!(error, brokkr_store::StoreError::Clock { .. }),
+        "{error}"
+    );
+    assert_eq!(
+        error.to_string(),
+        "the clock 'yesterday' is not an RFC 3339 instant; nothing was read at a guessed one"
+    );
+}
+
+/// The wait the behind lane's kept row for `r1` paints.
+fn kept_wait(pages: &Pages) -> String {
+    match pages {
+        Pages::Summary(kept) => kept
+            .rows
+            .iter()
+            .find(|row| row.run_id == "r1")
+            .expect("the cooling run is behind its summary")
+            .waits
+            .waits[0]
+            .until
+            .clone(),
+        Pages::Kept { .. } => panic!("the summary pages this journal"),
+    }
+}
+
+/// A row kept across a refresh in which a probe round extends the
+/// aggregate at a standing head is re-derived and paints the later end,
+/// never the earlier one it was painted from (decision 0103 slice 4f,
+/// LOW 1). Reusing the kept row as before reads the earlier end.
+#[test]
+fn a_kept_row_re_derives_its_waits_when_a_probe_extends_the_aggregate() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    let event_seq = crate::tests::cooling::cooling_attempt(&db);
+    // Put the run behind its summary: the behind lane is the one the TUI
+    // keeps between refreshes, and an older writer left the summary at
+    // seq 1.
+    rusqlite::Connection::open(&db)
+        .unwrap()
+        .execute(
+            "UPDATE run_summary SET folded_seq = 1 WHERE run_id = 'r1'",
+            [],
+        )
+        .unwrap();
+    let now = crate::now_rfc3339();
+    let store = Store::open_read_only(&db).unwrap();
+    let mut pages = Pages::listing(&store, Journal::at(&db), &now).unwrap();
+    assert_eq!(
+        kept_wait(&pages),
+        crate::tests::cooling::COOLING_FIRST,
+        "the attempt's own end is the one first painted"
+    );
+    drop(store);
+
+    // A probe's later round beside the head, written through the table's
+    // own shape so no writable open refolds the behind summary below us.
+    let until = OffsetDateTime::parse(crate::tests::cooling::COOLING_LATER, &Rfc3339)
+        .unwrap()
+        .unix_timestamp();
+    rusqlite::Connection::open(&db)
+        .unwrap()
+        .execute(
+            "INSERT INTO provider_cooldowns
+                 (run_id, event_seq, site, provider, route, until_at, reason,
+                  retry_after_seconds, rounds, recorded_at)
+             VALUES ('r1', ?1, 'a', 'claude', 'anthropic', ?2,
+                     'probe refused: usage limit', 3600, 2, ?3)",
+            rusqlite::params![event_seq as i64, until, until - 3600],
+        )
+        .unwrap();
+
+    let store = Store::open_read_only(&db).unwrap();
+    let head = store.head_hash("r1").unwrap();
+    pages
+        .refresh(&store, Journal::at(&db), AHEAD_ROWS, &now)
+        .unwrap();
+    assert_eq!(store.head_hash("r1").unwrap(), head, "the head stands");
+    assert_eq!(
+        kept_wait(&pages),
+        crate::tests::cooling::COOLING_LATER,
+        "the kept row paints the probe's later end"
+    );
+}
+
+/// A repaired run whose late `effect/failed` carries a wait is listed by
+/// the fleet page with its terminal verdict, its late sentence and no
+/// wait: the tail is kept and shown and never applied (decision 0108
+/// ruling 4; decision 0103 slice 4f).
+#[test]
+fn a_repaired_late_wait_is_not_painted_by_the_fleet_page() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    folded(&db, |conn| {
+        plant(conn, "late", Shape::Finished, &stamp(now()));
+    });
+    appended_at(
+        &db,
+        "late",
+        (
+            EventType::EffectFailed,
+            json!({"effect_id": "late", "error": "rate_limit",
+            "waits": [{
+                "site": "a", "provider": "claude", "route": "anthropic",
+                "words": "rate_limit (HTTP 429)", "seconds": 600,
+                "until": "2026-11-20T00:10:00Z", "rounds": 1
+            }]}),
+        ),
+        &stamp(now()),
+    );
+    let mut store = Store::open(&db).unwrap();
+    brokkr_runtime::operator_repair(
+        &mut store,
+        "late",
+        &brokkr_runtime::Repair {
+            reason: "the tail is evidence",
+            operator: "op",
+        },
+    )
+    .unwrap();
+    drop(store);
+    // Behind its summary, so the page reads it whole where the applied
+    // trail decides the wait.
+    rusqlite::Connection::open(&db)
+        .unwrap()
+        .execute(
+            "UPDATE run_summary SET folded_seq = 1 WHERE run_id = 'late'",
+            [],
+        )
+        .unwrap();
+
+    let store = Store::open_read_only(&db).unwrap();
+    let pages = Pages::listing(&store, Journal::at(&db), NOW).unwrap();
+    let listed = paged(&pages, &store, NOW, PAGE_ROWS, false);
+    let row = listed
+        .iter()
+        .map(|(_, row)| row)
+        .find(|row| row.run_id == "late")
+        .expect("the repaired run is listed");
+    assert_eq!(row.status.as_deref(), Some("completed"));
+    assert_eq!(row.late_tail.as_ref().map(|tail| tail.count), Some(1));
+    assert!(row.waits.waits.is_empty(), "{:?}", row.waits);
+    assert_eq!(row.waits.refused, None);
+}

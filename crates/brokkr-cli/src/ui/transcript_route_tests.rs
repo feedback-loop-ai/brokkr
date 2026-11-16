@@ -630,7 +630,9 @@ fn every_participant_route_reads_its_participant_through_the_pages() {
     env.set("HOME", home.path());
     let (_dir, db, key) = started_off_its_trail(&projects);
     let store = Store::open_read_only(&db).unwrap();
-    let paged = run_pages::participants(&store, "r1").unwrap().unwrap();
+    let paged = run_pages::participants(&store, "r1", &crate::now_rfc3339())
+        .unwrap()
+        .unwrap();
     let events = store.load("r1").unwrap();
     let folded = brokkr_core::fold::fold(&events);
     let whole = brokkr_view::run_view(&events, folded.as_ref().ok());

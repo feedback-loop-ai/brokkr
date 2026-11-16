@@ -2341,7 +2341,7 @@ pub fn run_view(events: &[EventEnvelope], state: Option<&RunState>) -> RunView {
     };
     // The applied trail's last event: a late tail's event is kept and
     // never applied (decision 0108 ruling 4), so it never stands a wait.
-    let waits = Waits::of(&WaitFact::of(applied.last()), &[]);
+    let waits = Waits::of(&WaitFact::applied(events, state), &[]);
     viewed(applied, &scan, &buckets, &marks, read, state, waits)
 }
 

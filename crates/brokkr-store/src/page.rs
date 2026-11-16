@@ -150,6 +150,7 @@ fn row_of(row: &rusqlite::Row<'_>, run_id: String, order_at: i64) -> Result<Row,
         acknowledged,
         closing: closing_of(row)?,
         late_tail: crate::summary::late_of(row, 28)?,
+        lane_running: row.get(29)?,
     })
 }
 

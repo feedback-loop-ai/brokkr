@@ -686,15 +686,21 @@ fn two_overlapping_refusals_aggregate_to_the_later_end() {
     assert_eq!(store.cooldown("codex", "second", at(0)).unwrap(), None);
 }
 
-/// The in-force read is every unexpired row and no expired one.
-#[test]
-fn an_expired_row_is_not_in_force() {
+/// Two lanes in force: `first` ends at T+30, `second` at T+10.
+fn two_lanes() -> (tempfile::TempDir, Store) {
     let dir = tempfile::tempdir().unwrap();
     let store = two_refusing_runs(
         dir.path(),
         named("a", "first", at(30), "long", 1),
         named("b", "second", at(10), "short", 1),
     );
+    (dir, store)
+}
+
+/// The in-force read is every unexpired row and no expired one.
+#[test]
+fn an_expired_row_is_not_in_force() {
+    let (_dir, store) = two_lanes();
     let in_force = |store: &Store, now| -> Vec<String> {
         (store.cooldowns_in_force(now).unwrap())
             .into_iter()
@@ -704,6 +710,33 @@ fn an_expired_row_is_not_in_force() {
     assert_eq!(in_force(&store, at(0)), ["first", "second"]);
     assert_eq!(in_force(&store, at(10)), ["first"]);
     assert_eq!(in_force(&store, at(30)), Vec::<String>::new());
+}
+
+/// The readout's read keeps each lane's newest end after it passes: a
+/// probe's later round survives the instant it expires, so a readout never
+/// reverts to the event's earlier end (decision 0103 slice 4f). Admission's
+/// in-force read still drops it.
+#[test]
+fn the_readout_keeps_the_newest_end_after_it_passes() {
+    let (_dir, store) = two_lanes();
+    let newest = |store: &Store, now| -> Vec<String> {
+        (store.cooldowns_newest(now).unwrap())
+            .into_iter()
+            .map(|row| row.route)
+            .collect()
+    };
+    assert_eq!(newest(&store, at(0)), ["first", "second"]);
+    assert_eq!(
+        newest(&store, at(15)),
+        ["first", "second"],
+        "the second lane's expired row is still its newest end"
+    );
+    assert_eq!(newest(&store, at(40)), ["first", "second"]);
+    assert_eq!(
+        store.cooldowns_in_force(at(15)).unwrap().len(),
+        1,
+        "admission still reads only the unexpired row"
+    );
 }
 
 /// A wait is never shortened by its rounding: a row whose end is T+10.9s

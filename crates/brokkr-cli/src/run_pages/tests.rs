@@ -13,6 +13,7 @@
 
 mod before_request;
 mod console_end;
+mod cooling_reads;
 mod display_clamp;
 mod far_work;
 mod fetch_edges;
@@ -131,8 +132,9 @@ struct Read {
 /// checkpoint, and for the frame.
 fn through_pages(store: &Store, run: &str) -> (bool, bool) {
     let (opened, journal) = store.open_kept(run).unwrap();
-    let everything = composed(store, run, &opened, Some(&journal)).unwrap();
-    let frame = composed(store, run, &opened, None).unwrap();
+    let now = crate::now_rfc3339();
+    let everything = composed(store, run, &opened, Some(&journal), &now).unwrap();
+    let frame = composed(store, run, &opened, None, &now).unwrap();
     (everything.is_some(), frame.is_some())
 }
 
@@ -153,13 +155,14 @@ fn seated(participants: &[Participant]) -> Vec<serde_json::Value> {
 fn found(store: &Store, run: &str, events: &[brokkr_core::EventEnvelope]) -> Vec<String> {
     let folded = fold(events);
     let today = brokkr_view::run_view(events, folded.as_ref().ok());
-    let whole = viewed(store, run, Shows::Everything).unwrap();
-    let frame = viewed(store, run, Shows::Frame).unwrap();
+    let now = crate::now_rfc3339();
+    let whole = viewed(store, run, Shows::Everything, &now).unwrap();
+    let frame = viewed(store, run, Shows::Frame, &now).unwrap();
     let mut found = Vec::new();
     if painted(&frame.view) != painted(&today) {
         found.push(format!("{run}: the frame"));
     }
-    let seats = participants(store, run).unwrap();
+    let seats = participants(store, run, &now).unwrap();
     let seats = seats.as_deref().map(seated).map_err(ToString::to_string);
     let expected = folded.as_ref().map(|_| seated(&today.participants));
     if seats != expected.map_err(ToString::to_string) {
@@ -182,11 +185,11 @@ fn read_one(store: &Store, mut read: Read, run: &str) -> Read {
         Ok(events) => events,
         Err(refused) => {
             for shows in [Shows::Everything, Shows::Frame] {
-                let refusal = viewed(store, run, shows).err();
+                let refusal = viewed(store, run, shows, &crate::now_rfc3339()).err();
                 let refusal = refusal.map(|error| error.to_string());
                 assert_eq!(refusal, Some(refused.to_string()), "{run}: {shows:?}");
             }
-            let seated = participants(store, run)
+            let seated = participants(store, run, &crate::now_rfc3339())
                 .err()
                 .map(|error| error.to_string());
             assert_eq!(seated, Some(refused.to_string()), "{run}: its participants");
@@ -351,7 +354,7 @@ fn a_run_past_its_opening_is_read_the_kept_way() {
     let store = Store::open_read_only(&path).unwrap();
     let (opened, journal) = store.open_kept(&runs[0]).unwrap();
     let read = |journal| {
-        let read = composed(&store, &runs[0], &opened, journal).unwrap();
+        let read = composed(&store, &runs[0], &opened, journal, &crate::now_rfc3339()).unwrap();
         read.map(|read| read.view.participants.len())
     };
     let seated = read(Some(&journal)).expect("the run is read at its opening");
@@ -406,7 +409,7 @@ fn the_view_whole_reads_its_opening_its_trail_its_summary_and_its_seat_rows() {
     drop(Store::open(&db).unwrap());
     let mut store = Store::open_read_only(&db).unwrap();
     let (read, begun) = statements_traced(&mut store, |store| {
-        viewed(store, grown::RUN, Shows::Everything).unwrap()
+        viewed(store, grown::RUN, Shows::Everything, &crate::now_rfc3339()).unwrap()
     });
     assert_eq!(read.view.journal.len(), grown::EVENTS);
     let words = |sql: &String| sql.split_whitespace().collect::<Vec<_>>().join(" ");
@@ -432,7 +435,7 @@ fn the_view_whole_reads_its_opening_its_trail_its_summary_and_its_seat_rows() {
         sql.starts_with("SELECT value FROM meta WHERE key = 'queue_schema'")
             || sql.starts_with(concat!(
                 "SELECT seq, site, provider, route, until_at, reason, retry_after_seconds, ",
-                "rounds, recorded_at FROM provider_cooldowns WHERE until_at > ",
+                "rounds, recorded_at FROM provider_cooldowns AS held WHERE held.until_at > ",
             ))
     };
     assert_eq!(

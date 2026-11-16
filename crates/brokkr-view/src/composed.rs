@@ -49,9 +49,6 @@ pub struct Parts<'a> {
     pub head_seq: u64,
     /// The head's stamp.
     pub last_at: &'a str,
-    /// The waits the trail's last event states, parsed by brokkr-core's
-    /// one reader (decision 0103 slice 4f).
-    pub waits: WaitFact,
     /// The aggregate the caller read, so a probe's later end is painted.
     pub cooling: Vec<Cooling>,
 }
@@ -94,7 +91,6 @@ pub fn composed_whole(
         causes: &BTreeMap::new(),
         head_seq: u64::try_from(journal.len()).unwrap_or(u64::MAX),
         last_at,
-        waits: WaitFact::of(journal.last()),
         cooling: cooling.to_vec(),
     };
     let mut view = composed(&parts, |id| by_id.get(id).copied(), state)?;
@@ -212,7 +208,7 @@ fn composed(
         event_count: usize::try_from(parts.head_seq).unwrap_or(usize::MAX),
         dashboard: dashboard::kept(applied, parts.seats, parts.last_at),
     };
-    let waits = Waits::of(&parts.waits, &parts.cooling);
+    let waits = Waits::of(&WaitFact::applied(parts.trail, state), &parts.cooling);
     Some(viewed(applied, &scan, &buckets, &marks, read, state, waits))
 }
 

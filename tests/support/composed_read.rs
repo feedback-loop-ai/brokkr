@@ -35,7 +35,6 @@ pub(crate) fn page(
         causes: &causes,
         head_seq: opened.seq,
         last_at: &last_at,
-        waits: brokkr_view::WaitFact::of(trail.last()),
         cooling: Vec::new(),
     };
     let view = composed_view(&parts, state.as_deref()).expect("rows a writer keeps compose");
