@@ -6,7 +6,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use brokkr_core::ending::Ending;
 use brokkr_core::seat::meter::Metering;
-use brokkr_store::aggregate::{WindowReviews, WindowRun};
+use brokkr_store::aggregate::{WindowPark, WindowReviews, WindowRun};
 use brokkr_store::metered::WindowSite;
 
 use super::*;
@@ -85,6 +85,51 @@ fn a_run_out_of_scope_or_left_whole_is_no_row() {
     assert!(
         run_facts(&row("r"), "label", &spends, None, &whole).is_none(),
         "a run read whole"
+    );
+}
+
+fn park(run_id: &str) -> WindowPark<'_> {
+    WindowPark {
+        run_id,
+        realm: Some("alpha"),
+        phase: Some("verify"),
+        at: 3,
+        answered: None,
+        ended: 9,
+        open: false,
+    }
+}
+
+#[test]
+fn a_park_row_maps_its_fact_and_an_unanswered_park_waits_to_its_end() {
+    assert_eq!(
+        park_fact(&park("r"), "label", None, &BTreeSet::new()),
+        Some(ParkFact {
+            realm: "alpha".to_string(),
+            hearth: "label".to_string(),
+            run: "r".to_string(),
+            phase: Some("verify".to_string()),
+            at: 3,
+            answered: 9,
+            ended: 9,
+        })
+    );
+}
+
+/// The store's park read leaves out the runs its own exclusion names, but
+/// the whole set was read by earlier statements: a run whose lane moved in
+/// between reaches here, and the whole read still counts it alone.
+#[test]
+fn a_park_out_of_scope_or_left_whole_is_no_fact() {
+    assert!(
+        park_fact(&park("r"), "label", Some("beta"), &BTreeSet::new()).is_none(),
+        "another realm's park"
+    );
+    let mut whole = BTreeSet::new();
+    whole.insert("r".to_string());
+    assert!(
+        park_fact(&park("r"), "label", None, &whole).is_none(),
+        "a park of a run read whole"
     );
 }
 
