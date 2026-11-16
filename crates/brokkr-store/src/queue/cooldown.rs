@@ -430,16 +430,11 @@ impl Store {
     /// read: `newest`'s correlated `NOT EXISTS` rescans the table for every
     /// expired row, and the table's only index is `(run_id, event_seq,
     /// site, rounds)`, so the bound is the append-only table squared, never
-    /// the run or its events. Measured with the bundled SQLite over the
-    /// table's columns and its one index, at an instant past every end (the
-    /// worst case, every row expired): spread over ten routes the statement
-    /// takes 998 VM steps at 10 rows and 380,934,683 at 10,000, and on one
-    /// route 962 and 650,305,007, where [`Store::cooldowns_in_force`] takes
-    /// 38 and 30,008. The history a journal keeps is the rate limits its
-    /// runs met, so the quadratic term is bounded by that count and not by
-    /// a run's size; the console pays the statement twice per refresh, once
-    /// to compare the kept frame's aggregate and once in the frame or whole
-    /// read.
+    /// the run or its events; the worst case is every row expired. The
+    /// history a journal keeps is the rate limits its runs met, so the quadratic term is
+    /// bounded by that count and not by a run's size; the console pays the
+    /// statement twice per refresh, once to compare the kept frame's
+    /// aggregate and once in the frame or whole read.
     pub fn cooldowns_newest(&self, now: OffsetDateTime) -> Result<Vec<Cooldown>, StoreError> {
         patiently("cooldowns_newest", self.patience, || {
             if cool_downs_held(&self.conn)? {
