@@ -108,71 +108,124 @@ struct Format {
     format: Option<u64>,
 }
 
-/// The object field names the whole record this build reads knows, at every
-/// level its objects hold them: `Reservation`, `Reserved`, `Driver`,
-/// `Writer`, `Reach`, `hands::Sealed` with its `Git`, `Source` and `Store`,
-/// and `Served`. A field outside this set is one this build does not know,
+/// The object field names the whole record this build reads knows, by the
+/// path from its root: the `Reservation` itself (`""`), each `Reserved`
+/// under `attempts/*`, each `Writer`, `Reach`, `hands::Sealed` with its
+/// `Git`, `Source` and `Store`, each `Served` and each `Driver`. A field
+/// outside the set its own level holds is one this build does not know,
 /// which a newer build stated; decision 0090 ruling 4 lets an additive
 /// change or one outside the view name no new format, so the field is the
 /// only fact that tells it from a record written before b8e2caff8, whose
 /// missing field (not an extra one) fails the whole read (R5).
-const KNOWN: [&str; 36] = [
-    "repo",
-    "run",
-    "workdir",
-    "artifacts",
-    "journal",
-    "attempts",
-    "settled",
-    "protects",
-    "writers",
-    "cleanup",
-    "group",
-    "serves",
-    "drivers",
-    "site",
-    "begun",
-    "reach",
-    "boxed",
-    "unbounded",
-    "writable",
-    "readable",
-    "sources",
-    "sealed",
-    "home",
-    "worktree",
-    "git",
-    "binds",
-    "store",
-    "dir",
-    "common",
-    "path",
-    "identity",
-    "place",
-    "spelling",
-    "source",
-    "entries",
-    "link",
+///
+/// A record from before b8e2caff8 sealed `sealed` as a list of sources
+/// rather than one object; `sealed/*` is that list's element, so its fields
+/// are held to the same names and it stays a view-only record rather than a
+/// newer writer's.
+const KNOWN: &[(&str, &[&str])] = &[
+    (
+        "",
+        &[
+            "repo",
+            "run",
+            "workdir",
+            "artifacts",
+            "journal",
+            "attempts",
+            "settled",
+        ],
+    ),
+    (
+        "attempts/*",
+        &[
+            "protects", "writers", "cleanup", "group", "serves", "drivers",
+        ],
+    ),
+    ("attempts/*/writers/*", &["site", "reach"]),
+    ("attempts/*/writers/*/reach", &["boxed", "unbounded"]),
+    (
+        "attempts/*/writers/*/reach/boxed",
+        &["writable", "readable", "sources", "sealed"],
+    ),
+    (
+        "attempts/*/writers/*/reach/boxed/sealed",
+        &["home", "worktree", "git", "binds", "store"],
+    ),
+    (
+        "attempts/*/writers/*/reach/boxed/sealed/*",
+        &["path", "identity"],
+    ),
+    (
+        "attempts/*/writers/*/reach/boxed/sealed/worktree",
+        &["path", "identity"],
+    ),
+    (
+        "attempts/*/writers/*/reach/boxed/sealed/git",
+        &["dir", "common"],
+    ),
+    (
+        "attempts/*/writers/*/reach/boxed/sealed/git/dir",
+        &["path", "identity"],
+    ),
+    (
+        "attempts/*/writers/*/reach/boxed/sealed/git/common",
+        &["path", "identity"],
+    ),
+    (
+        "attempts/*/writers/*/reach/boxed/sealed/binds/*",
+        &["path", "identity"],
+    ),
+    (
+        "attempts/*/writers/*/reach/boxed/sealed/store",
+        &["place", "spelling"],
+    ),
+    ("attempts/*/serves/*", &["source", "entries", "link"]),
+    (
+        "attempts/*/drivers/*",
+        &["site", "begun", "cleanup", "group"],
+    ),
 ];
 
-/// Whether `value` names any object field outside [`KNOWN`]. The `attempts`
-/// map's keys are attempt ids, not fields, so only its values are judged.
+/// Whether `value` names any object field its own level does not hold, or an
+/// object where the record holds none. The `attempts` map's keys are attempt
+/// ids, not fields, so only its values are judged.
 fn names_unknown(value: &Value) -> bool {
-    if let Some(fields) = value.as_object() {
-        return fields.iter().any(|(key, value)| {
-            if key == "attempts" {
-                value
-                    .as_object()
-                    .is_some_and(|attempts| attempts.values().any(names_unknown))
-            } else {
-                !KNOWN.contains(&key.as_str()) || names_unknown(value)
+    holds_unknown(value, "")
+}
+
+/// [`names_unknown`] at the schema path `path`, the level the object there
+/// must hold.
+fn holds_unknown(value: &Value, path: &str) -> bool {
+    match value {
+        Value::Object(fields) => {
+            if path == "attempts" {
+                return fields
+                    .values()
+                    .any(|value| holds_unknown(value, "attempts/*"));
             }
-        });
+            let Some((_, known)) = KNOWN.iter().find(|(at, _)| *at == path) else {
+                // An object where the record holds none: fields this build
+                // does not know at this level.
+                return true;
+            };
+            fields.iter().any(|(key, value)| {
+                !known.contains(&key.as_str()) || holds_unknown(value, &child(path, key))
+            })
+        }
+        Value::Array(items) => items
+            .iter()
+            .any(|item| holds_unknown(item, &format!("{path}/*"))),
+        Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => false,
     }
-    if let Some(items) = value.as_array() {
-        return items.iter().any(names_unknown);
+}
+
+/// The schema path of the field `key` below `path`.
+fn child(path: &str, key: &str) -> String {
+    if path.is_empty() {
+        key.to_string()
+    } else {
+        format!("{path}/{key}")
     }
-    false
 }
 
 impl Attempt {
@@ -301,4 +354,92 @@ pub(in crate::engine::broker) fn standing(
     let mut view: Standing = serde_json::from_value(stated.clone()).or(Err(refused()))?;
     view.newer = names_unknown(&stated).then_some(format.unwrap_or(FORMAT));
     Ok(view)
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    /// A reservation with every optional field set, as this build writes it:
+    /// one attempt, one boxed writer, one sealed reach with its Git
+    /// directories, binds and secrets store, one served input and one
+    /// driver, each group written.
+    fn full() -> Value {
+        json!({
+            "repo": "repo",
+            "run": "run-a",
+            "workdir": "/work",
+            "artifacts": "/artifacts",
+            "journal": "/journal",
+            "attempts": {
+                "a1": {
+                    "protects": "nothing",
+                    "writers": [{
+                        "site": "work",
+                        "reach": {
+                            "boxed": {
+                                "writable": ["/work"],
+                                "readable": ["/read"],
+                                "sources": ["/work"],
+                                "sealed": {
+                                    "home": "/home",
+                                    "worktree": {"path": "/work", "identity": [1, 2]},
+                                    "git": {
+                                        "dir": {"path": "/work/.git", "identity": [1, 2]},
+                                        "common": {"path": "/work/.git", "identity": [1, 2]}
+                                    },
+                                    "binds": [{"path": "/bind", "identity": [1, 2]}],
+                                    "store": {"place": "/store", "spelling": "/store"}
+                                }
+                            }
+                        }
+                    }],
+                    "cleanup": "settling",
+                    "group": 7,
+                    "serves": [{"source": "/served"}],
+                    "drivers": [{
+                        "site": "work",
+                        "begun": [1, "head"],
+                        "cleanup": "settling",
+                        "group": 7
+                    }]
+                }
+            },
+            "settled": ["a0"]
+        })
+    }
+
+    /// F2 (0071 rulings 5 and 3): every field name this build writes,
+    /// serialised from the record's own type with every optional field set,
+    /// is one the level that holds it knows.
+    #[test]
+    fn a_reservation_with_every_optional_field_is_no_newer_writers_record() {
+        let written: Reservation = serde_json::from_value(full()).unwrap();
+        let serialised = serde_json::to_value(&written).unwrap();
+        assert!(
+            !names_unknown(&serialised),
+            "every field this build writes is known at its own level"
+        );
+    }
+
+    /// F2: a word this build knows at a level that does not hold it is a
+    /// newer writer's field, not a known one. The flat list read it as known
+    /// and routed the record to the re-provisioning advice.
+    #[test]
+    fn a_known_word_at_a_level_that_does_not_hold_it_is_a_newer_writers_record() {
+        let mut wrong = full();
+        wrong["attempts"]["a1"]["repo"] = json!("a newer writer's field");
+        assert!(
+            names_unknown(&wrong),
+            "a known word at the wrong level is a newer writer's"
+        );
+        let mut later = full();
+        later["attempts"]["a1"]["a_field_from_a_later_build"] = json!(1);
+        assert!(
+            names_unknown(&later),
+            "an unknown field is a newer writer's"
+        );
+    }
 }

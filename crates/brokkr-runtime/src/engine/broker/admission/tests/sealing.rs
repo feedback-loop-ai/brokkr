@@ -23,7 +23,9 @@ use brokkr_protocol::broker::ledger::Outcome;
 use super::coordination::{died_after_its_end, settled_a1};
 use super::late::{
     failing_second_exchange, failing_second_exchange_over_the_name,
-    failing_second_exchange_over_the_staged, refusing, refusing_exchange, swaps_again,
+    failing_second_exchange_over_the_staged, failing_second_exchange_over_the_staged_and_the_hand,
+    refusing, refusing_exchange, swaps_again, unlinking_before_second_exchange,
+    unlinking_before_third_exchange,
 };
 use super::*;
 use crate::capabilities::McpFence;
@@ -947,20 +949,75 @@ fn a_committed_undo_leaves_a_file_planted_at_the_name() {
     nothing_staged(&at);
 }
 
-/// #440 fix round 440d6 (decision 0108 ruling 3): where the exchange back
-/// a foreign file needs fails, a plain rename still puts that file back at
-/// its name, and the record that stood is removed rather than left over it.
+/// A fresh host whose reseals exchange by `seam` and a reseal of its record
+/// with `late` armed, a hand's file at the name once it returns: the host,
+/// the lease and where the record stands.
+fn a_reseal_over_a_hand(seam: Exchange, late: Late) -> (Host, Held, PathBuf) {
+    swaps_again();
+    let host = host_exchanging(seam);
+    let (host, _work, held, at) = spawning_attempt_in(host);
+    swaps_again();
+    LATE.set(Some(late));
+    spawned(&held, "work", 4242);
+    (host, held, at)
+}
+
+/// [`a_reseal_over_a_hand`]'s state after a failed exchange back: no name
+/// is made, the record that stood goes, and the hand's planted file stays
+/// under the staged name.
+fn a_failed_exchange_back_leaves_no_name(seam: Exchange, late: Late) {
+    let (_host, _held, at) = a_reseal_over_a_hand(seam, late);
+    assert!(!at.exists(), "no name is made");
+    assert!(!prior(&at).exists(), "the record that stood is removed");
+    let staged = at.with_file_name("reservation.json.new");
+    assert_eq!(
+        std::fs::metadata(&staged).unwrap().len(),
+        0,
+        "the planted file stays under the staged name"
+    );
+}
+
+/// #440 fix rounds 440d6 and 440d8 (decision 0108 ruling 3): where the
+/// exchange back a foreign file needs fails for a reason other than the
+/// name's removal, no plain rename runs either: a rename could make a name
+/// the removal took. This seal's successor is removed, and the planted file
+/// stays under the staged name.
 #[test]
 fn a_reseal_whose_exchange_back_fails_leaves_the_planted_file() {
-    swaps_again();
-    let host = host_exchanging(failing_second_exchange);
-    let (_host, _work, held, at) = spawning_attempt_in(host);
-    swaps_again();
-    LATE.set(Some(Late::Replace));
-    spawned(&held, "work", 4242);
-    planted_stays(&at);
-    assert!(!prior(&at).exists(), "no prior name left");
-    nothing_staged(&at);
+    a_failed_exchange_back_leaves_no_name(failing_second_exchange, Late::Replace);
+}
+
+/// C1 (decision 0108 ruling 3; 0071 ruling 9): a reseal's exchange back
+/// meets a name a hand removed and lets the removal stand: no rename makes
+/// the name again.
+#[test]
+fn a_reseals_exchange_back_never_makes_a_name_a_removal_took() {
+    a_failed_exchange_back_leaves_no_name(unlinking_before_second_exchange, Late::Replace);
+}
+
+/// C1 (decision 0108 ruling 3; 0071 ruling 9): an undo's exchange back meets
+/// a name a hand removed before the third swap and lets the removal stand:
+/// the name stays absent.
+#[test]
+fn a_committed_undos_exchange_back_never_makes_a_name_a_removal_took() {
+    a_failed_exchange_back_leaves_no_name(unlinking_before_third_exchange, Late::ReplaceCommitted);
+}
+
+/// F1 (0071 ruling 9; S5): the `ours()` clause is what keeps a hand's file
+/// at the name. Where the exchange back fails and the name holds a hand's
+/// regular file, it stays, byte for byte, and the record that stood goes.
+#[test]
+fn a_reseal_whose_exchange_back_fails_leaves_a_file_a_hand_planted_at_the_name() {
+    let (_host, _held, at) = a_reseal_over_a_hand(
+        failing_second_exchange_over_the_staged_and_the_hand,
+        Late::Replace,
+    );
+    assert_eq!(
+        std::fs::read(&at).unwrap(),
+        b"a hand's file",
+        "the name reads the hand's bytes"
+    );
+    assert!(!prior(&at).exists(), "the record that stood is removed");
 }
 
 /// #440 fix round 440d6 (decision 0108 ruling 3): every way a filesystem
@@ -1386,8 +1443,54 @@ fn a_door_refuses_a_record_whose_name_a_hand_removed_beside_its_prior() {
     );
 }
 
-/// Run four's review, S5: where a reseal's exchange back and its plain
-/// rename both fail, the planted file stays under the staged name and the
+/// F3 (0071 ruling 5): a lone prior name is no record at the door, in
+/// settlement's read or at the amend's seal. All three refuse and none
+/// writes the name; the amend's restore removes the stale prior name.
+#[test]
+fn a_lone_prior_name_is_refused_by_the_door_the_amend_and_settlement() {
+    let (_host, _work, held, at) = spawning_attempt();
+    let old = std::fs::read(&at).unwrap();
+    std::fs::remove_file(&at).unwrap();
+    std::fs::write(prior(&at), &old).unwrap();
+    std::fs::set_permissions(prior(&at), std::fs::Permissions::from_mode(0o600)).unwrap();
+
+    assert_eq!(
+        recheck(&held),
+        Err(Unadmitted::Identity(Unknown::Lost)),
+        "the door meets the lost lease"
+    );
+    assert!(!at.exists(), "the door writes nothing");
+    assert!(prior(&at).exists(), "the door leaves the lone prior name");
+
+    let read = crate::engine::broker::settlement::standing(
+        &held.coordination,
+        [held.repo.as_str(), held.run.as_str()],
+    );
+    assert_eq!(
+        read,
+        Err(Unknown::Lost),
+        "settlement's read refuses the same state"
+    );
+    assert!(!at.exists(), "settlement's read writes nothing");
+    assert!(
+        prior(&at).exists(),
+        "settlement's read leaves the lone prior name"
+    );
+
+    assert_eq!(
+        amend(&held, soon(), Ok),
+        Err(Unadmitted::Identity(Unknown::Unsealed)),
+        "the amend refuses"
+    );
+    assert!(!at.exists(), "the amend writes no name");
+    assert!(
+        !prior(&at).exists(),
+        "the restore removes the lone prior name"
+    );
+}
+
+/// Run four's review, S5: where a reseal's exchange back fails and the
+/// name is a directory, the planted file stays under the staged name and the
 /// record that stood is removed, rather than the planted file being deleted.
 #[test]
 fn a_reseal_whose_exchange_back_and_rename_both_fail_leaves_the_planted_file() {

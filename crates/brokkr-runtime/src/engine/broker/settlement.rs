@@ -66,7 +66,7 @@ use super::exclusion::reaches;
 use super::fold::Begun;
 use super::historical::regular;
 use super::inventory::{inventory, Budget, Standing, Writing};
-use super::root::{locked, read, Commit, Root};
+use super::root::{locked, present, read, Commit, Root};
 use super::{observed, startup};
 use crate::engine::artifacts::{self, Evidence, Unpublished};
 use crate::engine::{Engine, EngineError};
@@ -604,6 +604,14 @@ pub(super) fn standing(
         Err(Unknown::Lost) => return Ok(None),
         found => found?,
     };
+    // The record's own name, never a prior name a hand left when it removed
+    // the name: that state is no record, as the door reads it, so this read
+    // refuses where the door is lost (decision 0108 ruling 3, #440 fix
+    // round 440d8). A seal's restore still meets the lone prior name and
+    // removes it; only a read of the record that stands refuses it.
+    present(&dir, RESERVATION)
+        .then_some(())
+        .ok_or(Unknown::Lost)?;
     let reservation: Reservation = read(&dir, RESERVATION, &at)?;
     let ours = (reservation.repo == repo) & (reservation.run == run);
     let refused = Unknown::Participant(at.join(RESERVATION));

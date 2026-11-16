@@ -238,9 +238,11 @@ fn commit(seal: &Seal<'_>, make: Make<'_>, written: &Record) -> Result<bool, Unk
 /// put under `staged` is the inode of the record `stood`, still held open so
 /// the filesystem cannot have freed and reused its number. A record gone
 /// before the exchange leaves nothing behind; a foreign file planted at the
-/// name is exchanged back and refused; a filesystem without an exchange
-/// refuses with [`Unknown::Exchange`]. Once the proof holds, the old record
-/// keeps only its prior name until [`retired`] removes it.
+/// name is exchanged back and refused, and where that exchange back finds
+/// the name gone the removal stands and nothing is made at it; a filesystem
+/// without an exchange refuses with [`Unknown::Exchange`]. Once the proof
+/// holds, the old record keeps only its prior name until [`retired`] removes
+/// it.
 fn exchanged_in(seal: &Seal<'_>, stood: &Record, written: &Record) -> Result<(), Unknown> {
     let prior = seal.prior();
     if (seal.hook)(Step::Linked, seal.dir, seal.name).is_err() {
@@ -265,27 +267,29 @@ fn exchanged_in(seal: &Seal<'_>, stood: &Record, written: &Record) -> Result<(),
         return Ok(());
     }
     // A foreign file was planted at the name. Swap it back; where even that
-    // fails, a plain rename puts it back without making a name. Where both
-    // fail it stays under the staged name, and this seal's successor is
-    // removed rather than left as the record.
+    // fails, nothing is renamed over the name: a rename would make a name
+    // the exchange met gone. The planted file then stays under the staged
+    // name, and this seal's successor is removed rather than left as the
+    // record.
     put_foreign_back(seal, &prior, written);
     Err(Unknown::Unsealed)
 }
 
 /// The file the exchange put under the staged name, which is not the record
-/// the reseal read, put back at `name`: by the exchange, else by a rename
-/// that makes no name. The record that stood is removed either way, for the
-/// removal or replacement that met it stands. Where neither put-back can
-/// run, the planted file stays under the staged name and this seal's own
-/// successor is removed: a refused seal never leaves a record standing.
+/// the reseal read, put back at `name` by the exchange alone. Where the
+/// exchange meets `ENOENT`, the name was removed: the removal stands, no
+/// rename runs, and nothing is made at the name. Where it fails for any
+/// other reason, no rename runs either, because a plain rename would make
+/// the name if the removal had taken it. In either failure the planted file
+/// stays under the staged name (the next seal of this record removes it
+/// first), and this seal's own successor is removed where it is still at
+/// the name: a refused seal never leaves a record standing, and never
+/// deletes a file a hand made at the name. The record that stood is removed
+/// either way, for the removal or replacement that met it stands.
 fn put_foreign_back(seal: &Seal<'_>, prior: &str, written: &Record) {
     let (dir, staged, name) = (seal.dir, seal.staged.as_str(), seal.name);
-    let put_back =
-        (seal.exchange)(dir, staged, dir, name).is_ok() || renameat(dir, staged, dir, name).is_ok();
-    // Where neither puts the planted file back, it stays under the staged
-    // name, and this seal's own successor is removed rather than left as
-    // the record: a refusal must never make a record. A file a hand made at
-    // the name is not this seal's and stays.
+    let put_back = (seal.exchange)(dir, staged, dir, name).is_ok();
+    // A file a hand made at the name is not this seal's and stays.
     let ours = || regular_at(dir, name).is_some_and(|(_, _, id)| id == written.id);
     if !put_back && ours() {
         let _ = unlinkat(dir, name, AtFlags::empty());

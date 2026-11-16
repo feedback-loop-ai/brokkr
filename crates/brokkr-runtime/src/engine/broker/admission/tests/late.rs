@@ -6,6 +6,7 @@
 //! this would take past its 2,000 lines (decision 0071 ruling 4).
 
 use std::cell::Cell;
+use std::io::Write;
 use std::os::fd::OwnedFd;
 use std::time::Duration;
 
@@ -275,6 +276,73 @@ fn staged_a_directory(
     Err(rustix::io::Errno::INVAL)
 }
 
+/// A hand's regular file of `bytes` at `name` in `dir`, replacing what
+/// stands there.
+fn a_hands_file(dir: &OwnedFd, name: &str, bytes: &[u8]) {
+    let _ = rustix::fs::unlinkat(dir, name, AtFlags::empty());
+    let flags = rustix::fs::OFlags::RDWR
+        | rustix::fs::OFlags::CREATE
+        | rustix::fs::OFlags::EXCL
+        | rustix::fs::OFlags::CLOEXEC;
+    let mode = rustix::fs::Mode::RUSR | rustix::fs::Mode::WUSR;
+    let file = rustix::fs::openat(dir, name, flags, mode).unwrap();
+    std::fs::File::from(file).write_all(bytes).unwrap();
+}
+
+/// The second swap removes the staged name and makes it a directory, and
+/// puts a hand's regular file at the record's name: the exchange back fails
+/// and neither name holds this seal's successor, so nothing is unlinked
+/// from the name unless it is proven this seal's own.
+fn staged_a_directory_over_a_hands_file(
+    one: &OwnedFd,
+    a: &str,
+    two: &OwnedFd,
+    b: &str,
+) -> Result<(), rustix::io::Errno> {
+    let _ = rustix::fs::unlinkat(one, a, AtFlags::empty());
+    let _ = rustix::fs::mkdirat(one, a, rustix::fs::Mode::RWXU);
+    a_hands_file(two, b, b"a hand's file");
+    Err(rustix::io::Errno::INVAL)
+}
+
+/// Production's exchange until the `at`th swap on this thread, and at that
+/// swap the name is removed first, so the exchange meets it gone.
+fn unlinking_at(
+    at: usize,
+    one: &OwnedFd,
+    a: &str,
+    two: &OwnedFd,
+    b: &str,
+) -> Result<(), rustix::io::Errno> {
+    if swaps() < at {
+        return rustix::fs::renameat_with(one, a, two, b, rustix::fs::RenameFlags::EXCHANGE);
+    }
+    let _ = rustix::fs::unlinkat(two, b, AtFlags::empty());
+    rustix::fs::renameat_with(one, a, two, b, rustix::fs::RenameFlags::EXCHANGE)
+}
+
+/// A reseal's exchange back meets a name a hand removed at the second swap:
+/// the removal stands, and no rename makes the name again.
+pub(super) fn unlinking_before_second_exchange(
+    one: &OwnedFd,
+    a: &str,
+    two: &OwnedFd,
+    b: &str,
+) -> Result<(), rustix::io::Errno> {
+    unlinking_at(2, one, a, two, b)
+}
+
+/// An undo's exchange back meets a name a hand removed at the third swap:
+/// the removal stands, and no rename makes the name again.
+pub(super) fn unlinking_before_third_exchange(
+    one: &OwnedFd,
+    a: &str,
+    two: &OwnedFd,
+    b: &str,
+) -> Result<(), rustix::io::Errno> {
+    unlinking_at(3, one, a, two, b)
+}
+
 /// One exchange seam: production's swap for the first call on this thread,
 /// and `$after` for every later one.
 macro_rules! seam {
@@ -295,6 +363,10 @@ seam!(failing_second_exchange, |_, _, _, _| Err(
 ));
 seam!(failing_second_exchange_over_the_name, name_a_directory);
 seam!(failing_second_exchange_over_the_staged, staged_a_directory);
+seam!(
+    failing_second_exchange_over_the_staged_and_the_hand,
+    staged_a_directory_over_a_hands_file
+);
 
 /// [`failing_second_exchange`] counts from one again.
 pub(super) fn swaps_again() {
