@@ -10,6 +10,7 @@
 //! library's own tests cannot call it.
 
 use std::path::Path;
+use std::process::Command;
 
 use brokkr_core::canonical::ZERO_HASH;
 use brokkr_store::aggregate::RunOrder;
@@ -36,9 +37,16 @@ const PARKS_BOUND: i64 = 167_227;
 const SLACK: i64 = 64 * 1_024;
 
 /// How many times each statement is measured at a size; the least is the
-/// statement's own share, with another test's concurrent allocation left
-/// out.
+/// statement's own share, so a one-time allocation of the first read is
+/// left out.
 const TAKES: usize = 5;
+
+/// The parent test re-executes this binary with this variable set to `1`
+/// and only this test selected. SQLite's memory counters are the process's,
+/// and the other tests this binary carries open journals beside a
+/// measurement; a process of its own is the only way to read the counters
+/// with no other connection allocating in it.
+const OWN_PROCESS: &str = "BROKKR_STORE_EXCLUSION_HEAP_OWN_PROCESS";
 
 /// SQLite's memory counters: what it holds now and its high-water.
 #[derive(Clone, Copy)]
@@ -135,9 +143,26 @@ fn journal(path: &Path, stale: usize) -> Store {
 /// 5,000 stale runs add no more than ten. All six statements stay under the
 /// operator's 1,024,000-byte cap, and the parks statement, whose classes'
 /// table replaced sixty-four prepared arms in this unit, is held to its
-/// measured figure plus a tenth.
+/// measured figure plus a tenth. The measurement runs in a process of its
+/// own, so no other test's connection moves the process-wide counters.
 #[test]
 fn the_exclusion_holds_no_stale_set_in_sqlite() {
+    if std::env::var_os(OWN_PROCESS).is_none() {
+        let child = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "exclusion_heap::the_exclusion_holds_no_stale_set_in_sqlite",
+                "--nocapture",
+            ])
+            .env(OWN_PROCESS, "1")
+            .status()
+            .expect("the test binary re-executes");
+        assert!(
+            child.success(),
+            "the heap measurement failed in the process of its own"
+        );
+        return;
+    }
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("forge.db");
     let ten = costs(&journal(&path, 10));
