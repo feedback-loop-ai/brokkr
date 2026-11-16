@@ -1639,6 +1639,9 @@ fn one_unreadable_envelope_at_a_running_head_is_quarantined_not_the_listing() {
     let pages = Pages::listing(&store, Journal::at(&db), NOW).unwrap();
     let yes: &dyn Fn(&str) -> bool = &|_| true;
     let no: &dyn Fn(&str) -> bool = &|_| false;
+    // The row the whole read gives the run, which the listing must word
+    // exactly: one refusal, not its own substring of it.
+    let whole_bad = serde_json::to_value(crate::fleet::one(&store, "bad", NOW).unwrap()).unwrap();
     // Both reads the listing takes: the summary's, whole-valued and page
     // valued, so each one's parse refusal is quarantined and lists the
     // rest.
@@ -1659,12 +1662,10 @@ fn one_unreadable_envelope_at_a_running_head_is_quarantined_not_the_listing() {
         assert_eq!(row("good").status.as_deref(), Some("completed"));
         let bad = row("bad");
         assert!(bad.quarantine.is_some(), "the bad row is quarantined");
-        assert!(
-            bad.detail
-                .as_deref()
-                .is_some_and(|words| words.contains("json:")),
-            "{:?}",
-            bad.detail
+        assert_eq!(
+            serde_json::to_value(bad).unwrap(),
+            whole_bad,
+            "the listing quarantines the run in the whole read's own words"
         );
     }
 }

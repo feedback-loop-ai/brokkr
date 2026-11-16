@@ -739,6 +739,42 @@ fn the_readout_keeps_the_newest_end_after_it_passes() {
     );
 }
 
+/// The rows `cooldowns_newest` answers at `at(40)` for a journal whose one
+/// terminal event records `rows`, all expired by then.
+fn newest_after(rows: &[Cooling]) -> Vec<Cooldown> {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = journal(dir.path());
+    append(&mut store, "run-a", rows).unwrap();
+    store.cooldowns_newest(at(40)).unwrap()
+}
+
+/// Two expired rows of one provider and route: only the later end is the
+/// route's newest, so a readout never reverts to the earlier row. Reading
+/// every row instead keeps both (decision 0103 slice 4f).
+#[test]
+fn the_readout_keeps_only_the_newest_end_of_one_route() {
+    let newest = newest_after(&[
+        named("a", "first", at(10), "the earlier", 1),
+        named("b", "first", at(20), "the later", 1),
+    ]);
+    assert_eq!(newest.len(), 1, "one row for one route");
+    assert_eq!(newest[0].until_at, at(20));
+    assert_eq!(newest[0].reason, "the later");
+}
+
+/// Two expired rows of one route ending at the same instant: the one
+/// written later is the route's newest end, so the choice does not depend
+/// on the scan's order (decision 0103 slice 4f).
+#[test]
+fn the_readout_keeps_the_later_row_on_a_tied_end() {
+    let newest = newest_after(&[
+        named("a", "first", at(20), "first written", 1),
+        named("b", "first", at(20), "later written", 1),
+    ]);
+    assert_eq!(newest.len(), 1, "one row for one route");
+    assert_eq!(newest[0].reason, "later written");
+}
+
 /// A wait is never shortened by its rounding: a row whose end is T+10.9s
 /// is in force at T+10.5s, though the reader floors `now` to T+10.
 #[test]
