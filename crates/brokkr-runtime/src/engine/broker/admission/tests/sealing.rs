@@ -668,6 +668,14 @@ fn successor(at: &Path) -> Vec<u8> {
     serde_json::to_vec(&held).unwrap()
 }
 
+/// The lease's reservation amended to settle one more id, resealed.
+fn amending(held: &Held) -> Result<Commit, Unadmitted> {
+    amend(held, soon(), |mut reservation| {
+        reservation.settled.insert("planted".into());
+        Ok(reservation)
+    })
+}
+
 /// `bytes` made the file at `at`, replacing whatever stands there.
 fn plant(at: &Path, bytes: &[u8]) {
     let temp = at.with_file_name("planted.json");
@@ -772,12 +780,8 @@ fn a_reseal_whose_prior_name_is_gone_at_its_undo_leaves_no_successor() {
     ] {
         let (_host, _work, held, at) = spawning_attempt();
         LATE.set(Some(late));
-        let amended = amend(&held, soon(), |mut reservation| {
-            reservation.settled.insert("planted".into());
-            Ok(reservation)
-        });
         assert_eq!(
-            amended,
+            amending(&held),
             Err(Unadmitted::Identity(Unknown::Unsealed)),
             "{how}"
         );
@@ -1093,11 +1097,10 @@ fn an_undos_failed_exchange_back_leaves_the_record_that_stood_at_the_name() {
     swaps_again();
     let before = std::fs::read(&at).unwrap();
     LATE.set(Some(Late::ReplaceCommitted));
-    let amended = amend(&held, soon(), |mut reservation| {
-        reservation.settled.insert("planted".into());
-        Ok(reservation)
-    });
-    assert_eq!(amended, Err(Unadmitted::Identity(Unknown::Unsealed)));
+    assert_eq!(
+        amending(&held),
+        Err(Unadmitted::Identity(Unknown::Unsealed))
+    );
     assert_eq!(
         std::fs::read(&at).unwrap(),
         before,
