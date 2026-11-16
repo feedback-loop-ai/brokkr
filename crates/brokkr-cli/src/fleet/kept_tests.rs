@@ -885,9 +885,12 @@ fn retried(db: &Path, run: &str, attempt: &str, until: &str) {
     );
 }
 
-/// The one wait a kept fleet's first entry carries, as its until instant.
+/// The one wait a kept fleet's entry for `r1` carries, as its until
+/// instant.
 fn kept_until(kept: &KeptFleet) -> Option<String> {
-    match &kept.entries()[0].waits {
+    let entries = kept.entries();
+    let entry = entries.iter().find(|entry| entry.run_id == "r1").unwrap();
+    match &entry.waits {
         WaitFact::Waits(waits) => waits
             .first()
             .and_then(|wait| brokkr_core::stamp::write_millis(wait.until).ok()),
@@ -964,4 +967,29 @@ fn a_kept_run_refused_at_a_late_wait_paints_none() {
     );
     assert_eq!(entries[0].waits, WaitFact::NoWait);
     assert_eq!(kept_rows(&kept), whole_rows(&db));
+}
+
+/// A refresh that lands nothing for a kept waiting run keeps the wait it
+/// had: the suffix since the kept head is empty, and an empty read of the
+/// applied trail states none. Reading it anyway drops the wait of a run
+/// that did not move whenever another run does.
+#[test]
+fn a_kept_wait_survives_a_refresh_that_lands_nothing_for_its_run() {
+    let dir = tempfile::tempdir().unwrap();
+    let (db, mut kept) = kept_in_wait(dir.path(), "2099-01-01T00:10:00Z");
+
+    running_store(&db, "r2");
+    assert_eq!(refreshed(&mut kept, &db), 2, "r2 read whole, r1 carried");
+    append(
+        &db,
+        "r2",
+        EventType::EffectRequested,
+        json!({"effect_id": "other", "seat": "work", "phase": "work"}),
+    );
+    assert_eq!(refreshed(&mut kept, &db), 1, "one landed, for r2");
+    assert_eq!(
+        kept_until(&kept).as_deref(),
+        Some("2099-01-01T00:10:00Z"),
+        "r1 landed nothing and keeps the wait it stood in"
+    );
 }
