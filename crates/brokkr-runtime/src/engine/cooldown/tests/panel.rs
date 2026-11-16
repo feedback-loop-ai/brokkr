@@ -1367,13 +1367,15 @@ fn an_inline_members_own_command_is_probed_and_retried() {
     let body = b_only_panel(dir.path(), a);
     let mut engine = plain_engine(dir.path(), body, 2);
     engine.drive().unwrap();
+    let seen = witness(&engine, dir.path(), &["a", "b"]);
     assert_eq!(
         logs(dir.path(), "a"),
-        ["attempt:refuse", "probe", "attempt:succeed"]
+        ["attempt:refuse", "probe", "attempt:succeed"],
+        "{seen}"
     );
     let waits = wait_entries(&failed(&engine)[0]);
-    assert_eq!(waits.len(), 2, "{waits:?}");
-    assert_eq!(start_probes(&engine).len(), 2);
+    assert_eq!(waits.len(), 2, "{waits:?}{seen}");
+    assert_eq!(start_probes(&engine).len(), 2, "{seen}");
 }
 
 /// The episode an earlier wait cannot read: the failed panel parks naming

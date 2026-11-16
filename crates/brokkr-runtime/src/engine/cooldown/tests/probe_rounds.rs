@@ -54,8 +54,9 @@ fn after_first_slice(
 /// driver log, and the park reason.
 fn drove_one(dir: &Path, engine: &mut Engine, expected: &[&str]) -> String {
     engine.drive().unwrap();
-    assert_eq!(logs(dir, "work"), expected);
-    assert_eq!(starts(engine).len(), 1, "the probe spent an attempt");
+    let seen = witness(engine, dir, &["work"]);
+    assert_eq!(logs(dir, "work"), expected, "{seen}");
+    assert_eq!(starts(engine).len(), 1, "the probe spent an attempt{seen}");
     park_reason(engine)
 }
 
@@ -811,29 +812,35 @@ fn a_non_empty_sites_refusal_extends_and_reprobes_the_answered_member() {
     let (mut engine, now) = with_clock(engine);
     let start = *now.lock().unwrap();
     engine.drive().unwrap();
+    let seen = witness(&engine, dir.path(), &["a", "b"]);
     let event = failed(&engine).remove(0);
-    assert_eq!(rounds(&engine, event.seq, "a"), [1]);
+    assert_eq!(rounds(&engine, event.seq, "a"), [1], "{seen}");
     assert_eq!(
         rounds(&engine, event.seq, "b"),
         [1, 2],
-        "the site's refusal wrote no next round"
+        "the site's refusal wrote no next round{seen}"
     );
     assert_eq!(
         logs(dir.path(), "a"),
         ["attempt:refuse", "probe", "probe", "attempt:succeed"],
-        "the answered member was not probed again"
+        "the answered member was not probed again{seen}"
     );
     assert_eq!(
         logs(dir.path(), "b"),
-        ["attempt:refuse", "probe", "probe", "attempt:succeed"]
+        ["attempt:refuse", "probe", "probe", "attempt:succeed"],
+        "{seen}"
     );
     let probes = retry_probes(&engine);
-    assert_eq!(probes.len(), 2, "an answer was recorded twice: {probes:?}");
-    assert_eq!(probes[0]["site"], "a");
-    assert_eq!(probes[1]["site"], "b");
+    assert_eq!(
+        probes.len(),
+        2,
+        "an answer was recorded twice: {probes:?}{seen}"
+    );
+    assert_eq!(probes[0]["site"], "a", "{seen}");
+    assert_eq!(probes[1]["site"], "b", "{seen}");
     assert!(
         answered_at(&probes[0]) >= start + Duration::seconds(9),
-        "the answered member's first answer stood in for its second: {probes:?}"
+        "the answered member's first answer stood in for its second: {probes:?}{seen}"
     );
 }
 

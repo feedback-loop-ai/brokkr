@@ -632,15 +632,34 @@ fn attempt(dir: &Path, host: Option<PathBuf>, script: Vec<String>, timeout: u64)
     engine
 }
 
-/// The `field` of the first `event` the attempt journaled.
+/// The `field` of the first `event` the attempt journaled. Where there is
+/// none, the panic says why (#1110): each event the run journaled, with its
+/// words, and the deadline the seat gave the attempt.
 fn terminal(engine: &Engine, event: EventType, field: &str) -> String {
-    engine
-        .store
-        .load(&engine.run_id)
-        .unwrap()
+    let events = engine.store.load(&engine.run_id).unwrap();
+    let seen = || {
+        let journal: Vec<String> = events
+            .iter()
+            .map(|envelope| {
+                let words = ["error", "reason"]
+                    .iter()
+                    .filter_map(|key| envelope.payload.get(*key))
+                    .map(|value| format!(": {value}"))
+                    .collect::<String>();
+                format!(
+                    "\n  {} {}{words}",
+                    envelope.seq,
+                    envelope.event_type.as_str()
+                )
+            })
+            .collect();
+        let limit = engine.bundle.seats["work"].limits.timeout_seconds;
+        format!("journal:{}\nthe seat's limit: {limit}s", journal.concat())
+    };
+    events
         .iter()
         .find(|envelope| envelope.event_type == event)
-        .unwrap_or_else(|| panic!("the attempt journaled no {event:?}"))
+        .unwrap_or_else(|| panic!("the attempt journaled no {}: {}", event.as_str(), seen()))
         .payload[field]
         .as_str()
         .unwrap()
@@ -701,6 +720,17 @@ fn failed_attempt(dir: &Path, host: PathBuf) -> String {
     let mut engine = attempt(dir, Some(host), failed_driver(dir), 3600);
     engine.drive().unwrap();
     terminal(&engine, EventType::EffectFailed, "error")
+}
+
+/// A terminal the attempt did not journal names what it journaled instead,
+/// and the deadline it was given (#1110).
+#[test]
+#[should_panic(expected = "effect/failed: \"driver failed")]
+fn a_missing_terminal_names_what_the_attempt_journaled() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut engine = attempt(dir.path(), None, failed_driver(dir.path()), 3600);
+    engine.drive().unwrap();
+    terminal(&engine, EventType::EffectIndeterminate, "reason");
 }
 
 #[test]
