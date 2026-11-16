@@ -71,6 +71,17 @@ fn within(millis: u64) -> Instant {
     Instant::now() + Duration::from_millis(millis)
 }
 
+/// The deadline a case of [`finals`] is begun under: `millis` from now where
+/// it is refused as late, so its sleep outlasts it, and a minute where it is
+/// refused for another reason, which no load may make late first (#1099).
+fn deadline_for(refused: &Unknown, millis: u64) -> Instant {
+    within(if *refused == Unknown::Expired {
+        millis
+    } else {
+        60_000
+    })
+}
+
 /// The five ways a reseal fails or runs late at its final steps before its
 /// commit, each spending `millis` where it runs late: what arms it, the
 /// refusal it meets, and its name. A first seal meets the first three, its
@@ -112,7 +123,7 @@ fn finals(millis: u64) -> [(Late, Unknown, &'static str); 5] {
 fn a_first_seal_that_fails_or_runs_late_leaves_no_record() {
     for (armed, refused, how) in finals(150).into_iter().take(3) {
         let host = Host::new();
-        let budget = Budget::new(within(100));
+        let budget = Budget::new(deadline_for(&refused, 100));
         LATE.set(Some(armed));
         let sealed = host
             .root
@@ -253,7 +264,8 @@ fn a_late_join_keeps_the_reservation_that_stood() {
     for (armed, refused, how) in finals(600) {
         let (host, at, before) = joining(armed);
         let next = open(&host.worktree("work"), ["run-a", "a2"]);
-        assert_eq!(admit(&host.root, &next, within(400)), mb3(refused), "{how}");
+        let deadline = deadline_for(&refused, 400);
+        assert_eq!(admit(&host.root, &next, deadline), mb3(refused), "{how}");
         kept(&at, &before, how);
     }
 }
@@ -264,7 +276,7 @@ fn a_late_join_keeps_the_reservation_that_stood() {
 /// journaled, never releases the attempt.
 #[test]
 fn a_late_unresolved_mark_keeps_the_reservation_that_stood() {
-    for (armed, _, how) in finals(600) {
+    for (armed, refused, how) in finals(600) {
         let host = Host::new();
         let (_dir, mut engine, work, run) = leasing(&host, Protects::Nothing);
         let at = host.reservation(&work, &run);
@@ -273,7 +285,7 @@ fn a_late_unresolved_mark_keeps_the_reservation_that_stood() {
         let unresolved = Cleanup::Unresolved {
             reason: Unsettled::Stdout,
         };
-        witnessed_by(&mut engine.held, &unresolved, within(400));
+        witnessed_by(&mut engine.held, &unresolved, deadline_for(&refused, 400));
         kept(&at, &before, how);
         settled_a1(&mut engine, &run);
         engine.settle("a1", Ok(())).unwrap();
@@ -293,7 +305,7 @@ fn a_late_release_keeps_the_reservation_that_stood() {
         let at = host.reservation(&work, "run-a");
         let before = standing(&at);
         LATE.set(Some(armed));
-        let released = release(&held, within(400));
+        let released = release(&held, deadline_for(&refused, 400));
         assert_eq!(released, Err(Unadmitted::Identity(refused)), "{how}");
         kept(&at, &before, how);
     }
@@ -312,7 +324,7 @@ fn a_late_recovery_keeps_the_reservation_that_stood() {
         let before = standing(&at);
         LATE.set(Some(armed));
         let next = claim(&work, ["run-b", "b1"], Protects::Nothing, &[]);
-        let admitted = admit(&host.root, &next, within(1_000));
+        let admitted = admit(&host.root, &next, deadline_for(&refused, 1_000));
         assert_eq!(admitted, mb3(refused), "{how}");
         kept(&at, &before, how);
         let sealed = host.reservation(&work, "run-b").exists();
@@ -589,11 +601,7 @@ fn settlement_publishes_what_its_attempt_retained_before_its_release() {
         attempt.served((0, &plans[0]), true, &answered);
         if unresolved {
             let reason = Unsettled::Stdout;
-            witnessed_by(
-                &mut engine.held,
-                &Cleanup::Unresolved { reason },
-                within(400),
-            );
+            witnessed_by(&mut engine.held, &Cleanup::Unresolved { reason }, soon());
         }
         settled_a1(&mut engine, &run);
         let unsealed = case == "unsealed";
