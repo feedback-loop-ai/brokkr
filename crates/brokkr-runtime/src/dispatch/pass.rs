@@ -223,8 +223,7 @@ where
     let (judged, unstarted) = match admission::judge_within(store, host, by) {
         Ok(judged) => judged,
         Err(AdmissionError::Store(error)) => {
-            store_refused(&mut passed, error, Stage::Judge)?;
-            return Ok(passed);
+            return stop_with_refusal(&mut passed, error, Stage::Judge);
         }
         Err(error) => {
             passed.admission_refused = Some(error);
@@ -361,6 +360,17 @@ fn record_sweep(passed: &mut Passed, swept: Result<Swept, SweepError>) -> Result
         Err(SweepError::Store(error)) => return Ok(!store_refused(passed, error, Stage::Sweep)?),
     }
     Ok(true)
+}
+
+/// Stop the pass with a store refusal in `passed`: contention is reported
+/// and the pass returns, and every other class ends the dispatcher.
+fn stop_with_refusal(
+    passed: &mut Passed,
+    error: StoreError,
+    stage: Stage,
+) -> Result<Passed, Ending> {
+    store_refused(passed, error, stage)?;
+    Ok(std::mem::take(passed))
 }
 
 /// Report a store refusal, or end the dispatcher: contention is reported

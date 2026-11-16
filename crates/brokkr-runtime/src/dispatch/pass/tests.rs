@@ -122,6 +122,47 @@ fn linked_claimed(root: &Path) -> (crate::launch::tests::claimed::Claimed, Strin
     (claimed, run, store)
 }
 
+/// Queue one launch under the named map `realms` writes at `root`, and
+/// answer its entry.
+fn queue_named(store: &mut Store, root: &Path, realms: serde_json::Value) -> EntryId {
+    use crate::launch::{BundleSource, LaunchRequest, NewRun, QueuedLaunch, RunMap};
+    use crate::realms::World;
+    use brokkr_store::{Attribution, NewEntry};
+
+    let map = root.join("realms.json");
+    std::fs::write(&map, realms.to_string()).unwrap();
+    let request = LaunchRequest {
+        workspace: root.to_path_buf(),
+        bundle: BundleSource::Dir("bundle".into()),
+        shelf: None,
+        journal: root.join("forge.db"),
+        repo: None,
+        secrets: None,
+        host_path: OsString::new(),
+    };
+    let run = NewRun {
+        entry: None,
+        feature: "f".into(),
+        map: RunMap::Named(World::load(&map).unwrap()),
+        dispatch: None,
+        claim: None,
+    };
+    let payload = QueuedLaunch::of(&request, &run).unwrap().encode().unwrap();
+    store
+        .queue_add(
+            NewEntry {
+                payload: &payload,
+                priority: 0,
+                waits: &[],
+            },
+            Attribution {
+                operator: "vy",
+                reason: "queued",
+            },
+        )
+        .unwrap()
+}
+
 /// A stand that stands once and ends on every call after.
 fn stands_once() -> impl FnMut() -> Result<(), Ending> {
     let mut calls = 0;
@@ -592,6 +633,18 @@ fn a_store_refusal_that_is_not_contention_ends_the_pass() {
     assert!(stop);
     assert_eq!(passed.contended.len(), 1);
     assert_eq!(passed.contended[0].stage, Stage::Sweep);
+
+    let mut passed = Passed::default();
+    let stopped = stop_with_refusal(
+        &mut passed,
+        StoreError::Contended {
+            operation: "judge",
+            waited_ms: 1,
+        },
+        Stage::Judge,
+    )
+    .unwrap();
+    assert_eq!(stopped.contended[0].stage, Stage::Judge);
 }
 
 #[test]
@@ -912,50 +965,17 @@ fn a_contended_reconciliation_spawn_row_is_reported_and_stops_the_pass() {
 
 #[test]
 fn a_store_refusal_while_judging_ends_the_pass_and_claims_nothing() {
-    use crate::launch::{BundleSource, LaunchRequest, NewRun, QueuedLaunch, RunMap};
-    use crate::realms::World;
-    use brokkr_store::{Attribution, NewEntry};
-
     let mut fixture = Fixture::new();
-    let map = fixture.root.join("realms.json");
-    let realms = json!({
-        "schema": "forge.realms/v7",
-        "journal": "forge.db",
-        "realms": [{"name": "b", "path": ".", "default_branch": "main", "house": "HOUSE.md"}]
-    });
-    std::fs::write(&map, realms.to_string()).unwrap();
     std::fs::write(fixture.root.join("HOUSE.md"), "First rule.\n").unwrap();
-    let request = LaunchRequest {
-        workspace: fixture.root.clone(),
-        bundle: BundleSource::Dir("bundle".into()),
-        shelf: None,
-        journal: fixture.root.join("forge.db"),
-        repo: None,
-        secrets: None,
-        host_path: OsString::new(),
-    };
-    let run = NewRun {
-        entry: None,
-        feature: "f".into(),
-        map: RunMap::Named(World::load(&map).unwrap()),
-        dispatch: None,
-        claim: None,
-    };
-    let payload = QueuedLaunch::of(&request, &run).unwrap().encode().unwrap();
-    let entry = fixture
-        .store
-        .queue_add(
-            NewEntry {
-                payload: &payload,
-                priority: 0,
-                waits: &[],
-            },
-            Attribution {
-                operator: "vy",
-                reason: "queued",
-            },
-        )
-        .unwrap();
+    let entry = queue_named(
+        &mut fixture.store,
+        &fixture.root,
+        json!({
+            "schema": "forge.realms/v7",
+            "journal": "forge.db",
+            "realms": [{"name": "b", "path": ".", "default_branch": "main", "house": "HOUSE.md"}]
+        }),
+    );
     std::fs::write(fixture.root.join("HOUSE.md"), "Second rule.\n").unwrap();
     sql(
         &fixture.store,
@@ -1004,4 +1024,37 @@ fn a_claim_whose_moved_run_does_not_fold_is_reported_and_stops_claims() {
     ));
     assert!(claims(&fixture.store).is_empty());
     assert_eq!(state(&fixture.store, entry), EntryState::Queued);
+}
+
+#[test]
+fn a_crossing_that_moves_between_the_pass_and_the_start_counts_a_reclaim() {
+    let mut fixture = Fixture::new();
+    let file = fixture.declare(&ceilings(1, 1, json!({})));
+    let crossing = fixture.root.join("contracts/orders.v1.schema.json");
+    std::fs::create_dir_all(crossing.parent().unwrap()).unwrap();
+    std::fs::write(&crossing, "{\"title\": \"orders\"}\n").unwrap();
+    queue_named(
+        &mut fixture.store,
+        &fixture.root,
+        json!({
+            "schema": "forge.realms/v7",
+            "journal": "forge.db",
+            "realms": [{
+                "name": "b", "path": ".", "default_branch": "main",
+                "publishes": [{"name": "orders.api", "path": "contracts/orders.v1.schema.json"}]
+            }]
+        }),
+    );
+    let dispatcher = take_dispatch(&mut fixture.store).unwrap().unwrap();
+    let seams = Seams {
+        stands: move || {
+            std::fs::remove_file(&crossing).unwrap();
+            Ok(())
+        },
+        spawn: spawned_one,
+    };
+    let passed = run_pass(&mut fixture.store, &dispatcher, &file, seams).unwrap();
+    assert_eq!(passed.reclaimed.len(), 1, "{passed:?}");
+    assert_eq!(passed.reclaimed[0].refused, Some(StartRefusal::Crossing));
+    assert_eq!(passed.reclaimed[0].count, 1);
 }
