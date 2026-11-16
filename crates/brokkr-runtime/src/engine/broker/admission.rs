@@ -63,7 +63,7 @@ use crate::engine::{
 mod probe;
 mod seal;
 pub(super) use seal::resealed;
-use seal::{joined, sealed};
+use seal::{established, sealed};
 
 #[cfg(test)]
 pub(in crate::engine) mod tests;
@@ -632,12 +632,7 @@ pub(super) fn admit_with(
     if claim.protects() & !has_record {
         commit = commit.and(recorded(root, claim, &budget)?);
     }
-    let (reservation, read) = joined(claim, standing);
-    let established = match read {
-        Some(read) => resealed(root, &reservation, &read, &budget)?,
-        None => sealed(root, &reservation, &budget, None)?,
-    };
-    commit = commit.and(established);
+    commit = commit.and(established(root, claim, standing, &budget)?);
     // Committed last: a refused admission never moves a retirement into history.
     commit = commit.and(superseded(root, &mut found.historical, claim, &budget)?);
     Ok(Held {

@@ -47,6 +47,23 @@ pub(super) fn joined(claim: &Claim, standing: Vec<Standing>) -> (Reservation, Op
     (reservation, read)
 }
 
+/// The reservation `claim` establishes over `standing`, as [`joined`] joins
+/// it: resealed over the record its run read as standing, or sealed where
+/// it read none, the first admission and the one seal that may create
+/// (decision 0108 ruling 3). Its caller holds the admission lock.
+pub(super) fn established(
+    root: &Root,
+    claim: &Claim,
+    standing: Vec<Standing>,
+    budget: &Budget,
+) -> Result<Commit, Unknown> {
+    let (reservation, read) = joined(claim, standing);
+    match read {
+        Some(read) => resealed(root, &reservation, &read, budget),
+        None => sealed(root, &reservation, budget, None),
+    }
+}
+
 /// The run's directory below `root` and the path of the record in it, for
 /// a seal that reads the record as it stands.
 fn record_at(

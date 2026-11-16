@@ -341,20 +341,39 @@ pub(crate) fn operator(
              'settle' or 'acknowledge'"
         );
     };
+    commanded(
+        workspace,
+        (&run, &reason),
+        journal,
+        member,
+        (verb, &command),
+    )
+}
+
+/// A plain operator command, `retry` with no member or any other word
+/// [`OperatorCommand`] parses, recorded in the journal `run` wrote; a
+/// member's retry goes to [`member_retry::retry`].
+fn commanded(
+    workspace: &Path,
+    (run, reason): (&str, &str),
+    journal: JournalArgs,
+    member: crate::cli_args::MemberRetryArgs,
+    (verb, command): (OperatorCommand, &str),
+) -> Result<ExitCode> {
     if !member.member.is_empty() {
-        return member_retry::retry(workspace, &run, &reason, journal, member);
+        return member_retry::retry(workspace, run, reason, journal, member);
     }
     // The journal `run` wrote (#374): the map's, unless `--db`
     // outranks it.
     let mut store = open_journal(&journal.journal(workspace)?, Access::Append)?;
-    let run = selector::resolve_run(&store, &run)?;
+    let run = selector::resolve_run(&store, run)?;
     let operator = operator_name();
     // The command is fenced against a concurrently-driving
     // engine, so it can come back refused. Saying "recorded"
     // there would tell the operator the opposite of what the
     // journal says.
-    let outcome = operator_command(&mut store, &run, verb, &operator, &reason)?;
-    disposition(outcome, &command, &run)
+    let outcome = operator_command(&mut store, &run, verb, &operator, reason)?;
+    disposition(outcome, command, &run)
 }
 
 /// The journal an operator annotation writes to and the journal its
