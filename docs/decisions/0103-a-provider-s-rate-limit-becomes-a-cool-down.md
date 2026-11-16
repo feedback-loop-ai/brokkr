@@ -4,6 +4,7 @@ Status: accepted — operator ruled in chat 2026-10-31, "go with recommended" (h
 Date: 2026-10-30
 
 Built: partial (#430) — slices 4a to 4d2b and 4e built; slices 5 and 6 are unbuilt
+Amended by: 0106
 
 ## Context
 
