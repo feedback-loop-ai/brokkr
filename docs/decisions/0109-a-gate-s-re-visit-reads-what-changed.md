@@ -49,7 +49,7 @@ other top-level key is admitted (`crates/brokkr-protocol/src/adapters.rs:478-491
 The successful result is sealed under the seat-record contract, whose `result`
 definition is closed and admits four report fields beside the accounting fields:
 `result`, `inputs`, `notes` and the dialect step's `state`
-(`contracts/seat-record.v6.schema.json:557-575`; `state` at `:572-574`;
+(`contracts/seat-record.v6.schema.json:557-575`; `state` at `:573-574`;
 0034 ruling 2 at `docs/decisions/0034-the-seat-record.md:45-50`). A v7 built from
 three fields would refuse a dialect step's `state`, so v7 keeps it. The engine's
 pre-decision check is narrower: a declared `result` string, and a declared
@@ -151,7 +151,7 @@ fast family hires already declare both: `agents/fast-reviewer.json:3`,
 `agents/brokkr-fast-reviewer.json:5` and `agents/node-reviewer.json:4`. Fast,
 brokkr-fast and node therefore compile both inputs. Verify's review hires
 `verify-reviewer`, which declares both (`agents/verify-reviewer.json:6`), and
-verify's own table references both (`recipes/verify/policy.json:44,53`). Self and
+verify's own table references both (`recipes/verify/policy.json:45,54`). Self and
 release hire `brokkr-reviewer`, which extends `reviewer` and declares no `inputs`
 (`agents/brokkr-reviewer.json:1-10`; `agents/reviewer.json:1-17`); their inherited
 fast table references `max_residual_severity` only, so those two seats compile
@@ -218,15 +218,28 @@ report fields and the refusal text.
 A gate result is judged against two independent bodies of evidence: the findings
 it reports and the aggregate it declares. Either can refuse a passing word;
 neither may rewrite it. A work-class seat's result is not a verdict and is
-outside this check.
+outside this check, except for a member of a review panel: a review member's word
+is joined into the aggregate that becomes the gate's word or the gate's input, and
+can lift or hide it, so a review-panel member is bound whatever its class and
+whatever the panel's class. Any other work result is outside.
 
 **The passing word.** The engine holds one closed enum of non-passing words:
-`residual`, `drift`, `ambiguous`, `clean-unverified`, `fail` and `security-hold`.
-Every other result word is passing. The enum is engine data, not a reading of the
-phase table, so a recipe cannot add a `when` that drops the aggregate check, and a
-word the enum does not name is checked as passing rather than exempted. In the
-shipped tables `clean`, `pass`, `consistent`, `clear`, `ready` and `shipped` are
-passing. The check applies to a gate-class seat; a work result is outside it.
+`residual`, `drift`, `ambiguous`, `clean-unverified`, `fail`, `security-hold`,
+`upstream` and `escalate`. Every other result word is passing. The enum is engine
+data, not a reading of the phase table, so a recipe cannot add a `when` that drops
+the aggregate check, and a word the enum does not name is checked as passing
+rather than exempted. In the shipped tables `clean`, `pass`, `consistent`,
+`clear`, `ready` and `shipped` are passing. The check applies to a gate-class
+seat, to the engine-written panel aggregate, and to every member of a review
+panel whatever its class.
+
+An operator's own non-passing word is recipe data the engine cannot know: it is
+checked as passing. A blocking finding or a declared residual still refuses it;
+a word with neither is admitted as today. An operator who needs a new non-passing
+word adds it to this enum by a decision amendment; the cost is that until then
+the word is only as strong as its findings and its aggregate. `upstream` (the
+specify, design and tasks gates) and `escalate` (triage) are shipped non-passing
+words and are in the enum for that reason.
 
 **The findings arm.** A gate result whose `findings` array is non-empty is bound
 as follows. A finding is blocking when its `severity` is above `low`, or when its
@@ -257,6 +270,18 @@ a residual stands:
 The severity is the closed `none < info < low < medium < high < critical`
 vocabulary; an absent, null or unknown value where the seat declares the input
 refuses rather than reads as `none`.
+
+The check runs on both a member's result and the seat's result: the seat is a
+single seat or the engine-written panel aggregate, and each member of a review
+panel is checked before its word is joined. A member declares no input set of its
+own (`crates/brokkr-runtime/src/bundle/site_form.rs:425-428`), so a member is held
+to the compiled input set of the seat that owns the panel; the aggregate is held
+to the same set. The engine's panel aggregate always writes `max_residual_severity` and
+`has_security_residual`, `none` and `false` when no member reports a residual
+(`crates/brokkr-runtime/src/bundle/aggregate.rs:188-216`), so an all-clean panel
+and a charter-shaped clean are admitted and the absent-input clause refuses only a
+result that omits what its own compiled set declares. A member's refusal parks the
+panel before its aggregate rules; the member's word never reaches the aggregate.
 
 The aggregate arm is beside the findings arm: either refuses the word. A seat
 that declares no residual inputs is not refused by this arm; its word stands as
@@ -290,7 +315,11 @@ is admitted; `clean` plus one high security finding is refused, never shipped;
 security finding is admitted; `residual` plus a medium finding is admitted;
 `clean` plus an engine-carried `follow_ups` entry is admitted; `consistent` plus a
 blocking finding is refused; a correctness member's `security: true` finding is
-refused and parks because the member has no `security-hold`.
+refused and parks because the member has no `security-hold`; an all-clean panel is
+admitted; a charter-shaped clean (`clean` with `none` and `false`) is admitted; a
+member of a review panel that writes `clean` over a declared high residual is
+refused whatever its class; a member that omits a declared aggregate input is
+refused; the panel aggregate writes both inputs on an all-clean panel.
 
 ### 3. The stable finding key
 
@@ -367,8 +396,8 @@ covering read in the second.
   diff already carries, and a finding in an untouched part of a changed file is
   carried rather than closed.
 - **(b) The changed path.** A finding in a changed file is inside. Simpler, but it
-  closes a standing finding whose hunk was not read — the adversarial's case — and
-  makes #1048(a) read false progress. Refused.
+  closes a standing finding whose hunk was not read and makes #1048(a) read false
+  progress. Refused.
 
 - **Inside.** A finding is inside the delta when its `file` is a changed path and
   its `line` falls in a changed hunk of the `since..HEAD` diff for that path,
@@ -398,10 +427,14 @@ covering read in the second.
   `max_residual_severity_above` condition returns to an earlier phase (not the
   same phase, not a forward phase, not `stop` or a park), over the closed order
   `none < info < low < medium < high < critical`: an `above: low` return puts the
-  threshold at `medium`. If no such return rule exists, no outside finding forces
-  a whole read. A below-threshold outside finding is carried as a follow-up and
-  the PR names it; the threshold is read from the phase's own rules, not a
-  hard-coded severity.
+  threshold at `medium`. If no such return rule exists, no threshold derives, and
+  every blocking outside-delta finding — one above `low`, or one with
+  `security: true` — forces a whole read (`outside_threshold`). An outside finding
+  that is not blocking is carried as a follow-up and the PR names it; the threshold
+  is read from the phase's own rules, not a hard-coded severity. This arm is built in
+  the slice that first commissions a delta (0109c), not later with the panels: a
+  delta must arrive with the carry rule or a standing finding outside it would be
+  neither carried nor closed.
 - **Security.** A previous finding with `security: true` is never a follow-up. If
   it still stands it is blocking, its position takes a whole read
   (`standing_security`), and `has_security_residual` must be `true`; if the whole
@@ -429,9 +462,10 @@ unique across both; the engine derives the follow-ups from the previous
 `GateVisit` and the delta; the aggregate check is a typed refusal. Tests: a
 finding outside the changed hunk of a changed file is carried; a fileless finding
 stays standing and an inside-delta read's omission does not close it; an outside
-finding at or above the threshold forces a whole read, with `outside_threshold`
-journaled; a non-empty `findings` with the aggregate input absent is refused; a
-seat-supplied `follow_ups` is refused; a seat cannot declare a closure; a
+finding at or above the derived threshold forces a whole read, with
+`outside_threshold` journaled; where no threshold derives, a blocking outside
+finding forces a whole read; a non-empty `findings` with the aggregate input
+absent is refused; a seat-supplied `follow_ups` is refused; a seat cannot declare a closure; a
 follow-up closes only by a covering read; the understated-severity refusal; the
 false-security refusal; the standing-security block.
 
@@ -462,11 +496,15 @@ without a site and an id.
 for a code gate, `artifacts` for a spec gate.**
 
 - **`head`:** the commit the gate read, the base it compared against when one
-  resolves, and whether the worktree was dirty at the start. For the bundle's
-  protected phase, `covered.head` is a digest-pinned projection of the decide-time
-  head, not a third head authority. The `covered` record carries the head digest
-  (`sha256` of the head string) and the engine reads the head value from the
-  decide-time `reviewed_heads` (`crates/brokkr-runtime/src/engine/decide.rs:120-126`);
+  resolves, and whether the worktree was dirty at the start. The arm has two field
+  sets. A gate with its own head record writes
+  `{kind: "head", head: <commit id>, base: <id|null>, dirty: bool}`. The bundle's
+  protected phase writes `{kind: "head", head_digest: <sha256 of the head
+  string>, base: <id|null>, dirty: bool}`: its `covered.head` is a digest-pinned
+  projection of the decide-time head, not a third head authority. `head` and
+  `head_digest` are mutually exclusive and exactly one is required. The engine
+  reads the protected phase's head value from the decide-time `reviewed_heads`
+  (`crates/brokkr-runtime/src/engine/decide.rs:120-126`);
   the decide-time head is the authority. The two reads are equal by construction
   under the gate's stable-head check: the effect's start and end heads must agree
   (`crates/brokkr-runtime/src/engine.rs:942-968`, `:3219-3222`), the decide-time
@@ -516,9 +554,11 @@ same head, not a new head fact for the protected phase.
 
 **Binding:** `covered` is a tagged enum, each arm with required fields and
 `additionalProperties: false`; the engine stamps it before append and refuses a
-seat-supplied one; tests pin both arms, the derived kind, the dirty refusal, the
-unresolved-base refusal, the `phase/entered`/`reviewed_heads`/`covered` agreement
-for the protected phase, and the new record for a non-protected gate.
+seat-supplied one; tests pin both arms and both `head` field sets, the derived
+kind, the dirty refusal, the unresolved-base refusal, the
+`phase/entered`/`reviewed_heads`/`covered` agreement for the protected phase, the
+digest-mismatch refusal at decide (0109a), and the new record for a non-protected
+gate.
 
 ### 8. Where the read plan lives
 
@@ -532,14 +572,21 @@ The plan cannot live only in the input: the seat input is a pure function of
 repository cannot be rebuilt from a digest alone; recomputing it on recovery
 would compare a moved repository and park or shorten a read that was never
 decided. The payload is journaled and is the one durable home. At request time
-the engine computes the plan and the diff text, appends both under `read` with
+the engine computes the plan, appends it under `read` with
 `read_digest = sha256(plan)` and `input_digest`, and builds the seat input's `read`
-from the same plan and bytes. At append it checks both the payload and the input
-against `read_digest` and the diff digest; a mismatch refuses. The seat reads the
-input's copy; the view reads the payload; the engine decides from the payload.
-There is one home and one derived, digest-pinned projection. The diff text has
-that same home: it is journaled in the `read` payload and carried in the seat
-input, so recovery reads the bytes that were decided, never a fresh `git diff`.
+from the same plan. At append it checks both the payload and the input against
+`read_digest`; a mismatch refuses. The seat reads the input's copy; the view reads
+the payload; the engine decides from the payload. There is one home and one
+derived, digest-pinned projection.
+
+The diff text follows the taken kind. A **taken delta** journals the capped diff
+text in the `read` payload and carries it in the seat input, so recovery reads the
+bytes that were decided, never a fresh `git diff`. A **shadow** read (`taken:
+full`) journals the shadow plan and the diff's digest and byte count, not its
+text: the measurement needs the size, and the text would grow the journal on every
+re-visit with no cap while no seat reads it. The shadow's cost is therefore a plan
+and a digest, and the cap `delta_bytes_gt` is enforced on the text only when a
+delta is taken (0109c).
 
 The `read` object names the **taken** kind separately from the **shadow** plan:
 `taken` is `full` or `delta`, and `shadow` is the plan a delta would have used,
@@ -555,57 +602,106 @@ readout counts `taken`; the shadow is a measurement, not a verdict.
 gate-read v1 extension schema under `contracts/` (proposed), and a test that the
 payload plan and the input projection cannot disagree: a mutated payload fails
 `read_digest`, and a recovery rebuilt from the journal yields the same input. A
-fold test rebuilds `GateVisit` from the journal alone. A new event is refused: it
-needs an `event-envelope` version and moves every digest.
+fold test rebuilds `GateVisit` from the journal alone. A shadow journal carries
+the plan and the diff digest but no diff text; a taken delta's text is journaled,
+capped, and recovery reads it rather than a fresh `git diff`. A new event is
+refused: it needs an `event-envelope` version and moves every digest.
 
 ### 9. What the delta commission carries, and how the engine runs git
 
 **Recommended: (a) the engine computes the range since the covered head, the
 paths that still differ from the base, the unified diff for those paths, and the
-standing findings; every diff read is hardened against repo-controlled drivers.**
+standing findings; every diff read is isolated from the repository's
+configuration, attributes, hooks and remotes.**
 
 The engine composes: (1) `since` is the previous covered revision; if it is not an
 ancestor of HEAD, the read is full (`ancestor_lost`). (2) `base` is the current
 merge-base of HEAD and the default branch; if none resolves, the read is full
-(`base_unknown`). (3) The changed paths are `git diff --name-only since..HEAD`,
-kept only where `git diff --name-only base...HEAD` also names the path; a path the
+(`base_unknown`). (3) The changed paths are the `since..HEAD` name-only set,
+kept only where the `base...HEAD` name-only set also names the path; a path the
 base touched and the branch still differs from is read whole — the since..HEAD
 diff of that path — which over-reads a mixed file rather than under-reading it,
 and a clean merge of the base leaves no path and owes no re-read. (4) The diff is
-`git diff since..HEAD --` over those paths, with `-U3`, capped by
+the `since..HEAD` patch over those paths, with `-U3`, capped by
 `delta_files_gt` and `delta_bytes_gt`; over either cap is a whole read. (5) The
 commission carries the `read` plan, the diff text, and the standing findings with
 their keys, locators and severities. A security-class site takes the whole read
 instead (ruling 11). A spec gate follows ruling 12's file-level plan instead of
 the git range.
 
-The diff and name-only reads never run a repository-controlled program. The
-engine has one new `git_diff` helper. The existing head reads are bare
-`git rev-parse HEAD` and `git cat-file` calls with no scrub
-(`crates/brokkr-runtime/src/engine/worktree.rs:33-42`;
-`crates/brokkr-runtime/src/engine.rs:3186-3200`); the helper and the scrub below
-are new, and this decision borrows only their call shape. It always runs:
+**The isolation rule.** No git command of the delta read reads any configuration,
+attribute driver, hook or remote of the operated repository: each runs in a
+scratch git directory the engine makes for the read, started from an environment
+the engine constructs, reaching the repository's objects only through
+`objects/info/alternates`, and given commit ids rather than refs, and a missing
+object fails the read closed. That sentence is the build's test, and it is true by
+construction rather than by a list of flags:
 
-```text
-git -c core.fsmonitor=false --no-pager diff --no-ext-diff --no-textconv -U3 ...
-git -c core.fsmonitor=false --no-pager diff --no-ext-diff --no-textconv --name-only ...
-```
+- **The scratch.** One directory under the run-local `scratch/` tree
+  (`crates/brokkr-runtime/src/engine.rs:1021`, `:3167-3169`), named by the read
+  digest, holding two small files: `HEAD`, a constant `ref: refs/heads/main` that
+  names no commit (the operated repository's HEAD is never copied into it), and
+  `objects/info/alternates`, one line naming the operated repository's object
+  directory. That path is resolved from the worktree's `.git` (a directory, or a
+  file naming the git dir) and that git dir's `commondir` file when it names one:
+  a path read, never a config read. It has no `config` file: there is no local
+  configuration, and
+  `GIT_CONFIG_NOSYSTEM=1`, `GIT_CONFIG_GLOBAL=/dev/null` and
+  `GIT_CONFIG_COUNT=0` leave no system or global one. It has no worktree and no
+  index, so the operated repository's worktree `.gitattributes`, hooks, filters
+  and fsmonitor file are not in its view; a committed `.gitattributes` it can read
+  from the tree names a driver, but the scratch holds no driver config for one to
+  run. Cost: one directory and those two small files per
+  read; it is removed by a guard after the read, success or failure, and a crash
+  leaves it under the run-local tree the run's cleanup owns.
+- **The command.** The engine has one new `git_diff` helper at the runtime edge.
+  It runs plumbing, not porcelain, with the ids:
 
-with a scrubbed environment: `GIT_CONFIG_NOSYSTEM=1`, `GIT_CONFIG_GLOBAL=/dev/null`,
-`GIT_CONFIG_COUNT=0`, `GIT_EXTERNAL_DIFF` removed, and `-c core.fsmonitor=false`.
-`--no-ext-diff` disables every external diff driver, both `diff=<driver>` in
-`.gitattributes` and `diff.<driver>.command` in config; `--no-textconv` disables
-every textconv; `--no-pager` and `core.fsmonitor=false` mean no repo config names
-a program on this path. A planted `diff=` driver, a textconv and a
-`diff.<driver>.command` in `.git/config` run nothing: the test writes a sentinel
-that neither driver may touch. The engine's non-diff reads (rev-parse, merge-base,
-cat-file) use a new scrubbed `git_query` helper of the same form, without the diff
-flags. The
-dirty-worktree read (`crates/brokkr-runtime/src/engine/worktree.rs:45-47`) uses
-the same scrub and `-c core.fsmonitor=false` for `git status --porcelain`, without
-the diff flags. A clean filter named in the operated repository's `.gitattributes`
-can still run for `status`; that is a separate, pre-existing surface named here as
-a follow-up, and it cannot shorten a read: a dirty worktree is a whole read.
+  ```text
+  git --git-dir=<scratch> -c core.fsmonitor=false -c core.attributesFile=/dev/null \
+      --no-pager diff-tree -r --name-only --no-commit-id <since> <head> [-- <paths>]
+  git --git-dir=<scratch> -c core.fsmonitor=false -c core.attributesFile=/dev/null \
+      --no-pager diff-tree -r -p -U3 --no-ext-diff --no-textconv \
+      --ignore-submodules=all --no-commit-id <since> <head> -- <paths>
+  ```
+
+  The child environment is constructed, not inherited: `GIT_DIR` is the scratch,
+  `PATH` is the engine's, then `GIT_CONFIG_NOSYSTEM=1`,
+  `GIT_CONFIG_GLOBAL=/dev/null`, `GIT_CONFIG_COUNT=0`, `GIT_ATTR_NOSYSTEM=1` and
+  `GIT_NO_LAZY_FETCH=1`. No other `GIT_*` variable reaches it, so
+  `GIT_EXTERNAL_DIFF`, `GIT_CONFIG_KEY_*`, `GIT_SSH_COMMAND` and `GIT_ASKPASS`
+  cannot be planted from outside. `--no-ext-diff`, `--no-textconv`,
+  `--ignore-submodules=all`, `-c core.fsmonitor=false`, `-c
+  core.attributesFile=/dev/null` and `GIT_NO_LAZY_FETCH=1` are belts over the
+  construction, not the construction itself.
+- **The object reads.** The new scrubbed `git_query` helper runs `merge-base` and
+  `cat-file -e` in the same scratch with the same environment and ids. A missing
+  object makes the command fail; the read is whole and nothing is fetched. The
+  engine resolves `HEAD` and the default-branch tip to ids before the read:
+  `HEAD` through the effect's existing stable-head check
+  (`crates/brokkr-runtime/src/engine.rs:942-968`, `:3219-3222`), the default branch
+  through the bundle's default-branch name. That ref read is a ref-to-id
+  observation, not part of the delta read; it is not widened here, and a moved
+  head parks before a verdict.
+- **No refs.** Every revision argument is a full lowercase hex object id from the
+  engine's own read; the helper refuses anything that is not one before it starts
+  git, so a ref name and an option-shaped revision are data it never passes. A
+  path travels only after `--`, as a pathspec. The scratch's constant `HEAD` is
+  the only ref file, so no ref of the operated repository is resolved in the read.
+- **The alternates chain.** A repository may itself carry
+  `objects/info/alternates`; the scratch follows that chain to more objects and
+  nothing else. A chain target's config, attributes and hooks are not read, and a
+  chain that cannot supply an object fails the read closed.
+
+The dirty-worktree read (`crates/brokkr-runtime/src/engine/worktree.rs:45-47`)
+stays out of the delta read: it is a separate observation of the operated
+worktree, run before the plan under the same scrubbed environment and
+`-c core.fsmonitor=false`, and a dirty result is a whole read. It can still run a
+clean filter named in the operated repository's `.gitattributes`; that is the
+pre-existing surface named here as a follow-up, and it cannot shorten a read,
+because a dirty worktree is a whole read and a clean one is the only state that
+reaches the scratch. A moved head is a park, so neither pre-read can turn into a
+shortened delta.
 
 No model computes a delta or chooses which paths to omit. A dirty worktree is a
 whole read before step 1. Whether a visit with an empty delta is skipped is
@@ -614,12 +710,28 @@ files changed. A seat may run git for its own checks, but the engine never reads
 the seat's diff as the delta; the commission's diff is the engine's.
 
 **No alternative offered:** the engine must own the range and the diff, because a
-seat-run `git diff` cannot prove what the seat read. Cost: one git helper, one
-plan and one hardening test. **Binding:** a pure delta/range planner over a small
-repository port, with the git calls at the runtime edge; the plan is journaled and
-projected as ruling 8 says, so recovery reads it; tests pin the exact path set for
-an ordinary fix, a base merge, an empty delta, a rewritten history, both caps,
-and the planted driver/textconv run nothing.
+seat-run `git diff` cannot prove what the seat read. A flag list leaves the
+sources in place and asks each new flag to close the last path found open; the
+scratch is the simpler form because it removes the sources rather than filtering
+them. Cost: one git helper, one scratch directory per read, one plan and the planted-sentinel
+matrix. **Binding:** a pure delta/range planner over a small repository port, with
+the git calls at the runtime edge; the plan is journaled and projected as ruling 8
+says, so recovery reads it; tests pin the exact path set for an ordinary fix, a
+base merge, an empty delta, a rewritten history and both caps; and, for `git_diff`
+and `git_query` alike, each planted sentinel stays absent — a `diff=` driver, a
+textconv, a `diff.<driver>.command`, the submodule `diff.submodule=diff` case
+with the submodule's own `diff.external`, the promisor case with
+`extensions.partialClone` and `remote.<n>.uploadpack`, `filter.<driver>.clean`
+and `filter.<driver>.process`, `core.fsmonitor`, `core.hooksPath`, an
+`info/attributes` driver, an environment-carried `GIT_EXTERNAL_DIFF` and
+`GIT_CONFIG_*`, and an alternates chain whose target names a driver. Each plant
+has a control that runs the command that would fire it without the rule — the
+unhardened diff, `git add`, `git status`, `git commit`, or the operated-repo
+`cat-file` — so every sentinel is shown live. The promisor read's failure is
+pinned as fail-closed: a non-zero exit, the object still missing, and a whole
+read. The scratch's own shape is pinned too: it has no config, its `HEAD` names
+no commit, a ref-shaped revision is refused, and a positive control prints the
+changed path and text.
 
 ### 10. The whole-read triggers and their home
 
@@ -637,7 +749,7 @@ read, a v2 table may not carry `reads`, and a v1 table never opts in.**
 | `worktree_dirty` | the worktree is dirty at commission time or the previous visit recorded it dirty | a commit-only delta over uncommitted bytes |
 | `artifact_missing` | a declared artifact glob matches no file, or a covered file is gone | a file delta over an absent file |
 | `standing_security` | a previous finding with `security: true` still stands | carrying a security finding as a follow-up |
-| `outside_threshold` | a carried outside-delta finding's severity is at or above the phase's return threshold | carrying a return-worthy finding as a follow-up |
+| `outside_threshold` | a carried outside-delta finding is at or above the phase's return threshold, or is blocking where no threshold derives | carrying a return-worthy finding as a follow-up |
 | `delta_files_gt` | the changed path count is over the declared N | an unbounded diff |
 | `delta_bytes_gt` | the diff bytes are over the declared N | an unbounded input |
 | `delta_touches` | any changed path matches a declared glob | a delta read over a protected surface |
@@ -665,6 +777,34 @@ path, and a pattern containing `..` or an absolute path is refused. A pattern
 that matches nothing is not a load error; for an artifact glob it is
 `artifact_missing`, and for `delta_touches` it simply matches no path.
 
+**The entry's shape.** A `reads` entry is closed data:
+
+```json
+"reads": {
+  "analyze": {
+    "sites": {
+      "check": {
+        "read": "delta",
+        "delta_files_gt": 50,
+        "delta_bytes_gt": 262144,
+        "delta_touches": ["contracts/**", "policy/**"],
+        "artifacts": ["specs/**"]
+      }
+    }
+  }
+}
+```
+
+`reads` maps a phase name to an entry; an entry has only `sites`, a map from the
+tag grammar above to a site policy; both maps refuse an unknown key and an unknown
+phase or tag. A site policy has `read`, required and exactly `delta` or `whole`.
+A `whole` site policy carries no other key. A `delta` site policy may carry
+`delta_files_gt` and `delta_bytes_gt` (positive integers), `delta_touches` (globs)
+and, only on a spec gate, `artifacts` (globs); an unknown key refuses. The planner
+takes a `ReadLimits { files, bytes }` parameter whose defaults are 50 files and
+262144 bytes; the entry overrides them, and 0109b tests the planner with explicit
+values before 0109c exposes them in the schema.
+
 The home is a top-level `reads` map because the read is decided **before** the
 effect, while `when` is evaluated **after** the result, at the transition. Putting
 the read policy in `when` would give one fact two homes and ask a post-effect
@@ -681,10 +821,13 @@ recipe-bundle field are the refused alternatives above. A `forge.phase-machine/v
 table may carry `reads`; a v2 table carrying it is
 refused at load, and a v1 table is read as it is and never opts in. The frozen
 production table `policy/phase-machine.json` is `forge.phase-machine/v1` and stays
-a whole read on every gate. Each opting recipe's `policy.json` moves to v3; a
-table without a `reads` entry for a gate phase is a whole read, so a recipe opts
-in. The spec gate's plan and its re-arm rule are ruling 12's; they are not
-repeated here.
+a whole read on every gate. Each opting recipe's `policy.json` moves to v3, and a
+recipe whose own table composes over an opted-in table moves its table to v3 in
+the same slice: `merge_table` refuses layers with different schemas
+(`crates/brokkr-runtime/src/bundle/compose.rs:817-838`), so a v3 layer over a v2
+base, or the reverse, refuses at load. A table without a `reads` entry for a gate
+phase is a whole read, so a recipe opts in one phase at a time. The spec gate's
+plan and its re-arm rule are ruling 12's; they are not repeated here.
 
 The operator's `whole_read` is a journaled `operator/commanded` command scoped to
 a run and a phase, consumed by exactly the next visit; it is not a recipe flag and
@@ -717,22 +860,40 @@ A site is security-class when at least one of these holds:
    The agent's file name, charter path, panel member key, step name and office
    string are never read for this class (0107 at
    `docs/decisions/0107-a-scoped-gate-grant.md:68` and `:111`).
-2. **Its charter or role permits `security-hold`, read as a declared result set.**
-   A single seat or a sequence step declares `results` in its bundle that include
-   `security-hold`; a panel member declares no result set of its own
-   (`crates/brokkr-runtime/src/bundle/site_form.rs:425-444`), so the member's hired
-   agent declares the same permission as a typed `results` list in its definition,
-   and the compiler reads that list. The charter is prose and is never parsed;
-   `agents/review-adversarial.json` gains `results: ["clean", "residual",
+2. **Its declared result set permits `security-hold`.** Clause 2 reads an
+   executing site's own `results` or, for a panel member, its hired agent's typed
+   `results` list. A single seat, or a sequence step with its own `agent`,
+   executes; a panel, sequence or select container does not, and its `results` are
+   the aggregate's or the case's, so clause 2 is never read on a container. That
+   keeps triage's and gpt-flash's `positions` steps — panel containers whose
+   results include `security-hold` — from whole-reading the very members ruling 2
+   binds; their members are classified one by one. A panel member declares no
+   result set of its own (`crates/brokkr-runtime/src/bundle/site_form.rs:425-444`),
+   so its agent declares the permission as a typed `results` list in its
+   definition, and the compiler reads that list. The charter is prose and is never
+   parsed. `agents/review-adversarial.json` gains `results: ["clean", "residual",
    "security-hold"]` because its charter permits the hold
-   (`agents/charters/review-adversarial.md:19-22`), and `gpt-flash-review-adversarial`
-   inherits it through `extends`. The member sits at `recipes/triage/bundle.json:61`
-   and `recipes/gpt-flash/bundle.json:187-188`; without the declaration it would be
-   delta-eligible, which is the gap this clause closes. The `results` list is inherited through
-   `extends` and is not an overlay key, so an overlay cannot remove a hold from
-   it; an overlay that needs to add the class writes `security: true`. This is the
-   clause that holds a member whose charter lets it hold but whose definition does
-   not claim the security office.
+   (`agents/charters/review-adversarial.md:19-22`);
+   `agents/review-security.json` gains the same three words, because its charter
+   permits the hold (`agents/charters/review-security.md:16-20`) and
+   `security: true` alone makes it security-class but does not make its own hold a
+   lawful result. `gpt-flash-review-adversarial` and
+   `gpt-flash-review-security` inherit both fields through `extends`.
+   The list binds. A panel member's compiled result set is its agent's list, and
+   the engine refuses a member result outside that set as malformed, so the
+   security member's `security-hold` is lawful and its high finding is admitted.
+   A single seat compiles its own bundle `results`; the loader refuses a seat
+   result its hired agent's list does not admit, so the agent list is a ceiling,
+   never a floor, and a seat that hires an agent declaring no list is unchanged.
+   The `results` list is inherited through `extends` and is not an overlay key, so
+   an overlay cannot remove a hold from it; an overlay that needs to add the class
+   writes `security: true`. The member's sites are
+   `recipes/triage/bundle.json:61` (class `gate`, so the delta-eligible adversarial
+   member) and `recipes/gpt-flash/bundle.json:187-188` (class `work`: only
+   gpt-flash's `chief` step is a gate, so that member takes no delta; its word is
+   still bound as a panel member, below). This is the clause that holds a member
+   whose charter lets it hold but whose definition does not claim the security
+   office.
 3. **It is the sole REVIEW position of its selected body.** The role is
    structural, the one 0107 derives from the `SiteKey`
    (`crates/brokkr-runtime/src/bundle/site_key.rs:75-207`): the selected body has
@@ -753,30 +914,47 @@ remove `security-hold` from a declared result set.
 
 A panel whose phase can end in `security-hold` must hold at least one
 security-class member, or every member whole-reads. "Can end in" is declared data:
-the seat or step's `results` include `security-hold`, or the panel's aggregate
-result set does. This closes the undeclared security slot: a panel with no
+the gate seat's `results` include `security-hold` (a panel step's `results` are
+its aggregate and are read here, not by clause 2), or the panel's aggregate result
+set does. This closes the undeclared security slot: a panel with no
 security-class member does not compile a delta; every member whole-reads. A
 security member hiring an agent that declares neither `security: true` nor
 `security-hold`, with no other class member in the panel, is therefore whole-read.
 The operator fixes the data; the engine never infers from the member key, the file
 name or the charter prose.
 
+A work-class site is not a verdict and takes no delta of its own. A work-class
+member of a review panel is the exception ruling 2 states: its word is joined into
+the review aggregate, so it is bound by ruling 2 whatever its class, but it is
+not a gate site and cannot be named in a `reads` entry. A `reads` tag that
+resolves to a work site refuses at load: there is no verdict of its own for a
+delta to shorten.
+
 The shipped effect is illustrative, because the compiler derives it. The single
 review seat of fast, brokkr-fast, node, preflight, release, review-first, self,
 standby, triage's `chore` case and verify declares `security-hold`, so it is
 whole-read; their overlays inherit the seat. In a mixed panel the correctness and
 spec-compliance members remain eligible for a delta; the security member is held
-by its agent's `security: true` (`review-security` gains it, and
-`gpt-flash-review-security` inherits through `extends`), and the adversarial member
-by its agent's declared `results`. The final `chief` step of triage's and
-gpt-flash's design and engine cases carries the seat's `security-hold` result set
-and is whole-read. The `verify` and `ship` exec gates are not class by clause 3 and
-may take a delta under ruling 9's git range. Self and release are whole-read on their
-single review seat by clauses 2 and 3. Only their agent,
-`agents/brokkr-reviewer.json`, lacks both residual inputs today; slice 0109d adds
-them there alone, one home (0071 ruling 5), and self and release inherit them. The
-fast, brokkr-fast, node and verify review agents already declare both
-(`agents/fast-reviewer.json:3`, `agents/brokkr-fast-reviewer.json:5`,
+by its agent's `security: true` (`review-security` gains it; the
+`gpt-flash-review-security` agent inherits through `extends`), and the
+adversarial member by its agent's declared `results`. The final `chief` step of
+triage's and gpt-flash's design and engine cases carries the seat's
+`security-hold` result set and is whole-read. gpt-flash's review `positions`
+members are all class `work`; only its `chief` step is a gate, so those members
+take no delta of their own, and their words are bound as panel members by ruling
+2. Triage's `positions` step is a panel container and is not class as a
+container; its security and adversarial members are class, and its correctness
+and spec-compliance members are not. The `verify` and `ship` exec gates are not
+class by clause 3, and no `reads` entry opts them in: an exec gate reports no
+findings, so ruling 6 makes every re-visit `clean_prior`, and they stay whole-read.
+Defining an exec gate's findings and its delta was the alternative, and is refused:
+the gate's cost is the script it runs, not a read of the tree, and making every
+script emit a typed findings array would add a contract for a read nothing
+shortens. Self and release are whole-read on their single review seat by clauses 2 and 3.
+Only their agent, `agents/brokkr-reviewer.json`, lacks both residual inputs today;
+slice 0109d adds them there alone, one home (0071 ruling 5), and self and release
+inherit them. The fast, brokkr-fast, node and verify review agents already declare
+both (`agents/fast-reviewer.json:3`, `agents/brokkr-fast-reviewer.json:5`,
 `agents/node-reviewer.json:4`, `agents/verify-reviewer.json:6`).
 
 **No alternative offered:** the three typed facts are the only ones the compiler
@@ -797,8 +975,16 @@ shapes; a test pins that a member key or an agent file name does not decide; a
 test pins the shipped whole-read set; a panel whose phase can end in
 `security-hold` with an undeclared security slot and no other class member
 whole-reads; the adversarial
-member is security-class through its declared results; an overlay cannot clear
-`security` and an overlay can set it; the analyze judge is delta-eligible.
+member is security-class through its declared results; the security member's
+`security-hold` plus a high security finding is admitted and its
+`security: true` alone would not admit it; a member result outside its agent's
+declared `results` is refused, and a single seat result its agent does not admit
+is refused; an overlay cannot clear `security` and an overlay can set it; the
+analyze judge is delta-eligible; triage's design and engine `positions` steps are
+not class as containers, while their security and adversarial members are class
+and their correctness and spec-compliance members are not; gpt-flash compiles its
+work-class review members under ruling 2's word binding and names no delta for
+them.
 
 ### 12. Spec review, grounding and analysis are file-level
 
@@ -815,7 +1001,13 @@ whole, each unchanged file is not re-read, a new match is read whole, and a
 missing file is a whole read. `analyze` (`recipes/triage/policy.json:36-40`) takes
 the same plan as a spec review; the recipe's dialect still owns section markers,
 the claims a section makes, and the split of grounding results into `unquoted`,
-`noted` and `contradicted`. `#1089` is that split, in `#1035`'s pack; when it
+`noted` and `contradicted`. The analyze judge's charter
+(`agents/charters/analyst.md:3-4`) orders a whole read today, though analyze is
+the first gate 0109c makes delta-eligible: 0109c amends it to name the read kind
+and the delta, and binds the text. Clarify is a spec gate, but no `reads` entry
+opts it in in 0109c, so `agents/charters/clarifier.md` keeps its whole read until
+a later slice names the clarify gate; the slice that opts it in amends that
+charter with it. `#1089` is that split, in `#1035`'s pack; when it
 lands it reads this decision's `covered` and `findings` for its `ground` phase.
 This decision does not design it.
 
@@ -912,15 +1104,17 @@ test column.
 
 | Slice | What it builds | Files touched (rough) | Size | Contract changes | Tests it adds |
 |---|---|---|---|---|---|
-| 0109a | The finding key, the covered head, the v7 result, the word binding to findings and the declared aggregate, and the read-back; no routing change. | a new seat-record v7 schema under `contracts/` (a new version file beside v6, never an edit to v6); a new findings module under `crates/brokkr-core/src/`; `crates/brokkr-core/src/fold.rs`; `crates/brokkr-runtime/src/engine.rs`; `crates/brokkr-runtime/src/engine/decide.rs`; `crates/brokkr-runtime/src/bundle/aggregate.rs`; `crates/brokkr-protocol/src/adapters.rs`; a new `crates/brokkr-view/src/residual_findings.rs`; `crates/brokkr-cli/src/render.rs` | about 1,050 lines with tests | seat-record v7 (proposed, minted on acceptance) | v7 closes the result and the finding/covered records with `additionalProperties: false` and `$defs`, and admits `result`, `inputs`, `notes`, `state` and the accounting fields, and the four report fields; a v6 record with a v7 field refused; v7 variants and the refusal text; a seat-supplied `covered`/`follow_ups` refused; engine-stamped `covered` on the head arm and its required fields; the protected `phase/entered`/`reviewed_heads`/`covered` digest agreement; the new record for a non-protected gate; a moved line, a reworded summary and a moved file; a duplicate id; an id outside the pattern; a seat-supplied `site`; a panel's member findings joined with each member's site; a v6 result reads unkeyed; no path builds a `FindingKey` without a site and an id; the closed non-passing enum marks `residual`, `drift`, `ambiguous`, `clean-unverified`, `fail` and `security-hold` non-passing, `clean`, `pass`, `consistent`, `clear`, `ready` and `shipped` passing, and an unnamed word passing; `clean` plus a declared high residual and no finding refused; `clean` plus `has_security_residual: true` refused; `clean` omitting a declared aggregate input refused; an absent or unknown aggregate severity refused; `clean` from a seat that declares no residual inputs admitted; `clean` plus one high security finding refused, never shipped; `clean` plus a non-security blocking finding refused; `security-hold` plus a high security finding admitted; `residual` plus a blocking finding admitted; `clean` plus an engine-carried `follow_ups` admitted; `consistent` plus a blocking finding refused; a correctness member's `security: true` finding refused and parks; `inspect` prints the findings and covered |
-| 0109b | The shadow delta: compute the range, paths, diff digest, diff text and standing set on every re-visit, journal the plan it would use, but still commission a full read; the git hardening; the per-visit record and `compare()`. | a new delta/set module under `crates/brokkr-core/src/`; `crates/brokkr-core/src/fold.rs`; `crates/brokkr-runtime/src/engine/input.rs`; `crates/brokkr-runtime/src/engine.rs`; `crates/brokkr-runtime/src/engine/worktree.rs`; `crates/brokkr-view/src/analytics.rs`; a new gate-read v1 schema under `contracts/` | about 600 lines with tests | gate-read v1 (proposed) | a first visit has no shadow and journals `first_visit`; a v6-shaped previous result forces a full read with `unkeyed_result`; a clean previous verdict forces `clean_prior`; a second visit names the exact paths; a base merge removes base-only paths; an empty delta; a rewritten history; both caps; a planted `diff=` driver, a textconv and a `diff.<driver>.command` in `.git/config`, and the delta read runs neither; the payload plan and the input projection cannot disagree; a mutated payload fails `read_digest`; a recovery rebuilt from the journal yields the same input; the diff text is journaled and recovery reads it rather than a fresh `git diff`; a new event is refused; a shadow-era journal never counts a full read as a delta; `GateVisit` records `findings` and `follow_ups`; `compare()` over the union pins equal, moved, reworded, closed and only-grew; a fold test rebuilds `GateVisit` from the journal with both arrays; a follow-up carried in the first visit is still carried or closed by a covering read in the second; the potential saving in `analytics` |
-| 0109c | The read policy and the triggers: a phase-machine v3 `reads` map, the closed trigger enum, the glob matcher, the security-class derivation and its refusal, the spec file-level plan, the artifacts arm and derived kind, and a delta commission for one non-security gate (the analyze gate first); the delta-eligible charters and the prompt text that names the read kind and the delta. | a new phase-machine v3 schema under `contracts/`; `crates/brokkr-core/src/policy.rs` and its condition module; a new glob module under `crates/brokkr-core/src/`; `crates/brokkr-runtime/src/engine/input.rs`; `crates/brokkr-runtime/src/engine.rs`; `crates/brokkr-runtime/src/bundle/` (the security-class derivation, the artifacts arm and the agent loader's `security` and `results` fields); `crates/brokkr-runtime/src/agents.rs`; `crates/brokkr-runtime/src/agents/load/`; `agents/review-security.json` (`security: true`); `agents/review-adversarial.json` (`results` with `security-hold`); `agents/charters/review-correctness.md`; `agents/charters/review-spec-compliance.md`; `crates/brokkr-protocol/src/adapters.rs`; `recipes/triage/policy.json` (moves to v3 with the analyze `reads` entry) | about 900 lines with tests | phase-machine v3 (proposed) | every trigger, including `outside_threshold` and its derived threshold; an unknown trigger refused; a v1 table read as it is and never opted in; a v2 table carrying `reads` refused; an absent `reads` is full; the analyze gate's delta and its whole-read fallbacks; the analyze judge is delta-eligible; the spec file-level delta (a changed artifact file read whole, an unchanged one not re-read, a new match read whole, a missing file a whole read); the spec re-arm rule; the artifacts arm records each matched file's digest and the read plan carries the glob set; the derived kind; the dirty refusal and the unresolved-base refusal; the security-class derivation for the declared result set, the sole review position and the typed agent office; a delta mark refused on each; a member key or agent file name does not decide; the shipped whole-read set; a panel whose phase can end in `security-hold` with an undeclared security slot and no other class member whole-reads; the adversarial member is security-class; an overlay cannot clear `security` and an overlay can set it; the glob matcher; a `select`-case tag resolves to one site and an ambiguous bare tag refuses; the correctness and spec-compliance charters bind the read kind and the delta; a security-class charter keeps its whole read |
-| 0109d | Review panels, standing security and follow-ups: the engine carries outside-delta findings, refuses an understated or false aggregate, whole-reads a security position, gives the one single-review agent both residual inputs, and opts the fast family's verify and ship gates in. | `crates/brokkr-runtime/src/bundle/aggregate.rs`; `crates/brokkr-runtime/src/engine/decide.rs`; `crates/brokkr-runtime/src/engine/input.rs`; `crates/brokkr-core/src/fold.rs`; `agents/brokkr-reviewer.json` (both residual inputs, one home; self and release inherit); `recipes/fast/policy.json` (moves to v3 with `reads` entries for `verify` and `ship`; `review` is absent and stays whole-read); `recipes/panel-review/policy.json`; `recipes/preflight/policy.json` (each moving to v3 and naming its read policy) | about 650 lines with tests | none new; v7 admits `follow_ups` from 0109a | an outside-hunk finding carried; a fileless finding stays standing and an inside-delta read's omission does not close it; an outside finding at or above the threshold forces a whole read with `outside_threshold`; a seat cannot declare a closure and a seat-supplied `follow_ups` is refused; a follow-up closes only by a covering read; a carried follow-up is not closed; a standing security finding blocks and forces full; a non-empty `findings` with the aggregate input absent refused; the understated-severity refusal; the false-security refusal; a mixed panel's security member whole-reads and its correctness and spec-compliance members delta-read; a panel's follow-ups are named; self and release compile with both residual inputs; fast's verify and ship gates take a delta and its review seat stays whole-read; two consecutive delta visits, with a finding carried in the first still carried or closed by a covering read in the second |
+| 0109a | The finding key, the covered head, the v7 result, the word binding to findings and the declared aggregate, and the read-back; no routing change. | a new seat-record v7 schema under `contracts/` (a new version file beside v6, never an edit to v6); a new findings module under `crates/brokkr-core/src/`; `crates/brokkr-core/src/fold.rs`; `crates/brokkr-runtime/src/engine.rs`; `crates/brokkr-runtime/src/engine/decide.rs`; `crates/brokkr-runtime/src/bundle/aggregate.rs`; `crates/brokkr-protocol/src/adapters.rs`; a new `crates/brokkr-view/src/residual_findings.rs`; `crates/brokkr-cli/src/render.rs`; `agents/charters/reviewer.md`; `agents/charters/verify-reviewer.md`; `agents/charters/node-reviewer.md`; `agents/charters/review-chief.md`; `recipes/preflight/roles/reviewer.md`; `recipes/review-first/roles/reviewer.md`; `recipes/standby/roles/reviewer.md` (each clean names `none` and `false`) | about 1,150 lines with tests | seat-record v7 (proposed, minted on acceptance) | v7 closes the result and the finding/covered records with `additionalProperties: false` and `$defs`, and admits `result`, `inputs`, `notes`, `state`, the accounting fields and the three gate report fields; a v6 record with a v7 field refused; v7 variants and the refusal text; a seat-supplied `covered`/`follow_ups` refused; engine-stamped `covered` on the head arm and both `head` field sets; the protected `phase/entered`/`reviewed_heads`/`covered` digest agreement and the digest-mismatch refusal at decide; the new record for a non-protected gate; a moved line, a reworded summary and a moved file; a duplicate id; an id outside the pattern; a seat-supplied `site`; a panel's member findings joined with each member's site; a v6 result reads unkeyed; no path builds a `FindingKey` without a site and an id; the closed non-passing enum marks `residual`, `drift`, `ambiguous`, `clean-unverified`, `fail`, `security-hold`, `upstream` and `escalate` non-passing, `clean`, `pass`, `consistent`, `clear`, `ready` and `shipped` passing, and an unnamed word (an operator's own) passing while its findings still refuse it; `clean` plus a declared high residual and no finding refused; `clean` plus `has_security_residual: true` refused; `clean` omitting a declared aggregate input refused; an absent or unknown aggregate severity refused; `clean` from a seat that declares no residual inputs admitted; `clean` plus one high security finding refused, never shipped; `clean` plus a non-security blocking finding refused; `security-hold` plus a high security finding admitted; `residual` plus a blocking finding admitted; `clean` plus an engine-carried `follow_ups` admitted; `consistent` plus a blocking finding refused; a correctness member's `security: true` finding refused and parks; the panel aggregate writes both inputs on an all-clean panel; an all-clean panel admitted; a charter-shaped clean (`clean`, `none`, `false`) admitted; a work-class panel member's `clean` over a declared high residual refused; a member that omits a declared input refused; `inspect` prints the findings and covered |
+| 0109b | The shadow delta: compute the range, paths, diff digest, diff size and standing set on every re-visit, journal the plan and digest it would use, but still commission a full read; the scratch git dir and the planted-sentinel matrix; the per-visit record and `compare()`. | a new delta/set module under `crates/brokkr-core/src/`; a new `crates/brokkr-runtime/src/engine/delta_git.rs` (the scratch `git_diff`/`git_query` helpers); `crates/brokkr-core/src/fold.rs`; `crates/brokkr-runtime/src/engine/input.rs`; `crates/brokkr-runtime/src/engine.rs`; `crates/brokkr-runtime/src/engine/worktree.rs`; `crates/brokkr-view/src/analytics.rs`; a new gate-read v1 schema under `contracts/` | about 700 lines with tests | gate-read v1 (proposed) | a first visit has no shadow and journals `first_visit`; a v6-shaped previous result forces a full read with `unkeyed_result`; a clean previous verdict forces `clean_prior`; a second visit names the exact paths; a base merge removes base-only paths; an empty delta; a rewritten history; both caps with explicit `ReadLimits` values; the scratch has no config and no copied ref, its `HEAD` names no commit, and a ref-shaped revision is refused; a positive control prints the changed path and text; for `git_diff` and `git_query` alike, each planted sentinel stays absent: a `diff=` driver, a textconv, a `diff.<driver>.command`, the submodule `diff.submodule=diff` case with the submodule's own `diff.external`, the promisor case with `extensions.partialClone`/`remote.<n>.promisor`/`uploadpack`, `filter.<driver>.clean` and `.process`, `core.fsmonitor`, `core.hooksPath`, an `info/attributes` driver, an environment-carried `GIT_EXTERNAL_DIFF`/`GIT_CONFIG_*`, and an alternates chain whose target names a driver; each plant has a control that runs the command that would fire it without the rule and the sentinel fires; the promisor read fails closed (non-zero, object still missing, whole read); the shadow journal carries the plan and the diff digest but no diff text; the payload plan and the input projection cannot disagree; a mutated payload fails `read_digest`; a recovery rebuilt from the journal yields the same input; a new event is refused; a shadow-era journal never counts a full read as a delta; `GateVisit` records `findings` and `follow_ups`; `compare()` over the union pins equal, moved, reworded, closed and only-grew; a fold test rebuilds `GateVisit` from the journal with both arrays; a follow-up carried in the first visit is still carried or closed by a covering read in the second; the potential saving in `analytics` |
+| 0109c | The read policy and the triggers: a phase-machine v3 `reads` map, the closed trigger enum, the glob matcher, the security-class derivation and its refusal, the spec file-level plan, the artifacts arm and derived kind, the carry rule, and a delta commission for one non-security gate (the analyze gate first); the v3 move of fast and every table that composes over it; the delta-eligible charters and the prompt text that names the read kind and the delta. | a new phase-machine v3 schema under `contracts/`; `crates/brokkr-core/src/policy.rs` and its condition module; a new glob module under `crates/brokkr-core/src/`; `crates/brokkr-runtime/src/engine/input.rs`; `crates/brokkr-runtime/src/engine.rs`; `crates/brokkr-runtime/src/bundle/` (the security-class derivation, the artifacts arm and the agent loader's `security` and `results` fields); `crates/brokkr-runtime/src/agents.rs`; `crates/brokkr-runtime/src/agents/load/`; `agents/review-security.json` (`security: true` and `results`); `agents/review-adversarial.json` (`results` with `security-hold`); `agents/charters/review-correctness.md`; `agents/charters/review-spec-compliance.md`; `agents/charters/analyst.md` (names the read kind and the delta); `crates/brokkr-protocol/src/adapters.rs`; `recipes/fast/policy.json` (moves to v3 with no `reads` entry yet); `recipes/triage/policy.json` (v3 with the analyze `reads` entry); `recipes/node/policy.json`, `recipes/review-first/policy.json`, `recipes/landing/policy.json`, `recipes/panel-review/policy.json` (their own v2 tables move to v3 with fast, because one composition shares one schema) | about 1,000 lines with tests | phase-machine v3 (proposed) | every trigger, including `outside_threshold` and its derived threshold; an unknown trigger refused; a v1 table read as it is and never opted in; a v2 table carrying `reads` refused; an absent `reads` is full; the analyze gate's delta and its whole-read fallbacks; the analyze judge is delta-eligible; the spec file-level delta (a changed artifact file read whole, an unchanged one not re-read, a new match read whole, a missing file a whole read); the spec re-arm rule; the artifacts arm records each matched file's digest and the read plan carries the glob set; the derived kind; the dirty refusal and the unresolved-base refusal; the carry rule: an outside-hunk finding is carried, not closed, and a blocking outside finding where no threshold derives forces a whole read with `outside_threshold`; a fileless finding stays standing; the taken delta's diff text is journaled, capped, and recovery reads it rather than a fresh `git diff`; the security-class derivation for the declared result set, the sole review position and the typed agent office; a delta mark refused on each; a member key or agent file name does not decide; the shipped whole-read set; a panel whose phase can end in `security-hold` with an undeclared security slot and no other class member whole-reads; the adversarial member is security-class; the security member's `security-hold` plus a high security finding is admitted; a member result outside its agent's declared `results` is refused and a single-seat result its agent does not admit is refused; an overlay cannot clear `security` and an overlay can set it; the glob matcher; a `select`-case tag resolves to one site and an ambiguous bare tag refuses; triage's design and engine `positions` steps are not class as containers; gpt-flash's work-class review members are bound by ruling 2 and name no delta; the correctness, spec-compliance and analyst charters bind the read kind and the delta; a security-class charter keeps its whole read; `recipes/triage`, `recipes/fast`, `recipes/node`, `recipes/review-first`, `recipes/landing` and `recipes/panel-review` compose after the v3 move |
+| 0109d | Review panels, standing security and follow-ups: the engine rejects an understated or false aggregate, whole-reads a security position, closes a follow-up only by a covering read, gives the one single-review agent both residual inputs, and names the panel and preflight read policies. | `crates/brokkr-runtime/src/bundle/aggregate.rs`; `crates/brokkr-runtime/src/engine/decide.rs`; `crates/brokkr-runtime/src/engine/input.rs`; `crates/brokkr-core/src/fold.rs`; `agents/brokkr-reviewer.json` (both residual inputs, one home; self and release inherit); `recipes/panel-review/policy.json`; `recipes/preflight/policy.json` (each v3, naming its read policy; panel-review's table moved in 0109c) | about 650 lines with tests | none new; v7 admits `follow_ups` from 0109a | a fileless finding stays standing and an inside-delta read's omission does not close it; a blocking outside-delta finding with a derived threshold forces a whole read with `outside_threshold`; a seat cannot declare a closure and a seat-supplied `follow_ups` is refused; a follow-up closes only by a covering read; a carried follow-up is not closed; a standing security finding blocks and forces full; a non-empty `findings` with the aggregate input absent refused; the understated-severity refusal; the false-security refusal; a mixed panel's security member whole-reads and its correctness and spec-compliance members delta-read; a panel's follow-ups are named; self and release compile with both residual inputs; fast's verify and ship gates stay whole-read (`clean_prior`, no delta); two consecutive delta visits, with a finding carried in the first still carried or closed by a covering read in the second |
 | 0109e | The readouts and the operator one-shot: `analytics` full/delta/trigger counts, `inspect`'s read cell and visit number, `operator whole-read`. | `crates/brokkr-view/src/analytics.rs`; `crates/brokkr-view/src/lib.rs`; `crates/brokkr-cli/src/render.rs`; the operator verb under `crates/brokkr-cli/src/verbs/`; `crates/brokkr-core/src/fold.rs` (the fourth `OperatorCommand` variant and the phase argument) | about 450 lines with tests | none new | full/delta/trigger counts; `unrecorded` for a journal with no read record; the `inspect` line with the visit number and the read cell; the public-API snapshot moves only for the added view fields; the operator command is one-shot and phase-scoped; no operator command can widen a security refusal |
 
 The order is buildable: a gives b the key and the covered identity, b gives c the
 measurement and the planner, c gives d the policy and the plan, and d gives e the
-verdict facts it paints. Each slice moves the decision's `Built:` marker and the
+verdict facts it paints. c moves fast and every table that composes over it in one
+step, because `merge_table` refuses mixed schemas; d then adds the panel and
+preflight read policies over the v3 base. Each slice moves the decision's `Built:` marker and the
 index cell only when its tests pass. The first slice is recommended because it
 commissions no delta: its only new outcome is a malformed verdict parking, and the
 next field sweep can compare the shadow delta's size with the full read it still
@@ -937,25 +1131,27 @@ The saving is the adopter's figure, not a promise: if a review re-visit reads on
 the fix diff and the standing findings, the 29% code-review share and the 55% spec
 share have room to fall where the changes are small. The cost is a contract
 version, a new read plan in every gate's request, a delta computation that runs
-git in the engine, and triggers a recipe author must choose. The refusal that
+git in the engine, a scratch git directory per read, and triggers a recipe author
+must choose. The refusal that
 keeps the saving honest is that a security-class position and a standing security
 finding never take the delta, and a clean verdict never licenses one.
 
 The effect is uneven by design. Every single review seat that declares
 `security-hold` whole-reads, and a mixed panel's security and adversarial members
-whole-read too; the `verify` and `ship` exec gates are not review positions and
-may take a delta. The saving lands in the spec and analyze gates, in the `verify`
-and `ship` gates, and in the correctness and spec-compliance members of a mixed
-panel, not in the security member. That is the fail-closed shape the findings
-asked for: the floor misses no seat that can hold for security, and a panel with
-no security-class member whole-reads.
+whole-read too; the `verify` and `ship` exec gates are not review positions, and
+they stay whole-read because an exec gate reports no findings, so every re-visit
+is `clean_prior`. The saving lands in the spec and analyze gates and in the
+correctness and spec-compliance members of a mixed panel, not in the security
+member and not in the exec gates. That is the fail-closed shape the decision
+keeps: the floor misses no seat that can hold for security, and a panel with no
+security-class member whole-reads.
 
 The residual risks are named rather than hidden. A delta read trusts the prior
 verdict: a finding no one reported is not in the standing set, and re-reading only
 the delta will not find it; the whole-read triggers are the operator's bound on
 that cost. A seat can reword a finding and give it a new id: the old key closes and
-the new opens, so #1048(a) reads progress; the standing sets and the readout's
-per-key diff make it visible, but the engine does not guess a fuzzy match. A dirty
+the new opens, so #1048(a) reads progress; the `GateVisit` standing sets and
+`compare()` make it visible, but the engine does not guess a fuzzy match. A dirty
 worktree or an unresolved base forces a whole read, so some re-visits save nothing:
 a delta that cannot prove its range is not a delta. The readout counts only
 journals that carry the `read` record; older runs read `unrecorded`, never zero.
