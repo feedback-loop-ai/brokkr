@@ -16,17 +16,6 @@ use time::{Duration, OffsetDateTime};
 use super::*;
 use crate::engine::Engine;
 
-/// The fixture deadline for a test whose fake driver must outlast a loaded
-/// host (this round's four load-flaky fixtures): the attempt deadline is
-/// unrelated to what those tests prove, so it is generous, as 4d1's
-/// neighbours are.
-pub(super) fn patient(attempts: u64) -> Limits {
-    Limits {
-        max_attempts: attempts,
-        timeout_seconds: 30,
-    }
-}
-
 /// The instant a test's clock reads when its run starts.
 fn start_of(now: &Arc<Mutex<OffsetDateTime>>) -> OffsetDateTime {
     *now.lock().unwrap()
@@ -808,7 +797,12 @@ fn a_non_empty_sites_refusal_extends_and_reprobes_the_answered_member() {
     let dir = tempfile::tempdir().unwrap();
     let body = retried_two_route_panel(dir.path(), Probed::Answer, Probed::RefuseThenAnswer);
     let mut engine = started(dir.path(), body, work(2));
-    engine.cooldown.host = Some(route_host(dir.path(), (2, 20), (3, 20)));
+    // Each first wait ends far past any load (#1110): the test's clock
+    // stands at the run's start while the attempt runs, and the store
+    // writes no row whose end the terminal's wall-clock stamp has passed.
+    // b's 90s ends after a's 60s, and its doubled second round ends at
+    // 90 + 180 = 270s, inside the 600s maximum.
+    engine.cooldown.host = Some(route_host(dir.path(), (60, 600), (90, 600)));
     let (mut engine, now) = with_clock(engine);
     let start = *now.lock().unwrap();
     engine.drive().unwrap();
@@ -839,7 +833,7 @@ fn a_non_empty_sites_refusal_extends_and_reprobes_the_answered_member() {
     assert_eq!(probes[0]["site"], "a", "{seen}");
     assert_eq!(probes[1]["site"], "b", "{seen}");
     assert!(
-        answered_at(&probes[0]) >= start + Duration::seconds(9),
+        answered_at(&probes[0]) >= start + Duration::seconds(270),
         "the answered member's first answer stood in for its second: {probes:?}{seen}"
     );
 }

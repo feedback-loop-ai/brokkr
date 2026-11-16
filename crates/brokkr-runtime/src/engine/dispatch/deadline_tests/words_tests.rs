@@ -146,7 +146,7 @@ fn pin_step(engine: &mut Engine, step: &str, candidate: &Candidate) {
 /// unreadable host, and return its `effect/failed` words.
 fn step_error(dir: &Path, step: SequenceStep, candidate: &Candidate) -> String {
     let name = step.name.clone();
-    let mut engine = sequence_engine(dir, vec![step], 1, Some(dir.to_path_buf()));
+    let mut engine = sequence_engine(dir, vec![step], PATIENT, Some(dir.to_path_buf()));
     pin_step(&mut engine, &name, candidate);
     engine.drive().unwrap();
     terminal(&engine, EventType::EffectFailed, "error")
@@ -166,7 +166,7 @@ fn dialect_words(
     event: EventType,
     field: &str,
 ) -> String {
-    let mut engine = dialect_engine(dir, vec!["true".into()], 1, Some(dir.to_path_buf()));
+    let mut engine = dialect_engine(dir, vec!["true".into()], PATIENT, Some(dir.to_path_buf()));
     engine.bundle.executable = engine_bin;
     engine.drive().unwrap();
     terminal(&engine, event, field)
@@ -214,7 +214,7 @@ fn two_step_error(
     host: Option<PathBuf>,
 ) -> String {
     let name = step.name.clone();
-    let mut engine = sequence_engine(dir, with_unreachable_step(step), 1, host);
+    let mut engine = sequence_engine(dir, with_unreachable_step(step), PATIENT, host);
     pin_step(&mut engine, &name, candidate);
     engine.drive().unwrap();
     terminal(&engine, EventType::EffectFailed, "error")
@@ -371,7 +371,7 @@ fn a_panels_unreadable_host_is_named_once_in_a_failing_panels_words() {
             panel_member("a", failed_driver(dir.path())),
             panel_member("b", failed_driver(dir.path())),
         ],
-        1,
+        PATIENT,
         Some(dir.path().to_path_buf()),
     );
     engine.drive().unwrap();
@@ -433,7 +433,7 @@ fn an_unspawned_panel_member_under_an_invalid_host_names_the_host_once() {
     let mut engine = solo_panel(
         dir.path(),
         panel_member("doomed", vec!["brokkr-no-such-driver-430".into()]),
-        1,
+        PATIENT,
         Some(file.clone()),
     );
     engine.drive().unwrap();
@@ -452,9 +452,14 @@ fn an_unspawned_panel_member_under_an_invalid_host_names_the_host_once() {
 #[test]
 fn a_panel_that_was_not_deadline_killed_keeps_todays_words() {
     let dir = tempfile::tempdir().unwrap();
-    // The floor raises the attempt to two seconds, but the member exits
-    // before the watchdog: the joined reason is untouched.
-    let mut engine = raised_solo_panel(dir.path(), panel_member("gone", exited_driver(dir.path())));
+    // The floor raises the attempt past the seat's limit, but the member
+    // exits before the watchdog: the joined reason is untouched.
+    let mut engine = solo_panel(
+        dir.path(),
+        panel_member("gone", exited_driver(dir.path())),
+        PATIENT,
+        Some(host(dir.path(), Some(PATIENT_FLOOR))),
+    );
     engine.drive().unwrap();
     let reason = terminal(&engine, EventType::EffectIndeterminate, "reason");
     assert_eq!(
@@ -549,13 +554,13 @@ fn a_dialect_steps_unreadable_host_is_named_once_in_its_words() {
 #[test]
 fn a_sequence_panel_steps_unraised_member_keeps_todays_words() {
     let dir = tempfile::tempdir().unwrap();
-    // The floor raises the step to two seconds, but the member exits
-    // before the watchdog: the joined reason is untouched.
+    // The floor raises the step past the seat's limit, but the member
+    // exits before the watchdog: the joined reason is untouched.
     let mut engine = panel_step_engine(
         dir.path(),
         vec![panel_member("gone", exited_driver(dir.path()))],
-        1,
-        Some(host(dir.path(), Some(2))),
+        PATIENT,
+        Some(host(dir.path(), Some(PATIENT_FLOOR))),
     );
     engine.drive().unwrap();
     let reason = terminal(&engine, EventType::EffectIndeterminate, "reason");
@@ -569,7 +574,12 @@ fn a_sequence_panel_steps_unraised_member_keeps_todays_words() {
 fn a_sequences_missing_change_names_an_unreadable_host_once() {
     let dir = tempfile::tempdir().unwrap();
     let step = dialect_step("validate", vec!["validator".into(), "{change}".into()]);
-    let mut engine = sequence_engine(dir.path(), vec![step], 1, Some(dir.path().to_path_buf()));
+    let mut engine = sequence_engine(
+        dir.path(),
+        vec![step],
+        PATIENT,
+        Some(dir.path().to_path_buf()),
+    );
     engine.drive().unwrap();
     let reason = terminal(&engine, EventType::EffectIndeterminate, "reason");
     assert!(
@@ -585,8 +595,9 @@ fn a_sequences_missing_change_names_an_unreadable_host_once() {
 #[test]
 fn a_sequences_unraised_early_ending_keeps_todays_words() {
     let dir = tempfile::tempdir().unwrap();
-    // The floor raises the attempt to two seconds, but the step returns an
-    // out-of-vocabulary word before the watchdog: the deadline is not named.
+    // The floor raises the attempt past the seat's limit, but the step
+    // returns an out-of-vocabulary word before the watchdog: the deadline
+    // is not named.
     let (step, candidate) = single_step(
         "draft",
         succeeded_driver(dir.path(), r#"{"result":"halt"}"#),
@@ -595,7 +606,7 @@ fn a_sequences_unraised_early_ending_keeps_todays_words() {
         dir.path(),
         step,
         &candidate,
-        Some(host(dir.path(), Some(2))),
+        Some(host(dir.path(), Some(PATIENT_FLOOR))),
     );
     assert_eq!(
         error,
@@ -717,7 +728,7 @@ fn an_unreadable_host_is_named_in_the_refused_outcome_a_single_attempt_settles_o
         "refused-checkpoint.sh",
         &format!("{REFUSED_CHECKPOINT}{SUCCEEDED_RESULT}"),
     );
-    let mut engine = attempt(dir.path(), Some(dir.path().to_path_buf()), script, 1);
+    let mut engine = attempt(dir.path(), Some(dir.path().to_path_buf()), script, PATIENT);
     engine.drive().unwrap();
     let error = terminal(&engine, EventType::EffectFailed, "error");
     assert!(error.starts_with("seat record at journal seq "), "{error}");

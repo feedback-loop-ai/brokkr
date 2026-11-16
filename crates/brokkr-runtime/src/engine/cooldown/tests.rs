@@ -38,10 +38,40 @@ pub(super) fn bare_engine(dir: &Path, attempts: u64) -> Engine {
     started(dir, single_body(vec!["unused".into()]), work(attempts))
 }
 
+/// The seat's limits where its deadline is not what the test proves: far
+/// past any load, so only the clock the test drives decides the rounds
+/// (#1110, as #1099's item 4 did for the sealing tests).
 fn work(attempts: u64) -> Limits {
     Limits {
         max_attempts: attempts,
+        timeout_seconds: 60,
+    }
+}
+
+/// The seat's limits where a probe's lateness is what the test proves: a
+/// short deadline, which the hanging probe's `sleep 30` outlives.
+fn late(attempts: u64) -> Limits {
+    Limits {
+        max_attempts: attempts,
         timeout_seconds: 2,
+    }
+}
+
+/// The limits a seat whose probes do `probed` is given: the short one only
+/// where a probe hangs to be ended by its deadline.
+fn limits_for(probed: Probed, attempts: u64) -> Limits {
+    match probed {
+        Probed::Hang => late(attempts),
+        Probed::Answer
+        | Probed::Refuse
+        | Probed::Error
+        | Probed::Unadvertised
+        | Probed::Barrier
+        | Probed::HangThenAnswer
+        | Probed::RefuseThenAnswer
+        | Probed::OtherRefusal
+        | Probed::MalformedRefusal
+        | Probed::BarrierRefuse => work(attempts),
     }
 }
 
@@ -293,13 +323,22 @@ fn logs(dir: &Path, tag: &str) -> Vec<String> {
 
 /// What a failed fixture assertion prints, so a failure says why (#1110):
 /// the journal's event types in order with each failure's words and
-/// refusals, every member shim's own log and the shared one, and the
+/// refusals, each panel member's outcome and any cleanup left unproven,
+/// every member shim's own log and the shared one, and the
 /// deadline each seat's attempt and probe were given.
 pub(super) fn witness(engine: &Engine, dir: &Path, members: &[&str]) -> String {
     let mut seen = String::from("\njournal:");
     for event in engine.store.load(&engine.run_id).unwrap() {
         seen.push_str(&format!("\n  {} {}", event.seq, event.event_type.as_str()));
-        for field in ["error", "reason", "refused", "waits"] {
+        for field in [
+            "checkpoint",
+            "error",
+            "reason",
+            "refused",
+            "cleanup",
+            "unresolved_members",
+            "waits",
+        ] {
             if let Some(value) = event.payload.get(field) {
                 seen.push_str(&format!("\n    {field}: {value}"));
             }
@@ -448,15 +487,15 @@ fn clock_acting(
 /// v2 host file and the run's own clock. A test that needs another host
 /// replaces it after this returns.
 macro_rules! seated {
-    (@in $dir:expr, $body:expr, $attempts:expr) => {{
-        let mut engine = started($dir.path(), $body, work($attempts));
+    (@in $dir:expr, $body:expr, $limits:expr) => {{
+        let mut engine = started($dir.path(), $body, $limits);
         engine.cooldown.host = Some(host($dir.path(), 1, 10));
         let (engine, now) = with_clock(engine);
         ($dir, engine, now)
     }};
     ($body:expr, $attempts:expr) => {{
         let dir = tempfile::tempdir().unwrap();
-        seated!(@in dir, $body, $attempts)
+        seated!(@in dir, $body, work($attempts))
     }};
     ($verdicts:expr, $probed:expr, $retry:expr, $attempts:expr) => {{
         let dir = tempfile::tempdir().unwrap();
@@ -469,7 +508,7 @@ macro_rules! seated {
             "claude",
             "first",
         );
-        seated!(@in dir, single_body(command), $attempts)
+        seated!(@in dir, single_body(command), limits_for($probed, $attempts))
     }};
 }
 
@@ -558,7 +597,7 @@ fn the_witness_names_the_journal_the_shims_and_the_deadlines() {
         "\n  5 effect/failed\n    error: \"provider refused; stderr tail: \"\n    waits: [{",
         "\n  6 effect/started\n  7 effect/succeeded\n",
         "\nshims:\n  work: [\"attempt:refuse\", \"probe\", \"attempt:succeed\"]\n  all: [",
-        "\n  work: 2s per attempt and probe, 2 attempts",
+        "\n  work: 60s per attempt and probe, 2 attempts",
     ] {
         assert!(seen.contains(line), "{line:?} is not in:{seen}");
     }
@@ -605,7 +644,7 @@ fn a_probe_that_starts_then_errors_parks_without_a_retry() {
 fn the_probe_asks_the_cooled_route_and_the_retry_takes_the_next_link() {
     let dir = tempfile::tempdir().unwrap();
     let body = two_route_body(dir.path(), &["refuse"], &["succeed"]);
-    let (dir, mut engine, _now) = seated!(@in dir, body, 2);
+    let (dir, mut engine, _now) = seated!(@in dir, body, work(2));
     engine.drive().unwrap();
     assert_eq!(logs(dir.path(), "claude"), ["attempt:refuse", "probe"]);
     assert_eq!(logs(dir.path(), "codex"), ["attempt:succeed"]);
@@ -620,7 +659,7 @@ fn a_one_candidate_chain_retries_the_cooled_route() {
     let dir = tempfile::tempdir().unwrap();
     let command = standard_command(dir.path());
     let body = chain(vec![candidate("claude", "claude/first", command)]);
-    let (dir, mut engine, _now) = seated!(@in dir, body, 2);
+    let (dir, mut engine, _now) = seated!(@in dir, body, work(2));
     engine.drive().unwrap();
     assert_eq!(
         logs(dir.path(), "work"),
@@ -784,7 +823,7 @@ fn an_accumulated_episode_past_the_maximum_parks() {
         "claude",
         "first",
     );
-    let mut engine = started(dir.path(), single_body(command), probe_rounds::patient(3));
+    let mut engine = started(dir.path(), single_body(command), work(3));
     engine.cooldown.host = Some(host(dir.path(), 2, 3));
     let (mut engine, _now) = with_clock(engine);
     drove(
@@ -1418,7 +1457,7 @@ fn a_resume_late_keeps_the_recorded_maximum_refusal() {
 fn an_episode_sums_each_routes_recorded_length() {
     let dir = tempfile::tempdir().unwrap();
     let body = two_route_body(dir.path(), &["refuse"], &["refuse", "succeed"]);
-    let mut engine = started(dir.path(), body, probe_rounds::patient(3));
+    let mut engine = started(dir.path(), body, work(3));
     engine.cooldown.host = Some(routes_host(dir.path()));
     let (mut engine, _now) = with_clock(engine);
     engine.drive().unwrap();

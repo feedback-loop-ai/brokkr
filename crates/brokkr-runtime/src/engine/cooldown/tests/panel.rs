@@ -248,7 +248,16 @@ pub(super) fn two_route_engine(
     attempts: u64,
 ) -> Engine {
     let body = two_route_panel(dir, a_verdicts, b_verdicts, a_probed, b_probed);
-    plain_engine(dir, body, attempts)
+    let mut engine = plain_engine(dir, body, attempts);
+    // The short deadline only where a member's probe hangs to be ended by
+    // it (#1110).
+    let limits = [a_probed, b_probed]
+        .map(|probed| limits_for(probed, attempts))
+        .into_iter()
+        .min_by_key(|limits| limits.timeout_seconds)
+        .expect("two members");
+    engine.bundle.seats.get_mut("work").unwrap().limits = limits;
+    engine
 }
 
 /// A panel bundle the crash tests rebuild in their resumed engine.
@@ -718,7 +727,9 @@ fn a_succeeded_member_beside_a_refused_one_re_runs_on_the_retry() {
 }
 
 /// A member whose first attempt is indeterminate and whose second succeeds:
-/// the operator retry's own case.
+/// the operator retry's own case. The first accepts and exits with no
+/// result, so it is indeterminate by itself and never waits for the
+/// seat's deadline (#1110).
 pub(super) fn indeterminate_once(dir: &Path, tag: &str) -> Vec<String> {
     let count = dir.join(format!("{tag}.count")).display().to_string();
     let log = dir.join(format!("{tag}.log")).display().to_string();
@@ -746,9 +757,8 @@ n=$((n+1)); printf '%s' "$n" > '{count}'
 printf '%s\n' 'attempt:indeterminate' >> '{log}'
 printf '%s:attempt:indeterminate\n' '{tag}' >> '{glog}'
 {accepted}
-if [ "$n" -gt 1 ]; then
-  {succeeded}
-fi
+[ "$n" -gt 1 ] || exit 0
+{succeeded}
 read -r bye
 "#
         ),
@@ -1350,6 +1360,14 @@ fn a_member_wait_the_panel_does_not_declare_refuses_by_name() {
 
 #[test]
 fn an_inline_members_own_command_is_probed_and_retried() {
+    // An orphan another test hands this binary's engine, its subreaper, reads
+    // as a stray of both members' attempts and leaves them unproven (#1110):
+    // the panel runs in an engine of its own.
+    let test =
+        "engine::cooldown::tests::panel::an_inline_members_own_command_is_probed_and_retried";
+    if !crate::engine::tests::in_its_own_engine(test) {
+        return;
+    }
     let dir = tempfile::tempdir().unwrap();
     let a = delayed_after(
         dir.path(),

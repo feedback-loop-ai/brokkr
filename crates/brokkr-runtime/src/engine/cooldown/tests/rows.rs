@@ -69,7 +69,9 @@ fn an_indeterminate_panel_records_the_refused_site() {
     let dir = tempfile::tempdir().unwrap();
     let a = indeterminate_once(dir.path(), "a");
     let body = b_only_panel(dir.path(), a);
-    let host = route_host(dir.path(), (10, 20), (10, 20));
+    // b's wait ends far past any load (#1110), so the row is in force when
+    // the indeterminate event records it.
+    let host = route_host(dir.path(), (60, 600), (60, 600));
     let mut engine = panel_engine(dir.path(), body, 2, host);
     engine.drive().unwrap();
 

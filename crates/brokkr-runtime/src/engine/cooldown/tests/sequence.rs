@@ -77,7 +77,7 @@ fn sequence(steps: Vec<SequenceStep>) -> SeatBody {
 
 /// A sequence engine with the standard host and a test clock.
 fn sequence_engine(dir: &Path, body: SeatBody, attempts: u64) -> Engine {
-    let mut engine = started(dir, body, super::probe_rounds::patient(attempts));
+    let mut engine = started(dir, body, work(attempts));
     engine.cooldown.host = Some(host(dir, 1, 10));
     with_clock(engine).0
 }

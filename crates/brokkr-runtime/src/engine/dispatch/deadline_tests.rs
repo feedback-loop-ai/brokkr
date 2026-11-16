@@ -591,6 +591,15 @@ fn started(dir: &Path, body: SeatBody, limits: Limits) -> Engine {
     Engine::start(store, compiled, "Feature", Some(dir.join("work"))).unwrap()
 }
 
+/// A seat limit far past any load (#1110): admission and provisioning
+/// spend the attempt's own deadline before its driver starts, so a case
+/// that does not test lateness never gives them a short one.
+const PATIENT: u64 = 60;
+
+/// A shared-local floor that raises [`PATIENT`] without the raised
+/// deadline ending the attempt.
+const PATIENT_FLOOR: u64 = 120;
+
 /// The one `work` single seat running `script` under `timeout`, its
 /// launched candidate pinned to the shared-local Spark route and its host
 /// file `host` where one is placed (an absent or unreadable one keeps the
