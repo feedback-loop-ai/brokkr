@@ -25,10 +25,13 @@ use crate::event_index::{CHECKPOINTED, CHECKPOINT_STALE};
 use crate::seat_summary::{lags as seat_lags, SHAPE};
 
 /// The arms the whole read takes: the stale-seat set or the rule, the
-/// read-time shape arm, and the checkpoint-stale arm. `run` names the key
-/// a window statement constrains an arm by, or `None` for the fallback's
-/// own enumeration. `shape` is this build's seat-shape bound.
-fn arms(intact: bool, shape: &str, run: Option<&str>) -> Vec<String> {
+/// read-time shape arm, and the checkpoint-stale arm. This is the one home
+/// of the exclusion: [`whole_read`] and [`fallbacks`] name these arms, and
+/// the stale-seat tests read them rather than spelling the set again.
+/// `run` names the key a window statement constrains an arm by, or `None`
+/// for the fallback's own enumeration. `shape` is this build's seat-shape
+/// bound.
+pub(crate) fn arms(intact: bool, shape: &str, run: Option<&str>) -> Vec<String> {
     let key = |column: &str| match run {
         Some(run) => format!(" AND {column} = {run}"),
         None => String::new(),

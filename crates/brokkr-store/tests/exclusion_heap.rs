@@ -24,6 +24,12 @@ const TO: i64 = FROM + 60_000;
 /// The operator's SQLite cap, 1,000 KiB (2026-11-13).
 const CAP: i64 = 1_024_000;
 
+/// The parks statement's measured 152,024 B plus a tenth, the tighter
+/// bound the operator's ruling asks for while that is under [`CAP`]. The
+/// classes' table costs one preparation whatever the journal holds; the
+/// figure is not a materialized set and does not follow the arm count.
+const PARKS_BOUND: i64 = 167_227;
+
 /// How much a volume measurement may exceed the ten-stale measurement:
 /// above the probes' per-row share and below the materialized set's growth
 /// at this size (about 1.4 MB).
@@ -126,10 +132,10 @@ fn journal(path: &Path, stale: usize) -> Store {
 }
 
 /// The window statements' SQLite heap does not grow with the stale set:
-/// 5,000 stale runs add no more than ten. The five compact statements stay
-/// under the operator's 1,024,000-byte cap besides; the parks statement's
-/// 64-arm preparation is a constant this unit does not move, and U5c's
-/// aggregate budget owns it.
+/// 5,000 stale runs add no more than ten. All six statements stay under the
+/// operator's 1,024,000-byte cap, and the parks statement, whose classes'
+/// table replaced sixty-four prepared arms in this unit, is held to its
+/// measured figure plus a tenth.
 #[test]
 fn the_exclusion_holds_no_stale_set_in_sqlite() {
     let dir = tempfile::tempdir().unwrap();
@@ -142,25 +148,26 @@ fn the_exclusion_holds_no_stale_set_in_sqlite() {
     eprintln!("SQLite high-water, 5,000 stale: {many:?}");
 
     // The exclusion's share is the growth over ten stale runs, not the
-    // statement's constant preparation. The five compact statements stay
-    // under the operator's cap besides; the parks statement's 64 ranges
-    // cost 2.58 MB to prepare whatever the journal holds, which U5c's
-    // aggregate budget and any arm restructuring own.
+    // statement's constant preparation.
     for (at, (few, lots)) in ten.iter().zip(&many).enumerate() {
         assert!(
             *lots - *few <= SLACK,
             "statement {at}: SQLite grew from {few} to {lots} bytes with the stale set"
         );
     }
-    for at in [0, 2, 3, 4, 5] {
+    for (at, figure) in many.iter().enumerate() {
         assert!(
-            many[at] < CAP,
-            "statement {at}: SQLite held {} bytes at 5,000 stale, past the {CAP} cap",
-            many[at]
+            *figure < CAP,
+            "statement {at}: SQLite held {figure} bytes at 5,000 stale, past the {CAP} cap"
         );
     }
     assert_eq!(
         many[1], ten[1],
         "the parks statement's preparation is the same at both sizes"
+    );
+    assert!(
+        many[1] < PARKS_BOUND,
+        "the parks statement: SQLite held {} bytes, past its measured figure's tenth ({PARKS_BOUND})",
+        many[1]
     );
 }

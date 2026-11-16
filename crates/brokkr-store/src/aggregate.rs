@@ -729,45 +729,48 @@ fn class_start(from: i64, class: u8) -> i64 {
     (from as i128 - reach).max(i64::MIN as i128) as i64
 }
 
-/// The parks' ranges, each arm seeking the partial index and the run
-/// summary's key, then one sort by phase and run. The run the whole read
-/// takes is left out of every arm by [`exclusion`]'s one fragment; the
-/// shape it binds is `?68`, after the sixty-three class starts.
+/// The closed span classes as one table, `(class, start)`: the parks'
+/// statement iterates it outermost and seeks the partial index once a
+/// class, so the exclusion is written once rather than copied into
+/// sixty-three arms (ruling 9's aggregate exception, as amended on
+/// 2026-11-13). Class 64, the open parks, stays its own arm because its
+/// only bound is the window's end.
+fn park_classes() -> String {
+    let rows: Vec<String> = (1u8..=63)
+        .map(|class| format!("({class}, ?{})", 4 + usize::from(class)))
+        .collect();
+    format!("classes(class, start) AS (VALUES {})", rows.join(", "))
+}
+
+/// The parks' ranges: the classes' table sought outermost, each class a
+/// key probe of the partial index and the run summary's key, then the open
+/// parks, then one sort by phase and run. The run the whole read takes is
+/// left out by [`exclusion`]'s one fragment; the shape it binds is `?68`,
+/// after the sixty-three class starts.
 fn park_statement(intact: bool) -> String {
     let unread = outside("s.");
     let not_whole = exclusion::not_whole("s.run_id");
-    let mut ranges: Vec<String> = (1u8..=63)
-        .map(|class| {
-            let start = 4 + usize::from(class);
-            format!(
-                "SELECT e.run_id, s.realm, e.phase, e.at_ms, e.answered_ms,
-                        coalesce(e.ended_ms, ?3) AS ended_ms, 0 AS open, e.seq AS seq
-                   FROM event_index AS e INDEXED BY event_index_park
-                   JOIN run_summary AS s ON s.run_id = e.run_id
-                   WHERE e.type = '{PARKED}' AND e.span_class = {class}
-                     AND e.at_ms >= ?{start} AND e.at_ms < ?2
-                     AND max(e.answered_ms, e.ended_ms) > ?1
-                     AND (?4 IS NULL OR s.realm = ?4) AND {unread} AND {not_whole}"
-            )
-        })
-        .collect();
-    ranges.push(format!(
-        "SELECT e.run_id, s.realm, e.phase, e.at_ms, e.answered_ms,
-                coalesce(e.ended_ms, ?3) AS ended_ms, 1 AS open, e.seq AS seq
-           FROM event_index AS e INDEXED BY event_index_park
-           JOIN run_summary AS s ON s.run_id = e.run_id
-           WHERE e.type = '{PARKED}' AND e.span_class = 64 AND e.at_ms < ?2
-             AND (?4 IS NULL OR s.realm = ?4) AND {unread} AND {not_whole}"
-    ));
-    // One sort over the ranges' rows: the phase, the run, the park's
-    // start, and its seq for a stable tie. The materialized CTEs collect
-    // the arms first, so SQLite sorts once rather than sorting every arm
-    // beside its merge.
     format!(
-        "WITH {whole}, parks AS MATERIALIZED ({}) SELECT * FROM parks
-         ORDER BY phase, run_id, at_ms, seq",
-        ranges.join(" UNION ALL "),
+        "WITH {whole}, {classes}, parks AS MATERIALIZED (
+            SELECT e.run_id, s.realm, e.phase, e.at_ms, e.answered_ms,
+                    coalesce(e.ended_ms, ?3) AS ended_ms, 0 AS open, e.seq AS seq
+               FROM classes AS c
+               CROSS JOIN event_index AS e INDEXED BY event_index_park
+               JOIN run_summary AS s ON s.run_id = e.run_id
+              WHERE e.type = '{PARKED}' AND e.span_class = c.class
+                AND e.at_ms >= c.start AND e.at_ms < ?2
+                AND max(e.answered_ms, e.ended_ms) > ?1
+                AND (?4 IS NULL OR s.realm = ?4) AND {unread} AND {not_whole}
+            UNION ALL
+            SELECT e.run_id, s.realm, e.phase, e.at_ms, e.answered_ms,
+                    coalesce(e.ended_ms, ?3) AS ended_ms, 1 AS open, e.seq AS seq
+              FROM event_index AS e INDEXED BY event_index_park
+              JOIN run_summary AS s ON s.run_id = e.run_id
+             WHERE e.type = '{PARKED}' AND e.span_class = 64 AND e.at_ms < ?2
+               AND (?4 IS NULL OR s.realm = ?4) AND {unread} AND {not_whole}
+         ) SELECT * FROM parks ORDER BY phase, run_id, at_ms, seq",
         whole = exclusion::clause(intact, "?68"),
+        classes = park_classes(),
     )
 }
 

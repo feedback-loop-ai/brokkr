@@ -487,31 +487,58 @@ fn measures(store: &Store) -> [i64; 6] {
     ]
 }
 
-/// Open a journal whose set is gone for reading, so its statements take
-/// the rule's arm, and measure them.
-fn by_rule(path: &std::path::Path) -> [i64; 6] {
-    let damaged = Connection::open(path).unwrap();
+/// How many summary rows finished inside the window: the one served run
+/// and the ten stale ones, whatever the current-run volume.
+fn window_rows(store: &Store) -> i64 {
+    store
+        .conn
+        .query_row(
+            "SELECT count(*) FROM run_summary
+              WHERE finished_ms >= ?1 AND finished_ms < ?2",
+            params![FROM, TO],
+            |row| row.get(0),
+        )
+        .unwrap()
+}
+
+/// Snapshot the one journal state, drop its set so its statements take the
+/// rule's arm, and measure them. A snapshot keeps the live journal's state
+/// untouched: both sizes are read with the ten stale runs still in the
+/// window, never after a writable open refolded them.
+fn by_rule(store: &Store, tag: &str) -> [i64; 6] {
+    let dir = tempfile::tempdir().unwrap();
+    let copy = dir.path().join(format!("{tag}.db"));
+    store
+        .conn
+        .execute("VACUUM INTO ?1", [copy.to_str().unwrap()])
+        .unwrap();
+    let damaged = Connection::open(&copy).unwrap();
     damaged.execute_batch("DROP TABLE seat_lag;").unwrap();
     drop(damaged);
-    let reader = Store::open_read_only(path).unwrap();
+    let reader = Store::open_read_only(&copy).unwrap();
+    assert_eq!(
+        window_rows(&reader),
+        11,
+        "{tag}: the window holds the served and ten stale runs"
+    );
     assert_eq!(
         whole(&reader).len(),
         10,
-        "the stale runs are the whole read"
+        "{tag}: the stale runs are the whole read"
     );
     measures(&reader)
 }
 
 /// The intact-set exclusion does not grow with the current runs: 1,000
 /// more current runs, outside the window and stale-free, leave every
-/// statement's VM steps no larger. They may fall when the planner takes the
-/// finished index at the larger size; the exclusion itself visits nothing
-/// for a current run. The rule's arm reads the journal's `run_summary` to
-/// find a lagging run, so its figures are reported at both sizes rather
-/// than held.
+/// statement's VM steps equal. Both sizes are measured on the one journal
+/// state, with the ten stale runs in the window at both, so the comparison
+/// is like for like; a writable open is never interposed. The rule's arm
+/// reads the journal's `run_summary` to find a lagging run, so its figures
+/// are reported at both sizes rather than held.
 #[test]
 fn the_intact_exclusion_does_not_grow_with_the_current_runs() {
-    let (dir, store) = store();
+    let (_dir, store) = store();
     plant(
         &store,
         &Planted {
@@ -529,23 +556,28 @@ fn the_intact_exclusion_does_not_grow_with_the_current_runs() {
     plant_stale(&store);
     let intact_base = measures(&store);
     eprintln!("intact 1,000: {intact_base:?}");
-    let path = dir.path().join("forge.db");
-    drop(store);
-
-    let rule_base = by_rule(&path);
+    assert_eq!(
+        window_rows(&store),
+        11,
+        "the window holds the served and ten stale runs at 1,000"
+    );
+    let rule_base = by_rule(&store, "rule-1,000");
     eprintln!("by rule 1,000: {rule_base:?}");
 
-    let store = Store::open(&path).unwrap();
     plant_current(&store, 1_001, 1_000, FROM - DAY);
+    assert_eq!(
+        window_rows(&store),
+        11,
+        "the window still holds the served and ten stale runs at 2,000"
+    );
     let intact_grown = measures(&store);
     eprintln!("intact 2,000: {intact_grown:?}");
-    drop(store);
-    let rule_grown = by_rule(&path);
+    let rule_grown = by_rule(&store, "rule-2,000");
     eprintln!("by rule 2,000: {rule_grown:?}");
 
     for (at, (before, after)) in intact_base.iter().zip(&intact_grown).enumerate() {
-        assert!(
-            after <= before,
+        assert_eq!(
+            after, before,
             "statement {at}: the intact exclusion grew with the current runs, {before} -> {after}"
         );
     }

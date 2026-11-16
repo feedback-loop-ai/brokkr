@@ -14,8 +14,9 @@
 //! moves and comes back leaves it again, and an update of a head is kept
 //! as a write is. The shape half stays a read-time comparison, because
 //! [`SHAPE`] is this build's constant and not the journal's:
-//! [`stale_runs`] unions the set with the heads whose shape is not this
-//! build's. The recommended index on `seat_head (shape)` cannot answer
+//! `crate::aggregate::exclusion::arms` unions the set with the heads whose
+//! shape is not this build's, and that is the exclusion's one home. The
+//! recommended index on `seat_head (shape)` cannot answer
 //! "not this shape" without walking every head of the current shape,
 //! since a range past the current value crosses every one of its
 //! duplicate entries. [`SHAPE_INDEX`] is therefore a partial index over
@@ -258,28 +259,32 @@ fn definitions() -> [(&'static str, String); 5] {
     ]
 }
 
-/// Drop whatever object holds the set's name: a table to the repair that
-/// expects one, and the VIEW a hand-repair may have left, which `DROP
-/// TABLE` refuses with "use DROP VIEW". A name no object holds drops
-/// nothing.
-fn drop_set(conn: &Connection) -> Result<(), StoreError> {
+/// Drop whatever object holds `name`: a table, the VIEW or the INDEX a
+/// hand-repair may have left, each by the statement SQLite requires.
+/// `DROP TABLE` refuses a view with "use DROP VIEW" and an index with
+/// "use DROP INDEX", so a repair that remakes a named object calls this
+/// first and a journal carrying the wrong kind of object at that name
+/// does not fail the open closed. A name no object holds drops nothing.
+pub(super) fn drop_named(conn: &Connection, name: &str) -> Result<(), StoreError> {
     let kind: Option<String> = conn
         .query_row(
             "SELECT type FROM sqlite_master
-              WHERE name = ?1 AND type IN ('table', 'view')",
-            [STALE],
+              WHERE name = ?1 AND type IN ('table', 'view', 'index')",
+            [name],
             |row| row.get(0),
         )
         .optional()?;
-    match kind.as_deref() {
-        Some("view") => conn.execute(&format!("DROP VIEW IF EXISTS {STALE}"), [])?,
-        Some("table") => conn.execute(&format!("DROP TABLE IF EXISTS {STALE}"), [])?,
-        _ => 0,
+    let statement = match kind.as_deref() {
+        Some("view") => format!("DROP VIEW IF EXISTS {name}"),
+        Some("table") => format!("DROP TABLE IF EXISTS {name}"),
+        Some("index") => format!("DROP INDEX IF EXISTS {name}"),
+        _ => return Ok(()),
     };
+    conn.execute(&statement, [])?;
     Ok(())
 }
 
-/// The table, the shape index and the triggers, after [`drop_set`] took
+/// The table, the shape index and the triggers, after [`drop_named`] took
 /// whatever object held the name: the table is remade, so a journal
 /// carrying one of another shape takes this build's, and each trigger is
 /// dropped and made anew, so a journal that lost one gets it back and one
@@ -328,7 +333,7 @@ fn fill() -> String {
 /// rule's seq-and-hash half, holding the write lock: the eighth additive
 /// repair.
 pub(crate) fn migrate_stale(conn: &Connection) -> Result<(), StoreError> {
-    drop_set(conn)?;
+    drop_named(conn, STALE)?;
     conn.execute_batch(&migration())?;
     conn.execute(&fill(), [])?;
     Ok(())
@@ -372,7 +377,7 @@ pub(super) fn shaped_head(conn: &Connection) -> Result<bool, StoreError> {
         conn,
         "seat_head",
         ["run_id", "folded_seq", "folded_hash", SHAPED],
-        "run_id",
+        &["run_id"],
     )
 }
 
@@ -380,7 +385,7 @@ pub(super) fn shaped_head(conn: &Connection) -> Result<bool, StoreError> {
 /// its columns, [`holds_keyed`]'s: a table of another shape, a column that
 /// is not the key, or a composite key fails.
 fn keyed(conn: &Connection) -> Result<bool, StoreError> {
-    holds_keyed(conn, STALE, ["run_id"], "run_id")
+    holds_keyed(conn, STALE, ["run_id"], &["run_id"])
 }
 
 /// Does every trigger this build writes carry this build's body? One read
@@ -424,25 +429,6 @@ pub(crate) fn stale_intact(conn: &Connection) -> Result<bool, StoreError> {
     Ok(keyed(conn)?
         && index.as_deref() == Some(shape_index_sql(false).as_str())
         && bodies_intact(conn)?)
-}
-
-/// The runs whose seat rows are stale, as one statement's fragment: the
-/// set by its key, unioned with the seat heads whose shape is not this
-/// build's (`shape` names that bound). The predicate names [`SHAPE`] as a
-/// literal so the planner finds [`SHAPE_INDEX`]; the read-time bound is
-/// kept beside it, so a journal carrying another build's index scans and
-/// answers this build's shape rather than trusting the index. The one home
-/// of what the write-side set and the read-time shape comparison together
-/// mean.
-#[cfg(test)]
-pub(crate) fn stale_runs(shape: &str) -> String {
-    format!(
-        "SELECT run_id FROM {STALE}
-         UNION
-         SELECT run_id FROM seat_head
-          WHERE shape IS NOT '{}' AND shape IS NOT {shape}",
-        SHAPE.as_str()
-    )
 }
 
 #[cfg(test)]

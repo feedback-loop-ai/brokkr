@@ -1090,10 +1090,13 @@ fn every_aggregate_read_is_indexed() {
     assert_park_plan(&taken);
 }
 
-/// The parks' one plan: the 64 ranges, each a key probe of the two seat
-/// keys and the checkpoint index, collected once and sorted once.
+/// The parks' one plan: the classes' table is the outermost source and
+/// the partial index is sought once per class by one plan node, the
+/// exclusion is one key probe per arm (the closed classes and the open
+/// class), and the ranges are collected once and sorted once. No journal
+/// table is scanned and no temporary B-tree holds the whole read.
 fn assert_park_plan(taken: &[String]) {
-    // The exclusion is key probes, never a materialized set: every arm
+    // The exclusion is key probes, never a materialized set: each arm
     // seeks the set's two keys and the checkpoint index by the run's key.
     assert!(!materializes_whole(taken), "{taken:?}");
     assert_eq!(
@@ -1104,42 +1107,76 @@ fn assert_park_plan(taken: &[String]) {
         1,
         "the ranges are collected once: {taken:?}"
     );
+    assert_eq!(
+        taken
+            .iter()
+            .filter(|step| step.as_str() == "CO-ROUTINE classes")
+            .count(),
+        1,
+        "the classes are one source: {taken:?}"
+    );
+    assert_eq!(
+        taken
+            .iter()
+            .filter(|step| step.as_str() == "SCAN 63 CONSTANT ROWS")
+            .count(),
+        1,
+        "the class table is a constant source: {taken:?}"
+    );
     for (probe, count) in [
-        ("SEARCH seat_lag USING PRIMARY KEY", 64),
-        ("SEARCH seat_head USING PRIMARY KEY", 64),
+        ("SEARCH seat_lag USING PRIMARY KEY", 2),
+        ("SEARCH seat_head USING PRIMARY KEY", 2),
         (
             "SEARCH event_index USING INDEX event_index_checkpoint_stale",
-            64,
+            2,
         ),
     ] {
         assert_eq!(
             taken.iter().filter(|step| step.contains(probe)).count(),
             count,
-            "{probe} in {taken:?}"
+            "{probe}, once an arm, in {taken:?}"
         );
     }
+    // One plan node seeks the parks' index per class through the co-routine,
+    // once for the closed classes and once for the open class. The closed
+    // search is the class's own `span_class` and reach.
     assert_eq!(
         taken
             .iter()
-            .filter(|step| step.contains("SEARCH e USING INDEX event_index_park"))
+            .filter(|step| {
+                step.contains("SEARCH e USING INDEX event_index_park") && step.contains("at_ms>?")
+            })
             .count(),
-        64,
-        "each arm seeks the parks' index: {taken:?}"
+        1,
+        "the closed classes seek the parks' index by class and reach: {taken:?}"
+    );
+    assert_eq!(
+        taken
+            .iter()
+            .filter(|step| {
+                step.contains("SEARCH e USING INDEX event_index_park") && !step.contains("at_ms>?")
+            })
+            .count(),
+        1,
+        "the open class seeks the parks' index by class alone: {taken:?}"
     );
     assert_eq!(
         taken
             .iter()
             .filter(|step| step.contains("SEARCH s USING INDEX sqlite_autoindex_run_summary_1"))
             .count(),
-        64,
+        2,
         "each arm joins the run summary by its key: {taken:?}"
     );
     assert!(
         taken
             .iter()
             .filter(|step| step.starts_with("SCAN "))
-            .all(|step| step.as_str() == "SCAN parks"),
-        "only the materialized park range is scanned: {taken:?}"
+            .all(|step| matches!(
+                step.as_str(),
+                "SCAN parks" | "SCAN 63 CONSTANT ROWS" | "SCAN c"
+            )),
+        "no journal table is scanned; the class source and the materialized parks alone: {taken:?}"
     );
     assert_eq!(
         taken
