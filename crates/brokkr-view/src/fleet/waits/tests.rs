@@ -253,3 +253,24 @@ fn the_run_view_derives_the_same_wait_and_the_same_later_end() {
         )]
     );
 }
+
+/// An inline seat's wait names no site, and a clock that does not read
+/// never ends a wait: its line carries no "(ended)".
+#[test]
+fn an_inline_wait_names_no_site_and_an_unreadable_clock_ends_none() {
+    let wait = Wait {
+        site: None,
+        provider: "dsh".to_string(),
+        route: "flash".to_string(),
+        until: "2026-01-01T00:00:00Z".to_string(),
+        words: "slow down".to_string(),
+    };
+    assert_eq!(
+        wait.line("not a clock"),
+        "wait      dsh/flash until 2026-01-01T00:00:00Z: slow down"
+    );
+    assert_eq!(
+        wait.line("2026-02-01T00:00:00Z"),
+        "wait      dsh/flash until 2026-01-01T00:00:00Z (ended): slow down"
+    );
+}

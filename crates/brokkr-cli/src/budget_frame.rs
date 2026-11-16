@@ -215,16 +215,9 @@ fn painted_text(mut tui: Tui, views: &Views, (width, height): (u16, u16)) -> Str
 pub fn console_run_view_for_budget(db: &Path, run: &str) -> Result<RunView, StoreError> {
     let store = Store::open_read_only(db)?;
     let now = crate::now_rfc3339();
-    Ok(console_with(
-        &store,
-        run,
-        Console::Run,
-        None,
-        None,
-        Reading::new(0, 0, &now),
-    )?
-    .0
-    .view())
+    let reading = Reading::new(0, 0, &now);
+    let console = console_with(&store, run, Console::Run, None, None, reading)?;
+    Ok(console.0.view())
 }
 
 /// The view the console's fleet detail pane paints of `run` at `rows`: the
@@ -239,16 +232,9 @@ pub fn console_detail_view_for_budget(
 ) -> Result<RunView, StoreError> {
     let store = Store::open_read_only(db)?;
     let now = crate::now_rfc3339();
-    Ok(console_with(
-        &store,
-        run,
-        Console::Detail,
-        None,
-        None,
-        Reading::new(rows, 0, &now),
-    )?
-    .0
-    .view())
+    let reading = Reading::new(rows, 0, &now);
+    let console = console_with(&store, run, Console::Detail, None, None, reading)?;
+    Ok(console.0.view())
 }
 
 /// The console's RUN level as it is first painted after `run` is selected

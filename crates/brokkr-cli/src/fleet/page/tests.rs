@@ -1941,3 +1941,27 @@ fn a_fold_refused_by_a_late_wait_is_not_painted_by_the_fleet_page() {
     assert!(row.waits.waits.is_empty(), "{:?}", row.waits);
     assert_eq!(row.waits.refused, None);
 }
+
+/// A row read whole from the Running lane lists in NeedsYou above the stale
+/// bound, and below it only where its fold places it in NeedsYou; in Recent
+/// and Older it always lists ([`lists_here`]'s other arms).
+#[test]
+fn a_whole_running_lane_row_lists_by_its_section_and_the_stale_bound() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    folded(&db, |conn| {
+        plant(conn, "running", Shape::Running, &stamp(now() - MINUTE));
+    });
+    let row = whole_rows(&db).remove(0);
+    assert_ne!(brokkr_view::section_of(&row, NOW), Section::NeedsYou);
+    let below = Some(row.place().0 + 1);
+    for (section, stale, lists) in [
+        (Section::NeedsYou, None, true),
+        (Section::NeedsYou, below, false),
+        (Section::Recent, below, true),
+        (Section::Older, None, true),
+    ] {
+        let listed = lists_here(&row, false, true, section, NOW, stale);
+        assert_eq!(listed, lists, "{section:?} with the stale bound {stale:?}");
+    }
+}
