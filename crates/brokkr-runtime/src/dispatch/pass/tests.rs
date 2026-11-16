@@ -972,3 +972,36 @@ fn a_store_refusal_while_judging_ends_the_pass_and_claims_nothing() {
     .unwrap_err();
     assert_store_refused(&fixture.store, entry, refused);
 }
+
+#[test]
+fn a_claim_whose_moved_run_does_not_fold_is_reported_and_stops_claims() {
+    use brokkr_core::EventType;
+
+    let (mut fixture, file, dispatcher, entries) = setup(1);
+    let entry = entries[0];
+    let path = fixture.store.path().to_path_buf();
+    let seams = Seams {
+        stands: move || {
+            let mut side = Store::open(&path).unwrap();
+            side.create_run("does-not-fold", "f", "b", &json!({}))
+                .unwrap();
+            side.append_next(
+                "does-not-fold",
+                EventType::PhaseEntered,
+                json!({"phase": "work"}),
+                None,
+                None,
+            )
+            .unwrap();
+            Ok(())
+        },
+        spawn: spawned_one,
+    };
+    let passed = run_pass(&mut fixture.store, &dispatcher, &file, seams).unwrap();
+    assert!(matches!(
+        passed.admission_refused,
+        Some(crate::admission::AdmissionError::Fold { .. })
+    ));
+    assert!(claims(&fixture.store).is_empty());
+    assert_eq!(state(&fixture.store, entry), EntryState::Queued);
+}
