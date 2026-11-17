@@ -941,6 +941,35 @@ fn a_hands_tree_with_no_lock_is_kept_and_reported() {
     assert_eq!(fixture.store.tree_sweeps().unwrap(), vec![]);
 }
 
+/// F3 of #430's 5c2 reviews: a dry run names the lockless hands tree a
+/// pass keeps, with the pass's own words, and neither removes it.
+#[test]
+fn a_dry_run_and_a_pass_name_a_kept_lockless_hands_tree_alike() {
+    let mut fixture = Fixture::new();
+    let tree = hands_tree(&fixture.tmp, exited_pid(), "lockless");
+    let line = format!(
+        "sweep: kept {}: its lock cannot be probed: it holds no lock file; trees from before \
+         #415 are no longer reaped (0.13.0)\n",
+        tree.display()
+    );
+
+    let planned = plan(&fixture.store).unwrap();
+
+    assert!(tree.exists());
+    assert_eq!(
+        planned.lines_with(safe, true),
+        format!("{line}sweep: would free 0 bytes\n")
+    );
+    let (swept, _) = pass_one(&mut fixture.store);
+    assert!(tree.exists());
+    assert_eq!(swept.kept(), planned.kept());
+    assert_eq!(
+        swept.lines_with(safe, false),
+        format!("{line}sweep: freed 0 bytes\n")
+    );
+    assert_eq!(fixture.store.tree_sweeps().unwrap(), vec![]);
+}
+
 #[test]
 fn a_dry_run_lists_what_a_pass_would_remove_without_removing_it() {
     let mut fixture = Fixture::new();

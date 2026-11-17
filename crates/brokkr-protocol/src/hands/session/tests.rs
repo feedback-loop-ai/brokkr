@@ -525,6 +525,35 @@ fn a_lockless_tree_is_kept_and_said_and_a_held_one_kept() {
     assert!(locked.join(LOCK).is_file());
 }
 
+/// The listing's kept half is the reaping's: a lockless tree is named with
+/// the words the reaping keeps it with, beside the tree it would remove,
+/// and the listing removes neither.
+#[test]
+fn the_listing_keeps_what_the_reaping_keeps_with_its_words() {
+    let tmp = tempfile::tempdir().unwrap();
+    let lockless = planted(tmp.path(), "serve", &dead_pid().to_string());
+    let free = unheld(tmp.path(), "exec", &dead_pid().to_string());
+
+    let listing = list_reapable_under(tmp.path());
+
+    let kept: Vec<_> = listing.kept().collect();
+    assert_eq!(
+        kept,
+        vec![(
+            lockless.as_path(),
+            "its lock cannot be probed: it holds no lock file; trees from before #415 are no \
+             longer reaped (0.13.0)"
+                .to_string()
+        )]
+    );
+    let listed: Vec<_> = listing.reapable.iter().map(|listed| &listed.tree).collect();
+    assert_eq!(listed, vec![&free]);
+    assert!(lockless.is_dir() && free.join(LOCK).is_file());
+    let reaped = reap_dead_sessions_in(tmp.path(), flock);
+    assert_eq!(reaped.kept().collect::<Vec<_>>(), kept);
+    assert!(lockless.is_dir());
+}
+
 /// A tree mid-creation is never one a reaper reads: until its lock is
 /// held it carries a name `owner_pid` rejects, and it takes its own name
 /// only once locked.
@@ -674,7 +703,7 @@ fn the_listing_removes_nothing_and_counts_what_the_reaping_would() {
     let expected = crate::tree::count_tree(&tree).unwrap().unwrap().bytes;
 
     assert_eq!(
-        list_reapable_under(tmp.path()),
+        list_reapable_under(tmp.path()).reapable,
         vec![Listed {
             tree: tree.clone(),
             count: Ok(Some(crate::tree::Counted {
@@ -684,7 +713,7 @@ fn the_listing_removes_nothing_and_counts_what_the_reaping_would() {
         }]
     );
     assert_eq!(
-        list_reapable_under(tmp.path())[0].line_with(|path| path.to_owned()),
+        list_reapable_under(tmp.path()).reapable[0].line_with(|path| path.to_owned()),
         format!("hands: listed {}: {expected} bytes\n", tree.display())
     );
     assert!(
@@ -828,7 +857,7 @@ fn a_hostile_name_never_reaches_a_kept_or_a_removed_line() {
 #[test]
 fn a_listing_line_passes_every_named_path_through_safe() {
     let (_whole_tmp, whole_root, whole) = hostile_listing_root("exec\t\u{7}");
-    let whole_line = list_reapable_in(&whole_root, flock)[0].line_with(stripped);
+    let whole_line = list_reapable_in(&whole_root, flock).reapable[0].line_with(stripped);
     assert_eq!(
         whole_line,
         format!(
@@ -843,7 +872,7 @@ fn a_listing_line_passes_every_named_path_through_safe() {
     std::fs::create_dir_all(&work).unwrap();
     std::fs::write(work.join("index"), "").unwrap();
     set_mode(&work, 0o000);
-    let listed = list_reapable_in(&lower_root, flock);
+    let listed = list_reapable_in(&lower_root, flock).reapable;
     let counted = listed[0].count.as_ref().unwrap().as_ref().unwrap();
     assert_eq!(counted.unreadable.as_deref(), Some(work.as_path()));
     let lower_line = listed[0].line_with(stripped);
@@ -859,7 +888,7 @@ fn a_listing_line_passes_every_named_path_through_safe() {
 
     let (_gone_tmp, gone_root, gone) = hostile_listing_root("exec\r\u{1b}[36m");
     ON_PROBE.set(Some(OnProbe::Vanish(gone.clone())));
-    let gone_line = list_reapable_in(&gone_root, changing)[0].line_with(stripped);
+    let gone_line = list_reapable_in(&gone_root, changing).reapable[0].line_with(stripped);
     assert_eq!(
         gone_line,
         format!(
@@ -875,7 +904,7 @@ fn a_listing_line_passes_every_named_path_through_safe() {
         tree: failed.clone(),
         target: outside,
     }));
-    let failed_line = list_reapable_in(&failed_root, changing)[0].line_with(stripped);
+    let failed_line = list_reapable_in(&failed_root, changing).reapable[0].line_with(stripped);
     assert_eq!(
         failed_line,
         format!(
@@ -902,7 +931,7 @@ fn the_listing_names_a_lower_bound_and_the_unreadable_directory() {
     let whole = crate::tree::count_tree(&tree).unwrap().unwrap().bytes;
     set_mode(&work, 0o000);
 
-    let listed = list_reapable_under(tmp.path());
+    let listed = list_reapable_under(tmp.path()).reapable;
     assert_eq!(listed.len(), 1);
     let counted = listed[0].count.as_ref().unwrap().as_ref().unwrap();
     assert_eq!(counted.unreadable.as_deref(), Some(work.as_path()));
@@ -943,7 +972,7 @@ fn the_listing_names_a_count_that_failed() {
         target: outside.clone(),
     }));
 
-    let listed = list_reapable_in(tmp.path(), changing);
+    let listed = list_reapable_in(tmp.path(), changing).reapable;
     assert_eq!(listed.len(), 1);
     match &listed[0].count {
         Err(TreeError::Io { path, cause }) => {
@@ -977,7 +1006,7 @@ fn vanishing_tree() -> (tempfile::TempDir, PathBuf) {
 fn the_listing_names_a_tree_gone_before_the_count() {
     let (tmp, tree) = vanishing_tree();
 
-    let listed = list_reapable_in(tmp.path(), changing);
+    let listed = list_reapable_in(tmp.path(), changing).reapable;
     assert_eq!(listed.len(), 1);
     assert_eq!(listed[0].count, Ok(None));
     assert_eq!(

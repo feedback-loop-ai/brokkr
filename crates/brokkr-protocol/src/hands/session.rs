@@ -253,9 +253,7 @@ impl Reaped {
 
     /// The trees this reaping kept, each with the reason it was kept.
     pub fn kept(&self) -> impl Iterator<Item = (&Path, String)> {
-        self.kept
-            .iter()
-            .map(|(tree, why)| (tree.as_path(), why.to_string()))
+        kept_words(&self.kept)
     }
 
     /// The reaping said on lines, one per tree, each tree's path through
@@ -318,6 +316,30 @@ impl Listed {
     }
 }
 
+/// What a listing read under one temporary directory: the trees the
+/// reaping would remove, and the trees it would keep with the reason it
+/// would give, both read by the reaping's own candidates and probe.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct Listing {
+    pub reapable: Vec<Listed>,
+    kept: Vec<(PathBuf, Kept)>,
+}
+
+impl Listing {
+    /// The trees the reaping would keep, each with the words its kept line
+    /// gives.
+    pub fn kept(&self) -> impl Iterator<Item = (&Path, String)> {
+        kept_words(&self.kept)
+    }
+}
+
+/// Each kept tree with its reason in the reaper's words: one home for the
+/// reaping's and the listing's kept half.
+fn kept_words(kept: &[(PathBuf, Kept)]) -> impl Iterator<Item = (&Path, String)> {
+    kept.iter()
+        .map(|(tree, why)| (tree.as_path(), why.to_string()))
+}
+
 /// Why a dead owner's tree was kept.
 #[derive(Debug, Error, PartialEq, Eq)]
 enum Kept {
@@ -364,42 +386,63 @@ pub fn reap_dead_sessions() -> Reaped {
     reap_dead_sessions_in(&std::env::temp_dir(), flock)
 }
 
-/// The trees the reaping would remove under `tmp`, in the directory's order.
+/// What the reaping would do under `tmp`, in the directory's order: the
+/// trees it would remove, and the trees it would keep with its reason.
 /// Nothing is removed. A tree whose count failed is listed with the walk's
 /// refusal, and one gone before the count is listed as gone; neither is
 /// dropped, and a count that met an unreadable directory names its lower
 /// bound and that directory.
-pub fn list_reapable_under(tmp: &Path) -> Vec<Listed> {
+pub fn list_reapable_under(tmp: &Path) -> Listing {
     list_reapable_in(tmp, flock)
 }
 
-fn list_reapable_in(tmp: &Path, lock: Flock) -> Vec<Listed> {
-    candidates(tmp)
-        .into_iter()
-        .filter(|(tree, dead)| reapable(&probe(tree, lock), *dead))
-        .map(|(tree, _)| Listed {
-            count: tree::count_tree(&tree),
-            tree,
-        })
-        .collect()
+fn list_reapable_in(tmp: &Path, lock: Flock) -> Listing {
+    let mut listing = Listing::default();
+    for (tree, dead) in candidates(tmp) {
+        match reading(&tree, dead, lock) {
+            Reading::Kept(why) => listing.kept.push((tree, Kept::Unprobed(why))),
+            Reading::Reapable => listing.reapable.push(Listed {
+                count: tree::count_tree(&tree),
+                tree,
+            }),
+            Reading::Left => {}
+        }
+    }
+    listing
 }
 
 fn reap_dead_sessions_in(tmp: &Path, lock: Flock) -> Reaped {
     let mut reaped = Reaped::default();
     for (tree, dead) in candidates(tmp) {
-        match probe(&tree, lock) {
-            Probe::Unprobed(why) => reaped.kept.push((tree, Kept::Unprobed(why))),
-            answered if reapable(&answered, dead) => match remove_tree(&tree) {
+        match reading(&tree, dead, lock) {
+            Reading::Kept(why) => reaped.kept.push((tree, Kept::Unprobed(why))),
+            Reading::Reapable => match remove_tree(&tree) {
                 Ok(Some(bytes)) => reaped.removed.push((tree, bytes)),
                 Ok(None) => {}
                 Err(error) => reaped
                     .kept
                     .push((tree, Kept::Unremovable(Unremovable(error)))),
             },
-            Probe::Free | Probe::Held => {}
+            Reading::Left => {}
         }
     }
     reaped
+}
+
+/// What the reaping does with one candidate, as its probe answers: the one
+/// reading the reaping and the listing share, so the two cannot disagree.
+enum Reading {
+    Kept(Unprobed),
+    Reapable,
+    Left,
+}
+
+fn reading(tree: &Path, dead: bool, lock: Flock) -> Reading {
+    match probe(tree, lock) {
+        Probe::Unprobed(why) => Reading::Kept(why),
+        answered if reapable(&answered, dead) => Reading::Reapable,
+        Probe::Free | Probe::Held => Reading::Left,
+    }
 }
 
 /// Only a dead owner's free tree is removed. A live pid's tree reaches the
