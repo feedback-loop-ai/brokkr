@@ -300,10 +300,10 @@ fn listed_and_opened(
         (None, true) => Console::Run,
         (None, false) => Console::Detail,
     };
-    let run = match run_of(store, (ask.run, asked), reopen, kept) {
+    let run = match run_of(store, now, (ask.run, asked), reopen, kept) {
         Ok(run) => run,
         Err((run, refused)) => {
-            let row = crate::fleet::refused_row(store, run, refused)?;
+            let row = crate::fleet::refused_row(store, run, refused, now)?;
             opened_refused(&mut listed.runs, row);
             None
         }
@@ -370,7 +370,7 @@ fn fleet_page_with(
     keep: &dyn Fn(&brokkr_view::RunRow) -> bool,
 ) -> Result<Listed, StoreError> {
     let ((page, ahead), older) = store.as_one_read(|| {
-        kept.read = kept.fleet.refresh(store, before, AHEAD_ROWS)?;
+        kept.read = kept.fleet.refresh(store, before, AHEAD_ROWS, now)?;
         let ask = Ask {
             now,
             whole: &|run| Some(run) == selected,
@@ -423,6 +423,7 @@ struct Selected {
 /// store's refusal of it, which the frame shows (decision 0089 ruling 5).
 fn run_of<'a>(
     store: &Store,
+    now: &str,
     (run, asked): (Option<&'a str>, Console),
     reopen: bool,
     kept: &mut Kept,
@@ -464,6 +465,7 @@ fn run_of<'a>(
         rows: kept.rows,
         offset: kept.offset,
         visible,
+        now,
     };
     let (shown, read) =
         run_pages::console_with(store, run, asked, standing, kept.head.as_ref(), reading)

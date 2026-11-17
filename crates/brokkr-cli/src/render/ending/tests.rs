@@ -59,6 +59,7 @@ fn citation(ending: Ending) -> Option<Citation> {
 fn row(run_id: &str, state: Option<&RunState>, closing: Option<Closing>) -> RunRow {
     let refusal = brokkr_view::Quarantine::DoesNotFold.in_words("event 3: impossible");
     let entry = RunEntry {
+        waits: Default::default(),
         run_id,
         feature: "f",
         created_at: T0,
@@ -68,7 +69,7 @@ fn row(run_id: &str, state: Option<&RunState>, closing: Option<Closing>) -> RunR
         residuals: &[],
         closing,
     };
-    brokkr_view::run_rows(&[entry]).runs.remove(0)
+    brokkr_view::run_rows(&[entry], &[]).runs.remove(0)
 }
 
 /// A row that ended as `ending`, citing what it cites.

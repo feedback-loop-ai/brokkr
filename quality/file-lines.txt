@@ -360,7 +360,7 @@
    524 crates/brokkr-view/src/graph/figures.rs
     22 crates/brokkr-view/src/items.rs
    137 crates/brokkr-view/src/js.rs
-  2409 crates/brokkr-view/src/lib.rs
+ 2415 crates/brokkr-view/src/lib.rs
    107 crates/brokkr-view/src/participant.rs
    127 crates/brokkr-view/src/rail.rs
    265 crates/brokkr-view/src/scope.rs
@@ -834,7 +834,7 @@
     17 crates/brokkr-view/src/rail/tests.rs
    170 crates/brokkr-view/src/scope/tests.rs
    182 crates/brokkr-view/src/started/tests.rs
-  3791 crates/brokkr-view/src/tests.rs
+  3792 crates/brokkr-view/src/tests.rs
    124 crates/brokkr-view/src/tests/cache_hit.rs
    355 crates/brokkr-view/src/tests/capability_calls.rs
     83 crates/brokkr-view/src/tests/entry.rs

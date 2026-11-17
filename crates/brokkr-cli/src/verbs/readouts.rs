@@ -94,24 +94,28 @@ pub(crate) fn tui(
 
 /// How `inspect` and `seats` read their run for what they show it as:
 /// [`run_pages::viewed`], or a test's look at which read a verb asks for,
-/// which then reads it so (decision 0071 ruling 2's closure seam).
-type Reads<'r> = &'r dyn Fn(&Store, &str, Shows) -> Result<run_pages::Viewed, StoreError>;
+/// which then reads it so (decision 0071 ruling 2's closure seam). The
+/// caller's `now` is passed, so the aggregate this read paints and the
+/// `(ended)` its frame decides are one instant (decision 0103 slice 4f).
+type Reads<'r> = &'r dyn Fn(&Store, &str, Shows, &str) -> Result<run_pages::Viewed, StoreError>;
 
 /// The view `inspect` derives and `seats` paints a block of: the run the
 /// selector names, in the journal the world names, read by `read` as a
-/// reader that `shows` it reads it, and refused where it does not fold.
+/// reader that `shows` it reads it, at `now`, and refused where it does
+/// not fold.
 fn run_view_of(
     workspace: &Path,
     realms: Option<PathBuf>,
     db: Option<PathBuf>,
     run: &str,
     shows: Shows,
+    now: &str,
     read: Reads<'_>,
 ) -> Result<brokkr_view::RunView> {
     let db = journal_of(workspace, realms, db)?;
     let store = open_journal(&db, Access::Read)?;
     let run = selector::resolve_run(&store, run)?;
-    let read = read(&store, &run, shows)?;
+    let read = read(&store, &run, shows, now)?;
     read.folded?;
     Ok(read.view)
 }
@@ -152,7 +156,8 @@ fn inspect_with(
     read: Reads<'_>,
 ) -> Result<ExitCode> {
     let whole = json || capability_call.is_some();
-    let view = run_view_of(workspace, realms, db, &run, Shows::of(whole), read)?;
+    let now = crate::now_rfc3339();
+    let view = run_view_of(workspace, realms, db, &run, Shows::of(whole), &now, read)?;
     if let Some(call_id) = capability_call {
         let repo = repo.as_deref().unwrap_or(workspace);
         return print_call(repo, &view, &call_id, json, out);
@@ -168,7 +173,7 @@ fn inspect_with(
     };
     let lens = brokkr_view::lens_for(&view, scope.as_ref())
         .map_err(|error| anyhow::Error::msg(render::scope_refusal(&error)))?;
-    let frame = render::inspect(&view, lens.as_ref(), true, &render::Style::detect());
+    let frame = render::inspect(&view, lens.as_ref(), true, &now, &render::Style::detect());
     write!(out, "{frame}")?;
     Ok(Exit::Completed.into())
 }
@@ -350,7 +355,15 @@ fn seats_with(
     // seats block of `inspect`'s readout or `inspect --json`'s
     // own bytes. Nothing is derived here and no wire object is
     // versioned for the verb.
-    let view = run_view_of(workspace, realms, db, &run, Shows::of(json), read)?;
+    let view = run_view_of(
+        workspace,
+        realms,
+        db,
+        &run,
+        Shows::of(json),
+        &crate::now_rfc3339(),
+        read,
+    )?;
     if json {
         return print_served(view, out);
     }
@@ -493,12 +506,13 @@ pub(crate) fn hearth_run(
     out: &mut impl Write,
 ) -> Result<()> {
     let store = open_journal(db, Access::Read)?;
-    let view = brokkr_view::RunsView::of(vec![fleet::one(&store, run_id)?]);
+    let now = now_rfc3339();
+    let view = brokkr_view::RunsView::of(vec![fleet::one(&store, run_id, &now)?]);
     if json {
         writeln!(out, "{}", serde_json::to_string_pretty(&view)?)?;
     } else {
         let journal = db.display().to_string();
-        let framed = render::framed_runs(&view, (realm, &journal), &now_rfc3339(), style);
+        let framed = render::framed_runs(&view, (realm, &journal), &now, style);
         out.write_all(framed.as_bytes())?;
     }
     Ok(())

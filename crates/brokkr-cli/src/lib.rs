@@ -621,9 +621,10 @@ fn watch_loop(
                 failures = 0;
                 if last.as_ref() != Some(&head) {
                     last = Some(head);
-                    let read = run_pages::viewed(&store, run, run_pages::Shows::Frame)?;
+                    let now = crate::now_rfc3339();
+                    let read = run_pages::viewed(&store, run, run_pages::Shows::Frame, &now)?;
                     let (view, state) = (read.view, read.folded.ok());
-                    let frame = render::inspect(&view, None, false, style);
+                    let frame = render::inspect(&view, None, false, &now, style);
                     write_frame(out, &frame, is_tty, clock)?;
                     // A park admits no further events until a human acts,
                     // so "keep watching" is an unbounded CI hang. The park
@@ -1094,7 +1095,8 @@ fn transcript_command(
     // read-write, even when `--db` names a sole hearth.
     let (hearth, run) = resolve_in_hearths(&hearths, run)?;
     let store = Store::open_read_only(&hearths[hearth].journal)?;
-    let participants = run_pages::participants(&store, &run)??;
+    let now = crate::now_rfc3339();
+    let participants = run_pages::participants(&store, &run, &now)??;
     let participant = select_transcript_participant(&participants, &seat)?;
     // Only the subject's reference, provenance and legacy id reach the
     // reader; the hearth index keeps it the console's shape.

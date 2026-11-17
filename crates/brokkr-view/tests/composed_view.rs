@@ -56,6 +56,7 @@ fn composed_pages(
             causes: &causes,
             head_seq: head.seq,
             last_at: &head.recorded_at,
+            cooling: Vec::new(),
         };
         composed_view(&parts, state.as_ref()).unwrap()
     };
@@ -218,6 +219,7 @@ fn two_participants_whose_node_keys_are_one_are_not_composed() {
         causes: &BTreeMap::new(),
         head_seq: 6,
         last_at: "2026-01-01T00:00:06Z",
+        cooling: Vec::new(),
     };
     let state = fold(&events).ok();
     let composed = composed_view(&parts, state.as_ref());

@@ -2,7 +2,50 @@ use brokkr_core::summary::Account;
 use serde_json::json;
 
 use super::*;
+
 use crate::tests::ev;
+use crate::tests::late_wait;
+
+/// A trail read that ends in a repaired tail, its repair record outside
+/// this read: the tail's `effect/failed` carries waits, and the composed
+/// view the fleet's frame reads paints none, because the tail is kept and
+/// shown and never applied (decision 0108 ruling 4; decision 0103 slice
+/// 4f). Reading the journal's last row instead paints the late wait.
+#[test]
+fn a_late_tail_stands_no_wait_in_the_composed_view() {
+    let mut running = crate::tests::state(None, brokkr_core::fold::Status::Running, None);
+    running.late_tail = Some(late_wait::tail());
+    let view = composed_late_wait(Some(&running));
+    assert!(view.waits.waits.is_empty(), "{:?}", view.waits);
+    assert_eq!(view.waits.refused, None);
+}
+
+/// The same trail with no fold at all, which is what the unrepaired
+/// journal leaves compare's composed read: the fold refused, so no applied
+/// trail stands a wait. Reading the trail's last row instead paints the
+/// late wait.
+#[test]
+fn a_refused_fold_stands_no_wait_in_the_composed_view() {
+    let view = composed_late_wait(None);
+    assert!(view.waits.waits.is_empty(), "{:?}", view.waits);
+    assert_eq!(view.waits.refused, None);
+}
+
+/// The composed view of the late-wait trail read at `state`.
+fn composed_late_wait(state: Option<&RunState>) -> RunView {
+    let events = late_wait::trail("r");
+    let account = Account::whole("r", &events);
+    let parts = Parts {
+        trail: &events,
+        seats: account.seats(),
+        page: &events,
+        causes: &BTreeMap::new(),
+        head_seq: 8,
+        last_at: AT,
+        cooling: Vec::new(),
+    };
+    composed_view(&parts, state).expect("the run composes")
+}
 
 /// A participant is read by its row's request, effect and member, and its
 /// own model and pin, at the places `SeatRow::COLUMNS` names them.
@@ -172,6 +215,7 @@ fn rows_naming_a_request_the_trail_does_not_ask_compose_no_view() {
             causes: &causes,
             head_seq: 3,
             last_at: at,
+            cooling: Vec::new(),
         };
         composed_view(&parts, None).map(|view| view.participants.len())
     };
@@ -223,7 +267,7 @@ fn a_run_composed_whole_is_its_run_view() {
     };
     let whole = |events: &[EventEnvelope], trail: &[EventEnvelope]| {
         let account = Account::whole("r", events);
-        let view = composed_whole(trail, account.seats(), events, at, None);
+        let view = composed_whole(trail, account.seats(), events, at, None, &[]);
         view.map(|view| serde_json::to_string(&view).unwrap())
     };
     events.push(checkpoint(8, "e:x", None));
@@ -285,6 +329,7 @@ fn a_page_holding_the_acceptance_keeps_the_command_its_trail_holds() {
         causes: &causes,
         head_seq: 4,
         last_at: at,
+        cooling: Vec::new(),
     };
     let composed = composed_view(&parts, None).unwrap();
     let whole = crate::run_view(&events, None);
@@ -359,6 +404,7 @@ fn a_reused_command_id_keeps_each_disposition_at_its_own_time() {
         causes: &causes,
         head_seq: 8,
         last_at: AT,
+        cooling: Vec::new(),
     };
     let composed = composed_view(&parts, None).unwrap();
     let whole = crate::run_view(&events, None);
@@ -404,7 +450,7 @@ fn an_early_checkpoint_keeps_its_journal_time_label() {
         !account.seats_kept(),
         "a checkpoint before its request keeps no seat head"
     );
-    let composed = composed_whole(&trail, account.seats(), &events, AT, None).unwrap();
+    let composed = composed_whole(&trail, account.seats(), &events, AT, None, &[]).unwrap();
     let whole = crate::run_view(&events, None);
     let lines = |view: &RunView| {
         view.live

@@ -101,6 +101,7 @@ pub(super) fn fleet_to_act_on() -> Views {
     let low = [finding("landing-4-of-the-fleet-2a3b4c5d", "low")];
     let high = [finding(HELD, "high")];
     let entry = |run_id, feature, created_at, state, residuals| brokkr_view::RunEntry {
+        waits: Default::default(),
         run_id,
         feature,
         created_at,
@@ -148,7 +149,7 @@ pub(super) fn fleet_to_act_on() -> Views {
     entries[6].last_recorded_at = Some("2026-01-01T00:05:00Z");
     let mut views = Views::empty();
     views.now = NOW.to_string();
-    views.runs = brokkr_view::run_rows(&entries);
+    views.runs = brokkr_view::run_rows(&entries, &[]);
     views
 }
 
@@ -161,6 +162,7 @@ pub(super) fn fleet_with_a_dead_run() -> Views {
     let mut landing = state_of(Status::Running);
     landing.phase = Some("land".to_string());
     let dead = brokkr_view::RunEntry {
+        waits: Default::default(),
         run_id: DEAD,
         feature: "LANDING PR #420: the fleet lists who must act first",
         created_at: "2025-12-25T00:00:00Z",
@@ -171,7 +173,7 @@ pub(super) fn fleet_with_a_dead_run() -> Views {
         closing: None,
     };
     let mut views = fleet_to_act_on();
-    let row = brokkr_view::run_rows(&[dead]).runs.remove(0);
+    let row = brokkr_view::run_rows(&[dead], &[]).runs.remove(0);
     views.runs.runs.insert(0, row);
     views
 }
@@ -363,6 +365,7 @@ fn a_title_is_clamped_as_it_is_painted_once_its_joiners_are_stripped() {
     let feature = family.repeat(30);
     let state = state_of(Status::Running);
     let entry = brokkr_view::RunEntry {
+        waits: Default::default(),
         run_id: "a-family-of-emoji-5d6e7f80",
         feature: &feature,
         created_at: T0,
@@ -374,7 +377,7 @@ fn a_title_is_clamped_as_it_is_painted_once_its_joiners_are_stripped() {
     };
     let mut views = Views::empty();
     views.now = NOW.to_string();
-    views.runs = brokkr_view::run_rows(&[entry]);
+    views.runs = brokkr_view::run_rows(&[entry], &[]);
     assert_eq!(views.runs.runs[0].title, feature, "the view measures 60");
     let frame = frame_of(&Tui::new(None), &views, 160, 48);
     let painted = frame
@@ -570,16 +573,20 @@ fn the_detail_pane_scrolls_a_one_paragraph_feature_to_its_last_line() {
     let running = state_of(Status::Running);
     let mut views = Views::empty();
     views.now = NOW.to_string();
-    views.runs = brokkr_view::run_rows(&[brokkr_view::RunEntry {
-        run_id: "one-paragraph-0a1b2c3d",
-        feature: &feature,
-        created_at: T0,
-        last_recorded_at: None,
-        state: Some(&running),
-        detail: None,
-        residuals: &[],
-        closing: None,
-    }]);
+    views.runs = brokkr_view::run_rows(
+        &[brokkr_view::RunEntry {
+            waits: Default::default(),
+            run_id: "one-paragraph-0a1b2c3d",
+            feature: &feature,
+            created_at: T0,
+            last_recorded_at: None,
+            state: Some(&running),
+            detail: None,
+            residuals: &[],
+            closing: None,
+        }],
+        &[],
+    );
     let mut tui = Tui::new(None);
     tui.cursor[0] = Some("one-paragraph-0a1b2c3d".to_string());
     tui.width = DASHBOARD_FROM;
@@ -731,6 +738,7 @@ fn a_stopping_run_wears_its_mark_and_its_detail_names_the_way_out() {
     stopping.run = Run::Running(Cursor::Stop);
     stopping.stop_accepted_seq = Some(93);
     let entry = brokkr_view::RunEntry {
+        waits: Default::default(),
         run_id: STOPPING,
         feature: "LANDING PR #909: a stop with no ending stands as stopping",
         created_at: T0,
@@ -741,7 +749,7 @@ fn a_stopping_run_wears_its_mark_and_its_detail_names_the_way_out() {
         closing: None,
     };
     let mut views = fleet_to_act_on();
-    let row = brokkr_view::run_rows(&[entry]).runs.remove(0);
+    let row = brokkr_view::run_rows(&[entry], &[]).runs.remove(0);
     views.runs.runs.insert(0, row);
     let terminal = drawn(&Tui::new(None), &views, 160, 48);
     let lines = lines_of(terminal.backend().buffer());
@@ -770,6 +778,7 @@ fn every_way_out_names_a_command_brokkr_parses_and_the_run_admits() {
     use clap::Parser;
     let mut views = fleet_with_a_dead_run();
     let unloaded = brokkr_view::RunEntry {
+        waits: Default::default(),
         run_id: "journal-that-will-not-load-1a2b3c4d",
         feature: "A journal whose chain does not verify",
         created_at: T0,
@@ -782,7 +791,7 @@ fn every_way_out_names_a_command_brokkr_parses_and_the_run_admits() {
     views
         .runs
         .runs
-        .extend(brokkr_view::run_rows(&[unloaded]).runs);
+        .extend(brokkr_view::run_rows(&[unloaded], &[]).runs);
     let mut named = Vec::new();
     for row in &views.runs.runs {
         let Some(need) = brokkr_view::need(row, &views.now) else {
@@ -1286,6 +1295,7 @@ fn the_staleness_bound_is_the_longest_shipped_deadline_and_an_hour() {
     running.phase = Some("land".to_string());
     let quiet = |last: &str| {
         let mut entry = brokkr_view::RunEntry {
+            waits: Default::default(),
             run_id: "quiet",
             feature: "a run",
             created_at: T0,
@@ -1296,7 +1306,7 @@ fn the_staleness_bound_is_the_longest_shipped_deadline_and_an_hour() {
             closing: None,
         };
         entry.last_recorded_at = Some(last);
-        let row = brokkr_view::run_rows(&[entry]).runs.remove(0);
+        let row = brokkr_view::run_rows(&[entry], &[]).runs.remove(0);
         brokkr_view::need(&row, "2026-01-01T12:00:00Z")
     };
     assert_eq!(quiet(&at(bound)), None);
@@ -1451,4 +1461,45 @@ fn two_refused_ids_cut_alike_are_selected_and_opened_apart() {
     }
     opened.sort();
     assert_eq!(opened, ids);
+}
+
+/// The console's row paints the same wait `brokkr runs` paints, from the
+/// same derivation: the provider, route, aggregate end and words, and not
+/// the event's first end (decision 0103 slice 4f).
+#[test]
+fn a_cooling_run_s_row_paints_the_aggregate_s_wait() {
+    use crate::tests::cooling::{assert_painted, cooling_journal};
+
+    let (_dir, db) = cooling_journal();
+    let store = brokkr_store::Store::open_read_only(&db).unwrap();
+    let mut kept = crate::tui_read::Kept::default();
+    let listed = crate::tui_read::fleet_page(
+        &store,
+        &mut kept,
+        NOW,
+        (&Window::default(), None),
+        crate::fleet::Journal::at(&db),
+    )
+    .unwrap();
+    let views = Views {
+        now: NOW.to_string(),
+        runs: listed.runs,
+        ..Views::empty()
+    };
+    let row = views
+        .runs
+        .runs
+        .iter()
+        .find(|row| row.run_id == "r1")
+        .expect("the cooling run is listed");
+    let tui = Tui::new(None);
+    let lines = panes::title_lines(&tui, &views, row).join("\n");
+    assert_painted(&lines);
+    // The run's own column paints it too, from the same field.
+    let column = dashboard_lines(&tui, &views, row, 120)
+        .iter()
+        .map(Line::to_string)
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert_painted(&column);
 }

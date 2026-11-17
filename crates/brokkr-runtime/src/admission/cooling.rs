@@ -14,7 +14,6 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 use brokkr_store::Cooldown;
-use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
 use super::capacity::{Capacity, Lane};
@@ -115,12 +114,13 @@ pub(super) fn word(
     )
 }
 
-/// `at` as RFC 3339, or words naming an end that text cannot spell: a
-/// stored second outside RFC 3339's range (year 10000, under `time`'s
-/// `large-dates`) is printed by its second, never by an `expect` that
-/// would panic while a reason is shown.
+/// `at` as RFC 3339, written by core's one stamp writer (the readouts'
+/// too, decision 0103 slice 4f), or words naming an end that text cannot
+/// spell: a stored second outside RFC 3339's range (year 10000, under
+/// `time`'s `large-dates`) is printed by its second, never by an `expect`
+/// that would panic while a reason is shown.
 fn spelled(at: OffsetDateTime) -> String {
-    at.format(&Rfc3339).unwrap_or_else(|_| {
+    brokkr_core::stamp::write_millis(at).unwrap_or_else(|_| {
         format!(
             "a time RFC 3339 cannot spell (second {})",
             at.unix_timestamp()

@@ -43,7 +43,7 @@ fn acknowledge(run: &str, db: &Path) -> anyhow::Result<ExitCode> {
 fn listing(db: &Path) -> (Value, Vec<(Section, Vec<String>)>) {
     let listed = fleet::read_journal(db).listed().unwrap();
     let entries: Vec<_> = listed.iter().map(fleet::ListedRun::entry).collect();
-    let view = brokkr_view::run_rows(&entries);
+    let view = brokkr_view::run_rows(&entries, &[]);
     let json = serde_json::to_value(&view).unwrap();
     let sections = brokkr_view::sections(&view.runs, &now_rfc3339())
         .into_iter()

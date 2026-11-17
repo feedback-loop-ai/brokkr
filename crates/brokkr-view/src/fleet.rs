@@ -72,6 +72,9 @@ pub struct RunRow {
     pub title: String,
     /// How the run stands and how it was last ruled (#491).
     pub verdict: Verdict,
+    /// The provider waits the run's last event states, with the aggregate's
+    /// later end (decision 0103 slice 4f). A wait is not a park.
+    pub waits: Waits,
     /// The seat the run's current effect is hired to, and which attempt
     /// of it, while an effect is requested or in flight (#503).
     pub hire: Option<Hire>,
@@ -654,7 +657,7 @@ fn open_severity(residuals: &[ResidualFinding]) -> Option<Severity> {
 // ------------------------------------------------------------ run rows
 
 /// The row of one run read whole.
-pub fn run_row(entry: &RunEntry) -> RunRow {
+pub fn run_row(entry: &RunEntry, cooling: &[Cooling]) -> RunRow {
     let status = entry
         .state
         .map(|state| state.run.status().as_str().to_string());
@@ -696,6 +699,10 @@ pub fn run_row(entry: &RunEntry) -> RunRow {
         acknowledgement: acknowledged,
         title: title(entry.feature),
         verdict,
+        // A quarantined run's entry carries no wait: `WaitFact::applied`
+        // reads none when the fold refused, and the kept read clears the
+        // fact when its fold breaks. The row paints what the entry holds.
+        waits: Waits::of(&entry.waits, cooling),
         hire: entry.state.and_then(hire),
         order_at: order_at(entry.last_recorded_at, entry.created_at),
         paged_at: None,
@@ -716,8 +723,11 @@ fn hire(state: &RunState) -> Option<Hire> {
 /// ruling 6): the order a page lists each section in, by the same
 /// function, so a paged read and a whole read list a run alike. Ordering
 /// is a derivation rule, not something each surface reverses for itself.
-pub fn run_rows(entries: &[RunEntry]) -> RunsView {
-    let mut runs: Vec<RunRow> = entries.iter().map(run_row).collect();
+pub fn run_rows(entries: &[RunEntry], cooling: &[Cooling]) -> RunsView {
+    let mut runs: Vec<RunRow> = entries
+        .iter()
+        .map(|entry| run_row(entry, cooling))
+        .collect();
     runs.sort_by(|a, b| newest_first(a.place()).cmp(&newest_first(b.place())));
     RunsView::of(runs)
 }
@@ -736,11 +746,11 @@ pub struct HearthEntries<'a> {
 /// by exactly the same [`run_rows`] a one-journal world uses — the
 /// grouping is an arrangement of that derivation, never a second one,
 /// and no fold ever crosses a journal boundary (decision 0026 ruling 5).
-pub fn fleet_rows(hearths: &[HearthEntries]) -> FleetView {
+pub fn fleet_rows(hearths: &[HearthEntries], cooling: &[Cooling]) -> FleetView {
     let realms: Vec<RealmRuns> = hearths
         .iter()
         .map(|hearth| {
-            let view = run_rows(hearth.entries);
+            let view = run_rows(hearth.entries, cooling);
             RealmRuns {
                 realm: hearth.realm.to_string(),
                 journal: hearth.journal.to_string(),
@@ -763,12 +773,14 @@ mod need;
 mod page;
 pub use late::{late_line, LateEvent, LateRange, LateTail};
 pub(crate) use late::{late_range, late_tail};
+mod waits;
 pub use need::{at_work, need, Need};
 use page::order_at;
 pub use page::{
     behind_line, page, ranges, section_of_rows, summary_row, window, Cursor, CursorError, Page,
     Paged, AHEAD_ROWS, PAGE_ROWS,
 };
+pub use waits::{run_view_with, Cooling, Wait, WaitFact, Waits};
 
 #[cfg(test)]
 pub(crate) mod tests;

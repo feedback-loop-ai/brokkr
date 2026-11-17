@@ -304,6 +304,13 @@ pub brokkr_view::Unavailable::AnswerHere
 pub brokkr_view::Unavailable::DismissFinding
 pub brokkr_view::Unavailable::Hold
 pub brokkr_view::Unavailable::TalkToReviewer
+pub enum brokkr_view::WaitFact
+pub brokkr_view::WaitFact::NoWait
+pub brokkr_view::WaitFact::Unreadable(brokkr_core::payload::provider_wait::ProviderWaitError)
+pub brokkr_view::WaitFact::Waits(alloc::vec::Vec<brokkr_core::payload::provider_wait::ProviderWait>)
+impl brokkr_view::WaitFact
+pub fn brokkr_view::WaitFact::applied(&[brokkr_core::envelope::EventEnvelope], core::option::Option<&brokkr_core::fold::RunState>) -> brokkr_view::WaitFact
+pub fn brokkr_view::WaitFact::of(core::option::Option<&brokkr_core::envelope::EventEnvelope>) -> brokkr_view::WaitFact
 pub struct brokkr_view::Acknowledgement
 pub brokkr_view::Acknowledgement::event_hash: alloc::string::String
 pub brokkr_view::Acknowledgement::operator: alloc::string::String
@@ -380,6 +387,10 @@ pub struct brokkr_view::ContinuedView
 pub brokkr_view::ContinuedView::feature: alloc::string::String
 pub brokkr_view::ContinuedView::run_id: alloc::string::String
 pub brokkr_view::ContinuedView::title: alloc::string::String
+pub struct brokkr_view::Cooling
+pub brokkr_view::Cooling::provider: alloc::string::String
+pub brokkr_view::Cooling::route: alloc::string::String
+pub brokkr_view::Cooling::until: alloc::string::String
 pub struct brokkr_view::Cursor
 pub brokkr_view::Cursor::order_at: i64
 pub brokkr_view::Cursor::run_id: alloc::string::String
@@ -556,6 +567,7 @@ impl brokkr_view::Participant
 pub fn brokkr_view::Participant::legacy_provenance(&self) -> brokkr_view::transcript::LegacyProvenance
 pub struct brokkr_view::Parts<'a>
 pub brokkr_view::Parts::causes: &'a alloc::collections::btree::map::BTreeMap<alloc::string::String, u64>
+pub brokkr_view::Parts::cooling: alloc::vec::Vec<brokkr_view::Cooling>
 pub brokkr_view::Parts::head_seq: u64
 pub brokkr_view::Parts::last_at: &'a str
 pub brokkr_view::Parts::page: &'a [brokkr_core::envelope::EventEnvelope]
@@ -636,6 +648,7 @@ pub brokkr_view::RunEntry::last_recorded_at: core::option::Option<&'a str>
 pub brokkr_view::RunEntry::residuals: &'a [brokkr_view::ResidualFinding]
 pub brokkr_view::RunEntry::run_id: &'a str
 pub brokkr_view::RunEntry::state: core::option::Option<&'a brokkr_core::fold::RunState>
+pub brokkr_view::RunEntry::waits: brokkr_view::WaitFact
 pub struct brokkr_view::RunFacts
 pub brokkr_view::RunFacts::costs: alloc::vec::Vec<(i64, f64)>
 pub brokkr_view::RunFacts::finished: core::option::Option<brokkr_core::summary::aggregate::Finished>
@@ -670,6 +683,7 @@ pub brokkr_view::RunRow::status_known: bool
 pub brokkr_view::RunRow::status_word: alloc::string::String
 pub brokkr_view::RunRow::title: alloc::string::String
 pub brokkr_view::RunRow::verdict: brokkr_view::Verdict
+pub brokkr_view::RunRow::waits: brokkr_view::Waits
 pub brokkr_view::RunRow::wants: core::option::Option<brokkr_core::ending::Wants>
 impl brokkr_view::RunRow
 pub fn brokkr_view::RunRow::place(&self) -> brokkr_core::page::Place<'_>
@@ -693,6 +707,7 @@ pub brokkr_view::RunView::scopes: core::option::Option<brokkr_view::Scopes>
 pub brokkr_view::RunView::summary: core::option::Option<brokkr_view::Summary>
 pub brokkr_view::RunView::unavailable: alloc::vec::Vec<brokkr_view::Disabled>
 pub brokkr_view::RunView::view_version: u32
+pub brokkr_view::RunView::waits: brokkr_view::Waits
 pub brokkr_view::RunView::worktree: core::option::Option<alloc::string::String>
 impl brokkr_view::RunView
 pub fn brokkr_view::RunView::with_scopes(self) -> brokkr_view::RunView
@@ -784,6 +799,19 @@ pub brokkr_view::Visit::phase: alloc::string::String
 pub brokkr_view::Visit::residual: core::option::Option<brokkr_core::policy::Severity>
 pub brokkr_view::Visit::rule: core::option::Option<alloc::string::String>
 pub brokkr_view::Visit::ruled: brokkr_view::Ruled
+pub struct brokkr_view::Wait
+pub brokkr_view::Wait::provider: alloc::string::String
+pub brokkr_view::Wait::route: alloc::string::String
+pub brokkr_view::Wait::site: core::option::Option<alloc::string::String>
+pub brokkr_view::Wait::until: alloc::string::String
+pub brokkr_view::Wait::words: alloc::string::String
+pub struct brokkr_view::Waits
+pub brokkr_view::Waits::refused: core::option::Option<alloc::string::String>
+pub brokkr_view::Waits::waits: alloc::vec::Vec<brokkr_view::Wait>
+impl brokkr_view::Waits
+pub fn brokkr_view::Waits::lines(&self, &str) -> alloc::vec::Vec<alloc::string::String>
+pub fn brokkr_view::Waits::live(&self, &str) -> bool
+pub fn brokkr_view::Waits::of(&brokkr_view::WaitFact, &[brokkr_view::Cooling]) -> brokkr_view::Waits
 pub struct brokkr_view::What
 pub brokkr_view::What::arrow: core::option::Option<alloc::string::String>
 pub brokkr_view::What::badge: core::option::Option<alloc::string::String>
@@ -847,10 +875,10 @@ pub fn brokkr_view::behind_line(u64) -> core::option::Option<alloc::string::Stri
 pub fn brokkr_view::cited(&brokkr_view::SupersededBy) -> alloc::string::String
 pub fn brokkr_view::clamp(&str, usize) -> alloc::string::String
 pub fn brokkr_view::composed_view(&brokkr_view::Parts<'_>, core::option::Option<&brokkr_core::fold::RunState>) -> core::option::Option<brokkr_view::RunView>
-pub fn brokkr_view::composed_whole(&[brokkr_core::envelope::EventEnvelope], &[brokkr_core::seat::row::SeatRow], &[brokkr_core::envelope::EventEnvelope], &str, core::option::Option<&brokkr_core::fold::RunState>) -> core::option::Option<brokkr_view::RunView>
+pub fn brokkr_view::composed_whole(&[brokkr_core::envelope::EventEnvelope], &[brokkr_core::seat::row::SeatRow], &[brokkr_core::envelope::EventEnvelope], &str, core::option::Option<&brokkr_core::fold::RunState>, &[brokkr_view::Cooling]) -> core::option::Option<brokkr_view::RunView>
 pub fn brokkr_view::entry_sentence(&brokkr_core::entry::RunEntry) -> alloc::string::String
 pub fn brokkr_view::first_divergence(&[alloc::string::String], &[alloc::string::String]) -> core::option::Option<brokkr_view::FirstDivergence>
-pub fn brokkr_view::fleet_rows(&[brokkr_view::HearthEntries<'_>]) -> brokkr_view::FleetView
+pub fn brokkr_view::fleet_rows(&[brokkr_view::HearthEntries<'_>], &[brokkr_view::Cooling]) -> brokkr_view::FleetView
 pub fn brokkr_view::fmt_dur(&str, &str) -> core::option::Option<alloc::string::String>
 pub fn brokkr_view::graph(&brokkr_view::GraphQuery<'_>) -> core::result::Result<brokkr_view::GraphView, brokkr_view::GraphError>
 pub fn brokkr_view::keeps_participant(core::option::Option<&brokkr_view::Lens>, &brokkr_view::Participant) -> bool
@@ -871,9 +899,10 @@ pub fn brokkr_view::residual_findings_at(&str, &[brokkr_core::envelope::EventEnv
 pub fn brokkr_view::resolution_divergence<T: core::clone::Clone + core::cmp::PartialEq>(&alloc::collections::btree::map::BTreeMap<alloc::string::String, T>, &alloc::collections::btree::map::BTreeMap<alloc::string::String, T>) -> alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_view::Sides<T>>
 pub fn brokkr_view::resolutions_at(&[brokkr_core::envelope::EventEnvelope], core::option::Option<&brokkr_core::fold::RunState>) -> alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_view::Resolution>
 pub fn brokkr_view::resolved(alloc::vec::Vec<brokkr_view::Participant>) -> alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_view::Resolution>
-pub fn brokkr_view::run_row(&brokkr_view::RunEntry<'_>) -> brokkr_view::RunRow
-pub fn brokkr_view::run_rows(&[brokkr_view::RunEntry<'_>]) -> brokkr_view::RunsView
+pub fn brokkr_view::run_row(&brokkr_view::RunEntry<'_>, &[brokkr_view::Cooling]) -> brokkr_view::RunRow
+pub fn brokkr_view::run_rows(&[brokkr_view::RunEntry<'_>], &[brokkr_view::Cooling]) -> brokkr_view::RunsView
 pub fn brokkr_view::run_view(&[brokkr_core::envelope::EventEnvelope], core::option::Option<&brokkr_core::fold::RunState>) -> brokkr_view::RunView
+pub fn brokkr_view::run_view_with(&[brokkr_core::envelope::EventEnvelope], core::option::Option<&brokkr_core::fold::RunState>, &[brokkr_view::Cooling]) -> brokkr_view::RunView
 pub fn brokkr_view::seat_keys(&[brokkr_core::seat::row::SeatRow]) -> alloc::vec::Vec<(alloc::string::String, (alloc::string::String, core::option::Option<alloc::string::String>))>
 pub fn brokkr_view::section_of(&brokkr_view::RunRow, &str) -> brokkr_view::Section
 pub fn brokkr_view::section_of_rows(&[brokkr_view::RunRow], brokkr_view::Section, &str, core::option::Option<brokkr_core::page::Place<'_>>, (usize, &dyn core::ops::function::Fn(&brokkr_view::RunRow) -> bool)) -> alloc::vec::Vec<brokkr_view::RunRow>
@@ -881,7 +910,7 @@ pub fn brokkr_view::sections<'a>(&'a [brokkr_view::RunRow], &str) -> alloc::vec:
 pub fn brokkr_view::short_target(&str) -> alloc::string::String
 pub fn brokkr_view::stopping_detail(u64) -> alloc::string::String
 pub fn brokkr_view::summary(&brokkr_core::fold::RunState, &[brokkr_core::envelope::EventEnvelope]) -> brokkr_view::Summary
-pub fn brokkr_view::summary_row(&brokkr_core::page::Row, core::option::Option<&brokkr_core::page::Whole>) -> brokkr_view::RunRow
+pub fn brokkr_view::summary_row(&brokkr_core::page::Row, core::option::Option<&brokkr_core::page::Whole>, &brokkr_view::WaitFact, &[brokkr_view::Cooling]) -> brokkr_view::RunRow
 pub fn brokkr_view::title(&str) -> alloc::string::String
 pub fn brokkr_view::title_within(&str, usize) -> alloc::string::String
 pub fn brokkr_view::whole_read(&brokkr_view::Query<'_>, brokkr_view::Window) -> brokkr_view::WholeRead

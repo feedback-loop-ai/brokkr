@@ -41,6 +41,18 @@ pub struct ProviderWait {
     pub rounds: u64,
 }
 
+impl ProviderWait {
+    /// This wait's end as RFC 3339, the one formatting of a wait's `until`
+    /// (decision 0103 slice 4f): the readouts paint this text, never the
+    /// `Display` of a time the journal cannot spell. The reader parses an
+    /// RFC 3339 stamp, so this fails only for a wait built past the reader;
+    /// it then refuses by the field's own name, as the reader's other
+    /// refusals do.
+    pub fn until_stamp(&self) -> Result<String, ProviderWaitError> {
+        crate::stamp::write_millis(self.until).map_err(|_| ProviderWaitError::Until)
+    }
+}
+
 /// One cool-down probe's answer (decision 0103 ruling 4(a)): the site tag
 /// where a probe was asked (absent for an inline seat), the provider and
 /// route it asked, and when its first model-output answer arrived. It is
@@ -61,10 +73,8 @@ impl Serialize for ProbeAnswer {
         if let Some(site) = &self.site {
             answer.serialize_field("site", site)?;
         }
-        let answered_at = self
-            .answered_at
-            .format(&Rfc3339)
-            .map_err(serde::ser::Error::custom)?;
+        let answered_at =
+            crate::stamp::write_millis(self.answered_at).map_err(serde::ser::Error::custom)?;
         answer.serialize_field("provider", &self.provider)?;
         answer.serialize_field("route", &self.route)?;
         answer.serialize_field("answered_at", &answered_at)?;
@@ -139,6 +149,10 @@ pub enum ProviderRefusalError {
 pub enum ProviderWaitError {
     #[error("event {seq}: the waits entry does not read: {field}")]
     Field { seq: u64, field: String },
+    /// The wait parsed, but its end cannot be written back as RFC 3339:
+    /// [`ProviderWait::until_stamp`] still refuses by the field's name.
+    #[error("the waits entry does not read: until")]
+    Until,
 }
 
 /// The keys one `waits` entry may carry.

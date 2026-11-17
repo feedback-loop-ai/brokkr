@@ -307,7 +307,7 @@ pub(crate) fn lines_within(
             line.push_str(&brokkr_view::clamp(row[5].as_str(), remaining));
         }
         push_line(&mut out, &line);
-        for under in under_row(run, style) {
+        for under in under_row(run, now, style) {
             push_line(&mut out, &under);
         }
     }
@@ -321,7 +321,7 @@ pub(crate) fn lines_within(
 /// it keeps (#511). A terminal row names its ending's citation, or the
 /// rule that ruled a policy ending, dim; a repaired one names the late
 /// tail it keeps and never applies (decision 0108 ruling 4).
-fn under_row(run: &RunRow, style: &Style) -> Vec<String> {
+fn under_row(run: &RunRow, now: &str, style: &Style) -> Vec<String> {
     let refusal = run
         .detail
         .as_deref()
@@ -345,11 +345,17 @@ fn under_row(run: &RunRow, style: &Style) -> Vec<String> {
             .as_str()
         )
     });
+    let waits = run
+        .waits
+        .lines(now)
+        .into_iter()
+        .map(|wait| format!("    {}", Safe::new(&wait).as_str()));
     refusal
         .into_iter()
         .chain(acknowledged)
         .chain(stopping)
         .chain(late)
+        .chain(waits)
         .chain(ending::ended_line(run, style))
         .collect()
 }
@@ -647,7 +653,13 @@ fn graph_block(view: &RunView, lens: Option<&Lens>) -> String {
 /// The human readout: header, ruling, park reason, live seat activity,
 /// the seats table, the decision trail, and the phase tree. A `watch`
 /// frame is this without the trail.
-pub(crate) fn inspect(view: &RunView, lens: Option<&Lens>, trail: bool, style: &Style) -> String {
+pub(crate) fn inspect(
+    view: &RunView,
+    lens: Option<&Lens>,
+    trail: bool,
+    now: &str,
+    style: &Style,
+) -> String {
     let mut out = String::new();
     inspect::summary_lines(&mut out, view.summary.as_ref(), style);
     // The run-level boundary line (decision 0046 ruling 3): the model's
@@ -675,6 +687,9 @@ pub(crate) fn inspect(view: &RunView, lens: Option<&Lens>, trail: bool, style: &
                 Safe::new(&notice.text).as_str()
             ),
         );
+    }
+    for wait in view.waits.lines(now) {
+        push_line(&mut out, Safe::new(&wait).as_str());
     }
     for live in &view.live {
         push_line(

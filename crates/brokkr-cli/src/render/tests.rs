@@ -156,6 +156,7 @@ fn runs_view() -> brokkr_view::RunsView {
     let newer = state(Status::Running, None, None);
     let entries = [
         brokkr_view::RunEntry {
+            waits: Default::default(),
             run_id: "run-old",
             feature: "an older feature whose text runs well past any terminal width \
                       and must be clamped rather than wrapped",
@@ -167,6 +168,7 @@ fn runs_view() -> brokkr_view::RunsView {
             closing: brokkr_core::ending::closing(&[], &older),
         },
         brokkr_view::RunEntry {
+            waits: Default::default(),
             run_id: "run-7",
             feature: "one derivation, two surfaces",
             created_at: T1,
@@ -177,7 +179,7 @@ fn runs_view() -> brokkr_view::RunsView {
             closing: None,
         },
     ];
-    brokkr_view::run_rows(&entries)
+    brokkr_view::run_rows(&entries, &[])
 }
 
 // ------------------------------- many hearths (0026 rulings 3 and 5)
@@ -211,6 +213,7 @@ pub(crate) fn tally_of(rows: &[brokkr_view::RunRow]) -> ending::Tally {
 fn fleet_view() -> brokkr_view::FleetView {
     let running = state(Status::Running, None, None);
     let alpha = [brokkr_view::RunEntry {
+        waits: Default::default(),
         run_id: "run-a",
         feature: "alpha's work",
         created_at: T1,
@@ -222,6 +225,7 @@ fn fleet_view() -> brokkr_view::FleetView {
     }];
     let beta = [
         brokkr_view::RunEntry {
+            waits: Default::default(),
             run_id: "run-b1",
             feature: "beta's older work",
             created_at: T0,
@@ -232,6 +236,7 @@ fn fleet_view() -> brokkr_view::FleetView {
             closing: None,
         },
         brokkr_view::RunEntry {
+            waits: Default::default(),
             run_id: "run-b2",
             feature: "beta's newer work",
             created_at: T1,
@@ -242,26 +247,29 @@ fn fleet_view() -> brokkr_view::FleetView {
             closing: None,
         },
     ];
-    brokkr_view::fleet_rows(&[
-        brokkr_view::HearthEntries {
-            realm: "alpha",
-            journal: "a/forge.db",
-            entries: &alpha,
-            detail: None,
-        },
-        brokkr_view::HearthEntries {
-            realm: "beta",
-            journal: "b/forge.db",
-            entries: &beta,
-            detail: None,
-        },
-        brokkr_view::HearthEntries {
-            realm: "gamma",
-            journal: "c/forge.db",
-            entries: &[],
-            detail: Some("unable to open database file"),
-        },
-    ])
+    brokkr_view::fleet_rows(
+        &[
+            brokkr_view::HearthEntries {
+                realm: "alpha",
+                journal: "a/forge.db",
+                entries: &alpha,
+                detail: None,
+            },
+            brokkr_view::HearthEntries {
+                realm: "beta",
+                journal: "b/forge.db",
+                entries: &beta,
+                detail: None,
+            },
+            brokkr_view::HearthEntries {
+                realm: "gamma",
+                journal: "c/forge.db",
+                entries: &[],
+                detail: Some("unable to open database file"),
+            },
+        ],
+        &[],
+    )
 }
 
 /// Grouped by realm, not interleaved: each hearth under its own heading,
@@ -288,12 +296,15 @@ fn a_many_hearth_fleet_lists_each_realm_under_its_own_heading() {
 /// journal on its own — the heading is the only thing grouping adds.
 #[test]
 fn a_hearths_section_is_the_listing_runs_already_prints() {
-    let one = brokkr_view::fleet_rows(&[brokkr_view::HearthEntries {
-        realm: "brokkr",
-        journal: "j.db",
-        entries: &[],
-        detail: None,
-    }]);
+    let one = brokkr_view::fleet_rows(
+        &[brokkr_view::HearthEntries {
+            realm: "brokkr",
+            journal: "j.db",
+            entries: &[],
+            detail: None,
+        }],
+        &[],
+    );
     assert_eq!(
         fleet(&one, NOW, &Style::plain(80)),
         "brokkr · 0 runs · 0 want a ruling · 0 want an action · j.db\n"
@@ -307,20 +318,23 @@ fn a_hearths_section_is_the_listing_runs_already_prints() {
 /// cross the one sanitizer every journal string does.
 #[test]
 fn a_hostile_realm_name_or_journal_path_renders_as_inert_text() {
-    let view = brokkr_view::fleet_rows(&[
-        brokkr_view::HearthEntries {
-            realm: "a\u{1b}[2Jb",
-            journal: "j\rforged.db",
-            entries: &[],
-            detail: Some("boom\u{1b}[2J"),
-        },
-        brokkr_view::HearthEntries {
-            realm: "ok",
-            journal: "j.db",
-            entries: &[],
-            detail: None,
-        },
-    ]);
+    let view = brokkr_view::fleet_rows(
+        &[
+            brokkr_view::HearthEntries {
+                realm: "a\u{1b}[2Jb",
+                journal: "j\rforged.db",
+                entries: &[],
+                detail: Some("boom\u{1b}[2J"),
+            },
+            brokkr_view::HearthEntries {
+                realm: "ok",
+                journal: "j.db",
+                entries: &[],
+                detail: None,
+            },
+        ],
+        &[],
+    );
     let out = fleet(&view, NOW, &Style::plain(80));
     assert!(!out.contains('\u{1b}'), "{out:?}");
     assert!(!out.contains('\r'), "{out:?}");
@@ -386,6 +400,7 @@ fn bidi_and_zero_width_formatting_characters_never_reach_the_terminal() {
 fn a_hostile_feature_and_result_token_render_as_inert_text() {
     let hostile = state(Status::Running, None, None);
     let entries = [brokkr_view::RunEntry {
+        waits: Default::default(),
         run_id: "r\x1b[31m1",
         feature: "feature\rforged",
         created_at: T0,
@@ -395,7 +410,7 @@ fn a_hostile_feature_and_result_token_render_as_inert_text() {
         residuals: &[],
         closing: None,
     }];
-    let rows = brokkr_view::run_rows(&entries);
+    let rows = brokkr_view::run_rows(&entries, &[]);
     let out = runs(&rows, NOW, &Style::plain(80));
     assert!(!out.contains('\x1b'), "{out:?}");
     assert!(!out.contains('\r'), "{out:?}");
@@ -447,13 +462,19 @@ fn width_and_colour_come_from_the_environment_through_pure_rules() {
     let painted = runs(&runs_view(), NOW, &coloured);
     assert!(painted.contains("\x1b[1mrunning"), "{painted:?}");
     assert!(painted.contains("\x1b[32mshipped"), "{painted:?}");
-    let inspected = inspect(&view(None), None, true, &coloured);
+    let inspected = inspect(&view(None), None, true, &crate::now_rfc3339(), &coloured);
     assert!(inspected.contains("\x1b[1mrunning"), "{inspected:?}");
     // The tree markers are content, not colour, so they are
     // unconditional: the model already emits Σ, ↓, … and — in pre-baked
     // text, and an ASCII mode would need a second derivation of each.
     assert!(inspected.contains('⑂') && inspected.contains('→'));
-    let plain = inspect(&view(None), None, true, &Style::plain(100));
+    let plain = inspect(
+        &view(None),
+        None,
+        true,
+        &crate::now_rfc3339(),
+        &Style::plain(100),
+    );
     assert!(plain.contains('⑂') && plain.contains('→'));
     assert!(!plain.contains('\x1b'));
 }
@@ -485,6 +506,7 @@ fn the_phase_scope_predicate_answers_in_both_lens_states() {
 fn a_multibyte_feature_truncates_on_a_char_boundary() {
     let running = state(Status::Running, None, None);
     let entries = [brokkr_view::RunEntry {
+        waits: Default::default(),
         run_id: "r1",
         feature: "ééééééééééééééééééééééééééééééééééééééééééééééééé",
         created_at: T0,
@@ -494,7 +516,11 @@ fn a_multibyte_feature_truncates_on_a_char_boundary() {
         residuals: &[],
         closing: None,
     }];
-    let out = runs(&brokkr_view::run_rows(&entries), NOW, &Style::plain(42));
+    let out = runs(
+        &brokkr_view::run_rows(&entries, &[]),
+        NOW,
+        &Style::plain(42),
+    );
     assert!(out.ends_with("…\n"), "{out:?}");
     assert!(out.is_char_boundary(out.len() - 1));
 }
@@ -532,6 +558,7 @@ fn brokkr_runs_is_one_clamped_line_per_run_newest_first() {
 #[test]
 fn a_run_whose_journal_does_not_fold_still_lists() {
     let entries = [brokkr_view::RunEntry {
+        waits: Default::default(),
         run_id: "r1",
         feature: "unfoldable",
         created_at: "not a time",
@@ -541,7 +568,11 @@ fn a_run_whose_journal_does_not_fold_still_lists() {
         residuals: &[],
         closing: None,
     }];
-    let out = runs(&brokkr_view::run_rows(&entries), NOW, &Style::plain(80));
+    let out = runs(
+        &brokkr_view::run_rows(&entries, &[]),
+        NOW,
+        &Style::plain(80),
+    );
     assert_eq!(out, "> r1 ? - seq - — unfoldable\n");
 }
 
@@ -554,6 +585,7 @@ fn a_quarantined_row_prints_the_fold_error_under_itself() {
     let healthy = state(Status::Running, None, None);
     let entries = [
         brokkr_view::RunEntry {
+            waits: Default::default(),
             run_id: "poisoned",
             feature: "the stop that came mid-flight",
             created_at: T0,
@@ -567,6 +599,7 @@ fn a_quarantined_row_prints_the_fold_error_under_itself() {
             closing: None,
         },
         brokkr_view::RunEntry {
+            waits: Default::default(),
             run_id: "healthy",
             feature: "still readable",
             created_at: T1,
@@ -577,7 +610,11 @@ fn a_quarantined_row_prints_the_fold_error_under_itself() {
             closing: None,
         },
     ];
-    let out = runs(&brokkr_view::run_rows(&entries), NOW, &Style::plain(120));
+    let out = runs(
+        &brokkr_view::run_rows(&entries, &[]),
+        NOW,
+        &Style::plain(120),
+    );
     let lines: Vec<&str> = out.lines().collect();
     assert_eq!(lines.len(), 3, "two rows, one of them explained: {out:?}");
     assert_eq!(
@@ -604,6 +641,7 @@ fn an_acknowledged_row_prints_its_acknowledgement_under_its_refusal() {
         recorded_at: T0.to_string(),
     };
     let entries = [brokkr_view::RunEntry {
+        waits: Default::default(),
         run_id: "unit-12",
         feature: "see the unit",
         created_at: T0,
@@ -617,7 +655,8 @@ fn an_acknowledged_row_prints_its_acknowledgement_under_its_refusal() {
         residuals: &[],
         closing: None,
     }];
-    let out = runs(&brokkr_view::run_rows(&entries), NOW, &Style::plain(120));
+    let style = Style::plain(120);
+    let out = runs(&brokkr_view::run_rows(&entries, &[]), NOW, &style);
     let lines: Vec<&str> = out.lines().collect();
     assert!(lines[0].starts_with("  unit-12 ?"), "{out:?}");
     assert_eq!(
@@ -635,7 +674,13 @@ fn an_acknowledged_row_prints_its_acknowledgement_under_its_refusal() {
 
 #[test]
 fn brokkr_inspect_is_a_human_readout_with_a_terminal_tree() {
-    let out = inspect(&view(None), None, true, &Style::plain(110));
+    let out = inspect(
+        &view(None),
+        None,
+        true,
+        &crate::now_rfc3339(),
+        &Style::plain(110),
+    );
     assert_eq!(
         out,
         "\
@@ -690,7 +735,13 @@ fn triage_strategy_prints_beside_its_graph_phase() {
         .unwrap();
     triage.name = "triage".into();
     triage.strategy = Some("chore".into());
-    let out = inspect(&routed, None, false, &Style::plain(100));
+    let out = inspect(
+        &routed,
+        None,
+        false,
+        &crate::now_rfc3339(),
+        &Style::plain(100),
+    );
     assert!(out.contains("\n  triage · chore ×1\n"), "{out}");
 }
 
@@ -700,6 +751,7 @@ fn a_park_reason_prints_before_everything_the_operator_would_act_on() {
         &view(Some("needs a human")),
         None,
         false,
+        &crate::now_rfc3339(),
         &Style::plain(100),
     );
     let head: Vec<&str> = out.lines().take(4).collect();
@@ -713,7 +765,13 @@ fn scoping_flags_mirror_the_consoles_clicks() {
     let by_phase = lens_for(&view, Some(&Scope::Phase("intake".into())))
         .unwrap()
         .unwrap();
-    let scoped = inspect(&view, Some(&by_phase), true, &Style::plain(100));
+    let scoped = inspect(
+        &view,
+        Some(&by_phase),
+        true,
+        &crate::now_rfc3339(),
+        &Style::plain(100),
+    );
     assert_eq!(
         scoped,
         "\
@@ -746,14 +804,26 @@ graph
     let by_label = lens_for(&view, Some(&Scope::Seat("design:chief".into())))
         .unwrap()
         .unwrap();
-    let seat = inspect(&view, Some(&by_label), false, &Style::plain(100));
+    let seat = inspect(
+        &view,
+        Some(&by_label),
+        false,
+        &crate::now_rfc3339(),
+        &Style::plain(100),
+    );
     assert!(seat.contains("design:chief working"), "{seat}");
     assert!(!seat.contains("\n  intake  "), "{seat}");
     let by_key = lens_for(&view, Some(&Scope::Seat("eff-d:chief".into())))
         .unwrap()
         .unwrap();
     assert_eq!(
-        inspect(&view, Some(&by_key), false, &Style::plain(100)),
+        inspect(
+            &view,
+            Some(&by_key),
+            false,
+            &crate::now_rfc3339(),
+            &Style::plain(100)
+        ),
         seat
     );
 
@@ -822,7 +892,7 @@ fn an_empty_run_still_renders_a_header() {
     // one — and there is nothing else to draw.
     let empty = brokkr_view::run_view(&[], None);
     assert_eq!(
-        inspect(&empty, None, true, &Style::plain(80)),
+        inspect(&empty, None, true, &crate::now_rfc3339(), &Style::plain(80)),
         "run  — this journal does not fold\n"
     );
 }
@@ -839,7 +909,7 @@ fn a_ruling_with_a_problem_prints_it_under_the_ruling_line() {
         ),
     );
     let view = brokkr_view::run_view(&events, Some(&stopped));
-    let out = inspect(&view, None, false, &Style::plain(80));
+    let out = inspect(&view, None, false, &crate::now_rfc3339(), &Style::plain(80));
     assert!(out.contains("ruling  HARD-STOP  design → ?\n"), "{out}");
     assert!(out.contains("        the seat refused\n"), "{out}");
 }
@@ -876,7 +946,13 @@ fn a_superseded_ruling_prints_the_operators_mark_under_the_ruling_line() {
                     "result": "residual"})),
     );
     let view = brokkr_view::run_view(&events, Some(&stopped));
-    let out = inspect(&view, None, false, &Style::plain(200));
+    let out = inspect(
+        &view,
+        None,
+        false,
+        &crate::now_rfc3339(),
+        &Style::plain(200),
+    );
     assert!(
         out.contains("ruling  REVIEW-SECURITY-HOLD  review → ? · residual\n"),
         "the ruling is printed as it was ruled: {out}"
@@ -903,7 +979,13 @@ fn a_phase_whose_only_traffic_is_its_entry_drops_the_seats_block() {
     let lens = lens_for(&view, Some(&Scope::Phase("review".into())))
         .unwrap()
         .unwrap();
-    let out = inspect(&view, Some(&lens), true, &Style::plain(80));
+    let out = inspect(
+        &view,
+        Some(&lens),
+        true,
+        &crate::now_rfc3339(),
+        &Style::plain(80),
+    );
     assert_eq!(
         out,
         "run  — this journal does not fold\n\
@@ -947,7 +1029,7 @@ fn a_panel_without_sequence_steps_forks_under_the_marker_alone() {
         ),
     ];
     let view = brokkr_view::run_view(&events, None);
-    let out = inspect(&view, None, false, &Style::plain(80));
+    let out = inspect(&view, None, false, &crate::now_rfc3339(), &Style::plain(80));
     assert!(
         out.contains("    ⑂\n"),
         "a fork column with no label prints the marker alone: {out}"
@@ -955,7 +1037,13 @@ fn a_panel_without_sequence_steps_forks_under_the_marker_alone() {
     let lens = lens_for(&view, Some(&Scope::Phase("design".into())))
         .unwrap()
         .unwrap();
-    let scoped = inspect(&view, Some(&lens), false, &Style::plain(80));
+    let scoped = inspect(
+        &view,
+        Some(&lens),
+        false,
+        &crate::now_rfc3339(),
+        &Style::plain(80),
+    );
     assert!(
         !scoped.contains("loose"),
         "a phase-less seat is in no phase scope: {scoped}"
@@ -987,7 +1075,8 @@ fn a_step_with_a_single_member_still_reads_as_the_step() {
         ),
     ];
     let view = brokkr_view::run_view(&events, None);
-    let out = inspect(&view, None, false, &Style::plain(80));
+    let at = crate::now_rfc3339();
+    let out = inspect(&view, None, false, &at, &Style::plain(80));
     assert!(
         out.contains("    → positions · finished\n"),
         "the column label wins over the lone node's own: {out}"
@@ -1046,7 +1135,13 @@ fn a_seat_lens_gathers_every_occurrence_and_survives_a_phase_less_one() {
         .phases
         .iter()
         .all(|phase| keeps_phase(Some(&lens), phase)));
-    let out = inspect(&view, Some(&lens), false, &Style::plain(80));
+    let out = inspect(
+        &view,
+        Some(&lens),
+        false,
+        &crate::now_rfc3339(),
+        &Style::plain(80),
+    );
     assert_eq!(
         out.lines()
             .filter(|line| line.starts_with("  implement ") && line.contains("working"))
@@ -1062,7 +1157,7 @@ fn a_run_that_has_not_entered_a_phase_yet_says_so() {
     let mut early = state(Status::Running, None, None);
     early.phase = None;
     let view = brokkr_view::run_view(&events, Some(&early));
-    let out = inspect(&view, None, false, &Style::plain(80));
+    let out = inspect(&view, None, false, &crate::now_rfc3339(), &Style::plain(80));
     assert!(out.contains("running · phase - · seq 14"), "{out}");
 }
 
@@ -1089,7 +1184,13 @@ fn boxed_view(word: &str, gate: bool) -> brokkr_view::RunView {
 /// adjective included, composed nowhere here.
 #[test]
 fn inspect_names_the_boundary_beside_the_model_and_in_its_header() {
-    let out = inspect(&boxed_view("harness", true), None, true, &Style::plain(120));
+    let out = inspect(
+        &boxed_view("harness", true),
+        None,
+        true,
+        &crate::now_rfc3339(),
+        &Style::plain(120),
+    );
     let lines: Vec<&str> = out.lines().collect();
     assert_eq!(lines[0], "run  run-7");
     assert_eq!(lines[2], "     boundary harness · unboxed");
@@ -1116,6 +1217,7 @@ fn inspect_names_the_boundary_beside_the_model_and_in_its_header() {
         &boxed_view("harness", true),
         None,
         false,
+        &crate::now_rfc3339(),
         &Style::plain(120),
     );
     assert_eq!(
@@ -1129,7 +1231,13 @@ fn inspect_names_the_boundary_beside_the_model_and_in_its_header() {
     let lens = lens_for(&view, Some(&Scope::Seat("intake".into())))
         .unwrap()
         .unwrap();
-    let scoped = inspect(&view, Some(&lens), true, &Style::plain(120));
+    let scoped = inspect(
+        &view,
+        Some(&lens),
+        true,
+        &crate::now_rfc3339(),
+        &Style::plain(120),
+    );
     assert_eq!(scoped.lines().nth(2), Some("     boundary open · unboxed"));
     assert!(scoped.contains("claude-fable-5-1 open "), "{scoped}");
 }
@@ -1142,6 +1250,7 @@ fn the_header_prints_the_word_alone_or_nothing_where_no_gate_was_unboxed() {
         &boxed_view("namespace", true),
         None,
         false,
+        &crate::now_rfc3339(),
         &Style::plain(120),
     );
     assert_eq!(namespace.lines().nth(2), Some("     boundary namespace"));
@@ -1150,11 +1259,18 @@ fn the_header_prints_the_word_alone_or_nothing_where_no_gate_was_unboxed() {
         &boxed_view("harness", false),
         None,
         false,
+        &crate::now_rfc3339(),
         &Style::plain(120),
     );
     assert_eq!(work.lines().nth(2), Some("     boundary harness"));
     assert!(!work.contains("unboxed"), "{work}");
-    let plain = inspect(&view(None), None, true, &Style::plain(120));
+    let plain = inspect(
+        &view(None),
+        None,
+        true,
+        &crate::now_rfc3339(),
+        &Style::plain(120),
+    );
     assert!(
         !plain.lines().any(|line| line.starts_with("     boundary")),
         "{plain}"
@@ -1164,7 +1280,7 @@ fn the_header_prints_the_word_alone_or_nothing_where_no_gate_was_unboxed() {
     let mut events = journal();
     events[0].payload["manifest"] = json!({"hands":{"intake":{"binds":[]}}});
     let old = brokkr_view::run_view(&events, Some(&state(Status::Running, None, None)));
-    let old = inspect(&old, None, false, &Style::plain(120));
+    let old = inspect(&old, None, false, &crate::now_rfc3339(), &Style::plain(120));
     assert_eq!(old.lines().nth(2), Some("     boundary not recorded"));
 }
 
@@ -1176,10 +1292,22 @@ fn the_seats_block_is_the_one_inspect_prints() {
     let block = seats(&boxed, &Style::plain(120));
     assert!(block.starts_with("seats\n"), "{block}");
     assert!(block.contains("claude-fable-5-1 harness "), "{block}");
-    let whole = inspect(&boxed, None, true, &Style::plain(120));
+    let whole = inspect(
+        &boxed,
+        None,
+        true,
+        &crate::now_rfc3339(),
+        &Style::plain(120),
+    );
     assert!(whole.contains(&format!("\n{block}\n")), "{whole}");
     assert_eq!(seats(&view(None), &Style::plain(120)), {
-        let whole = inspect(&view(None), None, true, &Style::plain(120));
+        let whole = inspect(
+            &view(None),
+            None,
+            true,
+            &crate::now_rfc3339(),
+            &Style::plain(120),
+        );
         let start = whole.find("seats\n").unwrap();
         let end = whole[start..].find("\n\n").unwrap();
         format!("{}\n", &whole[start..start + end])

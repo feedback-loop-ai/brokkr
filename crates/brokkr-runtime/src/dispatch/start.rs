@@ -344,7 +344,8 @@ pub(crate) enum Refused {
 
 /// Split a `StoreError` for the pass's report: contention is reported, a
 /// newer holder fences the dispatcher out, unknown queue storage names its
-/// version, and every other store error ends the dispatcher.
+/// version, and every other store error ends the dispatcher, a clock the
+/// store cannot read included (decision 0110 ruling 2's closed disposal).
 pub(crate) fn refused(error: StoreError) -> Refused {
     match error {
         StoreError::Contended { .. } => Refused::Contended(error),
@@ -357,6 +358,7 @@ pub(crate) fn refused(error: StoreError) -> Refused {
         | StoreError::AfterTerminal { .. }
         | StoreError::AlreadyAcknowledged { .. }
         | StoreError::Chain(_)
+        | StoreError::Clock { .. }
         | StoreError::HeadMoved { .. }
         | StoreError::Json(_)
         | StoreError::RowBeforeChain { .. }

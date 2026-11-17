@@ -30,8 +30,8 @@ use crate::participant::key_of;
 use crate::started::CarriedEntry;
 use crate::{
     bucket, commands_of, dashboard, ensure, field, ids, journal_rows, live_line, page_rows,
-    scan_participants, supersedes, viewed, Build, Participant, Read, RunView, Scan, Told, CARRIED,
-    FAILED, INDETERMINATE, SUCCEEDED, WORKING,
+    scan_participants, supersedes, viewed, Build, Cooling, Participant, Read, RunView, Scan, Told,
+    WaitFact, Waits, CARRIED, FAILED, INDETERMINATE, SUCCEEDED, WORKING,
 };
 
 /// What one run's view is composed from, read at the head its opening
@@ -49,6 +49,8 @@ pub struct Parts<'a> {
     pub head_seq: u64,
     /// The head's stamp.
     pub last_at: &'a str,
+    /// The aggregate the caller read, so a probe's later end is painted.
+    pub cooling: Vec<Cooling>,
 }
 
 /// The run view of the run `parts` read, `state` its fold at the head:
@@ -78,6 +80,7 @@ pub fn composed_whole(
     journal: &[EventEnvelope],
     last_at: &str,
     state: Option<&RunState>,
+    cooling: &[Cooling],
 ) -> Option<RunView> {
     let by_id = ids(journal);
     let parts = Parts {
@@ -88,6 +91,7 @@ pub fn composed_whole(
         causes: &BTreeMap::new(),
         head_seq: u64::try_from(journal.len()).unwrap_or(u64::MAX),
         last_at,
+        cooling: cooling.to_vec(),
     };
     let mut view = composed(&parts, |id| by_id.get(id).copied(), state)?;
     checkpointed(&mut view.participants, trail, journal)?;
@@ -204,7 +208,8 @@ fn composed(
         event_count: usize::try_from(parts.head_seq).unwrap_or(usize::MAX),
         dashboard: dashboard::kept(applied, parts.seats, parts.last_at),
     };
-    Some(viewed(applied, &scan, &buckets, &marks, read, state))
+    let waits = Waits::of(&WaitFact::applied(parts.trail, state), &parts.cooling);
+    Some(viewed(applied, &scan, &buckets, &marks, read, state, waits))
 }
 
 /// The columns a row's participant is read by (`SeatRow::COLUMNS`): the

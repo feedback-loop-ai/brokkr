@@ -91,9 +91,10 @@ fn shown_of(view: &brokkr_view::RunView) -> (Vec<&str>, Vec<usize>) {
 fn every_run_reader_reads_through_the_pages() {
     let (dir, db, store) = keyed_journal();
     let whole = |run| brokkr_view::run_view(&store.load(run).unwrap(), None);
+    let now = crate::now_rfc3339();
     let read = |run, shows| {
         let db = Some(db.clone());
-        run_view_of(dir.path(), None, db, run, shows, &viewed).unwrap()
+        run_view_of(dir.path(), None, db, run, shows, &now, &viewed).unwrap()
     };
     assert_eq!(shown_of(&whole("r2")), (vec!["work"], vec![1]));
     for (shows, checkpoints) in [(Shows::Everything, 1), (Shows::Frame, 0)] {
@@ -105,10 +106,12 @@ fn every_run_reader_reads_through_the_pages() {
     let whole = whole("r1");
     assert_eq!(shown_of(&whole), (vec!["work"], vec![]));
     let style = render::Style::plain(80);
-    let frame = viewed(&store, "r1", Shows::Frame).unwrap().view;
+    let frame = viewed(&store, "r1", Shows::Frame, &crate::now_rfc3339())
+        .unwrap()
+        .view;
     let clock = || "2026-01-01T00:00:00Z".to_string();
     let mut painted = Vec::new();
-    let frame = render::inspect(&frame, None, false, &style);
+    let frame = render::inspect(&frame, None, false, &crate::now_rfc3339(), &style);
     write_frame(&mut painted, &frame, false, &mut clock.clone()).unwrap();
     let mut watched = Vec::new();
     let mut tick = clock;
@@ -128,10 +131,14 @@ fn every_run_reader_reads_through_the_pages() {
         String::from_utf8(watched).unwrap(),
         String::from_utf8(painted).unwrap()
     );
-    let paged = viewed(&store, "r1", Shows::Everything).unwrap().view;
+    let paged = viewed(&store, "r1", Shows::Everything, &crate::now_rfc3339())
+        .unwrap()
+        .view;
     let paged = serde_json::to_string(&paged.with_scopes()).unwrap();
     assert_ne!(paged, serde_json::to_string(&whole.with_scopes()).unwrap());
-    let kept = viewed(&store, "r2", Shows::Everything).unwrap().view;
+    let kept = viewed(&store, "r2", Shows::Everything, &crate::now_rfc3339())
+        .unwrap()
+        .view;
     assert_eq!(shown_of(&kept), (vec!["work"], vec![1]));
     let kept = serde_json::to_string(&kept.with_scopes()).unwrap();
     for (run, body) in [("r1", paged), ("r2", kept)] {
@@ -179,7 +186,8 @@ fn seats_args(db: &Path, run: &str, json: bool) -> SeatsArgs {
 fn inspect_and_seats_print_the_pages_by_their_own_entry_points() {
     let (dir, db, store) = keyed_journal();
     let style = render::Style::detect();
-    let read = |run, shows| viewed(&store, run, shows).unwrap().view;
+    let now = crate::now_rfc3339();
+    let read = |run, shows| viewed(&store, run, shows, &now).unwrap().view;
     let today = |run| {
         let events = store.load(run).unwrap();
         brokkr_view::run_view(&events, brokkr_core::fold::fold(&events).as_ref().ok())
@@ -189,9 +197,9 @@ fn inspect_and_seats_print_the_pages_by_their_own_entry_points() {
         format!("{served}\n")
     };
     let asked = std::cell::RefCell::new(Vec::new());
-    let look = |store: &Store, run: &str, shows| {
+    let look = |store: &Store, run: &str, shows, now: &str| {
         asked.borrow_mut().push(shows);
-        viewed(store, run, shows)
+        viewed(store, run, shows, now)
     };
     let printed = |out: Vec<u8>| String::from_utf8(out).unwrap();
     let inspect = |run, json, call| {
@@ -206,7 +214,7 @@ fn inspect_and_seats_print_the_pages_by_their_own_entry_points() {
     };
     for run in ["r1", "r2"] {
         let frame = read(run, Shows::Frame);
-        let inspected = render::inspect(&frame, None, true, &style);
+        let inspected = render::inspect(&frame, None, true, &crate::now_rfc3339(), &style);
         assert_eq!(inspect(run, false, None).unwrap(), inspected, "{run}");
         assert_eq!(seats(run, false), render::seats(&frame, &style), "{run}");
         let whole = served(read(run, Shows::Everything));
@@ -227,7 +235,7 @@ fn inspect_and_seats_print_the_pages_by_their_own_entry_points() {
     assert_eq!(asked.take(), [&shown[..], &shown, &both].concat());
     // What the bytes tell apart: `r1`'s pages from its run read whole, and
     // `r2`'s view whole from its frame.
-    let painted = |view| render::inspect(&view, None, true, &style);
+    let painted = |view| render::inspect(&view, None, true, &crate::now_rfc3339(), &style);
     assert_ne!(painted(read("r1", Shows::Frame)), painted(today("r1")));
     assert_ne!(served(read("r1", Shows::Everything)), served(today("r1")));
     let framed = served(read("r2", Shows::Frame));
@@ -307,4 +315,49 @@ fn a_retired_call_prints_its_words_and_a_host_with_no_home_has_no_history() {
     env.remove("HOME");
     let history = retired_at(Path::new("/evidence/root")).unwrap();
     assert_eq!((history.current, history.superseded), (None, Vec::new()));
+}
+
+/// `brokkr runs` paints a cooling run's wait on its row: the provider, the
+/// route, the aggregate's later end and the provider's words (decision
+/// 0103 slice 4f). The row reads `running`, never "needs you", and the
+/// summary read paints the probe's later round, not the event's first end.
+#[test]
+fn runs_paints_a_cooling_run_with_the_aggregate_s_later_end() {
+    use crate::fleet::Called;
+    use crate::tests::cooling::{assert_painted, cooling_journal};
+
+    let (_dir, db) = cooling_journal();
+    let style = render::Style::plain(200);
+    let mut out = Vec::new();
+    crate::verbs::readouts::hearth_runs(
+        (&db, "realm"),
+        (false, None, None),
+        (
+            crate::fleet::Filter::default(),
+            Called {
+                db: Some(&db),
+                realms: None,
+            },
+        ),
+        &style,
+        &mut out,
+    )
+    .unwrap();
+    let printed = String::from_utf8(out).unwrap();
+    assert!(printed.contains("running"), "{printed}");
+    assert_painted(&printed);
+    assert!(!printed.contains("needs you"), "{printed}");
+}
+
+/// `brokkr inspect` shows the same wait from the same derivation: its
+/// aggregate end and the provider's words, and not the event's first end.
+#[test]
+fn inspect_shows_a_cooling_run_s_wait_with_the_aggregate_s_later_end() {
+    use crate::tests::cooling::{assert_painted, cooling_journal};
+
+    let (dir, db) = cooling_journal();
+    let mut out = Vec::new();
+    super::inspect(dir.path(), inspect_args(&db, "r1", false, None), &mut out).unwrap();
+    let printed = String::from_utf8(out).unwrap();
+    assert_painted(&printed);
 }

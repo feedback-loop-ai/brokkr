@@ -11,7 +11,7 @@ use brokkr_store::test_support::plant_broken_link;
 use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::process::Command;
-
+pub(crate) mod cooling;
 #[path = "../../../tests/support/dispatch.rs"]
 mod dispatch_fixture;
 /// The binary's one environment guard: `HOME` is process-global and the
@@ -28,7 +28,6 @@ use env_guard::EnvGuard;
 #[test]
 fn the_command_tree_builds_on_a_small_stack() {
     use clap::CommandFactory;
-
     // Slice 0046's extra verb tipped the monolithic derive's command
     // builder over Windows' main stack, before any path was walked.
     // Build both finite command trees with headroom below that stack
@@ -44,7 +43,6 @@ fn the_command_tree_builds_on_a_small_stack() {
         .join()
         .unwrap();
 }
-
 pub(crate) fn workspace() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -53,7 +51,6 @@ pub(crate) fn workspace() -> PathBuf {
         .unwrap()
         .to_path_buf()
 }
-
 pub(crate) fn running_store(db: &std::path::Path, run_id: &str) {
     let mut store = Store::open(db).unwrap();
     store
@@ -174,7 +171,6 @@ pub(crate) fn stopped_mid_flight_copy(
             .unwrap();
     }
 }
-
 pub(crate) fn cli(command: Cmd) -> Cli {
     Cli { command }
 }
@@ -2936,6 +2932,7 @@ fn an_operator_stop_mid_flight_lists_with_its_real_status() {
     let entries = [
         listed.entry(),
         brokkr_view::RunEntry {
+            waits: Default::default(),
             run_id: "healthy",
             feature: "feature",
             created_at: "2026-08-30T22:21:00Z",
@@ -2946,7 +2943,7 @@ fn an_operator_stop_mid_flight_lists_with_its_real_status() {
             closing: None,
         },
     ];
-    let view = serde_json::to_value(brokkr_view::run_rows(&entries)).unwrap();
+    let view = serde_json::to_value(brokkr_view::run_rows(&entries, &[])).unwrap();
     let row = &view["runs"]
         .as_array()
         .unwrap()
@@ -3082,7 +3079,7 @@ fn one_unfoldable_journal_is_quarantined_by_the_fleet_and_fatal_to_its_own_verbs
     let read = fleet::read_hearth(&Store::open(&db).unwrap());
     let entries: Vec<brokkr_view::RunEntry> =
         read.runs.iter().map(fleet::ListedRun::entry).collect();
-    let view = serde_json::to_value(brokkr_view::run_rows(&entries)).unwrap();
+    let view = serde_json::to_value(brokkr_view::run_rows(&entries, &[])).unwrap();
     assert_eq!(view["count"], 2, "no run is dropped: {view}");
     let row = |run_id: &str| -> Value {
         view["runs"]
@@ -3563,7 +3560,8 @@ fn import_adopts_an_export_and_the_readouts_cannot_tell_it_apart() {
         let state = fold(&events).unwrap();
         let view = brokkr_view::run_view(&events, Some(&state));
         let lens = brokkr_view::lens_for(&view, None).unwrap();
-        render::inspect(&view, lens.as_ref(), true, &render::Style::detect())
+        let at = "2026-01-01T00:00:00Z";
+        render::inspect(&view, lens.as_ref(), true, at, &render::Style::detect())
     };
     assert_eq!(rendered(&adopted), rendered(&native));
 
@@ -3574,6 +3572,7 @@ fn import_adopts_an_export_and_the_readouts_cannot_tell_it_apart() {
     let events = store.load("r1").unwrap();
     let state = fold(&events).unwrap();
     let entries = vec![brokkr_view::RunEntry {
+        waits: Default::default(),
         run_id: &listed[0].0,
         feature: &listed[0].1,
         created_at: &listed[0].2,
@@ -3583,7 +3582,7 @@ fn import_adopts_an_export_and_the_readouts_cannot_tell_it_apart() {
         residuals: &[],
         closing: None,
     }];
-    let fleet = serde_json::to_string(&brokkr_view::run_rows(&entries)).unwrap();
+    let fleet = serde_json::to_string(&brokkr_view::run_rows(&entries, &[])).unwrap();
     assert!(!fleet.contains("import"), "{fleet}");
     let native_listing = Store::open(&native).unwrap().list_runs().unwrap();
     assert_eq!(listed[0].0, native_listing[0].0);
@@ -3827,6 +3826,7 @@ fn a_hostile_conclude_reason_is_neutralized_where_it_is_drawn() {
         &brokkr_view::run_view(&events, Some(&state)),
         None,
         true,
+        &crate::now_rfc3339(),
         &crate::render::Style::plain(400),
     );
     let dropped: String = drawn

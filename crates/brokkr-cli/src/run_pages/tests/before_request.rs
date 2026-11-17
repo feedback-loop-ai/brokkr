@@ -70,7 +70,7 @@ fn a_record_before_its_request_reads_whole_in_every_reader() {
     assert_eq!(labels, ["?:m", "worker:m"]);
     let expected = printed(whole, &folded);
     for shows in [Shows::Everything, Shows::Frame] {
-        let read = viewed(&store, run, shows).unwrap();
+        let read = viewed(&store, run, shows, &crate::now_rfc3339()).unwrap();
         assert_eq!(printed(read.view, &read.folded), expected, "{shows:?}");
     }
 }

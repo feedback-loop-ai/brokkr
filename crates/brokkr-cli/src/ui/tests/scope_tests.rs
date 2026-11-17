@@ -76,7 +76,13 @@ fn the_served_seat_scope_is_what_inspect_seat_prints() {
     let events = store.load("r1").unwrap();
     let view = brokkr_view::run_view(&events, Some(&fold(&events).unwrap()));
     let lens = lens_for(&view, Some(&Scope::Seat("eff-d".into()))).unwrap();
-    let printed = render::inspect(&view, lens.as_ref(), true, &Style::plain(100));
+    let printed = render::inspect(
+        &view,
+        lens.as_ref(),
+        true,
+        &crate::now_rfc3339(),
+        &Style::plain(100),
+    );
 
     let label = |key: &Value| {
         let part = served["participants"].as_array().unwrap().iter();

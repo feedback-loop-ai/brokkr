@@ -188,7 +188,8 @@ pub fn handle(db: &Path, path: &str) -> Response {
         return runs(db, &store, query.strip_prefix('?'));
     }
     if let Some(run_id) = path.strip_prefix("/api/view/") {
-        let read = run_pages::viewed(&store, run_id, run_pages::Shows::Everything);
+        let now = crate::now_rfc3339();
+        let read = run_pages::viewed(&store, run_id, run_pages::Shows::Everything, &now);
         let view = match read.map_err(RouteRefusal::of) {
             Ok(read) => read.view.with_scopes(),
             Err(refusal) => return refusal.response(run_id),
@@ -322,11 +323,13 @@ fn presentation_payload(participant: &brokkr_view::Participant) -> Value {
 enum RouteRefusal {
     /// The route, its run or its participant is not there.
     Missing,
-    /// The run is there, and the store refuses to open it: its chain does
-    /// not verify, or a row of it does not read. Every route that opens a
-    /// run refuses it in the store's words and reads nothing, as each of
-    /// the run's verbs does (decision 0089 ruling 5).
-    Unopened(StoreError),
+    /// The run is there, and the read refuses it: the store's words when
+    /// its chain does not verify or a row of it does not read, or the
+    /// caller's clock when it is not the RFC 3339 instant every readout
+    /// reads at. Every route that opens a run refuses it in those words
+    /// and reads nothing, as each of the run's verbs does (decision 0089
+    /// ruling 5; decision 0103 slice 4f).
+    Unread(StoreError),
     /// The run's journal loads and does not fold. That is fatal to the
     /// run's own verbs (`fleet.rs`), so every participant route refuses it
     /// in the fold's words, as `brokkr transcript` does, and reads nothing.
@@ -334,12 +337,12 @@ enum RouteRefusal {
 }
 
 impl RouteRefusal {
-    /// The store's refusal of a run a route reads: missing when the
-    /// journal holds no such run.
+    /// The read's refusal of a run a route reads: missing when the journal
+    /// holds no such run.
     fn of(error: StoreError) -> Self {
         match error {
             StoreError::RunNotFound(_) => RouteRefusal::Missing,
-            refused => RouteRefusal::Unopened(refused),
+            refused => RouteRefusal::Unread(refused),
         }
     }
 
@@ -347,7 +350,7 @@ impl RouteRefusal {
     fn response(self, missing: &str) -> Response {
         match self {
             RouteRefusal::Missing => not_found(missing),
-            RouteRefusal::Unopened(error) => server_error(error.to_string()),
+            RouteRefusal::Unread(error) => server_error(error.to_string()),
             RouteRefusal::Unfoldable(error) => server_error(error.to_string()),
         }
     }
@@ -361,7 +364,8 @@ fn route_participant(
     rest: &str,
 ) -> Result<(String, brokkr_view::Participant), RouteRefusal> {
     let (run_id, participant_key) = route_components(rest).ok_or(RouteRefusal::Missing)?;
-    let participants = run_pages::participants(store, &run_id).map_err(RouteRefusal::of)?;
+    let now = crate::now_rfc3339();
+    let participants = run_pages::participants(store, &run_id, &now).map_err(RouteRefusal::of)?;
     let participant = participants
         .map_err(RouteRefusal::Unfoldable)?
         .into_iter()

@@ -85,6 +85,8 @@ fn row_of(summary: &Summary) -> Row {
         acknowledged: None,
         closing: summary.closing.clone(),
         late_tail: summary.late_tail.clone(),
+        lane_running: summary.status == Some(brokkr_core::fold::Status::Running)
+            && summary.stop_accepted_seq.is_none(),
     }
 }
 
@@ -122,6 +124,7 @@ fn closed(events: &[EventEnvelope], ended: Option<Closing>) -> (RunRow, Summary)
         recorded_at: CREATED.to_string(),
     };
     let entry = RunEntry {
+        waits: Default::default(),
         run_id: "run",
         feature: FEATURE,
         created_at: CREATED,
@@ -134,7 +137,7 @@ fn closed(events: &[EventEnvelope], ended: Option<Closing>) -> (RunRow, Summary)
         residuals: &residuals,
         closing: ended,
     };
-    (run_row(&entry), summary)
+    (run_row(&entry, &[]), summary)
 }
 
 /// A run started and, by `ends`, completed or stopped by an accepted stop.
@@ -180,9 +183,9 @@ fn a_paged_row_says_what_the_whole_read_says_for_every_ending() {
             stood_over: ending == Ending::Withdrawn,
         };
         let (whole, summary) = closed(&finished(ending.status()), Some(ended));
-        let paged = summary_row(&row_of(&summary), Some(&whole_of(&summary, None)));
+        let paged = listed_row(&row_of(&summary), Some(&whole_of(&summary, None)));
         assert_eq!(wire(&paged), wire(&whole), "{ending:?}");
-        let listed = summary_row(&row_of(&summary), None);
+        let listed = listed_row(&row_of(&summary), None);
         let said = (
             listed.status_word.as_str(),
             listed.ending,
@@ -220,7 +223,7 @@ fn a_row_with_no_ending_says_the_fold_s_word_and_what_its_standing_wants() {
     ];
     for (events, word, wants) in cases {
         let (whole, summary) = both(&events);
-        let listed = summary_row(&row_of(&summary), None);
+        let listed = listed_row(&row_of(&summary), None);
         let said = (listed.status_word.as_str(), listed.ending, listed.wants);
         assert_eq!(said, (word, None, wants), "{word}");
         assert_eq!(listed.ending_cited, None);
@@ -238,11 +241,16 @@ fn a_row_with_no_ending_says_the_fold_s_word_and_what_its_standing_wants() {
             at: CREATED.to_string(),
         }),
     );
-    let acknowledged = summary_row(&row_of(&summary), Some(&copied));
+    let acknowledged = listed_row(&row_of(&summary), Some(&copied));
     assert_eq!((whole.wants, acknowledged.wants), (None, None));
     let (unread, _) = closed(&finished(brokkr_core::fold::Status::Stopped), None);
     let said = (unread.status_word.as_str(), unread.ending, unread.wants);
     assert_eq!(said, ("stopped", None, None));
+}
+
+/// A summary row as the fleet lists it, with no aggregate and no wait.
+fn listed_row(row: &Row, whole: Option<&Whole>) -> RunRow {
+    summary_row(row, whole, &Default::default(), &[])
 }
 
 fn wire(row: &RunRow) -> Value {
@@ -254,7 +262,7 @@ fn wire(row: &RunRow) -> Value {
 #[test]
 fn a_summary_row_read_whole_is_its_run_read_whole() {
     let (whole, summary) = both(&parked());
-    let paged = summary_row(&row_of(&summary), Some(&whole_of(&summary, None)));
+    let paged = listed_row(&row_of(&summary), Some(&whole_of(&summary, None)));
     assert_eq!(wire(&paged), wire(&whole));
     assert_eq!(paged.order_at, whole.order_at);
     assert_eq!(paged.residuals.len(), 1);
@@ -266,7 +274,7 @@ fn a_summary_row_read_whole_is_its_run_read_whole() {
         reason: "looked".to_string(),
         at: CREATED.to_string(),
     };
-    let paged = summary_row(&row_of(&summary), Some(&whole_of(&summary, Some(copied))));
+    let paged = listed_row(&row_of(&summary), Some(&whole_of(&summary, Some(copied))));
     assert_eq!(wire(&paged), wire(&whole));
     assert_eq!(paged.quarantine, Some(Quarantine::DoesNotFold));
 }
@@ -282,7 +290,7 @@ fn a_paged_row_lists_its_bounded_values() {
         cut: "rev".to_string(),
         whole: None,
     });
-    let paged = summary_row(&row, None);
+    let paged = listed_row(&row, None);
     assert_eq!(paged.feature, "Fix the flaky gate");
     assert_eq!(
         (paged.title.as_str(), paged.phase.as_deref()),
@@ -298,16 +306,17 @@ fn a_paged_row_lists_its_bounded_values() {
         reason: "r".to_string(),
         at: "t".to_string(),
     });
-    let paged = summary_row(&row, None);
+    let paged = listed_row(&row, None);
     let acknowledged = paged.acknowledgement.unwrap();
     assert_eq!(acknowledged.line(), "acknowledged by o at t, event 1: r");
     assert_eq!((paged.seq, paged.status_known), (None, false));
 }
 
-/// Each section reads the lanes, at the bounds, it places a row in; a
-/// clock that does not read bounds nothing.
+/// Each section reads the lane it places a row in. Running is read whole
+/// because a live wait can hold a stale row there while NeedsYou places a
+/// stale row with no wait in it; a clock that does not read bounds nothing.
 #[test]
-fn each_section_reads_the_ranges_it_places_rows_in() {
+fn each_section_reads_the_lane_its_rows_stand_in() {
     let now = brokkr_core::stamp::parse_millis(NOW).unwrap();
     let (stale, day) = (now - 3 * 3_600_000, now - 86_400_000);
     let range = |lane, bound| Range { lane, bound };
@@ -321,10 +330,7 @@ fn each_section_reads_the_ranges_it_places_rows_in() {
                 range(Lane::Running, Some(Bound::Below(stale))),
             ],
         ),
-        (
-            Section::Running,
-            vec![range(Lane::Running, Some(Bound::AtOrAbove(stale)))],
-        ),
+        (Section::Running, vec![range(Lane::Running, None)]),
         (
             Section::Recent,
             vec![range(Lane::Finished, Some(Bound::Above(day)))],
@@ -554,4 +560,52 @@ fn a_fleet_read_whole_lists_a_section_below_its_cursor() {
         )),
         ["a", "c"]
     );
+}
+
+/// The head a running row's wait is read from: an `effect/failed` whose
+/// one wait ends ten minutes into the day `NOW` closes.
+fn waiting_head() -> WaitFact {
+    let wait = json!({"site": "a", "provider": "claude", "route": "anthropic",
+        "words": "rate_limit (HTTP 429)", "seconds": 600,
+        "until": "2026-01-02T00:10:00Z", "rounds": 1});
+    let head = crate::tests::ev(
+        8,
+        EventType::EffectFailed,
+        json!({"effect_id": "e", "waits": [wait]}),
+        "2026-01-01T23:59:00Z",
+    );
+    WaitFact::of(Some(&head))
+}
+
+/// Decision 0103 slice 4f: a row the summary refuses paints no wait, the
+/// one place that rule is kept. A refusal beside a running status is not
+/// one a writer produces (it writes the status null), so the row is the
+/// summary of a running journal with the refusal planted.
+#[test]
+fn a_summary_row_the_summary_refuses_paints_no_wait() {
+    let events = journal(&[(
+        EventType::RunStarted,
+        json!({"feature": "v", "manifest": {}}),
+    )]);
+    let summary = Summary::of(
+        &Account::whole("run", &events),
+        Listing {
+            feature: FEATURE,
+            created_at: CREATED,
+        },
+    );
+    let mut row = row_of(&summary);
+    assert_eq!(row.status, Some(brokkr_core::fold::Status::Running));
+    let fact = waiting_head();
+    let waits = |row: &Row| summary_row(row, None, &fact, &[]).waits;
+    // The control: the same row, unrefused, paints the wait.
+    assert_eq!(waits(&row).waits.len(), 1, "an unrefused row paints it");
+    row.refused = Some(brokkr_core::summary::Refused {
+        seq: 1,
+        words: Bounded {
+            cut: "event 1: refused".to_string(),
+            whole: None,
+        },
+    });
+    assert_eq!(waits(&row), Waits::default());
 }

@@ -43,6 +43,7 @@ use brokkr_core::ending::{closing, Closing};
 use brokkr_core::fold::{fold_onto, RunState};
 use brokkr_core::{EventEnvelope, EventType};
 use brokkr_store::{Store, StoreError};
+use brokkr_view::WaitFact;
 
 use super::{acknowledged, did_not_fold, entry, judged, Listing, Quarantine};
 
@@ -163,6 +164,7 @@ impl KeptFleet {
                     run.last_recorded_at.as_deref(),
                     state,
                     (&run.residuals, run.closing.clone()),
+                    &run.waits,
                 )
             })
             .collect()
@@ -277,6 +279,9 @@ struct KeptRun {
     residuals: Vec<brokkr_view::ResidualFinding>,
     /// Its ending, read from `rulings` at the fold's head (decision 0064).
     closing: Option<Closing>,
+    /// The waits its last event states (decision 0103 slice 4f), kept as the
+    /// typed fact so the fleet carries no event body.
+    waits: WaitFact,
 }
 
 /// How far a kept run has been read.
@@ -315,6 +320,7 @@ impl KeptRun {
             rulings: Vec::new(),
             residuals: Vec::new(),
             closing: None,
+            waits: WaitFact::NoWait,
         };
         let read = events.len();
         (run.ruled_by(run_id, events), read)
@@ -368,6 +374,21 @@ impl KeptRun {
     fn ruled_by(mut self, run_id: &str, events: Vec<EventEnvelope>) -> KeptRun {
         let before = self.rulings.len();
         let landed = !events.is_empty();
+        // The waits the applied trail's last event states: a late tail's
+        // event is kept and shown and never applied, so it stands no wait
+        // (decision 0108 ruling 4). A fold that refused stands none: the
+        // row is quarantined, and a wait painted before the break is no
+        // claim about a trail the fold no longer applies. `events` is the
+        // suffix since the kept head, so an empty read keeps the waits it
+        // had.
+        match &self.read {
+            Read::Folded(state) => {
+                if landed {
+                    self.waits = WaitFact::applied(&events, Some(state.as_ref()));
+                }
+            }
+            Read::Refused { .. } => self.waits = WaitFact::NoWait,
+        }
         self.rulings
             .extend(events.into_iter().filter(|event| rules(event.event_type)));
         if self.rulings.len() > before {
@@ -413,6 +434,7 @@ pub(super) fn lasting(error: &StoreError) -> bool {
         | StoreError::SeatTree(_)
         | StoreError::AlreadyAcknowledged { .. }
         | StoreError::TokenCountOutOfRange(..)
+        | StoreError::Clock { .. }
         | StoreError::Contended { .. } => false,
     }
 }

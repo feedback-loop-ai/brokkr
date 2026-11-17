@@ -39,7 +39,7 @@ const COLUMNS: &str = "run_id, order_at, feature_line, created_at,
     hire_seat, hire_failed_attempts, residual_open, refusal_seq, refusal_words,
     folded_seq, folded_hash, acknowledged, ack_operator, ack_reason, ack_at,
     stop_accepted_seq, ending, ending_realm, ending_run, ending_ref, ending_stood_over,
-    late_tail";
+    late_tail, (lane = 'running')";
 
 /// Why a page cannot read a summary row as a run's account: a value no
 /// writer writes. The reader reads such a run whole instead, or, where
@@ -66,6 +66,10 @@ pub struct Unread {
     /// The run's id, whole, past its bound too: the row's key.
     pub run_id: String,
     pub order_at: i64,
+    /// Whether the index filed the row in the Running lane, the one lane
+    /// two sections read in part: a reader of a refused row places it by
+    /// its fold without reading the row's status.
+    pub lane_running: bool,
     pub why: RowRefusal,
 }
 
@@ -85,6 +89,7 @@ pub fn keyed(order_at: i64, run_id: String) -> Keyed {
         Err(why) => Err(Unread {
             run_id,
             order_at,
+            lane_running: false,
             why,
         }),
     }
@@ -145,6 +150,7 @@ fn row_of(row: &rusqlite::Row<'_>, run_id: String, order_at: i64) -> Result<Row,
         acknowledged,
         closing: closing_of(row)?,
         late_tail: crate::summary::late_of(row, 28)?,
+        lane_running: row.get(29)?,
     })
 }
 
@@ -297,11 +303,13 @@ fn hired_of(row: &rusqlite::Row<'_>) -> Result<Option<Hired>, RowRefusal> {
 fn paged(row: &rusqlite::Row<'_>) -> rusqlite::Result<Paged> {
     let run_id: String = row.get(0)?;
     let order_at: i64 = row.get(1)?;
+    let lane_running: bool = row.get(29)?;
     Ok(match row_of(row, run_id.clone(), order_at) {
         Ok(read) => Ok(read),
         Err(why) => Err(Unread {
             run_id,
             order_at,
+            lane_running,
             why,
         }),
     })

@@ -11,7 +11,7 @@ use ratatui::buffer::Buffer;
 use ratatui::Terminal;
 
 use crate::fleet::Journal;
-use crate::run_pages::{console, viewed, Console, Shows};
+use crate::run_pages::{console_with, viewed, Console, Reading, Shows};
 use crate::tui::{asked_window, draw, Scrolled, Tui, Views};
 use crate::tui_read::{fleet_page, Kept};
 
@@ -29,6 +29,7 @@ pub fn run_frame_for_budget(
     let first = events.first();
     let run_id = first.map_or("", |event| event.run_id.as_str());
     let entry = brokkr_view::RunEntry {
+        waits: Default::default(),
         run_id,
         feature: state
             .as_ref()
@@ -46,7 +47,7 @@ pub fn run_frame_for_budget(
     let views = Views {
         start: 0,
         now: now.to_string(),
-        runs: brokkr_view::run_rows(&[entry]),
+        runs: brokkr_view::run_rows(&[entry], &[]),
         run: Some(brokkr_view::run_view(events, state.as_ref())),
         transcript: None,
         note: None,
@@ -213,9 +214,10 @@ fn painted_text(mut tui: Tui, views: &Views, (width, height): (u16, u16)) -> Str
 /// checkpoints.
 pub fn console_run_view_for_budget(db: &Path, run: &str) -> Result<RunView, StoreError> {
     let store = Store::open_read_only(db)?;
-    Ok(console(&store, run, Console::Run, None, None, 0, 0)?
-        .0
-        .view())
+    let now = crate::now_rfc3339();
+    let reading = Reading::new(0, 0, &now);
+    let console = console_with(&store, run, Console::Run, None, None, reading)?;
+    Ok(console.0.view())
 }
 
 /// The view the console's fleet detail pane paints of `run` at `rows`: the
@@ -229,9 +231,10 @@ pub fn console_detail_view_for_budget(
     rows: usize,
 ) -> Result<RunView, StoreError> {
     let store = Store::open_read_only(db)?;
-    Ok(console(&store, run, Console::Detail, None, None, rows, 0)?
-        .0
-        .view())
+    let now = crate::now_rfc3339();
+    let reading = Reading::new(rows, 0, &now);
+    let console = console_with(&store, run, Console::Detail, None, None, reading)?;
+    Ok(console.0.view())
 }
 
 /// The console's RUN level as it is first painted after `run` is selected
@@ -268,13 +271,14 @@ pub fn console_run_level_for_budget(
 /// read it (decision 0089 slice 3), at 80 columns and no colour.
 pub fn run_readout_for_budget(db: &Path, run: &str, whole: bool) -> Result<String, StoreError> {
     let store = Store::open_read_only(db)?;
-    let view = viewed(&store, run, Shows::of(whole))?.view;
+    let now = crate::now_rfc3339();
+    let view = viewed(&store, run, Shows::of(whole), &now)?.view;
     let style = crate::render::Style {
         color: false,
         width: 80,
     };
     Ok(match whole {
         true => serde_json::to_string_pretty(&view.with_scopes()).expect("the run view serializes"),
-        false => crate::render::inspect(&view, None, false, &style),
+        false => crate::render::inspect(&view, None, false, &now, &style),
     })
 }

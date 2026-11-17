@@ -289,7 +289,7 @@ fn the_row_and_the_summary_serve_the_status_word() {
     }
     for (events, word) in [(&started[..], "running"), (&accepted[..], "stopping")] {
         let state = fold(events).expect("the journal folds");
-        let row = run_row(&crate::tests::listed("r1", "feat", NOW, Some(&state)));
+        let row = run_row(&crate::tests::listed("r1", "feat", NOW, Some(&state)), &[]);
         let row = serde_json::to_value(row).expect("the row serializes");
         let summary =
             serde_json::to_value(summary(&state, events)).expect("the summary serializes");
@@ -376,9 +376,9 @@ fn the_row_and_the_summary_serve_the_ending_its_citation_and_its_want() {
         let state = fold(events).expect("the journal folds");
         let mut entry = crate::tests::listed("r1", "feat", NOW, Some(&state));
         entry.closing = brokkr_core::ending::closing(events, &state);
-        let view = serde_json::to_value(run_rows(&[entry])).expect("the rows serialize");
+        let view = serde_json::to_value(run_rows(&[entry], &[])).expect("the rows serialize");
         let summary = serde_json::to_value(summary(&state, events)).expect("it serializes");
-        assert_eq!(view["view_version"], 30);
+        assert_eq!(view["view_version"], 31);
         let word = ending.as_str().unwrap_or("running");
         for said in [&view["runs"][0], &summary] {
             let read = (&said["ending"], &said["ending_cited"], &said["wants"]);
@@ -520,6 +520,7 @@ fn fleet(
     stopped: &RunState,
 ) -> RunsView {
     let entry = |run_id, created_at, state| RunEntry {
+        waits: Default::default(),
         run_id,
         feature: "a run",
         created_at,
@@ -529,14 +530,17 @@ fn fleet(
         residuals: &[],
         closing: None,
     };
-    run_rows(&[
-        entry("quarantined", DAY_BEFORE, None),
-        entry("parked", DAY_BEFORE, Some(parked)),
-        entry("running", DAY_BEFORE, Some(running)),
-        entry("a-day-old", DAY_BEFORE, Some(shipped)),
-        entry("under-a-day", JUST_UNDER_A_DAY, Some(stopped)),
-        entry("undated", "not a timestamp", Some(stopped)),
-    ])
+    run_rows(
+        &[
+            entry("quarantined", DAY_BEFORE, None),
+            entry("parked", DAY_BEFORE, Some(parked)),
+            entry("running", DAY_BEFORE, Some(running)),
+            entry("a-day-old", DAY_BEFORE, Some(shipped)),
+            entry("under-a-day", JUST_UNDER_A_DAY, Some(stopped)),
+            entry("undated", "not a timestamp", Some(stopped)),
+        ],
+        &[],
+    )
 }
 
 fn ids(sections: Vec<(Section, Vec<&RunRow>)>) -> Vec<(Section, Vec<&str>)> {
@@ -590,6 +594,7 @@ fn the_sections_are_ordered_by_who_must_act() {
 fn a_finished_run_is_dated_by_its_last_event() {
     let shipped = settled(Status::Completed, "done", None);
     let entry = |run_id, last_recorded_at| RunEntry {
+        waits: Default::default(),
         run_id,
         feature: "a run",
         created_at: "2025-12-01T00:00:00Z",
@@ -599,11 +604,14 @@ fn a_finished_run_is_dated_by_its_last_event() {
         residuals: &[],
         closing: None,
     };
-    let view = run_rows(&[
-        entry("ended-a-day-ago", Some(DAY_BEFORE)),
-        entry("ended-today", Some(JUST_UNDER_A_DAY)),
-        entry("never-moved", None),
-    ]);
+    let view = run_rows(
+        &[
+            entry("ended-a-day-ago", Some(DAY_BEFORE)),
+            entry("ended-today", Some(JUST_UNDER_A_DAY)),
+            entry("never-moved", None),
+        ],
+        &[],
+    );
     assert_eq!(
         ids(sections(&view.runs, NOW)),
         [
@@ -628,17 +636,21 @@ fn an_acknowledged_quarantine_needs_nothing_and_lists_under_older_even_when_rece
         recorded_at: JUST_UNDER_A_DAY.to_string(),
     };
     let refused = |run_id, quarantine: Quarantine, acknowledged| RunEntry {
+        waits: Default::default(),
         detail: Some(Refusal {
             acknowledgement: acknowledged,
             ..quarantine.in_words("event 539: event after terminal status")
         }),
         ..crate::tests::listed(run_id, "a run", NOW, None)
     };
-    let view = run_rows(&[
-        refused("fold", Quarantine::DoesNotFold, Some(&acknowledgement)),
-        refused("load", Quarantine::DoesNotLoad, Some(&acknowledgement)),
-        refused("open", Quarantine::DoesNotFold, None),
-    ]);
+    let view = run_rows(
+        &[
+            refused("fold", Quarantine::DoesNotFold, Some(&acknowledgement)),
+            refused("load", Quarantine::DoesNotLoad, Some(&acknowledgement)),
+            refused("open", Quarantine::DoesNotFold, None),
+        ],
+        &[],
+    );
     assert_eq!(
         view.runs
             .iter()
@@ -720,18 +732,22 @@ fn a_run_row_carries_its_title_and_verdict_beside_the_whole_feature() {
     );
     let feature = "fleet titles\n\nthe whole commission, every line of it";
     let residuals = [finding("max_residual_severity", "medium", false)];
-    let view = run_rows(&[RunEntry {
-        run_id: "r1",
-        feature,
-        created_at: DAY_BEFORE,
-        last_recorded_at: Some(JUST_UNDER_A_DAY),
-        state: Some(&shipped),
-        detail: None,
-        residuals: &residuals,
-        closing: None,
-    }]);
+    let view = run_rows(
+        &[RunEntry {
+            waits: Default::default(),
+            run_id: "r1",
+            feature,
+            created_at: DAY_BEFORE,
+            last_recorded_at: Some(JUST_UNDER_A_DAY),
+            state: Some(&shipped),
+            detail: None,
+            residuals: &residuals,
+            closing: None,
+        }],
+        &[],
+    );
     let json = serde_json::to_value(&view).unwrap();
-    assert_eq!(json["view_version"], 30);
+    assert_eq!(json["view_version"], 31);
     assert_eq!(json["runs"][0]["hire"], Value::Null);
     assert_eq!(json["runs"][0]["acknowledgement"], Value::Null);
     assert_eq!(json["runs"][0]["feature"], feature);
@@ -750,7 +766,7 @@ fn a_run_row_carries_its_title_and_verdict_beside_the_whole_feature() {
 fn silent_since(state: &RunState, last: Option<&str>) -> RunRow {
     let mut entry = crate::tests::listed("quiet", "LANDING PR #420", DAY_BEFORE, Some(state));
     entry.last_recorded_at = last;
-    run_rows(&[entry]).runs.remove(0)
+    run_rows(&[entry], &[]).runs.remove(0)
 }
 
 /// #503 item 3: a running run whose journal has been silent for longer
@@ -874,13 +890,14 @@ fn each_need_says_what_the_operator_can_do() {
     let parked = settled(Status::AwaitingOperator, "review", None);
     assert_eq!(need(&silent_since(&parked, None), NOW), Some(Need::Parked));
     let refused = |detail| RunEntry {
+        waits: Default::default(),
         detail,
         ..crate::tests::listed("q", "a run", NOW, None)
     };
     let fold = Quarantine::DoesNotFold.in_words("event 4: refused");
     let load = Quarantine::DoesNotLoad.in_words("hash chain broken at seq 3");
     let needs = [Some(fold), Some(load), None].map(|detail| {
-        let view = run_rows(&[refused(detail)]);
+        let view = run_rows(&[refused(detail)], &[]);
         (need(&view.runs[0], NOW), view.runs[0].quarantine)
     });
     // A quarantine that names no refusal is read as the one no verb gets
@@ -1018,12 +1035,10 @@ fn a_repaired_run_carries_its_late_tail_on_the_row_and_the_summary() {
         event_types: vec![EventType::OperatorCommanded, EventType::OperatorAccepted],
         operator: "repairer".to_string(),
     });
-    let row = run_row(&crate::tests::listed(
-        "repaired",
-        "a run",
-        NOW,
-        Some(&repaired),
-    ));
+    let row = run_row(
+        &crate::tests::listed("repaired", "a run", NOW, Some(&repaired)),
+        &[],
+    );
     let tail = row.late_tail.as_ref().expect("the row carries the tail");
     assert_eq!(
         crate::fleet::late_line(usize::try_from(tail.count).unwrap(), &tail.operator),

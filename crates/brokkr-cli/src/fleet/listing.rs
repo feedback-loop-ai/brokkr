@@ -119,8 +119,8 @@ pub(crate) fn list_hearth_in<T>(
 ) -> Result<T> {
     store.as_one_read(|| {
         let pages = match batched {
-            Some(keys) => Pages::every(store, before, keys),
-            None => Pages::listing(store, before),
+            Some(keys) => Pages::every(store, before, keys, now),
+            None => Pages::listing(store, before, now),
         };
         let pages = pages.map_err(refused)?;
         list(&Lister {
@@ -149,7 +149,7 @@ pub(crate) fn list_journal<T>(
         Ok(store) => store,
         Err(error) => return list(Err(error)),
     };
-    store.as_one_read(|| match Pages::every(&store, before, keys) {
+    store.as_one_read(|| match Pages::every(&store, before, keys, now) {
         Ok(pages) => list(Ok(&Lister {
             pages: &pages,
             store: &store,
@@ -213,8 +213,8 @@ pub(crate) fn close_array(out: &mut impl Write, count: usize, indent: &str) -> R
     Ok(out.write_all(b"]")?)
 }
 
-/// The store's refusal of a listing, in its own words: of its pages, or
-/// of a page it reads.
+/// A listing's refusal, in its own words: of its pages, or of a page it
+/// reads.
 fn refused(error: StoreError) -> anyhow::Error {
     anyhow::Error::msg(error.to_string())
 }

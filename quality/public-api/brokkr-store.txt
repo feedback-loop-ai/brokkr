@@ -318,6 +318,8 @@ pub brokkr_store::StoreError::AlreadyAcknowledged::seq: u64
 pub brokkr_store::StoreError::AppendConflict
 pub brokkr_store::StoreError::AppendConflict::seq: u64
 pub brokkr_store::StoreError::Chain(brokkr_core::envelope::ChainError)
+pub brokkr_store::StoreError::Clock
+pub brokkr_store::StoreError::Clock::now: alloc::string::String
 pub brokkr_store::StoreError::Contended
 pub brokkr_store::StoreError::Contended::operation: &'static str
 pub brokkr_store::StoreError::Contended::waited_ms: u128
@@ -516,6 +518,7 @@ pub fn brokkr_store::Store::append_cooldown_round(&mut self, brokkr_store::Coold
 pub fn brokkr_store::Store::cooldown(&self, &str, &str, time::offset_date_time::OffsetDateTime) -> core::result::Result<core::option::Option<brokkr_store::CooldownAggregate>, brokkr_store::StoreError>
 pub fn brokkr_store::Store::cooldown_rounds(&self, &str, u64, &str) -> core::result::Result<alloc::vec::Vec<brokkr_store::Cooldown>, brokkr_store::StoreError>
 pub fn brokkr_store::Store::cooldowns_in_force(&self, time::offset_date_time::OffsetDateTime) -> core::result::Result<alloc::vec::Vec<brokkr_store::Cooldown>, brokkr_store::StoreError>
+pub fn brokkr_store::Store::cooldowns_newest(&self, time::offset_date_time::OffsetDateTime) -> core::result::Result<alloc::vec::Vec<brokkr_store::Cooldown>, brokkr_store::StoreError>
 impl brokkr_store::Store
 pub fn brokkr_store::Store::append_next(&mut self, &str, brokkr_core::envelope::EventType, serde_json::value::Value, core::option::Option<alloc::string::String>, core::option::Option<alloc::string::String>) -> core::result::Result<brokkr_core::envelope::EventEnvelope, brokkr_store::StoreError>
 pub fn brokkr_store::Store::append_next_if_head(&mut self, &str, u64, &str, brokkr_core::envelope::EventType, serde_json::value::Value, core::option::Option<alloc::string::String>, core::option::Option<alloc::string::String>) -> core::result::Result<brokkr_core::envelope::EventEnvelope, brokkr_store::StoreError>
@@ -568,11 +571,12 @@ pub fn brokkr_store::Store::queue_unsettled_with<R>(&mut self, brokkr_store::Gen
 impl brokkr_store::Store
 pub fn brokkr_store::Store::host_fingerprint(&self) -> core::option::Option<alloc::string::String>
 impl brokkr_store::Store
-pub fn brokkr_store::Store::latest_run(&self) -> core::result::Result<core::option::Option<(alloc::string::String, alloc::string::String)>, brokkr_store::StoreError>
-pub fn brokkr_store::Store::run_candidates(&self, &str) -> core::result::Result<alloc::vec::Vec<(alloc::string::String, alloc::string::String)>, brokkr_store::StoreError>
-impl brokkr_store::Store
+pub fn brokkr_store::Store::last_event(&self, &str, u64) -> core::result::Result<core::option::Option<brokkr_core::envelope::EventEnvelope>, brokkr_store::StoreError>
 pub fn brokkr_store::Store::load_after(&self, &str, u64, &str) -> core::result::Result<alloc::vec::Vec<brokkr_core::envelope::EventEnvelope>, brokkr_store::StoreError>
 pub fn brokkr_store::Store::rows_through(&self, &[(&str, u64)]) -> core::result::Result<alloc::vec::Vec<u64>, brokkr_store::StoreError>
+impl brokkr_store::Store
+pub fn brokkr_store::Store::latest_run(&self) -> core::result::Result<core::option::Option<(alloc::string::String, alloc::string::String)>, brokkr_store::StoreError>
+pub fn brokkr_store::Store::run_candidates(&self, &str) -> core::result::Result<alloc::vec::Vec<(alloc::string::String, alloc::string::String)>, brokkr_store::StoreError>
 impl brokkr_store::Store
 pub fn brokkr_store::Store::open_kept(&self, &str) -> core::result::Result<(brokkr_store::Opened, alloc::vec::Vec<brokkr_core::envelope::EventEnvelope>), brokkr_store::StoreError>
 pub fn brokkr_store::Store::open_run(&self, &str) -> core::result::Result<brokkr_store::Opened, brokkr_store::StoreError>
@@ -615,6 +619,7 @@ pub brokkr_store::TreeSweep::path: std::path::PathBuf
 pub brokkr_store::TreeSweep::removed_at: i64
 pub brokkr_store::TreeSweep::seq: i64
 pub struct brokkr_store::Unread
+pub brokkr_store::Unread::lane_running: bool
 pub brokkr_store::Unread::order_at: i64
 pub brokkr_store::Unread::run_id: alloc::string::String
 pub brokkr_store::Unread::why: brokkr_store::RowRefusal

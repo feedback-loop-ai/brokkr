@@ -18,12 +18,12 @@ use std::cmp::Reverse;
 use std::collections::{BinaryHeap, HashMap, HashSet};
 
 use brokkr_core::fold::RunState;
-use brokkr_core::page::{newest_first, Place};
+use brokkr_core::page::{newest_first, Bound, Lane, Place, Row, Whole};
 use brokkr_core::EventEnvelope;
 use brokkr_store::{keyed, place_of, Keyed, Paged, RowRefusal, Store, StoreError, Unread};
-use brokkr_view::{Cursor, Page, RunRow, Section};
+use brokkr_view::{Cooling, Cursor, Page, RunRow, Section, Standing, WaitFact};
 
-use super::{judged, read_run, Journal, KeptFleet, ListedRun, Quarantine};
+use super::{cooling, judged, read_run, Journal, KeptFleet, ListedRun, Quarantine};
 
 /// A run's journal as a read left it: its events, and its fold or why it
 /// is quarantined.
@@ -31,8 +31,10 @@ type Judged = (Vec<EventEnvelope>, Result<RunState, Quarantine>);
 
 /// What a fleet reader keeps of one hearth between refreshes.
 pub(crate) enum Pages {
-    /// A journal the summary pages: its runs behind their summary.
-    Summary(Behind),
+    /// A journal the summary pages: its runs behind their summary. Boxed
+    /// so the kept variant does not make every `Pages` the larger one's
+    /// size (`large_enum_variant`).
+    Summary(Box<Behind>),
     /// A journal no summary pages yet, read the kept way, and its rows
     /// listed whole by last activity.
     Kept { fleet: KeptFleet, rows: Vec<RunRow> },
@@ -40,7 +42,7 @@ pub(crate) enum Pages {
 
 impl Default for Pages {
     fn default() -> Pages {
-        Pages::Summary(Behind::default())
+        Pages::Summary(Box::default())
     }
 }
 
@@ -60,6 +62,9 @@ pub(crate) struct Behind {
     past: Option<(i64, String)>,
     /// The runs behind past those, for a listing of every run.
     tail: Option<Tail>,
+    /// The aggregate this refresh read, kept so a page derived later paints
+    /// a probe's later end (decision 0103 slice 4f).
+    cooling: Vec<Cooling>,
 }
 
 /// How many keys of the runs behind past a refresh a listing of every
@@ -134,11 +139,13 @@ impl Pages {
         store: &Store,
         before: Option<Journal>,
         behind: usize,
+        now: &str,
     ) -> Result<usize, StoreError> {
+        let cooling = cooling(store, now)?;
         let paged = store.pages()?;
         if paged != matches!(self, Pages::Summary(_)) {
             *self = match paged {
-                true => Pages::Summary(Behind::default()),
+                true => Pages::Summary(Box::default()),
                 false => Pages::Kept {
                     fleet: KeptFleet::default(),
                     rows: Vec::new(),
@@ -146,10 +153,18 @@ impl Pages {
             };
         }
         match self {
-            Pages::Summary(kept) => kept.refresh(store, before, behind),
+            Pages::Summary(kept) => {
+                // A row kept from another aggregate was painted from ends
+                // a probe's round or another run's refusal has moved: its
+                // waits are re-derived instead (decision 0103 slice 4f,
+                // LOW 1).
+                let moved = kept.cooling != cooling;
+                kept.cooling = cooling;
+                kept.refresh(store, before, behind, moved)
+            }
             Pages::Kept { fleet, rows } => {
                 let read = fleet.refresh(store, before)?;
-                *rows = brokkr_view::run_rows(&fleet.entries()).runs;
+                *rows = brokkr_view::run_rows(&fleet.entries(), &cooling).runs;
                 Ok(read)
             }
         }
@@ -159,9 +174,13 @@ impl Pages {
     /// was opened: at most [`AHEAD_ROWS`] runs behind their summary read
     /// whole and the rest counted (ruling 6), whether it lists one page or
     /// every run.
-    pub(crate) fn listing(store: &Store, before: Option<Journal>) -> Result<Pages, StoreError> {
+    pub(crate) fn listing(
+        store: &Store,
+        before: Option<Journal>,
+        now: &str,
+    ) -> Result<Pages, StoreError> {
         let mut pages = Pages::default();
-        pages.refresh(store, before, brokkr_view::AHEAD_ROWS)?;
+        pages.refresh(store, before, brokkr_view::AHEAD_ROWS, now)?;
         Ok(pages)
     }
 
@@ -173,8 +192,9 @@ impl Pages {
         store: &Store,
         before: Option<Journal>,
         keys: usize,
+        now: &str,
     ) -> Result<Pages, StoreError> {
-        let mut pages = Pages::listing(store, before)?;
+        let mut pages = Pages::listing(store, before, now)?;
         if let Pages::Summary(kept) = &mut pages {
             kept.tail = kept.past.is_some().then(|| Tail {
                 keys: keys.max(1),
@@ -297,6 +317,7 @@ impl Behind {
         store: &Store,
         before: Option<Journal>,
         limit: usize,
+        cooling_moved: bool,
     ) -> Result<usize, StoreError> {
         if !self.stands_on(before) {
             self.runs.clear();
@@ -317,9 +338,13 @@ impl Behind {
             let run_id = resume(&key).1;
             let head = store.head_hash(&run_id)?;
             let row = match (heads.remove(&run_id), kept.remove(&run_id)) {
-                (Some(at), Some(row)) if at == head && answered_alike(store, &run_id, &row) => row,
+                (Some(at), Some(row))
+                    if !cooling_moved && at == head && answered_alike(store, &run_id, &row) =>
+                {
+                    row
+                }
                 _ => {
-                    let (row, events) = read_keyed(store, &key)?;
+                    let (row, events) = read_keyed(store, &key, &self.cooling)?;
                     read += events;
                     // A run id past its bound names no run, and none is read.
                     let why = key.as_ref().err().map(|unread| &unread.why);
@@ -359,7 +384,7 @@ impl Behind {
         while let Some((at, key)) = next.take() {
             let (listed, beyond) = store.behind(Some((at, &key)), brokkr_view::AHEAD_ROWS)?;
             for key in &listed {
-                let row = read_keyed(store, key)?.0;
+                let row = read_keyed(store, key, &self.cooling)?.0;
                 let (order_at, run_id) = row.place();
                 let place = (order_at, run_id.to_string());
                 let under_section = brokkr_view::section_of(&row, now);
@@ -438,7 +463,7 @@ impl Behind {
             }
             for (order_at, run_id) in keys {
                 let key = keyed(order_at, run_id);
-                let row = read_keyed(store, &key)?.0;
+                let row = read_keyed(store, &key, &self.cooling)?.0;
                 rows.extend(Some(row).filter(|row| (ask.keep)(row)));
                 from = Some(resume(&key));
             }
@@ -455,8 +480,9 @@ impl Behind {
 
     /// Up to `wanted` rows of `section` below `after` that `ask` keeps:
     /// its ranges of the summary's index, each row checked against its
-    /// run's head, merged with the runs behind their summary that list
-    /// there, those read and those keyed past them. A run this refresh read as behind is listed by that read
+    /// run's head and kept only where [`lists_here`] places it, merged
+    /// with the runs behind their summary that list there, those read and
+    /// those keyed past them. A run this refresh read as behind is listed by that read
     /// alone, wherever its row stands now: a writer that catches it up
     /// between the two reads moves its row into another range, and the
     /// run lists once (ruling 6).
@@ -469,6 +495,12 @@ impl Behind {
         wanted: usize,
     ) -> Result<Vec<RunRow>, StoreError> {
         let ranges = brokkr_view::ranges(section, ask.now);
+        let stale = brokkr_view::ranges(Section::NeedsYou, ask.now)
+            .into_iter()
+            .find_map(|range| match (range.lane, range.bound) {
+                (Lane::Running, Some(Bound::Below(at))) => Some(at),
+                _ => None,
+            });
         let mut rows = Vec::new();
         let mut from: Option<(i64, String)> = None;
         loop {
@@ -486,8 +518,8 @@ impl Behind {
                 if self.runs.contains_key(place_of(&paged).1) {
                     continue;
                 }
-                let row = listed(store, paged, ask.whole)?;
-                if (ask.keep)(&row) {
+                let (row, summary, running) = listed(store, paged, ask.whole, &self.cooling)?;
+                if lists_here(&row, summary, running, section, ask.now, stale) && (ask.keep)(&row) {
                     rows.push(row);
                 }
             }
@@ -505,36 +537,129 @@ impl Behind {
     }
 }
 
+/// Whether `row`, read from `section`'s ranges, lists there at `now`: a
+/// summary's Running row can stand in a wait its summary does not carry,
+/// so its own facts decide it. A row read whole from the Running lane
+/// below the stale bound is held by both reads: NeedsYou's stale range
+/// and Running's whole lane. The stale read owns one whose fold places it
+/// in NeedsYou, and the whole-lane read owns every other one, so the page
+/// lists it in its own section's turn and every run lists once (rulings
+/// 5 and 6, decision 0089 ruling 5). A row read whole from another lane
+/// keeps its summary's place and lists by its fold in
+/// [`brokkr_view::window`], so it is never dropped here. `stale` is
+/// NeedsYou's bound, `None` where the clock does not read.
+fn lists_here(
+    row: &RunRow,
+    summary: bool,
+    lane_running: bool,
+    section: Section,
+    now: &str,
+    stale: Option<i64>,
+) -> bool {
+    if summary {
+        return row.verdict.standing != Standing::Running
+            || brokkr_view::section_of(row, now) == section;
+    }
+    if !lane_running {
+        return true;
+    }
+    let below = stale.is_some_and(|stale| row.place().0 < stale);
+    let needs_you = brokkr_view::section_of(row, now) == Section::NeedsYou;
+    match section {
+        Section::NeedsYou => !below || needs_you,
+        Section::Running => !(below && needs_you),
+        Section::Recent | Section::Older => true,
+    }
+}
+
 /// One paged row as the fleet lists it: the summary's, while its run's
 /// last event is the head it was folded to (ruling 5), its values whole
 /// where `whole` names its run; the run read whole when it is not, or
 /// when the row holds a value no writer writes; and a refusal for a row
-/// whose run id no writer admits, which names no run to read. A row not
-/// the summary's is paged where the summary's stood, and lists by its
-/// own facts ([`brokkr_view::page`]).
-fn listed(store: &Store, paged: Paged, whole: &dyn Fn(&str) -> bool) -> Result<RunRow, StoreError> {
+/// whose run id no writer admits, which names no run to read. The flags
+/// say the row is the summary's, and whether the index filed it in the
+/// Running lane, which two sections read in part, so [`lists_here`] keeps
+/// it once. A row read whole or refused keeps the place it was read at.
+fn listed(
+    store: &Store,
+    paged: Paged,
+    whole: &dyn Fn(&str) -> bool,
+    cooling: &[Cooling],
+) -> Result<(RunRow, bool, bool), StoreError> {
     let at = place_of(&paged).0;
-    let (key, mut row) = match paged {
+    let lane_running = match &paged {
+        Ok(row) => row.lane_running,
+        Err(unread) => unread.lane_running,
+    };
+    let (key, mut row, summary) = match paged {
         Ok(mut row) => {
-            let read = if !store.stands_at(&row.run_id, (row.folded.0, &row.folded.1))? {
-                read_whole(store, &row.run_id)?.0
-            } else if !whole(&row.run_id) {
-                return Ok(brokkr_view::summary_row(&row, None));
-            } else {
-                match store.whole(&mut row)? {
-                    Ok(kept) => return Ok(brokkr_view::summary_row(&row, Some(&kept))),
-                    Err(_) => read_whole(store, &row.run_id)?.0,
-                }
-            };
-            (row.run_id, read)
+            let (read, summary) = summary_or_whole(store, &mut row, whole, cooling)?;
+            (row.run_id, read, summary)
         }
         Err(unread) => {
-            let read = unread_row(store, &unread)?.0;
-            (unread.run_id, read)
+            let read = unread_row(store, &unread, cooling)?.0;
+            (unread.run_id, read, false)
         }
     };
-    row.paged_at = Some((at, key));
-    Ok(row)
+    if !summary {
+        row.paged_at = Some((at, key));
+    }
+    Ok((row, summary, lane_running))
+}
+
+/// A paged row as its summary serves it, its values whole where `whole`
+/// names its run (ruling 5), or its run read whole where the row no longer
+/// stands at the run's head. The flag says the row is the summary's.
+fn summary_or_whole(
+    store: &Store,
+    row: &mut Row,
+    whole: &dyn Fn(&str) -> bool,
+    cooling: &[Cooling],
+) -> Result<(RunRow, bool), StoreError> {
+    if !store.stands_at(&row.run_id, (row.folded.0, &row.folded.1))? {
+        return Ok((read_whole(store, &row.run_id, cooling)?.0, false));
+    }
+    if !whole(&row.run_id) {
+        return painted_or_whole(store, row, None, cooling);
+    }
+    match store.whole(row)? {
+        Ok(kept) => painted_or_whole(store, row, Some(&kept), cooling),
+        Err(_) => Ok((read_whole(store, &row.run_id, cooling)?.0, false)),
+    }
+}
+
+/// A standing row painted from its summary with its head's waits, or its
+/// run read whole where that head's envelope is not the one it claims to
+/// be, quarantined as the whole read quarantines it (0103 slice 4f, LOW 3).
+fn painted_or_whole(
+    store: &Store,
+    row: &Row,
+    kept: Option<&Whole>,
+    cooling: &[Cooling],
+) -> Result<(RunRow, bool), StoreError> {
+    match waits_at(store, row) {
+        Ok(waits) => Ok((brokkr_view::summary_row(row, kept, &waits, cooling), true)),
+        Err(_) => Ok((read_whole(store, &row.run_id, cooling)?.0, false)),
+    }
+}
+
+/// The waits a summary row's fold head states, read from that one event:
+/// a running row's head is where a wait lives (decision 0103 ruling
+/// 2(a)). The reader reaches this only for a row that stands at its head
+/// (`listed` reads every other row whole). For a repaired run that head is
+/// the repair annotation, which the fold applies; the late tail it names
+/// ends at the repair's seq less one (`LateTail::last_seq`), so the event
+/// read here is never a late one. A repaired summary whose `folded_seq` is
+/// a late event's seq is behind its head, does not stand, and is read
+/// whole where `WaitFact::applied` decides. Any other standing carries
+/// none, so its event is not read. A row the summary refuses paints none,
+/// and `brokkr_view::fleet::page::summary_row` is where that is kept, once.
+fn waits_at(store: &Store, row: &Row) -> Result<WaitFact, StoreError> {
+    let Some(brokkr_core::fold::Status::Running) = row.status else {
+        return Ok(WaitFact::NoWait);
+    };
+    let event = store.last_event(&row.run_id, row.folded.0)?;
+    Ok(WaitFact::of(event.as_ref()))
 }
 
 /// Whether a row kept at a head that stands is still the row that head
@@ -557,17 +682,25 @@ fn resume(key: &Keyed) -> (i64, String) {
 /// that read; or, where the store refused the key, listed as a refused
 /// row is, so every lane holds a run id to the one bound (decision 0089
 /// rulings 2 and 5).
-fn read_keyed(store: &Store, key: &Keyed) -> Result<(RunRow, usize), StoreError> {
+fn read_keyed(
+    store: &Store,
+    key: &Keyed,
+    cooling: &[Cooling],
+) -> Result<(RunRow, usize), StoreError> {
     match key {
-        Ok((_, run_id)) => read_whole(store, run_id),
-        Err(unread) => unread_row(store, unread),
+        Ok((_, run_id)) => read_whole(store, run_id, cooling),
+        Err(unread) => unread_row(store, unread, cooling),
     }
 }
 
 /// A row the store refused, as the fleet lists it: refused, never read,
 /// where its run id is past what a writer admits, which names no run to
 /// read; its run read whole where the row holds a value no writer writes.
-fn unread_row(store: &Store, unread: &Unread) -> Result<(RunRow, usize), StoreError> {
+fn unread_row(
+    store: &Store,
+    unread: &Unread,
+    cooling: &[Cooling],
+) -> Result<(RunRow, usize), StoreError> {
     match &unread.why {
         why @ RowRefusal::RunIdPastBound => {
             Ok((past_bound(&unread.run_id, unread.order_at, why), 0))
@@ -576,16 +709,20 @@ fn unread_row(store: &Store, unread: &Unread) -> Result<(RunRow, usize), StoreEr
         | RowRefusal::Severity(_)
         | RowRefusal::Ending(_)
         | RowRefusal::Column(_)
-        | RowRefusal::Residuals(_) => read_whole(store, &unread.run_id),
+        | RowRefusal::Residuals(_) => read_whole(store, &unread.run_id, cooling),
     }
 }
 
 /// The row of a run read whole, as the whole read lists it, and how many
 /// events that read.
-fn read_whole(store: &Store, run_id: &str) -> Result<(RunRow, usize), StoreError> {
+fn read_whole(
+    store: &Store,
+    run_id: &str,
+    cooling: &[Cooling],
+) -> Result<(RunRow, usize), StoreError> {
     let (events, state) = read_run(store, run_id);
     let read = events.len();
-    Ok((row_of(store, run_id, (events, state))?, read))
+    Ok((row_of(store, run_id, (events, state), cooling)?, read))
 }
 
 /// The row of run `run_id`, which an opening refused with `refused`:
@@ -595,12 +732,19 @@ pub(crate) fn refused_row(
     store: &Store,
     run_id: &str,
     refused: StoreError,
+    now: &str,
 ) -> Result<RunRow, StoreError> {
-    row_of(store, run_id, judged(store, run_id, Err(refused)))
+    let cooling = cooling(store, now)?;
+    row_of(store, run_id, judged(store, run_id, Err(refused)), &cooling)
 }
 
 /// The row of run `run_id` as `read` left it, by its `runs` row.
-fn row_of(store: &Store, run_id: &str, read: Judged) -> Result<RunRow, StoreError> {
+fn row_of(
+    store: &Store,
+    run_id: &str,
+    read: Judged,
+    cooling: &[Cooling],
+) -> Result<RunRow, StoreError> {
     let (feature, created_at) = store.listing(run_id)?;
     let (events, state) = read;
     let residuals = brokkr_view::residual_findings_at(run_id, &events, state.as_ref().ok());
@@ -612,13 +756,14 @@ fn row_of(store: &Store, run_id: &str, read: Judged) -> Result<RunRow, StoreErro
         state,
         residuals,
     };
-    Ok(brokkr_view::run_row(&run.entry()))
+    Ok(brokkr_view::run_row(&run.entry(), cooling))
 }
 
 /// One run's row, read whole, as a paged listing lists it: the one row a
 /// one-run read serves, refused by the store when its id names no run.
-pub(crate) fn one(store: &Store, run_id: &str) -> Result<RunRow, StoreError> {
-    Ok(read_whole(store, run_id)?.0)
+pub(crate) fn one(store: &Store, run_id: &str, now: &str) -> Result<RunRow, StoreError> {
+    let cooling = cooling(store, now)?;
+    Ok(read_whole(store, run_id, &cooling)?.0)
 }
 
 /// A row whose run id is past what any writer admits, listed refused by
@@ -631,16 +776,20 @@ fn past_bound(run_id: &str, order_at: i64, why: &RowRefusal) -> RunRow {
     }
     let shown = format!("{}…", &run_id[..end]);
     let words = why.to_string();
-    let mut row = brokkr_view::run_row(&brokkr_view::RunEntry {
-        run_id: &shown,
-        feature: "",
-        created_at: "",
-        last_recorded_at: None,
-        state: None,
-        detail: Some(brokkr_view::Quarantine::DoesNotLoad.in_words(&words)),
-        residuals: &[],
-        closing: None,
-    });
+    let mut row = brokkr_view::run_row(
+        &brokkr_view::RunEntry {
+            run_id: &shown,
+            feature: "",
+            created_at: "",
+            last_recorded_at: None,
+            state: None,
+            detail: Some(brokkr_view::Quarantine::DoesNotLoad.in_words(&words)),
+            residuals: &[],
+            closing: None,
+            waits: WaitFact::NoWait,
+        },
+        &[],
+    );
     row.order_at = order_at;
     row.paged_at = Some((order_at, run_id.to_string()));
     row

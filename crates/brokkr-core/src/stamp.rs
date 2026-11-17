@@ -2,7 +2,27 @@
 //! the writer's summary row orders a run by it and brokkr-view dates and
 //! sections the fleet by it, so the two read a stamp one way (decision
 //! 0071 ruling 7). Moved here from brokkr-view's `js`, unchanged: it is
-//! the console's `Date.parse`, ported.
+//! the console's `Date.parse`, ported. Its one writing, [`write_millis`],
+//! stands beside it (decision 0103 slice 4f): a readout paints the stamp
+//! this module writes, never the `Display` of a time.
+
+use time::format_description::well_known::Rfc3339;
+use time::OffsetDateTime;
+
+/// `at` as the RFC 3339 text [`parse_millis`] reads: the one writing of a
+/// journal's time stamp, as [`parse_millis`] is its one reading. A readout
+/// paints this text, never the `Display` of a time, and a caller that
+/// cannot write an instant refuses by its own name instead of painting a
+/// string the reader would not read back.
+pub fn write_millis(at: OffsetDateTime) -> Result<String, Unwritable> {
+    at.format(&Rfc3339).map_err(|_| Unwritable)
+}
+
+/// Why an instant cannot be written as an RFC 3339 stamp: its year is
+/// outside the four digits the format spells.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("the instant is outside the years RFC 3339 spells")]
+pub struct Unwritable;
 
 /// The shape check every fixed-width timestamp field goes through:
 /// `#` means "one ASCII digit", any other byte must match literally.

@@ -9,6 +9,20 @@
 use super::far_work::{far_work, far_work_of};
 use super::*;
 
+/// The instant the console reads in these tests: the clock its views are
+/// painted at, fixed so an aggregate's end and "(ended)" agree.
+const NOW: &str = "2026-01-02T00:00:00Z";
+
+/// A read at `NOW`, `rows` and `offset` deep, `visible` rows drawn.
+fn reading(rows: usize, offset: usize, visible: usize) -> crate::run_pages::Reading<'static> {
+    crate::run_pages::Reading {
+        rows,
+        offset,
+        visible,
+        now: NOW,
+    }
+}
+
 /// The participant level over `whole`, its first seat selected.
 fn participant_of(run: &str, whole: &RunView) -> (Tui, Subject) {
     participant_console(run, whole)
@@ -581,11 +595,7 @@ fn a_tall_detail_pane_keeps_every_row_it_draws() {
         Console::Detail,
         None,
         None,
-        crate::run_pages::Reading {
-            rows: 250,
-            offset: 0,
-            visible: 250,
-        },
+        reading(250, 0, 250),
     )
     .unwrap();
     assert_eq!(
@@ -677,11 +687,7 @@ fn a_carried_empty_member_page_takes_its_new_arrival() {
     brokkr_store::test_support::plant_envelope(&journal, &landed).unwrap();
     drop(Store::open(&db).unwrap());
     let moved = store.head_hash(run).unwrap();
-    let reading = crate::run_pages::Reading {
-        rows: 50,
-        offset: 0,
-        visible: 20,
-    };
+    let reading = reading(50, 0, 20);
     let (next, _) = super::console_with(
         &store,
         run,
@@ -901,18 +907,10 @@ fn chief_carried_tall_window_includes_requested_rank() {
     at_work_in(&db, &[(run, 1_000, true)]);
     let store = Store::open_read_only(&db).unwrap();
     let head = store.head_hash(run).unwrap();
-    let first = crate::run_pages::Reading {
-        rows: 350,
-        offset: 100,
-        visible: 250,
-    };
+    let first = reading(350, 100, 250);
     let (held, _) = super::console_with(&store, run, Console::Detail, None, None, first).unwrap();
     assert_eq!(held.start(&Console::Detail), 100, "the first read's rank");
-    let reading = crate::run_pages::Reading {
-        rows: 349,
-        offset: 99,
-        visible: 250,
-    };
+    let reading = reading(349, 99, 250);
     let (carried, _) = super::console_with(
         &store,
         run,
@@ -1060,11 +1058,7 @@ fn chief_down_after_end_refresh_reaches_new_arrival() {
     let whole = brokkr_view::run_view(&events, fold(&events).as_ref().ok());
     let (mut tui, _subject) = participant_of(run, &whole);
     let key = Console::Participant("eff".to_string());
-    let end = crate::run_pages::Reading {
-        rows: 30,
-        offset: usize::MAX,
-        visible: 30,
-    };
+    let end = reading(30, usize::MAX, 30);
     let stored = Store::open_read_only(&db).unwrap();
     let (first, _) = super::console_with(&stored, run, key.clone(), None, None, end).unwrap();
     assert_eq!(first.end(&key), Some(1_000), "the counted stream's end");
@@ -1081,11 +1075,7 @@ fn chief_down_after_end_refresh_reaches_new_arrival() {
     land(&db, run, &mut head, 1_001, "2026-01-02T00:00:00Z");
     drop(Store::open(&db).unwrap());
     let moved = stored.head_hash(run).unwrap();
-    let reading = crate::run_pages::Reading {
-        rows: 999 + 30,
-        offset: 999,
-        visible: 30,
-    };
+    let reading = reading(999 + 30, 999, 30);
     let (next, _) = super::console_with(
         &stored,
         run,
@@ -1695,11 +1685,7 @@ fn gate_review_carried_rank_advances_with_arrivals() {
     let (mut tui, _subject) = participant_of(run, &far.whole);
     let key = Console::Participant("eff".to_string());
     let stored = Store::open_read_only(&db).unwrap();
-    let end = crate::run_pages::Reading {
-        rows: 30,
-        offset: usize::MAX,
-        visible: 30,
-    };
+    let end = reading(30, usize::MAX, 30);
     let (first, _) = super::console_with(&stored, run, key.clone(), None, None, end).unwrap();
     assert_eq!(first.end(&key), Some(66_000), "the known end");
     let mut head = stored.head_hash(run).unwrap();
@@ -1707,11 +1693,7 @@ fn gate_review_carried_rank_advances_with_arrivals() {
     drop(Store::open(&db).unwrap());
     let moved = stored.head_hash(run).unwrap();
     tui.offset = 0;
-    let reading = crate::run_pages::Reading {
-        rows: 30,
-        offset: 0,
-        visible: 30,
-    };
+    let reading = reading(30, 0, 30);
     let (next, _) = super::console_with(
         &stored,
         run,

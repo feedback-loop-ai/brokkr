@@ -2,9 +2,10 @@
 //! ruling 9): runs of any standing and any number of events, each row
 //! folded at its run's head as a writer leaves it, written past every
 //! writer in one transaction so a journal of a million events is built in
-//! seconds. A page reads no event body, so the events are short and their
-//! hashes chain nothing; only each run's last event is read, by its key,
-//! and its seq and hash are the ones the row was folded to.
+//! seconds. A page reads no event body but each run's last, so only that
+//! row is a full envelope, read by its key; every earlier event is short
+//! and chains nothing, and the last event's seq and hash are the ones the
+//! row was folded to.
 
 use brokkr_core::ending::{Citation as Cited, Closing, Ended, Ending};
 use brokkr_core::page::Lane;
@@ -126,7 +127,17 @@ pub fn generate(store: &Store, runs: &[Generated]) -> Result<(), StoreError> {
         tx.execute(
             "WITH RECURSIVE n(seq) AS (SELECT 1 UNION ALL SELECT seq + 1 FROM n WHERE seq < ?2)
              INSERT INTO events (run_id, seq, event_hash, envelope)
-             SELECT ?1, seq, printf('%064d', seq), json_object('recorded_at', ?3) FROM n",
+             SELECT ?1, seq, printf('%064d', seq),
+                    CASE WHEN seq = ?2
+                         THEN json_object(
+                             'run_id', ?1, 'seq', seq, 'event_id', '',
+                             'event_schema_version', 1, 'type', 'run/started',
+                             'payload', json('{}'), 'correlation_id', '',
+                             'recorded_at', ?3, 'previous_hash', '',
+                             'event_hash', printf('%064d', seq))
+                         ELSE json_object('recorded_at', ?3)
+                    END
+             FROM n",
             params![run.run_id, run.events as i64, run.last_at],
         )?;
         summary::write(&tx, &run.run_id, &summary)?;

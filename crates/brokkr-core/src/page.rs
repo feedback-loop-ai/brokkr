@@ -215,6 +215,12 @@ pub struct Row {
     /// states it (decision 0108 ruling 4): a repaired run keeps its
     /// sentence when the summary row is the one a listing reads.
     pub late_tail: Option<LateRange>,
+    /// Whether the index filed the row in the Running lane, read from the
+    /// page's own `(lane = 'running')` column: the one decision of the
+    /// lane a read row and a refused row share, so a reader never
+    /// restates it from the status and the stop it carries (decision 0103
+    /// slice 4f, LOW 5).
+    pub lane_running: bool,
 }
 
 /// An acknowledgement's words as its trigger copies them onto the row,

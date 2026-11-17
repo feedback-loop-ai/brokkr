@@ -16,6 +16,10 @@ use brokkr_store::test_support::unmigrate;
 /// The checkpoints the selected run carries beside its opening events.
 const CHECKPOINTS: usize = 200;
 
+/// The fixed instant this source reads at: an aggregate and "(ended)"
+/// need one RFC 3339 clock, never the wall's.
+const NOW: &str = "2026-01-02T00:00:00Z";
+
 /// Append `event_type` with `payload` to `run_id` as the engine would,
 /// handing the store the fold it appends onto, so the run's summary is
 /// kept at its head (decision 0089 ruling 3).
@@ -75,7 +79,7 @@ fn framed(db: &Path, kept: &mut Kept, run: &str, force: bool) -> (usize, String,
         live_rows: 0,
         live_offset: 0,
     };
-    let views = read_views(db, true, ask, kept, &mut None, || "now".to_string())
+    let views = read_views(db, true, ask, kept, &mut None, || NOW.to_string())
         .unwrap()
         .expect("the fleet's cadence draws a frame");
     let view = serde_json::to_string(&views.run).unwrap();
@@ -242,7 +246,7 @@ fn a_moved_window_lists_the_opened_run_s_refusal_it_does_not_hold() {
     running_store(&db, "other");
     let mut kept = Kept::default();
     framed(&db, &mut kept, "selected", true);
-    let clock = || "now".to_string();
+    let clock = || NOW.to_string();
     let still = read_views(&db, true, asked(""), &mut kept, &mut None, clock);
     assert!(still.unwrap().is_none(), "nothing moved");
     let _held = lost_in_its_log(&db, "selected");
@@ -390,7 +394,7 @@ fn a_journal_whose_runs_cannot_be_listed_refuses_the_frame_in_the_stores_words()
         live_offset: 0,
     };
     let refused = read_views(&db, true, ask, &mut Kept::default(), &mut None, || {
-        "now".to_string()
+        NOW.to_string()
     })
     .err()
     .expect("a fleet the store cannot list is refused");

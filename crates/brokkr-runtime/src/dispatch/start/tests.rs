@@ -652,3 +652,17 @@ fn every_counted_word_and_queue_storage_class_is_named() {
     // closure allocation when a start says nothing.
     silent("nothing to say");
 }
+
+/// A clock the store cannot read is a store error like any other the
+/// pass does not report: it ends the dispatcher (decision 0110 ruling 2's
+/// closed disposal; `StoreError::Clock` arrived with #430 slice 4f).
+#[test]
+fn a_store_clock_refusal_ends_the_dispatcher() {
+    let error = StoreError::Clock {
+        now: "not a stamp".to_string(),
+    };
+    assert!(matches!(
+        refused(error),
+        Refused::Store(StoreError::Clock { .. })
+    ));
+}

@@ -13,6 +13,7 @@
 
 mod before_request;
 mod console_end;
+mod cooling_reads;
 mod display_clamp;
 mod far_work;
 mod fetch_edges;
@@ -94,9 +95,21 @@ fn painted(view: &RunView) -> Vec<String> {
     ] {
         for scope in &scopes {
             let lens = lens_for(view, scope.as_ref()).unwrap();
-            frames.push(render::inspect(view, lens.as_ref(), true, &style));
+            frames.push(render::inspect(
+                view,
+                lens.as_ref(),
+                true,
+                &crate::now_rfc3339(),
+                &style,
+            ));
         }
-        frames.push(render::inspect(view, None, false, &style));
+        frames.push(render::inspect(
+            view,
+            None,
+            false,
+            &crate::now_rfc3339(),
+            &style,
+        ));
         frames.push(render::seats(view, &style));
     }
     frames
@@ -119,8 +132,9 @@ struct Read {
 /// checkpoint, and for the frame.
 fn through_pages(store: &Store, run: &str) -> (bool, bool) {
     let (opened, journal) = store.open_kept(run).unwrap();
-    let everything = composed(store, run, &opened, Some(&journal)).unwrap();
-    let frame = composed(store, run, &opened, None).unwrap();
+    let now = crate::now_rfc3339();
+    let everything = composed(store, run, &opened, Some(&journal), &now).unwrap();
+    let frame = composed(store, run, &opened, None, &now).unwrap();
     (everything.is_some(), frame.is_some())
 }
 
@@ -141,13 +155,14 @@ fn seated(participants: &[Participant]) -> Vec<serde_json::Value> {
 fn found(store: &Store, run: &str, events: &[brokkr_core::EventEnvelope]) -> Vec<String> {
     let folded = fold(events);
     let today = brokkr_view::run_view(events, folded.as_ref().ok());
-    let whole = viewed(store, run, Shows::Everything).unwrap();
-    let frame = viewed(store, run, Shows::Frame).unwrap();
+    let now = crate::now_rfc3339();
+    let whole = viewed(store, run, Shows::Everything, &now).unwrap();
+    let frame = viewed(store, run, Shows::Frame, &now).unwrap();
     let mut found = Vec::new();
     if painted(&frame.view) != painted(&today) {
         found.push(format!("{run}: the frame"));
     }
-    let seats = participants(store, run).unwrap();
+    let seats = participants(store, run, &now).unwrap();
     let seats = seats.as_deref().map(seated).map_err(ToString::to_string);
     let expected = folded.as_ref().map(|_| seated(&today.participants));
     if seats != expected.map_err(ToString::to_string) {
@@ -170,11 +185,11 @@ fn read_one(store: &Store, mut read: Read, run: &str) -> Read {
         Ok(events) => events,
         Err(refused) => {
             for shows in [Shows::Everything, Shows::Frame] {
-                let refusal = viewed(store, run, shows).err();
+                let refusal = viewed(store, run, shows, &crate::now_rfc3339()).err();
                 let refusal = refusal.map(|error| error.to_string());
                 assert_eq!(refusal, Some(refused.to_string()), "{run}: {shows:?}");
             }
-            let seated = participants(store, run)
+            let seated = participants(store, run, &crate::now_rfc3339())
                 .err()
                 .map(|error| error.to_string());
             assert_eq!(seated, Some(refused.to_string()), "{run}: its participants");
@@ -339,7 +354,7 @@ fn a_run_past_its_opening_is_read_the_kept_way() {
     let store = Store::open_read_only(&path).unwrap();
     let (opened, journal) = store.open_kept(&runs[0]).unwrap();
     let read = |journal| {
-        let read = composed(&store, &runs[0], &opened, journal).unwrap();
+        let read = composed(&store, &runs[0], &opened, journal, &crate::now_rfc3339()).unwrap();
         read.map(|read| read.view.participants.len())
     };
     let seated = read(Some(&journal)).expect("the run is read at its opening");
@@ -369,6 +384,12 @@ fn a_run_past_its_opening_is_read_the_kept_way() {
 /// envelope.
 const PROJECTIONS: usize = 33;
 
+/// The aggregate's two reads, which a whole read makes once (decision 0103
+/// slice 4f): the queue's storage version, then every row in force at the
+/// readout's clock. Neither reads an envelope, and neither grows with the
+/// run.
+const AGGREGATE: usize = 2;
+
 /// The view whole reads its run once (ruling 7): on the grown run, 7,510
 /// events and 151 journal pages, the read `inspect --json`, `seats --json`
 /// and `/api/view` make begins the opening, which verifies and keeps every
@@ -376,7 +397,8 @@ const PROJECTIONS: usize = 33;
 /// for each event of the trail, its 17 events but the checkpoints, by its
 /// seq, and no other: no journal page and no participant's checkpoint
 /// page, so its statements grow with the run's trail and never with its
-/// journal.
+/// journal; and last, the aggregate's two reads, once, which paint a
+/// waiting run (decision 0103 slice 4f).
 #[test]
 fn the_view_whole_reads_its_opening_its_trail_its_summary_and_its_seat_rows() {
     let dir = tempfile::tempdir().unwrap();
@@ -387,7 +409,7 @@ fn the_view_whole_reads_its_opening_its_trail_its_summary_and_its_seat_rows() {
     drop(Store::open(&db).unwrap());
     let mut store = Store::open_read_only(&db).unwrap();
     let (read, begun) = statements_traced(&mut store, |store| {
-        viewed(store, grown::RUN, Shows::Everything).unwrap()
+        viewed(store, grown::RUN, Shows::Everything, &crate::now_rfc3339()).unwrap()
     });
     assert_eq!(read.view.journal.len(), grown::EVENTS);
     let words = |sql: &String| sql.split_whitespace().collect::<Vec<_>>().join(" ");
@@ -409,7 +431,18 @@ fn the_view_whole_reads_its_opening_its_trail_its_summary_and_its_seat_rows() {
         (format!("{keyed} ORDER BY seq"), 17)
     );
     assert_eq!(envelopes[1..], trail);
-    assert_eq!(begun.len(), 1 + PROJECTIONS + trail.len());
+    let aggregate = |sql: &str| {
+        sql.starts_with("SELECT value FROM meta WHERE key = 'queue_schema'")
+            || sql.starts_with(concat!(
+                "SELECT seq, site, provider, route, until_at, reason, retry_after_seconds, ",
+                "rounds, recorded_at FROM provider_cooldowns AS held WHERE held.until_at > ",
+            ))
+    };
+    assert_eq!(
+        begun.iter().filter(|sql| aggregate(sql.as_str())).count(),
+        AGGREGATE
+    );
+    assert_eq!(begun.len(), 1 + PROJECTIONS + AGGREGATE + trail.len());
 }
 
 /// The console's frame over the journal at `db`, forced, open on `run`, at

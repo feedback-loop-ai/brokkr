@@ -9,6 +9,9 @@ use envelope_builder::EnvelopeBuilder;
 pub(crate) mod cache_hit;
 #[path = "../../../tests/support/run_state.rs"]
 mod run_state;
+
+#[path = "../../../tests/support/late_wait.rs"]
+pub(crate) mod late_wait;
 use run_state::{run_state, standing};
 mod capability_calls;
 mod entry;
@@ -20,7 +23,6 @@ const T0: &str = "2026-01-01T00:00:00Z";
 const T1: &str = "2026-01-01T00:00:05Z";
 const T2: &str = "2026-01-01T00:02:03Z";
 const T3: &str = "2026-01-01T01:05:00Z";
-
 pub(crate) fn ev(seq: u64, event_type: EventType, payload: Value, at: &str) -> EventEnvelope {
     EnvelopeBuilder::new(event_type, payload)
         .run("r1")
@@ -31,12 +33,10 @@ pub(crate) fn ev(seq: u64, event_type: EventType, payload: Value, at: &str) -> E
         .previous("")
         .build()
 }
-
 fn caused(mut event: EventEnvelope, cause: &str) -> EventEnvelope {
     event.causation_id = Some(cause.to_string());
     event
 }
-
 pub(crate) fn state(phase: Option<&str>, status: Status, last_decision: Option<Value>) -> RunState {
     let mut state = run_state("r1", 7, standing(status, "needs a human"));
     state.phase = phase.map(str::to_string);
@@ -44,14 +44,12 @@ pub(crate) fn state(phase: Option<&str>, status: Status, last_decision: Option<V
     state.feature = Some("feat".to_string());
     state
 }
-
 /// A run parked in `phase` with the stated `reason` the fold carries.
 pub(crate) fn parked_state(phase: &str, reason: &str) -> RunState {
     let mut state = run_state("r1", 7, standing(Status::AwaitingOperator, reason));
     state.phase = Some(phase.to_string());
     state
 }
-
 /// A listed run with no refusal, residual, ending or last event: the fleet fixtures' one builder.
 pub(crate) fn listed<'a>(
     run_id: &'a str,
@@ -60,6 +58,7 @@ pub(crate) fn listed<'a>(
     state: Option<&'a RunState>,
 ) -> RunEntry<'a> {
     RunEntry {
+        waits: Default::default(),
         run_id,
         feature,
         created_at,
@@ -70,7 +69,6 @@ pub(crate) fn listed<'a>(
         closing: None,
     }
 }
-
 /// A single seat that starts, turns, finishes its session and succeeds.
 pub(crate) fn seat_journal() -> Vec<EventEnvelope> {
     vec![
@@ -116,16 +114,12 @@ pub(crate) fn seat_journal() -> Vec<EventEnvelope> {
         ),
     ]
 }
-
 // ------------------------------------------------------------- AC-1
-
 // AC-1 (no I/O, no clock, no terminal concept) has one home:
 // crates/brokkr-cli/tests/layering/ lexes every production file of this
 // crate against a closed std allowlist and holds its manifest to a closed
 // dependency set (decision 0071 ruling 1, #336).
-
 // ------------------------------------------------------ small helpers
-
 #[test]
 fn js_truthiness_and_the_fixed_tables_are_ported_whole() {
     assert!(!truthy(None));
@@ -280,12 +274,13 @@ fn run_rows_are_newest_first_and_carry_the_whole_feature() {
     let running = state(Some("design"), Status::Running, None);
     let entries = [
         RunEntry {
+            waits: Default::default(),
             detail: Some(Quarantine::DoesNotFold.in_words("event 93: OperatorAccepted")),
             ..listed("old", "the older feature", T0, None)
         },
         listed("new", "the newer feature", T1, Some(&running)),
     ];
-    let view = run_rows(&entries);
+    let view = run_rows(&entries, &[]);
     assert_eq!(view.count, 2);
     assert_eq!(view.view_version, VIEW_VERSION);
     let json = serde_json::to_value(&view).unwrap();
@@ -320,29 +315,33 @@ fn fleet_rows_group_by_realm_and_never_merge_two_journals() {
         listed("a-new", "alpha's newer feature", T1, Some(&running)),
     ];
     let beta = [RunEntry {
+        waits: Default::default(),
         detail: Some(Quarantine::DoesNotFold.in_words("event 4: the journal does not fold")),
         ..listed("b-one", "beta's only feature", T1, None)
     }];
-    let view = fleet_rows(&[
-        HearthEntries {
-            realm: "alpha",
-            journal: "a/forge.db",
-            entries: &alpha,
-            detail: None,
-        },
-        HearthEntries {
-            realm: "beta",
-            journal: "b/forge.db",
-            entries: &beta,
-            detail: None,
-        },
-        HearthEntries {
-            realm: "gamma",
-            journal: "c/forge.db",
-            entries: &[],
-            detail: Some("unable to open database file"),
-        },
-    ]);
+    let view = fleet_rows(
+        &[
+            HearthEntries {
+                realm: "alpha",
+                journal: "a/forge.db",
+                entries: &alpha,
+                detail: None,
+            },
+            HearthEntries {
+                realm: "beta",
+                journal: "b/forge.db",
+                entries: &beta,
+                detail: None,
+            },
+            HearthEntries {
+                realm: "gamma",
+                journal: "c/forge.db",
+                entries: &[],
+                detail: Some("unable to open database file"),
+            },
+        ],
+        &[],
+    );
     assert_eq!(view.view_version, VIEW_VERSION);
     assert_eq!(view.count, 3, "the world's runs, summed and not merged");
     let json = serde_json::to_value(&view).unwrap();
@@ -372,13 +371,16 @@ fn fleet_rows_group_by_realm_and_never_merge_two_journals() {
 fn one_hearth_groups_to_the_same_rows_run_rows_derives() {
     let running = state(Some("design"), Status::Running, None);
     let entries = [listed("solo", "the one feature", T0, Some(&running))];
-    let flat = serde_json::to_value(run_rows(&entries)).unwrap();
-    let grouped = serde_json::to_value(fleet_rows(&[HearthEntries {
-        realm: "brokkr",
-        journal: "j.db",
-        entries: &entries,
-        detail: None,
-    }]))
+    let flat = serde_json::to_value(run_rows(&entries, &[])).unwrap();
+    let grouped = serde_json::to_value(fleet_rows(
+        &[HearthEntries {
+            realm: "brokkr",
+            journal: "j.db",
+            entries: &entries,
+            detail: None,
+        }],
+        &[],
+    ))
     .unwrap();
     assert_eq!(grouped["realms"][0]["runs"], flat["runs"]);
     assert_eq!(grouped["count"], flat["count"]);
@@ -3269,11 +3271,11 @@ fn an_entry_outside_the_vocabulary_is_not_recorded() {
 /// null-bearing cell rather than a skipped key.
 #[test]
 fn the_wire_version_moves() {
-    assert_eq!(VIEW_VERSION, 30); // 30 (0108): a repair's late tail. 29 (0064): ending, ending_cited, wants. 28 (#909): stopping. 27 (0094): entry. 26 (#787): carried_from. 25 (#753): a page's next. 24 (#568): visit. 23 (#568): analytics recipes. 22 (#568): tokens. 21 (#511): acknowledgement. 20 (#568): recipe. 19 (#568): commands. 18 (#351): scopes. 17: working. 16 (0065): capability call.
+    assert_eq!(VIEW_VERSION, 31); // 31 (0103 4f): waits. 30 (0108): a repair's late tail. 29 (0064): ending, ending_cited, wants. 28 (#909): stopping. 27 (0094): entry. 26 (#787): carried_from. 25 (#753): a page's next. 24 (#568): visit. 23 (#568): analytics recipes. 22 (#568): tokens. 21 (#511): acknowledgement. 20 (#568): recipe. 19 (#568): commands. 18 (#351): scopes. 17: working. 16 (0065): capability call.
                                   // 15: quarantine. 14: dashboard. 13: hire. 12: title. 11 (#376): `cost` is every attempt's spend,
                                   // and the last attempt's own figure stands beside it on the wire.
     let retried = serde_json::to_value(run_view(&two_attempt_journal(), None)).unwrap();
-    assert_eq!(retried["view_version"], 30);
+    assert_eq!(retried["view_version"], 31);
     // 22: every participant carries its token cells, each a cell even when absent.
     assert_eq!(
         retried["participants"][0]["tokens"]["cache_hit"]["absent"],
@@ -3283,7 +3285,7 @@ fn the_wire_version_moves() {
     assert_eq!(retried["participants"][0]["last_attempt_cost"], json!(0.5));
     let view = run_view(&boxed_journal(plain_manifest(), Value::Null, None), None);
     let json = serde_json::to_value(&view).unwrap();
-    assert_eq!(json["view_version"], 30);
+    assert_eq!(json["view_version"], 31);
     let seat = &json["participants"][0];
     assert_eq!(seat["model"]["text"], "claude-fable-5-1");
     assert_eq!(seat["boundary"]["absent"], json!(true));
@@ -3773,10 +3775,11 @@ fn the_ruling_line_and_the_run_rows_carry_the_mark() {
     // so it prints the mark.
     let residuals = residual_findings_at("r1", &events, None);
     let entries = [RunEntry {
+        waits: Default::default(),
         residuals: &residuals,
         ..listed("r1", "the finding is closed by name", T0, Some(&stopped))
     }];
-    let json = serde_json::to_value(run_rows(&entries)).unwrap();
+    let json = serde_json::to_value(run_rows(&entries, &[])).unwrap();
     assert_eq!(json["runs"][0]["residuals"][0]["seq"], ruled);
     assert_eq!(
         json["runs"][0]["residuals"][0]["superseded"]["seq"],
