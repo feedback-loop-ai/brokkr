@@ -1083,7 +1083,7 @@ esac
 {
   printf 'cwd=%s\n' "$(pwd)"
   printf 'dsh_home=%s\n' "${DSH_HOME-<unset>}"
-  printf 'git_key=%s\n' "${GIT_CONFIG_KEY_0-<unset>}"
+  printf 'git_parameters=%s\n' "${GIT_CONFIG_PARAMETERS-<unset>}"
   printf 'removed=%s\n' "${LIBRARY_DOCS_TOKEN-<unset>}"
   printf '%s\n' '--'
 } >> "$BROKKR_TEST_DSH_OBSERVE"
@@ -1238,7 +1238,10 @@ fn a_launch_composes_under_the_sessions_own_environment_and_directory() {
             block.contains(&format!("dsh_home={expected_home}\n")),
             "{block}"
         );
-        assert!(block.contains("git_key=commit.gpgsign\n"), "{block}");
+        assert!(
+            block.contains("git_parameters='commit.gpgsign'='false'\n"),
+            "{block}"
+        );
         assert!(block.contains("removed=<unset>\n"), "{block}");
     }
 }
@@ -1431,11 +1434,11 @@ fn a_linked_worktree_runner_is_not_a_hands_launch() {
     search.push(":");
     search.push(std::env::var_os("PATH").unwrap_or_default());
     env.set("PATH", &search);
-    // The seat process may inherit a broken `git -c` triple from the host;
-    // this test needs `git_facts` to read the real linked worktree.
-    env.set("GIT_CONFIG_COUNT", "1");
-    env.set("GIT_CONFIG_KEY_0", "commit.gpgsign");
-    env.set("GIT_CONFIG_VALUE_0", "false");
+    // The seat process may inherit a broken `git -c` triple from the host
+    // (#1109); this test needs `git_facts` to read the real linked worktree.
+    env.remove("GIT_CONFIG_COUNT");
+    let (git_name, git_value) = crate::hands::environment::seat_git_environment();
+    env.set(git_name, git_value);
     env.set("DSH_PERMISSION_MODE", "workspace-write");
     env.set("DSH_HOME", dir.path());
     let workdir = worktree.to_str().unwrap();

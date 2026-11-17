@@ -31,7 +31,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::{json, Map, Value};
 
-mod environment;
+pub(crate) mod environment;
 mod evidence;
 mod git;
 mod namespace;
@@ -350,8 +350,8 @@ pub fn ids() -> (u32, u32) {
 /// - [`HANDS_BOX_ENV`]: inherited exactly when the engine itself already
 ///   stands inside a box, never set here, because it is the marker every
 ///   box-building test skips on;
-/// - the box's fixed switches, the gpgsign triple, and the bundle's git
-///   identity.
+/// - the box's fixed switches, the seat's git environment
+///   ([`environment::seat_git_environment`]), and the bundle's git identity.
 ///
 /// Pure over its inputs, so the table is read directly by tests.
 /// Clearing the environment confines nothing on disk: an unboxed script
@@ -381,9 +381,7 @@ pub fn unboxed_environment(
         ("CI", "true"),
         ("DISABLE_AUTOUPDATER", "1"),
         ("DISABLE_TELEMETRY", "1"),
-        ("GIT_CONFIG_COUNT", "1"),
-        ("GIT_CONFIG_KEY_0", "commit.gpgsign"),
-        ("GIT_CONFIG_VALUE_0", "false"),
+        environment::seat_git_environment(),
     ] {
         set(key, value.to_string());
     }

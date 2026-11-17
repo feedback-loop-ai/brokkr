@@ -6,6 +6,25 @@ use std::path::Path;
 
 use super::{expand_home, namespace_join, namespace_path, HandsSpec, SANDBOX_HOME};
 
+#[cfg(test)]
+pub(crate) mod tests;
+
+/// Every seat's git environment, the one home the workspace box, the
+/// unboxed dispatch and the dsh harness read (#1109): `commit.gpgsign`
+/// is `false`, so a seat's commits are never signed (CONTRIBUTING).
+///
+/// The setting rides `GIT_CONFIG_PARAMETERS`, the form `git -c` itself
+/// exports to its children, rather than the numbered
+/// `GIT_CONFIG_COUNT`/`GIT_CONFIG_KEY_0`/`GIT_CONFIG_VALUE_0` triple. A
+/// harness's credential scrub (dsh's `/KEY|PASSWORD|SECRET|TOKEN/i`)
+/// drops `GIT_CONFIG_KEY_0` and keeps the other two, and git refuses
+/// every command over the dangling count; this name matches no such
+/// pattern, so the setting reaches the seat's shell whole under any
+/// harness, not only the one whose own explicit layer could carry it.
+pub(crate) fn seat_git_environment() -> (&'static str, &'static str) {
+    ("GIT_CONFIG_PARAMETERS", "'commit.gpgsign'='false'")
+}
+
 /// The workspace box's environment, in the order it is set: the fixed
 /// switches, then each toolchain home its own bind declares.
 pub(super) fn box_environment(spec: &HandsSpec, home: &Path) -> Vec<(&'static str, String)> {
@@ -27,13 +46,12 @@ pub(super) fn box_environment(spec: &HandsSpec, home: &Path) -> Vec<(&'static st
         ("CI", "true".to_string()),
         ("DISABLE_AUTOUPDATER", "1".to_string()),
         ("DISABLE_TELEMETRY", "1".to_string()),
-        // Seat commits are unsigned (CONTRIBUTING); the signing wrapper
-        // and its key are not in the box, and the repository config that
-        // names them is outranked by this environment entry.
-        ("GIT_CONFIG_COUNT", "1".to_string()),
-        ("GIT_CONFIG_KEY_0", "commit.gpgsign".to_string()),
-        ("GIT_CONFIG_VALUE_0", "false".to_string()),
     ];
+    // Seat commits are unsigned (CONTRIBUTING); the signing wrapper and
+    // its key are not in the box, and the repository config that names
+    // them is outranked by this environment entry.
+    let (git_name, git_value) = seat_git_environment();
+    environment.push((git_name, git_value.to_string()));
     // On rustup installations cargo and rustc are proxies below
     // ~/.cargo/bin. A declared toolchain bind must therefore be both
     // executable and discoverable; the private HOME must not redirect the

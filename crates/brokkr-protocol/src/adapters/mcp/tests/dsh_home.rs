@@ -10,10 +10,12 @@ use super::super::super::tests::{
     synthetic_dsh_composite, wait_for_exit,
 };
 use super::super::super::{
-    dsh_argv, dsh_launch_with, dsh_model_row, dsh_transcript_row, invoke_dsh_launch, DshLaunch,
+    dsh_argv, dsh_child_env, dsh_launch_with, dsh_model_row, dsh_transcript_row, invoke_dsh_launch,
+    DshLaunch,
 };
 use super::*;
 use crate::env_guard::EnvGuard;
+use crate::hands::environment::tests::scrubbed;
 use crate::transcript::{DshHome, DshHomeError};
 use sha2::Digest;
 use std::path::PathBuf;
@@ -756,8 +758,8 @@ fn a_binding_over_the_engine_homes_fixed_environment_refuses_before_any_start() 
     let homes = Homes::new();
     let started = homes.bin.join("started");
     let body = format!(
-        "#!/bin/sh\nprintf '%s|%s|%s|%s|%s|%s' \"$DSH_HOME\" \"$GIT_CONFIG_COUNT\" \
-         \"$GIT_CONFIG_KEY_0\" \"$GIT_CONFIG_VALUE_0\" \"$GIT_AUTHOR_NAME\" \"$API_TOKEN\" > '{}'\n",
+        "#!/bin/sh\nprintf '%s|%s|%s|%s' \"$DSH_HOME\" \"$GIT_CONFIG_PARAMETERS\" \
+         \"$GIT_AUTHOR_NAME\" \"$API_TOKEN\" > '{}'\n",
         started.display()
     );
     let shim = executable(&homes.bin, "dsh-env", &body);
@@ -781,13 +783,15 @@ fn a_binding_over_the_engine_homes_fixed_environment_refuses_before_any_start() 
     let (unspawned, home) = plan();
     drop(unspawned);
     assert!(!home.exists(), "a launch dropped unspawned takes its home");
-    let fixed = [
-        "DSH_HOME",
-        "GIT_CONFIG_COUNT",
-        "GIT_CONFIG_KEY_0",
-        "GIT_CONFIG_VALUE_0",
-        "GIT_AUTHOR_NAME",
-    ];
+    // The fixed keys, in the order the child's environment sets them; none
+    // is a name a credential scrub drops (#1109), unlike `API_TOKEN`, a
+    // declared binding served through the binding path.
+    let fixed = ["GIT_CONFIG_PARAMETERS", "DSH_HOME", "GIT_AUTHOR_NAME"];
+    let (launch, _home) = plan();
+    let names: Vec<_> = dsh_child_env(&launch).iter().map(|(key, _)| *key).collect();
+    assert_eq!(names, fixed);
+    assert_eq!(names.iter().filter(|key| scrubbed(key)).count(), 0);
+    drop(launch);
     for key in fixed {
         let (launch, home) = plan();
         // `DSH_HOME` is bound to the very home staged: the name refuses.
@@ -813,7 +817,7 @@ fn a_binding_over_the_engine_homes_fixed_environment_refuses_before_any_start() 
     assert_eq!(
         std::fs::read_to_string(&started).unwrap(),
         format!(
-            "{}|1|commit.gpgsign|false|Seat Host|tok-3xample",
+            "{}|'commit.gpgsign'='false'|Seat Host|tok-3xample",
             home.display()
         )
     );

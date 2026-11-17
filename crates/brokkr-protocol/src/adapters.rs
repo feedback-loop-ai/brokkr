@@ -4868,11 +4868,7 @@ fn spawn_dsh(
 /// Every dsh child's fixed environment: unsigned commits (CONTRIBUTING) under the
 /// host's identity (decision 0043 ruling 6), and an engine-only home (U1c2).
 fn dsh_child_env(launch: &DshLaunch) -> Vec<(&str, &str)> {
-    let mut env = vec![
-        ("GIT_CONFIG_COUNT", "1"),
-        ("GIT_CONFIG_KEY_0", "commit.gpgsign"),
-        ("GIT_CONFIG_VALUE_0", "false"),
-    ];
+    let mut env = vec![crate::hands::environment::seat_git_environment()];
     env.extend(launch.home.child_home().map(|home| ("DSH_HOME", home)));
     for (key, value) in &launch.facts.identity {
         env.push((key, value));
