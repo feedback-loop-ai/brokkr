@@ -786,7 +786,12 @@ fn a_binding_over_the_engine_homes_fixed_environment_refuses_before_any_start() 
     // The fixed keys, in the order the child's environment sets them; none
     // is a name a credential scrub drops (#1109), unlike `API_TOKEN`, a
     // declared binding served through the binding path.
-    let fixed = ["GIT_CONFIG_PARAMETERS", "DSH_HOME", "GIT_AUTHOR_NAME"];
+    let fixed = [
+        "GIT_CONFIG_COUNT",
+        "GIT_CONFIG_PARAMETERS",
+        "DSH_HOME",
+        "GIT_AUTHOR_NAME",
+    ];
     let (launch, _home) = plan();
     let names: Vec<_> = dsh_child_env(&launch).iter().map(|(key, _)| *key).collect();
     assert_eq!(names, fixed);

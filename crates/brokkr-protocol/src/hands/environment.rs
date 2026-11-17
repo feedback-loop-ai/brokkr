@@ -25,6 +25,20 @@ pub(crate) fn seat_git_environment() -> (&'static str, &'static str) {
     ("GIT_CONFIG_PARAMETERS", "'commit.gpgsign'='false'")
 }
 
+/// The numbered git config group a seat would inherit, closed: with
+/// `GIT_CONFIG_COUNT` at `0` git reads no `GIT_CONFIG_KEY_n` or
+/// `GIT_CONFIG_VALUE_n` at all. A child that inherits the engine's
+/// environment (the dsh harness's) would otherwise carry any group the
+/// engine itself was launched with into dsh's scrub, which drops its
+/// keys and leaves git refusing over the dangling count (#1109). This is
+/// what the triple Brokkr fixed before did to an inherited group; the
+/// workspace box and the unboxed dispatch clear their environment and
+/// inherit none. `GIT_CONFIG_PARAMETERS` still carries the seat's
+/// setting ([`seat_git_environment`]).
+pub(crate) fn inherited_git_group_closed() -> (&'static str, &'static str) {
+    ("GIT_CONFIG_COUNT", "0")
+}
+
 /// The workspace box's environment, in the order it is set: the fixed
 /// switches, then each toolchain home its own bind declares.
 pub(super) fn box_environment(spec: &HandsSpec, home: &Path) -> Vec<(&'static str, String)> {
