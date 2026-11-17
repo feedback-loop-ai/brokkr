@@ -85,16 +85,16 @@ pub(super) struct Sheet<'a> {
 /// seal wrote, was removed (#1099). Where any step of the undo fails, the
 /// seal refuses as unsealed, whatever cut it short (M2 of run four's second
 /// review), and leaves what that arm left: a hand's file found at the name
-/// is never removed, but put back there or, where a reseal's exchange back
-/// fails, left under the staged name (#1099 R2); a link, exchange or rename
-/// back that fails other than for a gone prior name leaves this seal's
-/// successor at the name and the prior name as it was, the record that
-/// stood there where it still is, for every read and for the next seal to
-/// put back; an undo cut short after its exchange, or whose last sync fails
-/// once it put the record that stood back, leaves that record at the name;
-/// and where the record that stood is gone
-/// and the directory denies the removal of this seal's successor, that
-/// successor stands as the record (#1099 F3). Once committed, no seal
+/// is never removed, but stays there, is exchanged back there by a reseal,
+/// or, where that exchange back fails, is left under the staged name (#1099
+/// R2); a link, exchange or rename back that fails other than for a gone
+/// prior name leaves this seal's successor at the name and the prior name
+/// as it was, the record that stood there where it still is, for every read
+/// and for the next seal to put back; an undo cut short after its exchange,
+/// or whose last sync fails once it put the record that stood back, leaves
+/// that record at the name; and where the record that stood is gone and the
+/// directory denies the removal of this seal's successor, that successor
+/// stands as the record (#1099 F3). Once committed, no seal
 /// reports failure or lateness: one whose directory is not proven synced
 /// after reports itself committed but [`Commit::Unsynced`] (R1 of the
 /// fourth run, U8a2c).
@@ -174,7 +174,7 @@ pub(super) fn seal_made(write: Sheet<'_>) -> Result<Commit, Unknown> {
 /// or rename back was refused, or as the record where the record that stood
 /// is gone and the directory denies the successor's removal (#1099 F3); or
 /// the record that stood back at the name, where the undo was cut short
-/// after its exchange or its last sync failed.
+/// after its exchange, or its last sync failed once it put that record back.
 fn retired(seal: &Seal<'_>, written: &Record, make: Make<'_>) -> Result<Commit, Unknown> {
     let prior = seal.prior();
     let retiring = ((seal.hook)(Step::Retiring, seal.dir, seal.name).or(Err(Unknown::Unsealed)))
