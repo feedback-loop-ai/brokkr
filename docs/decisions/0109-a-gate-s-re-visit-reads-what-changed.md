@@ -426,16 +426,25 @@ covering read in the second.
 
 - **Inside.** A finding is inside the delta when its `file` is a changed path and
   its `line` falls in a changed hunk of the `since..HEAD` diff for that path,
-  widened by the diff's context (the plan uses `-U3`, so three lines). The engine
-  records the hunks it read; it does not guess.
+  widened by the diff's context (the plan uses `-U3`, so three lines). A standing
+  finding's `line` is a line of the covered revision (`since`), so it is read
+  against each hunk's old-side range (`@@ -a,b`). The engine records the hunks it
+  read; it does not guess. **A finding on a path the delta deletes is inside:**
+  the deletion's one hunk covers every old line (observed: a deleted one-line
+  file's patch is `@@ -1 +0,0 @@`), so a fix that deletes the offending file
+  closes the finding on that read, and no loop forms.
 - **Outside.** A finding outside the changed hunks of a changed file — or in a
   file the delta does not touch — is outside. It is carried, never closed.
-- **Unplaceable.** A finding with no `file`, or whose `file` the delta cannot
-  place (a deleted path, a path outside the repository, a hand-built older
-  record), is a third case: neither inside nor outside. It is blocking and fails
-  closed: it stays standing and is not closed by an inside-delta read's omission;
-  only a whole read closes it. A new finding must carry `file`; the fail-closed
-  arm is for a historical `GateVisit` that lacks one.
+- **Unplaceable.** A finding with no `file`, or whose `file` and `line` the delta
+  cannot place (a path outside the repository, a line past the covered file's
+  end, a hand-built older record), is a third case: neither inside nor outside.
+  It fails closed: it is not closed by an inside-delta read's omission. **A
+  standing unplaceable finding that is blocking is the whole-read trigger
+  `unplaceable_finding` (ruling 10)**, so the next visit reads whole, and that
+  whole read covers it and can close it; it cannot stand on every delta visit. A
+  non-blocking unplaceable finding is carried as a follow-up. A new finding must
+  carry `file`; the fail-closed arm is for a historical `GateVisit` that lacks
+  one.
 - **Seat answers.** The seat answers a handed standing finding in exactly one of
   two ways: it re-reports it with the same key and a locator, and it still
   stands; or it omits it, and the engine reads absence. The seat may not declare
@@ -486,7 +495,10 @@ caught by a rule, only by the security-class whole read and the review office.
 unique across both; the engine derives the follow-ups from the previous
 `GateVisit` and the delta; the aggregate check is a typed refusal. Tests: a
 finding outside the changed hunk of a changed file is carried; a fileless finding
-stays standing and an inside-delta read's omission does not close it; an outside
+stays standing and an inside-delta read's omission does not close it; a standing
+blocking fileless finding forces the next visit whole with `unplaceable_finding`,
+and that whole read's omission closes it; a finding on a path the delta deletes
+is inside, and the deleting read's omission closes it; an outside
 finding at or above the derived threshold forces a whole read, with
 `outside_threshold` journaled; where no threshold derives, a blocking outside
 finding forces a whole read; a non-empty `findings` with the aggregate input
@@ -520,12 +532,12 @@ without a site and an id.
 **Recommended: (a) an engine-stamped `covered`, typed by the gate's kind: `head`
 for a code gate, `artifacts` for a spec gate.**
 
-- **`head`:** the commit the gate read, the base it compared against when one
-  resolves, and whether the worktree was dirty at the start. The arm has two field
-  sets. A gate with its own head record writes
-  `{kind: "head", head: <commit id>, base: <id|null>, dirty: bool}`. The bundle's
+- **`head`:** the commit the gate read, and whether the worktree was dirty at the
+  start. It records no base: the delta read takes none (ruling 9's base rule). The
+  arm has two field sets. A gate with its own head record writes
+  `{kind: "head", head: <commit id>, dirty: bool}`. The bundle's
   protected phase writes `{kind: "head", head_digest: <sha256 of the head
-  string>, base: <id|null>, dirty: bool}`: its `covered.head` is a digest-pinned
+  string>, dirty: bool}`: its `covered.head` is a digest-pinned
   projection of the decide-time head, not a third head authority. `head` and
   `head_digest` are mutually exclusive and exactly one is required. The engine
   reads the protected phase's head value from the decide-time `reviewed_heads`
@@ -564,9 +576,6 @@ for a code gate, `artifacts` for a spec gate.**
   whole read (`artifact_missing`), never a head delta over untyped prose. That
   makes the spec and analyze gates artifacts gates and verify, review and ship
   code gates.
-- **`base`** is the merge-base of HEAD and the default branch at commission time;
-  when none resolves, `base` is `null` and a delta read is refused
-  (`base_unknown`).
 - **`dirty`** is `true` unless the tree check (ruling 9) proved the worktree
   clean at commission time; a difference, a failure and a timeout are `true`.
   `worktree_dirty` fires on that **or** on the previous visit's recorded dirty
@@ -582,7 +591,7 @@ same head, not a new head fact for the protected phase.
 **Binding:** `covered` is a tagged enum, each arm with required fields and
 `additionalProperties: false`; the engine stamps it before append and refuses a
 seat-supplied one; tests pin both arms and both `head` field sets, the derived
-kind, the dirty refusal, the unresolved-base refusal, the
+kind, the dirty refusal, the absence of a `base` field, the
 `phase/entered`/`reviewed_heads`/`covered` agreement for the protected phase, the
 digest-mismatch refusal at decide (0109a), and the new record for a non-protected
 gate.
@@ -638,37 +647,136 @@ refused: it needs an `event-envelope` version and moves every digest.
 ### 9. What the delta commission carries, and how the engine runs git
 
 **Recommended: (a) the engine computes the range since the covered head, the
-raw set of paths that still differ from the base, one patch per path, and the
-standing findings; the read is complete or it is whole; and nothing the read
-uses can be written by a seat or named by the repository.**
+set of every path that changed in it, one patch per path, and the standing
+findings; the read is complete or it is whole; every object it rests on is
+verified by the engine's own hash; and nothing the read uses can be written by a
+seat or named by the repository.**
 
-Three rules hold this ruling, each stated once below and each an ask of its own:
+Five rules hold this ruling, each stated once below and each an ask of its own:
 the **isolation rule** (what the read runs in), the **completeness rule** (what
-the read must carry) and the **tree-check rule** (how the engine knows the
-worktree is the head it read). The class they close is not one more vector: it
-is "an input the read uses was written by a seat or the repository", and "the
-read came back short without failing". Rounds r2 to r4 closed vectors one flag
-at a time; each rule below is one sentence that holds by construction, plus a
-check that fails closed.
+the read must carry), the **tree-check rule** (how the engine knows the worktree
+is the head it read), the **object rule** (how the engine knows an object's
+bytes are the ones its id names) and the **base rule** (why no ref the seat can
+move decides the set). The classes they close are not one more vector each:
+"the repository names a program" (r4), "the read came back short without
+failing" and "the scratch is seat-writable" (r5), and "**the read trusts an
+input the work seat wrote**" (this round): the work seat commits, so it writes
+the object store and the refs, and it can write anything else in the operated
+repository. Rounds r2 to r4 closed vectors one flag at a time; each rule below
+is one sentence that holds by construction, plus a check that fails closed.
+[What the read trusts](#what-the-read-trusts-and-what-the-work-seat-can-write)
+then lists every input the work seat can write, with the rule or check that
+covers it.
 
-The engine composes: (1) `since` is the previous covered revision; if it is not an
-ancestor of HEAD, the read is full (`ancestor_lost`). (2) `base` is the current
-merge-base of HEAD and the default branch; if none resolves, the read is full
-(`base_unknown`). (3) The changed set is the `since..HEAD` raw set, read with
-`-z` and kept as raw bytes with each entry's two modes, kept only where the
-`base...HEAD` raw set names the same bytes; a path the base touched and the
-branch still differs from is read whole — the since..HEAD patch of that path —
-which over-reads a mixed file rather than under-reading it, and a clean merge of
-the base leaves no path and owes no re-read. (4) The patch is read **one path at
-a time**: one `diff-tree -p` per path in the set, with `-U3`, each naming exactly
-that one path as a literal pathspec. `delta_files_gt` is checked against the
-set's size before any patch runs, and `delta_bytes_gt` against the bytes read,
-which are bounded: a command whose output passes the remaining budget is stopped
-and the read is whole. (5) The completeness check (below) runs over the set and
-the patches. (6) The commission carries the `read` plan, the diff text, and the
-standing findings with their keys, locators and severities. A security-class site
-takes the whole read instead (ruling 11). A spec gate follows ruling 12's
-file-level plan instead of the git range.
+The engine composes: (1) `since` is the previous covered revision, read from the
+journal, and `head` is the stable-head check's id. The engine reads both commits
+through the object rule, and walks `head`'s parents in the verified commit
+bytes; if the walk does not reach `since` within 1,000 commits, the read is full
+(`ancestor_lost`). (2) The changed set is **every path that differs between
+`since`'s tree and `head`'s tree**, computed by the engine over verified tree
+objects, kept as raw bytes with each entry's two modes and two ids. No base and
+no filter enters it (the base rule). (3) The patch is read **one path at a
+time**: one `diff-tree -p` per path in the set, with `-U3`, each naming exactly
+that one path as a literal pathspec, in a scratch that holds only verified
+objects. `delta_files_gt` is checked against the set's size before any patch
+runs, and `delta_bytes_gt` against the bytes read, which are bounded: a command
+whose output passes the remaining budget is stopped and the read is whole. (4)
+The completeness check (below) runs over the set and the patches. (5) The
+commission carries the `read` plan, the diff text, and the standing findings with
+their keys, locators and severities. A security-class site takes the whole read
+instead (ruling 11). A spec gate follows ruling 12's file-level plan instead of
+the git range.
+
+**The object rule.** *Every commit, tree and blob whose bytes decide the changed
+set, a patch or the tree check is hashed by the engine, and equals the id the
+engine asked for, or the gate reads whole.* Git does not check a loose or packed
+object's bytes against its id when it reads one: a head blob's loose object
+replaced by other bytes under the same id printed the replacement as the patch
+text at exit 0, a replaced `since` tree and a replaced `since` commit each
+shortened the raw set at exit 0, and `cat-file -e` exited 0 on each (observed
+below). So the engine does not let git read an object it has not verified:
+
+- **How.** The engine reads each object it needs with one long-lived
+  `cat-file --batch` in the **source scratch** (the isolation rule's scratch
+  whose `alternates` names the operated object directory), feeding ids on stdin
+  and reading `<id> <type> <size>` and the bytes. It hashes `<type> <size>\0`
+  and the bytes with SHA-1 in collision-detecting form (the sha1dc algorithm git
+  itself uses; a new `sha1collisiondetection` dependency, so a crafted colliding
+  pair is a mismatch, not a match), and compares the result and the type with
+  the id and type it asked for. A different hash or type is the whole-read
+  trigger `object_mismatch`; a `missing` line is `read_failed`, and nothing is
+  fetched.
+- **Which objects.** The `since` and `head` commits and every commit the
+  ancestry walk reads; both root trees, and every subtree whose id differs
+  between the two sides along the way to a changed path (a subtree with the same
+  id on both sides is one object, so nothing beneath it can differ, and it is not
+  read); both blobs of every changed path (one for an add or a delete). For the
+  tree check: every tree of `head`, and the blob of every symlink entry, because
+  `update-index --refresh` compares a symlink by reading its blob. The engine
+  parses commit and tree bytes itself (a commit's `tree` and `parent` lines; a
+  tree's `<mode> <name>\0<20-byte id>` entries), as pure functions in
+  `brokkr-core`, so parents come from the verified bytes and no commit-graph,
+  graft, replace ref or shallow file is consulted for them.
+- **Then git reads only what the engine verified.** The engine writes each
+  verified object into the **patch scratch** (or, for the tree check, the
+  **tree scratch**) as a loose object, zlib-deflated by the deflate crate the
+  lockfile already holds (`Cargo.lock`, 1.1.10, today only a transitive
+  dependency; it becomes a direct one), at the path its own hash names. Neither
+  scratch has an `alternates` line: git in it can open no object the engine did
+  not verify, and an object the engine refused is simply absent, so the command
+  fails and the read is whole (observed: with the forged blob written under its
+  true hash, the a.txt patch exits 128, "unable to read 7a1591ac…", while b.txt
+  prints its hunk). As a second derivation of the set, git's own `diff-tree -r -z
+  --raw` over the two verified root trees runs in the patch scratch, and its
+  output must equal the engine's set byte for byte, or the read is
+  `delta_incomplete`.
+- **What it costs.** Per delta read: two commits plus the walk's commits, two
+  root trees plus the differing subtrees on each side, and at most two blobs per
+  changed path, each read once, hashed once and written once. Measured on this
+  branch's last fix commit (`b486d3ffd..0af190c64`, one changed path): 10 objects,
+  233,800 bytes (2 commits of 780 and 1,256 bytes; 6 trees of 1,454, 1,454, 432,
+  432, 7,262 and 7,262; 2 blobs of 91,015 and 122,453). Per tree check: every
+  tree of `head`; on this tree 693 trees, 130,435 bytes, and no symlink. The
+  object bytes count against a third budget, `ReadLimits.objects` (default 16
+  MiB, not a policy key), and a read past it is whole (`delta_bytes_gt`, with the
+  budget named in the journaled cause). A blob-heavy change (a one-line edit to a
+  large file) therefore costs both versions of that file.
+
+**The base rule.** *No ref the work seat can move decides which paths the delta
+carries.* The r5 statement filtered the `since..HEAD` set by the `base...HEAD`
+set, with `base` the merge-base of HEAD and the default-branch tip, and that tip
+is a ref of the operated repository (`origin/HEAD`, else a local `main` or
+`master`: `crates/brokkr-runtime/src/anchor.rs:111-135` names the same lookup for
+0038's measure). One `git update-ref refs/heads/main <E>`, with `E` a commit of
+the branch, moved the merge-base to `E`, and the filter dropped every path `E`
+changed; an `info/grafts` line moved it the same way without touching a ref
+(both observed below). **Taken: the filter is dropped.** The set is the whole
+`since..HEAD` difference, and no base is read, recorded or compared; `base` leaves
+`covered` (ruling 7) and `base_unknown` leaves the trigger list (ruling 10).
+
+- **(a) Require the base to equal the previous visit's journaled `covered.base`**
+  (the commission's recommendation) **is refused, because it does not hold the
+  sentence.** The first visit's `covered.base` is itself read from the same ref,
+  and the implementer runs before the first review. Observed: the seat points
+  `main` at `E` (adding `x.txt` as `EVIL backdoor`) before visit 1; visit 1 covers
+  `S'` (`x.txt` made benign), with `covered.base = E`; the seat then commits `H'`
+  restoring the evil `x.txt`. At visit 2 the merge-base is `E`, equal to
+  `covered.base`, so the rule admits it, and the filter drops `x.txt` from
+  `{x.txt, y.txt}` at exit 0. A base equal to a seat-chosen base is still a base
+  the seat chose. And whenever the real default branch moves, the merge-base
+  moves and (a) reads whole anyway, so the filter's only remaining effect is to
+  drop a path whose head bytes equal the base's.
+- **(b) Drop the filter. Recommended and taken.** Nothing the seat can write
+  decides the set: it is the two verified trees' difference, complete whether or
+  not `since` is an ancestor. The cost is the saving the filter bought: after a
+  merge of the default branch into the branch, the merged paths are in the
+  delta, which over-reads rather than under-reads, and a large merge passes
+  `delta_files_gt` and reads whole. A rebase onto the default branch already
+  read whole (`ancestor_lost`), so the filter only ever saved on a merge.
+- **A later option, not built:** a base read from a source the seat cannot
+  write (the forge's own record of the default-branch tip, fetched by the
+  engine) could restore the filter. It needs a source this decision does not
+  have.
 
 A path is a byte string, never a `String`: a path with a newline, a quote or a
 byte outside UTF-8 is an ordinary path. The plan carries each path as bytes in
@@ -678,9 +786,11 @@ display form and nothing reads that form back (0071 ruling 3).
 **The isolation rule.** *No seat and no repository can write the scratch, and the
 engine reads it only as it made it.* Every git command of the delta read and of
 the tree check runs in a scratch git directory the engine makes at the read, from
-an environment the engine constructs, reaching the repository's objects only
-through `objects/info/alternates`, given commit ids rather than refs, and a
-missing object fails the read closed. The sentence is the build's test, and it
+an environment the engine constructs, given object ids rather than refs. Only
+the source scratch reaches the repository's objects, through
+`objects/info/alternates`, and only to hand their bytes to the object rule; the
+patch and tree scratches hold nothing but objects the engine verified. A missing
+object fails the read closed. The sentence is the build's test, and it
 is true by construction rather than by a list of flags:
 
 - **Where it lives.** Not under the run-local tree, and not in the worktree. The
@@ -719,76 +829,77 @@ is true by construction rather than by a list of flags:
   An unboxed seat has no fence, being a process of the same user, and is kept out
   by time and by name instead: it is over before the directory exists, and a name
   drawn from the random source at the read is not a name it could have planted.
-- **What is in it.** Two directories made together under one random parent, each
-  holding only what the engine writes: the **read scratch** holds `HEAD`, the
+- **What is in it.** Three directories made together under one random parent,
+  each holding only what the engine writes, and each with `HEAD` holding the
   constant `ref: refs/heads/main`, which names no commit (the operated
-  repository's HEAD is never copied into it); an **empty `refs/` directory**,
-  because git refuses a directory without one (observed below); and
-  `objects/info/alternates`, one line naming the operated repository's object
-  directory, resolved from the worktree's `.git` (a directory, or a file naming
-  the git dir) and that git dir's `commondir` when it names one: a path read,
-  never a config read. A planted `.git` or `commondir` can only point at another
-  object directory, which supplies or withholds objects by the ids the engine
-  names, never a program. The **tree scratch** (the tree-check rule) has the same
-  three and gains one `index`, written by the engine's own `read-tree`; the index
-  is never in the read scratch, because git falls back to the index for
-  attributes (observed: the operated `.git` with an unrelated directory as cwd
-  still printed "Binary files" for a `*.txt -diff` its index held), and a covered
-  head's committed `.gitattributes` would then apply to the patch. Neither has a `config`, a `hooks/`, an `info/attributes`, a
-  `.gitattributes`, a `packed-refs`, a `shallow`, a `refs/replace` or a graft file,
-  so no local configuration, no hook, no attribute source, no replacement and no
-  shallow boundary of the operated repository is in view;
-  `GIT_CONFIG_NOSYSTEM=1`, `GIT_CONFIG_GLOBAL=/dev/null` and `GIT_CONFIG_COUNT=0`
-  leave no system or global configuration.
+  repository's HEAD is never copied into it), and an **empty `refs/` directory**,
+  because git refuses a directory without one (observed below). The **source
+  scratch** adds `objects/info/alternates`, one line naming the operated
+  repository's object directory, resolved from the worktree's `.git` (a
+  directory, or a file naming the git dir) and that git dir's `commondir` when it
+  names one: a path read, never a config read. Only `cat-file --batch` runs in
+  it, and everything it returns is hashed (the object rule), so a planted `.git`
+  or `commondir` can point only at another object directory, which can supply an
+  object the hash then judges, or withhold one, never a program. The **patch
+  scratch** has no `alternates`; its `objects/` holds only the loose objects the
+  engine wrote after verifying them. The **tree scratch** (the tree-check rule)
+  is the same, holding the verified trees of `head` and its symlink blobs, and
+  gains one `index`, written by the engine's own `read-tree`; the index is never
+  in the patch scratch, because git falls back to the index for attributes
+  (observed: the operated `.git` with an unrelated directory as cwd still printed
+  "Binary files" for a `*.txt -diff` its index held), and a covered head's
+  committed `.gitattributes` would then apply to the patch. None has a `config`,
+  a `hooks/`, an `info/attributes`, an `info/exclude`, an `info/grafts`, a
+  `.gitattributes`, a `packed-refs`, a `shallow`, a `refs/replace`, a
+  `commit-graph`, a pack or an `.idx`, so no local configuration, no hook, no
+  attribute source, no replacement, no graft, no commit-graph and no shallow
+  boundary of the operated repository is in view; `GIT_CONFIG_NOSYSTEM=1`,
+  `GIT_CONFIG_GLOBAL=/dev/null` and `GIT_CONFIG_COUNT=0` leave no system or
+  global configuration.
 - **The engine reads it only as it made it.** Before any git command opens a
   scratch the engine lists it through its directory handle, without following a
   link, and compares the listing with what it wrote: the entry names, their kinds,
-  and the bytes of `HEAD` and `alternates`. Any other entry (a `config`, an
-  `info/attributes`, a `.gitattributes`, a `hooks/`, a symlink, a second
-  `objects/` entry) is the whole-read trigger `scratch_foreign`, and no git
-  command starts in it. The same check runs on the tree scratch with its `index`
-  absent until the engine's own `read-tree` makes it.
+  the bytes of `HEAD` and `alternates`, and in the patch and tree scratches every
+  object file's name and bytes. Any other entry (a `config`, an
+  `info/attributes`, a `.gitattributes`, a `hooks/`, a symlink, an object the
+  engine did not write, a second `objects/` entry) is the whole-read trigger
+  `scratch_foreign`, and no git command starts in it. The same check runs on the
+  tree scratch with its `index` absent until the engine's own `read-tree` makes
+  it.
 - **The cwd.** Every child's working directory is its scratch, never the operated
   worktree and never a path a seat can name. Git takes the working directory as
   the worktree when the directory it is given is not bare; a child run with the
   operated worktree as its cwd reads that worktree's `.gitattributes`, and a
   committed `*.txt -diff` turned the patch into "Binary files ... differ"
   (observed below).
-- **What it costs.** Two directories, five small files and one listing per read;
-  both are removed by a guard after the read, on success or failure. A crash
+- **What it costs.** Three directories, four small files, one index, the verified objects
+  (the object rule's cost) and one listing per read; all are removed by a guard
+  after the read, on success or failure. A crash
   leaves the random parent under the engine's own root, where nothing reads it
   again, since a name is never reused; sweeping leftovers belongs to whatever the
   engine already sweeps at start (unmeasured here, so a follow-up).
-- **What it does not defend.** A concurrent process of the same user could write
-  the scratch between the listing and the read, or the operated repository's
-  objects, or the journal. That is outside this decision's threat: the same
-  process could already write the operated worktree, and every transition rests
-  on the worktree and the journal as they stand. The rule closes the seat (which
-  is over before the scratch exists, or cannot write the host) and the repository
-  (which names programs only through a config, an attribute, a hook or a remote,
-  none of which the scratch holds).
+- **What it does not defend** is listed once, with every other input, in
+  [What the read trusts](#what-the-read-trusts-and-what-the-work-seat-can-write).
 - **The command.** The engine has a new `git_diff` helper at the runtime edge
-  (`git_query`, below, is the other). It runs plumbing, not porcelain, with the ids, and the child's working
-  directory is the read scratch. The raw set is read with no pathspec, so the
-  pathless form is the one intended; the patch is read once per path, never from
-  a list:
+  (`git_query`, below, is the other). It runs plumbing, not porcelain, with the
+  verified tree ids, and the child's working directory is the patch scratch. The
+  raw set is read with no pathspec, so the pathless form is the one intended; the
+  patch is read once per path, never from a list:
 
   ```text
-  git --git-dir=<scratch> -c core.fsmonitor=false -c core.attributesFile=/dev/null \
-      --no-pager diff-tree -r -z --raw --no-renames --no-commit-id <since> <head>
-  git --git-dir=<scratch> -c core.fsmonitor=false -c core.attributesFile=/dev/null \
-      --no-pager diff-tree -r -z --raw --no-renames --no-commit-id <base> <head>
-  git --git-dir=<scratch> -c core.fsmonitor=false -c core.attributesFile=/dev/null \
+  git --git-dir=<patch scratch> -c core.fsmonitor=false -c core.attributesFile=/dev/null \
+      --no-pager diff-tree -r -z --raw --no-renames <since tree> <head tree>
+  git --git-dir=<patch scratch> -c core.fsmonitor=false -c core.attributesFile=/dev/null \
       --no-pager diff-tree -r -p -U3 --no-renames --no-ext-diff --no-textconv \
-      --ignore-submodules=all --no-commit-id <since> <head> -- <one path>
+      --ignore-submodules=all <since tree> <head tree> -- <one path>
   ```
 
-  The second line is step 3's `base...HEAD` side: `<base>` is the merge-base id
-  `git_query` printed, and the comparison is a two-id `diff-tree`, not a
-  three-dot range. The child environment is constructed, not inherited:
+  The first line is the second derivation the object rule compares with the
+  engine's own set. The child environment is constructed, not inherited:
   `GIT_DIR` is the scratch, `PATH` is the engine's, then
   `GIT_CONFIG_NOSYSTEM=1`, `GIT_CONFIG_GLOBAL=/dev/null`, `GIT_CONFIG_COUNT=0`,
-  `GIT_ATTR_NOSYSTEM=1`, `GIT_NO_LAZY_FETCH=1` and `GIT_LITERAL_PATHSPECS=1`. No
+  `GIT_ATTR_NOSYSTEM=1`, `GIT_NO_LAZY_FETCH=1`, `GIT_NO_REPLACE_OBJECTS=1` and
+  `GIT_LITERAL_PATHSPECS=1`. No
   other `GIT_*` variable reaches it, so `GIT_EXTERNAL_DIFF`, `GIT_CONFIG_KEY_*`,
   `GIT_SSH_COMMAND` and `GIT_ASKPASS` cannot be planted from outside.
   `GIT_LITERAL_PATHSPECS` (git 1.8.2) turns pathspec magic off, so a path named
@@ -800,34 +911,40 @@ is true by construction rather than by a list of flags:
   construction, not the construction itself: the lazy-fetch variable and the
   `--no-lazy-fetch` option are version-dependent and nothing rests on them.
   **No attribute source.** The patch reads no `.gitattributes`: the cwd is the
-  scratch, which holds none; the scratch has no index and no `info/attributes`;
-  `core.attributesFile` and the system file name nothing; and its `HEAD` names no
-  commit, so neither `attr.tree` nor a bare repository's default tree is a source.
+  patch scratch, which holds none; that scratch has no index and no
+  `info/attributes`; `core.attributesFile` and the system file name nothing; and
+  its `HEAD` names no commit, so neither `attr.tree` nor a bare repository's
+  default tree is a source.
   `--attr-source` (git 2.40) is not used on the read: it names an empty tree where
   it exists and is an unknown option, a failure, where it does not, and a read
   that cannot run on an older supported git is no delta, not a safer one. The
   tree check, whose input is the operated worktree's own `.gitattributes`, does
   need it, and an older git there fails closed (the tree-check rule).
-- **The object reads.** The new scrubbed `git_query` helper runs `merge-base` and
-  `cat-file -e` in the same scratch with the same environment and ids. A missing
-  object makes the command fail; the read is whole and nothing is fetched. The
-  engine resolves `HEAD` and the default-branch tip to ids before the read:
-  `HEAD` through the effect's existing stable-head check
-  (`crates/brokkr-runtime/src/engine.rs:942-968`, `:3219-3222`), the default branch
-  through the bundle's default-branch name. That ref read is a ref-to-id
-  observation, not part of the delta read; it is not widened here, and a moved
-  head parks before a verdict.
+- **The object reads.** The new scrubbed `git_query` helper runs one
+  `cat-file --batch` in the source scratch with the same environment, fed ids
+  only; the object rule hashes what it returns. It runs no `merge-base` and no
+  `cat-file -e`: ancestry is the engine's walk over verified commits, and an
+  object's presence is proven by reading and hashing it. A missing object is
+  `read_failed`; nothing is fetched. The one ref the delta read resolves is
+  `HEAD`, through the effect's existing stable-head check
+  (`crates/brokkr-runtime/src/engine.rs:942-968`, `:3219-3222`): the head is the
+  commit under review, so the seat choosing it is the seat choosing what is
+  reviewed, and a moved head parks before a verdict. The default-branch tip is
+  not read (the base rule).
 - **No refs.** Every revision argument is a full lowercase hex object id from the
   engine's own read; the helper refuses anything that is not one before it starts
   git, so a ref name and an option-shaped revision are data it never passes. A
-  path travels as one literal pathspec after `--`, by the environment above. The
-  scratch's constant `HEAD` is the only ref file and names nothing, so no ref of
+  path travels as one literal pathspec after `--`, by the environment above. Each
+  scratch's constant `HEAD` is its only ref file and names nothing, so no ref of
   the operated repository, no `refs/replace/` and no `attr.tree` is resolved in
-  the read.
+  the read (observed: a replace ref planted in the operated repository shortened
+  its own `diff-tree` to `b.txt`, while the source scratch over the same objects
+  listed `a.txt` and `b.txt`).
 - **The alternates chain.** A repository may itself carry
-  `objects/info/alternates`; the scratch follows that chain to more objects and
-  nothing else. A chain target's config, attributes and hooks are not read, and a
-  chain that cannot supply an object fails the read closed.
+  `objects/info/alternates`; the source scratch follows that chain to more
+  objects and nothing else. A chain target's config, attributes and hooks are not
+  read, every object it supplies is hashed, and a chain that cannot supply an
+  object fails the read closed.
 
 **The completeness rule.** *A delta read carries the text of every changed path,
 or the gate reads whole.* The patch is read for each path of the raw set, and the
@@ -848,7 +965,8 @@ trigger `delta_incomplete` (or `delta_files_gt`/`delta_bytes_gt` for a cap):
    carry its text.
 
 The check does not parse a path out of a patch header (git quotes it), and the
-set is never reconstructed from patch text: the set is the `-z` bytes, the patch
+set is never reconstructed from patch text: the set is the engine's walk over
+verified trees, equal byte for byte to git's `-z` raw output, and the patch
 is attributed to its path by the one literal pathspec that produced it. A path
 with no hunk fails the check by rule 2, which therefore also sends these to a
 whole read, none of them a bug: a mode-only change, an empty added file, a
@@ -858,8 +976,8 @@ target) and pass. The cost is a whole read where a delta is possible; that is th
 fail-closed side, and a recipe that wants a mode change read does not need the
 delta. `delta_incomplete` and its cause are journaled with the plan.
 
-**An empty set runs no patch.** The set is empty after step 3 (a clean merge of
-the base, or an empty `since..HEAD`). The loop of step 4 then has no iteration:
+**An empty set runs no patch.** The set is empty when `since` and `head` name
+the same root tree. The loop of step 3 then has no iteration:
 no `diff-tree -p` starts, because `diff-tree -p <since> <head> --` with no paths
 reads the whole range, not an empty delta (observed below). The helper takes one
 path, never a list, so an empty list cannot be written. The plan is a delta of
@@ -882,15 +1000,19 @@ in the **tree scratch**, with the operated worktree named only as `--work-tree`
 and the child's cwd the scratch:
 
 ```text
-git --git-dir=<tree scratch> --work-tree=<worktree> read-tree <head>
+git --git-dir=<tree scratch> --work-tree=<worktree> read-tree <head tree>
 git --git-dir=<tree scratch> --work-tree=<worktree> --attr-source=<empty tree> \
     -c core.fsmonitor=false -c core.excludesFile=/dev/null \
     update-index --ignore-submodules --refresh
 git ... --attr-source=<empty tree> diff-files --ignore-submodules=all --raw -z
-git ... --attr-source=<empty tree> ls-files -o --exclude-standard -z
+git ... -c core.excludesFile=/dev/null ls-files -o --directory -z
+git ... -c core.excludesFile=/dev/null check-ignore -v -n -z --stdin   (fed that listing)
 ```
 
-The index is built from the head the read is about, so the scratch's own
+The tree scratch holds only `head`'s verified trees and symlink blobs (the
+object rule), so `read-tree` builds the index from trees whose bytes the engine
+hashed: a forged tree cannot make a dirty worktree match it. The index is built
+from the head the read is about, so the scratch's own
 configuration is empty, its attribute source is the empty tree (`--attr-source`,
 git 2.40: the worktree's `.gitattributes` is then not the source, observed for the
 patch and for the `filter=` case below; whether `text`, `eol`, `ident` and
@@ -898,7 +1020,8 @@ patch and for the `filter=` case below; whether `text`, `eol`, `ident` and
 0109b's test plants each), no filter or fsmonitor is defined, and a file's bytes
 are meant to be compared to the committed blob's, unconverted. The worktree is
 proven clean only if `update-index --refresh` exits 0, `diff-files` prints
-nothing and `ls-files -o` prints nothing. **Anything else is dirty:** a
+nothing, and every entry of the untracked listing is admitted by the untracked
+rule below. **Anything else is dirty:** a
 difference, a non-zero exit, a timeout, a git that cannot start, a git older than
 2.40 (which refuses `--attr-source`), a SHA-256 repository (the scratch has no
 `extensions.objectformat`), an unreadable worktree. Only the proof is clean. That
@@ -907,7 +1030,9 @@ as not dirty (`worktree.rs:23-26`, `:45-47`); this ruling does not change
 `git_dirty`.
 
 *What it costs.* It hashes every tracked file once: the scratch index is new, so
-there is no stat cache to skip a file by. On this tree (2,427 tracked files) the
+there is no stat cache to skip a file by. Before that it reads, hashes and writes
+every tree of `head` once (on this tree 693 trees, 130,435 bytes), and it lists
+the untracked paths twice over (one listing, one `check-ignore` over it). On this tree (2,427 tracked files) the
 `update-index --refresh` took 0.229 s wall on git 2.51.0 with a warm cache; a
 cold cache or a far larger tree is **unmeasured**, and the cost grows with the
 tracked bytes. *What it can get wrong, and the direction.* It can only say dirty
@@ -916,23 +1041,91 @@ conversion (the test that plants `ident`, `eol` and a lying filter holds it to
 that): a legitimate clean filter (an LFS pointer in the blob and the large
 file in the worktree), a CRLF checkout, or an `ident` expansion compares unequal
 and the worktree reads dirty. An LFS or CRLF adopter therefore takes a whole read
-every time, which is no delta and not a wrong one. Untracked files are read as
-`git status` reads them, by the worktree's own `.gitignore`; an ignore rule can
-hide an untracked file from the check exactly as it hides it from `git status`
-today, and an untracked file is not a byte of any commit, so no commit-range
-delta could have carried it. A gitlink entry is skipped (`--ignore-submodules`):
+every time, which is no delta and not a wrong one.
+
+*The untracked rule: only a tracked ignore rule hides a path.* An untracked
+`.gitignore` is written by the seat without a commit, and one holding `*` hides
+itself and its neighbours: an untracked `sub/.gitignore` with `*` beside an
+untracked `sub/new.rs` left `git status --porcelain` and the r5 tree check both
+clean (observed below), and cargo discovers an untracked `tests/` or `src/bin/`
+file by itself. So the check lists every untracked path with no ignore rule
+applied (`ls-files -o --directory`, which collapses an untracked directory to one
+entry), and asks `check-ignore -v` which rule, from which file, ignores each. An
+entry is admitted only when it is ignored by a rule in a `.gitignore` that is a
+tracked path of `head`, whose bytes `update-index --refresh` has just proven
+equal to the verified tree. Any other entry is dirty: one no rule ignores (what
+`git status` lists as `??`), one an untracked `.gitignore` ignores (observed:
+`sub/.gitignore:1:*` named as the source for `sub/`), and so every untracked
+`.gitignore` that hides anything. The scratch has no `info/exclude` and
+`core.excludesFile` is `/dev/null`, so the operated repository's own exclude
+files are not sources. **A second clause:** an admitted entry that lies under a
+changed directory (a directory, other than the repository root, that holds a
+path of the delta's set) is dirty too, and the read is whole; this check runs
+after step 2, once the set is known. *The residual it names:* a path a tracked
+rule ignores at the repository root or outside every changed directory (a
+`target/` or a `node_modules/`) is not read, exactly as a whole read does not read
+it; the rule that ignores it is in a commit, and a rule the branch adds is a
+changed `.gitignore` whose text the delta carries.
+
+*A staged-only difference reads clean, correctly.* The check never reads the
+operated repository's index. When that index holds bytes that are in neither the
+worktree nor `head` (`git status` says `MM`), the worktree still equals `head`,
+the tree check proves it (observed: refresh exit 0, `diff-files` empty), and the
+gate reads what is on disk and in the commit. The staged bytes are in no commit
+and no file a seat runs; if they are committed later, they are in a later head
+and in that visit's delta.
+
+A gitlink entry is skipped (`--ignore-submodules`):
 its worktree is another repository, whose own configuration would run in a child
 process, which is r4's submodule case; a changed gitlink is a whole read by
 rule 4 above.
 
 No model computes a delta or chooses which paths to omit. A dirty worktree is a
-whole read before step 1. A seat may run git for its own checks, but the engine
-never reads the seat's diff as the delta; the commission's diff is the engine's.
-The read's other inputs are the engine's own: `since` is the journal's `covered`,
-`head` is the stable-head check's read, `base` is a `merge-base` over those ids.
-The journal is what every transition rests on, and a writer that could alter it
-could already forge a verdict, so it is outside this ruling's threat as it is
-outside 0034's.
+whole read before step 1 (the untracked rule's second clause, after step 2). A
+seat may run git for its own checks, but the engine never reads the seat's diff
+as the delta; the commission's diff is the engine's.
+
+#### What the read trusts, and what the work seat can write
+
+The work seat runs before the read, in the operated worktree, and commits; an
+unboxed seat is also a process of the operator's user. This is every input the
+read uses, and everything in the operated repository the work seat can write,
+with the rule or check that covers it. An input the list does not name is a
+finding against this decision.
+
+| Input | The work seat can write it? | How the read meets it |
+|---|---|---|
+| Loose objects (`objects/xx/…`) | yes, by committing, or by replacing a file | the object rule: every object the read or the tree check uses is hashed by the engine; a mismatch is `object_mismatch`; git then reads only verified copies |
+| Packs, their `.idx`, `.rev`, `.mtimes`, `.keep` and `.promisor` files, `multi-pack-index`, bitmaps | yes | they only locate objects for the source scratch's `cat-file --batch`; whatever they return is hashed; a `.promisor` file fetches nothing because the scratch has no promisor config; nothing is read through them in the patch or tree scratch |
+| `objects/info/commit-graph` and `commit-graphs/` | yes | not consulted: parents and root trees come from the engine's parse of verified commit bytes, and `cat-file` returns object bytes, not graph data |
+| `objects/info/alternates` of the operated repository, and its chain | yes | the source scratch follows it to objects only, all hashed; a chain that withholds an object is `read_failed` |
+| The worktree's `.git` file, `gitdir` and `commondir` | yes | a path read to find the object directory; whatever directory it names supplies objects the hash judges, or withholds them |
+| Refs, `packed-refs` and the operated `HEAD` | yes | no ref is read except `HEAD` through the stable-head check, and that head is the commit under review by definition; a moved head parks before a verdict |
+| The default-branch ref (`origin/HEAD`, `main`, `master`) | yes (observed: one `update-ref`) | not read: the base rule drops the base |
+| `refs/replace/` | yes | the scratches hold no refs, `GIT_NO_REPLACE_OBJECTS=1` is set, and a replacement's bytes would fail the hash anyway (observed: the planted replace ref shortened only the operated repository's own read) |
+| `info/grafts` | yes | read only from a repository's own git dir, which no scratch holds; the engine's parents come from the commit bytes (observed: the graft moved the operated merge-base, the scratch's did not move) |
+| `shallow` | yes | no scratch holds one; a shallow history's missing parent is `read_failed` in the walk, so the read is whole |
+| The operated index | yes | never read; the tree check builds its own index from verified trees (a staged-only difference is above) |
+| The reflog (`logs/`) | yes | never read: every revision is an id |
+| Config, hooks, `info/attributes`, `info/exclude`, `info/sparse-checkout` | yes | never read: no git command runs with the operated git dir (r4's matrix; the isolation rule) |
+| Worktree files, tracked | yes | the tree check compares their bytes to verified trees |
+| Worktree files, untracked, and untracked `.gitignore` files | yes | the untracked rule: admitted only under a tracked ignore rule |
+| Worktree `.gitattributes` | yes | not an attribute source of the patch (cwd is the scratch) or the tree check (`--attr-source` is the empty tree) |
+| Submodule git dirs (`modules/`) and gitlinks | yes | a gitlink in the set is `delta_incomplete` (rule 4); the tree check skips gitlinks, and nothing runs in a submodule |
+| The scratches and their root | no, for a boxed seat; an unboxed seat only by racing a random name made after it is over | the isolation rule and the listing check (`scratch_foreign`) |
+| The environment the engine passes to git | no | constructed by the engine, not inherited |
+| The journal: the covered head, the previous findings and visit | not through git; the journal lives outside the worktree, and a writer that could alter it could already forge a verdict | outside this ruling's threat, as it is outside 0034's |
+| The engine binary, `git` on the engine's `PATH`, the user's home | not for a boxed seat (the host is read-only to it); an unboxed seat is a process of the same user and could | outside this decision's threat, with the concurrent same-user process below |
+
+**What it does not defend.** A concurrent process of the same user, or an
+unboxed seat writing outside the worktree, could write the scratch between the
+listing and the read, the engine's own binary or the `git` on its `PATH`, or the
+journal. That is outside this decision's threat: such a process could already
+write the operated worktree after the read, replace the engine, or forge a
+verdict, and every transition rests on the worktree, the engine and the journal
+as they stand. The rules close the work seat as the repository's writer (every
+object hashed, no ref but the head under review, no seat-written ignore rule, no
+repository configuration) and the repository as a program's author.
 
 **What was observed** (git 2.51.0, scratch repositories under `/tmp`, this round;
 each result is quoted as run, and the rest of the Evidence names the commands):
@@ -964,12 +1157,58 @@ each result is quoted as run, and the rest of the Evidence names the commands):
   engine made (no config) exits 128, "unable to read <blob>", and the script did
   not run;
 - `git status --porcelain` in an operated repository with `*.txt filter=evil` and
-  `filter.evil.clean` printing the index blob, over a content-dirty file, printed
-  nothing and the filter ran (sentinel present); the same with a
+  `filter.evil.clean` printing the index blob, over a **same-size**
+  content-dirty file, printed nothing at exit 0 with an empty stderr, and the
+  filter ran (sentinel present); over a **different-size** content-dirty file it
+  printed ` M b.txt` (r6): a size difference is caught before the filter is
+  asked, so the control must plant same-size content and pin the exit code and
+  stderr. The same with a
   `core.fsmonitor` hook that answers "nothing changed" printed nothing while
   `-c core.fsmonitor=false status --porcelain` printed ` M a.txt`; the tree check
   in the tree scratch reported `a.txt: needs update` (exit 1) and listed `a.txt`
-  in `diff-files --raw`, with neither the filter nor the hook started.
+  in `diff-files --raw`, with neither the filter nor the hook started (r6: the
+  same-size plant gave `b.txt: needs update` and `diff-files` listed `b.txt`, the
+  sentinel unchanged).
+
+Observed in r6 (git 2.51.0; ids abbreviated; `since` is `af02c44`, `head` is
+`c7dd97d`, and the honest set is `a.txt` and `b.txt`):
+
+- **(a)** `head`'s blob `7a1591a` (`EVIL backdoor`) replaced on disk by the loose
+  file of the blob `two fixed nicely`: the r5 per-path patch, in the r5 scratch,
+  printed `+two fixed nicely` (one header, one hunk) at exit 0, and `cat-file -e`
+  exited 0; `cat-file --batch-check` printed `7a1591a… blob 17`. Re-hashed as the
+  object rule does, the bytes are `e3e81f9…`, not `7a1591a…`. Written into a
+  patch scratch under the hash of its bytes, the blob is absent at `7a1591a`, and
+  the a.txt patch exits 128, "unable to read 7a1591ac…"; b.txt prints its hunk;
+- **(b)** `since`'s root tree `6640fb0` replaced by a tree naming the head's
+  `a.txt`: the r5 raw set listed `b.txt` only, at exit 0. Re-hashed: `bdb3535…`;
+- **(c)** the `since` commit `af02c44` replaced by a commit naming that tree: the
+  r5 raw set listed `b.txt` only, at exit 0. Re-hashed: `900fc5f…`; the honest
+  `head` commit re-hashes to its own id;
+- **(d)** `since` then `E` (adds `x.txt`) then `F` (adds `y.txt`), with `main` at
+  `since`: the merge-base of `F` and `main` is `since`. After one
+  `update-ref refs/heads/main E`, it is `E`, the `E..F` raw set is `y.txt` alone,
+  and the r5 filter keeps `y.txt` from `{x.txt, y.txt}`, every command at exit 0.
+  With `main` at `E` before visit 1 (`S'` makes `x.txt` benign; `H'` restores it),
+  the merge-base is `E` at both visits, so the refused option (a) of the base
+  rule admits it, and the filter drops `x.txt` from `{x.txt, y.txt}`;
+- **the replace ref:** `git replace 6640fb0 bdb3535` in the operated repository
+  made its own `diff-tree since head` list `b.txt` only; a source scratch over the
+  same objects (no refs) listed `a.txt` and `b.txt`;
+- **the graft:** an `info/grafts` line giving the default-branch tip `E` as its
+  parent moved the operated merge-base of `F` and that tip from `since` to `E`
+  (git warned the file is deprecated, and honoured it); in the source scratch the
+  merge-base was `since`, and the tip's commit bytes still name `since`;
+- **L1:** with an untracked `sub/.gitignore` holding `*` and an untracked
+  `sub/new.rs`, `git status --porcelain` printed nothing, and the r5 tree check
+  read clean (refresh exit 0, `diff-files` and `ls-files -o --exclude-standard`
+  empty); `ls-files -o --directory` listed `sub/` and `target/`, and
+  `check-ignore -v` named `sub/.gitignore:1:*` for `sub/` (untracked: dirty) and
+  `.gitignore:1:target/` for `target/` (tracked: admitted);
+- **a staged-only difference:** `git status --porcelain` printed `MM a.txt`; the
+  tree check gave refresh exit 0 and an empty `diff-files`;
+- **a deleted path:** the patch of a one-line `a.txt` that the head deletes is
+  `deleted file mode 100644`, `@@ -1 +0,0 @@`, `-one`.
 
 **No alternative offered:** the engine must own the range and the diff, because a
 seat-run `git diff` cannot prove what the seat read. A flag list leaves the
@@ -977,9 +1216,13 @@ sources in place and asks each new flag to close the last path found open; the
 scratch is the simpler form because it removes the sources rather than filtering
 them, and a scratch under a tree a seat writes is not removal (r4's placement).
 The completeness check is not a flag either: it is what makes a short read
-impossible whichever vector shortened it. Cost: two git helpers and one tree
-check, two scratch directories per read, one patch process per changed path (at
-most `delta_files_gt`, 50 by default), one plan, and the planted-sentinel matrix.
+impossible whichever vector shortened it. Hashing every object is not a flag
+either: `git fsck` would find the forged loose object (the chief observed "hash-path
+mismatch"), but it reads the whole store on every read and names a fault rather
+than refusing a read; the engine hashes only the objects the read uses. Cost: two
+git helpers and one tree check, three scratch directories per read, the verified
+objects, one patch process per changed path (at most `delta_files_gt`, 50 by
+default), one plan, and the planted-sentinel matrix.
 
 **Binding:** a pure delta/range planner over a small repository port, with the
 git calls at the runtime edge; the plan is journaled and projected as ruling 8
@@ -997,8 +1240,36 @@ shown live):
   fires. A name that already exists is refused (`mkdirat` fails). The scratch is
   never under the run-local tree or the worktree. Its shape is pinned: no
   `config`, `HEAD` names no commit, an empty `refs/` directory, one `alternates`
-  line; a ref-shaped revision is refused; a positive control prints the changed
-  path and its text.
+  line in the source scratch and none in the patch and tree scratches, whose
+  object files are exactly the ones the engine wrote; an object file planted in
+  the patch scratch is `scratch_foreign`; a ref-shaped revision is refused; a
+  positive control prints the changed path and its text.
+- *Every object is verified.* Each plant runs the read as stated and reads whole
+  with the named trigger, and its control runs the r5 statement (git reading the
+  operated objects through `alternates`, unverified) and shows the forged text or
+  the shortened set at exit 0: **(a)** `head`'s blob replaced on disk by other
+  bytes under the same id (`object_mismatch`; control: the forged text);
+  **(b)** `since`'s root tree replaced (`object_mismatch`; control: the set lists
+  one path where two changed); **(c)** the `since` commit replaced by a forged
+  commit naming another tree (`object_mismatch`; control: the shortened set);
+  the same for a forged subtree, a forged commit on the ancestry walk, and a
+  forged `.idx` that maps an id to another object's bytes; a forged tree under
+  the tree check (`worktree_dirty` with no clean proof; control: the r5 tree check
+  proves a dirty worktree clean against it); a missing object is `read_failed`
+  with no fetch; the engine's set equals git's raw set on an honest repository
+  and a planted difference is `delta_incomplete`; the object budget reads whole
+  past `ReadLimits.objects`; a SHA-1 collision-attack pair from the sha1dc test
+  vectors is a mismatch.
+- *No ref the seat moves decides the set.* **(d)** the default-branch ref moved
+  to a commit of the branch by `update-ref`: the set is unchanged and complete
+  (control: the r5 merge-base filter drops the moved-over path at exit 0); the
+  same ref moved before the first visit and left there (control: the refused
+  `covered.base` option drops the reintroduced path); **a replace ref** under
+  `refs/replace/` (control: the operated repository's own `diff-tree` lists the
+  shortened set); **a graft** in `info/grafts` (control: the operated merge-base
+  moves); a `shallow` file (the walk is `read_failed` or reaches `since`, never a
+  shortened set); a merge of the default branch into the branch puts the merged
+  paths in the delta, over-read, never dropped; no `base` is recorded.
 - *The read is complete or whole.* A file named `:(exclude)*`, one named with a
   newline, one with a double quote, one with a leading `:`, and a committed
   `-diff` attribute and a `binary` attribute, **each with the cwd inside and
@@ -1026,9 +1297,19 @@ shown live):
   `filter.evil.clean` that prints the index blob, over a content-dirty file) and
   an fsmonitor hook that reports nothing changed: each makes the read whole
   (`worktree_dirty`) with the filter and the hook never started, and a control
-  shows `git status --porcelain` printing nothing for each. A clean worktree is
+  shows `git status --porcelain` printing nothing for each, at exit 0 with an
+  empty stderr: the filter control plants **same-size** content, because a size
+  difference makes `git status` print ` M` before the filter starts, and a
+  second control with different-size content pins that it does. A clean worktree is
   proven clean (positive control); `ident`, `eol` and a CRLF checkout read dirty;
   a git that refuses `--attr-source`, a timeout and a refused git each read dirty.
+  The untracked rule: an untracked `sub/.gitignore` holding `*` beside an untracked
+  `sub/new.rs` reads dirty (control: `git status --porcelain` and the r5 check
+  read clean); an untracked `.gitignore` holding `!` rules or an ignored
+  `.gitignore` reads dirty; a `target/` ignored by a tracked root rule is
+  admitted; an untracked file ignored by a tracked rule under a changed directory
+  reads whole; the operated `info/exclude` is not a source. A staged-only
+  difference reads clean.
 
 ### 10. The whole-read triggers and their home
 
@@ -1041,23 +1322,25 @@ read, a v2 table may not carry `reads`, and a v1 table never opts in.**
 | `first_visit` | the phase has no previous verdict in this run | a delta read for a first read |
 | `unkeyed_result` | the previous verdict has no covered identity | a guessed key |
 | `clean_prior` | the previous verdict's findings and follow-ups are both empty | a delta on a clean word's evidence |
-| `ancestor_lost` | the covered head is not an ancestor of the current head | a delta across rewritten history |
-| `base_unknown` | no base resolves for the comparison | a delta with no base |
-| `worktree_dirty` | the tree check (ruling 9) does not prove the worktree clean at commission time (a difference, a failure or a timeout) or the previous visit recorded it dirty | a commit-only delta over uncommitted bytes |
+| `ancestor_lost` | the engine's walk over verified commits does not reach the covered head from the current head within 1,000 commits | a delta across rewritten history |
+| `worktree_dirty` | the tree check (ruling 9) does not prove the worktree clean at commission time (a difference, a failure, a timeout, or an untracked path no tracked rule ignores) or the previous visit recorded it dirty | a commit-only delta over uncommitted bytes |
 | `scratch_foreign` | a scratch holds anything the engine did not write | a read in a directory a seat or the repository shaped |
+| `object_mismatch` | an object's bytes do not hash to the id the engine asked for, or its type is not the one asked | a delta over objects the seat could have forged |
 | `read_failed` | a git command failed, timed out or found an object missing, no HOME resolves, or an id is not a commit id | a delta from a read that did not complete |
-| `delta_incomplete` | a changed path has no text hunk, a patch names a path outside the set, or a changed path is a gitlink | a delta that is shorter than the change |
+| `delta_incomplete` | a changed path has no text hunk, a patch names a path outside the set, a changed path is a gitlink, or git's raw set differs from the engine's | a delta that is shorter than the change |
 | `artifact_missing` | a declared artifact glob matches no file, or a covered file is gone | a file delta over an absent file |
 | `standing_security` | a previous finding with `security: true` still stands | carrying a security finding as a follow-up |
+| `unplaceable_finding` | a standing blocking finding has no `file`, or a `file` and `line` the delta cannot place | a finding that no delta can ever close |
 | `outside_threshold` | a carried outside-delta finding is at or above the phase's return threshold, or is blocking where no threshold derives | carrying a return-worthy finding as a follow-up |
 | `delta_files_gt` | the changed path count is over the declared N | an unbounded diff |
-| `delta_bytes_gt` | the diff bytes are over the declared N | an unbounded input |
+| `delta_bytes_gt` | the diff bytes are over the declared N, or the verified object bytes are over `ReadLimits.objects` (the journaled cause names which) | an unbounded input |
 | `delta_touches` | any changed path matches a declared glob | a delta read over a protected surface |
 | `operator_whole_read` | a journaled one-shot operator command names the phase | a recipe turning a whole read off |
 
-`ancestor_lost` and `base_unknown` are head-gate triggers; an artifact gate
-compares the covered digests and never asks for a base, with `artifact_missing`
-as its counterpart. `outside_threshold` reads ruling 5's derivation from the
+`ancestor_lost` and `object_mismatch` are head-gate triggers; an artifact gate
+compares the covered digests and walks no history, with `artifact_missing` as its
+counterpart. No trigger names a base: the delta read takes none (ruling 9's base
+rule), so the r5 list's `base_unknown` is gone. `outside_threshold` reads ruling 5's derivation from the
 phase's own return rules; it is not a hard-coded severity. The entry names the
 phase's sites, each with its read policy, and, for a spec gate, the artifact
 globs it covers. A site is named by its compiled structural tag. An unselected
@@ -1177,18 +1460,26 @@ A site is security-class when at least one of these holds:
    so its agent declares the permission as a typed `results` list in its
    definition, and the compiler reads that list. The charter is prose and is never
    parsed. `agents/review-adversarial.json` gains `results: ["clean", "residual",
-   "security-hold"]` because its charter permits the hold
+   "security-hold"]` (in 0109a) because its charter permits the hold
    (`agents/charters/review-adversarial.md:19-22`);
-   `agents/review-security.json` gains the same three words, because its charter
-   permits the hold (`agents/charters/review-security.md:16-20`) and
+   `agents/review-security.json` gains the same three words (in 0109a; its
+   `security: true` comes in 0109c), because its charter permits the hold (`agents/charters/review-security.md:16-20`) and
    `security: true` alone makes it security-class but does not make its own hold a
    lawful result. `gpt-flash-review-adversarial` and
    `gpt-flash-review-security` inherit both fields through `extends`.
    The list binds. A panel member's compiled result set is its agent's list, and
    the engine refuses a member result outside that set as malformed, so the
    security member's `security-hold` is lawful and its high finding is admitted.
-   **Every member agent declares its list in 0109c**, because a list that binds
-   must exist for every member it binds: `agents/review-correctness.json` and
+   **Every member agent declares its list in 0109a**, the slice that first binds
+   a member's word (ruling 2), because a list that binds must exist for every
+   member it binds, and ruling 2's "a correctness member's `security: true`
+   finding is refused" can only be built once the member has a result set. The
+   agent loader must then admit an agent's `results` at a member site: today an
+   agent that declares a member-level key there is refused
+   (`crates/brokkr-runtime/src/bundle/site_form.rs:424-436`, `MEMBER_KEYS`), and
+   0109a admits `results` alone, read from the hired agent, never from the
+   member's own key. 0109c reads the same list for clause 2's class.
+   `agents/review-correctness.json` and
    `agents/review-spec-compliance.json`, which declare none today, gain
    `results: ["clean", "residual"]` (their charters forbid a hold:
    `agents/charters/review-correctness.md:19-20`, `review-spec-compliance.md:11-12`);
@@ -1429,9 +1720,9 @@ test column.
 
 | Slice | What it builds | Files touched (rough) | Size | Contract changes | Tests it adds |
 |---|---|---|---|---|---|
-| 0109a | The finding key, the covered head, the v7 result, the word binding to findings and the declared aggregate, and the read-back; no routing change. | a new seat-record v7 schema under `contracts/` (a new version file beside v6, never an edit to v6); a new findings module under `crates/brokkr-core/src/`; `crates/brokkr-core/src/fold.rs`; `crates/brokkr-runtime/src/engine.rs`; `crates/brokkr-runtime/src/engine/decide.rs`; `crates/brokkr-runtime/src/bundle/aggregate.rs`; `crates/brokkr-protocol/src/adapters.rs`; a new `crates/brokkr-view/src/residual_findings.rs`; `crates/brokkr-cli/src/render.rs`; `agents/charters/reviewer.md`; `agents/charters/verify-reviewer.md`; `agents/charters/node-reviewer.md`; `agents/charters/review-chief.md`; `agents/charters/review-correctness.md`; `agents/charters/review-security.md`; `agents/charters/review-adversarial.md`; `recipes/preflight/roles/reviewer.md`; `recipes/review-first/roles/reviewer.md`; `recipes/standby/roles/reviewer.md` (each clean names `none` and `false`; 0109c edits the correctness charter again, for the read kind, on top of this slice) | about 1,150 lines with tests | seat-record v7 (proposed, minted on acceptance) | v7 closes the result and the finding/covered records with `additionalProperties: false` and `$defs`, and admits `result`, `inputs`, `notes`, `state`, the accounting fields and the three gate report fields; a v6 record with a v7 field refused; v7 variants and the refusal text; a seat-supplied `covered`/`follow_ups` refused; engine-stamped `covered` on the head arm and both `head` field sets; the protected `phase/entered`/`reviewed_heads`/`covered` digest agreement and the digest-mismatch refusal at decide; the new record for a non-protected gate; a moved line, a reworded summary and a moved file; a duplicate id; an id outside the pattern; a seat-supplied `site`; a panel's member findings joined with each member's site; a v6 result reads unkeyed; no path builds a `FindingKey` without a site and an id; the closed non-passing enum marks `residual`, `drift`, `ambiguous`, `clean-unverified`, `fail`, `security-hold`, `upstream` and `escalate` non-passing, `clean`, `pass`, `consistent`, `clear`, `ready` and `shipped` passing, and an unnamed word (an operator's own) passing while its findings still refuse it; `clean` plus a declared high residual and no finding refused; `clean` plus `has_security_residual: true` refused; `clean` omitting a residual input its seat declares refused, and omitting only `spec_defect` admitted; an absent or unknown aggregate severity refused; `clean` from a seat that declares no residual inputs admitted; `clean` plus one high security finding refused, never shipped; `clean` plus a non-security blocking finding refused; `security-hold` plus a high security finding admitted; `residual` plus a blocking finding admitted; `clean` plus an engine-carried `follow_ups` admitted; `consistent` plus a blocking finding refused; a correctness member's `security: true` finding refused and parks; the panel aggregate writes both inputs on an all-clean panel; an all-clean panel admitted; a charter-shaped clean (`clean`, `none`, `false`) admitted; a triage-shaped all-clean panel, built from the member charters' own cleans over a seat that also compiles `spec_defect`, admitted; a work-class panel member's `clean` over a declared high residual refused; a member that omits a residual input refused and one that omits only `spec_defect` admitted; `inspect` prints the findings and covered |
-| 0109b | The shadow delta: compute the range, paths, diff digest, diff size and standing set on every re-visit, journal the plan and digest it would use, but still commission a full read; the engine-made scratch under the engine's state root, the completeness check, the tree check and the planted matrix; the per-visit record and `compare()`. | a new delta/set module under `crates/brokkr-core/src/`; a new `crates/brokkr-runtime/src/engine/delta_git.rs` (the `git_diff`/`git_query` helpers and the completeness check); a new `crates/brokkr-runtime/src/engine/delta_scratch.rs` (make, list, compare and remove the scratch); `crates/brokkr-runtime/src/engine/broker.rs` (the protected walk takes the reads root's names beside `PROTECTED_ROOT`); `crates/brokkr-core/src/fold.rs`; `crates/brokkr-runtime/src/engine/input.rs`; `crates/brokkr-runtime/src/engine.rs`; `crates/brokkr-runtime/src/engine/worktree.rs`; `crates/brokkr-view/src/analytics.rs`; a new gate-read v1 schema under `contracts/` (paths as hex byte strings) | about 1,100 lines with tests | gate-read v1 (proposed) | a first visit has no shadow and journals `first_visit`; a v6-shaped previous result forces a full read with `unkeyed_result`; a clean previous verdict forces `clean_prior`; a second visit names the exact paths; a base merge removes base-only paths; an empty delta; a rewritten history; both caps with explicit `ReadLimits` values; ruling 9's four test groups, each plant with its control and each for `git_diff` and `git_query` alike: **the scratch is the engine's** (a scratch path planted before the read with a promisor config, a `diff.<driver>.command` and an `info/attributes` makes the read whole with `scratch_foreign` and no sentinel; the control runs the planted uploadpack without the exactness check; an existing name is refused; the scratch is never under the run-local tree or the worktree; its shape is no config, `HEAD` names no commit, an empty `refs/`, one `alternates` line, a ref-shaped revision refused, a positive control printing the changed path and text); **complete or whole** (a `:(exclude)*` file, a name with a newline, one with a double quote, one with a leading `:`, a committed `-diff` and a `binary` attribute, each with the cwd inside and outside the operated worktree, the text in the delta or the read whole, and a control showing each blanks or shortens the patch without the rule; a mode-only change, an empty added file, a binary file, a gitlink, a symlink, a deleted file and a rename; an empty set runs no `diff-tree -p`; a path with no hunk and a path outside the set give `delta_incomplete`; the byte budget stops a patch); **the repository names no program** (a `diff=` driver, a textconv, a `diff.<driver>.command`, the submodule `diff.submodule=diff` case with the submodule's own `diff.external`, the promisor case with `extensions.partialClone`/`remote.<n>.promisor`/`uploadpack` failing closed, `filter.<driver>.clean` and `.process`, `core.fsmonitor`, `core.hooksPath`, an `info/attributes` driver, an environment-carried `GIT_EXTERNAL_DIFF`/`GIT_CONFIG_*`, and an alternates chain whose target names a driver); **the tree check is not the repository's** (the lying clean filter and the fsmonitor that reports nothing changed each make the read whole with the filter and the hook never started, the control showing `git status --porcelain` print nothing; a clean tree is proven clean; `ident`, `eol` and a CRLF checkout read dirty; a refused `--attr-source`, a timeout and a refused git each read dirty); the shadow journal carries the plan and the diff digest but no diff text; the payload plan and the input projection cannot disagree; a mutated payload fails `read_digest`; a recovery rebuilt from the journal yields the same input; a new event is refused; a shadow-era journal never counts a full read as a delta; `GateVisit` records `findings` and `follow_ups`; `compare()` over the union pins equal, moved, reworded, closed and only-grew; a fold test rebuilds `GateVisit` from the journal with both arrays; a follow-up carried in the first visit is still carried or closed by a covering read in the second; the potential saving in `analytics` |
-| 0109c | The read policy and the triggers: a phase-machine v3 `reads` map, the closed trigger enum, the glob matcher, the security-class derivation and its refusal, the spec file-level plan, the artifacts arm and derived kind, the carry rule, and a delta commission for one non-security gate (the analyze gate first); the v3 move of fast and every table that composes over it; the delta-eligible charters and the prompt text that names the read kind and the delta. | a new phase-machine v3 schema under `contracts/`; `crates/brokkr-core/src/policy.rs` and its condition module; a new glob module under `crates/brokkr-core/src/`; `crates/brokkr-runtime/src/engine/input.rs`; `crates/brokkr-runtime/src/engine.rs`; `crates/brokkr-runtime/src/bundle/` (the security-class derivation, the artifacts arm and the agent loader's `security` and `results` fields); `crates/brokkr-runtime/src/agents.rs`; `crates/brokkr-runtime/src/agents/load/`; `agents/review-security.json` (`security: true` and `results`); `agents/review-adversarial.json` (`results` with `security-hold`); `agents/review-correctness.json` and `agents/review-spec-compliance.json` (`results: ["clean", "residual"]`); `agents/charters/review-correctness.md`; `agents/charters/review-spec-compliance.md`; `agents/charters/analyst.md` (names the read kind and the delta); `crates/brokkr-protocol/src/adapters.rs`; `recipes/fast/policy.json` (moves to v3 with no `reads` entry yet); `recipes/triage/policy.json` (v3 with the analyze `reads` entry); `recipes/node/policy.json`, `recipes/review-first/policy.json`, `recipes/landing/policy.json`, `recipes/panel-review/policy.json` (their own v2 tables move to v3 with fast, because one composition shares one schema) | about 1,000 lines with tests | phase-machine v3 (proposed) | every trigger, including `outside_threshold` and its derived threshold; an unknown trigger refused; a v1 table read as it is and never opted in; a v2 table carrying `reads` refused; an absent `reads` is full; the analyze gate's delta and its whole-read fallbacks; the analyze judge is delta-eligible; the spec file-level delta (a changed artifact file read whole, an unchanged one not re-read, a new match read whole, a missing file a whole read); the spec re-arm rule; the artifacts arm records each matched file's digest and the read plan carries the glob set; the derived kind; the dirty refusal and the unresolved-base refusal; the carry rule: an outside-hunk finding is carried, not closed, and a blocking outside finding where no threshold derives forces a whole read with `outside_threshold`; a fileless finding stays standing; the taken delta's diff text is journaled, capped, and recovery reads it rather than a fresh `git diff`; the security-class derivation for the declared result set, the sole review position and the typed agent office; a delta mark refused on each; a member key or agent file name does not decide; the shipped whole-read set; a panel whose phase can end in `security-hold` with an undeclared security slot and no other class member whole-reads; the adversarial member is security-class; the security member's `security-hold` plus a high security finding is admitted; a correctness member's and a spec-compliance member's `clean` is admitted (compile and run); a member whose agent declares no list is held to `clean` and `residual`; a member result outside its agent's declared `results` is refused and a single-seat result its agent does not admit is refused; the analyze `reads` entry names `judge`, and the unnamed `check` reads whole; an overlay cannot clear `security` and an overlay can set it; the glob matcher; a `select`-case tag resolves to one site and an ambiguous bare tag refuses; triage's design and engine `positions` steps are not class as containers; gpt-flash's work-class review members are bound by ruling 2 and name no delta; the correctness, spec-compliance and analyst charters bind the read kind and the delta; a security-class charter keeps its whole read; `recipes/triage`, `recipes/fast`, `recipes/node`, `recipes/review-first`, `recipes/landing` and `recipes/panel-review` compose after the v3 move |
+| 0109a | The finding key, the covered head, the v7 result, the word binding to findings and the declared aggregate, and the read-back; no routing change. | a new seat-record v7 schema under `contracts/` (a new version file beside v6, never an edit to v6); a new findings module under `crates/brokkr-core/src/`; `crates/brokkr-core/src/fold.rs`; `crates/brokkr-runtime/src/engine.rs`; `crates/brokkr-runtime/src/engine/decide.rs`; `crates/brokkr-runtime/src/bundle/aggregate.rs`; `crates/brokkr-protocol/src/adapters.rs`; a new `crates/brokkr-view/src/residual_findings.rs`; `crates/brokkr-cli/src/render.rs`; `agents/charters/reviewer.md`; `agents/charters/verify-reviewer.md`; `agents/charters/node-reviewer.md`; `agents/charters/review-chief.md`; `agents/charters/review-correctness.md`; `agents/charters/review-security.md`; `agents/charters/review-adversarial.md`; `recipes/preflight/roles/reviewer.md`; `recipes/review-first/roles/reviewer.md`; `recipes/standby/roles/reviewer.md` (each clean names `none` and `false`; 0109c edits the correctness charter again, for the read kind, on top of this slice); the member result sets (ruling 11): `agents/review-correctness.json` and `agents/review-spec-compliance.json` (`results: ["clean", "residual"]`), `agents/review-security.json` and `agents/review-adversarial.json` (`results` with `security-hold`), `crates/brokkr-runtime/src/agents.rs`, `crates/brokkr-runtime/src/agents/load/` and `crates/brokkr-runtime/src/bundle/site_form.rs` (an agent's `results` admitted at a member site) | about 1,300 lines with tests | seat-record v7 (proposed, minted on acceptance) | v7 closes the result and the finding/covered records with `additionalProperties: false` and `$defs`, and admits `result`, `inputs`, `notes`, `state`, the accounting fields and the three gate report fields; a v6 record with a v7 field refused; v7 variants and the refusal text; a seat-supplied `covered`/`follow_ups` refused; engine-stamped `covered` on the head arm and both `head` field sets; the protected `phase/entered`/`reviewed_heads`/`covered` digest agreement and the digest-mismatch refusal at decide; the new record for a non-protected gate; a moved line, a reworded summary and a moved file; a duplicate id; an id outside the pattern; a seat-supplied `site`; a panel's member findings joined with each member's site; a v6 result reads unkeyed; no path builds a `FindingKey` without a site and an id; the closed non-passing enum marks `residual`, `drift`, `ambiguous`, `clean-unverified`, `fail`, `security-hold`, `upstream` and `escalate` non-passing, `clean`, `pass`, `consistent`, `clear`, `ready` and `shipped` passing, and an unnamed word (an operator's own) passing while its findings still refuse it; `clean` plus a declared high residual and no finding refused; `clean` plus `has_security_residual: true` refused; `clean` omitting a residual input its seat declares refused, and omitting only `spec_defect` admitted; an absent or unknown aggregate severity refused; `clean` from a seat that declares no residual inputs admitted; `clean` plus one high security finding refused, never shipped; `clean` plus a non-security blocking finding refused; `security-hold` plus a high security finding admitted; `residual` plus a blocking finding admitted; `clean` plus an engine-carried `follow_ups` admitted; `consistent` plus a blocking finding refused; a correctness member's `security: true` finding refused and parks; the panel aggregate writes both inputs on an all-clean panel; an all-clean panel admitted; a charter-shaped clean (`clean`, `none`, `false`) admitted; a triage-shaped all-clean panel, built from the member charters' own cleans over a seat that also compiles `spec_defect`, admitted; a work-class panel member's `clean` over a declared high residual refused; a member that omits a residual input refused and one that omits only `spec_defect` admitted; an agent's `results` admitted at a member site and a member's own `results` key still refused; a correctness member's and a spec-compliance member's `clean` admitted (compile and run); a member whose agent declares no list held to `clean` and `residual` (its `security-hold` refused); a member result outside its agent's declared `results` refused, and a single-seat result its agent does not admit refused; the security member's `security-hold` plus a high security finding admitted; `inspect` prints the findings and covered |
+| 0109b | The shadow delta: compute the range, paths, diff digest, diff size and standing set on every re-visit, journal the plan and digest it would use, but still commission a full read; the engine-made scratches under the engine's state root, the object rule (verified commits, trees and blobs, the engine's own tree diff and ancestry walk), the base rule (no base, no filter), the completeness check, the tree check with the untracked rule, and the planted matrix; the per-visit record and `compare()`. | a new delta/set module under `crates/brokkr-core/src/`, with the pure commit and tree parsers, the tree diff and the collision-detecting object hash; `Cargo.toml`, `Cargo.lock`, `crates/brokkr-core/Cargo.toml` and `crates/brokkr-runtime/Cargo.toml` (the new `sha1collisiondetection` dependency; the deflate crate at 1.1.10, in the lockfile today, as a direct dependency of the runtime); a new `crates/brokkr-runtime/src/engine/delta_git.rs` (the `git_diff`/`git_query` helpers, the verified object reader and writer, and the completeness check); a new `crates/brokkr-runtime/src/engine/delta_scratch.rs` (make, list, compare and remove the scratches); `crates/brokkr-runtime/src/engine/broker.rs` (the protected walk takes the reads root's names beside `PROTECTED_ROOT`); `crates/brokkr-core/src/fold.rs`; `crates/brokkr-runtime/src/engine/input.rs`; `crates/brokkr-runtime/src/engine.rs`; `crates/brokkr-runtime/src/engine/worktree.rs`; `crates/brokkr-view/src/analytics.rs`; a new gate-read v1 schema under `contracts/` (paths as hex byte strings) | about 1,500 lines with tests | gate-read v1 (proposed) | a first visit has no shadow and journals `first_visit`; a v6-shaped previous result forces a full read with `unkeyed_result`; a clean previous verdict forces `clean_prior`; a second visit names the exact paths; a merge of the default branch into the branch puts the merged paths in the set; an empty delta; a rewritten history (`ancestor_lost` from the verified walk); all three caps with explicit `ReadLimits` values; ruling 9's six test groups, each plant with its control and each for `git_diff` and `git_query` alike: **the scratch is the engine's** (a scratch path planted before the read with a promisor config, a `diff.<driver>.command` and an `info/attributes` makes the read whole with `scratch_foreign` and no sentinel; the control runs the planted uploadpack without the exactness check; an existing name is refused; the scratch is never under the run-local tree or the worktree; its shape is no config, `HEAD` names no commit, an empty `refs/`, one `alternates` line in the source scratch and none in the patch and tree scratches, an object file the engine did not write refused, a ref-shaped revision refused, a positive control printing the changed path and text); **every object is verified** (plants (a), (b) and (c), a forged subtree, a forged walk commit, a forged `.idx` and a forged tree under the tree check each read whole with `object_mismatch` or a dirty tree, each control showing the forged text or the shortened set at exit 0 under the r5 statement; a missing object is `read_failed` with no fetch; the engine's set equals git's raw set and a planted difference is `delta_incomplete`; the object budget; a sha1dc collision vector is a mismatch); **no ref the seat moves decides the set** (plant (d) by `update-ref`, the same ref moved before the first visit, a replace ref, a graft and a `shallow` file, each leaving the set complete, each control showing the r5 filter or the operated repository's own read shortened at exit 0; no `base` recorded); **complete or whole** (a `:(exclude)*` file, a name with a newline, one with a double quote, one with a leading `:`, a committed `-diff` and a `binary` attribute, each with the cwd inside and outside the operated worktree, the text in the delta or the read whole, and a control showing each blanks or shortens the patch without the rule; a mode-only change, an empty added file, a binary file, a gitlink, a symlink, a deleted file and a rename; an empty set runs no `diff-tree -p`; a path with no hunk and a path outside the set give `delta_incomplete`; the byte budget stops a patch); **the repository names no program** (a `diff=` driver, a textconv, a `diff.<driver>.command`, the submodule `diff.submodule=diff` case with the submodule's own `diff.external`, the promisor case with `extensions.partialClone`/`remote.<n>.promisor`/`uploadpack` failing closed, `filter.<driver>.clean` and `.process`, `core.fsmonitor`, `core.hooksPath`, an `info/attributes` driver, an environment-carried `GIT_EXTERNAL_DIFF`/`GIT_CONFIG_*`, and an alternates chain whose target names a driver); **the tree check is not the repository's** (the lying clean filter and the fsmonitor that reports nothing changed each make the read whole with the filter and the hook never started, the control showing `git status --porcelain` print nothing at exit 0 with an empty stderr over **same-size** content, and a different-size control printing ` M`; a clean tree is proven clean; `ident`, `eol` and a CRLF checkout read dirty; a refused `--attr-source`, a timeout and a refused git each read dirty; the untracked rule: an untracked `sub/.gitignore` holding `*` beside `sub/new.rs` reads dirty, its control reading clean, an ignored `.gitignore` reads dirty, a `target/` under a tracked root rule is admitted, a tracked-rule-ignored file under a changed directory reads whole, the operated `info/exclude` is no source; a staged-only difference reads clean); the shadow journal carries the plan and the diff digest but no diff text; the payload plan and the input projection cannot disagree; a mutated payload fails `read_digest`; a recovery rebuilt from the journal yields the same input; a new event is refused; a shadow-era journal never counts a full read as a delta; `GateVisit` records `findings` and `follow_ups`; `compare()` over the union pins equal, moved, reworded, closed and only-grew; a fold test rebuilds `GateVisit` from the journal with both arrays; a follow-up carried in the first visit is still carried or closed by a covering read in the second; the potential saving in `analytics` |
+| 0109c | The read policy and the triggers: a phase-machine v3 `reads` map, the closed trigger enum, the glob matcher, the security-class derivation and its refusal, the spec file-level plan, the artifacts arm and derived kind, the carry rule, and a delta commission for one non-security gate (the analyze gate first); the v3 move of fast and every table that composes over it; the delta-eligible charters and the prompt text that names the read kind and the delta. | a new phase-machine v3 schema under `contracts/`; `crates/brokkr-core/src/policy.rs` and its condition module; a new glob module under `crates/brokkr-core/src/`; `crates/brokkr-runtime/src/engine/input.rs`; `crates/brokkr-runtime/src/engine.rs`; `crates/brokkr-runtime/src/bundle/` (the security-class derivation, reading 0109a's `results` lists for clause 2, and the artifacts arm); `crates/brokkr-runtime/src/agents.rs` and `crates/brokkr-runtime/src/agents/load/` (the agent loader's `security` field and `OVERLAY_KEYS`); `agents/review-security.json` (`security: true`; its `results` came in 0109a); `agents/charters/review-correctness.md`; `agents/charters/review-spec-compliance.md`; `agents/charters/analyst.md` (names the read kind and the delta); `crates/brokkr-protocol/src/adapters.rs`; `recipes/fast/policy.json` (moves to v3 with no `reads` entry yet); `recipes/triage/policy.json` (v3 with the analyze `reads` entry); `recipes/node/policy.json`, `recipes/review-first/policy.json`, `recipes/landing/policy.json`, `recipes/panel-review/policy.json` (their own v2 tables move to v3 with fast, because one composition shares one schema) | about 900 lines with tests | phase-machine v3 (proposed) | every trigger, including `outside_threshold` and its derived threshold; an unknown trigger refused; a v1 table read as it is and never opted in; a v2 table carrying `reads` refused; an absent `reads` is full; the analyze gate's delta and its whole-read fallbacks; the analyze judge is delta-eligible; the spec file-level delta (a changed artifact file read whole, an unchanged one not re-read, a new match read whole, a missing file a whole read); the spec re-arm rule; the artifacts arm records each matched file's digest and the read plan carries the glob set; the derived kind; the dirty refusal; the carry rule: an outside-hunk finding is carried, not closed, and a blocking outside finding where no threshold derives forces a whole read with `outside_threshold`; a fileless finding stays standing, and a standing blocking one forces the next visit whole with `unplaceable_finding`, whose omission then closes it; a finding on a path the delta deletes is inside (the old-side range of its one hunk) and the deleting read's omission closes it; the taken delta's diff text is journaled, capped, and recovery reads it rather than a fresh `git diff`; the security-class derivation for the declared result set, the sole review position and the typed agent office; a delta mark refused on each; a member key or agent file name does not decide; the shipped whole-read set; a panel whose phase can end in `security-hold` with an undeclared security slot and no other class member whole-reads; the adversarial member is security-class through 0109a's `results` list; the security member is security-class through `security: true`; the analyze `reads` entry names `judge`, and the unnamed `check` reads whole; an overlay cannot clear `security` and an overlay can set it; the glob matcher; a `select`-case tag resolves to one site and an ambiguous bare tag refuses; triage's design and engine `positions` steps are not class as containers; gpt-flash's work-class review members are bound by ruling 2 and name no delta; the correctness, spec-compliance and analyst charters bind the read kind and the delta; a security-class charter keeps its whole read; `recipes/triage`, `recipes/fast`, `recipes/node`, `recipes/review-first`, `recipes/landing` and `recipes/panel-review` compose after the v3 move |
 | 0109d | Review panels, standing security and follow-ups: the engine rejects an understated or false aggregate, whole-reads a security position, closes a follow-up only by a covering read, gives the one single-review agent both residual inputs, and names the panel and preflight read policies. | `crates/brokkr-runtime/src/bundle/aggregate.rs`; `crates/brokkr-runtime/src/engine/decide.rs`; `crates/brokkr-runtime/src/engine/input.rs`; `crates/brokkr-core/src/fold.rs`; `agents/brokkr-reviewer.json` (both residual inputs, one home; self and release inherit); `recipes/panel-review/policy.json`; `recipes/preflight/policy.json` (each v3, naming its read policy; panel-review's table moved in 0109c) | about 650 lines with tests | none new; v7 admits `follow_ups` from 0109a | a fileless finding stays standing and an inside-delta read's omission does not close it; a blocking outside-delta finding with a derived threshold forces a whole read with `outside_threshold`; a seat cannot declare a closure and a seat-supplied `follow_ups` is refused; a follow-up closes only by a covering read; a carried follow-up is not closed; a standing security finding blocks and forces full; a non-empty `findings` with the aggregate input absent refused; the understated-severity refusal; the false-security refusal; a mixed panel's security member whole-reads and its correctness and spec-compliance members delta-read; a panel's follow-ups are named; self and release compile with both residual inputs; fast's verify and ship gates are unopted (no `reads` entry), so the absent-entry rule keeps them whole-read, and the commission carries no delta; two consecutive delta visits, with a finding carried in the first still carried or closed by a covering read in the second |
 | 0109e | The readouts and the operator one-shot: `analytics` full/delta/trigger counts, `inspect`'s read cell and visit number, `operator whole-read`. | `crates/brokkr-view/src/analytics.rs`; `crates/brokkr-view/src/lib.rs`; `crates/brokkr-cli/src/render.rs`; the operator verb under `crates/brokkr-cli/src/verbs/`; `crates/brokkr-core/src/fold.rs` (the fourth `OperatorCommand` variant and the phase argument) | about 450 lines with tests | none new | full/delta/trigger counts; `unrecorded` for a journal with no read record; the `inspect` line with the visit number and the read cell; the public-API snapshot moves only for the added view fields; the operator command is one-shot and phase-scoped; no operator command can widen a security refusal |
 
@@ -1455,7 +1746,12 @@ are touched by 0109b only; a sibling branch that edits either is serialized with
 it, one branch at a time, as the capability broker's slices already are.
 `agents/charters/review-correctness.md` is edited by 0109a (the clean's
 `none`/`false`) and again by 0109c (the read kind): the second builds on the
-first.
+first. The agent loader (`crates/brokkr-runtime/src/agents.rs`,
+`agents/load/`) and `agents/review-security.json` are edited by 0109a (the
+`results` lists) and again by 0109c (`security: true` and `OVERLAY_KEYS`), in
+that order. `Cargo.toml` and `Cargo.lock` move in 0109b for one new dependency;
+a sibling branch that moves the lockfile is rebased over it, one branch at a
+time.
 
 ## Consequences
 
@@ -1463,15 +1759,20 @@ The saving is the adopter's figure, not a promise: if a review re-visit reads on
 the fix diff and the standing findings, the 29% code-review share and the 55% spec
 share have room to fall where the changes are small. The cost is a contract
 version, a new read plan in every gate's request, a delta computation that runs
-git in the engine, two scratch git directories per read under the engine's own
-state root, one patch process per changed path, a tree check that hashes every
-tracked file once, and triggers a recipe author must choose. The refusals that
-keep the saving honest are that a security-class position and a standing security
-finding never take the delta, a clean verdict never licenses one, a delta that is
-shorter than the change is a whole read, and nothing a seat can write is an input
-to the read. The price of that last refusal is a whole read wherever the check
-cannot prove the tree (an LFS or CRLF checkout, a git older than 2.40, a SHA-256
-repository, a mode-only or binary change).
+git in the engine, three scratch git directories per read under the engine's own
+state root, every object the read rests on read and hashed by the engine (both
+versions of each changed file, and every tree of the head for the tree check),
+one patch process per changed path, a tree check that hashes every tracked file
+once, one new dependency (collision-detecting SHA-1), and triggers a recipe
+author must choose. The refusals that keep the saving honest are that a
+security-class position and a standing security finding never take the delta, a
+clean verdict never licenses one, a delta that is shorter than the change is a
+whole read, no object is trusted without its hash, no ref the seat can move
+decides the set, and nothing a seat can write is an input to the read without a
+check. The price of those refusals is a whole read wherever the check cannot
+prove the tree (an LFS or CRLF checkout, a git older than 2.40, a SHA-256
+repository, a mode-only or binary change), and a re-read of every path a merge
+of the default branch brought in, because the base filter is gone.
 
 The effect is uneven by design. Every single review seat that declares
 `security-hold` whole-reads, and a mixed panel's security and adversarial members
@@ -1489,8 +1790,8 @@ the delta will not find it; the whole-read triggers are the operator's bound on
 that cost. A seat can reword a finding and give it a new id: the old key closes and
 the new opens, so #1048(a) reads progress; the `GateVisit` standing sets and
 `compare()` make it visible, but the engine does not guess a fuzzy match. A dirty
-worktree or an unresolved base forces a whole read, so some re-visits save nothing:
-a delta that cannot prove its range is not a delta. The readout counts only
+worktree, a forged or missing object, or a lost ancestor forces a whole read, so
+some re-visits save nothing: a delta that cannot prove its range is not a delta. The readout counts only
 journals that carry the `read` record; older runs read `unrecorded`, never zero.
 
 ## Evidence
@@ -1656,3 +1957,101 @@ configuration, no attribute source, ids only, a constructed environment), and th
 `eol` and `working-tree-encoding` attributes under `update-index --refresh`,
 the NUL-content binary case and the file-to-directory type change are
 **unmeasured**; 0109b's tests plant each.
+
+### Checks run for the 1088r6 round
+
+Run on git 2.51.0 in scratch repositories under `/tmp`, never in this worktree.
+The implementer's shell admits git but no script, no `mkdir`, no `cp` and no
+environment prefix, so every repository was built with git alone: content files
+and `mktree` inputs written under `.forge/` (not committed), objects made with
+`hash-object -w`, `mktree` and `commit-tree` (so every object is loose), and a
+file planted at an arbitrary path by staging it in a carrier repository with
+`update-index --cacheinfo` and writing it with
+`git --git-dir=<carrier> --work-tree=<target> checkout-index -f`. A forged loose
+object is the loose file of another object, carried that way to the path of the
+id it forges. Scratches are `git clone --bare --shared` with `remote.origin` and
+`core` removed and no refs. Sentinels append to files under `.forge/`, read back
+afterwards. The commands ran in the session's own environment, not the
+constructed one, which the shell cannot set; the read's configuration-free shape
+is the scratch's, and the r4 panel ran the environment rows. The object rule's
+hash is emulated as `git cat-file <type> <id> | git hash-object -t <type> --stdin`
+(git's hash is sha1dc too), and its verified copy as `hash-object -w` into a
+scratch with no `alternates`; the listing check and the engine's own tree diff
+are code, not run here. Ids are abbreviated; `S` is `af02c44`, `H` is `c7dd97d`.
+
+```text
+(a) H's blob 7a1591a replaced by the loose file of e3e81f9 ("two fixed nicely"):
+  r5 patch -- a.txt, r5 scratch:      "+two fixed nicely", exit 0
+  cat-file -e 7a1591a:                exit 0;  --batch-check: "7a1591a... blob 17"
+  rule: cat-file blob 7a1591a | hash-object --stdin:      e3e81f9...  (mismatch)
+  rule: verified copy in a no-alternates scratch, patch -- a.txt:
+                                      exit 128 "unable to read 7a1591ac..."
+                                      patch -- b.txt: the "+two v2" hunk, exit 0
+(b) S's root tree 6640fb0 replaced (forged tree names H's a.txt):
+  r5 raw set S H:                     b.txt only, exit 0   (honest: a.txt, b.txt)
+  rule: cat-file tree 6640fb0 | hash-object -t tree --stdin:   bdb3535... (mismatch)
+(c) commit S replaced by a commit naming that forged tree:
+  r5 raw set S H:                     b.txt only, exit 0
+  rule: cat-file commit S | hash-object -t commit --stdin:     900fc5f... (mismatch)
+        the same for H:               c7dd97d... (its own id)
+(d) S -> E (adds x.txt) -> F (adds y.txt); main at S:
+  merge-base F main:                  af02c44 (S)
+  update-ref refs/heads/main E; merge-base F main:   b584b5c (E)
+  raw S F: x.txt, y.txt;  raw E F: y.txt         -> the r5 filter keeps y.txt only
+  main at E before visit 1; S' = E + x.txt benign; H' = S' + x.txt evil + y.txt:
+  merge-base S' main = merge-base H' main = b584b5c (E), equal at both visits
+  raw S' H': x.txt, y.txt;  raw E H': y.txt      -> option (a) drops x.txt
+replace ref: replace -f 6640fb0 bdb3535 in the operated repository
+  operated diff-tree S H:             b.txt only, exit 0
+  source scratch over the same objects (no refs):  a.txt and b.txt
+graft: M1 = S + nothing, main at M1; info/grafts "M1 E"
+  operated merge-base F main:         b584b5c (E), with git's deprecation hint
+  source scratch merge-base F M1:     af02c44 (S);  M1's bytes rehash to M1
+L1: untracked sub/.gitignore "*", untracked sub/new.rs, tracked .gitignore "target/",
+    untracked target/debug/foo.o
+  git status --porcelain:             nothing;  --ignored: "!! sub/", "!! target/"
+  r5 tree check:                      refresh exit 0; diff-files, ls-files -o --exclude-standard empty
+  ls-files -o --directory:            sub/, target/
+  check-ignore -v -n -z --stdin:      sub/.gitignore:1:*  sub/;  .gitignore:1:target/  target/
+staged-only: update-index --cacheinfo of another blob for a.txt
+  git status --porcelain:             MM a.txt
+  tree check:                         refresh exit 0; diff-files empty
+deleted path: S -> D (deletes a.txt)
+  patch -- a.txt:                     deleted file mode 100644; @@ -1 +0,0 @@; -one
+H4, info/attributes "*.txt filter=evil", filter.evil.clean prints the index blob:
+  different-size b.txt, git status --porcelain:  " M b.txt", exit 0
+  same-size b.txt ("TWO V2" for "two v2"):       nothing, exit 0, empty stderr; filter ran
+  tree check:                         "b.txt: needs update"; diff-files lists b.txt; filter not run
+r4 matrix in one operated repository (info/attributes "a.txt diff=evil filter=evil",
+  "b.txt diff=tv filter=evp"; diff.evil.command, diff.external, diff.tv.textconv,
+  filter.evil.clean, filter.evp.process, core.fsmonitor, core.hooksPath):
+  new statement (source scratch cat-file, verified patch scratch, patch with cwd
+  the scratch for a.txt and the operated worktree for b.txt; tree check in a
+  verified tree scratch):   both hunks, refresh exit 0; no sentinel file at all
+  controls: status:          fsmonitor hook, clean, process
+            log -p --ext-diff: diff.evil.command, process
+            log -p --textconv: textconv
+            commit:            post-commit hook
+promisor: partial clone (blob:none), uploadpack = sentinel
+  source scratch cat-file --batch-check 7a1591a:  "missing"; no sentinel
+  operated cat-file -t 7a1591a:       blob; sentinel PRESENT (lazy fetch ran)
+  H1, the same config planted in the source scratch: cat-file --batch-check fetched;
+                                      sentinel PRESENT twice (the listing check refuses it)
+H2/H3 in the verified patch scratch:
+  ':(exclude)*' without --literal-pathspecs: 0 bytes; with: the hunk
+  ':lead.txt' without: 0 bytes; with: one hunk;  'q"uote.txt' with: one hunk
+  "*.txt -diff" in the operated worktree, cwd the worktree:  Binary files ... differ
+                                       cwd the scratch:      the text hunk
+cost, this tree:  ls-tree -r -d HEAD | cat-file --batch-check: 692 trees, 128,981 bytes,
+                  plus the root tree, 1,454 bytes; no 120000 entry
+                  b486d3ffd..0af190c64: 10 objects, 233,800 bytes (batch-check sizes)
+```
+
+**Not re-run in r6:** `diff.external` did not fire in the controls, because the
+process filter aborted `log -p --ext-diff` after `diff.evil.command` fired; the
+r4 panel's row stands as theirs. The submodule child diff, `GIT_EXTERNAL_DIFF`
+and `GIT_CONFIG_*` were not run (the shell sets no environment); a gitlink is a
+whole read by rule 4 before any child could run. The forged `.idx`, the forged
+subtree, the forged walk commit and the sha1dc collision vector are 0109b's
+plants, not run here. The plant with an ignored file under a changed directory,
+the `!` rule and an ignored `.gitignore` are 0109b's too.
