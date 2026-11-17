@@ -144,3 +144,120 @@ fn a_held_wait_at_the_cap_parks_attempt_cap() {
     ));
     assert_eq!(failed(&engine)[0].payload["waits"][0]["held"], json!(true));
 }
+
+/// The held wait's recorded end, as its terminal event spells it.
+fn held_until(engine: &Engine) -> OffsetDateTime {
+    let until = failed(engine)[0].payload["waits"][0]["until"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    OffsetDateTime::parse(&until, &Rfc3339).unwrap()
+}
+
+/// Write the held wait, then resume `after` seconds past its end: the
+/// held 5s is the provider's, not the engine's, so the 2s maximum does not
+/// bound it, and the resume probes once and retries the same effect.
+fn resumed_after_the_held_end(after: i64) {
+    let (dir, mut engine, now) = held_seat(&["refuse", "succeed"], 2);
+    engine.drive().unwrap();
+    assert_eq!(standing(&engine), (Status::Running, 0));
+    *now.lock().unwrap() = held_until(&engine) + time::Duration::seconds(after);
+    engine.drive().unwrap();
+    assert_eq!(
+        logs(dir.path(), "work"),
+        ["attempt:refuse", "probe", "attempt:succeed"]
+    );
+    // No park before the retry succeeded: the episode did not count the
+    // held 5s against the 2s maximum (what follows the success is the
+    // fixture's policy, not the wait's).
+    let events = engine.store.load(&engine.run_id).unwrap();
+    let succeeded = events
+        .iter()
+        .position(|event| event.event_type == EventType::EffectSucceeded)
+        .expect("the retry succeeded");
+    assert!(
+        !events[..succeeded]
+            .iter()
+            .any(|event| event.event_type == EventType::RunParked),
+        "the resume parked before the retry"
+    );
+    // `starts` keeps the first effect's own starts: the retry is that effect.
+    let started = starts(&engine);
+    assert_eq!(started.len(), 2, "{started:?}");
+    assert_eq!(started[1]["probes"][0]["route"], "first");
+}
+
+#[test]
+fn a_provider_stated_held_interval_is_not_counted_in_the_episode() {
+    resumed_after_the_held_end(0);
+}
+
+#[test]
+fn a_resume_after_the_held_until_probes() {
+    resumed_after_the_held_end(30);
+}
+
+/// A resume before the held end writes nothing, runs nothing, and refuses
+/// by name, naming the end and the lift.
+#[test]
+fn a_resume_before_the_held_until_refuses_and_names_the_lift() {
+    let (dir, mut engine, _now) = held_seat(&["refuse", "succeed"], 2);
+    engine.drive().unwrap();
+    let before = engine.store.load(&engine.run_id).unwrap().len();
+    let until = brokkr_core::stamp::write_millis(held_until(&engine)).unwrap();
+    let error = engine.drive().unwrap_err();
+    let crate::engine::EngineError::HeldWait(held) = &error else {
+        panic!("a resume before the held end refuses as held: {error}");
+    };
+    assert_eq!(
+        **held,
+        crate::engine::HeldWait {
+            run_id: engine.run_id.clone(),
+            provider: "claude".into(),
+            route: "first".into(),
+            until: until.clone(),
+            max_seconds: 2,
+        }
+    );
+    let text = error.to_string();
+    assert!(text.contains(&format!("held until {until}")), "{text}");
+    let lift = format!("brokkr operator retry --run {}", engine.run_id);
+    assert!(text.contains(&lift), "{text}");
+    assert_eq!(engine.store.load(&engine.run_id).unwrap().len(), before);
+    assert_eq!(logs(dir.path(), "work"), ["attempt:refuse"]);
+}
+
+/// An ordinary wait resumed at or after its own end probes at once: the
+/// resume sleeps nothing.
+#[test]
+fn an_ordinary_wait_resumed_at_or_after_its_until_probes() {
+    let until = base() + time::Duration::seconds(3);
+    for at in [until, until + time::Duration::seconds(10)] {
+        let (dir, mut engine, now) = resumed_at(&["succeed"], until, 3, at, false);
+        engine.cooldown.host = None;
+        engine.drive().unwrap();
+        assert_eq!(logs(dir.path(), "work"), ["probe", "attempt:succeed"]);
+        assert_eq!(*now.lock().unwrap(), at, "the resume slept");
+    }
+}
+
+/// An ordinary wait resumed at 0006's cap parks naming the cool-down, and
+/// probes nothing.
+#[test]
+fn an_ordinary_resume_at_the_cap_parks() {
+    let dir = tempfile::tempdir().unwrap();
+    let waits = wait_value(base() + time::Duration::seconds(3), 3);
+    let payload = json!({"effect_id": "effect", "attempt_id": "a1", "error": "refused",
+        "waits": waits});
+    let mut engine = resumed_payload(dir.path(), 1, payload);
+    engine.drive().unwrap();
+    assert!(logs(dir.path(), "work").is_empty(), "the capped resume ran");
+    assert!(park_reason(&engine).contains("failed 1 of 1 attempt(s)"));
+    assert!(matches!(
+        park_cause_of(&engine),
+        ParkCause::AttemptCap {
+            failure_class: FailureClass::ProviderLimit,
+            ..
+        }
+    ));
+}

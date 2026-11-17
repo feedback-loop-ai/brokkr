@@ -67,6 +67,9 @@ mod governing;
 mod host;
 
 use awaited::{awaiting, came_to, observe};
+// A cool-down end's one spelling, the reason's and a held wait's refusal's
+// (decision 0106 ruling 2).
+pub(crate) use cooling::spelled;
 
 pub use capacity::{Capacity, Host, Measured, Room, Shared, Unmeasurable};
 pub(crate) use host::config_dir;

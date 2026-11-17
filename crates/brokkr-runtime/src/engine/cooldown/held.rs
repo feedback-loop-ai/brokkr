@@ -12,7 +12,7 @@ use brokkr_core::{provider_waits, ProviderWait};
 use serde_json::Value;
 use thiserror::Error;
 
-use super::{park_of, Engine, EngineError};
+use super::{Engine, EngineError};
 
 /// Where this engine's drive stands on a held wait: none met, a held
 /// terminal this drive journaled, or the turn that met it and ended the
@@ -58,27 +58,28 @@ pub(in crate::engine) fn holds_a_wait(event_type: EventType, payload: &Value) ->
 
 impl Engine {
     /// The held turn, before any wait is taken: `Ok(false)` where no
-    /// recorded wait is held or its end has come, so the wait is taken as
-    /// any other; `Ok(true)` where this turn ended, either the drive that
-    /// journaled the held terminal or a park an unreadable end gives; and
-    /// the typed refusal for a resume before the end.
+    /// recorded wait is held or the latest held end has come, so the wait
+    /// is taken as any other; `Ok(true)` where this turn ended the drive
+    /// that journaled the held terminal; and the typed refusal for a resume
+    /// before the end.
+    ///
+    /// The end is the provider's own stated `until`, the latest across the
+    /// held sites. The store's aggregate is not read here: the ordinary
+    /// wait that follows at the end takes its rows, the second its row is
+    /// rounded up to included, in bounded slices that judge the maximum, so
+    /// a later row another run recorded can never make this turn sleep.
     pub(in crate::engine) fn held_turn(
         &mut self,
         waits: &[ProviderWait],
     ) -> Result<bool, EngineError> {
         let Some((wait, held)) = waits
             .iter()
-            .find_map(|wait| wait.held.map(|held| (wait, held)))
+            .filter_map(|wait| wait.held.map(|held| (wait, held)))
+            .max_by_key(|(wait, _)| wait.until)
         else {
             return Ok(false);
         };
-        let end = match self.cool_down_end(waits) {
-            Ok(end) => end,
-            Err(error) => {
-                self.park(&park_of(&error))?;
-                return Ok(true);
-            }
-        };
+        let end = wait.until;
         if end <= self.now() {
             return Ok(false);
         }
@@ -86,13 +87,11 @@ impl Engine {
             self.cooldown.held = HeldDrive::Ended;
             return Ok(true);
         }
-        let until = brokkr_core::stamp::write_millis(end)
-            .unwrap_or_else(|_| format!("second {}", end.unix_timestamp()));
         Err(EngineError::HeldWait(Box::new(HeldWait {
             run_id: self.run_id.clone(),
             provider: wait.provider.clone(),
             route: wait.route.clone(),
-            until,
+            until: crate::admission::spelled(end),
             max_seconds: held.max_seconds,
         })))
     }

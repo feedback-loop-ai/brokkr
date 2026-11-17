@@ -246,6 +246,28 @@ fn two_overlapping_refusals_hold_until_the_longer_ends() {
     assert_eq!(reasons_at(&fixture, &file, longer), vec![vec![]]);
 }
 
+/// A held wait's stated end lies past any declared maximum, and admission
+/// holds the lane to it; a later, shorter row on the lane never shortens it
+/// (decision 0106 ruling 2).
+#[test]
+fn admission_holds_a_held_wait_to_its_stated_end_and_a_later_shorter_row_does_not_shorten_it() {
+    let held = at(259_200);
+    let (fixture, file) = refused(&[
+        row("beta", "cloud", held, "usage limit, three days"),
+        row("beta", "cloud", at(60), "the later, shorter"),
+    ]);
+    let holding = vec![vec![cooling(
+        "beta",
+        "cloud",
+        held,
+        "usage limit, three days",
+    )]];
+    for now in [base(), at(120), at(7_201)] {
+        assert_eq!(reasons_at(&fixture, &file, now), holding, "at {now}");
+    }
+    assert_eq!(reasons_at(&fixture, &file, held), vec![vec![]]);
+}
+
 /// At one end, the latest row speaks for the lane (decision 0103 ruling 2):
 /// the store reads rows by rising seq and keeps the latest row at the
 /// latest `until_at`, and the pass and the claim both keep it.

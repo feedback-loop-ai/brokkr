@@ -1187,7 +1187,7 @@ fn a_past_maximum_record_with_no_readable_episode_states_the_maximum() {
 }
 
 #[test]
-fn a_resume_waits_the_remainder() {
+fn an_ordinary_wait_resumed_before_its_until_waits_the_remainder_and_probes() {
     let (dir, mut engine, now) = resumed(&["succeed"], base() + time::Duration::seconds(3), 3);
     // No declaration on the resume: the recorded end is the wait's.
     engine.cooldown.host = None;
@@ -1199,7 +1199,7 @@ fn a_resume_waits_the_remainder() {
 }
 
 #[test]
-fn a_resume_parks_when_the_recorded_wait_passes_the_maximum() {
+fn an_ordinary_resume_past_the_engine_computed_maximum_parks() {
     let (dir, mut engine, _now) = resumed(&["succeed"], base() + time::Duration::seconds(5), 5);
     engine.cooldown.host = Some(host(dir.path(), 1, 1));
     engine.drive().unwrap();
