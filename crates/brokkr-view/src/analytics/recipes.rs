@@ -6,7 +6,9 @@
 
 use std::collections::BTreeMap;
 
-use super::facts::{in_range, name_key, FactSource, RunOrder, SiteOrder, Window};
+use super::facts::{
+    each, in_range, name_key, FactSource, RunFacts, RunOrder, SiteFact, SiteOrder, Window,
+};
 use super::figures::cost_parts;
 use super::ledger::Tally;
 use super::ranked::Ranked;
@@ -61,33 +63,36 @@ pub(super) fn recipe_rows(source: &dyn FactSource, window: Window) -> (Vec<Recip
             recipes.push(key, group, ());
         }
     };
-    source.runs_in(RunOrder::Recipe, &mut |run| {
-        let Some(recipe) = run.recipe.as_deref() else {
-            return;
-        };
-        let key = (
-            name_key(&run.realm).to_string(),
-            name_key(recipe).to_string(),
-        );
-        if current.as_ref().is_none_or(|(named, _)| *named != key) {
-            offer(current.take(), &mut recipes);
-            current = None;
-        }
-        let ended = run.finished.as_ref().map(|finished| finished.at);
-        if !in_range(ended, run.open, window) {
-            return;
-        }
-        let (_, group) = current.get_or_insert_with(|| (key, Retained::default()));
-        group.runs += 1;
-        if let Some(finished) = &run.finished {
-            group.ledger.add(finished.ending);
-        }
-        for (at, usd) in &run.costs {
-            if window.holds(*at) {
-                group.spent = Some(group.spent.unwrap_or(0.0) + usd);
+    source.runs_in(
+        RunOrder::Recipe,
+        &mut each(|run: RunFacts| {
+            let Some(recipe) = run.recipe.as_deref() else {
+                return;
+            };
+            let key = (
+                name_key(&run.realm).to_string(),
+                name_key(recipe).to_string(),
+            );
+            if current.as_ref().is_none_or(|(named, _)| *named != key) {
+                offer(current.take(), &mut recipes);
+                current = None;
             }
-        }
-    });
+            let ended = run.finished.as_ref().map(|finished| finished.at);
+            if !in_range(ended, run.open, window) {
+                return;
+            }
+            let (_, group) = current.get_or_insert_with(|| (key, Retained::default()));
+            group.runs += 1;
+            if let Some(finished) = &run.finished {
+                group.ledger.add(finished.ending);
+            }
+            for (at, usd) in &run.costs {
+                if window.holds(*at) {
+                    group.spent = Some(group.spent.unwrap_or(0.0) + usd);
+                }
+            }
+        }),
+    );
     offer(current.take(), &mut recipes);
     let (mut kept, recipes_more) = recipes.finish();
 
@@ -123,41 +128,44 @@ fn add_sites(
             }
         }
     };
-    source.sites_in(SiteOrder::RecipeProvider, &mut |fact| {
-        let Some(recipe) = fact.recipe.as_deref() else {
-            return;
-        };
-        if !in_range(fact.ended, fact.open, window) {
-            return;
-        }
-        let realm = name_key(&fact.realm).to_string();
-        let recipe = name_key(recipe).to_string();
-        let provider_name = name_key(&fact.provider).to_string();
-        if let Some(position) = index.get(&(realm.clone(), recipe.clone())) {
-            if let Some(usage) = &fact.usage {
-                let group = &mut kept[*position].1;
-                group.usage = sum_usage(
-                    [group.usage.take(), Some(usage.clone())]
-                        .into_iter()
-                        .flatten(),
-                );
+    source.sites_in(
+        SiteOrder::RecipeProvider,
+        &mut each(|fact: SiteFact| {
+            let Some(recipe) = fact.recipe.as_deref() else {
+                return;
+            };
+            if !in_range(fact.ended, fact.open, window) {
+                return;
             }
-        }
-        let reported = fact.reported;
-        match &mut provider {
-            Some(((kept_realm, kept_recipe, kept_name), kept_reported))
-                if *kept_realm == realm
-                    && *kept_recipe == recipe
-                    && *kept_name == provider_name =>
-            {
-                *kept_reported |= reported;
+            let realm = name_key(&fact.realm).to_string();
+            let recipe = name_key(recipe).to_string();
+            let provider_name = name_key(&fact.provider).to_string();
+            if let Some(position) = index.get(&(realm.clone(), recipe.clone())) {
+                if let Some(usage) = &fact.usage {
+                    let group = &mut kept[*position].1;
+                    group.usage = sum_usage(
+                        [group.usage.take(), Some(usage.clone())]
+                            .into_iter()
+                            .flatten(),
+                    );
+                }
             }
-            _ => {
-                flush(provider.take(), kept);
-                provider = Some(((realm, recipe, provider_name), reported));
+            let reported = fact.reported;
+            match &mut provider {
+                Some(((kept_realm, kept_recipe, kept_name), kept_reported))
+                    if *kept_realm == realm
+                        && *kept_recipe == recipe
+                        && *kept_name == provider_name =>
+                {
+                    *kept_reported |= reported;
+                }
+                _ => {
+                    flush(provider.take(), kept);
+                    provider = Some(((realm, recipe, provider_name), reported));
+                }
             }
-        }
-    });
+        }),
+    );
     flush(provider.take(), kept);
 }
 

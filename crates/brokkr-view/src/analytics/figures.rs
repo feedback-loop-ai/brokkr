@@ -5,7 +5,8 @@ use std::cmp::Reverse;
 use std::collections::BTreeMap;
 
 use super::facts::{
-    model_key, name_key, shipped, FactSource, Finished, RunFacts, RunOrder, SiteOrder, Window,
+    each, model_key, name_key, shipped, FactSource, Finished, ParkFact, RunFacts, RunOrder,
+    SiteFact, SiteOrder, Window,
 };
 use super::ledger::Tally;
 use super::median::medians;
@@ -93,10 +94,10 @@ fn medians_of(source: &dyn FactSource, realms: &[String]) -> Vec<Option<i64>> {
 fn waited(source: &dyn FactSource, window: Window) -> (i64, i64) {
     let mut waiting = 0;
     let mut parked = 0;
-    source.parks(&mut |park| {
+    source.parks(&mut each(|park: ParkFact| {
         waiting += window.overlap(park.at, park.answered);
         parked += window.overlap(park.at, park.ended);
-    });
+    }));
     (waiting, parked)
 }
 
@@ -125,26 +126,29 @@ fn stopped_by_rule(source: &dyn FactSource, window: Window) -> StoppedByRule {
             rules.push(rule, count, Reverse(count));
         }
     };
-    source.runs_in(RunOrder::Rule, &mut |run| {
-        let Some(finished) = &run.finished else {
-            return;
-        };
-        if !window.holds(finished.at) {
-            return;
-        }
-        let Some(stop) = &finished.hard_stop else {
-            return;
-        };
-        count += 1;
-        let rule = stop.rule.as_deref().map(name_key).map(str::to_string);
-        match &mut current {
-            Some((named, tally)) if *named == rule => *tally += 1,
-            _ => {
-                keep(current.take(), &mut rules);
-                current = Some((rule, 1));
+    source.runs_in(
+        RunOrder::Rule,
+        &mut each(|run: RunFacts| {
+            let Some(finished) = &run.finished else {
+                return;
+            };
+            if !window.holds(finished.at) {
+                return;
             }
-        }
-    });
+            let Some(stop) = &finished.hard_stop else {
+                return;
+            };
+            count += 1;
+            let rule = stop.rule.as_deref().map(name_key).map(str::to_string);
+            match &mut current {
+                Some((named, tally)) if *named == rule => *tally += 1,
+                _ => {
+                    keep(current.take(), &mut rules);
+                    current = Some((rule, 1));
+                }
+            }
+        }),
+    );
     keep(current.take(), &mut rules);
     let (kept, rules_more) = rules.finish();
     let top = best_rule(kept);
@@ -246,22 +250,25 @@ fn provider_groups(
             visit(&realm, &provider, reported);
         }
     };
-    source.sites_in(group.order(), &mut |fact| {
-        let realm = group.realm(&fact.realm).to_string();
-        let provider = name_key(&fact.provider).to_string();
-        let reported = fact.reported;
-        match &mut current {
-            Some((kept_realm, kept_provider, kept_reported))
-                if *kept_realm == realm && *kept_provider == provider =>
-            {
-                *kept_reported |= reported;
+    source.sites_in(
+        group.order(),
+        &mut each(|fact: SiteFact| {
+            let realm = group.realm(&fact.realm).to_string();
+            let provider = name_key(&fact.provider).to_string();
+            let reported = fact.reported;
+            match &mut current {
+                Some((kept_realm, kept_provider, kept_reported))
+                    if *kept_realm == realm && *kept_provider == provider =>
+                {
+                    *kept_reported |= reported;
+                }
+                _ => {
+                    flush(current.take(), &mut visit);
+                    current = Some((realm, provider, reported));
+                }
             }
-            _ => {
-                flush(current.take(), &mut visit);
-                current = Some((realm, provider, reported));
-            }
-        }
-    });
+        }),
+    );
     flush(current.take(), &mut visit);
 }
 
@@ -368,7 +375,7 @@ fn waiting_by_step(source: &dyn FactSource, window: Window) -> (Vec<StepWait>, u
             steps.push(phase, step, rank);
         }
     };
-    source.parks(&mut |park| {
+    source.parks(&mut each(|park: ParkFact| {
         let waited = window.overlap(park.at, park.answered);
         if waited == 0 {
             return;
@@ -395,7 +402,7 @@ fn waiting_by_step(source: &dyn FactSource, window: Window) -> (Vec<StepWait>, u
                 ));
             }
         }
-    });
+    }));
     flush(current.take(), &mut steps);
     let (kept, waiting_by_step_more) = steps.finish();
     let mut rows: Vec<StepWait> = kept
@@ -456,20 +463,23 @@ fn models(source: &dyn FactSource, window: Window) -> (Vec<ModelShare>, usize) {
             models.push(model, attempts, Reverse(attempts));
         }
     };
-    source.sites_in(SiteOrder::Model, &mut |fact| {
-        if !window.holds(fact.at) {
-            return;
-        }
-        let model = fact.model.as_deref().map(model_key).map(str::to_string);
-        total += 1;
-        match &mut current {
-            Some((named, attempts)) if *named == model => *attempts += 1,
-            _ => {
-                flush(current.take(), &mut models);
-                current = Some((model, 1));
+    source.sites_in(
+        SiteOrder::Model,
+        &mut each(|fact: SiteFact| {
+            if !window.holds(fact.at) {
+                return;
             }
-        }
-    });
+            let model = fact.model.as_deref().map(model_key).map(str::to_string);
+            total += 1;
+            match &mut current {
+                Some((named, attempts)) if *named == model => *attempts += 1,
+                _ => {
+                    flush(current.take(), &mut models);
+                    current = Some((model, 1));
+                }
+            }
+        }),
+    );
     flush(current.take(), &mut models);
     let (kept, models_more) = models.finish();
     let mut shares: Vec<ModelShare> = kept
@@ -526,11 +536,11 @@ fn realm_waiting(
 ) -> BTreeMap<String, i64> {
     let mut waiting: BTreeMap<String, i64> =
         realms.iter().map(|realm| (realm.clone(), 0)).collect();
-    source.parks(&mut |park| {
+    source.parks(&mut each(|park: ParkFact| {
         if let Some(total) = waiting.get_mut(name_key(&park.realm)) {
             *total += window.overlap(park.at, park.answered);
         }
-    });
+    }));
     waiting
 }
 

@@ -90,6 +90,11 @@ pub struct Reviews {
 /// The facts one run contributes to the figures that fold runs.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct RunFacts {
+    /// The hearth's label and the run's id: a run id is unique only within
+    /// one journal, so a run's identity, and the tie a figure's key order
+    /// breaks by, is both.
+    pub hearth: String,
+    pub run: String,
     pub realm: String,
     /// The recipe the run started under, when its start names one.
     pub recipe: Option<String>,
@@ -100,7 +105,9 @@ pub struct RunFacts {
     pub implement_visits: u64,
     pub reviews: Reviews,
     /// Every reported cost the run's journal holds, as `brokkr costs`
-    /// reads them; the figures keep those inside their window.
+    /// reads them; the figures keep those inside their window. Only the
+    /// recipe order's stream is folded for them ([`RunOrder::Recipe`]), so a
+    /// source may leave them empty on every other stream.
     pub costs: Vec<(i64, f64)>,
 }
 
@@ -132,6 +139,10 @@ pub struct SpendFact {
 /// checkpoints reported and metered.
 #[derive(Clone, Debug, PartialEq)]
 pub struct SiteFact {
+    /// The hearth's label and the run's id, the tie a site's key order
+    /// breaks by, as a run's does.
+    pub hearth: String,
+    pub run: String,
     pub realm: String,
     pub recipe: Option<String>,
     pub open: bool,
@@ -167,14 +178,20 @@ pub enum SiteOrder {
 /// must agree on the query and on a run's identity across them, so it is
 /// one trait rather than closures (decision 0071 ruling 2).
 ///
-/// A grouped figure asks for its stream already ordered by its own cut
-/// key, so it folds one completed group at a time into a bounded
-/// [`super::ranked::Ranked`] and never holds every group. Parks are
-/// yielded by their cut phase, then their hearth and run, so
-/// `waiting_by_step` counts a change of run, never a set of them; a run
+/// A grouped figure pulls its stream already ordered by its own full key
+/// (`run_place`, `park_place` and `site_place`): the cut key it groups
+/// by, then the hearth and the run. It folds one completed group at a time
+/// into a bounded [`super::ranked::Ranked`] and never holds every group,
+/// and `waiting_by_step` counts a change of run, never a set of them; a run
 /// id alone is not an identity, because two journals may each hold it.
-/// The facts a stream yields are already the window's: the source was
-/// built for the query's range and clock.
+///
+/// An ordered stream is pulled: the source hands `read` an iterator, and
+/// holds what yields the next fact (a statement's cursor, or the whole
+/// read's own runs) only while `read` runs, so a [`FactUnion`] holds one
+/// head per source and merges them (decision 0089 ruling 7). The
+/// order-free streams are visited one fact at a time. The facts a stream
+/// yields are already the window's: the source was built for the query's
+/// range and clock.
 pub trait FactSource {
     /// The realm names the readout paints, and the runs no figure could
     /// read, by their cut realm key. A source that states neither leaves
@@ -193,13 +210,16 @@ pub trait FactSource {
         Vec::new()
     }
     fn runs(&self, visit: &mut dyn FnMut(RunFacts));
-    fn runs_in(&self, order: RunOrder, visit: &mut dyn FnMut(RunFacts));
+    /// The runs by `order`'s full key (`run_place`), pulled by `read`.
+    fn runs_in(&self, order: RunOrder, read: &mut dyn FnMut(&mut dyn Iterator<Item = RunFacts>));
     /// Each finished run's cut realm and span inside the source's window,
     /// one value a median pass (decision 0089 ruling 7).
     fn durations(&self, visit: &mut dyn FnMut(&str, i64));
-    fn parks(&self, visit: &mut dyn FnMut(ParkFact));
+    /// The parks by `park_place`, pulled by `read`.
+    fn parks(&self, read: &mut dyn FnMut(&mut dyn Iterator<Item = ParkFact>));
     fn spends(&self, visit: &mut dyn FnMut(SpendFact));
-    fn sites_in(&self, order: SiteOrder, visit: &mut dyn FnMut(SiteFact));
+    /// The sites by `order`'s full key (`site_place`), pulled by `read`.
+    fn sites_in(&self, order: SiteOrder, read: &mut dyn FnMut(&mut dyn Iterator<Item = SiteFact>));
 }
 
 /// A source's realm names and unreadable counts, as its `scope` hands
@@ -245,6 +265,45 @@ fn site_key(site: &SiteFact, order: SiteOrder) -> (Option<&str>, &str, &str) {
     }
 }
 
+/// A pulled stream's reader that visits each fact as it is pulled: the
+/// form a figure that folds one fact at a time reads a stream by.
+pub(crate) fn each<T>(mut visit: impl FnMut(T)) -> impl FnMut(&mut dyn Iterator<Item = T>) {
+    move |pulled| pulled.for_each(&mut visit)
+}
+
+/// A run's full key in `order` (#1068's F5): the cut key it groups by,
+/// then its hearth and its id, so two runs that tie on the key across
+/// hearths stand in one order whichever source yields them.
+pub(crate) fn run_place(run: &RunFacts, order: RunOrder) -> Place<'_> {
+    (run_key(run, order), run.hearth.as_str(), run.run.as_str())
+}
+
+/// A cut key a figure groups by, up to three names deep.
+type Key<'a> = (Option<&'a str>, &'a str, &'a str);
+
+/// A fact's full key: its cut key, then its hearth and run.
+type Place<'a> = (Key<'a>, &'a str, &'a str);
+
+/// A park's full key: its cut phase, then its hearth and run. A run's
+/// parks tie on it and keep their source's order.
+pub(crate) fn park_place(park: &ParkFact) -> Key<'_> {
+    (
+        optional(park.phase.as_deref()),
+        park.hearth.as_str(),
+        park.run.as_str(),
+    )
+}
+
+/// A site's full key in `order`: the cut key it groups by, then its hearth
+/// and run. A run's sites tie on it and keep their source's order.
+pub(crate) fn site_place(site: &SiteFact, order: SiteOrder) -> Place<'_> {
+    (
+        site_key(site, order),
+        site.hearth.as_str(),
+        site.run.as_str(),
+    )
+}
+
 /// The runs a range keeps: those that ended inside it, and those still
 /// open. The one reading of "in range" the per-recipe figures and the
 /// recipe's graph share.
@@ -276,8 +335,6 @@ fn parks(events: &[EventEnvelope], now: i64) -> Vec<Park> {
 /// One run of today's whole read: what the figures fold, and the streams
 /// the run contributes to them.
 struct WholeRun {
-    hearth: String,
-    run_id: String,
     facts: RunFacts,
     parks: Vec<Park>,
     sites: Vec<Site>,
@@ -298,13 +355,13 @@ fn whole_run(run: &AnalyticsRun, label: &str, now: i64) -> WholeRun {
         optional(left.phase.as_deref()).cmp(&optional(right.phase.as_deref()))
     });
     WholeRun {
-        hearth: label.to_string(),
-        run_id: run
-            .events
-            .first()
-            .map(|event| event.run_id.clone())
-            .unwrap_or_default(),
         facts: RunFacts {
+            hearth: label.to_string(),
+            run: run
+                .events
+                .first()
+                .map(|event| event.run_id.clone())
+                .unwrap_or_default(),
             realm: read.realm.unwrap_or_else(|| label.to_string()),
             recipe: read.recipe,
             open: run.state.is_some_and(is_open),
@@ -420,16 +477,14 @@ impl FactSource for WholeRead {
         }
     }
 
-    fn runs_in(&self, order: RunOrder, visit: &mut dyn FnMut(RunFacts)) {
+    /// The whole read keeps its runs (decision 0089 ruling 8), so it
+    /// yields them through its own order of them.
+    fn runs_in(&self, order: RunOrder, read: &mut dyn FnMut(&mut dyn Iterator<Item = RunFacts>)) {
         let mut runs: Vec<&WholeRun> = self.runs.iter().collect();
         runs.sort_by(|left, right| {
-            run_key(&left.facts, order)
-                .cmp(&run_key(&right.facts, order))
-                .then(left.run_id.cmp(&right.run_id))
+            run_place(&left.facts, order).cmp(&run_place(&right.facts, order))
         });
-        for run in runs {
-            visit(run.facts.clone());
-        }
+        read(&mut runs.into_iter().map(|run| run.facts.clone()));
     }
 
     fn durations(&self, visit: &mut dyn FnMut(&str, i64)) {
@@ -451,45 +506,37 @@ impl FactSource for WholeRead {
     /// ordered by the key, so a park's advance costs a logarithm, not a
     /// scan of every cursor. A run id is unique only within its journal,
     /// so the hearth is part of the identity.
-    fn parks(&self, visit: &mut dyn FnMut(ParkFact)) {
-        let mut cursors: BTreeSet<(Option<&str>, &str, &str, usize, usize)> = self
-            .runs
-            .iter()
-            .enumerate()
-            .filter_map(|(run, whole)| {
-                whole.parks.first().map(|park| {
-                    (
-                        optional(park.phase.as_deref()),
-                        whole.hearth.as_str(),
-                        whole.run_id.as_str(),
-                        run,
-                        0,
-                    )
-                })
+    fn parks(&self, read: &mut dyn FnMut(&mut dyn Iterator<Item = ParkFact>)) {
+        let cursor = |run: usize, index: usize| {
+            let whole: &WholeRun = &self.runs[run];
+            whole.parks.get(index).map(|park| {
+                (
+                    optional(park.phase.as_deref()),
+                    whole.facts.hearth.as_str(),
+                    whole.facts.run.as_str(),
+                    run,
+                    index,
+                )
             })
+        };
+        let mut cursors: BTreeSet<(Option<&str>, &str, &str, usize, usize)> = (0..self.runs.len())
+            .filter_map(|run| cursor(run, 0))
             .collect();
-        while let Some((_phase, _hearth, _run_id, run, index)) = cursors.pop_first() {
+        read(&mut std::iter::from_fn(|| {
+            let (_phase, _hearth, _run_id, run, index) = cursors.pop_first()?;
             let whole = &self.runs[run];
             let park = &whole.parks[index];
-            visit(ParkFact {
+            cursors.extend(cursor(run, index + 1));
+            Some(ParkFact {
                 realm: whole.facts.realm.clone(),
-                hearth: whole.hearth.clone(),
-                run: whole.run_id.clone(),
+                hearth: whole.facts.hearth.clone(),
+                run: whole.facts.run.clone(),
                 phase: optional(park.phase.as_deref()).map(str::to_string),
                 at: park.at,
                 answered: park.answered,
                 ended: park.ended,
-            });
-            if let Some(next) = whole.parks.get(index + 1) {
-                cursors.insert((
-                    optional(next.phase.as_deref()),
-                    whole.hearth.as_str(),
-                    whole.run_id.as_str(),
-                    run,
-                    index + 1,
-                ));
-            }
-        }
+            })
+        }));
     }
 
     fn spends(&self, visit: &mut dyn FnMut(SpendFact)) {
@@ -507,7 +554,7 @@ impl FactSource for WholeRead {
         }
     }
 
-    fn sites_in(&self, order: SiteOrder, visit: &mut dyn FnMut(SiteFact)) {
+    fn sites_in(&self, order: SiteOrder, read: &mut dyn FnMut(&mut dyn Iterator<Item = SiteFact>)) {
         let keeps = |at: i64, _: Option<&str>| self.window.holds(at);
         let mut sites: Vec<(usize, usize)> = self
             .runs
@@ -516,23 +563,17 @@ impl FactSource for WholeRead {
             .flat_map(|(run, whole)| (0..whole.sites.len()).map(move |site| (run, site)))
             .filter(|(run, site)| self.runs[*run].sites[*site].ran(&keeps))
             .collect();
-        sites.sort_by(|(left_run, left_site), (right_run, right_site)| {
-            let left = &self.runs[*left_run];
-            let right = &self.runs[*right_run];
-            site_key(
-                &site_fact(left, &left.sites[*left_site], self.window),
-                order,
-            )
-            .cmp(&site_key(
-                &site_fact(right, &right.sites[*right_site], self.window),
-                order,
-            ))
-            .then((left_run, left_site).cmp(&(right_run, right_site)))
-        });
-        for (run, site) in sites {
+        let fact = |(run, site): (usize, usize)| {
             let whole = &self.runs[run];
-            visit(site_fact(whole, &whole.sites[site], self.window));
-        }
+            site_fact(whole, &whole.sites[site], self.window)
+        };
+        sites.sort_by(|left, right| {
+            let (left_fact, right_fact) = (fact(*left), fact(*right));
+            site_place(&left_fact, order)
+                .cmp(&site_place(&right_fact, order))
+                .then(left.cmp(right))
+        });
+        read(&mut sites.into_iter().map(fact));
     }
 }
 
@@ -541,6 +582,8 @@ impl FactSource for WholeRead {
 fn site_fact(whole: &WholeRun, site: &Site, window: Window) -> SiteFact {
     let keeps = |at: i64, _: Option<&str>| window.holds(at);
     SiteFact {
+        hearth: whole.facts.hearth.clone(),
+        run: whole.facts.run.clone(),
         realm: whole.facts.realm.clone(),
         recipe: whole.facts.recipe.clone(),
         open: whole.facts.open,
@@ -603,15 +646,13 @@ impl FactSource for FactUnion {
         }
     }
 
-    fn runs_in(&self, order: RunOrder, visit: &mut dyn FnMut(RunFacts)) {
+    fn runs_in(&self, order: RunOrder, read: &mut dyn FnMut(&mut dyn Iterator<Item = RunFacts>)) {
         let mut runs: Vec<RunFacts> = Vec::new();
         for source in &self.sources {
-            source.runs_in(order, &mut |run| runs.push(run));
+            source.runs_in(order, &mut |pulled| runs.extend(pulled));
         }
-        runs.sort_by(|left, right| run_key(left, order).cmp(&run_key(right, order)));
-        for run in runs {
-            visit(run);
-        }
+        runs.sort_by(|left, right| run_place(left, order).cmp(&run_place(right, order)));
+        read(&mut runs.into_iter());
     }
 
     fn durations(&self, visit: &mut dyn FnMut(&str, i64)) {
@@ -620,22 +661,13 @@ impl FactSource for FactUnion {
         }
     }
 
-    fn parks(&self, visit: &mut dyn FnMut(ParkFact)) {
-        let mut parks: Vec<(usize, ParkFact)> = Vec::new();
-        for (source, facts) in self.sources.iter().enumerate() {
-            facts.parks(&mut |park| parks.push((source, park)));
+    fn parks(&self, read: &mut dyn FnMut(&mut dyn Iterator<Item = ParkFact>)) {
+        let mut parks: Vec<ParkFact> = Vec::new();
+        for source in &self.sources {
+            source.parks(&mut |pulled| parks.extend(pulled));
         }
-        parks.sort_by(|(left_source, left), (right_source, right)| {
-            optional(left.phase.as_deref())
-                .cmp(&optional(right.phase.as_deref()))
-                .then(left.hearth.cmp(&right.hearth))
-                .then(left.run.cmp(&right.run))
-                .then(left_source.cmp(right_source))
-                .then(left.at.cmp(&right.at))
-        });
-        for (_, park) in parks {
-            visit(park);
-        }
+        parks.sort_by(|left, right| park_place(left).cmp(&park_place(right)));
+        read(&mut parks.into_iter());
     }
 
     fn spends(&self, visit: &mut dyn FnMut(SpendFact)) {
@@ -644,14 +676,15 @@ impl FactSource for FactUnion {
         }
     }
 
-    fn sites_in(&self, order: SiteOrder, visit: &mut dyn FnMut(SiteFact)) {
+    fn sites_in(&self, order: SiteOrder, read: &mut dyn FnMut(&mut dyn Iterator<Item = SiteFact>)) {
         let mut sites: Vec<SiteFact> = Vec::new();
         for source in &self.sources {
-            source.sites_in(order, &mut |site| sites.push(site));
+            source.sites_in(order, &mut |pulled| sites.extend(pulled));
         }
-        sites.sort_by(|left, right| site_key(left, order).cmp(&site_key(right, order)));
-        for site in sites {
-            visit(site);
-        }
+        sites.sort_by(|left, right| site_place(left, order).cmp(&site_place(right, order)));
+        read(&mut sites.into_iter());
     }
 }
+
+#[cfg(test)]
+mod tests;

@@ -217,6 +217,8 @@ fn run_facts(
         return None;
     }
     Some(RunFacts {
+        hearth: label.to_string(),
+        run: row.run_id.to_string(),
         realm: named.to_string(),
         recipe: row.recipe.map(str::to_string),
         open: row.open,
@@ -251,6 +253,8 @@ fn finished(row: &WindowRun<'_>) -> Option<Finished> {
 /// opens none), so it is left out.
 fn site_fact(site: &WindowSite<'_>, label: &str) -> Option<SiteFact> {
     Some(SiteFact {
+        hearth: label.to_string(),
+        run: site.run_id.to_string(),
         realm: site.realm.unwrap_or(label).to_string(),
         recipe: site.recipe.map(str::to_string),
         open: site.open,
@@ -270,14 +274,12 @@ impl FactSource for RowOnly {
         }
     }
 
-    fn runs_in(&self, order: RunOrder, visit: &mut dyn FnMut(RunFacts)) {
+    fn runs_in(&self, order: RunOrder, read: &mut dyn FnMut(&mut dyn Iterator<Item = RunFacts>)) {
         let runs = match order {
             RunOrder::Rule => &self.by_rule,
             RunOrder::Recipe => &self.by_recipe,
         };
-        for run in runs {
-            visit(run.clone());
-        }
+        read(&mut runs.iter().cloned());
     }
 
     fn durations(&self, visit: &mut dyn FnMut(&str, i64)) {
@@ -293,10 +295,8 @@ impl FactSource for RowOnly {
         }
     }
 
-    fn parks(&self, visit: &mut dyn FnMut(ParkFact)) {
-        for park in &self.parks {
-            visit(park.clone());
-        }
+    fn parks(&self, read: &mut dyn FnMut(&mut dyn Iterator<Item = ParkFact>)) {
+        read(&mut self.parks.iter().cloned());
     }
 
     fn spends(&self, visit: &mut dyn FnMut(SpendFact)) {
@@ -305,16 +305,14 @@ impl FactSource for RowOnly {
         }
     }
 
-    fn sites_in(&self, order: SiteOrder, visit: &mut dyn FnMut(SiteFact)) {
+    fn sites_in(&self, order: SiteOrder, read: &mut dyn FnMut(&mut dyn Iterator<Item = SiteFact>)) {
         let sites = match order {
             SiteOrder::Model => &self.model,
             SiteOrder::Provider => &self.provider,
             SiteOrder::RealmProvider => &self.realm_provider,
             SiteOrder::RecipeProvider => &self.recipe_provider,
         };
-        for site in sites {
-            visit(site.clone());
-        }
+        read(&mut sites.iter().cloned());
     }
 }
 
@@ -711,10 +709,10 @@ impl FactSource for HearthSource {
         }
     }
 
-    fn runs_in(&self, order: RunOrder, visit: &mut dyn FnMut(RunFacts)) {
+    fn runs_in(&self, order: RunOrder, read: &mut dyn FnMut(&mut dyn Iterator<Item = RunFacts>)) {
         match self {
-            HearthSource::Whole(whole) => whole.runs_in(order, visit),
-            HearthSource::Rows(rows) => rows.facts.runs_in(order, visit),
+            HearthSource::Whole(whole) => whole.runs_in(order, read),
+            HearthSource::Rows(rows) => rows.facts.runs_in(order, read),
         }
     }
 
@@ -725,10 +723,10 @@ impl FactSource for HearthSource {
         }
     }
 
-    fn parks(&self, visit: &mut dyn FnMut(ParkFact)) {
+    fn parks(&self, read: &mut dyn FnMut(&mut dyn Iterator<Item = ParkFact>)) {
         match self {
-            HearthSource::Whole(whole) => whole.parks(visit),
-            HearthSource::Rows(rows) => rows.facts.parks(visit),
+            HearthSource::Whole(whole) => whole.parks(read),
+            HearthSource::Rows(rows) => rows.facts.parks(read),
         }
     }
 
@@ -739,10 +737,10 @@ impl FactSource for HearthSource {
         }
     }
 
-    fn sites_in(&self, order: SiteOrder, visit: &mut dyn FnMut(SiteFact)) {
+    fn sites_in(&self, order: SiteOrder, read: &mut dyn FnMut(&mut dyn Iterator<Item = SiteFact>)) {
         match self {
-            HearthSource::Whole(whole) => whole.sites_in(order, visit),
-            HearthSource::Rows(rows) => rows.facts.sites_in(order, visit),
+            HearthSource::Whole(whole) => whole.sites_in(order, read),
+            HearthSource::Rows(rows) => rows.facts.sites_in(order, read),
         }
     }
 }
