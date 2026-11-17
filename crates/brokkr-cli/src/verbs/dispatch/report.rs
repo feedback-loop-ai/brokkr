@@ -13,7 +13,7 @@ use brokkr_runtime::dispatch::{
 };
 use brokkr_store::{Claim, Generation};
 
-use crate::render::Safe;
+use crate::render::{shell_word, Safe};
 
 /// The safe renderer every operator line uses (#468).
 fn safe(text: &str) -> String {
@@ -29,17 +29,7 @@ fn line(lines: &mut String, said: &str) {
 /// What a pass did, line by line.
 pub(super) fn passed(passed: &Passed, journal: &Path) -> String {
     let mut lines = String::new();
-    for settled in &passed.reconciled {
-        if let Settled::Reclaimed(claim) = settled {
-            line(
-                &mut lines,
-                &format!(
-                    "reconciled: {}, which no run carries, returned to its place",
-                    claimed(*claim)
-                ),
-            );
-        }
-    }
+    reconciled(&mut lines, passed);
     for Spawning {
         claim,
         run,
@@ -71,6 +61,31 @@ pub(super) fn passed(passed: &Passed, journal: &Path) -> String {
         &format!("queue: {waiting} waiting, {held} held"),
     );
     lines
+}
+
+/// What the reconciliation settled: each claim it returned to its place,
+/// and each linked run whose driver this pass did not reach, which a pass
+/// that ended or met a refused `spawn` row keeps (decision 0110 ruling 5)
+/// and the next pass's reconciliation spawns. A run this pass handed to a
+/// driver is named once, by its started line.
+fn reconciled(lines: &mut String, passed: &Passed) {
+    for settled in &passed.reconciled {
+        let said = match settled {
+            Settled::Reclaimed(claim) => format!(
+                "reconciled: {}, which no run carries, returned to its place",
+                claimed(*claim)
+            ),
+            Settled::ToSpawn(claim, run) if !passed.spawned.iter().any(|s| s.claim == *claim) => {
+                format!(
+                    "reconciled: run {run} under {} is linked with no driver yet; the next \
+                     pass spawns it",
+                    claimed(*claim)
+                )
+            }
+            Settled::ToSpawn(..) => continue,
+        };
+        line(lines, &said);
+    }
 }
 
 /// What each entry's start came to: started, left, reclaimed, held,
@@ -141,7 +156,8 @@ fn entries(lines: &mut String, passed: &Passed, journal: &Path) {
 }
 
 /// A run handed to its driver, or the spawn that failed and the command
-/// that resumes the run (`ResumeArgs`: `--run` and `--db`).
+/// that resumes the run (`ResumeArgs`: `--run` and `--db`), each of its
+/// values one shell word, so the command pastes as it reads (#820).
 fn started_line(
     claim: Claim,
     run: &str,
@@ -153,8 +169,9 @@ fn started_line(
         Ok(Spawned { pid }) => format!("started: run {run} under {under}, driver pid {pid}"),
         Err(SpawnFailed::Refused(why)) => format!(
             "spawn failed: run {run} under {under} reads running with no driver ({why}); \
-             resume it with: brokkr resume --run {run} --db {}",
-            journal.display()
+             resume it with: brokkr resume --run {} --db {}",
+            shell_word(run),
+            shell_word(&journal.to_string_lossy())
         ),
     }
 }

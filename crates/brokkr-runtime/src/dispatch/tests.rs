@@ -281,3 +281,36 @@ fn a_probe_beside_another_probe_reads_the_lock_free() {
     flock(&lock, FlockOperation::NonBlockingLockShared).unwrap();
     assert!(!super::dispatched(&path));
 }
+
+/// A FIFO where the lock file belongs, with no writer, neither blocks the
+/// probe in its open nor reads as held: it is no lock a dispatcher takes
+/// (#430 slice 6b review, R3).
+#[test]
+fn a_fifo_in_the_locks_place_reads_free_without_waiting() {
+    let dir = tempfile::tempdir().unwrap();
+    let (path, _store) = journal(dir.path());
+    let lock = dir.path().join("forge.db.dispatch.lock");
+    // By the POSIX utility: rustix offers `mknodat` on Linux only.
+    let made = std::process::Command::new("mkfifo").arg(&lock).status();
+    assert!(made.unwrap().success(), "mkfifo {}", lock.display());
+    let (sent, said) = std::sync::mpsc::channel();
+    std::thread::spawn(move || sent.send(super::dispatched(&path)).unwrap());
+    let read = said.recv_timeout(Duration::from_secs(10));
+    assert_eq!(read, Ok(false), "the probe answered at once, and free");
+}
+
+/// A lock file the shared home would refuse a dispatcher, here one its
+/// group can read, is no dispatcher's lock: held by whatever process, the
+/// probe reads it free, by the one judgment `take_dispatch` refuses by.
+#[test]
+fn a_held_lock_file_no_dispatcher_takes_reads_free() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let (path, _store) = journal(dir.path());
+    let lock = dir.path().join("forge.db.dispatch.lock");
+    let file = std::fs::File::create(&lock).unwrap();
+    file.set_permissions(std::fs::Permissions::from_mode(0o640))
+        .unwrap();
+    flock(&file, FlockOperation::NonBlockingLockExclusive).unwrap();
+    assert!(!super::dispatched(&path));
+}

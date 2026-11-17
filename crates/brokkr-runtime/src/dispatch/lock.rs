@@ -76,14 +76,18 @@ pub fn take_dispatch(store: &mut Store) -> Result<Result<Dispatcher, DispatcherE
 /// Whether a dispatcher holds `journal`'s lock now (decision 0110 ruling
 /// 6): the lock file opened read-only, never made and never through a
 /// link, tried shared and at once, and let go at once as it closes. A lock
-/// file that is absent, or does not open, is held by none. Shared, so two
-/// readers asking at once each read it free.
+/// file that is absent, does not open, or is not this user's own single
+/// file as the shared home judges one, is held by none: a dispatcher takes
+/// no other. The open itself never waits, so a FIFO in its place reads as
+/// no lock rather than blocking on a writer. Shared, so two readers asking
+/// at once each read it free.
 pub fn dispatched(journal: &Path) -> bool {
-    let flags = OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC;
+    let flags = OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC | OFlags::NONBLOCK;
     let Ok(lock) = openat(CWD, beside(journal), flags, Mode::empty()) else {
         return false;
     };
-    flock(&lock, FlockOperation::NonBlockingLockShared).is_err()
+    lock_file::judged(&lock, lock_file::user()).is_ok()
+        && flock(&lock, FlockOperation::NonBlockingLockShared).is_err()
 }
 
 /// [`take_dispatch`], opening its lock file by `open`.

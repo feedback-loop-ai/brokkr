@@ -43,6 +43,14 @@ pub(super) fn journal(dir: &Path) -> (PathBuf, Store) {
 /// One entry of `payload` queued and claimed by the dispatcher that takes
 /// the journal: the dispatcher, still holding it, and the claim.
 fn claimed_of(store: &mut Store, payload: &str) -> (Dispatcher, Claim) {
+    let dispatcher = take_dispatch(store).unwrap().unwrap();
+    let claim = claimed_by(store, &dispatcher, payload);
+    (dispatcher, claim)
+}
+
+/// One more entry of `payload` queued and claimed by `dispatcher`, which
+/// holds the journal `store` is open on.
+pub(super) fn claimed_by(store: &mut Store, dispatcher: &Dispatcher, payload: &str) -> Claim {
     let (priority, waits) = (0, &[][..]);
     let (operator, reason) = ("vy", "queued");
     let added = store.queue_add(
@@ -53,7 +61,6 @@ fn claimed_of(store: &mut Store, payload: &str) -> (Dispatcher, Claim) {
         },
         Attribution { operator, reason },
     );
-    let dispatcher = take_dispatch(store).unwrap().unwrap();
     let (generation, now) = (dispatcher.generation, time::OffsetDateTime::UNIX_EPOCH);
     let entry = &store.queue_entry(added.unwrap()).unwrap();
     let (high_water, digest) = (0, "d");
@@ -65,7 +72,7 @@ fn claimed_of(store: &mut Store, payload: &str) -> (Dispatcher, Claim) {
         now,
     };
     let judged = store.queue_claim_with(&over, "r", |_| Ok::<(), ()>(()));
-    (dispatcher, judged.unwrap().unwrap())
+    judged.unwrap().unwrap()
 }
 
 /// [`claimed_of`] an entry whose payload names no launch.
@@ -232,7 +239,14 @@ fn status_names_a_live_holder_held_and_a_dead_ones_journal_not_held() {
 fn status_names_a_lock_held_before_its_holder_row_is_recorded() {
     let dir = tempfile::tempdir().unwrap();
     let (db, _store) = journal(dir.path());
-    let lock = std::fs::File::create(dir.path().join("forge.db.dispatch.lock")).unwrap();
+    // Owner-only, as the shared lock-file home makes one: a lock file a
+    // dispatcher would refuse is no dispatcher's to hold.
+    let lock = std::os::unix::fs::OpenOptionsExt::mode(
+        std::fs::OpenOptions::new().write(true).create(true),
+        0o600,
+    )
+    .open(dir.path().join("forge.db.dispatch.lock"))
+    .unwrap();
     rustix::fs::flock(&lock, rustix::fs::FlockOperation::NonBlockingLockExclusive).unwrap();
     assert_eq!(
         status_of(dir.path(), &db),

@@ -10,7 +10,7 @@ use brokkr_runtime::sweep::Swept;
 use brokkr_store::{EntryId, StartRefusal, StoreError};
 use clap::Parser;
 
-use super::super::tests::{one_claim, OneClaim};
+use super::super::tests::{claimed_by, one_claim, OneClaim};
 use super::*;
 use crate::{Cli, Cmd};
 
@@ -144,14 +144,24 @@ fn a_pass_prints_one_safe_line_per_fact_and_its_counts_last() {
 }
 
 /// R3: the spawn failure's line gives the command that resumes the run,
-/// spelled from `ResumeArgs`, and clap parses it.
+/// spelled from `ResumeArgs`, and clap parses it as a shell splits it: a
+/// journal whose path holds a space and a quote is still one argument.
 #[test]
 fn a_spawn_failures_resume_command_parses() {
-    let OneClaim { db, claim, .. } = one_claim("{}");
+    let OneClaim { dir, claim, .. } = one_claim("{}");
+    let db = dir.path().join("the operator's journals/forge.db");
     let failed = Err(SpawnFailed::Refused("exec refused".into()));
     let said = started_line(claim, "run-f", &failed, &db);
     let (_, command) = said.split_once("resume it with: ").unwrap();
-    let words = command.split_whitespace();
+    // The shell's own split: each word it reads, ended by a NUL.
+    let split = std::process::Command::new("sh")
+        .arg("-c")
+        .arg(format!("printf '%s\\0' {command}"))
+        .output()
+        .unwrap();
+    assert!(split.status.success(), "{command}");
+    let text = String::from_utf8(split.stdout).unwrap();
+    let words = text.split_terminator('\0');
     let Cmd::Resume(args) = Cli::try_parse_from(words).unwrap().command else {
         panic!("{command} parses as resume");
     };
@@ -159,6 +169,64 @@ fn a_spawn_failures_resume_command_parses() {
         (args.run.as_str(), args.journal.db.as_deref()),
         ("run-f", Some(db.as_path()))
     );
+}
+
+/// A pass that ends in its reconciliation's spawns keeps every linked run
+/// it did not hand to a driver (decision 0110 ruling 5, part A's A1), and
+/// its lines name each by run and claim, the one it handed once.
+#[test]
+fn an_ending_names_every_reconciled_run_its_driver_did_not_reach() {
+    let OneClaim {
+        db,
+        claim,
+        mut _held,
+        ..
+    } = one_claim("{}");
+    let (store, dispatcher) = &mut _held;
+    // Each claim linked to its run before the next is taken, as the
+    // reconciliation finds them: linked, with no `spawn` row.
+    let link = |store: &mut brokkr_store::Store, claim, run: &str| {
+        let manifest = serde_json::json!({});
+        store.create_run(run, "f", "b", &manifest).unwrap();
+        let generation = dispatcher.generation;
+        store.queue_link(claim, generation, run, "r").unwrap();
+    };
+    link(store, claim, "run-a");
+    let second = claimed_by(store, dispatcher, "{}");
+    link(store, second, "run-b");
+    let third = claimed_by(store, dispatcher, "{}");
+    let ended = Ended {
+        ending: Ending::Replaced(Path::new("/opt/brokkr").into()),
+        passed: Passed {
+            reconciled: vec![
+                Settled::ToSpawn(claim, "run-a".into()),
+                Settled::ToSpawn(second, "run-b".into()),
+                Settled::ToSpawn(third, "run-c".into()),
+            ],
+            spawned: vec![Spawning {
+                claim,
+                run: "run-a".into(),
+                spawned: Ok(Spawned { pid: 9 }),
+            }],
+            ..Passed::default()
+        },
+    };
+    let said = super::ended(&ended, &db);
+    let pending = |under: Claim, run: &str| {
+        format!(
+            "reconciled: run {run} under {} is linked with no driver yet; the next pass spawns it",
+            claimed(under)
+        )
+    };
+    let expected = [
+        pending(second, "run-b"),
+        pending(third, "run-c"),
+        format!("started: run run-a under {}, driver pid 9", claimed(claim)),
+        "queue: 0 waiting, 0 held".to_string(),
+        format!("ended: {}", ended.ending),
+    ];
+    assert_eq!(said.lines().collect::<Vec<_>>(), expected);
+    assert_ne!(second, third, "two claims of their own");
 }
 
 #[test]
