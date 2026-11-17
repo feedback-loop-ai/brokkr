@@ -1,5 +1,5 @@
 //! Validation of the frozen seat-record contract — v1 (decision 0034)
-//! and v2 (decision 0035) through v6 (decision 0065 ruling 8), never one
+//! and v2 (decision 0035) through v7 (decision 0109 ruling 1), never one
 //! pretending to be another.
 //!
 //! Every schema is embedded beside this module so a packaged `brokkr`
@@ -35,6 +35,7 @@ const SCHEMA_V3: &str = include_str!("seat-record.v3.schema.json");
 const SCHEMA_V4: &str = include_str!("seat-record.v4.schema.json");
 const SCHEMA_V5: &str = include_str!("seat-record.v5.schema.json");
 const SCHEMA_V6: &str = include_str!("seat-record.v6.schema.json");
+const SCHEMA_V7: &str = include_str!("seat-record.v7.schema.json");
 
 const CONTRACT_V1: &str = "contracts/seat-record.v1.schema.json";
 const CONTRACT_V2: &str = "contracts/seat-record.v2.schema.json";
@@ -42,6 +43,7 @@ const CONTRACT_V3: &str = "contracts/seat-record.v3.schema.json";
 const CONTRACT_V4: &str = "contracts/seat-record.v4.schema.json";
 const CONTRACT_V5: &str = "contracts/seat-record.v5.schema.json";
 const CONTRACT_V6: &str = "contracts/seat-record.v6.schema.json";
+const CONTRACT_V7: &str = "contracts/seat-record.v7.schema.json";
 
 /// The engine line in which seat-record v2 landed. A run whose
 /// `run/started` manifest names an older engine is read under v1.
@@ -102,6 +104,17 @@ const V5_ENGINE: (u64, u64, u64) = (0, 10, 0);
 /// did under v5, and the 0.10 and 0.11 lines are dispatched to v5.
 const V6_ENGINE: (u64, u64, u64) = (0, 12, 0);
 
+/// The engine line in which seat-record v7 landed (decision 0109 ruling
+/// 1, slice 0109a1). Drawn at the 0.14 line, the development line on main
+/// after the 0.14.0 tag, on the same argument as `V2_ENGINE`: `engine`
+/// carries no position within a line, and v7 adds only optional
+/// properties on the successful result — `findings`, `follow_ups` and
+/// `covered` — and takes nothing away. So every record the tagged 0.14.0
+/// engine already wrote validates under v7 exactly as it did under v6,
+/// and the 0.12 and 0.13 lines are dispatched to v6, where any of the
+/// three is refused.
+const V7_ENGINE: (u64, u64, u64) = (0, 14, 0);
+
 /// Which seat-record contract a record is judged against.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SeatRecordVersion {
@@ -111,6 +124,7 @@ pub enum SeatRecordVersion {
     V4,
     V5,
     V6,
+    V7,
 }
 
 impl SeatRecordVersion {
@@ -126,9 +140,11 @@ impl SeatRecordVersion {
         // name directly to judge a record against it; it is simply never
         // what dispatch chooses. `V2_ENGINE` still draws v1's boundary,
         // `V4_ENGINE` draws v3's (decision 0046), `V5_ENGINE` draws v4's
-        // (proposed decision 0056 ruling 7), and `V6_ENGINE` draws v5's
-        // (decision 0065 ruling 8).
+        // (proposed decision 0056 ruling 7), `V6_ENGINE` draws v5's
+        // (decision 0065 ruling 8), and `V7_ENGINE` draws v6's (decision
+        // 0109 ruling 1).
         match semver_triple(engine) {
+            Some(version) if version >= V7_ENGINE => SeatRecordVersion::V7,
             Some(version) if version >= V6_ENGINE => SeatRecordVersion::V6,
             Some(version) if version >= V5_ENGINE => SeatRecordVersion::V5,
             Some(version) if version >= V4_ENGINE => SeatRecordVersion::V4,
@@ -156,6 +172,7 @@ impl SeatRecordVersion {
             SeatRecordVersion::V4 => CONTRACT_V4,
             SeatRecordVersion::V5 => CONTRACT_V5,
             SeatRecordVersion::V6 => CONTRACT_V6,
+            SeatRecordVersion::V7 => CONTRACT_V7,
         }
     }
 
@@ -167,6 +184,7 @@ impl SeatRecordVersion {
             SeatRecordVersion::V4 => SCHEMA_V4,
             SeatRecordVersion::V5 => SCHEMA_V5,
             SeatRecordVersion::V6 => SCHEMA_V6,
+            SeatRecordVersion::V7 => SCHEMA_V7,
         }
     }
 
@@ -181,6 +199,7 @@ impl SeatRecordVersion {
             SeatRecordVersion::V4 => &VALIDATOR_V4,
             SeatRecordVersion::V5 => &VALIDATOR_V5,
             SeatRecordVersion::V6 => &VALIDATOR_V6,
+            SeatRecordVersion::V7 => &VALIDATOR_V7,
         }
     }
 }
@@ -215,6 +234,9 @@ static VALIDATOR_V3: OnceLock<jsonschema::Validator> = OnceLock::new();
 static VALIDATOR_V4: OnceLock<jsonschema::Validator> = OnceLock::new();
 static VALIDATOR_V5: OnceLock<jsonschema::Validator> = OnceLock::new();
 static VALIDATOR_V6: OnceLock<jsonschema::Validator> = OnceLock::new();
+static VALIDATOR_V7: OnceLock<jsonschema::Validator> = OnceLock::new();
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod v7_tests;

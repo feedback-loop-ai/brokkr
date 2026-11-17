@@ -21,7 +21,7 @@ those bytes:
 |---|---|---|
 | Attempt-bound dispatch | `dispatch-envelope.v2.schema.json` | Looper, brokkr-core, Brokkr bridge |
 | Looper-bound run manifest | `run-manifest.v2.schema.json` | brokkr-runtime, brokkr-store export/resume, Brokkr bridge |
-| Seat record | `seat-record.v1.schema.json` | every driver, brokkr-store append/export/verify, every seat readout (superseded for new runs by `seat-record.v6.schema.json`, below) |
+| Seat record | `seat-record.v1.schema.json` | every driver, brokkr-store append/export/verify, every seat readout (superseded for new runs by `seat-record.v7.schema.json`, below) |
 
 The v2 manifest embeds the complete canonical dispatch envelope. The existing
 `runs.manifest` immutability trigger therefore makes Looper correlation,
@@ -1161,3 +1161,41 @@ kills, retries or admits an attempt reads it. `brokkr recipes usage`
 reads it, counting an ending without it as unmeasured, never as zero.
 Decision 0112, under which this contract was minted, was accepted by the
 operator on 2026-11-20.
+
+## Seat record with a gate's report (decision 0109)
+
+Decision 0109's first slice (0109a1, ruling 1) adds one file and changes
+none of the bytes above — `seat-record.v6`'s included, which is now pinned
+by digest beside the frozen files:
+
+| Contract | File | Consumers |
+|---|---|---|
+| Seat record with a gate's findings, follow-ups and covered identity | `seat-record.v7.schema.json` | brokkr-store append/export/verify (an embedded copy held byte-equal by test), `brokkr inspect`'s findings and covered lines, every seat readout |
+
+`seat-record.v7` is `v6` with its definitions kept under `$defs` and three
+optional properties on the successful result: `findings`, `follow_ups` and
+`covered`. A finding is closed: `site` (the 64-hex digest of the compiled
+structural site that reported it), `id` (`^[a-z0-9][a-z0-9._-]*$`, at most
+64 bytes), a repository-relative `file`, an optional positive `line`, a
+non-empty `summary`, a `severity` in `none < info < low < medium < high <
+critical` and a boolean `security`. Its key is `(site, id)` (ruling 3); the
+rest is the record. `follow_ups` has the same shape. `covered` is closed
+and tagged by `kind`: `head` with exactly one of `head` (a commit id) or
+`head_digest` (the SHA-256 of the protected phase's decide-time head
+string), beside `dirty`, and no `base`; or `artifacts` with at least one
+`{path, sha256}`.
+
+`covered`, `follow_ups` and each finding's `site` are the engine's: the
+engine refuses a seat result that carries any of them before this
+contract is asked, and stamps them itself (rulings 1 and 3). In this
+slice the engine writes `findings` wherever a seat reports them, each
+with its own site, and `covered` on a gate's result in the `head` arm
+only; the `artifacts` arm and `follow_ups` are admitted and written by no
+path until slices 0109c and 0109d, and every `dirty` is `true` until
+0109b's tree check proves a worktree clean.
+
+The store dispatches the 0.14 engine line and later to v7, and the 0.12
+and 0.13 lines to v6, at append, export, import verification and offline
+verification alike. 0.14 is the development line on main after the 0.14.0
+tag when v7 landed; the tagged 0.14.0 engine wrote none of the three, so
+every row it wrote reads under v7 exactly as it did under v6.
