@@ -280,3 +280,34 @@ compilation, producer-bridge conformance, and a checksum-verified platform
 matrix. Release archives and `SHA256SUMS` carry GitHub Sigstore build-provenance
 attestations; verify an asset with
 `gh attestation verify <asset> -R feedback-loop-ai/brokkr`.
+
+## A damaged journal
+
+A journal's own bytes can say it is damaged: SQLite reads a page as
+corrupt or the file as no database, the `meta` table records no schema,
+or a stored envelope is not JSON. A read that meets the damage refuses
+in one sentence, the same on every surface. It names the file and, for
+an envelope, the run and the row's seq:
+
+`` error: the journal '<path>' is damaged (<cause>); nothing was read from it; restore it from a backup with `brokkr restore` and see the guide's "A damaged journal" (#1000) ``
+
+Brokkr reports damage and never repairs it (decision 0001). A run whose
+rows still read and whose chain verifies is still inspected and
+exported, because its chain is the proof. A fleet listing quarantines a
+run whose envelope is damaged, with the same sentence, and lists the
+runs beside it; a many-hearth listing refuses a damaged hearth and lists
+the others.
+
+The way back is a backup. `brokkr backup --to <dir>` takes one
+consistent snapshot with its inventory. `brokkr restore --from <dir>
+--to <journal>` places it at a new path, which must not exist, only once
+the inventory, the snapshot's digest, SQLite's integrity, every chain
+and the counts pass. Take backups before you need them.
+
+SQLite's own `.recover` can salvage a copy of a damaged file, but
+passing SQLite's `integrity_check` does not make it whole: one recovered
+copy in #1000 lost two of its twenty runs and held an envelope that is
+not JSON. Before you point Brokkr at a recovered copy, check that every
+run in it passes `brokkr export` and `brokkr verify-run`, which verify
+its chain and not only SQLite's pages. Brokkr does not make that check
+for you yet: a supported recovery verb is a later slice of #1000.
