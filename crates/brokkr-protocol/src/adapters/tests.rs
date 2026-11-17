@@ -38,6 +38,8 @@ fn drain_into(
 
 mod claude_usage;
 mod codex_isolation;
+#[cfg(unix)]
+mod seat_git;
 use codex_isolation::{
     isolated, profiled_cold, strings, ISOLATION, READ_ONLY, SELECTOR, STORE, WORKSPACE_WRITE,
 };
@@ -8598,58 +8600,6 @@ fn a_real_linked_worktree_builds_the_runner_row_or_refuses_without_bubblewrap() 
     let refused =
         dsh_sandbox_row_for(alias.to_str().unwrap(), &alias_facts, "workspace-write").unwrap_err();
     assert!(refused.contains("another worktree's metadata"), "{refused}");
-}
-
-/// The gpgsign triple and the host identity reach the dsh child, so a
-/// seat's commit is unsigned and attributed to the operator.
-#[cfg(unix)]
-#[test]
-fn the_dsh_seat_commits_unsigned_under_the_host_identity() {
-    let mut env = EnvGuard::lock();
-    let dir = tempfile::tempdir().unwrap();
-    let repo = dir.path().join("repo");
-    std::fs::create_dir_all(&repo).unwrap();
-    for args in [
-        vec!["init", "-q", "-b", "main"],
-        vec!["config", "user.name", "Host Operator"],
-        vec!["config", "user.email", "host@example.invalid"],
-    ] {
-        let out = Command::new("git")
-            .args(&args)
-            .current_dir(&repo)
-            .output()
-            .unwrap();
-        assert!(out.status.success(), "git {args:?}");
-    }
-    let dump = dir.path().join("env");
-    let fake = executable(
-        dir.path(),
-        "dsh",
-        &format!("#!/bin/sh\nenv > {}\n", dump.display()),
-    );
-    env.set("BROKKR_DSH_BIN", &fake);
-    env.set("DSH_HOME", dir.path());
-
-    invoke(
-        AdapterKind::Dsh,
-        &[],
-        "p",
-        &json!({"workdir": repo}),
-        None,
-        &[],
-        &mut |_| {},
-    )
-    .unwrap();
-
-    let seen = std::fs::read_to_string(&dump).unwrap();
-    assert!(seen.contains("GIT_CONFIG_COUNT=1"), "{seen}");
-    assert!(seen.contains("GIT_CONFIG_KEY_0=commit.gpgsign"), "{seen}");
-    assert!(seen.contains("GIT_CONFIG_VALUE_0=false"), "{seen}");
-    assert!(seen.contains("GIT_AUTHOR_NAME=Host Operator"), "{seen}");
-    assert!(
-        seen.contains("GIT_COMMITTER_EMAIL=host@example.invalid"),
-        "{seen}"
-    );
 }
 
 /// The whole driver hand-off on a real linked worktree, without a model
