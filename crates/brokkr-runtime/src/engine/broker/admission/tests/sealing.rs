@@ -164,24 +164,36 @@ fn writable(at: &Path) {
     std::fs::set_permissions(run, std::fs::Permissions::from_mode(0o700)).unwrap();
 }
 
+/// What arms a seal's hook, given the deadline the seal is begun under.
+type Arming = fn(Instant) -> Late;
+
 /// M2 (run four's second review): a reseal whose undoing itself fails —
-/// the rename back refused, or the directory's sync after it failing — is
-/// refused as unsealed, whatever cut it short. The reservation that stood
-/// is the one every read finds: its very file under its prior name where
-/// it could not be renamed back, or back at its name. The next seal puts
-/// that file back at its name before anything else, so even cut short it
-/// leaves it there; and the run's next attempt joins that reservation, not
-/// the refused one, leaving no prior name behind.
+/// the link back refused, or the directory's sync after it failing — is
+/// refused as unsealed. The reservation that stood is the one every read
+/// finds: its very file under its prior name where it could not be linked
+/// back, or back at its name. The next seal puts that file back at its name
+/// before anything else, so even cut short it leaves it there; and the
+/// run's next attempt joins that reservation, not the refused one, leaving
+/// no prior name behind. No seal here spends time before its commit: each
+/// is cut short by a failed step, or, the one late, waits out its own
+/// deadline only once committed, so the refusal of a late seal whose undo
+/// fails is bound too. Under the house's deadline no load before the commit
+/// changes what it meets (#1099 F1).
 #[test]
 fn a_reseal_whose_undoing_fails_leaves_the_reservation_that_stood_read() {
-    let spent = Duration::from_millis(600);
-    for (armed, how) in [
-        (Late::DenyCommitted(spent), "its rename back refused"),
-        (Late::FailUndone(spent), "its undoing's sync failed"),
-    ] {
-        let (host, at, before) = joining(armed);
+    let cases: [(Arming, &str); 3] = [
+        (|_| Late::DenyCommitted, "its link back refused"),
+        (|_| Late::FailUndone, "its undoing's sync failed"),
+        (
+            Late::OutlastUndone,
+            "late once committed, its undoing's sync failed",
+        ),
+    ];
+    for (armed, how) in cases {
+        let deadline = soon();
+        let (host, at, before) = joining(armed(deadline));
         let work = host.worktree("work");
-        let joined = admit(&host.root, &open(&work, ["run-a", "a2"]), within(400));
+        let joined = admit(&host.root, &open(&work, ["run-a", "a2"]), deadline);
         writable(&at);
         assert_eq!(joined, mb3(Unknown::Unsealed), "{how}");
         let stood = if prior(&at).exists() {
@@ -200,9 +212,9 @@ fn a_reseal_whose_undoing_fails_leaves_the_reservation_that_stood_read() {
         assert_eq!(read, serde_json::from_slice(&before.0).unwrap(), "{how}");
         // The next seal first puts that very file back: cut short before
         // its own commit, it leaves the record that stood at its name.
-        LATE.set(Some(Late::Sleep(spent)));
-        let cut = admit(&host.root, &open(&work, ["run-a", "a3"]), within(400));
-        assert_eq!(cut, mb3(Unknown::Expired), "{how}");
+        LATE.set(Some(Late::Unstage));
+        let cut = admit(&host.root, &open(&work, ["run-a", "a3"]), soon());
+        assert_eq!(cut, mb3(Unknown::Unsealed), "{how}");
         kept(&at, &before, &format!("{how}, the next seal cut short"));
         drop(host.admit(&open(&work, ["run-a", "a3"])).unwrap());
         let joined = (vec!["a1".to_string(), "a3".to_string()], Vec::new());

@@ -8,7 +8,7 @@
 use std::cell::Cell;
 use std::io::Write;
 use std::os::fd::OwnedFd;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use rustix::fs::{AtFlags, Mode};
 
@@ -30,9 +30,10 @@ use crate::engine::broker::root::{Step, PRIOR};
 /// [`Late::RemovePriorRetiring`]; #1099), or replaces that prior name
 /// with a directory as the seal retires it ([`Late::PriorDirectoryRetiring`]);
 /// once renamed in, spends the time given, fails as its directory sync
-/// failing would, or spends it with the directory's write permission taken,
-/// or spends it and then fails the sync of its undoing (M2 of run four's
-/// second review); as it retires the record that stood, spends the time
+/// failing would, or fails so with the directory's write permission taken,
+/// or fails so and then fails the sync of its undoing too, or waits out the
+/// seal's own deadline and then fails that sync (M2 of run four's second
+/// review; #1099 F1); as it retires the record that stood, spends the time
 /// given or fails as the removal of its prior name failing would; and once
 /// committed, fails as its last directory sync failing would (R1, U8a2c).
 #[derive(Debug, Clone, Copy)]
@@ -57,8 +58,9 @@ pub(super) enum Late {
     FailExchanged,
     SleepCommitted(Duration),
     FailCommitted,
-    DenyCommitted(Duration),
-    FailUndone(Duration),
+    DenyCommitted,
+    FailUndone,
+    OutlastUndone(Instant),
     Undoing,
     SleepRetiring(Duration),
     FailRetiring,
@@ -179,13 +181,27 @@ pub(super) fn late(step: Step, dir: &OwnedFd, staged: &str) -> std::io::Result<(
                 "the undo was cut short after its exchange",
             ))
         }
-        (Step::Committed, Some(Late::DenyCommitted(spent))) => {
+        // Once renamed in, the directory's write permission is taken and
+        // its sync fails, so the undo that follows cannot link the record
+        // that stood back. No time is spent, so no load can make the seal
+        // late before its commit (#1099 F1).
+        (Step::Committed, Some(Late::DenyCommitted)) => {
             denied(dir);
-            std::thread::sleep(spent)
+            return Err(std::io::Error::other("the directory sync failed"));
         }
-        (Step::Committed, Some(Late::FailUndone(spent))) => {
+        // Once renamed in, the directory's sync fails, and so does the sync
+        // of the undo that follows (#1099 F1).
+        (Step::Committed, Some(Late::FailUndone)) => {
             LATE.set(Some(Late::Undoing));
-            std::thread::sleep(spent)
+            return Err(std::io::Error::other("the directory sync failed"));
+        }
+        // Once renamed in, the seal waits until its own deadline has passed,
+        // so it is late only after its commit however long the steps before
+        // took, and the sync of the undo that follows fails (#1099 F1).
+        (Step::Committed, Some(Late::OutlastUndone(deadline))) => {
+            let left = deadline.saturating_duration_since(Instant::now());
+            std::thread::sleep(left + Duration::from_millis(1));
+            LATE.set(Some(Late::Undoing));
         }
         (Step::Committed, Some(Late::FailCommitted))
         | (Step::Undone, Some(Late::Undoing))
