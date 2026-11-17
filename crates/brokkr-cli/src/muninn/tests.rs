@@ -843,7 +843,12 @@ fn a_run_the_journal_cannot_read_names_itself_rather_than_vanishing() {
     assert_eq!(derived.value["runs"][0]["seq"], 0);
     assert_eq!(
         derived.value["runs"][0]["fold_error"],
-        "json: expected ident at line 1 column 2"
+        format!(
+            "the journal '{}' is damaged (run 'broken-run' holds an envelope at seq 1 that is \
+             not JSON); nothing was read from it; restore it from a backup with `brokkr \
+             restore` and see the guide's \"A damaged journal\" (#1000)",
+            broken.db().display()
+        )
     );
     assert_eq!(derived.value["fleet"]["quarantined"], 1);
     assert!(derived.states("broken-run", 0));

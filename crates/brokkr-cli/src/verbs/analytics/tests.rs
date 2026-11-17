@@ -1213,7 +1213,13 @@ fn a_hearth_the_fleet_refuses_contributes_no_rows() {
         "the store's refusal, the same text the fleet read states"
     );
     assert_eq!(
-        rows.quarantined[0].refusal, "sqlite: file is not a database",
+        rows.quarantined[0].refusal,
+        format!(
+            "the journal '{}' is damaged (SQLite reads it as no database); nothing was read \
+             from it; restore it from a backup with `brokkr restore` and see the guide's \
+             \"A damaged journal\" (#1000)",
+            journal.display()
+        ),
         "the refusal's whole text, so a rewrite of it is a decision"
     );
     assert!(rows.realms.is_empty(), "no realm is listed");

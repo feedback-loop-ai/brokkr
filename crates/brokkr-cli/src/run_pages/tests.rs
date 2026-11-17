@@ -429,9 +429,17 @@ fn the_view_whole_reads_its_opening_its_trail_its_summary_and_its_seat_rows() {
     let trail: Vec<Option<u64>> = trail.map(|event| Some(event.seq)).collect();
     assert_eq!(
         (begun[0].clone(), trail.len()),
-        (format!("{keyed} ORDER BY seq"), 17)
+        (
+            format!(
+                "SELECT envelope, seq FROM events WHERE run_id = '{}' ORDER BY seq",
+                grown::RUN
+            ),
+            17
+        )
     );
-    assert_eq!(envelopes[1..], trail);
+    // The ordered scan reads `envelope, seq` (#1000: a damaged row is named by
+    // its seq), so only the per-event reads match `keyed`.
+    assert_eq!(envelopes, trail);
     let aggregate = |sql: &str| {
         sql.starts_with("SELECT value FROM meta WHERE key = 'queue_schema'")
             || sql.starts_with(concat!(
