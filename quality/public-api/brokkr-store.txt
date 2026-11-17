@@ -168,6 +168,9 @@ pub brokkr_store::Disagreement::Unread::error: brokkr_store::StoreError
 pub brokkr_store::Disagreement::Unread::run_id: alloc::string::String
 impl core::fmt::Display for brokkr_store::Disagreement
 pub fn brokkr_store::Disagreement::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub enum brokkr_store::Disposal
+pub brokkr_store::Disposal::Held(brokkr_store::StartRefusal, u32)
+pub brokkr_store::Disposal::Reclaimed(u32)
 pub enum brokkr_store::EntryState
 pub brokkr_store::EntryState::Claimed
 pub brokkr_store::EntryState::Claimed::run: alloc::string::String
@@ -198,7 +201,7 @@ pub brokkr_store::QueueCommand::Move::to: u32
 pub brokkr_store::QueueCommand::Release
 pub enum brokkr_store::QueueRefusal
 pub brokkr_store::QueueRefusal::AlreadyHeld(brokkr_store::EntryId)
-pub brokkr_store::QueueRefusal::BundleMoved(brokkr_store::Claim, alloc::string::String)
+pub brokkr_store::QueueRefusal::BundleMoved(brokkr_store::Claim, alloc::boxed::Box<(alloc::string::String, alloc::string::String)>)
 pub brokkr_store::QueueRefusal::Carried(brokkr_store::Claim, alloc::vec::Vec<alloc::string::String>)
 pub brokkr_store::QueueRefusal::Claimed
 pub brokkr_store::QueueRefusal::Claimed::entry: brokkr_store::EntryId
@@ -566,7 +569,7 @@ pub fn brokkr_store::Store::high_water(&self) -> core::result::Result<i64, brokk
 pub fn brokkr_store::Store::journal(&self) -> core::result::Result<core::option::Option<uuid::Uuid>, brokkr_store::StoreError>
 pub fn brokkr_store::Store::queue_claim_with<R>(&mut self, &brokkr_store::Claiming<'_>, &str, impl core::ops::function::FnMut(brokkr_store::ClaimFacts<'_>) -> core::result::Result<(), R>) -> core::result::Result<core::result::Result<brokkr_store::Claim, R>, brokkr_store::StoreError>
 pub fn brokkr_store::Store::queue_link(&mut self, brokkr_store::Claim, brokkr_store::Generation, &str, &str) -> core::result::Result<(), brokkr_store::StoreError>
-pub fn brokkr_store::Store::queue_reclaim(&mut self, brokkr_store::Claim, brokkr_store::Generation, core::option::Option<brokkr_store::StartRefusal>, core::num::nonzero::NonZeroU32, &str) -> core::result::Result<u32, brokkr_store::StoreError>
+pub fn brokkr_store::Store::queue_reclaim(&mut self, brokkr_store::Claim, brokkr_store::Generation, core::option::Option<brokkr_store::StartRefusal>, core::num::nonzero::NonZeroU32, &str) -> core::result::Result<brokkr_store::Disposal, brokkr_store::StoreError>
 pub fn brokkr_store::Store::queue_spawn(&mut self, brokkr_store::Claim, brokkr_store::Generation, &str) -> core::result::Result<(), brokkr_store::StoreError>
 pub fn brokkr_store::Store::queue_unsettled_with<R>(&mut self, brokkr_store::Generation, impl core::ops::function::FnMut(core::option::Option<uuid::Uuid>) -> core::result::Result<(), R>) -> core::result::Result<core::result::Result<(alloc::vec::Vec<(brokkr_store::Claim, core::option::Option<alloc::string::String>)>, alloc::vec::Vec<(brokkr_store::Claim, alloc::string::String)>), R>, brokkr_store::StoreError>
 impl brokkr_store::Store

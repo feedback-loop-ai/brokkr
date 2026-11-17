@@ -60,6 +60,14 @@ fn one_pass_pid(
     (passed, seen)
 }
 
+/// The private seams with `observe` and the real launch.
+fn watching<O: FnMut(Stage)>(observe: O) -> Watch<O> {
+    Watch {
+        observe,
+        launch: crate::launch::start,
+    }
+}
+
 /// Run `script` on a connection to `store`'s journal.
 fn sql(store: &Store, script: &str) {
     rusqlite::Connection::open(store.path())
@@ -187,6 +195,19 @@ fn a_named_map_whose_house_moved() -> (Fixture, EntryId, Dispatcher, std::path::
     (fixture, entry, dispatcher, host)
 }
 
+/// Assert `left` names the one run `run`, under the one claim the journal
+/// holds, by its entry and seq.
+fn assert_left(store: &Store, left: &[Left], run: &str) {
+    let (seq, entry, ..) = claims(store)[0];
+    let [left] = left else {
+        panic!("{left:?}");
+    };
+    assert_eq!(
+        (left.claim.parts(), left.run.as_str()),
+        ((EntryId(entry), seq), run)
+    );
+}
+
 /// A stand that stands once and ends on every call after.
 fn stands_once() -> impl FnMut() -> Result<(), Ending> {
     let mut calls = 0;
@@ -254,6 +275,13 @@ fn one_pass_starts_one_admitted_entry_and_a_second_starts_nothing() {
     assert_eq!(seen[0].run, started.run);
     assert_eq!(seen[0].entry, entry);
     assert_eq!(seen[0].claim, started.claim);
+    // The run carries the claim it was started under (decision 0095
+    // ruling 5), which reconciliation reads.
+    let (entry_id, seq) = started.claim.parts();
+    assert_eq!(
+        fixture.store.manifest(&started.run).unwrap()["queue_entry"],
+        json!({"entry": entry_id.0, "claim": seq})
+    );
 
     let (again, seen) = one_pass(&mut fixture.store, &dispatcher, &file);
     assert!(
@@ -276,7 +304,7 @@ fn the_pass_runs_reconcile_sweep_bound_judge_and_start_in_that_order() {
         &host(&file),
         OsString::new(),
         seams,
-        |step| record.borrow_mut().push(step),
+        watching(|step| record.borrow_mut().push(step)),
     )
     .unwrap();
     assert_eq!(passed.started.len(), 1);
@@ -362,10 +390,17 @@ fn a_bound_read_refusal_is_split_by_its_class() {
 
 #[test]
 fn two_admitted_entries_under_one_provider_ceiling_start_only_the_first() {
-    let (mut fixture, file, dispatcher, entries) = setup(2);
+    let (mut fixture, file, dispatcher, entries) = setup(3);
     let first = entries[0];
     let second = entries[1];
+    let by = brokkr_store::Attribution {
+        operator: "vy",
+        reason: "held",
+    };
+    let hold = brokkr_store::QueueCommand::Hold;
+    fixture.store.queue_command(entries[2], hold, by).unwrap();
     let (passed, seen) = one_pass(&mut fixture.store, &dispatcher, &file);
+    assert_eq!((passed.waiting, passed.held_entries), (0, 1));
     assert_eq!(passed.started.len(), 1);
     assert_eq!(passed.started[0].entry, first);
     assert_eq!(
@@ -382,6 +417,10 @@ fn two_admitted_entries_under_one_provider_ceiling_start_only_the_first() {
     assert_eq!(seen.len(), 1);
     assert_eq!(runs(&fixture.store).len(), 1);
     assert_eq!(state(&fixture.store, second), EntryState::Queued);
+
+    // The next pass judges the second entry waiting on the full ceiling.
+    let (again, _) = one_pass(&mut fixture.store, &dispatcher, &file);
+    assert_eq!((again.waiting, again.held_entries), (1, 1));
 }
 
 #[test]
@@ -438,7 +477,12 @@ fn a_stand_that_ends_before_a_spawn_row_leaves_the_entry_for_reconciliation() {
     let refused = run_pass(&mut fixture.store, &dispatcher, &file, seams).unwrap_err();
     assert!(matches!(refused.ending, Ending::Stood));
     let read = fixture.store.queue_entry(entry).unwrap();
-    assert!(matches!(read.state, EntryState::Claimed { .. }));
+    let EntryState::Claimed { run } = read.state else {
+        panic!("{:?}", read.state);
+    };
+    // The ending's report names the run and its claim (6a F2).
+    assert_left(&fixture.store, &refused.passed.left, &run);
+    assert!(refused.passed.started.is_empty());
     assert_eq!(
         commands(&fixture.store)
             .into_iter()
@@ -586,7 +630,10 @@ fn a_compile_refusal_under_a_bound_of_one_holds_the_entry_with_its_variant() {
         .into_iter()
         .find(|(_, command, ..)| command == "hold")
         .expect("a hold");
-    assert_eq!(reason, "compile");
+    // The class word, then the start's own words (#430 c-6928014415, F3).
+    assert!(reason.starts_with("compile: "), "{reason}");
+    assert!(reason.len() > "compile: ".len(), "{reason}");
+    assert_eq!(passed.held[0].reason, reason);
     assert_eq!(command, "hold");
     let conn = rusqlite::Connection::open(fixture.store.path()).unwrap();
     let stored: String = conn
@@ -791,10 +838,10 @@ fn a_spawn_failure_is_reported_with_the_run_and_never_retried() {
         started.spawned,
         Err(crate::dispatch::SpawnFailed::Refused(ref why)) if why == "no descriptor"
     ));
-    assert!(!started.run.is_empty());
-    // The report names the run beside the seam's refusal; 6b's view words
-    // the command that resumes it (decision 0071 ruling 7).
-    assert_eq!(started.run, passed.started[0].run);
+    // The report names the run the journal holds beside the seam's
+    // refusal; 6b's view words the command that resumes it (decision 0071
+    // ruling 7).
+    assert_eq!(runs(&fixture.store), vec![started.run.clone()]);
     let second = run_pass(&mut fixture.store, &dispatcher, &file, quiet()).unwrap();
     assert!(second.started.is_empty());
     assert!(second.spawned.is_empty());
@@ -863,6 +910,7 @@ fn every_start_outcome_is_reported_and_only_two_stop_the_claims() {
             claim,
             refused: None,
             count: 0,
+            reason: "r".into(),
         })
     ));
     assert!(record_start(
@@ -871,6 +919,7 @@ fn every_start_outcome_is_reported_and_only_two_stop_the_claims() {
             claim,
             refusal: StartRefusal::Compile,
             count: 1,
+            reason: "compile: c".into(),
         })
     ));
     assert!(record_start(
@@ -1134,7 +1183,7 @@ fn a_contended_judge_is_reported_and_claims_nothing() {
         &host(&host_file),
         OsString::new(),
         quiet(),
-        move |stage| {
+        watching(move |stage| {
             if stage != Stage::Judge {
                 return;
             }
@@ -1143,7 +1192,7 @@ fn a_contended_judge_is_reported_and_claims_nothing() {
                 .unwrap();
             conn.execute_batch("BEGIN IMMEDIATE").unwrap();
             *lock.borrow_mut() = Some(conn);
-        },
+        }),
     )
     .unwrap();
     let conn = held.borrow_mut().take();
@@ -1231,4 +1280,158 @@ fn a_crossing_that_moves_between_the_pass_and_the_start_counts_a_reclaim() {
     assert_eq!(passed.reclaimed.len(), 1, "{passed:?}");
     assert_eq!(passed.reclaimed[0].refused, Some(StartRefusal::Crossing));
     assert_eq!(passed.reclaimed[0].count, 1);
+}
+
+/// 6a F1: a stand that ends in the reconciliation's spawn keeps the run it
+/// stood on, and every later item, in `Ended.passed.reconciled`.
+#[test]
+fn a_stand_that_ends_in_the_reconciliation_spawn_keeps_every_settled_item() {
+    use crate::dispatch::reconcile::Settled;
+
+    let dir = tempfile::tempdir().unwrap();
+    let (claimed, run, mut store) = linked_claimed(dir.path());
+    let seams = Seams {
+        stands: || Err(Ending::Stood),
+        spawn: spawned_one,
+    };
+    let host_file = dir.path().join("absent-host.json");
+    let ended = run_pass(&mut store, &claimed._dispatcher, &host_file, seams).unwrap_err();
+    assert!(matches!(ended.ending, Ending::Stood));
+    assert_eq!(
+        ended.passed.reconciled,
+        vec![Settled::ToSpawn(claimed.claim, run)]
+    );
+    assert!(ended.passed.spawned.is_empty());
+}
+
+/// 6a F2: a `spawn` row the store refuses ends the pass, and the ending's
+/// report names the run it linked and its claim.
+#[test]
+fn a_refused_spawn_row_ends_the_pass_naming_the_run_it_linked() {
+    let (mut fixture, file, dispatcher, entries) = setup(1);
+    sql(
+        &fixture.store,
+        "CREATE TRIGGER no_spawn BEFORE INSERT ON queue_commands \
+         WHEN NEW.command = 'spawn' BEGIN SELECT RAISE(ABORT, 'no spawn'); END;",
+    );
+    let ended = run_pass(&mut fixture.store, &dispatcher, &file, quiet()).unwrap_err();
+    assert!(matches!(ended.ending, Ending::Store(StoreError::Sqlite(_))));
+    let EntryState::Claimed { run } = state(&fixture.store, entries[0]) else {
+        panic!("linked");
+    };
+    assert_left(&fixture.store, &ended.passed.left, &run);
+    assert!(ended.passed.started.is_empty());
+}
+
+/// A launch whose start is `Contended`, writing no run: the pass-level
+/// fault a `Contended` start is stood by.
+fn contended_start(
+    _: crate::launch::LaunchRequest,
+    _: crate::launch::NewRun,
+    _: &mut dyn FnMut(&str),
+) -> Result<crate::Engine, LaunchError> {
+    Err(LaunchError::Store(StoreError::Contended {
+        operation: "start_run",
+        waited_ms: 1,
+    }))
+}
+
+/// A launch refused as a compile that first takes the journal's write lock
+/// and lets it go 150ms later, so the disposal after it is `Contended`
+/// until it lands.
+fn refused_under_a_held_lock(
+    request: crate::launch::LaunchRequest,
+    _: crate::launch::NewRun,
+    _: &mut dyn FnMut(&str),
+) -> Result<crate::Engine, LaunchError> {
+    let holder = lock_journal(&request.journal);
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(150));
+        holder.execute_batch("ROLLBACK").unwrap();
+    });
+    Err(LaunchError::RecipeNotFound {
+        name: "recipe".into(),
+        recipes_dir: "recipes".into(),
+    })
+}
+
+/// One pass over `fixture`'s journal whose every start is `launch`.
+fn faulted(
+    fixture: &mut Fixture,
+    dispatcher: &Dispatcher,
+    file: &Path,
+    launch: crate::dispatch::start::Launch,
+) -> Passed {
+    let watch = Watch {
+        observe: |_| {},
+        launch,
+    };
+    let host = host(file);
+    pass_with(
+        &mut fixture.store,
+        dispatcher,
+        &host,
+        OsString::new(),
+        quiet(),
+        watch,
+    )
+    .unwrap()
+}
+
+/// Decision 0110 ruling 2, through the pass: a `Contended` start returns
+/// its entry uncounted, and the pass goes on.
+#[test]
+fn a_contended_start_is_reclaimed_uncounted() {
+    let (mut fixture, file, dispatcher, entries) = setup(1);
+    let passed = faulted(&mut fixture, &dispatcher, &file, contended_start);
+    assert_eq!(passed.reclaimed.len(), 1, "{passed:?}");
+    let reclaimed = &passed.reclaimed[0];
+    assert_eq!((reclaimed.refused, reclaimed.count), (None, 0));
+    let (entry, seq) = reclaimed.claim.parts();
+    let said = format!("start contended: claim {seq} of entry {entry} wrote no run");
+    assert_eq!(reclaimed.reason, said);
+    assert_eq!(state(&fixture.store, entries[0]), EntryState::Queued);
+    assert_eq!(runs(&fixture.store), Vec::<String>::new());
+    let refusals = crate::dispatch::pass::tests::support::refusals(&fixture.store);
+    assert_eq!(refusals, Vec::<String>::new());
+}
+
+/// Decision 0095 ruling 7, through the pass: a `Contended` disposal is
+/// retried until its hold lands, and no further claim lands before it.
+#[test]
+fn a_contended_disposal_is_retried_until_it_lands_with_no_other_claim() {
+    let (mut fixture, file, dispatcher, entries) = setup(2);
+    fixture
+        .store
+        .set_patience(std::time::Duration::from_millis(20))
+        .unwrap();
+    let by = brokkr_store::Attribution {
+        operator: "vy",
+        reason: "bound",
+    };
+    let one = std::num::NonZeroU32::MIN;
+    fixture.store.set_dispatch_bound(one, by).unwrap();
+    let passed = faulted(&mut fixture, &dispatcher, &file, refused_under_a_held_lock);
+    assert_eq!(passed.held.len(), 2, "{passed:?}");
+    assert!(passed.contended.is_empty(), "{:?}", passed.contended);
+    let conn = rusqlite::Connection::open(fixture.store.path()).unwrap();
+    let mut rows = conn
+        .prepare("SELECT command, entry_id FROM queue_commands WHERE command != 'add' ORDER BY seq")
+        .unwrap();
+    let read = |row: &rusqlite::Row<'_>| Ok((row.get(0)?, EntryId(row.get(1)?)));
+    let steps: Vec<(String, EntryId)> = rows
+        .query_map([], read)
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    let [first, second] = [entries[0], entries[1]];
+    assert_eq!(
+        steps,
+        [
+            ("claim".to_string(), first),
+            ("hold".into(), first),
+            ("claim".into(), second),
+            ("hold".into(), second),
+        ]
+    );
 }

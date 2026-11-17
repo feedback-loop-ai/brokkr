@@ -67,15 +67,16 @@ fn the_probe_measures_free_bytes_and_says_why_it_cannot() {
     assert_eq!(kind(nowhere), ErrorKind::NotFound);
 }
 
-/// The sample host configuration the operator's guide shows.
-fn guide_sample() -> Value {
+/// The sample host configuration the operator's guide shows, a
+/// `forge.host/v4` file (6d L1).
+pub(crate) fn guide_sample() -> Value {
     let guide = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/guides/read-surfaces.md");
     let text = std::fs::read_to_string(guide).unwrap();
     let (_, after) = text
-        .split_once("```json\n{\n  \"schema\": \"forge.host/v1\"")
+        .split_once("```json\n{\n  \"schema\": \"forge.host/v4\"")
         .unwrap();
     let (rest, _) = after.split_once("```").unwrap();
-    serde_json::from_str(&format!("{{\n  \"schema\": \"forge.host/v1\"{rest}")).unwrap()
+    serde_json::from_str(&format!("{{\n  \"schema\": \"forge.host/v4\"{rest}")).unwrap()
 }
 
 /// The published contract `name`, judged by its own JSON Schema.
@@ -109,7 +110,6 @@ fn the_contract_and_the_loader_admit_and_refuse_the_same_files() {
     };
     let admitted = [
         minimal.clone(),
-        guide_sample(),
         route(json!({"ceiling": 4_294_967_295_u64, "class": "cloud"})),
         floor(json!({"path": "/var/tmp", "floor_bytes": u64::MAX})),
         floor(json!({"place": "seat-scratch", "floor_bytes": 1})),
@@ -151,7 +151,7 @@ fn the_contract_and_the_loader_admit_and_refuse_the_same_files() {
         let loaded = serde_json::from_slice::<HostConfig>(&bytes).is_ok();
         (validator.is_valid(host), loaded)
     };
-    assert_eq!(admitted.each_ref().map(judged), [(true, true); 6]);
+    assert_eq!(admitted.each_ref().map(judged), [(true, true); 5]);
     assert_eq!(refused.each_ref().map(judged), [(false, false); 27]);
 
     // JSON Schema cannot say a key is written once, nor that two floors

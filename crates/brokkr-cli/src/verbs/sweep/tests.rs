@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use brokkr_core::envelope::EventType;
-use brokkr_runtime::DispatcherError;
+use brokkr_runtime::dispatch::DispatcherError;
 use brokkr_store::{Store, Swept as Closed};
 use clap::Parser;
 use serde_json::json;
@@ -279,7 +279,9 @@ fn the_grouped_dispatch_runs_a_sweep() {
 #[test]
 fn a_second_sweeper_is_refused_by_the_lock_by_name_recording_nothing() {
     let (_env, places, database, mut store, tree, _) = ready("run");
-    let held = brokkr_runtime::take_dispatch(&mut store).unwrap().unwrap();
+    let held = brokkr_runtime::dispatch::take_dispatch(&mut store)
+        .unwrap()
+        .unwrap();
 
     let refused = sweep(places.as_path(), parsed(&database, false), &mut Vec::new()).unwrap_err();
 

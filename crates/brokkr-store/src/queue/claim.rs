@@ -533,9 +533,22 @@ pub fn claim_stands(
         let claimed: String = tx.query_row(query, [claim.seq], |row| row.get(0))?;
         match claimed == digest {
             true => Ok(()),
-            false => Err(QueueRefusal::BundleMoved(claim, claimed).into()),
+            false => {
+                let digests = Box::new((claimed, digest.to_owned()));
+                Err(QueueRefusal::BundleMoved(claim, digests).into())
+            }
         }
     }
+}
+
+/// How a reclaim disposed of its entry (decision 0095 ruling 7), with the
+/// entry's count of counted refusals since its latest `release`: returned
+/// to its place, or held at the bound by the refusal that reached it. The
+/// store decides which, so the rule lives here alone.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Disposal {
+    Reclaimed(u32),
+    Held(StartRefusal, u32),
 }
 
 /// The refusals counted against `entry` since its latest `release`, or
@@ -554,13 +567,14 @@ fn counted(tx: &Transaction<'_>, entry: EntryId) -> Result<Vec<Counted>, StoreEr
 
 /// Return the entry launching under `under`'s claim to the queue, or hold
 /// it where `refused` counts and brings its count to `bound`, writing the
-/// counted refusal's row keyed by that command; and say the count.
+/// counted refusal's row keyed by that command; and say which, with the
+/// count.
 fn reclaim_in(
     tx: &Transaction<'_>,
     under: Under<'_>,
     refused: Option<StartRefusal>,
     bound: NonZeroU32,
-) -> Result<u32, StoreError> {
+) -> Result<Disposal, StoreError> {
     let Under {
         claim,
         generation,
@@ -573,9 +587,11 @@ fn reclaim_in(
         return Err(QueueRefusal::RunTaken { run, entry }.into());
     }
     let count = counted(tx, claim.entry)?.len() as u32 + u32::from(refused.is_some());
-    let (standing, step) = match refused.is_some() && count >= bound.get() {
-        true => (Standing::Held, Step::Hold),
-        false => (Standing::Queued, Step::Reclaim),
+    let (disposal, standing, step) = match refused {
+        Some(refusal) if count >= bound.get() => {
+            (Disposal::Held(refusal, count), Standing::Held, Step::Hold)
+        }
+        _ => (Disposal::Reclaimed(count), Standing::Queued, Step::Reclaim),
     };
     set_standing(tx, claim.entry, standing)?;
     let seq = journal(tx, claim.entry, step, generation, reason)?;
@@ -585,7 +601,7 @@ fn reclaim_in(
             params![seq, claim.entry.0, refused.word()],
         )?;
     }
-    Ok(count)
+    Ok(disposal)
 }
 
 /// What a dispatcher left unsettled (decision 0095 ruling 3): each entry
@@ -727,11 +743,12 @@ impl Store {
     /// wrote no run. Its next claim is a new one. A start its admission
     /// `refused` is counted against the entry by a `queue_refusals` row
     /// keyed by the command that disposes of it; a digest refusal or a
-    /// `Contended` start passes `None` and is not. Says the entry's count
-    /// since its latest `release`, this refusal included, read in the same
-    /// transaction. A counted refusal that brings the count to `bound`, the
-    /// journal's bound as the pass read it at its start, holds the entry
-    /// instead, by the dispatcher's `hold`, for the operator to release.
+    /// `Contended` start passes `None` and is not. Says the [`Disposal`],
+    /// with the entry's count since its latest `release`, this refusal
+    /// included, read in the same transaction. A counted refusal that
+    /// brings the count to `bound`, the journal's bound as the pass read it
+    /// at its start, holds the entry instead, by the dispatcher's `hold`,
+    /// for the operator to release.
     pub fn queue_reclaim(
         &mut self,
         claim: Claim,
@@ -739,7 +756,7 @@ impl Store {
         refused: Option<StartRefusal>,
         bound: NonZeroU32,
         reason: &str,
-    ) -> Result<u32, StoreError> {
+    ) -> Result<Disposal, StoreError> {
         let under = Under {
             claim,
             generation,

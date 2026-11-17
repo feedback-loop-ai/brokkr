@@ -29,7 +29,7 @@ pub(crate) fn sweep(
         }
         false => {
             let mut store = open_journal(&db, Access::Append)?;
-            let held = match brokkr_runtime::take_dispatch(&mut store)? {
+            let held = match brokkr_runtime::dispatch::take_dispatch(&mut store)? {
                 Ok(held) => held,
                 Err(refused) => return Err(anyhow!(refused)),
             };

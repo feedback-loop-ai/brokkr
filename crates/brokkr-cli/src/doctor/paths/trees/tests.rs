@@ -415,7 +415,9 @@ fn a_tree_recreated_at_a_closed_rows_path_is_named_with_its_size() {
         .record_seat_tree(RUN, "effect", attempt, &root)
         .unwrap();
     let row = store.seat_trees(RUN).unwrap()[0].clone();
-    let held = brokkr_runtime::take_dispatch(&mut store).unwrap().unwrap();
+    let held = brokkr_runtime::dispatch::take_dispatch(&mut store)
+        .unwrap()
+        .unwrap();
     store
         .record_tree_sweep(
             brokkr_store::Swept::Scratch(row.seq),

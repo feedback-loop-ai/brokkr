@@ -24,8 +24,8 @@ mod start;
 
 pub use lock::{take_dispatch, Dispatcher};
 pub use pass::{
-    pass, BoundOutcome, Contended, Ended, Ending, Held, Passed, Reclaimed, Seams, Spawning, Stage,
-    Started, Subject, SweepOutcome, SweepRefused,
+    pass, BoundOutcome, Contended, Ended, Ending, Held, Left, Passed, Reclaimed, Seams, Spawning,
+    Stage, Started, Subject, SweepOutcome, SweepRefused,
 };
 pub use reconcile::{reconcile, Settled};
 pub use start::{ClaimRefused, Spawn, SpawnFailed, Spawned};
