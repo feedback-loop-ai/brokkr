@@ -1148,6 +1148,8 @@ pub brokkr_protocol::tree::TreeError::Foreign::tree: u64
 pub brokkr_protocol::tree::TreeError::Io
 pub brokkr_protocol::tree::TreeError::Io::cause: core::io::error::Error
 pub brokkr_protocol::tree::TreeError::Io::path: std::path::PathBuf
+impl brokkr_protocol::tree::TreeError
+pub fn brokkr_protocol::tree::TreeError::cause(&self) -> alloc::string::String
 impl core::cmp::Eq for brokkr_protocol::tree::TreeError
 impl core::cmp::PartialEq for brokkr_protocol::tree::TreeError
 pub fn brokkr_protocol::tree::TreeError::eq(&self, &brokkr_protocol::tree::TreeError) -> bool

@@ -439,7 +439,7 @@ fn remove_present(
         Err(error) => {
             swept.failed.push(Failed {
                 path,
-                cause: FailedCause::Walk(cause(&error)),
+                cause: FailedCause::Walk(error.cause()),
             });
             return;
         }
@@ -560,7 +560,7 @@ fn plan_with(
                 Ok(counted) => swept.removed.push(removed(path, counted)),
                 Err(error) => swept.failed.push(Failed {
                     path,
-                    cause: FailedCause::Walk(cause(&error)),
+                    cause: FailedCause::Walk(error.cause()),
                 }),
             },
         }
@@ -604,7 +604,7 @@ fn plan_hands_with(listed: impl Iterator<Item = hands::Listed>, swept: &mut Swep
             Ok(counted) => swept.removed.push(removed(listed.tree, counted)),
             Err(error) => swept.failed.push(Failed {
                 path: listed.tree,
-                cause: FailedCause::Walk(cause(&error)),
+                cause: FailedCause::Walk(error.cause()),
             }),
         }
     }
@@ -674,19 +674,6 @@ fn record(
 /// against its root's.
 fn same_device(_: &Path, device: u64) -> u64 {
     device
-}
-
-/// The cause a walk refusal gives, without the path its `Display` names.
-/// 5c1's `TreeError::cause` is the purpose-built form, but it is `pub(crate)`
-/// to brokkr-protocol, so this matches the variants it already exposes.
-fn cause(error: &TreeError) -> String {
-    match error {
-        TreeError::Io { cause, .. } => cause.to_string(),
-        TreeError::Foreign { device, tree, .. } => format!(
-            "is on another filesystem (device {device}, not {tree}); a tree is removed on its own \
-             filesystem"
-        ),
-    }
 }
 
 #[cfg(test)]
