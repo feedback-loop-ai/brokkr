@@ -276,3 +276,45 @@ fn a_probes_refusal_parks_with_the_engines_sentence_and_the_words_in_the_reason(
     let park = park_of(&plain);
     assert_eq!(park.cause(), &ParkCause::ruled(None, park.reason()));
 }
+
+/// Ruling 1: a wait that cannot read its episode, or its host bounds, is the
+/// provider's limit on the wait's provider and route, with its own refusal:
+/// `episode-unreadable` and `host-unreadable`. What failed beneath it stays
+/// in the reason, and the cause is the engine's sentence for the refusal.
+#[test]
+fn a_wait_that_cannot_read_its_episode_or_its_bounds_parks_as_a_provider_limit() {
+    use super::super::{park_of, CooldownError as E};
+    let beneath = || Box::new(E::TooManyWaits { seq: 3, count: 2 });
+    let (provider, route) = ("claude".to_string(), "first".to_string());
+    let waits = [
+        (
+            E::WaitEpisodeUnreadable {
+                provider: provider.clone(),
+                route: route.clone(),
+                source: beneath(),
+            },
+            ProviderLimitRefusal::EpisodeUnreadable {
+                route: route.clone(),
+            },
+            "provider-limit (claude, episode-unreadable): \
+             claude/first: an earlier wait of this effect does not read",
+        ),
+        (
+            E::WaitBoundsUnreadable {
+                provider,
+                route: route.clone(),
+                source: beneath(),
+            },
+            ProviderLimitRefusal::HostUnreadable { route },
+            "provider-limit (claude, host-unreadable): \
+             claude/first: the host file's cool-down bounds could not be read",
+        ),
+    ];
+    for (error, refusal, line) in waits {
+        let park = park_of(&error);
+        assert_eq!(park.reason(), error.to_string());
+        assert!(park.reason().contains("at most one wait, not 2"), "{error}");
+        assert_eq!(park.cause(), &ParkCause::refusal("claude", refusal));
+        assert_eq!(park.cause().line(), line);
+    }
+}

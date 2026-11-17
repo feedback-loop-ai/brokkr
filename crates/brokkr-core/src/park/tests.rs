@@ -732,3 +732,141 @@ fn a_cause_is_bounded_where_it_is_built_and_where_it_is_read() {
     };
     assert_eq!(why.len(), PARK_REASON_BYTES);
 }
+
+/// The cause line says an infrastructure cause's retryability in words,
+/// each way: ruling 4's fact, painted where a script and an operator read it.
+#[test]
+fn an_infrastructure_line_says_whether_it_is_retryable() {
+    assert_eq!(
+        ParkCause::infrastructure(true, "never spawned").line(),
+        "infrastructure (retryable): never spawned"
+    );
+    assert_eq!(
+        ParkCause::infrastructure(false, "indeterminate").line(),
+        "infrastructure (not retryable): indeterminate"
+    );
+}
+
+/// A `kind` that is absent or not a string, the cause's own or its
+/// refusal's, is named as such in the operator's words.
+#[test]
+fn an_absent_kind_is_named_as_absent_in_the_refusal_words() {
+    let fault = |cause: Value| ParkCause::read(&event(Some(cause))).unwrap_err();
+    let unkinded = fault(json!({"detail": "d"}));
+    assert_eq!(unkinded, ParkCauseError::UnknownKind(None));
+    assert_eq!(
+        unkinded.to_string(),
+        "the park cause does not read: kind is absent or not a string"
+    );
+    let refusal = fault(
+        json!({"kind": "provider-limit", "provider": "claude", "detail": "d",
+        "refusal": {"route": "first"}}),
+    );
+    assert_eq!(refusal, ParkCauseError::UnknownRefusal(None));
+    assert_eq!(
+        refusal.to_string(),
+        "the park cause does not read: refusal kind is absent or not a string"
+    );
+}
+
+/// Each typed reader refuses its field by name: a required string that is
+/// not one, a `retryable` flag that is absent, and a refusal's seconds that
+/// are absent or not a whole number (a word, a negative, a fraction).
+#[test]
+fn each_typed_field_refuses_by_name_when_absent_or_mistyped() {
+    let fault = |cause: Value| ParkCause::read(&event(Some(cause))).unwrap_err();
+    assert_eq!(
+        fault(json!({"kind": "ruled", "detail": 5})),
+        ParkCauseError::WrongType {
+            kind: "ruled",
+            field: "detail",
+            expected: "a string"
+        }
+    );
+    assert_eq!(
+        fault(json!({"kind": "infrastructure", "detail": "d"})),
+        ParkCauseError::Missing {
+            kind: "infrastructure",
+            field: "retryable"
+        }
+    );
+    let no_end = |refusal: Value| {
+        fault(
+            json!({"kind": "provider-limit", "provider": "claude", "detail": "d",
+            "refusal": refusal}),
+        )
+    };
+    assert_eq!(
+        no_end(json!({"kind": "no-end", "route": "first", "max_seconds": 1})),
+        ParkCauseError::Missing {
+            kind: "no-end",
+            field: "seconds"
+        }
+    );
+    for seconds in [json!("ten"), json!(-1), json!(1.5)] {
+        let mistyped = no_end(json!({"kind": "no-end", "route": "first",
+            "seconds": seconds, "max_seconds": 1}));
+        let whole = ParkCauseError::WrongType {
+            kind: "no-end",
+            field: "seconds",
+            expected: "a whole number",
+        };
+        assert_eq!(mistyped, whole, "{seconds}");
+        assert_eq!(
+            mistyped.to_string(),
+            "the park cause does not read: `seconds` of a no-end cause is not a whole number"
+        );
+    }
+}
+
+/// The engine's own refusal for a record that contradicts its cause names
+/// what the record lacks in its sentence: its route, or its maximum.
+#[test]
+fn a_contradicting_record_names_what_it_lacks_in_the_ruled_sentence() {
+    use crate::RefusalCause;
+    let mut refused = ProviderRefusal {
+        cause: RefusalCause::HostUnreadable,
+        site: None,
+        provider: "claude".into(),
+        route: None,
+        words: "slow down".into(),
+        retry_after_seconds: None,
+        seconds: Some(5),
+        max_seconds: None,
+    };
+    let contradicts = "a typed refusal record that contradicts itself";
+    assert_eq!(
+        ParkCause::provider_limit(&refused, None),
+        ParkCause::ruled(
+            None,
+            format!("{contradicts}: a host-unreadable refusal records no route")
+        )
+    );
+    refused.cause = RefusalCause::NoEnd;
+    refused.route = Some("first".into());
+    assert_eq!(
+        ParkCause::provider_limit(&refused, None),
+        ParkCause::ruled(
+            None,
+            format!("{contradicts}: a no-end refusal records no maximum")
+        )
+    );
+}
+
+/// An end RFC 3339 cannot spell (a year before 0) is named as such in the
+/// engine's sentence, never a panic and never a guessed instant.
+#[test]
+fn an_end_rfc_3339_cannot_spell_is_named_in_the_sentence() {
+    let date = time::Date::from_calendar_date(-1, time::Month::January, 1).unwrap();
+    let refusal = ProviderLimitRefusal::PastMaximum {
+        route: "r".into(),
+        until: date.midnight().assume_utc(),
+        seconds: 5,
+        max_seconds: 1,
+    };
+    assert_eq!(
+        refusal.detail("claude"),
+        "claude/r: a 5s wait until an instant the journal cannot spell goes past the declared \
+         1s maximum, alone or with the episode's earlier rounds"
+    );
+}

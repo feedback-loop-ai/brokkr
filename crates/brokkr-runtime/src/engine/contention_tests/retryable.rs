@@ -5,7 +5,9 @@
 //! back.
 
 use super::*;
-use crate::engine::broker::admission::tests::{evidence_leased, unstaked_lease, Coordinated};
+use crate::engine::broker::admission::tests::{
+    evidence_leased, protecting, unstaked_lease, Coordinated,
+};
 use crate::engine::broker::settlement::witnessed;
 use brokkr_protocol::process::Unsettled;
 use brokkr_protocol::Cleanup;
@@ -276,6 +278,19 @@ fn released(dir: &Path) -> Leased {
 fn a_release_that_committed_leaves_nothing_standing_and_reads_retryable() {
     let dir = tempfile::tempdir().unwrap();
     let (mut engine, _host, _coordinated) = released(dir.path());
+    assert_retryable(&mut engine, true);
+}
+
+/// Only the run's own standing attempt is its reservation: another run's
+/// attempt standing in the same root, beside this run's released one (its
+/// entry standing with no attempt left), leaves this run retryable.
+#[test]
+fn another_runs_standing_attempt_is_not_this_runs_reservation() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut engine, host, _coordinated) = released(dir.path());
+    let elsewhere = host.0.path().join("elsewhere");
+    std::fs::create_dir_all(&elsewhere).unwrap();
+    let _other = protecting(&host.0.path().join("home"), &elsewhere);
     assert_retryable(&mut engine, true);
 }
 
