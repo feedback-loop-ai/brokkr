@@ -19,6 +19,7 @@ use brokkr_core::fold::{concluded, RunState};
 use brokkr_core::summary::{aggregate, cut, parks as project_parks, MODEL_BYTES, NAME_BYTES};
 use brokkr_core::EventEnvelope;
 
+use super::merge::merged;
 use super::{AnalyticsRun, QuarantinedHearth, Query};
 use crate::attempts::{attempts, Attempts, Site};
 use crate::TokenUsage;
@@ -597,8 +598,10 @@ fn site_fact(whole: &WholeRun, site: &Site, window: Window) -> SiteFact {
 }
 
 /// Several sources as one: a graph's hearths, or a migrated hearth's rows
-/// and the runs it reads whole. Each stream is merged in the figure's own
-/// key order, so a group never straddles two sources.
+/// and the runs it reads whole. Each ordered stream is the k-way merge of
+/// the sources' streams in the figure's full key, one head a source held,
+/// so a group never straddles two sources and nothing collects a figure's
+/// facts; the order-free streams are the sources' in turn.
 pub struct FactUnion<'a> {
     sources: Vec<Box<dyn FactSource + 'a>>,
     realms: Vec<String>,
@@ -649,12 +652,12 @@ impl FactSource for FactUnion<'_> {
     }
 
     fn runs_in(&self, order: RunOrder, read: &mut dyn FnMut(&mut dyn Iterator<Item = RunFacts>)) {
-        let mut runs: Vec<RunFacts> = Vec::new();
-        for source in &self.sources {
-            source.runs_in(order, &mut |pulled| runs.extend(pulled));
-        }
-        runs.sort_by(|left, right| run_place(left, order).cmp(&run_place(right, order)));
-        read(&mut runs.into_iter());
+        merged(
+            &self.sources,
+            &|source, read| source.runs_in(order, read),
+            &|left: &RunFacts, right: &RunFacts| run_place(left, order) > run_place(right, order),
+            read,
+        );
     }
 
     fn durations(&self, visit: &mut dyn FnMut(&str, i64)) {
@@ -664,12 +667,12 @@ impl FactSource for FactUnion<'_> {
     }
 
     fn parks(&self, read: &mut dyn FnMut(&mut dyn Iterator<Item = ParkFact>)) {
-        let mut parks: Vec<ParkFact> = Vec::new();
-        for source in &self.sources {
-            source.parks(&mut |pulled| parks.extend(pulled));
-        }
-        parks.sort_by(|left, right| park_place(left).cmp(&park_place(right)));
-        read(&mut parks.into_iter());
+        merged(
+            &self.sources,
+            &|source, read| source.parks(read),
+            &|left: &ParkFact, right: &ParkFact| park_place(left) > park_place(right),
+            read,
+        );
     }
 
     fn spends(&self, visit: &mut dyn FnMut(SpendFact)) {
@@ -679,12 +682,12 @@ impl FactSource for FactUnion<'_> {
     }
 
     fn sites_in(&self, order: SiteOrder, read: &mut dyn FnMut(&mut dyn Iterator<Item = SiteFact>)) {
-        let mut sites: Vec<SiteFact> = Vec::new();
-        for source in &self.sources {
-            source.sites_in(order, &mut |pulled| sites.extend(pulled));
-        }
-        sites.sort_by(|left, right| site_place(left, order).cmp(&site_place(right, order)));
-        read(&mut sites.into_iter());
+        merged(
+            &self.sources,
+            &|source, read| source.sites_in(order, read),
+            &|left: &SiteFact, right: &SiteFact| site_place(left, order) > site_place(right, order),
+            read,
+        );
     }
 }
 

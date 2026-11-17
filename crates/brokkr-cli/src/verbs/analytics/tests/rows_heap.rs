@@ -90,6 +90,74 @@ fn long_ids(dir: &std::path::Path, name: &str, runs: usize) -> std::path::PathBu
     journal
 }
 
+/// A hearth of `runs` stopped runs, all inside the Day window and all of
+/// one realm, recipe, rule, provider and model, each with a seat that
+/// reported a cost, so no figure's group count grows with the runs.
+fn one_group(dir: &std::path::Path, name: &str, runs: usize) -> std::path::PathBuf {
+    let journal = dir.join(format!("{name}.db"));
+    let mut store = brokkr_store::Store::open(&journal).unwrap();
+    let base = parse_millis(GENERATED_NOW).unwrap();
+    for index in 0..runs {
+        let steps = stopped_run(
+            base,
+            RunCase {
+                realm: Some("heap-realm"),
+                recipe: "heap-recipe",
+                rule: LastRuling::Named("heap-rule"),
+                provider: "claude",
+                model: "heap-model",
+                usd: 0.25,
+                finish: -19 * 60 + (index % 600) as i64,
+            },
+        );
+        plant(&mut store, &format!("{name}-{index:05}"), &steps);
+    }
+    journal
+}
+
+/// The readout's heap does not grow with the window (decision 0089 ruling
+/// 9's aggregate exception, slice 4's unit U5b2b1): over two hearths read
+/// from their rows, every figure's facts are pulled and merged one head a
+/// hearth, and none is collected. Its peak at N and 2N window runs a hearth
+/// is the same within a few bytes a run, where one figure's facts collected
+/// would hold a fact, its strings included, for each.
+#[test]
+fn the_readouts_heap_does_not_grow_with_the_window() {
+    let dir = tempfile::tempdir().unwrap();
+    let (few, many) = (150, 300);
+    let hearths = |runs: usize| {
+        let name = |hearth: &str| format!("{hearth}-{runs}");
+        [
+            hearth(Vec::new(), &one_group(dir.path(), &name("left"), runs)),
+            hearth(Vec::new(), &one_group(dir.path(), &name("right"), runs)),
+        ]
+    };
+    let (small, large) = (hearths(few), hearths(many));
+    for hearth in small.iter().chain(&large) {
+        assert_reads_rows(&hearth.journal, "a heap hearth reads its rows");
+    }
+    // Every run of both hearths is folded: each is stopped by its rule.
+    let read = |hearths: &[Hearth], runs: usize| {
+        let view = derive(hearths, Range::Day, None, GENERATED_NOW).unwrap();
+        assert_eq!(view.headline.stopped_by_rule.count, 2 * runs);
+    };
+    read(&small, few);
+    let (fewer, more) = (
+        peak_of(|| read(&small, few)),
+        peak_of(|| read(&large, many)),
+    );
+    let added = 2 * (many - few) as i64;
+    let per_run = (more - fewer) as f64 / added as f64;
+    eprintln!(
+        "readout heap: {fewer} B at {few} runs a hearth, {more} B at {many}: {per_run:.2} B a run"
+    );
+    assert!(
+        more - fewer <= added * 16,
+        "the readout's heap grew by {} B over {added} more runs",
+        more - fewer
+    );
+}
+
 /// The hearth's read grows by the whole read's own runs and no set of ids:
 /// over 40 and 80 behind runs it holds as many copies of each run's id as
 /// the whole read of the same runs does (about five), and a set, a map or a

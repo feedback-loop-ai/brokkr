@@ -16,6 +16,7 @@ mod facts;
 mod figures;
 mod ledger;
 mod median;
+mod merge;
 mod ranked;
 mod recipes;
 mod words;
