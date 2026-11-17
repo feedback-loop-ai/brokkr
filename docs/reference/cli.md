@@ -509,7 +509,8 @@ Usage: brokkr dispatch [OPTIONS]
 
 | Argument | Default | Selector | Description |
 | --- | --- | --- | --- |
-| `--once` |  |  | Run one pass and return without waiting on the drivers it started. The standing loop is not built yet, so a dispatch without `--once` is refused |
+| `--once` |  |  | Run one pass and return without waiting on the drivers it started |
+| `--every <SECONDS>` | `60` |  | Without `--once`, the seconds from one pass's start to the next, from 5 to 3600. The dispatcher stands until SIGINT or SIGTERM |
 | `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
 | `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
 

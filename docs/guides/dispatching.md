@@ -67,7 +67,7 @@ them. They run on and finish their runs after the dispatcher has gone.
 Brokkr installs no service file. A user unit like this one runs the
 dispatcher for one journal:
 
-```ini
+```text
 [Unit]
 Description=Brokkr dispatcher for ~/work's journal
 
@@ -104,7 +104,7 @@ journalctl --user -u brokkr-dispatch.service -f
 
 On macOS, a launch agent does the same job:
 
-```xml
+```text
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
