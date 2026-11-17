@@ -16,6 +16,8 @@ use crate::engine::broker::admission::{Conflict, Unadmitted, Unknown};
 use crate::engine::broker::inventory::Unread;
 use crate::engine::broker::root::Step;
 use crate::engine::broker::sources::observed;
+use crate::lock_file::Unopened;
+use rustix::io::Errno;
 
 /// A fresh directory of this test's own, in TMPDIR canonical, as
 /// admission's fixtures are: a HOME handed to the protected walk must not
@@ -398,8 +400,8 @@ fn every_internal_refusal_keeps_its_cause_or_its_words() {
         EvidenceError::Coordination
     ));
     assert!(matches!(
-        EvidenceError::from(Unknown::Lock),
-        EvidenceError::Lock
+        EvidenceError::from(Unknown::Lock(Unopened::Links(2))),
+        EvidenceError::Lock(Unopened::Links(2))
     ));
     assert!(matches!(
         EvidenceError::from(Unknown::Expired),
@@ -811,7 +813,10 @@ fn an_unreadable_coordination_root_is_named_not_read_as_absent() {
 fn a_lock_that_is_a_directory_is_not_read_as_no_lock() {
     let (_dir, home, root) = coordination_root();
     fs::create_dir(root.join("admission.lock")).unwrap();
-    assert!(matches!(list(&home, soon()), Err(EvidenceError::Lock)));
+    assert!(matches!(
+        list(&home, soon()),
+        Err(EvidenceError::Lock(Unopened::Open(Errno::ISDIR)))
+    ));
 }
 
 /// S2: a lock file that is a link refuses as the write path refuses it,
@@ -822,7 +827,10 @@ fn a_lock_that_is_a_link_is_not_read_as_no_lock() {
     let outside = home.parent().unwrap().join("outside-lock");
     fs::write(&outside, b"").unwrap();
     symlink(&outside, root.join("admission.lock")).unwrap();
-    assert!(matches!(list(&home, soon()), Err(EvidenceError::Lock)));
+    assert!(matches!(
+        list(&home, soon()),
+        Err(EvidenceError::Lock(Unopened::Open(Errno::LOOP)))
+    ));
 }
 
 /// M4: a root whose own digest cannot be read still describes, carrying its
@@ -1076,13 +1084,13 @@ fn the_read_only_lock_judges_what_it_finds() {
     fs::set_permissions(&lock, fs::Permissions::from_mode(0o644)).unwrap();
     assert!(matches!(
         locked_existing(&opened(), deadline),
-        Err(Unknown::Lock)
+        Err(Unknown::Lock(Unopened::Mode(0o644)))
     ));
     fs::set_permissions(&lock, fs::Permissions::from_mode(0o600)).unwrap();
     std::fs::hard_link(&lock, root.join("second")).unwrap();
     assert!(matches!(
         locked_existing(&opened(), deadline),
-        Err(Unknown::Lock)
+        Err(Unknown::Lock(Unopened::Links(2)))
     ));
 }
 

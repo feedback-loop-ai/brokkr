@@ -24,7 +24,7 @@ use super::admission::{Unknown, LOCK, STAGED};
 use super::inventory::Budget;
 use super::sources::{observed, Table};
 use super::{directory, owned, protected, Synced, Unprovisioned, PROTECTED_ROOT, REPLY_BYTES_MAX};
-use crate::lock_file::{self, user};
+use crate::lock_file::{self, user, Unopened};
 
 mod seal;
 pub(in crate::engine::broker) use seal::seal_with;
@@ -436,10 +436,10 @@ pub(super) fn step(
 
 /// The admission lock in the protected `root`, made where it is missing,
 /// held exclusively before `deadline`: this user's own regular file of one
-/// link, as [`lock_file::opened`] judges it, or refused. Released as the
+/// link, as [`lock_file::open`] judges it, or refused. Released as the
 /// handle is dropped.
 pub(super) fn locked(root: &OwnedFd, deadline: Instant) -> Result<OwnedFd, Unknown> {
-    let lock = lock_file::opened(root, LOCK).ok_or(Unknown::Lock)?;
+    let lock = lock_file::open(root, LOCK).map_err(Unknown::Lock)?;
     taken(&lock, deadline)?;
     Ok(lock)
 }
@@ -474,14 +474,9 @@ pub(super) fn locked_existing(
     let lock = match openat(root, LOCK, flags, Mode::empty()) {
         Ok(lock) => lock,
         Err(Errno::NOENT) => return Ok(None),
-        Err(_) => return Err(Unknown::Lock),
+        Err(why) => return Err(Unknown::Lock(Unopened::Open(why))),
     };
-    let single = fstat(&lock).is_ok_and(|stat| {
-        (FileType::from_raw_mode(stat.st_mode) == FileType::RegularFile)
-            & (stat.st_nlink == 1)
-            & lock_file::alone(&stat, user())
-    });
-    single.then_some(()).ok_or(Unknown::Lock)?;
+    lock_file::judged(&lock, user()).map_err(Unknown::Lock)?;
     taken(&lock, deadline)?;
     Ok(Some(lock))
 }

@@ -37,10 +37,12 @@ use crate::engine::tests::{
     requested, set_site_hands, single_body,
 };
 use crate::engine::{spawn_site, Door, SiteSpawn};
+use crate::lock_file::Unopened;
 
 mod coordination;
 mod foreign;
 mod late;
+mod lock;
 mod probe;
 mod processes;
 mod reach;
@@ -603,7 +605,7 @@ fn every_refusal_reads_as_its_cause() {
         (Conflict::Redirected(path.clone()).into(), format!("{cr2}: '/r', which a box of the attempt is built from, no longer resolves as when its attempt was admitted")),
         (Unknown::Root.into(), format!("{mb3}: the capability coordination root is not protected")),
         (Unknown::Worktree.into(), format!("{mb3}: the operated worktree does not resolve")),
-        (Unknown::Lock.into(), format!("{mb3}: the admission lock is not this user's own single file")),
+        (Unknown::Lock(Unopened::Links(2)).into(), format!("{mb3}: the admission lock is not this user's own single file: it has 2 links")),
         (Unknown::Expired.into(), format!("{mb3}: admission did not complete before its startup deadline")),
         (Unknown::Bounds.into(), format!("{mb3}: the protected inventory exceeds its entry bound")),
         (Unknown::Participant(path).into(), format!("{mb3}: the protected inventory holds an unknown participant at '/r'")),
@@ -858,7 +860,10 @@ fn an_unprotected_lock_refuses() {
     let incoming = open(&work, ["run-a", "a2"]);
     let lock = host.root().join(LOCK);
     std::fs::hard_link(&lock, host.dir.path().join("second-link")).unwrap();
-    assert_eq!(host.admit(&incoming), mb3(Unknown::Lock));
+    assert_eq!(
+        host.admit(&incoming),
+        mb3(Unknown::Lock(Unopened::Links(2)))
+    );
     std::fs::remove_file(host.dir.path().join("second-link")).unwrap();
     let holder = taken(&lock);
     let shortly = Instant::now() + Duration::from_millis(50);
@@ -1178,7 +1183,10 @@ fn the_door_refuses_a_lock_file_by_its_own_name() {
     let held = host.admit(&open(&work, ["run-a", "a1"])).unwrap();
     let second = host.dir.path().join("second-link");
     std::fs::hard_link(host.root().join(LOCK), &second).unwrap();
-    assert_eq!(recheck(&held), Err(Unadmitted::Identity(Unknown::Lock)));
+    assert_eq!(
+        recheck(&held),
+        Err(Unadmitted::Identity(Unknown::Lock(Unopened::Links(2))))
+    );
     std::fs::remove_file(&second).unwrap();
     assert_eq!(recheck(&held), Ok(()));
 }
