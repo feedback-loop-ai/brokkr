@@ -5,7 +5,7 @@
 use serde_json::{json, Value};
 
 use crate::bundle::{Aggregate, GateAssessment, Invocation, SeatBody, SiteKey};
-use crate::engine::tests::{bundle, member, single_body};
+use crate::engine::tests::{bundle, git_commit, member, single_body};
 use crate::engine::Engine;
 use brokkr_core::envelope::{EventEnvelope, EventType};
 use brokkr_store::Store;
@@ -36,15 +36,27 @@ pub(super) fn reported(id: &str, line: u64) -> Value {
 /// Drive a run whose `work` seat has `body` over a fresh journal in a
 /// temporary directory, to wherever it stops.
 pub(super) fn driven(body: SeatBody, gate: bool) -> (tempfile::TempDir, Vec<EventEnvelope>) {
+    driven_with(body, |compiled| {
+        if gate {
+            compiled.seats.get_mut("work").unwrap().gate = GateAssessment::AllGate;
+        }
+    })
+}
+
+/// [`driven`], with the bundle shaped by `shape` first, in a worktree
+/// that is a git repository with one commit.
+pub(super) fn driven_with(
+    body: SeatBody,
+    shape: impl FnOnce(&mut crate::bundle::Bundle),
+) -> (tempfile::TempDir, Vec<EventEnvelope>) {
     let dir = tempfile::tempdir().unwrap();
-    std::fs::create_dir(dir.path().join("work")).unwrap();
+    let work = dir.path().join("work");
+    std::fs::create_dir(&work).unwrap();
+    git_commit(&work, "base");
     let store = Store::open(&dir.path().join("forge.db")).unwrap();
     let mut compiled = bundle(dir.path(), body);
-    if gate {
-        compiled.seats.get_mut("work").unwrap().gate = GateAssessment::AllGate;
-    }
-    let mut engine =
-        Engine::start(store, compiled, "findings", Some(dir.path().join("work"))).unwrap();
+    shape(&mut compiled);
+    let mut engine = Engine::start(store, compiled, "findings", Some(work)).unwrap();
     engine.drive().unwrap();
     let events = engine.store.load(&engine.run_id).unwrap();
     (dir, events)
@@ -52,14 +64,21 @@ pub(super) fn driven(body: SeatBody, gate: bool) -> (tempfile::TempDir, Vec<Even
 
 /// The `work` effect's journaled successes and failures, in order.
 pub(super) fn ended(events: &[EventEnvelope], kind: EventType) -> Vec<Value> {
-    let work = events
+    ended_in(events, "work", kind)
+}
+
+/// The first `phase` effect's journaled events of `kind`, in order.
+pub(super) fn ended_in(events: &[EventEnvelope], phase: &str, kind: EventType) -> Vec<Value> {
+    let effect = events
         .iter()
-        .find(|event| event.event_type == EventType::EffectRequested)
+        .find(|event| {
+            event.event_type == EventType::EffectRequested && event.payload["phase"] == phase
+        })
         .map(|event| event.payload["effect_id"].clone())
         .unwrap();
     events
         .iter()
-        .filter(|event| event.event_type == kind && event.payload["effect_id"] == work)
+        .filter(|event| event.event_type == kind && event.payload["effect_id"] == effect)
         .map(|event| event.payload.clone())
         .collect()
 }

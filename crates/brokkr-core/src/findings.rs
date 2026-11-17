@@ -24,11 +24,39 @@ pub const ID_MAX_BYTES: usize = 64;
 /// The bound on a finding's repository-relative file, as v7 states it.
 const FILE_MAX_BYTES: usize = 4096;
 
-/// Why a result's findings are refused. Each is the seat's fault and is
-/// never repaired (decision 0001); no variant echoes a value the seat
-/// wrote except an id that already passed ruling 3's pattern.
+/// The gate report fields only the engine writes (decision 0109 ruling
+/// 1): it knows the head and the delta, and a seat does not.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EngineWritten {
+    Covered,
+    FollowUps,
+}
+
+impl EngineWritten {
+    const ALL: [EngineWritten; 2] = [EngineWritten::Covered, EngineWritten::FollowUps];
+
+    /// The result field it is.
+    pub fn field(self) -> &'static str {
+        match self {
+            EngineWritten::Covered => "covered",
+            EngineWritten::FollowUps => "follow_ups",
+        }
+    }
+}
+
+impl fmt::Display for EngineWritten {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.field())
+    }
+}
+
+/// Why a seat's result is refused at admission. Each is the seat's fault
+/// and is never repaired (decision 0001); no variant echoes a value the
+/// seat wrote except an id that already passed ruling 3's pattern.
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum AdmissionRefusal {
+    #[error("the result carries '{0}', which only the engine writes (decision 0109 ruling 1)")]
+    EngineWritten(EngineWritten),
     #[error("the result's findings are not an array of finding records")]
     NotAnArray,
     #[error(
@@ -289,11 +317,18 @@ pub fn stamp(findings: &Value, site: &SiteDigest) -> Result<Vec<Finding>, Admiss
     Ok(stamped)
 }
 
-/// Admit a seat's result at the site whose digest is `site`: its
-/// `findings`, if it wrote any, are read, refused or stamped in place
-/// (decision 0109 ruling 3). A result with findings and no site to stamp
-/// is refused rather than journaled unkeyed.
+/// Admit a seat's result at the site whose digest is `site`: a result
+/// that writes a field only the engine writes is refused (ruling 1), and
+/// its `findings`, if it wrote any, are read, refused or stamped in place
+/// (ruling 3). A result with findings and no site to stamp is refused
+/// rather than journaled unkeyed.
 pub fn admit(result: &mut Value, site: Option<&str>) -> Result<(), AdmissionRefusal> {
+    if let Some(written) = EngineWritten::ALL
+        .into_iter()
+        .find(|written| result.get(written.field()).is_some())
+    {
+        return Err(AdmissionRefusal::EngineWritten(written));
+    }
     let Some(findings) = result.get("findings") else {
         return Ok(());
     };
@@ -316,11 +351,18 @@ pub fn recorded(result: &Value) -> Option<Vec<Finding>> {
 }
 
 fn is_sha256(value: &str) -> bool {
-    value.len() == 64
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    value.len() == 64 && is_lower_hex(value)
 }
+
+fn is_lower_hex(value: &str) -> bool {
+    value
+        .bytes()
+        .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+mod covered;
+
+pub use covered::{Covered, CoveredHead};
 
 #[cfg(test)]
 mod tests;

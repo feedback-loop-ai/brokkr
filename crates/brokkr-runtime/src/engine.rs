@@ -509,6 +509,9 @@ pub struct Engine {
     /// terminal event — clears it rather than leaving it for the next
     /// effect to spend.
     active_gate_head: Option<Option<String>>,
+    /// What the dispatched gate effect's success records as `covered`
+    /// (decision 0109 ruling 7), spent by its terminal event.
+    covering: Option<verdict::Covering>,
     /// The boundary every site with hands is composed from (decision
     /// 0046 ruling 1): the compiled bundle's word, set once at entry and
     /// never re-read from a map, so the pinned word and the world the run
@@ -607,6 +610,7 @@ fn shell(store: Store, bundle: Bundle, run_id: String, feature: String, repo: Pa
         state: None,
         cooldown: Default::default(),
         active_gate_head: None,
+        covering: None,
         network_prefix: None,
         replay: Default::default(),
         held_outcome: None,
@@ -962,6 +966,7 @@ impl Engine {
                 return Ok(moved);
             }
         }
+        let payload = self.stamp_covered(event_type, payload);
         self.append_raw(event_type, payload, attempt_id)
     }
 

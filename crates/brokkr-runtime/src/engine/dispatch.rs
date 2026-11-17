@@ -162,6 +162,8 @@ impl Engine {
         if arms_effect_gate_head(&body, &seat, state.strategy.as_deref()) {
             self.active_gate_head = Some(git_head(&self.repo));
         }
+        let protected = phase == self.bundle.protected_phase;
+        self.covering = super::verdict::Covering::of(at.gate, protected);
         self.append(EventType::EffectStarted, started, Some(attempt_id.clone()))?;
         std::fs::create_dir_all(self.run_local().join(RESULTS)).ok();
         let deadline = deadline::Deadline::of(

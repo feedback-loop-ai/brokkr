@@ -182,6 +182,30 @@ fn a_record_that_is_not_a_finding_is_refused() {
     }
 }
 
+/// Ruling 1: `covered` and `follow_ups` are the engine's, so a seat result
+/// carrying either is refused, whatever it holds, and is left as it was.
+#[test]
+fn a_seat_supplied_covered_or_follow_ups_is_refused_not_repaired() {
+    let head = json!({"kind": "head", "head": "0".repeat(40), "dirty": false});
+    for (field, value, written) in [
+        ("covered", head, EngineWritten::Covered),
+        ("covered", json!(null), EngineWritten::Covered),
+        ("follow_ups", json!([]), EngineWritten::FollowUps),
+        ("follow_ups", json!([reported()]), EngineWritten::FollowUps),
+    ] {
+        let mut result = json!({"result": "clean", "findings": [reported()]});
+        result[field] = value.clone();
+        let before = result.clone();
+        let refused = admit(&mut result, Some(SITE)).unwrap_err();
+        assert_eq!(refused, AdmissionRefusal::EngineWritten(written), "{field}");
+        assert_eq!(result, before, "nothing is stamped or repaired");
+    }
+    assert_eq!(
+        AdmissionRefusal::EngineWritten(EngineWritten::FollowUps).to_string(),
+        "the result carries 'follow_ups', which only the engine writes (decision 0109 ruling 1)"
+    );
+}
+
 #[test]
 fn findings_with_no_site_to_stamp_are_refused_not_journaled_unkeyed() {
     for unsited in [None, Some("not-a-digest"), Some(&SITE[1..])] {

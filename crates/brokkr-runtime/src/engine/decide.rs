@@ -29,9 +29,12 @@ impl Engine {
         let seat = &self.bundle.seats[&phase];
 
         // Result schema (decision 0001): an object with a declared result
-        // string. Violations park with the raw evidence attached — never
-        // repaired, coerced, or handed to a model to fix.
-        if let Some(problem) = schema_problem(seat, &raw_result) {
+        // string, and in the protected phase a covered head pinned to the
+        // head decided on (decision 0109 ruling 7). Violations park with
+        // the raw evidence attached — never repaired, coerced, or handed
+        // to a model to fix.
+        let problem = schema_problem(seat, &raw_result);
+        if let Some(problem) = problem.or_else(|| self.covered_problem(&phase, &raw_result)) {
             self.append(
                 EventType::TransitionDecided,
                 json!({
