@@ -1506,6 +1506,27 @@ fn a_first_seal_with_nothing_standing_removes_what_it_made() {
     }
 }
 
+/// #1099's last arm (1099b's review, CHIEF-1): a first seal that found
+/// nothing standing, whose directory denies the removal of the record it
+/// made, refuses as unsealed and leaves that record at the name, with no
+/// prior name and nothing staged, as `undone`'s "None stood" arm states.
+#[test]
+fn a_first_seal_whose_directory_denies_its_undo_leaves_its_own_record() {
+    let host = Host::new();
+    let at = host.root().join(RESERVATION);
+    LATE.set(Some(Late::DenyCommitted));
+    let refused = sealing(&host.root, FIRST);
+    writable(&at);
+    assert_eq!(refused, Err(Unknown::Unsealed));
+    assert_eq!(
+        std::fs::read(&at).unwrap(),
+        FIRST,
+        "the first seal's own record stands at the name"
+    );
+    assert!(!prior(&at).exists(), "no prior name left");
+    nothing_staged(&at);
+}
+
 /// Run four's review, S1: a first seal cut short between its link and its
 /// rename is restored by the next seal, whether it left the record that
 /// stood under both names or a hand removed its name: the removal stands

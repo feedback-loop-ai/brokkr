@@ -92,9 +92,9 @@ pub(super) struct Sheet<'a> {
 /// as it was, the record that stood there where it still is, for every read
 /// and for the next seal to put back; an undo cut short after its exchange,
 /// or whose last sync fails once it put the record that stood back, leaves
-/// that record at the name; and where the record that stood is gone and the
-/// directory denies the removal of this seal's successor, that successor
-/// stands as the record (#1099 F3). Once committed, no seal
+/// that record at the name; and where the record that stood is gone, or a
+/// first seal found none standing, and the directory denies the removal of
+/// this seal's own record, that record stands (#1099 F3). Once committed, no seal
 /// reports failure or lateness: one whose directory is not proven synced
 /// after reports itself committed but [`Commit::Unsynced`] (R1 of the
 /// fourth run, U8a2c).
@@ -340,7 +340,9 @@ fn put_foreign_back(seal: &Seal<'_>, prior: &str, written: &Record) {
 ///   prior name, by a reseal's exchange or a first seal's rename: the same
 ///   file, its prior name and the staged name gone. Completes.
 /// - **None stood** (a first seal). The record it made is removed, where it
-///   is still the file this seal wrote. Completes.
+///   is still the file this seal wrote and where the directory permits its
+///   removal. Completes. Where the directory denies that removal, fails: the
+///   first seal's own record stands at the name, with no prior name.
 /// - **The name gone.** The removal stands: the prior name goes, and nothing
 ///   is made at the name. Completes.
 /// - **The prior name gone.** The removal of the record that stood stands:
