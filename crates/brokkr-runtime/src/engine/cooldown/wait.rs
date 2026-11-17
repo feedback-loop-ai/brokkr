@@ -10,10 +10,11 @@ use brokkr_core::{EventEnvelope, ProbeAnswer, ProviderWait};
 use brokkr_store::{CooldownAggregate, CooldownRound, RoundAppend};
 use time::{Duration as TimeDuration, OffsetDateTime};
 
+use super::held::{bound, Bound};
 use super::probe::{NextRound, Probe};
 use super::{
     episode_by_site, maximum_reason, park_of, past_maximum, sites, CooldownError, Engine,
-    EngineError, MaximumFacts, Waited, SLICE,
+    EngineError, HeldDrive, MaximumFacts, Waited, SLICE,
 };
 
 impl Engine {
@@ -74,6 +75,13 @@ impl Engine {
                 Step::Again => continue,
                 Step::Stopped => return Ok(Waited::Stopped),
                 Step::Parked(reason) => return Ok(Waited::Parked(reason)),
+                // A probe's held round is written: the engine does not sleep
+                // it, and this drive ends with the run `running` (decision
+                // 0106 ruling 2).
+                Step::HeldRound => {
+                    self.cooldown.held = HeldDrive::Ended;
+                    return Ok(Waited::Held);
+                }
             }
         }
     }
@@ -106,6 +114,7 @@ impl Engine {
         let answers = match self.round_probes(round, events, state, effect_id, seat)? {
             ProbedRound::Stopped => return Ok(Step::Stopped),
             ProbedRound::Parked(reason) => return Ok(Step::Parked(reason)),
+            ProbedRound::HeldRound => return Ok(Step::HeldRound),
             ProbedRound::Again => return Ok(Step::Again),
             ProbedRound::Answered(answers) => answers,
         };
@@ -146,6 +155,7 @@ impl Engine {
                 match self.hold_extension(waits, &round.maxima, &extension, unrecorded)? {
                     Extension::Stopped => Ok(ProbedRound::Stopped),
                     Extension::Parked(reason) => Ok(ProbedRound::Parked(reason)),
+                    Extension::HeldRound => Ok(ProbedRound::HeldRound),
                     Extension::Written(until) => {
                         // The written round is this episode's, so its end is
                         // the counted baseline and never a remainder again.
@@ -174,7 +184,8 @@ impl Engine {
             return Ok(Extension::Stopped);
         }
         match self.record_extension(waits, maxima, round, unrecorded) {
-            Ok(until) => Ok(Extension::Written(until)),
+            Ok(Written { held: true, .. }) => Ok(Extension::HeldRound),
+            Ok(Written { until, held: false }) => Ok(Extension::Written(until)),
             Err(error) => Ok(Extension::Parked(park_of(&error))),
         }
     }
@@ -351,20 +362,22 @@ impl Engine {
     /// with the remainders this wait has already taken: a round past the
     /// maximum writes nothing and parks with the maximum named (choice 3);
     /// a round within it is written at the terminal's own `(run_id,
-    /// event_seq)`, and its end is what the caller waits. A rows-bearing
-    /// store refusal parks naming the store's words, never silently. The
-    /// effect's attempts are untouched.
+    /// event_seq)`, and its end is what the caller waits. A round whose
+    /// provider-stated reset alone passes a maximum is another held round
+    /// (decision 0106 ruling 2 and its amendment of 0103 ruling 4's
+    /// probe-refusal loop): its row is written held, and the caller ends the
+    /// drive with the run `running`. A rows-bearing store refusal parks
+    /// naming the store's words, never silently. The effect's attempts are
+    /// untouched.
     pub(super) fn record_extension(
         &mut self,
         waits: &[ProviderWait],
         maxima: &[Option<u64>],
         round: &NextRound,
         waited: u64,
-    ) -> Result<OffsetDateTime, CooldownError> {
-        let through = round
-            .episode
-            .saturating_add(waited)
-            .saturating_add(round.seconds);
+    ) -> Result<Written, CooldownError> {
+        let before = round.episode.saturating_add(waited);
+        let mut held = None;
         // Judge EVERY cooled site's maximum before the append, not only the
         // extending route's: a round that passes any of them writes no row
         // (finding 4, 0103 choice 3). The maxima are the ones the round's
@@ -372,6 +385,8 @@ impl Engine {
         // declaration for judges nothing, so the round parks rather than
         // writing unjudged (finding 1): a declaration that appears between
         // the wait and the probe must not write a row its wait never bounded.
+        // The decision is the terminal's own ([`bound`]), so a stated reset
+        // past a maximum is held here exactly as it is there.
         for (wait, max) in waits.iter().zip(maxima) {
             let Some(max) = max else {
                 return Err(CooldownError::RoundUnbounded {
@@ -380,35 +395,49 @@ impl Engine {
                     words: round.words.clone(),
                 });
             };
-            if past_maximum(round.seconds, through, *max) {
-                let pending = ProviderWait {
-                    site: round.site.clone(),
-                    provider: round.provider.clone(),
-                    route: round.route.clone(),
-                    words: round.words.clone(),
-                    retry_after_seconds: round.retry_after_seconds,
-                    seconds: round.seconds,
-                    until: self.now(),
-                    rounds: round.round,
-                    held: None,
-                };
-                let passed =
-                    (wait.site != round.site).then(|| wait.site.clone().unwrap_or_default());
-                return Err(CooldownError::Maximum(Box::new(MaximumFacts {
-                    wait: pending,
-                    episode: through,
-                    max: *max,
-                    passed,
-                })));
-            }
+            let through = match bound(round.retry_after_seconds, round.seconds, before, *max) {
+                Bound::Held(kind) => {
+                    held = held.or(Some(kind));
+                    continue;
+                }
+                Bound::Within(_) => continue,
+                Bound::Past(through) => through,
+            };
+            let pending = ProviderWait {
+                site: round.site.clone(),
+                provider: round.provider.clone(),
+                route: round.route.clone(),
+                words: round.words.clone(),
+                retry_after_seconds: round.retry_after_seconds,
+                seconds: round.seconds,
+                until: self.now(),
+                rounds: round.round,
+                held: None,
+            };
+            let passed = (wait.site != round.site).then(|| wait.site.clone().unwrap_or_default());
+            return Err(CooldownError::Maximum(Box::new(MaximumFacts {
+                wait: pending,
+                episode: through,
+                max: *max,
+                passed,
+            })));
         }
-        // A round within the maximum has a length at most the declared
-        // maximum, a `u32`, so its end is always representable:
-        // `a_round_within_the_maximum_has_a_representable_end` holds that
-        // bound, which is why this arm has no no-end park to cover.
-        let until = sites::wait_until(self.now(), round.seconds)
-            .expect("a round within the maximum has a representable end");
-        let appended = self.store.append_cooldown_round(CooldownRound {
+        // A round within every maximum has a length at most a declared
+        // maximum, a `u32`, so its end is always representable
+        // (`a_round_within_the_maximum_has_a_representable_end`). Only a
+        // held round, the provider's word, can be too long for the journal
+        // to spell its end, and it parks naming the provider's limit as the
+        // terminal's held wait does (`no-end`).
+        let Some(until) = sites::wait_until(self.now(), round.seconds) else {
+            let held = held.expect("only a held round's end is unrepresentable");
+            return Err(CooldownError::RoundNoEnd {
+                provider: round.provider.clone(),
+                route: round.route.clone(),
+                seconds: round.seconds,
+                max_seconds: held.max_seconds,
+            });
+        };
+        let row = CooldownRound {
             run_id: &self.run_id,
             event_seq: round.event_seq,
             site: round.site.as_deref().unwrap_or(""),
@@ -419,9 +448,16 @@ impl Engine {
             retry_after_seconds: round.retry_after_seconds,
             rounds: round.rounds,
             seconds: round.seconds,
-        });
+        };
+        let appended = match held {
+            Some(kind) => self.store.append_held_round(row, kind),
+            None => self.store.append_cooldown_round(row),
+        };
         match appended {
-            Ok(RoundAppend::Written) => Ok(until),
+            Ok(RoundAppend::Written) => Ok(Written {
+                until,
+                held: held.is_some(),
+            }),
             Ok(RoundAppend::NoTable) => Err(CooldownError::RoundNoTable {
                 provider: round.provider.clone(),
                 route: round.route.clone(),
@@ -610,20 +646,30 @@ pub(super) enum WaitRound {
     Parked(Park),
 }
 
-/// What a probe's rate-limit refusal left: the written round's end, a stop
-/// that landed while the probe ran, or the park the judge gave.
+/// What a probe's rate-limit refusal left: the written round's end, a
+/// written held round, a stop that landed while the probe ran, or the park
+/// the judge gave.
 enum Extension {
     Written(OffsetDateTime),
+    HeldRound,
     Stopped,
     Parked(Park),
 }
 
+/// A probe's round as [`Engine::record_extension`] wrote it: its end, and
+/// whether it is held (decision 0106 ruling 2).
+pub(super) struct Written {
+    until: OffsetDateTime,
+    held: bool,
+}
+
 /// What one round of probes left the wait loop: answers to keep, a written
-/// extension or a foreign hold that both send the loop back to wait, a stop,
-/// or a park.
+/// extension or a foreign hold that both send the loop back to wait, a
+/// written held round that ends the drive, a stop, or a park.
 enum ProbedRound {
     Answered(Vec<ProbeAnswer>),
     Again,
+    HeldRound,
     Stopped,
     Parked(Park),
 }
@@ -651,6 +697,7 @@ pub(super) struct WaitBudget {
 enum Step {
     Proceed,
     Again,
+    HeldRound,
     Stopped,
     Parked(Park),
 }

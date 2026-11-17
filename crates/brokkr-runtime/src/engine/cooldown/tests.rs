@@ -715,6 +715,7 @@ fn a_stop_already_journaled_is_seen_before_the_first_slice() {
     {
         super::Waited::Stopped => {}
         super::Waited::Proceed(_) => panic!("a stopped run proceeded to the probe"),
+        super::Waited::Held => panic!("a stopped run held a probe's round"),
         super::Waited::Parked(reason) => panic!("a stopped run parked: {reason}"),
     }
     assert_eq!(
@@ -1307,6 +1308,7 @@ fn a_driver_that_does_not_advertise_the_probe_parks_naming_it() {
     assert!(reason.contains("does not advertise the probe"), "{reason}");
 }
 
+mod held_probe;
 mod held_wait;
 mod lease;
 mod probe_driver;

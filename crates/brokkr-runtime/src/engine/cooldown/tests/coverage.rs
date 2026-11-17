@@ -206,6 +206,7 @@ fn a_second_runs_append_does_not_stop_the_wait() {
     {
         Waited::Proceed(_) => {}
         Waited::Stopped => panic!("a second run's append stopped this run's wait"),
+        Waited::Held => panic!("the wait held a probe's round"),
         Waited::Parked(reason) => panic!("the wait parked: {reason}"),
     }
     assert_eq!(logs(dir.path(), "work"), ["probe"]);

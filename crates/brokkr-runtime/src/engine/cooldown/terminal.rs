@@ -11,10 +11,9 @@ use serde_json::{json, Value};
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
+use super::held::{bound, Bound};
 use super::sites;
-use super::{
-    episode, note_error, past_maximum, terminal, CooldownError, Engine, EngineError, Terminal,
-};
+use super::{episode, note_error, terminal, CooldownError, Engine, EngineError, Terminal};
 use crate::admission::Bounds;
 
 /// The park reason a recorded refusal gives (decision 0103 slice 4c1, this
@@ -369,15 +368,16 @@ impl Engine {
         // not parked, and its length is not counted in the episode the
         // maximum bounds (decision 0106 ruling 2). Every other wait past
         // the maximum still parks: the maximum bounds the engine's own
-        // computation, never the provider's word.
-        let held = sites::held_past(retry_after, seconds, max);
-        let total = match held {
-            Some(_) => prior_seconds,
-            None => prior_seconds.saturating_add(seconds),
-        };
+        // computation, never the provider's word. The probe's next round
+        // takes the same decision ([`bound`]).
         // The maximum is judged from the computed length BEFORE any `until`
         // is formed, so no huge retry-after can overflow here (step 4).
-        let past = held.is_none() && past_maximum(seconds, total, max);
+        let judged = bound(retry_after, seconds, prior_seconds, max);
+        let held = judged.held();
+        let past = match judged {
+            Bound::Past(through) => Some(through),
+            Bound::Held(_) | Bound::Within(_) => None,
+        };
         let until = sites::wait_until(self.now(), seconds);
         let wait = until.map(|until| ProviderWait {
             site: None,
@@ -397,9 +397,9 @@ impl Engine {
         // only on the `run/parked` after it: a crash between the two appends
         // must not turn the refusal into today's 0006 retry. A wait with no
         // `until` is exactly such a park, so it writes no `waits` entry.
-        if past || wait.is_none() {
+        if past.is_some() || wait.is_none() {
             let (cause, episode) = match wait.is_some() {
-                true => (RefusalCause::PastMaximum, Some(total)),
+                true => (RefusalCause::PastMaximum, past),
                 false => (RefusalCause::NoEnd, None),
             };
             let refused =

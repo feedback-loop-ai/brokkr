@@ -16,10 +16,11 @@ use serde_json::Value;
 use time::format_description::well_known::Rfc3339;
 use time::{Duration as TimeDuration, OffsetDateTime};
 
+use super::held::{bound, Bound};
 use super::probe::Probe;
 use super::{
-    effect_seat, episode_by_site, note_error, past_maximum, refusal_record, refusal_text,
-    representable_end, terminal, waiter, CooldownError, Engine, EngineError, Episode,
+    effect_seat, episode_by_site, note_error, refusal_record, refusal_text, representable_end,
+    terminal, waiter, CooldownError, Engine, EngineError, Episode,
 };
 use crate::bundle::{ExecutableBody, Invocation};
 use crate::engine::carry::record::Tag;
@@ -336,17 +337,11 @@ impl Engine {
             rounds,
             until,
             max,
-            held: held_past(retry_after, seconds, max),
+            // Whether a wait is held reads no episode: `bound` holds a
+            // stated reset past the maximum whatever came before it.
+            held: bound(retry_after, seconds, 0, max).held(),
         })
     }
-}
-
-/// The held kind of a wait whose length is the provider's stated reset and
-/// lies past the declared maximum (decision 0106 ruling 2), or `None` for a
-/// wait the engine judges against that maximum: a computed default, or a
-/// stated reset within it.
-pub(super) fn held_past(retry_after: Option<u64>, seconds: u64, max: u64) -> Option<Held> {
-    (retry_after == Some(seconds) && seconds > max).then_some(Held { max_seconds: max })
 }
 
 /// What one refused member's route produced for the terminal.
@@ -391,11 +386,15 @@ impl Plan {
         })
     }
 
+    /// The member's park where `bound` says its wait, or the panel's
+    /// `total` through it, passes the maximum; a held member is never one.
     fn past_maximum(&self, total: u64) -> Option<Cause> {
-        if self.held.is_some() {
+        let retry_after = self.member.refusal.retry_after_seconds();
+        let before = total.saturating_sub(self.seconds);
+        let Bound::Past(_) = bound(retry_after, self.seconds, before, self.max) else {
             return None;
-        }
-        past_maximum(self.seconds, total, self.max).then(|| Cause {
+        };
+        Some(Cause {
             refused: refusal_record(
                 RefusalCause::PastMaximum,
                 Some(&self.member.site),

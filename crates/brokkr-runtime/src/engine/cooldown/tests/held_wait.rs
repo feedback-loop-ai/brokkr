@@ -13,13 +13,25 @@ fn held_seat(
     verdicts: &[&str],
     attempts: u64,
 ) -> (tempfile::TempDir, Engine, Arc<Mutex<OffsetDateTime>>) {
-    let (dir, mut engine, now) = seated!(verdicts, Probed::Answer, Some(5), attempts);
+    stated_seat(verdicts, Probed::Answer, 5, attempts)
+}
+
+/// A single seat whose attempts are refused with a stated reset of `retry`
+/// seconds, past the host's two-second maximum, and whose probes do what
+/// `probed` says.
+pub(super) fn stated_seat(
+    verdicts: &[&str],
+    probed: Probed,
+    retry: u64,
+    attempts: u64,
+) -> (tempfile::TempDir, Engine, Arc<Mutex<OffsetDateTime>>) {
+    let (dir, mut engine, now) = seated!(verdicts, probed, Some(retry), attempts);
     engine.cooldown.host = Some(host(dir.path(), 1, 2));
     (dir, engine, now)
 }
 
 /// The run's status and how many parks its journal holds.
-fn standing(engine: &Engine) -> (Status, usize) {
+pub(super) fn standing(engine: &Engine) -> (Status, usize) {
     let events = engine.store.load(&engine.run_id).unwrap();
     let parks = events
         .iter()
@@ -61,11 +73,10 @@ fn the_held_wait_is_read_from_the_terminal_event_into_the_account() {
     let (_dir, mut engine, _now) = held_seat(&["refuse", "succeed"], 2);
     engine.drive().unwrap();
     let events = engine.store.load(&engine.run_id).unwrap();
-    let effect = failed(&engine)[0].payload["effect_id"]
-        .as_str()
+    let wait = engine
+        .recorded_wait(&events, &effect_of(&engine))
         .unwrap()
-        .to_string();
-    let wait = engine.recorded_wait(&events, &effect).unwrap().unwrap();
+        .unwrap();
     assert_eq!(wait.held, Some(brokkr_core::Held { max_seconds: 2 }));
     assert_eq!(wait.retry_after_seconds, Some(5));
 }
@@ -134,19 +145,53 @@ fn a_held_wait_at_the_cap_parks_attempt_cap() {
     let (dir, mut engine, _now) = held_seat(&["refuse"], 1);
     engine.drive().unwrap();
     assert_eq!(logs(dir.path(), "work"), ["attempt:refuse"]);
-    assert_eq!(standing(&engine), (Status::AwaitingOperator, 1));
+    parked_at_the_cap(&engine);
+    assert_eq!(failed(&engine)[0].payload["waits"][0]["held"], json!(true));
+}
+
+/// The first terminal's effect id.
+pub(super) fn effect_of(engine: &Engine) -> String {
+    failed(engine)[0].payload["effect_id"]
+        .as_str()
+        .unwrap()
+        .to_string()
+}
+
+/// The run parked once, at 0006's cap, with the provider's limit as the
+/// last attempt's failure class.
+pub(super) fn parked_at_the_cap(engine: &Engine) {
+    assert_eq!(standing(engine), (Status::AwaitingOperator, 1));
     assert!(matches!(
-        park_cause_of(&engine),
+        park_cause_of(engine),
         ParkCause::AttemptCap {
             failure_class: FailureClass::ProviderLimit,
             ..
         }
     ));
-    assert_eq!(failed(&engine)[0].payload["waits"][0]["held"], json!(true));
+}
+
+/// The retry succeeded on the first effect with no park before it, and
+/// its start records the probe's answer for claude/first.
+pub(super) fn retried_without_a_park(engine: &Engine) {
+    let events = engine.store.load(&engine.run_id).unwrap();
+    let succeeded = events
+        .iter()
+        .position(|event| event.event_type == EventType::EffectSucceeded)
+        .expect("the retry succeeded");
+    assert!(
+        !events[..succeeded]
+            .iter()
+            .any(|event| event.event_type == EventType::RunParked),
+        "the resume parked before the retry"
+    );
+    // `starts` keeps the first effect's own starts: the retry is that effect.
+    let started = starts(engine);
+    assert_eq!(started.len(), 2, "{started:?}");
+    assert_eq!(started[1]["probes"][0]["route"], "first");
 }
 
 /// The held wait's recorded end, as its terminal event spells it.
-fn held_until(engine: &Engine) -> OffsetDateTime {
+pub(super) fn held_until(engine: &Engine) -> OffsetDateTime {
     let until = failed(engine)[0].payload["waits"][0]["until"]
         .as_str()
         .unwrap()
@@ -170,21 +215,7 @@ fn resumed_after_the_held_end(after: i64) {
     // No park before the retry succeeded: the episode did not count the
     // held 5s against the 2s maximum (what follows the success is the
     // fixture's policy, not the wait's).
-    let events = engine.store.load(&engine.run_id).unwrap();
-    let succeeded = events
-        .iter()
-        .position(|event| event.event_type == EventType::EffectSucceeded)
-        .expect("the retry succeeded");
-    assert!(
-        !events[..succeeded]
-            .iter()
-            .any(|event| event.event_type == EventType::RunParked),
-        "the resume parked before the retry"
-    );
-    // `starts` keeps the first effect's own starts: the retry is that effect.
-    let started = starts(&engine);
-    assert_eq!(started.len(), 2, "{started:?}");
-    assert_eq!(started[1]["probes"][0]["route"], "first");
+    retried_without_a_park(&engine);
 }
 
 #[test]

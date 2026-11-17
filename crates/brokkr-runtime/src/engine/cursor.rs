@@ -85,7 +85,7 @@ impl Engine {
         // ends, and a resume refuses naming the lift (decision 0106 ruling
         // 2). The cap above is judged first, so a held wait at the cap parks
         // `attempt-cap`.
-        if self.held_turn(&waits)? {
+        if self.held_turn(events, &wait_effect, &waits)? {
             return Ok(());
         }
         // Before the wait's probe and before the retry's admission, the
@@ -103,6 +103,9 @@ impl Engine {
         }
         match self.take_cooldown(events, state, &wait_effect, seat, &waits)? {
             Waited::Proceed(answers) => self.run_attempt(events, state, effect_id, seat, answers),
+            // A probe's held round ended the drive with the run `running`
+            // (decision 0106 ruling 2); no attempt is spent.
+            Waited::Held => Ok(()),
             // The stop's own arm writes the ending next turn.
             Waited::Stopped => Ok(()),
             Waited::Parked(park) => self.park(&park),

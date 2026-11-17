@@ -32,6 +32,7 @@ use crate::bundle::Limits;
 mod held;
 pub(in crate::engine) use held::holds_a_wait;
 pub(crate) use held::HeldDrive;
+use held::HeldEnd;
 pub use held::HeldWait;
 mod probe;
 pub(in crate::engine) use probe::cleanup_failure;
@@ -204,6 +205,16 @@ pub(super) enum CooldownError {
         words: String,
     },
     #[error(
+        "the cool-down probe for {provider}/{route} was refused again with a stated reset of \
+         {seconds}s, past the declared {max_seconds}s maximum, whose end the journal cannot spell"
+    )]
+    RoundNoEnd {
+        provider: String,
+        route: String,
+        seconds: u64,
+        max_seconds: u64,
+    },
+    #[error(
         "the cool-down probe for {provider}/{route} could not record its next round: {source}"
     )]
     RoundUnwritable {
@@ -217,6 +228,9 @@ pub(super) enum CooldownError {
 /// a stopped run to its `Stop` arm, or park with this reason and cause.
 pub(super) enum Waited {
     Proceed(Vec<ProbeAnswer>),
+    /// A probe wrote another held round, and the drive ends with the run
+    /// `running` (decision 0106 ruling 2).
+    Held,
     Stopped,
     Parked(Park),
 }
@@ -240,6 +254,16 @@ pub(super) fn park_of(error: &CooldownError) -> Park {
         Said::Own => ParkCause::ruled(None, reason.clone()),
     };
     Park::new(reason, cause)
+}
+
+/// A probe's held round whose end the journal cannot spell, as the
+/// provider's typed limit: the terminal's `no-end` cause.
+fn no_end(route: &str, seconds: u64, max_seconds: u64) -> ProviderLimitRefusal {
+    ProviderLimitRefusal::NoEnd {
+        route: route.to_string(),
+        seconds,
+        max_seconds,
+    }
 }
 
 /// What a cool-down error says of its park's cause.
@@ -270,6 +294,12 @@ fn said(error: &CooldownError) -> Said<'_> {
                 max_seconds: facts.max,
             },
         ),
+        CooldownError::RoundNoEnd {
+            provider,
+            route,
+            seconds,
+            max_seconds,
+        } => Said::Limit(provider, no_end(route, *seconds, *max_seconds)),
         CooldownError::WaitEpisodeUnreadable {
             provider, route, ..
         } => Said::Limit(
@@ -395,6 +425,10 @@ pub(super) struct Episode {
     /// read this, so a park after a written probe round names that round's
     /// length rather than the first wait's (0103 ruling 3).
     pub(super) lengths: BTreeMap<Option<String>, u64>,
+    /// The probe's held round that ends last, where the episode has one
+    /// (decision 0106 ruling 2). A terminal's own held wait is read from its
+    /// event's `waits` entry, never from its row.
+    pub(super) held: Option<HeldEnd>,
 }
 
 pub(super) fn episode_by_site(
@@ -408,6 +442,7 @@ pub(super) fn episode_by_site(
         seconds: 0,
         latest: None,
         lengths: BTreeMap::new(),
+        held: None,
     };
     for event in events {
         if !matches!(
@@ -434,29 +469,54 @@ pub(super) fn episode_by_site(
                 episode.seconds = episode.seconds.saturating_add(wait.seconds);
                 episode.lengths.insert(wait.site.clone(), wait.seconds);
             }
-            let site = wait.site.clone().unwrap_or_default();
-            let rows = store
-                .cooldown_rounds(run_id, event.seq, &site)
-                .map_err(|source| CooldownError::RoundsUnreadable {
-                    source: Box::new(source),
-                })?;
-            for row in rows {
-                episode.latest = Some(
-                    episode
-                        .latest
-                        .map_or(row.until_at, |latest| latest.max(row.until_at)),
-                );
-                if the_waits_own(&row, &wait) {
-                    continue;
-                }
-                *episode.rounds.entry(wait.site.clone()).or_insert(0u64) += 1;
-                let length = round_length(&row);
-                episode.seconds = episode.seconds.saturating_add(length);
-                episode.lengths.insert(wait.site.clone(), length);
-            }
+            episode.fold_rounds(store, run_id, event.seq, &wait)?;
         }
     }
     Ok(episode)
+}
+
+impl Episode {
+    /// Fold one wait's stored rows into the episode: every row's end into
+    /// `latest`, and every probe round into its site's rounds. An ordinary
+    /// round adds its length; a probe's held round, the provider's word,
+    /// adds its round and its end but no remainder, and its end is one a
+    /// resume does not sleep to (decision 0106 ruling 2).
+    fn fold_rounds(
+        &mut self,
+        store: &brokkr_store::Store,
+        run_id: &str,
+        event_seq: u64,
+        wait: &ProviderWait,
+    ) -> Result<(), CooldownError> {
+        let site = wait.site.clone().unwrap_or_default();
+        let unreadable = |source| CooldownError::RoundsUnreadable {
+            source: Box::new(source),
+        };
+        let rows = store
+            .cooldown_rounds(run_id, event_seq, &site)
+            .map_err(unreadable)?;
+        let kinds = store
+            .cooldown_held_rounds(run_id, event_seq, &site)
+            .map_err(unreadable)?;
+        for row in rows {
+            self.latest = Some(
+                self.latest
+                    .map_or(row.until_at, |latest| latest.max(row.until_at)),
+            );
+            if the_waits_own(&row, wait) {
+                continue;
+            }
+            *self.rounds.entry(wait.site.clone()).or_insert(0u64) += 1;
+            if let Some(held) = kinds.get(&row.rounds).copied() {
+                self.hold_to(&row, held);
+                continue;
+            }
+            let length = round_length(&row);
+            self.seconds = self.seconds.saturating_add(length);
+            self.lengths.insert(wait.site.clone(), length);
+        }
+        Ok(())
+    }
 }
 
 /// Whether `row` is the terminal event's own row for `wait`: the store

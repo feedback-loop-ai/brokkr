@@ -10,6 +10,8 @@
 //! returns NULL and a NULL CHECK passes. Only the readers here convert
 //! them, into the `time` type the engine already carries.
 
+use std::collections::BTreeMap;
+
 use brokkr_core::envelope::{EventEnvelope, EventType};
 use brokkr_core::{provider_waits, Held, ProviderWait};
 use rusqlite::{params, Connection, OptionalExtension};
@@ -377,6 +379,39 @@ fn rounds(
     rows.into_iter().map(Raw::typed).collect()
 }
 
+/// One site's held rounds on an event, by round: version 7's kind, which
+/// the table's CHECK (`held_names_its_maximum`) ties to its maximum, so a
+/// present maximum is a held row. Only the version this binary writes holds
+/// the kind's columns; an older one holds no held row.
+fn held_rounds(
+    conn: &Connection,
+    run_id: &str,
+    event_seq: u64,
+    site: &str,
+) -> Result<BTreeMap<u64, Held>, StoreError> {
+    if !cool_downs_writable(conn)? {
+        return Ok(BTreeMap::new());
+    }
+    let mut statement = conn.prepare(
+        "SELECT rounds, max_seconds FROM provider_cooldowns
+         WHERE run_id = ?1 AND event_seq = ?2 AND site = ?3 AND held = 1",
+    )?;
+    let kinds = statement.query_map(params![run_id, event_seq as i64, site], |row| {
+        Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?))
+    })?;
+    kinds
+        .map(|kind| {
+            let (rounds, max) = kind?;
+            Ok((
+                rounds as u64,
+                Held {
+                    max_seconds: max as u64,
+                },
+            ))
+        })
+        .collect()
+}
+
 /// The event at `(run_id, event_seq)`, parsed, or `None`: a probe round is
 /// appended to an event that already landed, so the check reads it inside
 /// the transaction that writes the row.
@@ -480,6 +515,26 @@ impl Store {
         })
     }
 
+    /// One site's held rounds on a terminal event, by round, with the
+    /// maximum each passed (decision 0106 ruling 2): the rounds whose
+    /// interval the episode does not count and whose end a resume does not
+    /// sleep to. The version is judged as [`Store::cooldown_rounds`] judges
+    /// it; a queue older than version 7 holds no held row.
+    pub fn cooldown_held_rounds(
+        &self,
+        run_id: &str,
+        event_seq: u64,
+        site: &str,
+    ) -> Result<BTreeMap<u64, Held>, StoreError> {
+        patiently("cooldown_held_rounds", self.patience, || {
+            if cool_downs_held(&self.conn)? {
+                held_rounds(&self.conn, run_id, event_seq, site)
+            } else {
+                Ok(BTreeMap::new())
+            }
+        })
+    }
+
     /// Append ONE probe round to its terminal event, in its own `Immediate`
     /// transaction (decision 0103 ruling 2(a), slice 4d2b). The queue must
     /// be version 4 (`NoTable` otherwise, and the engine parks as 4c does);
@@ -492,6 +547,29 @@ impl Store {
     pub fn append_cooldown_round(
         &mut self,
         round: CooldownRound<'_>,
+    ) -> Result<RoundAppend, StoreError> {
+        self.append_round(&round, None)
+    }
+
+    /// Append ONE probe's held round (decision 0106 ruling 2): the provider
+    /// stated a reset that alone passes the declared maximum `held` names.
+    /// The round is judged and written as [`Store::append_cooldown_round`]
+    /// writes an ordinary one, with version 7's kind on its row, so
+    /// admission holds the route to its end and the episode does not count
+    /// its interval.
+    pub fn append_held_round(
+        &mut self,
+        round: CooldownRound<'_>,
+        held: Held,
+    ) -> Result<RoundAppend, StoreError> {
+        self.append_round(&round, Some(held))
+    }
+
+    /// The one probe-round writer both appends share (0071 ruling 5).
+    fn append_round(
+        &mut self,
+        round: &CooldownRound<'_>,
+        held: Option<Held>,
     ) -> Result<RoundAppend, StoreError> {
         patiently("append_cooldown_round", self.patience, || {
             let tx = self
@@ -563,9 +641,7 @@ impl Store {
                     retry_after_seconds: round.retry_after_seconds,
                     rounds: round.rounds,
                     recorded,
-                    // A probe's round is the engine's own computed wait
-                    // here; a held probe round is not built (0106b1).
-                    held: None,
+                    held,
                 },
             )?;
             tx.commit()?;

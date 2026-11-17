@@ -516,7 +516,9 @@ pub fn brokkr_store::Store::append_chain<T>(&mut self, &str, brokkr_core::envelo
 pub fn brokkr_store::Store::append_chain_without_waiting<T>(&mut self, &str, brokkr_core::envelope::EventType, brokkr_store::Rows<'_, T>, core::option::Option<alloc::string::String>, core::option::Option<alloc::string::String>) -> core::result::Result<brokkr_store::Chain, brokkr_store::StoreError>
 impl brokkr_store::Store
 pub fn brokkr_store::Store::append_cooldown_round(&mut self, brokkr_store::CooldownRound<'_>) -> core::result::Result<brokkr_store::RoundAppend, brokkr_store::StoreError>
+pub fn brokkr_store::Store::append_held_round(&mut self, brokkr_store::CooldownRound<'_>, brokkr_core::payload::provider_wait::Held) -> core::result::Result<brokkr_store::RoundAppend, brokkr_store::StoreError>
 pub fn brokkr_store::Store::cooldown(&self, &str, &str, time::offset_date_time::OffsetDateTime) -> core::result::Result<core::option::Option<brokkr_store::CooldownAggregate>, brokkr_store::StoreError>
+pub fn brokkr_store::Store::cooldown_held_rounds(&self, &str, u64, &str) -> core::result::Result<alloc::collections::btree::map::BTreeMap<u64, brokkr_core::payload::provider_wait::Held>, brokkr_store::StoreError>
 pub fn brokkr_store::Store::cooldown_rounds(&self, &str, u64, &str) -> core::result::Result<alloc::vec::Vec<brokkr_store::Cooldown>, brokkr_store::StoreError>
 pub fn brokkr_store::Store::cooldowns_in_force(&self, time::offset_date_time::OffsetDateTime) -> core::result::Result<alloc::vec::Vec<brokkr_store::Cooldown>, brokkr_store::StoreError>
 pub fn brokkr_store::Store::cooldowns_newest(&self, time::offset_date_time::OffsetDateTime) -> core::result::Result<alloc::vec::Vec<brokkr_store::Cooldown>, brokkr_store::StoreError>

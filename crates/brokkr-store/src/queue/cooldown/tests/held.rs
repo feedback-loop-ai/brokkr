@@ -95,6 +95,42 @@ fn a_held_waits_row_carries_its_kind_from_its_event() {
     );
 }
 
+/// A probe's held round is written with its kind beside an ordinary round,
+/// and read back by round (decision 0106 ruling 2, fix round 0106b1r2); a
+/// version 6 queue has no kind columns and a version 3 one no table, and
+/// each holds no held round.
+#[test]
+fn a_probes_held_round_is_read_back_by_its_round_and_an_older_queue_holds_none() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut store, event) = waited_journal(dir.path());
+    let held = brokkr_core::Held { max_seconds: 30 };
+    let round = next_round("run-a", event.seq, "a", at(120), 2);
+    assert_eq!(
+        store.append_held_round(round, held).unwrap(),
+        RoundAppend::Written
+    );
+    let round = next_round("run-a", event.seq, "a", at(180), 3);
+    assert_eq!(
+        store.append_cooldown_round(round).unwrap(),
+        RoundAppend::Written
+    );
+    let read = |store: &Store| store.cooldown_held_rounds("run-a", event.seq, "a").unwrap();
+    assert_eq!(read(&store).into_iter().collect::<Vec<_>>(), [(2, held)]);
+    assert_eq!(
+        kinds(&store.conn),
+        vec![(None, None), (Some(1), Some(30)), (None, None)]
+    );
+    for downgrade in [
+        "ALTER TABLE provider_cooldowns DROP COLUMN held;
+         ALTER TABLE provider_cooldowns DROP COLUMN max_seconds;
+         UPDATE meta SET value = '6' WHERE key = 'queue_schema';",
+        "UPDATE meta SET value = '3' WHERE key = 'queue_schema';",
+    ] {
+        store.conn.execute_batch(downgrade).unwrap();
+        assert!(read(&store).is_empty(), "{downgrade}");
+    }
+}
+
 /// The kind's checks refuse, by name, a held row without its maximum, a
 /// maximum without `held`, a `held` that is not 1, and a maximum below one.
 #[test]
