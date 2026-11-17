@@ -113,12 +113,12 @@ pub(crate) struct Admitted {
 /// Start one admitted entry: claim it, rebuild and start its run, drop the
 /// engine so its lock goes, then link, `spawn` and hand it to the seam. A
 /// run started and not handed to the seam is pushed to `left`.
-pub(crate) fn start<S, P>(
+pub(crate) fn start<S, P, C>(
     store: &mut Store,
     dispatcher: &Dispatcher,
     admitted: Admitted,
     shared: &Shared<'_>,
-    seams: &mut Seams<S, P>,
+    seams: &mut Seams<S, P, C>,
     left: &mut Vec<Left>,
 ) -> Result<Outcome, Ending>
 where

@@ -1,6 +1,7 @@
-//! `brokkr dispatch`'s arguments (decision 0110 rulings 3, 5 and 6): one
-//! pass with `--once`, the hidden `drive` the pass spawns for each run it
-//! starts, and the bound's command and the holder's readout.
+//! `brokkr dispatch`'s arguments (decision 0110 rulings 3, 5 and 6): the
+//! standing loop's interval, one pass with `--once`, the hidden `drive`
+//! the pass spawns for each run it starts, and the bound's command and the
+//! holder's readout.
 
 use std::num::NonZeroU32;
 
@@ -10,10 +11,18 @@ use super::JournalArgs;
 #[command(args_conflicts_with_subcommands = true)]
 pub(crate) struct DispatchArgs {
     /// Run one pass and return without waiting on the drivers it started.
-    /// The standing loop is not built yet, so a dispatch without
-    /// `--once` is refused.
     #[arg(long)]
     pub(crate) once: bool,
+    /// Without `--once`, the seconds from one pass's start to the next,
+    /// from 5 to 3600. The dispatcher stands until SIGINT or SIGTERM.
+    #[arg(
+        long,
+        value_name = "SECONDS",
+        default_value_t = 60,
+        value_parser = clap::value_parser!(u64).range(5..=3600),
+        conflicts_with = "once"
+    )]
+    pub(crate) every: u64,
     #[command(flatten)]
     pub(crate) journal: JournalArgs,
     #[command(subcommand)]

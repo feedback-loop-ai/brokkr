@@ -15,6 +15,7 @@ for someone arriving from outside this repository.
 | [Agent library](agent-library.md) | One agent definition, its ordered model chain, limits, declared inputs and tool grant, resolved once and pinned. |
 | [Provider adapters](provider-adapters.md) | The data files that map abstract models and permissions onto Claude, Codex, DSH, LaneTally and exec. |
 | [Driver authoring](driver-authoring.md) | The `forge-driver/v1` wire contract for a harness that is not Claude Code, Codex or dsh: handshake, `accepted`, checkpoints, results, deadlines, and the conformance suite as the acceptance test. |
+| [Dispatching](dispatching.md) | `brokkr dispatch`: what each tick does, running it under a systemd user unit or a launchd agent, what a crash, a fence-out, a replaced binary, a driver that died and a spawn failure each leave and how to recover, and `dispatch set-bound` and `dispatch status`. |
 | [Secrets](secrets.md) | Names cross the control plane; values stay in the operator-side store and are masked before capture. |
 | [Journal and verification](journal-and-verification.md) | Anchor, export, verify, replay, import and keep the evidence that proves a run. |
 | [Bug provenance](bug-provenance.md) | Trace observed defects to introducing commits and runs, then to verified fixes. |

@@ -29,13 +29,16 @@ use crate::sweep::{self, SweepError, Swept};
 /// The queue admission judged, and the reasons no entry waits on.
 type JudgedQueue = (Vec<Judged>, Vec<Reason>);
 
-/// The two seams a pass is handed in place of a process and a binary check
-/// (decision 0110 ruling 1): `stands` is ruling 4's check, called before
-/// each claim and before each `spawn` row, and `spawn` starts one run once
-/// its `spawn` row has landed.
-pub struct Seams<S, P> {
+/// The three seams a pass is handed in place of a process, a binary check
+/// and a stop (decision 0110 rulings 1 and 5): `stands` is ruling 4's
+/// check, called before each claim and before each `spawn` row; `spawn`
+/// starts one run once its `spawn` row has landed; and `claims`, called
+/// before each claim alone, answers false once a stop asks the pass to
+/// claim nothing more, which it then reports as a [`Passed`].
+pub struct Seams<S, P, C> {
     pub stands: S,
     pub spawn: P,
+    pub claims: C,
 }
 
 /// A step of the pass, as a test's seam records its order and a report
@@ -222,16 +225,17 @@ pub struct Passed {
 /// and the boundary tool search path `host_path`: reconcile, sweep, read
 /// the bound, judge the queue and start each admitted entry, reporting what
 /// it did. A typed [`Ending`] carries the report [`Ended::passed`].
-pub fn pass<S, P>(
+pub fn pass<S, P, C>(
     store: &mut Store,
     dispatcher: &Dispatcher,
     host: &Host<'_>,
     host_path: OsString,
-    seams: Seams<S, P>,
+    seams: Seams<S, P, C>,
 ) -> Result<Passed, Box<Ended>>
 where
     S: FnMut() -> Result<(), Ending>,
     P: FnMut(&Spawn) -> Result<Spawned, SpawnFailed>,
+    C: FnMut() -> bool,
 {
     let watch = Watch {
         observe: |_| {},
@@ -251,17 +255,18 @@ struct Watch<O> {
 /// [`pass`], with the private seams of [`Watch`]: the tests that bind
 /// ruling 1's fixed order and ruling 2's disposals, private so no
 /// production consumer carries an observer or a fault.
-fn pass_with<S, P, O>(
+fn pass_with<S, P, C, O>(
     store: &mut Store,
     dispatcher: &Dispatcher,
     host: &Host<'_>,
     host_path: OsString,
-    seams: Seams<S, P>,
+    seams: Seams<S, P, C>,
     mut watch: Watch<O>,
 ) -> Result<Passed, Box<Ended>>
 where
     S: FnMut() -> Result<(), Ending>,
     P: FnMut(&Spawn) -> Result<Spawned, SpawnFailed>,
+    C: FnMut() -> bool,
     O: FnMut(Stage),
 {
     let mut passed = Passed::default();
@@ -281,18 +286,19 @@ where
 
 /// The pass's steps, keeping everything they did in `passed` so an ending
 /// can carry it.
-fn run<S, P, O>(
+fn run<S, P, C, O>(
     store: &mut Store,
     dispatcher: &Dispatcher,
     host: &Host<'_>,
     host_path: OsString,
-    mut seams: Seams<S, P>,
+    mut seams: Seams<S, P, C>,
     passed: &mut Passed,
     watch: &mut Watch<O>,
 ) -> Result<(), Ending>
 where
     S: FnMut() -> Result<(), Ending>,
     P: FnMut(&Spawn) -> Result<Spawned, SpawnFailed>,
+    C: FnMut() -> bool,
     O: FnMut(Stage),
 {
     let observe = &mut watch.observe;
@@ -338,6 +344,11 @@ where
         let Some(room) = room else {
             continue;
         };
+        // A stop claims nothing more (decision 0110 ruling 5): the entry
+        // in flight already has its `spawn` row and its driver.
+        if !(seams.claims)() {
+            break;
+        }
         observe(Stage::Start);
         let admitted = start::Admitted {
             entry,
@@ -398,11 +409,11 @@ fn record_start(passed: &mut Passed, outcome: start::Outcome) -> bool {
 /// hand the run to the seam once, never twice (decision 0095 ruling 3). A
 /// store refusal is reported or ends the pass, and every settled item is
 /// kept in the report for the next pass.
-fn spawned_after_reconcile<S, P>(
+fn spawned_after_reconcile<S, P, C>(
     store: &mut Store,
     dispatcher: &Dispatcher,
     passed: &mut Passed,
-    seams: &mut Seams<S, P>,
+    seams: &mut Seams<S, P, C>,
 ) -> Result<bool, Ending>
 where
     S: FnMut() -> Result<(), Ending>,

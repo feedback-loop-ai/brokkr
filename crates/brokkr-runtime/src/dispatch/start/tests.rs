@@ -474,6 +474,7 @@ fn a_contended_link_leaves_the_entry_for_reconciliation_and_is_never_reclaimed()
         OsString::new(),
         Seams {
             stands: || Ok(()),
+            claims: || true,
             spawn: move |spawn: &Spawn| {
                 record.borrow_mut().push(spawn.run.clone());
                 Ok(Spawned { pid: 3 })

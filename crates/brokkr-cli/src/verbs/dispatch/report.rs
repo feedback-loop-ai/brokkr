@@ -7,9 +7,10 @@
 use std::num::NonZeroU32;
 use std::path::Path;
 
+use brokkr_core::fold::Status;
 use brokkr_runtime::dispatch::{
-    BoundOutcome, Contended, Ended, Held, Left, Passed, Reclaimed, Settled, SpawnFailed, Spawned,
-    Spawning, Stage, Started, Subject, SweepOutcome,
+    BoundOutcome, Contended, Ended, Ending, Exited, Held, Left, Passed, Reaped, Reclaimed, Settled,
+    SpawnFailed, Spawned, Spawning, Stage, Started, Subject, SweepOutcome,
 };
 use brokkr_store::{Claim, Generation};
 
@@ -218,8 +219,55 @@ fn sweep(lines: &mut String, outcome: Option<&SweepOutcome>) {
 /// What a pass did before it ended, then why it ended.
 pub(super) fn ended(ended: &Ended, journal: &Path) -> String {
     let mut lines = passed(&ended.passed, journal);
-    line(&mut lines, &format!("ended: {}", ended.ending));
+    lines.push_str(&ending(&ended.ending));
     lines
+}
+
+/// Why the dispatcher ended: the standing loop's last line once its tick
+/// is reported.
+pub(super) fn ending(ending: &Ending) -> String {
+    let mut lines = String::new();
+    line(&mut lines, &format!("ended: {ending}"));
+    lines
+}
+
+/// A driver the standing loop reaped, its exit and what its run reads
+/// now. A run that still reads `running` has no driver, and the line gives
+/// the command that resumes it (decision 0110 ruling 5).
+pub(super) fn reaped(reaped: &Reaped, journal: &Path) -> String {
+    let Exited { run, pid, exit } = &reaped.exited;
+    let exited = format!("driver exited: run {run}, driver pid {pid}, {exit}");
+    let said = match &reaped.reads {
+        Ok(Status::Running) => format!(
+            "{exited}; the run reads running with no driver; resume it with{}",
+            resume(run, journal)
+        ),
+        Ok(status) => format!("{exited}; the run reads {}", status.as_str()),
+        Err(error) => format!("{exited}; the run does not read: {error}"),
+    };
+    let mut lines = String::new();
+    line(&mut lines, &said);
+    lines
+}
+
+/// The drivers still running as the standing loop ends: each left
+/// running, never signalled.
+pub(super) fn running(drivers: &super::Drivers) -> String {
+    let mut lines = String::new();
+    for (pid, (run, _)) in drivers {
+        line(
+            &mut lines,
+            &format!("left running: run {run}, driver pid {pid}"),
+        );
+    }
+    lines
+}
+
+/// The standing loop's words once a signal stopped it.
+pub(super) fn stopped() -> String {
+    "stopped: a signal asked the dispatcher to stop; it claimed nothing after, and its drivers \
+     run on\n"
+        .to_string()
 }
 
 /// A claim as an operator reads it.

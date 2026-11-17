@@ -383,6 +383,130 @@ fn a_dispatcher_whose_binary_was_replaced_claims_nothing_and_ends() {
     assert_eq!(machine.commands(), ["add"], "nothing claimed");
 }
 
+/// A standing dispatcher this test started, killed and waited on if the
+/// test fails before it ends, so no dispatcher outlives its test.
+struct Standing(Option<std::process::Child>);
+
+impl Standing {
+    /// `brokkr dispatch` given `args` on `machine`, its output piped.
+    fn start(machine: &Machine, args: &[&str]) -> Standing {
+        let brokkr = Path::new(env!("CARGO_BIN_EXE_brokkr"));
+        let child = machine
+            .command(brokkr, args)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        Standing(Some(child))
+    }
+
+    /// Send `signal` to the dispatcher's own pid, not this test's group.
+    fn signal(&self, signal: rustix::process::Signal) {
+        let pid = self.0.as_ref().unwrap().id() as i32;
+        let pid = rustix::process::Pid::from_raw(pid).unwrap();
+        rustix::process::kill_process(pid, signal).unwrap();
+    }
+
+    /// Wait up to the patience for the dispatcher to end, and read what it
+    /// said.
+    fn ended(mut self) -> Output {
+        let mut child = self.0.take().unwrap();
+        let began = Instant::now();
+        while child.try_wait().unwrap().is_none() {
+            if began.elapsed() > PATIENCE {
+                let _ = child.kill();
+                let _ = child.wait();
+                panic!("the dispatcher did not end within the patience");
+            }
+            std::thread::sleep(Duration::from_millis(25));
+        }
+        child.wait_with_output().unwrap()
+    }
+}
+
+impl Drop for Standing {
+    fn drop(&mut self) {
+        if let Some(mut child) = self.0.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+}
+
+/// Whether `pid` names a process still there.
+fn alive(pid: i32) -> bool {
+    let pid = rustix::process::Pid::from_raw(pid).unwrap();
+    rustix::process::test_kill_process(pid).is_ok()
+}
+
+/// Decision 0110 ruling 5: the standing loop starts the queued entry's
+/// driver, and a SIGTERM stops it with exit 0 once that tick is reported.
+/// The driver, in a session of its own, is never signalled: it runs on and
+/// completes its run, and no claim follows the signal.
+#[test]
+fn a_standing_dispatcher_stops_on_sigterm_and_its_driver_runs_on() {
+    if !in_its_own_engine("dispatch::a_standing_dispatcher_stops_on_sigterm_and_its_driver_runs_on")
+    {
+        return;
+    }
+    let machine = Machine::new();
+    machine.queued();
+    let args = ["dispatch", "--every", "5", "--db", machine.db()];
+    let dispatcher = Standing::start(&machine, &args);
+    machine.seat_runs();
+    dispatcher.signal(rustix::process::Signal::TERM);
+    let ended = dispatcher.ended();
+    let stdout = String::from_utf8_lossy(&ended.stdout).into_owned();
+    assert_eq!(ended.status.code(), Some(0), "{ended:?}");
+    let (run, _, _, pid) = started(&stdout);
+    let last = format!(
+        "queue: 0 waiting, 0 held\nleft running: run {run}, driver pid {pid}\nstopped: a signal \
+         asked the dispatcher to stop; it claimed nothing after, and its drivers run on\n"
+    );
+    assert!(stdout.ends_with(&last), "{stdout}");
+    assert!(alive(pid), "the driver was not signalled");
+    assert_eq!(machine.commands(), ["add", "claim", "link", "spawn"]);
+
+    std::fs::write(machine.released(), "").unwrap();
+    completes(&machine.log(&run));
+    assert_eq!(machine.commands(), ["add", "claim", "link", "spawn"]);
+}
+
+/// Decision 0110 ruling 5: a second signal while the first's stop is asked
+/// ends the dispatcher at once, 128 plus SIGTERM's number. The dispatcher
+/// is held on the journal's write lock, so the first stop cannot end it
+/// before the second arrives.
+#[test]
+fn a_second_sigterm_ends_the_dispatcher_at_once() {
+    if !in_its_own_engine("dispatch::a_second_sigterm_ends_the_dispatcher_at_once") {
+        return;
+    }
+    let machine = Machine::new();
+    machine.queued();
+    let holder = rusqlite::Connection::open(&machine.journal).unwrap();
+    holder.execute_batch("BEGIN IMMEDIATE").unwrap();
+    let args = ["dispatch", "--every", "5", "--db", machine.db()];
+    let dispatcher = Standing::start(&machine, &args);
+    // Its handlers are installed before it takes the lock file.
+    let lock = machine.base.join("forge.db.dispatch.lock");
+    let began = Instant::now();
+    while !lock.exists() {
+        assert!(
+            began.elapsed() < PATIENCE,
+            "the dispatcher never took its lock"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    std::thread::sleep(Duration::from_millis(200));
+    dispatcher.signal(rustix::process::Signal::TERM);
+    std::thread::sleep(Duration::from_millis(300));
+    dispatcher.signal(rustix::process::Signal::TERM);
+    let ended = dispatcher.ended();
+    assert_eq!(ended.status.code(), Some(143), "{ended:?}");
+    holder.execute_batch("ROLLBACK").unwrap();
+    assert_eq!(machine.commands(), ["add"], "nothing claimed");
+}
+
 /// `from` copied to `to` by a staging name renamed into place, so no
 /// writer of `to` can make its exec busy (#255).
 fn stage(from: &Path, to: &Path) {

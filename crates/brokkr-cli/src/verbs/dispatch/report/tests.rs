@@ -312,6 +312,66 @@ fn every_step_and_subject_is_named() {
     );
 }
 
+/// Ruling 5: a reaped driver's line names its run, pid and exit, and what
+/// its run reads; a run still running gives the command that resumes it.
+#[test]
+fn a_reaped_driver_names_its_exit_and_what_its_run_reads() {
+    use std::os::unix::process::ExitStatusExt;
+    let journal = Path::new("/j/forge.db");
+    let reaped = |reads| Reaped {
+        exited: Exited {
+            run: "run-r".into(),
+            pid: 9,
+            exit: std::process::ExitStatus::from_raw(1 << 8),
+        },
+        reads,
+    };
+    let gone = brokkr_runtime::EngineError::Store(StoreError::RunNotFound("run-r".into()));
+    let said: Vec<String> = [Ok(Status::Running), Ok(Status::Completed), Err(gone)]
+        .into_iter()
+        .map(|reads| super::reaped(&reaped(reads), journal))
+        .collect();
+    let exited = "driver exited: run run-r, driver pid 9, exit status: 1; the run";
+    assert_eq!(
+        said,
+        [
+            format!(
+                "{exited} reads running with no driver; resume it with: brokkr resume \
+                 --run=run-r --db=/j/forge.db\n"
+            ),
+            format!("{exited} reads completed\n"),
+            format!(
+                "{exited} does not read: {}\n",
+                StoreError::RunNotFound("run-r".into())
+            ),
+        ]
+    );
+}
+
+/// Ruling 5: the standing loop's last lines name each driver left running,
+/// then its stop, or its ending's words.
+#[test]
+fn the_standing_loops_last_lines_name_its_drivers_then_its_ending() {
+    let mut child = std::process::Command::new("true").spawn().unwrap();
+    child.wait().unwrap();
+    let mut drivers = super::super::Drivers::new();
+    drivers.insert(child.id(), ("run-on".into(), child));
+    let pid = drivers.keys().next().copied().unwrap();
+    assert_eq!(
+        super::running(&drivers),
+        format!("left running: run run-on, driver pid {pid}\n")
+    );
+    assert_eq!(
+        super::stopped(),
+        "stopped: a signal asked the dispatcher to stop; it claimed nothing after, and its \
+         drivers run on\n"
+    );
+    assert_eq!(
+        super::ending(&Ending::Fenced(Generation(3))),
+        "ended: dispatch: generation 3 was fenced out; it is not the journal's latest holder\n"
+    );
+}
+
 #[test]
 fn an_ending_prints_what_the_pass_did_then_why_it_ended() {
     let dir = tempfile::tempdir().unwrap();
