@@ -434,10 +434,9 @@ fn the_view_whole_reads_its_opening_its_trail_its_summary_and_its_seat_rows() {
     assert_eq!(envelopes[1..], trail);
     let aggregate = |sql: &str| {
         sql.starts_with("SELECT value FROM meta WHERE key = 'queue_schema'")
-            || sql.starts_with(concat!(
-                "SELECT seq, site, provider, route, until_at, reason, retry_after_seconds, ",
-                "rounds, recorded_at FROM provider_cooldowns ORDER BY seq",
-            ))
+            || sql.starts_with(
+                "SELECT seq, provider, route, until_at FROM provider_cooldowns ORDER BY seq",
+            )
     };
     assert_eq!(
         begun.iter().filter(|sql| aggregate(sql.as_str())).count(),

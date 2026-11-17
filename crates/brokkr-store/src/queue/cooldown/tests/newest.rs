@@ -153,7 +153,8 @@ fn expired_table(rows: usize, routes: usize) -> (tempfile::TempDir, Store) {
 /// one, grow no faster than `n log n`: a thousand times the rows by at most
 /// four thousand times the steps. The correlated form it replaced took
 /// 998 and 380,934,683 over ten routes, and 962 and 650,305,007 over one;
-/// the scan takes 117 and 110,007 over either.
+/// the narrow scan and its kept rows' lookups take 227 and 60,167 over ten
+/// routes, and 83 and 60,023 over one.
 #[test]
 fn the_newest_read_is_one_scan() {
     let bound = (10_000.0 * 10_000f64.log2()) / (10.0 * 10f64.log2());

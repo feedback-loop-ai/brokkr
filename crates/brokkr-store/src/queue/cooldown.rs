@@ -247,90 +247,128 @@ fn newest(conn: &Connection, now: i64) -> Result<Vec<Cooldown>, StoreError> {
     newest_with(conn, now, |_| {})
 }
 
-/// [`newest`]'s one statement (#1112): one scan of the table in `seq`
-/// order, its primary key, so SQLite sorts nothing and holds no row past
-/// the one it hands over. [`Newest`] decides which rows are kept. The
-/// statement's VM steps go to `stepped`, so the test that binds its cost
-/// measures this statement.
+/// [`newest`]'s two statements (#1112). The first scans the table once in
+/// `seq` order, its primary key, reading only each row's key, provider,
+/// route and end ([`Scanned`]), so SQLite sorts nothing and never extracts
+/// a row's words; [`Newest`] decides which rows are kept. The second reads
+/// each kept row's whole projection by its `seq`, in `seq` order, so a
+/// discarded row's words never enter SQLite's heap. A row is append-only
+/// and never deleted, so a kept `seq` reads back the row the scan saw.
+/// Both statements' VM steps go to `stepped`, so the test that binds the
+/// read's cost measures them.
 fn newest_with(
     conn: &Connection,
     now: i64,
     stepped: impl FnOnce(i64),
 ) -> Result<Vec<Cooldown>, StoreError> {
-    let sql = format!("SELECT {ROWS} FROM provider_cooldowns ORDER BY seq");
-    let mut statement = conn.prepare(&sql)?;
+    let mut scan =
+        conn.prepare("SELECT seq, provider, route, until_at FROM provider_cooldowns ORDER BY seq")?;
     let mut newest = Newest::default();
-    let mut rows = statement.query([])?;
+    let mut rows = scan.query([])?;
     while let Some(row) = rows.next()? {
-        newest.take(Raw::read(row)?, now);
+        newest.take(Scanned::read(row)?, now);
     }
     drop(rows);
-    stepped(i64::from(
-        statement.get_status(rusqlite::StatementStatus::VmStep),
-    ));
-    newest.kept().into_iter().map(Raw::typed).collect()
+    let mut payload = conn.prepare(&format!(
+        "SELECT {ROWS} FROM provider_cooldowns WHERE seq = ?1"
+    ))?;
+    let kept = newest
+        .kept()
+        .into_iter()
+        .map(|seq| payload.query_row([seq], Raw::read)?.typed())
+        .collect();
+    let steps = |statement: &rusqlite::Statement<'_>| {
+        i64::from(statement.get_status(rusqlite::StatementStatus::VmStep))
+    };
+    stepped(steps(&scan) + steps(&payload));
+    kept
+}
+
+/// A row as [`newest`]'s scan reads it: its key, its provider and route,
+/// and its end, never its words.
+struct Scanned {
+    seq: i64,
+    provider: String,
+    route: String,
+    until: i64,
+}
+
+impl Scanned {
+    fn read(row: &rusqlite::Row<'_>) -> rusqlite::Result<Scanned> {
+        Ok(Scanned {
+            seq: row.get(0)?,
+            provider: row.get(1)?,
+            route: row.get(2)?,
+            until: row.get(3)?,
+        })
+    }
 }
 
 /// Where one provider and route stands in [`Newest`]'s scan so far.
 enum Standing {
     /// A row in force holds it: no expired row of it is kept.
     Held,
-    /// Every row of it read so far has ended, and this is the newest.
-    Ended(Raw),
+    /// Every row of it read so far has ended, and this, by its `seq` and
+    /// its end, is the newest.
+    Ended { seq: i64, until: i64 },
 }
 
 /// The readout's rows, decided over a scan in `seq` order: every row in
 /// force at `now`, and, for a provider and route no such row holds, the
 /// row with the latest end, the later-written on a tie. A row is kept once
-/// at most, and the rows a scan has passed over are not held.
+/// at most, and only its `seq` is held.
 #[derive(Default)]
 struct Newest {
-    in_force: Vec<Raw>,
+    in_force: Vec<i64>,
     routes: HashMap<(String, String), Standing>,
 }
 
 impl Newest {
     /// Take the scan's next row, which is later-written than every row
     /// taken before it.
-    fn take(&mut self, row: Raw, now: i64) {
-        let key = (row.provider.clone(), row.route.clone());
+    fn take(&mut self, row: Scanned, now: i64) {
+        let key = (row.provider, row.route);
         if row.until > now {
             self.routes.insert(key, Standing::Held);
-            self.in_force.push(row);
+            self.in_force.push(row.seq);
             return;
         }
+        let ended = Standing::Ended {
+            seq: row.seq,
+            until: row.until,
+        };
         match self.routes.entry(key) {
             Entry::Vacant(first) => {
-                first.insert(Standing::Ended(row));
+                first.insert(ended);
             }
             Entry::Occupied(mut seen) => {
                 let later =
-                    matches!(seen.get(), Standing::Ended(newest) if row.until >= newest.until);
+                    matches!(seen.get(), Standing::Ended { until, .. } if row.until >= *until);
                 if later {
-                    seen.insert(Standing::Ended(row));
+                    seen.insert(ended);
                 }
             }
         }
     }
 
-    /// The kept rows in the order they were written.
-    fn kept(self) -> Vec<Raw> {
+    /// The kept rows' `seq`s in the order they were written.
+    fn kept(self) -> Vec<i64> {
         let mut kept = self.in_force;
         kept.extend(
             self.routes
                 .into_values()
                 .filter_map(|standing| match standing {
-                    Standing::Ended(row) => Some(row),
+                    Standing::Ended { seq, .. } => Some(seq),
                     Standing::Held => None,
                 }),
         );
-        kept.sort_by_key(|row| row.seq);
+        kept.sort_unstable();
         kept
     }
 }
 
-/// The VM steps [`newest`]'s one statement takes at `now`, for the test
-/// that holds it to one scan.
+/// The VM steps [`newest`]'s two statements take at `now`, for the test
+/// that holds the read to one scan.
 #[cfg(test)]
 fn newest_steps(conn: &Connection, now: i64) -> Result<i64, StoreError> {
     let mut steps = 0;
@@ -507,16 +545,19 @@ impl Store {
     /// provider and route no unexpired row holds any more, in the order
     /// they were written: what a readout paints, so a probe's later end
     /// survives the instant it passes and the event's earlier end never
-    /// returns (decision 0103 slice 4f). newest's one statement; admission
-    /// keeps reading [`Store::cooldown`] and [`Store::cooldowns_in_force`],
-    /// which an expired row never holds. The queue's version is judged
-    /// first, as [`Store::cooldown`] does. The statement is one scan of the
-    /// table in its primary key's order (#1112), so SQLite sorts nothing and
-    /// its memory does not follow the table; the read keeps each provider
-    /// and route's newest row so far as it goes, so the bound is `n` steps
-    /// in the table's rows, never the run or its events, plus a sort of the
-    /// kept rows by `seq`. What the read holds is the rows in force and one
-    /// row per provider and route, the rows it returns. The history a
+    /// returns (decision 0103 slice 4f). Admission keeps reading
+    /// [`Store::cooldown`] and [`Store::cooldowns_in_force`], which an
+    /// expired row never holds. The queue's version is judged first, as
+    /// [`Store::cooldown`] does. The read is one scan of the table's keys,
+    /// providers, routes and ends in its primary key's order (#1112), so
+    /// SQLite sorts nothing and its memory does not follow the table; the
+    /// scan keeps each provider and route's newest `seq` so far as it goes,
+    /// then reads each kept row's words by its primary key, so the bound is
+    /// `n` steps in the table's rows, never the run or its events, plus a
+    /// sort of the kept `seq`s and one lookup per kept row. What the read
+    /// holds is the scan's one key per provider and route and the kept
+    /// rows' payloads, the rows it returns; a discarded row's words are
+    /// never read. The history a
     /// journal keeps is the rate limits its runs met, so `n` is that count
     /// and not a run's size; the console pays the read twice per refresh,
     /// once to compare the kept frame's aggregate and once in the frame or
