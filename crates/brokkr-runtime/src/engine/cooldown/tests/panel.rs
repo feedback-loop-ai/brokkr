@@ -1274,14 +1274,7 @@ fn a_stop_after_one_probe_answers_probes_no_later_member_and_retries_nothing() {
         engine
     });
     let started = engine_dir.join("a.started");
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
-    while !started.exists() {
-        assert!(
-            std::time::Instant::now() < deadline,
-            "probe a never started"
-        );
-        std::thread::sleep(std::time::Duration::from_millis(10));
-    }
+    let driver = super::support::barrier_awaited(&started, driver, &engine_dir, "probe a");
     append_stop(&db, &run);
     std::fs::write(engine_dir.join("a.release"), "").unwrap();
     let engine = driver.join().unwrap();

@@ -1211,20 +1211,14 @@ fn a_stop_that_lands_during_the_probe_writes_no_probe_row() {
     let release = dir.path().join("work.release");
     let db = dir.path().join("forge.db");
     let run = engine.run_id.clone();
-    let waiter = std::thread::spawn(move || {
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
-        while !started.exists() {
-            assert!(
-                std::time::Instant::now() < deadline,
-                "the probe never started"
-            );
-            std::thread::sleep(std::time::Duration::from_millis(5));
-        }
-        append_stop(&db, &run);
-        std::fs::write(&release, b"go").unwrap();
+    let driver = std::thread::spawn(move || {
+        engine.drive().unwrap();
+        engine
     });
-    engine.drive().unwrap();
-    waiter.join().unwrap();
+    let driver = super::support::barrier_awaited(&started, driver, dir.path(), "the probe");
+    append_stop(&db, &run);
+    std::fs::write(&release, b"go").unwrap();
+    let engine = driver.join().unwrap();
     let events = engine.store.load(&engine.run_id).unwrap();
     assert_eq!(fold(&events).unwrap().run.status(), Status::Stopped);
     assert_eq!(logs(dir.path(), "work"), ["attempt:refuse", "probe"]);

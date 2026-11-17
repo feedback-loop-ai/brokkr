@@ -44,6 +44,52 @@ pub(super) fn limits_for(probed: Probed, attempts: u64) -> Limits {
     }
 }
 
+/// Wait for a barrier probe's `started` marker while `driver` drives the
+/// engine, and hand the driver back. The wait is not what these tests
+/// prove, so it is far past any load, as the seat's deadline is (`work`),
+/// where each copy of it waited 20s (#1110). An engine that ends first
+/// fails at once with the witness, so a park says what each member did
+/// rather than timing out.
+pub(super) fn barrier_awaited(
+    started: &Path,
+    driver: std::thread::JoinHandle<Engine>,
+    dir: &Path,
+    what: &str,
+) -> std::thread::JoinHandle<Engine> {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    while !started.exists() {
+        if driver.is_finished() {
+            let engine = driver.join().unwrap();
+            panic!(
+                "the engine ended before {what} started:{}",
+                witness(&engine, dir)
+            );
+        }
+        assert!(std::time::Instant::now() < deadline, "{what} never started");
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    driver
+}
+
+/// An engine that ends before its barrier probe starts (this probe only
+/// answers, so it never writes the marker) fails the wait at once with
+/// what it journaled and what its shims did, not at the wait's end.
+#[test]
+#[should_panic(expected = "the engine ended before the probe started:\njournal:")]
+fn a_barrier_wait_whose_engine_ends_first_says_what_it_did() {
+    let (dir, mut engine, _now) = seated!(&["refuse", "succeed"], Probed::Answer, None, 2);
+    let driver = std::thread::spawn(move || {
+        engine.drive().unwrap();
+        engine
+    });
+    barrier_awaited(
+        &dir.path().join("work.started"),
+        driver,
+        dir.path(),
+        "the probe",
+    );
+}
+
 /// A failed fixture assertion says why (#1110): the shared witness names
 /// the journal's events with the failure's words, every shim's log, and
 /// the deadline the seat's attempt and probe were given.
