@@ -10,6 +10,9 @@
 //! returns NULL and a NULL CHECK passes. Only the readers here convert
 //! them, into the `time` type the engine already carries.
 
+use std::collections::hash_map::Entry;
+use std::collections::HashMap;
+
 use brokkr_core::envelope::{EventEnvelope, EventType};
 use brokkr_core::provider_waits;
 use rusqlite::{params, Connection, OptionalExtension};
@@ -244,32 +247,90 @@ fn newest(conn: &Connection, now: i64) -> Result<Vec<Cooldown>, StoreError> {
     newest_with(conn, now, |_| {})
 }
 
-/// [`newest`]'s one statement (#1112): one scan of the table, ranking each
-/// row within its provider and route by `until_at DESC, seq DESC`, so rank
-/// 1 is the route's newest end and a tie goes to the later-written row. The
-/// sorter carries only the four columns the rank reads; the kept rows are
-/// read back by their `seq`, the primary key. The statement's VM steps go
-/// to `stepped`, so the test that binds its cost measures this statement.
+/// [`newest`]'s one statement (#1112): one scan of the table in `seq`
+/// order, its primary key, so SQLite sorts nothing and holds no row past
+/// the one it hands over. [`Newest`] decides which rows are kept. The
+/// statement's VM steps go to `stepped`, so the test that binds its cost
+/// measures this statement.
 fn newest_with(
     conn: &Connection,
     now: i64,
     stepped: impl FnOnce(i64),
 ) -> Result<Vec<Cooldown>, StoreError> {
-    let sql = format!(
-        "SELECT {ROWS} FROM provider_cooldowns
-         WHERE seq IN (
-             SELECT seq FROM (
-                 SELECT seq, until_at, ROW_NUMBER() OVER (
-                     PARTITION BY provider, route ORDER BY until_at DESC, seq DESC) AS rank
-                 FROM provider_cooldowns)
-             WHERE until_at > ?1 OR rank = 1)
-         ORDER BY seq"
-    );
-    read_rows_with(conn, &sql, now, stepped)
+    let sql = format!("SELECT {ROWS} FROM provider_cooldowns ORDER BY seq");
+    let mut statement = conn.prepare(&sql)?;
+    let mut newest = Newest::default();
+    let mut rows = statement.query([])?;
+    while let Some(row) = rows.next()? {
+        newest.take(Raw::read(row)?, now);
+    }
+    drop(rows);
+    stepped(i64::from(
+        statement.get_status(rusqlite::StatementStatus::VmStep),
+    ));
+    newest.kept().into_iter().map(Raw::typed).collect()
+}
+
+/// Where one provider and route stands in [`Newest`]'s scan so far.
+enum Standing {
+    /// A row in force holds it: no expired row of it is kept.
+    Held,
+    /// Every row of it read so far has ended, and this is the newest.
+    Ended(Raw),
+}
+
+/// The readout's rows, decided over a scan in `seq` order: every row in
+/// force at `now`, and, for a provider and route no such row holds, the
+/// row with the latest end, the later-written on a tie. A row is kept once
+/// at most, and the rows a scan has passed over are not held.
+#[derive(Default)]
+struct Newest {
+    in_force: Vec<Raw>,
+    routes: HashMap<(String, String), Standing>,
+}
+
+impl Newest {
+    /// Take the scan's next row, which is later-written than every row
+    /// taken before it.
+    fn take(&mut self, row: Raw, now: i64) {
+        let key = (row.provider.clone(), row.route.clone());
+        if row.until > now {
+            self.routes.insert(key, Standing::Held);
+            self.in_force.push(row);
+            return;
+        }
+        match self.routes.entry(key) {
+            Entry::Vacant(first) => {
+                first.insert(Standing::Ended(row));
+            }
+            Entry::Occupied(mut seen) => {
+                let later =
+                    matches!(seen.get(), Standing::Ended(newest) if row.until >= newest.until);
+                if later {
+                    seen.insert(Standing::Ended(row));
+                }
+            }
+        }
+    }
+
+    /// The kept rows in the order they were written.
+    fn kept(self) -> Vec<Raw> {
+        let mut kept = self.in_force;
+        kept.extend(
+            self.routes
+                .into_values()
+                .filter_map(|standing| match standing {
+                    Standing::Ended(row) => Some(row),
+                    Standing::Held => None,
+                }),
+        );
+        kept.sort_by_key(|row| row.seq);
+        kept
+    }
 }
 
 /// The VM steps [`newest`]'s one statement takes at `now`, for the test
-/// that holds it to one scan and a sort.
+/// that holds it to one scan.
 #[cfg(test)]
 fn newest_steps(conn: &Connection, now: i64) -> Result<i64, StoreError> {
     let mut steps = 0;
@@ -278,25 +339,12 @@ fn newest_steps(conn: &Connection, now: i64) -> Result<i64, StoreError> {
 }
 
 /// The rows `sql` selects at `now`, each read and typed once: the one
-/// home of the prepare, the query and the refusal-by-row every cool-down
-/// reader shares.
+/// home of the prepare, the query and the refusal-by-row the in-force
+/// readers share.
 fn read_rows(conn: &Connection, sql: &str, now: i64) -> Result<Vec<Cooldown>, StoreError> {
-    read_rows_with(conn, sql, now, |_| {})
-}
-
-/// [`read_rows`] with the statement's VM steps handed to `stepped`.
-fn read_rows_with(
-    conn: &Connection,
-    sql: &str,
-    now: i64,
-    stepped: impl FnOnce(i64),
-) -> Result<Vec<Cooldown>, StoreError> {
     let mut statement = conn.prepare(sql)?;
     let raw = statement.query_map([now], Raw::read)?;
     let rows = raw.collect::<Result<Vec<_>, _>>()?;
-    stepped(i64::from(
-        statement.get_status(rusqlite::StatementStatus::VmStep),
-    ));
     rows.into_iter().map(Raw::typed).collect()
 }
 
@@ -463,15 +511,16 @@ impl Store {
     /// keeps reading [`Store::cooldown`] and [`Store::cooldowns_in_force`],
     /// which an expired row never holds. The queue's version is judged
     /// first, as [`Store::cooldown`] does. The statement is one scan of the
-    /// table and one sort of it (#1112): every row is ranked within its
-    /// provider and route, so the bound is `n log n` in the table's rows,
-    /// never the run or its events. The table's only index is `(run_id,
-    /// event_seq, site, rounds)`, so the sort is SQLite's own sorter over
-    /// every row's provider, route, end and seq, and its memory follows the
-    /// table until SQLite spills it. The history a journal keeps is the rate
-    /// limits its runs met, so `n` is that count and not a run's size; the
-    /// console pays the statement twice per refresh, once to compare the
-    /// kept frame's aggregate and once in the frame or whole read.
+    /// table in its primary key's order (#1112), so SQLite sorts nothing and
+    /// its memory does not follow the table; the read keeps each provider
+    /// and route's newest row so far as it goes, so the bound is `n` steps
+    /// in the table's rows, never the run or its events, plus a sort of the
+    /// kept rows by `seq`. What the read holds is the rows in force and one
+    /// row per provider and route, the rows it returns. The history a
+    /// journal keeps is the rate limits its runs met, so `n` is that count
+    /// and not a run's size; the console pays the read twice per refresh,
+    /// once to compare the kept frame's aggregate and once in the frame or
+    /// whole read.
     pub fn cooldowns_newest(&self, now: OffsetDateTime) -> Result<Vec<Cooldown>, StoreError> {
         patiently("cooldowns_newest", self.patience, || {
             if cool_downs_held(&self.conn)? {

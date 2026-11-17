@@ -1,11 +1,11 @@
-//! The readout's newest read is one scan and a sort (#1112): it answers
+//! The readout's newest read is one scan (#1112): it answers
 //! exactly the rows the correlated `NOT EXISTS` it replaced answered, in
 //! the same order, and its VM steps grow with the table, not its square.
 
 use super::*;
 
-/// The statement `newest` ran before #1112, kept as the oracle the window
-/// form is held to: every row in force, and every row no later row of its
+/// The statement `newest` ran before #1112, kept as the oracle the scan is
+/// held to: every row in force, and every row no later row of its
 /// provider and route outlasts.
 fn oracle(conn: &Connection, now: i64) -> Vec<Cooldown> {
     let sql = format!(
@@ -75,7 +75,7 @@ impl Draw {
     }
 }
 
-/// The window form answers the oracle's rows in the oracle's order at every
+/// The scan answers the oracle's rows in the oracle's order at every
 /// instant across the table's ends.
 fn holds_to_the_oracle(conn: &Connection, ends: &[i64]) {
     let low = ends.iter().copied().min().unwrap_or(0);
@@ -92,9 +92,9 @@ fn holds_to_the_oracle(conn: &Connection, ends: &[i64]) {
 /// Every shape: empty, one row, one route, many routes and two providers,
 /// every route expired, some in force, ties on `until_at` (the later `seq`
 /// wins), negative and equal ends, and a route's name shared across
-/// providers. The window form answers exactly the old statement's rows.
+/// providers. The scan answers exactly the old statement's rows.
 #[test]
-fn the_window_form_answers_the_correlated_forms_rows_in_its_order() {
+fn the_scan_answers_the_correlated_forms_rows_in_its_order() {
     let named: [(&str, &str, i64); 8] = [
         ("claude", "first", 50),
         ("claude", "first", 50),
@@ -152,9 +152,10 @@ fn expired_table(rows: usize, routes: usize) -> (tempfile::TempDir, Store) {
 /// The statement's steps at 10 and 10,000 rows, over ten routes and over
 /// one, grow no faster than `n log n`: a thousand times the rows by at most
 /// four thousand times the steps. The correlated form it replaced took
-/// 998 and 380,934,683 over ten routes, and 962 and 650,305,007 over one.
+/// 998 and 380,934,683 over ten routes, and 962 and 650,305,007 over one;
+/// the scan takes 117 and 110,007 over either.
 #[test]
-fn the_newest_read_is_one_scan_and_a_sort() {
+fn the_newest_read_is_one_scan() {
     let bound = (10_000.0 * 10_000f64.log2()) / (10.0 * 10f64.log2());
     for routes in [10, 1] {
         let steps = |rows| {
