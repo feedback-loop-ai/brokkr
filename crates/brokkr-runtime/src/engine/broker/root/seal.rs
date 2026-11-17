@@ -80,8 +80,8 @@ pub(super) struct Sheet<'a> {
 /// same file, so its bytes and its inode, or the record made removed where
 /// none stood (H1; R1 of run four's review). Where the record that stood is
 /// itself gone, its prior name removed by a hand, the removal stands: this
-/// seal's successor is removed where it is still the file this seal wrote,
-/// nothing is made at the name, and the seal refuses as it was cut short
+/// seal's successor is removed where it is still the file this seal wrote
+/// and where the directory permits its removal, nothing is made at the name, and the seal refuses as it was cut short
 /// (#1099). One whose undoing fails refuses as unsealed, whatever cut it
 /// short, the record that stood still under its prior name for every read
 /// and for the next seal to put back (M2 of run four's second review). Once
@@ -318,7 +318,8 @@ fn put_foreign_back(seal: &Seal<'_>, prior: &str, written: &Record) {
 /// the record that stood is removed and nothing is written at the name.
 /// Where the prior name is gone, the record that stood is the removal that
 /// stands: this seal's successor is removed where it is still the file this
-/// seal wrote, so no successor is left in the record's place (#1099). A
+/// seal wrote and where the directory permits its removal, so no successor
+/// is left in the record's place (#1099). A
 /// first seal's undo uses links, renames and removals alone, so a
 /// filesystem without an exchange still undoes what it may create
 /// (decision 0108 ruling 3, M3 amended). Where any other step of that

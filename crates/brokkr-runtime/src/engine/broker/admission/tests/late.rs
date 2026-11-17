@@ -27,8 +27,11 @@ use crate::engine::broker::root::{Step, PRIOR};
 /// [`Late::RemoveCommitted`]; #440 fix round 440d6), or removes the record
 /// that stood from its prior name, as the directory's sync fails after the
 /// commit or as the seal retires it ([`Late::RemovePriorCommitted`],
-/// [`Late::RemovePriorRetiring`]; #1099), or replaces that prior name
-/// with a directory as the seal retires it ([`Late::PriorDirectoryRetiring`]);
+/// [`Late::RemovePriorRetiring`]; #1099), removes it and takes the
+/// directory's write permission as the seal retires it
+/// ([`Late::RemovePriorDeniedRetiring`]; #1099 F3), or replaces that prior
+/// name with a directory as the seal retires it
+/// ([`Late::PriorDirectoryRetiring`]);
 /// once renamed in, spends the time given, fails as its directory sync
 /// failing would, or fails so with the directory's write permission taken,
 /// or fails so and then fails the sync of its undoing too, or waits out the
@@ -51,6 +54,7 @@ pub(super) enum Late {
     ReplaceCommitted,
     RemovePriorCommitted,
     RemovePriorRetiring,
+    RemovePriorDeniedRetiring,
     PriorDirectoryRetiring,
     CutUndo,
     FailLinked,
@@ -153,6 +157,14 @@ pub(super) fn late(step: Step, dir: &OwnedFd, staged: &str) -> std::io::Result<(
         // prior name with a directory, so the retirement cannot remove it and
         // the undo's rename back meets something other than a gone name
         // (#1099, the first seal's ENOTDIR arm).
+        // As the seal retires the record that stood: a hand removes its
+        // prior name and takes the directory's write permission, so the
+        // undo can remove nothing, this seal's successor included (#1099
+        // F3).
+        (Step::Retiring, Some(Late::RemovePriorDeniedRetiring)) => {
+            remove_prior(dir, staged);
+            denied(dir);
+        }
         (Step::Retiring, Some(Late::PriorDirectoryRetiring)) => {
             remove_prior(dir, staged);
             rustix::fs::mkdirat(dir, format!("{staged}{PRIOR}"), Mode::RWXU).unwrap();

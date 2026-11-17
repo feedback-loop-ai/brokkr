@@ -808,6 +808,31 @@ fn a_reseal_whose_prior_name_is_gone_at_its_undo_leaves_no_successor() {
     }
 }
 
+/// F3 (#1099; decision 0108 ruling 3): where a hand removes the prior name
+/// and the directory then denies every removal, the undo can remove nothing,
+/// this seal's successor included. The seal refuses as unsealed and its
+/// successor stands as the record: nothing removed comes back, no gone name
+/// is made, and the record left is the engine's own write, which the door
+/// and the next amend read as the lease's record.
+#[test]
+fn a_reseal_whose_directory_denies_its_undo_leaves_its_successor() {
+    let (_host, _work, held, at) = spawning_attempt();
+    let amended = successor(&at);
+    LATE.set(Some(Late::RemovePriorDeniedRetiring));
+    let refused = amending(&held);
+    writable(&at);
+    assert_eq!(refused, Err(Unadmitted::Identity(Unknown::Unsealed)));
+    assert_eq!(
+        std::fs::read(&at).unwrap(),
+        amended,
+        "this seal's successor stands at the name"
+    );
+    assert!(!prior(&at).exists(), "no prior name left");
+    nothing_staged(&at);
+    assert_eq!(recheck(&held), Ok(()), "the door reads the lease's record");
+    assert_eq!(amending(&held), Ok(Commit::Synced), "the next amend seals");
+}
+
 /// C2 (#1099; decision 0108 ruling 3): a first seal over a standing record
 /// whose prior name a hand removed is undone the same way: its successor goes
 /// where it is still its own, and nothing is made at the name.
