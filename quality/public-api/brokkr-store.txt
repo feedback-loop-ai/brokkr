@@ -147,6 +147,15 @@ pub brokkr_store::metered::WindowSpend::phase: core::option::Option<&'a str>
 pub brokkr_store::metered::WindowSpend::realm: core::option::Option<&'a str>
 pub brokkr_store::metered::WindowSpend::run_id: &'a str
 pub brokkr_store::metered::WindowSpend::usd: f64
+pub enum brokkr_store::Damage
+pub brokkr_store::Damage::Envelope
+pub brokkr_store::Damage::Envelope::run_id: alloc::string::String
+pub brokkr_store::Damage::Envelope::seq: i64
+pub brokkr_store::Damage::Malformed
+pub brokkr_store::Damage::NoSchema
+pub brokkr_store::Damage::NotADatabase
+impl core::fmt::Display for brokkr_store::Damage
+pub fn brokkr_store::Damage::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub enum brokkr_store::Disagreement
 pub brokkr_store::Disagreement::Column
 pub brokkr_store::Disagreement::Column::column: &'static str
@@ -327,6 +336,9 @@ pub brokkr_store::StoreError::Clock::now: alloc::string::String
 pub brokkr_store::StoreError::Contended
 pub brokkr_store::StoreError::Contended::operation: &'static str
 pub brokkr_store::StoreError::Contended::waited_ms: u128
+pub brokkr_store::StoreError::Damaged
+pub brokkr_store::StoreError::Damaged::damage: brokkr_store::Damage
+pub brokkr_store::StoreError::Damaged::journal: std::path::PathBuf
 pub brokkr_store::StoreError::HeadMoved
 pub brokkr_store::StoreError::HeadMoved::expected_seq: u64
 pub brokkr_store::StoreError::HeadMoved::found_seq: u64
@@ -348,6 +360,9 @@ pub brokkr_store::StoreError::Sqlite(rusqlite::error::Error)
 pub brokkr_store::StoreError::TokenCountOutOfRange(u64, &'static str, u64)
 pub brokkr_store::StoreError::UnknownHead
 pub brokkr_store::StoreError::UnknownHead::seq: u64
+pub brokkr_store::StoreError::Unparsed
+pub brokkr_store::StoreError::Unparsed::run_id: alloc::string::String
+pub brokkr_store::StoreError::Unparsed::seq: i64
 impl brokkr_store::StoreError
 pub fn brokkr_store::StoreError::is_contention(&self) -> bool
 pub enum brokkr_store::Swept

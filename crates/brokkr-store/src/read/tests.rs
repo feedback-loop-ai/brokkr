@@ -8,11 +8,10 @@ use std::path::Path;
 
 use brokkr_core::canonical::ZERO_HASH;
 use brokkr_core::envelope::{ChainError, EventType};
-use serde_json::error::Category;
 use serde_json::json;
 
 use crate::test_support;
-use crate::{Store, StoreError};
+use crate::{Damage, Store, StoreError};
 
 /// A journal in `dir` holding one run of 105 events, imported from the
 /// fixture corpus, and that run's id.
@@ -166,7 +165,14 @@ fn the_whole_read_refuses_a_row_the_chain_does_not_cover() {
                 expected: 2,
             }),
         ),
-        ("unparseable", Err((Category::Syntax, 1, 2))),
+        (
+            "unparseable",
+            // The row's seq, read beside an envelope that is not JSON (#1000).
+            Err(Damage::Envelope {
+                run_id: "unparseable".into(),
+                seq: 0,
+            }),
+        ),
         (
             "negative",
             Ok(ChainError::SeqGap {
@@ -200,11 +206,11 @@ fn the_whole_read_refuses_a_row_the_chain_does_not_cover() {
 }
 
 /// A whole read's refusal, comparable: the chain defect, or where and
-/// how the JSON of a row broke.
-fn judged(error: StoreError) -> Result<ChainError, (Category, usize, usize)> {
+/// the journal is damaged.
+fn judged(error: StoreError) -> Result<ChainError, Damage> {
     match error {
         StoreError::Chain(chain) => Ok(chain),
-        StoreError::Json(json) => Err((json.classify(), json.line(), json.column())),
+        StoreError::Damaged { damage, .. } => Err(damage),
         other => panic!("{other:?}"),
     }
 }

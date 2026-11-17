@@ -522,7 +522,7 @@ fn vacuum_into(store: &Store, scratch: &Scratch) -> Result<PathBuf, BackupError>
     let named = temporary
         .to_str()
         .expect("a destination SQLite can name, joined with an ASCII file name");
-    patiently("backup", store.patience, || {
+    patiently("backup", store.patience, &store.path, || {
         Ok(store.conn.execute("VACUUM INTO ?1", params![named])?)
     })?;
     Ok(temporary)

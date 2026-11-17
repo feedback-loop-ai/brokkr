@@ -51,7 +51,7 @@ impl Store {
     /// insertion order, and both keys descending is the index walked
     /// backwards, one row.
     pub fn latest_run(&self) -> Result<Option<(String, String)>, StoreError> {
-        patiently("latest_run", self.patience, || {
+        patiently("latest_run", self.patience, &self.path, || {
             let mut statement = self.conn.prepare(LATEST_SQL)?;
             let found = statement
                 .query_row([], |row| Ok((row.get(0)?, row.get(1)?)))
@@ -72,7 +72,7 @@ impl Store {
     /// it is a prefix of every id and `resolve` refuses it before any
     /// candidate is considered.
     pub fn run_candidates(&self, requested: &str) -> Result<Vec<(String, String)>, StoreError> {
-        patiently("run_candidates", self.patience, || {
+        patiently("run_candidates", self.patience, &self.path, || {
             self.candidates_once(requested)
         })
     }

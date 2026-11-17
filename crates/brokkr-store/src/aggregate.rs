@@ -199,7 +199,7 @@ impl Store {
     /// `stepped`, so the test that binds the probe measures the production
     /// statement itself.
     fn runs_readable_with(&self, mut stepped: impl FnMut(i64)) -> Result<bool, StoreError> {
-        patiently("runs_readable", self.patience, || {
+        patiently("runs_readable", self.patience, &self.path, || {
             let mut statement = self.conn.prepare(RUNS_UNREADABLE.as_str())?;
             let found = statement.query([])?.next()?.is_some();
             stepped(i64::from(statement.get_status(StatementStatus::VmStep)));

@@ -42,7 +42,7 @@ use std::path::Path;
 use brokkr_core::ending::{closing, Closing};
 use brokkr_core::fold::{fold_onto, RunState};
 use brokkr_core::{CauseRead, EventEnvelope, EventType};
-use brokkr_store::{Store, StoreError};
+use brokkr_store::{Damage, Store, StoreError};
 use brokkr_view::WaitFact;
 
 use super::{acknowledged, did_not_fold, entry, judged, Listing, Quarantine};
@@ -432,8 +432,19 @@ impl KeptRun {
 /// again.
 pub(super) fn lasting(error: &StoreError) -> bool {
     match error {
-        StoreError::Json(_) | StoreError::Chain(_) | StoreError::RowBeforeChain { .. } => true,
+        StoreError::Json(_)
+        | StoreError::Chain(_)
+        | StoreError::RowBeforeChain { .. }
+        | StoreError::Unparsed { .. }
+        | StoreError::Damaged {
+            damage: Damage::Envelope { .. },
+            ..
+        } => true,
         StoreError::Sqlite(_)
+        | StoreError::Damaged {
+            damage: Damage::Malformed | Damage::NotADatabase | Damage::NoSchema,
+            ..
+        }
         | StoreError::RunNotFound(_)
         | StoreError::RunExists(_)
         | StoreError::RunIdTooLong { .. }

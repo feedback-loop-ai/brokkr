@@ -416,7 +416,9 @@ impl Store {
         by: Attribution<'_>,
     ) -> Result<EntryId, StoreError> {
         let conn = &mut self.conn;
-        patiently("queue_add", self.patience, || add_once(conn, new, by))
+        patiently("queue_add", self.patience, &self.path, || {
+            add_once(conn, new, by)
+        })
     }
 
     /// Move, hold, release or drop an entry, journaling the command. The
@@ -429,7 +431,7 @@ impl Store {
         by: Attribution<'_>,
     ) -> Result<(), StoreError> {
         let conn = &mut self.conn;
-        patiently("queue_command", self.patience, || {
+        patiently("queue_command", self.patience, &self.path, || {
             command_once(conn, entry, command, by)
         })
     }
@@ -438,12 +440,14 @@ impl Store {
     /// Dropped entries are not listed. A journal from before the queue
     /// has an empty one.
     pub fn queue_list(&self) -> Result<Vec<QueueEntry>, StoreError> {
-        patiently("queue_list", self.patience, || list_once(&self.conn))
+        patiently("queue_list", self.patience, &self.path, || {
+            list_once(&self.conn)
+        })
     }
 
     /// One entry, whatever its standing, dropped included.
     pub fn queue_entry(&self, entry: EntryId) -> Result<QueueEntry, StoreError> {
-        patiently("queue_entry", self.patience, || {
+        patiently("queue_entry", self.patience, &self.path, || {
             entry_once(&self.conn, entry)
         })
     }
@@ -465,7 +469,7 @@ impl Store {
         by: Attribution<'_>,
     ) -> Result<(), StoreError> {
         let conn = &mut self.conn;
-        patiently("queue_repin", self.patience, || {
+        patiently("queue_repin", self.patience, &self.path, || {
             beside_once(conn, entry, Beside::Pin, seen, payload, by)
         })
     }
@@ -485,7 +489,7 @@ impl Store {
         by: Attribution<'_>,
     ) -> Result<(), StoreError> {
         let conn = &mut self.conn;
-        patiently("queue_latch", self.patience, || {
+        patiently("queue_latch", self.patience, &self.path, || {
             beside_once(conn, entry, Beside::Latch, seen, finding, by)
         })
     }
