@@ -1258,7 +1258,7 @@ fn the_cap_names_a_refusal_at_neither_a_declared_site_nor_a_wait() {
 #[test]
 fn a_stop_after_one_probe_answers_probes_no_later_member_and_retries_nothing() {
     let dir = tempfile::tempdir().unwrap();
-    let mut engine = two_route_engine(
+    let engine = two_route_engine(
         dir.path(),
         &["refuse", "succeed"],
         &["refuse", "succeed"],
@@ -1266,20 +1266,7 @@ fn a_stop_after_one_probe_answers_probes_no_later_member_and_retries_nothing() {
         Probed::Answer,
         2,
     );
-    let db = dir.path().join("forge.db");
-    let run = engine.run_id.clone();
-    let engine_dir = dir.path().to_path_buf();
-    let driver = std::thread::spawn(move || {
-        engine.drive().unwrap();
-        engine
-    });
-    let started = engine_dir.join("a.started");
-    let driver = super::support::barrier_awaited(&started, driver, &engine_dir, "probe a");
-    append_stop(&db, &run);
-    std::fs::write(engine_dir.join("a.release"), "").unwrap();
-    let engine = driver.join().unwrap();
-    let events = engine.store.load(&engine.run_id).unwrap();
-    assert_eq!(fold(&events).unwrap().run.status(), Status::Stopped);
+    let engine = super::support::stopped_at_barrier(engine, dir.path(), "a");
     assert_eq!(
         logs(dir.path(), "b"),
         ["attempt:refuse"],

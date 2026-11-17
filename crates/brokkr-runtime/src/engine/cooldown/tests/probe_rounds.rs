@@ -1207,20 +1207,7 @@ fn every_episode_store_refusal_parks_naming_the_store() {
 fn a_stop_that_lands_during_the_probe_writes_no_probe_row() {
     let (dir, mut engine, _now) = seated!(&["refuse", "succeed"], Probed::BarrierRefuse, None, 2);
     engine.cooldown.host = Some(host(dir.path(), 30, 1000));
-    let started = dir.path().join("work.started");
-    let release = dir.path().join("work.release");
-    let db = dir.path().join("forge.db");
-    let run = engine.run_id.clone();
-    let driver = std::thread::spawn(move || {
-        engine.drive().unwrap();
-        engine
-    });
-    let driver = super::support::barrier_awaited(&started, driver, dir.path(), "the probe");
-    append_stop(&db, &run);
-    std::fs::write(&release, b"go").unwrap();
-    let engine = driver.join().unwrap();
-    let events = engine.store.load(&engine.run_id).unwrap();
-    assert_eq!(fold(&events).unwrap().run.status(), Status::Stopped);
+    let engine = super::support::stopped_at_barrier(engine, dir.path(), "work");
     assert_eq!(logs(dir.path(), "work"), ["attempt:refuse", "probe"]);
     let event = failed(&engine).remove(0);
     assert_eq!(

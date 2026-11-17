@@ -71,6 +71,26 @@ pub(super) fn barrier_awaited(
     driver
 }
 
+/// Drive `engine` until member `tag`'s barrier probe starts, append a stop
+/// while it holds, release it, and hand back the engine, which the stop
+/// ended.
+pub(super) fn stopped_at_barrier(mut engine: Engine, dir: &Path, tag: &str) -> Engine {
+    let db = dir.join("forge.db");
+    let run = engine.run_id.clone();
+    let driver = std::thread::spawn(move || {
+        engine.drive().unwrap();
+        engine
+    });
+    let started = dir.join(format!("{tag}.started"));
+    let driver = barrier_awaited(&started, driver, dir, &format!("probe {tag}"));
+    append_stop(&db, &run);
+    std::fs::write(dir.join(format!("{tag}.release")), "").unwrap();
+    let engine = driver.join().unwrap();
+    let events = engine.store.load(&engine.run_id).unwrap();
+    assert_eq!(fold(&events).unwrap().run.status(), Status::Stopped);
+    engine
+}
+
 /// An engine that ends before its barrier probe starts (this probe only
 /// answers, so it never writes the marker) fails the wait at once with
 /// what it journaled and what its shims did, not at the wait's end.
