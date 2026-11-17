@@ -155,9 +155,8 @@ fn entries(lines: &mut String, passed: &Passed, journal: &Path) {
     }
 }
 
-/// A run handed to its driver, or the spawn that failed and the command
-/// that resumes the run (`ResumeArgs`: `--run` and `--db`), each of its
-/// values one shell word, so the command pastes as it reads (#820).
+/// A run handed to its driver, or the spawn that failed and how to resume
+/// the run (`ResumeArgs`: `--run` and `--db`).
 fn started_line(
     claim: Claim,
     run: &str,
@@ -169,11 +168,35 @@ fn started_line(
         Ok(Spawned { pid }) => format!("started: run {run} under {under}, driver pid {pid}"),
         Err(SpawnFailed::Refused(why)) => format!(
             "spawn failed: run {run} under {under} reads running with no driver ({why}); \
-             resume it with: brokkr resume --run {} --db {}",
-            shell_word(run),
-            shell_word(&journal.to_string_lossy())
+             resume it with{}",
+            resume(run, journal)
         ),
     }
+}
+
+/// The command that resumes `run` in `journal`. Each value is attached to
+/// its flag, so a run id the engine spells with a leading hyphen still
+/// parses as the value. Each value is also one shell word, so the command
+/// pastes as it reads (#820). A run id or journal path that the safe
+/// renderer would alter is never printed as a value: one holding a control
+/// or reordering character, or a path that is not UTF-8. The line then
+/// says why, rather than naming another journal.
+fn resume(run: &str, journal: &Path) -> String {
+    match journal.to_str() {
+        Some(path) if printable(path) && printable(run) => format!(
+            ": brokkr resume --run={} --db={}",
+            shell_word(run),
+            shell_word(path)
+        ),
+        _ => " brokkr resume, naming the run and this journal by hand: their spelling holds \
+              characters this line cannot print"
+            .to_string(),
+    }
+}
+
+/// Whether the safe renderer leaves `text` as it is.
+fn printable(text: &str) -> bool {
+    Safe::new(text).as_str() == text
 }
 
 /// The sweep's own lines, and a record it could not write.

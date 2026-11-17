@@ -123,7 +123,7 @@ fn a_pass_prints_one_safe_line_per_fact_and_its_counts_last() {
         format!("started: run run-s under {under}, driver pid 42"),
         format!(
             "spawn failed: run run-f under {under} reads running with no driver (no \
-             descriptor); resume it with: brokkr resume --run run-f --db {}",
+             descriptor); resume it with: brokkr resume --run=run-f --db={}",
             db.display()
         ),
         format!("left for reconciliation: run run-l under {under}"),
@@ -143,32 +143,87 @@ fn a_pass_prints_one_safe_line_per_fact_and_its_counts_last() {
     assert!(!said.contains('\u{1b}'), "{said}");
 }
 
-/// R3: the spawn failure's line gives the command that resumes the run,
-/// spelled from `ResumeArgs`, and clap parses it as a shell splits it: a
-/// journal whose path holds a space and a quote is still one argument.
+/// The spawn-failure line a whole pass prints, after the safe renderer,
+/// for a start of `run` in `journal` whose driver could not be spawned.
+fn failed_spawn(claim: Claim, run: &str, journal: &Path) -> String {
+    let report = Passed {
+        started: vec![Started {
+            entry: claim.parts().0,
+            claim,
+            run: run.into(),
+            spawned: Err(SpawnFailed::Refused("exec refused".into())),
+        }],
+        ..Passed::default()
+    };
+    let said = passed(&report, journal);
+    let line = said.lines().find(|line| line.starts_with("spawn failed: "));
+    line.unwrap().to_string()
+}
+
+/// R3: the spawn failure's line, as the pass prints it, gives the command
+/// that resumes the run, spelled from `ResumeArgs`, and clap parses it as a
+/// shell splits it. That holds for a journal whose path holds a space and a
+/// quote, and for a run id the engine spells with a leading hyphen (a
+/// feature with no letter or digit), which only an attached value carries.
 #[test]
-fn a_spawn_failures_resume_command_parses() {
+fn a_spawn_failures_resume_command_parses_as_the_shell_splits_it() {
     let OneClaim { dir, claim, .. } = one_claim("{}");
     let db = dir.path().join("the operator's journals/forge.db");
-    let failed = Err(SpawnFailed::Refused("exec refused".into()));
-    let said = started_line(claim, "run-f", &failed, &db);
-    let (_, command) = said.split_once("resume it with: ").unwrap();
-    // The shell's own split: each word it reads, ended by a NUL.
-    let split = std::process::Command::new("sh")
-        .arg("-c")
-        .arg(format!("printf '%s\\0' {command}"))
-        .output()
-        .unwrap();
-    assert!(split.status.success(), "{command}");
-    let text = String::from_utf8(split.stdout).unwrap();
-    let words = text.split_terminator('\0');
-    let Cmd::Resume(args) = Cli::try_parse_from(words).unwrap().command else {
-        panic!("{command} parses as resume");
-    };
-    assert_eq!(
-        (args.run.as_str(), args.journal.db.as_deref()),
-        ("run-f", Some(db.as_path()))
-    );
+    for run in ["run-f", "-33fdff61"] {
+        let said = failed_spawn(claim, run, &db);
+        let (_, command) = said.split_once("resume it with: ").unwrap();
+        // The shell's own split: each word it reads, ended by a NUL.
+        let split = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(format!("printf '%s\\0' {command}"))
+            .output()
+            .unwrap();
+        assert!(split.status.success(), "{command}");
+        let text = String::from_utf8(split.stdout).unwrap();
+        let words = text.split_terminator('\0');
+        let Cmd::Resume(args) = Cli::try_parse_from(words).unwrap().command else {
+            panic!("{command} parses as resume");
+        };
+        assert_eq!(
+            (args.run.as_str(), args.journal.db.as_deref()),
+            (run, Some(db.as_path()))
+        );
+    }
+}
+
+/// A journal path or run id that the safe renderer would alter is never
+/// printed as the command's value, since the pasted command would then name
+/// another journal, which `resume` may create:
+/// - a path holding a newline or a reordering mark;
+/// - a path that is not UTF-8;
+/// - a run id holding a control character.
+///
+/// The line says why instead.
+#[test]
+fn a_journal_or_run_this_line_cannot_print_is_never_offered_as_a_command() {
+    use std::os::unix::ffi::OsStrExt;
+    let OneClaim { dir, claim, .. } = one_claim("{}");
+    let root = dir.path();
+    let cases = [
+        ("run-f", root.join("forge\n.db")),
+        ("run-f", root.join("forge\u{202E}bd.db")),
+        (
+            "run-f",
+            root.join(std::ffi::OsStr::from_bytes(b"forge\xff.db")),
+        ),
+        ("run\u{7}f", root.join("forge.db")),
+    ];
+    for (run, journal) in &cases {
+        let said = failed_spawn(claim, run, journal);
+        assert!(
+            said.ends_with(
+                "resume it with brokkr resume, naming the run and this journal by hand: \
+                 their spelling holds characters this line cannot print"
+            ),
+            "{said:?}"
+        );
+        assert!(!said.contains("--db"), "{said:?}");
+    }
 }
 
 /// A pass that ends in its reconciliation's spawns keeps every linked run
