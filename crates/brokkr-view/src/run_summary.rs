@@ -9,6 +9,7 @@ use std::collections::BTreeMap;
 use brokkr_core::decision::Decision as Decided;
 use brokkr_core::ending::{closing, Citation, Ending, Wants};
 use brokkr_core::fold::RunState;
+use brokkr_core::park::CauseRead;
 use brokkr_core::EventEnvelope;
 use serde::Serialize;
 
@@ -34,6 +35,12 @@ pub struct Summary {
     /// kept and shown, never applied. It sits in its alphabetical place,
     /// as every key does, so the struct's bytes and `json!`'s agree.
     pub late_tail: Option<LateTail>,
+    /// The park's cause as the journal states it (decision 0106 ruling 1): a
+    /// typed cause, or `{"refused": ...}` where a present `cause` does not
+    /// read. Absent from the JSON for a run that stated none, so an old run
+    /// prints the bytes it always has and every readout paints it `unknown`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub park_cause: Option<Box<CauseRead>>,
     pub park_reason: Option<String>,
     pub phase: Option<String>,
     pub run_id: String,
@@ -60,7 +67,10 @@ impl Summary {
 /// run's journal its ending is read from: every event, or at least its
 /// rulings and operator commands and acceptances.
 pub fn summary(state: &RunState, events: &[EventEnvelope]) -> Summary {
-    let facts = Facts::of(state);
+    let park_cause = CauseRead::latest(events)
+        .filter(|_| state.run.park_reason().is_some())
+        .map(Box::new);
+    let facts = Facts::of_cause(state, park_cause.as_deref());
     let standing = facts.standing();
     let status = state.run.status().as_str().to_string();
     let said = said(
@@ -78,6 +88,7 @@ pub fn summary(state: &RunState, events: &[EventEnvelope]) -> Summary {
         feature: state.feature.clone(),
         last_decision: state.last_decision.clone(),
         late_tail: late_tail(state),
+        park_cause,
         park_reason: state
             .run
             .park_reason()

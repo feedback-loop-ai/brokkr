@@ -41,7 +41,7 @@ use std::path::Path;
 
 use brokkr_core::ending::{closing, Closing};
 use brokkr_core::fold::{fold_onto, RunState};
-use brokkr_core::{EventEnvelope, EventType};
+use brokkr_core::{CauseRead, EventEnvelope, EventType};
 use brokkr_store::{Store, StoreError};
 use brokkr_view::WaitFact;
 
@@ -165,6 +165,7 @@ impl KeptFleet {
                     state,
                     (&run.residuals, run.closing.clone()),
                     &run.waits,
+                    run.cause.clone(),
                 )
             })
             .collect()
@@ -282,6 +283,10 @@ struct KeptRun {
     /// The waits its last event states (decision 0103 slice 4f), kept as the
     /// typed fact so the fleet carries no event body.
     waits: WaitFact,
+    /// What its latest `run/parked` states of its cause, as every readout
+    /// reads it (decision 0106 ruling 1): kept beside the rulings so this
+    /// read paints the cause `inspect` does.
+    cause: Option<Box<CauseRead>>,
 }
 
 /// How far a kept run has been read.
@@ -321,6 +326,7 @@ impl KeptRun {
             residuals: Vec::new(),
             closing: None,
             waits: WaitFact::NoWait,
+            cause: None,
         };
         let read = events.len();
         (run.ruled_by(run_id, events), read)
@@ -388,6 +394,14 @@ impl KeptRun {
                 }
             }
             Read::Refused { .. } => self.waits = WaitFact::NoWait,
+        }
+        // A later park that states none leaves none: the latest park's.
+        if let Some(parked) = events
+            .iter()
+            .rev()
+            .find(|event| event.event_type == EventType::RunParked)
+        {
+            self.cause = CauseRead::of_event(parked).map(Box::new);
         }
         self.rulings
             .extend(events.into_iter().filter(|event| rules(event.event_type)));

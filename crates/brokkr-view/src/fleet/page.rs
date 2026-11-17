@@ -108,6 +108,7 @@ pub fn summary_row(
             (rule, shown(&ruled.from), ruled.routes)
         }),
         park_reason: row.park_reason.as_ref().map(shown),
+        park_cause: row.park_cause.as_deref(),
         stop_accepted_seq: row.stop_accepted_seq,
     });
     let feature = whole.map_or(row.feature_line.as_str(), |whole| &whole.feature);

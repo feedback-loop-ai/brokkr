@@ -164,6 +164,7 @@ fn a_run_with_no_event_reads_as_an_empty_journal_at_the_zero_head() {
             status: None,
             stop_accepted_seq: None,
             phase: None,
+            park_cause: None,
             park_reason: None,
             ruled: None,
             hired: None,
@@ -213,6 +214,7 @@ fn a_parked_run_reads_its_ruling_its_reason_and_its_open_residuals() {
             status: Some(Status::AwaitingOperator),
             stop_accepted_seq: None,
             phase: Some(bounded("review")),
+            park_cause: None,
             park_reason: Some(bounded("REVIEW-HOLD for (review, hold): held")),
             ruled: Some(Ruled {
                 rule_id: Some(bounded("REVIEW-HOLD")),
@@ -541,4 +543,83 @@ fn a_late_classify_and_supersede_change_no_figure_the_summary_states() {
 #[should_panic(expected = "the caller must refold the whole journal")]
 fn the_test_account_helper_refuses_a_refold() {
     let _ = Carried::Refold.account();
+}
+
+/// The summary of a parked run whose park states `cause`.
+fn parked_with(cause: Value) -> Summary {
+    let mut events = parked();
+    let park = events
+        .iter_mut()
+        .find(|event| event.event_type == EventType::RunParked)
+        .unwrap();
+    park.payload["cause"] = cause;
+    Summary::of(&Account::whole("run", &events), LISTING)
+}
+
+/// The summary row carries the latest park's typed cause from the event,
+/// while the fold itself still reads only the reason (decision 0106
+/// ruling 1).
+#[test]
+fn the_summary_carries_the_parks_typed_cause() {
+    let summary = parked_with(
+        json!({"kind": "attempt-cap", "failure_class": "start-failure",
+        "detail": "two attempts failed"}),
+    );
+    let cause = summary.park_cause.expect("the row carries the cause");
+    assert!(matches!(
+        *cause,
+        crate::CauseRead::Stated(crate::ParkCause::AttemptCap { .. })
+    ));
+    assert_eq!(
+        cause.line(),
+        "attempt-cap (start-failure): two attempts failed"
+    );
+    assert!(summary
+        .park_reason
+        .as_ref()
+        .is_some_and(|reason| !reason.cut.is_empty()));
+}
+
+/// The row keeps a cause's sentence within the bound the reason beside it
+/// takes (PARK_REASON_BYTES, 256), because the reader bounds it as a
+/// writer does (`ParkCause::read`), so the row cuts nothing itself and every
+/// readout holds the same bytes. The largest detail written here is
+/// 10,000 bytes of two-byte characters, which cuts at a character boundary
+/// at 256 bytes; a detail within the bound is stored as written.
+#[test]
+fn the_summary_bounds_a_causes_sentence_as_it_bounds_the_reason() {
+    let long = "é".repeat(5_000);
+    let summary = parked_with(
+        json!({"kind": "attempt-cap", "failure_class": "determinate",
+                                     "detail": long}),
+    );
+    let cause = summary.park_cause.expect("the row carries the cause");
+    let crate::CauseRead::Stated(crate::ParkCause::AttemptCap { detail, .. }) = *cause else {
+        panic!("the cap's cause is stated");
+    };
+    assert_eq!(detail.len(), PARK_REASON_BYTES);
+    assert!(long.starts_with(&detail));
+    let short = "e".repeat(PARK_REASON_BYTES);
+    let kept = parked_with(json!({"kind": "ruled", "detail": short}));
+    assert_eq!(
+        kept.park_cause.map(|cause| cause.line()),
+        Some(format!("ruled: {short}"))
+    );
+    let refused = parked_with(json!({"kind": "x".repeat(10_000)}));
+    let Some(crate::CauseRead::Refused(why)) = refused.park_cause.map(|cause| *cause) else {
+        panic!("a cause that does not read is refused by name");
+    };
+    assert_eq!(why.len(), PARK_REASON_BYTES);
+}
+
+/// A park whose present `cause` does not read is carried by the row as its
+/// named refusal, never as a park that stated none.
+#[test]
+fn the_summary_carries_a_cause_that_does_not_read_as_its_named_refusal() {
+    let summary = parked_with(json!({"kind": "not-a-cause"}));
+    let cause = summary.park_cause.expect("the row carries the refusal");
+    let crate::CauseRead::Refused(why) = *cause else {
+        panic!("a malformed cause is a refusal, not a cause or an absence");
+    };
+    assert!(why.contains("not-a-cause"), "{why}");
 }

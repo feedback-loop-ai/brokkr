@@ -695,6 +695,7 @@ fn many_older(count: usize) -> Views {
         .iter()
         .map(|id| brokkr_view::RunEntry {
             waits: Default::default(),
+            park_cause: None,
             run_id: id,
             feature: "An older run",
             created_at: OLDER,
@@ -752,6 +753,31 @@ fn the_list_fills_its_height_with_older_runs_and_folds_only_the_rest() {
     assert_eq!(keys_for(&tui, &views).len(), 8 + 32, "`a` lists them all");
 }
 
+/// Decision 0106 ruling 1: a cause that does not read is painted on the
+/// dashboard by name, in the line a stated cause takes, never as an absent
+/// one.
+#[test]
+fn the_dashboard_paints_a_cause_that_does_not_read_by_name() {
+    let mut views = fleet_reading(held_view());
+    let row = views
+        .runs
+        .runs
+        .iter_mut()
+        .find(|row| row.run_id == HELD)
+        .unwrap();
+    row.verdict.cause = Some(Box::new(brokkr_core::CauseRead::Refused(
+        "the park cause does not read: unknown variant `not-a-cause`".to_string(),
+    )));
+    let lines = dashboard_text(&selecting(HELD), &views, HELD);
+    let painted = under(&lines, "WHAT IT NEEDS")
+        .into_iter()
+        .find(|line| line.starts_with("cause "));
+    assert_eq!(
+        painted.as_deref(),
+        Some("cause     refused (the park cause does not read: unknown variant `not-a-cause`)")
+    );
+}
+
 /// What the dashboard answers for a run parked on a review: how it
 /// stands, what it needs, the path it took and its seats as the run's
 /// graph (#508), and its notes' first lines, each at the column's own
@@ -769,6 +795,7 @@ fn the_dashboard_answers_how_it_stands_what_it_needs_its_path_and_seats() {
         "verdict   UNVERIFIED-SE… · residual high",
         "rule      REVIEW-UNVERIFIED-SECURITY · normal · review → —",
         "reason    the reviewer could not verify the audit the implementer cited",
+        "cause     ruled REVIEW-UNVERIFIED-SECURITY: REVIEW-UNVERIFIED-SECURITY for (review, clean)",
         "seat      reviewer · succeeded · result clean",
         "notes     3 of 9 lines · Enter reads them all",
         "correctness (clean): The narrowing itself is right: the exemption now names one crate at \

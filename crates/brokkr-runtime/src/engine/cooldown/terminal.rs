@@ -4,6 +4,7 @@
 //! same record through these functions, so its text cannot drift from the
 //! terminal's.
 
+use brokkr_core::park::{Park, ParkCause};
 use brokkr_core::{provider_refusal, EventEnvelope, ProviderRefusal, ProviderWait, RefusalCause};
 use brokkr_protocol::{PreSessionRefusal, RefusalClass};
 use serde_json::{json, Value};
@@ -192,6 +193,16 @@ pub(super) fn waiter(wait: &ProviderWait, until: OffsetDateTime) -> Value {
     value
 }
 
+/// The facts a refusal's park needs beyond the typed refusal: the episode
+/// the text names, the error a resume saw, and the computed end a
+/// `past-maximum` cause carries.
+#[derive(Default)]
+struct ParkMoment {
+    episode: Option<u64>,
+    episode_error: Option<String>,
+    until: Option<time::OffsetDateTime>,
+}
+
 impl Engine {
     /// The last terminal event's one wait, or why a present record does not
     /// read. A single seat carries exactly one; more refuses by name in
@@ -265,7 +276,13 @@ impl Engine {
                 None,
             );
             record_refusal(&mut payload, &refused);
-            return Ok(self.refusal_terminal(&events, effect_id, payload, refused, None, None));
+            return Ok(self.refusal_terminal(
+                &events,
+                effect_id,
+                payload,
+                refused,
+                ParkMoment::default(),
+            ));
         };
         let bounds = match self.cooldown_bounds(provider, route) {
             Ok(Some(bounds)) => bounds,
@@ -287,7 +304,13 @@ impl Engine {
                     None,
                 );
                 record_refusal(&mut payload, &refused);
-                return Ok(self.refusal_terminal(&events, effect_id, payload, refused, None, None));
+                return Ok(self.refusal_terminal(
+                    &events,
+                    effect_id,
+                    payload,
+                    refused,
+                    ParkMoment::default(),
+                ));
             }
         };
         Ok(self.recorded_terminal(&events, effect_id, payload, route, refusal, bounds))
@@ -325,8 +348,10 @@ impl Engine {
                         effect_id,
                         payload,
                         refused,
-                        None,
-                        Some(error.to_string()),
+                        ParkMoment {
+                            episode_error: Some(error.to_string()),
+                            ..ParkMoment::default()
+                        },
                     );
                 }
             };
@@ -364,7 +389,17 @@ impl Engine {
             let refused =
                 refusal_record(cause, None, refusal, Some(route), Some(seconds), Some(max));
             record_refusal(&mut payload, &refused);
-            return self.refusal_terminal(events, effect_id, payload, refused, episode, None);
+            return self.refusal_terminal(
+                events,
+                effect_id,
+                payload,
+                refused,
+                ParkMoment {
+                    episode,
+                    until,
+                    ..ParkMoment::default()
+                },
+            );
         }
         Terminal::Plain(payload)
     }
@@ -379,15 +414,16 @@ impl Engine {
         effect_id: &str,
         payload: Value,
         refused: ProviderRefusal,
-        episode: Option<u64>,
-        episode_error: Option<String>,
+        moment: ParkMoment,
     ) -> Terminal {
         if self.at_attempt_cap(events, effect_id) {
             return Terminal::Plain(payload);
         }
+        let reason = refusal_text(&refused, moment.episode, moment.episode_error.as_deref());
+        let cause = ParkCause::provider_limit(&refused, moment.until);
         Terminal::Park {
             payload,
-            reason: refusal_text(&refused, episode, episode_error.as_deref()),
+            park: Park::new(reason, cause),
         }
     }
 }

@@ -6,6 +6,7 @@
 //! ruling 4's 800-line ceiling and `cursor.rs` keeps its small cap branch.
 
 use brokkr_core::envelope::{EventType, EVENT_SCHEMA_VERSION};
+use brokkr_core::park::{Park, ParkCause};
 use brokkr_core::{provider_waits, EventEnvelope, ProviderRefusal, ProviderWait, RefusalCause};
 use brokkr_protocol::{AttemptReport, PreSessionRefusal, RefusalClass};
 use brokkr_store::Cooling;
@@ -173,10 +174,7 @@ impl Engine {
         retry: bool,
     ) -> PanelTerminal {
         if refused.is_empty() {
-            return PanelTerminal {
-                payload,
-                park: None,
-            };
+            return PanelTerminal::plain(payload);
         }
         let episode = match episode_by_site(&self.store, &self.run_id, events, effect_id) {
             Ok(episode) => episode,
@@ -203,22 +201,18 @@ impl Engine {
             payload["waits"] = Value::Array(waits);
         }
         let Some(first) = causes.iter().position(Option::is_some) else {
-            return PanelTerminal {
-                payload,
-                park: None,
-            };
+            return PanelTerminal::plain(payload);
         };
         if !retry {
-            return PanelTerminal {
-                payload,
-                park: None,
-            };
+            return PanelTerminal::plain(payload);
         }
         let cause = causes[first].take().expect("the first parked member");
         let refused = cause.refused;
         super::record_refusal(&mut payload, &refused);
         let reason = refusal_text(&refused, cause.episode, None);
-        let park = (!self.at_attempt_cap(events, effect_id)).then_some(reason);
+        let until = planned[first].as_ref().and_then(|plan| plan.until);
+        let cause = ParkCause::provider_limit(&refused, until);
+        let park = (!self.at_attempt_cap(events, effect_id)).then(|| Park::new(reason, cause));
         PanelTerminal { payload, park }
     }
 
@@ -235,10 +229,7 @@ impl Engine {
         retry: bool,
     ) -> Result<PanelTerminal, EngineError> {
         if refused.is_empty() {
-            return Ok(PanelTerminal {
-                payload,
-                park: None,
-            });
+            return Ok(PanelTerminal::plain(payload));
         }
         let events = self.store.load(&self.run_id)?;
         Ok(self.panel_rate_limit_terminal(&events, effect_id, payload, refused, retry))
@@ -277,16 +268,14 @@ impl Engine {
             );
             super::record_refusal(payload, &refused);
             let reason = refusal_text(&refused, None, Some(&error.to_string()));
-            let park = (!self.at_attempt_cap(events, effect_id)).then_some(reason);
+            let cause = ParkCause::provider_limit(&refused, None);
+            let park = (!self.at_attempt_cap(events, effect_id)).then(|| Park::new(reason, cause));
             return PanelTerminal {
                 payload: payload.clone(),
                 park,
             };
         }
-        PanelTerminal {
-            payload: payload.clone(),
-            park: None,
-        }
+        PanelTerminal::plain(payload.clone())
     }
 
     /// One refused member's wait, or why its own route cannot produce one.
@@ -672,7 +661,18 @@ fn cap_wait_facts(wait: &ProviderWait) -> String {
 /// below the cap, the park reason the run ends with.
 pub(in crate::engine) struct PanelTerminal {
     pub(in crate::engine) payload: Value,
-    pub(in crate::engine) park: Option<String>,
+    /// The park the run ends with, its reason and cause stated together.
+    pub(in crate::engine) park: Option<Park>,
+}
+
+impl PanelTerminal {
+    /// A terminal that parks nothing.
+    fn plain(payload: Value) -> PanelTerminal {
+        PanelTerminal {
+            payload,
+            park: None,
+        }
+    }
 }
 
 /// Every cool-down row the terminal event `payload` records (decision 0103

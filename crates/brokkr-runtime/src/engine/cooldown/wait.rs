@@ -5,14 +5,15 @@
 //! probe's next round waited and probed again before the retry.
 
 use brokkr_core::fold::{fold, Cursor, Run, RunState};
+use brokkr_core::park::{Park, ParkCause, ProviderLimitRefusal};
 use brokkr_core::{EventEnvelope, ProbeAnswer, ProviderWait};
 use brokkr_store::{CooldownAggregate, CooldownRound, RoundAppend};
 use time::{Duration as TimeDuration, OffsetDateTime};
 
 use super::probe::{NextRound, Probe};
 use super::{
-    episode_by_site, maximum_reason, past_maximum, sites, CooldownError, Engine, EngineError,
-    MaximumFacts, Waited, SLICE,
+    episode_by_site, maximum_reason, park_of, past_maximum, sites, CooldownError, Engine,
+    EngineError, MaximumFacts, Waited, SLICE,
 };
 
 impl Engine {
@@ -117,7 +118,7 @@ impl Engine {
         match self.aggregate_in_force(round.waits) {
             Ok(false) => Ok(Step::Proceed),
             Ok(true) => Ok(Step::Again),
-            Err(error) => Ok(Step::Parked(error.to_string())),
+            Err(error) => Ok(Step::Parked(park_of(&error))),
         }
     }
 
@@ -174,7 +175,7 @@ impl Engine {
         }
         match self.record_extension(waits, maxima, round, unrecorded) {
             Ok(until) => Ok(Extension::Written(until)),
-            Err(error) => Ok(Extension::Parked(error.to_string())),
+            Err(error) => Ok(Extension::Parked(park_of(&error))),
         }
     }
 
@@ -196,7 +197,7 @@ impl Engine {
         }
         let mut end = match self.cool_down_end(waits) {
             Ok(end) => end,
-            Err(error) => return Ok(WaitRound::Parked(error.to_string())),
+            Err(error) => return Ok(WaitRound::Parked(park_of(&error))),
         };
         loop {
             // The maximum is judged before every wait this round takes,
@@ -211,7 +212,7 @@ impl Engine {
                 *unrecorded,
             ) {
                 Ok(budget) => budget,
-                Err(error) => return Ok(WaitRound::Parked(error.to_string())),
+                Err(error) => return Ok(WaitRound::Parked(park_of(&error))),
             };
             *unrecorded = budget.waited;
             *maxima = budget.maxima;
@@ -223,7 +224,7 @@ impl Engine {
             // cooled site past the end sampled before them.
             end = match self.cool_down_end(waits) {
                 Ok(end) => end,
-                Err(error) => return Ok(WaitRound::Parked(error.to_string())),
+                Err(error) => return Ok(WaitRound::Parked(park_of(&error))),
             };
             if end <= self.now() {
                 break;
@@ -262,7 +263,7 @@ impl Engine {
             match self.cool_down_end(waits) {
                 Ok(end) if end <= self.now() => {}
                 Ok(_) => return Ok(ProbeRound::Held),
-                Err(error) => return Ok(ProbeRound::Parked(error.to_string())),
+                Err(error) => return Ok(ProbeRound::Parked(park_of(&error))),
             }
             match self.probe_wait(events, state, effect_id, seat, wait)? {
                 Probe::Answered(answer) => answers.push(answer),
@@ -482,16 +483,23 @@ impl Engine {
         events: &[EventEnvelope],
         effect_id: &str,
         wait: &ProviderWait,
-    ) -> Option<String> {
+    ) -> Option<Park> {
+        let refusing = |reason: String, refusal: ProviderLimitRefusal| {
+            Park::new(reason, ParkCause::refusal(&wait.provider, refusal))
+        };
+        let route = || wait.route.clone();
         match self.cooldown_bounds(&wait.provider, &wait.route) {
             Ok(Some(bounds)) => {
                 let max = u64::from(bounds.max_seconds.get());
                 let episode = match episode_by_site(&self.store, &self.run_id, events, effect_id) {
                     Ok(episode) => episode,
                     Err(error) => {
-                        return Some(format!(
-                            "a resume waits for {}/{} without reading its episode: {error}",
-                            wait.provider, wait.route
+                        return Some(refusing(
+                            format!(
+                                "a resume waits for {}/{} without reading its episode: {error}",
+                                wait.provider, wait.route
+                            ),
+                            ProviderLimitRefusal::EpisodeUnreadable { route: route() },
                         ));
                     }
                 };
@@ -521,13 +529,25 @@ impl Engine {
                 // Judge with the same per-site length the park names, not
                 // the terminal wait's own: a written probe round may have
                 // superseded it (finding 6).
-                past_maximum(seconds, episode.seconds, max)
-                    .then(|| maximum_reason(&pending, episode.seconds, max, None))
+                past_maximum(seconds, episode.seconds, max).then(|| {
+                    refusing(
+                        maximum_reason(&pending, episode.seconds, max, None),
+                        ProviderLimitRefusal::PastMaximum {
+                            route: route(),
+                            until: pending.until,
+                            seconds,
+                            max_seconds: max,
+                        },
+                    )
+                })
             }
             Ok(None) => None,
-            Err(reason) => Some(format!(
-                "a resume waits for {}/{} without reading its bounds: {reason}",
-                wait.provider, wait.route
+            Err(reason) => Some(refusing(
+                format!(
+                    "a resume waits for {}/{} without reading its bounds: {reason}",
+                    wait.provider, wait.route
+                ),
+                ProviderLimitRefusal::HostUnreadable { route: route() },
             )),
         }
     }
@@ -577,7 +597,7 @@ impl Engine {
 pub(super) enum WaitRound {
     Waited,
     Stopped,
-    Parked(String),
+    Parked(Park),
 }
 
 /// What a probe's rate-limit refusal left: the written round's end, a stop
@@ -585,7 +605,7 @@ pub(super) enum WaitRound {
 enum Extension {
     Written(OffsetDateTime),
     Stopped,
-    Parked(String),
+    Parked(Park),
 }
 
 /// What one round of probes left the wait loop: answers to keep, a written
@@ -595,7 +615,7 @@ enum ProbedRound {
     Answered(Vec<ProbeAnswer>),
     Again,
     Stopped,
-    Parked(String),
+    Parked(Park),
 }
 
 /// The state one effect's wait carries between rounds: the answers taken so
@@ -622,7 +642,7 @@ enum Step {
     Proceed,
     Again,
     Stopped,
-    Parked(String),
+    Parked(Park),
 }
 
 /// What one round of probes left.
@@ -634,7 +654,7 @@ enum ProbeRound {
     /// before any probe (finding 3).
     Held,
     Stopped,
-    Parked(String),
+    Parked(Park),
 }
 
 /// The seconds from `end` that lie past what the episode already counts:

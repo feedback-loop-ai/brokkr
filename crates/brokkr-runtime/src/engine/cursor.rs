@@ -4,10 +4,12 @@
 
 use brokkr_core::envelope::EventType;
 use brokkr_core::fold::{Cursor, ParkReason, RunState};
+use brokkr_core::park::{FailureClass, Park, ParkCause};
 use brokkr_core::{EventEnvelope, ProbeAnswer, ProviderRefusal, ProviderWait};
 use serde_json::{json, Value};
 
 use super::cooldown::{CooldownError, Waited};
+use super::non_execution::{self, LastAttempt};
 use super::{gate_head_evidence, operator_stop_reason, Engine, EngineError};
 
 /// What the record says about an effect before its attempt: the wait a
@@ -50,7 +52,7 @@ impl Engine {
                 ..
             } => self.restarted(&effect_id, &attempt_id),
             Cursor::Decide { result, .. } => self.decide(&state, result),
-            Cursor::Park { reason } => self.park_at_cursor(events, reason),
+            Cursor::Park { reason } => self.park_at_cursor(events, &state, reason),
             Cursor::Stop => self.stop_at_cursor(events),
         }
     }
@@ -88,14 +90,15 @@ impl Engine {
         if let Some(reason) =
             self.orphaned_probe_refusal(seat, state.strategy.as_deref(), events, &waits)
         {
-            self.park_with_reason(reason)?;
+            let cause = ParkCause::infrastructure(false, reason.clone());
+            self.park(&Park::new(reason, cause))?;
             return Ok(());
         }
         match self.take_cooldown(events, state, &wait_effect, seat, &waits)? {
             Waited::Proceed(answers) => self.run_attempt(events, state, effect_id, seat, answers),
             // The stop's own arm writes the ending next turn.
             Waited::Stopped => Ok(()),
-            Waited::Parked(reason) => self.park_with_reason(reason),
+            Waited::Parked(park) => self.park(&park),
         }
     }
 
@@ -115,18 +118,25 @@ impl Engine {
         let waits = self.recorded_waits(events, effect_id);
         let refused = self.recorded_refusal(events, effect_id);
         if failed_attempts >= max_attempts {
-            let reason = format!(
-                "effect {effect_id} failed {failed_attempts} of {max_attempts} attempt(s); \
-                 last error: {}",
-                last_error(events, effect_id)
-            );
-            self.park_at_cap(events, effect_id, reason, &waits, &refused, strategy)?;
+            let attempts = (failed_attempts, max_attempts);
+            self.park_at_cap(events, effect_id, attempts, &waits, &refused, strategy)?;
             return Ok(Recorded::Parked);
         }
-        if self.park_on_refused(events, effect_id, &refused)? {
+        if self.park_on_refused(events, effect_id, &waits, &refused)? {
             return Ok(Recorded::Parked);
         }
         self.record_waits(events, effect_id, waits)
+    }
+
+    /// Park an effect record that does not read, naming it: an engine
+    /// refusal, never a guessed cause.
+    fn park_unreadable(
+        &mut self,
+        effect_id: &str,
+        detail: impl std::fmt::Display,
+    ) -> Result<(), EngineError> {
+        let reason = format!("refusing to execute effect {effect_id}: {detail}");
+        self.park(&Park::ruled(reason))
     }
 
     /// A crash between the failed event and its park: fold returns
@@ -138,18 +148,21 @@ impl Engine {
         &mut self,
         events: &[EventEnvelope],
         effect_id: &str,
+        waits: &Result<Option<Vec<ProviderWait>>, CooldownError>,
         refused: &Result<Option<ProviderRefusal>, CooldownError>,
     ) -> Result<bool, EngineError> {
         match refused {
             Ok(Some(refused)) => {
                 let reason = self.refused_park_reason(events, effect_id, refused);
-                self.park_with_reason(reason)?;
+                let until = recorded_until(waits, refused);
+                let cause = ParkCause::provider_limit(refused, until);
+                self.park(&Park::new(reason, cause))?;
                 Ok(true)
             }
             Ok(None) => Ok(false),
             Err(detail) => {
                 let reason = format!("refusing to execute effect {effect_id}: {detail}");
-                self.park_with_reason(reason)?;
+                self.park(&Park::ruled(reason))?;
                 Ok(true)
             }
         }
@@ -180,14 +193,12 @@ impl Engine {
                 }),
                 Ok(None) => Ok(Recorded::Attempt),
                 Err(detail) => {
-                    let reason = format!("refusing to execute effect {effect_id}: {detail}");
-                    self.park_with_reason(reason)?;
+                    self.park_unreadable(effect_id, detail)?;
                     Ok(Recorded::Parked)
                 }
             },
             Err(detail) => {
-                let reason = format!("refusing to execute effect {effect_id}: {detail}");
-                self.park_with_reason(reason)?;
+                self.park_unreadable(effect_id, detail)?;
                 Ok(Recorded::Parked)
             }
         }
@@ -260,29 +271,50 @@ impl Engine {
     /// The cap's park (decision 0006), with the facts the last failure
     /// recorded beside it (decision 0103 ruling 7(c)): 0006's text speaks
     /// first, then [`Engine::cap_facts`] names each member's own in declared
-    /// order (decision 0103 slice 4c2a).
+    /// order (decision 0103 slice 4c2a). `attempts` is the effect's failed
+    /// attempts and 0006's cap for its seat.
+    ///
+    /// The reason is the operator's prose, and holds the last error and
+    /// each wait's and refusal's words as the provider spoke them. The cause
+    /// is the engine's own sentence, built from the typed counts and the
+    /// class ([`cap_cause`]): the provider's words stay in the reason and
+    /// the typed `refused` record, so no readout paints them twice (decision
+    /// 0106 ruling 1, "the cause does not copy them").
     fn park_at_cap(
         &mut self,
         events: &[EventEnvelope],
         effect_id: &str,
-        mut reason: String,
+        attempts: (u64, u64),
         waits: &Result<Option<Vec<ProviderWait>>, CooldownError>,
         refused: &Result<Option<ProviderRefusal>, CooldownError>,
         strategy: Option<&str>,
     ) -> Result<(), EngineError> {
+        let (failed, max) = attempts;
+        let mut reason = format!(
+            "effect {effect_id} failed {failed} of {max} attempt(s); last error: {}",
+            last_error(events, effect_id)
+        );
         reason.push_str(&self.cap_facts(events, effect_id, waits, refused, strategy));
-        self.park_with_reason(reason)
+        let cause = cap_cause(events, effect_id, attempts);
+        self.park(&Park::new(reason, cause))
     }
 
-    /// The one `run/parked` write the refusal and wait parks share: the
-    /// reason and an empty evidence envelope. `park_at_cursor` keeps its
-    /// own write because a moved head carries evidence.
-    pub(super) fn park_with_reason(&mut self, reason: String) -> Result<(), EngineError> {
-        self.append(
-            EventType::RunParked,
-            json!({"reason": reason, "evidence": {}}),
-            None,
-        )?;
+    /// The one `run/parked` writer (decision 0106 ruling 1): a [`Park`]
+    /// states its reason and its cause together, so a writer without a cause
+    /// does not compile, and [`Engine::append`] refuses a raw `run/parked`.
+    /// The evidence envelope is empty; a moved head's is
+    /// [`Engine::park_with_evidence`].
+    pub(super) fn park(&mut self, park: &Park) -> Result<(), EngineError> {
+        self.park_with_evidence(park, json!({}))
+    }
+
+    /// [`Engine::park`] with the park's evidence beside it.
+    pub(super) fn park_with_evidence(
+        &mut self,
+        park: &Park,
+        evidence: Value,
+    ) -> Result<(), EngineError> {
+        self.append_raw(EventType::RunParked, park.payload(evidence), None)?;
         Ok(())
     }
 
@@ -319,18 +351,24 @@ impl Engine {
     fn park_at_cursor(
         &mut self,
         events: &[EventEnvelope],
+        state: &RunState,
         reason: ParkReason,
     ) -> Result<(), EngineError> {
         let evidence = match reason {
             ParkReason::GateMovedHead => gate_head_evidence(events),
             ParkReason::Stated(_) => json!({}),
         };
-        self.append(
-            EventType::RunParked,
-            json!({"reason": reason.as_str(), "evidence": evidence}),
-            None,
-        )?;
-        Ok(())
+        let cause = match reason {
+            // The moved head arrives through `effect/indeterminate`, so no
+            // rule matched: `state.last_decision` is the ruling that routed
+            // INTO the gate, not this park's.
+            ParkReason::GateMovedHead => ParkCause::ruled(None, reason.as_str()),
+            ParkReason::Stated(_) if closed_indeterminate(events) => {
+                ParkCause::infrastructure(false, reason.as_str())
+            }
+            ParkReason::Stated(_) => ParkCause::ruled(rule_id(state), reason.as_str()),
+        };
+        self.park_with_evidence(&Park::new(reason.as_str(), cause), evidence)
     }
 
     /// The `Stop` arm: the stopped row, with the operator's reason.
@@ -342,6 +380,81 @@ impl Engine {
         )?;
         Ok(())
     }
+}
+
+/// The rule id the run's last ruling matched, where it named one.
+fn rule_id(state: &RunState) -> Option<String> {
+    state
+        .last_decision
+        .as_ref()
+        .and_then(|decision| decision.rule_id.present())
+        .map(|rule| rule.to_string())
+}
+
+/// Whether the park was opened by an indeterminate close: the fold's
+/// `Cursor::Park` follows the `effect/indeterminate` that reached it. An
+/// operator command or its receipt may land between the close and the park
+/// and moves nothing, so the close is the newest event that is neither.
+fn closed_indeterminate(events: &[EventEnvelope]) -> bool {
+    events
+        .iter()
+        .rev()
+        .find(|event| {
+            !matches!(
+                event.event_type,
+                EventType::OperatorCommanded
+                    | EventType::OperatorAccepted
+                    | EventType::OperatorRejected
+            )
+        })
+        .is_some_and(|event| event.event_type == EventType::EffectIndeterminate)
+}
+
+/// The recorded end a `past-maximum` refusal's wait carries, where the
+/// failed event still holds it.
+fn recorded_until(
+    waits: &Result<Option<Vec<ProviderWait>>, CooldownError>,
+    refused: &ProviderRefusal,
+) -> Option<time::OffsetDateTime> {
+    let waits = waits.as_ref().ok()?.as_ref()?;
+    waits
+        .iter()
+        .find(|wait| {
+            wait.provider == refused.provider && Some(&wait.route) == refused.route.as_ref()
+        })
+        .map(|wait| wait.until)
+}
+
+/// The cap's cause (decision 0106 ruling 1), from [`non_execution`]'s one
+/// reading of the effect's last terminal event, never from raw payload keys
+/// read a second time here: `park_at_cap`'s typed `waits` and `refused` are
+/// read from that same terminal, so they are the same fact.
+///
+/// A recorded `waits` or `refused`, readable or not, is a typed rate-limit
+/// refusal: `provider-limit`. Otherwise a failure to start with no
+/// checkpoint of the attempt is `start-failure`, and any failure that may
+/// have executed is `determinate`. An indeterminate last terminal is not a
+/// failure class at all: ruling 1's table gives an indeterminate end to
+/// `infrastructure`, and nothing proves it never executed, so it is not
+/// retryable. [`FailureClass::ProviderRefusal`] has no writer until 0106e
+/// (#1037) types a non-rate-limit refusal; it is reserved, not dead.
+///
+/// Its detail is the engine's own sentence: 0006's cap as the counts say it,
+/// and the class. It carries none of the seat's error and none of the
+/// provider's words, which only the park's reason holds.
+fn cap_cause(events: &[EventEnvelope], effect_id: &str, (failed, max): (u64, u64)) -> ParkCause {
+    let cap = format!("effect {effect_id} failed {failed} of {max} attempt(s)");
+    let class = match non_execution::last_attempt(events, effect_id) {
+        Some(LastAttempt::Indeterminate) => {
+            let detail = format!("{cap}; the last attempt ended indeterminate");
+            return ParkCause::infrastructure(false, detail);
+        }
+        Some(LastAttempt::Refused) => FailureClass::ProviderLimit,
+        Some(LastAttempt::FailedToStart) => FailureClass::StartFailure,
+        Some(LastAttempt::Failed) | None => FailureClass::Determinate,
+    };
+    let detail = format!("{cap}; the last failure class is {}", class.word());
+    ParkCause::attempt_cap(class, detail)
 }
 
 /// The error the effect's last `EffectFailed` recorded, read from the

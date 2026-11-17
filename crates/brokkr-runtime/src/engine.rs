@@ -12,6 +12,7 @@ use brokkr_core::dispatch::{bundle_manifest_from_run, DispatchEnvelopeV2, Dispat
 use brokkr_core::envelope::EventType;
 use brokkr_core::fold::{Cursor, OperatorCommand, Run, RunState, Status};
 use brokkr_core::gate_moved_head::{self, MovedHead};
+use brokkr_core::park::{Park, ParkCause};
 use brokkr_core::realms::Boundary;
 use brokkr_core::EventEnvelope;
 use brokkr_protocol::hands::{HandsSpec, Sealed, SEALED_REACH};
@@ -65,6 +66,7 @@ use capability_calls::Calls;
 use checkpoints::Checkpoints;
 pub use isolation::{sealed_isolation, serving_inputs};
 mod marks;
+mod non_execution;
 #[doc(hidden)]
 pub use marks::SiteMarks;
 mod operator;
@@ -640,16 +642,10 @@ impl Engine {
         let seat = self.bundle.seats.get(phase);
         if let Some(seat) = seat {
             if seat.body.selected(state.strategy.as_deref()).is_none() {
-                self.append(
-                    EventType::RunParked,
-                    json!({
-                        "reason": format!(
-                            "SELECT-NO-DEFAULT: seat '{phase}' selects on strategy, but the journal carries no matching triage result and the seat has no default"
-                        ),
-                        "evidence": {}
-                    }),
-                    None,
-                )?;
+                let reason = format!(
+                    "SELECT-NO-DEFAULT: seat '{phase}' selects on strategy, but the journal carries no matching triage result and the seat has no default"
+                );
+                self.park(&Park::ruled(reason))?;
                 return Ok(());
             }
         }
@@ -904,8 +900,9 @@ impl Engine {
             return Err(error);
         }
         (self.current_cause, self.fence) = fence::tip_of(&self.replay.events);
-        let parked = json!({"reason": reason, "evidence": {}});
-        self.append(EventType::RunParked, parked, None)?;
+        let retryable = self.contention_retryable(&state);
+        let cause = ParkCause::infrastructure(retryable, reason.clone());
+        self.park(&Park::new(reason, cause))?;
         let state = self.replay.caught_up(&mut self.store, &self.run_id)?;
         Ok(Some(DriveEnd {
             state,
@@ -943,6 +940,16 @@ impl Engine {
         payload: Value,
         attempt_id: Option<String>,
     ) -> Result<EventEnvelope, EngineError> {
+        // Decision 0106 ruling 1: every `run/parked` states its cause, and
+        // [`Engine::park`] is the one writer that takes a
+        // [`brokkr_core::park::Park`], so a writer without a cause does not
+        // compile and a raw payload is refused here.
+        if event_type == EventType::RunParked {
+            return Err(EngineError::Invariant(
+                "append",
+                "a run/parked is written by Engine::park, which states its cause".into(),
+            ));
+        }
         if matches!(
             event_type,
             EventType::EffectSucceeded | EventType::EffectFailed | EventType::EffectIndeterminate
@@ -1946,6 +1953,11 @@ fn argv_for<'a>(selection: &'a Selection, site: &Site, inline: &'a [String]) -> 
 /// The fourth fact is the engine's own (decision 0053 ruling 5): an
 /// attempt this watchdog KILLED is `Failed` because the kill made
 /// non-completion determinate, not because anything refused to start.
+///
+/// Decision 0106 ruling 4's proof that an attempt never executed is this
+/// predicate's `start_failure` field AND the events beside it, derived once
+/// in [`non_execution`]: the field alone is not the proof.
+///
 /// The driver died with no chance to say which side of the boundary it
 /// was on, so the ambiguity decision 0003 parks on holds — and without
 /// this term a vendor that hangs a first turn would walk the chain down

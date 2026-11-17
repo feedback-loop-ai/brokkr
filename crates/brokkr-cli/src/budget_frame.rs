@@ -30,6 +30,11 @@ pub fn run_frame_for_budget(
     let run_id = first.map_or("", |event| event.run_id.as_str());
     let entry = brokkr_view::RunEntry {
         waits: Default::default(),
+        // No budget frame paints a cause line: the RUN level and the fleet's
+        // first page, the two frames drawn here, paint none (the dashboard
+        // pane does, and no budget draws it), so a cause here would change
+        // no byte measured (decision 0106 ruling 1, 0106a4 item 6).
+        park_cause: None,
         run_id,
         feature: state
             .as_ref()

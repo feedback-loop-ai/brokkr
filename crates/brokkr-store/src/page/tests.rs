@@ -500,6 +500,11 @@ fn a_row_no_writer_writes_is_refused_at_the_edge() {
         ),
         ("feature_line = NULL", true, RowRefusal::Column(null.into())),
         (
+            "park_cause = 'not json'",
+            true,
+            RowRefusal::ParkCause("expected ident at line 1 column 2".into()),
+        ),
+        (
             "ending = 'by_rule'",
             true,
             RowRefusal::Ending("by_rule".into()),
@@ -689,5 +694,48 @@ fn a_read_made_as_one_reads_one_snapshot() {
     assert_eq!(
         refused.to_string(),
         "cannot start a transaction within a transaction"
+    );
+}
+
+/// The paged row carries the typed cause the summary wrote (decision 0106
+/// ruling 1), and a row written before the column keeps NULL, which reads
+/// `unknown` — never a guessed `ruled`.
+#[test]
+fn a_paged_row_reads_the_typed_park_cause_and_an_old_row_reads_unknown() {
+    let (_dir, store) = one(Width::Narrow, Standing::Parked);
+    let row = read_one(&store, Standing::Parked);
+    let cause = row.park_cause.expect("the paged row carries a cause");
+    assert!(matches!(
+        *cause,
+        brokkr_core::CauseRead::Stated(brokkr_core::ParkCause::Ruled { .. })
+    ));
+    assert_eq!(
+        cause.line(),
+        "ruled REVIEW-HOLD: REVIEW-HOLD for (review, hold): held"
+    );
+
+    store
+        .conn
+        .execute("UPDATE run_summary SET park_cause = NULL", [])
+        .unwrap();
+    let old = read_one(&store, Standing::Parked);
+    // An old row states no cause: it reads `unknown`, never a guessed word.
+    assert_eq!(old.park_cause, None);
+
+    // A park whose cause did not read is stored as its named refusal and
+    // reads back as one, never as an absent cause.
+    store
+        .conn
+        .execute(
+            "UPDATE run_summary SET park_cause = ?1",
+            [r#"{"refused":"the park cause does not read: x"}"#],
+        )
+        .unwrap();
+    let refused = read_one(&store, Standing::Parked);
+    assert_eq!(
+        refused.park_cause,
+        Some(Box::new(brokkr_core::CauseRead::Refused(
+            "the park cause does not read: x".into()
+        )))
     );
 }

@@ -219,7 +219,6 @@ fn ledger_command_renders_to_stdout_or_the_repository() {
     let db = dir.path().join("journal.db");
     running_store(&db, "ledger-run");
     crate::folder::folder_tests::plant_library(dir.path());
-
     assert_eq!(
         run(cli(Cmd::Ledger(LedgerArgs {
             run: "ledger-run".into(),
@@ -2928,11 +2927,11 @@ fn an_operator_stop_mid_flight_lists_with_its_real_status() {
         Run::Running(Cursor::Stop),
         "concluded per the operator"
     );
-
     let entries = [
         listed.entry(),
         brokkr_view::RunEntry {
             waits: Default::default(),
+            park_cause: None,
             run_id: "healthy",
             feature: "feature",
             created_at: "2026-08-30T22:21:00Z",
@@ -3573,6 +3572,7 @@ fn import_adopts_an_export_and_the_readouts_cannot_tell_it_apart() {
     let state = fold(&events).unwrap();
     let entries = vec![brokkr_view::RunEntry {
         waits: Default::default(),
+        park_cause: None,
         run_id: &listed[0].0,
         feature: &listed[0].1,
         created_at: &listed[0].2,

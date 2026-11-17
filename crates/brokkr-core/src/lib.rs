@@ -16,6 +16,7 @@ pub mod fold;
 pub mod gate_moved_head;
 pub mod keep_refs;
 pub mod page;
+pub mod park;
 mod payload;
 pub mod policy;
 pub mod realms;
@@ -28,6 +29,7 @@ pub mod summary;
 pub use envelope::{EventEnvelope, EventType};
 pub use fold::{fold, Cursor, FoldError, RunState, Status};
 pub use keep_refs::cited_shas;
+pub use park::{CauseRead, FailureClass, ParkCause, ParkCauseError, ProviderLimitRefusal};
 pub use payload::{
     provider_refusal, provider_waits, ProbeAnswer, ProviderRefusal, ProviderRefusalError,
     ProviderWait, ProviderWaitError, RefusalCause,

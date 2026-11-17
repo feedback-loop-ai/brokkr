@@ -146,8 +146,8 @@ impl Engine {
                     terminal.payload,
                     Some(attempt_id.to_string()),
                 )?;
-                if let Some(reason) = terminal.park {
-                    self.park_with_reason(reason)?;
+                if let Some(park) = terminal.park {
+                    self.park(&park)?;
                 }
             }
             AttemptOutcome::Succeeded { result } => {

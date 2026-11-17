@@ -66,14 +66,16 @@ use super::exclusion::reaches;
 use super::fold::Begun;
 use super::historical::regular;
 use super::inventory::{inventory, Budget, Standing, Writing};
-use super::root::{locked, present, read, Commit, Root};
+use super::root::{locked, locked_existing, present, read, Commit, Root};
 use super::{observed, startup};
 use crate::engine::artifacts::{self, Evidence, Unpublished};
 use crate::engine::{Engine, EngineError};
 
 mod attestation;
+mod stands;
 pub(in crate::engine) use attestation::attested;
 pub(in crate::engine) mod release;
+pub(in crate::engine) use stands::reservation_stands;
 
 /// How an attempt's terminal event ended it, as its settlement reads it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

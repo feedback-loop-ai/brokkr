@@ -15,11 +15,12 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use brokkr_core::envelope::EventType;
+use brokkr_core::park::{Park, ParkCause, ProviderLimitRefusal};
 use brokkr_core::{
     provider_waits, EventEnvelope, ProbeAnswer, ProviderRefusalError, ProviderWait,
     ProviderWaitError,
 };
-use serde_json::{json, Value};
+use serde_json::Value;
 use thiserror::Error;
 use time::Duration as TimeDuration;
 use time::OffsetDateTime;
@@ -206,16 +207,148 @@ pub(super) enum CooldownError {
 }
 
 /// What the engine does with a wait it read: proceed to the retry, leave
-/// a stopped run to its `Stop` arm, or park with this reason.
+/// a stopped run to its `Stop` arm, or park with this reason and cause.
 pub(super) enum Waited {
     Proceed(Vec<ProbeAnswer>),
     Stopped,
-    Parked(String),
+    Parked(Park),
+}
+
+/// The park a cool-down error ends the run with (decision 0106 ruling 1):
+/// the error's words are the reason, and its typed facts name the cause. A
+/// maximum the wait or its episode passed is `provider-limit` with its
+/// `past-maximum` refusal, and a bound or episode that does not read is
+/// `host-unreadable` or `episode-unreadable`. Every other error is the
+/// engine's own refusal: `ruled`, never retried; the probe's own refusals
+/// carry the provider's words in their text, so their cause is the engine's
+/// sentence and the words stay in the reason.
+pub(super) fn park_of(error: &CooldownError) -> Park {
+    let reason = error.to_string();
+    let cause = match said(error) {
+        Said::Limit(provider, refusal) => ParkCause::refusal(provider, refusal),
+        Said::Probe(provider, route, what) => ParkCause::ruled(
+            None,
+            format!("the cool-down probe for {provider}/{route} {what}"),
+        ),
+        Said::Own => ParkCause::ruled(None, reason.clone()),
+    };
+    Park::new(reason, cause)
+}
+
+/// What a cool-down error says of its park's cause.
+enum Said<'a> {
+    /// The provider's limit, in its typed refusal.
+    Limit(&'a str, ProviderLimitRefusal),
+    /// A probe's refusal, whose text carries the provider's words: the
+    /// engine's sentence is built from its provider and route and what
+    /// failed (decision 0106 ruling 1: the words stay in the park's reason
+    /// and never in the cause).
+    Probe(&'a str, &'a str, &'static str),
+    /// An error whose text carries no provider's words: the reason is the
+    /// engine's own sentence.
+    Own,
+}
+
+/// [`Said`] for `error`, in one match that lists every variant, so a new one
+/// is a compile error here, where it must say whether its text carries the
+/// provider's words (decision 0071 ruling 2).
+fn said(error: &CooldownError) -> Said<'_> {
+    match error {
+        CooldownError::Maximum(facts) => Said::Limit(
+            &facts.wait.provider,
+            ProviderLimitRefusal::PastMaximum {
+                route: facts.wait.route.clone(),
+                until: facts.wait.until,
+                seconds: facts.wait.seconds,
+                max_seconds: facts.max,
+            },
+        ),
+        CooldownError::WaitEpisodeUnreadable {
+            provider, route, ..
+        } => Said::Limit(
+            provider,
+            ProviderLimitRefusal::EpisodeUnreadable {
+                route: route.clone(),
+            },
+        ),
+        CooldownError::WaitBoundsUnreadable {
+            provider, route, ..
+        } => Said::Limit(
+            provider,
+            ProviderLimitRefusal::HostUnreadable {
+                route: route.clone(),
+            },
+        ),
+        CooldownError::ProbeUndeclared {
+            provider, route, ..
+        } => Said::Probe(
+            provider,
+            route,
+            "was refused again, with no cool-down declared",
+        ),
+        CooldownError::ProbeBoundsUnreadable {
+            provider, route, ..
+        } => Said::Probe(
+            provider,
+            route,
+            "was refused again, and its bounds cannot be read",
+        ),
+        CooldownError::ProbeJournalUnreadable {
+            provider, route, ..
+        } => Said::Probe(
+            provider,
+            route,
+            "was refused again, and its journal cannot be read",
+        ),
+        CooldownError::ProbeNoTerminal {
+            provider, route, ..
+        } => Said::Probe(
+            provider,
+            route,
+            "was refused again with no terminal event to extend",
+        ),
+        CooldownError::ProbeRoundsUnreadable {
+            provider, route, ..
+        } => Said::Probe(
+            provider,
+            route,
+            "was refused again, and its rounds cannot be read",
+        ),
+        CooldownError::ProbeEpisodeUnreadable {
+            provider, route, ..
+        } => Said::Probe(
+            provider,
+            route,
+            "was refused again, and its episode cannot be read",
+        ),
+        CooldownError::RoundUnbounded {
+            provider, route, ..
+        } => Said::Probe(
+            provider,
+            route,
+            "would write a round with no cool-down declared",
+        ),
+        CooldownError::RoundNoTable {
+            provider, route, ..
+        } => Said::Probe(provider, route, "was refused again by the provider"),
+        CooldownError::HostUnreadable { .. }
+        | CooldownError::HostInvalid { .. }
+        | CooldownError::LastWaitUnreadable(_)
+        | CooldownError::TooManyWaits { .. }
+        | CooldownError::EarlierWaitUnreadable { .. }
+        | CooldownError::RefusedUnreadable(_)
+        | CooldownError::RoundsUnreadable { .. }
+        | CooldownError::AggregateUnreadable { .. }
+        | CooldownError::RoundUnwritable { .. } => Said::Own,
+    }
 }
 
 /// The terminal event a `waits` array stands on: the newest failed or
 /// indeterminate one for this effect.
-fn terminal<'a>(events: &'a [EventEnvelope], effect_id: &str) -> Option<&'a EventEnvelope> {
+pub(super) fn terminal<'a>(
+    events: &'a [EventEnvelope],
+    effect_id: &str,
+) -> Option<&'a EventEnvelope> {
     events.iter().rev().find(|event| {
         matches!(
             event.event_type,
@@ -503,7 +636,7 @@ fn note_error(payload: &mut Value, note: &str) {
 /// end the run with it.
 pub(super) enum Terminal {
     Plain(Value),
-    Park { payload: Value, reason: String },
+    Park { payload: Value, park: Park },
 }
 
 impl Terminal {
@@ -513,19 +646,15 @@ impl Terminal {
     pub(super) fn journal(self, engine: &mut Engine, attempt_id: &str) -> Result<(), EngineError> {
         let (payload, park) = match self {
             Terminal::Plain(payload) => (payload, None),
-            Terminal::Park { payload, reason } => (payload, Some(reason)),
+            Terminal::Park { payload, park } => (payload, Some(park)),
         };
         engine.append(
             EventType::EffectFailed,
             payload,
             Some(attempt_id.to_string()),
         )?;
-        if let Some(reason) = park {
-            engine.append(
-                EventType::RunParked,
-                json!({"reason": reason, "evidence": {}}),
-                None,
-            )?;
+        if let Some(park) = park {
+            engine.park(&park)?;
         }
         Ok(())
     }

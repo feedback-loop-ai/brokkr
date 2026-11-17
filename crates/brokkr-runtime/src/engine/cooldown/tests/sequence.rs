@@ -870,6 +870,14 @@ fn a_wait_past_the_maximum_parks_the_sequence_without_a_probe() {
     let reason = park_reason(&engine);
     assert!(reason.contains("past the declared 10s maximum"), "{reason}");
     assert!(reason.contains("rate_limit: slow down"), "{reason}");
+    // The sequence's park states the same typed cause a panel's does.
+    let brokkr_core::ProviderLimitRefusal::PastMaximum {
+        route, max_seconds, ..
+    } = refusal_of(park_cause_of(&engine))
+    else {
+        panic!("a step's wait past the maximum parks as past-maximum");
+    };
+    assert_eq!((route.as_str(), max_seconds), ("first", 10));
 }
 
 /// A rate-limit refusal whose cool-down is not declared writes no wait and
@@ -1076,8 +1084,8 @@ fn a_sequence_wait_at_a_form_it_does_not_name_parks_by_name() {
             .probe_member(&events, &state, "effect", "work", &wait(site), site)
             .unwrap();
         match probe {
-            crate::engine::cooldown::probe::Probe::Parked(reason) => {
-                assert!(reason.contains(expected), "{site}: {reason}");
+            crate::engine::cooldown::probe::Probe::Parked(park) => {
+                assert!(park.reason().contains(expected), "{site}: {park}");
             }
             crate::engine::cooldown::probe::Probe::Answered(_) => {
                 panic!("{site} was probed")

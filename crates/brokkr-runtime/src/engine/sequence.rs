@@ -532,8 +532,8 @@ impl Engine {
                 }
                 let terminal = self.step_terminal(run.effect_id, payload, &ran.refused, true)?;
                 let _ = self.end_failed::<()>(run, terminal.payload)?;
-                if let Some(reason) = terminal.park {
-                    self.park_with_reason(reason)?;
+                if let Some(park) = terminal.park {
+                    self.park(&park)?;
                 }
                 Ok(StepVerdict::Ended)
             }

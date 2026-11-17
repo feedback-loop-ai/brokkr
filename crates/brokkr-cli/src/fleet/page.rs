@@ -693,9 +693,8 @@ fn read_keyed(
     }
 }
 
-/// A row the store refused, as the fleet lists it: refused, never read,
-/// where its run id is past what a writer admits, which names no run to
-/// read; its run read whole where the row holds a value no writer writes.
+/// A row the store refused, as the fleet lists it: refused, never read, where its run id is
+/// past what a writer admits, naming no run; read whole where it holds a value no writer writes.
 fn unread_row(
     store: &Store,
     unread: &Unread,
@@ -709,7 +708,8 @@ fn unread_row(
         | RowRefusal::Severity(_)
         | RowRefusal::Ending(_)
         | RowRefusal::Column(_)
-        | RowRefusal::Residuals(_) => read_whole(store, &unread.run_id, cooling),
+        | RowRefusal::Residuals(_)
+        | RowRefusal::ParkCause(_) => read_whole(store, &unread.run_id, cooling),
     }
 }
 
@@ -787,6 +787,7 @@ fn past_bound(run_id: &str, order_at: i64, why: &RowRefusal) -> RunRow {
             residuals: &[],
             closing: None,
             waits: WaitFact::NoWait,
+            park_cause: None,
         },
         &[],
     );

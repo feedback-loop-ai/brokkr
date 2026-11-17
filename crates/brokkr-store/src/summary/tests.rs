@@ -10,6 +10,7 @@ use crate::test_support::{
 use crate::tests::envelope_builder::EnvelopeBuilder;
 use crate::tests::{store, write_lock_on};
 use crate::{Attribution, Rows};
+use brokkr_core::canonical::ZERO_HASH;
 use brokkr_core::envelope::EventType;
 use brokkr_core::stamp::parse_millis;
 use serde_json::{json, Value as Json};
@@ -1378,4 +1379,21 @@ fn a_refold_of_an_unreadable_journal_refuses() {
     let refused = super::late::refold(&store.conn, "run").unwrap_err();
     assert!(matches!(refused, crate::StoreError::Json(_)), "{refused:?}");
     lags(&mut store, &["run"]);
+}
+
+/// A summary from before the cause column gains it at the next writable
+/// open and keeps NULL, which reads `unknown` (decision 0106 ruling 1);
+/// no history row is rewritten and the table is not rebuilt.
+#[test]
+fn a_summary_from_before_the_park_cause_column_gains_it_and_keeps_null() {
+    let (_dir, mut store) = store();
+    stopping_without_ending(&mut store);
+    store
+        .conn
+        .execute("ALTER TABLE run_summary DROP COLUMN park_cause", [])
+        .unwrap();
+    assert!(!summary_intact(&store.conn).unwrap(), "the column is gone");
+    migrate_summary(&store.conn).unwrap();
+    assert!(summary_intact(&store.conn).unwrap());
+    assert_eq!(row(&store, "r", "park_cause"), vec![Value::Null]);
 }

@@ -96,6 +96,7 @@ fn fleet_of_every_status() -> Views {
         .iter()
         .map(|(run_id, state)| brokkr_view::RunEntry {
             waits: Default::default(),
+            park_cause: None,
             run_id,
             feature: "a run in one status",
             created_at: T0,

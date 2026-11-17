@@ -596,6 +596,7 @@ fn a_row_its_run_does_not_stand_at_is_read_whole() {
         plant(conn, "edited", Shape::Parked, &stamp(now() - HOUR));
         plant(conn, "paused", Shape::Running, &stamp(now() - MINUTE));
         plant(conn, "unstated", Shape::Parked, &stamp(now() - 3 * DAY));
+        plant(conn, "garbled", Shape::Parked, &stamp(now() - 2 * HOUR));
         plant_run(conn, &"r".repeat(200), "{}").unwrap();
     });
     rusqlite::Connection::open(&db)
@@ -604,6 +605,8 @@ fn a_row_its_run_does_not_stand_at_is_read_whole() {
             "UPDATE run_summary SET folded_hash = '{hash}', phase = 'edited',
                  status = 'completed' WHERE run_id = 'edited';
              UPDATE run_summary SET status = 'paused' WHERE run_id = 'paused';
+             UPDATE run_summary SET park_cause = 'not json', phase = 'edited'
+                 WHERE run_id = 'garbled';
              UPDATE run_summary SET status = 'completed',
                  residuals = replace(residuals, '\"phase\":\"review\"', '\"phase\":\"design\"')
                  WHERE run_id = 'unstated';",
@@ -630,8 +633,14 @@ fn a_row_its_run_does_not_stand_at_is_read_whole() {
     assert_eq!(section, Section::NeedsYou);
     assert_eq!(unstated.status.as_deref(), Some("awaiting_operator"));
     assert_eq!(unstated.residuals.len(), 1);
+    // Its row's cause column is no writer's value: its run is read whole,
+    // so the row's other edit never reaches the listing, and the park it
+    // lists is the journal's own.
+    let (section, garbled) = row("garbled");
+    assert_eq!(section, Section::NeedsYou);
+    assert_eq!(garbled.phase.as_deref(), Some("review"));
     let ids: Vec<&str> = listed.iter().map(|(_, row)| row.run_id.as_str()).collect();
-    assert_eq!(ids.len(), 4, "{ids:?}");
+    assert_eq!(ids.len(), 5, "{ids:?}");
     let long = row("rrrr").1;
     assert_eq!(long.run_id, format!("{}…", "r".repeat(128)));
     let words = "its run id is past 128 bytes, which no writer admits";

@@ -172,6 +172,7 @@ fn fleet() -> RunsView {
     let refused = brokkr_view::Quarantine::DoesNotFold.in_words("event 4: refused");
     let entry = |run_id, feature, created_at, state| brokkr_view::RunEntry {
         waits: Default::default(),
+        park_cause: None,
         run_id,
         feature,
         created_at,
@@ -332,7 +333,6 @@ fn key_translation_filters_releases_binds_ctrl_c_and_names_what_it_ignores() {
         Some(Key::Char('j'))
     );
     assert_eq!(from_crossterm(pressed(KeyCode::Home)), None, "unbound");
-
     // Raw mode disables SIGINT, so an operator whose draw path wedges
     // must still have a way out.
     assert_eq!(
@@ -342,13 +342,11 @@ fn key_translation_filters_releases_binds_ctrl_c_and_names_what_it_ignores() {
         ))),
         Some(Key::Quit)
     );
-
     // Windows delivers key RELEASES too: a handler matching on KeyCode
     // alone would process every keystroke twice on that CI leg.
     let mut release = KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE);
     release.kind = KeyEventKind::Release;
     assert_eq!(from_crossterm(Event::Key(release)), None);
-
     // Ignored by named arms, never by an untested wildcard.
     assert_eq!(
         from_crossterm(Event::Mouse(MouseEvent {
@@ -663,6 +661,7 @@ fn a_second_selection_replaces_the_first_and_a_vanished_subject_clears_itself() 
         runs: brokkr_view::run_rows(
             &[brokkr_view::RunEntry {
                 waits: Default::default(),
+                park_cause: None,
                 run_id: "run-other",
                 feature: "another run",
                 created_at: T0,
@@ -1495,6 +1494,7 @@ pub(super) fn panel_views() -> Views {
         runs: brokkr_view::run_rows(
             &[brokkr_view::RunEntry {
                 waits: Default::default(),
+                park_cause: None,
                 run_id: "run-stopped",
                 feature: "a run that stopped",
                 created_at: T0,

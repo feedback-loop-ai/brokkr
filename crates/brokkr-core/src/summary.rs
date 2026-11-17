@@ -20,6 +20,7 @@ use crate::envelope::EventEnvelope;
 use crate::fold::late::is_repair;
 use crate::fold::{fold, fold_onto, FoldError, RunState, Status};
 use crate::page::LateRange;
+use crate::park::CauseRead;
 use crate::policy::Severity;
 use crate::residual::{
     note_closing, open_severity, residuals_of, Claim, Mark, Residual, ResidualPhase,
@@ -540,6 +541,9 @@ pub struct Summary {
     /// was accepted: the run is stopping, not running. `None` otherwise.
     pub stop_accepted_seq: Option<u64>,
     pub phase: Option<Bounded>,
+    /// The latest park's typed cause, while the run is parked. `None` reads
+    /// `unknown`, never a guessed word (decision 0106 ruling 1).
+    pub park_cause: Option<Box<CauseRead>>,
     pub park_reason: Option<Bounded>,
     pub ruled: Option<Ruled>,
     pub hired: Option<Hired>,
@@ -580,6 +584,12 @@ impl Summary {
             phase: state
                 .and_then(|state| state.phase.as_deref())
                 .map(|phase| Bounded::within(phase, NAME_BYTES)),
+            park_cause: state
+                .filter(|state| state.run.park_reason().is_some())
+                // Already within the bytes the reason beside it is bounded
+                // to: a writer and the reader both cut it ([`Park::new`],
+                // [`ParkCause::read`]), so the row cuts nothing.
+                .and_then(|_| account.parks.cause().cloned().map(Box::new)),
             park_reason: state
                 .and_then(|state| state.run.park_reason())
                 .map(|reason| Bounded::within(reason.as_str(), PARK_REASON_BYTES)),

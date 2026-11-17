@@ -5,8 +5,9 @@
 //! 0013); a renderer lays them out and derives none of them.
 
 use brokkr_core::ending::{Citation, Closing, Ending, Wants};
-use brokkr_core::fold::{RunState, Status};
+use brokkr_core::fold::RunState;
 use brokkr_core::page::newest_first;
+use brokkr_core::park::CauseRead;
 use brokkr_core::policy::Severity;
 use brokkr_core::residual;
 use brokkr_core::stamp::parse_millis;
@@ -14,8 +15,7 @@ use serde::Serialize;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::{
-    ruled, FleetView, RealmRuns, ResidualFinding, RunEntry, RunsView, ABSENT, KNOWN_STATUS,
-    VIEW_VERSION,
+    FleetView, RealmRuns, ResidualFinding, RunEntry, RunsView, ABSENT, KNOWN_STATUS, VIEW_VERSION,
 };
 
 #[derive(Serialize, Clone)]
@@ -333,6 +333,10 @@ pub struct Verdict {
     pub residual: Option<Severity>,
     /// Why the run waits, verbatim, while it is parked.
     pub reason: Option<String>,
+    /// The park's typed cause (decision 0106 ruling 1); `None` reads
+    /// `unknown` and is left off the wire, as an old run always printed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cause: Option<Box<CauseRead>>,
     /// The fleet's verdict cell, at most [`VERDICT_COLUMNS`] wide: the
     /// rule that shipped, stopped or parked the run without its own
     /// phase's prefix, and nothing yet for a running one. The residual
@@ -509,64 +513,15 @@ fn fitting(text: &str, columns: usize) -> usize {
 
 // --------------------------------------------------------- the verdict
 
-/// What a verdict is derived from, whichever read holds the run: its fold
-/// read whole, or its summary row, which states these as the fold does
-/// (decision 0089 ruling 2), so the two derive one verdict.
-#[derive(Clone, Copy)]
-pub(crate) struct Facts<'a> {
-    pub(crate) status: Status,
-    pub(crate) phase: Option<&'a str>,
-    /// The last ruling that names its rule, present or null: the rule id
-    /// where present, the phase that ruled, and whether it routed on.
-    pub(crate) ruling: Option<(Option<&'a str>, &'a str, bool)>,
-    pub(crate) park_reason: Option<&'a str>,
-    /// The seq an operator stop was accepted at, while no ending closed it.
-    pub(crate) stop_accepted_seq: Option<u64>,
-}
-
-impl<'a> Facts<'a> {
-    pub(crate) fn of(state: &'a RunState) -> Facts<'a> {
-        Facts {
-            status: state.run.status(),
-            phase: state.phase.as_deref(),
-            ruling: ruled(state.last_decision.as_ref()).map(|decision| {
-                let routes = decision.next.present().is_some();
-                let rule = decision.rule_id.present().map(String::as_str);
-                (rule, decision.from.as_str(), routes)
-            }),
-            park_reason: state.run.park_reason().map(|reason| reason.as_str()),
-            stop_accepted_seq: state.stopping_seq(),
-        }
-    }
-
-    pub(crate) fn standing(self) -> Standing {
-        match self.status {
-            Status::Running if self.stop_accepted_seq.is_some() => Standing::Stopping,
-            Status::Running => Standing::Running,
-            Status::AwaitingOperator => Standing::Parked,
-            Status::Completed => Standing::Shipped,
-            Status::Stopped if self.phase == Some(STOP_PHASE) => Standing::Stopped,
-            Status::Stopped => Standing::OperatorStopped,
-        }
-    }
-
-    /// The last ruling's rule id and the phase that ruled, when it names a
-    /// rule at all.
-    fn last_rule(self) -> Option<(&'a str, Option<&'a str>)> {
-        let (rule, from, _) = self.ruling?;
-        Some((rule?, Some(from)))
-    }
-
-    /// The last ruling routed nowhere, so it is what parked the run — the
-    /// fold's own test for a rule-driven park. A park on an exhausted
-    /// attempt limit or a lost attempt follows a ruling that routed on.
-    fn ruling_parked(self) -> bool {
-        self.ruling.is_some_and(|(_, _, routes)| !routes)
-    }
-}
-
-fn verdict(state: Option<&RunState>, residuals: &[ResidualFinding]) -> Verdict {
-    verdict_of(state.map(Facts::of), open_severity(residuals))
+fn verdict_with(
+    state: Option<&RunState>,
+    park_cause: Option<&CauseRead>,
+    residuals: &[ResidualFinding],
+) -> Verdict {
+    verdict_of(
+        state.map(|state| Facts::of_cause(state, park_cause)),
+        open_severity(residuals),
+    )
 }
 
 /// The verdict `facts` and the highest open residual derive.
@@ -577,6 +532,7 @@ pub(crate) fn verdict_of(facts: Option<Facts<'_>>, residual: Option<Severity>) -
             rule: None,
             residual,
             reason: None,
+            cause: None,
             text: "does not fold".to_string(),
             detail: None,
         };
@@ -613,6 +569,7 @@ pub(crate) fn verdict_of(facts: Option<Facts<'_>>, residual: Option<Severity>) -
         rule: rule.map(|(rule, _)| rule.to_string()),
         residual,
         reason: facts.park_reason.map(str::to_string),
+        cause: facts.park_cause.cloned().map(Box::new),
         text,
         detail,
     }
@@ -664,7 +621,7 @@ pub fn run_row(entry: &RunEntry, cooling: &[Cooling]) -> RunRow {
     let status_known = status
         .as_deref()
         .is_some_and(|word| KNOWN_STATUS.contains(&word));
-    let verdict = verdict(entry.state, entry.residuals);
+    let verdict = verdict_with(entry.state, entry.park_cause.as_deref(), entry.residuals);
     let acknowledged = entry
         .detail
         .and_then(|refusal| refusal.acknowledgement.cloned());
@@ -768,9 +725,11 @@ pub fn fleet_rows(hearths: &[HearthEntries], cooling: &[Cooling]) -> FleetView {
     }
 }
 
+mod facts;
 mod late;
 mod need;
 mod page;
+pub(crate) use facts::Facts;
 pub use late::{late_line, LateEvent, LateRange, LateTail};
 pub(crate) use late::{late_range, late_tail};
 mod waits;

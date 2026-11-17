@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 
 use brokkr_core::envelope::EventType;
 use brokkr_core::fold::{fold, Status};
+use brokkr_core::park::{ParkCause, ProviderLimitRefusal};
 use brokkr_core::EventEnvelope;
 use brokkr_protocol::PreSessionRefusal;
 use serde_json::{json, Value};
@@ -332,21 +333,19 @@ fn malformed_episode_writer(dir: &Path) -> (Engine, Vec<EventEnvelope>) {
 /// stands on.
 fn panel_indeterminate(dir: &Path, body: SeatBody, waits: Value) -> (String, Bundle) {
     let (mut engine, run) = panel_journal_start(dir, body.clone());
-    for (event, payload, attempt) in [
-        (
+    engine
+        .append(
             EventType::EffectIndeterminate,
             json!({"effect_id": "effect", "attempt_id": "a1",
                    "reason": "panel member a indeterminate", "waits": waits}),
             Some("a1".to_string()),
-        ),
-        (
-            EventType::RunParked,
-            json!({"reason": "effect effect indeterminate", "evidence": {}}),
-            None,
-        ),
-    ] {
-        engine.append(event, payload, attempt).unwrap();
-    }
+        )
+        .unwrap();
+    let reason = "effect effect indeterminate";
+    let cause = ParkCause::infrastructure(false, reason);
+    engine
+        .park(&brokkr_core::park::Park::new(reason, cause))
+        .unwrap();
     drop(engine);
     (run, panel_bundle(dir, body))
 }
@@ -1037,7 +1036,19 @@ fn a_park_cause_at_one_member_keeps_the_other_wait_and_resumes_with_none() {
     assert_eq!(wait["site"], "b");
     assert_eq!(terminal.payload["refused"]["site"], "a");
     assert_eq!(terminal.payload["refused"]["cause"], "route-unresolved");
-    let reason = terminal.park.expect("a parking member parks below the cap");
+    let park = terminal.park.expect("a parking member parks below the cap");
+    assert!(
+        matches!(
+            park.cause(),
+            ParkCause::ProviderLimit {
+                refusal: ProviderLimitRefusal::RouteUnresolved,
+                ..
+            }
+        ),
+        "{:?}",
+        park.cause()
+    );
+    let reason = park.reason().to_string();
     assert!(reason.starts_with("member a: "), "{reason}");
     assert!(reason.contains("route could not be resolved"), "{reason}");
     // A crash between the failed event and its park resumes the record: the
@@ -1388,7 +1399,19 @@ fn an_unreadable_episode_parks_the_first_refused_member() {
         &events,
         json!({"effect_id": "effect", "attempt_id": "a1", "error": "refused"}),
     );
-    let reason = terminal.park.expect("an unreadable episode parks");
+    let park = terminal.park.expect("an unreadable episode parks");
+    assert!(
+        matches!(
+            park.cause(),
+            ParkCause::ProviderLimit {
+                refusal: ProviderLimitRefusal::EpisodeUnreadable { .. },
+                ..
+            }
+        ),
+        "{:?}",
+        park.cause()
+    );
+    let reason = park.reason().to_string();
     assert!(reason.starts_with("member a: "), "{reason}");
     assert!(reason.contains("an earlier wait does not read"), "{reason}");
 }
@@ -1408,8 +1431,20 @@ fn an_unreadable_episode_keeps_a_readable_route_unresolved_refusal() {
     assert_eq!(terminal.payload["refused"]["cause"], "route-unresolved");
     assert_eq!(terminal.payload["refused"]["site"], "a");
     assert!(terminal.payload["refused"].get("route").is_none());
-    let reason = terminal.park.clone().expect("an unreadable episode parks");
+    let park = terminal.park.clone().expect("an unreadable episode parks");
+    let reason = park.reason().to_string();
     assert!(reason.contains("route could not be resolved"), "{reason}");
+    assert!(
+        matches!(
+            park.cause(),
+            ParkCause::ProviderLimit {
+                refusal: ProviderLimitRefusal::RouteUnresolved,
+                ..
+            }
+        ),
+        "{:?}",
+        park.cause()
+    );
     let resumed = resume_failed(dir.path(), engine, terminal.payload, base());
     assert_eq!(park_reason(&resumed), reason);
 }
@@ -1434,7 +1469,19 @@ fn an_unreadable_host_parks_the_first_refused_member_with_no_wait() {
     );
     assert_eq!(terminal.payload["refused"]["site"], "a");
     assert_eq!(terminal.payload["refused"]["cause"], "host-unreadable");
-    let reason = terminal.park.expect("unreadable bounds park");
+    let park = terminal.park.expect("unreadable bounds park");
+    assert!(
+        matches!(
+            park.cause(),
+            ParkCause::ProviderLimit {
+                refusal: ProviderLimitRefusal::HostUnreadable { .. },
+                ..
+            }
+        ),
+        "{:?}",
+        park.cause()
+    );
+    let reason = park.reason().to_string();
     assert!(
         reason.contains("host configuration could not be read"),
         "{reason}"
@@ -1475,7 +1522,19 @@ fn a_member_with_no_representable_end_parks_keeping_the_other_wait() {
     assert_eq!(wait["site"], "b");
     assert_eq!(terminal.payload["refused"]["site"], "a");
     assert_eq!(terminal.payload["refused"]["cause"], "no-end");
-    let reason = terminal.park.expect("a no-end member parks");
+    let park = terminal.park.expect("a no-end member parks");
+    assert!(
+        matches!(
+            park.cause(),
+            ParkCause::ProviderLimit {
+                refusal: ProviderLimitRefusal::NoEnd { .. },
+                ..
+            }
+        ),
+        "{:?}",
+        park.cause()
+    );
+    let reason = park.reason().to_string();
     assert!(reason.contains("has no representable end"), "{reason}");
 }
 
@@ -1812,11 +1871,9 @@ fn an_operator_retry_of_a_failed_panel_requests_the_next_effect_without_a_wait()
     // The failed event carries a refusal that parks, so the run is parked
     // and only the operator's retry moves it to RequestEffect.
     engine
-        .append(
-            EventType::RunParked,
-            json!({"reason": "a member's route could not be resolved", "evidence": {}}),
-            None,
-        )
+        .park(&brokkr_core::park::Park::ruled(
+            "a member's route could not be resolved",
+        ))
         .unwrap();
     let events = engine.store.load(&engine.run_id).unwrap();
     assert_eq!(events.last().unwrap().event_type, EventType::RunParked);

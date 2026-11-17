@@ -1,0 +1,174 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://feedback-loop.ai/forge/contracts/park-cause.v1.json",
+  "title": "Forge park cause v1",
+  "description": "Decision 0106 ruling 1: the optional, absent-by-default `cause` object on `run/parked`, published as a numbered extension at event_schema 1 under the amended rule in contracts/README.md. One of four closed words: `ruled` (policy or engine refused, with the `rule_id` where a rule matched), `attempt-cap` (0006's cap, with the last attempt's `failure_class`), `infrastructure` (an indeterminate end, an engine restart in flight, or contention, with `retryable` true only on positive non-execution evidence), or `provider-limit` (a typed rate-limit refusal parked below the cap, with its one `refusal` variant). `unknown` is a reader's word for an absent cause and is never written. `fold` reads none of it: `reason` and `evidence` stay byte for byte, and RunState gains nothing. A present object that does not read refuses by name, never as absent.",
+  "type": "object",
+  "oneOf": [
+    {
+      "type": "object",
+      "required": ["kind", "detail"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "const": "ruled" },
+        "rule_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "The policy rule that matched, absent exactly where no rule matched."
+        },
+        "detail": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The engine's own words for the refusal."
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": ["kind", "failure_class", "detail"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "const": "attempt-cap" },
+        "failure_class": {
+          "type": "string",
+          "enum": ["provider-limit", "provider-refusal", "start-failure", "determinate"],
+          "description": "The last attempt's typed failure class: a rate-limit refusal, another typed refusal, 0053's failure to start, or a determinate failure."
+        },
+        "detail": {
+          "type": "string",
+          "minLength": 1,
+          "description": "0006's cap text, with the last attempt's failure named."
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": ["kind", "retryable", "detail"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "const": "infrastructure" },
+        "retryable": {
+          "type": "boolean",
+          "description": "True only under decision 0106 ruling 4: a `failed_to_start` attempt under 0053's predicate, every attempt settled and no standing writer reservation. An indeterminate attempt and a cleanly settled unanswered probe are never retryable."
+        },
+        "detail": {
+          "type": "string",
+          "minLength": 1,
+          "description": "What ended the run's movement: the indeterminate close, the restart or the contention."
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": ["kind", "provider", "detail", "refusal"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "const": "provider-limit" },
+        "provider": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$",
+          "description": "The provider name the adapter's declaration uses, filled from the adapter and never parsed from prose."
+        },
+        "detail": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The park's own words, naming the provider's refusal and the bound it crossed."
+        },
+        "refusal": { "$ref": "#/definitions/refusal" }
+      }
+    }
+  ],
+  "definitions": {
+    "refusal": {
+      "description": "One per cause decision 0103 records. The provider's words stay in the park's `reason` and in the typed `refused` record; this object never copies them.",
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["kind"],
+          "additionalProperties": false,
+          "properties": {
+            "kind": { "const": "route-unresolved" }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["kind", "route"],
+          "additionalProperties": false,
+          "properties": {
+            "kind": { "const": "host-unreadable" },
+            "route": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}$",
+              "description": "The route the driver resolved before the host file could not be read."
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["kind", "route"],
+          "additionalProperties": false,
+          "properties": {
+            "kind": { "const": "episode-unreadable" },
+            "route": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}$",
+              "description": "The route whose earlier wait did not read."
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["kind", "route", "until", "seconds", "max_seconds"],
+          "additionalProperties": false,
+          "properties": {
+            "kind": { "const": "past-maximum" },
+            "route": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}$",
+              "description": "The route whose computed wait passed the declared maximum."
+            },
+            "until": {
+              "type": "string",
+              "format": "date-time",
+              "description": "The computed end the wait would have taken."
+            },
+            "seconds": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "The computed length in whole seconds."
+            },
+            "max_seconds": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "The declared maximum the length was judged against."
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["kind", "route", "seconds", "max_seconds"],
+          "additionalProperties": false,
+          "properties": {
+            "kind": { "const": "no-end" },
+            "route": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}$",
+              "description": "The route whose computed end the journal cannot spell."
+            },
+            "seconds": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "The computed length in whole seconds."
+            },
+            "max_seconds": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "The declared maximum the length was judged against."
+            }
+          }
+        }
+      ]
+    }
+  }
+}

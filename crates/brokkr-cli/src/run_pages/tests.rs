@@ -374,7 +374,8 @@ fn a_run_past_its_opening_is_read_the_kept_way() {
 /// The statements a read at the opening's head makes of the projections:
 /// that the event index, the run summary and the seat summary are read
 /// and current, the event index with a park's dated facts, the run
-/// summary with every aggregate column, the accepted-stop column, the
+/// summary with every aggregate column, the park cause column, the
+/// accepted-stop column, the
 /// ending's (decision 0064) and a repaired tail's (decision 0108 ruling 4),
 /// and the seat summary's `(started_ms)` index,
 /// its head with the shape of the rows it vouches for, each table's columns
@@ -382,7 +383,7 @@ fn a_run_past_its_opening_is_read_the_kept_way() {
 /// trail's seqs, and the ordinal stale index's key, which the repair asks
 /// before it may leave an intact schema alone. None of them reads an
 /// envelope.
-const PROJECTIONS: usize = 33;
+const PROJECTIONS: usize = 35;
 
 /// The aggregate's two reads, which a whole read makes once (decision 0103
 /// slice 4f): the queue's storage version, then every row in force at the

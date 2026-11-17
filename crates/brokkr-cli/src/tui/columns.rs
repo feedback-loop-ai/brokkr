@@ -371,6 +371,9 @@ fn ending_texts(row: &RunRow, view: Option<&RunView>, now: &str, columns: usize)
         texts.push((format!("reason    {reason}"), plain()));
     }
     texts.extend(row.waits.lines(now).into_iter().map(|wait| (wait, plain())));
+    if let Some(cause) = &verdict.cause {
+        texts.push((format!("cause     {}", cause.line()), plain()));
+    }
     let facts = [
         ("journal", row.detail.clone()),
         (

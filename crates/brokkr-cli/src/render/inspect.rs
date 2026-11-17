@@ -32,6 +32,9 @@ pub(super) fn summary_lines(out: &mut String, summary: Option<&Summary>, style: 
             if let Some(reason) = &summary.park_reason {
                 push_line(out, &format!("park  {}", Safe::new(reason).as_str()));
             }
+            if let Some(cause) = &summary.park_cause {
+                push_line(out, &format!("cause {}", Safe::new(&cause.line()).as_str()));
+            }
             if let Some(detail) = &summary.detail {
                 push_line(out, &format!("stop  {}", Safe::new(detail).as_str()));
             }

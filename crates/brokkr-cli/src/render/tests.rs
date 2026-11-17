@@ -135,7 +135,16 @@ fn journal() -> Vec<EventEnvelope> {
 }
 
 fn view(park: Option<&str>) -> brokkr_view::RunView {
-    let events = journal();
+    let mut events = journal();
+    if let Some(reason) = park {
+        events.push(ev(
+            16,
+            EventType::RunParked,
+            json!({"reason": reason, "evidence": {},
+                   "cause": {"kind": "ruled", "rule_id": "INTAKE-OK", "detail": reason}}),
+            T2,
+        ));
+    }
     let status = match park {
         Some(_) => Status::AwaitingOperator,
         None => Status::Running,
@@ -157,6 +166,7 @@ fn runs_view() -> brokkr_view::RunsView {
     let entries = [
         brokkr_view::RunEntry {
             waits: Default::default(),
+            park_cause: None,
             run_id: "run-old",
             feature: "an older feature whose text runs well past any terminal width \
                       and must be clamped rather than wrapped",
@@ -169,6 +179,7 @@ fn runs_view() -> brokkr_view::RunsView {
         },
         brokkr_view::RunEntry {
             waits: Default::default(),
+            park_cause: None,
             run_id: "run-7",
             feature: "one derivation, two surfaces",
             created_at: T1,
@@ -214,6 +225,7 @@ fn fleet_view() -> brokkr_view::FleetView {
     let running = state(Status::Running, None, None);
     let alpha = [brokkr_view::RunEntry {
         waits: Default::default(),
+        park_cause: None,
         run_id: "run-a",
         feature: "alpha's work",
         created_at: T1,
@@ -226,6 +238,7 @@ fn fleet_view() -> brokkr_view::FleetView {
     let beta = [
         brokkr_view::RunEntry {
             waits: Default::default(),
+            park_cause: None,
             run_id: "run-b1",
             feature: "beta's older work",
             created_at: T0,
@@ -237,6 +250,7 @@ fn fleet_view() -> brokkr_view::FleetView {
         },
         brokkr_view::RunEntry {
             waits: Default::default(),
+            park_cause: None,
             run_id: "run-b2",
             feature: "beta's newer work",
             created_at: T1,
@@ -401,6 +415,7 @@ fn a_hostile_feature_and_result_token_render_as_inert_text() {
     let hostile = state(Status::Running, None, None);
     let entries = [brokkr_view::RunEntry {
         waits: Default::default(),
+        park_cause: None,
         run_id: "r\x1b[31m1",
         feature: "feature\rforged",
         created_at: T0,
@@ -507,6 +522,7 @@ fn a_multibyte_feature_truncates_on_a_char_boundary() {
     let running = state(Status::Running, None, None);
     let entries = [brokkr_view::RunEntry {
         waits: Default::default(),
+        park_cause: None,
         run_id: "r1",
         feature: "ééééééééééééééééééééééééééééééééééééééééééééééééé",
         created_at: T0,
@@ -559,6 +575,7 @@ fn brokkr_runs_is_one_clamped_line_per_run_newest_first() {
 fn a_run_whose_journal_does_not_fold_still_lists() {
     let entries = [brokkr_view::RunEntry {
         waits: Default::default(),
+        park_cause: None,
         run_id: "r1",
         feature: "unfoldable",
         created_at: "not a time",
@@ -586,6 +603,7 @@ fn a_quarantined_row_prints_the_fold_error_under_itself() {
     let entries = [
         brokkr_view::RunEntry {
             waits: Default::default(),
+            park_cause: None,
             run_id: "poisoned",
             feature: "the stop that came mid-flight",
             created_at: T0,
@@ -600,6 +618,7 @@ fn a_quarantined_row_prints_the_fold_error_under_itself() {
         },
         brokkr_view::RunEntry {
             waits: Default::default(),
+            park_cause: None,
             run_id: "healthy",
             feature: "still readable",
             created_at: T1,
@@ -642,6 +661,7 @@ fn an_acknowledged_row_prints_its_acknowledgement_under_its_refusal() {
     };
     let entries = [brokkr_view::RunEntry {
         waits: Default::default(),
+        park_cause: None,
         run_id: "unit-12",
         feature: "see the unit",
         created_at: T0,
@@ -1449,4 +1469,163 @@ fn a_refused_transcript_omits_the_kind_and_hint_lines() {
 fn a_shell_word_is_bare_only_where_it_is_plain_and_not_empty() {
     let words = ["park-new", "", "a b'c$d"].map(shell_word);
     assert_eq!(words, ["park-new", "''", r"'a b'\''c$d'"]);
+}
+
+/// Decision 0106 ruling 1: a present `cause` that does not read is refused
+/// by name on every readout, never painted as a park that stated none. A
+/// kind no writer states, and a provider-limit missing its `until`, are each
+/// planted as a `run/parked` and read through the view's summary, `inspect`
+/// and `brokkr runs --json`.
+#[test]
+fn a_park_cause_that_does_not_read_is_refused_by_name_on_inspect_and_runs() {
+    let past_maximum_without_until = json!({
+        "kind": "provider-limit", "provider": "claude", "detail": "d",
+        "refusal": {"kind": "past-maximum", "route": "r", "seconds": 5, "max_seconds": 1}});
+    for (malformed, named) in [
+        (json!({"kind": "not-a-cause"}), "not-a-cause"),
+        (past_maximum_without_until, "until"),
+    ] {
+        let mut events = journal();
+        events.push(ev(
+            16,
+            EventType::RunParked,
+            json!({"reason": "needs a human", "evidence": {}, "cause": malformed}),
+            T2,
+        ));
+        let ruled = state(
+            Status::AwaitingOperator,
+            Some("needs a human"),
+            Some(
+                json!({"rule_id": "INTAKE-OK", "severity": "normal", "from": "intake",
+                        "next": null, "result": "intook"}),
+            ),
+        );
+        let view = brokkr_view::run_view(&events, Some(&ruled));
+        let refused = view
+            .summary
+            .as_ref()
+            .and_then(|summary| summary.park_cause.clone())
+            .expect("the summary names the refusal rather than carrying nothing");
+        let brokkr_core::CauseRead::Refused(why) = &*refused else {
+            panic!("a cause that does not read is a refusal: {refused:?}");
+        };
+        assert!(why.starts_with("the park cause does not read: "), "{why}");
+        assert!(why.contains(named), "{why}");
+
+        let painted = inspect(
+            &view,
+            None,
+            false,
+            &crate::now_rfc3339(),
+            &Style::plain(200),
+        );
+        assert!(
+            painted.contains(&format!("cause refused ({why})")),
+            "inspect painted no refusal: {painted}"
+        );
+
+        let entry = brokkr_view::RunEntry {
+            waits: Default::default(),
+            park_cause: brokkr_core::CauseRead::latest(&events).map(Box::new),
+            run_id: "run-7",
+            feature: "one derivation, two surfaces",
+            created_at: T0,
+            last_recorded_at: None,
+            state: Some(&ruled),
+            detail: None,
+            residuals: &[],
+            closing: None,
+        };
+        let runs =
+            serde_json::to_value(brokkr_view::run_rows(&[entry], &[]).runs[0].verdict.clone())
+                .unwrap();
+        assert_eq!(runs["cause"], json!({ "refused": why }));
+    }
+}
+
+/// Decision 0106 ruling 1: a cap's park holds the provider's words in its
+/// reason, and its cause is the engine's own sentence, so `inspect` paints
+/// the words once, on the `park` line. The payload is the one writer's
+/// ([`brokkr_core::Park::payload`]).
+#[test]
+fn inspect_paints_a_caps_provider_words_once() {
+    const MARKER: &str = "MARKER-the-providers-own-words";
+    let cap = brokkr_core::park::Park::new(
+        format!("effect e failed 2 of 2 attempt(s); last error: {MARKER}"),
+        brokkr_core::ParkCause::attempt_cap(
+            brokkr_core::FailureClass::StartFailure,
+            "effect e failed 2 of 2 attempt(s); the last failure class is start-failure",
+        ),
+    );
+    let mut events = journal();
+    events.push(ev(16, EventType::RunParked, cap.payload(json!({})), T2));
+    let parked = state(Status::AwaitingOperator, Some(cap.reason()), None);
+    let view = brokkr_view::run_view(&events, Some(&parked));
+    let painted = inspect(
+        &view,
+        None,
+        false,
+        &crate::now_rfc3339(),
+        &Style::plain(200),
+    );
+    assert!(
+        painted.contains("cause attempt-cap (start-failure): "),
+        "{painted}"
+    );
+    assert_eq!(painted.matches(MARKER).count(), 1, "{painted}");
+}
+
+/// The view's summary, `brokkr runs`' row and `brokkr inspect` paint one
+/// typed cause from one read (decision 0106 ruling 1).
+#[test]
+fn the_view_runs_and_inspect_paint_the_same_park_cause() {
+    let view = view(Some("needs a human"));
+    let cause = view
+        .summary
+        .as_ref()
+        .and_then(|summary| summary.park_cause.clone())
+        .expect("the view's summary carries the cause");
+    let line = cause.line();
+    assert_eq!(line, "ruled INTAKE-OK: needs a human");
+
+    let state = state(
+        Status::AwaitingOperator,
+        Some("needs a human"),
+        Some(
+            json!({"rule_id": "INTAKE-OK", "severity": "normal", "from": "intake",
+                    "next": null, "result": "intook"}),
+        ),
+    );
+    let entry = brokkr_view::RunEntry {
+        waits: Default::default(),
+        park_cause: Some(cause.clone()),
+        run_id: "run-7",
+        feature: "one derivation, two surfaces",
+        created_at: T0,
+        last_recorded_at: None,
+        state: Some(&state),
+        detail: None,
+        residuals: &[],
+        closing: None,
+    };
+    let runs = brokkr_view::run_rows(&[entry], &[]);
+    assert_eq!(
+        runs.runs[0]
+            .verdict
+            .cause
+            .as_ref()
+            .map(|cause| cause.line()),
+        Some(line.clone())
+    );
+    let painted = inspect(
+        &view,
+        None,
+        false,
+        &crate::now_rfc3339(),
+        &Style::plain(100),
+    );
+    assert!(
+        painted.contains(&format!("cause {line}")),
+        "inspect painted no cause: {painted}"
+    );
 }

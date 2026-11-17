@@ -891,6 +891,36 @@ fn drive_provider_waits(row: &Row) -> Vec<String> {
     Vec::new()
 }
 
+/// Drive the park-cause extension's one reader: a valid `cause` object
+/// loads as the one variant it names, and the row's own schema admits the
+/// instance first (decision 0106 ruling 1).
+fn drive_park_cause(row: &Row) -> Vec<String> {
+    let cause = serde_json::json!({
+        "kind": "infrastructure",
+        "retryable": false,
+        "detail": "the attempt ended indeterminate"
+    });
+    if let Some(finding) = instance_satisfies_row(row, &cause) {
+        return vec![finding];
+    }
+    let event = envelope(
+        brokkr_core::EventType::RunParked,
+        serde_json::json!({"reason": "parked", "cause": cause}),
+        1,
+    );
+    let loaded = brokkr_core::ParkCause::read(&event)
+        .expect("a v1 cause loads")
+        .expect("the extension is present");
+    assert_eq!(
+        loaded,
+        brokkr_core::ParkCause::Infrastructure {
+            retryable: false,
+            detail: "the attempt ended indeterminate".into(),
+        }
+    );
+    Vec::new()
+}
+
 /// Drive the evidence archive's one reader: a valid inventory loads, and
 /// the row's own schema admits the instance first (decision 0105 ruling 2).
 fn drive_archive(row: &Row) -> Vec<String> {
@@ -1050,6 +1080,7 @@ fn drive_load(row: &Row, item: &str) -> Vec<String> {
             Vec::new()
         }
         "brokkr_core::provider_waits" => drive_provider_waits(row),
+        "brokkr_core::ParkCause::read" => drive_park_cause(row),
         "brokkr_runtime::engine::evidence::read_archive" => drive_archive(row),
         other => panic!("{other} is not a public loader this check knows"),
     }

@@ -645,6 +645,7 @@ pub brokkr_view::RunEntry::created_at: &'a str
 pub brokkr_view::RunEntry::detail: core::option::Option<brokkr_view::Refusal<'a>>
 pub brokkr_view::RunEntry::feature: &'a str
 pub brokkr_view::RunEntry::last_recorded_at: core::option::Option<&'a str>
+pub brokkr_view::RunEntry::park_cause: core::option::Option<alloc::boxed::Box<brokkr_core::park::reading::CauseRead>>
 pub brokkr_view::RunEntry::residuals: &'a [brokkr_view::ResidualFinding]
 pub brokkr_view::RunEntry::run_id: &'a str
 pub brokkr_view::RunEntry::state: core::option::Option<&'a brokkr_core::fold::RunState>
@@ -756,6 +757,7 @@ pub brokkr_view::Summary::ending_cited: core::option::Option<brokkr_core::ending
 pub brokkr_view::Summary::feature: core::option::Option<alloc::string::String>
 pub brokkr_view::Summary::last_decision: core::option::Option<brokkr_core::decision::Decision>
 pub brokkr_view::Summary::late_tail: core::option::Option<brokkr_core::page::LateTail>
+pub brokkr_view::Summary::park_cause: core::option::Option<alloc::boxed::Box<brokkr_core::park::reading::CauseRead>>
 pub brokkr_view::Summary::park_reason: core::option::Option<alloc::string::String>
 pub brokkr_view::Summary::phase: core::option::Option<alloc::string::String>
 pub brokkr_view::Summary::run_id: alloc::string::String
@@ -786,6 +788,7 @@ impl brokkr_view::TokenCells
 pub fn brokkr_view::TokenCells::arrows(&self) -> alloc::string::String
 pub fn brokkr_view::TokenCells::line(&self) -> alloc::string::String
 pub struct brokkr_view::Verdict
+pub brokkr_view::Verdict::cause: core::option::Option<alloc::boxed::Box<brokkr_core::park::reading::CauseRead>>
 pub brokkr_view::Verdict::detail: core::option::Option<alloc::string::String>
 pub brokkr_view::Verdict::reason: core::option::Option<alloc::string::String>
 pub brokkr_view::Verdict::residual: core::option::Option<brokkr_core::policy::Severity>

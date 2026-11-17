@@ -29,6 +29,13 @@ fn journal(steps: &[(EventType, Value)]) -> Vec<EventEnvelope> {
 /// A run verified into a park, its one residual finding superseded from
 /// another realm.
 fn parked() -> Vec<EventEnvelope> {
+    parked_by(json!({"reason": "VERIFY-HOLD: unproven",
+        "cause": {"kind": "ruled", "rule_id": "VERIFY-HOLD",
+            "detail": "VERIFY-HOLD: unproven"}}))
+}
+
+/// [`parked`], its park the `run/parked` payload `park`.
+fn parked_by(park: Value) -> Vec<EventEnvelope> {
     let held = json!({"from": "verify", "result": "hold", "rule_id": "VERIFY-HOLD",
         "problem": "unproven", "inputs": {"has_security_residual": true}});
     let superseded = json!({"command_id": "k1", "command": "supersede",
@@ -53,10 +60,7 @@ fn parked() -> Vec<EventEnvelope> {
             json!({"effect_id": "v1", "result": {"result": "hold"}}),
         ),
         (EventType::TransitionDecided, held),
-        (
-            EventType::RunParked,
-            json!({"reason": "VERIFY-HOLD: unproven"}),
-        ),
+        (EventType::RunParked, park),
         (EventType::OperatorCommanded, superseded),
     ])
 }
@@ -76,6 +80,7 @@ fn row_of(summary: &Summary) -> Row {
         status: summary.status,
         stop_accepted_seq: summary.stop_accepted_seq,
         phase: summary.phase.as_ref().map(cut),
+        park_cause: summary.park_cause.clone(),
         park_reason: summary.park_reason.as_ref().map(cut),
         ruled: summary.ruled.clone(),
         hired: summary.hired.clone(),
@@ -123,8 +128,12 @@ fn closed(events: &[EventEnvelope], ended: Option<Closing>) -> (RunRow, Summary)
         reason: "looked".to_string(),
         recorded_at: CREATED.to_string(),
     };
+    // Each leg derives its own cause: the summary's from `Summary::of`
+    // above, the whole read's as the fleet's listing does, so a divergence
+    // between the two derivations fails the parity tests.
     let entry = RunEntry {
         waits: Default::default(),
+        park_cause: brokkr_core::CauseRead::latest(events).map(Box::new),
         run_id: "run",
         feature: FEATURE,
         created_at: CREATED,
@@ -608,4 +617,57 @@ fn a_summary_row_the_summary_refuses_paints_no_wait() {
         },
     });
     assert_eq!(waits(&row), Waits::default());
+}
+
+/// The same park read through the summary row and through the run read
+/// whole paints one cause (decision 0106 ruling 1).
+#[test]
+fn a_paged_row_and_a_whole_read_paint_the_same_cause() {
+    let events = parked();
+    let (whole, summary) = both(&events);
+    let paged = listed_row(&row_of(&summary), None);
+    assert_eq!(whole.verdict.cause, paged.verdict.cause);
+    let cause = whole.verdict.cause.expect("the park states a cause");
+    assert!(matches!(
+        *cause,
+        brokkr_core::CauseRead::Stated(brokkr_core::ParkCause::Ruled { .. })
+    ));
+    assert_eq!(cause.line(), "ruled VERIFY-HOLD: VERIFY-HOLD: unproven");
+    assert_eq!(paged.verdict.cause.unwrap().line(), cause.line());
+}
+
+/// A cap's park with a reason far past the row's bound: a listing that
+/// reads the run's values whole prints the reason whole, and the cause with
+/// it is the cause the whole read paints, byte for byte. The writer bounds
+/// the cause's sentence under the row's bound, so the row never cuts it
+/// where the reason is kept whole.
+#[test]
+fn a_paged_row_and_a_whole_read_paint_the_same_cause_for_a_cap_with_a_long_reason() {
+    let reason = format!(
+        "effect v1 failed 2 of 2 attempt(s); last error: {}",
+        "é".repeat(5_000)
+    );
+    let cap = brokkr_core::park::Park::new(
+        reason.clone(),
+        brokkr_core::ParkCause::attempt_cap(brokkr_core::FailureClass::Determinate, reason.clone()),
+    );
+    let events = parked_by(cap.payload(json!({})));
+    let (whole, summary) = both(&events);
+    // The row as a whole-printing listing reads it: the reason with its
+    // whole beside its cut, as the summary keeps it.
+    let mut row = row_of(&summary);
+    row.park_reason = summary.park_reason.clone();
+    let paged = listed_row(&row, Some(&whole_of(&summary, None)));
+    assert_eq!(wire(&paged), wire(&whole));
+    let cause = paged.verdict.cause.clone().expect("the cap states a cause");
+    assert_eq!(whole.verdict.cause.as_deref(), Some(&*cause));
+    let brokkr_core::CauseRead::Stated(brokkr_core::ParkCause::AttemptCap { detail, .. }) = &*cause
+    else {
+        panic!("the cap's cause is stated: {cause:?}");
+    };
+    assert_eq!(detail.len(), brokkr_core::summary::PARK_REASON_BYTES);
+    assert!(reason.starts_with(detail.as_str()));
+    assert_eq!(paged.verdict.reason.as_deref(), Some(reason.as_str()));
+    let listed = listed_row(&row_of(&summary), None);
+    assert_eq!(listed.verdict.cause, paged.verdict.cause);
 }
