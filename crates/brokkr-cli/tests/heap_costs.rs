@@ -16,7 +16,7 @@ mod measure;
 use std::path::{Path, PathBuf};
 
 use brokkr_cli::{compare_for_budget, costs_for_budget};
-use brokkr_core::envelope::EventType;
+use brokkr_core::envelope::{EventEnvelope, EventType, EVENT_SCHEMA_VERSION};
 use brokkr_store::test_support::{fleet, generate, plans_begun, Width};
 use brokkr_store::{Opened, SeatRows, Store};
 use measure::{peak_of, sqlite_memory};
@@ -55,7 +55,8 @@ const EACH: usize = 6;
 /// before its session's finish.
 fn asked(run: &str, length: usize) -> Vec<(EventType, Option<String>, Value)> {
     let turns = EVENTS - 2 - EACH * EFFECTS;
-    let mut events = vec![(EventType::RunStarted, None, json!({"feature": run}))];
+    let started = json!({"feature": run, "manifest": {"bundle_name": "bundle"}});
+    let mut events = vec![(EventType::RunStarted, None, started)];
     for effect in 0..EFFECTS {
         let (id, attempt) = (format!("e{effect}"), Some(format!("a{effect}")));
         let ids = json!({"effect_id": id, "attempt_id": attempt});
@@ -99,9 +100,42 @@ fn asked(run: &str, length: usize) -> Vec<(EventType, Option<String>, Value)> {
     events
 }
 
+/// The export of run `run` of `length` events, [`asked`]'s, each sealed
+/// as the store's writer seals one and chained onto the one before it,
+/// but stamped by the clock [`NOW`] the runs beside it are: a writer's
+/// real clock would stretch the last effect's phase visit by however long
+/// its checkpoints took to append, and the view's duration of that visit
+/// by a byte on a slow host (#1119).
+fn exported(run: &str, length: usize) -> String {
+    let mut previous = brokkr_core::canonical::ZERO_HASH.to_string();
+    let mut ndjson = String::new();
+    for (at, (event_type, attempt_id, payload)) in asked(run, length).into_iter().enumerate() {
+        let seq = at as u64 + 1;
+        let envelope = EventEnvelope {
+            run_id: run.to_string(),
+            seq,
+            event_id: format!("00000000-0000-4000-8000-{seq:012}"),
+            event_schema_version: EVENT_SCHEMA_VERSION,
+            event_type,
+            payload,
+            causation_id: None,
+            correlation_id: run.to_string(),
+            attempt_id,
+            recorded_at: NOW.to_string(),
+            previous_hash: previous,
+            event_hash: String::new(),
+        }
+        .sealed();
+        previous = envelope.event_hash.clone();
+        ndjson.push_str(&serde_json::to_string(&envelope).unwrap());
+        ndjson.push('\n');
+    }
+    ndjson
+}
+
 /// A journal under `dir` named `name` of `events` events: the fleet's
-/// generated runs, then the two runs of `each` events appended by the
-/// store's writer, which keeps their projections as it appends.
+/// generated runs, then the two runs of `each` events adopted by the
+/// store's import, which keeps their projections as it adopts them.
 fn journal(dir: &Path, name: &str, events: usize, each: usize) -> PathBuf {
     let db = dir.join(name);
     let started = std::time::Instant::now();
@@ -109,12 +143,9 @@ fn journal(dir: &Path, name: &str, events: usize, each: usize) -> PathBuf {
     let beside = (events - RUNS.len() * each) / 2_000;
     generate(&store, &fleet(NOW, beside as u64, Width::Narrow)).unwrap();
     for run in RUNS {
-        store.create_run(run, run, "bundle", &json!({})).unwrap();
-        for (event_type, attempt, payload) in asked(run, each) {
-            store
-                .append_next(run, event_type, payload, None, attempt)
-                .unwrap();
-        }
+        let origin = dir.join(format!("{run}.ndjson"));
+        let adopted = store.import_run(&exported(run, each), &json!({}), &origin);
+        assert_eq!(adopted.unwrap().events, each, "{run} is adopted whole");
     }
     eprintln!("{name}: {events} events in {:?}", started.elapsed());
     db
@@ -247,7 +278,7 @@ fn costs_and_compare_hold_their_openings_and_the_runs_seats() {
     }
     // Each read once unmeasured, so what a process allocates once and
     // keeps is allocated before any read is measured; and what it prints
-    // of that journal, whose writer stamped it.
+    // of that journal, whose ids and hashes are its own.
     let measure = |db: &Path| {
         let (printed, compared) = (opened_and_read(db, costs), opened_and_read(db, compare));
         let costs = measured(db, costs, &printed);
