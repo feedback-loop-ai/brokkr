@@ -2,7 +2,7 @@
 //! site's row to its fact, including the rows a whole read opens no run or
 //! site from.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use brokkr_core::ending::Ending;
 use brokkr_core::seat::meter::Metering;
@@ -35,8 +35,7 @@ fn row<'a>(run_id: &'a str) -> WindowRun<'a> {
 fn a_run_row_maps_its_facts_and_its_costs() {
     let mut spends = BTreeMap::new();
     spends.insert("r".to_string(), vec![(5, 0.25)]);
-    let whole = BTreeSet::new();
-    let facts = run_facts(&row("r"), "label", &spends, None, &whole).unwrap();
+    let facts = run_facts(&row("r"), "label", &spends, None).unwrap();
     assert_eq!(
         (
             facts.realm.as_str(),
@@ -74,17 +73,11 @@ fn a_run_row_maps_its_facts_and_its_costs() {
 }
 
 #[test]
-fn a_run_out_of_scope_or_left_whole_is_no_row() {
+fn a_run_out_of_scope_is_no_row() {
     let spends = BTreeMap::new();
     assert!(
-        run_facts(&row("r"), "label", &spends, Some("beta"), &BTreeSet::new()).is_none(),
+        run_facts(&row("r"), "label", &spends, Some("beta")).is_none(),
         "another realm's run"
-    );
-    let mut whole = BTreeSet::new();
-    whole.insert("r".to_string());
-    assert!(
-        run_facts(&row("r"), "label", &spends, None, &whole).is_none(),
-        "a run read whole"
     );
 }
 
@@ -103,7 +96,7 @@ fn park(run_id: &str) -> WindowPark<'_> {
 #[test]
 fn a_park_row_maps_its_fact_and_an_unanswered_park_waits_to_its_end() {
     assert_eq!(
-        park_fact(&park("r"), "label", None, &BTreeSet::new()),
+        park_fact(&park("r"), "label", None),
         Some(ParkFact {
             realm: "alpha".to_string(),
             hearth: "label".to_string(),
@@ -116,20 +109,11 @@ fn a_park_row_maps_its_fact_and_an_unanswered_park_waits_to_its_end() {
     );
 }
 
-/// The store's park read leaves out the runs its own exclusion names, but
-/// the whole set was read by earlier statements: a run whose lane moved in
-/// between reaches here, and the whole read still counts it alone.
 #[test]
-fn a_park_out_of_scope_or_left_whole_is_no_fact() {
+fn a_park_out_of_scope_is_no_fact() {
     assert!(
-        park_fact(&park("r"), "label", Some("beta"), &BTreeSet::new()).is_none(),
+        park_fact(&park("r"), "label", Some("beta")).is_none(),
         "another realm's park"
-    );
-    let mut whole = BTreeSet::new();
-    whole.insert("r".to_string());
-    assert!(
-        park_fact(&park("r"), "label", None, &whole).is_none(),
-        "a park of a run read whole"
     );
 }
 
@@ -210,11 +194,10 @@ fn a_site_row_needs_the_start_and_provider_a_whole_read_opens_it_by() {
 #[test]
 fn a_span_is_the_windows_only_for_a_finish_inside_it() {
     let spends = BTreeMap::new();
-    let whole = BTreeSet::new();
     let facts = |run_id: &str, finished_ms: Option<i64>| {
         let mut ran = row(run_id);
         ran.finished_ms = finished_ms;
-        run_facts(&ran, "label", &spends, None, &whole).unwrap()
+        run_facts(&ran, "label", &spends, None).unwrap()
     };
     let rows = RowOnly {
         window: Window { from: 10, to: 20 },

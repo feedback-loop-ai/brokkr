@@ -139,6 +139,51 @@ fn journal(path: &Path, stale: usize) -> Store {
     Store::open_read_only(path).unwrap()
 }
 
+/// The test the child process runs, by the name the test binary lists it.
+const CHILD: &str = "exclusion_heap::the_exclusion_holds_no_stale_set_in_sqlite";
+
+/// The six figures the child prints after `label`, or none where it printed
+/// no such line.
+fn printed(stderr: &str, label: &str) -> Option<Vec<i64>> {
+    let line = stderr.lines().find_map(|line| line.strip_prefix(label))?;
+    let list = line.trim().strip_prefix('[')?.strip_suffix(']')?;
+    list.split(", ").map(|figure| figure.parse().ok()).collect()
+}
+
+/// Run the measurement in a process of its own and prove it measured: the
+/// child passed, ran exactly one test, and printed its six figures at both
+/// sizes. A filter that matches no test exits 0 having run nothing, so a
+/// renamed child would leave the cap unbound if exit status were enough.
+fn measured_in_its_own_process() {
+    let child = Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", CHILD, "--nocapture"])
+        .env(OWN_PROCESS, "1")
+        .output()
+        .expect("the test binary re-executes");
+    let stdout = String::from_utf8_lossy(&child.stdout);
+    let stderr = String::from_utf8_lossy(&child.stderr);
+    assert!(
+        child.status.success(),
+        "the heap measurement failed in the process of its own:\n{stdout}\n{stderr}"
+    );
+    assert!(
+        stdout.contains("test result: ok. 1 passed; 0 failed"),
+        "the child {CHILD} ran no test, so it measured nothing:\n{stdout}"
+    );
+    eprint!("{stderr}");
+    for label in [
+        "SQLite high-water, 10 stale: ",
+        "SQLite high-water, 5,000 stale: ",
+    ] {
+        let figures = printed(&stderr, label).unwrap_or_default();
+        assert_eq!(
+            figures.len(),
+            6,
+            "the child printed its figures after {label:?}:\n{stderr}"
+        );
+    }
+}
+
 /// The window statements' SQLite heap does not grow with the stale set:
 /// 5,000 stale runs add no more than ten. All six statements stay under the
 /// operator's 1,024,000-byte cap, and the parks statement, whose classes'
@@ -148,19 +193,7 @@ fn journal(path: &Path, stale: usize) -> Store {
 #[test]
 fn the_exclusion_holds_no_stale_set_in_sqlite() {
     if std::env::var_os(OWN_PROCESS).is_none() {
-        let child = Command::new(std::env::current_exe().unwrap())
-            .args([
-                "--exact",
-                "exclusion_heap::the_exclusion_holds_no_stale_set_in_sqlite",
-                "--nocapture",
-            ])
-            .env(OWN_PROCESS, "1")
-            .status()
-            .expect("the test binary re-executes");
-        assert!(
-            child.success(),
-            "the heap measurement failed in the process of its own"
-        );
+        measured_in_its_own_process();
         return;
     }
     let dir = tempfile::tempdir().unwrap();

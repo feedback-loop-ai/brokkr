@@ -534,8 +534,8 @@ fn by_rule(store: &Store, tag: &str) -> [i64; 6] {
 /// statement's VM steps equal. Both sizes are measured on the one journal
 /// state, with the ten stale runs in the window at both, so the comparison
 /// is like for like; a writable open is never interposed. The rule's arm
-/// reads the journal's `run_summary` to find a lagging run, so its figures
-/// are reported at both sizes rather than held.
+/// is held the same way: its figures at 1,000 and 2,000 are equal too
+/// (2,586, 1,054, 277, 788, 2,527 and 2,580 at both, measured 2026-11-16).
 #[test]
 fn the_intact_exclusion_does_not_grow_with_the_current_runs() {
     let (_dir, store) = store();
@@ -582,6 +582,9 @@ fn the_intact_exclusion_does_not_grow_with_the_current_runs() {
         );
     }
     for (at, (before, after)) in rule_base.iter().zip(&rule_grown).enumerate() {
-        eprintln!("statement {at}: by rule {before} -> {after}");
+        assert_eq!(
+            after, before,
+            "statement {at}: the rule's exclusion grew with the current runs, {before} -> {after}"
+        );
     }
 }
