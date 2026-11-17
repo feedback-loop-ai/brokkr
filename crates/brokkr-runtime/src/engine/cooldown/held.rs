@@ -13,6 +13,8 @@ use serde_json::Value;
 use thiserror::Error;
 
 use super::{Engine, EngineError};
+use crate::engine::replay::Replay;
+use crate::engine::DriveEnd;
 
 /// Where this engine's drive stands on a held wait: none met, a held
 /// terminal this drive journaled, or the turn that met it and ended the
@@ -37,13 +39,13 @@ pub(crate) enum HeldDrive {
      {run_id}`, ends the wait sooner"
 )]
 pub struct HeldWait {
-    pub run_id: String,
-    pub provider: String,
-    pub route: String,
-    /// The wait's end as RFC 3339: the latest of the recorded `until` and
-    /// the provider and route's unexpired rows.
-    pub until: String,
-    pub max_seconds: u64,
+    pub(crate) run_id: String,
+    pub(crate) provider: String,
+    pub(crate) route: String,
+    /// The provider's stated end, the latest across the held sites, as
+    /// RFC 3339.
+    pub(crate) until: String,
+    pub(crate) max_seconds: u64,
 }
 
 /// Does this terminal payload record a held wait? The append's one reading,
@@ -57,6 +59,24 @@ pub(in crate::engine) fn holds_a_wait(event_type: EventType, payload: &Value) ->
 }
 
 impl Engine {
+    /// The end of the drive whose turn met the held wait it journaled: the
+    /// run still `running`, its lane and process released. `None` for every
+    /// other turn, which the drive goes on from.
+    pub(in crate::engine) fn held_drive_end(
+        &mut self,
+        replay: &mut Replay,
+    ) -> Result<Option<DriveEnd>, EngineError> {
+        if self.cooldown.held != HeldDrive::Ended {
+            return Ok(None);
+        }
+        self.cooldown.held = HeldDrive::Unheld;
+        let state = replay.caught_up(&mut self.store, &self.run_id)?;
+        Ok(Some(DriveEnd {
+            state,
+            gaps: Vec::new(),
+        }))
+    }
+
     /// The held turn, before any wait is taken: `Ok(false)` where no
     /// recorded wait is held or the latest held end has come, so the wait
     /// is taken as any other; `Ok(true)` where this turn ended the drive
