@@ -173,6 +173,14 @@ impl Engine {
     /// row is written for that probe; otherwise the round is judged and
     /// appended. Lifted out of the round loop so the loop stays small
     /// (0071 ruling 4).
+    ///
+    /// The probe's lease still stands here: the renewed round, held or
+    /// ordinary, is committed BEFORE the release, so no pass or claim
+    /// between the refusal and the release finds the route unheld (fix
+    /// round 0106b1r3, R2). A round the store did not take leaves the lease
+    /// standing, unreleased, and the run parks: it fails closed, as an
+    /// attempt whose release cannot be sealed does. Every other end releases
+    /// it as the probe's settlement always has.
     fn hold_extension(
         &mut self,
         waits: &[ProviderWait],
@@ -180,14 +188,18 @@ impl Engine {
         round: &NextRound,
         unrecorded: u64,
     ) -> Result<Extension, EngineError> {
-        if self.moved_from_the_effect()? {
-            return Ok(Extension::Stopped);
-        }
-        match self.record_extension(waits, maxima, round, unrecorded) {
-            Ok(Written { held: true, .. }) => Ok(Extension::HeldRound),
-            Ok(Written { until, held: false }) => Ok(Extension::Written(until)),
-            Err(error) => Ok(Extension::Parked(park_of(&error))),
-        }
+        let lease = self.held.take();
+        let ended = match self.moved_from_the_effect()? {
+            true => Extension::Stopped,
+            false => match self.record_extension(waits, maxima, round, unrecorded) {
+                Ok(Written { held: true, .. }) => Extension::HeldRound,
+                Ok(Written { until, held: false }) => Extension::Written(until),
+                Err(error) if unwritten(&error) => return Ok(Extension::Parked(park_of(&error))),
+                Err(error) => Extension::Parked(park_of(&error)),
+            },
+        };
+        self.held = lease;
+        self.settle_probe(ended)
     }
 
     /// One round's wait: a stop, the park reason the maximum gives, or the
@@ -276,10 +288,13 @@ impl Engine {
                 Ok(_) => return Ok(ProbeRound::Held),
                 Err(error) => return Ok(ProbeRound::Parked(park_of(&error))),
             }
+            // An answer or a park settles the probe's lease here; a renewed
+            // refusal keeps it standing until its round is committed
+            // ([`Engine::hold_extension`], fix round 0106b1r3).
             match self.probe_wait(events, state, effect_id, seat, wait)? {
-                Probe::Answered(answer) => answers.push(answer),
+                Probe::Answered(answer) => answers.push(self.settle_probe(answer)?),
                 Probe::Extended(round) => return Ok(ProbeRound::Extended(round)),
-                Probe::Parked(reason) => return Ok(ProbeRound::Parked(reason)),
+                Probe::Parked(reason) => return Ok(ProbeRound::Parked(self.settle_probe(reason)?)),
             }
         }
         Ok(ProbeRound::Answered(answers))
@@ -756,6 +771,15 @@ enum ProbeRound {
 /// already reached is no wait at all.
 fn beyond_the_record(counted: OffsetDateTime, end: OffsetDateTime, now: OffsetDateTime) -> u64 {
     (end - counted.max(now)).whole_seconds().max(0) as u64
+}
+
+/// Did the store not take a probe's judged round: no table this binary may
+/// write, or a refused append. The lease then stands (fail closed).
+fn unwritten(error: &CooldownError) -> bool {
+    matches!(
+        error,
+        CooldownError::RoundNoTable { .. } | CooldownError::RoundUnwritable { .. }
+    )
 }
 
 /// Keep one answer per cooled site: a later round's answer replaces the

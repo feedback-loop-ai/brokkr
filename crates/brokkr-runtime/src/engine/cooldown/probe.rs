@@ -197,8 +197,10 @@ impl Engine {
     /// effort and the same boundary and credential facts. It is launched as
     /// its attempt is: admission seals the reach its box is built from and,
     /// where the root is protected, takes the writer lease its door
-    /// rechecks, and settlement releases that lease once the report proved
-    /// its processes settled.
+    /// rechecks. The lease is returned standing: the wait's `probe_each`
+    /// settles it once the probe's end is recorded,
+    /// so a renewed refusal's round is committed before the release (fix
+    /// round 0106b1r3).
     pub(super) fn probe(
         &mut self,
         events: &[EventEnvelope],
@@ -246,7 +248,7 @@ impl Engine {
             admitted.deadline,
             wait,
         );
-        self.settle_probe(probe)
+        Ok(probe)
     }
 
     /// A cooled site-tagged wait's own one-turn probe: a seat-level panel
@@ -314,7 +316,7 @@ impl Engine {
                 );
                 let probe =
                     self.spawn_probe(&at, &run.spawn, run.input.clone(), prepared.deadline, wait);
-                self.settle_probe(probe)
+                Ok(probe)
             }
             ProbeForm::Sequence(steps) => {
                 let at = ProbeSite {
@@ -460,7 +462,7 @@ impl Engine {
             body,
         );
         let probe = self.spawn_probe(&dispatch, &spawn, input, prepared.deadline, at.wait);
-        self.settle_probe(probe)
+        Ok(probe)
     }
 
     /// A `<step>:<member>` wait's probe: that member through
@@ -530,7 +532,7 @@ impl Engine {
             prepared.deadline,
             at.wait,
         );
-        self.settle_probe(probe)
+        Ok(probe)
     }
 
     /// The admitted probe's one driver, composed and marked with no broker:

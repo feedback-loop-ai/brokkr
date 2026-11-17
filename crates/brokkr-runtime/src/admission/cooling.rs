@@ -97,6 +97,30 @@ impl Leg<'_> {
     }
 }
 
+/// The pass's and the claim's cool-down legs for one lane, `provider` on
+/// `route`, over the rows `store` holds in force at `now`: the pass's one
+/// aggregate ([`Leg::Held`], as `Measure::take` reads it) and the claim's
+/// own rows ([`Leg::Rows`], the same statement its transaction reads). The
+/// engine's tests ask both of a row the engine wrote (fix round 0106b1r3).
+#[cfg(test)]
+pub(crate) fn legs_at(
+    store: &brokkr_store::Store,
+    now: OffsetDateTime,
+    provider: &str,
+    route: &str,
+) -> [Result<(), Capacity>; 2] {
+    let rows = store
+        .cooldowns_in_force(now)
+        .expect("the rows in force read");
+    let lanes = BTreeSet::from([Lane {
+        provider: provider.to_string(),
+        route: Some(route.to_string()),
+    }]);
+    let pass = Leg::Held(&Cooling::of(&rows)).room(&lanes);
+    let claim = Leg::Rows(&rows).room(&lanes);
+    [pass, claim]
+}
+
 /// The reason's text, naming the provider, route, end and the provider's
 /// words. An end no RFC 3339 text can spell is named by its whole second
 /// instead, so printing a refusal never panics.
