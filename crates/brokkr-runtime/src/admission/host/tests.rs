@@ -79,7 +79,7 @@ fn guide_sample() -> Value {
 }
 
 /// The published contract `name`, judged by its own JSON Schema.
-fn contract_validator(name: &str) -> jsonschema::Validator {
+pub(crate) fn contract_validator(name: &str) -> jsonschema::Validator {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../contracts")
         .join(name);

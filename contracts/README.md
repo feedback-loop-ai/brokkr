@@ -1036,6 +1036,26 @@ attempt read as a dead engine, and the shipped-deadline test would no
 longer hold. A v1 or v2 file declares no floor, and the loader reads all
 three versions.
 
+Decision 0110 ruling 7 (#430's sixth slice, 6d; accepted 2026-11-16)
+adds `forge.host/v4` beside the frozen v3, whose bytes did not move. It is
+v3 plus one REQUIRED object, `runs`, and it changes no other clause:
+
+| Contract | File | Consumers |
+|---|---|---|
+| The machine's host configuration with a run ceiling | `host.v4.schema.json` | brokkr-runtime (`admission/host.rs`, the loader; held to this file by test), `brokkr queue list` and `judge`, `brokkr doctor` |
+
+`runs` is closed and holds one key, `ceiling`, an integer of at least 1:
+the most runs that may read `running` in the journal a pass judges,
+counted as the census counts them, direct `brokkr run` runs included and
+an unstarted run counted against nothing. An entry that would take the
+count past it waits as `runs_full`, and a claim's re-check holds it to the
+same ceiling. The loader refuses a v4 file without `runs`, a ceiling of
+zero or below, and any other key under `runs`, and a v1, v2 or v3 file
+that writes `runs`. A v1, v2 or v3 file declares no run ceiling: it still
+reads, and every entry the capacity checks would judge waits as
+`runs_undeclared` until the operator declares one, which `brokkr doctor`
+names. This amends decision 0068 ruling 3.
+
 The same slice adds one more file and changes none of the bytes above —
 `run-manifest.v12`'s included, which is now pinned by digest beside the
 frozen files:

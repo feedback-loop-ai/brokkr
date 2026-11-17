@@ -3,13 +3,16 @@
 //! adapter declares egress `local` that the file does not declare
 //! `shared-local`. Neither line refuses: egress is the adapter's network
 //! fact and the route class is this machine's capacity fact, and neither
-//! implies the other.
+//! implies the other. Decision 0110 ruling 7: it warns, and never
+//! refuses, where the host file declares no run ceiling.
 
 use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::path::Path;
 
-use brokkr_runtime::admission::{declared_routes, host_file, HostRoutes, RouteClass, RouteDecl};
+use brokkr_runtime::admission::{
+    declared_routes, host_file, runs_undeclared, HostRoutes, RouteClass, RouteDecl,
+};
 use brokkr_runtime::agents::EgressClass;
 use brokkr_runtime::Adapters;
 
@@ -35,8 +38,27 @@ pub(super) fn report_from(
     home: Option<OsString>,
 ) {
     match host_file(xdg, home) {
-        Ok(file) => report_at(report, adapters_root, &file),
+        Ok(file) => {
+            report_at(report, adapters_root, &file);
+            runs(report, &file);
+        }
         Err(error) => report.warn("host", error.to_string()),
+    }
+}
+
+/// Decision 0110 ruling 7: a host file that reads and declares no run
+/// ceiling is one warning, never a refusal, naming its version and the
+/// one that declares the ceiling.
+fn runs(report: &mut Report, file: &Path) {
+    if let Some(version) = runs_undeclared(file) {
+        report.warn(
+            "host",
+            format!(
+                "the host file {} is {version} and declares no run ceiling, so every queued \
+                 entry waits as runs_undeclared; forge.host/v4 declares runs.ceiling",
+                safe(&file.display().to_string())
+            ),
+        );
     }
 }
 

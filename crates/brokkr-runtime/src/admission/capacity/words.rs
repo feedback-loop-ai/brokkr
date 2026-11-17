@@ -23,6 +23,8 @@ impl Capacity {
             Capacity::RunUnmeasured { .. } => "run_unmeasured",
             Capacity::ProviderUndeclared(_) => "provider_undeclared",
             Capacity::RouteUndeclared { .. } => "route_undeclared",
+            Capacity::RunsUndeclared(_) => "runs_undeclared",
+            Capacity::RunsFull { .. } => "runs_full",
             Capacity::ProviderFull { .. } => "provider_full",
             Capacity::RouteFull { .. } => "route_full",
             Capacity::FloorUnmeasured { .. } => "floor_unmeasured",
@@ -61,6 +63,16 @@ impl fmt::Display for Capacity {
                 f,
                 "the host configuration declares no ceiling for route {route} of provider \
                  {provider}"
+            ),
+            Capacity::RunsUndeclared(path) => write!(
+                f,
+                "the host file {} declares no run ceiling; forge.host/v4 declares `runs.ceiling`",
+                path.display()
+            ),
+            Capacity::RunsFull { running, ceiling } => write!(
+                f,
+                "the journal drives {running} runs, at its ceiling of {ceiling} (forge.host/v4 \
+                 `runs.ceiling`)"
             ),
             Capacity::ProviderFull {
                 provider,

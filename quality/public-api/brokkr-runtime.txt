@@ -53,6 +53,10 @@ pub brokkr_runtime::admission::Capacity::RouteUndeclared::route: alloc::string::
 pub brokkr_runtime::admission::Capacity::RunUnmeasured
 pub brokkr_runtime::admission::Capacity::RunUnmeasured::run: alloc::string::String
 pub brokkr_runtime::admission::Capacity::RunUnmeasured::why: brokkr_runtime::admission::Unmeasurable
+pub brokkr_runtime::admission::Capacity::RunsFull
+pub brokkr_runtime::admission::Capacity::RunsFull::ceiling: u32
+pub brokkr_runtime::admission::Capacity::RunsFull::running: usize
+pub brokkr_runtime::admission::Capacity::RunsUndeclared(std::path::PathBuf)
 pub brokkr_runtime::admission::Capacity::Undeclared(std::path::PathBuf)
 pub brokkr_runtime::admission::Capacity::Unmeasured(brokkr_runtime::admission::Unmeasurable)
 pub brokkr_runtime::admission::Capacity::Unreadable
@@ -180,6 +184,7 @@ pub fn brokkr_runtime::admission::judge_within(&mut brokkr_store::Store, &brokkr
 pub fn brokkr_runtime::admission::pass(&brokkr_store::Store) -> core::result::Result<alloc::vec::Vec<brokkr_runtime::admission::Judged>, brokkr_runtime::admission::AdmissionError>
 pub fn brokkr_runtime::admission::pass_within(&brokkr_store::Store, &brokkr_runtime::admission::Host<'_>) -> core::result::Result<(alloc::vec::Vec<brokkr_runtime::admission::Judged>, alloc::vec::Vec<brokkr_runtime::admission::Reason>), brokkr_runtime::admission::AdmissionError>
 pub fn brokkr_runtime::admission::release(&mut brokkr_store::Store, brokkr_store::queue::EntryId, brokkr_store::queue::Attribution<'_>) -> core::result::Result<brokkr_runtime::admission::Released, brokkr_runtime::admission::AdmissionError>
+pub fn brokkr_runtime::admission::runs_undeclared(&std::path::Path) -> core::option::Option<&'static str>
 pub mod brokkr_runtime::agents
 pub use brokkr_runtime::agents::HandsNotice
 pub enum brokkr_runtime::agents::EgressClass

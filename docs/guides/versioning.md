@@ -215,7 +215,8 @@ and the release window in that ruling's slice 2.
 | `brokkr.tool-dialect/v1` | `contracts/tool-dialect.v1.schema.json` | input | 0065 | shipped dialects/tools | schema brokkr_runtime::capabilities::dialect::TOOL_DIALECT_SCHEMA | current | | decision |
 | `forge.host/v1` | `contracts/host.v1.schema.json` | input | 0068 (2026-10-10 addendum) | operator | load brokkr_runtime::admission::host::read | reader | | decision |
 | `forge.host/v2` | `contracts/host.v2.schema.json` | input | 0103 | operator | load brokkr_runtime::admission::host::read | reader | | decision |
-| `forge.host/v3` | `contracts/host.v3.schema.json` | input | 0104 | operator | load brokkr_runtime::admission::host::read | current | | decision |
+| `forge.host/v3` | `contracts/host.v3.schema.json` | input | 0104 | operator | load brokkr_runtime::admission::host::read | reader | | decision |
+| `forge.host/v4` | `contracts/host.v4.schema.json` | input | 0110 | operator | load brokkr_runtime::admission::host::read | current | | decision |
 | `panel-carry/v1` | `contracts/panel-carry.v1.schema.json` | journal | 0093 | engine crates/brokkr-runtime/src/engine/dispatch.rs | load brokkr_runtime::engine::carry::facts::terminal_record | current | | |
 | `provider-wait/v1` | `contracts/provider-wait.v1.schema.json` | journal | 0103 | engine crates/brokkr-runtime/src/engine/cooldown.rs | load brokkr_core::provider_waits | current | | |
 | `brokkr.evidence-archive/v1` | `contracts/evidence-archive.v1.schema.json` | input | 0105 | operator | load brokkr_runtime::engine::evidence::read_archive | current | | decision |
