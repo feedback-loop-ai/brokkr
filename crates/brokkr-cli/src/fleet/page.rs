@@ -18,7 +18,7 @@ use std::cmp::Reverse;
 use std::collections::{BinaryHeap, HashMap, HashSet};
 
 use brokkr_core::fold::RunState;
-use brokkr_core::page::{newest_first, Bound, Lane, Place, Row};
+use brokkr_core::page::{newest_first, Bound, Lane, Place, Row, Whole};
 use brokkr_core::EventEnvelope;
 use brokkr_store::{keyed, place_of, Keyed, Paged, RowRefusal, Store, StoreError, Unread};
 use brokkr_view::{Cooling, Cursor, Page, RunRow, Section, Standing, WaitFact};
@@ -578,10 +578,8 @@ fn lists_here(
 /// when the row holds a value no writer writes; and a refusal for a row
 /// whose run id no writer admits, which names no run to read. The flags
 /// say the row is the summary's, and whether the index filed it in the
-/// Running lane, the one two sections read in part, so [`lists_here`]
-/// keeps it once. A row read whole or refused keeps the place it was read
-/// at, so it lists by its own facts where they place it elsewhere
-/// ([`brokkr_view::page`]).
+/// Running lane, which two sections read in part, so [`lists_here`] keeps
+/// it once. A row read whole or refused keeps the place it was read at.
 fn listed(
     store: &Store,
     paged: Paged,
@@ -595,29 +593,7 @@ fn listed(
     };
     let (key, mut row, summary) = match paged {
         Ok(mut row) => {
-            let (read, summary) = if !store.stands_at(&row.run_id, (row.folded.0, &row.folded.1))? {
-                (read_whole(store, &row.run_id, cooling)?.0, false)
-            } else if !whole(&row.run_id) {
-                match waits_at(store, &row) {
-                    Ok(waits) => (brokkr_view::summary_row(&row, None, &waits, cooling), true),
-                    // One envelope at a running head that is not the
-                    // envelope it claims to be quarantines that run, as
-                    // the whole read quarantines it, and lists the rest
-                    // (decision 0103 slice 4f, LOW 3).
-                    Err(_) => (read_whole(store, &row.run_id, cooling)?.0, false),
-                }
-            } else {
-                match store.whole(&mut row)? {
-                    Ok(kept) => match waits_at(store, &row) {
-                        Ok(waits) => (
-                            brokkr_view::summary_row(&row, Some(&kept), &waits, cooling),
-                            true,
-                        ),
-                        Err(_) => (read_whole(store, &row.run_id, cooling)?.0, false),
-                    },
-                    Err(_) => (read_whole(store, &row.run_id, cooling)?.0, false),
-                }
-            };
+            let (read, summary) = summary_or_whole(store, &mut row, whole, cooling)?;
             (row.run_id, read, summary)
         }
         Err(unread) => {
@@ -629,6 +605,42 @@ fn listed(
         row.paged_at = Some((at, key));
     }
     Ok((row, summary, lane_running))
+}
+
+/// A paged row as its summary serves it, its values whole where `whole`
+/// names its run (ruling 5), or its run read whole where the row no longer
+/// stands at the run's head. The flag says the row is the summary's.
+fn summary_or_whole(
+    store: &Store,
+    row: &mut Row,
+    whole: &dyn Fn(&str) -> bool,
+    cooling: &[Cooling],
+) -> Result<(RunRow, bool), StoreError> {
+    if !store.stands_at(&row.run_id, (row.folded.0, &row.folded.1))? {
+        return Ok((read_whole(store, &row.run_id, cooling)?.0, false));
+    }
+    if !whole(&row.run_id) {
+        return painted_or_whole(store, row, None, cooling);
+    }
+    match store.whole(row)? {
+        Ok(kept) => painted_or_whole(store, row, Some(&kept), cooling),
+        Err(_) => Ok((read_whole(store, &row.run_id, cooling)?.0, false)),
+    }
+}
+
+/// A standing row painted from its summary with its head's waits, or its
+/// run read whole where that head's envelope is not the one it claims to
+/// be, quarantined as the whole read quarantines it (0103 slice 4f, LOW 3).
+fn painted_or_whole(
+    store: &Store,
+    row: &Row,
+    kept: Option<&Whole>,
+    cooling: &[Cooling],
+) -> Result<(RunRow, bool), StoreError> {
+    match waits_at(store, row) {
+        Ok(waits) => Ok((brokkr_view::summary_row(row, kept, &waits, cooling), true)),
+        Err(_) => Ok((read_whole(store, &row.run_id, cooling)?.0, false)),
+    }
 }
 
 /// The waits a summary row's fold head states, read from that one event:
