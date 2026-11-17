@@ -676,17 +676,7 @@ fn a_lost_table_at_the_probe_append_parks_naming_the_store() {
 #[test]
 fn a_probe_refusal_fills_a_terminal_whose_own_row_is_absent() {
     let dir = tempfile::tempdir().unwrap();
-    let command = driver(
-        dir.path(),
-        "work",
-        &["succeed"],
-        Probed::RefuseThenAnswer,
-        None,
-        "claude",
-        "first",
-    );
-    let mut engine = started(dir.path(), single_body(command), work(2));
-    engine.cooldown.host = Some(host(dir.path(), 30, 1000));
+    let mut engine = wide_seat(dir.path(), &["succeed"], Probed::RefuseThenAnswer);
     let (clock, now) = Clock::advancing(base());
     engine.cooldown.clock = clock;
     // The terminal records a wait whose end has already passed, so `insert`
@@ -708,6 +698,16 @@ fn a_probe_refusal_fills_a_terminal_whose_own_row_is_absent() {
         *now.lock().unwrap() >= base() + Duration::seconds(30),
         "the filled round was not waited"
     );
+}
+
+/// One seat over the `work` fake driver on claude/first, with `verdicts`
+/// and `probed`, under the wide host (30s default, 1000s maximum): the
+/// fixture two tests' own rounds start from.
+pub(super) fn wide_seat(dir: &Path, verdicts: &[&str], probed: Probed) -> Engine {
+    let command = driver(dir, "work", verdicts, probed, None, "claude", "first");
+    let mut engine = started(dir, single_body(command), work(2));
+    engine.cooldown.host = Some(host(dir, 30, 1000));
+    engine
 }
 
 /// A remainder another run's row already holds is judged before the first

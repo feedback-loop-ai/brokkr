@@ -79,6 +79,12 @@ fn raised_solo_panel(dir: &Path, member: PanelMember) -> Engine {
     solo_panel(dir, member, 1, Some(host(dir, Some(2))))
 }
 
+/// A one-member panel the host floor raises past a seat limit far past any
+/// load, where the raise is not what ends the attempt (#1110).
+fn patient_raised_solo_panel(dir: &Path, member: PanelMember) -> Engine {
+    solo_panel(dir, member, PATIENT, Some(host(dir, Some(PATIENT_FLOOR))))
+}
+
 /// One sequence step `name` around `body`.
 fn step(name: &str, body: StepBody) -> SequenceStep {
     uncompiled_sequence_step! {
@@ -454,12 +460,8 @@ fn a_panel_that_was_not_deadline_killed_keeps_todays_words() {
     let dir = tempfile::tempdir().unwrap();
     // The floor raises the attempt past the seat's limit, but the member
     // exits before the watchdog: the joined reason is untouched.
-    let mut engine = solo_panel(
-        dir.path(),
-        panel_member("gone", exited_driver(dir.path())),
-        PATIENT,
-        Some(host(dir.path(), Some(PATIENT_FLOOR))),
-    );
+    let gone = panel_member("gone", exited_driver(dir.path()));
+    let mut engine = patient_raised_solo_panel(dir.path(), gone);
     engine.drive().unwrap();
     let reason = terminal(&engine, EventType::EffectIndeterminate, "reason");
     assert_eq!(

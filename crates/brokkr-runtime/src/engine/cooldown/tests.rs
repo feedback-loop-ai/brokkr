@@ -18,6 +18,7 @@ use crate::agents::{Candidate, HarnessHands, Lowering};
 use crate::bundle::{Aggregate, Invocation, Limits, PanelMember, SeatBody, SeatClass};
 use crate::engine::tests::{bundle, single_body, templated};
 use crate::engine::Engine;
+use support::{limits_for, witness, work};
 
 fn base() -> OffsetDateTime {
     OffsetDateTime::parse("2026-11-01T00:00:00Z", &Rfc3339).unwrap()
@@ -36,43 +37,6 @@ fn started(dir: &Path, body: SeatBody, limits: Limits) -> Engine {
 /// the fixtures that only need a journal and a seat share it.
 pub(super) fn bare_engine(dir: &Path, attempts: u64) -> Engine {
     started(dir, single_body(vec!["unused".into()]), work(attempts))
-}
-
-/// The seat's limits where its deadline is not what the test proves: far
-/// past any load, so only the clock the test drives decides the rounds
-/// (#1110, as #1099's item 4 did for the sealing tests).
-fn work(attempts: u64) -> Limits {
-    Limits {
-        max_attempts: attempts,
-        timeout_seconds: 60,
-    }
-}
-
-/// The seat's limits where a probe's lateness is what the test proves: a
-/// short deadline, which the hanging probe's `sleep 30` outlives.
-fn late(attempts: u64) -> Limits {
-    Limits {
-        max_attempts: attempts,
-        timeout_seconds: 2,
-    }
-}
-
-/// The limits a seat whose probes do `probed` is given: the short one only
-/// where a probe hangs to be ended by its deadline.
-fn limits_for(probed: Probed, attempts: u64) -> Limits {
-    match probed {
-        Probed::Hang => late(attempts),
-        Probed::Answer
-        | Probed::Refuse
-        | Probed::Error
-        | Probed::Unadvertised
-        | Probed::Barrier
-        | Probed::HangThenAnswer
-        | Probed::RefuseThenAnswer
-        | Probed::OtherRefusal
-        | Probed::MalformedRefusal
-        | Probed::BarrierRefuse => work(attempts),
-    }
 }
 
 /// A v2 host file declaring cool-downs for claude/first and codex/second,
@@ -321,44 +285,6 @@ fn logs(dir: &Path, tag: &str) -> Vec<String> {
         .collect()
 }
 
-/// What a failed fixture assertion prints, so a failure says why (#1110):
-/// the journal's event types in order with each failure's words and
-/// refusals, each panel member's outcome and any cleanup left unproven,
-/// every member shim's own log and the shared one, and the
-/// deadline each seat's attempt and probe were given.
-pub(super) fn witness(engine: &Engine, dir: &Path, members: &[&str]) -> String {
-    let mut seen = String::from("\njournal:");
-    for event in engine.store.load(&engine.run_id).unwrap() {
-        seen.push_str(&format!("\n  {} {}", event.seq, event.event_type.as_str()));
-        for field in [
-            "checkpoint",
-            "error",
-            "reason",
-            "refused",
-            "cleanup",
-            "unresolved_members",
-            "waits",
-        ] {
-            if let Some(value) = event.payload.get(field) {
-                seen.push_str(&format!("\n    {field}: {value}"));
-            }
-        }
-    }
-    seen.push_str("\nshims:");
-    for tag in members.iter().copied().chain(["all"]) {
-        seen.push_str(&format!("\n  {tag}: {:?}", logs(dir, tag)));
-    }
-    seen.push_str(&format!("\ndeadlines (host {:?}):", engine.cooldown.host));
-    for (name, seat) in &engine.bundle.seats {
-        let limits = &seat.limits;
-        seen.push_str(&format!(
-            "\n  {name}: {}s per attempt and probe, {} attempts",
-            limits.timeout_seconds, limits.max_attempts
-        ));
-    }
-    seen
-}
-
 /// The `Start` documents a driver's attempts and probes received, in order.
 fn start_inputs(dir: &Path, tag: &str) -> Vec<Value> {
     std::fs::read_to_string(dir.join(format!("{tag}.input")))
@@ -583,24 +509,6 @@ fn a_rate_limit_waits_for_the_probe_then_retries() {
     assert_eq!(started[1]["probes"][0]["provider"], "claude");
     assert_eq!(started[1]["probes"][0]["route"], "first");
     assert!(failed(&engine)[0].payload["waits"].is_array());
-}
-
-/// A failed fixture assertion says why (#1110): the witness names the
-/// journal's events with the failure's words, each shim's log, and the
-/// deadline the seat's attempt and probe were given.
-#[test]
-fn the_witness_names_the_journal_the_shims_and_the_deadlines() {
-    let (dir, mut engine, _now) = seated!(&["refuse", "succeed"], Probed::Answer, None, 2);
-    engine.drive().unwrap();
-    let seen = witness(&engine, dir.path(), &["work"]);
-    for line in [
-        "\n  5 effect/failed\n    error: \"provider refused; stderr tail: \"\n    waits: [{",
-        "\n  6 effect/started\n  7 effect/succeeded\n",
-        "\nshims:\n  work: [\"attempt:refuse\", \"probe\", \"attempt:succeed\"]\n  all: [",
-        "\n  work: 60s per attempt and probe, 2 attempts",
-    ] {
-        assert!(seen.contains(line), "{line:?} is not in:{seen}");
-    }
 }
 
 #[test]
@@ -1517,6 +1425,7 @@ mod lease;
 mod probe_driver;
 mod probe_rounds;
 mod sequence;
+mod support;
 
 fn no_waits(engine: &Engine) {
     for event in failed(engine) {

@@ -48,17 +48,7 @@ fn a_resume_over_an_episode_unreadable_record_states_the_generic_cause() {
 #[test]
 fn a_fold_failure_in_the_wait_round_propagates_through_the_step() {
     let dir = tempfile::tempdir().unwrap();
-    let command = driver(
-        dir.path(),
-        "work",
-        &["refuse", "succeed"],
-        Probed::Answer,
-        None,
-        "claude",
-        "first",
-    );
-    let mut engine = started(dir.path(), single_body(command), work(2));
-    engine.cooldown.host = Some(host(dir.path(), 30, 1000));
+    let engine = super::probe_rounds::wide_seat(dir.path(), &["refuse", "succeed"], Probed::Answer);
     let (mut engine, now) = with_clock(engine);
     let db = dir.path().join("forge.db");
     let run = engine.run_id.clone();
