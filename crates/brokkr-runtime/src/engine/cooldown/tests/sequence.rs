@@ -221,9 +221,11 @@ fn draft_driver(dir: &Path) -> Vec<String> {
 fn single_step_facts(dir: &Path, engine: &Engine) {
     assert_eq!(
         logs(dir, "draft"),
-        ["attempt:refuse", "probe", "attempt:succeed"]
+        ["attempt:refuse", "probe", "attempt:succeed"],
+        "{}",
+        witness(engine, dir)
     );
-    let waits = one_wait(engine);
+    let waits = one_wait(engine, dir);
     assert_eq!(waits[0]["site"], "draft");
 }
 
@@ -273,12 +275,13 @@ fn driven_panel(dir: &Path, m: Vec<String>, n: Vec<String>) -> Engine {
     driven_members(dir, two_member_panel(m, n))
 }
 
-/// The one wait the first effect's terminal event carries.
-fn one_wait(engine: &Engine) -> Vec<Value> {
+/// The one wait the first effect's terminal event carries; a failure
+/// prints the witness (#1110).
+fn one_wait(engine: &Engine, dir: &Path) -> Vec<Value> {
     let failed = failed_here(engine);
-    assert_eq!(failed.len(), 1, "{failed:?}");
+    assert_eq!(failed.len(), 1, "{}", witness(engine, dir));
     let waits = waits(&failed[0]);
-    assert_eq!(waits.len(), 1, "{waits:?}");
+    assert_eq!(waits.len(), 1, "{waits:?}{}", witness(engine, dir));
     waits
 }
 
@@ -302,7 +305,7 @@ fn a_single_steps_rate_limit_records_its_site_and_restarts_at_step_one() {
     let body = draft_body(dir.path(), command, &["drafted", "complete"]);
     let engine = driven(dir.path(), body, 2);
     single_step_facts(dir.path(), &engine);
-    let waits = one_wait(&engine);
+    let waits = one_wait(&engine, dir.path());
     assert_eq!(waits[0]["provider"], "claude");
     assert_eq!(waits[0]["route"], "first");
     assert_eq!(waits[0]["seconds"], 1);
@@ -414,7 +417,7 @@ fn past_maximum_body(dir: &Path) -> SeatBody {
 fn a_step_panels_refused_member_records_its_tag_and_probes_its_own_spawn() {
     let dir = tempfile::tempdir().unwrap();
     let engine = driven(dir.path(), refusing_panel_sequence(dir.path()), 2);
-    let waits = one_wait(&engine);
+    let waits = one_wait(&engine, dir.path());
     assert_eq!(waits[0]["site"], "review:m");
     assert_eq!(waits[0]["provider"], "claude");
     assert_eq!(waits[0]["route"], "first");
@@ -482,7 +485,7 @@ fn a_later_steps_refusal_restarts_the_sequence_from_step_one() {
         publish_step(dir.path()),
     ]);
     let engine = driven(dir.path(), body, 2);
-    let waits = one_wait(&engine);
+    let waits = one_wait(&engine, dir.path());
     assert_eq!(waits[0]["site"], "review");
     assert_eq!(
         shared(dir.path()),
@@ -601,7 +604,7 @@ fn a_dialect_step_writes_no_wait() {
         1,
     );
     let failed = failed_here(&engine);
-    assert_eq!(failed.len(), 1, "{failed:?}");
+    assert_eq!(failed.len(), 1, "{}", witness(&engine, dir.path()));
     no_wait(&failed[0]);
 }
 
@@ -938,21 +941,23 @@ fn another_refusal_beside_a_rate_limit_gets_no_wait_and_no_probe() {
         ),
     ];
     let engine = driven_members(dir.path(), members);
-    let waits = one_wait(&engine);
-    assert_eq!(waits[0]["site"], "review:m");
+    let seen = witness(&engine, dir.path());
+    let waits = one_wait(&engine, dir.path());
+    assert_eq!(waits[0]["site"], "review:m", "{seen}");
     assert_eq!(
         logs(dir.path(), "m"),
-        ["attempt:refuse", "probe", "attempt:succeed"]
+        ["attempt:refuse", "probe", "attempt:succeed"],
+        "{seen}"
     );
     assert_eq!(
         logs(dir.path(), "n"),
         ["attempt:refuse"],
-        "n was probed for a refusal that is not a rate limit"
+        "n was probed for a refusal that is not a rate limit{seen}"
     );
     assert_eq!(
         logs(dir.path(), "n-second"),
         ["attempt:succeed"],
-        "n's chain did not advance to its next link"
+        "n's chain did not advance to its next link{seen}"
     );
     let started = starts(&engine);
     assert_eq!(started.len(), 2, "{started:?}");
