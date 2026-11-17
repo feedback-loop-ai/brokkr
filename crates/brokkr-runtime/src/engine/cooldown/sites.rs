@@ -7,7 +7,9 @@
 
 use brokkr_core::envelope::{EventType, EVENT_SCHEMA_VERSION};
 use brokkr_core::park::{Park, ParkCause};
-use brokkr_core::{provider_waits, EventEnvelope, ProviderRefusal, ProviderWait, RefusalCause};
+use brokkr_core::{
+    provider_waits, EventEnvelope, Held, ProviderRefusal, ProviderWait, RefusalCause,
+};
 use brokkr_protocol::{AttemptReport, PreSessionRefusal, RefusalClass};
 use brokkr_store::Cooling;
 use serde_json::Value;
@@ -191,10 +193,15 @@ impl Engine {
         };
         let (planned, mut causes) = self.plan_members(&episode, &mut payload, refused, retry);
         judge_total(&planned, &mut causes, episode.seconds);
+        // A member's held wait is written held only where the panel holds:
+        // a panel that parks, or an indeterminate one, keeps every wait as
+        // its evidence, and `refused` is never beside a held entry
+        // (decision 0106 ruling 2).
+        let holds = retry && causes.iter().all(Option::is_none);
         let waits: Vec<Value> = planned
             .iter()
             .flatten()
-            .filter_map(Plan::wait)
+            .filter_map(|plan| plan.wait(holds))
             .map(|wait| waiter(&wait, wait.until))
             .collect();
         if !waits.is_empty() {
@@ -329,8 +336,17 @@ impl Engine {
             rounds,
             until,
             max,
+            held: held_past(retry_after, seconds, max),
         })
     }
+}
+
+/// The held kind of a wait whose length is the provider's stated reset and
+/// lies past the declared maximum (decision 0106 ruling 2), or `None` for a
+/// wait the engine judges against that maximum: a computed default, or a
+/// stated reset within it.
+pub(super) fn held_past(retry_after: Option<u64>, seconds: u64, max: u64) -> Option<Held> {
+    (retry_after == Some(seconds) && seconds > max).then_some(Held { max_seconds: max })
 }
 
 /// What one refused member's route produced for the terminal.
@@ -348,10 +364,15 @@ struct Plan {
     rounds: u64,
     until: Option<OffsetDateTime>,
     max: u64,
+    /// The provider's stated reset alone passed `max`: not judged, and not
+    /// counted in the episode (decision 0106 ruling 2).
+    held: Option<Held>,
 }
 
 impl Plan {
-    fn wait(&self) -> Option<ProviderWait> {
+    /// The member's wait, marked held only where `holds` says the panel
+    /// holds rather than parks.
+    fn wait(&self, holds: bool) -> Option<ProviderWait> {
         self.until.map(|until| ProviderWait {
             site: Some(self.member.site.clone()),
             provider: self.member.refusal.provider().to_string(),
@@ -366,11 +387,14 @@ impl Plan {
             seconds: self.seconds,
             until,
             rounds: self.rounds,
-            held: None,
+            held: self.held.filter(|_| holds),
         })
     }
 
     fn past_maximum(&self, total: u64) -> Option<Cause> {
+        if self.held.is_some() {
+            return None;
+        }
         past_maximum(self.seconds, total, self.max).then(|| Cause {
             refused: refusal_record(
                 RefusalCause::PastMaximum,
@@ -405,6 +429,7 @@ fn judge_total(planned: &[Option<Plan>], causes: &mut [Option<Cause>], episode_s
     let total = planned
         .iter()
         .flatten()
+        .filter(|plan| plan.held.is_none())
         .fold(episode_seconds, |total, plan| {
             total.saturating_add(plan.seconds)
         });
@@ -702,7 +727,7 @@ pub(in crate::engine) fn cooldown_rows(event_type: EventType, payload: &Value) -
 /// know the seq the event will take yet, and a payload the engine just
 /// built reads; the stub names a bad field by seq 0, which no engine
 /// writer can produce.
-fn record_event(event_type: EventType, payload: &Value) -> EventEnvelope {
+pub(super) fn record_event(event_type: EventType, payload: &Value) -> EventEnvelope {
     EventEnvelope {
         run_id: String::new(),
         seq: 0,

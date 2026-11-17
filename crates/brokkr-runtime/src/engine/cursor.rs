@@ -81,6 +81,13 @@ impl Engine {
             }
             Recorded::Parked => return Ok(()),
         };
+        // A held wait is not slept before its end: the drive that wrote it
+        // ends, and a resume refuses naming the lift (decision 0106 ruling
+        // 2). The cap above is judged first, so a held wait at the cap parks
+        // `attempt-cap`.
+        if self.held_turn(&waits)? {
+            return Ok(());
+        }
         // Before the wait's probe and before the retry's admission, the
         // run's own reservation may name a crashed probe's attempt that no
         // journal event names. It is released only where every process it

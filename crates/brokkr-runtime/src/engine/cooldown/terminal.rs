@@ -365,10 +365,19 @@ impl Engine {
         let retry_after = refusal.retry_after_seconds();
         let seconds = sites::wait_seconds(retry_after, bounds.default_seconds.get(), rounds);
         let max = u64::from(bounds.max_seconds.get());
-        let total = prior_seconds.saturating_add(seconds);
+        // A reset the provider stated, alone past the maximum, is held and
+        // not parked, and its length is not counted in the episode the
+        // maximum bounds (decision 0106 ruling 2). Every other wait past
+        // the maximum still parks: the maximum bounds the engine's own
+        // computation, never the provider's word.
+        let held = sites::held_past(retry_after, seconds, max);
+        let total = match held {
+            Some(_) => prior_seconds,
+            None => prior_seconds.saturating_add(seconds),
+        };
         // The maximum is judged from the computed length BEFORE any `until`
         // is formed, so no huge retry-after can overflow here (step 4).
-        let past = past_maximum(seconds, total, max);
+        let past = held.is_none() && past_maximum(seconds, total, max);
         let until = sites::wait_until(self.now(), seconds);
         let wait = until.map(|until| ProviderWait {
             site: None,
@@ -379,7 +388,7 @@ impl Engine {
             seconds,
             until,
             rounds,
-            held: None,
+            held,
         });
         if let Some(wait) = &wait {
             payload["waits"] = json!([waiter(wait, wait.until)]);

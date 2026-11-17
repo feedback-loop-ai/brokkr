@@ -522,6 +522,7 @@ fn engine_class(error: EngineError) -> Class {
         | EngineError::CauseRefused(_)
         | EngineError::JournalMoved { .. }
         | EngineError::Invariant(..)
+        | EngineError::HeldWait(_)
         | EngineError::Dispatch(_)
         | EngineError::Unreleased(_)
         | EngineError::Unspelled(_)) => Class::Start(LaunchError::Engine(error)),

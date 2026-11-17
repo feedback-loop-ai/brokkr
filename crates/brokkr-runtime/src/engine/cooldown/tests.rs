@@ -726,19 +726,6 @@ fn a_stop_already_journaled_is_seen_before_the_first_slice() {
 }
 
 #[test]
-fn a_wait_past_the_maximum_parks_with_the_words_and_the_maximum() {
-    let (dir, mut engine, _now) = seated!(&["refuse"], Probed::Answer, Some(5), 2);
-    engine.cooldown.host = Some(host(dir.path(), 1, 2));
-    engine.drive().unwrap();
-    assert_eq!(logs(dir.path(), "work"), ["attempt:refuse"]);
-    assert_eq!(starts(&engine).len(), 1);
-    let reason = park_reason(&engine);
-    assert!(reason.contains("5s"), "{reason}");
-    assert!(reason.contains("declared 2s maximum"), "{reason}");
-    assert!(reason.contains("rate_limit: slow down"), "{reason}");
-}
-
-#[test]
 fn an_accumulated_episode_past_the_maximum_parks() {
     let dir = tempfile::tempdir().unwrap();
     let command = driver(
@@ -1320,6 +1307,7 @@ fn a_driver_that_does_not_advertise_the_probe_parks_naming_it() {
     assert!(reason.contains("does not advertise the probe"), "{reason}");
 }
 
+mod held_wait;
 mod lease;
 mod probe_driver;
 mod probe_rounds;

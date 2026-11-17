@@ -440,7 +440,10 @@ impl Engine {
     /// parks by its own words, never as an absent aggregate (decision 0103
     /// ruling 2(a)); a version 1, 2 or 3 journal answers none, so the
     /// event's own `until` stands.
-    fn cool_down_end(&self, waits: &[ProviderWait]) -> Result<OffsetDateTime, CooldownError> {
+    pub(super) fn cool_down_end(
+        &self,
+        waits: &[ProviderWait],
+    ) -> Result<OffsetDateTime, CooldownError> {
         let mut end = waits
             .iter()
             .map(|wait| wait.until)
@@ -513,11 +516,15 @@ impl Engine {
                     .get(&wait.site)
                     .copied()
                     .unwrap_or(wait.rounds);
-                let seconds = episode
-                    .lengths
-                    .get(&wait.site)
-                    .copied()
-                    .unwrap_or(wait.seconds);
+                let own = episode.lengths.get(&wait.site).copied();
+                let seconds = own.unwrap_or(wait.seconds);
+                // A held wait's own length is the provider's word and is not
+                // judged; a later round's length, where one was written, is
+                // the engine's and is (decision 0106 ruling 2).
+                let judged = match (wait.held, own) {
+                    (Some(_), None) => 0,
+                    _ => seconds,
+                };
                 let pending = ProviderWait {
                     site: wait.site.clone(),
                     provider: wait.provider.clone(),
@@ -532,7 +539,7 @@ impl Engine {
                 // Judge with the same per-site length the park names, not
                 // the terminal wait's own: a written probe round may have
                 // superseded it (finding 6).
-                past_maximum(seconds, episode.seconds, max).then(|| {
+                past_maximum(judged, episode.seconds, max).then(|| {
                     refusing(
                         maximum_reason(&pending, episode.seconds, max, None),
                         ProviderLimitRefusal::PastMaximum {

@@ -163,6 +163,8 @@ pub use boxed::Unrooted;
 pub use broker::admission::{Conflict, Unadmitted, Unknown};
 pub use broker::settlement::release::{Live, UnprovenWhy};
 pub use broker::Unroutable;
+/// The refusal [`EngineError::HeldWait`] carries (decision 0106 ruling 2).
+pub use cooldown::HeldWait;
 /// The typed refusal `settle` carries, defined where the verb is: the host's
 /// answer, the unread reservation's typed refusal, and the run's own
 /// pre-proof reasons (decision 0071 rulings 6 and 8; S8, R4). Its payloads
@@ -269,6 +271,10 @@ pub enum EngineError {
     /// refusal: its name, and the words the operator has always read.
     #[error("engine: {1}")]
     Invariant(&'static str, String),
+    /// Decision 0106 ruling 2: a resume before a held wait's end, refused
+    /// by name, naming the lift. Nothing was written.
+    #[error(transparent)]
+    HeldWait(Box<cooldown::HeldWait>),
     #[error("dispatch: {0}")]
     Dispatch(#[from] brokkr_core::dispatch::DispatchError),
     /// Decision 0065 slice two, U8a2a (D6, M1): an attempt's settlement
@@ -830,6 +836,17 @@ impl Engine {
             }
             Run::Running(cursor) => {
                 self.advance_running(&replay.events, cursor.clone(), state)?;
+                // The drive that journaled a held wait ends here, the run
+                // still `running` (decision 0106 ruling 2).
+                if self.cooldown.held == cooldown::HeldDrive::Ended {
+                    self.cooldown.held = cooldown::HeldDrive::Unheld;
+                    let state = replay.caught_up(&mut self.store, &self.run_id)?;
+                    self.replay = replay;
+                    return Ok(Some(DriveEnd {
+                        state,
+                        gaps: Vec::new(),
+                    }));
+                }
             }
         }
         self.replay = replay;

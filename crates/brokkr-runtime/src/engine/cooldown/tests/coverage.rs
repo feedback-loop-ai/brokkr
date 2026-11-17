@@ -110,8 +110,10 @@ fn a_park_that_cannot_journal_propagates_the_store_error() {
 #[test]
 fn a_journal_append_that_cannot_journal_propagates_the_store_error() {
     for (event_type, journaled) in [("effect/failed", 0usize), ("run/parked", 1)] {
-        let (dir, mut engine, _now) = seated!(&["refuse"], Probed::Answer, Some(5), 2);
-        engine.cooldown.host = Some(host(dir.path(), 1, 2));
+        // A host that does not read parks at the terminal (a stated reset
+        // past the maximum is held, decision 0106 ruling 2).
+        let (dir, mut engine, _now) = seated!(&["refuse"], Probed::Answer, None, 2);
+        invalid_host(dir.path(), &mut engine);
         fail_event(&dir.path().join("forge.db"), event_type);
         let error = engine.drive().unwrap_err();
         assert!(

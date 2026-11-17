@@ -117,6 +117,12 @@ impl Engine {
             }
             Err(error) => return Err(error.into()),
         };
+        // A held wait this drive journaled ends the drive at its next turn
+        // (decision 0106 ruling 2): a later drive meeting it before its end
+        // is a resume, and refuses.
+        if terminal && cooldown::holds_a_wait(event_type, &payload) {
+            self.cooldown.held = cooldown::HeldDrive::Written;
+        }
         self.current_cause = Some(envelope.event_id.clone());
         self.fence = fence
             .filter(|_| event_type != EventType::EffectStarted)

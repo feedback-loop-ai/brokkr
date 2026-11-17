@@ -29,6 +29,10 @@ use super::{Engine, EngineError};
 use crate::admission::{read_host, Bounds, HostError, Hosting};
 use crate::bundle::Limits;
 
+mod held;
+pub(in crate::engine) use held::holds_a_wait;
+pub(crate) use held::HeldDrive;
+pub use held::HeldWait;
 mod probe;
 pub(in crate::engine) use probe::cleanup_failure;
 mod terminal;
@@ -68,6 +72,8 @@ pub(crate) struct Seam {
     pub(crate) host: Option<PathBuf>,
     pub(crate) clock: Clock,
     pub(crate) answers: Vec<ProbeAnswer>,
+    /// Where this drive stands on a held wait (decision 0106 ruling 2).
+    pub(crate) held: HeldDrive,
 }
 
 impl Default for Seam {
@@ -76,6 +82,7 @@ impl Default for Seam {
             host: None,
             clock: Clock::real(),
             answers: Vec::new(),
+            held: HeldDrive::Unheld,
         }
     }
 }
@@ -420,8 +427,13 @@ pub(super) fn episode_by_site(
         };
         for wait in waits {
             *episode.rounds.entry(wait.site.clone()).or_insert(0u64) += 1;
-            episode.seconds = episode.seconds.saturating_add(wait.seconds);
-            episode.lengths.insert(wait.site.clone(), wait.seconds);
+            // A held wait contributes its round and its `until`, but no
+            // remainder, and its own length is never judged against the
+            // maximum (decision 0106 ruling 2).
+            if wait.held.is_none() {
+                episode.seconds = episode.seconds.saturating_add(wait.seconds);
+                episode.lengths.insert(wait.site.clone(), wait.seconds);
+            }
             let site = wait.site.clone().unwrap_or_default();
             let rows = store
                 .cooldown_rounds(run_id, event.seq, &site)
