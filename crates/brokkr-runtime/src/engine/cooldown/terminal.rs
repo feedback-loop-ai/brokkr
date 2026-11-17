@@ -190,6 +190,12 @@ pub(super) fn waiter(wait: &ProviderWait, until: OffsetDateTime) -> Value {
     if let Some(seconds) = wait.retry_after_seconds {
         value["retry_after_seconds"] = json!(seconds);
     }
+    // `provider-wait/v2` (decision 0106 ruling 2): a held wait names itself
+    // and the declared maximum its provider-stated end exceeded.
+    if let Some(held) = wait.held {
+        value["held"] = json!(true);
+        value["max_seconds"] = json!(held.max_seconds);
+    }
     value
 }
 
@@ -373,6 +379,7 @@ impl Engine {
             seconds,
             until,
             rounds,
+            held: None,
         });
         if let Some(wait) = &wait {
             payload["waits"] = json!([waiter(wait, wait.until)]);

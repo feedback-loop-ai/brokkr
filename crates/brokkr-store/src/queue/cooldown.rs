@@ -11,7 +11,7 @@
 //! them, into the `time` type the engine already carries.
 
 use brokkr_core::envelope::{EventEnvelope, EventType};
-use brokkr_core::provider_waits;
+use brokkr_core::{provider_waits, Held, ProviderWait};
 use rusqlite::{params, Connection, OptionalExtension};
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
@@ -102,19 +102,18 @@ pub enum RoundAppend {
     NoTable,
 }
 
-/// Write `rows` as the cool-downs of `run_id`'s event `event_seq`, inside
-/// the transaction that wrote that event, which the journal recorded at
-/// `recorded_at`. A row whose end has already passed is history and is
+/// Write `rows` as the cool-downs of `event`, inside the transaction that
+/// wrote that event. A row whose end has already passed is history and is
 /// written not at all; a row that violates the table's CHECK constraints
 /// or its unique index fails the whole transaction, so the event and every
 /// row land together or not at all. No rows, or a queue that holds no
 /// table this binary may write, leaves the table untouched and the event
-/// alone lands.
+/// alone lands. A row's kind is read from the event's own `waits` entry for
+/// its site (decision 0106 ruling 2), so the table never says a wait is
+/// held where the event does not.
 pub(crate) fn insert(
     tx: &Connection,
-    run_id: &str,
-    event_seq: u64,
-    recorded_at: &str,
+    event: &EventEnvelope,
     rows: &[Cooling],
 ) -> Result<(), StoreError> {
     // Every append that carries no cool-downs — every non-terminal event,
@@ -131,9 +130,10 @@ pub(crate) fn insert(
     if !cool_downs_writable(tx)? {
         return Ok(());
     }
-    let recorded = OffsetDateTime::parse(recorded_at, &Rfc3339)
+    let recorded = OffsetDateTime::parse(&event.recorded_at, &Rfc3339)
         .expect("the journal's own recorded_at is RFC 3339")
         .unix_timestamp();
+    let waits = provider_waits(event).ok().flatten().unwrap_or_default();
     for row in rows {
         let until = until_second(row.until_at);
         if until <= recorded {
@@ -142,8 +142,8 @@ pub(crate) fn insert(
         insert_row(
             tx,
             &StoredRow {
-                run_id,
-                event_seq,
+                run_id: &event.run_id,
+                event_seq: event.seq,
                 site: &row.site,
                 provider: &row.provider,
                 route: &row.route,
@@ -152,10 +152,20 @@ pub(crate) fn insert(
                 retry_after_seconds: row.retry_after_seconds,
                 rounds: row.rounds,
                 recorded,
+                held: held_at(&waits, &row.site),
             },
         )?;
     }
     Ok(())
+}
+
+/// The held kind the event's own `waits` entry for `site` records, where
+/// it records one (`''` is an inline seat's absent site).
+fn held_at(waits: &[ProviderWait], site: &str) -> Option<Held> {
+    waits
+        .iter()
+        .find(|wait| wait.site.as_deref().unwrap_or("") == site)
+        .and_then(|wait| wait.held)
 }
 
 /// One `provider_cooldowns` row as the table's one writer spells it:
@@ -172,6 +182,8 @@ struct StoredRow<'a> {
     retry_after_seconds: Option<u64>,
     rounds: u64,
     recorded: i64,
+    /// Version 7's kind: `Some` for a held wait's row.
+    held: Option<Held>,
 }
 
 /// Insert one row. The table's CHECK constraints and unique index judge it.
@@ -179,8 +191,8 @@ fn insert_row(conn: &Connection, row: &StoredRow<'_>) -> Result<(), StoreError> 
     conn.execute(
         "INSERT INTO provider_cooldowns
             (run_id, event_seq, site, provider, route, until_at, reason,
-             retry_after_seconds, rounds, recorded_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+             retry_after_seconds, rounds, recorded_at, held, max_seconds)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
         params![
             row.run_id,
             row.event_seq as i64,
@@ -192,6 +204,8 @@ fn insert_row(conn: &Connection, row: &StoredRow<'_>) -> Result<(), StoreError> 
             row.retry_after_seconds.map(|retry| retry as i64),
             row.rounds as i64,
             row.recorded,
+            row.held.map(|_| 1i64),
+            row.held.map(|held| held.max_seconds as i64),
         ],
     )?;
     Ok(())
@@ -549,6 +563,9 @@ impl Store {
                     retry_after_seconds: round.retry_after_seconds,
                     rounds: round.rounds,
                     recorded,
+                    // A probe's round is the engine's own computed wait
+                    // here; a held probe round is not built (0106b1).
+                    held: None,
                 },
             )?;
             tx.commit()?;

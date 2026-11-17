@@ -1653,6 +1653,7 @@ fn wait() -> super::ProviderWait {
         seconds: 1,
         until: base(),
         rounds: 1,
+        held: None,
     }
 }
 

@@ -62,6 +62,30 @@ fn named(site: &str, route: &str, until: OffsetDateTime, reason: &str, rounds: u
     }
 }
 
+/// The terminal event `insert` writes rows for: `run`'s event `seq`,
+/// recorded at `recorded`, carrying `payload`.
+fn recorded_at(
+    run: &str,
+    seq: u64,
+    recorded: &str,
+    payload: serde_json::Value,
+) -> brokkr_core::EventEnvelope {
+    brokkr_core::EventEnvelope {
+        run_id: run.into(),
+        seq,
+        event_id: String::new(),
+        event_schema_version: brokkr_core::envelope::EVENT_SCHEMA_VERSION,
+        event_type: EventType::EffectFailed,
+        payload,
+        causation_id: None,
+        correlation_id: run.into(),
+        attempt_id: None,
+        recorded_at: recorded.into(),
+        previous_hash: String::new(),
+        event_hash: String::new(),
+    }
+}
+
 /// Append a terminal event carrying `rows` to `run`, unfenced.
 fn append(
     store: &mut Store,
@@ -809,9 +833,7 @@ fn a_wait_ending_inside_its_recording_second_writes_its_row() {
     .unwrap();
     insert(
         &store.conn,
-        "run-a",
-        1,
-        "2026-11-01T00:00:00Z",
+        &recorded_at("run-a", 1, "2026-11-01T00:00:00Z", serde_json::json!({})),
         &[row("a", "claude", "first", until)],
     )
     .unwrap();
@@ -892,7 +914,7 @@ fn a_cool_down_reader_refuses_an_unknown_queue_version() {
     ] {
         assert_eq!(
             error.to_string(),
-            "queue storage 9 unsupported (want 6)",
+            "queue storage 9 unsupported (want 7)",
             "{error:?}"
         );
         assert!(matches!(
@@ -1323,3 +1345,5 @@ fn the_rounds_read_refuses_a_time_it_cannot_spell() {
         StoreError::Queue(QueueRefusal::CooldownTime { .. })
     ));
 }
+
+mod held;

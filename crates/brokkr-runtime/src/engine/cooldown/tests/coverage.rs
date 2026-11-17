@@ -27,6 +27,7 @@ fn rate_limit_wait(site: Option<&str>) -> ProviderWait {
         seconds: 1,
         until: base() + time::Duration::seconds(1),
         rounds: 1,
+        held: None,
     }
 }
 

@@ -204,7 +204,7 @@ fn an_unknown_queue_version_writes_nothing_and_says_so() {
     let mut store = store(dir.path());
     store
         .conn
-        .execute("UPDATE meta SET value = '7' WHERE key = 'queue_schema'", [])
+        .execute("UPDATE meta SET value = '8' WHERE key = 'queue_schema'", [])
         .unwrap();
     assert_eq!(
         store
@@ -218,7 +218,7 @@ fn an_unknown_queue_version_writes_nothing_and_says_so() {
         .unwrap();
     assert_eq!(count, 0);
     let refused = store.seat_trees(RUN).unwrap_err();
-    assert_eq!(refused.to_string(), "queue storage 7 unsupported (want 6)");
+    assert_eq!(refused.to_string(), "queue storage 8 unsupported (want 7)");
 }
 
 #[test]

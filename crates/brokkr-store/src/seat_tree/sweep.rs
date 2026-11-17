@@ -120,7 +120,7 @@ impl Store {
 
     fn open_seat_trees_once(&self) -> Result<Vec<SeatTree>, StoreError> {
         match queue_stored(&self.conn)? {
-            Some(Stored::V6) => read_trees_from(&self.conn, READ_OPEN_TREES),
+            Some(Stored::V6 | Stored::V7) => read_trees_from(&self.conn, READ_OPEN_TREES),
             Some(Stored::V5) => read_trees_from(&self.conn, READ_ALL_TREES),
             Some(Stored::V1 | Stored::V2 | Stored::V3 | Stored::V4) | None => Ok(Vec::new()),
         }
@@ -135,7 +135,7 @@ impl Store {
 
     fn tree_sweeps_once(&self) -> Result<Vec<TreeSweep>, StoreError> {
         match queue_stored(&self.conn)? {
-            Some(Stored::V6) => read_sweeps(&self.conn),
+            Some(Stored::V6 | Stored::V7) => read_sweeps(&self.conn),
             Some(Stored::V1 | Stored::V2 | Stored::V3 | Stored::V4 | Stored::V5) | None => {
                 Ok(Vec::new())
             }

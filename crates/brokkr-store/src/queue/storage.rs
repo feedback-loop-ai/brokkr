@@ -5,7 +5,7 @@
 use rusqlite::{params, Connection, OptionalExtension};
 
 use super::{CooldownDuplicate, EntryId, Latch, QueueRefusal, Wait};
-use crate::schema::{all_present, objects};
+use crate::schema::{all_present, holds, objects};
 use crate::seat_tree::sweep::{refuse_sweep_duplicates, TREE_SWEEP_INDEX, TREE_SWEEP_TABLE};
 use crate::seat_tree::{refuse_duplicates, SEAT_TREE_INDEX, SEAT_TREE_TABLE};
 use crate::StoreError;
@@ -63,8 +63,10 @@ pub(super) fn wait_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Wait> {
 /// `seat_trees` table a run-local seat scratch tree is recorded in before
 /// it is made (decision 0104 ruling 6, slice 5b). Version 6 adds the
 /// `tree_sweeps` table a complete removal is recorded in (decision 0104
-/// ruling 8, slice 5c1).
-pub(crate) const QUEUE_SCHEMA: u32 = 6;
+/// ruling 8, slice 5c1). Version 7 adds `provider_cooldowns`' two nullable
+/// columns, `held` and `max_seconds`, so a held wait's row carries its own
+/// kind (decision 0106 ruling 2, slice 0106b1).
+pub(crate) const QUEUE_SCHEMA: u32 = 7;
 
 /// The `meta` key a journal records [`QUEUE_SCHEMA`] under: one home for
 /// the spelling, read by this module and by a backup's missing-schema
@@ -91,6 +93,10 @@ pub(crate) const QUEUE_SCHEMA_V4: u32 = 4;
 /// is.
 pub(crate) const QUEUE_SCHEMA_V5: u32 = 5;
 
+/// The sixth, whose cool-downs held no kind: read and migrated as the
+/// fifth is, its every row an ordinary wait.
+pub(crate) const QUEUE_SCHEMA_V6: u32 = 6;
+
 /// A queue storage version this brokkr reads, matched by version wherever
 /// what it holds differs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -101,6 +107,7 @@ pub(crate) enum Stored {
     V4,
     V5,
     V6,
+    V7,
 }
 
 impl Stored {
@@ -113,12 +120,14 @@ impl Stored {
             QUEUE_SCHEMA_V3 => Some(Stored::V3),
             QUEUE_SCHEMA_V4 => Some(Stored::V4),
             QUEUE_SCHEMA_V5 => Some(Stored::V5),
-            QUEUE_SCHEMA => Some(Stored::V6),
+            QUEUE_SCHEMA_V6 => Some(Stored::V6),
+            QUEUE_SCHEMA => Some(Stored::V7),
             _ => None,
         }
     }
 
-    /// How many of [`QUEUE_TABLES`] this version holds.
+    /// How many of [`QUEUE_TABLES`] this version holds. Version 7 adds
+    /// columns, not a table, so it holds version 6's.
     fn tables(self) -> usize {
         match self {
             Stored::V1 => 3,
@@ -126,7 +135,7 @@ impl Stored {
             Stored::V3 => QUEUE_TABLES_V3,
             Stored::V4 => QUEUE_TABLES_V4,
             Stored::V5 => QUEUE_TABLES_V5,
-            Stored::V6 => QUEUE_TABLES.len(),
+            Stored::V6 | Stored::V7 => QUEUE_TABLES.len(),
         }
     }
 }
@@ -400,6 +409,49 @@ CREATE TRIGGER IF NOT EXISTS tree_sweeps_append_only_delete
     BEGIN SELECT RAISE(ABORT, 'tree sweeps are append-only'); END;
 "#;
 
+/// Version 7's additions (decision 0106 ruling 2, slice 0106b1): a cool-down
+/// row's kind, beside version 4's columns. `max_seconds` is the declared
+/// maximum a held wait's provider-stated end exceeded, and `held` is `1`
+/// exactly where it is present; both are NULL on an ordinary wait's row and
+/// on every row an older version wrote. A held row's `until_at` may lie past
+/// `max_seconds` after `recorded_at`. SQLite has no `ADD COLUMN IF NOT
+/// EXISTS`, so presence is asked rather than an error swallowed, and
+/// `max_seconds` comes first because `held`'s CHECK names it.
+const MIGRATION_QUEUE_V7: [(&str, &str); 2] = [
+    (
+        "max_seconds",
+        "ALTER TABLE provider_cooldowns ADD COLUMN max_seconds INTEGER
+            CONSTRAINT max_positive CHECK (max_seconds IS NULL
+                OR (typeof(max_seconds) = 'integer' AND max_seconds > 0))",
+    ),
+    (
+        "held",
+        "ALTER TABLE provider_cooldowns ADD COLUMN held INTEGER
+            CONSTRAINT held_names_its_maximum CHECK ((held IS NULL AND max_seconds IS NULL)
+                OR (held IS 1 AND max_seconds IS NOT NULL))",
+    ),
+];
+
+/// Add version 7's columns that `provider_cooldowns` does not declare yet.
+fn add_cool_down_kinds(conn: &Connection) -> Result<(), StoreError> {
+    for (column, statement) in MIGRATION_QUEUE_V7 {
+        if !holds(conn, COOLDOWN_TABLE, [column])? {
+            conn.execute(statement, [])?;
+        }
+    }
+    Ok(())
+}
+
+/// Does `provider_cooldowns` declare every version 7 column? A table that
+/// is absent declares none.
+fn cool_down_kinds_present(conn: &Connection) -> Result<bool, StoreError> {
+    holds(
+        conn,
+        COOLDOWN_TABLE,
+        MIGRATION_QUEUE_V7.iter().map(|(column, _)| *column),
+    )
+}
+
 /// The guards the migrations install, by name, so an open can ask
 /// whether a journal still carries every one.
 const QUEUE_TRIGGERS: [&str; 27] = [
@@ -527,16 +579,17 @@ pub(crate) fn queue_intact(conn: &Connection) -> Result<bool, StoreError> {
     {
         return Err(QueueRefusal::TableLost { table }.into());
     }
-    // An older queue has not every guard or index: migrated. The presence
-    // question is `schema::all_present`'s, as it is for every other repair.
+    // An older queue has not every guard or index, and a version 6 queue's
+    // cool-downs have no kind: migrated. The presence question is
+    // `schema::all_present`'s, as it is for every other repair.
     Ok(all_present(conn, "trigger", &QUEUE_TRIGGERS)?
-        && all_present(conn, "index", &QUEUE_INDEXES)?)
+        && all_present(conn, "index", &QUEUE_INDEXES)?
+        && cool_down_kinds_present(conn)?)
 }
 
 /// Create the queue's tables and guards and record its version, on a
-/// connection already holding the write lock. A version 1, 2, 3, 4 or 5
-/// queue is moved to this version; a version this binary does not know is
-/// not.
+/// connection already holding the write lock. A version 1 to 6 queue is
+/// moved to this version; a version this binary does not know is not.
 pub(crate) fn migrate_queue(conn: &Connection) -> Result<(), StoreError> {
     conn.execute_batch(MIGRATION_QUEUE_V1)?;
     conn.execute_batch(MIGRATION_QUEUE_V2)?;
@@ -547,6 +600,7 @@ pub(crate) fn migrate_queue(conn: &Connection) -> Result<(), StoreError> {
     conn.execute_batch(MIGRATION_QUEUE_V5)?;
     refuse_sweep_duplicates(conn)?;
     conn.execute_batch(MIGRATION_QUEUE_V6)?;
+    add_cool_down_kinds(conn)?;
     record_queue_version(conn)
 }
 
@@ -554,9 +608,9 @@ pub(crate) fn migrate_queue(conn: &Connection) -> Result<(), StoreError> {
 /// version it replaces.
 const RECORD_QUEUE_VERSION: &str = "INSERT INTO meta (key, value) VALUES (?1, ?2)
      ON CONFLICT (key) DO UPDATE SET value = excluded.value
-     WHERE value IN (?3, ?4, ?5, ?6, ?7)";
+     WHERE value IN (?3, ?4, ?5, ?6, ?7, ?8)";
 
-/// Record [`QUEUE_SCHEMA`] over a version 1 to 5 queue, and leave any
+/// Record [`QUEUE_SCHEMA`] over a version 1 to 6 queue, and leave any
 /// version this binary does not know as it was found.
 fn record_queue_version(conn: &Connection) -> Result<(), StoreError> {
     let versions = [
@@ -565,9 +619,10 @@ fn record_queue_version(conn: &Connection) -> Result<(), StoreError> {
         QUEUE_SCHEMA_V3.to_string(),
         QUEUE_SCHEMA_V4.to_string(),
         QUEUE_SCHEMA_V5.to_string(),
+        QUEUE_SCHEMA_V6.to_string(),
     ];
     let current = QUEUE_SCHEMA.to_string();
-    let values: [&dyn rusqlite::ToSql; 7] = [
+    let values: [&dyn rusqlite::ToSql; 8] = [
         &QUEUE_SCHEMA_KEY,
         &current,
         &versions[0],
@@ -575,6 +630,7 @@ fn record_queue_version(conn: &Connection) -> Result<(), StoreError> {
         &versions[2],
         &versions[3],
         &versions[4],
+        &versions[5],
     ];
     conn.execute(RECORD_QUEUE_VERSION, values)?;
     Ok(())
@@ -647,14 +703,14 @@ pub(crate) fn queue_stored(conn: &Connection) -> Result<Option<Stored>, StoreErr
 /// binary can say what it holds.
 pub(super) fn cool_downs_held(conn: &Connection) -> Result<bool, StoreError> {
     match queue_stored(conn)? {
-        Some(Stored::V4 | Stored::V5 | Stored::V6) => Ok(true),
+        Some(Stored::V4 | Stored::V5 | Stored::V6 | Stored::V7) => Ok(true),
         Some(Stored::V1 | Stored::V2 | Stored::V3) | None => Ok(false),
     }
 }
 
 /// Does the queue hold the cool-down table a rows-bearing append writes?
-/// Version 6 is the only one this binary writes. A version 1, 2 or 3
-/// queue is from before the table, a version 4 queue is older than this
+/// Version 7 is the only one this binary writes. A version 1, 2 or 3
+/// queue is from before the table, a version 4 to 6 queue is older than this
 /// binary's version (and only an open that may write migrates it), no
 /// queue at all holds none, and a version this binary does not know is a
 /// newer binary's queue, left as found: in each case only the event lands.

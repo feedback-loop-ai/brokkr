@@ -366,6 +366,7 @@ impl Plan {
             seconds: self.seconds,
             until,
             rounds: self.rounds,
+            held: None,
         })
     }
 

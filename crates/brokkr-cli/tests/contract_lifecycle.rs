@@ -868,12 +868,19 @@ fn instance_satisfies_row(row: &Row, instance: &serde_json::Value) -> Option<Str
 /// (with its `probes` answer beside it) loads, and the row's own schema
 /// admits the instance first.
 fn drive_provider_waits(row: &Row) -> Vec<String> {
+    let mut wait = serde_json::json!({
+        "provider": "claude", "route": "first", "words": "rate_limit",
+        "retry_after_seconds": 30, "seconds": 30,
+        "until": "2026-11-01T00:00:30Z", "rounds": 2
+    });
+    // v2's row drives the held entry only v2 writes (decision 0106 ruling 2).
+    let held = row.version == "provider-wait/v2";
+    if held {
+        wait["held"] = serde_json::json!(true);
+        wait["max_seconds"] = serde_json::json!(10);
+    }
     let payload = serde_json::json!({
-        "waits": [{
-            "provider": "claude", "route": "first", "words": "rate_limit",
-            "retry_after_seconds": 30, "seconds": 30,
-            "until": "2026-11-01T00:00:30Z", "rounds": 2
-        }],
+        "waits": [wait],
         "probes": [{
             "provider": "claude", "route": "first",
             "answered_at": "2026-11-01T00:00:31Z"
@@ -884,10 +891,11 @@ fn drive_provider_waits(row: &Row) -> Vec<String> {
     }
     let event = envelope(brokkr_core::EventType::EffectFailed, payload, 1);
     let waits = brokkr_core::provider_waits(&event)
-        .expect("a v1 wait loads")
+        .expect("a wait loads")
         .expect("the extension is present");
     assert_eq!(waits.len(), 1, "one wait entry loads");
     assert_eq!(waits[0].rounds, 2);
+    assert_eq!(waits[0].held.is_some(), held);
     Vec::new()
 }
 

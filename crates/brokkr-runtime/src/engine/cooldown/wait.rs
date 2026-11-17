@@ -334,6 +334,7 @@ impl Engine {
                     seconds: waited,
                     until: self.now(),
                     rounds,
+                    held: None,
                 };
                 return Err(CooldownError::Maximum(Box::new(MaximumFacts {
                     wait: pending,
@@ -389,6 +390,7 @@ impl Engine {
                     seconds: round.seconds,
                     until: self.now(),
                     rounds: round.round,
+                    held: None,
                 };
                 let passed =
                     (wait.site != round.site).then(|| wait.site.clone().unwrap_or_default());
@@ -525,6 +527,7 @@ impl Engine {
                     seconds,
                     until: wait.until,
                     rounds,
+                    held: wait.held,
                 };
                 // Judge with the same per-site length the park names, not
                 // the terminal wait's own: a written probe round may have

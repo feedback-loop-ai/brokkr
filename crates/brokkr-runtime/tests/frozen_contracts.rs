@@ -6,6 +6,9 @@
 
 use std::path::PathBuf;
 
+#[path = "frozen_contracts/provider_wait_v2.rs"]
+mod provider_wait_v2;
+
 fn workspace() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -24,7 +27,7 @@ fn digest(relative: &str) -> String {
 /// Recorded from this tree before the agent library existed, plus the
 /// realms map v1 — pinned when decision 0026 landed `forge.realms/v2`
 /// beside it, so "beside, never inside" is machine-checked.
-const FROZEN: [(&str, &str); 38] = [
+const FROZEN: [(&str, &str); 39] = [
     // Decision 0103 (accepted) mints the driver-refusal extension beside
     // the frozen v1 family; its bytes are pinned from here. Fix round
     // 430s4a6 L2 re-pins the unreleased file after the shared route form
@@ -221,6 +224,12 @@ const FROZEN: [(&str, &str); 38] = [
         "contracts/provider-wait.v1.schema.json",
         "7f3b018dd5e50abea8735ecd8c7c8c96684f519e370d9a291c74a77975986dfc",
     ),
+    // Decision 0106 ruling 2 mints `provider-wait/v2` beside v1, whose
+    // bytes did not move: v2 is v1 plus a held entry's two fields.
+    (
+        "contracts/provider-wait.v2.schema.json",
+        "92658ea5058d556b624f5c8494f2b15454a009d117b5d1c9b78aa778a5ff405c",
+    ),
     // Decision 0106 ruling 1 mints `park-cause/v1` as an additive
     // extension at event_schema 1; its bytes are pinned from birth.
     (
@@ -281,6 +290,10 @@ fn the_new_contracts_exist_beside_the_frozen_ones() {
         (
             "contracts/provider-wait.v1.schema.json",
             "Forge provider wait v1",
+        ),
+        (
+            "contracts/provider-wait.v2.schema.json",
+            "Forge provider wait v2",
         ),
         ("contracts/park-cause.v1.schema.json", "Forge park cause v1"),
         (

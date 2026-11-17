@@ -31,7 +31,7 @@ pub use fold::{fold, Cursor, FoldError, RunState, Status};
 pub use keep_refs::cited_shas;
 pub use park::{CauseRead, FailureClass, ParkCause, ParkCauseError, ProviderLimitRefusal};
 pub use payload::{
-    provider_refusal, provider_waits, ProbeAnswer, ProviderRefusal, ProviderRefusalError,
+    provider_refusal, provider_waits, Held, ProbeAnswer, ProviderRefusal, ProviderRefusalError,
     ProviderWait, ProviderWaitError, RefusalCause,
 };
 pub use policy::{Machine, Outcome, PolicyError};

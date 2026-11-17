@@ -992,6 +992,7 @@ fn a_member_wait_resolves_the_declared_step_and_member_pair() {
         seconds: 1,
         until: base(),
         rounds: 1,
+        held: None,
     };
     let probe = engine
         .probe_member(&events, &state, "effect", "work", &wait, "a:b:c")
@@ -1072,6 +1073,7 @@ fn a_sequence_wait_at_a_form_it_does_not_name_parks_by_name() {
         seconds: 1,
         until: base(),
         rounds: 1,
+        held: None,
     };
     for (site, expected) in [
         ("unknown", "declares no step"),

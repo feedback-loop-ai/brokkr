@@ -250,13 +250,7 @@ pub(crate) fn append_once(
         event.causation_id.clone(),
         event.attempt_id.clone(),
     )?;
-    insert_cooldowns(
-        &tx,
-        event.run_id,
-        envelope.seq,
-        &envelope.recorded_at,
-        cooldowns,
-    )?;
+    insert_cooldowns(&tx, &envelope, cooldowns)?;
     let found = (last_seq, previous_hash.as_str());
     let settled = summary::judge(&tx, carried, found, std::slice::from_ref(&envelope))?;
     tx.commit()?;

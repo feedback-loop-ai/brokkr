@@ -357,7 +357,7 @@ fn entries(
     key: &dyn rusqlite::ToSql,
 ) -> Result<Vec<QueueEntry>, StoreError> {
     let (payload, pin, latched) = match stored {
-        Stored::V2 | Stored::V3 | Stored::V4 | Stored::V5 | Stored::V6 => {
+        Stored::V2 | Stored::V3 | Stored::V4 | Stored::V5 | Stored::V6 | Stored::V7 => {
             (PINNED_PAYLOAD, PINNED_SEQ, true)
         }
         Stored::V1 => ("payload", "NULL", false),
