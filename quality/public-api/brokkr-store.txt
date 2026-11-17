@@ -596,6 +596,9 @@ pub fn brokkr_store::Store::queue_latch(&mut self, brokkr_store::EntryId, &str, 
 pub fn brokkr_store::Store::queue_list(&self) -> core::result::Result<alloc::vec::Vec<brokkr_store::QueueEntry>, brokkr_store::StoreError>
 pub fn brokkr_store::Store::queue_repin(&mut self, brokkr_store::EntryId, &str, brokkr_store::Seen, brokkr_store::Attribution<'_>) -> core::result::Result<(), brokkr_store::StoreError>
 impl brokkr_store::Store
+pub fn brokkr_store::Store::queue_spawned(&self, brokkr_store::EntryId, i64) -> core::result::Result<core::option::Option<alloc::string::String>, brokkr_store::StoreError>
+pub fn brokkr_store::Store::queue_unspawned(&self) -> core::result::Result<alloc::vec::Vec<(brokkr_store::Claim, core::option::Option<alloc::string::String>)>, brokkr_store::StoreError>
+impl brokkr_store::Store
 pub fn brokkr_store::Store::read_snapshot<T, E: core::convert::From<brokkr_store::StoreError>>(&self, impl core::ops::function::FnOnce() -> core::result::Result<T, E>) -> core::result::Result<T, E>
 impl brokkr_store::Store
 pub fn brokkr_store::Store::record_seat_tree(&mut self, &str, &str, &str, &std::path::Path) -> core::result::Result<brokkr_store::SeatTreeRecord, brokkr_store::StoreError>

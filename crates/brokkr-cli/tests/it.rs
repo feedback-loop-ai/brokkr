@@ -48,6 +48,7 @@ mod costs_read;
 mod decisions_index;
 mod delivered_by_brokkr;
 mod diagrams;
+mod dispatch;
 mod doc_samples;
 mod doc_truth;
 mod doctor_dsh_selection;

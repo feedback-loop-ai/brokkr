@@ -157,7 +157,7 @@ fn judge(
 /// ruling 3): its host configuration where XDG puts it, its temp directory
 /// where the standard library finds it, and the free space statvfs
 /// reports.
-fn on_this_host<T>(act: impl FnOnce(&Host<'_>) -> Result<T>) -> Result<T> {
+pub(super) fn on_this_host<T>(act: impl FnOnce(&Host<'_>) -> Result<T>) -> Result<T> {
     on_the_host_at(
         std::env::var_os("XDG_CONFIG_HOME"),
         std::env::var_os("HOME"),

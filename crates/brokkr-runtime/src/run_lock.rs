@@ -174,8 +174,8 @@ fn locked_at(journal: &Path, run_id: &str) -> Result<lock_file::Held, RunLockErr
 
 /// The run lock directory: made owner-only where it is missing, opened
 /// without following a link, and this user's own directory of mode 0700
-/// as it stands.
-fn directory(journal: &Path) -> Result<OwnedFd, RunLockError> {
+/// as it stands. A driver's log stands in it too (decision 0110 ruling 3).
+pub(crate) fn directory(journal: &Path) -> Result<OwnedFd, RunLockError> {
     let at = directory_path(journal);
     match mkdirat(CWD, &at, Mode::RWXU) {
         Ok(()) | Err(Errno::EXIST) => {}
@@ -205,7 +205,7 @@ pub(crate) fn directory_path(journal: &Path) -> PathBuf {
 
 /// Whether `run_id` is one plain file name: no separator, no `.` or `..`,
 /// no NUL, and the whole string.
-fn safe(run_id: &str) -> bool {
+pub(crate) fn safe(run_id: &str) -> bool {
     match Path::new(run_id)
         .components()
         .collect::<Vec<_>>()

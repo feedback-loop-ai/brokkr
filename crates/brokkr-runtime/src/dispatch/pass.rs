@@ -60,10 +60,17 @@ pub enum Ending {
     /// another journal, or a step was not its to take.
     #[error(transparent)]
     Dispatcher(super::DispatcherError),
-    /// `stands` ended the dispatcher: the binary it would spawn is not the
-    /// one it started from, or a signal asked it to stop.
+    /// `stands` ended the dispatcher: a signal asked it to stop.
     #[error("dispatch: the dispatcher no longer stands")]
     Stood,
+    /// The brokkr the dispatcher was started from is no longer the file at
+    /// its path (decision 0110 ruling 4): nothing more was claimed.
+    #[error(
+        "dispatch: the brokkr at {} is not the one this dispatcher started from; it claimed \
+         nothing after; start the dispatcher again",
+        .0.display()
+    )]
+    Replaced(std::path::PathBuf),
     /// A newer dispatcher holds the journal: nothing after was written.
     /// The generation named is the stale one this dispatcher held.
     #[error(

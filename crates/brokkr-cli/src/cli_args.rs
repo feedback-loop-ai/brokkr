@@ -6,6 +6,8 @@
 
 mod compile;
 pub(super) use compile::CompileArgs;
+mod dispatch;
+pub(crate) use dispatch::{DispatchArgs, DispatchCmd, DriveArgs, SetBoundArgs, StatusArgs};
 mod entry;
 use entry::EntryArgs;
 mod member_retry;
@@ -702,6 +704,11 @@ pub(super) enum GroupedCmd {
     /// lock; `--dry-run` lists what a pass would remove, with sizes, and
     /// writes nothing.
     Sweep(SweepArgs),
+    /// Start what admission admits from the journal's queue, each run
+    /// handed to a driver of its own (decision 0110): one pass with
+    /// `--once` under the journal's dispatch lock, the bound's command and
+    /// the holder's readout.
+    Dispatch(DispatchArgs),
 }
 
 /// The MCP capability broker's one verb (decision 0077), and its private

@@ -250,3 +250,34 @@ fn a_dispatcher_whose_lock_file_was_removed_is_fenced_out_by_the_next() {
     let claimed = other.queue_claim_with(&over(second.generation), "r", judge);
     assert!(matches!(claimed, Ok(Ok(_))), "{claimed:?}");
 }
+
+/// Decision 0110 ruling 6: status's probe reads a held lock as held, a
+/// lock let go or never made as free, and makes no lock file of its own.
+#[test]
+fn the_probe_reads_a_held_lock_held_and_makes_no_lock_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let (path, mut store) = journal(dir.path());
+    let lock = dir.path().join("forge.db.dispatch.lock");
+    let probe = super::dispatched;
+    assert!(!probe(&path));
+    assert!(!lock.exists(), "the probe made no lock file");
+    let held = take_dispatch(&mut store).unwrap().unwrap();
+    assert!(probe(&path));
+    // The probe let its own hold go: the dispatcher's lock is still its.
+    assert!(probe(&path));
+    drop(held);
+    assert!(!probe(&path));
+}
+
+/// The probe tries the lock shared: a second reader probing at once, here
+/// a shared hold the test keeps, still reads the journal free, where an
+/// exclusive try would read it held.
+#[test]
+fn a_probe_beside_another_probe_reads_the_lock_free() {
+    let dir = tempfile::tempdir().unwrap();
+    let (path, mut store) = journal(dir.path());
+    drop(take_dispatch(&mut store).unwrap().unwrap());
+    let lock = std::fs::File::open(dir.path().join("forge.db.dispatch.lock")).unwrap();
+    flock(&lock, FlockOperation::NonBlockingLockShared).unwrap();
+    assert!(!super::dispatched(&path));
+}

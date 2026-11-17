@@ -99,7 +99,7 @@ const DISPATCH: &str = "dispatch";
 /// The steps of a start from the queue, by the word each is journaled as:
 /// the dispatcher's `hold` of a refused start is the operator's word.
 #[derive(Debug, Clone, Copy)]
-enum Step {
+pub(super) enum Step {
     Claim,
     Hold,
     Link,
@@ -108,7 +108,7 @@ enum Step {
 }
 
 impl Step {
-    fn word(self) -> &'static str {
+    pub(super) fn word(self) -> &'static str {
         match self {
             Step::Claim => "claim",
             Step::Hold => super::QueueCommand::Hold.word(),
@@ -612,13 +612,13 @@ type Unsettled = (Vec<(Claim, Option<String>)>, Vec<(Claim, String)>);
 
 /// Each entry in state `?1` with no command `?2`, under its latest claim,
 /// with its run, by entry. [`standing_row`] reads a row.
-const STANDING: &str = "SELECT e.entry_id, c.seq, e.run_id FROM queue_entries e
+pub(super) const STANDING: &str = "SELECT e.entry_id, c.seq, e.run_id FROM queue_entries e
         JOIN queue_claims c ON c.seq = (SELECT MAX(seq) FROM queue_claims WHERE entry_id = e.entry_id)
         WHERE e.state = ?1
         AND NOT EXISTS (SELECT 1 FROM queue_commands WHERE entry_id = e.entry_id AND command = ?2)
         ORDER BY e.entry_id";
 
-fn standing_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<(Claim, Option<String>)> {
+pub(super) fn standing_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<(Claim, Option<String>)> {
     let (entry, seq) = (EntryId(row.get(0)?), row.get(1)?);
     Ok((Claim { entry, seq }, row.get(2)?))
 }

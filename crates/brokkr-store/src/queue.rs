@@ -29,6 +29,7 @@ use crate::{now_rfc3339, patiently, Store, StoreError};
 mod beside;
 mod claim;
 mod cooldown;
+mod driven;
 mod entry;
 mod holder;
 mod refusal;
