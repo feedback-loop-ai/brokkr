@@ -1,20 +1,21 @@
 # 0109 — A gate's re-visit reads what changed since its last verdict, and the findings that still stand, unless a declared trigger asks for a whole read
 
-Status: proposed
+Status: accepted — operator ruled in chat 2026-11-17, "accept 0109 as recommended" (https://github.com/feedback-loop-ai/brokkr/issues/1088#issuecomment-6960606249)
 Date: 2026-11-15
 
 Built: unbuilt (#1088)
+Amends: 0034
 
-This decision is a document only. It proposes the shapes and rules a later build
+This decision is a document only. It sets the shapes and rules a later build
 will enforce; it mints no contract version and adds no code, test, guide or
 recipe. It acts on 0034's successful-result record and relies on 0071's rulings 2,
 5 and 9, on 0082's minting rule, and on 0022's and 0006's residual and attempt
 bounds, which stand unchanged. The replacement sentence for 0034 is in
 [What 0034 says after acceptance](#what-0034-says-after-acceptance); the header
-pointer and back-pointer are absent until acceptance, because this story may not
-edit an existing decision. One rule stands in front of every choice: the engine
-decides the read and the transition from typed facts, never from a seat's prose;
-no model chooses a whole read, a delta read or a routing.
+pointer above and 0034's back-pointer were added at acceptance, 2026-11-17. One
+rule stands in front of every choice: the engine decides the read and the
+transition from typed facts, never from a seat's prose; no model chooses a whole
+read, a delta read or a routing.
 
 ## Context
 
@@ -181,7 +182,9 @@ it; it knows a section only as the dialect's string, and it parses no heading.
 
 Each ruling gives the options, what each costs and refuses, and the recommended
 option. The operator may accept all or pick. Where a ruling offers one shape, it
-says so.
+says so. The operator accepted every ruling as recommended on 2026-11-17 (#1088).
+Each contract version this decision marks proposed is minted by the slice that
+builds it, under 0082's minting rule.
 
 ### 1. Where a verdict records its findings, follow-ups and covered identity
 
@@ -1788,8 +1791,8 @@ After acceptance it reads:
 > vocabulary, and only seat-record v7 admits the three gate fields. v7 keeps
 > `state` and the accounting fields.
 
-The replacement takes effect with acceptance; 0034 gains the `Amended by: 0109`
-back-pointer then, not in this story. No other decision's text changes. 0022,
+The replacement took effect at acceptance (2026-11-17), when 0034 gained the
+`Amended by: 0109` back-pointer. No other decision's text changes. 0022,
 0006 and 0082 stand as written.
 
 ## What stays out
