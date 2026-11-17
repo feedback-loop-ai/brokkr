@@ -429,6 +429,7 @@ pub fn brokkr_view::FactUnion<'_>::quarantined(&self) -> alloc::vec::Vec<brokkr_
 pub fn brokkr_view::FactUnion<'_>::runs(&self, &mut dyn core::ops::function::FnMut(brokkr_view::RunFacts))
 pub fn brokkr_view::FactUnion<'_>::runs_in(&self, brokkr_view::RunOrder, &mut dyn core::ops::function::FnMut(&mut dyn core::iter::traits::iterator::Iterator<Item = brokkr_view::RunFacts>))
 pub fn brokkr_view::FactUnion<'_>::scope(&self) -> (&[alloc::string::String], &alloc::collections::btree::map::BTreeMap<alloc::string::String, usize>)
+pub fn brokkr_view::FactUnion<'_>::shipped_between(&self, brokkr_view::Window) -> usize
 pub fn brokkr_view::FactUnion<'_>::sites_in(&self, brokkr_view::SiteOrder, &mut dyn core::ops::function::FnMut(&mut dyn core::iter::traits::iterator::Iterator<Item = brokkr_view::SiteFact>))
 pub fn brokkr_view::FactUnion<'_>::spends(&self, &mut dyn core::ops::function::FnMut(brokkr_view::SpendFact))
 pub struct brokkr_view::FirstDivergence
@@ -833,6 +834,7 @@ pub fn brokkr_view::WholeRead::quarantined(&self) -> alloc::vec::Vec<brokkr_view
 pub fn brokkr_view::WholeRead::runs(&self, &mut dyn core::ops::function::FnMut(brokkr_view::RunFacts))
 pub fn brokkr_view::WholeRead::runs_in(&self, brokkr_view::RunOrder, &mut dyn core::ops::function::FnMut(&mut dyn core::iter::traits::iterator::Iterator<Item = brokkr_view::RunFacts>))
 pub fn brokkr_view::WholeRead::scope(&self) -> (&[alloc::string::String], &alloc::collections::btree::map::BTreeMap<alloc::string::String, usize>)
+pub fn brokkr_view::WholeRead::shipped_between(&self, brokkr_view::Window) -> usize
 pub fn brokkr_view::WholeRead::sites_in(&self, brokkr_view::SiteOrder, &mut dyn core::ops::function::FnMut(&mut dyn core::iter::traits::iterator::Iterator<Item = brokkr_view::SiteFact>))
 pub fn brokkr_view::WholeRead::spends(&self, &mut dyn core::ops::function::FnMut(brokkr_view::SpendFact))
 pub struct brokkr_view::Window
@@ -853,6 +855,7 @@ pub fn brokkr_view::FactSource::quarantined(&self) -> alloc::vec::Vec<brokkr_vie
 pub fn brokkr_view::FactSource::runs(&self, &mut dyn core::ops::function::FnMut(brokkr_view::RunFacts))
 pub fn brokkr_view::FactSource::runs_in(&self, brokkr_view::RunOrder, &mut dyn core::ops::function::FnMut(&mut dyn core::iter::traits::iterator::Iterator<Item = brokkr_view::RunFacts>))
 pub fn brokkr_view::FactSource::scope(&self) -> (&[alloc::string::String], &alloc::collections::btree::map::BTreeMap<alloc::string::String, usize>)
+pub fn brokkr_view::FactSource::shipped_between(&self, brokkr_view::Window) -> usize
 pub fn brokkr_view::FactSource::sites_in(&self, brokkr_view::SiteOrder, &mut dyn core::ops::function::FnMut(&mut dyn core::iter::traits::iterator::Iterator<Item = brokkr_view::SiteFact>))
 pub fn brokkr_view::FactSource::spends(&self, &mut dyn core::ops::function::FnMut(brokkr_view::SpendFact))
 impl brokkr_view::FactSource for brokkr_view::FactUnion<'_>
@@ -862,6 +865,7 @@ pub fn brokkr_view::FactUnion<'_>::quarantined(&self) -> alloc::vec::Vec<brokkr_
 pub fn brokkr_view::FactUnion<'_>::runs(&self, &mut dyn core::ops::function::FnMut(brokkr_view::RunFacts))
 pub fn brokkr_view::FactUnion<'_>::runs_in(&self, brokkr_view::RunOrder, &mut dyn core::ops::function::FnMut(&mut dyn core::iter::traits::iterator::Iterator<Item = brokkr_view::RunFacts>))
 pub fn brokkr_view::FactUnion<'_>::scope(&self) -> (&[alloc::string::String], &alloc::collections::btree::map::BTreeMap<alloc::string::String, usize>)
+pub fn brokkr_view::FactUnion<'_>::shipped_between(&self, brokkr_view::Window) -> usize
 pub fn brokkr_view::FactUnion<'_>::sites_in(&self, brokkr_view::SiteOrder, &mut dyn core::ops::function::FnMut(&mut dyn core::iter::traits::iterator::Iterator<Item = brokkr_view::SiteFact>))
 pub fn brokkr_view::FactUnion<'_>::spends(&self, &mut dyn core::ops::function::FnMut(brokkr_view::SpendFact))
 impl brokkr_view::FactSource for brokkr_view::WholeRead
@@ -871,6 +875,7 @@ pub fn brokkr_view::WholeRead::quarantined(&self) -> alloc::vec::Vec<brokkr_view
 pub fn brokkr_view::WholeRead::runs(&self, &mut dyn core::ops::function::FnMut(brokkr_view::RunFacts))
 pub fn brokkr_view::WholeRead::runs_in(&self, brokkr_view::RunOrder, &mut dyn core::ops::function::FnMut(&mut dyn core::iter::traits::iterator::Iterator<Item = brokkr_view::RunFacts>))
 pub fn brokkr_view::WholeRead::scope(&self) -> (&[alloc::string::String], &alloc::collections::btree::map::BTreeMap<alloc::string::String, usize>)
+pub fn brokkr_view::WholeRead::shipped_between(&self, brokkr_view::Window) -> usize
 pub fn brokkr_view::WholeRead::sites_in(&self, brokkr_view::SiteOrder, &mut dyn core::ops::function::FnMut(&mut dyn core::iter::traits::iterator::Iterator<Item = brokkr_view::SiteFact>))
 pub fn brokkr_view::WholeRead::spends(&self, &mut dyn core::ops::function::FnMut(brokkr_view::SpendFact))
 pub fn brokkr_view::age(&str, &str) -> core::option::Option<alloc::string::String>

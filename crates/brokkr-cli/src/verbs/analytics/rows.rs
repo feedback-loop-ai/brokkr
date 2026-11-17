@@ -157,7 +157,7 @@ impl Scope {
 }
 
 /// One rows-read hearth's request: the store, its label and configured
-/// realms, the windows a figure folds, the query's realm and clock, the
+/// realms, the window a figure folds, the query's realm and clock, the
 /// range its whole fallback states, and where a statement that refuses
 /// while a figure pulls it marks the hearth refused (decision 0071 ruling
 /// 10's parameter object).
@@ -166,7 +166,6 @@ pub(super) struct Rows<'a> {
     pub(super) label: &'a str,
     pub(super) configured: &'a [String],
     pub(super) window: Window,
-    pub(super) before: Window,
     pub(super) realm: Option<&'a str>,
     pub(super) range: brokkr_view::Range,
     pub(super) now: &'a str,
@@ -329,7 +328,6 @@ pub(super) fn read_rows_with<'a>(
         store: rows.store,
         label: rows.label,
         window: rows.window,
-        before: rows.before,
         realm: rows.realm,
         refused: rows.refused,
     };
@@ -449,6 +447,13 @@ impl FactSource for HearthSource<'_> {
         match self {
             HearthSource::Whole(whole) => whole.durations(visit),
             HearthSource::Rows(rows) => rows.facts.durations(visit),
+        }
+    }
+
+    fn shipped_between(&self, window: Window) -> usize {
+        match self {
+            HearthSource::Whole(whole) => whole.shipped_between(window),
+            HearthSource::Rows(rows) => rows.facts.shipped_between(window),
         }
     }
 

@@ -6,6 +6,7 @@ use clap::Parser;
 use super::*;
 use crate::Cli;
 
+mod previous;
 mod rows_heap;
 mod snapshot;
 

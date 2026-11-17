@@ -37,10 +37,9 @@
 //!
 //! Every window statement leaves out, in SQL, the runs the whole read
 //! takes, through the `exclusion` module's one fragment, so a caller
-//! streams without a Rust set of run ids. `window_spends`, `window_sites`
-//! and `window_fallbacks` are called by the row path today; slice 4's unit
-//! U5b2, the streamed row source, builds its stream on them. They are
-//! `pub` on [`Store`] so it can.
+//! streams without a Rust set of run ids. `window_spends`, the sites' pull
+//! ([`Store::pull_sites`]) and `window_fallbacks` are the row path's
+//! (slice 4's unit U5b2b1).
 
 use std::sync::LazyLock;
 

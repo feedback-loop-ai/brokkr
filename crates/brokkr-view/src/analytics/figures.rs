@@ -35,14 +35,6 @@ fn finished_in<F: FnMut(&RunFacts, &Finished)>(
     });
 }
 
-fn shipped_in(source: &dyn FactSource, window: Window) -> usize {
-    let mut count = 0;
-    finished_in(source, window, |_, finished| {
-        count += usize::from(shipped(finished));
-    });
-    count
-}
-
 /// The runs that finished inside `window`, by their endings.
 fn ledger_in(source: &dyn FactSource, window: Window) -> Ledger {
     let mut tally = Tally::default();
@@ -621,8 +613,8 @@ pub fn analytics_with(source: &dyn FactSource, query: &Query) -> Result<Analytic
     let (kept, realms_more) = kept_realms.finish();
     let realms: Vec<String> = kept.into_iter().map(|(realm, ())| realm).collect();
     let medians = medians_of(source, &realms);
-    let shipped = shipped_in(source, window);
-    let previous = shipped_in(source, before);
+    let shipped = source.shipped_between(window);
+    let previous = source.shipped_between(before);
     let change = shipped as i64 - previous as i64;
     let (models, models_more) = models(source, window);
     let (waiting_by_step, waiting_by_step_more) = waiting_by_step(source, window);

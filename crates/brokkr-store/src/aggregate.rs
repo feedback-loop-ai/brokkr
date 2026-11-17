@@ -24,11 +24,11 @@
 //! by asking the stale-seat set's intact check once and preparing the
 //! set's or the rule's text.
 //!
-//! `window_runs` and `window_parks` are called by the row path today.
-//! `durations` and `finished_between` have no production caller until
-//! slice 4's unit U5b2, the streamed row source; until it lands, the tests
-//! alone call them. They are `pub` on [`Store`] so it can, and each is in
-//! the public API snapshot until then.
+//! The row path calls every one of them (slice 4's unit U5b2b1): the
+//! ordered window reads through their pulls ([`pull`]), the medians' passes
+//! through `durations`, and the headline's counts through
+//! `finished_between`, beside the hearth's whole read of the runs those
+//! leave out.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::LazyLock;
@@ -338,10 +338,8 @@ impl Store {
     /// after its label and filters by its own realm scope as it does every
     /// other row. The headline's `previous` sums the groups, which
     /// counts the runs that completed, as `brokkr-view`'s `shipped_in`
-    /// does, through the `(finished_ms)` index.
-    ///
-    /// Its caller is U5b2, the streamed row source; until that lands, the
-    /// tests alone call it.
+    /// does, through the `(finished_ms)` index. A run the whole read takes
+    /// is in no group: the caller's whole read of it counts it.
     pub fn finished_between(
         &self,
         from: i64,
@@ -360,8 +358,8 @@ impl Store {
     /// One pass of the median's selection: every finished run's stored
     /// realm key and its span in the window, through the `(finished_ms)`
     /// index, streamed and holding nothing between passes. A run the whole
-    /// read takes is left out in SQL. Its caller is U5b2, the streamed row
-    /// source; until that lands, the tests alone call it.
+    /// read takes is left out in SQL; the caller's whole read of it
+    /// measures it. The row path calls it once a median pass.
     pub fn durations(
         &self,
         from: i64,

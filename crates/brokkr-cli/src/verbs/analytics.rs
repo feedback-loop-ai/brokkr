@@ -146,7 +146,8 @@ fn derive_with(
         realm,
         now,
     };
-    let (window, before) = brokkr_view::windows(&query).map_err(refused)?;
+    // The window before is the figures' to count, through each source.
+    let (window, _) = brokkr_view::windows(&query).map_err(refused)?;
     // A hearth whose rows refuse while a figure pulls them is read whole,
     // and the readout derived again: each pass reads one more hearth
     // whole, so the passes end.
@@ -162,7 +163,6 @@ fn derive_with(
                 realm,
                 now,
                 window,
-                before,
                 refused: &marks[index],
             };
             sources.push(Box::new(source_of(
@@ -211,7 +211,7 @@ fn rows_ready(store: &Store) -> bool {
 }
 
 /// One hearth's read request: the hearth, its label and journal, the
-/// query's range, realm and clock, the windows a figure folds, and where
+/// query's range, realm and clock, the window a figure folds, and where
 /// its rows mark a refusal met while a figure pulls them (decision 0071
 /// ruling 10's parameter object).
 struct Reading<'a> {
@@ -222,7 +222,6 @@ struct Reading<'a> {
     realm: Option<&'a str>,
     now: &'a str,
     window: brokkr_view::Window,
-    before: brokkr_view::Window,
     refused: &'a Cell<bool>,
 }
 
@@ -243,7 +242,6 @@ fn source_of<'a>(
             label: reading.label,
             configured: &reading.hearth.realms,
             window: reading.window,
-            before: reading.before,
             realm: reading.realm,
             range: reading.range,
             now: reading.now,

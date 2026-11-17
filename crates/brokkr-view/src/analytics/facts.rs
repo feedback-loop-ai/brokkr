@@ -216,6 +216,18 @@ pub trait FactSource {
     /// Each finished run's cut realm and span inside the source's window,
     /// one value a median pass (decision 0089 ruling 7).
     fn durations(&self, visit: &mut dyn FnMut(&str, i64));
+    /// How many runs completed inside `window`: the headline's count, and
+    /// the window before it for `previous`. Folded from [`Self::runs`]
+    /// unless the source counts them itself, as a store's rows do.
+    fn shipped_between(&self, window: Window) -> usize {
+        let mut count = 0;
+        self.runs(&mut |run| {
+            let finished = run.finished.as_ref();
+            count +=
+                usize::from(finished.is_some_and(|ended| window.holds(ended.at) && shipped(ended)));
+        });
+        count
+    }
     /// The parks by `park_place`, pulled by `read`.
     fn parks(&self, read: &mut dyn FnMut(&mut dyn Iterator<Item = ParkFact>));
     fn spends(&self, visit: &mut dyn FnMut(SpendFact));
@@ -664,6 +676,13 @@ impl FactSource for FactUnion<'_> {
         for source in &self.sources {
             source.durations(visit);
         }
+    }
+
+    fn shipped_between(&self, window: Window) -> usize {
+        self.sources
+            .iter()
+            .map(|source| source.shipped_between(window))
+            .sum()
     }
 
     fn parks(&self, read: &mut dyn FnMut(&mut dyn Iterator<Item = ParkFact>)) {

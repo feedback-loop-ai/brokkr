@@ -22,15 +22,15 @@ use brokkr_view::{
     SpendFact, Window,
 };
 
-/// One hearth's rows: the store, the hearth's label, the window and the one
-/// before it, the query's realm, and where a refusal is marked. The store's
-/// statements leave out the runs it leaves whole, so nothing here holds a
-/// set of them.
+/// One hearth's rows: the store, the hearth's label, the window, the
+/// query's realm, and where a refusal is marked. The store's statements
+/// leave out the runs it leaves whole, so nothing here holds a set of them.
+/// The window before is read only for its count, by
+/// [`FactSource::shipped_between`].
 pub(super) struct RowOnly<'a> {
     pub(super) store: &'a Store,
     pub(super) label: &'a str,
     pub(super) window: Window,
-    pub(super) before: Window,
     pub(super) realm: Option<&'a str>,
     pub(super) refused: &'a Cell<bool>,
 }
@@ -41,12 +41,12 @@ impl RowOnly<'_> {
         read.map_err(|_| self.refused.set(true)).ok()
     }
 
-    /// The bounds a labelled window statement reads `[from, window.to)` by:
-    /// a run whose stored realm is NULL is ordered by the hearth's label,
-    /// cut where a row groups it, as its facts name it.
-    fn bounds(&self, from: i64) -> Bounds<'_> {
+    /// The bounds a labelled window statement reads the window by: a run
+    /// whose stored realm is NULL is ordered by the hearth's label, cut
+    /// where a row groups it, as its facts name it.
+    fn bounds(&self) -> Bounds<'_> {
         Bounds {
-            from,
+            from: self.window.from,
             to: self.window.to,
             realm: None,
             label: Some(cut(self.label, NAME_BYTES)),
@@ -116,11 +116,10 @@ impl RowOnly<'_> {
 }
 
 impl FactSource for RowOnly<'_> {
-    /// The runs that finished in the window or the one before it, and the
-    /// runs still open.
+    /// The runs that finished in the window, and the runs still open.
     fn runs(&self, visit: &mut dyn FnMut(RunFacts)) {
         let read = self.store.window_runs(
-            self.before.from,
+            self.window.from,
             self.window.to,
             RowRunOrder::Unordered,
             None,
@@ -140,25 +139,42 @@ impl FactSource for RowOnly<'_> {
             RunOrder::Rule => (RowRunOrder::ByEndingRule, false),
             RunOrder::Recipe => (RowRunOrder::ByRealmThenRecipe, true),
         };
-        let bounds = self.bounds(self.before.from);
+        let bounds = self.bounds();
         let pulled = self.store.pull_runs(&bounds, order, |rows| {
             read(&mut std::iter::from_fn(|| self.next_run(rows, costs)));
         });
         self.opened(pulled, read);
     }
 
+    /// Each run that finished in the window, its span read by the store's
+    /// one pass, a median pass a call (decision 0089 ruling 7).
     fn durations(&self, visit: &mut dyn FnMut(&str, i64)) {
-        let window = self.window;
-        self.runs(&mut |run| {
-            let Some(finished) = &run.finished else {
-                return;
-            };
-            if finished.at < window.from || finished.at >= window.to {
-                return;
-            }
-            let started = run.started.unwrap_or(finished.at);
-            visit(&run.realm, finished.at.saturating_sub(started).max(0));
-        });
+        let read = self
+            .store
+            .durations(self.window.from, self.window.to, |realm, span| {
+                let named = realm.unwrap_or(self.label);
+                if realm_in_scope(self.realm, named) {
+                    visit(named, span);
+                }
+            });
+        self.kept(read);
+    }
+
+    /// The runs that completed in `window`, counted by the store one
+    /// stored realm a group. The runs it leaves whole are not in its
+    /// groups: the hearth's whole read beside these rows counts them
+    /// (#1068's F4, U5b1's F4), so the hearth's sum is the whole read's.
+    fn shipped_between(&self, window: Window) -> usize {
+        let mut count = 0;
+        let read = self
+            .store
+            .finished_between(window.from, window.to, |realm, shipped| {
+                if realm_in_scope(self.realm, realm.unwrap_or(self.label)) {
+                    count += shipped as usize;
+                }
+            });
+        self.kept(read);
+        count
     }
 
     /// The parks that overlap the window, in cut phase then run order.
@@ -194,7 +210,7 @@ impl FactSource for RowOnly<'_> {
             SiteOrder::RealmProvider => RowSiteOrder::RealmProvider,
             SiteOrder::RecipeProvider => RowSiteOrder::RecipeProvider,
         };
-        let bounds = self.bounds(self.window.from);
+        let bounds = self.bounds();
         let pulled = self.store.pull_sites(&bounds, order, |rows| {
             read(&mut std::iter::from_fn(|| self.next_site(rows)));
         });
