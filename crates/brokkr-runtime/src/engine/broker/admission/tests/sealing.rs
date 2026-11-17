@@ -175,32 +175,36 @@ type Arming = fn(Instant) -> Late;
 /// before anything else, so even cut short it leaves it there; and the
 /// run's next attempt joins that reservation, not the refused one, leaving
 /// no prior name behind. No seal here spends time before its commit: each
-/// is cut short by a failed step, or, the one late, waits out its own
-/// deadline only once committed, so the refusal of a late seal whose undo
-/// fails is bound too. Under the house's deadline no load before the commit
-/// changes what it meets (#1099 F1).
+/// is cut short by a failed step, or, the two late, wait out their own
+/// deadline only once committed or as they retire, so the refusal of a late
+/// seal whose undo fails is bound at both of the seal's undos. Under the
+/// house's deadline no load before the commit changes what it meets (#1099
+/// F1, F2).
 #[test]
 fn a_reseal_whose_undoing_fails_leaves_the_reservation_that_stood_read() {
-    let cases: [(Arming, &str); 3] = [
-        (|_| Late::DenyCommitted, "its link back refused"),
-        (|_| Late::FailUndone, "its undoing's sync failed"),
+    let cases: [(Arming, bool, &str); 4] = [
+        (|_| Late::DenyCommitted, true, "its link back refused"),
+        (|_| Late::FailUndone, false, "its undoing's sync failed"),
         (
             Late::OutlastUndone,
+            false,
             "late once committed, its undoing's sync failed",
         ),
+        (
+            Late::OutlastRetiring,
+            false,
+            "late as it retires, its undoing's sync failed",
+        ),
     ];
-    for (armed, how) in cases {
+    for (armed, under_prior, how) in cases {
         let deadline = soon();
         let (host, at, before) = joining(armed(deadline));
         let work = host.worktree("work");
         let joined = admit(&host.root, &open(&work, ["run-a", "a2"]), deadline);
         writable(&at);
         assert_eq!(joined, mb3(Unknown::Unsealed), "{how}");
-        let stood = if prior(&at).exists() {
-            prior(&at)
-        } else {
-            at.clone()
-        };
+        assert_eq!(prior(&at).exists(), under_prior, "{how}: its prior name");
+        let stood = if under_prior { prior(&at) } else { at.clone() };
         assert_eq!(
             standing(&stood),
             before,
@@ -1172,6 +1176,71 @@ fn an_undos_failed_exchange_back_leaves_the_record_that_stood_at_the_name() {
         "the hand's file stays under the staged name"
     );
     assert!(!prior(&at).exists(), "no prior name left");
+}
+
+/// A reseal of a fresh lease's reservation, its root exchanging by `seam`
+/// where one is given, refused as unsealed with `late` armed: the host, where
+/// the record stands, the bytes of the record that stood, and this seal's.
+fn undone_by(seam: Option<Exchange>, late: Late) -> (Host, PathBuf, Vec<u8>, Vec<u8>) {
+    swaps_again();
+    let host = seam.map_or_else(Host::new, host_exchanging);
+    let (host, _work, held, at) = spawning_attempt_in(host);
+    swaps_again();
+    let (before, amended) = (std::fs::read(&at).unwrap(), successor(&at));
+    LATE.set(Some(late));
+    let refused = Err(Unadmitted::Identity(Unknown::Unsealed));
+    assert_eq!(amending(&held), refused, "{late:?}");
+    (host, at, before, amended)
+}
+
+/// F2 (#1099; decision 0108 ruling 3; 0071 ruling 9): each arm of a
+/// reseal's undo that `undone` states and no other test reads the refusal
+/// of, by the refusal and the names it leaves.
+#[test]
+fn each_arm_of_a_reseals_undo_refuses_and_leaves_what_undone_states() {
+    let staged = |at: &Path| at.with_file_name("reservation.json.new");
+    // Cut short after its exchange: the record that stood at the name and
+    // under its prior name, this seal's successor under the staged name.
+    let (_host, at, before, amended) = undone_by(None, Late::CutUndo);
+    assert_eq!(std::fs::read(&at).unwrap(), before, "cut: the name");
+    assert_eq!(std::fs::read(prior(&at)).unwrap(), before, "cut: prior");
+    assert_eq!(std::fs::read(staged(&at)).unwrap(), amended, "cut: staged");
+    // A hand's file at the name, exchanged back: it stays, the record that
+    // stood goes.
+    let (_host, at, ..) = undone_by(None, Late::ReplaceCommitted);
+    planted_stays(&at);
+    assert!(!prior(&at).exists(), "a hand's file: no prior name");
+    nothing_staged(&at);
+    // A hand's file at the name, whose exchange back meets the name gone:
+    // the removal stands, the hand's file under the staged name.
+    let seam = Some(unlinking_before_third_exchange as Exchange);
+    let (_host, at, ..) = undone_by(seam, Late::ReplaceCommitted);
+    assert!(!at.exists(), "the name gone: nothing made");
+    assert!(!prior(&at).exists(), "the name gone: no prior name");
+    assert_eq!(std::fs::metadata(staged(&at)).unwrap().len(), 0);
+    // The exchange back refused: this seal's successor at the name, the
+    // record that stood under its prior name.
+    let seam = Some(failing_second_exchange as Exchange);
+    let (_host, at, before, amended) = undone_by(seam, Late::FailCommitted);
+    assert_eq!(std::fs::read(&at).unwrap(), amended, "refused: the name");
+    assert_eq!(std::fs::read(prior(&at)).unwrap(), before, "refused: prior");
+    nothing_staged(&at);
+    // A hand's directory at the prior name: the link back fails, this
+    // seal's successor at the name.
+    let (_host, at, _, amended) = undone_by(None, Late::PriorDirectoryRetiring);
+    assert_eq!(
+        std::fs::read(&at).unwrap(),
+        amended,
+        "a directory: the name"
+    );
+    assert!(prior(&at).is_dir(), "a directory: it stays");
+    nothing_staged(&at);
+    // The name removed: the removal stands, and the seal refuses with
+    // what cut it short, its failed sync.
+    let (_host, at, ..) = undone_by(None, Late::RemoveCommitted);
+    assert!(!at.exists(), "removed: nothing made");
+    assert!(!prior(&at).exists(), "removed: no prior name");
+    nothing_staged(&at);
 }
 
 /// #440 fix round 440d6 (decision 0108 ruling 3): every way a filesystem

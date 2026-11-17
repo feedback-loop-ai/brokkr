@@ -37,7 +37,9 @@ use crate::engine::broker::root::{Step, PRIOR};
 /// or fails so and then fails the sync of its undoing too, or waits out the
 /// seal's own deadline and then fails that sync (M2 of run four's second
 /// review; #1099 F1); as it retires the record that stood, spends the time
-/// given or fails as the removal of its prior name failing would; and once
+/// given, fails as the removal of its prior name failing would, or waits
+/// out the seal's own deadline and then fails the sync of its undoing; and
+/// once
 /// committed, fails as its last directory sync failing would (R1, U8a2c).
 #[derive(Debug, Clone, Copy)]
 pub(super) enum Late {
@@ -65,6 +67,7 @@ pub(super) enum Late {
     DenyCommitted,
     FailUndone,
     OutlastUndone(Instant),
+    OutlastRetiring(Instant),
     Undoing,
     SleepRetiring(Duration),
     FailRetiring,
@@ -207,14 +210,8 @@ pub(super) fn late(step: Step, dir: &OwnedFd, staged: &str) -> std::io::Result<(
             LATE.set(Some(Late::Undoing));
             return Err(std::io::Error::other("the directory sync failed"));
         }
-        // Once renamed in, the seal waits until its own deadline has passed,
-        // so it is late only after its commit however long the steps before
-        // took, and the sync of the undo that follows fails (#1099 F1).
-        (Step::Committed, Some(Late::OutlastUndone(deadline))) => {
-            let left = deadline.saturating_duration_since(Instant::now());
-            std::thread::sleep(left + Duration::from_millis(1));
-            LATE.set(Some(Late::Undoing));
-        }
+        (Step::Committed, Some(Late::OutlastUndone(deadline)))
+        | (Step::Retiring, Some(Late::OutlastRetiring(deadline))) => outlast(deadline),
         (Step::Committed, Some(Late::FailCommitted))
         | (Step::Undone, Some(Late::Undoing))
         | (Step::Final, Some(Late::FailFinal)) => {
@@ -223,6 +220,15 @@ pub(super) fn late(step: Step, dir: &OwnedFd, staged: &str) -> std::io::Result<(
         (_, armed) => LATE.set(armed),
     }
     Ok(())
+}
+
+/// The seal waits until its own `deadline` has passed, once committed or as
+/// it retires, so it is late only there however long the steps before took,
+/// and the sync of the undo that follows fails (#1099 F1, F2).
+fn outlast(deadline: Instant) {
+    let left = deadline.saturating_duration_since(Instant::now());
+    std::thread::sleep(left + Duration::from_millis(1));
+    LATE.set(Some(Late::Undoing));
 }
 
 /// The prior name of the record `name` in `dir` removed, as a hand would.

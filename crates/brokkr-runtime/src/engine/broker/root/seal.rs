@@ -76,18 +76,28 @@ pub(super) struct Sheet<'a> {
 /// stood ([`standing`]).
 ///
 /// A seal that fails or runs late before its commit is undone
-/// ([`undone`]): the record that stood put back by the same exchange, the
-/// same file, so its bytes and its inode, or the record made removed where
-/// none stood (H1; R1 of run four's review). Where the record that stood is
-/// itself gone, its prior name removed by a hand, the removal stands: this
-/// seal's successor is removed where it is still the file this seal wrote
-/// and where the directory permits its removal, nothing is made at the name, and the seal refuses as it was cut short
-/// (#1099). One whose undoing fails refuses as unsealed, whatever cut it
-/// short, the record that stood still under its prior name for every read
-/// and for the next seal to put back (M2 of run four's second review). Once
-/// committed, no seal reports failure or lateness: one whose directory is
-/// not proven synced after reports itself committed but [`Commit::Unsynced`]
-/// (R1 of the fourth run, U8a2c).
+/// ([`undone`], which states each arm). Where the undo completes, the seal
+/// refuses with what cut it short, and the name holds the record that stood,
+/// put back by the same exchange or rename, the same file, so its bytes and
+/// its inode (H1; R1 of run four's review); or nothing, where none stood,
+/// where a hand removed the name, or where a hand removed the record that
+/// stood from its prior name and this seal's successor, still the file this
+/// seal wrote, was removed (#1099). Where any step of the undo fails, the
+/// seal refuses as unsealed, whatever cut it short (M2 of run four's second
+/// review), and leaves what that arm left: a hand's file found at the name
+/// is never removed, but put back there or, where a reseal's exchange back
+/// fails, left under the staged name (#1099 R2); a link, exchange or rename
+/// back that fails other than for a gone prior name leaves this seal's
+/// successor at the name and the prior name as it was, the record that
+/// stood there where it still is, for every read and for the next seal to
+/// put back; an undo cut short after its exchange, or whose last sync fails
+/// once it put the record that stood back, leaves that record at the name;
+/// and where the record that stood is gone
+/// and the directory denies the removal of this seal's successor, that
+/// successor stands as the record (#1099 F3). Once committed, no seal
+/// reports failure or lateness: one whose directory is not proven synced
+/// after reports itself committed but [`Commit::Unsynced`] (R1 of the
+/// fourth run, U8a2c).
 pub(in crate::engine::broker) fn seal_with(
     dir: &OwnedFd,
     name: &str,
@@ -153,10 +163,18 @@ pub(super) fn seal_made(write: Sheet<'_>) -> Result<Commit, Unknown> {
 /// retiring the record that stood: handed to `hook`, the deadline of
 /// `budget` checked the last time, and its prior name removed; whether the
 /// directory is then synced. One late or whose prior name cannot be
-/// removed is undone ([`undone`]) and refused: the record that stood is put
-/// back and is what every read finds, or, where a hand removed its prior
-/// name, the removal stands and no record is left, this seal's successor
-/// removed (#1099).
+/// removed is undone ([`undone`], which states each arm). Where the undo
+/// completes, the seal refuses with what cut it short: the record that
+/// stood is back at the name and is what every read finds, or, where a hand
+/// removed the name or the record's prior name, the removal stands and
+/// nothing is left at the name, this seal's successor removed (#1099).
+/// Where any step of the undo fails, the seal refuses as unsealed, and the
+/// names hold what that arm left: a hand's file kept; this seal's successor
+/// still at the name, beside the prior name as it was where a link, exchange
+/// or rename back was refused, or as the record where the record that stood
+/// is gone and the directory denies the successor's removal (#1099 F3); or
+/// the record that stood back at the name, where the undo was cut short
+/// after its exchange or its last sync failed.
 fn retired(seal: &Seal<'_>, written: &Record, make: Make<'_>) -> Result<Commit, Unknown> {
     let prior = seal.prior();
     let retiring = ((seal.hook)(Step::Retiring, seal.dir, seal.name).or(Err(Unknown::Unsealed)))
@@ -311,20 +329,49 @@ fn put_foreign_back(seal: &Seal<'_>, prior: &str, written: &Record) {
     }
 }
 
-/// A seal that failed or ran late after its commit, undone: the record
-/// that `stood` put back from its prior name by the same exchange, or,
-/// where none stood, the record it made removed; then handed to `hook` and
-/// the directory synced again. Where the name is gone, the removal stands:
-/// the record that stood is removed and nothing is written at the name.
-/// Where the prior name is gone, the record that stood is the removal that
-/// stands: this seal's successor is removed where it is still the file this
-/// seal wrote and where the directory permits its removal, so no successor
-/// is left in the record's place (#1099). A
-/// first seal's undo uses links, renames and removals alone, so a
-/// filesystem without an exchange still undoes what it may create
-/// (decision 0108 ruling 3, M3 amended). Where any other step of that
-/// fails, the record that stood is still under its prior name and this
-/// seal's successor still at the name, read as the record that stood.
+/// A seal that failed or ran late after its commit, undone, then handed to
+/// `hook` and the directory synced again. A first seal's undo uses links,
+/// renames and removals alone, so a filesystem without an exchange still
+/// undoes what it may create (decision 0108 ruling 3, M3 amended). Where
+/// the undo completes, the seal refuses with what cut it short; where any
+/// step of it fails, as unsealed ([`seal_made`], [`retired`]). Arm by arm:
+///
+/// - **Put back.** The record that `stood` is put back at the name from its
+///   prior name, by a reseal's exchange or a first seal's rename: the same
+///   file, its prior name and the staged name gone. Completes.
+/// - **None stood** (a first seal). The record it made is removed, where it
+///   is still the file this seal wrote. Completes.
+/// - **The name gone.** The removal stands: the prior name goes, and nothing
+///   is made at the name. Completes.
+/// - **The prior name gone.** The removal of the record that stood stands:
+///   this seal's successor is removed where it is still the file this seal
+///   wrote and where the directory permits its removal ([`remove_made`]),
+///   and nothing is made at the name (#1099). Completes. Where the directory
+///   denies that removal, fails: the successor stands as the record, with no
+///   prior name (#1099 F3).
+/// - **A hand's file at the name.** It is never removed. Fails. A first
+///   seal leaves it at the name and removes the prior name. A reseal's
+///   exchange swaps it under the staged name with the record that stood at
+///   the name, and its exchange back ([`put_foreign_back`]) puts it at the
+///   name again, the record that stood and its prior name gone; where that
+///   exchange back meets the name gone, nothing is at the name; where it
+///   fails otherwise, the record that stood keeps the name (#1099 R2). In
+///   both, the hand's file stays under the staged name and the prior name
+///   goes.
+/// - **The link, exchange or rename back refused** other than for a gone
+///   prior name: a directory that denies the link, a filesystem refusing
+///   the exchange, a hand's directory at the prior name. Fails: this seal's
+///   successor stays at the name and the prior name as it was, so where it
+///   still holds the record that stood, every read finds that record there
+///   ([`super::standing`]) and the next seal puts it back first
+///   ([`restored`]).
+/// - **Cut short after its exchange** (the hook at [`Step::Exchanged`]).
+///   Fails: the record that stood is back at the name and still under its
+///   prior name, and this seal's successor is under the staged name; the
+///   next seal's restore removes both and writes nothing.
+/// - **Its last sync failing** (the hook at [`Step::Undone`], or the
+///   directory's sync). Fails, the names as the arm before it left them:
+///   after a put back, the record that stood at the name and no prior name.
 fn undone(seal: &Seal<'_>, stood: bool, written: &Record, make: Make<'_>) -> std::io::Result<()> {
     let prior = seal.prior();
     match (make, stood) {
