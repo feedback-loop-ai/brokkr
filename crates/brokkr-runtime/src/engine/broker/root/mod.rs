@@ -436,7 +436,7 @@ pub(super) fn step(
 
 /// The admission lock in the protected `root`, made where it is missing,
 /// held exclusively before `deadline`: this user's own regular file of one
-/// link, as [`lock_file::opened`] judges it, or refused. Released as the
+/// link, as [`lock_file::open`] judges it, or refused. Released as the
 /// handle is dropped.
 pub(super) fn locked(root: &OwnedFd, deadline: Instant) -> Result<OwnedFd, Unknown> {
     let lock = lock_file::open(root, LOCK).map_err(Unknown::Lock)?;
