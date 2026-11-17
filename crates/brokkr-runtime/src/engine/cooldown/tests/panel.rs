@@ -1634,7 +1634,7 @@ struct LiveMidRound {
     reason: String,
     at: PathBuf,
     attempt: String,
-    driver: rustix::process::Pid,
+    _probe: super::crash::LiveProbe,
     _stand: crate::engine::broker::admission::tests::Coordinated,
 }
 
@@ -1655,16 +1655,7 @@ fn live_mid_round(test: &str) -> Option<LiveMidRound> {
     super::crash::wait_for_probe(&mut child, &done, &pidlog, "probe b");
     child.kill().unwrap();
     child.wait().unwrap();
-    let driver = std::fs::read_to_string(&pidlog)
-        .unwrap()
-        .trim()
-        .parse::<i32>()
-        .expect("probe b's pid");
-    let driver = rustix::process::Pid::from_raw(driver).unwrap();
-    assert!(
-        rustix::process::test_kill_process(driver).is_ok(),
-        "the crashed engine's probe b was not left live"
-    );
+    let probe = super::crash::left_probe(&pidlog, "probe b");
     let at = crate::engine::broker::admission::tests::reservation_path(
         &home,
         &dir.path().join("work"),
@@ -1684,7 +1675,7 @@ fn live_mid_round(test: &str) -> Option<LiveMidRound> {
         reason,
         at,
         attempt,
-        driver,
+        _probe: probe,
         _stand: stand,
     })
 }
@@ -1712,7 +1703,6 @@ fn a_live_mid_round_probe_parks_the_resume_with_the_cleanup_refusal() {
     );
     assert_eq!(starts(&live.engine).len(), 1, "the effect attempted again");
     assert_eq!(failed(&live.engine).len(), 1, "an effect attempt was spent");
-    super::crash::kill_probe(live.driver);
 }
 
 /// The chief's R2 case: the standing reservation is probe b's, on
@@ -1740,7 +1730,6 @@ fn chief_live_mid_round_cleanup_names_the_live_route() {
     assert_eq!(logs(live.dir.path(), "b"), ["probe"]);
     assert_eq!(starts(&live.engine).len(), 1);
     assert_eq!(failed(&live.engine).len(), 1);
-    super::crash::kill_probe(live.driver);
 }
 
 /// Resume an operator-retried indeterminate panel at `RequestEffect`.
