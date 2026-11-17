@@ -465,3 +465,33 @@ fn a_gone_row_whose_attempt_no_event_names_is_kept() {
     assert_eq!(fixture.store.tree_sweeps().unwrap(), vec![]);
     assert_eq!(fixture.store.open_seat_trees().unwrap().len(), 1);
 }
+
+/// F5 of #430's 5c2 reviews: an operator payload the sweep reads is
+/// decoded where it enters, and one that does not decode keeps the run's
+/// rows, reported and never a panic. A known command word after the
+/// terminal event is admitted as an annotation the fold does not read, so
+/// only the sweep's decode meets its numeric `command_id`; a read by
+/// string key skipped it and removed the succeeded tree.
+#[test]
+fn an_operator_payload_that_does_not_decode_keeps_the_runs_tree() {
+    let (mut fixture, tree) = first_present();
+    completed(&mut fixture.store, RUN);
+    plant_after_terminal(
+        &fixture.store,
+        RUN,
+        &[(
+            EventType::OperatorCommanded,
+            json!({"command_id": 7, "command": "stop", "operator": "operator", "args": {}}),
+            None,
+            "stop-unread",
+        )],
+    );
+
+    let (swept, _) = pass_one(&mut fixture.store);
+
+    assert!(tree.exists());
+    assert_eq!(kept_reasons(&swept), [KeptReason::RunDoesNotFold]);
+    assert_eq!(swept.kept()[0].reason(), "its run does not fold");
+    assert_eq!(fixture.store.tree_sweeps().unwrap(), vec![]);
+    brokkr_store::test_support::lags(&mut fixture.store, &[RUN]);
+}
