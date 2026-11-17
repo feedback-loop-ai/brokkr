@@ -1612,8 +1612,8 @@ fn watch_redraws_on_seq_and_on_a_hash_only_change_and_leaves_the_journal_alone()
 fn watch_frames_a_transient_error_gives_up_on_a_persistent_one_and_reports_a_closed_pipe() {
     let dir = tempfile::tempdir().unwrap();
     let style = render::Style::plain(80);
-    let corrupt = dir.path().join("corrupt.db");
-    std::fs::write(&corrupt, "not sqlite").unwrap();
+    // A journal not there yet; one that is damaged is refused at once (#1000).
+    let corrupt = dir.path().join("not-yet.db");
 
     // A transient store error is a frame that says so, not an exit.
     let mut frames = Vec::new();

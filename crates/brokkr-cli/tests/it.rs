@@ -45,6 +45,7 @@ mod composed_view;
 mod contract_lifecycle;
 mod contributing;
 mod costs_read;
+mod damaged_journal;
 mod decisions_index;
 mod delivered_by_brokkr;
 mod diagrams;
