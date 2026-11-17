@@ -159,44 +159,65 @@ fn provider_limit(object: &Map<String, Value>) -> Result<ParkCause, ParkCauseErr
     })
 }
 
-/// The refusal variant an object states, with exactly the fields it has.
+/// The refusal variant an object states, with exactly the fields it has:
+/// its `kind` chooses the variant, and the variant's reader holds its shape.
 fn refusal(object: &Map<String, Value>) -> Result<ProviderLimitRefusal, ParkCauseError> {
     let text = match object.get("kind") {
         Some(Value::String(text)) => text.as_str(),
         _ => return Err(ParkCauseError::UnknownRefusal(None)),
     };
-    Ok(match text {
-        "route-unresolved" => {
-            Fields::of("route-unresolved", object, &[])?;
-            ProviderLimitRefusal::RouteUnresolved
-        }
-        "host-unreadable" => ProviderLimitRefusal::HostUnreadable {
-            route: route(&Fields::of("host-unreadable", object, &["route"])?)?,
-        },
-        "episode-unreadable" => ProviderLimitRefusal::EpisodeUnreadable {
-            route: route(&Fields::of("episode-unreadable", object, &["route"])?)?,
-        },
-        "past-maximum" => {
-            let names = ["route", "until", "seconds", "max_seconds"];
-            let fields = Fields::of("past-maximum", object, &names)?;
-            let route = route(&fields)?;
-            let end = fields.text("until")?;
-            ProviderLimitRefusal::PastMaximum {
-                route,
-                until: until::parse(end).ok_or_else(|| ParkCauseError::Until(end.to_string()))?,
-                seconds: fields.seconds("seconds")?,
-                max_seconds: fields.seconds("max_seconds")?,
-            }
-        }
-        "no-end" => {
-            let fields = Fields::of("no-end", object, &["route", "seconds", "max_seconds"])?;
-            ProviderLimitRefusal::NoEnd {
-                route: route(&fields)?,
-                seconds: fields.seconds("seconds")?,
-                max_seconds: fields.seconds("max_seconds")?,
-            }
-        }
-        other => return Err(ParkCauseError::UnknownRefusal(Some(other.to_string()))),
+    match text {
+        "route-unresolved" => route_unresolved(object),
+        "host-unreadable" => routed("host-unreadable", object, |route| {
+            ProviderLimitRefusal::HostUnreadable { route }
+        }),
+        "episode-unreadable" => routed("episode-unreadable", object, |route| {
+            ProviderLimitRefusal::EpisodeUnreadable { route }
+        }),
+        "past-maximum" => past_maximum(object),
+        "no-end" => no_end(object),
+        other => Err(ParkCauseError::UnknownRefusal(Some(other.to_string()))),
+    }
+}
+
+/// A `route-unresolved` refusal, which holds no field but its kind.
+fn route_unresolved(object: &Map<String, Value>) -> Result<ProviderLimitRefusal, ParkCauseError> {
+    Fields::of("route-unresolved", object, &[])?;
+    Ok(ProviderLimitRefusal::RouteUnresolved)
+}
+
+/// A `kind` refusal that holds its route alone, as `variant` makes it.
+fn routed(
+    kind: &'static str,
+    object: &Map<String, Value>,
+    variant: fn(String) -> ProviderLimitRefusal,
+) -> Result<ProviderLimitRefusal, ParkCauseError> {
+    Ok(variant(route(&Fields::of(kind, object, &["route"])?)?))
+}
+
+/// A `past-maximum` refusal: its route, the `until` it computed, and its
+/// wait's length beside the declared maximum.
+fn past_maximum(object: &Map<String, Value>) -> Result<ProviderLimitRefusal, ParkCauseError> {
+    let names = ["route", "until", "seconds", "max_seconds"];
+    let fields = Fields::of("past-maximum", object, &names)?;
+    let route = route(&fields)?;
+    let end = fields.text("until")?;
+    Ok(ProviderLimitRefusal::PastMaximum {
+        route,
+        until: until::parse(end).ok_or_else(|| ParkCauseError::Until(end.to_string()))?,
+        seconds: fields.seconds("seconds")?,
+        max_seconds: fields.seconds("max_seconds")?,
+    })
+}
+
+/// A `no-end` refusal: its route and its wait's length beside the declared
+/// maximum, with no end the journal can spell.
+fn no_end(object: &Map<String, Value>) -> Result<ProviderLimitRefusal, ParkCauseError> {
+    let fields = Fields::of("no-end", object, &["route", "seconds", "max_seconds"])?;
+    Ok(ProviderLimitRefusal::NoEnd {
+        route: route(&fields)?,
+        seconds: fields.seconds("seconds")?,
+        max_seconds: fields.seconds("max_seconds")?,
     })
 }
 

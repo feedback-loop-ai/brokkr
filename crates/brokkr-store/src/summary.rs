@@ -120,24 +120,27 @@ pub(crate) fn cut_stamp(stamp: &str) -> String {
 /// steady-state open writes nothing.
 pub(crate) fn summary_intact(conn: &Connection) -> Result<bool, StoreError> {
     Ok(all_present(conn, "table", &TABLE)?
-        && aggregate::shaped(conn)?
-        && stop::PART.shaped(conn)?
-        && ending::shaped(conn)?
-        && late::PART.shaped(conn)?
+        && parts_shaped(conn)?
         && columns::has(conn, &[("park_cause", "TEXT")])?
         && all_present(conn, "index", &INDEX)?
         && columns::triggers_intact(conn, &columns::TRIGGERS)?)
+}
+
+/// Whether each part whose missing column rebuilds the table stands with
+/// its columns: the aggregate, the stop, the ending and the late tail, read
+/// in that order and no further than the first that does not.
+fn parts_shaped(conn: &Connection) -> Result<bool, StoreError> {
+    Ok(aggregate::shaped(conn)?
+        && stop::PART.shaped(conn)?
+        && ending::shaped(conn)?
+        && late::PART.shaped(conn)?)
 }
 
 /// Create the summary, anew where its table lacks a column, seed a row for
 /// every run already here, and send behind any row a stamp says the repair
 /// did not see written, holding the write lock: the fifth additive repair.
 pub(crate) fn migrate_summary(conn: &Connection) -> Result<(), StoreError> {
-    if !aggregate::shaped(conn)?
-        || !stop::PART.shaped(conn)?
-        || !ending::shaped(conn)?
-        || !late::PART.shaped(conn)?
-    {
+    if !parts_shaped(conn)? {
         conn.execute_batch(&aggregate::rebuild())?;
     }
     let unwatched = ending::unwatched(conn)?;
