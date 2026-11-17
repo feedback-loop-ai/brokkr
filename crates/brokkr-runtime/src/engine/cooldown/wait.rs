@@ -392,20 +392,16 @@ impl Engine {
         round: &NextRound,
         waited: u64,
     ) -> Result<Written, CooldownError> {
-        let held = self.judge_round(waits, maxima, round, waited)?;
-        // A round within every maximum has a length at most a declared
-        // maximum, a `u32`, so its end is always representable
-        // (`a_round_within_the_maximum_has_a_representable_end`). Only a
-        // held round, the provider's word, can be too long for the journal
-        // to spell its end, and it parks naming the provider's limit as the
-        // terminal's held wait does (`no-end`).
+        let (held, max) = self.judge_round(waits, maxima, round, waited)?;
+        // An end the journal cannot spell parks `no-end` with the site's own
+        // maximum, held or ordinary, as the terminal's does: a short round
+        // from a held end near year 9999 has none either (R3).
         let Some(until) = sites::wait_until(self.now(), round.seconds) else {
-            let held = held.expect("only a held round's end is unrepresentable");
             return Err(CooldownError::RoundNoEnd {
                 provider: round.provider.clone(),
                 route: round.route.clone(),
                 seconds: round.seconds,
-                max_seconds: held.max_seconds,
+                max_seconds: max,
             });
         };
         let row = CooldownRound {
@@ -443,7 +439,7 @@ impl Engine {
     }
 
     /// Judge one probe's next round before anything is written: its held
-    /// kind, `None` for an ordinary round, or the park. The refused site's
+    /// kind (`None` is ordinary) and its own site's maximum, or the park. The refused site's
     /// OWN route maximum classifies its reset, through the terminal's one
     /// decision ([`bound`]), before any episode sum, as each panel member's
     /// own plan classifies its own at the terminal: no other site's maximum
@@ -461,7 +457,7 @@ impl Engine {
         maxima: &[Option<u64>],
         round: &NextRound,
         waited: u64,
-    ) -> Result<Option<Held>, CooldownError> {
+    ) -> Result<(Option<Held>, u64), CooldownError> {
         let unbounded = |wait: &ProviderWait| CooldownError::RoundUnbounded {
             provider: wait.provider.clone(),
             route: wait.route.clone(),
@@ -481,7 +477,7 @@ impl Engine {
         };
         let before = round.episode.saturating_add(waited);
         let through = match bound(round.retry_after_seconds, round.seconds, before, own) {
-            Bound::Held(kind) => return Ok(Some(kind)),
+            Bound::Held(kind) => return Ok((Some(kind), own)),
             Bound::Past(through) => return Err(self.round_past(round, own_wait, through, own)),
             Bound::Within(through) => through,
         };
@@ -490,7 +486,7 @@ impl Engine {
                 return Err(self.round_past(round, wait, through, max));
             }
         }
-        Ok(None)
+        Ok((None, own))
     }
 
     /// The park a probe's round past `wait`'s maximum `max` gives: the

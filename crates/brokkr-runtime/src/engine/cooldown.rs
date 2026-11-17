@@ -205,8 +205,9 @@ pub(super) enum CooldownError {
         words: String,
     },
     #[error(
-        "the cool-down probe for {provider}/{route} was refused again with a stated reset of \
-         {seconds}s, past the declared {max_seconds}s maximum, whose end the journal cannot spell"
+        "the cool-down probe for {provider}/{route} was refused again with a wait of {seconds}s, \
+         {}, whose end the journal cannot spell",
+        against(*.seconds, *.max_seconds)
     )]
     RoundNoEnd {
         provider: String,
@@ -256,8 +257,20 @@ pub(super) fn park_of(error: &CooldownError) -> Park {
     Park::new(reason, cause)
 }
 
-/// A probe's held round whose end the journal cannot spell, as the
-/// provider's typed limit: the terminal's `no-end` cause.
+/// How a no-end round's length stands against its site's own maximum: a
+/// held round is past it, and an ordinary one from a held end near year
+/// 9999 is within it (fix round 0106b1r3, R3).
+fn against(seconds: u64, max_seconds: u64) -> String {
+    let side = if seconds > max_seconds {
+        "past"
+    } else {
+        "within"
+    };
+    format!("{side} the declared {max_seconds}s maximum")
+}
+
+/// A probe's round whose end the journal cannot spell, held or ordinary,
+/// as the provider's typed limit: the terminal's `no-end` cause.
 fn no_end(route: &str, seconds: u64, max_seconds: u64) -> ProviderLimitRefusal {
     ProviderLimitRefusal::NoEnd {
         route: route.to_string(),

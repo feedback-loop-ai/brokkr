@@ -190,6 +190,69 @@ fn a_probes_held_round_spends_no_attempt_and_the_cap_parks_attempt_cap() {
     parked_at_the_cap(&engine);
 }
 
+/// Fix round 0106b1r3, R3: a held wait ending at the last second the
+/// journal can spell, resumed at that end, whose probe states an ordinary
+/// 2s within the 3s maximum. The round adds no held interval and passes no
+/// bound, yet its end is past year 9999: it parks `no-end` with the
+/// site's own maximum, typed, where HEAD's `expect` panicked.
+#[test]
+fn an_ordinary_probe_round_from_a_held_end_at_year_9999_parks_no_end() {
+    let dir = tempfile::tempdir().unwrap();
+    let command = driver(
+        dir.path(),
+        "work",
+        &["succeed"],
+        Probed::Refuse,
+        Some(2),
+        "claude",
+        "first",
+    );
+    let mut compiled = bundle(dir.path(), single_body(command));
+    compiled.seats.get_mut("work").unwrap().limits = work(2);
+    std::fs::create_dir_all(dir.path().join("work")).unwrap();
+    let store = brokkr_store::Store::open(&dir.path().join("forge.db")).unwrap();
+    let mut engine = Engine::start(
+        store,
+        compiled.clone(),
+        "Feature",
+        Some(dir.path().join("work")),
+    )
+    .unwrap();
+    let last = "9999-12-31T23:59:59Z";
+    append_failed_payload(
+        &mut engine,
+        json!({"effect_id": "effect", "attempt_id": "a1", "error": "refused",
+               "waits": [{"provider": "claude", "route": "first",
+                          "words": "rate_limit: slow down", "seconds": 5,
+                          "retry_after_seconds": 5, "until": last, "rounds": 1,
+                          "held": true, "max_seconds": 3}]}),
+    );
+    let run_id = engine.run_id.clone();
+    drop(engine);
+    let mut engine = resume_engine(dir.path(), compiled, &run_id);
+    engine.cooldown.host = Some(host(dir.path(), 1, 3));
+    engine.cooldown.clock = Clock::advancing(OffsetDateTime::parse(last, &Rfc3339).unwrap()).0;
+    engine.drive().unwrap();
+    assert_eq!(logs(dir.path(), "work"), ["probe"]);
+    assert_eq!(standing(&engine), (Status::AwaitingOperator, 1));
+    assert_eq!(
+        refusal_of(park_cause_of(&engine)),
+        ProviderLimitRefusal::NoEnd {
+            route: "first".into(),
+            seconds: 2,
+            max_seconds: 3,
+        }
+    );
+    let reason = park_reason(&engine);
+    assert!(
+        reason.contains(
+            "the cool-down probe for claude/first was refused again with a wait of 2s, within \
+             the declared 3s maximum, whose end the journal cannot spell"
+        ),
+        "{reason}"
+    );
+}
+
 /// A probe's stated reset the journal can spell from the terminal's time
 /// but not from the probe's parks `no-end`, writing no row: about five
 /// thousand years, so the first end lands near year 7000 and the second
