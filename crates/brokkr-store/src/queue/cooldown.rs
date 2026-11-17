@@ -462,15 +462,16 @@ impl Store {
     /// returns (decision 0103 slice 4f). newest's one statement; admission
     /// keeps reading [`Store::cooldown`] and [`Store::cooldowns_in_force`],
     /// which an expired row never holds. The queue's version is judged
-    /// first, as [`Store::cooldown`] does. One statement is not a linear
-    /// read: `newest`'s correlated `NOT EXISTS` rescans the table for every
-    /// expired row, and the table's only index is `(run_id, event_seq,
-    /// site, rounds)`, so the bound is the append-only table squared, never
-    /// the run or its events; the worst case is every row expired. The
-    /// history a journal keeps is the rate limits its runs met, so the quadratic term is
-    /// bounded by that count and not by a run's size; the console pays the
-    /// statement twice per refresh, once to compare the kept frame's
-    /// aggregate and once in the frame or whole read.
+    /// first, as [`Store::cooldown`] does. The statement is one scan of the
+    /// table and one sort of it (#1112): every row is ranked within its
+    /// provider and route, so the bound is `n log n` in the table's rows,
+    /// never the run or its events. The table's only index is `(run_id,
+    /// event_seq, site, rounds)`, so the sort is SQLite's own sorter over
+    /// every row's provider, route, end and seq, and its memory follows the
+    /// table until SQLite spills it. The history a journal keeps is the rate
+    /// limits its runs met, so `n` is that count and not a run's size; the
+    /// console pays the statement twice per refresh, once to compare the
+    /// kept frame's aggregate and once in the frame or whole read.
     pub fn cooldowns_newest(&self, now: OffsetDateTime) -> Result<Vec<Cooldown>, StoreError> {
         patiently("cooldowns_newest", self.patience, || {
             if cool_downs_held(&self.conn)? {
