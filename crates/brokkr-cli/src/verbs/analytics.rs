@@ -171,7 +171,7 @@ fn derive_with(
                 &read_fleet,
             )));
         }
-        let view = brokkr_view::analytics_with(&brokkr_view::FactUnion::new(sources), &query);
+        let view = brokkr_view::analytics_with(&mut brokkr_view::FactUnion::new(sources), &query);
         let mut again = false;
         for (store, mark) in row_stores.iter_mut().zip(&marks) {
             if mark.get() {

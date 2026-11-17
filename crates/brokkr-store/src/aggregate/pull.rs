@@ -3,21 +3,84 @@
 //! of one figure, so it asks each for its next row when the merge needs
 //! it, rather than taking every row as the store steps.
 //!
-//! A pull hands `read` a cursor over the figure's statement, and the
-//! statement is finalized when `read` returns. Every row is borrowed from
-//! the cursor until the next is asked for; nothing of the window is held.
-//! The order is the statement's: the figure's own key, so a reader merges
-//! streams without sorting them. Each pull reads under whatever snapshot
-//! the caller holds ([`crate::snapshot::ReadSnapshot`]).
+//! A figure's statement is prepared and bound once ([`RunPull`],
+//! [`ParkPull`], [`crate::metered::SitePull`]) and handed to the reader,
+//! who opens a cursor over it as long as it holds it, so a readout holds
+//! every hearth's cursor of one figure open at once and merges them
+//! without a call frame a hearth. Every row is borrowed from the cursor
+//! until the next is asked for; nothing of the window is held. The order
+//! is the statement's: the figure's own key, so a reader merges streams
+//! without sorting them. Each cursor reads under whatever snapshot the
+//! caller holds ([`crate::snapshot::ReadSnapshot`]).
 
 use rusqlite::types::Value;
-use rusqlite::{params, params_from_iter, Rows, StatementStatus};
+use rusqlite::{params, Connection, Rows, Statement, StatementStatus};
 
 use super::{park_bounds, park_sql, runs_sql, window_park, window_run, RunOrder};
 use super::{WindowPark, WindowRun};
 use crate::event_index::{CHECKPOINTED, RUN_COSTS};
 use crate::seat_summary::{stale_intact, SHAPE};
 use crate::{Store, StoreError};
+
+/// A window statement prepared and bound once, whose rows a reader opens.
+/// A cursor borrows it exclusively, so one cursor steps it at a time; a
+/// cursor's drop resets the statement, so the next open reads it from the
+/// start, under the same snapshot where the caller holds one. The
+/// statement is finalized when this is dropped.
+pub(crate) struct Prepared<'c> {
+    statement: Statement<'c>,
+}
+
+impl<'c> Prepared<'c> {
+    /// `sql` prepared on `conn` with `values` bound to its parameters in
+    /// order.
+    pub(crate) fn bound(
+        conn: &'c Connection,
+        sql: &str,
+        values: &[Value],
+    ) -> Result<Prepared<'c>, StoreError> {
+        let mut statement = conn.prepare(sql)?;
+        for (index, value) in values.iter().enumerate() {
+            statement.raw_bind_parameter(index + 1, value)?;
+        }
+        Ok(Prepared { statement })
+    }
+
+    /// A cursor over the statement's rows from the start.
+    pub(crate) fn open(&mut self) -> Rows<'_> {
+        self.statement.raw_query()
+    }
+
+    /// The VM steps the statement has taken since it was prepared, for the
+    /// tests that bind a statement's cost.
+    pub(crate) fn steps(&self) -> i64 {
+        i64::from(self.statement.get_status(StatementStatus::VmStep))
+    }
+}
+
+/// A window's runs statement, prepared and bound, in one figure's order.
+pub struct RunPull<'c>(Prepared<'c>);
+
+impl RunPull<'_> {
+    /// The runs from the window's start.
+    pub fn rows(&mut self) -> RunRows<'_> {
+        RunRows {
+            rows: self.0.open(),
+        }
+    }
+}
+
+/// A window's parks statement, prepared and bound.
+pub struct ParkPull<'c>(Prepared<'c>);
+
+impl ParkPull<'_> {
+    /// The parks from the window's start.
+    pub fn rows(&mut self) -> ParkRows<'_> {
+        ParkRows {
+            rows: self.0.open(),
+        }
+    }
+}
 
 /// The bounds a window statement reads by (decision 0071 ruling 10's
 /// parameter object): the window `[from, to)`, the stored realm key it
@@ -103,56 +166,63 @@ static RUN_SPENDS: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
 });
 
 impl Store {
+    /// The runs [`Store::window_runs`] reads, in `order`, prepared for a
+    /// reader to pull. A statement that will not prepare is refused here; a
+    /// row that will not read is the cursor's refusal.
+    pub fn prepare_runs(
+        &self,
+        bounds: &Bounds<'_>,
+        order: RunOrder,
+    ) -> Result<RunPull<'_>, StoreError> {
+        let intact = stale_intact(&self.conn)?;
+        let sql = runs_sql(order, intact);
+        Ok(RunPull(Prepared::bound(&self.conn, sql, &bounds.values())?))
+    }
+
     /// Hand `read` the runs [`Store::window_runs`] reads, in `order`, as a
-    /// cursor it pulls. A statement that will not open is refused before
-    /// `read` is called; a row that will not read is the cursor's refusal.
-    pub fn pull_runs<T>(
+    /// cursor it pulls: the visiting reads' form.
+    pub(crate) fn pull_runs<T>(
         &self,
         bounds: &Bounds<'_>,
         order: RunOrder,
         read: impl FnOnce(&mut RunRows<'_>) -> T,
     ) -> Result<T, StoreError> {
-        let intact = stale_intact(&self.conn)?;
-        let mut statement = self.conn.prepare(runs_sql(order, intact))?;
-        let rows = statement.query(params_from_iter(bounds.values()))?;
-        let read = read(&mut RunRows { rows });
+        let mut pull = self.prepare_runs(bounds, order)?;
+        let read = read(&mut pull.rows());
         Ok(read)
     }
 
-    /// Hand `read` the parks [`Store::window_parks`] reads, as a cursor it
-    /// pulls, `now` the moment an open park's end is read as.
-    pub fn pull_parks<T>(
+    /// The parks [`Store::window_parks`] reads, prepared for a reader to
+    /// pull, `now` the moment an open park's end is read as.
+    pub fn prepare_parks(
         &self,
         from: i64,
         to: i64,
         now: i64,
         realm: Option<&str>,
-        read: impl FnOnce(&mut ParkRows<'_>) -> T,
-    ) -> Result<T, StoreError> {
-        let window = ParkWindow {
-            from,
-            to,
-            now,
-            realm,
-        };
-        self.park_rows(&window, read, |_| {})
+    ) -> Result<ParkPull<'_>, StoreError> {
+        let intact = stale_intact(&self.conn)?;
+        let bounds = park_bounds(from, to, now, realm);
+        Ok(ParkPull(Prepared::bound(
+            &self.conn,
+            park_sql(intact),
+            &bounds,
+        )?))
     }
 
-    /// [`Store::pull_parks`] with the statement's VM steps handed to
-    /// `stepped` once `read` returns, so the test that binds the ranges'
-    /// cost measures the production statement itself.
+    /// Hand `read` the parks of `window` as a cursor it pulls, and the
+    /// statement's VM steps to `stepped` once `read` returns, so the test
+    /// that binds the ranges' cost measures the production statement
+    /// itself.
     pub(crate) fn park_rows<T>(
         &self,
         window: &ParkWindow<'_>,
         read: impl FnOnce(&mut ParkRows<'_>) -> T,
         stepped: impl FnOnce(i64),
     ) -> Result<T, StoreError> {
-        let intact = stale_intact(&self.conn)?;
-        let mut statement = self.conn.prepare(park_sql(intact))?;
-        let bounds = park_bounds(window.from, window.to, window.now, window.realm);
-        let rows = statement.query(params_from_iter(bounds))?;
-        let read = read(&mut ParkRows { rows });
-        stepped(i64::from(statement.get_status(StatementStatus::VmStep)));
+        let mut pull = self.prepare_parks(window.from, window.to, window.now, window.realm)?;
+        let read = read(&mut pull.rows());
+        stepped(pull.0.steps());
         Ok(read)
     }
 

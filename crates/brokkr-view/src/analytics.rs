@@ -23,7 +23,7 @@ mod words;
 
 pub(crate) use facts::{in_range, is_open, shipped, Finished};
 pub use facts::{
-    realm_in_scope, FactSource, FactUnion, ParkFact, Reviews, RunFacts, RunOrder, SiteFact,
+    realm_in_scope, FactSource, FactUnion, ParkFact, Pulled, Reviews, RunFacts, RunOrder, SiteFact,
     SiteOrder, SpendFact, WholeRead, Window,
 };
 pub use figures::{analytics, analytics_with};

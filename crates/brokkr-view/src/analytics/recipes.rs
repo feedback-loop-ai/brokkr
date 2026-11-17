@@ -7,7 +7,7 @@
 use std::collections::BTreeMap;
 
 use super::facts::{
-    each, in_range, name_key, FactSource, RunFacts, RunOrder, SiteFact, SiteOrder, Window,
+    in_range, name_key, FactSource, RunFacts, RunOrder, SiteFact, SiteOrder, Window,
 };
 use super::figures::cost_parts;
 use super::ledger::Tally;
@@ -39,7 +39,7 @@ struct Retained {
 /// keeps; a run whose start names no recipe is in none. The first 64 cut
 /// keys are kept, and every group, kept or not, decides the frontier of
 /// the kept rows of its realm.
-pub(super) fn recipe_rows(source: &dyn FactSource, window: Window) -> (Vec<RecipeRow>, usize) {
+pub(super) fn recipe_rows(source: &mut dyn FactSource, window: Window) -> (Vec<RecipeRow>, usize) {
     let mut recipes: Ranked<(String, String), Retained, ()> = Ranked::new();
     let mut current: Option<((String, String), Retained)> = None;
     let offer = |group: Option<((String, String), Retained)>,
@@ -63,34 +63,31 @@ pub(super) fn recipe_rows(source: &dyn FactSource, window: Window) -> (Vec<Recip
             recipes.push(key, group, ());
         }
     };
-    source.runs_in(
-        RunOrder::Recipe,
-        &mut each(|run: RunFacts| {
-            let Some(recipe) = run.recipe.as_deref() else {
-                return;
-            };
-            let key = (
-                name_key(&run.realm).to_string(),
-                name_key(recipe).to_string(),
-            );
-            if current.as_ref().is_none_or(|(named, _)| *named != key) {
-                offer(current.take(), &mut recipes);
-                current = None;
-            }
-            let ended = run.finished.as_ref().map(|finished| finished.at);
-            if !in_range(ended, run.open, window) {
-                return;
-            }
-            let (_, group) = current.get_or_insert_with(|| (key, Retained::default()));
-            group.runs += 1;
-            if let Some(finished) = &run.finished {
-                group.ledger.add(finished.ending);
-            }
-            if let Some(spent) = run.spent {
-                group.spent = Some(group.spent.unwrap_or(0.0) + spent);
-            }
-        }),
-    );
+    source.runs_in(RunOrder::Recipe).for_each(|run: RunFacts| {
+        let Some(recipe) = run.recipe.as_deref() else {
+            return;
+        };
+        let key = (
+            name_key(&run.realm).to_string(),
+            name_key(recipe).to_string(),
+        );
+        if current.as_ref().is_none_or(|(named, _)| *named != key) {
+            offer(current.take(), &mut recipes);
+            current = None;
+        }
+        let ended = run.finished.as_ref().map(|finished| finished.at);
+        if !in_range(ended, run.open, window) {
+            return;
+        }
+        let (_, group) = current.get_or_insert_with(|| (key, Retained::default()));
+        group.runs += 1;
+        if let Some(finished) = &run.finished {
+            group.ledger.add(finished.ending);
+        }
+        if let Some(spent) = run.spent {
+            group.spent = Some(group.spent.unwrap_or(0.0) + spent);
+        }
+    });
     offer(current.take(), &mut recipes);
     let (mut kept, recipes_more) = recipes.finish();
 
@@ -112,7 +109,7 @@ pub(super) fn recipe_rows(source: &dyn FactSource, window: Window) -> (Vec<Recip
 /// source's order, so each is offered once, and the tokens are summed into
 /// one total per recipe rather than held per site.
 fn add_sites(
-    source: &dyn FactSource,
+    source: &mut dyn FactSource,
     window: Window,
     kept: &mut Vec<((String, String), Retained)>,
     index: &BTreeMap<(String, String), usize>,
@@ -126,9 +123,9 @@ fn add_sites(
             }
         }
     };
-    source.sites_in(
-        SiteOrder::RecipeProvider,
-        &mut each(|fact: SiteFact| {
+    source
+        .sites_in(SiteOrder::RecipeProvider)
+        .for_each(|fact: SiteFact| {
             let Some(recipe) = fact.recipe.as_deref() else {
                 return;
             };
@@ -162,8 +159,7 @@ fn add_sites(
                     provider = Some(((realm, recipe, provider_name), reported));
                 }
             }
-        }),
-    );
+        });
     flush(provider.take(), kept);
 }
 

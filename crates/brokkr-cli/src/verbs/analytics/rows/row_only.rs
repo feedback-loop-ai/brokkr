@@ -14,12 +14,12 @@
 use std::cell::Cell;
 
 use brokkr_core::summary::{cut, Finished, HardStop, NAME_BYTES};
-use brokkr_store::aggregate::pull::{Bounds, ParkRows, RunRows};
+use brokkr_store::aggregate::pull::{Bounds, ParkPull, ParkRows, RunPull, RunRows};
 use brokkr_store::aggregate::{RunOrder as RowRunOrder, WindowPark, WindowRun};
-use brokkr_store::metered::{SiteOrder as RowSiteOrder, SiteRows, WindowSite};
+use brokkr_store::metered::{SiteOrder as RowSiteOrder, SitePull, SiteRows, WindowSite};
 use brokkr_store::{Store, StoreError};
 use brokkr_view::{
-    realm_in_scope, FactSource, ParkFact, Reviews, RunFacts, RunOrder, SiteFact, SiteOrder,
+    realm_in_scope, FactSource, ParkFact, Pulled, Reviews, RunFacts, RunOrder, SiteFact, SiteOrder,
     SpendFact, Window,
 };
 
@@ -28,7 +28,7 @@ use brokkr_view::{
 /// leave out the runs it leaves whole, so nothing here holds a set of them.
 /// The window before is read only for its count, by
 /// [`FactSource::shipped_between`].
-pub(super) struct RowOnly<'a> {
+pub(super) struct Hearth<'a> {
     pub(super) store: &'a Store,
     pub(super) label: &'a str,
     pub(super) window: Window,
@@ -36,7 +36,31 @@ pub(super) struct RowOnly<'a> {
     pub(super) refused: &'a Cell<bool>,
 }
 
-impl RowOnly<'_> {
+/// One hearth's rows as a [`FactSource`], and the statement each ordered
+/// stream pulls while a figure folds it: a figure's stream borrows its
+/// statement for as long as the figure pulls it, so every hearth's stream of
+/// one figure is open at once for the union to merge. A statement is
+/// finalized when the next stream of its kind replaces it, or when the
+/// source is dropped at the readout's end.
+pub(super) struct RowOnly<'a> {
+    hearth: Hearth<'a>,
+    runs: Option<RunPull<'a>>,
+    parks: Option<ParkPull<'a>>,
+    sites: Option<SitePull<'a>>,
+}
+
+impl<'a> RowOnly<'a> {
+    pub(super) fn new(hearth: Hearth<'a>) -> RowOnly<'a> {
+        RowOnly {
+            hearth,
+            runs: None,
+            parks: None,
+            sites: None,
+        }
+    }
+}
+
+impl Hearth<'_> {
     /// `read`'s value, or none once the hearth's read is marked refused.
     fn kept<T>(&self, read: Result<T, StoreError>) -> Option<T> {
         read.map_err(|_| self.refused.set(true)).ok()
@@ -51,18 +75,6 @@ impl RowOnly<'_> {
             to: self.window.to,
             realm: None,
             label: Some(cut(self.label, NAME_BYTES)),
-        }
-    }
-
-    /// A stream that would not open still hands its reader a stream, of
-    /// nothing, so every figure is folded and the refusal is the caller's.
-    fn opened<T>(
-        &self,
-        pulled: Result<(), StoreError>,
-        read: &mut dyn FnMut(&mut dyn Iterator<Item = T>),
-    ) {
-        if self.kept(pulled).is_none() {
-            read(&mut std::iter::empty());
         }
     }
 
@@ -110,46 +122,54 @@ impl RowOnly<'_> {
 impl FactSource for RowOnly<'_> {
     /// The runs that finished in the window, and the runs still open.
     fn runs(&self, visit: &mut dyn FnMut(RunFacts)) {
-        let read = self.store.window_runs(
-            self.window.from,
-            self.window.to,
+        let hearth = &self.hearth;
+        let read = hearth.store.window_runs(
+            hearth.window.from,
+            hearth.window.to,
             RowRunOrder::Unordered,
             None,
             |row| {
-                if let Some(facts) = run_facts(row, self.label, self.realm) {
+                if let Some(facts) = run_facts(row, hearth.label, hearth.realm) {
                     visit(facts);
                 }
             },
         );
-        self.kept(read);
+        hearth.kept(read);
     }
 
     /// The runs `runs` reads, in `order`'s key; the recipe order carries
-    /// each run's costs, the one figure that folds them.
-    fn runs_in(&self, order: RunOrder, read: &mut dyn FnMut(&mut dyn Iterator<Item = RunFacts>)) {
+    /// each run's costs, the one figure that folds them. A statement that
+    /// will not prepare is a stream of nothing, so every figure is folded
+    /// and the refusal is the caller's.
+    fn runs_in(&mut self, order: RunOrder) -> Pulled<'_, RunFacts> {
         let (order, costs) = match order {
             RunOrder::Rule => (RowRunOrder::ByEndingRule, false),
             RunOrder::Recipe => (RowRunOrder::ByRealmThenRecipe, true),
         };
-        let bounds = self.bounds();
-        let pulled = self.store.pull_runs(&bounds, order, |rows| {
-            read(&mut std::iter::from_fn(|| self.next_run(rows, costs)));
-        });
-        self.opened(pulled, read);
+        let hearth = &self.hearth;
+        let prepared = hearth.store.prepare_runs(&hearth.bounds(), order);
+        let Some(pull) = hearth.kept(prepared) else {
+            return Box::new(std::iter::empty());
+        };
+        let mut rows = self.runs.insert(pull).rows();
+        Box::new(std::iter::from_fn(move || {
+            hearth.next_run(&mut rows, costs)
+        }))
     }
 
     /// Each run that finished in the window, its span read by the store's
     /// one pass, a median pass a call (decision 0089 ruling 7).
     fn durations(&self, visit: &mut dyn FnMut(&str, i64)) {
-        let read = self
+        let hearth = &self.hearth;
+        let read = hearth
             .store
-            .durations(self.window.from, self.window.to, |realm, span| {
-                let named = realm.unwrap_or(self.label);
-                if realm_in_scope(self.realm, named) {
+            .durations(hearth.window.from, hearth.window.to, |realm, span| {
+                let named = realm.unwrap_or(hearth.label);
+                if realm_in_scope(hearth.realm, named) {
                     visit(named, span);
                 }
             });
-        self.kept(read);
+        hearth.kept(read);
     }
 
     /// The runs that completed in `window`, counted by the store one
@@ -157,56 +177,63 @@ impl FactSource for RowOnly<'_> {
     /// groups: the hearth's whole read beside these rows counts them
     /// (#1068's F4, U5b1's F4), so the hearth's sum is the whole read's.
     fn shipped_between(&self, window: Window) -> usize {
-        let mut count = 0;
-        let read = self
+        let (hearth, mut count) = (&self.hearth, 0);
+        let read = hearth
             .store
             .finished_between(window.from, window.to, |realm, shipped| {
-                if realm_in_scope(self.realm, realm.unwrap_or(self.label)) {
+                if realm_in_scope(hearth.realm, realm.unwrap_or(hearth.label)) {
                     count += shipped as usize;
                 }
             });
-        self.kept(read);
+        hearth.kept(read);
         count
     }
 
     /// The parks that overlap the window, in cut phase then run order.
-    fn parks(&self, read: &mut dyn FnMut(&mut dyn Iterator<Item = ParkFact>)) {
-        let (from, to) = (self.window.from, self.window.to);
-        let pulled = self.store.pull_parks(from, to, to, None, |rows| {
-            read(&mut std::iter::from_fn(|| self.next_park(rows)));
-        });
-        self.opened(pulled, read);
+    fn parks(&mut self) -> Pulled<'_, ParkFact> {
+        let hearth = &self.hearth;
+        let (from, to) = (hearth.window.from, hearth.window.to);
+        let prepared = hearth.store.prepare_parks(from, to, to, None);
+        let Some(pull) = hearth.kept(prepared) else {
+            return Box::new(std::iter::empty());
+        };
+        let mut rows = self.parks.insert(pull).rows();
+        Box::new(std::iter::from_fn(move || hearth.next_park(&mut rows)))
     }
 
     fn spends(&self, visit: &mut dyn FnMut(SpendFact)) {
-        let read = self
-            .store
-            .window_spends(self.window.from, self.window.to, None, |spend| {
-                let named = spend.realm.unwrap_or(self.label);
-                if realm_in_scope(self.realm, named) {
-                    visit(SpendFact {
-                        realm: named.to_string(),
-                        at: spend.at_ms,
-                        usd: spend.usd,
-                    });
-                }
-            });
-        self.kept(read);
+        let hearth = &self.hearth;
+        let read =
+            hearth
+                .store
+                .window_spends(hearth.window.from, hearth.window.to, None, |spend| {
+                    let named = spend.realm.unwrap_or(hearth.label);
+                    if realm_in_scope(hearth.realm, named) {
+                        visit(SpendFact {
+                            realm: named.to_string(),
+                            at: spend.at_ms,
+                            usd: spend.usd,
+                        });
+                    }
+                });
+        hearth.kept(read);
     }
 
     /// The sites that ran in the window, in `order`'s key.
-    fn sites_in(&self, order: SiteOrder, read: &mut dyn FnMut(&mut dyn Iterator<Item = SiteFact>)) {
+    fn sites_in(&mut self, order: SiteOrder) -> Pulled<'_, SiteFact> {
         let order = match order {
             SiteOrder::Model => RowSiteOrder::Model,
             SiteOrder::Provider => RowSiteOrder::Provider,
             SiteOrder::RealmProvider => RowSiteOrder::RealmProvider,
             SiteOrder::RecipeProvider => RowSiteOrder::RecipeProvider,
         };
-        let bounds = self.bounds();
-        let pulled = self.store.pull_sites(&bounds, order, |rows| {
-            read(&mut std::iter::from_fn(|| self.next_site(rows)));
-        });
-        self.opened(pulled, read);
+        let hearth = &self.hearth;
+        let prepared = hearth.store.prepare_sites(&hearth.bounds(), order);
+        let Some(pull) = hearth.kept(prepared) else {
+            return Box::new(std::iter::empty());
+        };
+        let mut rows = self.sites.insert(pull).rows();
+        Box::new(std::iter::from_fn(move || hearth.next_site(&mut rows)))
     }
 }
 

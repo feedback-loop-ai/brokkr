@@ -40,13 +40,13 @@ use brokkr_core::summary::{aggregate, cut, NAME_BYTES};
 use brokkr_store::snapshot::ReadSnapshot;
 use brokkr_store::Store;
 use brokkr_view::{
-    FactSource, FactUnion, ParkFact, Query, RunFacts, RunOrder, SiteFact, SiteOrder, SpendFact,
-    WholeRead, Window,
+    FactSource, FactUnion, ParkFact, Pulled, Query, RunFacts, RunOrder, SiteFact, SiteOrder,
+    SpendFact, WholeRead, Window,
 };
 
 mod row_only;
 
-use row_only::RowOnly;
+use row_only::{Hearth, RowOnly};
 
 /// One run the store leaves whole, and where its realm first stands: the
 /// `runs` stamp as the whole read holds it, placed by the one key both
@@ -324,13 +324,13 @@ pub(super) fn read_rows_with<'a>(
 ) -> Result<RowSource<'a>, brokkr_store::StoreError> {
     let snapshot = rows.store.snapshot()?;
     let held = hold_whole(rows, &mut between)?;
-    let row = RowOnly {
+    let row = RowOnly::new(Hearth {
         store: rows.store,
         label: rows.label,
         window: rows.window,
         realm: rows.realm,
         refused: rows.refused,
-    };
+    });
     between(Stage::Rows);
     let (facts, scope) = match held.is_empty() {
         // Nothing stands behind its row: the rows alone, still one source
@@ -436,10 +436,10 @@ impl FactSource for HearthSource<'_> {
         }
     }
 
-    fn runs_in(&self, order: RunOrder, read: &mut dyn FnMut(&mut dyn Iterator<Item = RunFacts>)) {
+    fn runs_in(&mut self, order: RunOrder) -> Pulled<'_, RunFacts> {
         match self {
-            HearthSource::Whole(whole) => whole.runs_in(order, read),
-            HearthSource::Rows(rows) => rows.facts.runs_in(order, read),
+            HearthSource::Whole(whole) => whole.runs_in(order),
+            HearthSource::Rows(rows) => rows.facts.runs_in(order),
         }
     }
 
@@ -457,10 +457,10 @@ impl FactSource for HearthSource<'_> {
         }
     }
 
-    fn parks(&self, read: &mut dyn FnMut(&mut dyn Iterator<Item = ParkFact>)) {
+    fn parks(&mut self) -> Pulled<'_, ParkFact> {
         match self {
-            HearthSource::Whole(whole) => whole.parks(read),
-            HearthSource::Rows(rows) => rows.facts.parks(read),
+            HearthSource::Whole(whole) => whole.parks(),
+            HearthSource::Rows(rows) => rows.facts.parks(),
         }
     }
 
@@ -471,10 +471,10 @@ impl FactSource for HearthSource<'_> {
         }
     }
 
-    fn sites_in(&self, order: SiteOrder, read: &mut dyn FnMut(&mut dyn Iterator<Item = SiteFact>)) {
+    fn sites_in(&mut self, order: SiteOrder) -> Pulled<'_, SiteFact> {
         match self {
-            HearthSource::Whole(whole) => whole.sites_in(order, read),
-            HearthSource::Rows(rows) => rows.facts.sites_in(order, read),
+            HearthSource::Whole(whole) => whole.sites_in(order),
+            HearthSource::Rows(rows) => rows.facts.sites_in(order),
         }
     }
 }

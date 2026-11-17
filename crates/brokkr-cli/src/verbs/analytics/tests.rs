@@ -1736,7 +1736,9 @@ fn a_statement_that_will_not_prepare_reads_its_hearth_whole() {
         realm: None,
         label: None,
     };
-    let refused = store.pull_sites(&bounds, brokkr_store::metered::SiteOrder::Model, |_| ());
+    let refused = store
+        .prepare_sites(&bounds, brokkr_store::metered::SiteOrder::Model)
+        .map(|_| ());
     assert!(
         matches!(refused, Err(brokkr_store::StoreError::Sqlite(_))),
         "the sites' statement will not prepare: {refused:?}"

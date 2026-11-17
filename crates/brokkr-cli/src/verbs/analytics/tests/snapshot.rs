@@ -122,8 +122,8 @@ pub(super) fn read_between(journal: &Path, mut between: impl FnMut(Stage)) -> An
         refused: &refused,
     };
     let source = read_rows_with(&rows, &mut between).unwrap();
-    let union = FactUnion::new(vec![Box::new(HearthSource::Rows(source))]);
-    let view = brokkr_view::analytics_with(&union, &query).unwrap();
+    let mut union = FactUnion::new(vec![Box::new(HearthSource::Rows(source))]);
+    let view = brokkr_view::analytics_with(&mut union, &query).unwrap();
     assert!(!refused.get(), "no window statement refused");
     view
 }

@@ -53,25 +53,23 @@ fn pulled(store: &Store, label: Option<&str>) -> (Vec<String>, Vec<String>) {
         realm: None,
         label,
     };
-    let runs = store
-        .pull_runs(&bounds, RunOrder::ByRealmThenRecipe, |runs| {
-            let mut ids = Vec::new();
-            while let Some(run) = runs.next_run().unwrap() {
-                ids.push(run.run_id.to_string());
-            }
-            ids
-        })
+    let mut runs = store
+        .prepare_runs(&bounds, RunOrder::ByRealmThenRecipe)
         .unwrap();
-    let sites = store
-        .pull_sites(&bounds, SiteOrder::RealmProvider, |sites| {
-            let mut ids = Vec::new();
-            while let Some(site) = sites.next_site().unwrap() {
-                ids.push(site.run_id.to_string());
-            }
-            ids
-        })
+    let mut runs = runs.rows();
+    let mut run_ids = Vec::new();
+    while let Some(run) = runs.next_run().unwrap() {
+        run_ids.push(run.run_id.to_string());
+    }
+    let mut sites = store
+        .prepare_sites(&bounds, SiteOrder::RealmProvider)
         .unwrap();
-    (runs, sites)
+    let mut sites = sites.rows();
+    let mut site_ids = Vec::new();
+    while let Some(site) = sites.next_site().unwrap() {
+        site_ids.push(site.run_id.to_string());
+    }
+    (run_ids, site_ids)
 }
 
 /// A run whose stored realm is NULL stands where the caller's label does,
@@ -143,15 +141,16 @@ fn a_pull_of_the_parks_is_the_visiting_read() {
     plant_older_writer(&store, "parked", &parked);
     let store = refolded(store);
     let (from, to) = minute();
-    let pulled = store
-        .pull_parks(from, to, to, None, |parks| {
-            let mut pulled = Vec::new();
-            while let Some(park) = parks.next_park().unwrap() {
-                pulled.push(OwnedPark::of(&park));
-            }
-            pulled
-        })
-        .unwrap();
-    assert_eq!(pulled.len(), 1, "{pulled:?}");
-    assert_eq!(pulled, window_parks(&store, from, to, to, None));
+    let mut parks = store.prepare_parks(from, to, to, None).unwrap();
+    // Opened twice: a cursor's end resets the statement, so the second
+    // reads the window from its start.
+    for _ in 0..2 {
+        let mut parks = parks.rows();
+        let mut pulled = Vec::new();
+        while let Some(park) = parks.next_park().unwrap() {
+            pulled.push(OwnedPark::of(&park));
+        }
+        assert_eq!(pulled.len(), 1, "{pulled:?}");
+        assert_eq!(pulled, window_parks(&store, from, to, to, None));
+    }
 }

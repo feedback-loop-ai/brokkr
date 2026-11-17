@@ -38,7 +38,7 @@
 //! Every window statement leaves out, in SQL, the runs the whole read
 //! takes, through the `exclusion` module's one fragment, so a caller
 //! streams without a Rust set of run ids. `window_spends`, the sites' pull
-//! ([`Store::pull_sites`]) and `window_fallbacks` are the row path's
+//! ([`Store::prepare_sites`]) and `window_fallbacks` are the row path's
 //! (slice 4's unit U5b2b1).
 
 use std::sync::LazyLock;
@@ -49,7 +49,7 @@ use brokkr_core::seat::{finish_usage, TokenUsage};
 use rusqlite::types::Value;
 use rusqlite::{params_from_iter, Row, Rows, StatementStatus};
 
-use crate::aggregate::pull::Bounds;
+use crate::aggregate::pull::{Bounds, Prepared};
 use crate::aggregate::{bounds, exclusion, optional_text, required_text};
 use crate::event_index::CHECKPOINTED;
 use crate::seat_read::site_of;
@@ -215,22 +215,26 @@ impl Store {
         self.site_rows(&bounds, order, read, stepped)?
     }
 
-    /// Hand `read` the sites [`Store::window_sites`] reads, in `order`, as a
-    /// cursor it pulls: each site folded from its rows as the cursor passes
-    /// them, one site at a time. A statement that will not open is refused
-    /// before `read` is called; a row that will not read is the cursor's
-    /// refusal.
-    pub fn pull_sites<T>(
+    /// The sites [`Store::window_sites`] reads, in `order`, prepared for a
+    /// reader to pull: each site folded from its rows as the cursor passes
+    /// them, one site at a time. A statement that will not prepare is
+    /// refused here; a row that will not read is the cursor's refusal.
+    pub fn prepare_sites(
         &self,
         bounds: &Bounds<'_>,
         order: SiteOrder,
-        read: impl FnOnce(&mut SiteRows<'_>) -> T,
-    ) -> Result<T, StoreError> {
-        self.site_rows(bounds, order, read, |_| {})
+    ) -> Result<SitePull<'_>, StoreError> {
+        let intact = stale_intact(&self.conn)?;
+        let sql = sites_sql(order, intact);
+        Ok(SitePull(Prepared::bound(
+            &self.conn,
+            sql,
+            &bounds.values(),
+        )?))
     }
 
-    /// [`Store::pull_sites`] with the statement's VM steps handed to
-    /// `stepped` once `read` returns.
+    /// Hand `read` the sites of `bounds` in `order` as a cursor it pulls,
+    /// and the statement's VM steps to `stepped` once `read` returns.
     fn site_rows<T>(
         &self,
         bounds: &Bounds<'_>,
@@ -238,16 +242,9 @@ impl Store {
         read: impl FnOnce(&mut SiteRows<'_>) -> T,
         stepped: impl FnOnce(i64),
     ) -> Result<T, StoreError> {
-        let intact = stale_intact(&self.conn)?;
-        let mut statement = self.conn.prepare(sites_sql(order, intact))?;
-        let rows = statement.query(params_from_iter(bounds.values()))?;
-        let read = read(&mut SiteRows {
-            rows,
-            folding: Folding::default(),
-            metering: Metering::Session,
-            done: None,
-        });
-        stepped(i64::from(statement.get_status(StatementStatus::VmStep)));
+        let mut pull = self.prepare_sites(bounds, order)?;
+        let read = read(&mut pull.rows());
+        stepped(pull.0.steps());
         Ok(read)
     }
 
@@ -522,6 +519,21 @@ struct Folding {
     key: Option<(String, u64)>,
     held: Option<Held>,
     facts: Facts,
+}
+
+/// A window's sites statement, prepared and bound, in one figure's order.
+pub struct SitePull<'c>(Prepared<'c>);
+
+impl SitePull<'_> {
+    /// The sites from the window's start.
+    pub fn rows(&mut self) -> SiteRows<'_> {
+        SiteRows {
+            rows: self.0.open(),
+            folding: Folding::default(),
+            metering: Metering::Session,
+            done: None,
+        }
+    }
 }
 
 /// A window's sites, pulled in their statement's order: the rows of one

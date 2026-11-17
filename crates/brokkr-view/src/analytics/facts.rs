@@ -20,7 +20,7 @@ use brokkr_core::summary::{aggregate, cut, parks as project_parks, MODEL_BYTES, 
 use brokkr_core::EventEnvelope;
 
 use super::figures::total;
-use super::merge::merged;
+use super::merge::Merged;
 use super::{AnalyticsRun, QuarantinedHearth, Query};
 use crate::attempts::{attempts, Attempts, Site, Spend};
 use crate::TokenUsage;
@@ -189,13 +189,13 @@ pub enum SiteOrder {
 /// and `waiting_by_step` counts a change of run, never a set of them; a run
 /// id alone is not an identity, because two journals may each hold it.
 ///
-/// An ordered stream is pulled: the source hands `read` an iterator, and
-/// holds what yields the next fact (a statement's cursor, or the whole
-/// read's own runs) only while `read` runs, so a [`FactUnion`] holds one
-/// head per source and merges them (decision 0089 ruling 7). The
-/// order-free streams are visited one fact at a time. The facts a stream
-/// yields are already the window's: the source was built for the query's
-/// range and clock.
+/// An ordered stream is pulled: the source hands back an iterator that
+/// borrows it exclusively while it is pulled (a statement's cursor, or the
+/// whole read's own runs), so a [`FactUnion`] holds every source's stream
+/// open at once, one head a source, and merges them without a call frame a
+/// source (decision 0089 ruling 7). The order-free streams are visited one
+/// fact at a time. The facts a stream yields are already the window's: the
+/// source was built for the query's range and clock.
 pub trait FactSource {
     /// The realm names the readout paints, and the runs no figure could
     /// read, by their cut realm key. A source that states neither leaves
@@ -214,8 +214,8 @@ pub trait FactSource {
         Vec::new()
     }
     fn runs(&self, visit: &mut dyn FnMut(RunFacts));
-    /// The runs by `order`'s full key (`run_place`), pulled by `read`.
-    fn runs_in(&self, order: RunOrder, read: &mut dyn FnMut(&mut dyn Iterator<Item = RunFacts>));
+    /// The runs by `order`'s full key (`run_place`).
+    fn runs_in(&mut self, order: RunOrder) -> Pulled<'_, RunFacts>;
     /// Each finished run's cut realm and span inside the source's window,
     /// one value a median pass (decision 0089 ruling 7).
     fn durations(&self, visit: &mut dyn FnMut(&str, i64));
@@ -231,12 +231,15 @@ pub trait FactSource {
         });
         count
     }
-    /// The parks by `park_place`, pulled by `read`.
-    fn parks(&self, read: &mut dyn FnMut(&mut dyn Iterator<Item = ParkFact>));
+    /// The parks by `park_place`.
+    fn parks(&mut self) -> Pulled<'_, ParkFact>;
     fn spends(&self, visit: &mut dyn FnMut(SpendFact));
-    /// The sites by `order`'s full key (`site_place`), pulled by `read`.
-    fn sites_in(&self, order: SiteOrder, read: &mut dyn FnMut(&mut dyn Iterator<Item = SiteFact>));
+    /// The sites by `order`'s full key (`site_place`).
+    fn sites_in(&mut self, order: SiteOrder) -> Pulled<'_, SiteFact>;
 }
+
+/// One ordered stream of a source's facts, pulled as a figure folds them.
+pub type Pulled<'s, T> = Box<dyn Iterator<Item = T> + 's>;
 
 /// A source's realm names and unreadable counts, as its `scope` hands
 /// them over: one expression the sources share.
@@ -279,12 +282,6 @@ fn site_key(site: &SiteFact, order: SiteOrder) -> (Option<&str>, &str, &str) {
             name_key(&site.provider),
         ),
     }
-}
-
-/// A pulled stream's reader that visits each fact as it is pulled: the
-/// form a figure that folds one fact at a time reads a stream by.
-pub(crate) fn each<T>(mut visit: impl FnMut(T)) -> impl FnMut(&mut dyn Iterator<Item = T>) {
-    move |pulled| pulled.for_each(&mut visit)
 }
 
 /// A run's full key in `order` (#1068's F5): the cut key it groups by,
@@ -510,12 +507,12 @@ impl FactSource for WholeRead {
 
     /// The whole read keeps its runs (decision 0089 ruling 8), so it
     /// yields them through its own order of them.
-    fn runs_in(&self, order: RunOrder, read: &mut dyn FnMut(&mut dyn Iterator<Item = RunFacts>)) {
+    fn runs_in(&mut self, order: RunOrder) -> Pulled<'_, RunFacts> {
         let mut runs: Vec<&WholeRun> = self.runs.iter().collect();
         runs.sort_by(|left, right| {
             run_place(&left.facts, order).cmp(&run_place(&right.facts, order))
         });
-        read(&mut runs.into_iter().map(|run| run.facts.clone()));
+        Box::new(runs.into_iter().map(|run| run.facts.clone()))
     }
 
     fn durations(&self, visit: &mut dyn FnMut(&str, i64)) {
@@ -537,9 +534,10 @@ impl FactSource for WholeRead {
     /// ordered by the key, so a park's advance costs a logarithm, not a
     /// scan of every cursor. A run id is unique only within its journal,
     /// so the hearth is part of the identity.
-    fn parks(&self, read: &mut dyn FnMut(&mut dyn Iterator<Item = ParkFact>)) {
-        let cursor = |run: usize, index: usize| {
-            let whole: &WholeRun = &self.runs[run];
+    fn parks(&mut self) -> Pulled<'_, ParkFact> {
+        let runs: &[WholeRun] = &self.runs;
+        let cursor = move |run: usize, index: usize| {
+            let whole: &WholeRun = &runs[run];
             whole.parks.get(index).map(|park| {
                 (
                     optional(park.phase.as_deref()),
@@ -550,12 +548,11 @@ impl FactSource for WholeRead {
                 )
             })
         };
-        let mut cursors: BTreeSet<(Option<&str>, &str, &str, usize, usize)> = (0..self.runs.len())
-            .filter_map(|run| cursor(run, 0))
-            .collect();
-        read(&mut std::iter::from_fn(|| {
+        let mut cursors: BTreeSet<(Option<&str>, &str, &str, usize, usize)> =
+            (0..runs.len()).filter_map(|run| cursor(run, 0)).collect();
+        Box::new(std::iter::from_fn(move || {
             let (_phase, _hearth, _run_id, run, index) = cursors.pop_first()?;
-            let whole = &self.runs[run];
+            let whole = &runs[run];
             let park = &whole.parks[index];
             cursors.extend(cursor(run, index + 1));
             Some(ParkFact {
@@ -567,7 +564,7 @@ impl FactSource for WholeRead {
                 answered: park.answered,
                 ended: park.ended,
             })
-        }));
+        }))
     }
 
     fn spends(&self, visit: &mut dyn FnMut(SpendFact)) {
@@ -585,18 +582,18 @@ impl FactSource for WholeRead {
         }
     }
 
-    fn sites_in(&self, order: SiteOrder, read: &mut dyn FnMut(&mut dyn Iterator<Item = SiteFact>)) {
-        let keeps = |at: i64, _: Option<&str>| self.window.holds(at);
-        let mut sites: Vec<(usize, usize)> = self
-            .runs
+    fn sites_in(&mut self, order: SiteOrder) -> Pulled<'_, SiteFact> {
+        let (runs, window): (&[WholeRun], Window) = (&self.runs, self.window);
+        let keeps = |at: i64, _: Option<&str>| window.holds(at);
+        let mut sites: Vec<(usize, usize)> = runs
             .iter()
             .enumerate()
             .flat_map(|(run, whole)| (0..whole.sites.len()).map(move |site| (run, site)))
-            .filter(|(run, site)| self.runs[*run].sites[*site].ran(&keeps))
+            .filter(|(run, site)| runs[*run].sites[*site].ran(&keeps))
             .collect();
-        let fact = |(run, site): (usize, usize)| {
-            let whole = &self.runs[run];
-            site_fact(whole, &whole.sites[site], self.window)
+        let fact = move |(run, site): (usize, usize)| {
+            let whole = &runs[run];
+            site_fact(whole, &whole.sites[site], window)
         };
         sites.sort_by(|left, right| {
             let (left_fact, right_fact) = (fact(*left), fact(*right));
@@ -604,7 +601,7 @@ impl FactSource for WholeRead {
                 .cmp(&site_place(&right_fact, order))
                 .then(left.cmp(right))
         });
-        read(&mut sites.into_iter().map(fact));
+        Box::new(sites.into_iter().map(fact))
     }
 }
 
@@ -681,13 +678,12 @@ impl FactSource for FactUnion<'_> {
         }
     }
 
-    fn runs_in(&self, order: RunOrder, read: &mut dyn FnMut(&mut dyn Iterator<Item = RunFacts>)) {
-        merged(
-            &self.sources,
-            &|source, read| source.runs_in(order, read),
-            &|left: &RunFacts, right: &RunFacts| run_place(left, order) > run_place(right, order),
-            read,
-        );
+    fn runs_in(&mut self, order: RunOrder) -> Pulled<'_, RunFacts> {
+        let streams = self.sources.iter_mut().map(|source| source.runs_in(order));
+        let by_place = |left: &RunFacts, right: &RunFacts, order: RunOrder| {
+            run_place(left, order).cmp(&run_place(right, order))
+        };
+        Box::new(Merged::new(streams.collect(), by_place, order))
     }
 
     fn durations(&self, visit: &mut dyn FnMut(&str, i64)) {
@@ -703,13 +699,11 @@ impl FactSource for FactUnion<'_> {
             .sum()
     }
 
-    fn parks(&self, read: &mut dyn FnMut(&mut dyn Iterator<Item = ParkFact>)) {
-        merged(
-            &self.sources,
-            &|source, read| source.parks(read),
-            &|left: &ParkFact, right: &ParkFact| park_place(left) > park_place(right),
-            read,
-        );
+    fn parks(&mut self) -> Pulled<'_, ParkFact> {
+        let streams = self.sources.iter_mut().map(|source| source.parks());
+        let by_place =
+            |left: &ParkFact, right: &ParkFact, (): ()| park_place(left).cmp(&park_place(right));
+        Box::new(Merged::new(streams.collect(), by_place, ()))
     }
 
     fn spends(&self, visit: &mut dyn FnMut(SpendFact)) {
@@ -718,13 +712,12 @@ impl FactSource for FactUnion<'_> {
         }
     }
 
-    fn sites_in(&self, order: SiteOrder, read: &mut dyn FnMut(&mut dyn Iterator<Item = SiteFact>)) {
-        merged(
-            &self.sources,
-            &|source, read| source.sites_in(order, read),
-            &|left: &SiteFact, right: &SiteFact| site_place(left, order) > site_place(right, order),
-            read,
-        );
+    fn sites_in(&mut self, order: SiteOrder) -> Pulled<'_, SiteFact> {
+        let streams = self.sources.iter_mut().map(|source| source.sites_in(order));
+        let by_place = |left: &SiteFact, right: &SiteFact, order: SiteOrder| {
+            site_place(left, order).cmp(&site_place(right, order))
+        };
+        Box::new(Merged::new(streams.collect(), by_place, order))
     }
 }
 
