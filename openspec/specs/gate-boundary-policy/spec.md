@@ -496,9 +496,10 @@ enforced outside a namespace; the in-box marker `BROKKR_HANDS_BOX` —
 true of the child exactly when the engine itself already stands inside
 a box. No other inherited name SHALL be carried; fixed as the box
 sets them, `LANG` and `LC_ALL` as `C.UTF-8`, `CI` as `true`,
-`DISABLE_AUTOUPDATER` and `DISABLE_TELEMETRY` as `1`, and
-`GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_0` and `GIT_CONFIG_VALUE_0` as the
-`commit.gpgsign=false` triple; and the bundle's `git.identity` entries.
+`DISABLE_AUTOUPDATER` and `DISABLE_TELEMETRY` as `1`, and the seat's
+one git environment, `GIT_CONFIG_PARAMETERS` as `'commit.gpgsign'='false'`
+with `GIT_CONFIG_COUNT` as `0`, a pair no harness's credential scrub
+drops (#1109); and the bundle's `git.identity` entries.
 The engine SHALL never set the in-box marker on the dispatch, because
 no box stands and the marker is what every box-building test skips on.
 An inherited marker SHALL be matched by its exact name, with its value
