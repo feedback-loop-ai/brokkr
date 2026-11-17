@@ -596,6 +596,19 @@ fn a_malformed_wait_refuses_by_name_at_and_below_the_cap() {
         let reason = park_reason(&engine);
         assert!(reason.contains("does not read"), "{reason}");
         assert!(reason.contains("provider"), "{reason}");
+        // Below the cap the record that does not read is the engine's own
+        // refusal; at the cap it is the cap's, a typed refusal's record.
+        let expected = if attempts == 2 {
+            brokkr_core::ParkCause::ruled(None, reason.clone())
+        } else {
+            // The cap's own sentence: the record's words stay in the reason.
+            brokkr_core::ParkCause::attempt_cap(
+                brokkr_core::FailureClass::ProviderLimit,
+                "effect effect failed 1 of 1 attempt(s); \
+                 the last failure class is provider-limit",
+            )
+        };
+        assert_eq!(park_cause_of(&engine), expected);
     }
 }
 
@@ -1073,145 +1086,25 @@ fn terminal_case(
     }
 }
 
-/// Drive a crash-before-the-park journal and require the resume to park on
-/// the record's facts with no wait, probe or driver invocation.
-fn assert_crash_parks(
-    dir: &Path,
-    attempts: u64,
-    host: Option<PathBuf>,
-    refusal: &brokkr_protocol::PreSessionRefusal,
-    earlier: Option<Value>,
-    expected: &[&str],
-) {
-    let expected_starts = 1 + usize::from(earlier.is_some());
-    let (mut engine, _now) =
-        terminal_case(dir, attempts, host, refusal, earlier, TerminalMode::Crashed);
-    engine.drive().unwrap();
-    assert!(
-        logs(dir, "work").is_empty(),
-        "a crash-before-the-park resume invoked the driver: {:?}",
-        logs(dir, "work")
-    );
-    assert_eq!(
-        starts(&engine).len(),
-        expected_starts,
-        "the resume started an attempt"
-    );
-    let reason = park_reason(&engine);
-    for fact in expected {
-        assert!(reason.contains(fact), "{reason} omits {fact}");
+/// The cause the run's newest `run/parked` states.
+fn park_cause_of(engine: &Engine) -> brokkr_core::ParkCause {
+    engine
+        .store
+        .load(&engine.run_id)
+        .unwrap()
+        .iter()
+        .rev()
+        .find(|event| event.event_type == EventType::RunParked)
+        .and_then(|event| brokkr_core::ParkCause::read(event).unwrap())
+        .expect("the park states a cause")
+}
+
+/// The refusal variant a provider-limit cause states.
+fn refusal_of(cause: brokkr_core::ParkCause) -> brokkr_core::ProviderLimitRefusal {
+    match cause {
+        brokkr_core::ParkCause::ProviderLimit { refusal, .. } => refusal,
+        other => panic!("a typed refusal parks as the provider's limit: {other:?}"),
     }
-}
-
-/// H1: the failed event records the refusal it parks on, so a crash before
-/// the separate `run/parked` does not turn a maximum refusal into a retry.
-/// This is the no-end cause: the journal cannot spell the `until`.
-#[test]
-fn a_no_until_crash_resumes_the_maximum_refusal() {
-    let dir = tempfile::tempdir().unwrap();
-    let refusal = a_rate_limit_with(Some("first"), Some(1_000_000_000_000));
-    assert_crash_parks(
-        dir.path(),
-        2,
-        Some(host(dir.path(), 1, 10)),
-        &refusal,
-        None,
-        &[
-            "has no representable end",
-            "declared 10s maximum",
-            "rate_limit: slow down",
-        ],
-    );
-}
-
-#[test]
-fn a_crash_before_a_route_unresolved_park_resumes_the_refusal() {
-    let dir = tempfile::tempdir().unwrap();
-    let refusal = a_rate_limit_with(None, None);
-    assert_crash_parks(
-        dir.path(),
-        2,
-        None,
-        &refusal,
-        None,
-        &["route could not be resolved", "rate_limit: slow down"],
-    );
-}
-
-/// A cap reached after a crash keeps a refusal whose route never resolved:
-/// the cap states the record's facts without inventing a length or `until`.
-#[test]
-fn a_cap_after_a_crash_keeps_a_route_unresolved_refusal() {
-    let dir = tempfile::tempdir().unwrap();
-    let refusal = a_rate_limit_with(None, Some(7));
-    let (mut engine, _now) =
-        terminal_case(dir.path(), 1, None, &refusal, None, TerminalMode::Crashed);
-    drove(&mut engine, dir.path(), &[]);
-    assert_eq!(starts(&engine).len(), 1);
-    let reason = park_reason(&engine);
-    assert!(reason.starts_with("effect "), "{reason}");
-    assert!(reason.contains("claude/an unresolved route"), "{reason}");
-    assert!(reason.contains("rate_limit: slow down"), "{reason}");
-    assert!(reason.contains("retry-after 7s"), "{reason}");
-    assert!(reason.contains("no until"), "{reason}");
-}
-
-#[test]
-fn a_crash_before_a_host_unreadable_park_resumes_the_refusal() {
-    let dir = tempfile::tempdir().unwrap();
-    let refusal = a_rate_limit_with(Some("first"), None);
-    assert_crash_parks(
-        dir.path(),
-        2,
-        Some(dir.path().to_path_buf()),
-        &refusal,
-        None,
-        &[
-            "claude/first",
-            "host configuration could not be read",
-            "rate_limit: slow down",
-        ],
-    );
-}
-
-#[test]
-fn a_crash_before_an_episode_unreadable_park_resumes_the_refusal() {
-    let dir = tempfile::tempdir().unwrap();
-    let refusal = a_rate_limit_with(Some("first"), None);
-    assert_crash_parks(
-        dir.path(),
-        3,
-        Some(host(dir.path(), 1, 10)),
-        &refusal,
-        Some(
-            json!({"effect_id": "effect", "attempt_id": "a0", "error": "refused",
-                    "start_failure": true, "start_failure_sites": [null],
-                    "waits": malformed_earlier()}),
-        ),
-        &[
-            "claude/first",
-            "an earlier wait does not read",
-            "rate_limit: slow down",
-        ],
-    );
-}
-
-#[test]
-fn a_crash_before_a_past_maximum_park_resumes_the_refusal() {
-    let dir = tempfile::tempdir().unwrap();
-    let refusal = a_rate_limit_with(Some("first"), Some(5));
-    assert_crash_parks(
-        dir.path(),
-        2,
-        Some(host(dir.path(), 1, 2)),
-        &refusal,
-        None,
-        &[
-            "would wait 5s",
-            "episode 5s is past the declared 2s maximum",
-            "rate_limit: slow down",
-        ],
-    );
 }
 
 /// A resumed engine whose journal holds one failed payload the test
@@ -1664,12 +1557,19 @@ fn a_resume_refuses_an_unreadable_earlier_wait() {
 fn a_terminal_refuses_an_unreadable_earlier_wait() {
     let (_dir, mut engine) = two_terminal_engine(4);
     match terminal(&mut engine, None) {
-        super::Terminal::Park { reason, .. } => {
+        super::Terminal::Park { park, .. } => {
+            let reason = park.reason();
             assert!(
                 reason.contains("refusing to retry claude/first"),
                 "{reason}"
             );
             assert!(reason.contains("an earlier wait does not read"), "{reason}");
+            assert_eq!(
+                refusal_of(park.cause().clone()),
+                brokkr_core::ProviderLimitRefusal::EpisodeUnreadable {
+                    route: "first".into()
+                }
+            );
         }
         super::Terminal::Plain(_) => panic!("an unreadable earlier wait was read as nothing"),
     }
@@ -1686,7 +1586,7 @@ fn a_terminal_without_a_requested_seat_reads_the_default_cap() {
         super::Terminal::Plain(payload) => {
             assert!(payload["waits"].is_array(), "{payload}");
         }
-        super::Terminal::Park { reason, .. } => panic!("the default cap parked: {reason}"),
+        super::Terminal::Park { park, .. } => panic!("the default cap parked: {park}"),
     }
 }
 
@@ -1726,10 +1626,18 @@ fn a_doubled_wait_with_no_representable_end_parks() {
         .collect();
     append_waited(&mut engine, json!(waits));
     match terminal(&mut engine, None) {
-        super::Terminal::Park { reason, .. } => {
+        super::Terminal::Park { park, .. } => {
+            let reason = park.reason();
             assert!(reason.contains("has no representable end"), "{reason}");
             assert!(reason.contains("7200s maximum"), "{reason}");
             assert!(reason.contains("rate_limit: slow down"), "{reason}");
+            let brokkr_core::ProviderLimitRefusal::NoEnd {
+                route, max_seconds, ..
+            } = refusal_of(park.cause().clone())
+            else {
+                panic!("a wait the journal cannot spell parks as no-end");
+            };
+            assert_eq!((route.as_str(), max_seconds), ("first", 7_200));
         }
         super::Terminal::Plain(_) => panic!("a wait with no end was recorded as a wait"),
     }
@@ -1750,7 +1658,7 @@ fn wait() -> super::ProviderWait {
 
 fn probe_reason(engine: &mut Engine, report: brokkr_protocol::AttemptReport) -> String {
     match engine.probe_end("effect", &wait(), report) {
-        super::Probe::Parked(reason) => reason,
+        super::Probe::Parked(park) => park.reason().to_string(),
         super::Probe::Answered(_) => panic!("a probe that never answered is not an answer"),
         super::Probe::Extended(_) => panic!("a probe with no rate limit extended the wait"),
     }
@@ -1856,8 +1764,13 @@ fn an_unresolved_route_or_an_invalid_host_parks_before_any_wait() {
         )
         .unwrap()
     {
-        super::Terminal::Park { reason, .. } => {
+        super::Terminal::Park { park, .. } => {
+            let reason = park.reason();
             assert!(reason.contains("route could not be resolved"), "{reason}");
+            assert_eq!(
+                refusal_of(park.cause().clone()),
+                brokkr_core::ProviderLimitRefusal::RouteUnresolved
+            );
         }
         super::Terminal::Plain(_) => panic!("an unresolved route cannot be recorded"),
     }
@@ -1872,8 +1785,13 @@ fn an_unresolved_route_or_an_invalid_host_parks_before_any_wait() {
         )
         .unwrap()
     {
-        super::Terminal::Park { reason, .. } => {
-            assert!(reason.contains("is not a valid"), "{reason}");
+        super::Terminal::Park { park, .. } => {
+            assert!(park.reason().contains("is not a valid"), "{park}");
+            assert_eq!(
+                park.cause().line(),
+                "provider-limit (claude, host-unreadable): claude/first: the host file's \
+                 cool-down bounds could not be read"
+            );
         }
         super::Terminal::Plain(_) => panic!("an invalid host cannot be read as a constant"),
     }
@@ -1979,7 +1897,9 @@ fn a_cooldown_error_names_an_unreadable_refusal() {
 mod coverage;
 mod coverage_430s4d2d;
 mod coverage_4c2a;
+mod crash_resume;
 mod panel;
+mod park_cause;
 mod rows;
 // A crashed probe is found by its reservation, which only a protected
 // root holds, and only Linux's workspace box protects one.

@@ -5,8 +5,13 @@ use super::*;
 use crate::tests::{ev, state};
 use crate::{summary, Superseded, SupersededBy};
 use brokkr_core::envelope::EventType;
-use brokkr_core::fold::{fold, Cursor, ParkReason, Run};
+use brokkr_core::fold::{fold, Cursor, ParkReason, Run, Status};
 use serde_json::{json, Value};
+
+/// The verdict `state` and `residuals` derive, with no park cause.
+fn verdict(state: Option<&RunState>, residuals: &[ResidualFinding]) -> Verdict {
+    verdict_with(state, None, residuals)
+}
 
 const NOW: &str = "2026-01-02T00:00:00Z";
 /// A day before [`NOW`], to the second: the first moment a finished run
@@ -69,6 +74,7 @@ fn wanted(
         rule: rule.map(str::to_string),
         residual,
         reason: None,
+        cause: None,
         text: text.to_string(),
         detail: None,
     }
@@ -378,7 +384,7 @@ fn the_row_and_the_summary_serve_the_ending_its_citation_and_its_want() {
         entry.closing = brokkr_core::ending::closing(events, &state);
         let view = serde_json::to_value(run_rows(&[entry], &[])).expect("the rows serialize");
         let summary = serde_json::to_value(summary(&state, events)).expect("it serializes");
-        assert_eq!(view["view_version"], 31);
+        assert_eq!(view["view_version"], 32);
         let word = ending.as_str().unwrap_or("running");
         for said in [&view["runs"][0], &summary] {
             let read = (&said["ending"], &said["ending_cited"], &said["wants"]);
@@ -521,6 +527,7 @@ fn fleet(
 ) -> RunsView {
     let entry = |run_id, created_at, state| RunEntry {
         waits: Default::default(),
+        park_cause: None,
         run_id,
         feature: "a run",
         created_at,
@@ -595,6 +602,7 @@ fn a_finished_run_is_dated_by_its_last_event() {
     let shipped = settled(Status::Completed, "done", None);
     let entry = |run_id, last_recorded_at| RunEntry {
         waits: Default::default(),
+        park_cause: None,
         run_id,
         feature: "a run",
         created_at: "2025-12-01T00:00:00Z",
@@ -637,6 +645,7 @@ fn an_acknowledged_quarantine_needs_nothing_and_lists_under_older_even_when_rece
     };
     let refused = |run_id, quarantine: Quarantine, acknowledged| RunEntry {
         waits: Default::default(),
+        park_cause: None,
         detail: Some(Refusal {
             acknowledgement: acknowledged,
             ..quarantine.in_words("event 539: event after terminal status")
@@ -735,6 +744,7 @@ fn a_run_row_carries_its_title_and_verdict_beside_the_whole_feature() {
     let view = run_rows(
         &[RunEntry {
             waits: Default::default(),
+            park_cause: None,
             run_id: "r1",
             feature,
             created_at: DAY_BEFORE,
@@ -747,7 +757,7 @@ fn a_run_row_carries_its_title_and_verdict_beside_the_whole_feature() {
         &[],
     );
     let json = serde_json::to_value(&view).unwrap();
-    assert_eq!(json["view_version"], 31);
+    assert_eq!(json["view_version"], 32);
     assert_eq!(json["runs"][0]["hire"], Value::Null);
     assert_eq!(json["runs"][0]["acknowledgement"], Value::Null);
     assert_eq!(json["runs"][0]["feature"], feature);
@@ -891,6 +901,7 @@ fn each_need_says_what_the_operator_can_do() {
     assert_eq!(need(&silent_since(&parked, None), NOW), Some(Need::Parked));
     let refused = |detail| RunEntry {
         waits: Default::default(),
+        park_cause: None,
         detail,
         ..crate::tests::listed("q", "a run", NOW, None)
     };

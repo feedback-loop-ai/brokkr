@@ -819,6 +819,48 @@ fn the_kept_rulings_are_what_the_residual_findings_read() {
     assert_eq!(mark, Some(10), "and marked by the command");
 }
 
+/// Decision 0106 ruling 1: a kept run paints the cause its whole read paints,
+/// a cause that does not read by name, as `inspect` does. The kept read
+/// serves a journal whose summary is not pageable, and a park that landed
+/// between a refresh and the next is carried, not read whole.
+#[test]
+fn a_kept_run_paints_the_cause_its_whole_read_paints() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    running_store(&db, "r1");
+    running_store(&db, "r2");
+    let mut kept = KeptFleet::default();
+    refreshed(&mut kept, &db);
+    let stated = json!({"kind": "infrastructure", "retryable": false, "detail": "restarted"});
+    let malformed = json!({"kind": "not-a-cause"});
+    for (run_id, cause) in [("r1", stated.clone()), ("r2", malformed)] {
+        let requested = json!({"effect_id": "e", "seat": "work", "phase": "work"});
+        append(&db, run_id, EventType::EffectRequested, requested);
+        let parked = json!({"reason": "held", "evidence": {}, "cause": cause});
+        append(&db, run_id, EventType::RunParked, parked);
+    }
+    assert_eq!(refreshed(&mut kept, &db), 4, "carried, not read whole");
+    assert_eq!(kept_rows(&kept), whole_rows(&db));
+    let entries = kept.entries();
+    let cause_of = |run_id: &str| {
+        entries
+            .iter()
+            .find(|entry| entry.run_id == run_id)
+            .and_then(|entry| entry.park_cause.clone())
+            .map(|cause| *cause)
+    };
+    assert_eq!(
+        cause_of("r1"),
+        Some(brokkr_core::CauseRead::Stated(
+            brokkr_core::ParkCause::infrastructure(false, "restarted")
+        ))
+    );
+    let Some(brokkr_core::CauseRead::Refused(why)) = cause_of("r2") else {
+        panic!("a cause that does not read is refused by name, never absent");
+    };
+    assert!(why.contains("not-a-cause"), "{why}");
+}
+
 /// Decision 0064: a kept run reads its ending from its kept rulings as
 /// the whole read reads it from every event, the accepted stop's cause
 /// and citation included, which only its acceptance makes the run's.

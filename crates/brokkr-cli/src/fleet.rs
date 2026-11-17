@@ -109,6 +109,7 @@ impl ListedRun {
             // tail is kept and shown and stands no wait (decision 0108
             // ruling 4).
             &brokkr_view::WaitFact::applied(&self.events, state.ok()),
+            brokkr_core::CauseRead::latest(&self.events).map(Box::new),
         )
     }
 }
@@ -137,8 +138,10 @@ fn entry<'a>(
     state: Result<&'a RunState, &'a Quarantine>,
     (residuals, closing): (&'a [brokkr_view::ResidualFinding], Option<Closing>),
     waits: &brokkr_view::WaitFact,
+    park_cause: Option<Box<brokkr_core::CauseRead>>,
 ) -> brokkr_view::RunEntry<'a> {
     brokkr_view::RunEntry {
+        park_cause,
         run_id: listing.run_id,
         feature: listing.feature,
         created_at: listing.created_at,

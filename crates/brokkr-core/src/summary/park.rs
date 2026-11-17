@@ -12,6 +12,7 @@
 //! are read, as every reader of a run's times reads them.
 
 use crate::envelope::{EventEnvelope, EventType};
+use crate::park::CauseRead;
 use crate::stamp::parse_millis;
 
 /// One park: the `run/parked` event that opened it and the two moments
@@ -72,6 +73,9 @@ pub(crate) struct Parking {
     /// its stamp not parsing opens no park, but its row was still read and
     /// the writer records it processed.
     rows: Vec<u64>,
+    /// The most recent `run/parked` event's typed cause, whether or not its
+    /// stamp parsed. `fold` never reads it; the summary row does.
+    cause: Option<Box<CauseRead>>,
 }
 
 impl Parking {
@@ -79,6 +83,9 @@ impl Parking {
     pub(crate) fn note(&mut self, event: &EventEnvelope) {
         if event.event_type == EventType::RunParked {
             self.rows.push(event.seq);
+            // A cause that does not read is carried as its named refusal,
+            // never as a park that stated none.
+            self.cause = CauseRead::of_event(event).map(Box::new);
         }
         let Some(at) = parse_millis(&event.recorded_at) else {
             return;
@@ -123,6 +130,11 @@ impl Parking {
     /// ignored one included.
     pub(crate) fn rows(&self) -> &[u64] {
         &self.rows
+    }
+
+    /// The latest `run/parked` event's cause, if it stated one.
+    pub(crate) fn cause(&self) -> Option<&CauseRead> {
+        self.cause.as_deref()
     }
 }
 

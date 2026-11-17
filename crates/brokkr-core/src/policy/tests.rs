@@ -1133,6 +1133,27 @@ fn rule_faults() -> Vec<Faulty> {
             },
             "rule ? missing 'id'",
         ),
+        // A rule id the park cause's frozen schema cannot name: its park
+        // would be written with a cause no reader admits (decision 0106).
+        (
+            with_rule("id", Some(json!("R".repeat(65)))),
+            Malformed::RuleIdLength {
+                rule: "R".repeat(65),
+                length: 65,
+                max: 64,
+            },
+            "rule id 'RRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRR' is 65 \
+             characters, not 1 to 64, the span a park's cause can name",
+        ),
+        (
+            with_rule("id", Some(json!(""))),
+            Malformed::RuleIdLength {
+                rule: String::new(),
+                length: 0,
+                max: 64,
+            },
+            "rule id '' is 0 characters, not 1 to 64, the span a park's cause can name",
+        ),
         (
             labelled(with_rule("whenn", Some(json!(1))), TABLE_SCHEMA_V2),
             Malformed::UnknownRuleKey {

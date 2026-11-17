@@ -59,6 +59,7 @@ pub(crate) fn listed<'a>(
 ) -> RunEntry<'a> {
     RunEntry {
         waits: Default::default(),
+        park_cause: None,
         run_id,
         feature,
         created_at,
@@ -131,12 +132,10 @@ fn js_truthiness_and_the_fixed_tables_are_ported_whole() {
     assert!(!truthy(Some(&json!(""))));
     assert!(truthy(Some(&json!("x"))));
     assert!(truthy(Some(&json!({"a": 1}))));
-
     assert_eq!(Status::Running.as_str(), "running");
     assert_eq!(Status::AwaitingOperator.as_str(), "awaiting_operator");
     assert_eq!(Status::Completed.as_str(), "completed");
     assert_eq!(Status::Stopped.as_str(), "stopped");
-
     // Each type's wire name is `EventType::as_str`'s, pinned in brokkr-core.
     assert_eq!(type_tail("effect/succeeded"), "succeeded");
     assert_eq!(type_tail("bare"), "");
@@ -3271,11 +3270,11 @@ fn an_entry_outside_the_vocabulary_is_not_recorded() {
 /// null-bearing cell rather than a skipped key.
 #[test]
 fn the_wire_version_moves() {
-    assert_eq!(VIEW_VERSION, 31); // 31 (0103 4f): waits. 30 (0108): a repair's late tail. 29 (0064): ending, ending_cited, wants. 28 (#909): stopping. 27 (0094): entry. 26 (#787): carried_from. 25 (#753): a page's next. 24 (#568): visit. 23 (#568): analytics recipes. 22 (#568): tokens. 21 (#511): acknowledgement. 20 (#568): recipe. 19 (#568): commands. 18 (#351): scopes. 17: working. 16 (0065): capability call.
+    assert_eq!(VIEW_VERSION, 32); // 32 (0106): a park's typed cause. 31 (0103 4f): waits. 30 (0108): a repair's late tail. 29 (0064): ending, ending_cited, wants. 28 (#909): stopping. 27 (0094): entry. 26 (#787): carried_from. 25 (#753): a page's next. 24 (#568): visit. 23 (#568): analytics recipes. 22 (#568): tokens. 21 (#511): acknowledgement. 20 (#568): recipe. 19 (#568): commands. 18 (#351): scopes. 17: working. 16 (0065): capability call.
                                   // 15: quarantine. 14: dashboard. 13: hire. 12: title. 11 (#376): `cost` is every attempt's spend,
                                   // and the last attempt's own figure stands beside it on the wire.
     let retried = serde_json::to_value(run_view(&two_attempt_journal(), None)).unwrap();
-    assert_eq!(retried["view_version"], 31);
+    assert_eq!(retried["view_version"], 32);
     // 22: every participant carries its token cells, each a cell even when absent.
     assert_eq!(
         retried["participants"][0]["tokens"]["cache_hit"]["absent"],
@@ -3285,7 +3284,7 @@ fn the_wire_version_moves() {
     assert_eq!(retried["participants"][0]["last_attempt_cost"], json!(0.5));
     let view = run_view(&boxed_journal(plain_manifest(), Value::Null, None), None);
     let json = serde_json::to_value(&view).unwrap();
-    assert_eq!(json["view_version"], 31);
+    assert_eq!(json["view_version"], 32);
     let seat = &json["participants"][0];
     assert_eq!(seat["model"]["text"], "claude-fable-5-1");
     assert_eq!(seat["boundary"]["absent"], json!(true));

@@ -212,7 +212,8 @@ fn a_drive_that_meets_the_lock_at_a_park_ends_in_the_lawful_ends_park() {
         (last.event_type, &last.payload),
         (
             EventType::RunParked,
-            &json!({"reason": reason, "evidence": {}})
+            &json!({"reason": reason, "evidence": {},
+                    "cause": {"kind": "infrastructure", "retryable": false, "detail": reason}})
         )
     );
 }
@@ -1250,6 +1251,29 @@ fn a_lock_that_outlasts_both_windows_hands_the_contention_back_with_the_attempt_
 /// parked with `run/parked` naming it too — so the next resume finds no
 /// open attempt to call "engine restarted", and writes nothing.
 #[test]
+fn an_indeterminate_park_is_not_retryable() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut engine = in_flight(dir.path());
+    let end = engine
+        .lawful_end_under_contention(contended("append"))
+        .expect("a settled attempt parks lawfully")
+        .expect("the park ends the drive");
+    assert_eq!(end.state.run.status(), Status::AwaitingOperator);
+    let parked = engine
+        .store
+        .load(&engine.run_id)
+        .unwrap()
+        .into_iter()
+        .find(|event| event.event_type == EventType::RunParked)
+        .expect("the contention parked");
+    assert_eq!(
+        parked.payload["cause"],
+        json!({"kind": "infrastructure", "retryable": false,
+               "detail": parked.payload["reason"]})
+    );
+}
+
+#[test]
 fn a_terminal_event_the_lock_outlasts_settles_the_attempt_and_parks() {
     let dir = tempfile::tempdir().unwrap();
     let mut engine = in_flight(dir.path());
@@ -1280,7 +1304,8 @@ fn a_terminal_event_the_lock_outlasts_settles_the_attempt_and_parks() {
             ),
             (
                 EventType::RunParked,
-                json!({"reason": expected, "evidence": {}})
+                json!({"reason": expected, "evidence": {},
+                        "cause": {"kind": "infrastructure", "retryable": false, "detail": expected}})
             ),
         ]
     );
@@ -1648,3 +1673,5 @@ fn a_riding_stop_keeps_its_ending_once_the_attempt_is_settled() {
     );
     assert_eq!(fold(&events).unwrap().run, Run::Running(Cursor::Stop));
 }
+
+mod retryable;

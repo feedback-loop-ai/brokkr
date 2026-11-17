@@ -502,6 +502,7 @@ pub brokkr_core::page::Row::lane_running: bool
 pub brokkr_core::page::Row::last_recorded_at: core::option::Option<brokkr_core::summary::Bounded>
 pub brokkr_core::page::Row::late_tail: core::option::Option<brokkr_core::page::LateRange>
 pub brokkr_core::page::Row::order_at: i64
+pub brokkr_core::page::Row::park_cause: core::option::Option<alloc::boxed::Box<brokkr_core::CauseRead>>
 pub brokkr_core::page::Row::park_reason: core::option::Option<brokkr_core::summary::Bounded>
 pub brokkr_core::page::Row::phase: core::option::Option<brokkr_core::summary::Bounded>
 pub brokkr_core::page::Row::refused: core::option::Option<brokkr_core::summary::Refused>
@@ -516,6 +517,99 @@ pub brokkr_core::page::Whole::feature: alloc::string::String
 pub brokkr_core::page::Whole::residuals: alloc::vec::Vec<brokkr_core::summary::Stated>
 pub fn brokkr_core::page::newest_first(brokkr_core::page::Place<'_>) -> core::cmp::Reverse<brokkr_core::page::Place<'_>>
 pub type brokkr_core::page::Place<'a> = (i64, &'a str)
+pub mod brokkr_core::park
+pub enum brokkr_core::park::CauseRead
+pub brokkr_core::park::CauseRead::Refused(alloc::string::String)
+pub brokkr_core::park::CauseRead::Stated(brokkr_core::park::ParkCause)
+impl brokkr_core::CauseRead
+pub fn brokkr_core::CauseRead::latest(&[brokkr_core::envelope::EventEnvelope]) -> core::option::Option<brokkr_core::CauseRead>
+pub fn brokkr_core::CauseRead::line(&self) -> alloc::string::String
+pub fn brokkr_core::CauseRead::of_event(&brokkr_core::envelope::EventEnvelope) -> core::option::Option<brokkr_core::CauseRead>
+impl serde_core::ser::Serialize for brokkr_core::CauseRead
+pub fn brokkr_core::CauseRead::serialize<S: serde_core::ser::Serializer>(&self, S) -> core::result::Result<<S as serde_core::ser::Serializer>::Ok, <S as serde_core::ser::Serializer>::Error>
+impl<'de> serde_core::de::Deserialize<'de> for brokkr_core::CauseRead
+pub fn brokkr_core::CauseRead::deserialize<D: serde_core::de::Deserializer<'de>>(D) -> core::result::Result<Self, <D as serde_core::de::Deserializer>::Error>
+pub enum brokkr_core::park::FailureClass
+pub brokkr_core::park::FailureClass::Determinate
+pub brokkr_core::park::FailureClass::ProviderLimit
+pub brokkr_core::park::FailureClass::ProviderRefusal
+pub brokkr_core::park::FailureClass::StartFailure
+impl brokkr_core::park::FailureClass
+pub fn brokkr_core::park::FailureClass::word(self) -> &'static str
+pub enum brokkr_core::park::FormError
+pub brokkr_core::park::FormError::EmptyDetail
+pub brokkr_core::park::FormError::Provider(alloc::string::String)
+pub brokkr_core::park::FormError::Route(alloc::string::String)
+pub brokkr_core::park::FormError::RuleIdLength(usize)
+pub brokkr_core::park::FormError::Seconds(&'static str)
+pub enum brokkr_core::park::ParkCause
+pub brokkr_core::park::ParkCause::AttemptCap
+pub brokkr_core::park::ParkCause::AttemptCap::detail: alloc::string::String
+pub brokkr_core::park::ParkCause::AttemptCap::failure_class: brokkr_core::park::FailureClass
+pub brokkr_core::park::ParkCause::Infrastructure
+pub brokkr_core::park::ParkCause::Infrastructure::detail: alloc::string::String
+pub brokkr_core::park::ParkCause::Infrastructure::retryable: bool
+pub brokkr_core::park::ParkCause::ProviderLimit
+pub brokkr_core::park::ParkCause::ProviderLimit::detail: alloc::string::String
+pub brokkr_core::park::ParkCause::ProviderLimit::provider: alloc::string::String
+pub brokkr_core::park::ParkCause::ProviderLimit::refusal: brokkr_core::park::ProviderLimitRefusal
+pub brokkr_core::park::ParkCause::Ruled
+pub brokkr_core::park::ParkCause::Ruled::detail: alloc::string::String
+pub brokkr_core::park::ParkCause::Ruled::rule_id: core::option::Option<alloc::string::String>
+impl brokkr_core::park::ParkCause
+pub fn brokkr_core::park::ParkCause::attempt_cap(brokkr_core::park::FailureClass, impl core::convert::Into<alloc::string::String>) -> brokkr_core::park::ParkCause
+pub fn brokkr_core::park::ParkCause::infrastructure(bool, impl core::convert::Into<alloc::string::String>) -> brokkr_core::park::ParkCause
+pub fn brokkr_core::park::ParkCause::line(&self) -> alloc::string::String
+pub fn brokkr_core::park::ParkCause::provider_limit(&brokkr_core::ProviderRefusal, core::option::Option<time::offset_date_time::OffsetDateTime>) -> brokkr_core::park::ParkCause
+pub fn brokkr_core::park::ParkCause::read(&brokkr_core::envelope::EventEnvelope) -> core::result::Result<core::option::Option<brokkr_core::park::ParkCause>, brokkr_core::ParkCauseError>
+pub fn brokkr_core::park::ParkCause::refusal(impl core::convert::Into<alloc::string::String>, brokkr_core::park::ProviderLimitRefusal) -> brokkr_core::park::ParkCause
+pub fn brokkr_core::park::ParkCause::ruled(core::option::Option<alloc::string::String>, impl core::convert::Into<alloc::string::String>) -> brokkr_core::park::ParkCause
+impl<'de> serde_core::de::Deserialize<'de> for brokkr_core::park::ParkCause
+pub fn brokkr_core::park::ParkCause::deserialize<D: serde_core::de::Deserializer<'de>>(D) -> core::result::Result<Self, <D as serde_core::de::Deserializer>::Error>
+pub enum brokkr_core::park::ParkCauseError
+pub brokkr_core::park::ParkCauseError::Forbidden
+pub brokkr_core::park::ParkCauseError::Forbidden::field: alloc::string::String
+pub brokkr_core::park::ParkCauseError::Forbidden::kind: &'static str
+pub brokkr_core::park::ParkCauseError::Form(brokkr_core::park::FormError)
+pub brokkr_core::park::ParkCauseError::Missing
+pub brokkr_core::park::ParkCauseError::Missing::field: &'static str
+pub brokkr_core::park::ParkCauseError::Missing::kind: &'static str
+pub brokkr_core::park::ParkCauseError::NotAnObject
+pub brokkr_core::park::ParkCauseError::UnknownFailureClass(alloc::string::String)
+pub brokkr_core::park::ParkCauseError::UnknownKind(core::option::Option<alloc::string::String>)
+pub brokkr_core::park::ParkCauseError::UnknownRefusal(core::option::Option<alloc::string::String>)
+pub brokkr_core::park::ParkCauseError::Until(alloc::string::String)
+pub brokkr_core::park::ParkCauseError::WrongType
+pub brokkr_core::park::ParkCauseError::WrongType::expected: &'static str
+pub brokkr_core::park::ParkCauseError::WrongType::field: &'static str
+pub brokkr_core::park::ParkCauseError::WrongType::kind: &'static str
+pub enum brokkr_core::park::ProviderLimitRefusal
+pub brokkr_core::park::ProviderLimitRefusal::EpisodeUnreadable
+pub brokkr_core::park::ProviderLimitRefusal::EpisodeUnreadable::route: alloc::string::String
+pub brokkr_core::park::ProviderLimitRefusal::HostUnreadable
+pub brokkr_core::park::ProviderLimitRefusal::HostUnreadable::route: alloc::string::String
+pub brokkr_core::park::ProviderLimitRefusal::NoEnd
+pub brokkr_core::park::ProviderLimitRefusal::NoEnd::max_seconds: u64
+pub brokkr_core::park::ProviderLimitRefusal::NoEnd::route: alloc::string::String
+pub brokkr_core::park::ProviderLimitRefusal::NoEnd::seconds: u64
+pub brokkr_core::park::ProviderLimitRefusal::PastMaximum
+pub brokkr_core::park::ProviderLimitRefusal::PastMaximum::max_seconds: u64
+pub brokkr_core::park::ProviderLimitRefusal::PastMaximum::route: alloc::string::String
+pub brokkr_core::park::ProviderLimitRefusal::PastMaximum::seconds: u64
+pub brokkr_core::park::ProviderLimitRefusal::PastMaximum::until: time::offset_date_time::OffsetDateTime
+pub brokkr_core::park::ProviderLimitRefusal::RouteUnresolved
+impl brokkr_core::park::ProviderLimitRefusal
+pub fn brokkr_core::park::ProviderLimitRefusal::detail(&self, &str) -> alloc::string::String
+pub fn brokkr_core::park::ProviderLimitRefusal::word(&self) -> &'static str
+pub struct brokkr_core::park::Park
+impl brokkr_core::park::Park
+pub fn brokkr_core::park::Park::cause(&self) -> &brokkr_core::park::ParkCause
+pub fn brokkr_core::park::Park::new(impl core::convert::Into<alloc::string::String>, brokkr_core::park::ParkCause) -> brokkr_core::park::Park
+pub fn brokkr_core::park::Park::payload(&self, serde_json::value::Value) -> serde_json::value::Value
+pub fn brokkr_core::park::Park::reason(&self) -> &str
+pub fn brokkr_core::park::Park::ruled(impl core::convert::Into<alloc::string::String>) -> brokkr_core::park::Park
+impl core::fmt::Display for brokkr_core::park::Park
+pub fn brokkr_core::park::Park::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub mod brokkr_core::policy
 pub mod brokkr_core::policy::audit
 pub enum brokkr_core::policy::audit::AuditError
@@ -617,6 +711,10 @@ pub brokkr_core::policy::Malformed::ParkNotTrue::written: alloc::string::String
 pub brokkr_core::policy::Malformed::ParkOutsideV2
 pub brokkr_core::policy::Malformed::ParkOutsideV2::rule: alloc::string::String
 pub brokkr_core::policy::Malformed::ParkOutsideV2::schema: core::option::Option<alloc::string::String>
+pub brokkr_core::policy::Malformed::RuleIdLength
+pub brokkr_core::policy::Malformed::RuleIdLength::length: usize
+pub brokkr_core::policy::Malformed::RuleIdLength::max: usize
+pub brokkr_core::policy::Malformed::RuleIdLength::rule: alloc::string::String
 pub brokkr_core::policy::Malformed::RuleNotAnObject
 pub brokkr_core::policy::Malformed::SeverityNotAString(alloc::string::String)
 pub brokkr_core::policy::Malformed::TerminalUnknown(alloc::string::String)
@@ -1224,6 +1322,7 @@ pub brokkr_core::summary::Summary::hired: core::option::Option<brokkr_core::summ
 pub brokkr_core::summary::Summary::last_at_ms: core::option::Option<i64>
 pub brokkr_core::summary::Summary::last_recorded_at: core::option::Option<brokkr_core::summary::Bounded>
 pub brokkr_core::summary::Summary::late_tail: core::option::Option<brokkr_core::page::LateRange>
+pub brokkr_core::summary::Summary::park_cause: core::option::Option<alloc::boxed::Box<brokkr_core::CauseRead>>
 pub brokkr_core::summary::Summary::park_reason: core::option::Option<brokkr_core::summary::Bounded>
 pub brokkr_core::summary::Summary::phase: core::option::Option<brokkr_core::summary::Bounded>
 pub brokkr_core::summary::Summary::refused: core::option::Option<brokkr_core::summary::Refused>
@@ -1252,6 +1351,17 @@ pub fn brokkr_core::summary::entered_phase(&brokkr_core::envelope::EventEnvelope
 pub fn brokkr_core::summary::feature_line(&str) -> &str
 pub fn brokkr_core::summary::parks(&[brokkr_core::envelope::EventEnvelope]) -> alloc::vec::Vec<brokkr_core::summary::Park>
 pub fn brokkr_core::summary::sites(&[brokkr_core::envelope::EventEnvelope]) -> alloc::vec::Vec<brokkr_core::summary::Site>
+pub enum brokkr_core::CauseRead
+pub brokkr_core::CauseRead::Refused(alloc::string::String)
+pub brokkr_core::CauseRead::Stated(brokkr_core::park::ParkCause)
+impl brokkr_core::CauseRead
+pub fn brokkr_core::CauseRead::latest(&[brokkr_core::envelope::EventEnvelope]) -> core::option::Option<brokkr_core::CauseRead>
+pub fn brokkr_core::CauseRead::line(&self) -> alloc::string::String
+pub fn brokkr_core::CauseRead::of_event(&brokkr_core::envelope::EventEnvelope) -> core::option::Option<brokkr_core::CauseRead>
+impl serde_core::ser::Serialize for brokkr_core::CauseRead
+pub fn brokkr_core::CauseRead::serialize<S: serde_core::ser::Serializer>(&self, S) -> core::result::Result<<S as serde_core::ser::Serializer>::Ok, <S as serde_core::ser::Serializer>::Error>
+impl<'de> serde_core::de::Deserialize<'de> for brokkr_core::CauseRead
+pub fn brokkr_core::CauseRead::deserialize<D: serde_core::de::Deserializer<'de>>(D) -> core::result::Result<Self, <D as serde_core::de::Deserializer>::Error>
 pub enum brokkr_core::Cursor
 pub brokkr_core::Cursor::Decide
 pub brokkr_core::Cursor::Decide::effect_id: alloc::string::String
@@ -1297,6 +1407,13 @@ impl brokkr_core::envelope::EventType
 pub const fn brokkr_core::envelope::EventType::as_str(self) -> &'static str
 impl<'de> serde_core::de::Deserialize<'de> for brokkr_core::envelope::EventType
 pub fn brokkr_core::envelope::EventType::deserialize<D: serde_core::de::Deserializer<'de>>(D) -> core::result::Result<Self, <D as serde_core::de::Deserializer>::Error>
+pub enum brokkr_core::FailureClass
+pub brokkr_core::FailureClass::Determinate
+pub brokkr_core::FailureClass::ProviderLimit
+pub brokkr_core::FailureClass::ProviderRefusal
+pub brokkr_core::FailureClass::StartFailure
+impl brokkr_core::park::FailureClass
+pub fn brokkr_core::park::FailureClass::word(self) -> &'static str
 pub enum brokkr_core::FoldError
 pub brokkr_core::FoldError::AfterTerminal
 pub brokkr_core::FoldError::AfterTerminal::seq: u64
@@ -1336,11 +1453,70 @@ pub brokkr_core::Outcome::Ruling::requires_artifacts: alloc::vec::Vec<alloc::str
 pub brokkr_core::Outcome::Ruling::rule_id: alloc::string::String
 pub brokkr_core::Outcome::Ruling::severity: alloc::string::String
 pub brokkr_core::Outcome::Unmatched
+pub enum brokkr_core::ParkCause
+pub brokkr_core::ParkCause::AttemptCap
+pub brokkr_core::ParkCause::AttemptCap::detail: alloc::string::String
+pub brokkr_core::ParkCause::AttemptCap::failure_class: brokkr_core::park::FailureClass
+pub brokkr_core::ParkCause::Infrastructure
+pub brokkr_core::ParkCause::Infrastructure::detail: alloc::string::String
+pub brokkr_core::ParkCause::Infrastructure::retryable: bool
+pub brokkr_core::ParkCause::ProviderLimit
+pub brokkr_core::ParkCause::ProviderLimit::detail: alloc::string::String
+pub brokkr_core::ParkCause::ProviderLimit::provider: alloc::string::String
+pub brokkr_core::ParkCause::ProviderLimit::refusal: brokkr_core::park::ProviderLimitRefusal
+pub brokkr_core::ParkCause::Ruled
+pub brokkr_core::ParkCause::Ruled::detail: alloc::string::String
+pub brokkr_core::ParkCause::Ruled::rule_id: core::option::Option<alloc::string::String>
+impl brokkr_core::park::ParkCause
+pub fn brokkr_core::park::ParkCause::attempt_cap(brokkr_core::park::FailureClass, impl core::convert::Into<alloc::string::String>) -> brokkr_core::park::ParkCause
+pub fn brokkr_core::park::ParkCause::infrastructure(bool, impl core::convert::Into<alloc::string::String>) -> brokkr_core::park::ParkCause
+pub fn brokkr_core::park::ParkCause::line(&self) -> alloc::string::String
+pub fn brokkr_core::park::ParkCause::provider_limit(&brokkr_core::ProviderRefusal, core::option::Option<time::offset_date_time::OffsetDateTime>) -> brokkr_core::park::ParkCause
+pub fn brokkr_core::park::ParkCause::read(&brokkr_core::envelope::EventEnvelope) -> core::result::Result<core::option::Option<brokkr_core::park::ParkCause>, brokkr_core::ParkCauseError>
+pub fn brokkr_core::park::ParkCause::refusal(impl core::convert::Into<alloc::string::String>, brokkr_core::park::ProviderLimitRefusal) -> brokkr_core::park::ParkCause
+pub fn brokkr_core::park::ParkCause::ruled(core::option::Option<alloc::string::String>, impl core::convert::Into<alloc::string::String>) -> brokkr_core::park::ParkCause
+impl<'de> serde_core::de::Deserialize<'de> for brokkr_core::park::ParkCause
+pub fn brokkr_core::park::ParkCause::deserialize<D: serde_core::de::Deserializer<'de>>(D) -> core::result::Result<Self, <D as serde_core::de::Deserializer>::Error>
+pub enum brokkr_core::ParkCauseError
+pub brokkr_core::ParkCauseError::Forbidden
+pub brokkr_core::ParkCauseError::Forbidden::field: alloc::string::String
+pub brokkr_core::ParkCauseError::Forbidden::kind: &'static str
+pub brokkr_core::ParkCauseError::Form(brokkr_core::park::FormError)
+pub brokkr_core::ParkCauseError::Missing
+pub brokkr_core::ParkCauseError::Missing::field: &'static str
+pub brokkr_core::ParkCauseError::Missing::kind: &'static str
+pub brokkr_core::ParkCauseError::NotAnObject
+pub brokkr_core::ParkCauseError::UnknownFailureClass(alloc::string::String)
+pub brokkr_core::ParkCauseError::UnknownKind(core::option::Option<alloc::string::String>)
+pub brokkr_core::ParkCauseError::UnknownRefusal(core::option::Option<alloc::string::String>)
+pub brokkr_core::ParkCauseError::Until(alloc::string::String)
+pub brokkr_core::ParkCauseError::WrongType
+pub brokkr_core::ParkCauseError::WrongType::expected: &'static str
+pub brokkr_core::ParkCauseError::WrongType::field: &'static str
+pub brokkr_core::ParkCauseError::WrongType::kind: &'static str
 pub enum brokkr_core::PolicyError
 pub brokkr_core::PolicyError::Malformed(brokkr_core::policy::Malformed)
 pub brokkr_core::PolicyError::Refused(brokkr_core::policy::audit::Refusal)
 impl core::convert::From<brokkr_core::policy::Malformed> for brokkr_core::policy::PolicyError
 pub fn brokkr_core::policy::PolicyError::from(brokkr_core::policy::Malformed) -> Self
+pub enum brokkr_core::ProviderLimitRefusal
+pub brokkr_core::ProviderLimitRefusal::EpisodeUnreadable
+pub brokkr_core::ProviderLimitRefusal::EpisodeUnreadable::route: alloc::string::String
+pub brokkr_core::ProviderLimitRefusal::HostUnreadable
+pub brokkr_core::ProviderLimitRefusal::HostUnreadable::route: alloc::string::String
+pub brokkr_core::ProviderLimitRefusal::NoEnd
+pub brokkr_core::ProviderLimitRefusal::NoEnd::max_seconds: u64
+pub brokkr_core::ProviderLimitRefusal::NoEnd::route: alloc::string::String
+pub brokkr_core::ProviderLimitRefusal::NoEnd::seconds: u64
+pub brokkr_core::ProviderLimitRefusal::PastMaximum
+pub brokkr_core::ProviderLimitRefusal::PastMaximum::max_seconds: u64
+pub brokkr_core::ProviderLimitRefusal::PastMaximum::route: alloc::string::String
+pub brokkr_core::ProviderLimitRefusal::PastMaximum::seconds: u64
+pub brokkr_core::ProviderLimitRefusal::PastMaximum::until: time::offset_date_time::OffsetDateTime
+pub brokkr_core::ProviderLimitRefusal::RouteUnresolved
+impl brokkr_core::park::ProviderLimitRefusal
+pub fn brokkr_core::park::ProviderLimitRefusal::detail(&self, &str) -> alloc::string::String
+pub fn brokkr_core::park::ProviderLimitRefusal::word(&self) -> &'static str
 pub enum brokkr_core::ProviderRefusalError
 pub brokkr_core::ProviderRefusalError::Field
 pub brokkr_core::ProviderRefusalError::Field::field: alloc::string::String

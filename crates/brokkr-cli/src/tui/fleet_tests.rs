@@ -102,6 +102,7 @@ pub(super) fn fleet_to_act_on() -> Views {
     let high = [finding(HELD, "high")];
     let entry = |run_id, feature, created_at, state, residuals| brokkr_view::RunEntry {
         waits: Default::default(),
+        park_cause: None,
         run_id,
         feature,
         created_at,
@@ -147,6 +148,12 @@ pub(super) fn fleet_to_act_on() -> Views {
     ];
     // The review's journal moved two minutes ago (#503).
     entries[6].last_recorded_at = Some("2026-01-01T00:05:00Z");
+    entries[7].park_cause = Some(Box::new(brokkr_core::CauseRead::Stated(
+        brokkr_core::ParkCause::ruled(
+            Some("REVIEW-UNVERIFIED-SECURITY".into()),
+            "REVIEW-UNVERIFIED-SECURITY for (review, clean)",
+        ),
+    )));
     let mut views = Views::empty();
     views.now = NOW.to_string();
     views.runs = brokkr_view::run_rows(&entries, &[]);
@@ -163,6 +170,7 @@ pub(super) fn fleet_with_a_dead_run() -> Views {
     landing.phase = Some("land".to_string());
     let dead = brokkr_view::RunEntry {
         waits: Default::default(),
+        park_cause: None,
         run_id: DEAD,
         feature: "LANDING PR #420: the fleet lists who must act first",
         created_at: "2025-12-25T00:00:00Z",
@@ -366,6 +374,7 @@ fn a_title_is_clamped_as_it_is_painted_once_its_joiners_are_stripped() {
     let state = state_of(Status::Running);
     let entry = brokkr_view::RunEntry {
         waits: Default::default(),
+        park_cause: None,
         run_id: "a-family-of-emoji-5d6e7f80",
         feature: &feature,
         created_at: T0,
@@ -483,9 +492,9 @@ fn tab_focuses_the_detail_pane_which_scrolls_and_enter_still_opens_the_run() {
     assert!(!frame.contains(&format!("││{HELD}  ")), "{frame}");
     assert_eq!(frame.matches("#362 cargo exemption").count(), 2, "{frame}");
     apply(&mut tui, &views, Key::Char('G'));
-    // Nineteen lines of the run's, its graph unread (#508), and its
-    // commission folded to four.
-    assert_eq!(tui.offset, 22, "the last line drawn");
+    // Twenty-one lines of the run's, two of them its park cause, its
+    // graph unread (#508), and its commission folded to four.
+    assert_eq!(tui.offset, 24, "the last line drawn");
     tui.width = DASHBOARD_FROM - 1;
     assert!(
         footer_for(&tui, &views).starts_with("↑↓/jk move"),
@@ -576,6 +585,7 @@ fn the_detail_pane_scrolls_a_one_paragraph_feature_to_its_last_line() {
     views.runs = brokkr_view::run_rows(
         &[brokkr_view::RunEntry {
             waits: Default::default(),
+            park_cause: None,
             run_id: "one-paragraph-0a1b2c3d",
             feature: &feature,
             created_at: T0,
@@ -739,6 +749,7 @@ fn a_stopping_run_wears_its_mark_and_its_detail_names_the_way_out() {
     stopping.stop_accepted_seq = Some(93);
     let entry = brokkr_view::RunEntry {
         waits: Default::default(),
+        park_cause: None,
         run_id: STOPPING,
         feature: "LANDING PR #909: a stop with no ending stands as stopping",
         created_at: T0,
@@ -779,6 +790,7 @@ fn every_way_out_names_a_command_brokkr_parses_and_the_run_admits() {
     let mut views = fleet_with_a_dead_run();
     let unloaded = brokkr_view::RunEntry {
         waits: Default::default(),
+        park_cause: None,
         run_id: "journal-that-will-not-load-1a2b3c4d",
         feature: "A journal whose chain does not verify",
         created_at: T0,
@@ -1296,6 +1308,7 @@ fn the_staleness_bound_is_the_longest_shipped_deadline_and_an_hour() {
     let quiet = |last: &str| {
         let mut entry = brokkr_view::RunEntry {
             waits: Default::default(),
+            park_cause: None,
             run_id: "quiet",
             feature: "a run",
             created_at: T0,

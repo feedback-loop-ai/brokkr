@@ -549,7 +549,8 @@ fn a_probes_cleanup_refusal_parks_first_and_writes_no_row() {
         vec![json!({"step": "answer"})],
     );
     let extended = match engine.probe_end("effect", &wait(), report) {
-        super::super::Probe::Parked(reason) => {
+        super::super::Probe::Parked(park) => {
+            let reason = park.reason();
             assert!(reason.contains("cleanup failure"), "{reason}");
             assert!(reason.contains("group 7"), "{reason}");
             assert!(!reason.contains("rate_limit: slow down"), "{reason}");
@@ -588,7 +589,8 @@ fn a_probe_refusal_parks_when_its_declaration_journal_or_episode_cannot_read() {
         &wait(),
         with_refusal(),
     ) {
-        super::super::Probe::Parked(reason) => {
+        super::super::Probe::Parked(park) => {
+            let reason = park.reason();
             assert!(reason.contains(expected), "{reason} omits {expected}")
         }
         _ => panic!("a refused probe did not park for {expected}"),
@@ -615,7 +617,7 @@ fn a_probe_refusal_parks_when_its_declaration_journal_or_episode_cannot_read() {
     // The store's own drop check needs the events table, so this engine is
     // leaked after the call; the tempdir still removes its file.
     let reason = match engine.probe_end("effect", &wait(), with_refusal()) {
-        super::super::Probe::Parked(reason) => reason,
+        super::super::Probe::Parked(park) => park.reason().to_string(),
         _ => panic!("a refused probe did not park for journal cannot be read"),
     };
     std::mem::forget(engine);
@@ -871,7 +873,8 @@ fn the_wait_rounds_park_by_name_when_the_store_bounds_or_rounds_cannot_read() {
         )
         .unwrap()
     {
-        super::super::wait::WaitRound::Parked(reason) => {
+        super::super::wait::WaitRound::Parked(park) => {
+            let reason = park.reason();
             assert!(
                 reason.contains("the cool-down aggregate for claude/first cannot be read"),
                 "{reason}"
@@ -1156,7 +1159,8 @@ fn every_episode_store_refusal_parks_naming_the_store() {
         json!({"effect_id": "effect", "error": "refused"}),
         Some(&refusal),
     ) {
-        Ok(super::super::Terminal::Park { reason, .. }) => {
+        Ok(super::super::Terminal::Park { park, .. }) => {
+            let reason = park.reason();
             assert!(
                 reason.contains("the journal's cool-down rounds cannot be read"),
                 "{reason}"
@@ -1192,7 +1196,8 @@ fn every_episode_store_refusal_parks_naming_the_store() {
         refusal: a_rate_limit_with(Some("first"), None),
     };
     let panel = engine.panel_rate_limit_terminal(&events, "effect", json!({}), &[member], true);
-    let reason = panel.park.expect("a panel episode refusal parks");
+    let park = panel.park.expect("a panel episode refusal parks");
+    let reason = park.reason();
     assert!(
         reason.contains("no such table: provider_cooldowns"),
         "{reason}"
@@ -1415,7 +1420,8 @@ fn a_maximum_park_carries_the_rounds_typed_facts() {
 fn an_unreadable_earlier_wait_is_named_once() {
     let (_dir, mut engine) = two_terminal_engine(4);
     match terminal(&mut engine, None) {
-        super::super::Terminal::Park { reason, .. } => {
+        super::super::Terminal::Park { park, .. } => {
+            let reason = park.reason();
             assert_eq!(
                 reason.matches("an earlier wait does not read").count(),
                 1,

@@ -173,8 +173,8 @@ use serde_json::Value;
 /// Bumped to 29 by decision 0064: rows and summaries carry `ending`, `ending_cited`, `wants`.
 /// Bumped to 30 by decision 0108 ruling 4: a row and a summary carry the late
 /// tail an operator's repair named, kept and never applied.
-/// Bumped to 31 by decision 0103 slice 4f: a run row and the run view carry `waits`.
-pub const VIEW_VERSION: u32 = 31;
+/// Bumped to 31 by 0103 slice 4f (a row and the run view carry `waits`), 32 by 0106 (park cause).
+pub const VIEW_VERSION: u32 = 32;
 
 /// The note every absent boundary cell carries (decision 0046 ruling 3;
 /// design DD13): a journal written before the boundary was named, a
@@ -229,6 +229,8 @@ pub struct RunEntry<'a> {
     pub closing: Option<brokkr_core::ending::Closing>,
     /// The waits its last event states (decision 0103 slice 4f).
     pub waits: WaitFact,
+    /// The latest park's typed cause; `None` reads `unknown` (decision 0106).
+    pub park_cause: Option<Box<brokkr_core::CauseRead>>,
 }
 
 #[derive(Serialize)]
@@ -2339,9 +2341,7 @@ pub fn run_view(events: &[EventEnvelope], state: Option<&RunState>) -> RunView {
         event_count: events.len(),
         dashboard: dashboard(applied),
     };
-    // The applied trail's last event: a late tail's event is kept and
-    // never applied (decision 0108 ruling 4), so it never stands a wait.
-    let waits = Waits::of(&WaitFact::applied(events, state), &[]);
+    let waits = Waits::of(&WaitFact::applied(events, state), &[]); // no late tail's wait (0108)
     viewed(applied, &scan, &buckets, &marks, read, state, waits)
 }
 

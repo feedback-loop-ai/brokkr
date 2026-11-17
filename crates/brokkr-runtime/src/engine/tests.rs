@@ -1,6 +1,7 @@
 mod attempt_correlation;
 mod early_ending;
 mod entry;
+mod park_cause;
 use super::boundary_tests::sealed_tests::{boxed, boxed_a, REACH_ARG};
 use super::conclude_tests::invariant;
 use super::sequence::{dialect_attempt_outcome, expand_dialect_argv, nearest_change, SequenceAt};
@@ -281,6 +282,19 @@ fn selected_case_is_journal_derived_and_phase_entry_records_it_or_parks() {
         .park_reason()
         .unwrap()
         .as_str()
+        .contains("SELECT-NO-DEFAULT"));
+    let parked_event = runtime
+        .store
+        .load(&runtime.run_id)
+        .unwrap()
+        .into_iter()
+        .find(|event| event.event_type == EventType::RunParked)
+        .unwrap();
+    assert_eq!(parked_event.payload["cause"]["kind"], "ruled");
+    assert_eq!(parked_event.payload["cause"]["rule_id"], Value::Null);
+    assert!(parked_event.payload["cause"]["detail"]
+        .as_str()
+        .unwrap()
         .contains("SELECT-NO-DEFAULT"));
 
     let unresolved = runtime.seat_input(&state(None, Cursor::RequestEffect), "work", "effect");
@@ -1050,11 +1064,16 @@ read -r done
     assert_ne!(evidence["head_at_start"], evidence["head_at_end"]);
     assert!(evidence["head_at_start"].is_string());
     assert!(evidence["head_at_end"].is_string());
+    assert_eq!(parked.payload["cause"]["kind"], "ruled");
+    assert_eq!(parked.payload["cause"]["detail"], parked.payload["reason"]);
     assert!(!events
         .iter()
         .any(|event| event.event_type == EventType::EffectSucceeded));
 }
 
+/// The real compiled triage design route records the dialect validator's
+/// actual vocabulary. Therefore a chief's `upstream` ends the sequence,
+/// reaches policy, returns to specify below the bound, and parks at it.
 #[test]
 fn a_gate_driver_that_leaves_head_unchanged_keeps_its_own_failure() {
     let dir = tempfile::tempdir().unwrap();
@@ -1090,6 +1109,15 @@ read -r done
         .unwrap()
         .as_str()
         .contains("failed 2 of 2"));
+    let parked = engine
+        .store
+        .load(&engine.run_id)
+        .unwrap()
+        .into_iter()
+        .find(|event| event.event_type == EventType::RunParked)
+        .expect("the cap parked");
+    assert_eq!(parked.payload["cause"]["kind"], "attempt-cap");
+    assert_eq!(parked.payload["cause"]["failure_class"], "determinate");
 }
 
 fn compiled_sequence_with_gate(dir: &Path, gate_commits: bool) -> Bundle {
@@ -4719,87 +4747,6 @@ fn compiled_triage_engine() -> (tempfile::TempDir, Engine) {
     let store = Store::open(&dir.path().join("forge.db")).unwrap();
     let engine = Engine::start(store, bundle, "compiled SDD proof", Some(work)).unwrap();
     (dir, engine)
-}
-
-/// The real compiled triage design route records the dialect validator's
-/// actual vocabulary. Therefore a chief's `upstream` ends the sequence,
-/// reaches policy, returns to specify below the bound, and parks at it.
-#[test]
-fn compiled_design_upstream_reenters_specify_then_exhausts() {
-    for (visits, expected_rule, expected_next) in [
-        (2, "DESIGN-UPSTREAM", Some("specify")),
-        (3, "DESIGN-UPSTREAM-EXHAUSTED", None),
-    ] {
-        let (_dir, mut engine) = compiled_triage_engine();
-        let SeatBody::Sequence { mut steps } = engine.bundle.seats["design"].body.clone() else {
-            panic!("compiled triage design is a sequence");
-        };
-        assert_eq!(steps.last().unwrap().results, ["drafted", "fail"]);
-        for step in &mut steps {
-            match (&step.name[..], &mut step.body) {
-                ("positions", StepBody::Invocation(Invocation::Panel { members, .. })) => {
-                    for member in members {
-                        member.command = driver_command(
-                            "upstream-effect",
-                            "upstream-attempt",
-                            AttemptOutcome::Succeeded {
-                                result: json!({"result":"pass"}),
-                            },
-                        );
-                        member.candidates.clear();
-                    }
-                }
-                (
-                    "chief",
-                    StepBody::Invocation(Invocation::Single {
-                        command,
-                        candidates,
-                        ..
-                    }),
-                ) => {
-                    *command = driver_command(
-                        "upstream-effect",
-                        "upstream-attempt",
-                        AttemptOutcome::Succeeded {
-                            result: json!({"result":"upstream", "notes":"the specification is at fault"}),
-                        },
-                    );
-                    candidates.clear();
-                }
-                _ => {}
-            }
-        }
-        let mut current = state(Some("design"), Cursor::RequestEffect);
-        current.visits.insert("specify".into(), visits);
-        let input = engine
-            .seat_input(&current, "design", "upstream-effect")
-            .unwrap();
-        run_sequence(
-            &mut engine,
-            &SequenceAt::new("upstream-effect", "upstream-attempt", "design"),
-            &steps,
-            &input,
-            10,
-            &Selection::new(),
-        )
-        .unwrap();
-        let events = engine.store.load(&engine.run_id).unwrap();
-        let result = events
-            .iter()
-            .find(|event| event.event_type == EventType::EffectSucceeded)
-            .unwrap()
-            .payload["result"]
-            .clone();
-        assert_eq!(result["result"], "upstream");
-        assert!(!events
-            .iter()
-            .any(|event| event.payload["checkpoint"]["step_name"] == "validate"));
-
-        engine.decide(&current, result).unwrap();
-        let decided = engine.store.load(&engine.run_id).unwrap().pop().unwrap();
-        assert_eq!(decided.payload["rule_id"], expected_rule);
-        assert_eq!(decided.payload["next"].as_str(), expected_next);
-    }
 }
 
 /// A compiled triage engine and `seat`'s sequence, its judge step

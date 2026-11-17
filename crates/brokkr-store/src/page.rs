@@ -39,7 +39,7 @@ const COLUMNS: &str = "run_id, order_at, feature_line, created_at,
     hire_seat, hire_failed_attempts, residual_open, refusal_seq, refusal_words,
     folded_seq, folded_hash, acknowledged, ack_operator, ack_reason, ack_at,
     stop_accepted_seq, ending, ending_realm, ending_run, ending_ref, ending_stood_over,
-    late_tail, (lane = 'running')";
+    late_tail, (lane = 'running'), park_cause";
 
 /// Why a page cannot read a summary row as a run's account: a value no
 /// writer writes. The reader reads such a run whole instead, or, where
@@ -58,6 +58,8 @@ pub enum RowRefusal {
     Column(String),
     #[error("its residuals do not read: {0}")]
     Residuals(String),
+    #[error("its park cause does not read: {0}")]
+    ParkCause(String),
 }
 
 /// A row a page could not read, at its place in the page's order.
@@ -151,7 +153,24 @@ fn row_of(row: &rusqlite::Row<'_>, run_id: String, order_at: i64) -> Result<Row,
         closing: closing_of(row)?,
         late_tail: crate::summary::late_of(row, 28)?,
         lane_running: row.get(29)?,
+        park_cause: park_cause_of(row)?,
     })
+}
+
+/// The row's park cause as a readout holds it, or `None` for a row written
+/// before the column or for a park that stated none: both read `unknown`.
+/// A park whose `cause` did not read is stored as its named refusal and read
+/// back as one; a column that holds neither is the row's refusal, never
+/// absent.
+fn park_cause_of(
+    row: &rusqlite::Row<'_>,
+) -> Result<Option<Box<brokkr_core::CauseRead>>, RowRefusal> {
+    match row.get::<_, Option<String>>(30)? {
+        None => Ok(None),
+        Some(text) => serde_json::from_str(&text)
+            .map(|cause| Some(Box::new(cause)))
+            .map_err(|error| RowRefusal::ParkCause(error.to_string())),
+    }
 }
 
 /// The row's refusal, and the acknowledgement copied for it where it has

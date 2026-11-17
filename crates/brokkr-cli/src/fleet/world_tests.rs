@@ -239,7 +239,7 @@ fn a_one_hearth_listing_a_page_of_which_will_not_read_is_refused_in_the_stores_w
 
 /// [`world`] as `brokkr runs --json` prints it.
 const WORLD_JSON: &str = r#"{
-  "view_version": 31,
+  "view_version": 32,
   "realms": [
     {
       "realm": "alpha",

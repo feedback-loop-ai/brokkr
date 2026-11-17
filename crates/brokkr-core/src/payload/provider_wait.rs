@@ -379,12 +379,12 @@ fn required_form<E>(
 
 /// The schema's provider pattern: an ASCII letter or digit, then up to 79
 /// more letters, digits, `_`, `.` or `-`.
-fn provider_form(value: &str) -> bool {
+pub(crate) fn provider_form(value: &str) -> bool {
     name_form(value, false)
 }
 
 /// The schema's route pattern: the provider form, and `:`.
-fn route_form(value: &str) -> bool {
+pub(crate) fn route_form(value: &str) -> bool {
     name_form(value, true)
 }
 

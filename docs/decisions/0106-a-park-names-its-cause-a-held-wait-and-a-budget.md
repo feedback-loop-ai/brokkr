@@ -1373,6 +1373,7 @@ lines above. The hold's reproduced lock replacement was not re-run here; it is t
 evidence, not this story's. No contract, fixture, policy table or reference file was edited; the
 only change is this file and its index row.
 
-This decision is proposed. It claims no acceptance, mints no contract and builds no slice. The
-operator's "accept all" or a pick per ruling is the next step; the header pointers, the
-back-pointers and the contract versions are added when that acceptance is recorded.
+This decision is accepted: the operator ruled "accept 0106 as recommended" on 2026-11-16 (#1035),
+so each ruling stands as recommended, and its slices build in the order [The slices](#the-slices)
+gives them, 0106a first. The header pointers and the back-pointers in 0068 and 0103 were added at
+acceptance, and each contract version is minted by the slice that builds it.

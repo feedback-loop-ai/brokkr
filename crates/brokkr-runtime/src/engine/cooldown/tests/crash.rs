@@ -320,6 +320,14 @@ fn a_live_probe_crash_parks_the_resume_before_a_second_probe() {
     );
     assert!(reason.contains(&at.display().to_string()), "{reason}");
     assert!(reason.contains(&attempt), "{reason}");
+    // A cleanup the engine could not prove is never a budget retry: the
+    // probe's driver may still be running. The cause's sentence is the
+    // reason within the row's bound; the reason above stays whole.
+    let bound = brokkr_core::summary::PARK_REASON_BYTES;
+    assert_eq!(
+        park_cause_of(&resumed),
+        brokkr_core::ParkCause::infrastructure(false, brokkr_core::summary::cut(&reason, bound))
+    );
     assert_eq!(
         logs(dir.path(), "work"),
         ["probe"],

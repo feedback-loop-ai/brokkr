@@ -4,11 +4,12 @@
 //! spending an effect attempt; every other end parks, cleanup's refusal
 //! first. The admission's recovery shares the cleanup refusal's opening.
 
+use brokkr_core::park::{Park, ParkCause};
 use brokkr_core::{ProbeAnswer, ProviderWait};
 use brokkr_protocol::{AttemptOutcome, AttemptReport, Cleanup, PreSessionRefusal, RefusalClass};
 
 use super::super::sites;
-use super::super::{episode_by_site, terminal, CooldownError};
+use super::super::{episode_by_site, park_of, terminal, CooldownError};
 use super::{Engine, NextRound, Probe};
 
 impl Engine {
@@ -26,21 +27,27 @@ impl Engine {
         report: AttemptReport,
     ) -> Probe {
         if let Cleanup::Unresolved { reason } = &report.cleanup {
-            return Probe::Parked(cleanup_failure(
-                Some(&wait.provider),
-                Some(&wait.route),
-                &reason.to_string(),
-            ));
+            let reason =
+                cleanup_failure(Some(&wait.provider), Some(&wait.route), &reason.to_string());
+            let cause = ParkCause::infrastructure(false, reason.clone());
+            return Probe::Parked(Park::new(reason, cause));
         }
         if let Some(refusal) = &report.refusal {
             return match refusal.class() {
                 RefusalClass::RateLimit => self.extend_wait(effect_id, wait, refusal),
-                RefusalClass::Other => Probe::Parked(format!(
-                    "the cool-down probe for {}/{} was refused: {}",
-                    wait.provider,
-                    wait.route,
-                    refusal.words()
-                )),
+                RefusalClass::Other => {
+                    let reason = format!(
+                        "the cool-down probe for {}/{} was refused: {}",
+                        wait.provider,
+                        wait.route,
+                        refusal.words()
+                    );
+                    let detail = format!(
+                        "the cool-down probe for {}/{} was refused by the provider",
+                        wait.provider, wait.route
+                    );
+                    Probe::Parked(Park::new(reason, ParkCause::ruled(None, detail)))
+                }
             };
         }
         match report.settled_outcome() {
@@ -51,18 +58,28 @@ impl Engine {
                     route: wait.route.clone(),
                     answered_at: self.now(),
                 }),
-                None => Probe::Parked(format!(
-                    "the cool-down probe for {}/{} reported success with no answer checkpoint",
-                    wait.provider, wait.route
+                None => Probe::Parked(unanswered(
+                    wait,
+                    format!(
+                        "the cool-down probe for {}/{} reported success with no answer \
+                         checkpoint",
+                        wait.provider, wait.route
+                    ),
                 )),
             },
-            AttemptOutcome::Failed { error } => Probe::Parked(format!(
-                "the cool-down probe for {}/{} ended without an answer: {error}",
-                wait.provider, wait.route
+            AttemptOutcome::Failed { error } => Probe::Parked(unanswered(
+                wait,
+                format!(
+                    "the cool-down probe for {}/{} ended without an answer: {error}",
+                    wait.provider, wait.route
+                ),
             )),
-            AttemptOutcome::Indeterminate { reason } => Probe::Parked(format!(
-                "the cool-down probe for {}/{} ended without an answer: {reason}",
-                wait.provider, wait.route
+            AttemptOutcome::Indeterminate { reason } => Probe::Parked(unanswered(
+                wait,
+                format!(
+                    "the cool-down probe for {}/{} ended without an answer: {reason}",
+                    wait.provider, wait.route
+                ),
             )),
         }
     }
@@ -81,7 +98,7 @@ impl Engine {
     ) -> Probe {
         match self.extension_plan(effect_id, wait, refusal) {
             Ok(round) => Probe::Extended(round),
-            Err(error) => Probe::Parked(error.to_string()),
+            Err(error) => Probe::Parked(park_of(&error)),
         }
     }
 
@@ -179,6 +196,19 @@ impl Engine {
             episode: prior.seconds,
         })
     }
+}
+
+/// A probe that ended with no answer: an indeterminate end under 0006, so
+/// `infrastructure` and never retryable (decision 0106 ruling 4). The probe
+/// spawned a process and may have run, and a budget retry as a new effect
+/// would evade the original wait and probe. The reason keeps the driver's
+/// words; the cause's detail is the engine's own sentence.
+fn unanswered(wait: &ProviderWait, reason: String) -> Park {
+    let detail = format!(
+        "the cool-down probe for {}/{} ended without an answer",
+        wait.provider, wait.route
+    );
+    Park::new(reason, ParkCause::infrastructure(false, detail))
 }
 
 /// The opening of every cleanup refusal: the probe for this wait did not

@@ -7,6 +7,7 @@
 use std::time::{Duration, Instant};
 
 use brokkr_core::fold::RunState;
+use brokkr_core::park::Park;
 use brokkr_core::{EventEnvelope, ProbeAnswer, ProviderWait};
 use brokkr_protocol::hands::HandsSpec;
 use serde_json::Value;
@@ -156,10 +157,10 @@ impl Engine {
             (began, deadline),
             &observed,
         ) {
-            return Ok(Err(Probe::Parked(format!(
+            return Ok(Err(Probe::Parked(Park::ruled(format!(
                 "the cool-down probe for {}/{} was not admitted: {refusal}",
                 wait.provider, wait.route
-            ))));
+            )))));
         }
         Ok(Ok(AdmittedProbe {
             attempt,
@@ -210,11 +211,11 @@ impl Engine {
         let candidates = match &picked.form {
             ProbeForm::Single(candidates) => candidates.clone(),
             _ => {
-                return Ok(Probe::Parked(format!(
+                return Ok(Probe::Parked(Park::ruled(format!(
                     "no cool-down probe for {}/{}: a wait is recorded at a body that is not a \
                      single seat",
                     wait.provider, wait.route
-                )))
+                ))))
             }
         };
         let mut selection = Selection::new();
@@ -266,10 +267,10 @@ impl Engine {
             ProbeForm::Panel(members, aggregate) => {
                 let Some(member_def) = members.iter().find(|candidate| candidate.name == member)
                 else {
-                    return Ok(Probe::Parked(format!(
+                    return Ok(Probe::Parked(Park::ruled(format!(
                         "no cool-down probe for {}/{}: the panel declares no member {member}",
                         wait.provider, wait.route
-                    )));
+                    ))));
                 };
                 let tag = Some(member_def.name.clone());
                 let (selection, one) =
@@ -326,11 +327,11 @@ impl Engine {
                 };
                 self.probe_sequence_site(&at, steps, member)
             }
-            ProbeForm::Single(_) => Ok(Probe::Parked(format!(
+            ProbeForm::Single(_) => Ok(Probe::Parked(Park::ruled(format!(
                 "no cool-down probe for {}/{}: member {member} stands at a body that is not a \
                  panel or a sequence",
                 wait.provider, wait.route
-            ))),
+            )))),
         }
     }
 
@@ -345,10 +346,10 @@ impl Engine {
         site: &str,
     ) -> Result<Probe, EngineError> {
         let Some((index, step, member)) = step_site(steps, site) else {
-            return Ok(Probe::Parked(format!(
+            return Ok(Probe::Parked(Park::ruled(format!(
                 "no cool-down probe for {}/{}: the sequence declares no step at {site}",
                 at.wait.provider, at.wait.route
-            )));
+            ))));
         };
         match member {
             None => self.probe_step_single(at, steps, index, step),
@@ -412,10 +413,10 @@ impl Engine {
             ..
         }) = &step.body
         else {
-            return Ok(Probe::Parked(format!(
+            return Ok(Probe::Parked(Park::ruled(format!(
                 "no cool-down probe for {}/{}: step {} is not a single driver",
                 at.wait.provider, at.wait.route, step.name
-            )));
+            ))));
         };
         let driver_seat = format!("{}:{}", at.picked.site, step.name);
         let tag = Some(step.name.clone());
@@ -474,16 +475,16 @@ impl Engine {
         member: &str,
     ) -> Result<Probe, EngineError> {
         let StepBody::Invocation(Invocation::Panel { members, aggregate }) = &step.body else {
-            return Ok(Probe::Parked(format!(
+            return Ok(Probe::Parked(Park::ruled(format!(
                 "no cool-down probe for {}/{}: step {} is not a panel",
                 at.wait.provider, at.wait.route, step.name
-            )));
+            ))));
         };
         let Some(member_def) = members.iter().find(|candidate| candidate.name == member) else {
-            return Ok(Probe::Parked(format!(
+            return Ok(Probe::Parked(Park::ruled(format!(
                 "no cool-down probe for {}/{}: step {} declares no member {member}",
                 at.wait.provider, at.wait.route, step.name
-            )));
+            ))));
         };
         let tag_prefix = format!("{}:", step.name);
         let tag = Some(Tag::prefixed(&tag_prefix, &member_def.name).0);
@@ -570,10 +571,10 @@ impl Engine {
             match spawn_site(&self.bundle, spawn, &input, &workdir, deadline, door) {
                 Ok(started) => started,
                 Err(reason) => {
-                    return Probe::Parked(format!(
+                    return Probe::Parked(Park::ruled(format!(
                         "the cool-down probe for {}/{} did not spawn: {reason}",
                         wait.provider, wait.route
-                    ));
+                    )));
                 }
             };
         let report = process.probing().run_attempt_resuming(
@@ -619,5 +620,5 @@ pub(super) struct NextRound {
 pub(super) enum Probe {
     Answered(ProbeAnswer),
     Extended(NextRound),
-    Parked(String),
+    Parked(Park),
 }

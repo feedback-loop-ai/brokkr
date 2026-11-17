@@ -142,6 +142,17 @@ pub enum Malformed {
     RuleNotAnObject,
     #[error("duplicate rule id {0}")]
     DuplicateId(String),
+    /// A rule id the park cause's frozen schema cannot name (decision 0106
+    /// ruling 1): a park that rule ruled would be written with a cause no
+    /// reader admits.
+    #[error(
+        "rule id '{rule}' is {length} characters, not 1 to {max}, the span a park's cause can name"
+    )]
+    RuleIdLength {
+        rule: String,
+        length: usize,
+        max: usize,
+    },
     #[error(
         "rule {rule} is unreachable: an unconditional rule for ({from}, {result}) precedes it \
          and first match wins"

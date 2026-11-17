@@ -196,6 +196,9 @@ pub struct Row {
     /// the run still folds to running.
     pub stop_accepted_seq: Option<u64>,
     pub phase: Option<Bounded>,
+    /// The latest park's typed cause, or `None` for a row written before
+    /// the column or a park that stated none: both read `unknown`.
+    pub park_cause: Option<Box<crate::park::CauseRead>>,
     pub park_reason: Option<Bounded>,
     pub ruled: Option<Ruled>,
     pub hired: Option<Hired>,

@@ -172,6 +172,7 @@ this contract was minted, was accepted by the operator on 2026-10-30.
 | --- | --- |
 | `panel-carry.v1.schema.json` | 0093 |
 | `provider-wait.v1.schema.json` | 0103 |
+| `park-cause.v1.schema.json` | 0106 |
 
 ## Provider wait extension (decision 0103)
 
@@ -1120,3 +1121,20 @@ archive. Reading archived bytes back is not part of this contract.
 | Contract | File | Consumers |
 |---|---|---|
 | The evidence archive's inventory | `evidence-archive.v1.schema.json` | Read by brokkr-runtime (`engine::evidence::read_archive`); written by `brokkr evidence retire --archived-to <dir>`. `brokkr evidence list` reads the retirement, not this inventory. |
+
+## Park cause extension (decision 0106)
+
+`park-cause.v1.schema.json` publishes the optional, absent-by-default
+`cause` object on `run/parked`: one closed word — `ruled`, `attempt-cap`,
+`infrastructure` or `provider-limit` — with exactly the fields that word
+has. `ruled` carries the `rule_id` where a rule matched; `attempt-cap`
+carries the last attempt's `failure_class`; `infrastructure` carries
+`retryable` and its detail; `provider-limit` carries its provider and one
+`refusal` variant per decision 0103's cause, with the route, `until`,
+`seconds` and `max_seconds` each present exactly where that variant has
+it. `reason` and `evidence` stay byte for byte, `fold` reads none of the
+object, and `RunState` gains nothing. An absent cause reads `unknown`,
+a word no writer states, and a present object that does not read refuses
+by name, never as absent. The field is legal at `event_schema: 1` under
+the amended rule above. Decision 0106, under which this contract was
+minted, was accepted by the operator on 2026-11-16.

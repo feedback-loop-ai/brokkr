@@ -433,6 +433,14 @@ fn parse_rule(
 ) -> Result<Rule, Malformed> {
     let obj = raw.as_object().ok_or(Malformed::RuleNotAnObject)?;
     let id = rule::field(obj, RuleKey::Id)?;
+    let length = id.chars().count();
+    if !(1..=crate::park::RULE_ID_MAX).contains(&length) {
+        return Err(Malformed::RuleIdLength {
+            rule: id,
+            length,
+            max: crate::park::RULE_ID_MAX,
+        });
+    }
     let from = rule::field(obj, RuleKey::From)?;
     let result = rule::field(obj, RuleKey::Result)?;
     let reason = rule::field(obj, RuleKey::Reason)?;

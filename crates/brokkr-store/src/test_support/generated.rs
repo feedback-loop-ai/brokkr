@@ -200,6 +200,14 @@ fn summary_of(run: &Generated) -> Summary {
         status,
         stop_accepted_seq: None,
         phase: (!refused).then(|| bounded("review", NAME_BYTES)),
+        park_cause: (run.standing == Standing::Parked).then(|| {
+            Box::new(brokkr_core::CauseRead::Stated(
+                brokkr_core::ParkCause::ruled(
+                    Some("REVIEW-HOLD".into()),
+                    "REVIEW-HOLD for (review, hold): held",
+                ),
+            ))
+        }),
         park_reason: (run.standing == Standing::Parked)
             .then(|| bounded("REVIEW-HOLD for (review, hold): held", PARK_REASON_BYTES)),
         ruled: (!refused).then(|| Ruled {

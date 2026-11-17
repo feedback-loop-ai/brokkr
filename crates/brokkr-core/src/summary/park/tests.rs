@@ -207,3 +207,45 @@ fn an_account_carries_the_parks_the_run_reads_whole() {
         [(12, Some("review"), Some(1_767_225_613_000), None)]
     );
 }
+
+/// The latest `run/parked` event's typed cause is the one the account
+/// carries (decision 0106 ruling 1); a park that states none clears it.
+#[test]
+fn the_account_carries_the_latest_typed_cause() {
+    let events = journal(&[
+        (
+            EventType::RunParked,
+            json!({"reason": "rule", "cause": {"kind": "ruled",
+                "rule_id": "REVIEW-HOLD", "detail": "held"}}),
+            "2026-01-01T00:00:00Z",
+        ),
+        (
+            EventType::PhaseEntered,
+            json!({"phase": "review"}),
+            "2026-01-01T00:00:01Z",
+        ),
+        (
+            EventType::RunParked,
+            json!({"reason": "old", "cause": {"kind": "infrastructure",
+                "retryable": false, "detail": "restarted"}}),
+            "2026-01-01T00:00:02Z",
+        ),
+        (
+            EventType::RunParked,
+            json!({"reason": "no cause"}),
+            "2026-01-01T00:00:03Z",
+        ),
+    ]);
+    let mut parking = Parking::default();
+    for event in &events[..3] {
+        parking.note(event);
+    }
+    assert!(matches!(
+        parking.cause(),
+        Some(crate::CauseRead::Stated(
+            crate::ParkCause::Infrastructure { .. }
+        ))
+    ));
+    parking.note(&events[3]);
+    assert_eq!(parking.cause(), None);
+}

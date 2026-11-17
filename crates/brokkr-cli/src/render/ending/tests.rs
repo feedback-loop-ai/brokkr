@@ -60,6 +60,7 @@ fn row(run_id: &str, state: Option<&RunState>, closing: Option<Closing>) -> RunR
     let refusal = brokkr_view::Quarantine::DoesNotFold.in_words("event 3: impossible");
     let entry = RunEntry {
         waits: Default::default(),
+        park_cause: None,
         run_id,
         feature: "f",
         created_at: T0,

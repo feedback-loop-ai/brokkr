@@ -24,6 +24,7 @@ use crate::envelope::{EventEnvelope, EventType};
 use crate::fold::FoldError;
 
 mod provider_wait;
+pub(crate) use provider_wait::{provider_form, route_form};
 #[cfg(test)]
 pub(crate) use provider_wait::{provider_probes, ProviderProbeError};
 pub use provider_wait::{
@@ -255,7 +256,10 @@ impl<'a> OperatorAccepted<'a> {
     }
 }
 
-/// `run/parked`: why the run parked.
+/// `run/parked`: why the run parked. The optional typed `cause` object
+/// (decision 0106 ruling 1, `park-cause/v1`) is left in `rest` and read by
+/// [`crate::park::ParkCause::read`]: `fold` never reads it, so a journal
+/// folds exactly as it did before the extension existed.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub(crate) struct RunParked<'a> {
     pub(crate) reason: &'a str,
