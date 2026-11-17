@@ -608,7 +608,7 @@ pub fn brokkr_store::Store::tree_sweeps(&self) -> core::result::Result<alloc::ve
 impl brokkr_store::Store
 pub fn brokkr_store::Store::pull_parks<T>(&self, i64, i64, i64, core::option::Option<&str>, impl core::ops::function::FnOnce(&mut brokkr_store::aggregate::pull::ParkRows<'_>) -> T) -> core::result::Result<T, brokkr_store::StoreError>
 pub fn brokkr_store::Store::pull_runs<T>(&self, &brokkr_store::aggregate::pull::Bounds<'_>, brokkr_store::aggregate::RunOrder, impl core::ops::function::FnOnce(&mut brokkr_store::aggregate::pull::RunRows<'_>) -> T) -> core::result::Result<T, brokkr_store::StoreError>
-pub fn brokkr_store::Store::run_spends(&self, &str, i64, i64, impl core::ops::function::FnMut(i64, f64)) -> core::result::Result<(), brokkr_store::StoreError>
+pub fn brokkr_store::Store::run_spent(&self, &str, i64, i64) -> core::result::Result<core::option::Option<f64>, brokkr_store::StoreError>
 impl brokkr_store::Store
 pub fn brokkr_store::Store::pull_sites<T>(&self, &brokkr_store::aggregate::pull::Bounds<'_>, brokkr_store::metered::SiteOrder, impl core::ops::function::FnOnce(&mut brokkr_store::metered::SiteRows<'_>) -> T) -> core::result::Result<T, brokkr_store::StoreError>
 pub fn brokkr_store::Store::window_fallbacks(&self, i64, i64, core::option::Option<&str>, impl core::ops::function::FnMut(&brokkr_store::metered::WindowFallback<'_>)) -> core::result::Result<(), brokkr_store::StoreError>

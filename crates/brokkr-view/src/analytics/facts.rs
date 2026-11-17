@@ -19,9 +19,10 @@ use brokkr_core::fold::{concluded, RunState};
 use brokkr_core::summary::{aggregate, cut, parks as project_parks, MODEL_BYTES, NAME_BYTES};
 use brokkr_core::EventEnvelope;
 
+use super::figures::total;
 use super::merge::merged;
 use super::{AnalyticsRun, QuarantinedHearth, Query};
-use crate::attempts::{attempts, Attempts, Site};
+use crate::attempts::{attempts, Attempts, Site, Spend};
 use crate::TokenUsage;
 
 pub(crate) use brokkr_core::summary::Finished;
@@ -105,11 +106,13 @@ pub struct RunFacts {
     pub finished: Option<Finished>,
     pub implement_visits: u64,
     pub reviews: Reviews,
-    /// Every reported cost the run's journal holds, as `brokkr costs`
-    /// reads them; the figures keep those inside their window. Only the
-    /// recipe order's stream is folded for them ([`RunOrder::Recipe`]), so a
-    /// source may leave them empty on every other stream.
-    pub costs: Vec<(i64, f64)>,
+    /// The run's reported costs inside the source's window, as `brokkr
+    /// costs` reads them, summed in time then journal order; `None` where it
+    /// reported none there. One sum a run, so no stream holds a run's costs
+    /// (decision 0089 ruling 7). Only the recipe order's stream is folded
+    /// for it ([`RunOrder::Recipe`]), so a source may leave it `None` on
+    /// every other stream.
+    pub spent: Option<f64>,
 }
 
 /// One park a figure folds, with the realm and the run it belongs to.
@@ -349,19 +352,22 @@ fn parks(events: &[EventEnvelope], now: i64) -> Vec<Park> {
 /// the run contributes to them.
 struct WholeRun {
     facts: RunFacts,
+    /// Every reported cost the run's journal holds, each its time and
+    /// amount, for the spends.
+    costs: Vec<(i64, f64)>,
     parks: Vec<Park>,
     sites: Vec<Site>,
     readable: bool,
 }
 
-fn whole_run(run: &AnalyticsRun, label: &str, now: i64) -> WholeRun {
+fn whole_run(run: &AnalyticsRun, label: &str, window: Window) -> WholeRun {
     // One reading of which events this run applies: a repaired tail is
     // kept and shown and never enters a figure (decision 0108 ruling 4).
     let applied = crate::live::derived(run.events, run.state);
     let events = applied.as_slice();
     let Attempts { costs, sites } = attempts(events);
     let read = aggregate(events, run.state);
-    let mut parks = parks(events, now);
+    let mut parks = parks(events, window.to);
     // Phase order within the run, stable so the parks of one phase keep
     // their journal order.
     parks.sort_by(|left, right| {
@@ -386,12 +392,25 @@ fn whole_run(run: &AnalyticsRun, label: &str, now: i64) -> WholeRun {
                 second: read.review_second,
                 back: read.review_back,
             },
-            costs: costs.iter().map(|spend| (spend.at, spend.usd)).collect(),
+            spent: spent_in(&costs, window),
         },
+        costs: costs.iter().map(|spend| (spend.at, spend.usd)).collect(),
         parks,
         sites,
         readable: run.state.is_some(),
     }
+}
+
+/// A run's costs inside `window`, summed in time then journal order, the
+/// order the store's run-cost range reads them in; `None` where it
+/// reported none there.
+fn spent_in(costs: &[Spend], window: Window) -> Option<f64> {
+    let mut kept: Vec<&Spend> = costs
+        .iter()
+        .filter(|spend| window.holds(spend.at))
+        .collect();
+    kept.sort_by_key(|spend| spend.at);
+    total(kept.into_iter().map(|spend| spend.usd))
 }
 
 // ------------------------------------------------------------ the scope
@@ -411,7 +430,6 @@ impl WholeRead {
     /// `analytics` folds, and the fallback a migrated journal's reader
     /// falls back to (decision 0089 ruling 8).
     pub(super) fn read(query: &Query, window: Window) -> WholeRead {
-        let now = window.to;
         let mut scoped = WholeRead {
             runs: Vec::new(),
             realms: Vec::new(),
@@ -438,7 +456,7 @@ impl WholeRead {
                 scoped.name(query, realm);
             }
             for run in hearth.runs {
-                scoped.keep(query, whole_run(run, hearth.label, now));
+                scoped.keep(query, whole_run(run, hearth.label, window));
             }
         }
         scoped
@@ -554,7 +572,7 @@ impl FactSource for WholeRead {
 
     fn spends(&self, visit: &mut dyn FnMut(SpendFact)) {
         for run in &self.runs {
-            for (at, usd) in &run.facts.costs {
+            for (at, usd) in &run.costs {
                 if !self.window.holds(*at) {
                     continue;
                 }

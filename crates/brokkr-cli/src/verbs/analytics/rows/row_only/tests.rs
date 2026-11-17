@@ -28,8 +28,8 @@ fn row<'a>(run_id: &'a str) -> WindowRun<'a> {
     }
 }
 
-/// A run's row maps to its facts with no costs: the recipe order's stream
-/// reads them by the run's key.
+/// A run's row maps to its facts with no cost: the recipe order's stream
+/// reads it by the run's key.
 #[test]
 fn a_run_row_maps_its_facts() {
     let facts = run_facts(&row("r"), "label", None).unwrap();
@@ -43,7 +43,7 @@ fn a_run_row_maps_its_facts() {
             facts.open,
             facts.implement_visits,
             facts.reviews.clone(),
-            facts.costs.clone(),
+            facts.spent,
         ),
         (
             "label",
@@ -58,7 +58,7 @@ fn a_run_row_maps_its_facts() {
                 second: false,
                 back: true
             },
-            vec![],
+            None,
         )
     );
     assert_eq!(

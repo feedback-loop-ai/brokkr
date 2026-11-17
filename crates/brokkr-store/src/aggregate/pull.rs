@@ -15,7 +15,7 @@ use rusqlite::{params, params_from_iter, Rows, StatementStatus};
 
 use super::{park_bounds, park_sql, runs_sql, window_park, window_run, RunOrder};
 use super::{WindowPark, WindowRun};
-use crate::event_index::CHECKPOINTED;
+use crate::event_index::{CHECKPOINTED, RUN_COSTS};
 use crate::seat_summary::{stale_intact, SHAPE};
 use crate::{Store, StoreError};
 
@@ -90,15 +90,15 @@ impl ParkRows<'_> {
     }
 }
 
-/// One run's reported costs inside a window, by the run's key, in its
-/// events' order: the checkpoint rows that carry a `usd`, as the window's
-/// spends read them.
+/// One run's reported costs inside a window, by the run's key: one range
+/// of [`RUN_COSTS`], so the run's history outside the window is never
+/// walked, in time then event order, the order the whole read sums them in.
 static RUN_SPENDS: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
     format!(
-        "SELECT at_ms, usd FROM event_index
-          WHERE run_id = ?1 AND type = '{CHECKPOINTED}' AND at_ms >= ?2 AND at_ms < ?3
-            AND usd IS NOT NULL
-          ORDER BY seq"
+        "SELECT usd FROM event_index INDEXED BY {RUN_COSTS}
+          WHERE run_id = ?1 AND type = '{CHECKPOINTED}' AND usd IS NOT NULL
+            AND at_ms >= ?2 AND at_ms < ?3
+          ORDER BY at_ms, seq"
     )
 });
 
@@ -156,23 +156,35 @@ impl Store {
         Ok(read)
     }
 
-    /// One run's reported costs inside `[from, to)`, each its time and
-    /// amount, in the run's order: the readout joins a run's costs to the
-    /// run as it pulls it, one run at a time, through the run's own key,
-    /// and never holds the window's costs by run. The statement is the
-    /// connection's cached one, prepared once a readout.
-    pub fn run_spends(
+    /// One run's reported cost inside `[from, to)`, summed as each is read,
+    /// in time then event order; `None` where it reported none there. The
+    /// readout joins a run's cost to the run as it pulls it, through the
+    /// run's own key, and holds neither the run's costs nor the window's
+    /// (decision 0089 ruling 7). The statement is the connection's cached
+    /// one, prepared once a readout.
+    pub fn run_spent(&self, run_id: &str, from: i64, to: i64) -> Result<Option<f64>, StoreError> {
+        self.run_spent_stepped(run_id, from, to, |_| {})
+    }
+
+    /// [`Store::run_spent`] with the statement's VM steps handed to
+    /// `stepped`, so the test that binds the range's cost measures the
+    /// production statement itself.
+    pub(crate) fn run_spent_stepped(
         &self,
         run_id: &str,
         from: i64,
         to: i64,
-        mut visit: impl FnMut(i64, f64),
-    ) -> Result<(), StoreError> {
+        stepped: impl FnOnce(i64),
+    ) -> Result<Option<f64>, StoreError> {
         let mut statement = self.conn.prepare_cached(&RUN_SPENDS)?;
+        statement.reset_status(StatementStatus::VmStep);
+        let mut spent = None;
         let mut rows = statement.query(params![run_id, from, to])?;
         while let Some(row) = rows.next()? {
-            visit(row.get(0)?, row.get(1)?);
+            spent = Some(spent.unwrap_or(0.0) + row.get::<_, f64>(0)?);
         }
-        Ok(())
+        drop(rows);
+        stepped(i64::from(statement.get_status(StatementStatus::VmStep)));
+        Ok(spent)
     }
 }

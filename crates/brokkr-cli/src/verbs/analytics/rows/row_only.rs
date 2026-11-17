@@ -1,7 +1,8 @@
 //! One hearth's rows as the figures' facts, pulled from the store's window
 //! statements as each figure folds them (decision 0089 ruling 7, slice 4's
-//! unit U5b2b1): no figure's facts are collected, and a run's costs are
-//! read by its key as the run is pulled, never held by run for the window.
+//! unit U5b2b1): no figure's facts are collected, and a run's cost inside
+//! the window is summed by the store's range of its key as the run is
+//! pulled, so neither a run's costs nor the window's are held.
 //!
 //! Every statement runs under the hearth's snapshot, which the row source
 //! holds for the readout's length ([`brokkr_store::snapshot::ReadSnapshot`]),
@@ -65,30 +66,21 @@ impl RowOnly<'_> {
         }
     }
 
-    /// The next run of `rows` in the query's realm, its costs read by its
-    /// key where the stream folds them.
+    /// The next run of `rows` in the query's realm, its cost inside the
+    /// window summed by the store where the stream folds it.
     fn next_run(&self, rows: &mut RunRows<'_>, costs: bool) -> Option<RunFacts> {
         while let Some(row) = self.kept(rows.next_run()).flatten() {
             if let Some(mut facts) = run_facts(&row, self.label, self.realm) {
                 if costs {
-                    facts.costs = self.costs(row.run_id);
+                    let spent = self
+                        .store
+                        .run_spent(row.run_id, self.window.from, self.window.to);
+                    facts.spent = self.kept(spent).flatten();
                 }
                 return Some(facts);
             }
         }
         None
-    }
-
-    /// One run's reported costs inside the window, read by its key.
-    fn costs(&self, run_id: &str) -> Vec<(i64, f64)> {
-        let mut costs = Vec::new();
-        let read = self
-            .store
-            .run_spends(run_id, self.window.from, self.window.to, |at, usd| {
-                costs.push((at, usd));
-            });
-        self.kept(read);
-        costs
     }
 
     /// The next park of `rows` in the query's realm.
@@ -238,8 +230,8 @@ fn park_fact(park: &WindowPark<'_>, label: &str, realm: Option<&str>) -> Option<
     })
 }
 
-/// One run's row as the figures fold it, with no costs: the recipe order's
-/// stream reads them by the run's key.
+/// One run's row as the figures fold it, with no cost: the recipe order's
+/// stream reads it by the run's key.
 fn run_facts(row: &WindowRun<'_>, label: &str, realm: Option<&str>) -> Option<RunFacts> {
     let named = row.realm.unwrap_or(label);
     if !realm_in_scope(realm, named) {
@@ -259,7 +251,7 @@ fn run_facts(row: &WindowRun<'_>, label: &str, realm: Option<&str>) -> Option<Ru
             second: row.reviews.second,
             back: row.reviews.back,
         },
-        costs: Vec::new(),
+        spent: None,
     })
 }
 

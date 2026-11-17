@@ -87,30 +87,52 @@ fn a_labelled_read_orders_a_null_realm_by_its_label() {
     assert_eq!(pulled(&store, None), (stored.clone(), stored));
 }
 
-/// A run's costs are its checkpoints' inside the window, in its order,
-/// and none of another run's.
+/// A run's cost is its checkpoints' inside the window, summed, and none of
+/// another run's; a run that reported none there has none.
 #[test]
-fn a_runs_costs_are_its_own_inside_the_window() {
+fn a_runs_cost_is_its_own_inside_the_window() {
     let (_dir, store) = three_realms();
-    let costs = |run_id: &str, from: i64, to: i64| {
-        let mut costs = Vec::new();
-        store
-            .run_spends(run_id, from, to, |at, usd| costs.push((at, usd)))
-            .unwrap();
-        costs
-    };
+    let spent = |run_id: &str, from: i64, to: i64| store.run_spent(run_id, from, to).unwrap();
     let (from, to) = minute();
     let start = from + 20_000;
+    assert_eq!(spent("m-run", from, to), Some(0.5));
     assert_eq!(
-        costs("m-run", from, to),
-        [(start + 4_000, 0.25), (start + 5_000, 0.25)]
-    );
-    assert_eq!(
-        costs("m-run", start + 5_000, to),
-        [(start + 5_000, 0.25)],
+        spent("m-run", start + 5_000, to),
+        Some(0.25),
         "a checkpoint before the window is not read"
     );
-    assert_eq!(costs("no-such-run", from, to), []);
+    assert_eq!(spent("m-run", start + 6_000, to), None);
+    assert_eq!(spent("no-such-run", from, to), None);
+}
+
+/// A run's cost is one range of its in-window costs (decision 0089 ruling
+/// 9): the statement's steps over a run with 64 or 128 checkpoints before
+/// the window and one inside it are the same, where a read by the run's key
+/// alone walks every one of them.
+#[test]
+fn a_runs_cost_reads_its_window_alone() {
+    let steps = |before: usize| {
+        let (_dir, store) = store();
+        let mut steps = spent_steps("claude", 0.25);
+        let checkpoint = steps[4].clone();
+        steps.splice(4..4, std::iter::repeat_n(checkpoint, before - 1));
+        let events = chain("long", Some("alpha"), 0, &steps);
+        plant_older_writer(&store, "long", &events);
+        let store = refolded(store);
+        let (from, _) = minute();
+        let inside = from + (4 + before) as i64 * 1_000;
+        let mut stepped = 0;
+        let spent = store
+            .run_spent_stepped("long", inside, inside + 1_000, |steps| stepped = steps)
+            .unwrap();
+        assert_eq!(spent, Some(0.25));
+        stepped
+    };
+    let (fewer, more) = (steps(64), steps(128));
+    assert_eq!(
+        fewer, more,
+        "{fewer} steps before 64 costs, {more} before 128"
+    );
 }
 
 /// A pull of the parks yields the parks the visiting read does.

@@ -652,7 +652,6 @@ pub brokkr_view::RunEntry::run_id: &'a str
 pub brokkr_view::RunEntry::state: core::option::Option<&'a brokkr_core::fold::RunState>
 pub brokkr_view::RunEntry::waits: brokkr_view::WaitFact
 pub struct brokkr_view::RunFacts
-pub brokkr_view::RunFacts::costs: alloc::vec::Vec<(i64, f64)>
 pub brokkr_view::RunFacts::finished: core::option::Option<brokkr_core::summary::aggregate::Finished>
 pub brokkr_view::RunFacts::hearth: alloc::string::String
 pub brokkr_view::RunFacts::implement_visits: u64
@@ -661,6 +660,7 @@ pub brokkr_view::RunFacts::realm: alloc::string::String
 pub brokkr_view::RunFacts::recipe: core::option::Option<alloc::string::String>
 pub brokkr_view::RunFacts::reviews: brokkr_view::Reviews
 pub brokkr_view::RunFacts::run: alloc::string::String
+pub brokkr_view::RunFacts::spent: core::option::Option<f64>
 pub brokkr_view::RunFacts::started: core::option::Option<i64>
 pub struct brokkr_view::RunNotice
 pub brokkr_view::RunNotice::kind: alloc::string::String

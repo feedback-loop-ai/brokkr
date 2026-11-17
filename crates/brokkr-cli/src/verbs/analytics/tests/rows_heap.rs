@@ -158,6 +158,70 @@ fn the_readouts_heap_does_not_grow_with_the_window() {
     );
 }
 
+/// A hearth of one stopped run whose seat reported `costs` costs, every one
+/// inside the Day window.
+fn one_run(dir: &std::path::Path, name: &str, costs: usize) -> std::path::PathBuf {
+    let journal = dir.join(format!("{name}.db"));
+    let mut store = brokkr_store::Store::open(&journal).unwrap();
+    let base = parse_millis(GENERATED_NOW).unwrap();
+    let case = RunCase {
+        realm: Some("heap-realm"),
+        recipe: "heap-recipe",
+        rule: LastRuling::Named("heap-rule"),
+        provider: "claude",
+        model: "heap-model",
+        usd: 0.25,
+        finish: -19 * 60,
+    };
+    let mut steps = stopped_run(base, case);
+    let at = steps
+        .iter()
+        .position(|(kind, ..)| *kind == EventType::EffectCheckpointed)
+        .unwrap();
+    let cost = steps[at].clone();
+    steps.splice(at..at, std::iter::repeat_n(cost, costs - 1));
+    plant(&mut store, &format!("{name}-run"), &steps);
+    journal
+}
+
+/// A run's costs are folded as they are pulled, never collected (decision
+/// 0089 ruling 7, slice 4's unit U5b2b1): over two hearths of one run each,
+/// the readout's peak at N and 2N costs a run is the same within a constant,
+/// where a run's costs collected would hold 16 B a cost.
+#[test]
+fn a_runs_costs_are_folded_as_they_are_pulled() {
+    let dir = tempfile::tempdir().unwrap();
+    let (few, many) = (1024, 2048);
+    let hearths = |costs: usize| {
+        let name = |hearth: &str| format!("{hearth}-costs-{costs}");
+        [
+            hearth(Vec::new(), &one_run(dir.path(), &name("left"), costs)),
+            hearth(Vec::new(), &one_run(dir.path(), &name("right"), costs)),
+        ]
+    };
+    let (small, large) = (hearths(few), hearths(many));
+    for hearth in small.iter().chain(&large) {
+        assert_reads_rows(&hearth.journal, "a cost hearth reads its rows");
+    }
+    let read = |hearths: &[Hearth], costs: usize| {
+        let view = derive(hearths, Range::Day, None, GENERATED_NOW).unwrap();
+        let cost = &view.recipes[0].cost_per_run.text;
+        assert_eq!(*cost, format!("${:.2}", 0.25 * costs as f64));
+    };
+    read(&small, few);
+    let (fewer, more) = (
+        peak_of(|| read(&small, few)),
+        peak_of(|| read(&large, many)),
+    );
+    eprintln!("readout heap: {fewer} B at {few} costs a run, {more} B at {many}");
+    assert!(
+        more - fewer <= 1024,
+        "the readout's heap grew by {} B over {} more costs",
+        more - fewer,
+        2 * (many - few)
+    );
+}
+
 /// The hearth's read grows by the whole read's own runs and no set of ids:
 /// over 40 and 80 behind runs it holds as many copies of each run's id as
 /// the whole read of the same runs does (about five), and a set, a map or a

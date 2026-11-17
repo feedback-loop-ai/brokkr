@@ -86,10 +86,8 @@ pub(super) fn recipe_rows(source: &dyn FactSource, window: Window) -> (Vec<Recip
             if let Some(finished) = &run.finished {
                 group.ledger.add(finished.ending);
             }
-            for (at, usd) in &run.costs {
-                if window.holds(*at) {
-                    group.spent = Some(group.spent.unwrap_or(0.0) + usd);
-                }
+            if let Some(spent) = run.spent {
+                group.spent = Some(group.spent.unwrap_or(0.0) + spent);
             }
         }),
     );
