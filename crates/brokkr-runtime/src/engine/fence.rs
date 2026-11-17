@@ -119,8 +119,9 @@ impl Engine {
         };
         // A held wait this drive journaled ends the drive at its next turn
         // (decision 0106 ruling 2): a later drive meeting it before its end
-        // is a resume, and refuses.
-        if terminal && cooldown::holds_a_wait(event_type, &payload) {
+        // is a resume, and refuses. The rows carry the held fact the one
+        // parse above derived, so the payload is not read again.
+        if terminal && cooling.iter().any(|row| row.held.is_some()) {
             self.cooldown.held = cooldown::HeldDrive::Written;
         }
         self.current_cause = Some(envelope.event_id.clone());

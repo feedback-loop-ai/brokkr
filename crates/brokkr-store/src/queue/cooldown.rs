@@ -13,7 +13,7 @@
 use std::collections::BTreeMap;
 
 use brokkr_core::envelope::{EventEnvelope, EventType};
-use brokkr_core::{provider_waits, Held, ProviderWait};
+use brokkr_core::{provider_waits, Held};
 use rusqlite::{params, Connection, OptionalExtension};
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
@@ -41,6 +41,10 @@ pub struct Cooling {
     pub retry_after_seconds: Option<u64>,
     /// Which round of this site's waits within the effect's episode.
     pub rounds: u64,
+    /// Version 7's kind (decision 0106 ruling 2): the held fact the writer
+    /// parsed from the event's own `waits` entry when it derived this row,
+    /// carried here so the payload is read once (fix round 0106b1r3).
+    pub held: Option<Held>,
 }
 
 /// One `provider_cooldowns` row as a reader holds it: the cool-down the
@@ -110,9 +114,9 @@ pub enum RoundAppend {
 /// or its unique index fails the whole transaction, so the event and every
 /// row land together or not at all. No rows, or a queue that holds no
 /// table this binary may write, leaves the table untouched and the event
-/// alone lands. A row's kind is read from the event's own `waits` entry for
-/// its site (decision 0106 ruling 2), so the table never says a wait is
-/// held where the event does not.
+/// alone lands. A row's kind is the one its writer derived with it from the
+/// event's own `waits` entry for its site (decision 0106 ruling 2), so the
+/// payload is parsed once, by that writer.
 pub(crate) fn insert(
     tx: &Connection,
     event: &EventEnvelope,
@@ -135,7 +139,6 @@ pub(crate) fn insert(
     let recorded = OffsetDateTime::parse(&event.recorded_at, &Rfc3339)
         .expect("the journal's own recorded_at is RFC 3339")
         .unix_timestamp();
-    let waits = provider_waits(event).ok().flatten().unwrap_or_default();
     for row in rows {
         let until = until_second(row.until_at);
         if until <= recorded {
@@ -154,20 +157,11 @@ pub(crate) fn insert(
                 retry_after_seconds: row.retry_after_seconds,
                 rounds: row.rounds,
                 recorded,
-                held: held_at(&waits, &row.site),
+                held: row.held,
             },
         )?;
     }
     Ok(())
-}
-
-/// The held kind the event's own `waits` entry for `site` records, where
-/// it records one (`''` is an inline seat's absent site).
-fn held_at(waits: &[ProviderWait], site: &str) -> Option<Held> {
-    waits
-        .iter()
-        .find(|wait| wait.site.as_deref().unwrap_or("") == site)
-        .and_then(|wait| wait.held)
 }
 
 /// One `provider_cooldowns` row as the table's one writer spells it:

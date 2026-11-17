@@ -442,6 +442,7 @@ pub brokkr_store::CooldownRoundMismatch::run_id: alloc::string::String
 pub brokkr_store::CooldownRoundMismatch::site: alloc::string::String
 pub brokkr_store::CooldownRoundMismatch::standing: u64
 pub struct brokkr_store::Cooling
+pub brokkr_store::Cooling::held: core::option::Option<brokkr_core::payload::provider_wait::Held>
 pub brokkr_store::Cooling::provider: alloc::string::String
 pub brokkr_store::Cooling::reason: alloc::string::String
 pub brokkr_store::Cooling::retry_after_seconds: core::option::Option<u64>

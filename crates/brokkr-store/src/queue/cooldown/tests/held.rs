@@ -26,6 +26,7 @@ fn append_held(store: &mut Store, run: &str, until: OffsetDateTime) {
     });
     let mut row = row("a", "codex", "first", until);
     row.retry_after_seconds = Some(9000);
+    row.held = Some(brokkr_core::Held { max_seconds: 7200 });
     store
         .append_with_cooldowns(
             crate::CooldownAppend {
@@ -81,10 +82,12 @@ fn a_version_6_queue_migrates_to_version_7_and_keeps_its_cool_downs_ordinary() {
     );
 }
 
-/// A held wait's row carries `held` and `max_seconds` from its own event's
-/// entry for its site; an ordinary wait's row carries neither.
+/// A held wait's row carries `held` and `max_seconds` as its writer derived
+/// them from its event's entry for its site, and an ordinary wait's row
+/// carries neither: the store parses no payload for the kind (fix round
+/// 0106b1r3).
 #[test]
-fn a_held_waits_row_carries_its_kind_from_its_event() {
+fn a_held_waits_row_carries_the_kind_its_writer_derived() {
     let dir = tempfile::tempdir().unwrap();
     let mut store = journal(dir.path());
     append_held(&mut store, "run-a", at(9000));

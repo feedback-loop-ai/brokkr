@@ -143,6 +143,7 @@ fn append_second_row_on(
                 reason: "run-b refused".into(),
                 retry_after_seconds: None,
                 rounds: 1,
+                held: None,
             }],
         )
         .unwrap();

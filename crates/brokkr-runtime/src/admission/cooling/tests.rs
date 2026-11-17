@@ -39,6 +39,7 @@ fn row(provider: &str, route: &str, until: OffsetDateTime, words: &str) -> Row {
         reason: words.into(),
         retry_after_seconds: None,
         rounds: 1,
+        held: None,
     }
 }
 

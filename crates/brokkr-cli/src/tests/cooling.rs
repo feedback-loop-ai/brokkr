@@ -89,6 +89,7 @@ pub(crate) fn cooling_attempt(db: &std::path::Path) -> u64 {
                 reason: COOLING_WORDS.to_string(),
                 retry_after_seconds: None,
                 rounds: 1,
+                held: None,
             }],
         )
         .unwrap();

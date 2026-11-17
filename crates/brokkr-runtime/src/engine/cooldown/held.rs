@@ -7,9 +7,7 @@
 //! end the wait is taken as any other, and its probe runs on the same
 //! effect.
 
-use brokkr_core::envelope::EventType;
-use brokkr_core::{provider_waits, EventEnvelope, Held, ProviderWait};
-use serde_json::Value;
+use brokkr_core::{EventEnvelope, Held, ProviderWait};
 use thiserror::Error;
 use time::OffsetDateTime;
 
@@ -120,16 +118,6 @@ impl Episode {
             held,
         });
     }
-}
-
-/// Does this terminal payload record a held wait? The append's one reading,
-/// so the drive that journals it knows to end.
-pub(in crate::engine) fn holds_a_wait(event_type: EventType, payload: &Value) -> bool {
-    let event = super::sites::record_event(event_type, payload);
-    provider_waits(&event)
-        .ok()
-        .flatten()
-        .is_some_and(|waits| waits.iter().any(|wait| wait.held.is_some()))
 }
 
 impl Engine {

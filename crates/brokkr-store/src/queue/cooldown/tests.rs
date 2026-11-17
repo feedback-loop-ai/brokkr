@@ -45,6 +45,7 @@ fn row(site: &str, provider: &str, route: &str, until: OffsetDateTime) -> Coolin
         reason: "rate_limit: slow down".into(),
         retry_after_seconds: Some(30),
         rounds: 1,
+        held: None,
     }
 }
 
@@ -59,6 +60,7 @@ fn named(site: &str, route: &str, until: OffsetDateTime, reason: &str, rounds: u
         reason: reason.into(),
         retry_after_seconds: None,
         rounds,
+        held: None,
     }
 }
 

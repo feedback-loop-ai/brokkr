@@ -457,6 +457,7 @@ fn a_v6_journal_writes_its_cool_downs_and_seat_trees() {
         reason: "rate_limit: slow down".into(),
         retry_after_seconds: Some(30),
         rounds: 1,
+        held: None,
     };
     store
         .append_with_cooldowns(

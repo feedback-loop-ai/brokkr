@@ -30,7 +30,6 @@ use crate::admission::{read_host, Bounds, HostError, Hosting};
 use crate::bundle::Limits;
 
 mod held;
-pub(in crate::engine) use held::holds_a_wait;
 pub(crate) use held::HeldDrive;
 use held::HeldEnd;
 pub use held::HeldWait;

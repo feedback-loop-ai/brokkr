@@ -726,7 +726,7 @@ pub(in crate::engine) fn cooldown_rows(event_type: EventType, payload: &Value) -
 /// know the seq the event will take yet, and a payload the engine just
 /// built reads; the stub names a bad field by seq 0, which no engine
 /// writer can produce.
-pub(super) fn record_event(event_type: EventType, payload: &Value) -> EventEnvelope {
+fn record_event(event_type: EventType, payload: &Value) -> EventEnvelope {
     EventEnvelope {
         run_id: String::new(),
         seq: 0,
@@ -743,7 +743,8 @@ pub(super) fn record_event(event_type: EventType, payload: &Value) -> EventEnvel
     }
 }
 
-/// One `waits` entry as its row.
+/// One `waits` entry as its row, its held kind carried with it so the
+/// append reads the payload no second time (fix round 0106b1r3).
 fn row_of_wait(wait: &ProviderWait) -> Cooling {
     Cooling {
         site: wait.site.clone().unwrap_or_default(),
@@ -753,5 +754,6 @@ fn row_of_wait(wait: &ProviderWait) -> Cooling {
         reason: wait.words.clone(),
         retry_after_seconds: wait.retry_after_seconds,
         rounds: wait.rounds,
+        held: wait.held,
     }
 }

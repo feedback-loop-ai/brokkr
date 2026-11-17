@@ -302,6 +302,7 @@ pub(crate) fn write_cooling(store: &mut Store, run: &str) {
             reason: "cooling".into(),
             retry_after_seconds: None,
             rounds: 1,
+            held: None,
         }],
     );
 }
