@@ -386,9 +386,10 @@ fn a_run_past_its_opening_is_read_the_kept_way() {
 const PROJECTIONS: usize = 35;
 
 /// The aggregate's two reads, which a whole read makes once (decision 0103
-/// slice 4f): the queue's storage version, then every row in force at the
-/// readout's clock. Neither reads an envelope, and neither grows with the
-/// run.
+/// slice 4f): the queue's storage version, then the cool-down scan's first
+/// lookup, the least row by `seq`, which finds the run's empty table and so
+/// reads no row's words (#1112). Neither reads an envelope, and neither
+/// grows with the run.
 const AGGREGATE: usize = 2;
 
 /// The view whole reads its run once (ruling 7): on the grown run, 7,510
@@ -435,7 +436,7 @@ fn the_view_whole_reads_its_opening_its_trail_its_summary_and_its_seat_rows() {
     let aggregate = |sql: &str| {
         sql.starts_with("SELECT value FROM meta WHERE key = 'queue_schema'")
             || sql.starts_with(
-                "SELECT seq, provider, route, until_at FROM provider_cooldowns ORDER BY seq",
+                "SELECT seq, provider, route, until_at FROM provider_cooldowns WHERE seq >= ",
             )
     };
     assert_eq!(
