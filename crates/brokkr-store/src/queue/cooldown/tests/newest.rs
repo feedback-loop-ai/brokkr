@@ -153,8 +153,8 @@ fn expired_table(rows: usize, routes: usize) -> (tempfile::TempDir, Store) {
 /// one, grow no faster than `n log n`: a thousand times the rows by at most
 /// four thousand times the steps. The correlated form it replaced took
 /// 998 and 380,934,683 over ten routes, and 962 and 650,305,007 over one;
-/// the narrow scan and its kept rows' lookups take 227 and 60,167 over ten
-/// routes, and 83 and 60,023 over one.
+/// the narrow scan, a lookup per row, and its kept rows' lookups take 299
+/// and 130,169 over ten routes, and 155 and 130,025 over one.
 #[test]
 fn the_newest_read_is_one_scan() {
     let bound = (10_000.0 * 10_000f64.log2()) / (10.0 * 10f64.log2());
@@ -173,4 +173,63 @@ fn the_newest_read_is_one_scan() {
             "over {routes} route(s): {few} steps at 10 rows grew to {many} at 10,000, past n log n"
         );
     }
+}
+
+/// Rows at both ends of `seq`'s range, which only direct SQL writes, are
+/// read as the oracle reads them: the row-by-row scan starts below the
+/// least `seq` and stops after the greatest.
+#[test]
+fn the_scan_reads_both_ends_of_the_seq_range() {
+    let (_dir, store) = planting();
+    let insert = "INSERT INTO provider_cooldowns
+        (seq, run_id, event_seq, site, provider, route, until_at, reason,
+         retry_after_seconds, rounds, recorded_at)
+        VALUES (?1, 'run-a', 1, '', 'claude', ?2, 50, 'words', NULL, ?3, 0)";
+    for (round, (seq, route)) in [(i64::MIN, "first"), (0, "second"), (i64::MAX, "third")]
+        .into_iter()
+        .enumerate()
+    {
+        let round = round as i64 + 1;
+        store
+            .conn
+            .execute(insert, params![seq, route, round])
+            .unwrap();
+    }
+    assert_eq!(newest(&store.conn, 100).unwrap().len(), 3);
+    holds_to_the_oracle(&store.conn, &[50]);
+}
+
+/// A row whose words SQLite cannot hand over as text refuses before an
+/// earlier row's unreadable time, as the oracle's read refused: every
+/// kept row is read before any is typed.
+#[test]
+fn a_column_refusal_precedes_an_earlier_rows_time_refusal() {
+    let (_dir, store) = planting();
+    let insert = "INSERT INTO provider_cooldowns
+        (run_id, event_seq, site, provider, route, until_at, reason,
+         retry_after_seconds, rounds, recorded_at)
+        VALUES ('run-a', 1, '', 'claude', ?1, ?2, ?3, NULL, ?4, 0)";
+    let rows: [(&str, i64, rusqlite::types::Value); 2] = [
+        ("first", i64::MAX, "words".to_string().into()),
+        ("second", 50, vec![b'a'].into()),
+    ];
+    for (round, (route, until, reason)) in rows.into_iter().enumerate() {
+        let round = round as i64 + 1;
+        store
+            .conn
+            .execute(insert, params![route, until, reason, round])
+            .unwrap();
+    }
+    let refused = newest(&store.conn, 100).unwrap_err();
+    assert!(
+        matches!(
+            refused,
+            StoreError::Sqlite(rusqlite::Error::InvalidColumnType(
+                5,
+                ref column,
+                rusqlite::types::Type::Blob,
+            )) if column == "reason"
+        ),
+        "{refused:?}"
+    );
 }

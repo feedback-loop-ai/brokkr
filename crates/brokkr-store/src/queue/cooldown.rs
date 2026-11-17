@@ -250,38 +250,49 @@ fn newest(conn: &Connection, now: i64) -> Result<Vec<Cooldown>, StoreError> {
 /// [`newest`]'s two statements (#1112). The first scans the table once in
 /// `seq` order, its primary key, reading only each row's key, provider,
 /// route and end ([`Scanned`]), so SQLite sorts nothing and never extracts
-/// a row's words; [`Newest`] decides which rows are kept. The second reads
-/// each kept row's whole projection by its `seq`, in `seq` order, so a
-/// discarded row's words never enter SQLite's heap. A row is append-only
-/// and never deleted, so a kept `seq` reads back the row the scan saw.
-/// Both statements' VM steps go to `stepped`, so the test that binds the
-/// read's cost measures them.
+/// a row's words; [`Newest`] decides which rows are kept. It reads one row
+/// per run, the least `seq` from `from` on, and each run's reset releases
+/// that row's names before the next is read, so a streaming scan's
+/// registers never hold one row's wide route beside the next row's wide
+/// provider. The second reads each kept row's whole projection by its
+/// `seq`, in `seq` order, so a discarded row's words never enter SQLite's
+/// heap. Every kept row is read before any is typed, so a column SQLite
+/// cannot hand over refuses before an earlier row's unreadable time, as the
+/// single statement this replaced refused. A row is append-only and never
+/// deleted, so a kept `seq` reads back the row the scan saw. Both
+/// statements' VM steps go to `stepped`, so the test that binds the read's
+/// cost measures them.
 fn newest_with(
     conn: &Connection,
     now: i64,
     stepped: impl FnOnce(i64),
 ) -> Result<Vec<Cooldown>, StoreError> {
-    let mut scan =
-        conn.prepare("SELECT seq, provider, route, until_at FROM provider_cooldowns ORDER BY seq")?;
+    let mut scan = conn.prepare(
+        "SELECT seq, provider, route, until_at FROM provider_cooldowns
+         WHERE seq >= ?1 ORDER BY seq LIMIT 1",
+    )?;
     let mut newest = Newest::default();
-    let mut rows = scan.query([])?;
-    while let Some(row) = rows.next()? {
-        newest.take(Scanned::read(row)?, now);
+    let mut from = Some(i64::MIN);
+    while let Some(at) = from {
+        let Some(row) = scan.query_row([at], Scanned::read).optional()? else {
+            break;
+        };
+        from = row.seq.checked_add(1);
+        newest.take(row, now);
     }
-    drop(rows);
     let mut payload = conn.prepare(&format!(
         "SELECT {ROWS} FROM provider_cooldowns WHERE seq = ?1"
     ))?;
     let kept = newest
         .kept()
         .into_iter()
-        .map(|seq| payload.query_row([seq], Raw::read)?.typed())
-        .collect();
+        .map(|seq| payload.query_row([seq], Raw::read))
+        .collect::<Result<Vec<_>, _>>()?;
     let steps = |statement: &rusqlite::Statement<'_>| {
         i64::from(statement.get_status(rusqlite::StatementStatus::VmStep))
     };
     stepped(steps(&scan) + steps(&payload));
-    kept
+    kept.into_iter().map(Raw::typed).collect()
 }
 
 /// A row as [`newest`]'s scan reads it: its key, its provider and route,
@@ -549,15 +560,18 @@ impl Store {
     /// [`Store::cooldown`] and [`Store::cooldowns_in_force`], which an
     /// expired row never holds. The queue's version is judged first, as
     /// [`Store::cooldown`] does. The read is one scan of the table's keys,
-    /// providers, routes and ends in its primary key's order (#1112), so
-    /// SQLite sorts nothing and its memory does not follow the table; the
-    /// scan keeps each provider and route's newest `seq` so far as it goes,
-    /// then reads each kept row's words by its primary key, so the bound is
-    /// `n` steps in the table's rows, never the run or its events, plus a
-    /// sort of the kept `seq`s and one lookup per kept row. What the read
-    /// holds is the scan's one key per provider and route and the kept
-    /// rows' payloads, the rows it returns; a discarded row's words are
-    /// never read. The history a
+    /// providers, routes and ends in its primary key's order (#1112), one
+    /// row per lookup by that key, so SQLite sorts nothing; the scan keeps
+    /// each provider and route's newest `seq` so far as it goes, then reads
+    /// each kept row's whole projection by its primary key, so the bound is
+    /// `n` lookups in the table's rows, never the run or its events, plus a
+    /// sort of the kept `seq`s and one lookup per kept row. SQLite holds one
+    /// row at a time: the scanned row's provider and route, every row's
+    /// read, discarded or kept, and then one kept row's projection. A
+    /// discarded row's words are never read, and its provider and route are
+    /// its group's, which the kept row of that group returns; no two rows'
+    /// names are held at once. The read holds one provider and route per
+    /// pair and the kept rows, the rows it returns. The history a
     /// journal keeps is the rate limits its runs met, so `n` is that count
     /// and not a run's size; the console pays the read twice per refresh,
     /// once to compare the kept frame's aggregate and once in the frame or

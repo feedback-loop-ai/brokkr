@@ -4,7 +4,10 @@
 //! no more at 10,000 rows than at 10, however wide a route's name, and it
 //! reads words only for the rows it keeps, so a discarded row's words past
 //! the cap never enter SQLite's heap. A whole-row scan held them (2,006,440
-//! B for a discarded row's 2,000,000-byte reason). A window statement
+//! B for a discarded row's 2,000,000-byte reason). The scan reads one row
+//! per lookup, so no two rows' names are held at once: a streaming scan
+//! held one row's 600,000-byte route beside the next row's 600,000-byte
+//! provider (1,201,200 B, where the rows returned hold 603,704). A window statement
 //! that ranked the rows by provider and route sorted every row's names and
 //! passed the cap at 10,000 rows once a name was 24 characters wide (the
 //! review's finding on #1112).
@@ -57,7 +60,8 @@ const WORDS: &str = "rate_limit: the provider asked this seat to slow down";
 fn journal(path: &Path, rows: usize, width: usize) -> Store {
     let planted = (0..rows).map(|at| {
         let words = WORDS.to_string();
-        (route_name(at % ROUTES, width), 1_000 + at as i64, words)
+        let route = route_name(at % ROUTES, width);
+        (PROVIDER.to_string(), route, 1_000 + at as i64, words)
     });
     planted_journal(path, planted.collect())
 }
@@ -71,19 +75,55 @@ const WIDE_WORDS: usize = 2_000_000;
 /// [`WIDE_WORDS`] wide, then the latest end, the row the read keeps, with
 /// [`WORDS`]. The wide row sits between two others in the scan.
 fn wide_discarded(path: &Path) -> Store {
-    let route = route_name(0, NARROW);
+    let row = |until, words: String| (PROVIDER.to_string(), route_name(0, NARROW), until, words);
     planted_journal(
         path,
         vec![
-            (route.clone(), 1_500, WORDS.to_string()),
-            (route.clone(), 1_000, "w".repeat(WIDE_WORDS)),
-            (route, 2_000, WORDS.to_string()),
+            row(1_500, WORDS.to_string()),
+            row(1_000, "w".repeat(WIDE_WORDS)),
+            row(2_000, WORDS.to_string()),
         ],
     )
 }
 
-/// A journal holding one cool-down per `(route, until, reason)`, in order.
-fn planted_journal(path: &Path, rows: Vec<(String, i64, String)>) -> Store {
+/// The width of a wide provider's or route's name: one fits under [`CAP`],
+/// two held at once do not, as the review's plant on #1112 had them.
+const WIDE_KEY: usize = 600_000;
+
+/// A journal of two pairs, one with a [`WIDE_KEY`] provider and one with a
+/// [`WIDE_KEY`] route, every row expired at [`EXPIRED`]: the wide route's
+/// discarded row first, then each pair's kept row, then the wide
+/// provider's discarded row. The read returns the two kept rows, which
+/// alone held 603,704 B; each discarded row raised a scan that read every
+/// row's names to 1,201,200 B (the review's finding on #1112).
+fn wide_keys_discarded(path: &Path) -> Store {
+    let wide = "p".repeat(WIDE_KEY);
+    let long = "r".repeat(WIDE_KEY);
+    let row = |provider: &str, route: &str, until| {
+        (
+            provider.to_string(),
+            route.to_string(),
+            until,
+            WORDS.to_string(),
+        )
+    };
+    planted_journal(
+        path,
+        vec![
+            row(PROVIDER, &long, 1_000),
+            row(&wide, "route", 2_000),
+            row(PROVIDER, &long, 2_000),
+            row(&wide, "route", 1_000),
+        ],
+    )
+}
+
+/// The provider every narrow row names.
+const PROVIDER: &str = "claude";
+
+/// A journal holding one cool-down per `(provider, route, until, reason)`,
+/// in order.
+fn planted_journal(path: &Path, rows: Vec<(String, String, i64, String)>) -> Store {
     drop(std::fs::remove_file(path));
     let mut store = Store::open(path).unwrap();
     let conn = Connection::open(path).unwrap();
@@ -103,13 +143,13 @@ fn planted_journal(path: &Path, rows: Vec<(String, i64, String)>) -> Store {
         )
         .unwrap();
     conn.execute_batch("BEGIN").unwrap();
-    for (at, (route, until, reason)) in rows.into_iter().enumerate() {
+    for (at, (provider, route, until, reason)) in rows.into_iter().enumerate() {
         conn.execute(
             "INSERT INTO provider_cooldowns
                 (run_id, event_seq, site, provider, route, until_at, reason,
                  retry_after_seconds, rounds, recorded_at)
-             VALUES ('run-a', 1, '', 'claude', ?1, ?2, ?3, 30, ?4, ?2 - 1)",
-            params![route, until, reason, at as i64 + 1],
+             VALUES ('run-a', 1, '', ?1, ?2, ?3, ?4, 30, ?5, ?3 - 1)",
+            params![provider, route, until, reason, at as i64 + 1],
         )
         .unwrap();
     }
@@ -147,6 +187,7 @@ fn the_newest_read_stays_under_the_cap() {
         "SQLite high-water, 10,000 expired, wide names: ",
         "SQLite high-water, 10,000 in force, wide names: ",
         "SQLite high-water, a discarded row's 2,000,000-byte words: ",
+        "SQLite high-water, discarded rows' 600,000-byte names: ",
     ];
     if std::env::var_os(OWN_PROCESS).is_none() {
         measured_in_its_own_process(CHILD, &labels, 1);
@@ -160,6 +201,7 @@ fn the_newest_read_stays_under_the_cap() {
         cost(&journal(&path, 10_000, WIDE), EXPIRED),
         cost(&journal(&path, 10_000, WIDE), IN_FORCE),
         cost(&wide_discarded(&path), EXPIRED),
+        cost(&wide_keys_discarded(&path), EXPIRED),
     ];
     for (label, figure) in labels.iter().zip(figures) {
         eprintln!("{label}[{figure}]");
@@ -167,7 +209,7 @@ fn the_newest_read_stays_under_the_cap() {
     for (label, figure) in labels.iter().zip(figures) {
         assert!(figure < CAP, "{label}{figure} bytes, past the {CAP} cap");
     }
-    let [_, narrow, wide, _, _] = figures;
+    let [_, narrow, wide, _, _, _] = figures;
     assert!(
         wide <= narrow + SLACK,
         "wide names held {wide} bytes against narrow names' {narrow}: a name is in the sorter"
