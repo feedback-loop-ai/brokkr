@@ -24,7 +24,7 @@ fn digest(relative: &str) -> String {
 /// Recorded from this tree before the agent library existed, plus the
 /// realms map v1 — pinned when decision 0026 landed `forge.realms/v2`
 /// beside it, so "beside, never inside" is machine-checked.
-const FROZEN: [(&str, &str); 37] = [
+const FROZEN: [(&str, &str); 38] = [
     // Decision 0103 (accepted) mints the driver-refusal extension beside
     // the frozen v1 family; its bytes are pinned from here. Fix round
     // 430s4a6 L2 re-pins the unreleased file after the shared route form
