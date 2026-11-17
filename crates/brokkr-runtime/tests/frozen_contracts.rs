@@ -24,7 +24,7 @@ fn digest(relative: &str) -> String {
 /// Recorded from this tree before the agent library existed, plus the
 /// realms map v1 — pinned when decision 0026 landed `forge.realms/v2`
 /// beside it, so "beside, never inside" is machine-checked.
-const FROZEN: [(&str, &str); 36] = [
+const FROZEN: [(&str, &str); 37] = [
     // Decision 0103 (accepted) mints the driver-refusal extension beside
     // the frozen v1 family; its bytes are pinned from here. Fix round
     // 430s4a6 L2 re-pins the unreleased file after the shared route form
@@ -205,6 +205,13 @@ const FROZEN: [(&str, &str); 36] = [
     (
         "contracts/host.v3.schema.json",
         "efdc12e47030eee6ea9d9d187d1b15581807d1169f8a2b6bb5660b1630ee4cf6",
+    ),
+    // Decision 0110 ruling 7 mints `forge.host/v4` beside v3, whose bytes
+    // did not move: v4 is v3 plus a required run ceiling, pinned from
+    // birth, and all four versions stay readable.
+    (
+        "contracts/host.v4.schema.json",
+        "87db9ec8fd5833a07c3e70a79fa60726c50f9060390618e480e072ff915d76d6",
     ),
     // Decision 0103 ruling 2(a) mints the provider-wait extension beside
     // the frozen event vocabulary; its bytes are pinned from birth. Fix
@@ -1046,6 +1053,59 @@ fn the_host_v3_contract_lands_beside_v2_with_a_shared_local_floor() {
         !validator.is_valid(&fraction),
         "the schema admitted a fraction"
     );
+}
+
+/// Decision 0110 ruling 7 lands `forge.host/v4` beside the frozen v3,
+/// whose bytes are pinned above: v4 is v3 plus one required object,
+/// `runs`, closed, holding a ceiling of at least one, and no other clause
+/// moves.
+#[test]
+fn the_host_v4_contract_lands_beside_v3_with_a_required_run_ceiling() {
+    use serde_json::json;
+    assert_eq!(
+        titled("contracts/host.v4.schema.json"),
+        "Forge host configuration v4"
+    );
+    let [v4, v3] = published(["host.v4", "host.v3"]);
+    let mut carried = v3["properties"].clone();
+    carried["schema"] = v4["properties"]["schema"].clone();
+    carried["runs"] = v4["properties"]["runs"].clone();
+    assert_eq!(carried, v4["properties"], "v4 moved a property v3 defines");
+    let mut required = v3["required"].clone();
+    required.as_array_mut().unwrap().push(json!("runs"));
+    assert_eq!(v4["required"], required, "v4's required keys");
+    for key in ["additionalProperties", "type", "definitions"] {
+        assert_eq!(v4[key], v3[key], "{key} moved between v3 and v4");
+    }
+
+    let validator = contract("contracts/host.v4.schema.json");
+    let host = json!({"schema": "forge.host/v4", "providers": {},
+        "floors": [{"place": "seat-scratch", "floor_bytes": 1}], "boxed_builds": {"ceiling": 1},
+        "runs": {"ceiling": 2}});
+    assert!(validator.is_valid(&host), "a v4 host configuration");
+    let mut v3_label = host.clone();
+    v3_label["schema"] = json!("forge.host/v3");
+    assert!(
+        !contract("contracts/host.v3.schema.json").is_valid(&v3_label),
+        "the frozen v3 schema admitted a run ceiling"
+    );
+    let mut unceiled = host.clone();
+    unceiled.as_object_mut().unwrap().remove("runs");
+    assert!(
+        !validator.is_valid(&unceiled),
+        "the schema admitted no runs"
+    );
+    for runs in [
+        json!({"ceiling": 0}),
+        json!({"ceiling": -1}),
+        json!({"ceiling": 1.5}),
+        json!({"ceiling": 2, "drivers": 1}),
+        json!({}),
+    ] {
+        let mut map = host.clone();
+        map["runs"] = runs.clone();
+        assert!(!validator.is_valid(&map), "the schema admitted runs {runs}");
+    }
 }
 
 /// Decision 0065 slice two (SC2, CR1): v8 is v7 plus one reserved grant

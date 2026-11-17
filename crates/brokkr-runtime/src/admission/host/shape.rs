@@ -1,8 +1,7 @@
 //! The host file's wire forms, read strictly: a closed object is an object
 //! and a closed enum is its word, never serde's positional-array or
 //! one-key-map alternatives (decision 0071 ruling 3). Every shape here is
-//! one the published `forge.host/v1`, `forge.host/v2` or `forge.host/v3`
-//! contract admits.
+//! one a published contract, `forge.host/v1` to `forge.host/v4`, admits.
 
 use std::collections::BTreeMap;
 use std::fmt;

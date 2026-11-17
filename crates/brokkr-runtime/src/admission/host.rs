@@ -1,6 +1,6 @@
 //! The machine's capacity as its operator declares it (decision 0068
-//! ruling 3, and ruling 5's data): `forge.host/v1`, `forge.host/v2` or
-//! `forge.host/v3`, one file per machine and never a realm's (the
+//! ruling 3, and ruling 5's data): `forge.host/v1` to `forge.host/v4`,
+//! one file per machine and never a realm's (the
 //! operator's ruling of 2026-10-10, option B). A machine has one scratch
 //! disk, one set of provider accounts and its own local hardware, whichever
 //! realm a run operates, so the tracked realms map carries none of it
@@ -11,8 +11,8 @@
 //! capacity undeclared; a path that holds something that cannot be read (a
 //! link that loops or dangles, a directory, a FIFO or a device, a
 //! permission refused) is unreadable, never absent (#430's H5) and never
-//! waited on; and a file read but not a valid `forge.host/v1`,
-//! `forge.host/v2` or `forge.host/v3` refuses, naming the problem and,
+//! waited on; and a file read but not a valid one of those versions
+//! refuses, naming the problem and,
 //! where one version's rules own it, that version. A ceiling of zero, a
 //! negative one and one past `u32` are refused, never read as unlimited,
 //! and so is a provider or route written twice: the ceiling the operator
@@ -24,7 +24,9 @@
 //! of at least one (the operator's ruling of 2026-10-10, option c), each
 //! naming exactly one place or absolute path, and none named twice.
 //! `forge.host/v3` adds one optional shared-local deadline floor, whose
-//! reading and refusals are [`floor`]'s (decision 0104 ruling 1(a)).
+//! reading and refusals are [`floor`]'s (decision 0104 ruling 1(a)), and
+//! `forge.host/v4` a required run ceiling, [`runs`]'s (decision 0110
+//! ruling 7).
 
 use std::collections::BTreeMap;
 use std::ffi::OsString;
@@ -39,9 +41,11 @@ use thiserror::Error;
 use crate::capabilities::manifest::present;
 
 mod floor;
+mod runs;
 mod shape;
 
 pub use floor::{declared_routes, HostRoutes, RouteDecl};
+pub use runs::runs_undeclared;
 use shape::Integral;
 
 /// A host configuration, read whole: every key known, every ceiling at
@@ -50,11 +54,13 @@ use shape::Integral;
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(try_from = "WrittenHost")]
 pub(crate) struct HostConfig {
-    /// Read only to refuse another version.
-    _schema: Schema,
+    /// Read to refuse another version, and to name one without a ceiling.
+    schema: Schema,
     pub(crate) providers: BTreeMap<String, Provider>,
     pub(crate) floors: Floors,
     pub(crate) boxed_builds: Ceiling,
+    /// `None` where the file declares no run ceiling: a v1, v2 or v3 file.
+    pub(crate) runs: Option<NonZeroU32>,
     /// `None` where the file declares no cool-downs (a v1 file, or a v2
     /// file without the block), so a rate-limit refusal parks.
     cooldowns: Option<Cooldowns>,
@@ -69,6 +75,8 @@ enum Schema {
     V2,
     #[serde(rename = "forge.host/v3")]
     V3,
+    #[serde(rename = "forge.host/v4")]
+    V4,
 }
 
 /// A host configuration as either version writes it, before the
@@ -83,6 +91,8 @@ struct WrittenHost {
     floors: Floors,
     #[serde(deserialize_with = "shape::object")]
     boxed_builds: Ceiling,
+    #[serde(default, deserialize_with = "shape::present_object")]
+    runs: Option<Ceiling>,
     #[serde(default, deserialize_with = "shape::present_object")]
     cooldowns: Option<WrittenCooldowns>,
     #[serde(default, deserialize_with = "shape::present_word")]
@@ -376,19 +386,21 @@ impl TryFrom<WrittenHost> for HostConfig {
                     return Err(problem);
                 }
             }
-            Schema::V3 => {
+            Schema::V3 | Schema::V4 => {
                 if written.containment == Some(Containment::Required) {
                     return Err(Problem::ContainmentRequired);
                 }
             }
         }
+        let runs = runs::read(written.schema, written.runs)?;
         let cooldowns = written.cooldowns.map(Cooldowns::try_from).transpose()?;
         let providers = floor::providers(written.providers)?;
         let config = HostConfig {
-            _schema: written.schema,
+            schema: written.schema,
             providers,
             floors: written.floors,
             boxed_builds: written.boxed_builds,
+            runs,
             cooldowns,
         };
         if let Some(cooldowns) = &config.cooldowns {
@@ -622,6 +634,9 @@ pub enum Problem {
     /// A floor the loader cannot obey, in the floor module's own words.
     #[error(transparent)]
     Floor(#[from] floor::Problem),
+    /// A run ceiling missing or early, in the runs module's own words.
+    #[error(transparent)]
+    Runs(#[from] runs::Problem),
     /// Decision 0080's `required`, which is not built yet (#472).
     #[error("containment required is decision 0080's, not built yet (#472)")]
     ContainmentRequired,
@@ -668,6 +683,7 @@ impl Problem {
             | Problem::ProviderUndeclared(_)
             | Problem::RouteUndeclared { .. } => "forge.host/v2",
             Problem::Floor(_) => "forge.host/v3",
+            Problem::Runs(problem) => problem.contract(),
         }
     }
 }

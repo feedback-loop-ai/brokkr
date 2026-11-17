@@ -154,3 +154,50 @@ fn a_route_that_is_not_egress_local_gets_no_mismatch() {
     assert!(!rendered.contains("route 'cloud'"), "{rendered}");
     assert_eq!(rendered.lines().count(), 2, "{rendered}");
 }
+
+/// The report of a machine whose configuration directory is `config`, its
+/// host file `brokkr/host.json` written as `v3()` writes it, with its
+/// schema `schema` and, where given, a run ceiling.
+fn under_config(config: &std::path::Path, schema: &str, runs: bool) -> Report {
+    let dir = with_dsh_adapters();
+    std::fs::create_dir_all(config.join("brokkr")).unwrap();
+    let text = std::fs::read_to_string(v3(dir.path())).unwrap();
+    let mut host: serde_json::Value = serde_json::from_str(&text).unwrap();
+    host["schema"] = serde_json::json!(schema);
+    if runs {
+        host["runs"] = serde_json::json!({"ceiling": 2});
+    }
+    std::fs::write(config.join("brokkr/host.json"), host.to_string()).unwrap();
+    let mut report = reporting();
+    let adapters = dir.path().join("adapters");
+    report_from(&mut report, &adapters, Some(config.into()), None);
+    report
+}
+
+/// Decision 0110 ruling 7: a v3 host gives one warning naming its version
+/// and the one that declares the ceiling, and refuses nothing; a v4 host
+/// gives none.
+#[test]
+fn a_host_file_without_a_run_ceiling_is_one_warning_and_a_v4_one_none() {
+    let config = tempfile::tempdir().unwrap();
+    let v3 = under_config(config.path(), "forge.host/v3", false);
+    assert!(v3.healthy, "{}", v3.render());
+    let file = config.path().join("brokkr/host.json");
+    assert_eq!(
+        v3.render().lines().last().unwrap(),
+        format!(
+            "warn     host: the host file {} is forge.host/v3 and declares no run ceiling, so \
+             every queued entry waits as runs_undeclared; forge.host/v4 declares runs.ceiling",
+            file.display()
+        )
+    );
+    let v4 = under_config(config.path(), "forge.host/v4", true);
+    assert!(v4.healthy, "{}", v4.render());
+    assert_eq!(
+        v4.render(),
+        format!(
+            "ok       floor: dsh/spark-glm 7200 seconds on shared-local hardware — seats on this \
+             route run under at least this deadline\n{MISMATCH}"
+        )
+    );
+}

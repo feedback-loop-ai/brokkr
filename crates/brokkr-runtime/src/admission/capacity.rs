@@ -22,8 +22,10 @@
 //! The checks run in a fixed order, and the first unmet one is the reason
 //! recorded: the host configuration is declared and readable; the entry's
 //! seats can be measured, and every running run says what it seats; every
-//! provider and route the entry seats is declared, and out of a cool-down;
-//! each provider and cloud route is below its ceiling; each shared-local
+//! provider and route the entry seats is declared, and so is the journal's
+//! run ceiling ([`runs`], decision 0110 ruling 7); every provider and route
+//! is out of a cool-down; the journal's running runs are below its run
+//! ceiling; each provider and cloud route is below its ceiling; each shared-local
 //! route is below its own; each free-space floor, in the file's order,
 //! finds the free bytes of the filesystem it names at or above it, each
 //! judged by its own number though another on the same filesystem holds;
@@ -33,6 +35,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::io::{self, ErrorKind};
+use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -53,6 +56,8 @@ use journal::Journal;
 
 mod census;
 mod journal;
+mod runs;
+mod words;
 
 use super::cooling;
 type Stamp = time::OffsetDateTime;
@@ -87,6 +92,14 @@ pub enum Capacity {
     RouteUndeclared {
         provider: String,
         route: String,
+    },
+    /// The host configuration at the path declares no run ceiling: a v1,
+    /// v2 or v3 file (decision 0110 ruling 7).
+    RunsUndeclared(PathBuf),
+    /// The journal's running runs are at its run ceiling.
+    RunsFull {
+        running: usize,
+        ceiling: u32,
     },
     ProviderFull {
         provider: String,
@@ -174,101 +187,6 @@ impl<E: fmt::Display> fmt::Display for Shared<E> {
     }
 }
 
-impl Capacity {
-    /// Does only the operator clear it? A host configuration that cannot
-    /// be read, and an entry whose seats cannot be measured, wait on a
-    /// mend nothing but the operator makes.
-    pub(crate) fn holds(&self) -> bool {
-        matches!(self, Capacity::Unreadable { .. } | Capacity::Unmeasured(_))
-    }
-
-    /// The reason's kind, as scripts read it.
-    pub(crate) fn kind(&self) -> &'static str {
-        match self {
-            Capacity::Undeclared(_) => "host_undeclared",
-            Capacity::Unreadable { .. } => "host_unreadable",
-            Capacity::Unmeasured(_) => "unmeasured",
-            Capacity::RunUnmeasured { .. } => "run_unmeasured",
-            Capacity::ProviderUndeclared(_) => "provider_undeclared",
-            Capacity::RouteUndeclared { .. } => "route_undeclared",
-            Capacity::ProviderFull { .. } => "provider_full",
-            Capacity::RouteFull { .. } => "route_full",
-            Capacity::FloorUnmeasured { .. } => "floor_unmeasured",
-            Capacity::FloorLow { .. } => "floor_low",
-            Capacity::BoxedFull { .. } => "boxed_full",
-            Capacity::CoolingDown { .. } => "cooling_down",
-        }
-    }
-}
-
-impl fmt::Display for Capacity {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let against = |running: &usize, ceiling: &u32| {
-            format!("{running} running against a ceiling of {ceiling}")
-        };
-        match self {
-            Capacity::Undeclared(path) => write!(
-                f,
-                "no host configuration at {} declares capacity",
-                path.display()
-            ),
-            Capacity::Unreadable { path, kind } => write!(
-                f,
-                "the host configuration at {} cannot be read: {kind}",
-                path.display()
-            ),
-            Capacity::Unmeasured(why) => write!(f, "what it seats cannot be measured: {why}"),
-            Capacity::RunUnmeasured { run, why } => {
-                write!(f, "running run '{run}' does not say what it seats: {why}")
-            }
-            Capacity::ProviderUndeclared(provider) => write!(
-                f,
-                "the host configuration declares no ceiling for provider {provider}"
-            ),
-            Capacity::RouteUndeclared { provider, route } => write!(
-                f,
-                "the host configuration declares no ceiling for route {route} of provider \
-                 {provider}"
-            ),
-            Capacity::ProviderFull {
-                provider,
-                running,
-                ceiling,
-            } => write!(
-                f,
-                "provider {provider} is full: {}",
-                against(running, ceiling)
-            ),
-            Capacity::RouteFull {
-                provider,
-                route,
-                class,
-                running,
-                ceiling,
-            } => write!(
-                f,
-                "{class} route {route} of provider {provider} is full: {}",
-                against(running, ceiling)
-            ),
-            Capacity::FloorUnmeasured { at, kind } => {
-                write!(f, "{at} cannot be measured: {kind}")
-            }
-            Capacity::FloorLow { at, free, floor } => {
-                write!(f, "{at} has {free} bytes free, below its floor of {floor}")
-            }
-            Capacity::BoxedFull { running, ceiling } => {
-                write!(f, "boxed builds are full: {}", against(running, ceiling))
-            }
-            Capacity::CoolingDown {
-                provider,
-                route,
-                until,
-                words,
-            } => cooling::word(f, provider, route, *until, words),
-        }
-    }
-}
-
 /// Judge the machine's room for each entry in `queue` that nothing else
 /// stops, recording the first unmet check as its reason. The host
 /// configuration and the running runs are read once, and only when some
@@ -340,7 +258,8 @@ impl<'h> Measure<'h> {
         let config = self.declared()?;
         let entry = Entry::measure(launch).map_err(Capacity::Unmeasured)?;
         let cooling = cooling::Leg::Held(&self.cooling);
-        let running = ceilings(config, self.live.iter(), &entry.lanes, cooling)?;
+        let runs = runs::ceiling(config, self.host.file);
+        let (running, runs) = ceilings(config, self.live.iter(), &entry.lanes, runs, cooling)?;
         floors(config, self.host, entry.scratch)?;
         boxed(config, &running, entry.boxed)?;
         Ok(Room {
@@ -350,6 +269,7 @@ impl<'h> Measure<'h> {
             digest: entry.digest,
             lanes: entry.lanes,
             boxed: entry.boxed,
+            runs,
             config: config.clone(),
             census: Arc::clone(&self.live),
         })
@@ -367,16 +287,22 @@ impl<'h> Measure<'h> {
 }
 
 /// The entry's lanes bound, out of cool-down and below their ceilings,
-/// with the runs of `live` counted first.
+/// with the runs of `live` counted first. `runs` is the journal's run
+/// ceiling, or why the host declares none, judged with the declarations;
+/// the ceiling is judged first of the ceilings, and answered beside the
+/// count.
 fn ceilings<'a>(
     config: &HostConfig,
     live: impl IntoIterator<Item = &'a Live>,
     lanes: &BTreeSet<Lane>,
+    runs: Result<NonZeroU32, Capacity>,
     cooling: cooling::Leg<'_>,
-) -> Result<Running, Capacity> {
+) -> Result<(Running, NonZeroU32), Capacity> {
     let running = Running::count(live, config)?;
     let bound = bind(config, lanes)?;
+    let runs = runs?;
     cooling.room(lanes)?;
+    runs::below(running.runs, runs)?;
     bound
         .iter()
         .filter(|bound| bound.class() == RouteClass::Cloud)
@@ -385,7 +311,7 @@ fn ceilings<'a>(
         .iter()
         .filter(|bound| bound.class() == RouteClass::SharedLocal)
         .try_for_each(|bound| bound.below(&running, false))?;
-    Ok(running)
+    Ok((running, runs))
 }
 
 /// For an entry that builds in a box, the boxed builds running below
@@ -405,7 +331,8 @@ fn boxed(config: &HostConfig, running: &Running, boxed: bool) -> Result<(), Capa
 /// pass measured; the entry as the pass read it, its id and the pin and
 /// latch it was seen under; the events high-water the pass read before
 /// its census, the census, the manifest digest of the bundle it compiled
-/// and what that bundle seats, under the host configuration it read.
+/// and what that bundle seats, under the host configuration it read and
+/// the run ceiling that configuration declares.
 #[derive(Debug)]
 pub struct Room {
     journal: Option<Journal>,
@@ -414,6 +341,7 @@ pub struct Room {
     digest: String,
     lanes: BTreeSet<Lane>,
     boxed: bool,
+    runs: NonZeroU32,
     config: HostConfig,
     census: Arc<Vec<Live>>,
 }
@@ -436,8 +364,9 @@ impl Room {
     /// Inside the transaction the entry must still be queued under the pin
     /// and latch the pass read, each wait must hold, no lane may be cooling
     /// now, and each run with an event past the pass's high-water is folded
-    /// again and counted in place of the census; the entry's lanes and the
-    /// boxed builds are judged again by its ceilings. An unmet wait or one
+    /// again and counted in place of the census; the journal's runs, the
+    /// entry's lanes and the boxed builds are judged again by their
+    /// ceilings. An unmet wait or one
     /// at a ceiling now is the inner refusal, and nothing is claimed.
     pub fn claim(
         &self,
@@ -493,8 +422,9 @@ impl Room {
         let stood =
             (self.census.iter()).filter(|live| moved.iter().all(|(run, ..)| *run != live.run));
         let cooling = cooling::Leg::Rows(cooling);
-        let running =
-            ceilings(&self.config, stood.chain(&now), &self.lanes, cooling).map_err(full)?;
+        let live = stood.chain(&now);
+        let (running, _) =
+            ceilings(&self.config, live, &self.lanes, Ok(self.runs), cooling).map_err(full)?;
         boxed(&self.config, &running, self.boxed).map_err(full)
     }
 }
@@ -682,6 +612,8 @@ struct Running {
     providers: BTreeMap<String, usize>,
     routes: BTreeMap<(String, String), usize>,
     boxed: usize,
+    /// Every run counted, against the journal's run ceiling.
+    runs: usize,
 }
 
 impl Running {
@@ -711,6 +643,7 @@ impl Running {
                 }
             }
             running.boxed += usize::from(seats.boxed);
+            running.runs += 1;
         }
         Ok(running)
     }

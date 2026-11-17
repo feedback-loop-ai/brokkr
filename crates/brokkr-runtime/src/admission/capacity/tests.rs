@@ -21,7 +21,7 @@ use super::super::{judge_within, pass, pass_within, HostError, Reason, Standing}
 use super::*;
 use crate::launch::{BundleSource, LaunchRequest, NewRun, RunMap};
 
-const BY: Attribution<'static> = Attribution {
+pub(crate) const BY: Attribution<'static> = Attribution {
     operator: "vy",
     reason: "operator's word",
 };
@@ -156,7 +156,7 @@ impl Fixture {
     }
 
     /// A run that is running now on the bundle as it compiles here.
-    fn started(&mut self, name: &str) {
+    pub(crate) fn started(&mut self, name: &str) {
         let pinned = self.launch().compiled().unwrap().manifest;
         self.running(name, &pinned);
     }
@@ -177,8 +177,16 @@ impl Fixture {
 
     /// A running run whose compile pinned each `(provider, model id)`, on
     /// the id's own route, boxed or not, written as the compile writes it.
-    fn seating(&mut self, name: &str, seats: &[(&str, &str)], boxed: bool) {
+    pub(crate) fn seating(&mut self, name: &str, seats: &[(&str, &str)], boxed: bool) {
         self.running(name, &seated(seats, boxed));
+    }
+
+    /// A run an older brokkr left with a row and no events, planted by
+    /// SQL, whose manifest seats alpha's one lane.
+    pub(crate) fn unstarted(&self, name: &str) {
+        let conn = rusqlite::Connection::open(self.root.join("forge.db")).unwrap();
+        let manifest = seated(&[("alpha", "a-1")], false).to_string();
+        brokkr_store::test_support::plant_run(&conn, name, &manifest).unwrap();
     }
 
     /// The host configuration this fixture declares, written.
@@ -213,7 +221,7 @@ impl Fixture {
 
 /// The manifest a compile that pinned each `(provider, model id)`, on the
 /// id's own route, boxed or not, writes.
-fn seated(seats: &[(&str, &str)], boxed: bool) -> Value {
+pub(crate) fn seated(seats: &[(&str, &str)], boxed: bool) -> Value {
     let candidates: Vec<Value> = (seats.iter())
         .map(|(provider, id)| {
             let route = crate::capabilities::manifest::route(id).map(str::to_string);
@@ -282,7 +290,7 @@ pub(crate) fn refused_rows(store: &mut Store, run: &str, rows: &[Row]) -> EventE
 
 /// Write one beta/cloud cool-down row through the store's own writer, in
 /// force for the next five minutes.
-fn write_cooling(store: &mut Store, run: &str) {
+pub(crate) fn write_cooling(store: &mut Store, run: &str) {
     refused_rows(
         store,
         run,
@@ -300,7 +308,7 @@ fn write_cooling(store: &mut Store, run: &str) {
 
 /// A plenty-free host reading the configuration at `file`, and the
 /// verdict of `pass_within` over `store` on it.
-fn passed(store: &Store, file: &Path) -> Result<Vec<Judged>, AdmissionError> {
+pub(crate) fn passed(store: &Store, file: &Path) -> Result<Vec<Judged>, AdmissionError> {
     passed_naming(store, file).map(|(judged, _)| judged)
 }
 
@@ -323,11 +331,11 @@ pub(crate) fn verdicts(judged: Vec<Judged>) -> Vec<Vec<Reason>> {
 }
 
 /// A host configuration declaring `providers`, a seat-scratch floor of a
-/// kibibyte and two boxed builds.
-fn host(providers: Value) -> Value {
-    json!({"schema": "forge.host/v1", "providers": providers,
+/// kibibyte, two boxed builds and nine runs.
+pub(crate) fn host(providers: Value) -> Value {
+    json!({"schema": "forge.host/v4", "providers": providers,
            "floors": [{"place": "seat-scratch", "floor_bytes": 1024}],
-           "boxed_builds": {"ceiling": 2}})
+           "boxed_builds": {"ceiling": 2}, "runs": {"ceiling": 9}})
 }
 
 /// `alpha` and `beta` at `alpha` and `beta` runs, `beta`'s routes as
@@ -340,7 +348,7 @@ pub(crate) fn route(ceiling: u32, class: &str) -> Value {
     json!({"ceiling": ceiling, "class": class})
 }
 
-fn full(provider: &str, running: usize, ceiling: u32) -> Option<Capacity> {
+pub(crate) fn full(provider: &str, running: usize, ceiling: u32) -> Option<Capacity> {
     Some(Capacity::ProviderFull {
         provider: provider.into(),
         running,
@@ -523,13 +531,13 @@ fn an_invalid_host_configuration_refuses_the_pass_naming_the_problem() {
         with("/floors", json!([floor(1), floor(2)]))
     };
     let cases = [
-        (unknown, "unknown field `pause`, expected one of `schema`, `providers`, `floors`, `boxed_builds`, `cooldowns`, `containment` at line 1 column 92"),
+        (unknown, "unknown field `pause`, expected one of `schema`, `providers`, `floors`, `boxed_builds`, `runs`, `cooldowns`, `containment` at line 1 column 92"),
         (keyed, "unknown field `burst`, expected `ceiling` or `routes` at line 1 column 114"),
         (with("/providers/alpha/ceiling", json!(0)), "invalid value: integer `0`, expected a nonzero u32 at line 1 column 119"),
         (with("/providers/alpha/ceiling", json!(-1)), "invalid value: integer `-1`, expected a nonzero u32 at line 1 column 120"),
         (with("/providers/alpha/ceiling", json!(4_294_967_296_u64)), "invalid value: integer `4294967296`, expected a nonzero u32 at line 1 column 128"),
         (with("/boxed_builds/ceiling", json!(0)), "invalid value: integer `0`, expected a nonzero u32 at line 1 column 29"),
-        (unfloored, "missing field `floors` at line 1 column 124"),
+        (unfloored, "missing field `floors` at line 1 column 145"),
         (with("/floors", json!([])), "no floor is declared at line 1 column 41"),
         (with("/floors/0/floor_bytes", json!(0)), "invalid value: integer `0`, expected a nonzero u64 at line 1 column 56"),
         (with("/floors/0", json!({"floor_bytes": 1, "path": "tmp"})), "the floor path tmp is not absolute at line 1 column 70"),
@@ -540,7 +548,7 @@ fn an_invalid_host_configuration_refuses_the_pass_naming_the_problem() {
         (with("/floors/0", json!({"floor_bytes": 1, "place": "temp", "size": 1})), "unknown field `size`, expected one of `floor_bytes`, `path`, `place` at line 1 column 78"),
         (twice(json!({"place": "temp"})), "the floor at place 'temp' is written twice at line 1 column 106"),
         (twice(json!({"path": "/var/tmp"})), "the floor at path '/var/tmp' is written twice at line 1 column 112"),
-        (with("/schema", json!("forge.host/v4")), "unknown variant `forge.host/v4`, expected one of `forge.host/v1`, `forge.host/v2`, `forge.host/v3` at line 1 column 178"),
+        (with("/schema", json!("forge.host/v5")), "unknown variant `forge.host/v5`, expected one of `forge.host/v1`, `forge.host/v2`, `forge.host/v3`, `forge.host/v4` at line 1 column 199"),
         (with("/providers/beta/routes", json!({"spark-glm": route(1, "local")})), "unknown variant `local`, expected `cloud` or `shared-local` at line 1 column 190"),
     ];
     let said: Vec<String> = cases
@@ -642,9 +650,7 @@ fn a_run_that_is_not_running_counts_against_no_ceiling() {
 #[test]
 fn an_unstarted_run_counts_against_no_ceiling_and_the_pass_judges_every_entry() {
     let (mut fixture, file) = alpha_at_one();
-    let conn = rusqlite::Connection::open(fixture.root.join("forge.db")).unwrap();
-    let manifest = seated(&[("alpha", "a-1")], false).to_string();
-    brokkr_store::test_support::plant_run(&conn, "r0", &manifest).unwrap();
+    fixture.unstarted("r0");
     assert_eq!(fixture.room(&file), None);
     let named = |fixture: &Fixture| passed_naming(&fixture.store, &file).unwrap().1;
     let unstarted = vec![Reason::UnstartedRun {
@@ -896,28 +902,23 @@ fn an_exact_integral_floor_token_keeps_the_admission_guard() {
     fixture.queue();
     let file = fixture.root.join("host.json");
     let probe = 9_007_199_254_740_992;
-    for schema in ["forge.host/v1", "forge.host/v2"] {
-        std::fs::write(
-            &file,
-            format!(
-                r#"{{"schema":"{schema}","providers":{{"alpha":{{"ceiling":1}},"beta":{{"ceiling":1,"routes":{{}}}}}},"floors":[{{"floor_bytes":9007199254740993.0,"place":"temp"}}],"boxed_builds":{{"ceiling":2}}}}"#
-            ),
-        )
-        .unwrap();
-        let reasons = fixture.reasons(&file, probe).remove(0);
-        assert_eq!(
-            reasons,
-            vec![Reason::Capacity(Capacity::FloorLow {
-                at: Measured::Place {
-                    place: Place::Temp,
-                    path: TEMP.into(),
-                },
-                free: probe,
-                floor: 9_007_199_254_740_993,
-            })],
-            "{schema}"
-        );
-    }
+    std::fs::write(
+        &file,
+        r#"{"schema":"forge.host/v4","providers":{"alpha":{"ceiling":1},"beta":{"ceiling":1,"routes":{}}},"floors":[{"floor_bytes":9007199254740993.0,"place":"temp"}],"boxed_builds":{"ceiling":2},"runs":{"ceiling":9}}"#,
+    )
+    .unwrap();
+    let reasons = fixture.reasons(&file, probe).remove(0);
+    assert_eq!(
+        reasons,
+        vec![Reason::Capacity(Capacity::FloorLow {
+            at: Measured::Place {
+                place: Place::Temp,
+                path: TEMP.into(),
+            },
+            free: probe,
+            floor: 9_007_199_254_740_993,
+        })]
+    );
 }
 
 #[test]
@@ -1309,6 +1310,11 @@ fn every_capacity_reason_has_its_word() {
             provider: "p".into(),
             route: "r".into(),
         },
+        Capacity::RunsUndeclared(path.clone()),
+        Capacity::RunsFull {
+            running: 1,
+            ceiling: 1,
+        },
         full("p", 1, 1).unwrap(),
         route_full("r", RouteClass::Cloud, 1, 1).unwrap(),
         Capacity::FloorUnmeasured {
@@ -1344,6 +1350,8 @@ fn every_capacity_reason_has_its_word() {
             ("run_unmeasured", false),
             ("provider_undeclared", false),
             ("route_undeclared", false),
+            ("runs_undeclared", false),
+            ("runs_full", false),
             ("provider_full", false),
             ("route_full", false),
             ("floor_unmeasured", false),
@@ -1356,7 +1364,7 @@ fn every_capacity_reason_has_its_word() {
 
 /// The room a pass over a plenty-free host reading `file` found for the
 /// first entry it listed, which it admitted.
-fn admitted(fixture: &Fixture, file: &Path) -> Room {
+pub(crate) fn admitted(fixture: &Fixture, file: &Path) -> Room {
     let judged = passed(&fixture.store, file).unwrap().remove(0);
     judged.room.expect("admitted")
 }
@@ -1372,7 +1380,7 @@ fn one_admitted() -> (Fixture, EntryId, PathBuf, Room) {
 }
 
 /// Claim the entry `room` was measured for, as generation 1.
-fn claimed(fixture: &mut Fixture, room: &Room) -> Result<Claim, Reason> {
+pub(crate) fn claimed(fixture: &mut Fixture, room: &Room) -> Result<Claim, Reason> {
     room.claim(&mut fixture.store, Generation(1), "admitted")
         .unwrap()
 }
@@ -1770,6 +1778,7 @@ fn bound_to(room: &Room, entry: QueueEntry) -> Room {
         digest: room.digest.clone(),
         lanes: room.lanes.clone(),
         boxed: room.boxed,
+        runs: room.runs,
         config: room.config.clone(),
         census: Arc::clone(&room.census),
     }

@@ -304,8 +304,9 @@ held. An entry nothing else stops (no operator hold, no unmet wait, no
 realm drift) is then measured against this machine, and the first check
 it does not meet is its reason, in this order: the host configuration is
 declared and readable; what the entry seats, and what every running run
-seats, can be read; each provider and route it seats is declared; each
-provider and route it seats is out of cool-down; each
+seats, can be read; each provider and route it seats is declared, and so
+is the journal's run ceiling; each provider and route it seats is out of
+cool-down; the journal's running runs are below its run ceiling; each
 provider and cloud route is below its ceiling; each shared-local route is
 below its own; each free-space floor, in the file's order, finds its
 filesystem's free bytes at or above it; and an entry that builds in a box finds the boxed builds running
@@ -338,18 +339,20 @@ say now; a running run whose manifest carries none, one started before
 v13 included, makes every entry wait until it ends.
 
 **The host configuration** belongs to the machine, not to a realm
-(`forge.host/v1`, `forge.host/v2` with cool-down bounds and containment, or
-`forge.host/v3` with a shared-local deadline floor; [the v1
+(`forge.host/v1`, `forge.host/v2` with cool-down bounds and containment,
+`forge.host/v3` with a shared-local deadline floor, or `forge.host/v4`
+with a run ceiling; [the v1
 contract](../../contracts/host.v1.schema.json), [the v2
 contract](../../contracts/host.v2.schema.json), [the v3
-contract](../../contracts/host.v3.schema.json)):
+contract](../../contracts/host.v3.schema.json), [the v4
+contract](../../contracts/host.v4.schema.json)):
 `$XDG_CONFIG_HOME/brokkr/host.json`, else `$HOME/.config/brokkr/host.json`,
 on Linux and macOS alike. Nothing there and every measured entry waits
 (`no host configuration at <path> declares capacity`); a path that holds
 something unreadable — a link that loops or dangles, a directory, a FIFO
 or a device, never waited on — holds it, naming the error; a file that is
-not a valid `forge.host/v1`, `forge.host/v2` or `forge.host/v3` refuses the
-listing, naming the problem and, where one version's rules own it, that
+not a valid `forge.host/v1`, `forge.host/v2`, `forge.host/v3` or
+`forge.host/v4` refuses the listing, naming the problem and, where one version's rules own it, that
 version, and so does a provider or route written twice, naming the key. A provider or
 route the file does not name waits as undeclared, and every ceiling is at
 least one: there is no unlimited.
@@ -388,6 +391,20 @@ bound is that bound plus an hour, so a floor at or under it cannot let a
 live attempt read as a dead engine. This writes the Spark ruling once, as
 the machine's data; night-shift's hand-written 7200 is its own until the
 recipe drops it.
+
+`forge.host/v4` (decision 0110 ruling 7) is v3 plus one REQUIRED object,
+`"runs": {"ceiling": n}` with n at least 1: the most runs that may read
+running in the journal the pass judges, direct `brokkr run` runs among
+them and a run that never started counted against nothing. The sample
+above, written as v4 with `"runs": {"ceiling": 3}`, admits a third run
+and holds a fourth. An entry at the ceiling waits as `runs_full`
+(``the journal drives <n> runs, at its ceiling of <c> (forge.host/v4
+`runs.ceiling`)``), and a claim's re-check counts the runs started since
+the pass against the same ceiling. A v1, v2 or v3 file declares no run
+ceiling: it still reads, but every entry the capacity checks would judge
+waits as `runs_undeclared` (``the host file <path> declares no run
+ceiling; forge.host/v4 declares `runs.ceiling` ``) until the file is v4, and
+`brokkr doctor` warns of it. Neither latches.
 
 A seat on `spark-glm` is judged by that route's ceiling in place of
 `dsh`'s, because the hardware, not the account, is the limit; a `cloud`
