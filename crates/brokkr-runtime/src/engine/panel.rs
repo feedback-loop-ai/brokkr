@@ -153,8 +153,9 @@ impl Engine {
             }
             AttemptOutcome::Succeeded { result } => {
                 // The aggregate is the engine's own record — `result`,
-                // `inputs`, `notes` and nothing else, with every member's
-                // evidence under `notes` — so it conforms by
+                // `inputs`, `notes`, the members' stamped `findings` and
+                // nothing else, with every member's evidence under
+                // `notes` — so it conforms by
                 // construction and the seat-record fence has nothing to
                 // refuse here. A refusal would be an engine defect, and
                 // it propagates as one, like any other storage error;
@@ -353,7 +354,9 @@ impl Engine {
         let mut members = Vec::with_capacity(reports.len());
         for ((name, mut report, begun), run) in reports.into_iter().zip(runs) {
             settled.carry(&Tag::prefixed(tag_prefix, &name).0, &mut report);
-            members.push((name, self.settled_by(ids, &run.spawn, begun, report)?));
+            // Each member's findings carry the member's own site.
+            let report = self.settled_by(ids, &run.spawn, begun, report)?;
+            members.push((name, super::verdict::admitted(report, run.context.as_ref())));
         }
         Ok(members)
     }

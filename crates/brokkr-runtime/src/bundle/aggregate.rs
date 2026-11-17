@@ -124,11 +124,28 @@ impl Aggregate {
             });
         };
         let meta = json!({"members": read.notes, "verdicts": read.verdicts});
-        match self {
+        let mut result = match self {
             Aggregate::UnanimousPass => unanimous_pass(&read.parsed, meta),
             Aggregate::ReviewPanel => review_panel(&read.parsed, meta),
+        };
+        let findings = joined_findings(members);
+        if !findings.is_empty() {
+            result["findings"] = Value::Array(findings);
         }
+        result
     }
+}
+
+/// Every member's findings, in declared order, each as the engine
+/// stamped it with that member's own site (decision 0109 ruling 3), so a
+/// copy of a sibling's finding is another key and never a borrowed one.
+fn joined_findings(members: &[(String, Value)]) -> Vec<Value> {
+    members
+        .iter()
+        .filter_map(|(_, payload)| payload.get("findings").and_then(Value::as_array))
+        .flatten()
+        .cloned()
+        .collect()
 }
 
 /// Every member's result string, read once for the aggregate: by member,

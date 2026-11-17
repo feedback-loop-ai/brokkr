@@ -83,6 +83,7 @@ pub(crate) mod sequence;
 pub(in crate::engine) use seat_tree::AttemptIds;
 mod start;
 mod usage;
+mod verdict;
 use operator::operator_stop_reason;
 #[cfg(test)]
 use panel::panel_outcome;
@@ -1633,7 +1634,7 @@ impl Engine {
             },
         )?;
         let report = self.folded([effect_id, attempt_id, driver_seat], spawn, begun, report)?;
-        Ok(DriverRun::Ran(report))
+        Ok(DriverRun::Ran(verdict::admitted(report, stamp.as_ref())))
     }
 
     /// Append the attempt's successful result — or, when the journal
