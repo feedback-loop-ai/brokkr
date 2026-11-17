@@ -1385,7 +1385,7 @@ fn an_inline_members_own_command_is_probed_and_retried() {
     let body = b_only_panel(dir.path(), a);
     let mut engine = plain_engine(dir.path(), body, 2);
     engine.drive().unwrap();
-    let seen = witness(&engine, dir.path(), &["a", "b"]);
+    let seen = witness(&engine, dir.path());
     assert_eq!(
         logs(dir.path(), "a"),
         ["attempt:refuse", "probe", "attempt:succeed"],

@@ -40,13 +40,14 @@ fn after_first_slice(
 }
 
 /// Drive a run whose probe ended without an answer: one attempt, the given
-/// driver log, and the park reason.
-fn drove_one(dir: &Path, engine: &mut Engine, expected: &[&str]) -> String {
+/// driver log, and the park reason with the witness a failed assertion on
+/// it prints.
+fn drove_one(dir: &Path, engine: &mut Engine, expected: &[&str]) -> (String, String) {
     engine.drive().unwrap();
-    let seen = witness(engine, dir, &["work"]);
+    let seen = witness(engine, dir);
     assert_eq!(logs(dir, "work"), expected, "{seen}");
     assert_eq!(starts(engine).len(), 1, "the probe spent an attempt{seen}");
-    park_reason(engine)
+    (park_reason(engine), seen)
 }
 
 /// Stop the run once, at `at`, during its wait.
@@ -396,7 +397,7 @@ fn a_row_recorded_while_the_probe_ran_holds_the_route_again() {
 fn the_episode_maximum_parks_the_probe_loop_and_writes_no_row_for_the_round() {
     let (dir, mut engine, _now) = seated!(&["refuse", "succeed"], Probed::Refuse, None, 3);
     engine.cooldown.host = Some(host(dir.path(), 30, 100));
-    let reason = drove_one(
+    let (reason, _) = drove_one(
         dir.path(),
         &mut engine,
         &["attempt:refuse", "probe", "probe"],
@@ -449,7 +450,7 @@ fn a_version_three_journal_parks_a_probe_refusal_as_4c_and_writes_no_row() {
         .unwrap()
         .execute("UPDATE meta SET value = '3' WHERE key = 'queue_schema'", [])
         .unwrap();
-    let reason = drove_one(dir.path(), &mut engine, &["attempt:refuse", "probe"]);
+    let (reason, _) = drove_one(dir.path(), &mut engine, &["attempt:refuse", "probe"]);
     assert!(
         reason.contains("was refused again by the provider"),
         "{reason}"
@@ -475,7 +476,7 @@ fn a_store_refusal_while_reading_the_aggregate_parks_by_name() {
     });
     // The wait's end is re-read before the probe (finding 8), so the lost
     // table parks this round before any probe runs.
-    let reason = drove_one(dir.path(), &mut engine, &["attempt:refuse"]);
+    let (reason, _) = drove_one(dir.path(), &mut engine, &["attempt:refuse"]);
     assert!(
         reason.contains("the cool-down aggregate for claude/first cannot be read"),
         "{reason}"
@@ -500,13 +501,13 @@ fn the_unchanged_probe_ends_write_no_row() {
         // Long enough that the terminal's own row lands however delayed the
         // host's recording is; only a probe row would be new.
         engine.cooldown.host = Some(host(dir.path(), 30, 1000));
-        let reason = drove_one(dir.path(), &mut engine, &["attempt:refuse", "probe"]);
-        assert!(reason.contains(expected), "{expected}: {reason}");
+        let (reason, seen) = drove_one(dir.path(), &mut engine, &["attempt:refuse", "probe"]);
+        assert!(reason.contains(expected), "{expected}: {reason}{seen}");
         let event = failed(&engine).remove(0);
         assert_eq!(
             rounds(&engine, event.seq, ""),
             [1],
-            "{expected}: a non-rate-limit end wrote a probe row"
+            "{expected}: a non-rate-limit end wrote a probe row{seen}"
         );
     }
 }
@@ -658,7 +659,7 @@ fn engine_losing_the_table_on_probe(probed: Probed) -> (tempfile::TempDir, Engin
 #[test]
 fn a_lost_table_at_the_probe_append_parks_naming_the_store() {
     let (dir, mut engine) = engine_losing_the_table_on_probe(Probed::RefuseThenAnswer);
-    let reason = drove_one(dir.path(), &mut engine, &["attempt:refuse", "probe"]);
+    let (reason, _) = drove_one(dir.path(), &mut engine, &["attempt:refuse", "probe"]);
     assert!(
         reason.contains("could not record its next round"),
         "{reason}"
@@ -806,7 +807,7 @@ fn a_non_empty_sites_refusal_extends_and_reprobes_the_answered_member() {
     let (mut engine, now) = with_clock(engine);
     let start = *now.lock().unwrap();
     engine.drive().unwrap();
-    let seen = witness(&engine, dir.path(), &["a", "b"]);
+    let seen = witness(&engine, dir.path());
     let event = failed(&engine).remove(0);
     assert_eq!(rounds(&engine, event.seq, "a"), [1], "{seen}");
     assert_eq!(
@@ -1303,7 +1304,7 @@ fn a_round_whose_wait_found_no_declaration_is_not_written() {
 #[test]
 fn a_store_refusal_at_the_post_probe_re_read_parks_by_name() {
     let (dir, mut engine) = engine_losing_the_table_on_probe(Probed::Answer);
-    let reason = drove_one(dir.path(), &mut engine, &["attempt:refuse", "probe"]);
+    let (reason, _) = drove_one(dir.path(), &mut engine, &["attempt:refuse", "probe"]);
     assert!(
         reason.contains("the cool-down aggregate for claude/first cannot be read"),
         "{reason}"

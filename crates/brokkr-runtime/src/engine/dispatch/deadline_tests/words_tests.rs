@@ -150,7 +150,7 @@ fn pin_step(engine: &mut Engine, step: &str, candidate: &Candidate) {
 
 /// Drive one sequence step `step`, pinned to `candidate`, under `dir`'s
 /// unreadable host, and return its `effect/failed` words.
-fn step_error(dir: &Path, step: SequenceStep, candidate: &Candidate) -> String {
+fn step_error(dir: &Path, step: SequenceStep, candidate: &Candidate) -> Words {
     let name = step.name.clone();
     let mut engine = sequence_engine(dir, vec![step], PATIENT, Some(dir.to_path_buf()));
     pin_step(&mut engine, &name, candidate);
@@ -171,7 +171,7 @@ fn dialect_words(
     engine_bin: crate::argv::Executable,
     event: EventType,
     field: &str,
-) -> String {
+) -> Words {
     let mut engine = dialect_engine(dir, vec!["true".into()], PATIENT, Some(dir.to_path_buf()));
     engine.bundle.executable = engine_bin;
     engine.drive().unwrap();
@@ -218,7 +218,7 @@ fn two_step_error(
     step: SequenceStep,
     candidate: &Candidate,
     host: Option<PathBuf>,
-) -> String {
+) -> Words {
     let name = step.name.clone();
     let mut engine = sequence_engine(dir, with_unreachable_step(step), PATIENT, host);
     pin_step(&mut engine, &name, candidate);
@@ -237,7 +237,7 @@ fn refused_step(dir: &Path) -> (SequenceStep, Candidate) {
 
 /// The refused results' words, checked to be the fence's and not an
 /// engine error.
-fn refused_step_error(dir: &Path, step: SequenceStep, candidate: &Candidate) -> String {
+fn refused_step_error(dir: &Path, step: SequenceStep, candidate: &Candidate) -> Words {
     let error = two_step_error(dir, step, candidate, Some(dir.to_path_buf()));
     assert!(
         error.starts_with("sequence step 'draft': seat record at journal seq "),
@@ -266,8 +266,12 @@ fn panel_step_engine(
     engine
 }
 
-/// Assert `words` names the host file at `dir` exactly once.
-fn assert_names_host_once(words: &str, dir: &Path) {
+/// Assert `words` names the host file at `dir` exactly once, printing them
+/// (and a terminal's witness) where they do not.
+fn assert_names_host_once(
+    words: &(impl std::ops::Deref<Target = str> + std::fmt::Display),
+    dir: &Path,
+) {
     let named = format!("the host configuration at {}", dir.display());
     assert_eq!(words.matches(&named).count(), 1, "{words}");
 }

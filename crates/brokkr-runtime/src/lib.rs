@@ -69,6 +69,9 @@ mod late;
 #[cfg(test)]
 #[path = "../../../tests/support/run_state.rs"]
 mod run_state;
+#[cfg(test)]
+#[path = "../../../tests/support/witness.rs"]
+mod witness;
 
 #[cfg(test)]
 #[path = "../../../tests/support/entry_records.rs"]
