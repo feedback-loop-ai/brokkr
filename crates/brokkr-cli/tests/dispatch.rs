@@ -29,7 +29,7 @@ fn policy() -> serde_json::Value {
 }
 
 /// A temporary machine: its workspace, a provider-free bundle whose one
-/// seat waits for `released` before it answers, its HOME, state, temp
+/// seat marks `working`, then waits for `released` before it answers, its HOME, state, temp
 /// directory and host file, and a journal in it.
 struct Machine {
     _dir: tempfile::TempDir,
@@ -74,7 +74,8 @@ impl Machine {
         std::fs::write(at.join("host.json"), host.to_string()).unwrap();
     }
 
-    /// The bundle: one unboxed `exec` seat that waits for `released`, then
+    /// The bundle: one unboxed `exec` seat that marks `working`, waits for
+    /// `released`, then
     /// answers `complete` in the result file its prompt names, and a
     /// review seat that answers `clean` at once.
     fn seat(&self) {
@@ -82,7 +83,8 @@ impl Machine {
         std::fs::write(self.bundle.join("policy.json"), policy().to_string()).unwrap();
         std::fs::write(self.bundle.join("role.md"), "# seat\n").unwrap();
         let wait = format!(
-            "until [ -e '{}' ]; do sleep 0.05; done",
+            ": > '{}'; until [ -e '{}' ]; do sleep 0.05; done",
+            self.working().display(),
             self.released().display()
         );
         let (work, review) = (answering(&wait, "complete"), answering(":", "clean"));
@@ -94,6 +96,21 @@ impl Machine {
     /// The file whose presence lets the seat answer.
     fn released(&self) -> PathBuf {
         self.base.join("released")
+    }
+
+    /// The file the seat makes as it starts: the driver running it holds
+    /// the run's lock.
+    fn working(&self) -> PathBuf {
+        self.base.join("working")
+    }
+
+    /// Wait up to the patience for the seat to start.
+    fn seat_runs(&self) {
+        let began = Instant::now();
+        while !self.working().exists() {
+            assert!(began.elapsed() < PATIENCE, "the seat never started");
+            std::thread::sleep(Duration::from_millis(25));
+        }
     }
 
     /// `program` given `args` in the workspace, under this machine's own
@@ -240,8 +257,9 @@ fn a_pass_hands_its_run_to_a_driver_of_its_own_that_completes_it() {
     #[cfg(target_os = "linux")]
     descriptors(pid, &log, &machine.journal);
 
-    // A second driver of the claim, while the first holds the run, is
-    // refused in decision 0108's words, and writes nothing.
+    // A second driver of the claim, once the first holds the run (its seat
+    // is working), is refused in decision 0108's words, and writes nothing.
+    machine.seat_runs();
     let args = [
         "dispatch",
         "drive",
