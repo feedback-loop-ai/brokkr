@@ -1308,6 +1308,7 @@ fn a_driver_that_does_not_advertise_the_probe_parks_naming_it() {
     assert!(reason.contains("does not advertise the probe"), "{reason}");
 }
 
+mod held_panel;
 mod held_probe;
 mod held_wait;
 mod lease;
