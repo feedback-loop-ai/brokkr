@@ -241,26 +241,62 @@ pub(super) fn in_force(conn: &Connection, now: i64) -> Result<Vec<Cooldown>, Sto
 /// instant this reader cannot spell refuses by name, carrying the row's
 /// `seq`.
 fn newest(conn: &Connection, now: i64) -> Result<Vec<Cooldown>, StoreError> {
+    newest_with(conn, now, |_| {})
+}
+
+/// [`newest`]'s one statement (#1112): one scan of the table, ranking each
+/// row within its provider and route by `until_at DESC, seq DESC`, so rank
+/// 1 is the route's newest end and a tie goes to the later-written row. The
+/// sorter carries only the four columns the rank reads; the kept rows are
+/// read back by their `seq`, the primary key. The statement's VM steps go
+/// to `stepped`, so the test that binds its cost measures this statement.
+fn newest_with(
+    conn: &Connection,
+    now: i64,
+    stepped: impl FnOnce(i64),
+) -> Result<Vec<Cooldown>, StoreError> {
     let sql = format!(
-        "SELECT {ROWS} FROM provider_cooldowns AS held
-         WHERE held.until_at > ?1
-            OR NOT EXISTS (
-                SELECT 1 FROM provider_cooldowns AS later
-                WHERE later.provider = held.provider AND later.route = held.route
-                  AND (later.until_at > held.until_at
-                       OR (later.until_at = held.until_at AND later.seq > held.seq)))
-         ORDER BY held.seq"
+        "SELECT {ROWS} FROM provider_cooldowns
+         WHERE seq IN (
+             SELECT seq FROM (
+                 SELECT seq, until_at, ROW_NUMBER() OVER (
+                     PARTITION BY provider, route ORDER BY until_at DESC, seq DESC) AS rank
+                 FROM provider_cooldowns)
+             WHERE until_at > ?1 OR rank = 1)
+         ORDER BY seq"
     );
-    read_rows(conn, &sql, now)
+    read_rows_with(conn, &sql, now, stepped)
+}
+
+/// The VM steps [`newest`]'s one statement takes at `now`, for the test
+/// that holds it to one scan and a sort.
+#[cfg(test)]
+fn newest_steps(conn: &Connection, now: i64) -> Result<i64, StoreError> {
+    let mut steps = 0;
+    newest_with(conn, now, |taken| steps = taken)?;
+    Ok(steps)
 }
 
 /// The rows `sql` selects at `now`, each read and typed once: the one
 /// home of the prepare, the query and the refusal-by-row every cool-down
 /// reader shares.
 fn read_rows(conn: &Connection, sql: &str, now: i64) -> Result<Vec<Cooldown>, StoreError> {
+    read_rows_with(conn, sql, now, |_| {})
+}
+
+/// [`read_rows`] with the statement's VM steps handed to `stepped`.
+fn read_rows_with(
+    conn: &Connection,
+    sql: &str,
+    now: i64,
+    stepped: impl FnOnce(i64),
+) -> Result<Vec<Cooldown>, StoreError> {
     let mut statement = conn.prepare(sql)?;
     let raw = statement.query_map([now], Raw::read)?;
     let rows = raw.collect::<Result<Vec<_>, _>>()?;
+    stepped(i64::from(
+        statement.get_status(rusqlite::StatementStatus::VmStep),
+    ));
     rows.into_iter().map(Raw::typed).collect()
 }
 
