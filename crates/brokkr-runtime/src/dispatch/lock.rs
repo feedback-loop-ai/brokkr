@@ -25,7 +25,7 @@ use std::os::fd::OwnedFd;
 use std::path::{Path, PathBuf};
 
 use brokkr_store::{Generation, Store, StoreError};
-use rustix::fs::CWD;
+use rustix::fs::{flock, openat, FlockOperation, Mode, OFlags, CWD};
 use uuid::Uuid;
 
 use super::DispatcherError;
@@ -71,6 +71,23 @@ fn beside(journal: &Path) -> PathBuf {
 /// lock file is not this user's own single file.
 pub fn take_dispatch(store: &mut Store) -> Result<Result<Dispatcher, DispatcherError>, StoreError> {
     take_dispatch_with(store, |path| lock_file::opened(CWD, path))
+}
+
+/// Whether a dispatcher holds `journal`'s lock now (decision 0110 ruling
+/// 6): the lock file opened read-only, never made and never through a
+/// link, tried shared and at once, and let go at once as it closes. A lock
+/// file that is absent, does not open, or is not this user's own single
+/// file as the shared home judges one, is held by none: a dispatcher takes
+/// no other. The open itself never waits, so a FIFO in its place reads as
+/// no lock rather than blocking on a writer. Shared, so two readers asking
+/// at once each read it free.
+pub fn dispatched(journal: &Path) -> bool {
+    let flags = OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC | OFlags::NONBLOCK;
+    let Ok(lock) = openat(CWD, beside(journal), flags, Mode::empty()) else {
+        return false;
+    };
+    lock_file::judged(&lock, lock_file::user()).is_ok()
+        && flock(&lock, FlockOperation::NonBlockingLockShared).is_err()
 }
 
 /// [`take_dispatch`], opening its lock file by `open`.

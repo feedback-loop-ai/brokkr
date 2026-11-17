@@ -5,11 +5,13 @@
 //! reconciliation of what a dispatcher left mid-start (0095 ruling 3); its
 //! one pass under that lock (0110 ruling 1), which reconciles, sweeps, reads
 //! the bound, judges and starts each admitted entry through its claim,
-//! start, link and `spawn` row; and one entry's start with the start's
-//! disposal by variant (0110 ruling 2). The spawn seam stands in for the
-//! process. The `brokkr dispatch` verb, the process that seam starts and the
-//! standing loop are #430's later slices; this pass starts no process and
-//! prints nothing.
+//! start, link and `spawn` row; one entry's start with the start's disposal
+//! by variant (0110 ruling 2); and, in safe code, what the driver each run
+//! is handed to needs (0110 rulings 3 and 4): the binary's identity, the
+//! driver's log and the driver's own checks. `brokkr dispatch --once`, its
+//! `drive`, `set-bound` and `status` are built in brokkr-cli, which starts
+//! the driver's process; the standing loop is #430's slice 6c. Nothing here
+//! prints.
 
 use std::path::PathBuf;
 
@@ -20,14 +22,16 @@ use uuid::Uuid;
 mod lock;
 mod pass;
 mod reconcile;
+mod spawn;
 mod start;
 
-pub use lock::{take_dispatch, Dispatcher};
+pub use lock::{dispatched, take_dispatch, Dispatcher};
 pub use pass::{
-    pass, BoundOutcome, Contended, Ended, Ending, Held, Passed, Reclaimed, Seams, Spawning, Stage,
-    Started, Subject, SweepOutcome, SweepRefused,
+    pass, BoundOutcome, Contended, Ended, Ending, Held, Left, Passed, Reclaimed, Seams, Spawning,
+    Stage, Started, Subject, SweepOutcome, SweepRefused,
 };
 pub use reconcile::{reconcile, Settled};
+pub use spawn::{driven, driver_log, workspace, Binary, DriverError};
 pub use start::{ClaimRefused, Spawn, SpawnFailed, Spawned};
 
 /// Why this process could not take a journal as its dispatcher, or, as

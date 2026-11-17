@@ -60,10 +60,17 @@ pub enum Ending {
     /// another journal, or a step was not its to take.
     #[error(transparent)]
     Dispatcher(super::DispatcherError),
-    /// `stands` ended the dispatcher: the binary it would spawn is not the
-    /// one it started from, or a signal asked it to stop.
+    /// `stands` ended the dispatcher: a signal asked it to stop.
     #[error("dispatch: the dispatcher no longer stands")]
     Stood,
+    /// The brokkr the dispatcher was started from is no longer the file at
+    /// its path (decision 0110 ruling 4): nothing more was claimed.
+    #[error(
+        "dispatch: the brokkr at {} is not the one this dispatcher started from; it claimed \
+         nothing after; start the dispatcher again",
+        .0.display()
+    )]
+    Replaced(std::path::PathBuf),
     /// A newer dispatcher holds the journal: nothing after was written.
     /// The generation named is the stale one this dispatcher held.
     #[error(
@@ -147,14 +154,27 @@ pub struct Reclaimed {
     pub refused: Option<StartRefusal>,
     /// The entry's count of counted refusals since its latest release.
     pub count: u32,
+    /// The reason journaled: the class word and the start's own words.
+    pub reason: String,
 }
 
-/// An entry a counted refusal held at the journal's bound.
+/// An entry a counted refusal held at the journal's bound, with the reason
+/// journaled: the class word and the start's own words.
 #[derive(Debug)]
 pub struct Held {
     pub claim: Claim,
     pub refusal: StartRefusal,
     pub count: u32,
+    pub reason: String,
+}
+
+/// A run this pass started and did not hand to its driver: its link or its
+/// `spawn` row did not land, or the dispatcher ended between them. The
+/// next pass's reconciliation links and spawns it (decision 0095 ruling 3).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Left {
+    pub claim: Claim,
+    pub run: String,
 }
 
 /// A step `Contended` past its patience: reported. A contention on an
@@ -186,6 +206,7 @@ pub struct Passed {
     pub admission_refused: Option<AdmissionError>,
     pub unstarted: Vec<Reason>,
     pub started: Vec<Started>,
+    pub left: Vec<Left>,
     pub spawned: Vec<Spawning>,
     pub reclaimed: Vec<Reclaimed>,
     pub held: Vec<Held>,
@@ -212,23 +233,36 @@ where
     S: FnMut() -> Result<(), Ending>,
     P: FnMut(&Spawn) -> Result<Spawned, SpawnFailed>,
 {
-    pass_with(store, dispatcher, host, host_path, seams, |_| {})
+    let watch = Watch {
+        observe: |_| {},
+        launch: crate::launch::start,
+    };
+    pass_with(store, dispatcher, host, host_path, seams, watch)
 }
 
-/// [`pass`], with a seam that records each step's order: the test that
-/// binds ruling 1's fixed order, private so no production consumer carries
-/// an observer.
-fn pass_with<S, P>(
+/// The private seams a test hands [`pass_with`]: `observe` records each
+/// step's order, and `launch` starts each run, a fault in its place where
+/// a test stands a refused start at the pass's own step.
+struct Watch<O> {
+    observe: O,
+    launch: start::Launch,
+}
+
+/// [`pass`], with the private seams of [`Watch`]: the tests that bind
+/// ruling 1's fixed order and ruling 2's disposals, private so no
+/// production consumer carries an observer or a fault.
+fn pass_with<S, P, O>(
     store: &mut Store,
     dispatcher: &Dispatcher,
     host: &Host<'_>,
     host_path: OsString,
     seams: Seams<S, P>,
-    mut observe: impl FnMut(Stage),
+    mut watch: Watch<O>,
 ) -> Result<Passed, Box<Ended>>
 where
     S: FnMut() -> Result<(), Ending>,
     P: FnMut(&Spawn) -> Result<Spawned, SpawnFailed>,
+    O: FnMut(Stage),
 {
     let mut passed = Passed::default();
     match run(
@@ -238,7 +272,7 @@ where
         host_path,
         seams,
         &mut passed,
-        &mut observe,
+        &mut watch,
     ) {
         Ok(()) => Ok(passed),
         Err(ending) => Err(Box::new(Ended { ending, passed })),
@@ -247,19 +281,21 @@ where
 
 /// The pass's steps, keeping everything they did in `passed` so an ending
 /// can carry it.
-fn run<S, P>(
+fn run<S, P, O>(
     store: &mut Store,
     dispatcher: &Dispatcher,
     host: &Host<'_>,
     host_path: OsString,
     mut seams: Seams<S, P>,
     passed: &mut Passed,
-    observe: &mut impl FnMut(Stage),
+    watch: &mut Watch<O>,
 ) -> Result<(), Ending>
 where
     S: FnMut() -> Result<(), Ending>,
     P: FnMut(&Spawn) -> Result<Spawned, SpawnFailed>,
+    O: FnMut(Stage),
 {
+    let observe = &mut watch.observe;
     observe(Stage::Reconcile);
     if !reconcile_once(store, dispatcher, passed)? {
         return Ok(());
@@ -287,6 +323,11 @@ where
         .iter()
         .filter(|judged| standing(judged) == Some(Standing::Held))
         .count();
+    let shared = start::Shared {
+        bound,
+        host_path: &host_path,
+        launch: watch.launch,
+    };
     for judged in judged {
         let Judged {
             entry,
@@ -303,14 +344,8 @@ where
             launch,
             room,
         };
-        let outcome = start::start(
-            store,
-            dispatcher,
-            admitted,
-            bound,
-            host_path.clone(),
-            &mut seams,
-        )?;
+        let left = &mut passed.left;
+        let outcome = start::start(store, dispatcher, admitted, &shared, &mut seams, left)?;
         if !record_start(passed, outcome) {
             break;
         }
@@ -380,7 +415,13 @@ where
         match settled {
             Settled::Reclaimed(claim) => passed.reconciled.push(Settled::Reclaimed(claim)),
             Settled::ToSpawn(claim, run) => {
-                (seams.stands)()?;
+                // A stand that ends keeps this item and every later one,
+                // as a store refusal below does: `Ended` never drops them.
+                if let Err(ending) = (seams.stands)() {
+                    passed.reconciled.push(Settled::ToSpawn(claim, run));
+                    passed.reconciled.extend(pending);
+                    return Err(ending);
+                }
                 if let Err(error) =
                     store.queue_spawn(claim, generation, &start::spawn_reason(claim, &run))
                 {

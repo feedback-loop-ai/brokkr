@@ -11,7 +11,7 @@ use super::super::tests::{
     claimed_now, commands, five_columns, queue, refusal, refused_as, rows, started, BY,
 };
 use super::*;
-use crate::queue::{Claim, Claiming, EntryId, EntryState, QueueCommand, StartRefusal};
+use crate::queue::{Claim, Claiming, Disposal, EntryId, EntryState, QueueCommand, StartRefusal};
 
 /// Everything a refused step could have written: the entries, the
 /// commands, and the count of claims and of counted refusals.
@@ -217,16 +217,16 @@ fn a_setting_that_does_not_read_as_a_bound_refuses_its_reader() {
 }
 
 /// Claim `entry` and dispose of its start as `refused` under `bound`:
-/// the count said, and where the entry stands after.
+/// the disposal the store said, and where the entry stands after.
 fn disposed(
     store: &mut Store,
     entry: EntryId,
     refused: Option<StartRefusal>,
     bound: NonZeroU32,
-) -> (u32, EntryState) {
+) -> (Disposal, EntryState) {
     let claim = claimed_now(store, entry).unwrap().unwrap();
-    let count = (store.queue_reclaim(claim, Generation(1), refused, bound, "refused")).unwrap();
-    (count, store.queue_entry(entry).unwrap().state)
+    let disposal = (store.queue_reclaim(claim, Generation(1), refused, bound, "refused")).unwrap();
+    (disposal, store.queue_entry(entry).unwrap().state)
 }
 
 /// Under the default bound, two counted refusals of one entry reclaim it
@@ -250,11 +250,11 @@ fn the_counted_refusal_that_reaches_the_bound_holds_the_entry_and_a_release_rese
         dispose(Some(StartRefusal::Unboxable)),
     ];
     let expected = [
-        (1, &queued),
-        (1, &queued),
-        (2, &queued),
-        (2, &queued),
-        (3, &held),
+        (Disposal::Reclaimed(1), &queued),
+        (Disposal::Reclaimed(1), &queued),
+        (Disposal::Reclaimed(2), &queued),
+        (Disposal::Reclaimed(2), &queued),
+        (Disposal::Held(StartRefusal::Unboxable, 3), &held),
     ];
     assert_eq!(counts.each_ref().map(|(n, s)| (*n, s)), expected);
     let journaled = commands(&store.conn);
@@ -280,10 +280,12 @@ fn the_counted_refusal_that_reaches_the_bound_holds_the_entry_and_a_release_rese
         .queue_command(ids[0], QueueCommand::Release, BY)
         .unwrap();
     let after = disposed(&mut store, ids[0], Some(StartRefusal::Compile), bound);
-    assert_eq!(after, (1, queued));
+    assert_eq!(after, (Disposal::Reclaimed(1), queued));
     let one = NonZeroU32::MIN;
     store.set_dispatch_bound(one, BY).unwrap();
     let bound = store.dispatch_bound().unwrap();
     let first = disposed(&mut store, ids[1], Some(StartRefusal::Compile), bound);
-    assert_eq!(first, (1, held));
+    assert_eq!(first, (Disposal::Held(StartRefusal::Compile, 1), held));
+    let uncounted = disposed(&mut store, ids[0], None, bound);
+    assert_eq!(uncounted, (Disposal::Reclaimed(1), EntryState::Queued));
 }

@@ -582,9 +582,12 @@ fn a_counted_refusal_is_written_with_its_reclaim_and_counted_since_the_latest_re
     let entry = queue(&mut store, 2)[0];
     let reclaimed = |store: &mut Store, refused: Option<StartRefusal>| {
         let claim = claimed_now(store, entry).unwrap().unwrap();
-        let count = store
+        let disposal = store
             .queue_reclaim(claim, ONE, refused, UNREACHED, "r")
             .unwrap();
+        let Disposal::Reclaimed(count) = disposal else {
+            panic!("{disposal:?} under a bound never reached");
+        };
         (claim.seq + 1, count)
     };
     let compile = reclaimed(&mut store, Some(StartRefusal::Compile));
@@ -785,10 +788,11 @@ fn a_start_whose_claim_does_not_stand_refuses_by_variant_and_writes_no_run() {
     let error = refused(&mut store, claim, SEVEN, "compiled");
     let moved = format!(
         "queue entry 1's claim {} admitted the bundle of manifest digest measured, and this \
-         start's is another; no run was written",
+         start compiled compiled; no run was written",
         claim.seq
     );
-    let variant = QueueRefusal::BundleMoved(claim, "measured".into());
+    let digests = Box::new(("measured".into(), "compiled".into()));
+    let variant = QueueRefusal::BundleMoved(claim, digests);
     refused_as(error, variant, &moved);
 
     let eight = Generation(8);

@@ -902,11 +902,20 @@ fn an_exact_integral_floor_token_keeps_the_admission_guard() {
     fixture.queue();
     let file = fixture.root.join("host.json");
     let probe = 9_007_199_254_740_992;
-    std::fs::write(
-        &file,
-        r#"{"schema":"forge.host/v4","providers":{"alpha":{"ceiling":1},"beta":{"ceiling":1,"routes":{}}},"floors":[{"floor_bytes":9007199254740993.0,"place":"temp"}],"boxed_builds":{"ceiling":2},"runs":{"ceiling":9}}"#,
-    )
-    .unwrap();
+    let v4 = r#"{"schema":"forge.host/v4","providers":{"alpha":{"ceiling":1},"beta":{"ceiling":1,"routes":{}}},"floors":[{"floor_bytes":9007199254740993.0,"place":"temp"}],"boxed_builds":{"ceiling":2},"runs":{"ceiling":9}}"#;
+    // 6d L2: a v1, v2 or v3 file declares no run ceiling, so admission
+    // waits its entry as `runs_undeclared` before any floor; the loader
+    // the guard reads reads the same token exactly in each.
+    for schema in ["forge.host/v1", "forge.host/v2", "forge.host/v3"] {
+        let earlier = v4.replace("forge.host/v4", schema);
+        std::fs::write(&file, earlier.replace(r#","runs":{"ceiling":9}"#, "")).unwrap();
+        let Hosting::Declared(read) = host::read(&file).unwrap() else {
+            panic!("{schema} did not load");
+        };
+        let floor = read.floors.0[0].floor_bytes.get();
+        assert_eq!(floor, 9_007_199_254_740_993, "{schema}");
+    }
+    std::fs::write(&file, v4).unwrap();
     let reasons = fixture.reasons(&file, probe).remove(0);
     assert_eq!(
         reasons,

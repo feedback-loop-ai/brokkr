@@ -56,6 +56,16 @@ fn a_v4_ceiling_reads_and_every_earlier_version_reads_with_none() {
     }
 }
 
+/// The guide's sample host is a v4 file the published contract and the
+/// loader both admit, declaring a run ceiling of three (6d L1).
+#[test]
+fn the_guide_sample_is_a_v4_file_the_contract_and_the_loader_admit() {
+    let sample = super::super::tests::guide_sample();
+    assert!(contract().is_valid(&sample), "{sample}");
+    let read = config(sample.to_string().as_bytes()).unwrap();
+    assert_eq!((read.schema, read.runs), (Schema::V4, NonZeroU32::new(3)));
+}
+
 #[test]
 fn a_v4_file_without_runs_refuses_naming_the_v4_contract() {
     let problem = refused(&with("forge.host/v4", None));

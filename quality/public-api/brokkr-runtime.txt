@@ -1216,10 +1216,20 @@ pub enum brokkr_runtime::dispatch::DispatcherError
 pub brokkr_runtime::dispatch::DispatcherError::Dispatched(std::path::PathBuf, core::option::Option<(brokkr_store::queue::claim::Generation, u32, alloc::string::String)>)
 pub brokkr_runtime::dispatch::DispatcherError::Lock(std::path::PathBuf)
 pub brokkr_runtime::dispatch::DispatcherError::OtherJournal(core::option::Option<uuid::Uuid>, core::option::Option<uuid::Uuid>)
+pub enum brokkr_runtime::dispatch::DriverError
+pub brokkr_runtime::dispatch::DriverError::Launch(brokkr_runtime::launch::LaunchError)
+pub brokkr_runtime::dispatch::DriverError::Log(std::path::PathBuf)
+pub brokkr_runtime::dispatch::DriverError::Store(brokkr_store::StoreError)
+pub brokkr_runtime::dispatch::DriverError::Unnamed
+pub brokkr_runtime::dispatch::DriverError::Unread(std::path::PathBuf)
+pub brokkr_runtime::dispatch::DriverError::Unspawned
+pub brokkr_runtime::dispatch::DriverError::Unspawned::claim: i64
+pub brokkr_runtime::dispatch::DriverError::Unspawned::entry: brokkr_store::queue::EntryId
 pub enum brokkr_runtime::dispatch::Ending
 pub brokkr_runtime::dispatch::Ending::Dispatcher(brokkr_runtime::dispatch::DispatcherError)
 pub brokkr_runtime::dispatch::Ending::Fenced(brokkr_store::queue::claim::Generation)
 pub brokkr_runtime::dispatch::Ending::QueueStorage(brokkr_store::queue::refusal::QueueRefusal)
+pub brokkr_runtime::dispatch::Ending::Replaced(std::path::PathBuf)
 pub brokkr_runtime::dispatch::Ending::Start(brokkr_runtime::launch::LaunchError)
 pub brokkr_runtime::dispatch::Ending::Stood
 pub brokkr_runtime::dispatch::Ending::Store(brokkr_store::StoreError)
@@ -1244,6 +1254,11 @@ pub brokkr_runtime::dispatch::Subject::Pass
 pub enum brokkr_runtime::dispatch::SweepOutcome
 pub brokkr_runtime::dispatch::SweepOutcome::Refused(brokkr_runtime::dispatch::SweepRefused)
 pub brokkr_runtime::dispatch::SweepOutcome::Swept(brokkr_runtime::sweep::Swept)
+pub struct brokkr_runtime::dispatch::Binary
+impl brokkr_runtime::dispatch::Binary
+pub fn brokkr_runtime::dispatch::Binary::path(&self) -> &std::path::Path
+pub fn brokkr_runtime::dispatch::Binary::stands(&self) -> core::result::Result<(), brokkr_runtime::dispatch::Ending>
+pub fn brokkr_runtime::dispatch::Binary::started(&brokkr_runtime::argv::Executable) -> core::result::Result<brokkr_runtime::dispatch::Binary, brokkr_runtime::dispatch::DriverError>
 pub struct brokkr_runtime::dispatch::ClaimRefused
 pub brokkr_runtime::dispatch::ClaimRefused::entry: brokkr_store::queue::EntryId
 pub brokkr_runtime::dispatch::ClaimRefused::reason: brokkr_runtime::admission::Reason
@@ -1259,7 +1274,11 @@ pub brokkr_runtime::dispatch::Ended::passed: brokkr_runtime::dispatch::Passed
 pub struct brokkr_runtime::dispatch::Held
 pub brokkr_runtime::dispatch::Held::claim: brokkr_store::queue::claim::Claim
 pub brokkr_runtime::dispatch::Held::count: u32
+pub brokkr_runtime::dispatch::Held::reason: alloc::string::String
 pub brokkr_runtime::dispatch::Held::refusal: brokkr_store::queue::claim::StartRefusal
+pub struct brokkr_runtime::dispatch::Left
+pub brokkr_runtime::dispatch::Left::claim: brokkr_store::queue::claim::Claim
+pub brokkr_runtime::dispatch::Left::run: alloc::string::String
 pub struct brokkr_runtime::dispatch::Passed
 pub brokkr_runtime::dispatch::Passed::admission_refused: core::option::Option<brokkr_runtime::admission::AdmissionError>
 pub brokkr_runtime::dispatch::Passed::bound: core::option::Option<brokkr_runtime::dispatch::BoundOutcome>
@@ -1267,6 +1286,7 @@ pub brokkr_runtime::dispatch::Passed::claims_refused: alloc::vec::Vec<brokkr_run
 pub brokkr_runtime::dispatch::Passed::contended: alloc::vec::Vec<brokkr_runtime::dispatch::Contended>
 pub brokkr_runtime::dispatch::Passed::held: alloc::vec::Vec<brokkr_runtime::dispatch::Held>
 pub brokkr_runtime::dispatch::Passed::held_entries: usize
+pub brokkr_runtime::dispatch::Passed::left: alloc::vec::Vec<brokkr_runtime::dispatch::Left>
 pub brokkr_runtime::dispatch::Passed::reclaimed: alloc::vec::Vec<brokkr_runtime::dispatch::Reclaimed>
 pub brokkr_runtime::dispatch::Passed::reconciled: alloc::vec::Vec<brokkr_runtime::dispatch::Settled>
 pub brokkr_runtime::dispatch::Passed::spawned: alloc::vec::Vec<brokkr_runtime::dispatch::Spawning>
@@ -1277,6 +1297,7 @@ pub brokkr_runtime::dispatch::Passed::waiting: usize
 pub struct brokkr_runtime::dispatch::Reclaimed
 pub brokkr_runtime::dispatch::Reclaimed::claim: brokkr_store::queue::claim::Claim
 pub brokkr_runtime::dispatch::Reclaimed::count: u32
+pub brokkr_runtime::dispatch::Reclaimed::reason: alloc::string::String
 pub brokkr_runtime::dispatch::Reclaimed::refused: core::option::Option<brokkr_store::queue::claim::StartRefusal>
 pub struct brokkr_runtime::dispatch::Seams<S, P>
 pub brokkr_runtime::dispatch::Seams::spawn: P
@@ -1300,9 +1321,13 @@ pub brokkr_runtime::dispatch::Started::spawned: core::result::Result<brokkr_runt
 pub struct brokkr_runtime::dispatch::SweepRefused
 pub brokkr_runtime::dispatch::SweepRefused::cause: alloc::string::String
 pub brokkr_runtime::dispatch::SweepRefused::report: brokkr_runtime::sweep::Swept
+pub fn brokkr_runtime::dispatch::dispatched(&std::path::Path) -> bool
+pub fn brokkr_runtime::dispatch::driven(&std::path::Path, brokkr_store::queue::EntryId, i64, std::ffi::os_str::OsString) -> core::result::Result<(brokkr_runtime::launch::LaunchRequest, alloc::string::String), brokkr_runtime::dispatch::DriverError>
+pub fn brokkr_runtime::dispatch::driver_log(&std::path::Path, &str) -> core::result::Result<std::fs::File, brokkr_runtime::dispatch::DriverError>
 pub fn brokkr_runtime::dispatch::pass<S, P>(&mut brokkr_store::Store, &brokkr_runtime::dispatch::Dispatcher, &brokkr_runtime::admission::Host<'_>, std::ffi::os_str::OsString, brokkr_runtime::dispatch::Seams<S, P>) -> core::result::Result<brokkr_runtime::dispatch::Passed, alloc::boxed::Box<brokkr_runtime::dispatch::Ended>> where S: core::ops::function::FnMut() -> core::result::Result<(), brokkr_runtime::dispatch::Ending>, P: core::ops::function::FnMut(&brokkr_runtime::dispatch::Spawn) -> core::result::Result<brokkr_runtime::dispatch::Spawned, brokkr_runtime::dispatch::SpawnFailed>
 pub fn brokkr_runtime::dispatch::reconcile(&mut brokkr_store::Store, &brokkr_runtime::dispatch::Dispatcher) -> core::result::Result<core::result::Result<alloc::vec::Vec<brokkr_runtime::dispatch::Settled>, brokkr_runtime::dispatch::DispatcherError>, brokkr_store::StoreError>
 pub fn brokkr_runtime::dispatch::take_dispatch(&mut brokkr_store::Store) -> core::result::Result<core::result::Result<brokkr_runtime::dispatch::Dispatcher, brokkr_runtime::dispatch::DispatcherError>, brokkr_store::StoreError>
+pub fn brokkr_runtime::dispatch::workspace(&std::path::Path, brokkr_store::queue::EntryId) -> core::result::Result<std::path::PathBuf, brokkr_runtime::dispatch::DriverError>
 pub mod brokkr_runtime::engine
 pub mod brokkr_runtime::engine::artifacts
 pub enum brokkr_runtime::engine::artifacts::Unread
@@ -2092,10 +2117,6 @@ pub brokkr_runtime::ConcludeRefusal::Driven::holder: core::option::Option<brokkr
 pub brokkr_runtime::ConcludeRefusal::JournalMoved
 pub brokkr_runtime::ConcludeRefusal::StopRefused
 pub brokkr_runtime::ConcludeRefusal::StopRefused::refusal: brokkr_core::fold::Refusal
-pub enum brokkr_runtime::DispatcherError
-pub brokkr_runtime::DispatcherError::Dispatched(std::path::PathBuf, core::option::Option<(brokkr_store::queue::claim::Generation, u32, alloc::string::String)>)
-pub brokkr_runtime::DispatcherError::Lock(std::path::PathBuf)
-pub brokkr_runtime::DispatcherError::OtherJournal(core::option::Option<uuid::Uuid>, core::option::Option<uuid::Uuid>)
 pub enum brokkr_runtime::EgressClass
 pub brokkr_runtime::EgressClass::Contracted
 pub brokkr_runtime::EgressClass::Local
@@ -2505,5 +2526,4 @@ pub fn brokkr_runtime::plant_or_report(&brokkr_store::Store, &std::path::Path, &
 pub fn brokkr_runtime::report_agent(&brokkr_runtime::Library, &brokkr_runtime::Adapters, &brokkr_runtime::agents::Availability, &str) -> core::result::Result<brokkr_runtime::agents::Report, brokkr_runtime::agents::ResolveError>
 pub fn brokkr_runtime::resolve_agent(&brokkr_runtime::Library, &brokkr_runtime::Adapters, &brokkr_runtime::agents::Availability, &str) -> core::result::Result<brokkr_runtime::agents::Resolution, brokkr_runtime::agents::ResolveError>
 pub fn brokkr_runtime::resolve_route<'a>(&brokkr_runtime::agents::Adapter, &'a str) -> (core::option::Option<&'a str>, brokkr_runtime::agents::EgressClass)
-pub fn brokkr_runtime::take_dispatch(&mut brokkr_store::Store) -> core::result::Result<core::result::Result<brokkr_runtime::dispatch::Dispatcher, brokkr_runtime::dispatch::DispatcherError>, brokkr_store::StoreError>
 pub fn brokkr_runtime::verify_anchor(&brokkr_store::Store, &std::path::Path, &str) -> core::result::Result<serde_json::value::Value, brokkr_runtime::anchor::AnchorError>

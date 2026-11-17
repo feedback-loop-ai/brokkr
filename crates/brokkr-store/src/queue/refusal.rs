@@ -161,16 +161,19 @@ pub enum QueueRefusal {
     #[error("dispatcher generation {} is not the journal's latest holder; it writes nothing", .0.0)]
     Superseded(Generation),
     /// A start under a claim whose bundle is not the one the pass measured:
-    /// the manifest digest the claim recorded, which the start's is not
-    /// (decision 0095 ruling 7). The start's is its caller's own.
+    /// the manifest digest the claim recorded, then the one the start
+    /// compiled (decision 0095 ruling 7), so its disposal names both
+    /// without compiling again (decision 0110 ruling 2). Boxed, so the
+    /// store's error stays the size it was.
     #[error(
-        "queue entry {}'s claim {} admitted the bundle of manifest digest {}, and this start's \
-         is another; no run was written",
+        "queue entry {}'s claim {} admitted the bundle of manifest digest {}, and this start \
+         compiled {}; no run was written",
         .0.entry,
         .0.seq,
-        .1
+        .1.0,
+        .1.1
     )]
-    BundleMoved(Claim, String),
+    BundleMoved(Claim, Box<(String, String)>),
     /// Runs whose manifests carry one claim, more than one, which no
     /// dispatcher writes (decision 0095 ruling 3): none is adopted.
     #[error(

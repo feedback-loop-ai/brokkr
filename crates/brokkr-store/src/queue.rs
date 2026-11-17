@@ -29,6 +29,7 @@ use crate::{now_rfc3339, patiently, Store, StoreError};
 mod beside;
 mod claim;
 mod cooldown;
+mod driven;
 mod entry;
 mod holder;
 mod refusal;
@@ -36,7 +37,7 @@ pub(crate) mod storage;
 
 pub use beside::Seen;
 use beside::{beside_once, Beside};
-pub use claim::{claim_stands, Claim, ClaimFacts, Claiming, Generation, StartRefusal};
+pub use claim::{claim_stands, Claim, ClaimFacts, Claiming, Disposal, Generation, StartRefusal};
 pub(crate) use cooldown::insert as insert_cooldowns;
 pub use cooldown::{Cooldown, CooldownAggregate, CooldownRound, Cooling, RoundAppend};
 #[cfg(test)]

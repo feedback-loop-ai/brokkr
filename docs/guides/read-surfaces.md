@@ -358,11 +358,12 @@ route the file does not name waits as undeclared, and every ceiling is at
 least one: there is no unlimited.
 
 A machine with two cloud providers and the shared-local Spark route,
-where verification scripts (`exec`) also count:
+where verification scripts (`exec`) also count, and whose journal drives
+at most three runs at once:
 
 ```json
 {
-  "schema": "forge.host/v1",
+  "schema": "forge.host/v4",
   "providers": {
     "claude": {"ceiling": 3},
     "codex": {"ceiling": 2},
@@ -373,7 +374,8 @@ where verification scripts (`exec`) also count:
     {"place": "seat-scratch", "floor_bytes": 21474836480},
     {"place": "temp", "floor_bytes": 4294967296}
   ],
-  "boxed_builds": {"ceiling": 2}
+  "boxed_builds": {"ceiling": 2},
+  "runs": {"ceiling": 3}
 }
 ```
 
@@ -396,8 +398,8 @@ recipe drops it.
 `"runs": {"ceiling": n}` with n at least 1: the most runs that may read
 running in the journal the pass judges, direct `brokkr run` runs among
 them and a run that never started counted against nothing. The sample
-above, written as v4 with `"runs": {"ceiling": 3}`, admits a third run
-and holds a fourth. An entry at the ceiling waits as `runs_full`
+above, with `"runs": {"ceiling": 3}`, admits a third run and holds a
+fourth. An entry at the ceiling waits as `runs_full`
 (``the journal drives <n> runs, at its ceiling of <c> (forge.host/v4
 `runs.ceiling`)``), and a claim's re-check counts the runs started since
 the pass against the same ceiling. A v1, v2 or v3 file declares no run
