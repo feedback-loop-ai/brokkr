@@ -249,7 +249,16 @@ pub(super) fn two_route_engine(
     attempts: u64,
 ) -> Engine {
     let body = two_route_panel(dir, a_verdicts, b_verdicts, a_probed, b_probed);
-    plain_engine(dir, body, attempts)
+    let mut engine = plain_engine(dir, body, attempts);
+    // The short deadline only where a member's probe hangs to be ended by
+    // it (#1110).
+    let limits = [a_probed, b_probed]
+        .map(|probed| limits_for(probed, attempts))
+        .into_iter()
+        .min_by_key(|limits| limits.timeout_seconds)
+        .expect("two members");
+    engine.bundle.seats.get_mut("work").unwrap().limits = limits;
+    engine
 }
 
 /// A panel bundle the crash tests rebuild in their resumed engine.
@@ -717,7 +726,9 @@ fn a_succeeded_member_beside_a_refused_one_re_runs_on_the_retry() {
 }
 
 /// A member whose first attempt is indeterminate and whose second succeeds:
-/// the operator retry's own case.
+/// the operator retry's own case. The first accepts and exits with no
+/// result, so it is indeterminate by itself and never waits for the
+/// seat's deadline (#1110).
 pub(super) fn indeterminate_once(dir: &Path, tag: &str) -> Vec<String> {
     let count = dir.join(format!("{tag}.count")).display().to_string();
     let log = dir.join(format!("{tag}.log")).display().to_string();
@@ -745,9 +756,8 @@ n=$((n+1)); printf '%s' "$n" > '{count}'
 printf '%s\n' 'attempt:indeterminate' >> '{log}'
 printf '%s:attempt:indeterminate\n' '{tag}' >> '{glog}'
 {accepted}
-if [ "$n" -gt 1 ]; then
-  {succeeded}
-fi
+[ "$n" -gt 1 ] || exit 0
+{succeeded}
 read -r bye
 "#
         ),
@@ -1259,7 +1269,7 @@ fn the_cap_names_a_refusal_at_neither_a_declared_site_nor_a_wait() {
 #[test]
 fn a_stop_after_one_probe_answers_probes_no_later_member_and_retries_nothing() {
     let dir = tempfile::tempdir().unwrap();
-    let mut engine = two_route_engine(
+    let engine = two_route_engine(
         dir.path(),
         &["refuse", "succeed"],
         &["refuse", "succeed"],
@@ -1267,27 +1277,7 @@ fn a_stop_after_one_probe_answers_probes_no_later_member_and_retries_nothing() {
         Probed::Answer,
         2,
     );
-    let db = dir.path().join("forge.db");
-    let run = engine.run_id.clone();
-    let engine_dir = dir.path().to_path_buf();
-    let driver = std::thread::spawn(move || {
-        engine.drive().unwrap();
-        engine
-    });
-    let started = engine_dir.join("a.started");
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
-    while !started.exists() {
-        assert!(
-            std::time::Instant::now() < deadline,
-            "probe a never started"
-        );
-        std::thread::sleep(std::time::Duration::from_millis(10));
-    }
-    append_stop(&db, &run);
-    std::fs::write(engine_dir.join("a.release"), "").unwrap();
-    let engine = driver.join().unwrap();
-    let events = engine.store.load(&engine.run_id).unwrap();
-    assert_eq!(fold(&events).unwrap().run.status(), Status::Stopped);
+    let engine = super::support::stopped_at_barrier(engine, dir.path(), "a");
     assert_eq!(
         logs(dir.path(), "b"),
         ["attempt:refuse"],
@@ -1361,6 +1351,14 @@ fn a_member_wait_the_panel_does_not_declare_refuses_by_name() {
 
 #[test]
 fn an_inline_members_own_command_is_probed_and_retried() {
+    // An orphan another test hands this binary's engine, its subreaper, reads
+    // as a stray of both members' attempts and leaves them unproven (#1110):
+    // the panel runs in an engine of its own.
+    let test =
+        "engine::cooldown::tests::panel::an_inline_members_own_command_is_probed_and_retried";
+    if !crate::engine::tests::in_its_own_engine(test) {
+        return;
+    }
     let dir = tempfile::tempdir().unwrap();
     let a = delayed_after(
         dir.path(),
@@ -1378,13 +1376,15 @@ fn an_inline_members_own_command_is_probed_and_retried() {
     let body = b_only_panel(dir.path(), a);
     let mut engine = plain_engine(dir.path(), body, 2);
     engine.drive().unwrap();
+    let seen = witness(&engine, dir.path());
     assert_eq!(
         logs(dir.path(), "a"),
-        ["attempt:refuse", "probe", "attempt:succeed"]
+        ["attempt:refuse", "probe", "attempt:succeed"],
+        "{seen}"
     );
     let waits = wait_entries(&failed(&engine)[0]);
-    assert_eq!(waits.len(), 2, "{waits:?}");
-    assert_eq!(start_probes(&engine).len(), 2);
+    assert_eq!(waits.len(), 2, "{waits:?}{seen}");
+    assert_eq!(start_probes(&engine).len(), 2, "{seen}");
 }
 
 /// The episode an earlier wait cannot read: the failed panel parks naming
@@ -1680,7 +1680,7 @@ struct LiveMidRound {
     reason: String,
     at: PathBuf,
     attempt: String,
-    driver: rustix::process::Pid,
+    _probe: super::crash::LiveProbe,
     _stand: crate::engine::broker::admission::tests::Coordinated,
 }
 
@@ -1701,16 +1701,7 @@ fn live_mid_round(test: &str) -> Option<LiveMidRound> {
     super::crash::wait_for_probe(&mut child, &done, &pidlog, "probe b");
     child.kill().unwrap();
     child.wait().unwrap();
-    let driver = std::fs::read_to_string(&pidlog)
-        .unwrap()
-        .trim()
-        .parse::<i32>()
-        .expect("probe b's pid");
-    let driver = rustix::process::Pid::from_raw(driver).unwrap();
-    assert!(
-        rustix::process::test_kill_process(driver).is_ok(),
-        "the crashed engine's probe b was not left live"
-    );
+    let probe = super::crash::left_probe(&pidlog, "probe b");
     let at = crate::engine::broker::admission::tests::reservation_path(
         &home,
         &dir.path().join("work"),
@@ -1730,7 +1721,7 @@ fn live_mid_round(test: &str) -> Option<LiveMidRound> {
         reason,
         at,
         attempt,
-        driver,
+        _probe: probe,
         _stand: stand,
     })
 }
@@ -1758,7 +1749,6 @@ fn a_live_mid_round_probe_parks_the_resume_with_the_cleanup_refusal() {
     );
     assert_eq!(starts(&live.engine).len(), 1, "the effect attempted again");
     assert_eq!(failed(&live.engine).len(), 1, "an effect attempt was spent");
-    super::crash::kill_probe(live.driver);
 }
 
 /// The chief's R2 case: the standing reservation is probe b's, on
@@ -1786,7 +1776,6 @@ fn chief_live_mid_round_cleanup_names_the_live_route() {
     assert_eq!(logs(live.dir.path(), "b"), ["probe"]);
     assert_eq!(starts(&live.engine).len(), 1);
     assert_eq!(failed(&live.engine).len(), 1);
-    super::crash::kill_probe(live.driver);
 }
 
 /// Resume an operator-retried indeterminate panel at `RequestEffect`.

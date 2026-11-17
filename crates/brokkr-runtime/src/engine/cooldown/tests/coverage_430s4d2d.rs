@@ -48,21 +48,7 @@ fn a_resume_over_an_episode_unreadable_record_states_the_generic_cause() {
 #[test]
 fn a_fold_failure_in_the_wait_round_propagates_through_the_step() {
     let dir = tempfile::tempdir().unwrap();
-    let command = driver(
-        dir.path(),
-        "work",
-        &["refuse", "succeed"],
-        Probed::Answer,
-        None,
-        "claude",
-        "first",
-    );
-    let mut engine = started(
-        dir.path(),
-        single_body(command),
-        super::probe_rounds::patient(2),
-    );
-    engine.cooldown.host = Some(host(dir.path(), 30, 1000));
+    let engine = super::probe_rounds::wide_seat(dir.path(), &["refuse", "succeed"], Probed::Answer);
     let (mut engine, now) = with_clock(engine);
     let db = dir.path().join("forge.db");
     let run = engine.run_id.clone();
@@ -104,7 +90,7 @@ fn a_fold_failure_in_the_wait_round_propagates_through_the_step() {
 #[test]
 fn a_panels_second_member_parks_when_its_probe_read_loses_the_aggregate() {
     let dir = tempfile::tempdir().unwrap();
-    let mut plain = super::panel::two_route_engine(
+    let plain = super::panel::two_route_engine(
         dir.path(),
         &["refuse", "succeed"],
         &["refuse", "succeed"],
@@ -112,7 +98,6 @@ fn a_panels_second_member_parks_when_its_probe_read_loses_the_aggregate() {
         Probed::Answer,
         2,
     );
-    plain.bundle.seats.get_mut("work").unwrap().limits = super::probe_rounds::patient(2);
     let (mut engine, now) = with_clock(plain);
     let db = dir.path().join("forge.db");
     engine.cooldown.clock =

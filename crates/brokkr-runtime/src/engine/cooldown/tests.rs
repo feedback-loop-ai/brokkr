@@ -18,6 +18,8 @@ use crate::agents::{Candidate, HarnessHands, Lowering};
 use crate::bundle::{Aggregate, Invocation, Limits, PanelMember, SeatBody, SeatClass};
 use crate::engine::tests::{bundle, single_body, templated};
 use crate::engine::Engine;
+use crate::witness::witness;
+use support::{limits_for, work};
 
 fn base() -> OffsetDateTime {
     OffsetDateTime::parse("2026-11-01T00:00:00Z", &Rfc3339).unwrap()
@@ -36,13 +38,6 @@ fn started(dir: &Path, body: SeatBody, limits: Limits) -> Engine {
 /// the fixtures that only need a journal and a seat share it.
 pub(super) fn bare_engine(dir: &Path, attempts: u64) -> Engine {
     started(dir, single_body(vec!["unused".into()]), work(attempts))
-}
-
-fn work(attempts: u64) -> Limits {
-    Limits {
-        max_attempts: attempts,
-        timeout_seconds: 2,
-    }
 }
 
 /// A v2 host file declaring cool-downs for claude/first and codex/second,
@@ -419,15 +414,15 @@ fn clock_acting(
 /// v2 host file and the run's own clock. A test that needs another host
 /// replaces it after this returns.
 macro_rules! seated {
-    (@in $dir:expr, $body:expr, $attempts:expr) => {{
-        let mut engine = started($dir.path(), $body, work($attempts));
+    (@in $dir:expr, $body:expr, $limits:expr) => {{
+        let mut engine = started($dir.path(), $body, $limits);
         engine.cooldown.host = Some(host($dir.path(), 1, 10));
         let (engine, now) = with_clock(engine);
         ($dir, engine, now)
     }};
     ($body:expr, $attempts:expr) => {{
         let dir = tempfile::tempdir().unwrap();
-        seated!(@in dir, $body, $attempts)
+        seated!(@in dir, $body, work($attempts))
     }};
     ($verdicts:expr, $probed:expr, $retry:expr, $attempts:expr) => {{
         let dir = tempfile::tempdir().unwrap();
@@ -440,7 +435,7 @@ macro_rules! seated {
             "claude",
             "first",
         );
-        seated!(@in dir, single_body(command), $attempts)
+        seated!(@in dir, single_body(command), limits_for($probed, $attempts))
     }};
 }
 
@@ -558,7 +553,7 @@ fn a_probe_that_starts_then_errors_parks_without_a_retry() {
 fn the_probe_asks_the_cooled_route_and_the_retry_takes_the_next_link() {
     let dir = tempfile::tempdir().unwrap();
     let body = two_route_body(dir.path(), &["refuse"], &["succeed"]);
-    let (dir, mut engine, _now) = seated!(@in dir, body, 2);
+    let (dir, mut engine, _now) = seated!(@in dir, body, work(2));
     engine.drive().unwrap();
     assert_eq!(logs(dir.path(), "claude"), ["attempt:refuse", "probe"]);
     assert_eq!(logs(dir.path(), "codex"), ["attempt:succeed"]);
@@ -573,7 +568,7 @@ fn a_one_candidate_chain_retries_the_cooled_route() {
     let dir = tempfile::tempdir().unwrap();
     let command = standard_command(dir.path());
     let body = chain(vec![candidate("claude", "claude/first", command)]);
-    let (dir, mut engine, _now) = seated!(@in dir, body, 2);
+    let (dir, mut engine, _now) = seated!(@in dir, body, work(2));
     engine.drive().unwrap();
     assert_eq!(
         logs(dir.path(), "work"),
@@ -750,7 +745,7 @@ fn an_accumulated_episode_past_the_maximum_parks() {
         "claude",
         "first",
     );
-    let mut engine = started(dir.path(), single_body(command), probe_rounds::patient(3));
+    let mut engine = started(dir.path(), single_body(command), work(3));
     engine.cooldown.host = Some(host(dir.path(), 2, 3));
     let (mut engine, _now) = with_clock(engine);
     drove(
@@ -1264,7 +1259,7 @@ fn a_resume_late_keeps_the_recorded_maximum_refusal() {
 fn an_episode_sums_each_routes_recorded_length() {
     let dir = tempfile::tempdir().unwrap();
     let body = two_route_body(dir.path(), &["refuse"], &["refuse", "succeed"]);
-    let mut engine = started(dir.path(), body, probe_rounds::patient(3));
+    let mut engine = started(dir.path(), body, work(3));
     engine.cooldown.host = Some(routes_host(dir.path()));
     let (mut engine, _now) = with_clock(engine);
     engine.drive().unwrap();
@@ -1324,6 +1319,7 @@ mod lease;
 mod probe_driver;
 mod probe_rounds;
 mod sequence;
+mod support;
 
 fn no_waits(engine: &Engine) {
     for event in failed(engine) {

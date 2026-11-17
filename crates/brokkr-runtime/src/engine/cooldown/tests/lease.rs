@@ -5,10 +5,6 @@
 //! without spending an effect attempt.
 
 use std::os::unix::fs::PermissionsExt;
-// A protected root's lease and its barrier probe are Linux only: only
-// Linux's workspace box keeps a boxed writer from the root.
-#[cfg(target_os = "linux")]
-use std::time::{Duration as StdDuration, Instant};
 
 use super::*;
 #[cfg(target_os = "linux")]
@@ -44,11 +40,7 @@ pub(super) fn barrier_started(
         engine.drive().unwrap();
         engine
     });
-    let deadline = Instant::now() + StdDuration::from_secs(20);
-    while !started.exists() {
-        assert!(Instant::now() < deadline, "the probe never started");
-        std::thread::sleep(StdDuration::from_millis(10));
-    }
+    let driver = super::support::barrier_awaited(&started, driver, dir, "the probe");
     (release, driver)
 }
 

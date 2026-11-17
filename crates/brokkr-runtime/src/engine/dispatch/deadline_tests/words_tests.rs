@@ -73,10 +73,16 @@ fn solo_panel(dir: &Path, member: PanelMember, timeout: u64, host: Option<PathBu
     panel_engine(dir, vec![member], timeout, host)
 }
 
-/// A one-member panel raised to two seconds by the host floor, with the
-/// seat's own limit one.
+/// A one-member panel raised to [`LATE`] seconds by the host floor, with
+/// the seat's own limit [`LATE_SEAT`].
 fn raised_solo_panel(dir: &Path, member: PanelMember) -> Engine {
-    solo_panel(dir, member, 1, Some(host(dir, Some(2))))
+    solo_panel(dir, member, LATE_SEAT, Some(host(dir, Some(LATE))))
+}
+
+/// A one-member panel the host floor raises past a seat limit far past any
+/// load, where the raise is not what ends the attempt (#1110).
+fn patient_raised_solo_panel(dir: &Path, member: PanelMember) -> Engine {
+    solo_panel(dir, member, PATIENT, Some(host(dir, Some(PATIENT_FLOOR))))
 }
 
 /// One sequence step `name` around `body`.
@@ -144,9 +150,9 @@ fn pin_step(engine: &mut Engine, step: &str, candidate: &Candidate) {
 
 /// Drive one sequence step `step`, pinned to `candidate`, under `dir`'s
 /// unreadable host, and return its `effect/failed` words.
-fn step_error(dir: &Path, step: SequenceStep, candidate: &Candidate) -> String {
+fn step_error(dir: &Path, step: SequenceStep, candidate: &Candidate) -> Words {
     let name = step.name.clone();
-    let mut engine = sequence_engine(dir, vec![step], 1, Some(dir.to_path_buf()));
+    let mut engine = sequence_engine(dir, vec![step], PATIENT, Some(dir.to_path_buf()));
     pin_step(&mut engine, &name, candidate);
     engine.drive().unwrap();
     terminal(&engine, EventType::EffectFailed, "error")
@@ -165,8 +171,8 @@ fn dialect_words(
     engine_bin: crate::argv::Executable,
     event: EventType,
     field: &str,
-) -> String {
-    let mut engine = dialect_engine(dir, vec!["true".into()], 1, Some(dir.to_path_buf()));
+) -> Words {
+    let mut engine = dialect_engine(dir, vec!["true".into()], PATIENT, Some(dir.to_path_buf()));
     engine.bundle.executable = engine_bin;
     engine.drive().unwrap();
     terminal(&engine, event, field)
@@ -212,9 +218,9 @@ fn two_step_error(
     step: SequenceStep,
     candidate: &Candidate,
     host: Option<PathBuf>,
-) -> String {
+) -> Words {
     let name = step.name.clone();
-    let mut engine = sequence_engine(dir, with_unreachable_step(step), 1, host);
+    let mut engine = sequence_engine(dir, with_unreachable_step(step), PATIENT, host);
     pin_step(&mut engine, &name, candidate);
     engine.drive().unwrap();
     terminal(&engine, EventType::EffectFailed, "error")
@@ -231,7 +237,7 @@ fn refused_step(dir: &Path) -> (SequenceStep, Candidate) {
 
 /// The refused results' words, checked to be the fence's and not an
 /// engine error.
-fn refused_step_error(dir: &Path, step: SequenceStep, candidate: &Candidate) -> String {
+fn refused_step_error(dir: &Path, step: SequenceStep, candidate: &Candidate) -> Words {
     let error = two_step_error(dir, step, candidate, Some(dir.to_path_buf()));
     assert!(
         error.starts_with("sequence step 'draft': seat record at journal seq "),
@@ -260,8 +266,12 @@ fn panel_step_engine(
     engine
 }
 
-/// Assert `words` names the host file at `dir` exactly once.
-fn assert_names_host_once(words: &str, dir: &Path) {
+/// Assert `words` names the host file at `dir` exactly once, printing them
+/// (and a terminal's witness) where they do not.
+fn assert_names_host_once(
+    words: &(impl std::ops::Deref<Target = str> + std::fmt::Display),
+    dir: &Path,
+) {
     let named = format!("the host configuration at {}", dir.display());
     assert_eq!(words.matches(&named).count(), 1, "{words}");
 }
@@ -324,8 +334,8 @@ fn a_panels_raised_deadline_names_the_floor_and_keeps_its_member_list() {
     let reason = terminal(&engine, EventType::EffectIndeterminate, "reason");
     assert_eq!(
         reason,
-        "panel members [\"slow\"] could not establish completion: the seat's 2-second deadline: \
-         the shared-local floor host.json declares for dsh/spark-glm; the seat's own limit is 1 \
+        "panel members [\"slow\"] could not establish completion: the seat's 10-second deadline: \
+         the shared-local floor host.json declares for dsh/spark-glm; the seat's own limit is 5 \
          seconds"
     );
 }
@@ -334,14 +344,15 @@ fn a_panels_raised_deadline_names_the_floor_and_keeps_its_member_list() {
 fn a_sequences_raised_deadline_names_the_floor_on_its_ending_step() {
     let dir = tempfile::tempdir().unwrap();
     let (step, candidate) = single_step("step", silent_driver(dir.path()));
-    let mut engine = sequence_engine(dir.path(), vec![step], 1, Some(host(dir.path(), Some(2))));
+    let late = Some(host(dir.path(), Some(LATE)));
+    let mut engine = sequence_engine(dir.path(), vec![step], LATE_SEAT, late);
     pin_step(&mut engine, "step", &candidate);
     engine.drive().unwrap();
     let reason = terminal(&engine, EventType::EffectIndeterminate, "reason");
     assert_eq!(
         reason,
-        "sequence step 'step': the seat's 2-second deadline: the shared-local floor host.json \
-         declares for dsh/spark-glm; the seat's own limit is 1 seconds; its process tree is gone, \
+        "sequence step 'step': the seat's 10-second deadline: the shared-local floor host.json \
+         declares for dsh/spark-glm; the seat's own limit is 5 seconds; its process tree is gone, \
          and what it did is unknown; stderr tail: "
     );
 }
@@ -350,14 +361,15 @@ fn a_sequences_raised_deadline_names_the_floor_on_its_ending_step() {
 fn a_sequence_panel_steps_raised_deadline_names_the_source_once() {
     let dir = tempfile::tempdir().unwrap();
     let members = vec![panel_member("slow", silent_driver(dir.path()))];
-    let mut engine = panel_step_engine(dir.path(), members, 1, Some(host(dir.path(), Some(2))));
+    let late = Some(host(dir.path(), Some(LATE)));
+    let mut engine = panel_step_engine(dir.path(), members, LATE_SEAT, late);
     engine.drive().unwrap();
     let reason = terminal(&engine, EventType::EffectIndeterminate, "reason");
     assert_eq!(
         reason,
         "sequence step 'check': panel members [\"slow\"] could not establish completion: the \
-         seat's 2-second deadline: the shared-local floor host.json declares for dsh/spark-glm; \
-         the seat's own limit is 1 seconds"
+         seat's 10-second deadline: the shared-local floor host.json declares for dsh/spark-glm; \
+         the seat's own limit is 5 seconds"
     );
     assert_eq!(reason.matches("shared-local floor").count(), 1, "{reason}");
 }
@@ -371,7 +383,7 @@ fn a_panels_unreadable_host_is_named_once_in_a_failing_panels_words() {
             panel_member("a", failed_driver(dir.path())),
             panel_member("b", failed_driver(dir.path())),
         ],
-        1,
+        PATIENT,
         Some(dir.path().to_path_buf()),
     );
     engine.drive().unwrap();
@@ -390,7 +402,7 @@ fn a_panels_unreadable_host_is_named_once_in_an_indeterminate_panels_words() {
     let mut engine = solo_panel(
         dir.path(),
         panel_member("slow", silent_driver(dir.path())),
-        1,
+        LATE,
         Some(dir.path().to_path_buf()),
     );
     engine.drive().unwrap();
@@ -433,7 +445,7 @@ fn an_unspawned_panel_member_under_an_invalid_host_names_the_host_once() {
     let mut engine = solo_panel(
         dir.path(),
         panel_member("doomed", vec!["brokkr-no-such-driver-430".into()]),
-        1,
+        PATIENT,
         Some(file.clone()),
     );
     engine.drive().unwrap();
@@ -452,9 +464,10 @@ fn an_unspawned_panel_member_under_an_invalid_host_names_the_host_once() {
 #[test]
 fn a_panel_that_was_not_deadline_killed_keeps_todays_words() {
     let dir = tempfile::tempdir().unwrap();
-    // The floor raises the attempt to two seconds, but the member exits
-    // before the watchdog: the joined reason is untouched.
-    let mut engine = raised_solo_panel(dir.path(), panel_member("gone", exited_driver(dir.path())));
+    // The floor raises the attempt past the seat's limit, but the member
+    // exits before the watchdog: the joined reason is untouched.
+    let gone = panel_member("gone", exited_driver(dir.path()));
+    let mut engine = patient_raised_solo_panel(dir.path(), gone);
     engine.drive().unwrap();
     let reason = terminal(&engine, EventType::EffectIndeterminate, "reason");
     assert_eq!(
@@ -496,13 +509,13 @@ fn a_panel_that_was_not_deadline_killed_keeps_todays_words() {
 #[test]
 fn a_panel_with_the_seat_limit_governing_keeps_todays_words() {
     let dir = tempfile::tempdir().unwrap();
-    // The floor is one second and the seat authored two: the seat's own
+    // The floor is five seconds and the seat authored ten: the seat's own
     // limit governs, so the protocol's member list is the whole reason.
     let mut engine = solo_panel(
         dir.path(),
         panel_member("slow", silent_driver(dir.path())),
-        2,
-        Some(host(dir.path(), Some(1))),
+        LATE,
+        Some(host(dir.path(), Some(LATE_SEAT))),
     );
     engine.drive().unwrap();
     let reason = terminal(&engine, EventType::EffectIndeterminate, "reason");
@@ -516,13 +529,14 @@ fn a_panel_with_the_seat_limit_governing_keeps_todays_words() {
 fn a_sequence_with_the_seat_limit_governing_keeps_todays_words() {
     let dir = tempfile::tempdir().unwrap();
     let (step, candidate) = single_step("step", silent_driver(dir.path()));
-    let mut engine = sequence_engine(dir.path(), vec![step], 2, Some(host(dir.path(), Some(1))));
+    let under = Some(host(dir.path(), Some(LATE_SEAT)));
+    let mut engine = sequence_engine(dir.path(), vec![step], LATE, under);
     pin_step(&mut engine, "step", &candidate);
     engine.drive().unwrap();
     let reason = terminal(&engine, EventType::EffectIndeterminate, "reason");
     assert_eq!(
         reason,
-        "sequence step 'step': attempt exceeded its 2s deadline and was killed; its process tree \
+        "sequence step 'step': attempt exceeded its 10s deadline and was killed; its process tree \
          is gone, and what it did is unknown; stderr tail: "
     );
 }
@@ -549,13 +563,13 @@ fn a_dialect_steps_unreadable_host_is_named_once_in_its_words() {
 #[test]
 fn a_sequence_panel_steps_unraised_member_keeps_todays_words() {
     let dir = tempfile::tempdir().unwrap();
-    // The floor raises the step to two seconds, but the member exits
-    // before the watchdog: the joined reason is untouched.
+    // The floor raises the step past the seat's limit, but the member
+    // exits before the watchdog: the joined reason is untouched.
     let mut engine = panel_step_engine(
         dir.path(),
         vec![panel_member("gone", exited_driver(dir.path()))],
-        1,
-        Some(host(dir.path(), Some(2))),
+        PATIENT,
+        Some(host(dir.path(), Some(PATIENT_FLOOR))),
     );
     engine.drive().unwrap();
     let reason = terminal(&engine, EventType::EffectIndeterminate, "reason");
@@ -569,7 +583,12 @@ fn a_sequence_panel_steps_unraised_member_keeps_todays_words() {
 fn a_sequences_missing_change_names_an_unreadable_host_once() {
     let dir = tempfile::tempdir().unwrap();
     let step = dialect_step("validate", vec!["validator".into(), "{change}".into()]);
-    let mut engine = sequence_engine(dir.path(), vec![step], 1, Some(dir.path().to_path_buf()));
+    let mut engine = sequence_engine(
+        dir.path(),
+        vec![step],
+        PATIENT,
+        Some(dir.path().to_path_buf()),
+    );
     engine.drive().unwrap();
     let reason = terminal(&engine, EventType::EffectIndeterminate, "reason");
     assert!(
@@ -585,8 +604,9 @@ fn a_sequences_missing_change_names_an_unreadable_host_once() {
 #[test]
 fn a_sequences_unraised_early_ending_keeps_todays_words() {
     let dir = tempfile::tempdir().unwrap();
-    // The floor raises the attempt to two seconds, but the step returns an
-    // out-of-vocabulary word before the watchdog: the deadline is not named.
+    // The floor raises the attempt past the seat's limit, but the step
+    // returns an out-of-vocabulary word before the watchdog: the deadline
+    // is not named.
     let (step, candidate) = single_step(
         "draft",
         succeeded_driver(dir.path(), r#"{"result":"halt"}"#),
@@ -595,7 +615,7 @@ fn a_sequences_unraised_early_ending_keeps_todays_words() {
         dir.path(),
         step,
         &candidate,
-        Some(host(dir.path(), Some(2))),
+        Some(host(dir.path(), Some(PATIENT_FLOOR))),
     );
     assert_eq!(
         error,
@@ -717,7 +737,7 @@ fn an_unreadable_host_is_named_in_the_refused_outcome_a_single_attempt_settles_o
         "refused-checkpoint.sh",
         &format!("{REFUSED_CHECKPOINT}{SUCCEEDED_RESULT}"),
     );
-    let mut engine = attempt(dir.path(), Some(dir.path().to_path_buf()), script, 1);
+    let mut engine = attempt(dir.path(), Some(dir.path().to_path_buf()), script, PATIENT);
     engine.drive().unwrap();
     let error = terminal(&engine, EventType::EffectFailed, "error");
     assert!(error.starts_with("seat record at journal seq "), "{error}");
@@ -803,21 +823,21 @@ fn a_raised_deadline_names_both_numbers_and_the_source_on_a_killed_dialect_step(
     let mut engine = sequence_engine(
         dir.path(),
         vec![first, dialect_step("validate", vec!["true".into()])],
-        1,
-        Some(host(dir.path(), Some(2))),
+        LATE_SEAT,
+        Some(host(dir.path(), Some(LATE))),
     );
     pin_step(&mut engine, "first", &candidate);
     engine.bundle.executable = fake;
     engine.drive().unwrap();
     let reason = terminal(&engine, EventType::EffectIndeterminate, "reason");
     assert!(
-        reason.starts_with("sequence step 'validate': the seat's 2-second deadline: "),
+        reason.starts_with("sequence step 'validate': the seat's 10-second deadline: "),
         "{reason}"
     );
     assert!(
         reason.contains(
             "the shared-local floor host.json declares for dsh/spark-glm; the seat's own limit is \
-             1 seconds"
+             5 seconds"
         ),
         "{reason}"
     );
