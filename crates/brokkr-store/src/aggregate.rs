@@ -39,7 +39,7 @@ use brokkr_core::page::Lane;
 use brokkr_core::policy::audit::STOP;
 use rusqlite::types::{Value, ValueRef};
 use rusqlite::Connection;
-use rusqlite::{params, params_from_iter, OptionalExtension, Row, StatementStatus};
+use rusqlite::{params, OptionalExtension, Row, StatementStatus};
 
 use crate::event_index::{finished, index_intact, BACKFILLED as INDEXED, PARKED};
 use crate::seat_summary::{stale_intact, SHAPE};
@@ -47,6 +47,7 @@ use crate::summary::{summary_intact, BACKFILLED as SUMMARISED};
 use crate::{patiently, Store, StoreError};
 
 pub(crate) mod exclusion;
+pub mod pull;
 
 /// The order a window's runs are folded in (decision 0089 ruling 7): the
 /// two key orders the figures group by, or no order when the caller keeps
@@ -57,7 +58,9 @@ pub enum RunOrder {
     Unordered,
     /// By the stored ending rule, then the run's id.
     ByEndingRule,
-    /// By the stored realm, then recipe, then the run's id.
+    /// By the stored realm (a NULL one read as the hearth's label where the
+    /// read names one), then recipe (a NULL one as the empty name), then
+    /// the run's id.
     ByRealmThenRecipe,
 }
 
@@ -315,14 +318,18 @@ impl Store {
         realm: Option<&str>,
         mut visit: impl FnMut(&WindowRun<'_>),
     ) -> Result<(), StoreError> {
-        let intact = stale_intact(&self.conn)?;
-        let mut statement = self.conn.prepare(runs_sql(order, intact))?;
-        let bounds = bounds(from, to, realm);
-        let mut rows = statement.query(params_from_iter(bounds))?;
-        while let Some(row) = rows.next()? {
-            visit(&window_run(row)?);
-        }
-        Ok(())
+        let bounds = pull::Bounds {
+            from,
+            to,
+            realm,
+            label: None,
+        };
+        self.pull_runs(&bounds, order, |runs| {
+            while let Some(run) = runs.next_run()? {
+                visit(&run);
+            }
+            Ok(())
+        })?
     }
 
     /// The shipped runs that finished in the equal window before the
@@ -395,18 +402,24 @@ impl Store {
         now: i64,
         realm: Option<&str>,
         mut visit: impl FnMut(&WindowPark<'_>),
-        mut stepped: impl FnMut(i64),
+        stepped: impl FnOnce(i64),
     ) -> Result<(), StoreError> {
-        let intact = stale_intact(&self.conn)?;
-        let mut statement = self.conn.prepare(park_sql(intact))?;
-        let bounds = park_bounds(from, to, now, realm);
-        let mut rows = statement.query(params_from_iter(bounds))?;
-        while let Some(row) = rows.next()? {
-            visit(&window_park(row)?);
-        }
-        drop(rows);
-        stepped(i64::from(statement.get_status(StatementStatus::VmStep)));
-        Ok(())
+        let window = pull::ParkWindow {
+            from,
+            to,
+            now,
+            realm,
+        };
+        self.park_rows(
+            &window,
+            |parks| {
+                while let Some(park) = parks.next_park()? {
+                    visit(&park);
+                }
+                Ok(())
+            },
+            stepped,
+        )?
     }
 
     /// The VM steps [`Store::window_parks`]' one statement takes, for the
@@ -574,19 +587,25 @@ fn durations_sql(intact: bool) -> &'static str {
 /// writer's cut at [`brokkr_core::summary::NAME_BYTES`], and a cut that
 /// reads `stop` is the whole `stop` — a longer phase cannot cut to it — so
 /// `phase_whole` need not be read.
+///
+/// The two last columns are the realm and recipe keys a figure groups by
+/// ([`pull::Bounds`]): a NULL realm read as the hearth's label `?5`, and a
+/// NULL recipe as the empty name, so the order is the figure's own.
 fn runs_statement(order: &str, intact: bool) -> String {
     format!(
         "WITH {whole}
          SELECT r.run_id, r.realm, r.recipe, r.ending_rule, r.started_ms, r.finished_ms,
                 r.ending, r.implement_visits, r.review_first, r.review_second, r.review_back,
-                (r.status = '{stopped}' AND r.phase IS '{stop}') AS hard_stop, 0 AS open
+                (r.status = '{stopped}' AND r.phase IS '{stop}') AS hard_stop, 0 AS open,
+                coalesce(r.realm, ?5) AS realm_key, coalesce(r.recipe, '') AS recipe_key
            FROM run_summary AS r
            WHERE r.finished_ms >= ?1 AND r.finished_ms < ?2 AND {behind} AND {not_whole}
              AND (?3 IS NULL OR r.realm = ?3)
          UNION ALL
          SELECT r.run_id, r.realm, r.recipe, r.ending_rule, r.started_ms, r.finished_ms,
                 r.ending, r.implement_visits, r.review_first, r.review_second, r.review_back,
-                (r.status = '{stopped}' AND r.phase IS '{stop}') AS hard_stop, 1 AS open
+                (r.status = '{stopped}' AND r.phase IS '{stop}') AS hard_stop, 1 AS open,
+                coalesce(r.realm, ?5) AS realm_key, coalesce(r.recipe, '') AS recipe_key
            FROM run_summary AS r
            WHERE r.lane IN ({open}) AND {not_whole}
              AND (?3 IS NULL OR r.realm = ?3)
@@ -606,7 +625,7 @@ static RUNS: LazyLock<[[String; 2]; 3]> = LazyLock::new(|| {
     [
         each(""),
         each("ORDER BY ending_rule, run_id"),
-        each("ORDER BY realm, recipe, run_id"),
+        each("ORDER BY realm_key, recipe_key, run_id"),
     ]
 });
 

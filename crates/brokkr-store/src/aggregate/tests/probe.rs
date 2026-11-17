@@ -146,7 +146,7 @@ fn the_hard_stop_statement_is_byte_identical() {
     let sql = super::super::runs_statement("", true);
     assert_eq!(
         sha256_bytes(sql.as_bytes()),
-        "263bb4e81c0ebcf079ccb46eadb861765b30ab5091226c4441c384a0005c3b12",
+        "154e6e0a7a65044f2d427d487a6ff17218be12af18486aaa96459fea49ab9359",
         "the statement is this unit's, byte for byte"
     );
 }

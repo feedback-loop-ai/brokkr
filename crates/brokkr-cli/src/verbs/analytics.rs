@@ -4,6 +4,7 @@
 //! with the clock, and prints what comes back. It writes nothing
 //! (decision 0014).
 
+use std::cell::Cell;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -132,7 +133,7 @@ fn derive_with(
         .iter()
         .map(|hearth| Store::open_read_only(&hearth.journal).ok())
         .collect();
-    let row_stores: Vec<Option<&Store>> = stores
+    let mut row_stores: Vec<Option<&Store>> = stores
         .iter()
         .map(|store| store.as_ref().filter(|store| rows_ready(store)))
         .collect();
@@ -146,25 +147,42 @@ fn derive_with(
         now,
     };
     let (window, before) = brokkr_view::windows(&query).map_err(refused)?;
-    let mut sources: Vec<Box<dyn FactSource>> = Vec::with_capacity(hearths.len());
-    for index in 0..hearths.len() {
-        let reading = Reading {
-            hearth: &hearths[index],
-            label: &labels[index],
-            journal: &journals[index],
-            range,
-            realm,
-            now,
-            window,
-            before,
-        };
-        sources.push(Box::new(source_of(
-            &reading,
-            row_stores[index],
-            &read_fleet,
-        )));
+    // A hearth whose rows refuse while a figure pulls them is read whole,
+    // and the readout derived again: each pass reads one more hearth
+    // whole, so the passes end.
+    loop {
+        let marks: Vec<Cell<bool>> = hearths.iter().map(|_| Cell::new(false)).collect();
+        let mut sources: Vec<Box<dyn FactSource + '_>> = Vec::with_capacity(hearths.len());
+        for index in 0..hearths.len() {
+            let reading = Reading {
+                hearth: &hearths[index],
+                label: &labels[index],
+                journal: &journals[index],
+                range,
+                realm,
+                now,
+                window,
+                before,
+                refused: &marks[index],
+            };
+            sources.push(Box::new(source_of(
+                &reading,
+                row_stores[index],
+                &read_fleet,
+            )));
+        }
+        let view = brokkr_view::analytics_with(&brokkr_view::FactUnion::new(sources), &query);
+        let mut again = false;
+        for (store, mark) in row_stores.iter_mut().zip(&marks) {
+            if mark.get() {
+                *store = None;
+                again = true;
+            }
+        }
+        if !again {
+            return view.map_err(refused);
+        }
     }
-    brokkr_view::analytics_with(&brokkr_view::FactUnion::new(sources), &query).map_err(refused)
 }
 
 /// Whether a hearth's rows state the whole readout: the store's aggregates
@@ -193,8 +211,9 @@ fn rows_ready(store: &Store) -> bool {
 }
 
 /// One hearth's read request: the hearth, its label and journal, the
-/// query's range, realm and clock, and the windows a figure folds
-/// (decision 0071 ruling 10's parameter object).
+/// query's range, realm and clock, the windows a figure folds, and where
+/// its rows mark a refusal met while a figure pulls them (decision 0071
+/// ruling 10's parameter object).
 struct Reading<'a> {
     hearth: &'a Hearth,
     label: &'a str,
@@ -204,35 +223,33 @@ struct Reading<'a> {
     now: &'a str,
     window: brokkr_view::Window,
     before: brokkr_view::Window,
+    refused: &'a Cell<bool>,
 }
 
 /// One hearth's facts: the rows when its store is ready, the whole read
-/// when it is not, and — for a ready hearth whose row path refuses a read —
-/// the whole read of the fleet read taken then, so a refusal still states
-/// every figure (decision 0089 ruling 8's boundary, U3c2).
-fn source_of(
-    reading: &Reading<'_>,
-    store: Option<&Store>,
+/// when it is not, and — for a ready hearth whose row path refuses a read
+/// before any figure pulls it — the whole read of the fleet read taken
+/// then, so a refusal still states every figure (decision 0089 ruling 8's
+/// boundary, U3c2). A refusal met while a figure pulls the rows is marked
+/// in `reading.refused`, for [`derive_with`] to read the hearth whole.
+fn source_of<'a>(
+    reading: &Reading<'a>,
+    store: Option<&'a Store>,
     read_fleet: &impl Fn(&Path) -> fleet::HearthRead,
-) -> rows::HearthSource {
+) -> rows::HearthSource<'a> {
     if let Some(store) = store {
-        let empty: [AnalyticsRun<'_>; 0] = [];
-        let grouped = AnalyticsHearth {
-            label: reading.label,
-            realms: &reading.hearth.realms,
-            journal: reading.journal,
-            runs: &empty,
-            refusal: None,
-        };
-        if let Ok(source) = rows::HearthSource::from_store(
-            &grouped,
-            reading.range,
-            reading.realm,
-            reading.now,
-            reading.window,
-            reading.before,
+        let rows = rows::Rows {
             store,
-        ) {
+            label: reading.label,
+            configured: &reading.hearth.realms,
+            window: reading.window,
+            before: reading.before,
+            realm: reading.realm,
+            range: reading.range,
+            now: reading.now,
+            refused: reading.refused,
+        };
+        if let Ok(source) = rows::HearthSource::from_store(&rows) {
             return source;
         }
     }
@@ -243,7 +260,7 @@ fn source_of(
 /// order (decision 0089 ruling A4), quarantined when the fleet refused the
 /// hearth, and handed to [`rows::HearthSource::read`], so every figure is
 /// the whole read's.
-fn whole_source(reading: &Reading<'_>, mut read: fleet::HearthRead) -> rows::HearthSource {
+fn whole_source<'a>(reading: &Reading<'_>, mut read: fleet::HearthRead) -> rows::HearthSource<'a> {
     order(&mut read.runs);
     let runs: Vec<AnalyticsRun<'_>> = read
         .runs

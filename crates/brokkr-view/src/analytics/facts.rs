@@ -599,14 +599,16 @@ fn site_fact(whole: &WholeRun, site: &Site, window: Window) -> SiteFact {
 /// Several sources as one: a graph's hearths, or a migrated hearth's rows
 /// and the runs it reads whole. Each stream is merged in the figure's own
 /// key order, so a group never straddles two sources.
-pub struct FactUnion {
-    sources: Vec<Box<dyn FactSource>>,
+pub struct FactUnion<'a> {
+    sources: Vec<Box<dyn FactSource + 'a>>,
     realms: Vec<String>,
     unreadable: BTreeMap<String, usize>,
 }
 
-impl FactUnion {
-    pub fn new(sources: Vec<Box<dyn FactSource>>) -> FactUnion {
+impl<'a> FactUnion<'a> {
+    /// The sources as one; a source may borrow what it reads from, such as
+    /// a store's connection, for the union's length.
+    pub fn new(sources: Vec<Box<dyn FactSource + 'a>>) -> FactUnion<'a> {
         let mut realms = Vec::new();
         let mut unreadable = BTreeMap::new();
         for source in &sources {
@@ -628,7 +630,7 @@ impl FactUnion {
     }
 }
 
-impl FactSource for FactUnion {
+impl FactSource for FactUnion<'_> {
     fn quarantined(&self) -> Vec<QuarantinedHearth> {
         self.sources
             .iter()

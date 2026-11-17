@@ -2,12 +2,9 @@
 //! site's row to its fact, including the rows a whole read opens no run or
 //! site from.
 
-use std::collections::BTreeMap;
-
 use brokkr_core::ending::Ending;
 use brokkr_core::seat::meter::Metering;
-use brokkr_store::aggregate::{WindowPark, WindowReviews, WindowRun};
-use brokkr_store::metered::WindowSite;
+use brokkr_store::aggregate::WindowReviews;
 
 use super::*;
 
@@ -31,13 +28,15 @@ fn row<'a>(run_id: &'a str) -> WindowRun<'a> {
     }
 }
 
+/// A run's row maps to its facts with no costs: the recipe order's stream
+/// reads them by the run's key.
 #[test]
-fn a_run_row_maps_its_facts_and_its_costs() {
-    let mut spends = BTreeMap::new();
-    spends.insert("r".to_string(), vec![(5, 0.25)]);
-    let facts = run_facts(&row("r"), "label", &spends, None).unwrap();
+fn a_run_row_maps_its_facts() {
+    let facts = run_facts(&row("r"), "label", None).unwrap();
     assert_eq!(
         (
+            facts.hearth.as_str(),
+            facts.run.as_str(),
             facts.realm.as_str(),
             facts.recipe.as_deref(),
             facts.started,
@@ -47,6 +46,8 @@ fn a_run_row_maps_its_facts_and_its_costs() {
             facts.costs.clone(),
         ),
         (
+            "label",
+            "r",
             "alpha",
             Some("recipe"),
             Some(1),
@@ -57,7 +58,7 @@ fn a_run_row_maps_its_facts_and_its_costs() {
                 second: false,
                 back: true
             },
-            vec![(5, 0.25)],
+            vec![],
         )
     );
     assert_eq!(
@@ -74,9 +75,8 @@ fn a_run_row_maps_its_facts_and_its_costs() {
 
 #[test]
 fn a_run_out_of_scope_is_no_row() {
-    let spends = BTreeMap::new();
     assert!(
-        run_facts(&row("r"), "label", &spends, Some("beta")).is_none(),
+        run_facts(&row("r"), "label", Some("beta")).is_none(),
         "another realm's run"
     );
 }
@@ -185,38 +185,4 @@ fn a_site_row_needs_the_start_and_provider_a_whole_read_opens_it_by() {
             Some(10),
         )
     );
-}
-
-/// A run's span is the median's only when the run finished inside the
-/// window, which holds its first moment and not its last: the rows read
-/// for the window before it are the previous window's, and an open run
-/// has no span.
-#[test]
-fn a_span_is_the_windows_only_for_a_finish_inside_it() {
-    let spends = BTreeMap::new();
-    let facts = |run_id: &str, finished_ms: Option<i64>| {
-        let mut ran = row(run_id);
-        ran.finished_ms = finished_ms;
-        run_facts(&ran, "label", &spends, None).unwrap()
-    };
-    let rows = RowOnly {
-        window: Window { from: 10, to: 20 },
-        runs: vec![
-            facts("before", Some(9)),
-            facts("first", Some(10)),
-            facts("last", Some(20)),
-            facts("open", None),
-        ],
-        by_rule: Vec::new(),
-        by_recipe: Vec::new(),
-        parks: Vec::new(),
-        spends: Vec::new(),
-        model: Vec::new(),
-        provider: Vec::new(),
-        realm_provider: Vec::new(),
-        recipe_provider: Vec::new(),
-    };
-    let mut spans = Vec::new();
-    rows.durations(&mut |realm, span| spans.push((realm.to_string(), span)));
-    assert_eq!(spans, [("alpha".to_string(), 9)]);
 }

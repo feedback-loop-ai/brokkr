@@ -110,6 +110,7 @@ pub(super) fn read_between(journal: &Path, mut between: impl FnMut(Stage)) -> An
         now: GENERATED_NOW,
     };
     let (window, before) = brokkr_view::windows(&query).unwrap();
+    let refused = std::cell::Cell::new(false);
     let rows = Rows {
         store: &store,
         label: &labels[0],
@@ -119,10 +120,13 @@ pub(super) fn read_between(journal: &Path, mut between: impl FnMut(Stage)) -> An
         realm: None,
         range: Range::Day,
         now: GENERATED_NOW,
+        refused: &refused,
     };
     let source = read_rows_with(&rows, &mut between).unwrap();
     let union = FactUnion::new(vec![Box::new(HearthSource::Rows(source))]);
-    brokkr_view::analytics_with(&union, &query).unwrap()
+    let view = brokkr_view::analytics_with(&union, &query).unwrap();
+    assert!(!refused.get(), "no window statement refused");
+    view
 }
 
 /// Whatever a writer commits at any stage of the read, the readout is the

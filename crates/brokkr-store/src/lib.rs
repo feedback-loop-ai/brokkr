@@ -89,7 +89,7 @@ mod seat_read;
 mod seat_record;
 mod seat_summary;
 mod seat_tree;
-mod snapshot;
+pub mod snapshot;
 mod start;
 mod summary;
 mod terminal;

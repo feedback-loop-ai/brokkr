@@ -8,6 +8,7 @@ mod band;
 mod caller;
 mod exclusion;
 mod probe;
+mod pulled;
 
 use brokkr_core::canonical::ZERO_HASH;
 use brokkr_core::ending::{Ending, UnknownEnding};
@@ -15,6 +16,7 @@ use brokkr_core::envelope::{EventEnvelope, EventType};
 use brokkr_core::fold::{concluded, Status};
 use brokkr_core::stamp::parse_millis;
 use brokkr_core::summary::{aggregate, Account, Bounded, Listing, Summary, NAME_BYTES};
+use rusqlite::params_from_iter;
 use serde_json::json;
 
 use super::*;
@@ -1039,10 +1041,16 @@ fn every_aggregate_read_is_indexed() {
         (RunOrder::ByEndingRule, "run_summary_page", 2),
         (RunOrder::ByRealmThenRecipe, "run_summary_page", 2),
     ] {
+        let bounds = pull::Bounds {
+            from: 0,
+            to: 1,
+            realm: None,
+            label: Some("label"),
+        };
         let plan = explain(
             &store,
             runs_sql(order, true),
-            params_from_iter(bounds(0, 1, None)),
+            params_from_iter(bounds.values()),
         );
         assert!(
             plan.iter().any(|step| step.contains(index)),
