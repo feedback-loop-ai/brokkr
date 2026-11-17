@@ -73,10 +73,10 @@ fn solo_panel(dir: &Path, member: PanelMember, timeout: u64, host: Option<PathBu
     panel_engine(dir, vec![member], timeout, host)
 }
 
-/// A one-member panel raised to two seconds by the host floor, with the
-/// seat's own limit one.
+/// A one-member panel raised to [`LATE`] seconds by the host floor, with
+/// the seat's own limit [`LATE_SEAT`].
 fn raised_solo_panel(dir: &Path, member: PanelMember) -> Engine {
-    solo_panel(dir, member, 1, Some(host(dir, Some(2))))
+    solo_panel(dir, member, LATE_SEAT, Some(host(dir, Some(LATE))))
 }
 
 /// A one-member panel the host floor raises past a seat limit far past any
@@ -334,8 +334,8 @@ fn a_panels_raised_deadline_names_the_floor_and_keeps_its_member_list() {
     let reason = terminal(&engine, EventType::EffectIndeterminate, "reason");
     assert_eq!(
         reason,
-        "panel members [\"slow\"] could not establish completion: the seat's 2-second deadline: \
-         the shared-local floor host.json declares for dsh/spark-glm; the seat's own limit is 1 \
+        "panel members [\"slow\"] could not establish completion: the seat's 10-second deadline: \
+         the shared-local floor host.json declares for dsh/spark-glm; the seat's own limit is 5 \
          seconds"
     );
 }
@@ -344,14 +344,15 @@ fn a_panels_raised_deadline_names_the_floor_and_keeps_its_member_list() {
 fn a_sequences_raised_deadline_names_the_floor_on_its_ending_step() {
     let dir = tempfile::tempdir().unwrap();
     let (step, candidate) = single_step("step", silent_driver(dir.path()));
-    let mut engine = sequence_engine(dir.path(), vec![step], 1, Some(host(dir.path(), Some(2))));
+    let late = Some(host(dir.path(), Some(LATE)));
+    let mut engine = sequence_engine(dir.path(), vec![step], LATE_SEAT, late);
     pin_step(&mut engine, "step", &candidate);
     engine.drive().unwrap();
     let reason = terminal(&engine, EventType::EffectIndeterminate, "reason");
     assert_eq!(
         reason,
-        "sequence step 'step': the seat's 2-second deadline: the shared-local floor host.json \
-         declares for dsh/spark-glm; the seat's own limit is 1 seconds; its process tree is gone, \
+        "sequence step 'step': the seat's 10-second deadline: the shared-local floor host.json \
+         declares for dsh/spark-glm; the seat's own limit is 5 seconds; its process tree is gone, \
          and what it did is unknown; stderr tail: "
     );
 }
@@ -360,14 +361,15 @@ fn a_sequences_raised_deadline_names_the_floor_on_its_ending_step() {
 fn a_sequence_panel_steps_raised_deadline_names_the_source_once() {
     let dir = tempfile::tempdir().unwrap();
     let members = vec![panel_member("slow", silent_driver(dir.path()))];
-    let mut engine = panel_step_engine(dir.path(), members, 1, Some(host(dir.path(), Some(2))));
+    let late = Some(host(dir.path(), Some(LATE)));
+    let mut engine = panel_step_engine(dir.path(), members, LATE_SEAT, late);
     engine.drive().unwrap();
     let reason = terminal(&engine, EventType::EffectIndeterminate, "reason");
     assert_eq!(
         reason,
         "sequence step 'check': panel members [\"slow\"] could not establish completion: the \
-         seat's 2-second deadline: the shared-local floor host.json declares for dsh/spark-glm; \
-         the seat's own limit is 1 seconds"
+         seat's 10-second deadline: the shared-local floor host.json declares for dsh/spark-glm; \
+         the seat's own limit is 5 seconds"
     );
     assert_eq!(reason.matches("shared-local floor").count(), 1, "{reason}");
 }
@@ -400,7 +402,7 @@ fn a_panels_unreadable_host_is_named_once_in_an_indeterminate_panels_words() {
     let mut engine = solo_panel(
         dir.path(),
         panel_member("slow", silent_driver(dir.path())),
-        1,
+        LATE,
         Some(dir.path().to_path_buf()),
     );
     engine.drive().unwrap();
@@ -507,13 +509,13 @@ fn a_panel_that_was_not_deadline_killed_keeps_todays_words() {
 #[test]
 fn a_panel_with_the_seat_limit_governing_keeps_todays_words() {
     let dir = tempfile::tempdir().unwrap();
-    // The floor is one second and the seat authored two: the seat's own
+    // The floor is five seconds and the seat authored ten: the seat's own
     // limit governs, so the protocol's member list is the whole reason.
     let mut engine = solo_panel(
         dir.path(),
         panel_member("slow", silent_driver(dir.path())),
-        2,
-        Some(host(dir.path(), Some(1))),
+        LATE,
+        Some(host(dir.path(), Some(LATE_SEAT))),
     );
     engine.drive().unwrap();
     let reason = terminal(&engine, EventType::EffectIndeterminate, "reason");
@@ -527,13 +529,14 @@ fn a_panel_with_the_seat_limit_governing_keeps_todays_words() {
 fn a_sequence_with_the_seat_limit_governing_keeps_todays_words() {
     let dir = tempfile::tempdir().unwrap();
     let (step, candidate) = single_step("step", silent_driver(dir.path()));
-    let mut engine = sequence_engine(dir.path(), vec![step], 2, Some(host(dir.path(), Some(1))));
+    let under = Some(host(dir.path(), Some(LATE_SEAT)));
+    let mut engine = sequence_engine(dir.path(), vec![step], LATE, under);
     pin_step(&mut engine, "step", &candidate);
     engine.drive().unwrap();
     let reason = terminal(&engine, EventType::EffectIndeterminate, "reason");
     assert_eq!(
         reason,
-        "sequence step 'step': attempt exceeded its 2s deadline and was killed; its process tree \
+        "sequence step 'step': attempt exceeded its 10s deadline and was killed; its process tree \
          is gone, and what it did is unknown; stderr tail: "
     );
 }
@@ -820,21 +823,21 @@ fn a_raised_deadline_names_both_numbers_and_the_source_on_a_killed_dialect_step(
     let mut engine = sequence_engine(
         dir.path(),
         vec![first, dialect_step("validate", vec!["true".into()])],
-        1,
-        Some(host(dir.path(), Some(2))),
+        LATE_SEAT,
+        Some(host(dir.path(), Some(LATE))),
     );
     pin_step(&mut engine, "first", &candidate);
     engine.bundle.executable = fake;
     engine.drive().unwrap();
     let reason = terminal(&engine, EventType::EffectIndeterminate, "reason");
     assert!(
-        reason.starts_with("sequence step 'validate': the seat's 2-second deadline: "),
+        reason.starts_with("sequence step 'validate': the seat's 10-second deadline: "),
         "{reason}"
     );
     assert!(
         reason.contains(
             "the shared-local floor host.json declares for dsh/spark-glm; the seat's own limit is \
-             1 seconds"
+             5 seconds"
         ),
         "{reason}"
     );

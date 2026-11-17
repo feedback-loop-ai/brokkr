@@ -606,6 +606,16 @@ const PATIENT: u64 = 60;
 /// deadline ending the attempt.
 const PATIENT_FLOOR: u64 = 120;
 
+/// The deadline a case that tests lateness gives its attempt (#1110): the
+/// drivers' `sleep 30` outlives it, but admission and provisioning, which
+/// spend it first, cannot plausibly spend it under load as they could 1 or
+/// 2 seconds.
+const LATE: u64 = 10;
+
+/// The lesser number beside [`LATE`]: the seat's own limit a floor of
+/// `LATE` raises, or the floor below a seat limit of `LATE`.
+const LATE_SEAT: u64 = 5;
+
 /// The one `work` single seat running `script` under `timeout`, its
 /// launched candidate pinned to the shared-local Spark route and its host
 /// file `host` where one is placed (an absent or unreadable one keeps the
@@ -726,10 +736,10 @@ fn terminal(engine: &Engine, event: EventType, field: &str) -> Words {
     Words { text, seen }
 }
 
-/// One slow-driver attempt against `floor`, end to end, and the reason
-/// its terminal event carries.
-fn slow_attempt(dir: &Path, floor: Option<u64>) -> Words {
-    let mut engine = attempt(dir, Some(host(dir, floor)), silent_driver(dir), 1);
+/// One slow-driver attempt under the seat limit `seat` against `floor`,
+/// end to end, and the reason its terminal event carries.
+fn slow_attempt(dir: &Path, seat: u64, floor: Option<u64>) -> Words {
+    let mut engine = attempt(dir, Some(host(dir, floor)), silent_driver(dir), seat);
     engine.drive().unwrap();
     terminal(&engine, EventType::EffectIndeterminate, "reason")
 }
@@ -818,14 +828,14 @@ fn wrong_words_name_what_the_driver_did_and_its_deadline() {
 #[test]
 fn a_fake_driver_that_outlives_a_raised_deadline_ends_with_both_numbers_and_the_source() {
     let dir = tempfile::tempdir().unwrap();
-    let reason = slow_attempt(dir.path(), Some(2));
-    assert!(reason.contains("the seat's 2-second deadline"), "{reason}");
+    let reason = slow_attempt(dir.path(), LATE_SEAT, Some(LATE));
+    assert!(reason.contains("the seat's 10-second deadline"), "{reason}");
     assert!(
         reason.contains("shared-local floor host.json declares for dsh/spark-glm"),
         "{reason}"
     );
     assert!(
-        reason.contains("the seat's own limit is 1 seconds"),
+        reason.contains("the seat's own limit is 5 seconds"),
         "{reason}"
     );
 }
@@ -834,10 +844,10 @@ fn a_fake_driver_that_outlives_a_raised_deadline_ends_with_both_numbers_and_the_
 fn a_single_seat_with_no_floor_keeps_todays_words() {
     let dir = tempfile::tempdir().unwrap();
     // The same driver, but the host declines to raise: the attempt stops
-    // at the seat's own one second and the protocol's own words stand.
-    let reason = slow_attempt(dir.path(), None);
+    // at the seat's own ten seconds and the protocol's own words stand.
+    let reason = slow_attempt(dir.path(), LATE, None);
     assert!(
-        reason.starts_with("attempt exceeded its 1s deadline and was killed"),
+        reason.starts_with("attempt exceeded its 10s deadline and was killed"),
         "{reason}"
     );
 }
@@ -845,17 +855,17 @@ fn a_single_seat_with_no_floor_keeps_todays_words() {
 #[test]
 fn the_driver_runs_on_what_provisioning_left_of_the_attempts_deadline() {
     let dir = tempfile::tempdir().unwrap();
-    // The six-second attempt began three seconds before its provisioning,
-    // so the driver gets about three seconds, not six. Truncation makes
+    // The twenty-second attempt began ten seconds before its provisioning,
+    // so the driver gets about ten seconds, not twenty. Truncation makes
     // the exact second vary; what binds is that the FULL bound is not
     // handed to the driver again.
-    let reason = spent_attempt(dir.path(), 6, 3);
+    let reason = spent_attempt(dir.path(), 2 * LATE, LATE);
     assert!(
         reason.contains("deadline and was killed"),
         "the driver outlived its remaining budget: {reason}"
     );
     assert!(
-        !reason.contains("its 6s deadline"),
+        !reason.contains("its 20s deadline"),
         "the driver was handed the whole attempt bound, not what provisioning left: {reason}"
     );
 }

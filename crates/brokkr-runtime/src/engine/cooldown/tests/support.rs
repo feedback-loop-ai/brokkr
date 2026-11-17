@@ -15,11 +15,14 @@ pub(super) fn work(attempts: u64) -> Limits {
 }
 
 /// The seat's limits where a probe's lateness is what the test proves: a
-/// short deadline, which the hanging probe's `sleep 30` outlives.
+/// deadline the hanging probe's `sleep 30` outlives, but long enough that
+/// admission and the probe's spawn cannot plausibly spend it under load
+/// before the probe logs (#1110: at 2s the Hang row of
+/// `the_unchanged_probe_ends_write_no_row` read `["attempt:refuse"]`).
 fn late(attempts: u64) -> Limits {
     Limits {
         max_attempts: attempts,
-        timeout_seconds: 2,
+        timeout_seconds: 10,
     }
 }
 
