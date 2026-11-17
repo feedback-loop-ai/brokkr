@@ -142,7 +142,9 @@ const KNOWN: &[(&str, &[&str])] = &[
         ],
     ),
     ("attempts/*/writers/*", &["site", "reach"]),
-    ("attempts/*/writers/*/reach", &["boxed", "unbounded"]),
+    // `unbounded` is a value here, never a key: `Reach::Unbounded` is
+    // written as the string, so this level names only `boxed` (#1099 F4).
+    ("attempts/*/writers/*/reach", &["boxed"]),
     (
         "attempts/*/writers/*/reach/boxed",
         &["writable", "readable", "sources", "sealed"],
@@ -493,6 +495,26 @@ mod tests {
         assert!(
             !names_unknown(&serialised),
             "every served kind this build writes is known at its own level"
+        );
+    }
+
+    /// #1099 F4: an unbounded writer's reach is written as the string
+    /// `unbounded`, a value and never a key, so it names no field. Removal
+    /// control: read a reach's string as a key of its row, and this fails.
+    #[test]
+    fn an_unbounded_reach_is_no_newer_writers_record() {
+        let mut unbounded = full();
+        unbounded["attempts"]["a1"]["writers"][0]["reach"] = json!("unbounded");
+        let written: Reservation = serde_json::from_value(unbounded).unwrap();
+        let serialised = serde_json::to_value(&written).unwrap();
+        assert_eq!(
+            serialised["attempts"]["a1"]["writers"][0]["reach"],
+            json!("unbounded"),
+            "written as a string"
+        );
+        assert!(
+            !names_unknown(&serialised),
+            "an unbounded reach is this build's own record"
         );
     }
 
