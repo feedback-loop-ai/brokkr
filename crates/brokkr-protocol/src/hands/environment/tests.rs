@@ -11,7 +11,7 @@ use std::process::Command;
 
 use serde_json::json;
 
-use super::super::{unboxed_environment, HandsSpec};
+use super::super::{git_identity, server_environment, unboxed_environment, HandsSpec};
 use super::{box_environment, seat_git_environment};
 
 /// The words dsh 0.2.1's `SENSITIVE_ENV_PATTERN`
@@ -125,4 +125,59 @@ fn no_fixed_seat_name_is_one_a_credential_scrub_drops() {
     // The pattern is case-insensitive, as dsh's `/i` is.
     assert!(scrubbed("GIT_CONFIG_KEY_0") && scrubbed("api_token") && scrubbed("PassWord"));
     assert!(!scrubbed("GIT_CONFIG_PARAMETERS"));
+}
+
+/// Every other name Brokkr fixes for a seat or a box it reaches, read
+/// from where each is made (#1109 item 2): the host identity
+/// `git_identity` resolves, and the server box's fixed environment with
+/// the box marker. None is one a credential scrub drops, so none needs a
+/// new name; the dsh child's own (`DSH_HOME` and these) is pinned by
+/// `dsh_home`'s fixed-binding test, and a claude or codex seat's launch
+/// fixes none.
+#[test]
+fn no_other_fixed_seat_name_is_one_a_credential_scrub_drops() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = repository(dir.path());
+    for (key, value) in [
+        ("user.name", "Seat"),
+        ("user.email", "seat@example.invalid"),
+    ] {
+        let out = Command::new("git")
+            .args(["config", key, value])
+            .current_dir(&repo)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{out:?}");
+    }
+    let identity = git_identity(&repo);
+    let names: Vec<&str> = identity.iter().map(|(name, _)| name.as_str()).collect();
+    assert_eq!(
+        names,
+        [
+            "GIT_AUTHOR_NAME",
+            "GIT_COMMITTER_NAME",
+            "GIT_AUTHOR_EMAIL",
+            "GIT_COMMITTER_EMAIL"
+        ]
+    );
+    let server: Vec<&str> = server_environment().collect();
+    assert_eq!(
+        server,
+        [
+            "PATH",
+            "HOME",
+            "TMPDIR",
+            "USER",
+            "LOGNAME",
+            "LANG",
+            "LC_ALL",
+            "BROKKR_HANDS_BOX"
+        ]
+    );
+    let dropped: Vec<&str> = names
+        .into_iter()
+        .chain(server)
+        .filter(|name| scrubbed(name))
+        .collect();
+    assert_eq!(dropped, Vec::<&str>::new());
 }
