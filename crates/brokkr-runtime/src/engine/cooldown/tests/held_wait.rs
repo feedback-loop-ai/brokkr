@@ -67,9 +67,13 @@ fn a_held_wait_carries_no_refused() {
 }
 
 /// The engine's own record of the wait, read back from the terminal event,
-/// is the held one: the kind and the maximum it passed.
+/// is the held one: the kind and the maximum it passed. This is the
+/// engine's reader only. `Account` carries no waits until 0106b2's
+/// readouts give it `waits` (decision 0106, "How the readouts show it"),
+/// so `the_held_wait_is_read_from_the_terminal_event_into_the_account` is
+/// that slice's test, not this one (fix round 0106b1r3, R4).
 #[test]
-fn the_held_wait_is_read_from_the_terminal_event_into_the_account() {
+fn the_engine_reads_the_held_wait_back_from_its_terminal_event() {
     let (_dir, mut engine, _now) = held_seat(&["refuse", "succeed"], 2);
     engine.drive().unwrap();
     let events = engine.store.load(&engine.run_id).unwrap();

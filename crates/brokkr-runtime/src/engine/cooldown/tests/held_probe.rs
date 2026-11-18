@@ -83,7 +83,8 @@ fn a_probes_provider_stated_reset_past_the_maximum_is_another_held_round() {
 }
 
 /// Past the first row's end and before the probe's round ends, the route
-/// is still held, and a resume refuses naming the round's end and the lift.
+/// is still held: admission's pass and claim both refuse it until the
+/// round's end, and a resume refuses naming that end and the lift.
 #[test]
 fn a_route_a_probe_holds_again_admits_nothing_after_the_first_rows_end() {
     let (dir, mut engine, now) = probed_seat(&["refuse", "succeed"], 5, 2);
@@ -93,6 +94,19 @@ fn a_route_a_probe_holds_again_admits_nothing_after_the_first_rows_end() {
     let rows = engine.store.cooldowns_in_force(between).unwrap();
     assert_eq!(rows.len(), 1, "{rows:?}");
     assert_eq!((rows[0].rounds, rows[0].until_at), (2, held));
+    let cooling = Err(crate::admission::Capacity::CoolingDown {
+        provider: "claude".into(),
+        route: "first".into(),
+        until: held,
+        words: "rate_limit: slow down".into(),
+    });
+    let legs = |at| crate::admission::legs_at(&engine.store, at, "claude", "first");
+    assert_eq!(legs(between), [cooling.clone(), cooling.clone()]);
+    assert_eq!(
+        legs(held - TimeDuration::seconds(1)),
+        [cooling.clone(), cooling]
+    );
+    assert_eq!(legs(held), [Ok(()), Ok(())]);
     *now.lock().unwrap() = between;
     let error = engine.drive().unwrap_err();
     let crate::engine::EngineError::HeldWait(refusal) = &error else {
@@ -125,8 +139,10 @@ fn a_probes_repeated_held_interval_is_not_counted_in_the_episode() {
     assert_eq!(episode.lengths.get(&None), None);
 }
 
-/// At the round's end the resume probes once more on the same effect, the
-/// answer retries it with no park, and no row holds the route after it.
+/// At the round's end the resume probes once more on the same effect, and
+/// the answer retries it with no park. What this asserts is the one probe
+/// at expiry on the same effect; the answered probe's clearing of earlier
+/// rows is 0106c's, and nothing here asserts it.
 #[test]
 fn a_probes_held_round_resumed_at_its_end_probes_once_on_the_same_effect() {
     let (dir, mut engine, now) = probed_seat(&["refuse", "succeed"], 5, 2);
@@ -139,7 +155,6 @@ fn a_probes_held_round_resumed_at_its_end_probes_once_on_the_same_effect() {
         ["attempt:refuse", "probe", "probe", "attempt:succeed"]
     );
     retried_without_a_park(&engine);
-    assert_eq!(aggregate_at(&engine, *now.lock().unwrap()), None);
 }
 
 /// A probe's computed doubling past the maximum still parks as the

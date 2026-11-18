@@ -249,24 +249,43 @@ fn two_overlapping_refusals_hold_until_the_longer_ends() {
 
 /// A held wait's stated end lies past any declared maximum, and admission
 /// holds the lane to it; a later, shorter row on the lane never shortens it
-/// (decision 0106 ruling 2).
+/// (decision 0106 ruling 2). The long row is planted held-kind, with the
+/// maximum it passed, and both the pass and the claim judge it (fix round
+/// 0106b1r3, R4).
 #[test]
 fn admission_holds_a_held_wait_to_its_stated_end_and_a_later_shorter_row_does_not_shorten_it() {
     let held = at(259_200);
-    let (fixture, file) = refused(&[
-        row("beta", "cloud", held, "usage limit, three days"),
-        row("beta", "cloud", at(60), "the later, shorter"),
-    ]);
-    let holding = vec![vec![cooling(
-        "beta",
-        "cloud",
-        held,
-        "usage limit, three days",
-    )]];
+    let words = "usage limit, three days";
+    let mut long = row("beta", "cloud", held, words);
+    long.held = Some(brokkr_core::Held { max_seconds: 7_200 });
+    let shorter = row("beta", "cloud", at(60), "the later, shorter");
+    let (fixture, file) = refused(&[long.clone(), shorter.clone()]);
+    let seq = fixture.store.load("run-0").unwrap().last().unwrap().seq;
+    let kinds = fixture
+        .store
+        .cooldown_held_rounds("run-0", seq, "")
+        .unwrap();
+    assert_eq!(
+        kinds.into_iter().collect::<Vec<_>>(),
+        [(1, brokkr_core::Held { max_seconds: 7_200 })]
+    );
+    let holding = vec![vec![cooling("beta", "cloud", held, words)]];
     for now in [base(), at(120), at(7_201)] {
         assert_eq!(reasons_at(&fixture, &file, now), holding, "at {now}");
     }
     assert_eq!(reasons_at(&fixture, &file, held), vec![vec![]]);
+
+    // The claim's own read refuses the held row's lane too.
+    let (mut fixture, _file, room) = room_before_rows();
+    refuse(&mut fixture.store, "run-held", &[long]);
+    refuse(&mut fixture.store, "run-shorter", &[shorter]);
+    match room
+        .claim(&mut fixture.store, Generation(1), "admitted")
+        .unwrap()
+    {
+        Err(reason) => assert_eq!(reason, cooling("beta", "cloud", held, words)),
+        Ok(claim) => panic!("the claim took {claim:?} over a held cool-down"),
+    }
 }
 
 /// At one end, the latest row speaks for the lane (decision 0103 ruling 2):
