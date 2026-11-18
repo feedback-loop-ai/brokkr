@@ -120,21 +120,27 @@ fn probed_at_held_end(
 /// 2s and parked past the maximum before any probe.
 #[test]
 fn a_held_members_maximum_never_judges_an_ordinary_members_seconds_at_resume() {
-    let a = Stated {
-        attempt: 5,
-        probe: 5,
-        max: 2,
-    };
-    let b = Stated {
-        attempt: 3,
-        probe: 3,
-        max: 10,
-    };
-    let (dir, mut engine, now) = mixed_panel(&a, &b);
+    held_again_at_a_end(&stated(5, 5, 2), &stated(3, 3, 10), 3);
+}
+
+/// A member's resets and maximum, in [`Stated`]'s order.
+fn stated(attempt: u64, probe: u64, max: u64) -> Stated {
+    Stated {
+        attempt,
+        probe,
+        max,
+    }
+}
+
+/// The panel `a` and `b` state, resumed at a's held end: a's one probe
+/// states its reset again and is held by a's own maximum, and the episode
+/// stays the `episode` seconds b's ordinary wait counted.
+fn held_again_at_a_end(a: &Stated, b: &Stated, episode: u64) {
+    let (dir, mut engine, now) = mixed_panel(a, b);
     let probe_at = probed_at_a_end(&mut engine, &now);
     assert_eq!(logs(dir.path(), "a"), ["attempt:refuse", "probe"]);
-    assert_a_held_again(&engine, probe_at, 5, 2);
-    assert_eq!(episode_seconds(&engine), 3);
+    assert_a_held_again(&engine, probe_at, a.probe, a.max);
+    assert_eq!(episode_seconds(&engine), episode);
 }
 
 /// F2, the adversarial position's plant: a states 10s past its 2s maximum,
@@ -144,21 +150,7 @@ fn a_held_members_maximum_never_judges_an_ordinary_members_seconds_at_resume() {
 /// refused attempt, and claude/first had no row.
 #[test]
 fn a_resumed_held_wait_probes_where_an_ordinary_members_seconds_pass_its_maximum() {
-    let a = Stated {
-        attempt: 10,
-        probe: 10,
-        max: 2,
-    };
-    let b = Stated {
-        attempt: 5,
-        probe: 5,
-        max: 10,
-    };
-    let (dir, mut engine, now) = mixed_panel(&a, &b);
-    let probe_at = probed_at_a_end(&mut engine, &now);
-    assert_eq!(logs(dir.path(), "a"), ["attempt:refuse", "probe"]);
-    assert_a_held_again(&engine, probe_at, 10, 2);
-    assert_eq!(episode_seconds(&engine), 5);
+    held_again_at_a_end(&stated(10, 10, 2), &stated(5, 5, 10), 5);
 }
 
 /// F2's mirror: b is held (5s past its 2s maximum) and a waits an ordinary
@@ -245,21 +237,7 @@ fn assert_a_held_again(engine: &Engine, probe_at: OffsetDateTime, stated: u64, m
 /// as 7s of episode and parked, leaving claude/first with no row.
 #[test]
 fn a_probes_stated_reset_is_held_by_its_own_maximum_not_an_ordinary_members() {
-    let a = Stated {
-        attempt: 5,
-        probe: 5,
-        max: 2,
-    };
-    let b = Stated {
-        attempt: 2,
-        probe: 2,
-        max: 6,
-    };
-    let (dir, mut engine, now) = mixed_panel(&a, &b);
-    let probe_at = probed_at_a_end(&mut engine, &now);
-    assert_eq!(logs(dir.path(), "a"), ["attempt:refuse", "probe"]);
-    assert_a_held_again(&engine, probe_at, 5, 2);
-    assert_eq!(episode_seconds(&engine), 2);
+    held_again_at_a_end(&stated(5, 5, 2), &stated(2, 2, 6), 2);
 }
 
 /// The correctness position's plant: a's 10s past its 2s maximum is held,
