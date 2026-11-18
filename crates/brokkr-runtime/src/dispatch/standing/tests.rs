@@ -13,7 +13,7 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use brokkr_core::fold::Status;
-use brokkr_store::Store;
+use brokkr_store::{Claim, Store};
 use serde_json::json;
 
 use super::*;
@@ -53,7 +53,12 @@ impl Seen {
             Tick::Reaped(reaped) => Seen::Reaped {
                 run: reaped.exited.run.clone(),
                 pid: reaped.exited.pid,
-                code: reaped.exited.exit.code(),
+                code: reaped
+                    .exited
+                    .exit
+                    .as_ref()
+                    .ok()
+                    .and_then(|exit| exit.code()),
                 reads: reaped.reads.as_ref().ok().copied(),
             },
         }
@@ -169,6 +174,15 @@ fn passed(started: &[&str]) -> Seen {
     }
 }
 
+/// A spawn seam that starts pid 1 and records each claim it is handed.
+fn recording(handed: &Rc<RefCell<Vec<Claim>>>) -> SpawnSeam<'static> {
+    let handed = Rc::clone(handed);
+    Box::new(move |spawn: &Spawn| {
+        handed.borrow_mut().push(spawn.claim);
+        Ok(Spawned { pid: 1 })
+    })
+}
+
 /// The one run the journal holds.
 fn the_run(store: &Store) -> String {
     let runs = store.list_runs().unwrap();
@@ -178,22 +192,50 @@ fn the_run(store: &Store) -> String {
     run.clone()
 }
 
-#[test]
-fn a_stop_during_one_entry_ends_the_loop_after_its_driver_with_no_further_claim() {
+/// Run `script` over `fixture` to the stop it ends on: what its seams saw,
+/// and the one run the journal then holds.
+fn stopped(
+    script: Script<'_>,
+    fixture: &mut Fixture,
+    dispatcher: &Dispatcher,
+    file: &Path,
+) -> (Vec<Seen>, String) {
+    let (ended, seen) = script.run(&mut fixture.store, dispatcher, file);
+    assert_eq!(ended.unwrap(), Stopped);
+    (seen, the_run(&fixture.store))
+}
+
+/// Two entries queued, and a loop whose stop is asked in the `call`th
+/// binary check: the fixture, then what the seams saw and the one run.
+fn stopped_in_check(call: usize) -> (Fixture, Vec<Seen>, String) {
     let (mut fixture, file, dispatcher) = setup(2);
     let mut script = Script::new();
     let (stop, mut calls) = (Rc::clone(&script.stop), 0);
-    // The stop arrives as the first entry's `spawn` row is about to land.
     script.stands = Box::new(move || {
         calls += 1;
-        if calls == 2 {
+        if calls == call {
             stop.set(true);
         }
         Ok(())
     });
-    let (ended, seen) = script.run(&mut fixture.store, &dispatcher, &file);
-    assert_eq!(ended.unwrap(), Stopped);
-    let run = the_run(&fixture.store);
+    let (seen, run) = stopped(script, &mut fixture, &dispatcher, &file);
+    (fixture, seen, run)
+}
+
+/// A driver reaped whose run still reads `running`.
+fn reaped_running(run: &str, pid: u32, code: i32) -> Seen {
+    Seen::Reaped {
+        run: run.to_string(),
+        pid,
+        code: Some(code),
+        reads: Some(Status::Running),
+    }
+}
+
+#[test]
+fn a_stop_during_one_entry_ends_the_loop_after_its_driver_with_no_further_claim() {
+    // The stop arrives as the first entry's `spawn` row is about to land.
+    let (fixture, seen, run) = stopped_in_check(2);
     assert_eq!(seen, vec![passed(&[run.as_str()])], "one tick, no sleep");
     assert_eq!(
         words(&fixture.store),
@@ -208,20 +250,8 @@ fn a_stop_during_one_entry_ends_the_loop_after_its_driver_with_no_further_claim(
 
 #[test]
 fn a_stop_during_the_binary_check_before_a_claim_claims_nothing() {
-    let (mut fixture, file, dispatcher) = setup(2);
-    let mut script = Script::new();
-    let (stop, mut calls) = (Rc::clone(&script.stop), 0);
     // The stop arrives in the binary check before the second entry's claim.
-    script.stands = Box::new(move || {
-        calls += 1;
-        if calls == 3 {
-            stop.set(true);
-        }
-        Ok(())
-    });
-    let (ended, seen) = script.run(&mut fixture.store, &dispatcher, &file);
-    assert_eq!(ended.unwrap(), Stopped);
-    let run = the_run(&fixture.store);
+    let (fixture, seen, run) = stopped_in_check(3);
     assert_eq!(seen, vec![passed(&[run.as_str()])]);
     assert_eq!(
         words(&fixture.store),
@@ -271,32 +301,29 @@ fn an_exited_driver_is_reaped_and_its_still_running_run_reported() {
     let mut script = Script::new();
     let record = Rc::clone(&spawned);
     script.spawn = Box::new(move |spawn: &Spawn| {
-        record.borrow_mut().push(spawn.run.clone());
+        record.borrow_mut().push((spawn.run.clone(), spawn.claim));
         Ok(Spawned { pid: 7 })
     });
     // Each driver spawned exits at once, with code 1, its run unconcluded.
     let drained = Rc::clone(&spawned);
     script.reap = Box::new(move || {
         let runs = std::mem::take(&mut *drained.borrow_mut());
-        let exit = ExitStatus::from_raw(1 << 8);
-        let exited = |run| Exited { run, pid: 7, exit };
+        let exit = || Ok(ExitStatus::from_raw(1 << 8));
+        let exited = |(run, claim)| Exited {
+            run,
+            claim,
+            pid: 7,
+            exit: exit(),
+        };
         runs.into_iter().map(exited).collect()
     });
-    let (ended, seen) = script.run(&mut fixture.store, &dispatcher, &file);
-    assert_eq!(ended.unwrap(), Stopped);
-    let run = the_run(&fixture.store);
-    let reaped = Seen::Reaped {
-        run: run.clone(),
-        pid: 7,
-        code: Some(1),
-        reads: Some(Status::Running),
-    };
+    let (seen, run) = stopped(script, &mut fixture, &dispatcher, &file);
     let slept = Seen::Slept(Duration::from_secs(59));
     assert_eq!(
         seen,
         vec![
             passed(&[run.as_str()]),
-            reaped,
+            reaped_running(&run, 7, 1),
             Seen::Slept(Duration::from_secs(59)),
             passed(&[]),
             slept,
@@ -312,49 +339,58 @@ fn a_driver_that_exits_during_the_sleep_a_stop_ends_is_reaped_before_the_loop_en
     let mut script = Script::new();
     let drained = Rc::clone(&exits);
     script.reap = Box::new(move || std::mem::take(&mut *drained.borrow_mut()));
+    let handed = Rc::new(RefCell::new(Vec::new()));
+    script.spawn = recording(&handed);
     // In the first sleep, the driver pid 1 started exits, and a stop ends
     // the sleep.
     let (stop, store) = (Rc::clone(&script.stop), fixture.store.path().to_path_buf());
     script.slept = Box::new(move |_| {
         let run = the_run(&Store::open(&store).unwrap());
-        let exit = ExitStatus::from_raw(0);
-        exits.borrow_mut().push(Exited { run, pid: 1, exit });
+        let (claim, exit) = (handed.borrow()[0], Ok(ExitStatus::from_raw(0)));
+        let pid = 1;
+        exits.borrow_mut().push(Exited {
+            run,
+            claim,
+            pid,
+            exit,
+        });
         stop.set(true);
     });
-    let (ended, seen) = script.run(&mut fixture.store, &dispatcher, &file);
-    assert_eq!(ended.unwrap(), Stopped);
-    let run = the_run(&fixture.store);
-    let reaped = Seen::Reaped {
-        run: run.clone(),
-        pid: 1,
-        code: Some(0),
-        reads: Some(Status::Running),
-    };
+    let (seen, run) = stopped(script, &mut fixture, &dispatcher, &file);
     let slept = Seen::Slept(Duration::from_secs(59));
+    let reaped = reaped_running(&run, 1, 0);
     assert_eq!(seen, vec![passed(&[run.as_str()]), slept, reaped]);
 }
 
 #[test]
 fn a_reaped_driver_whose_run_does_not_read_is_reported_unread() {
-    let (mut fixture, file, dispatcher) = setup(0);
+    let (mut fixture, file, dispatcher) = setup(1);
     let mut script = Script::new();
+    let handed = Rc::new(RefCell::new(Vec::new()));
+    script.spawn = recording(&handed);
     let mut once = true;
+    // Its handle could not say how it exited, either.
     script.reap = Box::new(move || {
-        let exit = ExitStatus::from_raw(0);
-        let run = "gone".to_string();
-        let exited = std::mem::take(&mut once).then_some(Exited { run, pid: 5, exit });
+        let exit = Err(std::io::Error::from_raw_os_error(10));
+        let (run, claim, pid) = ("gone".to_string(), handed.borrow()[0], 5);
+        let exited = Exited {
+            run,
+            claim,
+            pid,
+            exit,
+        };
+        let exited = std::mem::take(&mut once).then_some(exited);
         exited.into_iter().collect()
     });
     script.ticks = 1;
-    let (ended, seen) = script.run(&mut fixture.store, &dispatcher, &file);
-    assert_eq!(ended.unwrap(), Stopped);
+    let (seen, run) = stopped(script, &mut fixture, &dispatcher, &file);
     let unread = Seen::Reaped {
         run: "gone".into(),
         pid: 5,
-        code: Some(0),
+        code: None,
         reads: None,
     };
-    assert_eq!(seen, vec![passed(&[]), unread]);
+    assert_eq!(seen, vec![passed(&[run.as_str()]), unread]);
 }
 
 #[test]
@@ -417,26 +453,21 @@ fn a_fence_out_ends_the_loop_with_its_ending() {
 #[test]
 fn a_tick_sleeps_its_interval_less_its_pass_and_a_slow_pass_not_at_all() {
     let (mut fixture, file, dispatcher) = setup(0);
-    let script = Script {
-        every: Duration::from_secs(10),
-        pace: Duration::from_secs(3),
-        ticks: 2,
-        ..Script::new()
+    // Two ticks ten seconds apart, each pass taking `pace` seconds.
+    let mut two_ticks = |pace| {
+        let script = Script {
+            every: Duration::from_secs(10),
+            pace: Duration::from_secs(pace),
+            ticks: 2,
+            ..Script::new()
+        };
+        let (ended, seen) = script.run(&mut fixture.store, &dispatcher, &file);
+        assert_eq!(ended.unwrap(), Stopped);
+        seen
     };
-    let (ended, seen) = script.run(&mut fixture.store, &dispatcher, &file);
-    assert_eq!(ended.unwrap(), Stopped);
     let slept = Seen::Slept(Duration::from_secs(7));
-    assert_eq!(seen, vec![passed(&[]), slept, passed(&[])]);
-
-    let script = Script {
-        every: Duration::from_secs(10),
-        pace: Duration::from_secs(10),
-        ticks: 2,
-        ..Script::new()
-    };
-    let (ended, seen) = script.run(&mut fixture.store, &dispatcher, &file);
-    assert_eq!(ended.unwrap(), Stopped);
-    assert_eq!(seen, vec![passed(&[]), passed(&[])]);
+    assert_eq!(two_ticks(3), vec![passed(&[]), slept, passed(&[])]);
+    assert_eq!(two_ticks(10), vec![passed(&[]), passed(&[])]);
 }
 
 #[test]

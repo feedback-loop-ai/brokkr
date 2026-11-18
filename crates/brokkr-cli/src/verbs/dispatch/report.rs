@@ -157,7 +157,7 @@ fn entries(lines: &mut String, passed: &Passed, journal: &Path) {
 }
 
 /// A run handed to its driver, or the spawn that failed and how to resume
-/// the run (`ResumeArgs`: `--run` and `--db`).
+/// the run.
 fn started_line(
     claim: Claim,
     run: &str,
@@ -170,28 +170,29 @@ fn started_line(
         Err(SpawnFailed::Refused(why)) => format!(
             "spawn failed: run {run} under {under} reads running with no driver ({why}); \
              resume it with{}",
-            resume(run, journal)
+            resume(claim, journal)
         ),
     }
 }
 
-/// The command that resumes `run` in `journal`. Each value is attached to
-/// its flag, so a run id the engine spells with a leading hyphen still
-/// parses as the value. Each value is also one shell word, so the command
-/// pastes as it reads (#820). A run id or journal path that the safe
-/// renderer would alter is never printed as a value: one holding a control
-/// or reordering character, or a path that is not UTF-8. The line then
-/// says why, rather than naming another journal.
-fn resume(run: &str, journal: &Path) -> String {
+/// The command that resumes the run linked under `claim` in `journal`:
+/// the driver the dispatcher would have started (`DriveArgs`), which
+/// rebuilds the request from the entry's payload, its bundle, repository
+/// and secrets as queued, from any directory. A bare `brokkr resume` would
+/// compile the workspace's default bundle instead. The journal's path is
+/// attached to its flag and one shell word, so the command pastes as it
+/// reads (#820). A path that the safe renderer would alter, one holding a
+/// control or reordering character or not UTF-8, is never printed as a
+/// value: the line then says why, rather than naming another journal.
+fn resume(claim: Claim, journal: &Path) -> String {
+    let (entry, seq) = claim.parts();
+    let driven = format!("brokkr dispatch drive --entry={entry} --claim={seq}");
     match journal.to_str() {
-        Some(path) if printable(path) && printable(run) => format!(
-            ": brokkr resume --run={} --db={}",
-            shell_word(run),
-            shell_word(path)
+        Some(path) if printable(path) => format!(": {driven} --db={}", shell_word(path)),
+        _ => format!(
+            " {driven}, naming this journal by hand with --db: its path holds characters this \
+             line cannot print"
         ),
-        _ => " brokkr resume, naming the run and this journal by hand: their spelling holds \
-              characters this line cannot print"
-            .to_string(),
     }
 }
 
@@ -235,12 +236,21 @@ pub(super) fn ending(ending: &Ending) -> String {
 /// now. A run that still reads `running` has no driver, and the line gives
 /// the command that resumes it (decision 0110 ruling 5).
 pub(super) fn reaped(reaped: &Reaped, journal: &Path) -> String {
-    let Exited { run, pid, exit } = &reaped.exited;
+    let Exited {
+        run,
+        claim,
+        pid,
+        exit,
+    } = &reaped.exited;
+    let exit = match exit {
+        Ok(status) => status.to_string(),
+        Err(error) => format!("its exit status unread ({error})"),
+    };
     let exited = format!("driver exited: run {run}, driver pid {pid}, {exit}");
     let said = match &reaped.reads {
         Ok(Status::Running) => format!(
             "{exited}; the run reads running with no driver; resume it with{}",
-            resume(run, journal)
+            resume(*claim, journal)
         ),
         Ok(status) => format!("{exited}; the run reads {}", status.as_str()),
         Err(error) => format!("{exited}; the run does not read: {error}"),
@@ -254,7 +264,7 @@ pub(super) fn reaped(reaped: &Reaped, journal: &Path) -> String {
 /// running, never signalled.
 pub(super) fn running(drivers: &super::Drivers) -> String {
     let mut lines = String::new();
-    for (pid, (run, _)) in drivers {
+    for (pid, (run, ..)) in drivers {
         line(
             &mut lines,
             &format!("left running: run {run}, driver pid {pid}"),

@@ -155,7 +155,8 @@ non-zero. Read that line, then act on it as below.
 
 | Ending | What it leaves | How to recover |
 |---|---|---|
-| **A crash** (killed, a second signal, the host went down) | Possibly one entry `launching`, or linked to a run with no `spawn` row. Drivers already started run on. A crash after an entry's `spawn` row and before its driver started leaves that run reading `running` with no driver. | Start the dispatcher again. Its first pass reconciles: a claim with no run goes back to its place uncounted, and a linked run is handed to a driver. A run that already has its `spawn` row is never spawned twice, so a run left `running` with no driver needs your `brokkr resume`, as for a spawn failure below. |
+| **A crash of the dispatcher** (killed, a second signal) | Possibly one entry `launching`, or linked to a run with no `spawn` row. Drivers already started run on. A crash after an entry's `spawn` row and before its driver started leaves that run reading `running` with no driver. | Start the dispatcher again. Its first pass reconciles: a claim with no run goes back to its place uncounted, and a linked run is handed to a driver. A run that already has its `spawn` row is never spawned twice, so a run left `running` with no driver needs resuming by hand, as for a spawn failure below. |
+| **The host went down** | All of the above, and every driver went down with it: each run the dispatcher had handed to a driver now reads `running` with no driver. No line names them. | Start the dispatcher again: its reconciliation settles the queue, but never spawns a run twice. Find the runs left behind with `brokkr runs --db <journal>`, the ones still running, and `brokkr queue list --db <journal>`, which names each started entry's run and launch. Resume each with `brokkr resume --run=<run> --db=<journal>`, adding the flags its entry was queued with (see below). |
 | **Fenced out** (`generation N was fenced out`) | Nothing written after the fence. A newer dispatcher holds the journal. | Run `brokkr dispatch status --db <journal>` to see who holds it. Start a dispatcher only if it says the journal is not held. |
 | **A replaced binary** (`the brokkr at … is not the one this dispatcher started from`) | Nothing claimed after the check. An entry already linked waits. | Start the dispatcher again, from the new binary. Its reconciliation hands the waiting entry to a driver of the new version. |
 | **Any other start refusal**, or a store error | The entry in flight stays `launching`. The line names the refusal. | Fix what the line names (the journal or the host), then start the dispatcher again. Reconciliation returns the entry to its place uncounted. |
@@ -166,20 +167,27 @@ with:
 
 - **A driver that died.** The tick's line reads `driver exited: run …,
   driver pid …, …; the run reads running with no driver; resume it with:
-  brokkr resume --run=<run> --db=<journal>`. The run is never spawned again,
-  and the dispatcher does not adopt it. Read the run's log beside the
-  journal, then paste the command.
+  brokkr dispatch drive --entry=<entry> --claim=<claim> --db=<journal>`.
+  The run is never spawned again, and the dispatcher does not adopt it.
+  Read the run's log beside the journal, then paste the command.
 - **A spawn failure.** The line reads `spawn failed: run … reads running
-  with no driver (…); resume it with: brokkr resume --run=<run>
-  --db=<journal>`. The run's `spawn` row already stands, so reconciliation
-  will not spawn it again. Paste the command once the cause (for example,
-  no free descriptor) has cleared.
+  with no driver (…); resume it with: brokkr dispatch drive
+  --entry=<entry> --claim=<claim> --db=<journal>`. The run's `spawn` row
+  already stands, so reconciliation will not spawn it again. Paste the
+  command once the cause (for example, no free descriptor) has cleared.
 
-The command names only the run and the journal. `brokkr resume` compiles
-its bundle the way `brokkr run` does, so run it from the workspace the
-entry was queued in. If the entry was queued with `--bundle <dir>` or
-`--recipe <name>`, or with `--repo <path>`, add the same flags to the
-command; without them, `resume` looks for the workspace's default bundle.
+The command is the driver the dispatcher would have started, run in your
+terminal. It rebuilds the run's request from its queue entry, with the
+bundle, repository and secrets the entry was queued with, so it works
+from any directory. A run whose seat was cut off mid-attempt may then
+park for your ruling, since that attempt's effect cannot be established.
+
+`brokkr resume` compiles its bundle the way `brokkr run` does, from the
+directory it runs in. To resume a dispatched run with it, as after the
+host went down, run it from the workspace the entry was queued in. If
+the entry was queued with `--bundle <dir>` or `--recipe <name>`, or with
+`--repo <path>`, add the same flags; without them, `resume` looks for the
+workspace's default bundle.
 
 A driver that exits once its run has finished, with the run reading
 `completed` or anything else that is not `running`, needs nothing from

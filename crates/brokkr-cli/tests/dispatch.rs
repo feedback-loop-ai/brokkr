@@ -403,8 +403,12 @@ impl Standing {
     /// `brokkr dispatch` given `args` on `machine`, its output piped.
     fn start(machine: &Machine, args: &[&str]) -> Standing {
         let brokkr = Path::new(env!("CARGO_BIN_EXE_brokkr"));
-        let mut child = machine
-            .command(brokkr, args)
+        Standing::spawned(&mut machine.command(brokkr, args))
+    }
+
+    /// `command` started, its output piped.
+    fn spawned(command: &mut Command) -> Standing {
+        let mut child = command
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
@@ -437,13 +441,19 @@ impl Standing {
     /// Wait up to the patience for the first tick's `started:` line: the
     /// pid of the driver it names.
     fn first_driver(&self) -> i32 {
+        started(&self.said("queue: ")).3
+    }
+
+    /// Wait up to the patience for the process to have said `words`: all
+    /// it said by then.
+    fn said(&self, words: &str) -> String {
         let began = Instant::now();
         loop {
             let said = self.said.lock().unwrap().clone();
-            if said.contains("queue: ") {
-                return started(&said).3;
+            if said.contains(words) {
+                return said;
             }
-            assert!(began.elapsed() < PATIENCE, "no tick reported: {said}");
+            assert!(began.elapsed() < PATIENCE, "never said {words}: {said}");
             std::thread::sleep(Duration::from_millis(25));
         }
     }
@@ -483,6 +493,17 @@ fn alive(pid: i32) -> bool {
     rustix::process::test_kill_process(pid).is_ok()
 }
 
+/// A machine with one entry queued, and a dispatcher standing over it
+/// every `every` seconds once its first driver's seat is working.
+fn standing_over_a_working_seat(every: &str) -> (Machine, Standing) {
+    let machine = Machine::new();
+    machine.queued();
+    let args = ["dispatch", "--every", every, "--db", machine.db()];
+    let dispatcher = Standing::start(&machine, &args);
+    machine.seat_runs();
+    (machine, dispatcher)
+}
+
 /// Decision 0110 ruling 5: the standing loop starts the queued entry's
 /// driver, and a SIGTERM stops it with exit 0 once that tick is reported.
 /// The driver, in a session of its own, is never signalled: it runs on and
@@ -493,11 +514,7 @@ fn a_standing_dispatcher_stops_on_sigterm_and_its_driver_runs_on() {
     {
         return;
     }
-    let machine = Machine::new();
-    machine.queued();
-    let args = ["dispatch", "--every", "5", "--db", machine.db()];
-    let dispatcher = Standing::start(&machine, &args);
-    machine.seat_runs();
+    let (machine, dispatcher) = standing_over_a_working_seat("5");
     dispatcher.signal(rustix::process::Signal::TERM);
     let ended = dispatcher.ended();
     let stdout = String::from_utf8_lossy(&ended.stdout).into_owned();
@@ -545,11 +562,7 @@ fn a_sigterm_during_the_sleep_wakes_it_and_reaps_a_driver_that_exited() {
     ) {
         return;
     }
-    let machine = Machine::new();
-    machine.queued();
-    let args = ["dispatch", "--every", "60", "--db", machine.db()];
-    let dispatcher = Standing::start(&machine, &args);
-    machine.seat_runs();
+    let (machine, dispatcher) = standing_over_a_working_seat("60");
     std::fs::write(machine.released(), "").unwrap();
     let pid = dispatcher.first_driver();
     exited(pid);
@@ -570,6 +583,61 @@ fn a_sigterm_during_the_sleep_wakes_it_and_reaps_a_driver_that_exited() {
     assert!(stdout.ends_with(&last), "{stdout}");
     assert!(!stdout.contains("left running"), "{stdout}");
     assert_eq!(machine.commands(), ["add", "claim", "link", "spawn", "add"]);
+}
+
+/// Decision 0110 ruling 5: a driver killed while its run reads `running` is
+/// reaped on the next tick, whose line gives the command that resumes the
+/// run. The entry was queued with `--bundle` outside the workspace, which a
+/// bare `brokkr resume` would not find; the command, pasted as a shell
+/// reads it from another directory, resumes the run under its queued
+/// bundle, which parks it for the operator's ruling since the killed
+/// attempt's effect cannot be established, and the dispatcher never spawns
+/// it again.
+#[test]
+fn a_killed_drivers_line_gives_a_command_that_resumes_its_run_as_queued() {
+    if !in_its_own_engine(
+        "dispatch::a_killed_drivers_line_gives_a_command_that_resumes_its_run_as_queued",
+    ) {
+        return;
+    }
+    let (machine, dispatcher) = standing_over_a_working_seat("5");
+    let pid = dispatcher.first_driver();
+    let driver = rustix::process::Pid::from_raw(pid).unwrap();
+    rustix::process::kill_process(driver, rustix::process::Signal::KILL).unwrap();
+    let said = dispatcher.said("driver exited: ");
+    dispatcher.signal(rustix::process::Signal::TERM);
+    assert_eq!(dispatcher.ended().status.code(), Some(0));
+    let line = (said.lines())
+        .find(|line| line.starts_with("driver exited: "))
+        .unwrap();
+    let (run, ..) = started(&said);
+    let (exited, command) = line.split_once("; resume it with: ").unwrap();
+    assert_eq!(
+        exited,
+        format!(
+            "driver exited: run {run}, driver pid {pid}, signal: 9 (SIGKILL); the run reads \
+             running with no driver"
+        )
+    );
+
+    // The orphaned seat answers and goes; then the command, its `brokkr`
+    // this build's, is pasted in a directory that is not the workspace.
+    std::fs::write(machine.released(), "").unwrap();
+    let pasted = command.strip_prefix("brokkr ").unwrap();
+    let brokkr = env!("CARGO_BIN_EXE_brokkr");
+    let script = format!("exec '{brokkr}' {pasted}");
+    let mut shell = machine.command(Path::new("sh"), &["-c", &script]);
+    let resumed = Standing::spawned(shell.current_dir(machine.base.join("home"))).ended();
+    let stdout = String::from_utf8_lossy(&resumed.stdout);
+    assert_eq!(resumed.status.code(), Some(2), "{resumed:?}");
+    for said in [
+        format!("\"run_id\": \"{run}\""),
+        "\"status\": \"awaiting_operator\"".to_string(),
+        "engine restarted while the attempt was in flight".to_string(),
+    ] {
+        assert!(stdout.contains(&said), "{said}: {stdout}");
+    }
+    assert_eq!(machine.commands(), ["add", "claim", "link", "spawn"]);
 }
 
 /// Decision 0110 ruling 5: a second signal while the first's stop is asked

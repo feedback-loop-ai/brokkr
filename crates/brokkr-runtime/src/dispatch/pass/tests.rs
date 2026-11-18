@@ -16,7 +16,9 @@ use crate::dispatch::{take_dispatch, Dispatcher};
 
 pub(crate) mod support;
 
-use support::{claims, claims_ok, commands, host, quiet, run_pass, runs, spawned_one, stands_ok};
+use support::{
+    always_claims, claims, commands, host, quiet, run_pass, runs, spawned_one, stands_ok,
+};
 
 /// A spawn seam's recording answer.
 fn recording(
@@ -466,6 +468,32 @@ fn a_stand_that_ends_before_a_claim_claims_nothing() {
     assert!(matches!(refused.ending, Ending::Stood));
     assert_eq!(claims(&fixture.store), vec![]);
     assert_eq!(state(&fixture.store, entry), EntryState::Queued);
+}
+
+/// Decision 0110 ruling 5: the stop is read inside the claim's own
+/// transaction, once it holds the journal's write lock, so a stop asked
+/// while the claim waited on another writer still claims nothing.
+#[test]
+fn a_stop_is_read_with_the_claims_write_lock_held_and_claims_nothing() {
+    let (mut fixture, file, dispatcher, entries) = setup(1);
+    let path = fixture.store.path().to_path_buf();
+    let mut asked = Vec::new();
+    let seams = Seams {
+        claims: || {
+            let other = rusqlite::Connection::open(&path).unwrap();
+            other.busy_timeout(std::time::Duration::ZERO).unwrap();
+            let begun = other.execute_batch("BEGIN IMMEDIATE");
+            asked.push(begun.err().and_then(|error| error.sqlite_error_code()));
+            false
+        },
+        stands: stands_ok,
+        spawn: spawned_one,
+    };
+    let passed = run_pass(&mut fixture.store, &dispatcher, &file, seams).unwrap();
+    assert_eq!(asked, [Some(rusqlite::ErrorCode::DatabaseBusy)]);
+    assert!(passed.started.is_empty());
+    assert_eq!(claims(&fixture.store), vec![]);
+    assert_eq!(state(&fixture.store, entries[0]), EntryState::Queued);
 }
 
 #[test]
@@ -982,7 +1010,7 @@ fn reconciliation_spawn_stops_on_a_stand_that_ends_and_on_a_store_refusal() {
         ..Passed::default()
     };
     let mut seams = Seams {
-        claims: || true,
+        claims: always_claims(),
         stands: || Err(Ending::Stood),
         spawn: spawned_one,
     };
@@ -1010,7 +1038,7 @@ fn reconciliation_spawn_stops_on_a_stand_that_ends_and_on_a_store_refusal() {
     )
     .unwrap();
     let mut seams = Seams {
-        claims: || true,
+        claims: always_claims(),
         stands: stands_ok,
         spawn: spawned_one,
     };
@@ -1023,7 +1051,7 @@ fn reconciliation_spawn_stops_on_a_stand_that_ends_and_on_a_store_refusal() {
         ..Passed::default()
     };
     let mut seams = Seams {
-        claims: || true,
+        claims: always_claims(),
         stands: stands_ok,
         spawn: spawned_one,
     };
@@ -1062,10 +1090,10 @@ fn a_store_refusal_at_the_claim_ends_the_pass_and_writes_no_claim() {
 
 /// A stand that takes a write lock on `path` when the pass first calls it,
 /// and the held connection a test releases.
-type LockingSeams = Seams<
+type LockingSeams = PassSeams<
+    'static,
     Box<dyn FnMut() -> Result<(), Ending>>,
     fn(&crate::dispatch::Spawn) -> Result<crate::dispatch::Spawned, crate::dispatch::SpawnFailed>,
-    fn() -> bool,
 >;
 
 fn lock_seams(
@@ -1084,7 +1112,7 @@ fn lock_seams(
         Seams {
             stands,
             spawn: spawned_one,
-            claims: claims_ok,
+            claims: always_claims(),
         },
     )
 }

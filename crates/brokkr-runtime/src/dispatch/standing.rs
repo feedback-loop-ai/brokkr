@@ -17,11 +17,12 @@
 //! seams the verb supplies (decision 0071 ruling 1).
 
 use std::ffi::OsString;
+use std::io;
 use std::process::ExitStatus;
 use std::time::{Duration, Instant};
 
 use brokkr_core::fold::{fold, Status};
-use brokkr_store::Store;
+use brokkr_store::{Claim, Store};
 
 use super::lock::Dispatcher;
 use super::pass::{pass, Ended, Ending, Passed, Seams};
@@ -30,12 +31,15 @@ use crate::admission::Host;
 use crate::EngineError;
 
 /// A driver the dispatcher spawned that has exited, as its reap seam found
-/// it without waiting: its run, its pid and how it exited.
+/// it without waiting: its run, the claim it was handed, its pid and how it
+/// exited, or why its handle could not say, as when the system reaped it
+/// first because SIGCHLD was inherited ignored.
 #[derive(Debug)]
 pub struct Exited {
     pub run: String,
+    pub claim: Claim,
     pub pid: u32,
-    pub exit: ExitStatus,
+    pub exit: io::Result<ExitStatus>,
 }
 
 /// An exited driver as a tick reports it, beside what its run reads now:

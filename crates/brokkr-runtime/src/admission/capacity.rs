@@ -350,8 +350,20 @@ pub struct Room {
 enum Recheck {
     /// A wait no longer holds, or the entry has no room now.
     Refused(Reason),
+    /// The caller's `claims` answered no inside the transaction.
+    Stopped,
     /// A run read again does not fold.
     Failed(Box<AdmissionError>),
+}
+
+/// Why a claim took nothing, though nothing failed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Unclaimed {
+    /// A wait no longer holds, or the entry has no room now.
+    Refused(Reason),
+    /// `claims` answered no once the claim held the journal's write lock:
+    /// a dispatcher's stop (decision 0110 ruling 5).
+    Stopped,
 }
 
 /// An awaited entry, as the claim's transaction reads it.
@@ -368,12 +380,16 @@ impl Room {
     /// entry's lanes and the boxed builds are judged again by their
     /// ceilings. An unmet wait or one
     /// at a ceiling now is the inner refusal, and nothing is claimed.
+    /// `claims` is asked first inside the transaction, once it holds the
+    /// write lock, so a stop asked while the claim waited on another
+    /// writer is honoured: a no claims nothing.
     pub fn claim(
         &self,
         store: &mut Store,
         generation: Generation,
         reason: &str,
-    ) -> Result<Result<Claim, Reason>, AdmissionError> {
+        claims: &mut dyn FnMut() -> bool,
+    ) -> Result<Result<Claim, Unclaimed>, AdmissionError> {
         let over = Claiming {
             entry: &self.entry,
             high_water: self.high_water,
@@ -381,10 +397,11 @@ impl Room {
             generation,
             now: Stamp::now_utc(),
         };
-        let claimed = store.queue_claim_with(&over, reason, self.judge(store.path()));
+        let claimed = store.queue_claim_with(&over, reason, self.judge(store.path(), claims));
         match claimed? {
             Ok(claim) => Ok(Ok(claim)),
-            Err(Recheck::Refused(reason)) => Ok(Err(reason)),
+            Err(Recheck::Refused(reason)) => Ok(Err(Unclaimed::Refused(reason))),
+            Err(Recheck::Stopped) => Ok(Err(Unclaimed::Stopped)),
             Err(Recheck::Failed(error)) => Err(*error),
         }
     }

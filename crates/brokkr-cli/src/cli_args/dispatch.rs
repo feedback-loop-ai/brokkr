@@ -33,7 +33,8 @@ pub(crate) struct DispatchArgs {
 pub(crate) enum DispatchCmd {
     /// A queued run's driver: resume the run the entry is linked to under
     /// the claim, once its `spawn` row has landed. The dispatcher spawns
-    /// it; an operator resumes a run with `brokkr resume`.
+    /// it, and a run whose driver is gone is resumed by the same command,
+    /// which a dispatcher's line gives.
     #[command(hide = true)]
     Drive(DriveArgs),
     /// Set the journal's bound on the refusals counted against one entry

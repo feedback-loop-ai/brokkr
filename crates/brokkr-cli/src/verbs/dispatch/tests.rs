@@ -142,13 +142,15 @@ fn a_nap_sleeps_its_rest_and_wakes_at_once_on_a_stop() {
     nap(&AtomicBool::new(true), Duration::from_secs(10));
     assert!(began.elapsed() < Duration::from_secs(1), "woke at once");
 
+    // The asker's wait and the nap are timed from one origin, taken before
+    // either starts, so a busy host cannot order them the wrong way round.
     let stop = Arc::new(AtomicBool::new(false));
     let asks = Arc::clone(&stop);
+    let began = Instant::now();
     let asker = std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_millis(200));
+        std::thread::sleep(Duration::from_millis(200).saturating_sub(began.elapsed()));
         asks.store(true, Ordering::SeqCst);
     });
-    let began = Instant::now();
     nap(&stop, Duration::from_secs(10));
     let slept = began.elapsed();
     asker.join().unwrap();
@@ -174,18 +176,62 @@ fn reaping_takes_each_exited_driver_and_keeps_one_still_running() {
     exited.wait().unwrap();
     // A waited child's status is cached on its handle, which `try_wait`
     // reads back, so the reap does not race the exit.
+    let OneClaim { claim, .. } = one_claim("{}");
     let mut drivers = Drivers::new();
-    drivers.insert(pid, ("run-done".into(), exited));
-    drivers.insert(kept, ("run-on".into(), running));
+    drivers.insert(pid, ("run-done".into(), claim, exited));
+    drivers.insert(kept, ("run-on".into(), claim, running));
     let reaped = reaped(&mut drivers);
-    let [Exited { run, pid: at, exit }] = reaped.as_slice() else {
+    let [Exited {
+        run,
+        claim: handed,
+        pid: at,
+        exit: Ok(exit),
+    }] = reaped.as_slice()
+    else {
         panic!("{reaped:?}");
     };
-    assert_eq!((run.as_str(), *at, exit.code()), ("run-done", pid, Some(3)));
+    assert_eq!(
+        (run.as_str(), *handed, *at, exit.code()),
+        ("run-done", claim, pid, Some(3))
+    );
     assert_eq!(drivers.keys().copied().collect::<Vec<_>>(), [kept]);
-    let (_, mut running) = drivers.remove(&kept).unwrap();
+    let (.., mut running) = drivers.remove(&kept).unwrap();
     running.kill().unwrap();
     running.wait().unwrap();
+}
+
+/// Ruling 5: a driver whose handle cannot say how it exited, here because
+/// it was waited on behind the handle's back, as the system does when
+/// SIGCHLD is inherited ignored, is reaped with why rather than kept as
+/// running for ever.
+#[test]
+fn a_driver_whose_handle_does_not_read_is_reaped_with_why() {
+    let exited = child("exit 0");
+    let pid = exited.id();
+    let waited = rustix::process::Pid::from_raw(pid as i32);
+    rustix::process::waitpid(waited, rustix::process::WaitOptions::empty()).unwrap();
+    let OneClaim { claim, .. } = one_claim("{}");
+    let mut drivers = Drivers::new();
+    drivers.insert(pid, ("run-gone".into(), claim, exited));
+    let reaped = reaped(&mut drivers);
+    let [Exited {
+        run,
+        pid: at,
+        exit: Err(error),
+        ..
+    }] = reaped.as_slice()
+    else {
+        panic!("{reaped:?}");
+    };
+    assert_eq!(
+        (run.as_str(), *at, error.raw_os_error()),
+        (
+            "run-gone",
+            pid,
+            Some(rustix::io::Errno::CHILD.raw_os_error())
+        )
+    );
+    assert!(drivers.is_empty());
 }
 
 #[test]

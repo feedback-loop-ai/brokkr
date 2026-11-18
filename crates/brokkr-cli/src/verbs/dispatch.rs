@@ -26,7 +26,7 @@ use brokkr_runtime::dispatch::{
     self, Binary, Dispatcher, Exited, Seams, Spawn, SpawnFailed, Spawned, Stand, Tick,
 };
 use brokkr_runtime::{launch, Engine};
-use brokkr_store::{Attribution, EntryId, Store};
+use brokkr_store::{Attribution, Claim, EntryId, Store};
 use signal_hook::consts::{SIGINT, SIGTERM};
 
 use super::delivery::operator_name;
@@ -99,8 +99,8 @@ fn taken(workspace: &Path, journal: JournalArgs) -> Result<(PathBuf, Binary, Sto
 }
 
 /// The drivers the standing loop spawned and has not reaped: each one's
-/// run and handle, by its pid.
-type Drivers = BTreeMap<u32, (String, Child)>;
+/// run, claim and handle, by its pid.
+type Drivers = BTreeMap<u32, (String, Claim, Child)>;
 
 /// `brokkr dispatch`: the standing loop (decision 0110 ruling 5), a pass
 /// every `--every` seconds, each tick's report painted as `--once` paints
@@ -118,7 +118,7 @@ fn standing(workspace: &Path, args: DispatchArgs, out: &mut impl Write) -> Resul
         let started = spawned(&child);
         drivers
             .borrow_mut()
-            .insert(started.pid, (spawn.run.clone(), child));
+            .insert(started.pid, (spawn.run.clone(), spawn.claim, child));
         Ok(started)
     };
     let mut report = |tick: Tick<'_>| {
@@ -183,16 +183,25 @@ fn nap(stop: &AtomicBool, rest: Duration) {
 }
 
 /// Each driver in `drivers` that has exited, taken out of it without
-/// waiting on any. A handle whose state does not read is kept.
+/// waiting on any. A handle whose state does not read, as when SIGCHLD was
+/// inherited ignored and the system reaped the driver itself, is taken out
+/// too, with why: its run's journal says whether it needs a resume.
 fn reaped(drivers: &mut Drivers) -> Vec<Exited> {
     let mut exited = Vec::new();
-    drivers.retain(|pid, (run, child)| match child.try_wait().ok().flatten() {
-        Some(exit) => {
-            let (run, pid) = (run.clone(), *pid);
-            exited.push(Exited { run, pid, exit });
-            false
-        }
-        None => true,
+    drivers.retain(|pid, (run, claim, child)| {
+        let exit = match child.try_wait() {
+            Ok(None) => return true,
+            Ok(Some(status)) => Ok(status),
+            Err(error) => Err(error),
+        };
+        let (run, claim, pid) = (run.clone(), *claim, *pid);
+        exited.push(Exited {
+            run,
+            claim,
+            pid,
+            exit,
+        });
+        false
     });
     exited
 }

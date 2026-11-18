@@ -780,10 +780,7 @@ fn the_claims_recheck_counts_the_moved_runs_before_it_judges_a_cool_down() {
     let room = admitted(&fixture, &file);
     write_cooling(&mut fixture.store, "run-cooling");
     fixture.running("odd", &json!({}));
-    match room
-        .claim(&mut fixture.store, Generation(1), "admitted")
-        .unwrap()
-    {
+    match claimed(&mut fixture, &room) {
         Err(reason) => assert_eq!(reason.kind(), "run_unmeasured"),
         Ok(claim) => panic!("the claim took {claim:?} over an unreadable run"),
     }
@@ -1390,8 +1387,20 @@ fn one_admitted() -> (Fixture, EntryId, PathBuf, Room) {
 
 /// Claim the entry `room` was measured for, as generation 1.
 pub(crate) fn claimed(fixture: &mut Fixture, room: &Room) -> Result<Claim, Reason> {
-    room.claim(&mut fixture.store, Generation(1), "admitted")
-        .unwrap()
+    match claim(room, &mut fixture.store).unwrap() {
+        Ok(claim) => Ok(claim),
+        Err(Unclaimed::Refused(reason)) => Err(reason),
+        Err(Unclaimed::Stopped) => panic!("a claim that is never stopped stopped"),
+    }
+}
+
+/// Claim the entry `room` was measured for through `store`, as generation
+/// 1, never stopped.
+pub(crate) fn claim(
+    room: &Room,
+    store: &mut Store,
+) -> Result<Result<Claim, Unclaimed>, AdmissionError> {
+    room.claim(store, Generation(1), "admitted", &mut || true)
 }
 
 /// An operator's `retry` of a run, as `brokkr operator` journals it.
@@ -1518,7 +1527,7 @@ fn a_run_that_moved_and_cannot_be_read_refuses_the_claim() {
     brokkr_store::test_support::plant_envelope(&conn, &after).unwrap();
     // A run that does not fold stands behind its head on purpose.
     brokkr_store::test_support::lags(&mut fixture.store, &["r1"]);
-    let error = (room.claim(&mut fixture.store, Generation(1), "admitted")).unwrap_err();
+    let error = claim(&room, &mut fixture.store).unwrap_err();
     assert!(
         matches!(&error, AdmissionError::Fold { run, .. } if run == "r1"),
         "{error:?}"
@@ -1565,7 +1574,7 @@ fn a_room_claims_its_entry_only_as_the_pass_read_it() {
         let (mut fixture, entry, _, room) = one_admitted();
         act(&mut fixture, entry);
         let before = fixture.store.queue_entry(entry).unwrap();
-        let error = (room.claim(&mut fixture.store, Generation(1), "admitted")).unwrap_err();
+        let error = claim(&room, &mut fixture.store).unwrap_err();
         let AdmissionError::Store(StoreError::Queue(refused)) = &error else {
             panic!("not a queue refusal: {error:?}");
         };
@@ -1628,13 +1637,11 @@ fn a_room_claims_in_no_journal_but_the_one_its_pass_measured() {
     }
     let mut copied = Store::open(&copy).unwrap();
     let before = [written(&measured.store), written(&other.store)];
-    let error = (room.claim(&mut other.store, Generation(1), "admitted")).unwrap_err();
+    let error = claim(&room, &mut other.store).unwrap_err();
     refused_elsewhere(&error, other.store.path());
     assert_eq!([written(&measured.store), written(&other.store)], before);
 
-    (room.claim(&mut copied, Generation(1), "admitted"))
-        .unwrap()
-        .unwrap();
+    claim(&room, &mut copied).unwrap().unwrap();
     let state = copied.queue_entry(entry).unwrap().state;
     assert_eq!(state, brokkr_store::EntryState::Launching);
     assert_eq!(written(&measured.store), before[0]);
@@ -1656,9 +1663,7 @@ fn a_room_claims_through_any_store_on_the_journal_its_pass_measured() {
             }
         };
         let mut reconnected = Store::open(&path).unwrap();
-        (room.claim(&mut reconnected, Generation(1), "admitted"))
-            .unwrap()
-            .unwrap();
+        claim(&room, &mut reconnected).unwrap().unwrap();
         let state = fixture.store.queue_entry(entry).unwrap().state;
         assert_eq!(state, brokkr_store::EntryState::Launching);
     }
@@ -1693,7 +1698,7 @@ fn a_store_opened_through_a_symlink_retargeted_since_is_the_journal_it_holds() {
                 (&mut measured.store, named)
             }
         };
-        let error = (room.claim(handed, Generation(1), "admitted")).unwrap_err();
+        let error = claim(&room, handed).unwrap_err();
         refused_elsewhere(&error, &named);
         let after = [written(&measured.store), written(&other.store)];
         assert_eq!(after, before);
@@ -1711,7 +1716,7 @@ fn a_store_whose_place_another_file_was_renamed_into_is_the_journal_it_opened() 
     other.queue();
     let before = [&measured.store, &other.store].map(|store| store.queue_list().unwrap());
     std::fs::rename(measured.store.path(), other.store.path()).unwrap();
-    let error = (room.claim(&mut other.store, Generation(1), "admitted")).unwrap_err();
+    let error = claim(&room, &mut other.store).unwrap_err();
     refused_elsewhere(&error, other.store.path());
     let after = [&measured.store, &other.store].map(|store| store.queue_list().unwrap());
     assert_eq!(after, before);
@@ -1748,7 +1753,7 @@ fn a_store_whose_path_was_replaced_while_its_open_waited_is_the_journal_it_holds
     let mut waited = opening.join().unwrap();
     assert_eq!(waited.queue_list().unwrap(), before[1].0, "not B's store");
 
-    let error = (room.claim(&mut waited, Generation(1), "admitted")).unwrap_err();
+    let error = claim(&room, &mut waited).unwrap_err();
     refused_elsewhere(&error, &path);
     std::fs::rename(&path, measured.store.path()).unwrap();
     std::fs::rename(&kept, &path).unwrap();
@@ -1771,7 +1776,7 @@ fn a_room_whose_pass_read_a_journal_with_no_id_claims_in_nothing() {
     let mut named = Store::open(&path).unwrap();
     assert_ne!(named.journal().unwrap(), None);
     for store in [&mut read, &mut named] {
-        let error = (room.claim(store, Generation(1), "admitted")).unwrap_err();
+        let error = claim(&room, store).unwrap_err();
         refused_elsewhere(&error, &path);
     }
     assert_eq!(written(&measured.store), before);

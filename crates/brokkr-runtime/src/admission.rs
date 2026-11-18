@@ -68,7 +68,7 @@ mod host;
 
 use awaited::{awaiting, came_to, observe};
 
-pub use capacity::{Capacity, Host, Measured, Room, Shared, Unmeasurable};
+pub use capacity::{Capacity, Host, Measured, Room, Shared, Unclaimed, Unmeasurable};
 pub(crate) use host::config_dir;
 pub use host::{
     declared_routes, free_bytes, host_file, runs_undeclared, HostError, HostRoutes, Place,
