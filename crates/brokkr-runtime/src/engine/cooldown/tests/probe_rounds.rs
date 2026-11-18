@@ -563,7 +563,11 @@ fn a_probes_cleanup_refusal_parks_first_and_writes_no_row() {
     // Only the broken cleanup-first check reaches here; the write is the
     // row-writing path the row assertion is the removal control for.
     if let Some(round) = extended {
-        let _ = engine.record_extension(&[wait()], &[Some(1000)], &round, 0);
+        let site = super::super::held::SiteMax {
+            max: 1000,
+            ordinary: true,
+        };
+        let _ = engine.record_extension(&[wait()], &[Some(site)], &round, 0);
     }
     let event = failed(&engine).remove(0);
     assert_eq!(

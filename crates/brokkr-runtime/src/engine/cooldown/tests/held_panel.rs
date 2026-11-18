@@ -89,15 +89,125 @@ fn episode_seconds(engine: &Engine) -> u64 {
 /// Write the panel's held terminal, resume at a's held end, and let a's
 /// probe state its second reset: the instant the probe ran.
 fn probed_at_a_end(engine: &mut Engine, now: &Arc<Mutex<OffsetDateTime>>) -> OffsetDateTime {
+    probed_at_held_end(engine, now, "a")
+}
+
+/// Write the panel's terminal with `held` its one held member, then resume
+/// at that member's held end: the instant the resume ran.
+fn probed_at_held_end(
+    engine: &mut Engine,
+    now: &Arc<Mutex<OffsetDateTime>>,
+    held: &str,
+) -> OffsetDateTime {
     engine.drive().unwrap();
     assert_eq!(standing(engine), (Status::Running, 0));
     let waits = wait_entries(&failed(engine)[0]);
-    assert_eq!(waits[0]["held"], json!(true), "{waits:?}");
-    assert_eq!(waits[1].get("held"), None, "{waits:?}");
-    let probe_at = until_of(engine, "a");
+    for wait in &waits {
+        let expected = (wait["site"] == held).then_some(&json!(true));
+        assert_eq!(wait.get("held"), expected, "{waits:?}");
+    }
+    let probe_at = until_of(engine, held);
     *now.lock().unwrap() = probe_at;
     engine.drive().unwrap();
     probe_at
+}
+
+/// Fix round 0106b1r4, F2, the correctness position's plant: a states 5s
+/// past its 2s maximum and is held, b states an ordinary 3s within its 10s.
+/// At a's end the resume judges b's 3s by b's maximum alone, and a's 2s
+/// judges none of it, so a's probe runs on the same effect and its renewed
+/// 5s is held again. At HEAD the resume judged the 3s episode against a's
+/// 2s and parked past the maximum before any probe.
+#[test]
+fn a_held_members_maximum_never_judges_an_ordinary_members_seconds_at_resume() {
+    let a = Stated {
+        attempt: 5,
+        probe: 5,
+        max: 2,
+    };
+    let b = Stated {
+        attempt: 3,
+        probe: 3,
+        max: 10,
+    };
+    let (dir, mut engine, now) = mixed_panel(&a, &b);
+    let probe_at = probed_at_a_end(&mut engine, &now);
+    assert_eq!(logs(dir.path(), "a"), ["attempt:refuse", "probe"]);
+    assert_a_held_again(&engine, probe_at, 5, 2);
+    assert_eq!(episode_seconds(&engine), 3);
+}
+
+/// F2, the adversarial position's plant: a states 10s past its 2s maximum,
+/// b an ordinary 5s within its 10s. At a's expiry one probe runs on the
+/// same effect, a fresh held row stands to probe time + 10s, and the run is
+/// still running. At HEAD it was `AwaitingOperator`, a's log held only its
+/// refused attempt, and claude/first had no row.
+#[test]
+fn a_resumed_held_wait_probes_where_an_ordinary_members_seconds_pass_its_maximum() {
+    let a = Stated {
+        attempt: 10,
+        probe: 10,
+        max: 2,
+    };
+    let b = Stated {
+        attempt: 5,
+        probe: 5,
+        max: 10,
+    };
+    let (dir, mut engine, now) = mixed_panel(&a, &b);
+    let probe_at = probed_at_a_end(&mut engine, &now);
+    assert_eq!(logs(dir.path(), "a"), ["attempt:refuse", "probe"]);
+    assert_a_held_again(&engine, probe_at, 10, 2);
+    assert_eq!(episode_seconds(&engine), 5);
+}
+
+/// F2's mirror: b is held (5s past its 2s maximum) and a waits an ordinary
+/// 3s within its 10s. At b's end the resume and the round's wait judge a's
+/// 3s by a's maximum only, and a's probe's ordinary 3s round, 6s of
+/// episode, is judged by no maximum of b's: it is written, waited, and the
+/// next probes answer, so the panel retries and both members succeed. At
+/// HEAD b's 2s maximum parked the resume on a's 3s.
+#[test]
+fn an_ordinary_members_rounds_are_never_judged_by_a_held_members_maximum() {
+    let a = Stated {
+        attempt: 3,
+        probe: 3,
+        max: 10,
+    };
+    let b = Stated {
+        attempt: 5,
+        probe: 5,
+        max: 2,
+    };
+    let (dir, mut engine, now) = mixed_panel(&a, &b);
+    probed_at_held_end(&mut engine, &now, "b");
+    assert_eq!(
+        logs(dir.path(), "a"),
+        ["attempt:refuse", "probe", "probe", "attempt:succeed"]
+    );
+    assert_eq!(
+        logs(dir.path(), "b"),
+        ["attempt:refuse", "probe", "attempt:succeed"]
+    );
+    // The retry is the effect's next event after its refused terminal: no
+    // park came between. (The fixture panel's result is outside its
+    // declared results, so the run parks `ruled` after the retry.)
+    let events = engine.store.load(&engine.run_id).unwrap();
+    let after: Vec<_> = events
+        .iter()
+        .skip_while(|event| event.event_type != EventType::EffectFailed)
+        .skip(1)
+        .map(|event| event.event_type)
+        .take(2)
+        .collect();
+    assert_eq!(
+        after,
+        [EventType::EffectStarted, EventType::EffectCheckpointed]
+    );
+    assert!(events
+        .iter()
+        .any(|event| event.event_type == EventType::EffectSucceeded));
+    assert_eq!(episode_seconds(&engine), 6);
 }
 
 /// a's probe round, held, with the maximum it passed and its end.

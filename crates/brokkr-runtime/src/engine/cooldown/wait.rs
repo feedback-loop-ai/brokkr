@@ -6,15 +6,15 @@
 
 use brokkr_core::fold::{fold, Cursor, Run, RunState};
 use brokkr_core::park::{Park, ParkCause, ProviderLimitRefusal};
-use brokkr_core::{EventEnvelope, Held, ProbeAnswer, ProviderWait};
+use brokkr_core::{EventEnvelope, ProbeAnswer, ProviderWait};
 use brokkr_store::{CooldownAggregate, CooldownRound, RoundAppend};
 use time::{Duration as TimeDuration, OffsetDateTime};
 
-use super::held::{bound, Bound};
+use super::held::{bound, judged_episode, Bound, SiteMax};
 use super::probe::{NextRound, Probe};
 use super::{
-    episode_by_site, maximum_reason, park_of, past_maximum, sites, CooldownError, Engine,
-    EngineError, HeldDrive, MaximumFacts, Waited, SLICE,
+    episode_by_site, maximum_reason, park_of, sites, CooldownError, Engine, EngineError, HeldDrive,
+    MaximumFacts, Waited, SLICE,
 };
 
 impl Engine {
@@ -184,7 +184,7 @@ impl Engine {
     fn hold_extension(
         &mut self,
         waits: &[ProviderWait],
-        maxima: &[Option<u64>],
+        maxima: &[Option<SiteMax>],
         round: &NextRound,
         unrecorded: u64,
     ) -> Result<Extension, EngineError> {
@@ -213,7 +213,7 @@ impl Engine {
         waits: &[ProviderWait],
         unrecorded: &mut u64,
         counted: OffsetDateTime,
-        maxima: &mut Vec<Option<u64>>,
+        maxima: &mut Vec<Option<SiteMax>>,
     ) -> Result<WaitRound, EngineError> {
         if self.moved_from_the_effect()? {
             return Ok(WaitRound::Stopped);
@@ -342,9 +342,16 @@ impl Engine {
                     })
                 }
             };
-            maxima.push(Some(max));
-            let through = episode.seconds.saturating_add(waited);
-            if past_maximum(waited, through, max) {
+            // A site whose every recorded wait is held counts no seconds,
+            // so its maximum judges the new remainder alone and never
+            // another site's (fix round 0106b1r4, F2).
+            let own = episode.lengths.get(&wait.site).copied();
+            maxima.push(Some(SiteMax {
+                max,
+                ordinary: own.is_some(),
+            }));
+            let before = judged_episode(own.is_some(), episode.seconds);
+            if let Bound::Past(through) = bound(None, waited, before, max) {
                 let rounds = episode
                     .rounds
                     .get(&wait.site)
@@ -388,7 +395,7 @@ impl Engine {
     pub(super) fn record_extension(
         &mut self,
         waits: &[ProviderWait],
-        maxima: &[Option<u64>],
+        maxima: &[Option<SiteMax>],
         round: &NextRound,
         waited: u64,
     ) -> Result<Written, CooldownError> {
@@ -436,87 +443,6 @@ impl Engine {
                 source: Box::new(source),
             }),
         }
-    }
-
-    /// Judge one probe's next round before anything is written: its held
-    /// kind (`None` is ordinary) and its own site's maximum, or the park. The refused site's
-    /// OWN route maximum classifies its reset, through the terminal's one
-    /// decision ([`bound`]), before any episode sum, as each panel member's
-    /// own plan classifies its own at the terminal: no other site's maximum
-    /// classifies it (fix round 0106b1r3). A held round adds nothing to the
-    /// episode, so nothing further judges it. An ordinary round's episode
-    /// through it is then judged against every other cooled site's maximum,
-    /// and passing any writes no row (finding 4, 0103 choice 3): another
-    /// site's maximum bounds the shared episode, never the reset's kind.
-    /// The maxima are the ones the round's wait read before the probes; a
-    /// site the wait found no declaration for judges nothing, so the round
-    /// parks rather than writing unjudged (finding 1).
-    fn judge_round(
-        &self,
-        waits: &[ProviderWait],
-        maxima: &[Option<u64>],
-        round: &NextRound,
-        waited: u64,
-    ) -> Result<(Option<Held>, u64), CooldownError> {
-        let unbounded = |wait: &ProviderWait| CooldownError::RoundUnbounded {
-            provider: wait.provider.clone(),
-            route: wait.route.clone(),
-            words: round.words.clone(),
-        };
-        let mut bounded = Vec::with_capacity(waits.len());
-        for (wait, max) in waits.iter().zip(maxima) {
-            bounded.push((wait, max.ok_or_else(|| unbounded(wait))?));
-        }
-        let Some(&(own_wait, own)) = bounded.iter().find(|(wait, _)| wait.site == round.site)
-        else {
-            return Err(CooldownError::RoundUnbounded {
-                provider: round.provider.clone(),
-                route: round.route.clone(),
-                words: round.words.clone(),
-            });
-        };
-        let before = round.episode.saturating_add(waited);
-        let through = match bound(round.retry_after_seconds, round.seconds, before, own) {
-            Bound::Held(kind) => return Ok((Some(kind), own)),
-            Bound::Past(through) => return Err(self.round_past(round, own_wait, through, own)),
-            Bound::Within(through) => through,
-        };
-        for (wait, max) in bounded {
-            if wait.site != round.site && past_maximum(0, through, max) {
-                return Err(self.round_past(round, wait, through, max));
-            }
-        }
-        Ok((None, own))
-    }
-
-    /// The park a probe's round past `wait`'s maximum `max` gives: the
-    /// round that would be written, the episode through it, and the cooled
-    /// site whose maximum it passed where that is not the round's own.
-    fn round_past(
-        &self,
-        round: &NextRound,
-        wait: &ProviderWait,
-        through: u64,
-        max: u64,
-    ) -> CooldownError {
-        let pending = ProviderWait {
-            site: round.site.clone(),
-            provider: round.provider.clone(),
-            route: round.route.clone(),
-            words: round.words.clone(),
-            retry_after_seconds: round.retry_after_seconds,
-            seconds: round.seconds,
-            until: self.now(),
-            rounds: round.round,
-            held: None,
-        };
-        let passed = (wait.site != round.site).then(|| wait.site.clone().unwrap_or_default());
-        CooldownError::Maximum(Box::new(MaximumFacts {
-            wait: pending,
-            episode: through,
-            max,
-            passed,
-        }))
     }
 
     /// The wait's end: the latest of every recorded wait's own `until` and
@@ -602,12 +528,18 @@ impl Engine {
                     .unwrap_or(wait.rounds);
                 let own = episode.lengths.get(&wait.site).copied();
                 let seconds = own.unwrap_or(wait.seconds);
-                // A held wait's own length is the provider's word and is not
-                // judged; a later round's length, where one was written, is
-                // the engine's and is (decision 0106 ruling 2).
-                let judged = match (wait.held, own) {
-                    (Some(_), None) => 0,
-                    _ => seconds,
+                // Judged with the same per-site length the park names, not
+                // the terminal wait's own: a written probe round may have
+                // superseded it (finding 6). A held wait's own length is the
+                // provider's word, judged by [`bound`] alone with no other
+                // site's seconds, so its maximum decides no other site's; a
+                // later round's length, where one was written, is the
+                // engine's and is judged with the episode (decision 0106
+                // ruling 2; fix round 0106b1r4, F2).
+                let length = own.unwrap_or(0);
+                let before = judged_episode(own.is_some(), episode.seconds).saturating_sub(length);
+                let Bound::Past(through) = bound(None, length, before, max) else {
+                    return None;
                 };
                 let pending = ProviderWait {
                     site: wait.site.clone(),
@@ -620,20 +552,15 @@ impl Engine {
                     rounds,
                     held: wait.held,
                 };
-                // Judge with the same per-site length the park names, not
-                // the terminal wait's own: a written probe round may have
-                // superseded it (finding 6).
-                past_maximum(judged, episode.seconds, max).then(|| {
-                    refusing(
-                        maximum_reason(&pending, episode.seconds, max, None),
-                        ProviderLimitRefusal::PastMaximum {
-                            route: route(),
-                            until: pending.until,
-                            seconds,
-                            max_seconds: max,
-                        },
-                    )
-                })
+                Some(refusing(
+                    maximum_reason(&pending, through, max, None),
+                    ProviderLimitRefusal::PastMaximum {
+                        route: route(),
+                        until: pending.until,
+                        seconds,
+                        max_seconds: max,
+                    },
+                ))
             }
             Ok(None) => None,
             Err(reason) => Some(refusing(
@@ -730,7 +657,7 @@ struct Round<'a> {
     unrecorded: u64,
     counted: OffsetDateTime,
     waits: &'a [ProviderWait],
-    maxima: Vec<Option<u64>>,
+    maxima: Vec<Option<SiteMax>>,
 }
 
 /// One round's waited seconds and each cooled site's declared maximum, as
@@ -738,7 +665,7 @@ struct Round<'a> {
 #[derive(Debug)]
 pub(super) struct WaitBudget {
     waited: u64,
-    maxima: Vec<Option<u64>>,
+    maxima: Vec<Option<SiteMax>>,
 }
 
 /// What one step left the round loop.
