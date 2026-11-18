@@ -874,12 +874,23 @@ fn append_failed_payload(engine: &mut Engine, payload: Value) {
 /// An engine at the start of `effect`, with the answering driver a resume
 /// would invoke and `attempts` allowed.
 fn engine_for(dir: &Path, attempts: u64) -> (Engine, crate::bundle::Bundle) {
+    engine_probing(dir, attempts, Probed::Answer, None)
+}
+
+/// [`engine_for`], its driver's probes doing `probed` with the stated
+/// `retry_after`.
+fn engine_probing(
+    dir: &Path,
+    attempts: u64,
+    probed: Probed,
+    retry_after: Option<u64>,
+) -> (Engine, crate::bundle::Bundle) {
     let command = driver(
         dir,
         "work",
         &["succeed"],
-        Probed::Answer,
-        None,
+        probed,
+        retry_after,
         "claude",
         "first",
     );

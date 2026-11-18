@@ -213,26 +213,7 @@ fn a_probes_held_round_spends_no_attempt_and_the_cap_parks_attempt_cap() {
 #[test]
 fn an_ordinary_probe_round_from_a_held_end_at_year_9999_parks_no_end() {
     let dir = tempfile::tempdir().unwrap();
-    let command = driver(
-        dir.path(),
-        "work",
-        &["succeed"],
-        Probed::Refuse,
-        Some(2),
-        "claude",
-        "first",
-    );
-    let mut compiled = bundle(dir.path(), single_body(command));
-    compiled.seats.get_mut("work").unwrap().limits = work(2);
-    std::fs::create_dir_all(dir.path().join("work")).unwrap();
-    let store = brokkr_store::Store::open(&dir.path().join("forge.db")).unwrap();
-    let mut engine = Engine::start(
-        store,
-        compiled.clone(),
-        "Feature",
-        Some(dir.path().join("work")),
-    )
-    .unwrap();
+    let (mut engine, compiled) = engine_probing(dir.path(), 2, Probed::Refuse, Some(2));
     let last = "9999-12-31T23:59:59Z";
     append_failed_payload(
         &mut engine,
@@ -249,16 +230,7 @@ fn an_ordinary_probe_round_from_a_held_end_at_year_9999_parks_no_end() {
     engine.cooldown.clock = Clock::advancing(OffsetDateTime::parse(last, &Rfc3339).unwrap()).0;
     engine.drive().unwrap();
     assert_eq!(logs(dir.path(), "work"), ["probe"]);
-    assert_eq!(standing(&engine), (Status::AwaitingOperator, 1));
-    assert_eq!(
-        refusal_of(park_cause_of(&engine)),
-        ProviderLimitRefusal::NoEnd {
-            route: "first".into(),
-            seconds: 2,
-            max_seconds: 3,
-        }
-    );
-    let reason = park_reason(&engine);
+    let reason = parked_no_end(&engine, 2, 3);
     assert!(
         reason.contains(
             "the cool-down probe for claude/first was refused again with a wait of 2s, within \
@@ -278,18 +250,24 @@ fn a_probes_held_round_whose_end_cannot_be_spelled_parks_no_end() {
     let (dir, mut engine, now) = probed_seat(&["refuse", "succeed"], FIVE_MILLENNIA, 2);
     held_twice(&mut engine, &now);
     assert_eq!(logs(dir.path(), "work"), ["attempt:refuse", "probe"]);
-    assert_eq!(standing(&engine), (Status::AwaitingOperator, 1));
-    assert_eq!(
-        refusal_of(park_cause_of(&engine)),
-        ProviderLimitRefusal::NoEnd {
-            route: "first".into(),
-            seconds: FIVE_MILLENNIA,
-            max_seconds: 2,
-        }
-    );
-    let reason = park_reason(&engine);
+    let reason = parked_no_end(&engine, FIVE_MILLENNIA, 2);
     assert!(
         reason.contains("whose end the journal cannot spell"),
         "{reason}"
     );
+}
+
+/// The run parked once as the provider's `no-end` limit on claude/first,
+/// with the round's `seconds` and its site's maximum: the park's reason.
+fn parked_no_end(engine: &Engine, seconds: u64, max_seconds: u64) -> String {
+    assert_eq!(standing(engine), (Status::AwaitingOperator, 1));
+    assert_eq!(
+        refusal_of(park_cause_of(engine)),
+        ProviderLimitRefusal::NoEnd {
+            route: "first".into(),
+            seconds,
+            max_seconds,
+        }
+    );
+    park_reason(engine)
 }
