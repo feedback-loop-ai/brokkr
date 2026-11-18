@@ -6,7 +6,7 @@ use std::{os::unix::ffi::OsStrExt, path::Path};
 /// the driver's own `lost` reads it, so a signal is `-1` here exactly as it
 /// is in the driver. One helper, one home for the rule (fix round 430s4a6
 /// L1; decision 0071 ruling 5).
-pub(super) fn wait_for_exit(child: &mut std::process::Child) -> std::io::Result<Option<i32>> {
+pub(super) fn wait_for_exit(child: &mut Spawned) -> std::io::Result<Option<i32>> {
     child
         .try_wait()
         .map(|status| status.map(super::lost::exit_code))

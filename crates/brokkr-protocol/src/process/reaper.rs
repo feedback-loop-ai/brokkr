@@ -18,7 +18,7 @@
 //! start, released once its row is gone or names a process that started
 //! at another time; where the kernel will not wait on its pidfd, until its
 //! row is gone. Whatever it is held by, its handle's [`Release`] releases
-//! it when the handle goes. A `waitpid(-1)` loop would take a handle's
+//! it when the handle reaps it, or else goes. A `waitpid(-1)` loop would take a handle's
 //! status, and is not one.
 //!
 //! A zombie is reaped on the sweep after the one that first saw it, so a
@@ -92,18 +92,26 @@ fn handled() -> MutexGuard<'static, Handled> {
     HANDLED.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-/// A held child's handle's claim on its hold: dropped with the handle,
+/// A held child's handle's claim on its hold: released once the handle
+/// reaps its child (`process::spawned`), or else dropped with the handle,
 /// it releases the hold, whatever kind it is, so no hold outlasts the
 /// handle that may wait on its pid. A child no serving driver held claims
 /// nothing.
 #[derive(Debug)]
 pub(crate) struct Release(Option<(i32, u64)>);
 
-impl Drop for Release {
-    fn drop(&mut self) {
-        if let Some((pid, token)) = self.0 {
+impl Release {
+    /// Release the hold now, once: its handle reaped its child.
+    pub(super) fn release(&mut self) {
+        if let Some((pid, token)) = self.0.take() {
             handled().release(pid, token);
         }
+    }
+}
+
+impl Drop for Release {
+    fn drop(&mut self) {
+        self.release();
     }
 }
 

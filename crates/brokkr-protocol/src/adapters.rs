@@ -809,7 +809,7 @@ fn spawn_fed(
 /// tree, and waiting here would reintroduce the hang the stop removes.
 /// Its one wait failure is typed and converted at the existing text
 /// boundary (#430 L3; decision 0071 ruling 8).
-fn stop_harness(child: &mut std::process::Child) -> std::io::Result<std::process::ExitStatus> {
+fn stop_harness(child: &mut Spawned) -> std::io::Result<std::process::ExitStatus> {
     let _ = child.kill();
     child.wait()
 }
@@ -817,7 +817,7 @@ fn stop_harness(child: &mut std::process::Child) -> std::io::Result<std::process
 /// [`stop_harness`] at the ONE existing text boundary: every stopped route
 /// converts its typed wait failure here, so the operator's words have one
 /// home (#430 L3; decision 0071 rulings 5 and 8).
-fn conclude_harness(child: &mut std::process::Child) -> Result<std::process::ExitStatus, String> {
+fn conclude_harness(child: &mut Spawned) -> Result<std::process::ExitStatus, String> {
     io_context(stop_harness(child), "agent CLI did not conclude")
 }
 
@@ -2398,8 +2398,8 @@ const DSH_POLL_IDLE: std::time::Duration = std::time::Duration::from_millis(25);
 /// case the harness is stopped at once and the answer's exit code stands
 /// (decision 0103 ruling 4(a)); no later pass can admit a second.
 fn poll_until_exit(
-    child: &mut std::process::Child,
-    mut wait: impl FnMut(&mut std::process::Child) -> std::io::Result<Option<i32>>,
+    child: &mut Spawned,
+    mut wait: impl FnMut(&mut Spawned) -> std::io::Result<Option<i32>>,
     mut drain: impl FnMut() -> bool,
 ) -> Result<i32, String> {
     loop {
@@ -3838,9 +3838,7 @@ fn invoke_dsh(
         &workdir,
         input,
     )?;
-    let wait = |child: &mut std::process::Child| {
-        child.try_wait().map(|status| status.map(lost::exit_code))
-    };
+    let wait = |child: &mut Spawned| child.try_wait().map(|status| status.map(lost::exit_code));
     dsh_launch::invoke_dsh_launch_observed(
         launch,
         command,
@@ -4818,7 +4816,7 @@ fn invoke_dsh_launch(
     workdir: &str,
     bindings: &[secret::BoundSecret],
     emit: &mut impl FnMut(&Value),
-    wait: impl FnMut(&mut std::process::Child) -> std::io::Result<Option<i32>>,
+    wait: impl FnMut(&mut Spawned) -> std::io::Result<Option<i32>>,
 ) -> Result<Invocation, String> {
     let mut command = launch.command.clone();
     command.push(prompt.to_string());
@@ -4872,7 +4870,7 @@ fn invoke_dsh_shipped(
     command: &[String],
     launch: &DshLaunch,
     bindings: &[secret::BoundSecret],
-    mut wait: impl FnMut(&mut std::process::Child) -> std::io::Result<Option<i32>>,
+    mut wait: impl FnMut(&mut Spawned) -> std::io::Result<Option<i32>>,
     probe: &mut ProbeAnswer,
     session_meta: &mut Map<String, Value>,
     emit: &mut impl FnMut(&Value),

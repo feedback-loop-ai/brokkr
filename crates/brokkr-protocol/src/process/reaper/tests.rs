@@ -169,7 +169,8 @@ fn serving() -> Handled {
 /// A child held by its pidfd stays held while it runs and while it stands
 /// a zombie, whatever its row says, and is released by its own handle's
 /// reap, even where a row of its pid looks like its own: a pid an orphan
-/// reuses holds nothing.
+/// reuses holds nothing. Where the kernel will not wait on a pidfd (Linux
+/// 5.3), the wait is played as the kernel would answer it.
 #[test]
 fn a_child_held_by_its_pidfd_is_released_by_its_own_reap() {
     let mut handled = serving();
@@ -178,6 +179,20 @@ fn a_child_held_by_its_pidfd_is_released_by_its_own_reap() {
         .unwrap();
     let pid = Pid::from_child(&child).as_raw_pid();
     let own = table::stat_of(pid).unwrap().unwrap();
+    let kernel = match handled.held.get(&pid) {
+        Some(Held {
+            hold: Hold::Pidfd(pidfd),
+            ..
+        }) => waited(pidfd.as_fd()).is_ok(),
+        other => panic!("held by its pidfd, not {other:?}"),
+    };
+    let reaped = std::cell::Cell::new(false);
+    let waited = |pidfd: BorrowedFd<'_>| match (kernel, reaped.get()) {
+        (true, _) => waited(pidfd),
+        (false, false) => Ok(()),
+        (false, true) => Err(Errno::CHILD),
+    };
+    let waited = &waited;
     handled.retire(waited, |_| Ok(None));
     assert!(matches!(
         handled.held.get(&pid),
@@ -192,8 +207,43 @@ fn a_child_held_by_its_pidfd_is_released_by_its_own_reap() {
     handled.retire(waited, |_| Ok(None));
     assert!(handled.held.contains_key(&pid));
     assert_eq!(child.wait().unwrap().signal(), Some(9));
+    reaped.set(true);
     handled.retire(waited, |_| Ok(Some(own.clone())));
     assert!(handled.held.is_empty(), "{:?}", handled.held);
+}
+
+/// A handle that reaps its child, by `wait` or by a `try_wait` that
+/// returns a status, releases its hold at once though the handle is kept,
+/// so an adopted orphan that reuses the pid meanwhile is reaped as any
+/// other zombie. A `try_wait` that finds the child running keeps the hold.
+#[test]
+fn a_handle_kept_past_its_reap_holds_no_pid_an_orphan_reuses() {
+    const TEST: &str =
+        "process::reaper::tests::a_handle_kept_past_its_reap_holds_no_pid_an_orphan_reuses";
+    if !crate::process::in_its_own_engine(TEST) {
+        return;
+    }
+    // Serving with no reaper: no sweep runs but the ones made here.
+    handled().serving = true;
+    let door = || crate::process::spawned::spawn(&mut sleeping()).unwrap();
+    let (mut first, mut second) = (door(), door());
+    let mut pids = [&first, &second].map(|child| Pid::from_child(child).as_raw_pid());
+    pids.sort_unstable();
+    assert_eq!(second.try_wait().unwrap(), None);
+    let held = || handled().held.keys().copied().collect::<Vec<_>>();
+    assert_eq!(held(), pids);
+
+    first.kill().unwrap();
+    assert_eq!(first.wait().unwrap().signal(), Some(9));
+    second.kill().unwrap();
+    let status = until(|| second.try_wait().unwrap());
+    assert_eq!(status.and_then(|status| status.signal()), Some(9));
+    assert_eq!(held(), Vec::<i32>::new());
+
+    let reused = pids.map(|pid| row(pid, true));
+    assert_eq!(handled().doomed(Some(&reused)), Vec::<i32>::new());
+    assert_eq!(handled().doomed(Some(&reused)), pids);
+    drop((first, second));
 }
 
 /// A serving driver holds a child in the spawn's own critical section, by

@@ -1,7 +1,7 @@
 //! The one door every child a driver may spawn goes through (#1133). On
 //! Linux a serving driver holds each child it spawns here in its reaper's
 //! registry, so the reaper leaves the child's status to its own handle,
-//! until the handle goes; anywhere else, and in any process that does not
+//! until the handle reaps it or goes; anywhere else, and in any process that does not
 //! serve, a spawn here is the plain spawn.
 
 use std::io::Result;
@@ -35,6 +35,27 @@ impl Spawned {
     /// [`Child::wait_with_output`], the hold released once it returns.
     pub(crate) fn wait_with_output(self) -> Result<Output> {
         self.child.wait_with_output()
+    }
+
+    /// [`Child::wait`], the hold released once it returns the status: a
+    /// handle kept past its reap holds no pid an orphan may reuse.
+    pub(crate) fn wait(&mut self) -> Result<ExitStatus> {
+        self.child.wait().inspect(|_| self.reaped())
+    }
+
+    /// [`Child::try_wait`], the hold released once it returns a status.
+    pub(crate) fn try_wait(&mut self) -> Result<Option<ExitStatus>> {
+        self.child.try_wait().inspect(|status| {
+            if status.is_some() {
+                self.reaped();
+            }
+        })
+    }
+
+    /// Release the reaper's hold: the handle reaped its child.
+    fn reaped(&mut self) {
+        #[cfg(target_os = "linux")]
+        self._release.release();
     }
 
     /// The handle and its claim, for a holder that keeps the two apart and
