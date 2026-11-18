@@ -133,22 +133,110 @@ The operator may answer "accept all" or pick.
 **Enforcement binding:** the bundle compile refuses a `ci` declaration (ruling 4) on a seat
 whose adapter is not `exec`.
 
+**The observer is pinned outside the change.** What the observer runs, and what it resolves,
+must not be anything the gated change can edit:
+
+- **Its script.** A `./`-prefixed driver entry is bundle-relative, not worktree-relative
+  (`crates/brokkr-runtime/src/bundle/expand.rs:12-13`, `:21-33`), and the compile's walk pins
+  the script it admits into the manifest's `files`
+  (`crates/brokkr-runtime/src/bundle/model_policy_tests.rs:2598-2622`). So `fast`'s
+  `./scripts/verify-seat.sh` (`recipes/fast/bundle.json:33-41`) is the bundle layer's copy,
+  digested at compile. It is the change's only when the operator compiles the bundle from the
+  change's own tree; in this house `recipes/fast/` is repository code. This decision therefore
+  requires that the observer's layer lie outside the gated worktree: run start refuses a `ci`
+  seat whose bundle layer is inside it. Whether run start can see both paths today is
+  unmeasured; slice 0111a's test settles it.
+- **Its tools.** The interpreter and `gh` resolve through the seat's `PATH`, which 0049 ruling 3
+  leaves unpinned under `harness` and `open` (quoted at
+  `crates/brokkr-runtime/src/bundle/model_policy_tests.rs:2595-2596`). Pinning them is
+  **unmeasured**, so the observer fails closed: it refuses, typed, when `bash`, `gh` or `jq`
+  resolves under the gated worktree. It names the repository explicitly (`--repo`), so `gh`
+  never takes the repository from the worktree's git remotes. Whether other change-controlled
+  files can reach `gh`'s configuration is unmeasured until 0111b, and until then a run whose
+  observer cannot show its tool paths outside the worktree refuses.
+- **Its word is data.** The engine re-checks the observation's binding itself (ruling 2): it
+  compares the head to its own git head and the repository to the pinned one. It never takes
+  them from the observer.
+
 ### 2. The observation, the classification, and where the journal keeps them
 
 **Recommended: (a) the observation in the gate's `inputs.ci` under `ci-observation/v1`; the
 classification as an engine-owned record input on the gate's `transition/decided`, under
 `ci-classification/v1`.**
 
-The observation names the forge (`github`, the one word v1 admits), the repository, the gated
-head, and for each workflow run its id and attempt and its jobs: id, name, conclusion, the
-first failed step's number and name, and for that step only a log excerpt bounded at 8 KiB from
-its tail with a `truncated` flag. It is parsed once at the edge with unknown fields refused
-(0071 ruling 3); an unknown conclusion word refuses by name; an observation whose head is not
-the gated head, or that lists a job not yet settled, does not read and the run parks `ruled`,
-never re-runs.
+The observation names its binding:
 
-The gate's word is bound to the observation: `pass` with a failed job, or `fail` with none, is
-refused, never rewritten (the same binding 0109 ruling 2 gives a verdict).
+- the forge (`github`, the one word v1 admits);
+- the repository, by owner, name and numeric id;
+- the pull request's number;
+- the gated head's full commit id.
+
+It then lists every check the forge reports for that head, with no filtering. Checks outside
+Actions are included:
+
+- a check run carries its id, its app, its name, its `head_sha`, its status and its conclusion
+  (<https://docs.github.com/en/rest/checks/runs#list-check-runs-for-a-git-reference>);
+- a check from Actions also carries its workflow run's id and attempt, its workflow file's path,
+  and its job's id, name and steps;
+- a commit status carries its context and state
+  (<https://docs.github.com/en/rest/commits/statuses#get-the-combined-status-for-a-specific-reference>).
+
+It is parsed once at the edge, with unknown fields refused (0071 ruling 3). An unknown
+conclusion word refuses by name.
+
+**The required set.** **Recommended: (a) a recipe-declared `required_checks` list, pinned by
+the compiled bundle outside the change.**
+
+- **(a) Recipe-declared.** `required_checks` lives in ruling 4's file, which the operator's
+  compile pins. It must be non-empty, or the compile refuses. Each entry is a check run by app
+  and name, or a commit status by context. For this house the audit entry is the check run
+  `RustSec dependency audit` from `github-actions` (`.github/workflows/ci.yml:673-674`), not
+  "RustSec". Where the observer can also read the forge's own required set for the base branch
+  (branch protection, <https://docs.github.com/en/rest/branches/branch-protection>, or rulesets,
+  <https://docs.github.com/en/rest/repos/rules>), every check the forge requires must be in the
+  declared list, or the observation refuses with `required-set-disagrees`. The forge's set can
+  only widen what a pass needs, never narrow it. The token scope that read needs is unmeasured;
+  where it is unread, the observation records `forge_required: unread`, and the pinned list
+  alone governs. Cost: one more list for the operator to keep.
+- **(b) The forge's branch protection alone.** It is outside the change, but a repository
+  administrator can change it at any time, the read needs an administration scope (unmeasured),
+  and an unprotected branch yields an empty set, which must refuse. So an adopter without
+  protection cannot use the gate. Not recommended.
+- **(c) Whatever checks the forge reports for the head.** Refused: a missing check is invisible
+  to it, so an absent audit would pass. That is the fault this ruling closes.
+
+**What a pass is.** The engine draws `green` only when all of these hold:
+
+- the observation's repository, pull request and head equal the run's pinned repository, the
+  pull request the gate names and the engine's own git head;
+- each workflow run's attempt equals the current attempt, which is the latest the forge lists
+  on a first observation and exactly the attempt ruling 6's accepted re-run made on a second;
+- every entry of `required_checks` is matched by exactly one settled check;
+- each matched check's conclusion is `success`, or each matched status's state is `success`.
+
+Nothing short of that is a pass. Where the observation cannot pass and the classifier has no
+failure to type, it refuses with its own closed, typed reason, before and after any re-run:
+
+| Refusal | When |
+|---|---|
+| `empty` | the forge reports no check for the head |
+| `missing-required` | a required entry matches no check; the refusal names the entry |
+| `ambiguous-required` | a required entry matches more than one check in the current attempt |
+| `unrelated` | the repository, the pull request, the head or the attempt differs from the binding |
+| `not-settled` | a required check is still queued or in progress when the observer's own polling bound ends, short of the seat's deadline |
+| `non-success` | a required check concluded `neutral`, `skipped`, `stale` or `action_required`, words the classifier types as no failure; the refusal names the check and the word |
+| `required-set-disagrees` | the forge requires a check the pinned list lacks |
+
+A refusal never re-runs and never passes. The run parks `ruled`, with the rule's id and the
+refusal's word. On a second observation two more bindings hold. Every required check outside
+the re-run's scope keeps its first observation's identity (ruling 7) and its `success`; a
+higher attempt alone is not accepted. And the second observation must be bound to the exact
+accepted re-run. How the forge presents an unaffected job in a new attempt, with the same check
+run or a copy, is unmeasured until 0111b.
+
+The gate's word is bound to the engine's class: `pass` is admitted only on `green`, and `fail`
+with a `green` class is refused. A refused word is never rewritten (the same binding 0109
+ruling 2 gives a verdict).
 
 The classification is engine-written: an `Owner::Engine` record input, as `reviewed_heads` is
 (`crates/brokkr-core/src/policy/inputs.rs:116`), so a seat may neither declare nor overwrite it,
@@ -171,7 +259,8 @@ no clock, environment or network (0071 ruling 1), and is total. `changed_paths` 
 engine's, read from git as 0039's docs-only flag is
 (`crates/brokkr-core/src/policy/inputs.rs:81-84`). In order:
 
-1. No job failed, timed out, failed to start or was cancelled: **`green`**.
+1. The observation passes ruling 2's pass rule: **`green`**. One that cannot pass and holds no
+   failed, timed-out, unstarted or cancelled required check takes ruling 2's refusal.
 2. Any changed path matches the list's `infrastructure_paths`: **`change`**, reason
    `touches-infrastructure`. Job and step names are written in the workflow files; a change that
    edits them could rename a failing step into a setup step. A change that touches none is run
@@ -210,15 +299,20 @@ decision does not recover it. Quarantining a named flaky test is a different dec
 
 ### 4. The runner-fault list: its home and who declares it
 
-**Recommended: (a) recipe data, `ci-faults.json` beside the policy, under `ci-faults/v1`,
+**Recommended: (a) recipe data, `ci-checks.json` beside the policy, under `ci-checks/v1`,
 compiled into the bundle and pinned with it.**
 
 ```json
 {
-  "schema": "ci-faults/v1",
+  "schema": "ci-checks/v1",
+  "repository": {"owner": "example", "name": "app", "id": 1},
+  "required_checks": [
+    {"check_run": {"app": "github-actions", "name": "test"}},
+    {"check_run": {"app": "github-actions", "name": "RustSec dependency audit"}}
+  ],
   "infrastructure_paths": [".github/workflows/**", "compose.yaml"],
   "setup_steps": ["Start services", "Set up job"],
-  "security_jobs": ["RustSec"],
+  "audit_checks": [{"check_run": {"app": "github-actions", "name": "RustSec dependency audit"}}],
   "patterns": [
     {"id": "port-in-use", "steps": ["Start services"], "literal": "address already in use"}
   ]
@@ -228,12 +322,13 @@ compiled into the bundle and pinned with it.**
 A pattern is a literal: 1 to 200 printable ASCII bytes, matched as an exact, case-sensitive byte
 substring. No regex, glob or wildcard is admitted, so matching is linear and the same on every
 host. `id` is kebab-case and unique; every step a pattern names must be in `setup_steps`.
-`infrastructure_paths` must be non-empty and `security_jobs` must be present, even if empty:
-the compile refuses a list that leaves either to a default.
+`required_checks` and `infrastructure_paths` must be non-empty, and `audit_checks` must be
+present, even if empty, with every entry also in `required_checks`. The compile refuses a list
+that leaves any of them to a default. `repository` pins the binding ruling 2 checks.
 
 The operator declares it, as any recipe or `extends` overlay (0017). No seat writes it: the
 run reads the list its compiled bundle pinned at start, never the change's tree, so a branch
-that edits `ci-faults.json` changes the next run's list, by the operator's compile, not its own.
+that edits `ci-checks.json` changes the next run's list, by the operator's compile, not its own.
 
 - **(b) Host data under `forge.host`.** One list for every recipe; but runner faults are a
   property of a workflow, not a machine. Refused.
@@ -241,7 +336,7 @@ that edits `ci-faults.json` changes the next run's list, by the operator's compi
 
 ### 5. Security and audit jobs
 
-**Recommended: (a) a job named in `security_jobs` is re-run only when the forge's own conclusion
+**Recommended: (a) a job named in `audit_checks` is re-run only when the forge's own conclusion
 is `startup_failure`; a pattern never types it.**
 
 This cannot launder a real advisory. A `startup_failure` means the forge ran none of the job's
@@ -403,7 +498,7 @@ parks with a cause a script can read. Everything the list does not name is the c
 today, so a recipe with no list behaves exactly as now. The cost is an exec observer per recipe
 that wants it, two tokens, and a list an operator keeps; a pattern that matches too much is the
 operator's to narrow. Four contract versions are proposed: `ci-observation/v1`,
-`ci-classification/v1`, `ci-faults/v1` and `park-cause/v2`; each is minted only when its slice
+`ci-classification/v1`, `ci-checks/v1` and `park-cause/v2`; each is minted only when its slice
 lands under this decision's acceptance (0082).
 
 ## The slices
@@ -414,10 +509,10 @@ Smallest first; each lands on its own.
    `crates/brokkr-core/src/ci.rs` with `ci/observation.rs`, `ci/faults.rs`, `ci/classify.rs` and
    `ci/tests.rs`; `crates/brokkr-core/src/lib.rs`; `crates/brokkr-core/src/policy/inputs.rs` (the
    `ci` record and `ci_fault` choice, engine-owned); `crates/brokkr-runtime/src/bundle.rs` (load
-   and pin `ci-faults.json`, refuse it on a non-exec seat);
+   and pin `ci-checks.json`, refuse it on a non-exec seat);
    `crates/brokkr-runtime/src/engine/decide.rs` (classify at decide and record the input);
    `crates/brokkr-view/src/` (the CI view model) and `crates/brokkr-cli/src/render/inspect.rs`.
-   About 450 production and 450 test lines. Contracts: `ci-observation/v1`, `ci-faults/v1`,
+   About 450 production and 450 test lines. Contracts: `ci-observation/v1`, `ci-checks/v1`,
    `ci-classification/v1`. Tests: one per arm and reason of ruling 3, over recorded observations
    built by a shared builder; `a_pattern_in_a_test_step_is_the_changes`;
    `a_security_job_failure_is_never_typed_by_pattern`;
@@ -426,7 +521,16 @@ Smallest first; each lands on its own.
    `a_pattern_beyond_the_excerpt_is_not_found`; `an_unknown_conclusion_refuses_by_name`;
    `a_stale_head_observation_does_not_read`; `a_pass_with_a_failed_job_is_refused`;
    `a_seat_cannot_write_the_classification`; `a_ci_list_on_a_model_seat_refuses_to_compile`;
-   `an_empty_infrastructure_list_refuses_to_compile`; `inspect_names_the_class`. No table routes
+   `an_empty_infrastructure_list_refuses_to_compile`; `inspect_names_the_class`. The pass's
+   refusals, one test each, every one asserting the refusal's variant and that the class is not
+   `green`: `an_observation_with_no_check_refuses_as_empty`;
+   `a_required_audit_missing_from_the_observation_refuses_as_missing_required`;
+   `an_observation_of_another_head_repository_pull_request_or_attempt_refuses_as_unrelated`;
+   `a_skipped_or_neutral_required_check_refuses_as_non_success`;
+   `a_required_check_still_in_progress_refuses_as_not_settled`;
+   `two_matches_for_one_required_check_refuse_as_ambiguous`;
+   `a_forge_required_check_the_list_lacks_refuses`; `an_empty_required_list_refuses_to_compile`;
+   `a_ci_seat_whose_layer_is_inside_the_worktree_refuses_at_start`. No table routes
    on it yet, so the next sweep can count what a re-run would have saved.
 2. **0111b — a GitHub observer script.** Files: a house observer script and its shellcheck
    clean; a test that runs it against a stub `gh` on the path and holds its output to
@@ -439,7 +543,10 @@ Smallest first; each lands on its own.
    `the_same_fault_after_the_rerun_parks`; `a_different_runner_fault_after_the_rerun_parks`;
    `a_change_failure_after_the_rerun_returns_to_implement`;
    `a_moved_head_earns_its_own_rerun`; `the_observer_never_holds_the_write_token`;
-   `a_forge_refusal_parks_ruled`.
+   `a_forge_refusal_parks_ruled`. The second observation's refusals:
+   `a_second_observation_on_an_attempt_the_rerun_did_not_make_refuses_as_unrelated`;
+   `an_unaffected_required_check_that_changed_after_the_rerun_refuses`;
+   `a_required_check_missing_after_the_rerun_refuses_as_missing_required`.
 4. **0111d — the typed park.** Files: `crates/brokkr-core/src/park.rs` and its `parse` and
    `forms` modules, `crates/brokkr-runtime/src/engine/cursor.rs`, and the view and CLI tests that
    paint the cause. About 120 production and 200 test lines. Contract: `park-cause/v2`. Tests:
