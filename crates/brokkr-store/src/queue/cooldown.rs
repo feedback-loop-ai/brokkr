@@ -274,7 +274,10 @@ fn newest_with(
 /// `seq`, in `seq` order, so a discarded row's words never enter SQLite's
 /// heap. Every kept row is read before any is typed, so a column SQLite
 /// cannot hand over refuses before an earlier row's unreadable time, as the
-/// single statement this replaced refused. A row is append-only and never
+/// single statement this replaced refused. The scan reads every row's key
+/// columns before any payload, so a key column's refusal precedes an
+/// earlier kept row's payload refusal, which that statement would have
+/// reported first; both refuse. A row is append-only and never
 /// deleted, and [`newest_with`] holds both statements to one snapshot, so
 /// a kept `seq` reads back the row the scan saw. Both statements' VM steps
 /// go to `stepped`, so the test that binds the read's cost measures them.
@@ -596,7 +599,11 @@ impl Store {
     /// once to compare the kept frame's aggregate and once in the frame or
     /// whole read. The scan and every lookup read one snapshot, so a
     /// writer's commit at any point in the read changes nothing it returns,
-    /// and its rows are the rows the journal held when the scan began.
+    /// and its rows are the rows the journal held when the scan began. A
+    /// row SQLite cannot hand over refuses the read: a key column's
+    /// refusal (its key, provider, route or end, which the scan reads for
+    /// every row) precedes a payload column's refusal of any kept row,
+    /// however early that row was written.
     pub fn cooldowns_newest(&self, now: OffsetDateTime) -> Result<Vec<Cooldown>, StoreError> {
         patiently("cooldowns_newest", self.patience, || {
             if cool_downs_held(&self.conn)? {

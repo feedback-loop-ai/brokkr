@@ -304,23 +304,9 @@ fn a_commit_during_the_read_is_not_split_across_it() {
 #[test]
 fn the_reads_snapshot_ends_with_its_refusal_and_joins_an_outer_one() {
     let (_dir, store) = planting();
-    store
-        .conn
-        .execute(
-            "INSERT INTO provider_cooldowns
-                (run_id, event_seq, site, provider, route, until_at, reason,
-                 retry_after_seconds, rounds, recorded_at)
-             VALUES ('run-a', 1, '', 'claude', 'first', 50, X'61', NULL, 1, 0)",
-            [],
-        )
-        .unwrap();
-    assert!(matches!(
-        newest(&store, 100),
-        Err(StoreError::Sqlite(rusqlite::Error::InvalidColumnType(
-            5,
-            ..
-        )))
-    ));
+    plant_values(&store.conn, vec![(text("claude"), "first", 50, blob(b'a'))]);
+    let refused = newest(&store, 100).unwrap_err();
+    assert!(refuses_blob(&refused, 5, "reason"), "{refused:?}");
     plant(&peer(&store), &[("claude", "second", 500)]);
     let count: i64 = store
         .conn
@@ -329,17 +315,10 @@ fn the_reads_snapshot_ends_with_its_refusal_and_joins_an_outer_one() {
         })
         .unwrap();
     assert_eq!(count, 2, "the refused read held no snapshot past its end");
-    let joined = store.as_one_read(|| newest(&store, 100).map(|rows| rows.len()));
-    assert!(
-        matches!(
-            joined,
-            Err(StoreError::Sqlite(rusqlite::Error::InvalidColumnType(
-                5,
-                ..
-            )))
-        ),
-        "{joined:?}"
-    );
+    let joined = store
+        .as_one_read(|| newest(&store, 100).map(|rows| rows.len()))
+        .unwrap_err();
+    assert!(refuses_blob(&joined, 5, "reason"), "{joined:?}");
 }
 
 /// A row whose words SQLite cannot hand over as text refuses before an
@@ -348,31 +327,74 @@ fn the_reads_snapshot_ends_with_its_refusal_and_joins_an_outer_one() {
 #[test]
 fn a_column_refusal_precedes_an_earlier_rows_time_refusal() {
     let (_dir, store) = planting();
-    let insert = "INSERT INTO provider_cooldowns
-        (run_id, event_seq, site, provider, route, until_at, reason,
-         retry_after_seconds, rounds, recorded_at)
-        VALUES ('run-a', 1, '', 'claude', ?1, ?2, ?3, NULL, ?4, 0)";
-    let rows: [(&str, i64, rusqlite::types::Value); 2] = [
-        ("first", i64::MAX, "words".to_string().into()),
-        ("second", 50, vec![b'a'].into()),
-    ];
-    for (round, (route, until, reason)) in rows.into_iter().enumerate() {
-        let round = round as i64 + 1;
-        store
-            .conn
-            .execute(insert, params![route, until, reason, round])
-            .unwrap();
-    }
-    let refused = newest(&store, 100).unwrap_err();
-    assert!(
-        matches!(
-            refused,
-            StoreError::Sqlite(rusqlite::Error::InvalidColumnType(
-                5,
-                ref column,
-                rusqlite::types::Type::Blob,
-            )) if column == "reason"
-        ),
-        "{refused:?}"
+    plant_values(
+        &store.conn,
+        vec![
+            (text("claude"), "first", i64::MAX, text("words")),
+            (text("claude"), "second", 50, blob(b'a')),
+        ],
     );
+    let refused = newest(&store, 100).unwrap_err();
+    assert!(refuses_blob(&refused, 5, "reason"), "{refused:?}");
+}
+
+/// A later kept row's provider that SQLite cannot hand over as text
+/// refuses before an earlier kept row's unreadable words: the scan reads
+/// every row's key columns before any kept row's payload is read. The
+/// single statement this replaced refused the earlier row's `reason`
+/// (column 5) first. Both refuse, and the scan's order stands (#1112,
+/// ruled in 1112r3).
+#[test]
+fn a_key_column_refusal_precedes_an_earlier_kept_rows_payload_refusal() {
+    let (_dir, store) = planting();
+    plant_values(
+        &store.conn,
+        vec![
+            (text("claude"), "first", 500, blob(b'w')),
+            (blob(b'p'), "second", 500, text("words")),
+        ],
+    );
+    let refused = newest(&store, 100).unwrap_err();
+    assert!(refuses_blob(&refused, 1, "provider"), "{refused:?}");
+}
+
+/// Plant one row per `(provider, route, until, reason)` into an empty
+/// table, each its own round, the provider and the words of whatever type
+/// SQLite stores, which only direct SQL writes.
+fn plant_values(conn: &Connection, rows: Vec<(Value, &str, i64, Value)>) {
+    for (round, (provider, route, until, reason)) in rows.into_iter().enumerate() {
+        conn.execute(
+            "INSERT INTO provider_cooldowns
+                (run_id, event_seq, site, provider, route, until_at, reason,
+                 retry_after_seconds, rounds, recorded_at)
+             VALUES ('run-a', 1, '', ?1, ?2, ?3, ?4, NULL, ?5, 0)",
+            params![provider, route, until, reason, round as i64 + 1],
+        )
+        .unwrap();
+    }
+}
+
+type Value = rusqlite::types::Value;
+
+/// A column's text.
+fn text(words: &str) -> Value {
+    words.to_string().into()
+}
+
+/// A column's one-byte BLOB, which no text reader takes.
+fn blob(byte: u8) -> Value {
+    vec![byte].into()
+}
+
+/// Whether `refused` is SQLite refusing column `index`, named `name`, as
+/// a BLOB.
+fn refuses_blob(refused: &StoreError, index: usize, name: &str) -> bool {
+    matches!(
+        refused,
+        StoreError::Sqlite(rusqlite::Error::InvalidColumnType(
+            at,
+            column,
+            rusqlite::types::Type::Blob,
+        )) if *at == index && column == name
+    )
 }
