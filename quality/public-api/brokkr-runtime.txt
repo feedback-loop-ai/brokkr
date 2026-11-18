@@ -140,9 +140,6 @@ pub brokkr_runtime::admission::Standing::Held
 pub brokkr_runtime::admission::Standing::Waiting
 impl brokkr_runtime::admission::Standing
 pub fn brokkr_runtime::admission::Standing::word(self) -> &'static str
-pub enum brokkr_runtime::admission::Unclaimed
-pub brokkr_runtime::admission::Unclaimed::Refused(brokkr_runtime::admission::Reason)
-pub brokkr_runtime::admission::Unclaimed::Stopped
 pub enum brokkr_runtime::admission::Unmeasurable
 pub brokkr_runtime::admission::Unmeasurable::Compile(brokkr_runtime::admission::Shared<brokkr_runtime::launch::LaunchError>)
 pub brokkr_runtime::admission::Unmeasurable::Manifest(brokkr_runtime::admission::Shared<serde_json::error::Error>)
@@ -162,8 +159,6 @@ pub struct brokkr_runtime::admission::Released(_)
 impl core::fmt::Display for brokkr_runtime::admission::Released
 pub fn brokkr_runtime::admission::Released::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct brokkr_runtime::admission::Room
-impl brokkr_runtime::admission::Room
-pub fn brokkr_runtime::admission::Room::claim(&self, &mut brokkr_store::Store, brokkr_store::queue::claim::Generation, &str, &mut dyn core::ops::function::FnMut() -> bool) -> core::result::Result<core::result::Result<brokkr_store::queue::claim::Claim, brokkr_runtime::admission::Unclaimed>, brokkr_runtime::admission::AdmissionError>
 pub struct brokkr_runtime::admission::RouteDecl
 pub brokkr_runtime::admission::RouteDecl::class: brokkr_runtime::admission::RouteClass
 pub brokkr_runtime::admission::RouteDecl::timeout_floor_seconds: core::option::Option<u32>
@@ -1236,6 +1231,7 @@ pub brokkr_runtime::dispatch::Ending::Replaced(std::path::PathBuf)
 pub brokkr_runtime::dispatch::Ending::Start(brokkr_runtime::launch::LaunchError)
 pub brokkr_runtime::dispatch::Ending::Stood
 pub brokkr_runtime::dispatch::Ending::Store(brokkr_store::StoreError)
+pub brokkr_runtime::dispatch::Ending::Unreported(core::io::error::Error)
 pub enum brokkr_runtime::dispatch::Settled
 pub brokkr_runtime::dispatch::Settled::Reclaimed(brokkr_store::queue::claim::Claim)
 pub brokkr_runtime::dispatch::Settled::ToSpawn(brokkr_store::queue::claim::Claim, alloc::string::String)
@@ -1332,7 +1328,7 @@ pub struct brokkr_runtime::dispatch::Stand<'a>
 pub brokkr_runtime::dispatch::Stand::every: core::time::Duration
 pub brokkr_runtime::dispatch::Stand::now: &'a mut dyn core::ops::function::FnMut() -> std::time::Instant
 pub brokkr_runtime::dispatch::Stand::reap: &'a mut dyn core::ops::function::FnMut() -> alloc::vec::Vec<brokkr_runtime::dispatch::Exited>
-pub brokkr_runtime::dispatch::Stand::report: &'a mut dyn core::ops::function::FnMut(brokkr_runtime::dispatch::Tick<'_>)
+pub brokkr_runtime::dispatch::Stand::report: &'a mut dyn core::ops::function::FnMut(brokkr_runtime::dispatch::Tick<'_>) -> core::io::error::Result<()>
 pub brokkr_runtime::dispatch::Stand::sleep: &'a mut dyn core::ops::function::FnMut(core::time::Duration)
 pub brokkr_runtime::dispatch::Stand::spawn: &'a mut dyn core::ops::function::FnMut(&brokkr_runtime::dispatch::Spawn) -> core::result::Result<brokkr_runtime::dispatch::Spawned, brokkr_runtime::dispatch::SpawnFailed>
 pub brokkr_runtime::dispatch::Stand::stands: &'a mut dyn core::ops::function::FnMut() -> core::result::Result<(), brokkr_runtime::dispatch::Ending>

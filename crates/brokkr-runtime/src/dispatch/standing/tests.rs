@@ -80,6 +80,8 @@ struct Script<'a> {
     reap: Box<dyn FnMut() -> Vec<Exited> + 'a>,
     slept: Box<dyn FnMut(usize) + 'a>,
     ticks: usize,
+    /// The report, by its count from 1, whose write fails; 0 for none.
+    unwritten: usize,
 }
 
 impl<'a> Script<'a> {
@@ -95,6 +97,7 @@ impl<'a> Script<'a> {
             reap: Box::new(Vec::new),
             slept: Box::new(|_| {}),
             ticks: 3,
+            unwritten: 0,
         }
     }
 
@@ -120,6 +123,7 @@ impl<'a> Script<'a> {
             sleeps += 1;
             slept(sleeps);
         };
+        let (unwritten, mut reports) = (self.unwritten, 0);
         let mut report = |tick: Tick<'_>| {
             if let Tick::Passed(_) = tick {
                 passes += 1;
@@ -127,7 +131,12 @@ impl<'a> Script<'a> {
                     stop.set(true);
                 }
             }
+            reports += 1;
+            if reports == unwritten {
+                return Err(std::io::ErrorKind::BrokenPipe.into());
+            }
             seen.borrow_mut().push(Seen::of(tick));
+            Ok(())
         };
         let asked = Rc::clone(&self.stop);
         let stand = Stand {
@@ -468,6 +477,70 @@ fn a_tick_sleeps_its_interval_less_its_pass_and_a_slow_pass_not_at_all() {
     let slept = Seen::Slept(Duration::from_secs(7));
     assert_eq!(two_ticks(3), vec![passed(&[]), slept, passed(&[])]);
     assert_eq!(two_ticks(10), vec![passed(&[]), passed(&[])]);
+}
+
+/// A pass's report that cannot be written ends the loop at once: nothing
+/// reaped, no sleep and no further tick, so no claim follows.
+#[test]
+fn a_report_that_cannot_be_written_ends_the_loop_and_reaps_nothing_more() {
+    let (mut fixture, file, dispatcher) = setup(1);
+    let reaps = Rc::new(Cell::new(0));
+    let mut script = Script {
+        unwritten: 1,
+        ..Script::new()
+    };
+    let counted = Rc::clone(&reaps);
+    script.reap = Box::new(move || {
+        counted.set(counted.get() + 1);
+        vec![]
+    });
+    let (ended, seen) = script.run(&mut fixture.store, &dispatcher, &file);
+    let ended = ended.unwrap_err();
+    let Ending::Unreported(error) = &ended.ending else {
+        panic!("{ended:?}");
+    };
+    assert_eq!(error.kind(), std::io::ErrorKind::BrokenPipe);
+    assert_eq!(
+        ended.to_string(),
+        "dispatch: a tick's report could not be written (broken pipe); the dispatcher claimed \
+         nothing after, and its drivers run on"
+    );
+    assert_eq!(ended.passed.started.len(), 1, "the pass's report is kept");
+    assert_eq!((seen, reaps.get()), (vec![], 0));
+    assert_eq!(words(&fixture.store), ["add", "claim", "link", "spawn"]);
+}
+
+/// A driver reaped as the stop ends the loop whose report cannot be
+/// written ends it unreported, not stopped.
+#[test]
+fn a_reaped_drivers_report_unwritten_at_the_stop_ends_the_loop_unreported() {
+    let (mut fixture, file, dispatcher) = setup(1);
+    let mut script = Script {
+        ticks: 1,
+        unwritten: 2,
+        ..Script::new()
+    };
+    let handed = Rc::new(RefCell::new(Vec::new()));
+    script.spawn = recording(&handed);
+    let mut reaps = 0;
+    // The driver exits after the tick's own reap, before the stop's.
+    script.reap = Box::new(move || {
+        reaps += 1;
+        let (claim, exit) = (handed.borrow()[0], Ok(ExitStatus::from_raw(0)));
+        let (run, pid) = ("r".to_string(), 1);
+        let exited = Exited {
+            run,
+            claim,
+            pid,
+            exit,
+        };
+        (reaps == 2).then_some(exited).into_iter().collect()
+    });
+    let (ended, seen) = script.run(&mut fixture.store, &dispatcher, &file);
+    let ended = ended.unwrap_err();
+    assert!(matches!(ended.ending, Ending::Unreported(_)), "{ended:?}");
+    assert!(ended.passed.started.is_empty());
+    assert_eq!(seen, vec![passed(&[the_run(&fixture.store).as_str()])]);
 }
 
 #[test]

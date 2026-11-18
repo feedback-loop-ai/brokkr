@@ -677,7 +677,8 @@ fn a_second_sigterm_ends_the_dispatcher_at_once() {
 
 /// Decision 0110 ruling 5 through the built binary: `--every` below 5 or
 /// above 3600, or beside `--once`, is refused by its parser before any
-/// journal is opened.
+/// journal is opened. Each runs as a standing dispatcher would, so a
+/// refusal that does not come fails within the patience.
 #[test]
 fn every_out_of_its_range_or_beside_once_is_refused() {
     let machine = Machine::new();
@@ -690,7 +691,7 @@ fn every_out_of_its_range_or_beside_once_is_refused() {
         ),
     ] {
         let argv = [&["dispatch", "--db", machine.db()][..], args].concat();
-        let refused = machine.brokkr(&argv);
+        let refused = Standing::start(&machine, &argv).ended();
         let stderr = String::from_utf8_lossy(&refused.stderr);
         assert_eq!(refused.status.code(), Some(2), "{argv:?}: {stderr}");
         assert!(stderr.contains(said), "{argv:?}: {stderr}");

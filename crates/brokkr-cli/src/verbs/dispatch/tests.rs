@@ -404,7 +404,7 @@ fn a_pass_over_an_empty_queue_says_what_it_read_and_exits_zero() {
 }
 
 /// A driver handed `claim`'s run `run-1` under `journal`.
-fn spawn_of(claim: Claim) -> Spawn {
+pub(super) fn spawn_of(claim: Claim) -> Spawn {
     Spawn {
         entry: claim.parts().0,
         claim,
@@ -461,15 +461,14 @@ fn a_drivers_argv_names_the_journal_entry_and_claim() {
     let OneClaim { db, claim, .. } = one_claim("{}");
     let (entry, seq) = claim.parts();
     let argv = drive_args(&db, &spawn_of(claim));
+    let mut journal = OsString::from("--db=");
+    journal.push(&db);
     let expected: Vec<OsString> = [
         "dispatch".into(),
         "drive".into(),
-        "--db".into(),
-        db.clone().into_os_string(),
-        "--entry".into(),
-        entry.to_string().into(),
-        "--claim".into(),
-        seq.to_string().into(),
+        format!("--entry={entry}").into(),
+        format!("--claim={seq}").into(),
+        journal,
     ]
     .into();
     assert_eq!(argv, expected);

@@ -107,7 +107,9 @@ type Drivers = BTreeMap<u32, (String, Claim, Child)>;
 /// it, then a line per driver reaped. The first SIGINT or SIGTERM stops it
 /// once the entry in flight has its driver, and it exits zero; a second
 /// ends the process at once. The drivers still running are named, never
-/// signalled, and the ending's words come last.
+/// signalled, and the ending's words come last. Output that cannot be
+/// written fails the verb on every path: a tick's ends the loop with its
+/// ending, and the last lines' is the verb's error.
 fn standing(workspace: &Path, args: DispatchArgs, out: &mut impl Write) -> Result<ExitCode> {
     let stop = stopping()?;
     let every = Duration::from_secs(args.every);
@@ -126,8 +128,9 @@ fn standing(workspace: &Path, args: DispatchArgs, out: &mut impl Write) -> Resul
             Tick::Passed(passed) => report::passed(passed, &journal),
             Tick::Reaped(reaped) => report::reaped(reaped, &journal),
         };
-        // An unwritable stdout ends nothing: the journal holds every fact.
-        out.write_all(lines.as_bytes()).ok();
+        // A driver's exit and a resume command are printed nowhere else:
+        // an unwritable stdout ends the loop.
+        out.write_all(lines.as_bytes())
     };
     let stand = Stand {
         every,
@@ -211,13 +214,24 @@ fn spawned(child: &Child) -> Spawned {
     Spawned { pid: child.id() }
 }
 
+/// The journal's flag of a driver's argv, attached to its value.
+const DRIVE_DB: &str = "--db=";
+
+/// The words after `brokkr` that drive the run linked under `claim`, but
+/// for [`DRIVE_DB`] and its journal, which come last: the argv a driver is
+/// started with and the command a report pastes are both made of them.
+fn drive_words(claim: Claim) -> [String; 4] {
+    let (entry, seq) = claim.parts();
+    let (entry, claim) = (format!("--entry={entry}"), format!("--claim={seq}"));
+    ["dispatch".into(), "drive".into(), entry, claim]
+}
+
 /// The argv after this binary that drives `spawn`'s run.
 fn drive_args(journal: &Path, spawn: &Spawn) -> Vec<OsString> {
-    let (entry, seq) = spawn.claim.parts();
-    let mut args: Vec<OsString> = ["dispatch", "drive", "--db"].map(OsString::from).into();
-    args.push(journal.as_os_str().to_owned());
-    args.extend(["--entry".into(), entry.to_string().into()]);
-    args.extend(["--claim".into(), seq.to_string().into()]);
+    let mut args: Vec<OsString> = drive_words(spawn.claim).map(OsString::from).into();
+    let mut db = OsString::from(DRIVE_DB);
+    db.push(journal.as_os_str());
+    args.push(db);
     args
 }
 

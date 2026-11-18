@@ -10,7 +10,7 @@ use brokkr_runtime::sweep::Swept;
 use brokkr_store::{EntryId, StartRefusal, StoreError};
 use clap::Parser;
 
-use super::super::tests::{claimed_by, one_claim, OneClaim};
+use super::super::tests::{claimed_by, one_claim, spawn_of, OneClaim};
 use super::*;
 use crate::cli_args::{DispatchArgs, DispatchCmd};
 use crate::{Cli, Cmd};
@@ -406,4 +406,14 @@ fn an_ending_prints_what_the_pass_did_then_why_it_ended() {
          waiting, 0 held\nended: dispatch: the brokkr at /opt/brokkr is not the one this \
          dispatcher started from; it claimed nothing after; start the dispatcher again\n"
     );
+}
+
+/// The command a line pastes is the argv a driver is started with, word
+/// for word (decision 0071 ruling 5).
+#[test]
+fn the_pasted_command_is_the_argv_a_driver_is_started_with() {
+    let OneClaim { db, claim, .. } = one_claim("{}");
+    let argv = super::super::drive_args(&db, &spawn_of(claim));
+    let argv: Vec<String> = argv.into_iter().map(|w| w.into_string().unwrap()).collect();
+    assert_eq!(resume(claim, &db), format!(": brokkr {}", argv.join(" ")));
 }

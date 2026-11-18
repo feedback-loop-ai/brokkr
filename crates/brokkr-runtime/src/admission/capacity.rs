@@ -358,7 +358,7 @@ enum Recheck {
 
 /// Why a claim took nothing, though nothing failed.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Unclaimed {
+pub(crate) enum Unclaimed {
     /// A wait no longer holds, or the entry has no room now.
     Refused(Reason),
     /// `claims` answered no once the claim held the journal's write lock:
@@ -380,10 +380,11 @@ impl Room {
     /// entry's lanes and the boxed builds are judged again by their
     /// ceilings. An unmet wait or one
     /// at a ceiling now is the inner refusal, and nothing is claimed.
-    /// `claims` is asked first inside the transaction, once it holds the
-    /// write lock, so a stop asked while the claim waited on another
-    /// writer is honoured: a no claims nothing.
-    pub fn claim(
+    /// `claims` is asked last inside the transaction, once it holds the
+    /// write lock and the re-check passed, immediately before the claim is
+    /// written, so a stop asked while the claim waited on another writer
+    /// or was re-checked is honoured: a no claims nothing.
+    pub(crate) fn claim(
         &self,
         store: &mut Store,
         generation: Generation,

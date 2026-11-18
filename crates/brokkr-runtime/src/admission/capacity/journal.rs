@@ -49,10 +49,11 @@ fn measured_in(
 }
 
 impl Room {
-    /// The claim's judge, for a claim through the store at `path`: nothing
-    /// claimed once `claims` answers no, then the journal its transaction
-    /// reads, refused unless the one this room's pass measured, then
-    /// [`Room::recheck`].
+    /// The claim's judge, for a claim through the store at `path`: the
+    /// journal its transaction reads, refused unless the one this room's
+    /// pass measured, then [`Room::recheck`], then `claims`, the last read
+    /// before the store writes the claim: nothing is claimed once it
+    /// answers no.
     pub(super) fn judge<'a>(
         &'a self,
         path: &Path,
@@ -60,12 +61,13 @@ impl Room {
     ) -> impl FnMut(ClaimFacts<'_>) -> Result<(), Recheck> + 'a {
         let path = path.to_path_buf();
         move |facts| {
-            if !claims() {
-                return Err(Recheck::Stopped);
-            }
             let other = |error| Recheck::Failed(Box::new(error));
             measured_in(self.journal, facts.journal, &path).map_err(other)?;
-            self.recheck(facts.waits, facts.moved, facts.cooling)
+            self.recheck(facts.waits, facts.moved, facts.cooling)?;
+            match claims() {
+                true => Ok(()),
+                false => Err(Recheck::Stopped),
+            }
         }
     }
 }

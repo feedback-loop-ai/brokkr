@@ -176,7 +176,8 @@ fn started_line(
 }
 
 /// The command that resumes the run linked under `claim` in `journal`:
-/// the driver the dispatcher would have started (`DriveArgs`), which
+/// the driver the dispatcher would have started (`DriveArgs`), from the
+/// same words its argv is made of ([`super::drive_words`]), which
 /// rebuilds the request from the entry's payload, its bundle, repository
 /// and secrets as queued, from any directory. A bare `brokkr resume` would
 /// compile the workspace's default bundle instead. The journal's path is
@@ -185,10 +186,11 @@ fn started_line(
 /// control or reordering character or not UTF-8, is never printed as a
 /// value: the line then says why, rather than naming another journal.
 fn resume(claim: Claim, journal: &Path) -> String {
-    let (entry, seq) = claim.parts();
-    let driven = format!("brokkr dispatch drive --entry={entry} --claim={seq}");
+    let driven = format!("brokkr {}", super::drive_words(claim).join(" "));
     match journal.to_str() {
-        Some(path) if printable(path) => format!(": {driven} --db={}", shell_word(path)),
+        Some(path) if printable(path) => {
+            format!(": {driven} {}{}", super::DRIVE_DB, shell_word(path))
+        }
         _ => format!(
             " {driven}, naming this journal by hand with --db: its path holds characters this \
              line cannot print"

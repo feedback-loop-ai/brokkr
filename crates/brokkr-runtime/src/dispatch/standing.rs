@@ -5,7 +5,8 @@
 //! reads now, then sleeps what is left of the interval.
 //!
 //! The loop ends on a pass's [`Ended`], whose [`Ending`] the verb exits
-//! non-zero on, or on a stop its seam reports, after which no claim
+//! non-zero on, on a tick's report its seam could not write, or on a stop
+//! its seam reports, after which no claim
 //! follows. Everything else a pass meets is reported and judged again on
 //! the next tick, because none of it latches (decision 0068's 2026-10-10
 //! addendum). The loop never resumes, adopts, stops or concludes a run
@@ -69,7 +70,9 @@ pub struct Stopped;
 /// the driver's start); `stopped` answers whether a stop was asked, which
 /// also keeps a pass from claiming; `now` and `sleep` are the loop's only
 /// clock; `reap` hands back each driver that exited, without waiting; and
-/// `report` takes each tick's facts.
+/// `report` writes each tick's facts, a write that fails ending the loop
+/// with [`Ending::Unreported`], since a driver's exit and a resume command
+/// are printed nowhere else.
 pub struct Stand<'a> {
     pub every: Duration,
     pub stands: &'a mut dyn FnMut() -> Result<(), Ending>,
@@ -78,7 +81,7 @@ pub struct Stand<'a> {
     pub now: &'a mut dyn FnMut() -> Instant,
     pub sleep: &'a mut dyn FnMut(Duration),
     pub reap: &'a mut dyn FnMut() -> Vec<Exited>,
-    pub report: &'a mut dyn FnMut(Tick<'_>),
+    pub report: &'a mut dyn FnMut(Tick<'_>) -> io::Result<()>,
 }
 
 /// Stand over the journal `dispatcher` holds, with the machine `host`
@@ -105,12 +108,21 @@ pub fn stand(
     }
     // A driver that exited during the last sleep is reported as exited,
     // not left running.
-    reap(store, &mut stand);
+    reap(store, &mut stand).map_err(|error| unreported(error, Passed::default()))?;
     Ok(Stopped)
 }
 
+/// The loop ended because `error` kept a tick's report from being
+/// written, after the pass that reported `passed`.
+fn unreported(error: io::Error, passed: Passed) -> Box<Ended> {
+    let ending = Ending::Unreported(error);
+    Box::new(Ended { ending, passed })
+}
+
 /// One tick: the pass, its report, then each reaped driver's. A pass that
-/// ended is reported, its drivers reaped, and its ending handed back.
+/// ended is reported, its drivers reaped, and its ending handed back. A
+/// report that could not be written reaps nothing more, so each driver not
+/// yet reaped is named as left running, and ends the loop.
 fn tick(
     store: &mut Store,
     dispatcher: &Dispatcher,
@@ -125,20 +137,25 @@ fn tick(
         claims: || !stopped(),
     };
     let passed = pass(store, dispatcher, host, host_path.clone(), seams);
-    match &passed {
-        Ok(passed) => (stand.report)(Tick::Passed(passed)),
-        Err(ended) => (stand.report)(Tick::Passed(&ended.passed)),
+    let report = match &passed {
+        Ok(passed) => passed,
+        Err(ended) => &ended.passed,
+    };
+    let written = (stand.report)(Tick::Passed(report)).and_then(|()| reap(store, stand));
+    match (passed, written) {
+        (Err(ended), _) => Err(ended),
+        (Ok(passed), Err(error)) => Err(unreported(error, passed)),
+        (Ok(_), Ok(())) => Ok(()),
     }
-    reap(store, stand);
-    passed.map(drop)
 }
 
 /// Report each driver that has exited, beside what its run reads now.
-fn reap(store: &Store, stand: &mut Stand<'_>) {
+fn reap(store: &Store, stand: &mut Stand<'_>) -> io::Result<()> {
     for exited in (stand.reap)() {
         let reads = reads(store, &exited.run);
-        (stand.report)(Tick::Reaped(&Reaped { exited, reads }));
+        (stand.report)(Tick::Reaped(&Reaped { exited, reads }))?;
     }
+    Ok(())
 }
 
 /// What `run` reads now in the journal, folded from its events.

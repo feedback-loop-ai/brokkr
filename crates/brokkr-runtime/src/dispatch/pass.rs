@@ -95,6 +95,13 @@ pub enum Ending {
     /// Any other store error that is not `Contended`.
     #[error(transparent)]
     Store(StoreError),
+    /// The standing loop's report seam could not write a tick's facts: it
+    /// claimed nothing after, and its drivers run on.
+    #[error(
+        "dispatch: a tick's report could not be written ({0}); the dispatcher claimed nothing \
+         after, and its drivers run on"
+    )]
+    Unreported(std::io::Error),
 }
 
 /// A pass that ended: the typed [`Ending`] and the [`Passed`] report of

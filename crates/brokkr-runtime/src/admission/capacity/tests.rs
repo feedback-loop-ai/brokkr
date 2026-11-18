@@ -1466,6 +1466,36 @@ fn a_run_retried_or_started_after_the_pass_refuses_the_claim_on_capacity() {
     }
 }
 
+/// Decision 0110 ruling 5: the stop is the last read before the claim's
+/// write, after the re-check, so a stop asked while the claim re-checked
+/// is honoured. A re-check that refuses never reaches it; one that passes
+/// asks it once, and its no claims nothing.
+#[test]
+fn a_claims_stop_is_read_after_its_recheck_and_last_before_its_write() {
+    let mut fixture = Fixture::new();
+    let entry = fixture.queue();
+    let file = fixture.declare(&ceilings(1, 1, json!({})));
+    let room = admitted(&fixture, &file);
+    let mut asked = 0;
+    let mut stop = || {
+        asked += 1;
+        false
+    };
+    let unclaimed = room.claim(&mut fixture.store, Generation(1), "admitted", &mut stop);
+    assert_eq!(unclaimed.unwrap(), Err(Unclaimed::Stopped));
+    let mut stop = || {
+        asked += 1;
+        false
+    };
+    fixture.started("r2");
+    let unclaimed = room.claim(&mut fixture.store, Generation(1), "admitted", &mut stop);
+    let full = Reason::Capacity(full("alpha", 1, 1).unwrap());
+    assert_eq!(unclaimed.unwrap(), Err(Unclaimed::Refused(full)));
+    assert_eq!(asked, 1, "the refused re-check asked no stop");
+    let state = fixture.store.queue_entry(entry).unwrap().state;
+    assert_eq!(state, brokkr_store::EntryState::Queued);
+}
+
 /// A run running at the pass that moved and seats what it seated is
 /// counted once, a run that ended since frees its place, and a run
 /// started since takes one: under a ceiling of 3, with two running at the
