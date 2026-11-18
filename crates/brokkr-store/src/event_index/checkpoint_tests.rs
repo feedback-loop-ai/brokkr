@@ -20,6 +20,7 @@ use crate::test_support::{
     text,
 };
 use crate::tests::envelope_builder::EnvelopeBuilder;
+use crate::tests::plant::chained;
 use crate::tests::store;
 use crate::Store;
 
@@ -165,10 +166,10 @@ fn peer_once<'a>(
     }
 }
 
-/// `run_id`'s `events` planted and their checkpoint facts written, and the
-/// last event's hash.
+/// `run_id`'s `events` planted in one transaction (#1130) and their
+/// checkpoint facts written, and the last event's hash.
 fn planted(store: &mut Store, run_id: &str, events: &[EventEnvelope]) -> String {
-    plant_older_writer(store, run_id, events);
+    crate::tests::plant::plant_older_at_once(store, run_id, events);
     store.checkpoint_behind_with(|_| {}).unwrap();
     events.last().unwrap().event_hash.clone()
 }
@@ -236,28 +237,6 @@ fn checkpointed_row(store: &mut Store, record: Json) -> Vec<Value> {
         checkpoint(Some("m"), record),
     );
     kept(store, "r", event.seq)
-}
-
-/// `run_id`'s events in seq order from 1, each chained onto the one before:
-/// a test's journal, built the way the store's seal chains it.
-fn chained(run_id: &str, events: Vec<(EventType, Json)>) -> Vec<EventEnvelope> {
-    let mut previous = brokkr_core::canonical::ZERO_HASH.to_string();
-    events
-        .into_iter()
-        .enumerate()
-        .map(|(at, (event_type, payload))| {
-            let seq = at as u64 + 1;
-            let event = EnvelopeBuilder::new(event_type, payload)
-                .run(run_id)
-                .seq(seq)
-                .event_id(format!("{run_id}-{seq}"))
-                .at("2026-01-01T00:00:00Z")
-                .previous(previous.clone())
-                .sealed();
-            previous.clone_from(&event.event_hash);
-            event
-        })
-        .collect()
 }
 
 /// `run_id`'s run started, a phase entered and one checkpoint of site

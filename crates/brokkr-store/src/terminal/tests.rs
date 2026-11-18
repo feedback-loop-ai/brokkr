@@ -9,6 +9,7 @@ use serde_json::{json, Value};
 use time::OffsetDateTime;
 
 use crate::test_support::{append, lags, plant_envelope};
+use crate::tests::plant::{assert_planted_rows, plant_after};
 use crate::{CooldownAppend, Cooling, Store, StoreError};
 
 fn store() -> (tempfile::TempDir, Store) {
@@ -20,6 +21,12 @@ fn store() -> (tempfile::TempDir, Store) {
 /// A run that opened and then reached `terminal`, written exactly as a
 /// writer that was handed no fold leaves it: the summary row is behind.
 fn terminal_run(store: &mut Store, run_id: &str, terminal: EventType) {
+    started_run(store, run_id);
+    append(store, run_id, terminal, json!({}));
+}
+
+/// Run `run_id` created and started.
+fn started_run(store: &mut Store, run_id: &str) {
     store.create_run(run_id, "f", "test", &json!({})).unwrap();
     append(
         store,
@@ -27,7 +34,6 @@ fn terminal_run(store: &mut Store, run_id: &str, terminal: EventType) {
         EventType::RunStarted,
         json!({"feature": "f", "manifest": {}}),
     );
-    append(store, run_id, terminal, json!({}));
 }
 
 /// One event planted behind the store, as a pre-#440 binary left it: the
@@ -359,6 +365,37 @@ fn a_current_summary_answers_the_terminal_question() {
     ));
 }
 
+/// Run `run_id` of `total` events: started, `total - 2` phases entered
+/// and stopped, the events after `run/started` landed by `land`.
+fn stopped_after(
+    store: &mut Store,
+    run_id: &str,
+    total: usize,
+    land: fn(&mut Store, &str, Vec<(EventType, Value)>),
+) {
+    started_run(store, run_id);
+    let mut events = vec![(EventType::PhaseEntered, json!({"phase": "work"})); total - 2];
+    events.push((EventType::RunStopped, json!({})));
+    land(store, run_id, events);
+}
+
+/// The stopped run [`stopped_after`] plants in one transaction (#1130)
+/// holds the rows the writer appends event by event.
+#[test]
+fn a_planted_stopped_run_holds_the_rows_the_writer_appends() {
+    let (_written_dir, mut written) = store();
+    let (_planted_dir, mut planted) = store();
+    let one_by_one = |store: &mut Store, run_id: &str, events: Vec<(EventType, Value)>| {
+        for (event_type, payload) in events {
+            append(store, run_id, event_type, payload);
+        }
+    };
+    stopped_after(&mut written, "r", 12, one_by_one);
+    stopped_after(&mut planted, "r", 12, plant_after);
+    let held = ["event_index", "events", "run_summary"];
+    assert_planted_rows(&planted, &written, &["r".to_string()], &held);
+}
+
 /// The check is bounded: the terminal at the head is found in the same
 /// instructions whether the run has ten events or ten thousand, so the
 /// read is not a scan of the run's events.
@@ -367,22 +404,7 @@ fn the_terminal_check_steps_the_same_on_ten_and_ten_thousand_events() {
     fn steps(total: usize) -> i64 {
         let (_dir, mut store) = store();
         let run_id = format!("r{total}");
-        store.create_run(&run_id, "f", "test", &json!({})).unwrap();
-        append(
-            &mut store,
-            &run_id,
-            EventType::RunStarted,
-            json!({"feature": "f", "manifest": {}}),
-        );
-        for _ in 0..total - 2 {
-            append(
-                &mut store,
-                &run_id,
-                EventType::PhaseEntered,
-                json!({"phase": "work"}),
-            );
-        }
-        append(&mut store, &run_id, EventType::RunStopped, json!({}));
+        stopped_after(&mut store, &run_id, total, plant_after);
         // The fallback, not the summary: this writer carried no fold, so
         // the row is wordless and the terminal index answers.
         let plan =
