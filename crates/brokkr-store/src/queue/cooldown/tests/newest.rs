@@ -77,13 +77,13 @@ impl Draw {
 
 /// The scan answers the oracle's rows in the oracle's order at every
 /// instant across the table's ends.
-fn holds_to_the_oracle(conn: &Connection, ends: &[i64]) {
+fn holds_to_the_oracle(store: &Store, ends: &[i64]) {
     let low = ends.iter().copied().min().unwrap_or(0);
     let high = ends.iter().copied().max().unwrap_or(0);
     for now in [low - 1, low, (low + high) / 2, high - 1, high, high + 1] {
         assert_eq!(
-            newest(conn, now).unwrap(),
-            oracle(conn, now),
+            newest(store, now).unwrap(),
+            oracle(&store.conn, now),
             "at {now} over ends {ends:?}"
         );
     }
@@ -109,7 +109,7 @@ fn the_scan_answers_the_correlated_forms_rows_in_its_order() {
         let (_dir, store) = planting();
         plant(&store.conn, &named[..take]);
         let ends: Vec<i64> = named[..take].iter().map(|row| row.2).collect();
-        holds_to_the_oracle(&store.conn, &ends);
+        holds_to_the_oracle(&store, &ends);
     }
     let providers = ["claude", "codex"];
     let routes = ["r0", "r1", "r2", "r3", "r4", "r5", "r6", "r7", "r8", "r9"];
@@ -130,7 +130,7 @@ fn the_scan_answers_the_correlated_forms_rows_in_its_order() {
             .collect();
         plant(&store.conn, &rows);
         let ends: Vec<i64> = rows.iter().map(|row| row.2).collect();
-        holds_to_the_oracle(&store.conn, &ends);
+        holds_to_the_oracle(&store, &ends);
     }
 }
 
@@ -161,7 +161,7 @@ fn the_newest_read_is_one_scan() {
     for routes in [10, 1] {
         let steps = |rows| {
             let (_dir, store) = expired_table(rows, routes);
-            newest_steps(&store.conn, 1_000_000).unwrap()
+            newest_steps(&store, 1_000_000).unwrap()
         };
         let (few, many) = (steps(10), steps(10_000));
         eprintln!(
@@ -181,22 +181,165 @@ fn the_newest_read_is_one_scan() {
 #[test]
 fn the_scan_reads_both_ends_of_the_seq_range() {
     let (_dir, store) = planting();
-    let insert = "INSERT INTO provider_cooldowns
-        (seq, run_id, event_seq, site, provider, route, until_at, reason,
-         retry_after_seconds, rounds, recorded_at)
-        VALUES (?1, 'run-a', 1, '', 'claude', ?2, 50, 'words', NULL, ?3, 0)";
-    for (round, (seq, route)) in [(i64::MIN, "first"), (0, "second"), (i64::MAX, "third")]
-        .into_iter()
-        .enumerate()
-    {
-        let round = round as i64 + 1;
-        store
-            .conn
-            .execute(insert, params![seq, route, round])
-            .unwrap();
+    plant_at(
+        &store.conn,
+        &[
+            (i64::MIN, "first", 50),
+            (0, "second", 50),
+            (i64::MAX, "third", 50),
+        ],
+    );
+    assert_eq!(newest(&store, 100).unwrap().len(), 3);
+    holds_to_the_oracle(&store, &[50]);
+}
+
+/// Plant one row per `(seq, route, until)` of provider `claude`, each at
+/// the `seq` it names, which only direct SQL writes, and each its own
+/// round, named by its `seq`.
+fn plant_at(conn: &Connection, rows: &[(i64, &str, i64)]) {
+    let first: i64 = conn
+        .query_row(
+            "SELECT COALESCE(MAX(rounds), 0) FROM provider_cooldowns",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    for (place, (seq, route, until)) in rows.iter().enumerate() {
+        conn.execute(
+            "INSERT INTO provider_cooldowns
+                (seq, run_id, event_seq, site, provider, route, until_at, reason,
+                 retry_after_seconds, rounds, recorded_at)
+             VALUES (?1, 'run-a', 1, '', 'claude', ?2, ?3, ?4, NULL, ?5, 0)",
+            params![
+                seq,
+                route,
+                until,
+                format!("seq {seq}"),
+                first + place as i64 + 1
+            ],
+        )
+        .unwrap();
     }
-    assert_eq!(newest(&store.conn, 100).unwrap().len(), 3);
-    holds_to_the_oracle(&store.conn, &[50]);
+}
+
+/// A second connection onto `store`'s WAL journal: the peer whose commits
+/// land while the read is under way.
+fn peer(store: &Store) -> Connection {
+    Connection::open(store.path()).unwrap()
+}
+
+/// [`newest`] at `now`, `commit` run once, after the scan's first row is
+/// taken; the read's rows and how many rows the scan took.
+fn read_across(store: &Store, now: i64, commit: impl FnOnce()) -> (Vec<Cooldown>, usize) {
+    let mut commit = Some(commit);
+    let mut taken = 0;
+    let read = newest_with(
+        store,
+        now,
+        |_| {
+            taken += 1;
+            if let Some(commit) = commit.take() {
+                commit();
+            }
+        },
+        |_| {},
+    );
+    (read.unwrap(), taken)
+}
+
+/// A peer's 1,024 rows in force, committed after the scan's first row is
+/// read, never join the read: the scan and its lookups read the one
+/// snapshot the read began on, so its work is bounded by the rows present
+/// then. Read lookup by lookup, the scan followed the commit to 1,025 rows.
+#[test]
+fn a_commit_during_the_read_does_not_grow_it() {
+    let (_dir, store) = planting();
+    plant(&store.conn, &[("claude", "first", 500)]);
+    let at_start = oracle(&store.conn, 100);
+    assert_eq!(at_start.len(), 1);
+    let writer = peer(&store);
+    let later = vec![("claude", "first", 500); 1_024];
+    let (read, taken) = read_across(&store, 100, || {
+        writer.execute_batch("BEGIN").unwrap();
+        plant(&writer, &later);
+        writer.execute_batch("COMMIT").unwrap();
+    });
+    assert_eq!(read, at_start, "the read's rows are its start's");
+    assert_eq!(taken, 1, "the scan took the one row present at its start");
+    assert_eq!(
+        oracle(&store.conn, 100).len(),
+        1_025,
+        "the peer's rows landed"
+    );
+}
+
+/// A peer's one commit of seqs 0 and 2, landing after seq 1 is read, is
+/// read whole or not at all: the read answers seq 1 alone, as the journal
+/// stood at its start, never seqs 1 and 2, a set no snapshot held.
+#[test]
+fn a_commit_during_the_read_is_not_split_across_it() {
+    let (_dir, store) = planting();
+    plant_at(&store.conn, &[(1, "one", 500)]);
+    let at_start = oracle(&store.conn, 100);
+    let writer = peer(&store);
+    let (read, _) = read_across(&store, 100, || {
+        writer.execute_batch("BEGIN").unwrap();
+        plant_at(&writer, &[(0, "zero", 500), (2, "two", 500)]);
+        writer.execute_batch("COMMIT").unwrap();
+    });
+    let reasons =
+        |rows: &[Cooldown]| -> Vec<String> { rows.iter().map(|row| row.reason.clone()).collect() };
+    assert_eq!(read, at_start);
+    assert_eq!(reasons(&read), ["seq 1"]);
+    assert_eq!(
+        reasons(&oracle(&store.conn, 100)),
+        ["seq 0", "seq 1", "seq 2"],
+        "the peer's one commit landed whole"
+    );
+}
+
+/// The read's snapshot ends with it, its refusal included, so the
+/// connection's next read sees a peer's later commit; and a read already
+/// inside one read joins it rather than refusing a second.
+#[test]
+fn the_reads_snapshot_ends_with_its_refusal_and_joins_an_outer_one() {
+    let (_dir, store) = planting();
+    store
+        .conn
+        .execute(
+            "INSERT INTO provider_cooldowns
+                (run_id, event_seq, site, provider, route, until_at, reason,
+                 retry_after_seconds, rounds, recorded_at)
+             VALUES ('run-a', 1, '', 'claude', 'first', 50, X'61', NULL, 1, 0)",
+            [],
+        )
+        .unwrap();
+    assert!(matches!(
+        newest(&store, 100),
+        Err(StoreError::Sqlite(rusqlite::Error::InvalidColumnType(
+            5,
+            ..
+        )))
+    ));
+    plant(&peer(&store), &[("claude", "second", 500)]);
+    let count: i64 = store
+        .conn
+        .query_row("SELECT count(*) FROM provider_cooldowns", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(count, 2, "the refused read held no snapshot past its end");
+    let joined = store.as_one_read(|| newest(&store, 100).map(|rows| rows.len()));
+    assert!(
+        matches!(
+            joined,
+            Err(StoreError::Sqlite(rusqlite::Error::InvalidColumnType(
+                5,
+                ..
+            )))
+        ),
+        "{joined:?}"
+    );
 }
 
 /// A row whose words SQLite cannot hand over as text refuses before an
@@ -220,7 +363,7 @@ fn a_column_refusal_precedes_an_earlier_rows_time_refusal() {
             .execute(insert, params![route, until, reason, round])
             .unwrap();
     }
-    let refused = newest(&store.conn, 100).unwrap_err();
+    let refused = newest(&store, 100).unwrap_err();
     assert!(
         matches!(
             refused,

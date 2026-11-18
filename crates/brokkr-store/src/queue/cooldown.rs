@@ -243,8 +243,24 @@ pub(super) fn in_force(conn: &Connection, now: i64) -> Result<Vec<Cooldown>, Sto
 /// [`in_force`], which the expired row never joins. A row whose stored
 /// instant this reader cannot spell refuses by name, carrying the row's
 /// `seq`.
-fn newest(conn: &Connection, now: i64) -> Result<Vec<Cooldown>, StoreError> {
-    newest_with(conn, now, |_| {})
+fn newest(store: &Store, now: i64) -> Result<Vec<Cooldown>, StoreError> {
+    newest_with(store, now, |_| {}, |_| {})
+}
+
+/// [`newest_in`] under one snapshot ([`Store::read_snapshot`]): the scan
+/// and every kept row's lookup read the journal as it stood at the scan's
+/// first row, so a writer's commit at any point in the read neither grows
+/// it nor splits itself across its rows (#1112). The snapshot ends with
+/// the read, its refusal included, and a read already inside one joins it.
+/// `between` runs after each scanned row is taken, with its `seq`: the
+/// instant a peer's commit lands, which the tests stage.
+fn newest_with(
+    store: &Store,
+    now: i64,
+    between: impl FnMut(i64),
+    stepped: impl FnOnce(i64),
+) -> Result<Vec<Cooldown>, StoreError> {
+    store.read_snapshot(|| newest_in(&store.conn, now, between, stepped))
 }
 
 /// [`newest`]'s two statements (#1112). The first scans the table once in
@@ -259,12 +275,13 @@ fn newest(conn: &Connection, now: i64) -> Result<Vec<Cooldown>, StoreError> {
 /// heap. Every kept row is read before any is typed, so a column SQLite
 /// cannot hand over refuses before an earlier row's unreadable time, as the
 /// single statement this replaced refused. A row is append-only and never
-/// deleted, so a kept `seq` reads back the row the scan saw. Both
-/// statements' VM steps go to `stepped`, so the test that binds the read's
-/// cost measures them.
-fn newest_with(
+/// deleted, and [`newest_with`] holds both statements to one snapshot, so
+/// a kept `seq` reads back the row the scan saw. Both statements' VM steps
+/// go to `stepped`, so the test that binds the read's cost measures them.
+fn newest_in(
     conn: &Connection,
     now: i64,
+    mut between: impl FnMut(i64),
     stepped: impl FnOnce(i64),
 ) -> Result<Vec<Cooldown>, StoreError> {
     let mut scan = conn.prepare(
@@ -277,8 +294,10 @@ fn newest_with(
         let Some(row) = scan.query_row([at], Scanned::read).optional()? else {
             break;
         };
-        from = row.seq.checked_add(1);
+        let seq = row.seq;
+        from = seq.checked_add(1);
         newest.take(row, now);
+        between(seq);
     }
     let mut payload = conn.prepare(&format!(
         "SELECT {ROWS} FROM provider_cooldowns WHERE seq = ?1"
@@ -381,9 +400,9 @@ impl Newest {
 /// The VM steps [`newest`]'s two statements take at `now`, for the test
 /// that holds the read to one scan.
 #[cfg(test)]
-fn newest_steps(conn: &Connection, now: i64) -> Result<i64, StoreError> {
+fn newest_steps(store: &Store, now: i64) -> Result<i64, StoreError> {
     let mut steps = 0;
-    newest_with(conn, now, |taken| steps = taken)?;
+    newest_with(store, now, |_| {}, |taken| steps = taken)?;
     Ok(steps)
 }
 
@@ -575,11 +594,13 @@ impl Store {
     /// journal keeps is the rate limits its runs met, so `n` is that count
     /// and not a run's size; the console pays the read twice per refresh,
     /// once to compare the kept frame's aggregate and once in the frame or
-    /// whole read.
+    /// whole read. The scan and every lookup read one snapshot, so a
+    /// writer's commit at any point in the read changes nothing it returns,
+    /// and its rows are the rows the journal held when the scan began.
     pub fn cooldowns_newest(&self, now: OffsetDateTime) -> Result<Vec<Cooldown>, StoreError> {
         patiently("cooldowns_newest", self.patience, || {
             if cool_downs_held(&self.conn)? {
-                newest(&self.conn, now.unix_timestamp())
+                newest(self, now.unix_timestamp())
             } else {
                 Ok(Vec::new())
             }
