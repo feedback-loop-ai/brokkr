@@ -1288,7 +1288,9 @@ fn a_hands_listing_whose_count_refuses_is_reported() {
 
 /// F4 of #430's 5c2 reviews: a walk refusal's line carries
 /// `TreeError::cause`'s own words, the one home brokkr-protocol keeps,
-/// and names no path the refusal carries.
+/// and names no path the refusal carries. The line is compared with
+/// `error.cause()` before the words are pinned, so a restatement in sweep
+/// fails here as soon as the one home's words move.
 #[test]
 fn a_walk_refusals_line_is_the_trees_own_cause() {
     let io = TreeError::Io {
