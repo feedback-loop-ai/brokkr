@@ -254,12 +254,15 @@ engine-built launch, proven before the spawn.** The process that observes CI, re
 is, is launched with all four of these, or the engine refuses before the spawn, parks `ruled`
 with the reason `launch-untrusted` naming the condition that failed, and observes nothing:
 
-- **A pinned executable identity outside the change.** The `ci` seat's interpreter and each tool
-  it calls (`gh`, `jq`) are declared in ruling 5's file by absolute path and SHA-256 digest. The
-  launcher hashes each before the spawn, and refuses a mismatch, a path that is not absolute, or
-  a path under any worktree the run holds. The argv's first word is the pinned interpreter's
-  path, never a bare name, and it runs as `bash --noprofile --norc` over the pinned script. The
-  tools reach the script as absolute paths in its argv, never through `PATH`.
+- **A pinned executable identity outside the change, executed as the bytes it verified.** The
+  `ci` seat's interpreter and each tool it calls (`gh`, `jq`) are declared in ruling 5's file by
+  absolute path and SHA-256 digest. The argv's first word is the pinned interpreter, never a
+  bare name, and it runs as `bash --noprofile --norc` over the pinned script. The tools reach the
+  script as absolute paths in its argv, never through `PATH`. Hashing a path and then executing
+  by that path is not enough: HEAD starts every subprocess by path
+  (`crates/brokkr-protocol/src/adapters/exec.rs:33-42`, `adapters.rs:756-770`, `:839-845`), and
+  a directory outside the worktree that another seat under the same account can write may change
+  between the two. So the rules below bind what runs to what was hashed.
 - **A working directory outside the worktree.** The launcher creates an empty directory of its
   own, outside every worktree, runs the observer there, and removes it after. No git
   configuration, `.envrc` or tool file in the worktree is beneath it.
@@ -270,6 +273,65 @@ with the reason `launch-untrusted` naming the condition that failed, and observe
 - **No tool configuration the change controls.** `gh` reads its configuration only from the
   launcher's empty directory, and is told the repository by `--repo` from the pinned list, so it
   never reads the worktree's remotes. Nothing the observer opens is under a worktree.
+
+**The observer executes the bytes it verified.** **Recommended: (a) open once, verify the open
+file, execute that file; and no path anyone but root can change.**
+
+- **No path that resolves into a worktree, and no symlink.** The launcher resolves each pinned
+  path with every symlink followed, and refuses when the resolved path differs from the declared
+  one, or lies under any worktree the run holds. So an absolute path that is a link into the
+  worktree refuses, as does a directory in its chain that is one.
+- **No path a seat can change.** The file and every ancestor directory must be owned by root
+  and writable by no group and no other, so no process under the run's account, another
+  unboxed seat among them, can replace an entry between verification and use. A user-installed
+  tool (under `~/.local/bin` or a Homebrew prefix the user owns) refuses. This is the one rule
+  that holds the tools `bash` itself later starts by their absolute paths.
+- **The interpreter runs from the file descriptor it hashed.** The launcher opens the
+  interpreter once, with no symlink followed, hashes the bytes read from that descriptor, and
+  executes that same descriptor. On Linux that is `execveat` with `AT_EMPTY_PATH`, or `fexecve`
+  (<https://man7.org/linux/man-pages/man2/execveat.2.html>; not read in this session). HEAD's
+  spawn names its program to `Command::new` (`crates/brokkr-protocol/src/process.rs:295-296`).
+  It already runs `pre_exec` hooks (`crates/brokkr-protocol/src/process/attempts.rs:129`) and
+  hands descriptors into a namespace (`crates/brokkr-protocol/src/hands/namespace/workspace.rs:240`),
+  but no site executes a descriptor, so 0111c builds that.
+- **The script never passes through a file.** The engine reads the pinned script from the
+  compiled bundle once, checks its digest against the manifest's, and hands those bytes to the
+  interpreter over a pipe it owns, as `bash --noprofile --norc /dev/fd/3`. Nothing outside the
+  engine holds the pipe's other end, so no one can change the script after it is checked.
+- **macOS.** Darwin offers no `execveat`, and whether its `fexecve` is usable is **unmeasured**
+  here. So on macOS the interpreter is executed by its path, and the root-owned chain above is
+  what holds it; the pipe holds the script on both systems. Where the chain does not hold, the
+  launch refuses; it never falls back to an unchecked path.
+
+  The alternatives: **(b)** copy the verified bytes into an engine-owned 0700 directory outside
+  the worktree and execute from there. Not recommended: a 0700 directory still admits every
+  process under the same account, which is the case this rule exists for, so it shortens the
+  window and does not close it. **(c)** the engine makes the read-only forge call itself (ruling
+  2 (b)): no child process, so no executable to bind, no launch to prove and no handoff. Its
+  dependency cost is an HTTP client with TLS, a credential path and a GitHub vocabulary in the
+  runtime: the one client HEAD holds is `ureq` in `brokkr-bridge`, which speaks to Looper
+  (`crates/brokkr-bridge/src/lib.rs:1-7`, `:210-219`). It stays open as that option's slice.
+
+**The result comes back through the engine, never the worktree.** HEAD hands every seat a result
+path under the run-local results directory (`crates/brokkr-runtime/src/engine/input.rs:69-82`),
+which is the folder's state or, by default, `<workdir>/.forge`
+(`crates/brokkr-runtime/src/engine.rs:1047-1050`, `crates/brokkr-runtime/src/places.rs:687-690`).
+In the default form that is under the worktree, where the change and every other seat can write.
+So a `ci` seat's observation is never read from a file. The engine captures the observer's
+stdout through its own pipe, bounded at 1 MiB, and an observer that writes more refuses as
+`observation-too-large`. HEAD's exec adapter already captures stdout into its invocation
+(`crates/brokkr-protocol/src/adapters/exec.rs:42`, `:50`, `:71`), but decodes it lossily; the
+`ci` path parses the raw bytes, and refuses bytes that are not UTF-8. A file under `.forge/results`
+for a `ci` seat is ignored, and its presence is journaled as a refusal word, `result-file-ignored`,
+never read. The observer writes nothing to stderr but its own diagnostics, and the `ci` site
+journals stderr's length and digest only.
+
+**Live admission is refused until the launcher exists.** 0111b builds the classifier and the
+compile's `ci` declaration, but its compile refuses every bundle that declares a `ci` seat, a
+`ci_observation` input or a `ci-checks.json`, a custom exec recipe's included, with the reason
+that the trusted launch is unbuilt. 0111c lifts that refusal in the same change that lands the
+launcher. 0111b's tests drive the classifier through builders and test-only bundles, never a
+live compile.
 
 What HEAD lacks for this form, each built by slice 0111c:
 
@@ -284,6 +346,10 @@ What HEAD lacks for this form, each built by slice 0111c:
   workdir it is handed (`crates/brokkr-protocol/src/adapters/exec.rs:33-42`), and no site
   declares another.
 - **A pinned executable identity.** None exists for any exec site (0049 ruling 3).
+- **Execution of the verified bytes.** No site executes a descriptor or feeds a script over a
+  pipe, and none checks a root-owned chain.
+- **A result channel the engine owns.** Every seat's result is a file under the run-local
+  results directory, by default the worktree's `.forge` (above).
 
 The other forms:
 
@@ -1083,11 +1149,15 @@ slice that produces it, and each typed assertion is in the slice that builds its
    About 600 production and 900 test lines; it may split at triage into the observation and its
    pass (with the wire test) and the classifier. Contracts, minted here and only after 0111a:
    `ci-observation/v1`, `ci-checks/v1` and `ci-classification/v1`. No live producer yet: its
-   observations are 0111a's evidence and builders over it. Tests: one per arm and reason of
+   observations are 0111a's evidence and builders over it, and its compile refuses every live
+   `ci` declaration until 0111c (ruling 2):
+   `a_bundle_declaring_a_ci_seat_refuses_to_compile_until_the_trusted_launch_lands`, a custom
+   exec recipe's declaration included. Tests: one per arm and reason of
    ruling 4, over observations built by a shared builder from 0111a's evidence. The wire, end to
    end, over 0111a's evidence in `ci-observation/v1`'s shape:
-   `a_recorded_observation_is_sealed_classified_replayed_and_inspected`. That test drives an exec
-   `ci` seat whose result carries the observation. It asserts that the sealed seat record holds
+   `a_recorded_observation_is_sealed_classified_replayed_and_inspected`. That test hands decide a
+   recorded observation through a test-built bundle the live compile never admits, and 0111c
+   repeats it over the observer's stdout. It asserts that the sealed seat record holds
    it; that the decision's inputs hold `ci_class` and its one true flag; that a fold rebuilt from
    the journal re-derives the same class; and that `inspect` paints it. The ownership tests:
    `a_seat_declaring_ci_class_or_a_class_flag_fails_the_compile`;
@@ -1095,7 +1165,7 @@ slice that produces it, and each typed assertion is in the slice that builds its
    `an_observation_with_an_unknown_field_refuses_whole`. The range and the list's syntax:
    `the_change_range_is_the_merge_base_to_the_gated_head_not_the_phase_entry`;
    `a_range_git_cannot_take_refuses_as_range_unavailable`;
-   `a_glob_character_in_a_definition_path_refuses_to_compile`;
+   `a_glob_character_in_a_machinery_path_refuses_to_compile`;
    `a_directory_path_matches_only_under_its_slash`. The replay (ruling 3):
    `a_replay_with_no_git_range_and_no_forge_re_derives_the_class`;
    `a_replay_reads_the_carried_path_list_not_git`;
@@ -1150,12 +1220,27 @@ slice that produces it, and each typed assertion is in the slice that builds its
    `inspect_names_the_run_attempt_and_job_ids_a_person_re_runs`.
 3. **0111c — the trusted launch and a GitHub observer script.** Files: the launch in
    `crates/brokkr-runtime/src/engine.rs` (a `ci` site's cleared `SpawnEnv::Exactly` table, its
-   own working directory, created before the spawn and removed after, and its digest-checked
-   executables) and `crates/brokkr-protocol/src/adapters/exec.rs` (a working directory the site
-   names); `crates/brokkr-runtime/src/bundle.rs` (the pinned interpreter and tools, and the
-   allow-list); run start's refusal of a `ci` seat whose bundle layer is inside the worktree; a
-   house observer script, with its polling bound inside the seat's deadline, and its shellcheck
-   clean. About 250 production, 150 script and 400 test lines. No contract change. Tests:
+   own working directory, created before the spawn and removed after, its digest-checked
+   executables, the script fed over the engine's pipe, and the observation captured from
+   stdout, bounded) and `crates/brokkr-protocol/src/adapters/exec.rs` (a working directory the
+   site names, and the raw stdout channel); `crates/brokkr-protocol/src/process.rs` (execution
+   of an opened descriptor on Linux, and the root-owned chain check on both systems);
+   `crates/brokkr-runtime/src/bundle.rs` (the pinned interpreter and tools, the allow-list, and
+   the lift of 0111b's live-admission refusal); run start's refusal of a `ci` seat whose bundle
+   layer is inside the worktree; a house observer script, with its polling bound inside the
+   seat's deadline, and its shellcheck clean. About 350 production, 150 script and 550 test
+   lines. No contract change. Tests:
+   `an_interpreter_replaced_after_verification_never_runs` (Linux: the hashed descriptor runs;
+   both systems: a path whose chain the run's account can write refuses before the spawn);
+   `a_tool_whose_directory_the_runs_account_can_write_refuses_before_the_spawn`;
+   `a_pinned_path_that_is_a_link_into_the_worktree_refuses_before_the_spawn`;
+   `a_pinned_path_whose_ancestor_is_a_link_refuses_before_the_spawn`;
+   `the_script_reaches_the_interpreter_over_the_engines_pipe_as_the_bytes_the_manifest_digests`;
+   `a_replaced_result_file_under_forge_results_is_ignored_and_the_stdout_observation_is_read`;
+   `an_observation_over_the_stdout_bound_refuses_as_observation_too_large`;
+   `a_non_utf8_observation_refuses_and_is_never_decoded_lossily`;
+   `the_ci_site_journals_no_stderr_bytes`;
+   `a_recorded_observation_over_stdout_is_sealed_classified_replayed_and_inspected`;
    `a_ci_seat_whose_layer_is_inside_the_worktree_refuses_at_start`;
    `an_inherited_bash_env_never_reaches_the_observer`;
    `an_observer_interpreter_whose_digest_moved_refuses_before_the_spawn`;
