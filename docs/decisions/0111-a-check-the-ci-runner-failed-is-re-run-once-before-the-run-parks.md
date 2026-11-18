@@ -160,9 +160,22 @@ must not be anything the gated change can edit:
 
 ### 2. The observation, the classification, and where the journal keeps them
 
-**Recommended: (a) the observation in the gate's `inputs.ci` under `ci-observation/v1`; the
-classification as an engine-owned record input on the gate's `transition/decided`, under
-`ci-classification/v1`.**
+**Recommended: (a) two inputs, owned apart.**
+
+- **The observation is the seat's.** It is a seat-owned typed record input,
+  `ci_observation`, under `ci-observation/v1`, which the `ci` seat declares in its `inputs`.
+- **The classification is the engine's alone.** It is an engine-owned record input,
+  `ci_class`, under `ci-classification/v1`, written on the gate's `transition/decided`.
+
+They must be two inputs. The first draft made one `ci` input engine-owned and had the seat
+write it, which HEAD refuses twice over. A seat that declares an engine-owned input fails the
+compile (`crates/brokkr-runtime/src/bundle/assemble.rs:327-332`). And a seat's payload loses
+every engine-owned key, and every undeclared one, before the table sees it
+(`crates/brokkr-runtime/src/engine/decide.rs:73-82`). So the observation must be seat-owned to
+reach the engine at all, and the classification engine-owned so no seat can reach it. A
+seat-owned **record** input is new: every record input in the registry today is engine-owned
+(`crates/brokkr-core/src/policy/inputs.rs:116-118`). Slice 0111a adds the first, parsed at
+decide under its contract and refused whole on any unknown field.
 
 The observation names its binding:
 
@@ -240,9 +253,11 @@ ruling 2 gives a verdict).
 
 The classification is engine-written: an `Owner::Engine` record input, as `reviewed_heads` is
 (`crates/brokkr-core/src/policy/inputs.rs:116`), so a seat may neither declare nor overwrite it,
-as the engine-owned strategy is held (`:87-95`). It rides in the decision's `inputs` (`crates/brokkr-core/src/decision.rs:86`), so
-the journal holds the observation, the class the engine drew from it, and the rule that routed
-on it, in the order they happened, with no new event.
+as the engine-owned strategy is held (`:87-95`). Both inputs ride in the decision's `inputs`
+(`crates/brokkr-core/src/decision.rs:86`). So the journal holds three things, in the order they
+happened, with no new event: the observation the seat sealed, the class the engine drew from it,
+and the rule that routed on it. A replay re-derives the class from the sealed observation and
+the pinned list, and must equal the recorded one.
 
 - **(b) A new `ci/classified` event.** Moves the event envelope, every manifest and every fold
   arm for a fact an input can carry. Refused, as 0106 ruling 1 refused `run/park-caused`.
@@ -595,10 +610,7 @@ makes at most one re-run more than its implement visits.
 - a `CI-FAIL` with no exhaustion arm before it; the compile check for this belongs to 0111c's
   overlay test.
 
-`ci_fault` is an engine-owned choice over `green`, `runner-fault` and `change`, beside the
-seat-owned `blocked_by` (`crates/brokkr-core/src/policy/inputs.rs:106-115`). Phase-machine v2's
-`when` already admits any named condition the engine defines
-(`contracts/phase-machine.v2.schema.json:71-77`), so no table contract version moves.
+The class is spelled in `when` as ruling 11 rules.
 
 - **(b) A different runner fault parks typed, as the first draft had it.** It saves an
   implement visit when two runner faults in a row are one sick pool. But it reverses the
@@ -618,10 +630,11 @@ seat-owned `blocked_by` (`crates/brokkr-core/src/policy/inputs.rs:106-115`). Pha
 - **(b) `infrastructure` with `kind`.** Recommended. `kind` is one of:
   - `engine`, every writer today;
   - `ci-runner`, with `faults` (the identity tuples) and `reruns: 1`;
-  - `ci-rerun-uncertain`, with the targets whose acceptance is unknown (ruling 6). A v1 cause with no
-  `kind` reads `engine`. The cause stays four words, the readouts already paint `infrastructure`,
-  and 0106d's rule reads unchanged: it spends only where `retryable` is true (ruling 9). Cost:
-  one closed enum inside one variant, matched without a wildcard.
+  - `ci-rerun-uncertain`, with the targets whose acceptance is unknown (ruling 6).
+
+  A v1 cause with no `kind` reads `engine`. The cause stays four words, the readouts already
+  paint `infrastructure`, and 0106d's rule reads unchanged: it spends only where `retryable` is
+  true (ruling 9). Cost: one closed enum inside one variant, matched without a wildcard.
 
 The writer: the engine's table-park arm (`crates/brokkr-runtime/src/engine/cursor.rs:362-369`)
 gains one case. A park whose decision's inputs carry a `runner-fault` classification writes
@@ -671,6 +684,42 @@ paint (`crates/brokkr-cli/src/tui/columns.rs:375`, `crates/brokkr-cli/src/render
 the fleet's row field is `crates/brokkr-view/src/fleet.rs:339`). It reads
 `infrastructure (ci-runner, not retryable): …` with the faults' job and pattern ids.
 
+### 11. How a table spells the class
+
+**Recommended: (a) engine-owned flags, one per class word, legal under phase-machine v2 with no
+version.**
+
+The first draft wrote `ci_fault_in: [runner-fault]`. That fails the frozen v2 schema: `when`'s
+values are a boolean, a number or a string, never an array
+(`contracts/phase-machine.v2.schema.json:71-77`). HEAD's runtime does read choice arrays
+(`crates/brokkr-core/src/policy/conditions.rs:43-75`), but the published contract does not admit
+them, and 0082 mints no version outside an accepted decision.
+
+- **(a) Engine-owned flags.** `ci_green`, `ci_runner_fault`, `ci_runner_fault_again` and
+  `ci_refused`, each an `Owner::Engine` `Flag`. All four are projected from the one
+  `ci_class` enum at decide, so at most one is true, and `change` is all four false. A boolean
+  input by name is what v2's `when` admits (`:73`). Ruling 7's `When` column reads
+  `ci_refused: true`, `ci_green: true`, `ci_runner_fault_again: true` and
+  `ci_runner_fault: true`. Cost: four names for one enum. That is a projection, not a second
+  home, because the enum stays the one fact and the flags are derived in one function. A table
+  could also write two of them in one rule, which would never match; 0111c's overlay test refuses
+  that at compile. It mints no contract.
+- **(b) `phase-machine/v3`, admitting a non-empty string array for a `<choice>_in` key.** It
+  is the honest shape for a closed choice, and it would also bring `fast`'s existing
+  `blocked_by_in: ["environment"]` (`recipes/fast/policy.json:44-46`) inside a published schema.
+  Cost: a new frozen contract file under 0082, its pin beside v2's in
+  `crates/brokkr-runtime/tests/frozen_contracts.rs:303`, and every table's `schema` word moving
+  or a reader for both. A wider change than this decision needs.
+- **(c) `ci_fault_in` under v2, as drafted.** Refused: it is not legal under the schema it
+  claims.
+
+`fast`'s `blocked_by_in` array already sits outside v2's published schema. That is a finding
+for a follow-up, and this decision does not fix it.
+
+**Enforcement binding:** 0111c validates the overlay's `policy.json` against
+`contracts/phase-machine.v2.schema.json`, and a test asserts that exactly one flag is true for
+each non-`change` class.
+
 ## What stays out
 
 - No model decides: the gate and the re-run seat are exec seats, the classifier is core.
@@ -690,9 +739,10 @@ is the change's, as today. That includes the adopter's port bind and timing-sens
 under (a) this decision does not recover the figures #1093 reports, and says so. Under (b) a
 runner-owned service start is recovered as well, at the cost of measuring what the forge
 exposes. A recipe with no list behaves exactly as now. The cost is an exec observer per recipe
-that wants it, two tokens, and a list an operator keeps. Four contract versions are proposed: `ci-observation/v1`,
-`ci-classification/v1`, `ci-checks/v1` and `park-cause/v2`; each is minted only when its slice
-lands under this decision's acceptance (0082).
+that wants it, two tokens, and a list an operator keeps. Four contract versions are proposed:
+`ci-observation/v1`, `ci-classification/v1`, `ci-checks/v1` and `park-cause/v2`. Each is
+minted only when its slice lands under this decision's acceptance (0082). Under ruling 11 (a)
+the table contract does not move; under (b) a fifth, `phase-machine/v3`, is proposed.
 
 ## The slices
 
@@ -701,13 +751,23 @@ Smallest first; each lands on its own.
 1. **0111a — the classifier and its record over a recorded payload, with no re-run.** Files: a new
    `crates/brokkr-core/src/ci.rs` with `ci/observation.rs`, `ci/faults.rs`, `ci/classify.rs` and
    `ci/tests.rs`; `crates/brokkr-core/src/lib.rs`; `crates/brokkr-core/src/policy/inputs.rs` (the
-   `ci` record and `ci_fault` choice, engine-owned); `crates/brokkr-runtime/src/bundle.rs` (load
+   seat-owned `ci_observation` record; the engine-owned `ci_class` record and ruling 11's four
+   flags); `crates/brokkr-runtime/src/bundle.rs` (load
    and pin `ci-checks.json`, refuse it on a non-exec seat);
    `crates/brokkr-runtime/src/engine/decide.rs` (classify at decide and record the input);
    `crates/brokkr-view/src/` (the CI view model) and `crates/brokkr-cli/src/render/inspect.rs`.
    About 450 production and 450 test lines. Contracts: `ci-observation/v1`, `ci-checks/v1`,
    `ci-classification/v1`. Tests: one per arm and reason of ruling 3, over recorded observations
-   built by a shared builder. Ruling 3's evidence, under (a):
+   built by a shared builder. The wire, end to end, over one recorded observation fixture, in
+   `ci-observation/v1`'s shape and checked in under the slice's tests. It is hand-built from the
+   documentation until 0111b swaps in a measured payload:
+   `a_recorded_observation_is_sealed_classified_replayed_and_inspected`. That test drives an
+   exec `ci` seat whose result carries the fixture. It asserts that the sealed seat record holds
+   the observation; that the decision's inputs hold `ci_class` and its one true flag; that a
+   fold rebuilt from the journal re-derives the same class; and that `inspect` paints it. The
+   ownership tests: `a_seat_declaring_ci_class_or_a_class_flag_fails_the_compile`;
+   `a_seat_payload_carrying_ci_class_is_stripped_before_the_table`;
+   `an_observation_with_an_unknown_field_refuses_whole`. Ruling 3's evidence, under (a):
    `no_log_pattern_types_a_failure_as_the_runners`;
    `a_patterns_key_under_option_a_refuses_to_compile`;
    `a_declared_literal_printed_by_a_checkout_local_action_is_the_changes`;
@@ -752,6 +812,9 @@ Smallest first; each lands on its own.
    `a_green_verify_and_a_red_ci_stop_at_the_third_implement_visit`;
    `verify_and_ci_returns_share_one_implement_bound`;
    `a_refusal_never_routes_to_rerun_or_implement`; `an_uncertain_rerun_never_routes_to_ci`;
+   `the_ci_overlay_policy_validates_against_phase_machine_v2`;
+   `exactly_one_class_flag_is_true_for_each_class_but_change`;
+   `a_rule_naming_two_class_flags_refuses_to_compile`;
    `a_change_failure_after_the_rerun_returns_to_implement`;
    `a_moved_head_earns_its_own_rerun`; `the_observer_never_holds_the_write_token`;
    `a_forge_refusal_parks_ruled`. The scope:
