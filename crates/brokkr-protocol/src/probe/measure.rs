@@ -105,6 +105,8 @@ impl fmt::Display for Fault {
 enum Lines {
     Events,
     Transcript,
+    /// Claude's MCP client log, one file per server it starts (2.1.326).
+    McpLog,
     /// Text, from the turn's own answer, dsh's stdout, or an aside (#484).
     Text(Origin),
 }
@@ -296,10 +298,11 @@ enum Line {
 fn read_line(line: &str, reader: Reader, block: &mut Block) -> Result<Line, Fault> {
     match (strict::object(line), reader.lines) {
         (Some(fields), Lines::Transcript) => reader.harness.row(fields).map(Line::Event),
+        (Some(fields), Lines::McpLog) => claude_log::mcp_log_row(fields).map(Line::Event),
         (Some(fields), Lines::Events | Lines::Text(_)) => {
             reader.harness.event(fields).map(Line::Event)
         }
-        (None, Lines::Events | Lines::Transcript) => Err(Fault::NotOneObject),
+        (None, Lines::Events | Lines::Transcript | Lines::McpLog) => Err(Fault::NotOneObject),
         (None, Lines::Text(origin)) => reader
             .harness
             .text_in(line, origin, block)
@@ -354,11 +357,31 @@ fn transcript_stream(transcript: &Transcript, harness: Harness) -> Stream {
         Written::Appended { from_line } => (transcript.path.clone(), from_line),
         Written::Rewritten => (format!("{}, which the turn rewrote,", transcript.path), 1),
     };
-    let reader = Reader {
-        harness,
-        lines: Lines::Transcript,
+    let server = match harness {
+        Harness::Claude => claude_log::mcp_log_server(&transcript.path),
+        Harness::Codex | Harness::Dsh => None,
     };
-    parse_lines(&transcript.text, &source, first, reader)
+    let lines = match server {
+        Some(_) => Lines::McpLog,
+        None => Lines::Transcript,
+    };
+    let reader = Reader { harness, lines };
+    let mut stream = parse_lines(&transcript.text, &source, first, reader);
+    if let Some(name) = server {
+        let servers = vec![read::Server {
+            name,
+            status: "logged",
+        }];
+        stream.events.insert(
+            0,
+            Event {
+                line: first,
+                label: "mcp-log-file".to_string(),
+                said: vec![Said::Servers { at: "/", servers }],
+            },
+        );
+    }
+    stream
 }
 
 /// Every stream a launch captured, read whatever its exit by `harness`'s

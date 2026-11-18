@@ -185,6 +185,12 @@ pub(super) struct ModelUsage {
     _provider: Given<String>,
     #[serde(default, rename = "costBasis")]
     _cost_basis: Given<String>,
+    /// Inert, like the one after it: `cacheCreationInputTokens` by
+    /// lifetime, from 2.1.326.
+    #[serde(default, rename = "cacheCreationEphemeral1hInputTokens")]
+    _cache_hour: Given<u64>,
+    #[serde(default, rename = "cacheCreationEphemeral5mInputTokens")]
+    _cache_minutes: Given<u64>,
 }
 
 /// The searches each model of `usage`, a `modelUsage`, ran, as tool

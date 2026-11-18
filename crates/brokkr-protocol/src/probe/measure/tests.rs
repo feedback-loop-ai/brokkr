@@ -11,8 +11,11 @@ use serde_json::{json, Map, Value};
 use super::forms::Origin;
 use super::read::{Class, Counted, Harness, Refused, Said, Server};
 use super::tools::mcp_server;
-use super::{parse_lines, Captured, Event, Fault, Lines, Reader, Stream, Streams};
+use super::{
+    parse_lines, transcript_stream, Captured, Event, Fault, Lines, Reader, Stream, Streams,
+};
 use crate::probe::facts::Fact;
+use crate::probe::observe::{Transcript, Written};
 use crate::probe::plan::NO_SUCH_MODEL;
 
 const CLAUDE_PLAIN: &str = include_str!("streams/claude-plain.stdout");
@@ -25,6 +28,9 @@ const DSH_NOMODEL_ERR: &str = include_str!("streams/dsh-nomodel.stderr");
 const DSH_PLAIN: &str = include_str!("streams/dsh-plain.stdout");
 const DSH_PLAIN_ERR: &str = include_str!("streams/dsh-plain.stderr");
 const DSH_STREAM_ERR: &str = include_str!("streams/dsh-stream.stderr");
+/// The plain turn as claude 2.1.326 printed it (2026-11-17): stdout as
+/// recorded, its scratch paths written `/work`.
+const CLAUDE_326_PLAIN: &str = include_str!("streams/claude-326-plain.stdout");
 
 /// The transcripts the recorded launches left, as skeletons (2026-10-04).
 const CLAUDE_PLAIN_LOG: &str = include_str!("streams/claude-plain.jsonl");
@@ -33,6 +39,10 @@ const CODEX_PLAIN_LOG: &str = include_str!("streams/codex-plain.jsonl");
 const CODEX_OFF_LOG: &str = include_str!("streams/codex-off.jsonl");
 const CODEX_NOMODEL_LOG: &str = include_str!("streams/codex-nomodel.jsonl");
 const DSH_PLAIN_LOG: &str = include_str!("streams/dsh-plain.jsonl");
+/// The same turn's transcript, and the MCP client log 2.1.326 wrote for
+/// the planted user-scope server, as skeletons (2026-11-17).
+const CLAUDE_326_PLAIN_LOG: &str = include_str!("streams/claude-326-plain.jsonl");
+const CLAUDE_326_MCP_LOG: &str = include_str!("streams/claude-326-mcp-log.jsonl");
 
 /// Each event a stream held, by its type, with what it said.
 type Events = Vec<(String, Vec<Said>)>;
@@ -786,11 +796,11 @@ fn at<'a>(value: &'a mut Value, path: &[String]) -> &'a mut Value {
 /// the line unread (#484).
 #[test]
 fn every_event_one_key_or_one_value_type_off_a_recorded_one_is_unread() {
-    let claude = [CLAUDE_PLAIN, CLAUDE_NOMODEL];
+    let claude = [CLAUDE_PLAIN, CLAUDE_NOMODEL, CLAUDE_326_PLAIN];
     let codex = [CODEX_PLAIN, CODEX_NOMODEL];
     let recorded = [
-        (Harness::Claude, &claude, recorded_null(&claude)),
-        (Harness::Codex, &codex, recorded_null(&codex)),
+        (Harness::Claude, &claude[..], recorded_null(&claude)),
+        (Harness::Codex, &codex[..], recorded_null(&codex)),
     ];
     assert_eq!(
         recorded.each_ref().map(|(_, _, nullable)| nullable.len()),
@@ -810,6 +820,12 @@ fn every_event_one_key_or_one_value_type_off_a_recorded_one_is_unread() {
             };
             assert!(harness.event(fields(event.clone())).is_ok(), "{line}");
             for variant in variants(&event, nullable) {
+                // 2.1.287 gives `memory_paths` as a path and 2.1.326 as a
+                // path per scope: each recording's one-type-off variant
+                // there is the other version's form, which both read.
+                if variant["memory_paths"].is_string() && event["memory_paths"].is_object() {
+                    continue;
+                }
                 tried += 1;
                 if harness.event(fields(variant.clone())).is_ok() {
                     admitted.push(variant.to_string());
@@ -817,7 +833,7 @@ fn every_event_one_key_or_one_value_type_off_a_recorded_one_is_unread() {
             }
         }
     }
-    assert_eq!((tried, admitted), (7712, Vec::<String>::new()));
+    assert_eq!((tried, admitted), (9489, Vec::<String>::new()));
 }
 
 /// The hands server's status when the turn's every line was read, a
@@ -855,4 +871,117 @@ fn mcp_server_listing_whole_without_the_hands_server_reads_not_listed() {
             evidence: "the system/init event on line 1 of stdout listed mcp_servers: 1".to_string(),
         }
     );
+}
+
+/// Claude 2.1.326's plain turn decodes whole: its `init` with a memory
+/// path per scope, a quota event with no top-level utilization, and a
+/// result carrying the usage since the last result; the tools and servers
+/// `init` lists are read, and the reply is (#484).
+#[test]
+fn claude_2_1_326_s_recorded_plain_turn_decodes_whole_and_yields_its_tools_servers_and_reply() {
+    let (events, unread) = read(Harness::Claude, Lines::Events, CLAUDE_326_PLAIN);
+    assert_eq!(unread, []);
+    let labels: Vec<&str> = events.iter().map(|(label, _)| label.as_str()).collect();
+    assert_eq!(
+        labels,
+        [
+            "system/init",
+            "assistant",
+            "rate_limit_event",
+            "result/success"
+        ]
+    );
+    let (tools, servers) = claude_init(CLAUDE_326_PLAIN);
+    let init = &events[0].1;
+    assert!(init.contains(&Said::Tools {
+        at: "/tools",
+        names: tools
+    }));
+    assert!(init.contains(&Said::Servers {
+        at: "/mcp_servers",
+        servers
+    }));
+    assert!(events[1].1.contains(&Said::Reply));
+    assert!(events[3].1.contains(&Said::Reply));
+}
+
+/// Claude 2.1.326's transcript decodes whole: its request rows among
+/// them, whose shape lists the tools the request carried (#484).
+#[test]
+fn claude_2_1_326_s_recorded_transcript_decodes_whole_and_lists_the_tools_its_request_carried() {
+    assert_eq!(
+        yields(Harness::Claude, CLAUDE_326_PLAIN_LOG),
+        [
+            "model claude-sonnet-5-5",
+            "tools /attachment/addedNames: 14",
+            "servers /attachment/failedMcpServers: 1 failed",
+            "tools /shape/tools: 12",
+            "reply",
+            "model claude-sonnet-5-5",
+            "usage /message/usage",
+            "tools /attachment/tools: 11",
+        ]
+    );
+}
+
+/// A request row carrying anything but text, or parameters naming tools,
+/// is not one the reader names: a tool's use or a tool list there is
+/// never read as none (#484).
+#[test]
+fn a_claude_request_carrying_a_tool_s_use_or_a_tools_parameter_is_unread() {
+    let row = |label: &str| -> Value {
+        let line = CLAUDE_326_PLAIN_LOG
+            .lines()
+            .find(|line| line.contains(&format!("\"type\":\"{label}\"")))
+            .unwrap();
+        serde_json::from_str(line).unwrap()
+    };
+    let mut blob = row("api-request-blob");
+    blob["message"]["content"][0] =
+        json!({"type": "tool_use", "id": "<id>", "name": "Bash", "input": {}});
+    let mut request = row("api-request");
+    request["params"]["tools"] = json!([{"name": "Bash"}]);
+    for altered in [blob, request] {
+        let (events, unread) = read(Harness::Claude, Lines::Transcript, &altered.to_string());
+        assert_eq!((events, unread.len()), (Vec::new(), 1), "{altered}");
+    }
+}
+
+/// The MCP client log claude 2.1.326 writes for each server it starts is
+/// that server reaching the turn: its file lists the server it is named
+/// after, and its lines decode whole. Only a claude file at that path is
+/// one; any other is read as a transcript (#484).
+#[test]
+fn a_claude_mcp_client_log_lists_the_server_it_is_named_after() {
+    let path = "~/.cache/claude-cli-nodejs/-work/mcp-logs-brokkr-probe-user-scope/2026-11-17T22-05-59-690Z.jsonl";
+    let transcript = |path: &str| Transcript {
+        path: path.to_string(),
+        written: Written::Created,
+        text: Captured {
+            text: CLAUDE_326_MCP_LOG.to_string(),
+            not_utf8: Vec::new(),
+        },
+    };
+    let stream = transcript_stream(&transcript(path), Harness::Claude);
+    assert_eq!(stream.unread, []);
+    let listed = Said::Servers {
+        at: "/",
+        servers: vec![Server {
+            name: "brokkr-probe-user-scope".to_string(),
+            status: "logged",
+        }],
+    };
+    assert_eq!(stream.events[0].said, [listed]);
+    assert_eq!(stream.events.len(), 1 + CLAUDE_326_MCP_LOG.lines().count());
+    let elsewhere =
+        "~/.cache/claude-cli-nodejs/-work/mcp-logs-brokkr-probe-user-scope/deeper/x.jsonl";
+    for (path, harness) in [(elsewhere, Harness::Claude), (path, Harness::Codex)] {
+        let stream = transcript_stream(&transcript(path), harness);
+        assert!(stream.events.is_empty(), "{path}");
+        assert_eq!(
+            stream.unread.len(),
+            CLAUDE_326_MCP_LOG.lines().count(),
+            "{path}"
+        );
+    }
 }
