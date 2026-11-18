@@ -1,5 +1,7 @@
 //! A run's residual findings as every surface shows them, read once, and
-//! what each gate verdict recorded beside its word (decision 0109).
+//! what each gate verdict the journal records holds beside its word, a
+//! sequence step's included, each finding under the site that reported it
+//! (decision 0109).
 
 use std::collections::BTreeMap;
 
@@ -9,6 +11,7 @@ use brokkr_core::residual::{closings_of, residuals_of, Mark};
 use brokkr_core::summary::Stated;
 use brokkr_core::{EventEnvelope, EventType};
 use serde::Deserialize;
+use serde_json::Value;
 
 use crate::participant;
 
@@ -59,9 +62,9 @@ pub fn gate_records(events: &[EventEnvelope]) -> Vec<GateRecord> {
     let members = site_members(events);
     events
         .iter()
-        .filter(|event| event.event_type == EventType::EffectSucceeded)
         .filter_map(|event| {
-            let result = &event.payload["result"];
+            let (result, step) = verdict_of(event)?;
+            let effect_id = text(event, "effect_id");
             let read =
                 (result.get("findings")).map(|findings| Vec::<Finding>::deserialize(findings));
             let unread = matches!(read, Some(Err(_)));
@@ -69,15 +72,17 @@ pub fn gate_records(events: &[EventEnvelope]) -> Vec<GateRecord> {
             let covered = result
                 .get("covered")
                 .and_then(|covered| Covered::deserialize(covered).ok());
-            let effect_id = text(event, "effect_id");
+            // A finding is its member's where a member's record carries
+            // its site, else the step's that journaled it, else the
+            // effect's own.
             let reporter = |finding: &Finding| {
                 let site = finding.key().site().to_string();
                 let member = members.get(&(effect_id, site)).copied();
-                participant::key_of(effect_id, member)
+                participant::key_of(effect_id, member.or(step))
             };
             (!findings.is_empty() || covered.is_some() || unread).then(|| GateRecord {
                 phase: phases.get(effect_id).copied().unwrap_or("-").to_string(),
-                key: participant::key_of(effect_id, None),
+                key: participant::key_of(effect_id, step),
                 findings: findings
                     .iter()
                     .map(|finding| gate_finding(finding, reporter(finding)))
@@ -89,8 +94,29 @@ pub fn gate_records(events: &[EventEnvelope]) -> Vec<GateRecord> {
         .collect()
 }
 
+/// The verdict `event` journals, if it journals one (fix round 0109a1r3,
+/// M3): a success's result, the effect's own, or a sequence step's result
+/// in its step's checkpoint, under the step's name.
+fn verdict_of(event: &EventEnvelope) -> Option<(&Value, Option<&str>)> {
+    match event.event_type {
+        EventType::EffectSucceeded => Some((&event.payload["result"], None)),
+        EventType::EffectCheckpointed => {
+            let checkpoint = &event.payload["checkpoint"];
+            let step = checkpoint.get("step").and_then(Value::as_str);
+            (step == Some(STEP_FINISHED))
+                .then(|| (&checkpoint["result"], checkpoint["step_name"].as_str()))
+        }
+        _ => None,
+    }
+}
+
+/// The engine's marker of a sequence step that finished before the last.
+const STEP_FINISHED: &str = "sequence-step-finished";
+
 /// The panel member each `(effect, site)` belongs to, as the engine's
-/// structural stamp on a member's checkpoints names it.
+/// structural stamp on a member's records names it: its checkpoints, and
+/// the engine's own `panel-member-finished` marker, which carries the
+/// member's site whether or not the member journaled a checkpoint.
 fn site_members(events: &[EventEnvelope]) -> BTreeMap<(&str, String), &str> {
     events
         .iter()

@@ -192,6 +192,8 @@ pub(super) fn admitted(mut report: AttemptReport, site: Option<&SiteContext>) ->
 #[cfg(test)]
 pub(super) mod covered_tests;
 #[cfg(test)]
+mod inspect_tests;
+#[cfg(test)]
 mod observation_tests;
 #[cfg(test)]
 mod span_tests;

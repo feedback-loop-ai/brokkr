@@ -372,10 +372,13 @@ impl Engine {
         tag_prefix: &str,
     ) -> Result<(), EngineError> {
         for (name, report) in reports {
-            let boundary = runs
-                .iter()
-                .find(|run| run.name == *name)
-                .and_then(|run| run.boundary);
+            let run = runs.iter().find(|run| run.name == *name);
+            let boundary = run.and_then(|run| run.boundary);
+            // The member's structural site, the one its findings are
+            // stamped with, so a reader files each finding under the
+            // member that reported it even when the member journaled no
+            // checkpoint of its own (fix round 0109a1r3, M3).
+            let site = run.and_then(|run| run.context.as_ref());
             let settled = report.settled_outcome();
             let kind = match &settled {
                 AttemptOutcome::Succeeded { .. } => "succeeded",
@@ -400,17 +403,18 @@ impl Engine {
             .unwrap_or_else(|| "not reported".to_string());
             // The engine's own marker names the member's model, so it
             // carries the member's boundary beside it (design DD19).
-            let marker = stamp_boundary(
-                json!({
-                    "step": "panel-member-finished",
-                    "member": Tag::prefixed(tag_prefix, name),
-                    "outcome": kind,
-                    "model": model,
-                    "session_ref": report.session_ref,
-                    "inner_checkpoints": report.checkpoints.len(),
-                }),
-                boundary,
-            );
+            let mut marker = json!({
+                "step": "panel-member-finished",
+                "member": Tag::prefixed(tag_prefix, name),
+                "outcome": kind,
+                "model": model,
+                "session_ref": report.session_ref,
+                "inner_checkpoints": report.checkpoints.len(),
+            });
+            if let Some(site) = site {
+                marker["site_ref"] = Value::String(site.site_ref.clone());
+            }
+            let marker = stamp_boundary(marker, boundary);
             self.append(
                 EventType::EffectCheckpointed,
                 json!({

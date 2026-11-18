@@ -155,11 +155,12 @@ fn inspect_with(
     out: &mut dyn Write,
     read: Reads<'_>,
 ) -> Result<ExitCode> {
-    // A seat scope reads the members' checkpoints, which link each
-    // member's findings to it (fix round 0109a1r2, R5).
-    let whole = json || capability_call.is_some() || seat.is_some();
+    // Every inspect reads the run whole: its verdicts block shows every
+    // gate verdict the journal records, a sequence step's checkpoint and
+    // a panel member's marker among them, each under its own seat (fix
+    // round 0109a1r3, M3). `watch` and `seats` keep the frame's read.
     let now = crate::now_rfc3339();
-    let (view, gates) = run_view_of(workspace, realms, db, &run, Shows::of(whole), &now, read)?;
+    let (view, gates) = run_view_of(workspace, realms, db, &run, Shows::Everything, &now, read)?;
     if let Some(call_id) = capability_call {
         let repo = repo.as_deref().unwrap_or(workspace);
         return print_call(repo, &view, &call_id, json, out);

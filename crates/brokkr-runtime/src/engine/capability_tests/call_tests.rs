@@ -432,18 +432,25 @@ fn a_panel_member_is_attributed_by_its_own_holding_never_its_siblings() {
         let member = row["member"].as_str().unwrap().to_string();
         live.entry(member).or_default().push(row);
     }
-    let finished = |member: &str| {
+    // Each member's marker names its own site (fix round 0109a1r3, M3).
+    let finished = |member: &str, site: &str| {
         json!({"step": "panel-member-finished", "member": member, "outcome": "succeeded",
                "session_ref": "session", "inner_checkpoints": 1, "model": "not reported",
-               "boundary": "not applicable"})
+               "boundary": "not applicable", "site_ref": site})
     };
     let mut searcher = attributed(&native(SITE, INSTANCE, "codex", "item_1"));
     searcher["member"] = json!("searcher");
     let mut sibling = row("web_search");
     sibling["member"] = json!("sibling");
     let wanted = BTreeMap::from([
-        ("searcher".to_string(), vec![searcher, finished("searcher")]),
-        ("sibling".to_string(), vec![sibling, finished("sibling")]),
+        (
+            "searcher".to_string(),
+            vec![searcher, finished("searcher", SITE)],
+        ),
+        (
+            "sibling".to_string(),
+            vec![sibling, finished("sibling", &sibling_site)],
+        ),
     ]);
     assert_eq!(live, wanted);
 }
