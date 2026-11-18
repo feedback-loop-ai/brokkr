@@ -112,17 +112,18 @@ pub(crate) fn rows_in(
     run_id: &str,
     after: Option<i64>,
 ) -> Result<Vec<EventEnvelope>, StoreError> {
+    const ALL: &str = "SELECT envelope, seq FROM events WHERE run_id = ?1 ORDER BY seq";
+    const AFTER: &str =
+        "SELECT envelope, seq FROM events WHERE run_id = ?1 AND seq > ?2 ORDER BY seq";
     // The seq beside each envelope names a row whose envelope is not JSON.
     let row = |r: &rusqlite::Row<'_>| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?));
     let texts = match after {
         None => conn
-            .prepare("SELECT envelope, seq FROM events WHERE run_id = ?1 ORDER BY seq")?
+            .prepare(ALL)?
             .query_map(params![run_id], row)?
             .collect::<Result<Vec<_>, _>>()?,
         Some(seq) => conn
-            .prepare(
-                "SELECT envelope, seq FROM events WHERE run_id = ?1 AND seq > ?2 ORDER BY seq",
-            )?
+            .prepare(AFTER)?
             .query_map(params![run_id, seq], row)?
             .collect::<Result<Vec<_>, _>>()?,
     };
