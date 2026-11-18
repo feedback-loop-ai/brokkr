@@ -648,9 +648,7 @@ impl Store {
                     held,
                 },
             )?;
-            if let Some(id) = round.ends {
-                hold::end(&tx, id, recorded)?;
-            }
+            hold::ended(&tx, round.ends, recorded)?;
             tx.commit()?;
             Ok(RoundAppend::Written)
         })

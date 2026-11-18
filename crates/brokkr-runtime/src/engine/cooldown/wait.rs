@@ -295,9 +295,8 @@ impl Engine {
             // it standing until its deadline (fix round 0106b1r4, F1).
             match self.probe_wait(events, state, effect_id, seat, wait)? {
                 Probe::Answered(answer) => {
-                    if let Some(hold) = self.cooldown.hold.take() {
-                        self.store.end_probe_hold(hold, self.now())?;
-                    }
+                    let hold = self.cooldown.hold.take();
+                    self.store.end_probe_hold(hold, self.now())?;
                     answers.push(self.settle_probe(answer)?);
                 }
                 Probe::Extended(round) => return Ok(ProbeRound::Extended(round)),

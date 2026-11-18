@@ -567,7 +567,7 @@ pub fn brokkr_store::Store::dispatch_hold(&mut self, u32) -> core::result::Resul
 pub fn brokkr_store::Store::dispatch_holder(&self) -> core::result::Result<core::option::Option<(brokkr_store::Generation, u32, alloc::string::String)>, brokkr_store::StoreError>
 pub fn brokkr_store::Store::set_dispatch_bound(&mut self, core::num::nonzero::NonZeroU32, brokkr_store::Attribution<'_>) -> core::result::Result<(), brokkr_store::StoreError>
 impl brokkr_store::Store
-pub fn brokkr_store::Store::end_probe_hold(&mut self, brokkr_store::ProbeHoldId, time::offset_date_time::OffsetDateTime) -> core::result::Result<(), brokkr_store::StoreError>
+pub fn brokkr_store::Store::end_probe_hold(&mut self, core::option::Option<brokkr_store::ProbeHoldId>, time::offset_date_time::OffsetDateTime) -> core::result::Result<(), brokkr_store::StoreError>
 pub fn brokkr_store::Store::hold_probe(&mut self, &brokkr_store::ProbeHold<'_>, time::offset_date_time::OffsetDateTime) -> core::result::Result<core::option::Option<brokkr_store::ProbeHoldId>, brokkr_store::StoreError>
 impl brokkr_store::Store
 pub fn brokkr_store::Store::envelopes_at(&self, &str, &[u64]) -> core::result::Result<alloc::vec::Vec<brokkr_core::envelope::EventEnvelope>, brokkr_store::StoreError>

@@ -79,11 +79,12 @@ pub(super) fn standing(conn: &Connection, now: i64) -> Result<Vec<Cooldown>, Sto
 }
 
 /// End the hold `id` at `at`, if it still stands: a hold ends once, and
-/// one already ended is left as it was.
-pub(super) fn end(conn: &Connection, id: ProbeHoldId, at: i64) -> Result<(), StoreError> {
+/// one already ended is left as it was. `None` names no hold: a NULL seq
+/// matches no row, so no branch decides it.
+pub(super) fn ended(conn: &Connection, id: Option<ProbeHoldId>, at: i64) -> Result<(), StoreError> {
     conn.execute(
         "UPDATE probe_holds SET ended_at = ?2 WHERE seq = ?1 AND ended_at IS NULL",
-        params![id.0, at],
+        params![id.map(|id| id.0), at],
     )?;
     Ok(())
 }
@@ -125,14 +126,15 @@ impl Store {
     }
 
     /// End the hold `id` at `now`: the probe answered, so its route opens
-    /// at once. Only the hold the probe wrote is touched.
+    /// at once. Only the hold the probe wrote is touched, and `None`, a
+    /// probe on a queue that took no hold, touches none.
     pub fn end_probe_hold(
         &mut self,
-        id: ProbeHoldId,
+        id: Option<ProbeHoldId>,
         now: OffsetDateTime,
     ) -> Result<(), StoreError> {
         patiently("end_probe_hold", self.patience, || {
-            end(&self.conn, id, now.unix_timestamp())
+            ended(&self.conn, id, now.unix_timestamp())
         })
     }
 }

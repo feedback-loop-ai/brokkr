@@ -133,10 +133,11 @@ fn a_probe_hold_is_in_force_until_it_ends_or_its_deadline_passes() {
         .hold_probe(&probe_hold("run-a", at(60)), at(0))
         .unwrap()
         .unwrap();
-    store.end_probe_hold(second, at(5)).unwrap();
-    store.end_probe_hold(second, at(6)).unwrap();
+    store.end_probe_hold(Some(second), at(5)).unwrap();
+    store.end_probe_hold(Some(second), at(6)).unwrap();
+    store.end_probe_hold(None, at(6)).unwrap();
     assert_eq!(store.cooldowns_in_force(at(10)).unwrap(), read);
-    store.end_probe_hold(first, at(7)).unwrap();
+    store.end_probe_hold(Some(first), at(7)).unwrap();
     assert_eq!(store.cooldowns_in_force(at(10)).unwrap(), []);
     let ended: Vec<i64> = store
         .conn
@@ -147,10 +148,17 @@ fn a_probe_hold_is_in_force_until_it_ends_or_its_deadline_passes() {
         .collect::<Result<_, _>>()
         .unwrap();
     assert_eq!(ended, [at(7).unix_timestamp(), at(5).unix_timestamp()]);
+    // A hold left standing is joined by no older queue's in-force read.
+    store
+        .hold_probe(&probe_hold("run-a", at(60)), at(0))
+        .unwrap()
+        .unwrap();
+    assert_eq!(store.cooldowns_in_force(at(10)).unwrap().len(), 1);
     store
         .conn
         .execute("UPDATE meta SET value = '6' WHERE key = 'queue_schema'", [])
         .unwrap();
+    assert_eq!(store.cooldowns_in_force(at(10)).unwrap(), []);
     assert_eq!(
         store
             .hold_probe(&probe_hold("run-a", at(90)), at(0))
