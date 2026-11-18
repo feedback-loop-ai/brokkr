@@ -138,7 +138,7 @@ park's reason and its `ruled` cause. Nothing typed names a job, a step or a forg
 
 This shell has no forge client and this seat holds no web capability, so the forge's shape below
 is from GitHub's public documentation by URL and was **not read in this session: unmeasured
-until slice 0111b records a real payload.**
+until slice 0111a records real payloads.**
 
 - A workflow run's jobs, each with `id`, `name`, `status`, `conclusion` and `steps[]` of
   `{number, name, status, conclusion}`:
@@ -202,7 +202,7 @@ held only because a write was sent:
 - the re-run routes, and the classes and park kinds only they drew;
 - the rule that let an audit job be re-run.
 
-**Enforcement binding:** 0111c's overlay test refuses any seat in the CI overlay that declares a
+**Enforcement binding:** 0111d's overlay test refuses any seat in the CI overlay that declares a
 write binding, and the observer's credential is read-only (ruling 2).
 
 ### 2. What reads the checks
@@ -241,7 +241,7 @@ must not be anything the gated change can edit:
   change's own tree; in this house `recipes/fast/` is repository code. This decision therefore
   requires that the observer's layer lie outside the gated worktree: run start refuses a `ci`
   seat whose bundle layer is inside it. Whether run start can see both paths today is
-  unmeasured; slice 0111b's test settles it.
+  unmeasured; slice 0111c's test settles it.
 - **Its launch.** Checking where `gh` resolves from inside the script proves nothing about the
   process that runs the script. An inherited `BASH_ENV` naming a worktree file runs before the
   script's first line, and `bash` itself resolves through `PATH`, which 0049 ruling 3 leaves
@@ -271,7 +271,7 @@ with the reason `launch-untrusted` naming the condition that failed, and observe
   launcher's empty directory, and is told the repository by `--repo` from the pinned list, so it
   never reads the worktree's remotes. Nothing the observer opens is under a worktree.
 
-What HEAD lacks for this form, each built by slice 0111b:
+What HEAD lacks for this form, each built by slice 0111c:
 
 - **A cleared environment for a site without hands.** Such a site spawns in the engine's own
   environment: `SiteSpawn::inherit` sets `SpawnEnv::Inherit`
@@ -326,7 +326,7 @@ every engine-owned key, and every undeclared one, before the table sees it
 (`crates/brokkr-runtime/src/engine/decide.rs:73-82`). So the observation must be seat-owned to
 reach the engine at all, and the classification engine-owned so no seat can reach it. A
 seat-owned **record** input is new: every record input in the registry today is engine-owned
-(`crates/brokkr-core/src/policy/inputs.rs:116-118`). Slice 0111a adds the first, parsed at
+(`crates/brokkr-core/src/policy/inputs.rs:116-118`). Slice 0111b adds the first, parsed at
 decide under its contract and refused whole on any unknown field.
 
 The observation names its binding:
@@ -924,31 +924,58 @@ reach a pass or a re-run; its worst cost is a person's look. A recipe with no li
 exactly as now. The cost is an exec observer per recipe that wants it, one read-only token, and
 a list an operator keeps. Four contract versions are proposed: `ci-observation/v1`,
 `ci-classification/v1`, `ci-checks/v1` and `park-cause/v2`. Each is minted only when its slice
-lands under this decision's acceptance (0082). Under ruling 10 (a) the table contract does not
-move; under (b) a fifth, `phase-machine/v3`, is proposed.
+lands under this decision's acceptance (0082), and the first three only after 0111a's evidence.
+This decision proposes no table contract: the `verify` gate runs under v2, and the `fast` gate
+waits on 0109's v3 and ruling 10's ask.
 
 ## The slices
 
-Smallest first; each lands on its own.
+Smallest first; each lands on its own. Evidence comes before any contract, because 0082 forbids
+fixing a minted version in place: a shape the evidence would change is changed in this decision,
+while it is proposed, never in a minted file. Each piece of lifecycle and readout work is in the
+slice that produces it, and each typed assertion is in the slice that builds its writer.
 
-1. **0111a — the classifier and its record over a recorded payload.** Files: a new
-   `crates/brokkr-core/src/ci.rs` with `ci/observation.rs`, `ci/faults.rs`, `ci/classify.rs` and
+1. **0111a — the forge's evidence, before any contract.** The operator captures, by hand, outside
+   any run, and with a read-only token, representative payloads for this repository's own pull
+   requests: the check runs and the commit statuses for a head; the workflow runs that produced
+   them, with path, event, number, attempt, head and whatever the forge says of the revision it
+   tested; their jobs with steps; one job's log; and the base branch's required set. A failed
+   setup step is added if one recurs. Files: the captured payloads, redacted, as test data under
+   `crates/brokkr-core/src/ci/evidence/` with a note of how each was taken; one test that pins
+   their digests, so no later slice regenerates them. About 40 test lines and the data. No
+   contract and no production code. It settles, or marks still unmeasured:
+   - whether the forge reports a job's key, and the app's numeric id (ruling 3);
+   - whether a run names the merge commit it tested, which decides whether any `merge` entry can
+     pass (ruling 3);
+   - a status's creator, and how a matrix job's name is spelled;
+   - the closed list of conclusion words, and how a job log is cut into steps;
+   - whether the forge masks every secret in a step's log, which decides whether ruling 4's
+     pattern arm is built at all.
+
+   Where a fact differs from what this decision assumes, the decision is revised before it is
+   accepted, or before 0111b mints. Test: `the_ci_evidence_files_are_pinned_by_digest`. With
+   this slice the classifier's first consumer exists: 0111b's tests read it, so the next sweep
+   can count, offline, what a typed park would have saved.
+2. **0111b — the classifier, its record and its readout, over 0111a's evidence.** Files: a new
+   `crates/brokkr-core/src/ci.rs` with `ci/observation.rs`, `ci/checks.rs`, `ci/classify.rs` and
    `ci/tests.rs`; `crates/brokkr-core/src/lib.rs`; `crates/brokkr-core/src/policy/inputs.rs` (the
    seat-owned `ci_observation` record; the engine-owned `ci_class` record and ruling 10's three
    flags); `crates/brokkr-runtime/src/bundle.rs` (load and pin `ci-checks.json`, refuse it on a
-   non-exec seat); `crates/brokkr-runtime/src/engine/decide.rs` (classify at decide and record
-   the input); `crates/brokkr-view/src/` (the CI view model) and
-   `crates/brokkr-cli/src/render/inspect.rs`. About 550 production and 850 test lines; it may
-   split at triage into the observation and its pass (with the wire test) and the classifier.
-   Contracts: `ci-observation/v1`, `ci-checks/v1`, `ci-classification/v1`. Tests: one per arm
-   and reason of ruling 4, over recorded observations built by a shared builder. The wire, end
-   to end, over one recorded observation fixture, in `ci-observation/v1`'s shape and checked in
-   under the slice's tests:
-   `a_recorded_observation_is_sealed_classified_replayed_and_inspected`. That test drives an
-   exec `ci` seat whose result carries the fixture. It asserts that the sealed seat record holds
-   the observation; that the decision's inputs hold `ci_class` and its one true flag; that a
-   fold rebuilt from the journal re-derives the same class; and that `inspect` paints it. The
-   ownership tests: `a_seat_declaring_ci_class_or_a_class_flag_fails_the_compile`;
+   non-exec seat); `crates/brokkr-runtime/src/engine/decide.rs` (take the bounded range, classify
+   at decide, and record the class with its carried path list); and the readout it produces,
+   `crates/brokkr-view/src/` (the CI view model: class, refusals, faults, and the run's id and
+   attempt and each failed job's id a person needs) with `crates/brokkr-cli/src/render/inspect.rs`.
+   About 600 production and 900 test lines; it may split at triage into the observation and its
+   pass (with the wire test) and the classifier. Contracts, minted here and only after 0111a:
+   `ci-observation/v1`, `ci-checks/v1` and `ci-classification/v1`. No live producer yet: its
+   observations are 0111a's evidence and builders over it. Tests: one per arm and reason of
+   ruling 4, over observations built by a shared builder from 0111a's evidence. The wire, end to
+   end, over 0111a's evidence in `ci-observation/v1`'s shape:
+   `a_recorded_observation_is_sealed_classified_replayed_and_inspected`. That test drives an exec
+   `ci` seat whose result carries the observation. It asserts that the sealed seat record holds
+   it; that the decision's inputs hold `ci_class` and its one true flag; that a fold rebuilt from
+   the journal re-derives the same class; and that `inspect` paints it. The ownership tests:
+   `a_seat_declaring_ci_class_or_a_class_flag_fails_the_compile`;
    `a_seat_payload_carrying_ci_class_is_stripped_before_the_table`;
    `an_observation_with_an_unknown_field_refuses_whole`. The range and the list's syntax:
    `the_change_range_is_the_merge_base_to_the_gated_head_not_the_phase_entry`;
@@ -961,18 +988,16 @@ Smallest first; each lands on its own.
    `a_port_bind_literal_in_a_declared_setup_step_draws_ci_infrastructure`;
    `a_declared_literal_in_an_undeclared_step_is_the_changes`;
    `a_literal_printed_by_the_change_in_a_declared_setup_step_draws_a_park_never_green`;
-   `no_class_a_failure_draws_is_green`;
-   `a_startup_failure_or_timed_out_job_is_the_changes`;
+   `no_class_a_failure_draws_is_green`; `a_startup_failure_or_timed_out_job_is_the_changes`;
    `several_literals_in_one_excerpt_match_the_first_declared`;
    `a_pattern_naming_an_undeclared_step_refuses_to_compile`;
    `a_setup_step_outside_every_required_workflow_refuses_to_compile`;
    `a_fifth_excerpt_refuses_the_observation`;
    `a_timing_sensitive_test_failure_is_the_changes`; `a_cancelled_job_is_the_changes`;
-   `one_untyped_job_makes_the_whole_change`;
-   `an_unknown_conclusion_refuses_by_name`; `a_stale_head_observation_does_not_read`;
-   `a_pass_with_a_failed_job_is_refused`; `a_seat_cannot_write_the_classification`;
-   `a_ci_list_on_a_model_seat_refuses_to_compile`; `inspect_names_the_class`. The producer, the
-   definition and the tested revision (ruling 3):
+   `one_untyped_job_makes_the_whole_change`; `an_unknown_conclusion_refuses_by_name`;
+   `a_stale_head_observation_does_not_read`; `a_pass_with_a_failed_job_is_refused`;
+   `a_seat_cannot_write_the_classification`; `a_ci_list_on_a_model_seat_refuses_to_compile`.
+   The producer, the definition and the tested revision (ruling 3):
    `a_same_named_green_check_from_another_workflow_refuses_as_producer_mismatch`;
    `a_status_from_an_unpinned_creator_refuses_as_producer_mismatch`;
    `a_green_check_on_another_event_does_not_match_its_entry`;
@@ -991,54 +1016,70 @@ Smallest first; each lands on its own.
    `a_skipped_or_neutral_required_check_refuses_as_non_success`;
    `a_required_check_still_in_progress_refuses_as_not_settled`;
    `two_matches_for_one_required_check_refuse_as_ambiguous`;
-   `a_forge_required_check_the_list_lacks_refuses`; `an_empty_required_list_refuses_to_compile`;
-   `a_ci_seat_whose_layer_is_inside_the_worktree_refuses_at_start`.
-2. **0111b — the trusted launch and a GitHub observer script.** Files: the launch in
+   `a_forge_required_check_the_list_lacks_refuses`; `an_empty_required_list_refuses_to_compile`.
+   The readout it produces: `inspect_names_the_class_the_refusals_and_the_faults`;
+   `inspect_names_the_run_attempt_and_job_ids_a_person_re_runs`.
+3. **0111c — the trusted launch and a GitHub observer script.** Files: the launch in
    `crates/brokkr-runtime/src/engine.rs` (a `ci` site's cleared `SpawnEnv::Exactly` table, its
-   own working directory and its digest-checked executables) and
-   `crates/brokkr-protocol/src/adapters/exec.rs` (a working directory the site names);
-   `crates/brokkr-runtime/src/bundle.rs` (the pinned interpreter and tools, and the allow-list);
-   a house observer script and its shellcheck clean; a test that runs it against a stub `gh`
-   given by absolute path and holds its output to `ci-observation/v1`; one recorded real
-   payload, measured by the operator, which settles this decision's unmeasured forge facts.
-   Tests: `an_inherited_bash_env_never_reaches_the_observer`;
+   own working directory, created before the spawn and removed after, and its digest-checked
+   executables) and `crates/brokkr-protocol/src/adapters/exec.rs` (a working directory the site
+   names); `crates/brokkr-runtime/src/bundle.rs` (the pinned interpreter and tools, and the
+   allow-list); run start's refusal of a `ci` seat whose bundle layer is inside the worktree; a
+   house observer script, with its polling bound inside the seat's deadline, and its shellcheck
+   clean. About 250 production, 150 script and 400 test lines. No contract change. Tests:
+   `a_ci_seat_whose_layer_is_inside_the_worktree_refuses_at_start`;
+   `an_inherited_bash_env_never_reaches_the_observer`;
    `an_observer_interpreter_whose_digest_moved_refuses_before_the_spawn`;
    `an_observer_tool_under_the_worktree_refuses_before_the_spawn`;
    `a_bare_interpreter_name_refuses_to_compile`;
    `the_observer_runs_from_a_directory_outside_the_worktree`;
+   `the_launch_directory_is_removed_after_the_observer_ends`;
    `an_environment_key_outside_the_allow_list_refuses_to_compile`;
+   `an_untrusted_launch_parks_ruled_as_launch_untrusted_and_observes_nothing`;
    `the_observer_reads_no_gh_configuration_from_the_worktree_or_home`;
    `the_observer_names_the_repository_and_never_reads_the_worktrees_remotes`;
-   `the_observer_lists_every_check_for_the_head_unfiltered`;
-   `the_observer_holds_no_write_binding`. About 250 production, 150 script and 400 test lines.
-   No contract change.
-3. **0111c — the routing overlay.** Files: a recipe overlay declaring ruling 6's table, and its
-   compile tests. About 100 data and 350 test lines. No contract change. Tests:
-   `a_green_observation_passes`; `a_change_failure_returns_to_implement`;
-   `a_runner_fault_parks_with_no_seat_attempt`;
-   `a_green_verify_and_a_red_ci_stop_at_the_third_implement_visit`;
-   `verify_and_ci_returns_share_one_implement_bound`;
-   `a_refusal_never_routes_to_implement`; `no_rule_routes_to_a_rerun`;
-   `a_ci_infrastructure_class_never_routes_to_implement`;
-   `a_ci_overlay_seat_declaring_a_write_binding_refuses_to_compile`;
-   `the_ci_overlay_policy_validates_against_phase_machine_v2`;
+   `the_observer_lists_every_check_for_the_head_unfiltered` (a stub `gh` given by absolute
+   path, its output held to `ci-observation/v1` and to 0111a's evidence);
+   `the_observer_refuses_as_not_settled_when_its_polling_bound_ends`;
+   `the_observer_holds_no_write_binding`.
+4. **0111d — the gate on `verify`, and the typed park it writes.** The first slice with a live
+   producer. Files: a recipe overlay over `recipes/verify` declaring ruling 6's `verify`-based
+   table; `crates/brokkr-core/src/park.rs` and its `parse` and `forms` modules;
+   `crates/brokkr-runtime/src/engine/cursor.rs` (the marked rule's typed park);
+   `crates/brokkr-runtime/src/bundle/` (the compile's marking of that rule); and the readout it
+   produces, the fleet's and `inspect`'s paint of the cause. About 150 production, 100 data and
+   450 test lines. Contract: `park-cause/v2`. **Live read-only telemetry starts here**: from the
+   first run the operator drives under this overlay on a real pull request, each observation,
+   class and park is journaled, and a sweep can count typed parks against seat attempts. The
+   park's lifecycle is this slice's too: a person re-runs, then the operator retries the parked
+   `ci` phase, which observes again. Tests: `a_green_observation_passes_to_review`;
+   `a_red_ci_on_verify_stops`; `a_refusal_parks_ruled_and_never_passes`;
+   `no_rule_routes_to_a_rerun`; `a_ci_overlay_seat_declaring_a_write_binding_refuses_to_compile`;
+   `the_composed_verify_ci_table_validates_whole_against_phase_machine_v2`;
    `exactly_one_class_flag_is_true_for_each_class_but_change`;
-   `a_rule_naming_two_class_flags_refuses_to_compile`. The interception (ruling 6):
-   `a_docs_only_return_waits_for_ci_before_review`;
-   `a_ship_drift_return_waits_for_ci_before_review`;
-   `every_edge_into_review_comes_from_ci`;
-   `a_rule_into_review_from_another_phase_refuses_to_compile`.
-4. **0111d — the typed park.** Files: `crates/brokkr-core/src/park.rs` and its `parse` and
-   `forms` modules, `crates/brokkr-runtime/src/engine/cursor.rs`, and the view and CLI tests that
-   paint the cause. About 100 production and 180 test lines. Contract: `park-cause/v2`. Tests:
+   `a_rule_naming_two_class_flags_refuses_to_compile`;
+   `a_runner_fault_parks_with_no_seat_attempt` (the typed park, asserted here with its writer);
    `a_v1_infrastructure_cause_reads_kind_engine`; `a_ci_infrastructure_park_is_never_retryable`;
    `a_runner_fault_park_writes_the_ci_infrastructure_cause_and_keeps_the_rule_in_the_decision`;
    `a_refusal_park_carrying_a_ci_class_stays_ruled`;
    `a_different_table_park_carrying_the_ci_infrastructure_class_stays_ruled`;
    `a_table_with_no_or_two_marked_ci_infrastructure_parks_refuses_to_compile`;
-   `the_fleet_paints_the_ci_infrastructure_cause`;
-   and, when 0106d lands, its `a_non_retryable_infrastructure_park_spends_nothing` (0106:1224)
-   extended with a `ci-infrastructure` park (ruling 8).
+   `an_operator_retry_after_a_person_re_runs_observes_again`;
+   `the_fleet_paints_the_ci_infrastructure_cause`; and, when 0106d lands, its
+   `a_non_retryable_infrastructure_park_spends_nothing` (0106:1224) extended with a
+   `ci-infrastructure` park (ruling 8).
+5. **0111e — the gate on `fast`'s delivery path.** Lands only after 0109c moves `fast` to v3,
+   and only if the operator grants ruling 10's ask. Files: a recipe overlay over `fast`
+   declaring ruling 6's fast-derived table, and its compile tests. About 100 data and 400 test
+   lines. No contract of this decision's own. Tests: `a_change_failure_returns_to_implement`;
+   `a_green_verify_and_a_red_ci_stop_at_the_third_implement_visit`;
+   `verify_and_ci_returns_share_one_implement_bound`;
+   `a_ci_infrastructure_class_never_routes_to_implement`;
+   `a_docs_only_return_waits_for_ci_before_review`;
+   `a_ship_drift_return_waits_for_ci_before_review`; `every_edge_into_review_comes_from_ci`;
+   `a_rule_into_review_from_another_phase_refuses_to_compile`;
+   `the_environment_park_survives_the_ci_overlay`;
+   `the_composed_fast_ci_table_validates_whole_against_phase_machine_v3`.
 
 ## Evidence
 
@@ -1072,4 +1113,21 @@ The revision of fix round 1093r3 answered the review positions of run
 `fix-round-1093r2-for-issue-1093--9fd4243a` and the operator's ruling of 2026-11-18. The
 re-run verbs' parameters are the controller's reading of
 <https://docs.github.com/en/rest/actions/workflow-runs> on 2026-11-18; this seat read no forge
-page in any round. Every forge fact cited by URL is unmeasured until 0111b.
+page in any round. Every forge fact cited by URL is unmeasured until 0111a. It read, at the
+story's base, each file:line it newly cites:
+
+- `.github/workflows/ci.yml:1-70`, `:300-325` and `:655-700`, and a `grep -n` of its job
+  names, local actions and scripts;
+- `recipes/fast/policy.json` (every rule, by `jq`), `recipes/verify/policy.json`,
+  `recipes/brokkr-fast/bundle.json:4`, and a `jq` scan of every `recipes/*/policy.json` for an
+  array-valued condition;
+- `crates/brokkr-protocol/src/adapters/exec.rs:25-50`, `crates/brokkr-protocol/src/adapters.rs:756-853`
+  and `crates/brokkr-protocol/src/process.rs:85-100`, `:295-310`;
+- `crates/brokkr-runtime/src/engine.rs:2040-2056` and `:2860-2885`;
+- `crates/brokkr-runtime/src/bundle.rs:3938-3968` and `:4147-4157`;
+- `crates/brokkr-runtime/src/bundle/compose.rs:815-840` and `:868-922`, and
+  `compose_tests.rs:600-650`;
+- `crates/brokkr-core/src/policy.rs:258-278`, `:471-545` and `policy/conditions.rs:30-85`;
+- `crates/brokkr-core/src/park.rs:25-70`, and `crates/brokkr-bridge/src/lib.rs:1-30`, `:210-229`;
+- `contracts/phase-machine.v2.schema.json:25-80`;
+- decisions 0049 (`:30-60`) and 0109 (`:1500-1530`, `:1830`).
