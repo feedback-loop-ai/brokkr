@@ -20,7 +20,9 @@ use brokkr_protocol::broker::Owner;
 
 use super::routes::{forced, restart, RESTARTED};
 use super::*;
-use crate::engine::broker::admission::tests::{conflicting, in_flight, last, soon, Coordinated};
+use crate::engine::broker::admission::tests::{
+    conflicting, in_flight, last, unhurried, Coordinated,
+};
 use crate::engine::broker::admission::{
     amend, recheck, Conflict, Reservation, Unadmitted, Unknown, Witnessed, RESERVATION,
 };
@@ -520,7 +522,7 @@ fn a_door_passed_after_the_adoption_refuses_and_the_release_holds_to_the_records
                     let spawned = spawn_site(&bundle, &spawn, &json!({}), &work, deadline, door);
                     spawned.map(|(process, _)| drop(process))
                 }
-                false => amend(&peer, soon(), |mut reservation| {
+                false => amend(&peer, unhurried(), |mut reservation| {
                     let reserved = reservation.attempts.get_mut(ATTEMPT).unwrap();
                     let late = Driver {
                         cleanup: Witnessed::Settling,

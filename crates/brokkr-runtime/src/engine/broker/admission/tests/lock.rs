@@ -24,7 +24,7 @@ fn cause(unadmitted: Result<Held, Unadmitted>) -> Unknown {
 fn refused_as(host: &Host, incoming: &Claim, why: Unopened) {
     let refusal = Unknown::Lock(why);
     assert_eq!(cause(host.admit(incoming)), refusal);
-    let found = locked_existing(host.root.dir(), soon());
+    let found = locked_existing(host.root.dir(), unhurried());
     assert_eq!(found.map(drop), Err(refusal));
 }
 
@@ -88,7 +88,7 @@ fn an_open_that_meets_emfile_refuses_by_its_errno() {
     let held = exhausted();
 
     let admitted = host.admit(&incoming);
-    let found = locked_existing(host.root.dir(), soon());
+    let found = locked_existing(host.root.dir(), unhurried());
     let words = admitted.as_ref().map(drop).unwrap_err().to_string();
     drop(held);
     assert_eq!(cause(admitted), Unknown::Lock(Unopened::Open(Errno::MFILE)));

@@ -145,7 +145,7 @@ fn a_reseal_that_cannot_link_the_record_that_stood_keeps_it() {
     let joined = admit(
         &host.root,
         &open(&host.worktree("work"), ["run-a", "a2"]),
-        soon(),
+        unhurried(),
     );
     assert_eq!(joined, mb3(Unknown::Unsealed));
     assert_eq!(standing(&at), before, "the reservation that stood");
@@ -197,7 +197,7 @@ fn a_reseal_whose_undoing_fails_leaves_the_reservation_that_stood_read() {
         ),
     ];
     for (armed, under_prior, how) in cases {
-        let deadline = soon();
+        let deadline = to_outlast();
         let (host, at, before) = joining(armed(deadline));
         let work = host.worktree("work");
         let joined = admit(&host.root, &open(&work, ["run-a", "a2"]), deadline);
@@ -217,7 +217,7 @@ fn a_reseal_whose_undoing_fails_leaves_the_reservation_that_stood_read() {
         // The next seal first puts that very file back: cut short before
         // its own commit, it leaves the record that stood at its name.
         LATE.set(Some(Late::Unstage));
-        let cut = admit(&host.root, &open(&work, ["run-a", "a3"]), soon());
+        let cut = admit(&host.root, &open(&work, ["run-a", "a3"]), unhurried());
         assert_eq!(cut, mb3(Unknown::Unsealed), "{how}");
         kept(&at, &before, &format!("{how}, the next seal cut short"));
         drop(host.admit(&open(&work, ["run-a", "a3"])).unwrap());
@@ -317,7 +317,7 @@ fn a_late_release_keeps_the_reservation_that_stood() {
         let host = Host::new();
         let work = host.worktree("work");
         let held = host.admit(&open(&work, ["run-a", "a1"])).unwrap();
-        assert_eq!(proved(&held, soon()), Ok(Commit::Synced));
+        assert_eq!(proved(&held, unhurried()), Ok(Commit::Synced));
         let at = host.reservation(&work, "run-a");
         let before = standing(&at);
         LATE.set(Some(armed));
@@ -358,7 +358,7 @@ fn a_release_without_its_positive_fact_is_refused() {
     let at = host.reservation(&work, "run-a");
     let before = standing(&at);
     let unproven = Err(Unadmitted::Identity(Unknown::Unproven));
-    assert_eq!(release(&held, soon()), unproven);
+    assert_eq!(release(&held, unhurried()), unproven);
     kept(&at, &before, "unproven");
 }
 
@@ -482,15 +482,19 @@ fn reserved(at: &Path) -> Reservation {
 fn a_reseal_whose_last_sync_fails_reports_itself_committed() {
     let (host, at, before) = joining(Late::FailFinal);
     let work = host.worktree("work");
-    let joined = admit(&host.root, &open(&work, ["run-a", "a2"]), soon()).unwrap();
+    let joined = admit(&host.root, &open(&work, ["run-a", "a2"]), unhurried()).unwrap();
     assert!(joined.unsynced, "joined: held unsynced");
     assert_ne!(standing(&at), before, "joined: its successor stands");
     let both = vec!["a1".to_string(), "a2".to_string()];
     assert_eq!(host.attempts(&work, "run-a"), (both, Vec::new()));
     assert!(!prior(&at).exists(), "joined: no prior name left");
-    assert_eq!(proved(&joined, soon()), Ok(Commit::Synced));
+    assert_eq!(proved(&joined, unhurried()), Ok(Commit::Synced));
     LATE.set(Some(Late::FailFinal));
-    assert_eq!(release(&joined, soon()), Ok(Commit::Unsynced), "released");
+    assert_eq!(
+        release(&joined, unhurried()),
+        Ok(Commit::Unsynced),
+        "released"
+    );
     let released = (vec!["a1".to_string()], vec!["a2".to_string()]);
     assert_eq!(host.attempts(&work, "run-a"), released);
     assert!(!prior(&at).exists(), "released: no prior name left");
@@ -500,7 +504,7 @@ fn a_reseal_whose_last_sync_fails_reports_itself_committed() {
     let unresolved = Cleanup::Unresolved {
         reason: Unsettled::Stdout,
     };
-    witnessed_by(&mut engine.held, &unresolved, soon());
+    witnessed_by(&mut engine.held, &unresolved, unhurried());
     let marked = reserved(&host.reservation(&work, &run));
     assert_eq!(
         marked.attempts["a1"].cleanup,
@@ -522,7 +526,7 @@ fn a_reseal_whose_last_sync_fails_reports_itself_committed() {
     let (_dir, _engine, work, run) = died_after_its_end(&host);
     LATE.set(Some(Late::FailFinal));
     let next = claim(&work, ["run-b", "b1"], Protects::Nothing, &[]);
-    let recovered = admit(&host.root, &next, soon()).unwrap();
+    let recovered = admit(&host.root, &next, unhurried()).unwrap();
     assert!(recovered.unsynced, "recovered: held unsynced");
     let settled = (Vec::new(), vec!["a1".to_string()]);
     assert_eq!(host.attempts(&work, &run), settled, "recovered");
@@ -617,7 +621,11 @@ fn settlement_publishes_what_its_attempt_retained_before_its_release() {
         attempt.served((0, &plans[0]), true, &answered);
         if unresolved {
             let reason = Unsettled::Stdout;
-            witnessed_by(&mut engine.held, &Cleanup::Unresolved { reason }, soon());
+            witnessed_by(
+                &mut engine.held,
+                &Cleanup::Unresolved { reason },
+                unhurried(),
+            );
         }
         settled_a1(&mut engine, &run);
         let unsealed = case == "unsealed";
@@ -686,7 +694,7 @@ fn successor(at: &Path) -> Vec<u8> {
 
 /// The lease's reservation amended to settle one more id, resealed.
 fn amending(held: &Held) -> Result<Commit, Unadmitted> {
-    amend(held, soon(), |mut reservation| {
+    amend(held, unhurried(), |mut reservation| {
         reservation.settled.insert("planted".into());
         Ok(reservation)
     })
@@ -734,8 +742,8 @@ fn a_reseal_never_replaces_a_record_it_did_not_read() {
 #[test]
 fn a_late_spawn_record_leaves_the_released_record_as_the_release_sealed_it() {
     let (host, work, held, at) = spawning_attempt();
-    assert_eq!(proved(&held, soon()), Ok(Commit::Synced));
-    assert_eq!(release(&held, soon()), Ok(Commit::Synced));
+    assert_eq!(proved(&held, unhurried()), Ok(Commit::Synced));
+    assert_eq!(release(&held, unhurried()), Ok(Commit::Synced));
     let released = (Vec::<String>::new(), vec!["a1".to_string()]);
     assert_eq!(
         host.attempts(&work, "run-a"),
@@ -900,7 +908,7 @@ fn a_reseal_refused_by_its_filesystem_writes_nothing() {
     let (host, at, before) = stood();
     let root = opened_refusing(host.home());
     let reservation: Reservation = serde_json::from_slice(&std::fs::read(&at).unwrap()).unwrap();
-    let refused = resealed(&root, &reservation, &reservation, &Budget::new(soon()));
+    let refused = resealed(&root, &reservation, &reservation, &Budget::new(unhurried()));
     assert_eq!(refused, Err(Unknown::Exchange));
     assert_eq!(
         Unknown::Exchange.to_string(),
@@ -921,7 +929,7 @@ fn a_second_attempts_admission_never_writes_back_a_record_removed_after_its_read
     let work = host.worktree("work");
     let next = open(&work, ["run-a", "a2"]);
     let between = || std::fs::remove_file(&at).unwrap();
-    let refused = admit_with(&host.root, &next, soon(), &between);
+    let refused = admit_with(&host.root, &next, unhurried(), &between);
     assert_eq!(refused, mb3(Unknown::Participant(at.clone())));
     assert!(!at.exists(), "the admission wrote nothing back");
 }
@@ -936,7 +944,7 @@ fn recovery_never_writes_back_a_reservation_removed_at_its_seal() {
     let at = host.reservation(&work, &run);
     LATE.set(Some(Late::Remove));
     let next = claim(&work, ["run-b", "b1"], Protects::Nothing, &[]);
-    let admitted = admit(&host.root, &next, soon());
+    let admitted = admit(&host.root, &next, unhurried());
     assert_eq!(admitted, mb3(Unknown::Unsealed));
     assert!(!at.exists(), "recovery wrote nothing back");
 }
@@ -954,7 +962,7 @@ fn a_re_adoption_never_writes_back_a_reservation_removed_at_its_seal() {
     let at = host.reservation(&work, &run);
     let repo = canonical::sha256_bytes(work.as_os_str().as_bytes());
     LATE.set(Some(Late::Remove));
-    let readopted = adopted(&host.root, [&repo, &run, "a1"], soon());
+    let readopted = adopted(&host.root, [&repo, &run, "a1"], unhurried());
     assert_eq!(
         readopted.map(|adoption| adoption.is_some()),
         Err(Unadmitted::Identity(Unknown::Unsealed))
@@ -1004,7 +1012,7 @@ fn a_second_attempts_admission_refuses_a_record_planted_after_its_read() {
     let next = open(&work, ["run-a", "a2"]);
     let planted = successor(&at);
     let between = || plant(&at, &planted);
-    let refused = admit_with(&host.root, &next, soon(), &between);
+    let refused = admit_with(&host.root, &next, unhurried(), &between);
     assert_eq!(refused, mb3(Unknown::Participant(at.clone())));
     assert_eq!(
         std::fs::read(&at).unwrap(),
@@ -1260,7 +1268,7 @@ fn a_reseal_refused_by_each_exchange_refusal_writes_nothing() {
         let root = super::opened_by(host.home(), Some(refusing_exchange));
         let reservation: Reservation =
             serde_json::from_slice(&std::fs::read(&at).unwrap()).unwrap();
-        let refused = resealed(&root, &reservation, &reservation, &Budget::new(soon()));
+        let refused = resealed(&root, &reservation, &reservation, &Budget::new(unhurried()));
         assert_eq!(refused, Err(Unknown::Exchange), "{why}");
         assert_eq!(
             standing(&at),
@@ -1294,9 +1302,9 @@ fn sealing_by(root: &Root, bytes: &[u8], deadline: Instant) -> Result<Commit, Un
     root.seal(root.dir(), RESERVATION, bytes, &Budget::new(deadline))
 }
 
-/// [`sealing_by`] within the house's five seconds.
+/// [`sealing_by`] by an [`unhurried`] deadline.
 fn sealing(root: &Root, bytes: &[u8]) -> Result<Commit, Unknown> {
-    sealing_by(root, bytes, soon())
+    sealing_by(root, bytes, unhurried())
 }
 
 /// A first seal of the reservation at `at`, and how it stood.
@@ -1375,7 +1383,7 @@ impl Restoring {
             &self.run,
             RESERVATION,
             bytes,
-            &Budget::new(soon()),
+            &Budget::new(unhurried()),
             &self.stood,
             &self.read,
         )
@@ -1573,7 +1581,7 @@ fn a_first_seals_restore_puts_the_record_that_stood_back_over_a_replacement() {
 #[test]
 fn a_first_seal_late_as_it_retires_undoes_without_an_exchange() {
     let cases = [
-        (Late::FailRetiring, Unknown::Unsealed, soon()),
+        (Late::FailRetiring, Unknown::Unsealed, unhurried()),
         (
             Late::SleepRetiring(Duration::from_millis(1_200)),
             Unknown::Expired,
@@ -1722,7 +1730,7 @@ fn a_lone_prior_name_is_refused_by_the_door_the_amend_and_settlement() {
     );
 
     assert_eq!(
-        amend(&held, soon(), Ok),
+        amend(&held, unhurried(), Ok),
         Err(Unadmitted::Identity(Unknown::Unsealed)),
         "the amend refuses"
     );
@@ -1837,7 +1845,7 @@ fn another_byte_form() -> (Host, PathBuf, Held, Reservation) {
 fn a_reseal_restores_a_record_written_in_another_byte_form() {
     let (host, at, _held, record) = another_byte_form();
     assert_eq!(
-        resealed(&host.root, &record, &record, &Budget::new(soon())),
+        resealed(&host.root, &record, &record, &Budget::new(unhurried())),
         Ok(Commit::Synced),
         "the cut-short state is restored"
     );
@@ -1855,7 +1863,7 @@ fn a_reseal_restores_a_record_written_in_another_byte_form() {
 #[test]
 fn an_amend_restores_a_record_written_in_another_byte_form() {
     let (_host, at, held, record) = another_byte_form();
-    let amended = amend(&held, soon(), Ok);
+    let amended = amend(&held, unhurried(), Ok);
     assert_eq!(amended, Ok(Commit::Synced), "the amend restores it");
     assert_eq!(
         std::fs::read(&at).unwrap(),

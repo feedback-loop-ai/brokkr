@@ -722,41 +722,57 @@ fn a_store_its_peer_holds_answers_at_once_with_its_read_cause() {
     assert!(taken < Duration::from_secs(2), "{taken:?}");
 }
 
-/// What [`delivered`] answers within `startup` for a plan declaring
-/// `DOCS_TOKEN` from a store that holds it, on a control pipe that is full
-/// and that no one reads, and when its box was ended.
-fn untaken_delivery(startup: Startup<'_>) -> (Result<(), Refusal>, Option<Instant>) {
+/// What [`delivered`] answers for a plan declaring `DOCS_TOKEN` from a
+/// store that holds it, on a control pipe that is full and that no one
+/// reads, within `within` of its start, cancelled as `cancelled` says, and
+/// how long after that start its box was ended. The start is read once the
+/// store, the pipe and the plan are made, so a bound on the box's end
+/// measures the supervisor and not the fixture's own writes (#1124).
+fn untaken_delivery(
+    within: Duration,
+    cancelled: &(dyn Fn() -> bool + Sync),
+) -> (Result<(), Refusal>, Option<Duration>) {
     let dir = tempfile::tempdir().unwrap();
     let admitted = admitted_store(dir.path(), "DOCS_TOKEN=value\n");
     let (_reader, writer) = full();
     let ended = std::cell::Cell::new(None);
     let pipes = (&mut Some(writer), &mut written(b""));
     let plan = plan_sealed(&["DOCS_TOKEN"]);
-    let end = || ended.set(Some(Instant::now()));
+    let begun = Instant::now();
+    let end = || ended.set(Some(begun.elapsed()));
+    let startup = (begun + within, cancelled);
     let answer = delivered(pipes, (&admitted, &plan), startup, (end, unbound));
     (answer, ended.get())
 }
+
+/// How soon after it is due the box must be ended. The supervisor polls
+/// every [`SLICE`] at most, but in the whole brokkr-cli lib suite on a
+/// loaded 8-thread host (load about 10) it ended the box 3.18 s after its
+/// deadline, past the 2 s this was (#1124). Ten seconds holds that stall
+/// three times over and stays a third of the 30 s deadline a supervisor
+/// that missed the cancellation would wait out, so that supervisor still
+/// fails. A box ended before it is due, later than this, or never, still
+/// fails.
+const ENDED_WITHIN: Duration = Duration::from_secs(10);
 
 #[test]
 fn a_frame_not_taken_by_the_deadline_ends_the_box_at_the_deadline() {
     // The sender's frame is not taken: at the absolute deadline, and no
     // more than a slice after, the box is ended and the handoff refused.
-    let deadline = Instant::now() + Duration::from_millis(300);
-    let (answer, ended) = untaken_delivery((deadline, &live));
+    let deadline = Duration::from_millis(300);
+    let (answer, ended) = untaken_delivery(deadline, &live);
     assert_eq!(answer, Err(Refusal::Handoff));
-    let after = ended.and_then(|at| at.checked_duration_since(deadline));
-    let bounded = after.is_some_and(|after| after < Duration::from_secs(2));
+    let after = ended.and_then(|at| at.checked_sub(deadline));
+    let bounded = after.is_some_and(|after| after < ENDED_WITHIN);
     assert!(bounded, "{after:?}");
 }
 
 #[test]
 fn a_frame_not_taken_when_the_attempt_is_cancelled_ends_the_box_at_once() {
-    let begun = Instant::now();
-    let (answer, ended) = untaken_delivery((begun + Duration::from_secs(30), &gone));
+    let (answer, ended) = untaken_delivery(Duration::from_secs(30), &gone);
     assert_eq!(answer, Err(Refusal::Handoff));
-    let taken = ended.map(|at| at - begun);
-    let bounded = taken.is_some_and(|taken| taken < Duration::from_secs(2));
-    assert!(bounded, "{taken:?}");
+    let bounded = ended.is_some_and(|taken| taken < ENDED_WITHIN);
+    assert!(bounded, "{ended:?}");
 }
 
 /// What the supervisor answers within `startup` for a sender held, as a
