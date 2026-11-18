@@ -23,7 +23,7 @@ const FROM: i64 = 1_700_000_000_000;
 const TO: i64 = FROM + 60_000;
 
 /// The operator's SQLite cap, 1,000 KiB (2026-11-13).
-const CAP: i64 = 1_024_000;
+pub(crate) const CAP: i64 = 1_024_000;
 
 /// The parks statement's measured 152,024 B plus a tenth, the tighter
 /// bound the operator's ruling asks for while that is under [`CAP`]. The
@@ -46,7 +46,7 @@ const TAKES: usize = 5;
 /// and the other tests this binary carries open journals beside a
 /// measurement; a process of its own is the only way to read the counters
 /// with no other connection allocating in it.
-const OWN_PROCESS: &str = "BROKKR_STORE_EXCLUSION_HEAP_OWN_PROCESS";
+pub(crate) const OWN_PROCESS: &str = "BROKKR_STORE_EXCLUSION_HEAP_OWN_PROCESS";
 
 /// SQLite's memory counters: what it holds now and its high-water.
 #[derive(Clone, Copy)]
@@ -74,7 +74,7 @@ fn memory(reset: bool) -> Memory {
 }
 
 /// SQLite's high-water above where it stood before `read`, in bytes.
-fn high_water(read: impl FnOnce()) -> i64 {
+pub(crate) fn high_water(read: impl FnOnce()) -> i64 {
     let base = memory(true).now;
     read();
     memory(false).high - base
@@ -142,21 +142,22 @@ fn journal(path: &Path, stale: usize) -> Store {
 /// The test the child process runs, by the name the test binary lists it.
 const CHILD: &str = "exclusion_heap::the_exclusion_holds_no_stale_set_in_sqlite";
 
-/// The six figures the child prints after `label`, or none where it printed
-/// no such line.
+/// The figures the child prints after `label`, or none where it printed no
+/// such line.
 fn printed(stderr: &str, label: &str) -> Option<Vec<i64>> {
     let line = stderr.lines().find_map(|line| line.strip_prefix(label))?;
     let list = line.trim().strip_prefix('[')?.strip_suffix(']')?;
     list.split(", ").map(|figure| figure.parse().ok()).collect()
 }
 
-/// Run the measurement in a process of its own and prove it measured: the
-/// child passed, ran exactly one test, and printed its six figures at both
-/// sizes. A filter that matches no test exits 0 having run nothing, so a
-/// renamed child would leave the cap unbound if exit status were enough.
-fn measured_in_its_own_process() {
+/// Run the measurement `child` in a process of its own and prove it
+/// measured: the child passed, ran exactly one test, and printed `count`
+/// figures after each of `labels`. A filter that matches no test exits 0
+/// having run nothing, so a renamed child would leave the cap unbound if
+/// exit status were enough.
+pub(crate) fn measured_in_its_own_process(name: &str, labels: &[&str], count: usize) {
     let child = Command::new(std::env::current_exe().unwrap())
-        .args(["--exact", CHILD, "--nocapture"])
+        .args(["--exact", name, "--nocapture"])
         .env(OWN_PROCESS, "1")
         .output()
         .expect("the test binary re-executes");
@@ -168,17 +169,14 @@ fn measured_in_its_own_process() {
     );
     assert!(
         stdout.contains("test result: ok. 1 passed; 0 failed"),
-        "the child {CHILD} ran no test, so it measured nothing:\n{stdout}"
+        "the child {name} ran no test, so it measured nothing:\n{stdout}"
     );
     eprint!("{stderr}");
-    for label in [
-        "SQLite high-water, 10 stale: ",
-        "SQLite high-water, 5,000 stale: ",
-    ] {
+    for label in labels {
         let figures = printed(&stderr, label).unwrap_or_default();
         assert_eq!(
             figures.len(),
-            6,
+            count,
             "the child printed its figures after {label:?}:\n{stderr}"
         );
     }
@@ -193,7 +191,14 @@ fn measured_in_its_own_process() {
 #[test]
 fn the_exclusion_holds_no_stale_set_in_sqlite() {
     if std::env::var_os(OWN_PROCESS).is_none() {
-        measured_in_its_own_process();
+        measured_in_its_own_process(
+            CHILD,
+            &[
+                "SQLite high-water, 10 stale: ",
+                "SQLite high-water, 5,000 stale: ",
+            ],
+            6,
+        );
         return;
     }
     let dir = tempfile::tempdir().unwrap();

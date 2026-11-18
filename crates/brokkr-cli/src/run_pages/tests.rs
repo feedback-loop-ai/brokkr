@@ -385,11 +385,13 @@ fn a_run_past_its_opening_is_read_the_kept_way() {
 /// envelope.
 const PROJECTIONS: usize = 35;
 
-/// The aggregate's two reads, which a whole read makes once (decision 0103
-/// slice 4f): the queue's storage version, then every row in force at the
-/// readout's clock. Neither reads an envelope, and neither grows with the
-/// run.
-const AGGREGATE: usize = 2;
+/// The aggregate's three reads, which a whole read makes once (decision
+/// 0103 slice 4f): the queue's storage version; then the snapshot's pin,
+/// which holds the cool-down scan and its lookups to one snapshot; then
+/// the cool-down scan's first lookup, the least row by `seq`, which finds
+/// the run's empty table and so reads no row's words (#1112). None reads
+/// an envelope, and none grows with the run.
+const AGGREGATE: usize = 3;
 
 /// The view whole reads its run once (ruling 7): on the grown run, 7,510
 /// events and 151 journal pages, the read `inspect --json`, `seats --json`
@@ -398,7 +400,7 @@ const AGGREGATE: usize = 2;
 /// for each event of the trail, its 17 events but the checkpoints, by its
 /// seq, and no other: no journal page and no participant's checkpoint
 /// page, so its statements grow with the run's trail and never with its
-/// journal; and last, the aggregate's two reads, once, which paint a
+/// journal; and last, the aggregate's three reads, once, which paint a
 /// waiting run (decision 0103 slice 4f).
 #[test]
 fn the_view_whole_reads_its_opening_its_trail_its_summary_and_its_seat_rows() {
@@ -434,10 +436,10 @@ fn the_view_whole_reads_its_opening_its_trail_its_summary_and_its_seat_rows() {
     assert_eq!(envelopes[1..], trail);
     let aggregate = |sql: &str| {
         sql.starts_with("SELECT value FROM meta WHERE key = 'queue_schema'")
-            || sql.starts_with(concat!(
-                "SELECT seq, site, provider, route, until_at, reason, retry_after_seconds, ",
-                "rounds, recorded_at FROM provider_cooldowns AS held WHERE held.until_at > ",
-            ))
+            || sql == "SELECT count(*) FROM sqlite_schema"
+            || sql.starts_with(
+                "SELECT seq, provider, route, until_at FROM provider_cooldowns WHERE seq >= ",
+            )
     };
     assert_eq!(
         begun.iter().filter(|sql| aggregate(sql.as_str())).count(),
