@@ -941,6 +941,35 @@ fn a_hands_tree_with_no_lock_is_kept_and_reported() {
     assert_eq!(fixture.store.tree_sweeps().unwrap(), vec![]);
 }
 
+/// F3 of #430's 5c2 reviews: a dry run names the lockless hands tree a
+/// pass keeps, with the pass's own words, and neither removes it.
+#[test]
+fn a_dry_run_and_a_pass_name_a_kept_lockless_hands_tree_alike() {
+    let mut fixture = Fixture::new();
+    let tree = hands_tree(&fixture.tmp, exited_pid(), "lockless");
+    let line = format!(
+        "sweep: kept {}: its lock cannot be probed: it holds no lock file; trees from before \
+         #415 are no longer reaped (0.13.0)\n",
+        tree.display()
+    );
+
+    let planned = plan(&fixture.store).unwrap();
+
+    assert!(tree.exists());
+    assert_eq!(
+        planned.lines_with(safe, true),
+        format!("{line}sweep: would free 0 bytes\n")
+    );
+    let (swept, _) = pass_one(&mut fixture.store);
+    assert!(tree.exists());
+    assert_eq!(swept.kept(), planned.kept());
+    assert_eq!(
+        swept.lines_with(safe, false),
+        format!("{line}sweep: freed 0 bytes\n")
+    );
+    assert_eq!(fixture.store.tree_sweeps().unwrap(), vec![]);
+}
+
 #[test]
 fn a_dry_run_lists_what_a_pass_would_remove_without_removing_it() {
     let mut fixture = Fixture::new();
@@ -1257,15 +1286,48 @@ fn a_hands_listing_whose_count_refuses_is_reported() {
     );
 }
 
+/// F4 of #430's 5c2 reviews: a walk refusal's line carries
+/// `TreeError::cause`'s own words, the one home brokkr-protocol keeps,
+/// and names no path the refusal carries. The line is compared with
+/// `error.cause()` before the words are pinned, so a restatement in sweep
+/// fails here as soon as the one home's words move.
 #[test]
-fn a_foreign_removal_cause_names_no_path() {
+fn a_walk_refusals_line_is_the_trees_own_cause() {
+    let io = TreeError::Io {
+        path: PathBuf::from("/tree/sealed"),
+        cause: std::io::Error::from_raw_os_error(13),
+    };
     let foreign = TreeError::Foreign {
         path: PathBuf::from("/tree/mounted"),
         device: 2,
         tree: 1,
     };
+    let words = (io.cause(), foreign.cause());
+    let mut swept = Swept::default();
+    let listed = |tree: &str, error| Listed {
+        tree: PathBuf::from(tree),
+        count: Err(error),
+    };
+    plan_hands_with(
+        [
+            listed("/tmp/brokkr-hands-io", io),
+            listed("/tmp/brokkr-hands-foreign", foreign),
+        ]
+        .into_iter(),
+        &mut swept,
+    );
+
     assert_eq!(
-        cause(&foreign),
+        swept.lines_with(safe, true),
+        format!(
+            "sweep: could not remove /tmp/brokkr-hands-io: {}\nsweep: could not remove \
+             /tmp/brokkr-hands-foreign: {}\nsweep: would free 0 bytes\n",
+            words.0, words.1
+        )
+    );
+    assert_eq!(words.0, "Permission denied (os error 13)");
+    assert_eq!(
+        words.1,
         "is on another filesystem (device 2, not 1); a tree is removed on its own filesystem"
     );
 }

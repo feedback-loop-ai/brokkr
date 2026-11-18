@@ -82,7 +82,7 @@ impl TreeError {
     /// The refusal's cause alone, without its path: the reaper's kept line
     /// already names the tree, through `safe`, so the reason must not name
     /// a path a seat wrote inside the tree a second time.
-    pub(crate) fn cause(&self) -> String {
+    pub fn cause(&self) -> String {
         match self {
             TreeError::Io { cause, .. } => cause.to_string(),
             TreeError::Foreign { device, tree, .. } => foreign(*device, *tree),

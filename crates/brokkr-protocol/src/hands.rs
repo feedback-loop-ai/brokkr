@@ -50,7 +50,9 @@ use namespace::workspace::Workspace;
 use namespace::{workspace::Boxed, Namespace, Profile};
 pub use overlay::{overlay_supported_with, OverlayWrites};
 pub use sealed::{drifted, seal, sealed_store, store_place, Sealed, SEALED_REACH, UNHIDDEN_STORE};
-pub use session::{list_reapable_under, reap_dead_sessions, Listed, Reaped, Session, SessionError};
+pub use session::{
+    list_reapable_under, reap_dead_sessions, Listed, Listing, Reaped, Session, SessionError,
+};
 
 /// The boxed tool Brokkr serves. Claude Code names it `mcp__brokkr__workspace`.
 pub const SERVER_NAME: &str = "brokkr";
