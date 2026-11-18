@@ -268,6 +268,14 @@ fn paint_seg(cells: &mut Cells, seg: &Seg, plan: &Plan, tick: usize, animate: bo
 /// table and the trail; current is the filled, coloured rail glyph.
 /// Different attribute, different cell, different axis.
 pub(super) fn paint(plan: &Plan, tick: usize, animate: bool) -> Vec<Line<'static>> {
+    let cells = paint_cells(plan, tick, animate);
+    cells.iter().map(|row| row_line(row)).collect()
+}
+
+/// The plan painted into cells, before they become lines: the run rail's
+/// frame, and the grid `brokkr graph` writes a recipe's counts over
+/// (#1145), so the one painter draws both.
+pub(super) fn paint_cells(plan: &Plan, tick: usize, animate: bool) -> Cells {
     let blank = Some((" ".to_string(), plain()));
     let mut cells: Cells = vec![vec![blank; plan.width]; plan.rows];
     // One rail, from the first segment's first node to the last one's.
@@ -310,7 +318,7 @@ pub(super) fn paint(plan: &Plan, tick: usize, animate: bool) -> Vec<Line<'static
         let x = plan.width.saturating_sub(1);
         put(&mut cells, x, plan.rail_row, "›", plain());
     }
-    cells.iter().map(|row| row_line(row)).collect()
+    cells
 }
 
 /// Where the rail's cursor stands on a graph: the selected phase, and
