@@ -411,7 +411,8 @@
           "maxLength": 80
         },
         "result": {
-          "type": "object"
+          "description": "A sequence step's result, journaled with its checkpoint: the same closed result a successful result is, its findings, follow_ups, covered and checked_head included (decision 0034 ruling 6, fix round 0109a1r3).",
+          "$ref": "#/$defs/result"
         }
       },
       "dependencies": {

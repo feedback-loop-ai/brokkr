@@ -316,3 +316,55 @@ fn the_zero_fourteen_line_writes_v7_and_the_thirteen_line_still_reads_v6() {
     assert_eq!(swept.contract, CONTRACT_V7);
     assert_eq!(swept.seq, 6);
 }
+
+/// Fix round 0109a1r3, M2: a non-final step checkpoint's result is the
+/// closed result a standalone one is. One whose finding has `line: null`,
+/// and one whose `covered` names no head, are each refused at the append
+/// fence, by export and by offline verify, all under v7; the sound one is
+/// admitted by all three.
+#[test]
+fn a_step_checkpoints_result_is_closed_at_append_export_and_verify() {
+    let stepped = |result: Value| {
+        let checkpoint = json!({"step": "sequence-step-finished", "step_name": "judge",
+                                "model": "m", "result": result});
+        json!({"effect_id": "fx", "attempt_id": "attempt-1", "checkpoint": checkpoint})
+    };
+    let unlined = with(finding(), "", "line", json!(null));
+    let refused_cases = [
+        gate("findings", json!([unlined])),
+        gate("covered", json!({"kind": "head", "dirty": true})),
+    ];
+    let (_dir, mut store) = crate::tests::store();
+    for (index, result) in refused_cases.into_iter().enumerate() {
+        let run = format!("refused-{index}");
+        super::tests::started_run(&mut store, &run, "0.14.0");
+        let kind = EventType::EffectCheckpointed;
+        let crate::StoreError::SeatRecord(appended) = store
+            .append_next(&run, kind, stepped(result.clone()), None, None)
+            .unwrap_err()
+        else {
+            panic!("the fence refuses the step's result");
+        };
+        assert_eq!(appended.contract, CONTRACT_V7);
+        crate::tests::plant_unfenced(&mut store, &run, kind, stepped(result));
+        let crate::StoreError::SeatRecord(exported) = store.export_ndjson(&run).unwrap_err() else {
+            panic!("export refuses the step's result");
+        };
+        assert_eq!(
+            (exported.contract, exported.path.as_str()),
+            (CONTRACT_V7, "/")
+        );
+        let ndjson: String = (store.load(&run).unwrap().iter())
+            .map(|event| serde_json::to_string(event).unwrap() + "\n")
+            .collect();
+        let Err(crate::VerifyError::SeatRecord(verified)) = crate::verify_export(&ndjson) else {
+            panic!("offline verify refuses the step's result");
+        };
+        assert_eq!(verified, exported);
+    }
+    super::tests::started_run(&mut store, "sound", "0.14.0");
+    let sound = stepped(gate("findings", json!([finding()])));
+    (store.append_next("sound", EventType::EffectCheckpointed, sound, None, None)).unwrap();
+    let exported = store.export_ndjson("sound").unwrap();
+    assert!(crate::verify_export(&exported).is_ok());
+}
