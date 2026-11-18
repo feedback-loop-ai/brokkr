@@ -72,7 +72,7 @@ mod park_walk;
 use checkpoint::COLUMNS as CHECKPOINT_COLUMNS;
 pub(crate) use checkpoint::{
     write_all as write_all_checkpoints, write_all_available, write_appended as write_checkpoints,
-    write_sealed,
+    write_sealed, RUN_COSTS,
 };
 pub(crate) use compare::{first_parted, first_unindexed, place, IndexReading};
 use park_walk::ParkWalk;
@@ -214,7 +214,7 @@ pub(super) fn last_text(entries: &str, key: &str) -> String {
 /// are written, so a later event sends those facts behind by searching
 /// the park rows alone ([`park_moved`]), never the run's every event; the
 /// checkpoint indexes key a window's checkpoints, a site's session and
-/// behind rows and a run's phase events. A stamp past its bound is cut by a
+/// behind rows and a run's costs and phases. A stamp past its bound is cut by a
 /// trigger of its own, which fires only then, after the event's trigger or
 /// the backfill inserted the row, so the event's trigger reads the stamp
 /// once.
@@ -251,7 +251,7 @@ fn migration() -> String {
         CREATE INDEX IF NOT EXISTS event_index_checkpoint_site_stale
             ON event_index (run_id, attempt_id, member, seq)
             WHERE type = '{CHECKPOINTED}' AND facts_seq IS NOT seq;
-        {phase_index};
+        {checkpoint_indexes};
         {ordinal}
         DROP TRIGGER IF EXISTS event_index_park_moved;
         CREATE TRIGGER event_index_park_moved AFTER INSERT ON events BEGIN
@@ -280,7 +280,7 @@ fn migration() -> String {
         cut = cut_stamp("NEW.recorded_at"),
         checkpoint_columns = checkpoint::declared(),
         CHECKPOINT_BACKFILLED = checkpoint::BACKFILLED,
-        phase_index = checkpoint::phase_index(),
+        checkpoint_indexes = checkpoint::indexes(),
         session_behind = checkpoint::session_behind("NEW"),
         row_behind = checkpoint::row_behind("NEW"),
         ordinal_column = ordinal::declared(),

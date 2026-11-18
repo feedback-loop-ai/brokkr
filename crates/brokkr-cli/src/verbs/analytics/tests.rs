@@ -6,6 +6,7 @@ use clap::Parser;
 use super::*;
 use crate::Cli;
 
+mod previous;
 mod rows_heap;
 mod snapshot;
 
@@ -1713,6 +1714,43 @@ fn a_park_row_that_will_not_read_reads_its_hearth_whole() {
         &rows,
         &view(&hearths, Range::Day, None, GENERATED_NOW),
         "a park row that will not read",
+    );
+}
+
+/// A window statement that will not even prepare, after the hearth's rows
+/// were found ready, refuses as a figure pulls it: that figure is handed a
+/// stream of nothing, and the hearth is read whole for the readout
+/// (U5b2b1). Here the sites' statement names an index the journal lost.
+#[test]
+fn a_statement_that_will_not_prepare_reads_its_hearth_whole() {
+    let dir = tempfile::tempdir().unwrap();
+    let journal = small_journal(dir.path(), "unprepared", 2);
+    let conn = rusqlite::Connection::open(&journal).unwrap();
+    conn.execute("DROP INDEX seat_summary_started", []).unwrap();
+    drop(conn);
+    let store = ready(&journal);
+    assert!(store.runs_readable().unwrap(), "the listing reads");
+    let bounds = brokkr_store::aggregate::pull::Bounds {
+        from: 0,
+        to: 1,
+        realm: None,
+        label: None,
+    };
+    let refused = store
+        .prepare_sites(&bounds, brokkr_store::metered::SiteOrder::Model)
+        .map(|_| ());
+    assert!(
+        matches!(refused, Err(brokkr_store::StoreError::Sqlite(_))),
+        "the sites' statement will not prepare: {refused:?}"
+    );
+    drop(store);
+    let hearths = [hearth(Vec::new(), &journal)];
+    let (rows, reads) = derive_counting(&hearths, Range::Day, None, GENERATED_NOW);
+    assert_eq!(reads, 1, "the hearth is read whole once its rows refuse");
+    assert_same(
+        &rows,
+        &view(&hearths, Range::Day, None, GENERATED_NOW),
+        "a statement that will not prepare",
     );
 }
 

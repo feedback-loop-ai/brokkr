@@ -250,16 +250,37 @@ fn older_journal() -> (tempfile::TempDir, std::path::PathBuf) {
     (dir, path)
 }
 
+/// A reader of the journal at `path` falls back while its index is not
+/// intact, and reads the index once a writable open, returned, repairs it.
+fn repaired_by_an_open(path: &std::path::Path) -> Store {
+    let reader = Store::open_read_only(path).unwrap();
+    assert!(!index_intact(&reader.conn).unwrap());
+    assert!(!reader.reads_index().unwrap());
+    let store = Store::open(path).unwrap();
+    assert!(index_intact(&store.conn).unwrap());
+    assert!(store.reads_index().unwrap());
+    assert!(reader.reads_index().unwrap());
+    store
+}
+
 #[test]
 fn a_writable_open_indexes_an_older_journal_and_a_read_only_one_falls_back() {
     let (_dir, path) = older_journal();
-    let reader = Store::open_read_only(&path).unwrap();
-    assert!(!index_intact(&reader.conn).unwrap());
-    assert!(!reader.reads_index().unwrap());
-    let store = Store::open(&path).unwrap();
-    assert!(store.reads_index().unwrap());
-    assert!(reader.reads_index().unwrap());
-    each_older_run_indexed(&store);
+    each_older_run_indexed(&repaired_by_an_open(&path));
+}
+
+/// A journal from before the run-cost index is read whole by a reader, so
+/// no run's cost is read by a range that is not there, and a writable open
+/// builds the index (decision 0089 ruling 8).
+#[test]
+fn a_journal_without_the_run_cost_index_reads_whole_until_an_open_builds_it() {
+    let (_dir, path) = older_journal();
+    drop(Store::open(&path).unwrap());
+    rusqlite::Connection::open(&path)
+        .unwrap()
+        .execute_batch(&format!("DROP INDEX {RUN_COSTS}"))
+        .unwrap();
+    repaired_by_an_open(&path);
 }
 
 /// Every run of [`older_journal`] holds its two rows, each its event's.

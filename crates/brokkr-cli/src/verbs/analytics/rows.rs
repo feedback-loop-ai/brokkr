@@ -15,7 +15,10 @@
 //! reads are its one source of rows, and nothing here writes (decision
 //! 0014). One hearth's reads run under one snapshot, so the store's lanes
 //! and the whole read of each lagging run agree run for run, and no set of
-//! run ids is held to keep them apart (slice 4's unit U5b2a).
+//! run ids is held to keep them apart (slice 4's unit U5b2a). The rows are
+//! pulled as each figure folds them, so the snapshot is held from the
+//! hearth's first read until the readout ends, and nothing of the window
+//! is collected (slice 4's unit U5b2b1).
 //!
 //! R1's limit (decision 0089 ruling 8's boundary, slice 4's unit U3c2): a
 //! migrated, ready hearth is not loaded run by run, and "unreadable" is
@@ -28,295 +31,22 @@
 //! row, and the journal and integrity checks find it (`doctor`, #1000).
 
 use std::borrow::Cow;
+use std::cell::Cell;
 use std::collections::BTreeMap;
 
 use brokkr_core::envelope::EventEnvelope;
 use brokkr_core::fold::{fold, RunState};
-use brokkr_core::summary::{aggregate, cut, Finished, HardStop, NAME_BYTES};
-use brokkr_store::aggregate::{RunOrder as RowRunOrder, WindowPark, WindowRun};
-use brokkr_store::metered::{SiteOrder as RowSiteOrder, WindowSite};
+use brokkr_core::summary::{aggregate, cut, NAME_BYTES};
+use brokkr_store::snapshot::ReadSnapshot;
 use brokkr_store::Store;
 use brokkr_view::{
-    FactSource, FactUnion, ParkFact, Query, Reviews, RunFacts, RunOrder, SiteFact, SiteOrder,
+    FactSource, FactUnion, ParkFact, Pulled, Query, RunFacts, RunOrder, SiteFact, SiteOrder,
     SpendFact, WholeRead, Window,
 };
 
-/// One hearth's rows, read once: the facts every figure folds, already in
-/// the order it asks for, so a figure holds one group at a time.
-pub(super) struct RowOnly {
-    window: Window,
-    runs: Vec<RunFacts>,
-    by_rule: Vec<RunFacts>,
-    by_recipe: Vec<RunFacts>,
-    parks: Vec<ParkFact>,
-    spends: Vec<SpendFact>,
-    model: Vec<SiteFact>,
-    provider: Vec<SiteFact>,
-    realm_provider: Vec<SiteFact>,
-    recipe_provider: Vec<SiteFact>,
-}
+mod row_only;
 
-impl RowOnly {
-    /// Read `store`'s window and the equal window before it: the runs that
-    /// finished in either and the runs still open, the parks that overlap
-    /// the window, its spends and its sites.
-    fn read(
-        store: &Store,
-        label: &str,
-        window: Window,
-        before: Window,
-        realm: Option<&str>,
-    ) -> Result<RowOnly, brokkr_store::StoreError> {
-        Reading {
-            store,
-            label,
-            window,
-            before,
-            realm,
-        }
-        .read()
-    }
-}
-
-/// The window's spend facts, and the same costs grouped by their run.
-type Spends = (BTreeMap<String, Vec<(i64, f64)>>, Vec<SpendFact>);
-
-/// One hearth's window as the row reads take it: the store, the hearth's
-/// label, the window and the one before it, and the query's realm. The
-/// store's statements leave out the runs it leaves whole, so the reads
-/// hold no set of them.
-struct Reading<'a> {
-    store: &'a Store,
-    label: &'a str,
-    window: Window,
-    before: Window,
-    realm: Option<&'a str>,
-}
-
-impl Reading<'_> {
-    fn read(&self) -> Result<RowOnly, brokkr_store::StoreError> {
-        let (spends_by_run, spends) = self.spends()?;
-        Ok(RowOnly {
-            window: self.window,
-            runs: self.runs(RowRunOrder::Unordered, &spends_by_run)?,
-            by_rule: self.runs(RowRunOrder::ByEndingRule, &spends_by_run)?,
-            by_recipe: self.runs(RowRunOrder::ByRealmThenRecipe, &spends_by_run)?,
-            parks: self.parks()?,
-            spends,
-            model: self.sites(RowSiteOrder::Model)?,
-            provider: self.sites(RowSiteOrder::Provider)?,
-            realm_provider: self.sites(RowSiteOrder::RealmProvider)?,
-            recipe_provider: self.sites(RowSiteOrder::RecipeProvider)?,
-        })
-    }
-
-    /// The window's spends, and the same costs grouped by their run.
-    fn spends(&self) -> Result<Spends, brokkr_store::StoreError> {
-        let mut by_run: BTreeMap<String, Vec<(i64, f64)>> = BTreeMap::new();
-        let mut spends = Vec::new();
-        self.store
-            .window_spends(self.window.from, self.window.to, None, |spend| {
-                let named = spend.realm.unwrap_or(self.label);
-                if !brokkr_view::realm_in_scope(self.realm, named) {
-                    return;
-                }
-                by_run
-                    .entry(spend.run_id.to_string())
-                    .or_default()
-                    .push((spend.at_ms, spend.usd));
-                spends.push(SpendFact {
-                    realm: named.to_string(),
-                    at: spend.at_ms,
-                    usd: spend.usd,
-                });
-            })?;
-        Ok((by_run, spends))
-    }
-
-    /// The runs that finished in the window or the one before it, and the
-    /// runs still open, in `order`.
-    fn runs(
-        &self,
-        order: RowRunOrder,
-        spends: &BTreeMap<String, Vec<(i64, f64)>>,
-    ) -> Result<Vec<RunFacts>, brokkr_store::StoreError> {
-        let mut runs = Vec::new();
-        self.store
-            .window_runs(self.before.from, self.window.to, order, None, |row| {
-                if let Some(facts) = run_facts(row, self.label, spends, self.realm) {
-                    runs.push(facts);
-                }
-            })?;
-        Ok(runs)
-    }
-
-    /// The parks that overlap the window, in cut phase then run order.
-    fn parks(&self) -> Result<Vec<ParkFact>, brokkr_store::StoreError> {
-        let mut parks = Vec::new();
-        self.store.window_parks(
-            self.window.from,
-            self.window.to,
-            self.window.to,
-            None,
-            |park| {
-                if let Some(fact) = park_fact(park, self.label, self.realm) {
-                    parks.push(fact);
-                }
-            },
-        )?;
-        Ok(parks)
-    }
-
-    /// The sites that ran in the window, in `order`. A row the whole read
-    /// opens no site by is mapped to no fact here, so the stream carries
-    /// only the sites every read agrees on.
-    fn sites(&self, order: RowSiteOrder) -> Result<Vec<SiteFact>, brokkr_store::StoreError> {
-        let mut rows = Vec::new();
-        self.store
-            .window_sites(self.window.from, self.window.to, None, order, |site| {
-                rows.push(site_fact(site, self.label));
-            })?;
-        Ok(rows
-            .into_iter()
-            .flatten()
-            .filter(|fact| brokkr_view::realm_in_scope(self.realm, &fact.realm))
-            .collect())
-    }
-}
-
-/// One park's row as the figures fold it, or none for a park of another
-/// realm. The store's park read leaves out the runs the whole read takes
-/// (U5b1), and the hearth's reads share one snapshot (U5b2a), so a run is
-/// either here or read whole, never both.
-fn park_fact(park: &WindowPark<'_>, label: &str, realm: Option<&str>) -> Option<ParkFact> {
-    let named = park.realm.unwrap_or(label);
-    if !brokkr_view::realm_in_scope(realm, named) {
-        return None;
-    }
-    Some(ParkFact {
-        realm: named.to_string(),
-        hearth: label.to_string(),
-        run: park.run_id.to_string(),
-        phase: park.phase.map(str::to_string),
-        at: park.at,
-        answered: park.answered.unwrap_or(park.ended),
-        ended: park.ended,
-    })
-}
-
-/// One run's row as the figures fold it, its reported costs from the
-/// window's spends.
-fn run_facts(
-    row: &WindowRun<'_>,
-    label: &str,
-    spends: &BTreeMap<String, Vec<(i64, f64)>>,
-    realm: Option<&str>,
-) -> Option<RunFacts> {
-    let named = row.realm.unwrap_or(label);
-    if !brokkr_view::realm_in_scope(realm, named) {
-        return None;
-    }
-    Some(RunFacts {
-        realm: named.to_string(),
-        recipe: row.recipe.map(str::to_string),
-        open: row.open,
-        started: row.started_ms,
-        finished: finished(row),
-        implement_visits: row.implement_visits,
-        reviews: Reviews {
-            first: row.reviews.first,
-            second: row.reviews.second,
-            back: row.reviews.back,
-        },
-        costs: spends.get(row.run_id).cloned().unwrap_or_default(),
-    })
-}
-
-/// The ending a run's row keeps, as the whole read's fold states it. The
-/// hard stop is the row's flag — the fold's status and phase — so a stop
-/// whose last ruling named no rule keeps its stop, and a rule a completed
-/// run named is no stop.
-fn finished(row: &WindowRun<'_>) -> Option<Finished> {
-    Some(Finished {
-        at: row.finished_ms?,
-        ending: row.ending?,
-        hard_stop: row.hard_stop.then(|| HardStop {
-            rule: row.ending_rule.map(str::to_string),
-        }),
-    })
-}
-
-/// One site's row as the figures fold it. A row without the start or the
-/// provider a whole read opens the site by is no site (the whole read
-/// opens none), so it is left out.
-fn site_fact(site: &WindowSite<'_>, label: &str) -> Option<SiteFact> {
-    Some(SiteFact {
-        realm: site.realm.unwrap_or(label).to_string(),
-        recipe: site.recipe.map(str::to_string),
-        open: site.open,
-        ended: site.finished_ms,
-        at: site.started_ms?,
-        provider: site.provider?.to_string(),
-        model: site.model.map(str::to_string),
-        reported: site.reported,
-        usage: site.usage.clone(),
-    })
-}
-
-impl FactSource for RowOnly {
-    fn runs(&self, visit: &mut dyn FnMut(RunFacts)) {
-        for run in &self.runs {
-            visit(run.clone());
-        }
-    }
-
-    fn runs_in(&self, order: RunOrder, visit: &mut dyn FnMut(RunFacts)) {
-        let runs = match order {
-            RunOrder::Rule => &self.by_rule,
-            RunOrder::Recipe => &self.by_recipe,
-        };
-        for run in runs {
-            visit(run.clone());
-        }
-    }
-
-    fn durations(&self, visit: &mut dyn FnMut(&str, i64)) {
-        for run in &self.runs {
-            let Some(finished) = &run.finished else {
-                continue;
-            };
-            if finished.at < self.window.from || finished.at >= self.window.to {
-                continue;
-            }
-            let started = run.started.unwrap_or(finished.at);
-            visit(&run.realm, finished.at.saturating_sub(started).max(0));
-        }
-    }
-
-    fn parks(&self, visit: &mut dyn FnMut(ParkFact)) {
-        for park in &self.parks {
-            visit(park.clone());
-        }
-    }
-
-    fn spends(&self, visit: &mut dyn FnMut(SpendFact)) {
-        for spend in &self.spends {
-            visit(spend.clone());
-        }
-    }
-
-    fn sites_in(&self, order: SiteOrder, visit: &mut dyn FnMut(SiteFact)) {
-        let sites = match order {
-            SiteOrder::Model => &self.model,
-            SiteOrder::Provider => &self.provider,
-            SiteOrder::RealmProvider => &self.realm_provider,
-            SiteOrder::RecipeProvider => &self.recipe_provider,
-        };
-        for site in sites {
-            visit(site.clone());
-        }
-    }
-}
+use row_only::{Hearth, RowOnly};
 
 /// One run the store leaves whole, and where its realm first stands: the
 /// `runs` stamp as the whole read holds it, placed by the one key both
@@ -340,7 +70,8 @@ struct Held {
 
 /// Where in a hearth's read a seam stands (decision 0071 ruling 2's `*_with`
 /// closure seam): after the `behind` lane is read whole, after the
-/// fallbacks are, and after the window's rows are.
+/// fallbacks are, and after the row source is built, before any figure
+/// pulls a window statement's rows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Stage {
     Behind,
@@ -379,12 +110,16 @@ impl Holding<'_> {
     }
 }
 
-/// One rows-read hearth: the facts its figures fold, and the realm list and
+/// One rows-read hearth: the facts its figures fold, the realm list and
 /// unreadable counts its rows state (decision 0089 ruling A4, slice 4's
-/// unit U3c).
-pub(super) struct RowSource {
-    facts: FactUnion,
+/// unit U3c), and the hearth's snapshot, held while its figures pull its
+/// rows: from the hearth's first read until the source is dropped, when
+/// the readout ends (U5b2b1). Its fields drop in order, the facts before
+/// the snapshot.
+pub(super) struct RowSource<'a> {
+    facts: FactUnion<'a>,
     scope: Scope,
+    _snapshot: ReadSnapshot<'a>,
 }
 
 /// A hearth's realm names and unreadable counts before their source joins
@@ -422,18 +157,19 @@ impl Scope {
 }
 
 /// One rows-read hearth's request: the store, its label and configured
-/// realms, the windows a figure folds, the query's realm and clock, and the
-/// range its whole fallback states (decision 0071 ruling 10's parameter
-/// object).
+/// realms, the window a figure folds, the query's realm and clock, the
+/// range its whole fallback states, and where a statement that refuses
+/// while a figure pulls it marks the hearth refused (decision 0071 ruling
+/// 10's parameter object).
 pub(super) struct Rows<'a> {
     pub(super) store: &'a Store,
     pub(super) label: &'a str,
     pub(super) configured: &'a [String],
     pub(super) window: Window,
-    pub(super) before: Window,
     pub(super) realm: Option<&'a str>,
     pub(super) range: brokkr_view::Range,
     pub(super) now: &'a str,
+    pub(super) refused: &'a Cell<bool>,
 }
 
 /// The runs a store leaves whole, in the whole read's own order, each read
@@ -568,62 +304,66 @@ fn store_scope(
     Ok(scope)
 }
 
-/// One migrated hearth's facts and scope: the rows, merged with the runs the
-/// store leaves whole (decision 0089 ruling 8), and the store's own realm
-/// list and counts for the hearth that reads them (U3c).
+/// One migrated hearth's facts and scope, `between` run at each [`Stage`],
+/// the instant a writer's commit lands, which the tests stage: the rows,
+/// merged with the runs the store leaves whole (decision 0089 ruling 8),
+/// and the store's own realm list and counts for the hearth that reads
+/// them (U3c).
 ///
-/// Every read of the hearth runs under one snapshot ([`Store::read_snapshot`],
+/// Every read of the hearth runs under one snapshot ([`Store::snapshot`],
 /// U5b2a): the store's lanes, the window statements and the whole read of
 /// each lagging run agree run for run, whatever a writer commits between
 /// them, so a run is read whole or from its row and no id set is held to
-/// keep the two apart. The snapshot is held for this one hearth's read.
-fn read_rows(rows: &Rows<'_>) -> Result<RowSource, brokkr_store::StoreError> {
-    read_rows_with(rows, |_| {})
-}
-
-/// [`read_rows`] with `between` run at each [`Stage`], the instant a writer's
-/// commit lands, which the tests stage.
-pub(super) fn read_rows_with(
-    rows: &Rows<'_>,
-    between: impl FnMut(Stage),
-) -> Result<RowSource, brokkr_store::StoreError> {
-    rows.store.read_snapshot(|| read_in_snapshot(rows, between))
-}
-
-/// One hearth's facts and scope, read inside the hearth's snapshot.
-fn read_in_snapshot(
-    rows: &Rows<'_>,
+/// keep the two apart. The window statements run as each figure pulls
+/// them, so the source holds the snapshot from before its first read until
+/// it is dropped, when the readout ends (U5b2b1); a WAL checkpoint waits
+/// behind it that long.
+pub(super) fn read_rows_with<'a>(
+    rows: &Rows<'a>,
     mut between: impl FnMut(Stage),
-) -> Result<RowSource, brokkr_store::StoreError> {
+) -> Result<RowSource<'a>, brokkr_store::StoreError> {
+    let snapshot = rows.store.snapshot()?;
     let held = hold_whole(rows, &mut between)?;
-    let row = RowOnly::read(rows.store, rows.label, rows.window, rows.before, rows.realm)?;
+    let row = RowOnly::new(Hearth {
+        store: rows.store,
+        label: rows.label,
+        window: rows.window,
+        realm: rows.realm,
+        refused: rows.refused,
+    });
     between(Stage::Rows);
-    if held.is_empty() {
-        // Nothing stands behind its row: the rows alone, still merged as
-        // one source so each figure folds its own key order.
-        let scope = store_scope(rows, &[], &BTreeMap::new())?;
-        return Ok(RowSource {
-            facts: FactUnion::new(vec![Box::new(row)]),
-            scope,
-        });
-    }
-    let (fallback, behind) = read_whole(rows, &held);
-    let scope = store_scope(rows, &behind, fallback.scope().1)?;
+    let (facts, scope) = match held.is_empty() {
+        // Nothing stands behind its row: the rows alone, still one source
+        // of a union, as every hearth's.
+        true => (
+            FactUnion::new(vec![Box::new(row)]),
+            store_scope(rows, &[], &BTreeMap::new())?,
+        ),
+        false => {
+            let (fallback, behind) = read_whole(rows, &held);
+            let scope = store_scope(rows, &behind, fallback.scope().1)?;
+            (
+                FactUnion::new(vec![Box::new(row), Box::new(fallback)]),
+                scope,
+            )
+        }
+    };
     Ok(RowSource {
-        facts: FactUnion::new(vec![Box::new(row), Box::new(fallback)]),
+        facts,
         scope,
+        _snapshot: snapshot,
     })
 }
 
 /// One hearth's facts as the readout folds them: the whole read for a
 /// hearth that is not migrated, not ready or not openable, and the store's
 /// rows for a migrated, ready one (decision 0089 ruling 8).
-pub(super) enum HearthSource {
+pub(super) enum HearthSource<'a> {
     Whole(WholeRead),
-    Rows(RowSource),
+    Rows(RowSource<'a>),
 }
 
-impl HearthSource {
+impl<'a> HearthSource<'a> {
     /// One hearth read whole: the fleet's runs folded as today, and every
     /// figure, realm name and unreadable count the whole read's (decision
     /// 0089 rulings 7 and 8). R1's limit belongs to the row path alone:
@@ -634,7 +374,7 @@ impl HearthSource {
         realm: Option<&str>,
         now: &str,
         window: Window,
-    ) -> HearthSource {
+    ) -> HearthSource<'a> {
         HearthSource::Whole(whole_of(grouped, range, realm, now, window))
     }
 
@@ -642,33 +382,18 @@ impl HearthSource {
     /// it: the caller has already opened the store read-only and found its
     /// aggregates ready and its listing readable (decision 0089 ruling 8's
     /// boundary, slice 4's unit U3c2). A refusal is the caller's to answer
-    /// with the whole read; a behind run's one-run opening is still read,
-    /// and its refusal is returned here.
+    /// with the whole read: a behind run's one-run opening refuses here, and
+    /// a window statement that refuses as a figure pulls it marks
+    /// `rows.refused`.
     ///
     /// R1's limit, as the module doc states it: this path trusts the row.
     /// A chain broken behind the store's back after its row stood at its
     /// head is out of its reach, and the journal and integrity checks find
     /// it (`doctor`, #1000).
     pub(super) fn from_store(
-        grouped: &brokkr_view::AnalyticsHearth<'_>,
-        range: brokkr_view::Range,
-        realm: Option<&str>,
-        now: &str,
-        window: Window,
-        before: Window,
-        store: &Store,
-    ) -> Result<HearthSource, brokkr_store::StoreError> {
-        let rows = read_rows(&Rows {
-            store,
-            label: grouped.label,
-            configured: grouped.realms,
-            window,
-            before,
-            realm,
-            range,
-            now,
-        })?;
-        Ok(HearthSource::Rows(rows))
+        rows: &Rows<'a>,
+    ) -> Result<HearthSource<'a>, brokkr_store::StoreError> {
+        Ok(HearthSource::Rows(read_rows_with(rows, |_| {})?))
     }
 }
 
@@ -689,7 +414,7 @@ fn whole_of(
     brokkr_view::whole_read(&query, window)
 }
 
-impl FactSource for HearthSource {
+impl FactSource for HearthSource<'_> {
     fn scope(&self) -> (&[String], &BTreeMap<String, usize>) {
         match self {
             HearthSource::Whole(whole) => whole.scope(),
@@ -711,10 +436,10 @@ impl FactSource for HearthSource {
         }
     }
 
-    fn runs_in(&self, order: RunOrder, visit: &mut dyn FnMut(RunFacts)) {
+    fn runs_in(&mut self, order: RunOrder) -> Pulled<'_, RunFacts> {
         match self {
-            HearthSource::Whole(whole) => whole.runs_in(order, visit),
-            HearthSource::Rows(rows) => rows.facts.runs_in(order, visit),
+            HearthSource::Whole(whole) => whole.runs_in(order),
+            HearthSource::Rows(rows) => rows.facts.runs_in(order),
         }
     }
 
@@ -725,10 +450,17 @@ impl FactSource for HearthSource {
         }
     }
 
-    fn parks(&self, visit: &mut dyn FnMut(ParkFact)) {
+    fn shipped_between(&self, window: Window) -> usize {
         match self {
-            HearthSource::Whole(whole) => whole.parks(visit),
-            HearthSource::Rows(rows) => rows.facts.parks(visit),
+            HearthSource::Whole(whole) => whole.shipped_between(window),
+            HearthSource::Rows(rows) => rows.facts.shipped_between(window),
+        }
+    }
+
+    fn parks(&mut self) -> Pulled<'_, ParkFact> {
+        match self {
+            HearthSource::Whole(whole) => whole.parks(),
+            HearthSource::Rows(rows) => rows.facts.parks(),
         }
     }
 
@@ -739,13 +471,10 @@ impl FactSource for HearthSource {
         }
     }
 
-    fn sites_in(&self, order: SiteOrder, visit: &mut dyn FnMut(SiteFact)) {
+    fn sites_in(&mut self, order: SiteOrder) -> Pulled<'_, SiteFact> {
         match self {
-            HearthSource::Whole(whole) => whole.sites_in(order, visit),
-            HearthSource::Rows(rows) => rows.facts.sites_in(order, visit),
+            HearthSource::Whole(whole) => whole.sites_in(order),
+            HearthSource::Rows(rows) => rows.facts.sites_in(order),
         }
     }
 }
-
-#[cfg(test)]
-mod tests;

@@ -37,10 +37,9 @@
 //!
 //! Every window statement leaves out, in SQL, the runs the whole read
 //! takes, through the `exclusion` module's one fragment, so a caller
-//! streams without a Rust set of run ids. `window_spends`, `window_sites`
-//! and `window_fallbacks` are called by the row path today; slice 4's unit
-//! U5b2, the streamed row source, builds its stream on them. They are
-//! `pub` on [`Store`] so it can.
+//! streams without a Rust set of run ids. `window_spends`, the sites' pull
+//! ([`Store::prepare_sites`]) and `window_fallbacks` are the row path's
+//! (slice 4's unit U5b2b1).
 
 use std::sync::LazyLock;
 
@@ -48,8 +47,9 @@ use brokkr_core::page::Lane;
 use brokkr_core::seat::meter::{counted, sum_usage, Metering};
 use brokkr_core::seat::{finish_usage, TokenUsage};
 use rusqlite::types::Value;
-use rusqlite::{params_from_iter, Row, StatementStatus};
+use rusqlite::{params_from_iter, Row, Rows, StatementStatus};
 
+use crate::aggregate::pull::{Bounds, Prepared};
 use crate::aggregate::{bounds, exclusion, optional_text, required_text};
 use crate::event_index::CHECKPOINTED;
 use crate::seat_read::site_of;
@@ -65,9 +65,11 @@ pub enum SiteOrder {
     Model,
     /// By the stored provider key, then the run and the site.
     Provider,
-    /// By the stored realm key and then the provider key.
+    /// By the stored realm key (a NULL one read as the hearth's label where
+    /// the read names one) and then the provider key.
     RealmProvider,
-    /// By the stored realm key, the recipe key and then the provider key.
+    /// By the stored realm key, the recipe key (a NULL one as the empty
+    /// name) and then the provider key.
     RecipeProvider,
 }
 
@@ -196,35 +198,54 @@ impl Store {
         realm: Option<&str>,
         order: SiteOrder,
         mut visit: impl FnMut(&WindowSite<'_>),
-        mut stepped: impl FnMut(i64),
+        stepped: impl FnOnce(i64),
     ) -> Result<(), StoreError> {
+        let bounds = Bounds {
+            from,
+            to,
+            realm,
+            label: None,
+        };
+        let read = |sites: &mut SiteRows<'_>| {
+            while let Some(site) = sites.next_site()? {
+                visit(&site);
+            }
+            Ok(())
+        };
+        self.site_rows(&bounds, order, read, stepped)?
+    }
+
+    /// The sites [`Store::window_sites`] reads, in `order`, prepared for a
+    /// reader to pull: each site folded from its rows as the cursor passes
+    /// them, one site at a time. A statement that will not prepare is
+    /// refused here; a row that will not read is the cursor's refusal.
+    pub fn prepare_sites(
+        &self,
+        bounds: &Bounds<'_>,
+        order: SiteOrder,
+    ) -> Result<SitePull<'_>, StoreError> {
         let intact = stale_intact(&self.conn)?;
-        let mut statement = self.conn.prepare(sites_sql(order, intact))?;
-        let bounds = bounds(from, to, realm);
-        let mut rows = statement.query(params_from_iter(bounds))?;
-        let mut folded = Folding::default();
-        let mut metering = Metering::Session;
-        while let Some(row) = rows.next()? {
-            let key = (
-                required_text(row, 0)?.to_string(),
-                row.get::<_, i64>(1)? as u64,
-            );
-            if folded.key.as_ref() != Some(&key) {
-                if let Some(held) = folded.held.take() {
-                    folded.emit(&held, &mut visit);
-                }
-                metering = folded.begin(key, row)?;
-            }
-            if row.get::<_, i64>(11)? == 0 {
-                folded.checkpoint(metering, row)?;
-            }
-        }
-        drop(rows);
-        if let Some(held) = folded.held.take() {
-            folded.emit(&held, &mut visit);
-        }
-        stepped(i64::from(statement.get_status(StatementStatus::VmStep)));
-        Ok(())
+        let sql = sites_sql(order, intact);
+        Ok(SitePull(Prepared::bound(
+            &self.conn,
+            sql,
+            &bounds.values(),
+        )?))
+    }
+
+    /// Hand `read` the sites of `bounds` in `order` as a cursor it pulls,
+    /// and the statement's VM steps to `stepped` once `read` returns.
+    fn site_rows<T>(
+        &self,
+        bounds: &Bounds<'_>,
+        order: SiteOrder,
+        read: impl FnOnce(&mut SiteRows<'_>) -> T,
+        stepped: impl FnOnce(i64),
+    ) -> Result<T, StoreError> {
+        let mut pull = self.prepare_sites(bounds, order)?;
+        let read = read(&mut pull.rows());
+        stepped(pull.0.steps());
+        Ok(read)
     }
 
     /// The VM steps [`Store::window_fallbacks`] takes, for the test that
@@ -380,8 +401,8 @@ static SITES: LazyLock<[[String; 2]; 4]> = LazyLock::new(|| {
     [
         each("ORDER BY model_key, run_id, opened, header, at_ms, seq"),
         each("ORDER BY provider_key, run_id, opened, header, at_ms, seq"),
-        each("ORDER BY realm, provider_key, run_id, opened, header, at_ms, seq"),
-        each("ORDER BY realm, recipe, provider_key, run_id, opened, header, at_ms, seq"),
+        each("ORDER BY realm_key, provider_key, run_id, opened, header, at_ms, seq"),
+        each("ORDER BY realm_key, recipe_key, provider_key, run_id, opened, header, at_ms, seq"),
     ]
 });
 
@@ -396,7 +417,10 @@ fn sites_sql(order: SiteOrder, intact: bool) -> &'static str {
     SITES[at][usize::from(!intact)].as_str()
 }
 
-/// The sites' one statement, `order` over its output column names.
+/// The sites' one statement, `order` over its output column names. The two
+/// last columns are the realm and recipe keys a figure groups by: a NULL
+/// realm read as the hearth's label `?5`, and a NULL recipe as the empty
+/// name, so the order is the figure's own.
 ///
 /// The metered arm reads the checkpoint index's one range and finds each
 /// checkpoint's site by `seat_read`'s one `site_of` rule, the greatest start
@@ -436,7 +460,8 @@ fn sites_statement(order: &str, intact: bool) -> String {
                w.output_tokens AS output_tokens,
                w.cache_read_tokens AS cache_read_tokens,
                w.cache_write_tokens AS cache_write_tokens,
-               w.reasoning_output_tokens AS reasoning_output_tokens
+               w.reasoning_output_tokens AS reasoning_output_tokens,
+               coalesce(r.realm, ?5) AS realm_key, coalesce(r.recipe, '') AS recipe_key
           FROM metered AS w
           JOIN run_summary AS r ON r.run_id = w.run_id
           JOIN seat_summary AS s ON s.run_id = w.run_id AND s.opened = w.opened
@@ -446,7 +471,8 @@ fn sites_statement(order: &str, intact: bool) -> String {
         SELECT s.run_id, s.opened, r.realm, r.recipe,
                (r.lane IN ({open})), r.finished_ms,
                s.phase_key, s.provider_key, s.model_key, s.started_ms, s.metering,
-               1, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL
+               1, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+               coalesce(r.realm, ?5), coalesce(r.recipe, '')
           FROM seat_summary AS s INDEXED BY seat_summary_started
           JOIN run_summary AS r ON r.run_id = s.run_id
          WHERE s.site IS NOT NULL AND s.started_ms >= ?1 AND s.started_ms < ?2
@@ -495,7 +521,71 @@ struct Folding {
     facts: Facts,
 }
 
+/// A window's sites statement, prepared and bound, in one figure's order.
+pub struct SitePull<'c>(Prepared<'c>);
+
+impl SitePull<'_> {
+    /// The sites from the window's start.
+    pub fn rows(&mut self) -> SiteRows<'_> {
+        SiteRows {
+            rows: self.0.open(),
+            folding: Folding::default(),
+            metering: Metering::Session,
+            done: None,
+        }
+    }
+}
+
+/// A window's sites, pulled in their statement's order: the rows of one
+/// site are folded as the cursor passes them, and the site is yielded once
+/// the next site's first row, or the stream's end, completes it.
+pub struct SiteRows<'s> {
+    rows: Rows<'s>,
+    folding: Folding,
+    /// The rule the folded site's in-window checkpoints count by.
+    metering: Metering,
+    /// The site last yielded, held until the next is asked for.
+    done: Option<(Held, Facts)>,
+}
+
+impl SiteRows<'_> {
+    /// The next site, borrowed until the next is asked for; `None` once the
+    /// window holds no more.
+    pub fn next_site(&mut self) -> Result<Option<WindowSite<'_>>, StoreError> {
+        while let Some(row) = self.rows.next()? {
+            let key = (
+                required_text(row, 0)?.to_string(),
+                row.get::<_, i64>(1)? as u64,
+            );
+            let completed = match self.folding.key.as_ref() == Some(&key) {
+                true => None,
+                false => {
+                    let completed = self.folding.take();
+                    self.metering = self.folding.begin(key, row)?;
+                    completed
+                }
+            };
+            if row.get::<_, i64>(11)? == 0 {
+                self.folding.checkpoint(self.metering, row)?;
+            }
+            if completed.is_some() {
+                self.done = completed;
+                return Ok(self.done.as_ref().map(site));
+            }
+        }
+        // The stream's end completes the site being folded, once.
+        self.done = self.folding.take();
+        Ok(self.done.as_ref().map(site))
+    }
+}
+
 impl Folding {
+    /// The site folded so far, with its facts, leaving none held.
+    fn take(&mut self) -> Option<(Held, Facts)> {
+        let held = self.held.take()?;
+        Some((held, std::mem::take(&mut self.facts)))
+    }
+
     /// Start folding the site `key`, whose columns are on `row`, and give
     /// back the rule its in-window checkpoints count by.
     fn begin(&mut self, key: (String, u64), row: &Row<'_>) -> Result<Metering, StoreError> {
@@ -535,24 +625,24 @@ impl Folding {
         self.facts.usage = sum_usage(self.facts.usage.take().into_iter().chain(counted));
         Ok(())
     }
+}
 
-    /// Yield the site `held`, its facts folded to the end of its group.
-    fn emit(&mut self, held: &Held, visit: &mut impl FnMut(&WindowSite<'_>)) {
-        visit(&WindowSite {
-            run_id: &held.run_id,
-            opened: held.opened,
-            realm: held.realm.as_deref(),
-            recipe: held.recipe.as_deref(),
-            open: held.open,
-            finished_ms: held.finished_ms,
-            phase: held.phase.as_deref(),
-            provider: held.provider.as_deref(),
-            model: held.model.as_deref(),
-            started_ms: held.started_ms,
-            metering: held.metering,
-            reported: self.facts.reported,
-            usage: self.facts.usage.clone(),
-        });
+/// The site `held`, its facts folded to the end of its group.
+fn site((held, facts): &(Held, Facts)) -> WindowSite<'_> {
+    WindowSite {
+        run_id: &held.run_id,
+        opened: held.opened,
+        realm: held.realm.as_deref(),
+        recipe: held.recipe.as_deref(),
+        open: held.open,
+        finished_ms: held.finished_ms,
+        phase: held.phase.as_deref(),
+        provider: held.provider.as_deref(),
+        model: held.model.as_deref(),
+        started_ms: held.started_ms,
+        metering: held.metering,
+        reported: facts.reported,
+        usage: facts.usage.clone(),
     }
 }
 

@@ -148,6 +148,7 @@ pub(super) fn indexes_intact(conn: &Connection) -> Result<bool, StoreError> {
         })?
         .collect::<Result<BTreeMap<_, _>, _>>()?;
     Ok(super::INDEXES.iter().all(|name| found.contains_key(*name))
+        && found.contains_key(RUN_COSTS)
         && found
             .get("event_index_checkpoint_stale")
             .is_some_and(|sql| sql.contains("turn IS NULL")))
@@ -259,11 +260,19 @@ fn phase_predicate() -> String {
     )
 }
 
-/// The index that keys a `phase/entered` event's row on `events`: the phase
-/// lookup reads the run's phase rows alone, never its every event.
-pub(super) fn phase_index() -> String {
+/// The index that keys a run's reported costs, `(run_id, at_ms)` over the
+/// checkpoint rows that carry a `usd`: a run's costs inside a window are
+/// one range of it, never the run's every event (decision 0089 ruling 9).
+pub(crate) const RUN_COSTS: &str = "event_index_run_costs";
+
+/// The indexes this module keeps: the one that keys a `phase/entered`
+/// event's row on `events`, so the phase lookup reads the run's phase rows
+/// alone, never its every event, and [`RUN_COSTS`].
+pub(super) fn indexes() -> String {
     format!(
-        "CREATE INDEX IF NOT EXISTS event_index_phase ON events (run_id, seq) WHERE {}",
+        "CREATE INDEX IF NOT EXISTS event_index_phase ON events (run_id, seq) WHERE {};
+        CREATE INDEX IF NOT EXISTS {RUN_COSTS} ON event_index (run_id, at_ms)
+            WHERE type = '{CHECKPOINTED}' AND usd IS NOT NULL",
         phase_predicate()
     )
 }

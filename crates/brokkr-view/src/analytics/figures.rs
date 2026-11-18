@@ -5,7 +5,8 @@ use std::cmp::Reverse;
 use std::collections::BTreeMap;
 
 use super::facts::{
-    model_key, name_key, shipped, FactSource, Finished, RunFacts, RunOrder, SiteOrder, Window,
+    model_key, name_key, shipped, FactSource, Finished, ParkFact, RunFacts, RunOrder, SiteFact,
+    SiteOrder, Window,
 };
 use super::ledger::Tally;
 use super::median::medians;
@@ -21,7 +22,7 @@ use crate::{ABSENT, VIEW_VERSION};
 
 /// Folds each run that finished inside `window`, one at a time.
 fn finished_in<F: FnMut(&RunFacts, &Finished)>(
-    source: &dyn FactSource,
+    source: &mut dyn FactSource,
     window: Window,
     mut fold: F,
 ) {
@@ -34,16 +35,8 @@ fn finished_in<F: FnMut(&RunFacts, &Finished)>(
     });
 }
 
-fn shipped_in(source: &dyn FactSource, window: Window) -> usize {
-    let mut count = 0;
-    finished_in(source, window, |_, finished| {
-        count += usize::from(shipped(finished));
-    });
-    count
-}
-
 /// The runs that finished inside `window`, by their endings.
-fn ledger_in(source: &dyn FactSource, window: Window) -> Ledger {
+fn ledger_in(source: &mut dyn FactSource, window: Window) -> Ledger {
     let mut tally = Tally::default();
     finished_in(source, window, |_, finished| {
         tally.add(finished.ending);
@@ -73,7 +66,7 @@ pub(crate) fn span(millis: Option<i64>) -> Span {
 /// The headline's median and each realm row's, selected in one set of
 /// passes (decision 0089 ruling 7): target 0 is the whole read, and target
 /// `n + 1` the realm at `realms[n]`.
-fn medians_of(source: &dyn FactSource, realms: &[String]) -> Vec<Option<i64>> {
+fn medians_of(source: &mut dyn FactSource, realms: &[String]) -> Vec<Option<i64>> {
     let index: BTreeMap<&str, usize> = realms
         .iter()
         .enumerate()
@@ -90,17 +83,17 @@ fn medians_of(source: &dyn FactSource, realms: &[String]) -> Vec<Option<i64>> {
 }
 
 /// Waiting on the operator and all parked time, inside `window`.
-fn waited(source: &dyn FactSource, window: Window) -> (i64, i64) {
+fn waited(source: &mut dyn FactSource, window: Window) -> (i64, i64) {
     let mut waiting = 0;
     let mut parked = 0;
-    source.parks(&mut |park| {
+    source.parks().for_each(|park: ParkFact| {
         waiting += window.overlap(park.at, park.answered);
         parked += window.overlap(park.at, park.ended);
     });
     (waiting, parked)
 }
 
-fn waiting(source: &dyn FactSource, window: Window) -> Waiting {
+fn waiting(source: &mut dyn FactSource, window: Window) -> Waiting {
     let (waiting_millis, parked_millis) = waited(source, window);
     let share_percent = percent(waiting_millis, parked_millis);
     Waiting {
@@ -115,7 +108,7 @@ fn waiting(source: &dyn FactSource, window: Window) -> Waiting {
     }
 }
 
-fn stopped_by_rule(source: &dyn FactSource, window: Window) -> StoppedByRule {
+fn stopped_by_rule(source: &mut dyn FactSource, window: Window) -> StoppedByRule {
     let mut count = 0;
     let mut rules: Ranked<Option<String>, usize, Reverse<usize>> = Ranked::new();
     let mut current: Option<(Option<String>, usize)> = None;
@@ -125,7 +118,7 @@ fn stopped_by_rule(source: &dyn FactSource, window: Window) -> StoppedByRule {
             rules.push(rule, count, Reverse(count));
         }
     };
-    source.runs_in(RunOrder::Rule, &mut |run| {
+    source.runs_in(RunOrder::Rule).for_each(|run: RunFacts| {
         let Some(finished) = &run.finished else {
             return;
         };
@@ -236,7 +229,7 @@ impl ProviderGroup {
 /// in that order, so the group is complete without a table of every
 /// provider; a whole group ORs the flag over every realm.
 fn provider_groups(
-    source: &dyn FactSource,
+    source: &mut dyn FactSource,
     group: ProviderGroup,
     mut visit: impl FnMut(&str, &str, bool),
 ) {
@@ -246,7 +239,7 @@ fn provider_groups(
             visit(&realm, &provider, reported);
         }
     };
-    source.sites_in(group.order(), &mut |fact| {
+    source.sites_in(group.order()).for_each(|fact: SiteFact| {
         let realm = group.realm(&fact.realm).to_string();
         let provider = name_key(&fact.provider).to_string();
         let reported = fact.reported;
@@ -318,7 +311,7 @@ pub(crate) fn cost_figure<'a>(
 /// The whole read's cost: its spends and provider groups, one at a time.
 /// A source's spends are already its window's ([`FactSource`]), as its
 /// sites are.
-fn cost(source: &dyn FactSource) -> CostFigure {
+fn cost(source: &mut dyn FactSource) -> CostFigure {
     let mut accumulator = ProviderAcc::default();
     source.spends(&mut |spend| accumulator.spend(spend.usd));
     provider_groups(source, ProviderGroup::Whole, |_, provider, reported| {
@@ -327,7 +320,7 @@ fn cost(source: &dyn FactSource) -> CostFigure {
     accumulator.finish()
 }
 
-fn per_day(source: &dyn FactSource, window: Window) -> Vec<Day> {
+fn per_day(source: &mut dyn FactSource, window: Window) -> Vec<Day> {
     let first = window.from.div_euclid(DAY_MILLIS);
     let last = (window.to - 1).div_euclid(DAY_MILLIS);
     let mut days: Vec<Day> = (first..=last)
@@ -358,7 +351,7 @@ struct StepAcc {
     last_run: Option<(String, String)>,
 }
 
-fn waiting_by_step(source: &dyn FactSource, window: Window) -> (Vec<StepWait>, usize) {
+fn waiting_by_step(source: &mut dyn FactSource, window: Window) -> (Vec<StepWait>, usize) {
     let mut steps: Ranked<Option<String>, StepAcc, Reverse<i64>> = Ranked::new();
     let mut current: Option<(Option<String>, StepAcc)> = None;
     let flush = |group: Option<(Option<String>, StepAcc)>,
@@ -368,7 +361,7 @@ fn waiting_by_step(source: &dyn FactSource, window: Window) -> (Vec<StepWait>, u
             steps.push(phase, step, rank);
         }
     };
-    source.parks(&mut |park| {
+    source.parks().for_each(|park: ParkFact| {
         let waited = window.overlap(park.at, park.answered);
         if waited == 0 {
             return;
@@ -415,7 +408,7 @@ fn waiting_by_step(source: &dyn FactSource, window: Window) -> (Vec<StepWait>, u
     (rows, waiting_by_step_more)
 }
 
-fn rework(source: &dyn FactSource, window: Window) -> Rework {
+fn rework(source: &mut dyn FactSource, window: Window) -> Rework {
     let mut runs = 0;
     let mut visits = 0u64;
     let mut sent_back = 0;
@@ -446,7 +439,7 @@ fn rework(source: &dyn FactSource, window: Window) -> Rework {
     }
 }
 
-fn models(source: &dyn FactSource, window: Window) -> (Vec<ModelShare>, usize) {
+fn models(source: &mut dyn FactSource, window: Window) -> (Vec<ModelShare>, usize) {
     let mut models: Ranked<Option<String>, usize, Reverse<usize>> = Ranked::new();
     let mut current: Option<(Option<String>, usize)> = None;
     let mut total = 0;
@@ -456,20 +449,22 @@ fn models(source: &dyn FactSource, window: Window) -> (Vec<ModelShare>, usize) {
             models.push(model, attempts, Reverse(attempts));
         }
     };
-    source.sites_in(SiteOrder::Model, &mut |fact| {
-        if !window.holds(fact.at) {
-            return;
-        }
-        let model = fact.model.as_deref().map(model_key).map(str::to_string);
-        total += 1;
-        match &mut current {
-            Some((named, attempts)) if *named == model => *attempts += 1,
-            _ => {
-                flush(current.take(), &mut models);
-                current = Some((model, 1));
+    source
+        .sites_in(SiteOrder::Model)
+        .for_each(|fact: SiteFact| {
+            if !window.holds(fact.at) {
+                return;
             }
-        }
-    });
+            let model = fact.model.as_deref().map(model_key).map(str::to_string);
+            total += 1;
+            match &mut current {
+                Some((named, attempts)) if *named == model => *attempts += 1,
+                _ => {
+                    flush(current.take(), &mut models);
+                    current = Some((model, 1));
+                }
+            }
+        });
     flush(current.take(), &mut models);
     let (kept, models_more) = models.finish();
     let mut shares: Vec<ModelShare> = kept
@@ -501,7 +496,7 @@ struct RealmAcc {
 }
 
 fn realm_counts(
-    source: &dyn FactSource,
+    source: &mut dyn FactSource,
     window: Window,
     realms: &[String],
 ) -> BTreeMap<String, RealmAcc> {
@@ -520,13 +515,13 @@ fn realm_counts(
 }
 
 fn realm_waiting(
-    source: &dyn FactSource,
+    source: &mut dyn FactSource,
     window: Window,
     realms: &[String],
 ) -> BTreeMap<String, i64> {
     let mut waiting: BTreeMap<String, i64> =
         realms.iter().map(|realm| (realm.clone(), 0)).collect();
-    source.parks(&mut |park| {
+    source.parks().for_each(|park: ParkFact| {
         if let Some(total) = waiting.get_mut(name_key(&park.realm)) {
             *total += window.overlap(park.at, park.answered);
         }
@@ -534,7 +529,7 @@ fn realm_waiting(
     waiting
 }
 
-fn realm_costs(source: &dyn FactSource, realms: &[String]) -> BTreeMap<String, ProviderAcc> {
+fn realm_costs(source: &mut dyn FactSource, realms: &[String]) -> BTreeMap<String, ProviderAcc> {
     let mut costs: BTreeMap<String, ProviderAcc> = realms
         .iter()
         .map(|realm| (realm.clone(), ProviderAcc::default()))
@@ -557,7 +552,7 @@ fn realm_costs(source: &dyn FactSource, realms: &[String]) -> BTreeMap<String, P
 }
 
 fn realm_rows(
-    source: &dyn FactSource,
+    source: &mut dyn FactSource,
     window: Window,
     realms: &[String],
     medians: &[Option<i64>],
@@ -592,14 +587,17 @@ fn realm_rows(
 /// derived once from the hearths' journals, for the range ending at `now`.
 pub fn analytics(query: &Query) -> Result<Analytics, AnalyticsError> {
     let (window, _) = super::windows(query)?;
-    let source = super::whole_read(query, window);
-    analytics_with(&source, query)
+    let mut source = super::whole_read(query, window);
+    analytics_with(&mut source, query)
 }
 
 /// The analytics readout for `query` over `source`: today's whole read, or
 /// the store's rows merged with the runs it reads whole (decision 0089
 /// ruling 8).
-pub fn analytics_with(source: &dyn FactSource, query: &Query) -> Result<Analytics, AnalyticsError> {
+pub fn analytics_with(
+    source: &mut dyn FactSource,
+    query: &Query,
+) -> Result<Analytics, AnalyticsError> {
     let (window, before) = super::windows(query)?;
     // Offered in discovery order, which is the order `Ranked` keeps and
     // the rows are painted in: the first 64 realms, the rest counted.
@@ -611,8 +609,8 @@ pub fn analytics_with(source: &dyn FactSource, query: &Query) -> Result<Analytic
     let (kept, realms_more) = kept_realms.finish();
     let realms: Vec<String> = kept.into_iter().map(|(realm, ())| realm).collect();
     let medians = medians_of(source, &realms);
-    let shipped = shipped_in(source, window);
-    let previous = shipped_in(source, before);
+    let shipped = source.shipped_between(window);
+    let previous = source.shipped_between(before);
     let change = shipped as i64 - previous as i64;
     let (models, models_more) = models(source, window);
     let (waiting_by_step, waiting_by_step_more) = waiting_by_step(source, window);

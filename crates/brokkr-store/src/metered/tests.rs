@@ -1131,7 +1131,15 @@ fn the_plans_name_the_indexes_and_scan_no_projection() {
         let sites = crate::test_support::plan(
             &store,
             sites_sql(order, true),
-            rusqlite::params![FROM, TO, None::<&str>, crate::seat_summary::SHAPE.as_str()],
+            rusqlite::params_from_iter(
+                Bounds {
+                    from: FROM,
+                    to: TO,
+                    realm: None,
+                    label: Some("label"),
+                }
+                .values(),
+            ),
         )
         .unwrap();
         for index in [

@@ -25,7 +25,13 @@ impl Store {
     ) -> Result<i64, StoreError> {
         let intact = stale_intact(&self.conn)?;
         let mut statement = self.conn.prepare(runs_sql(order, intact))?;
-        steps(&mut statement, params_from_iter(bounds(from, to, realm)))
+        let bounds = super::pull::Bounds {
+            from,
+            to,
+            realm,
+            label: None,
+        };
+        steps(&mut statement, params_from_iter(bounds.values()))
     }
 
     /// The VM steps [`Store::durations`]' statement takes.

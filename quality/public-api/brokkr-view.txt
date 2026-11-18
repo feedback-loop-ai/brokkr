@@ -419,18 +419,19 @@ pub brokkr_view::Decision::severity: core::option::Option<brokkr_core::policy::R
 pub struct brokkr_view::Disabled
 pub brokkr_view::Disabled::action: brokkr_view::Unavailable
 pub brokkr_view::Disabled::reason: &'static str
-pub struct brokkr_view::FactUnion
-impl brokkr_view::FactUnion
-pub fn brokkr_view::FactUnion::new(alloc::vec::Vec<alloc::boxed::Box<dyn brokkr_view::FactSource>>) -> brokkr_view::FactUnion
-impl brokkr_view::FactSource for brokkr_view::FactUnion
-pub fn brokkr_view::FactUnion::durations(&self, &mut dyn core::ops::function::FnMut(&str, i64))
-pub fn brokkr_view::FactUnion::parks(&self, &mut dyn core::ops::function::FnMut(brokkr_view::ParkFact))
-pub fn brokkr_view::FactUnion::quarantined(&self) -> alloc::vec::Vec<brokkr_view::QuarantinedHearth>
-pub fn brokkr_view::FactUnion::runs(&self, &mut dyn core::ops::function::FnMut(brokkr_view::RunFacts))
-pub fn brokkr_view::FactUnion::runs_in(&self, brokkr_view::RunOrder, &mut dyn core::ops::function::FnMut(brokkr_view::RunFacts))
-pub fn brokkr_view::FactUnion::scope(&self) -> (&[alloc::string::String], &alloc::collections::btree::map::BTreeMap<alloc::string::String, usize>)
-pub fn brokkr_view::FactUnion::sites_in(&self, brokkr_view::SiteOrder, &mut dyn core::ops::function::FnMut(brokkr_view::SiteFact))
-pub fn brokkr_view::FactUnion::spends(&self, &mut dyn core::ops::function::FnMut(brokkr_view::SpendFact))
+pub struct brokkr_view::FactUnion<'a>
+impl<'a> brokkr_view::FactUnion<'a>
+pub fn brokkr_view::FactUnion<'a>::new(alloc::vec::Vec<alloc::boxed::Box<(dyn brokkr_view::FactSource + 'a)>>) -> brokkr_view::FactUnion<'a>
+impl brokkr_view::FactSource for brokkr_view::FactUnion<'_>
+pub fn brokkr_view::FactUnion<'_>::durations(&self, &mut dyn core::ops::function::FnMut(&str, i64))
+pub fn brokkr_view::FactUnion<'_>::parks(&mut self) -> brokkr_view::Pulled<'_, brokkr_view::ParkFact>
+pub fn brokkr_view::FactUnion<'_>::quarantined(&self) -> alloc::vec::Vec<brokkr_view::QuarantinedHearth>
+pub fn brokkr_view::FactUnion<'_>::runs(&self, &mut dyn core::ops::function::FnMut(brokkr_view::RunFacts))
+pub fn brokkr_view::FactUnion<'_>::runs_in(&mut self, brokkr_view::RunOrder) -> brokkr_view::Pulled<'_, brokkr_view::RunFacts>
+pub fn brokkr_view::FactUnion<'_>::scope(&self) -> (&[alloc::string::String], &alloc::collections::btree::map::BTreeMap<alloc::string::String, usize>)
+pub fn brokkr_view::FactUnion<'_>::shipped_between(&self, brokkr_view::Window) -> usize
+pub fn brokkr_view::FactUnion<'_>::sites_in(&mut self, brokkr_view::SiteOrder) -> brokkr_view::Pulled<'_, brokkr_view::SiteFact>
+pub fn brokkr_view::FactUnion<'_>::spends(&self, &mut dyn core::ops::function::FnMut(brokkr_view::SpendFact))
 pub struct brokkr_view::FirstDivergence
 pub struct brokkr_view::FleetView
 pub brokkr_view::FleetView::count: usize
@@ -651,13 +652,15 @@ pub brokkr_view::RunEntry::run_id: &'a str
 pub brokkr_view::RunEntry::state: core::option::Option<&'a brokkr_core::fold::RunState>
 pub brokkr_view::RunEntry::waits: brokkr_view::WaitFact
 pub struct brokkr_view::RunFacts
-pub brokkr_view::RunFacts::costs: alloc::vec::Vec<(i64, f64)>
 pub brokkr_view::RunFacts::finished: core::option::Option<brokkr_core::summary::aggregate::Finished>
+pub brokkr_view::RunFacts::hearth: alloc::string::String
 pub brokkr_view::RunFacts::implement_visits: u64
 pub brokkr_view::RunFacts::open: bool
 pub brokkr_view::RunFacts::realm: alloc::string::String
 pub brokkr_view::RunFacts::recipe: core::option::Option<alloc::string::String>
 pub brokkr_view::RunFacts::reviews: brokkr_view::Reviews
+pub brokkr_view::RunFacts::run: alloc::string::String
+pub brokkr_view::RunFacts::spent: core::option::Option<f64>
 pub brokkr_view::RunFacts::started: core::option::Option<i64>
 pub struct brokkr_view::RunNotice
 pub brokkr_view::RunNotice::kind: alloc::string::String
@@ -726,12 +729,14 @@ pub struct brokkr_view::Sides<T>
 pub struct brokkr_view::SiteFact
 pub brokkr_view::SiteFact::at: i64
 pub brokkr_view::SiteFact::ended: core::option::Option<i64>
+pub brokkr_view::SiteFact::hearth: alloc::string::String
 pub brokkr_view::SiteFact::model: core::option::Option<alloc::string::String>
 pub brokkr_view::SiteFact::open: bool
 pub brokkr_view::SiteFact::provider: alloc::string::String
 pub brokkr_view::SiteFact::realm: alloc::string::String
 pub brokkr_view::SiteFact::recipe: core::option::Option<alloc::string::String>
 pub brokkr_view::SiteFact::reported: bool
+pub brokkr_view::SiteFact::run: alloc::string::String
 pub brokkr_view::SiteFact::usage: core::option::Option<brokkr_core::seat::TokenUsage>
 pub struct brokkr_view::SpendFact
 pub brokkr_view::SpendFact::at: i64
@@ -824,12 +829,13 @@ pub brokkr_view::What::text: alloc::string::String
 pub struct brokkr_view::WholeRead
 impl brokkr_view::FactSource for brokkr_view::WholeRead
 pub fn brokkr_view::WholeRead::durations(&self, &mut dyn core::ops::function::FnMut(&str, i64))
-pub fn brokkr_view::WholeRead::parks(&self, &mut dyn core::ops::function::FnMut(brokkr_view::ParkFact))
+pub fn brokkr_view::WholeRead::parks(&mut self) -> brokkr_view::Pulled<'_, brokkr_view::ParkFact>
 pub fn brokkr_view::WholeRead::quarantined(&self) -> alloc::vec::Vec<brokkr_view::QuarantinedHearth>
 pub fn brokkr_view::WholeRead::runs(&self, &mut dyn core::ops::function::FnMut(brokkr_view::RunFacts))
-pub fn brokkr_view::WholeRead::runs_in(&self, brokkr_view::RunOrder, &mut dyn core::ops::function::FnMut(brokkr_view::RunFacts))
+pub fn brokkr_view::WholeRead::runs_in(&mut self, brokkr_view::RunOrder) -> brokkr_view::Pulled<'_, brokkr_view::RunFacts>
 pub fn brokkr_view::WholeRead::scope(&self) -> (&[alloc::string::String], &alloc::collections::btree::map::BTreeMap<alloc::string::String, usize>)
-pub fn brokkr_view::WholeRead::sites_in(&self, brokkr_view::SiteOrder, &mut dyn core::ops::function::FnMut(brokkr_view::SiteFact))
+pub fn brokkr_view::WholeRead::shipped_between(&self, brokkr_view::Window) -> usize
+pub fn brokkr_view::WholeRead::sites_in(&mut self, brokkr_view::SiteOrder) -> brokkr_view::Pulled<'_, brokkr_view::SiteFact>
 pub fn brokkr_view::WholeRead::spends(&self, &mut dyn core::ops::function::FnMut(brokkr_view::SpendFact))
 pub struct brokkr_view::Window
 pub brokkr_view::Window::from: i64
@@ -844,34 +850,37 @@ pub const brokkr_view::VERDICT_COLUMNS: usize
 pub const brokkr_view::VIEW_VERSION: u32
 pub trait brokkr_view::FactSource
 pub fn brokkr_view::FactSource::durations(&self, &mut dyn core::ops::function::FnMut(&str, i64))
-pub fn brokkr_view::FactSource::parks(&self, &mut dyn core::ops::function::FnMut(brokkr_view::ParkFact))
+pub fn brokkr_view::FactSource::parks(&mut self) -> brokkr_view::Pulled<'_, brokkr_view::ParkFact>
 pub fn brokkr_view::FactSource::quarantined(&self) -> alloc::vec::Vec<brokkr_view::QuarantinedHearth>
 pub fn brokkr_view::FactSource::runs(&self, &mut dyn core::ops::function::FnMut(brokkr_view::RunFacts))
-pub fn brokkr_view::FactSource::runs_in(&self, brokkr_view::RunOrder, &mut dyn core::ops::function::FnMut(brokkr_view::RunFacts))
+pub fn brokkr_view::FactSource::runs_in(&mut self, brokkr_view::RunOrder) -> brokkr_view::Pulled<'_, brokkr_view::RunFacts>
 pub fn brokkr_view::FactSource::scope(&self) -> (&[alloc::string::String], &alloc::collections::btree::map::BTreeMap<alloc::string::String, usize>)
-pub fn brokkr_view::FactSource::sites_in(&self, brokkr_view::SiteOrder, &mut dyn core::ops::function::FnMut(brokkr_view::SiteFact))
+pub fn brokkr_view::FactSource::shipped_between(&self, brokkr_view::Window) -> usize
+pub fn brokkr_view::FactSource::sites_in(&mut self, brokkr_view::SiteOrder) -> brokkr_view::Pulled<'_, brokkr_view::SiteFact>
 pub fn brokkr_view::FactSource::spends(&self, &mut dyn core::ops::function::FnMut(brokkr_view::SpendFact))
-impl brokkr_view::FactSource for brokkr_view::FactUnion
-pub fn brokkr_view::FactUnion::durations(&self, &mut dyn core::ops::function::FnMut(&str, i64))
-pub fn brokkr_view::FactUnion::parks(&self, &mut dyn core::ops::function::FnMut(brokkr_view::ParkFact))
-pub fn brokkr_view::FactUnion::quarantined(&self) -> alloc::vec::Vec<brokkr_view::QuarantinedHearth>
-pub fn brokkr_view::FactUnion::runs(&self, &mut dyn core::ops::function::FnMut(brokkr_view::RunFacts))
-pub fn brokkr_view::FactUnion::runs_in(&self, brokkr_view::RunOrder, &mut dyn core::ops::function::FnMut(brokkr_view::RunFacts))
-pub fn brokkr_view::FactUnion::scope(&self) -> (&[alloc::string::String], &alloc::collections::btree::map::BTreeMap<alloc::string::String, usize>)
-pub fn brokkr_view::FactUnion::sites_in(&self, brokkr_view::SiteOrder, &mut dyn core::ops::function::FnMut(brokkr_view::SiteFact))
-pub fn brokkr_view::FactUnion::spends(&self, &mut dyn core::ops::function::FnMut(brokkr_view::SpendFact))
+impl brokkr_view::FactSource for brokkr_view::FactUnion<'_>
+pub fn brokkr_view::FactUnion<'_>::durations(&self, &mut dyn core::ops::function::FnMut(&str, i64))
+pub fn brokkr_view::FactUnion<'_>::parks(&mut self) -> brokkr_view::Pulled<'_, brokkr_view::ParkFact>
+pub fn brokkr_view::FactUnion<'_>::quarantined(&self) -> alloc::vec::Vec<brokkr_view::QuarantinedHearth>
+pub fn brokkr_view::FactUnion<'_>::runs(&self, &mut dyn core::ops::function::FnMut(brokkr_view::RunFacts))
+pub fn brokkr_view::FactUnion<'_>::runs_in(&mut self, brokkr_view::RunOrder) -> brokkr_view::Pulled<'_, brokkr_view::RunFacts>
+pub fn brokkr_view::FactUnion<'_>::scope(&self) -> (&[alloc::string::String], &alloc::collections::btree::map::BTreeMap<alloc::string::String, usize>)
+pub fn brokkr_view::FactUnion<'_>::shipped_between(&self, brokkr_view::Window) -> usize
+pub fn brokkr_view::FactUnion<'_>::sites_in(&mut self, brokkr_view::SiteOrder) -> brokkr_view::Pulled<'_, brokkr_view::SiteFact>
+pub fn brokkr_view::FactUnion<'_>::spends(&self, &mut dyn core::ops::function::FnMut(brokkr_view::SpendFact))
 impl brokkr_view::FactSource for brokkr_view::WholeRead
 pub fn brokkr_view::WholeRead::durations(&self, &mut dyn core::ops::function::FnMut(&str, i64))
-pub fn brokkr_view::WholeRead::parks(&self, &mut dyn core::ops::function::FnMut(brokkr_view::ParkFact))
+pub fn brokkr_view::WholeRead::parks(&mut self) -> brokkr_view::Pulled<'_, brokkr_view::ParkFact>
 pub fn brokkr_view::WholeRead::quarantined(&self) -> alloc::vec::Vec<brokkr_view::QuarantinedHearth>
 pub fn brokkr_view::WholeRead::runs(&self, &mut dyn core::ops::function::FnMut(brokkr_view::RunFacts))
-pub fn brokkr_view::WholeRead::runs_in(&self, brokkr_view::RunOrder, &mut dyn core::ops::function::FnMut(brokkr_view::RunFacts))
+pub fn brokkr_view::WholeRead::runs_in(&mut self, brokkr_view::RunOrder) -> brokkr_view::Pulled<'_, brokkr_view::RunFacts>
 pub fn brokkr_view::WholeRead::scope(&self) -> (&[alloc::string::String], &alloc::collections::btree::map::BTreeMap<alloc::string::String, usize>)
-pub fn brokkr_view::WholeRead::sites_in(&self, brokkr_view::SiteOrder, &mut dyn core::ops::function::FnMut(brokkr_view::SiteFact))
+pub fn brokkr_view::WholeRead::shipped_between(&self, brokkr_view::Window) -> usize
+pub fn brokkr_view::WholeRead::sites_in(&mut self, brokkr_view::SiteOrder) -> brokkr_view::Pulled<'_, brokkr_view::SiteFact>
 pub fn brokkr_view::WholeRead::spends(&self, &mut dyn core::ops::function::FnMut(brokkr_view::SpendFact))
 pub fn brokkr_view::age(&str, &str) -> core::option::Option<alloc::string::String>
 pub fn brokkr_view::analytics(&brokkr_view::Query<'_>) -> core::result::Result<brokkr_view::Analytics, brokkr_view::AnalyticsError>
-pub fn brokkr_view::analytics_with(&dyn brokkr_view::FactSource, &brokkr_view::Query<'_>) -> core::result::Result<brokkr_view::Analytics, brokkr_view::AnalyticsError>
+pub fn brokkr_view::analytics_with(&mut dyn brokkr_view::FactSource, &brokkr_view::Query<'_>) -> core::result::Result<brokkr_view::Analytics, brokkr_view::AnalyticsError>
 pub fn brokkr_view::applied_events(alloc::vec::Vec<brokkr_core::envelope::EventEnvelope>, core::option::Option<&brokkr_core::fold::RunState>) -> alloc::vec::Vec<brokkr_core::envelope::EventEnvelope>
 pub fn brokkr_view::at_work<'a>(&'a brokkr_view::RunRow, &str) -> core::option::Option<&'a brokkr_view::Hire>
 pub fn brokkr_view::behind_line(u64) -> core::option::Option<alloc::string::String>
@@ -922,3 +931,4 @@ pub fn brokkr_view::windows(&brokkr_view::Query<'_>) -> core::result::Result<(br
 pub fn brokkr_view::working_checkpoints<'a>(&'a brokkr_view::RunView, &str) -> alloc::vec::Vec<(&'a str, &'a brokkr_view::CheckpointRow)>
 pub fn brokkr_view::working_participants<'a>(&'a brokkr_view::RunView, &str) -> alloc::vec::Vec<&'a brokkr_view::Participant>
 pub fn brokkr_view::wrap(&str, usize) -> alloc::vec::Vec<alloc::string::String>
+pub type brokkr_view::Pulled<'s, T> = alloc::boxed::Box<(dyn core::iter::traits::iterator::Iterator<Item = T> + 's)>
