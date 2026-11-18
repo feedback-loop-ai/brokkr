@@ -62,6 +62,9 @@ impl Shows {
 pub(crate) struct Viewed {
     pub(crate) view: RunView,
     pub(crate) folded: Result<RunState, FoldError>,
+    /// What each gate verdict recorded beside its word (decision 0109),
+    /// derived from the trail this read already holds.
+    pub(crate) gates: Vec<brokkr_view::GateRecord>,
 }
 
 /// `run`'s view in `store` as a reader that `shows` it reads it: opened,
@@ -101,7 +104,7 @@ pub(crate) fn participants(
     run: &str,
     now: &str,
 ) -> Result<Result<Vec<Participant>, FoldError>, StoreError> {
-    let Viewed { view, folded } = viewed(store, run, Shows::Frame, now)?;
+    let Viewed { view, folded, .. } = viewed(store, run, Shows::Frame, now)?;
     Ok(folded.map(|_| view.participants))
 }
 
@@ -111,7 +114,12 @@ fn whole(store: &Store, run: &str, now: &str) -> Result<Viewed, StoreError> {
     let folded = fold(&events);
     let cooling = crate::fleet::cooling(store, now)?;
     let view = brokkr_view::run_view_with(&events, folded.as_ref().ok(), &cooling);
-    Ok(Viewed { view, folded })
+    let gates = brokkr_view::gate_records(&events);
+    Ok(Viewed {
+        view,
+        folded,
+        gates,
+    })
 }
 
 /// What one read at an opening's head holds, asked past the head so it
@@ -200,8 +208,13 @@ fn composed(
         }
         None => frame.view(),
     };
+    let gates = brokkr_view::gate_records(&frame.trail);
     let folded = Ok(*frame.state);
-    Ok(view.map(|view| Viewed { view, folded }))
+    Ok(view.map(|view| Viewed {
+        view,
+        folded,
+        gates,
+    }))
 }
 
 /// Which of the console's run screens a frame paints, and so what it reads

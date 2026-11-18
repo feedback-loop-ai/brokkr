@@ -111,13 +111,13 @@ fn run_view_of(
     shows: Shows,
     now: &str,
     read: Reads<'_>,
-) -> Result<brokkr_view::RunView> {
+) -> Result<(brokkr_view::RunView, Vec<brokkr_view::GateRecord>)> {
     let db = journal_of(workspace, realms, db)?;
     let store = open_journal(&db, Access::Read)?;
     let run = selector::resolve_run(&store, run)?;
     let read = read(&store, &run, shows, now)?;
     read.folded?;
-    Ok(read.view)
+    Ok((read.view, read.gates))
 }
 
 /// `inspect --json`'s bytes, which `seats --json` prints too: the view as
@@ -157,7 +157,7 @@ fn inspect_with(
 ) -> Result<ExitCode> {
     let whole = json || capability_call.is_some();
     let now = crate::now_rfc3339();
-    let view = run_view_of(workspace, realms, db, &run, Shows::of(whole), &now, read)?;
+    let (view, gates) = run_view_of(workspace, realms, db, &run, Shows::of(whole), &now, read)?;
     if let Some(call_id) = capability_call {
         let repo = repo.as_deref().unwrap_or(workspace);
         return print_call(repo, &view, &call_id, json, out);
@@ -174,7 +174,7 @@ fn inspect_with(
     let lens = brokkr_view::lens_for(&view, scope.as_ref())
         .map_err(|error| anyhow::Error::msg(render::scope_refusal(&error)))?;
     let frame = render::inspect(&view, lens.as_ref(), true, &now, &render::Style::detect());
-    write!(out, "{frame}")?;
+    write!(out, "{frame}{}", render::inspect::gates(&gates))?;
     Ok(Exit::Completed.into())
 }
 
@@ -364,7 +364,7 @@ fn seats_with(
     // seats block of `inspect`'s readout or `inspect --json`'s
     // own bytes. Nothing is derived here and no wire object is
     // versioned for the verb.
-    let view = run_view_of(
+    let (view, _) = run_view_of(
         workspace,
         realms,
         db,

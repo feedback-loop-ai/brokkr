@@ -94,7 +94,9 @@ fn every_run_reader_reads_through_the_pages() {
     let now = crate::now_rfc3339();
     let read = |run, shows| {
         let db = Some(db.clone());
-        run_view_of(dir.path(), None, db, run, shows, &now, &viewed).unwrap()
+        run_view_of(dir.path(), None, db, run, shows, &now, &viewed)
+            .unwrap()
+            .0
     };
     assert_eq!(shown_of(&whole("r2")), (vec!["work"], vec![1]));
     for (shows, checkpoints) in [(Shows::Everything, 1), (Shows::Frame, 0)] {

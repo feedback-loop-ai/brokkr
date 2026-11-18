@@ -2,7 +2,7 @@
 //! from the run's summary and its ruling (#288): each is a list of lines
 //! the readout prints in the order it always has.
 
-use brokkr_view::{Ruling, Standing, Summary};
+use brokkr_view::{GateFinding, GateRecord, Ruling, Standing, Summary};
 
 use super::ending::{cited, code, painted_as};
 use super::{push_line, tint, Safe, Style};
@@ -133,6 +133,48 @@ pub(super) fn ruling_lines(out: &mut String, ruling: &Ruling) {
             ),
         );
     }
+}
+
+/// The block after the readout's frame that says what each gate verdict
+/// recorded beside its word (decision 0109 slice 0109a1): its covered head
+/// and each finding, one line each, the finding's key as its id and the
+/// first twelve hex of its site. Empty for a run whose results recorded
+/// neither, so an older run reads exactly as it did.
+pub(crate) fn gates(records: &[GateRecord]) -> String {
+    let mut out = String::new();
+    for record in records {
+        let phase = Safe::new(&record.phase);
+        if let Some(covered) = &record.covered {
+            let covered = Safe::new(covered);
+            push_line(
+                &mut out,
+                &format!("  {} · covered {}", phase.as_str(), covered.as_str()),
+            );
+        }
+        for finding in &record.findings {
+            push_line(&mut out, &finding_line(phase.as_str(), finding));
+        }
+    }
+    match out.is_empty() {
+        true => out,
+        false => format!("\nverdicts\n{out}"),
+    }
+}
+
+fn finding_line(phase: &str, finding: &GateFinding) -> String {
+    let at = match finding.line {
+        Some(line) => format!("{}:{line}", finding.file),
+        None => finding.file.clone(),
+    };
+    let security = if finding.security { " · security" } else { "" };
+    format!(
+        "  {phase} · finding {} · site {} · {}{security} · {} · {}",
+        Safe::new(&finding.id).as_str(),
+        finding.site.get(..12).unwrap_or(&finding.site),
+        finding.severity,
+        Safe::new(&at).as_str(),
+        Safe::new(&finding.summary).as_str()
+    )
 }
 
 #[cfg(test)]

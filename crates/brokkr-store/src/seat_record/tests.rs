@@ -850,31 +850,37 @@ fn every_valid_v5_shape_is_a_valid_v6_record_and_v5s_conditions_stand() {
 /// and export and verify; a malformed group planted past the fence is
 /// refused by both read sweeps with the same violation. A 0.11 run's
 /// fence refuses the complete group under v5.
+/// `run` created in `store` by the engine line `engine`, through effect
+/// `fx`'s first attempt, `attempt-1`, started in `implement`.
+pub(super) fn started_run(store: &mut crate::Store, run: &str, engine: &str) {
+    let manifest = json!({"engine": engine});
+    store.create_run(run, "feat", "self", &manifest).unwrap();
+    for (event_type, payload) in [
+        (
+            EventType::RunStarted,
+            json!({"feature":"feat", "manifest": manifest}),
+        ),
+        (EventType::PhaseEntered, json!({"phase":"implement"})),
+        (
+            EventType::EffectRequested,
+            json!({"effect_id":"fx", "seat":"implement"}),
+        ),
+        (
+            EventType::EffectStarted,
+            json!({"effect_id":"fx", "attempt_id":"attempt-1"}),
+        ),
+    ] {
+        store
+            .append_next(run, event_type, payload, None, None)
+            .unwrap();
+    }
+}
+
 #[test]
 fn append_export_and_verify_judge_one_v6_contract() {
     let (_dir, mut store) = crate::tests::store();
     for (run, engine) in [("twelve", "0.12.0"), ("eleven", "0.11.0")] {
-        let manifest = json!({"engine": engine});
-        store.create_run(run, "feat", "self", &manifest).unwrap();
-        for (event_type, payload) in [
-            (
-                EventType::RunStarted,
-                json!({"feature":"feat", "manifest": manifest}),
-            ),
-            (EventType::PhaseEntered, json!({"phase":"implement"})),
-            (
-                EventType::EffectRequested,
-                json!({"effect_id":"fx", "seat":"implement"}),
-            ),
-            (
-                EventType::EffectStarted,
-                json!({"effect_id":"fx", "attempt_id":"attempt-1"}),
-            ),
-        ] {
-            store
-                .append_next(run, event_type, payload, None, None)
-                .unwrap();
-        }
+        started_run(&mut store, run, engine);
     }
     let append = |store: &mut crate::Store, run: &str, record: Value| {
         let payload = json!({"effect_id":"fx", "checkpoint": record});

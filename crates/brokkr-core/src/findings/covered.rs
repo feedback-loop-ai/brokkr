@@ -7,7 +7,6 @@
 //! arm v7 admits has no writer until slice 0109c, so it has no type here.
 
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use thiserror::Error;
 
 use super::{is_lower_hex, is_sha256};
@@ -103,11 +102,6 @@ impl Covered {
             head: CoveredHead::Digest(sha256_bytes(head.as_bytes())),
             dirty,
         }
-    }
-
-    /// The `covered` a journaled result carries, if it has one that reads.
-    pub fn read(covered: &Value) -> Option<Covered> {
-        Covered::deserialize(covered).ok()
     }
 
     pub fn head(&self) -> &CoveredHead {

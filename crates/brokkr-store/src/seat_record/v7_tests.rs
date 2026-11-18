@@ -195,30 +195,10 @@ fn the_zero_fourteen_line_writes_v7_and_the_thirteen_line_still_reads_v6() {
     }
     let (_dir, mut store) = crate::tests::store();
     for (run, engine) in [("fourteen", "0.14.0"), ("thirteen", "0.13.0")] {
-        let manifest = json!({"engine": engine});
-        store.create_run(run, "feat", "self", &manifest).unwrap();
-        for (event_type, payload) in [
-            (
-                EventType::RunStarted,
-                json!({"feature": "feat", "manifest": manifest}),
-            ),
-            (EventType::PhaseEntered, json!({"phase": "review"})),
-            (
-                EventType::EffectRequested,
-                json!({"effect_id": "fx", "seat": "review"}),
-            ),
-            (
-                EventType::EffectStarted,
-                json!({"effect_id": "fx", "attempt_id": "a-1"}),
-            ),
-        ] {
-            store
-                .append_next(run, event_type, payload, None, None)
-                .unwrap();
-        }
+        super::tests::started_run(&mut store, run, engine);
     }
     let result = gate("findings", json!([finding()]));
-    let payload = json!({"effect_id": "fx", "attempt_id": "a-1", "result": result});
+    let payload = json!({"effect_id": "fx", "attempt_id": "attempt-1", "result": result});
     let crate::StoreError::SeatRecord(old) = store
         .append_next(
             "thirteen",
@@ -245,7 +225,7 @@ fn the_zero_fourteen_line_writes_v7_and_the_thirteen_line_still_reads_v6() {
         "covered",
         json!({"kind": "head", "head": HEAD, "head_digest": DIGEST, "dirty": true}),
     );
-    let planted = json!({"effect_id": "fx", "attempt_id": "a-1", "result": foreign});
+    let planted = json!({"effect_id": "fx", "attempt_id": "attempt-1", "result": foreign});
     crate::tests::plant_unfenced(&mut store, "fourteen", EventType::EffectSucceeded, planted);
     let crate::StoreError::SeatRecord(swept) = store.export_ndjson("fourteen").unwrap_err() else {
         panic!("export refuses a covered record with both head field sets");

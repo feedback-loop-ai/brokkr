@@ -281,6 +281,84 @@ pub brokkr_core::event_index::Indexed::recorded_at: &'a str
 pub brokkr_core::event_index::Indexed::seq: u64
 impl<'a> brokkr_core::event_index::Indexed<'a>
 pub fn brokkr_core::event_index::Indexed<'a>::of(&'a brokkr_core::envelope::EventEnvelope) -> brokkr_core::event_index::Indexed<'a>
+pub mod brokkr_core::findings
+pub enum brokkr_core::findings::AdmissionRefusal
+pub brokkr_core::findings::AdmissionRefusal::Duplicate
+pub brokkr_core::findings::AdmissionRefusal::Duplicate::id: brokkr_core::findings::FindingId
+pub brokkr_core::findings::AdmissionRefusal::EngineWritten(brokkr_core::findings::EngineWritten)
+pub brokkr_core::findings::AdmissionRefusal::Id
+pub brokkr_core::findings::AdmissionRefusal::Id::index: usize
+pub brokkr_core::findings::AdmissionRefusal::Malformed
+pub brokkr_core::findings::AdmissionRefusal::Malformed::index: usize
+pub brokkr_core::findings::AdmissionRefusal::NotAnArray
+pub brokkr_core::findings::AdmissionRefusal::SeatSite
+pub brokkr_core::findings::AdmissionRefusal::SeatSite::index: usize
+pub brokkr_core::findings::AdmissionRefusal::Unsited
+pub enum brokkr_core::findings::CoveredHead
+pub brokkr_core::findings::CoveredHead::Commit(alloc::string::String)
+pub brokkr_core::findings::CoveredHead::Digest(alloc::string::String)
+pub enum brokkr_core::findings::EngineWritten
+pub brokkr_core::findings::EngineWritten::Covered
+pub brokkr_core::findings::EngineWritten::FollowUps
+impl core::fmt::Display for brokkr_core::findings::EngineWritten
+pub fn brokkr_core::findings::EngineWritten::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub enum brokkr_core::findings::WordError
+pub brokkr_core::findings::WordError::File
+pub brokkr_core::findings::WordError::Id
+pub brokkr_core::findings::WordError::Site
+pub brokkr_core::findings::WordError::Summary
+pub struct brokkr_core::findings::Covered
+impl brokkr_core::findings::Covered
+pub fn brokkr_core::findings::Covered::commit(&str, bool) -> core::option::Option<brokkr_core::findings::Covered>
+pub fn brokkr_core::findings::Covered::digest_of(&str, bool) -> brokkr_core::findings::Covered
+pub fn brokkr_core::findings::Covered::dirty(&self) -> bool
+pub fn brokkr_core::findings::Covered::head(&self) -> &brokkr_core::findings::CoveredHead
+pub fn brokkr_core::findings::Covered::projects(&self, &str) -> bool
+pub struct brokkr_core::findings::Finding
+impl brokkr_core::findings::Finding
+pub fn brokkr_core::findings::Finding::file(&self) -> &brokkr_core::findings::RepoFile
+pub fn brokkr_core::findings::Finding::key(&self) -> brokkr_core::findings::FindingKey
+pub fn brokkr_core::findings::Finding::line(&self) -> core::option::Option<core::num::nonzero::NonZeroU64>
+pub fn brokkr_core::findings::Finding::security(&self) -> bool
+pub fn brokkr_core::findings::Finding::severity(&self) -> brokkr_core::policy::Severity
+pub fn brokkr_core::findings::Finding::summary(&self) -> &brokkr_core::findings::Summary
+pub struct brokkr_core::findings::FindingId(_)
+impl core::convert::From<brokkr_core::findings::FindingId> for alloc::string::String
+pub fn alloc::string::String::from(brokkr_core::findings::FindingId) -> alloc::string::String
+impl core::convert::TryFrom<alloc::string::String> for brokkr_core::findings::FindingId
+pub type brokkr_core::findings::FindingId::Error = brokkr_core::findings::WordError
+pub fn brokkr_core::findings::FindingId::try_from(alloc::string::String) -> core::result::Result<brokkr_core::findings::FindingId, brokkr_core::findings::WordError>
+impl core::fmt::Display for brokkr_core::findings::FindingId
+pub fn brokkr_core::findings::FindingId::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct brokkr_core::findings::FindingKey
+impl brokkr_core::findings::FindingKey
+pub fn brokkr_core::findings::FindingKey::id(&self) -> &brokkr_core::findings::FindingId
+pub fn brokkr_core::findings::FindingKey::site(&self) -> &brokkr_core::findings::SiteDigest
+pub struct brokkr_core::findings::RepoFile(_)
+impl core::convert::From<brokkr_core::findings::RepoFile> for alloc::string::String
+pub fn alloc::string::String::from(brokkr_core::findings::RepoFile) -> alloc::string::String
+impl core::convert::TryFrom<alloc::string::String> for brokkr_core::findings::RepoFile
+pub type brokkr_core::findings::RepoFile::Error = brokkr_core::findings::WordError
+pub fn brokkr_core::findings::RepoFile::try_from(alloc::string::String) -> core::result::Result<brokkr_core::findings::RepoFile, brokkr_core::findings::WordError>
+impl core::fmt::Display for brokkr_core::findings::RepoFile
+pub fn brokkr_core::findings::RepoFile::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct brokkr_core::findings::SiteDigest(_)
+impl core::convert::From<brokkr_core::findings::SiteDigest> for alloc::string::String
+pub fn alloc::string::String::from(brokkr_core::findings::SiteDigest) -> alloc::string::String
+impl core::convert::TryFrom<alloc::string::String> for brokkr_core::findings::SiteDigest
+pub type brokkr_core::findings::SiteDigest::Error = brokkr_core::findings::WordError
+pub fn brokkr_core::findings::SiteDigest::try_from(alloc::string::String) -> core::result::Result<brokkr_core::findings::SiteDigest, brokkr_core::findings::WordError>
+impl core::fmt::Display for brokkr_core::findings::SiteDigest
+pub fn brokkr_core::findings::SiteDigest::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct brokkr_core::findings::Summary(_)
+impl core::convert::From<brokkr_core::findings::Summary> for alloc::string::String
+pub fn alloc::string::String::from(brokkr_core::findings::Summary) -> alloc::string::String
+impl core::convert::TryFrom<alloc::string::String> for brokkr_core::findings::Summary
+pub type brokkr_core::findings::Summary::Error = brokkr_core::findings::WordError
+pub fn brokkr_core::findings::Summary::try_from(alloc::string::String) -> core::result::Result<brokkr_core::findings::Summary, brokkr_core::findings::WordError>
+impl core::fmt::Display for brokkr_core::findings::Summary
+pub fn brokkr_core::findings::Summary::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn brokkr_core::findings::admit(&mut serde_json::value::Value, core::option::Option<&str>) -> core::result::Result<(), brokkr_core::findings::AdmissionRefusal>
 pub mod brokkr_core::fold
 pub enum brokkr_core::fold::Cursor
 pub brokkr_core::fold::Cursor::Decide

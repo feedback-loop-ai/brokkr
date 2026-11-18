@@ -8,6 +8,15 @@ use super::*;
 const SITE: &str = "5a1e000000000000000000000000000000000000000000000000000000000000";
 const OTHER: &str = "07e4000000000000000000000000000000000000000000000000000000000000";
 
+/// The findings a journaled result carries, read back as a reader reads
+/// them: absent is the empty set, and a record that does not read is none.
+fn recorded(result: &Value) -> Option<Vec<Finding>> {
+    match result.get("findings") {
+        None => Some(Vec::new()),
+        Some(findings) => Vec::<Finding>::deserialize(findings).ok(),
+    }
+}
+
 fn site(digest: &str) -> SiteDigest {
     SiteDigest::try_from(digest.to_string()).unwrap()
 }
@@ -45,8 +54,8 @@ fn a_moved_line_a_reworded_summary_and_a_moved_file_are_the_same_key() {
     for later in [moved_line, reworded, moved_file, unlined] {
         assert_eq!(keys(std::slice::from_ref(&later), SITE), first, "{later}");
     }
-    assert_eq!(first[0].site().as_str(), SITE);
-    assert_eq!(first[0].id().as_str(), "unchecked-len");
+    assert_eq!(first[0].site().to_string(), SITE);
+    assert_eq!(first[0].id().to_string(), "unchecked-len");
     let elsewhere = keys(&[reported()], OTHER);
     assert_ne!(
         elsewhere, first,
@@ -69,9 +78,9 @@ fn the_engine_stamps_the_reporting_site_and_keeps_the_record() {
     let read = recorded(&result).unwrap();
     assert_eq!(read.len(), 1);
     assert_eq!(read[0].key(), keys(&[reported()], SITE)[0]);
-    assert_eq!(read[0].file().as_str(), "crates/a/src/lib.rs");
+    assert_eq!(read[0].file().to_string(), "crates/a/src/lib.rs");
     assert_eq!(read[0].line().map(NonZeroU64::get), Some(12));
-    assert_eq!(read[0].summary().as_str(), "the length is not checked");
+    assert_eq!(read[0].summary().to_string(), "the length is not checked");
     assert_eq!(read[0].severity(), Severity::Medium);
     assert!(!read[0].security());
     let mut plain = json!({"result": "clean", "notes": "n"});

@@ -5,22 +5,37 @@
 use serde_json::{json, Value};
 
 use crate::bundle::{Aggregate, GateAssessment, Invocation, SeatBody, SiteKey};
-use crate::engine::tests::{bundle, git_commit, member, single_body};
+use crate::engine::tests::{accepted, bundle, capabilities, git_commit, member, single_body, wire};
 use crate::engine::Engine;
 use brokkr_core::envelope::{EventEnvelope, EventType};
+use brokkr_protocol::{Body, ResultStatus};
 use brokkr_store::Store;
 
-/// A driver that answers one attempt with `result`, which must hold
-/// neither a `%` nor a `'`.
+/// The effect and attempt a scripted message names until the driver
+/// learns the real ones from its start message.
+const EFFECT: &str = "effect-unknown-yet";
+const ATTEMPT: &str = "attempt-unknown-yet";
+
+/// A driver that answers one attempt of any effect with `result`, which
+/// must hold no `'`: its messages are the protocol's own, written with
+/// placeholder ids the script replaces with the pair its start names.
 pub(super) fn driver(result: &Value) -> Vec<String> {
+    let answered = wire(Body::Result {
+        refusal: None,
+        effect_id: EFFECT.into(),
+        attempt_id: ATTEMPT.into(),
+        status: ResultStatus::Succeeded,
+        result: Some(result.clone()),
+        error: None,
+    });
+    let (hello, started) = (capabilities(), accepted(EFFECT, ATTEMPT, None));
     let script = format!(
         r#"read -r hello
-printf '%s\n' '{{"proto":"forge-driver/v1","msg_id":"cap","type":"capabilities","driver":"test","version":"1","supports":[]}}'
+printf '%s\n' '{hello}'
 read -r start
-effect_id=$(printf '%s' "$start" | sed -n 's/.*"effect_id":"\([^"]*\)".*/\1/p')
-attempt_id=$(printf '%s' "$start" | sed -n 's/.*"attempt_id":"\([^"]*\)".*/\1/p')
-printf '{{"proto":"forge-driver/v1","msg_id":"accepted","type":"accepted","effect_id":"%s","attempt_id":"%s","session_ref":null}}\n' "$effect_id" "$attempt_id"
-printf '{{"proto":"forge-driver/v1","msg_id":"result","type":"result","effect_id":"%s","attempt_id":"%s","status":"succeeded","result":{result},"error":null}}\n' "$effect_id" "$attempt_id"
+eid=${{start#*\"effect_id\":\"}}; eid=${{eid%%\"*}}
+aid=${{start#*\"attempt_id\":\"}}; aid=${{aid%%\"*}}
+printf '%s\n' '{started}' '{answered}' | sed "s/{EFFECT}/$eid/; s/{ATTEMPT}/$aid/"
 read -r done
 "#
     );

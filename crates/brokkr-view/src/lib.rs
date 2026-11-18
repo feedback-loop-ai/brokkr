@@ -76,7 +76,7 @@ mod live;
 pub use live::applied_events;
 use live::derived;
 mod residual_findings;
-pub use residual_findings::residual_findings_at;
+pub use residual_findings::{gate_records, residual_findings_at, GateFinding, GateRecord};
 mod seat_view;
 pub use commands::{Admission, Command, CommandRefusal, Disabled, Offered, Unavailable};
 pub use compare::{

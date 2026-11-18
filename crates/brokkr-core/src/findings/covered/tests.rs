@@ -7,6 +7,11 @@ use super::*;
 
 const HEAD: &str = "0123456789abcdef0123456789abcdef01234567";
 
+/// The record `covered` holds, if it reads as one.
+fn read(covered: &Value) -> Option<Covered> {
+    Covered::deserialize(covered).ok()
+}
+
 #[test]
 fn both_head_field_sets_write_their_own_record_and_read_back() {
     let commit = Covered::commit(HEAD, true).unwrap();
@@ -22,7 +27,7 @@ fn both_head_field_sets_write_their_own_record_and_read_back() {
     );
     for covered in [commit, digest] {
         let written = serde_json::to_value(&covered).unwrap();
-        assert_eq!(Covered::read(&written), Some(covered.clone()));
+        assert_eq!(read(&written), Some(covered.clone()));
         assert!(covered.dirty());
     }
     assert_eq!(
@@ -46,7 +51,7 @@ fn a_record_names_exactly_one_head_and_no_base() {
         json!({"head": HEAD, "dirty": true}),
     ];
     for record in refused {
-        assert_eq!(Covered::read(&record), None, "{record}");
+        assert_eq!(read(&record), None, "{record}");
     }
     assert_eq!(Covered::commit("HEAD", true), None);
     assert_eq!(

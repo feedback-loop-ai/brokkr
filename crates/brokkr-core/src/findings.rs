@@ -19,7 +19,7 @@ use thiserror::Error;
 use crate::policy::{is_identifier, Severity};
 
 /// Ruling 3's bound on a finding id, in bytes.
-pub const ID_MAX_BYTES: usize = 64;
+const ID_MAX_BYTES: usize = 64;
 
 /// The bound on a finding's repository-relative file, as v7 states it.
 const FILE_MAX_BYTES: usize = 4096;
@@ -36,7 +36,7 @@ impl EngineWritten {
     const ALL: [EngineWritten; 2] = [EngineWritten::Covered, EngineWritten::FollowUps];
 
     /// The result field it is.
-    pub fn field(self) -> &'static str {
+    fn field(self) -> &'static str {
         match self {
             EngineWritten::Covered => "covered",
             EngineWritten::FollowUps => "follow_ups",
@@ -175,13 +175,6 @@ macro_rules! word_text {
             }
         }
 
-        impl $word {
-            /// The word as it is written.
-            pub fn as_str(&self) -> &str {
-                &self.0
-            }
-        }
-
         impl fmt::Display for $word {
             fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 f.write_str(&self.0)
@@ -303,7 +296,7 @@ fn reported(index: usize, item: &Value) -> Result<Reported, AdmissionRefusal> {
 /// Read and stamp the findings a seat wrote at `site`: every finding's
 /// site is the one site that reported it, and an id twice in one
 /// verdict is refused.
-pub fn stamp(findings: &Value, site: &SiteDigest) -> Result<Vec<Finding>, AdmissionRefusal> {
+fn stamp(findings: &Value, site: &SiteDigest) -> Result<Vec<Finding>, AdmissionRefusal> {
     let items = findings.as_array().ok_or(AdmissionRefusal::NotAnArray)?;
     let mut keys = BTreeSet::new();
     let mut stamped = Vec::with_capacity(items.len());
@@ -338,16 +331,6 @@ pub fn admit(result: &mut Value, site: Option<&str>) -> Result<(), AdmissionRefu
     let stamped = stamp(findings, &site)?;
     result["findings"] = serde_json::to_value(stamped).expect("a finding serializes");
     Ok(())
-}
-
-/// The stamped findings a journaled result carries, read back. A result
-/// with no `findings` reads as the empty set (decision 0109 ruling 6), and
-/// one whose findings do not read is `None`, never a guessed key.
-pub fn recorded(result: &Value) -> Option<Vec<Finding>> {
-    match result.get("findings") {
-        None => Some(Vec::new()),
-        Some(findings) => Vec::<Finding>::deserialize(findings).ok(),
-    }
 }
 
 fn is_sha256(value: &str) -> bool {

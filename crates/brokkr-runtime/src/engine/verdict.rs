@@ -8,6 +8,7 @@
 use brokkr_core::envelope::EventType;
 use brokkr_core::findings::Covered;
 use brokkr_protocol::{AttemptOutcome, AttemptReport};
+use serde::Deserialize;
 use serde_json::Value;
 
 use super::resume::SiteContext;
@@ -78,7 +79,7 @@ impl Engine {
             return None;
         }
         let covered = raw_result.get("covered")?;
-        match (Covered::read(covered), git_head(&self.repo)) {
+        match (Covered::deserialize(covered).ok(), git_head(&self.repo)) {
             (Some(covered), Some(head)) if covered.projects(&head) => None,
             _ => Some(
                 "the result's covered head does not pin the head decided on \

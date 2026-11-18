@@ -288,6 +288,7 @@ pub brokkr_store::SeatRecordVersion::V3
 pub brokkr_store::SeatRecordVersion::V4
 pub brokkr_store::SeatRecordVersion::V5
 pub brokkr_store::SeatRecordVersion::V6
+pub brokkr_store::SeatRecordVersion::V7
 impl brokkr_store::SeatRecordVersion
 pub fn brokkr_store::SeatRecordVersion::contract(self) -> &'static str
 pub fn brokkr_store::SeatRecordVersion::of_engine(&str) -> brokkr_store::SeatRecordVersion
