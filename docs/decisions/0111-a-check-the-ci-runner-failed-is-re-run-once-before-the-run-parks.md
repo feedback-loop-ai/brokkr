@@ -266,18 +266,19 @@ engine's, read from git as 0039's docs-only flag is
    edits them could rename a failing step into a setup step. A change that touches none is run
    by the base's names.
 3. Each failed job is typed on its own:
-   - conclusion `startup_failure`: runner, kind **`startup-failure`** — the forge says the job
-     never started a step;
+   - a job-level conclusion in ruling 5's proven non-execution set: runner, kind
+     **`not-started`**. That set is empty until 0111b measures `startup_failure` on a job;
    - conclusion `failure`, the job not a security job (ruling 5), its first failed step named in
      the list's `setup_steps`, and that step's excerpt holding one of the list's patterns for
      that step byte for byte: runner, kind **`declared-pattern`** with the pattern's id;
    - anything else, `timed_out` included (a hang may be the change's): **untyped**.
 4. Every failed job runner, and at least one failed: **`runner-fault`**, naming each job, its
-   step, its kind and pattern id, and the re-run scope: the failed jobs and any cancelled job of
-   the same workflow runs.
+   step, its kind and pattern id, and the re-run scope: exactly those jobs by id, each with its
+   attempt (ruling 6). A cancelled job is never in the scope.
 5. Otherwise **`change`**, with a closed reason: `untyped-failure`, `security-job`,
-   `cancelled-only` (cancelled jobs and no failed one: who cancelled is unmeasured), or
-   `touches-infrastructure`.
+   `cancelled` (any required job cancelled: who cancelled is unmeasured, though on a pull request
+   a newer push cancels the older run, `.github/workflows/ci.yml:24-26`),
+   `touches-infrastructure`, or `scope-not-enforceable` (ruling 6).
 
 One untyped job makes the whole observation `change`: a re-run would hide nothing then, and
 would not help. A failure the classifier cannot type is the change's, as today.
@@ -336,18 +337,48 @@ that edits `ci-checks.json` changes the next run's list, by the operator's compi
 
 ### 5. Security and audit jobs
 
-**Recommended: (a) a job named in `audit_checks` is re-run only when the forge's own conclusion
-is `startup_failure`; a pattern never types it.**
+**Recommended: (a) a job named in `audit_checks` is re-run only on a job-level forge conclusion
+that proves its steps never ran; a pattern never types it, and nothing else brings it into a
+scope.**
 
-This cannot launder a real advisory. A `startup_failure` means the forge ran none of the job's
-steps, so no advisory was evaluated; the re-run is the first evaluation, and what it reports
-stands. A job that ran and failed, an advisory among its causes, is untyped, and the run is
-`change` with reason `security-job`. A rename to escape the list is a workflow edit, which is
-`touches-infrastructure`. Nothing here skips a check or marks one passed: the only forge write
-in this decision is the re-run request.
+**Which conclusions prove non-execution.** The forge documents a job's `conclusion`
+(<https://docs.github.com/en/rest/actions/workflow-jobs#get-a-job-for-a-workflow-run>), a check
+run's (<https://docs.github.com/en/rest/checks/runs#get-a-check-run>) and a run's
+(<https://docs.github.com/en/rest/actions/workflow-runs#get-a-workflow-run>). This seat could not
+read them, so each candidate below is **unmeasured**:
 
-#1113 reads under this rule as a failed step inside the RustSec job: not re-run by this
-decision. It stays the operator's, as today.
+| Conclusion | Proves the job's steps never ran? |
+|---|---|
+| `startup_failure` | the candidate. Whether the forge reports it on a **job**, and not only on a run or check suite, is unmeasured |
+| `skipped` | the job's `if:` or a failed `needs:` kept it from starting; unmeasured, and it is no failure, so ruling 2 refuses it rather than re-running it |
+| `cancelled` | no. A job can be cancelled mid-step |
+| `failure`, `timed_out` | no. A step ran |
+| `neutral`, `action_required`, `stale` | no. Ruling 2 refuses them |
+
+Until slice 0111b records a payload showing a job-level `startup_failure` with every step
+unstarted, the proven set is **empty**, and no audit job enters any scope. That fails closed. A
+run-level status or conclusion proves nothing about one job: a run's `startup_failure` says the
+run did not start, and it is never read as a fact about any job inside it.
+
+This cannot launder a real advisory:
+
+- an advisory is evaluated only by a step that runs;
+- a job none of whose steps ran evaluated none, so its re-run is the first evaluation, and what
+  that reports stands;
+- a job that ran any step and failed, an advisory among its causes, is untyped, and the run is
+  `change` with reason `security-job`;
+- an audit job never enters a scope as another job's dependent (ruling 6) unless it has that
+  same proof itself;
+- and a pass needs the audit's own `success` in the re-run's attempt (ruling 2), so a re-run
+  cannot drop it either.
+
+A rename to escape the list is a workflow edit, which is `touches-infrastructure`. Nothing here
+skips a check or marks one passed: the only forge write in this decision is the re-run request.
+
+**#1113 is never re-run under this rule.** RustSec's `update-a-check-run` "Not Found" is a failed
+step inside the `RustSec dependency audit` job (`.github/workflows/ci.yml:673-695`): the job ran.
+It is not a non-execution, so it stays a person's re-run, as today. This decision designs no fix
+for it.
 
 - **(b) A security job's reporting step may be typed by pattern when its audit step concluded
   `success`.** It would cover #1113's shape, but the step split is the workflow's to declare,
@@ -357,15 +388,41 @@ decision. It stays the operator's, as today.
 
 ### 6. The re-run
 
-**Recommended: (a) one request, scoped to the failed and cancelled jobs, by an exec seat holding a
-write token the observer never holds.**
+**Recommended: (a) once per gated head, by named job ids the classification proved the runner's,
+each validated against the exact classified attempt before the write, by an exec seat holding
+a write token the observer never holds.**
 
-- **Scope.** Once per gated head. The seat asks the forge to re-run the failed jobs of each run
-  the classification names, as `gh run rerun <run-id> --failed` does, and re-runs a cancelled job
-  in that scope by its own id if `--failed` proves not to include it (unmeasured). It re-runs no
-  passed job and no other run.
-- **The effect.** An exec seat, `ci-rerun`, with no model, whose commission is the run ids the
-  engine's classification names. It reads no log and classifies nothing. Its result is
+- **Scope: named job ids, never a run's `--failed` set.** The write is the forge's per-job verb,
+  `POST /repos/{owner}/{repo}/actions/jobs/{job_id}/rerun`
+  (<https://docs.github.com/en/rest/actions/workflow-runs#re-run-a-job-from-a-workflow-run>), one
+  request per target. `gh run rerun --failed` is refused, for two reasons. It also re-runs
+  cancelled jobs, a cancelled audit job among them, with no `startup_failure`
+  (<https://cli.github.com/manual/gh_run_rerun>; as a statement of what `--failed` selects, this
+  is unmeasured here). And it lets the forge choose the set at write time, keyed by run id, so a
+  concurrent attempt can change what it selects after the engine classified.
+- **Dependents are in the scope.** The forge's per-job verb is documented to re-run the job
+  "and its dependent jobs"; that wording is unmeasured until 0111b. So a target's scope is the
+  job plus every job that `needs:` it, directly or transitively. The engine reads that graph from
+  the workflow file at the gated head, which ruling 3's `touches-infrastructure` holds to the
+  base's bytes. Every job in that closure must be one of:
+  - a classified target;
+  - a non-audit job whose conclusion is `skipped` because a target failed.
+
+  A closure holding a passed job, a cancelled job, an unclassified failure, or an audit job
+  without ruling 5's proof is **wider than classified**, and the classification is `change` with
+  reason `scope-not-enforceable`. It never re-runs.
+- **Validated before the write.** Immediately before each request, the seat re-reads the target
+  job and its run. The run's attempt must equal the classified attempt, the job's conclusion the
+  classified one, and the run must not be in progress. Otherwise the seat sends nothing and
+  returns `refused` with reason `stale-scope`. A target the forge reports unknown returns
+  `refused` with `unknown-target`.
+- **Checked after the write.** The second observation must show a new attempt for exactly the
+  authorized closure. A job outside it with a new run is `scope-widened`, and the run parks for
+  reconciliation (ruling 7). It never passes. A person's concurrent re-run in the window between
+  the re-read and the write is therefore detected, never passed over.
+- **The effect.** An exec seat, `ci-rerun`, with no model, whose commission is the engine's
+  typed list of `(repository, run id, run attempt, job id)` targets with their closure. It reads
+  no log and classifies nothing. Its result is
   `requested`, with the forge's acceptance as `inputs`; a refusal by the forge is `refused`, which
   the table parks `ruled`.
 - **Its credential.** A sealed secret binding (0012) declared in the seat's `secrets` and
@@ -387,6 +444,9 @@ write token the observer never holds.**
   a write token and decide when to use it. Refused.
 - **(c) Re-run the whole workflow.** Re-runs passed jobs and spends runner time for nothing.
   Refused.
+- **(d) `gh run rerun <run-id> --failed`, as the first draft had it.** One call per run, but
+  the forge picks the set at write time, cancelled jobs included, so the scope can widen after
+  classification. Refused.
 
 ### 7. Each outcome, and what "identical" means
 
@@ -516,7 +576,9 @@ Smallest first; each lands on its own.
    `ci-classification/v1`. Tests: one per arm and reason of ruling 3, over recorded observations
    built by a shared builder; `a_pattern_in_a_test_step_is_the_changes`;
    `a_security_job_failure_is_never_typed_by_pattern`;
-   `a_startup_failure_in_a_security_job_is_the_runners`;
+   `an_audit_job_is_the_runners_only_on_a_proven_non_execution_conclusion`;
+   `with_the_proven_set_empty_a_startup_failure_is_the_changes`;
+   `a_cancelled_job_is_the_changes`;
    `a_change_to_a_workflow_file_is_the_changes`; `one_untyped_job_makes_the_whole_change`;
    `a_pattern_beyond_the_excerpt_is_not_found`; `an_unknown_conclusion_refuses_by_name`;
    `a_stale_head_observation_does_not_read`; `a_pass_with_a_failed_job_is_refused`;
@@ -543,7 +605,17 @@ Smallest first; each lands on its own.
    `the_same_fault_after_the_rerun_parks`; `a_different_runner_fault_after_the_rerun_parks`;
    `a_change_failure_after_the_rerun_returns_to_implement`;
    `a_moved_head_earns_its_own_rerun`; `the_observer_never_holds_the_write_token`;
-   `a_forge_refusal_parks_ruled`. The second observation's refusals:
+   `a_forge_refusal_parks_ruled`. The scope:
+   `the_rerun_names_job_ids_and_never_a_runs_failed_set`;
+   `a_cancelled_audit_job_beside_a_runner_fault_is_never_in_the_scope`;
+   `a_dependent_audit_job_without_proof_makes_the_scope_not_enforceable`;
+   `a_dependent_that_passed_makes_the_scope_not_enforceable`;
+   `a_target_whose_run_attempt_moved_since_classification_sends_nothing_as_stale_scope`;
+   `an_unknown_target_sends_nothing`;
+   `a_job_outside_the_closure_with_a_new_attempt_parks_as_scope_widened`;
+   `an_audit_job_with_a_failed_step_is_never_rerun` (#1113's shape);
+   `a_run_level_startup_failure_proves_nothing_about_an_audit_job`. The second observation's
+   refusals:
    `a_second_observation_on_an_attempt_the_rerun_did_not_make_refuses_as_unrelated`;
    `an_unaffected_required_check_that_changed_after_the_rerun_refuses`;
    `a_required_check_missing_after_the_rerun_refuses_as_missing_required`.
