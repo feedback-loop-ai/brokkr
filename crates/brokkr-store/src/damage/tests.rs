@@ -138,6 +138,31 @@ fn text_that_fails_the_shape_before_the_syntax_is_still_not_json() {
     }
 }
 
+/// JSON the parser refuses for its own limits, nesting past its depth or a
+/// number past `f64`, is intact bytes: it keeps serde's words, not damage.
+#[test]
+fn json_past_the_parsers_limits_is_not_damage() {
+    let (_dir, db) = journal();
+    let deep = format!(r#"{{"payload": {}{}}}"#, "[".repeat(200), "]".repeat(200));
+    let cases = [
+        (
+            deep.as_str(),
+            "json: recursion limit exceeded at line 1 column 139",
+        ),
+        (
+            r#"{"payload": 1e400}"#,
+            "json: number out of range at line 1 column 17",
+        ),
+    ];
+    for (text, words) in cases {
+        replace_envelope(&db, "r1", 2, text);
+        let store = Store::open_read_only(&db).unwrap();
+        let json = store.load("r1").unwrap_err();
+        assert!(matches!(json, StoreError::Json(_)), "{json:?}");
+        assert_eq!(json.to_string(), words);
+    }
+}
+
 /// What is not damage keeps its own words: JSON that is no envelope, a
 /// chain that does not verify, a peer's lock, a schema this build does not
 /// read and a missing file.

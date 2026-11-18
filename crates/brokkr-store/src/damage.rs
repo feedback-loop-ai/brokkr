@@ -97,17 +97,21 @@ pub(crate) fn classified(journal: &Path, error: StoreError) -> StoreError {
 /// The envelope `text` the row of `run_id` at `seq` holds. Text that is not
 /// JSON is [`StoreError::Unparsed`], which [`classified`] names damage;
 /// JSON that is not an envelope keeps serde's words. serde stops at the
-/// first field that does not fit an envelope, before it reads the rest, so
-/// a shape error is JSON only once the whole text parses as some value.
+/// first field that does not fit an envelope, before it reads the rest, and
+/// names its own limits (nesting past its depth, a number past `f64`)
+/// syntax, so any refusal is damage only when the whole text does not
+/// parse as some value either: skipping a value has neither limit.
 pub(crate) fn envelope(run_id: &str, seq: i64, text: &str) -> Result<EventEnvelope, StoreError> {
-    let unparsed = || StoreError::Unparsed {
-        run_id: run_id.to_string(),
-        seq,
-    };
     serde_json::from_str(text).map_err(|error| match error.classify() {
-        Category::Syntax | Category::Eof => unparsed(),
-        Category::Data if serde_json::from_str::<IgnoredAny>(text).is_err() => unparsed(),
-        Category::Io | Category::Data => StoreError::Json(error),
+        Category::Syntax | Category::Eof | Category::Data
+            if serde_json::from_str::<IgnoredAny>(text).is_err() =>
+        {
+            StoreError::Unparsed {
+                run_id: run_id.to_string(),
+                seq,
+            }
+        }
+        Category::Io | Category::Syntax | Category::Eof | Category::Data => StoreError::Json(error),
     })
 }
 
