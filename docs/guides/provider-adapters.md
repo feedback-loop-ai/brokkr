@@ -892,6 +892,17 @@ the harness installed: a measurement stays applied after the binary
 changes. After upgrading a harness, measure it again with `brokkr
 probe harness` and update its adapter's shapes before relying on them.
 
+The probe runs the CLI under a scratch HOME and binds credentials by
+name from the secrets store (`--credential`). A CLI that keeps its login
+in a file instead is given that file with `--credential-file`, a path
+under your HOME. For Codex signed in with ChatGPT, that is
+`--credential-file .codex/auth.json`. The file must be mode 0600. It is
+linked into the scratch HOME for each credentialed launch only, so the
+turn without credentials still measures the authentication refusal. A
+login the CLI refreshes during the probe is written to your file: in
+place through the link, or copied back when the CLI renamed a new file
+over it. The probe never reads the file's content.
+
 ## Resume — what has been measured, per named shape
 
 A work site's retry is offered the session that site's own earlier

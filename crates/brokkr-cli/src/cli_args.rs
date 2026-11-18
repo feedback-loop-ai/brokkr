@@ -784,6 +784,12 @@ pub(super) struct ProbeHarnessArgs {
     /// from the secrets store (decision 0012). Repeatable.
     #[arg(long = "credential")]
     pub(super) credentials: Vec<String>,
+    /// A file under HOME the CLI keeps its login in, such as
+    /// .codex/auth.json, linked at the same place under the scratch HOME for
+    /// every credentialed launch, so a login the CLI refreshes is written to
+    /// this file. Its content is never read. Repeatable.
+    #[arg(long = "credential-file")]
+    pub(super) credential_files: Vec<String>,
     /// The secrets store each `--credential` is read from (default .brokkr/state/secrets.env, or a library's .forge/secrets.env).
     #[arg(long)]
     pub(super) secrets_file: Option<PathBuf>,

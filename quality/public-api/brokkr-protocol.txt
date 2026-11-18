@@ -1016,6 +1016,10 @@ pub brokkr_protocol::probe::ProbeError::NotAHarness::adapter: alloc::string::Str
 pub brokkr_protocol::probe::ProbeError::Report
 pub brokkr_protocol::probe::ProbeError::Report::problem: alloc::string::String
 pub brokkr_protocol::probe::ProbeError::Unended(brokkr_protocol::process::Unsettled)
+pub struct brokkr_protocol::probe::CredentialFile
+impl brokkr_protocol::probe::CredentialFile
+pub fn brokkr_protocol::probe::CredentialFile::bind(&std::path::Path, &str) -> core::result::Result<brokkr_protocol::probe::CredentialFile, brokkr_protocol::probe::ProbeError>
+pub fn brokkr_protocol::probe::CredentialFile::name(&self) -> alloc::string::String
 pub struct brokkr_protocol::probe::Declared
 pub brokkr_protocol::probe::Declared::adapter: alloc::string::String
 pub brokkr_protocol::probe::Declared::effort_flag: core::option::Option<alloc::string::String>
@@ -1035,6 +1039,7 @@ pub struct brokkr_protocol::probe::ProbeInput<'a>
 pub brokkr_protocol::probe::ProbeInput::bindings: &'a [brokkr_protocol::secret::BoundSecret]
 pub brokkr_protocol::probe::ProbeInput::brokkr: &'a std::path::Path
 pub brokkr_protocol::probe::ProbeInput::cli: &'a str
+pub brokkr_protocol::probe::ProbeInput::credential_files: &'a [brokkr_protocol::probe::CredentialFile]
 pub brokkr_protocol::probe::ProbeInput::date: &'a str
 pub brokkr_protocol::probe::ProbeInput::deadline: core::time::Duration
 pub brokkr_protocol::probe::ProbeInput::declared: &'a brokkr_protocol::probe::Declared

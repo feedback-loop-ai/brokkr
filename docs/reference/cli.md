@@ -1071,6 +1071,7 @@ Usage: brokkr probe harness [OPTIONS] --adapter <ADAPTER>
 | `--cli <CLI>` |  |  | The CLI to launch (default: the adapter's binary, found on PATH) |
 | `--out <OUT>` |  |  | Write the report here. A report already here is read first, and every reading that moved since it is reported as drift |
 | `--credential <CREDENTIALS>...` |  |  | A credential every credentialed launch is given, bound by name from the secrets store (decision 0012). Repeatable |
+| `--credential-file <CREDENTIAL_FILES>...` |  |  | A file under HOME the CLI keeps its login in, such as .codex/auth.json, linked at the same place under the scratch HOME for every credentialed launch, so a login the CLI refreshes is written to this file. Its content is never read. Repeatable |
 | `--secrets-file <SECRETS_FILE>` |  |  | The secrets store each `--credential` is read from (default .brokkr/state/secrets.env, or a library's .forge/secrets.env) |
 | `--adapters-dir <ADAPTERS_DIR>` |  |  | The directory holding the adapter files `--adapter` names (default .brokkr/adapters, else adapters) |
 

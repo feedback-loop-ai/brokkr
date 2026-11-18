@@ -11,7 +11,8 @@ use anyhow::{anyhow, Result};
 use brokkr_protocol::adapters::AdapterKind;
 use brokkr_protocol::native_controls::harness_arguments;
 use brokkr_protocol::probe::{
-    self, Declared, DeclaredOff, Native, NativePower, OffControl, ProbeInput, Report,
+    self, CredentialFile, Declared, DeclaredOff, Native, NativePower, OffControl, ProbeInput,
+    Report,
 };
 use brokkr_protocol::secret;
 use brokkr_runtime::agents::{Adapter, Adapters, ResumeIdentity};
@@ -144,6 +145,7 @@ fn harness(workspace: &Path, args: ProbeHarnessArgs) -> Result<ExitCode> {
     let kind = launch_kind(adapter, &args.adapter)?;
     let bindings =
         secret::resolve_bindings(&secrets_file, &args.credentials).map_err(anyhow::Error::msg)?;
+    let credential_files = credential_files(&args.credential_files)?;
     let previous = previous_report(args.out.as_deref())?;
     let cli = args.cli.unwrap_or_else(|| adapter.binary.clone());
     let brokkr = std::env::current_exe()?;
@@ -152,6 +154,7 @@ fn harness(workspace: &Path, args: ProbeHarnessArgs) -> Result<ExitCode> {
         cli: &cli,
         declared: &declared,
         bindings: &bindings,
+        credential_files: &credential_files,
         brokkr: &brokkr,
         date: &now_rfc3339(),
         deadline: LAUNCH_DEADLINE,
@@ -166,6 +169,20 @@ fn harness(workspace: &Path, args: ProbeHarnessArgs) -> Result<ExitCode> {
         None => print!("{text}"),
     }
     Ok(ExitCode::SUCCESS)
+}
+
+/// Each `--credential-file`, under the operator's HOME.
+fn credential_files(relative: &[String]) -> Result<Vec<CredentialFile>> {
+    if relative.is_empty() {
+        return Ok(Vec::new());
+    }
+    let home = std::env::var_os("HOME")
+        .filter(|home| !home.is_empty())
+        .ok_or_else(|| anyhow!("--credential-file names a file under HOME, and HOME is not set"))?;
+    relative
+        .iter()
+        .map(|path| CredentialFile::bind(Path::new(&home), path).map_err(anyhow::Error::from))
+        .collect()
 }
 
 /// The built-in driver kind that launches `adapter`'s CLI, as the engine's
