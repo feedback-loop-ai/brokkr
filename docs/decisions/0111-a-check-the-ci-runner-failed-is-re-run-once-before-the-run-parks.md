@@ -27,12 +27,44 @@ retry budget, spent only on an `infrastructure` park with that evidence
 (`docs/decisions/0106-a-park-names-its-cause-a-held-wait-and-a-budget.md:647-699`, `:1212-1226`).
 This decision builds on both and weakens neither.
 
+**The issue asks for a re-run, and this decision builds none.** The heading keeps the issue's
+ask, because a decision's heading is never edited; what the decision rules is narrower. A re-run
+is a forge write, and the forge cannot confine one. GitHub's two re-run verbs,
+`POST /repos/{owner}/{repo}/actions/jobs/{job_id}/rerun` and
+`POST /repos/{owner}/{repo}/actions/runs/{run_id}/rerun-failed-jobs`
+(<https://docs.github.com/en/rest/actions/workflow-runs>), take only `enable_debug_logging` in
+their body, and the job form also `enable_debugger`. Neither takes an attempt number, an
+expected state or an `If-Match` precondition, and each re-runs the named jobs "and its dependent
+jobs". So no request can be confined, at the moment it is sent, to the attempt and the closure
+the engine classified. The controller read that page on 2026-11-18; this seat holds no web
+capability and did not, and the forge's live behavior is **unmeasured**. Fix round 1093r2's
+review held as a security risk a design that sent the request anyway, and on 2026-11-18 the
+operator ruled ruling 1 (a): Brokkr observes, classifies and parks, and a person re-runs.
+
 What this decision holds fixed: 0071's rules (one home per rule, a closed vocabulary matched
 without a wildcard, observe before decide, every guard bound by a test); 0082 (a contract version
 is minted only under an accepted decision, so every version below is proposed and none is
 minted); no model decides a routing, and a seat's "no code change applies" is prose, not a
 classifier; 0106's cause and budget stand; 0051's landing and the landing recipe stand; and 0063:
 Linux and macOS only.
+
+### What #1093's acceptance becomes
+
+Narrowed by ruling 1 (a), the issue's acceptance is this: **a port-bind failure during service
+boot parks with cause `ci_infrastructure` and no seat attempt.** The engine draws the class
+`ci-infrastructure` (ruling 3), the table matches it as the flag `ci_infrastructure` (ruling 10),
+and the park is written `infrastructure` with `kind: ci-infrastructure` (ruling 7). These are one
+fact in three places, each in the spelling of the surface it lives on.
+
+What is not delivered, and why:
+
+- **The re-run once.** No forge write is sent, because none can be confined to the authorized
+  attempt and closure when it is sent (<https://docs.github.com/en/rest/actions/workflow-runs>).
+  A person re-runs.
+- **The wall clock.** The wait until a person re-runs remains. What is gone is the diagnosing
+  seat attempt the issue counts.
+- **The timing-sensitive test.** It stays the change's, as today. Flaky-test handling is a
+  follow-up (ruling 4).
 
 ## What main holds at HEAD
 
@@ -100,7 +132,7 @@ lines, counted 0.
 
 The gate's result and notes, sealed as its seat record, and the decision's seven fields
 (`crates/brokkr-core/src/decision.rs:86`), whose `inputs` carry engine- and seat-owned inputs; the
-park's reason and its `ruled` cause. Nothing typed names a job, a step, a forge run or a re-run.
+park's reason and its `ruled` cause. Nothing typed names a job, a step or a forge run.
 
 ### The forge's shape
 
@@ -112,30 +144,75 @@ until slice 0111b records a real payload.**
   `{number, name, status, conclusion}`:
   <https://docs.github.com/en/rest/actions/workflow-jobs>.
 - A job's log: <https://docs.github.com/en/rest/actions/workflow-jobs#download-job-logs-for-a-workflow-run>.
-- Re-running failed jobs: `gh run rerun <run-id> --failed`
-  (<https://cli.github.com/manual/gh_run_rerun>) and the REST verb
-  <https://docs.github.com/en/rest/actions/workflow-runs#re-run-failed-jobs-from-a-workflow-run>.
 - Check runs and their conclusions: <https://docs.github.com/en/rest/checks/runs>.
+- The re-run verbs, which this decision never calls (ruling 1):
+  <https://docs.github.com/en/rest/actions/workflow-runs>.
 
 Unmeasured in particular: the closed list of `conclusion` words (the documentation lists
 `success`, `failure`, `neutral`, `cancelled`, `skipped`, `timed_out`, `action_required`, and for a
-run `startup_failure`); whether `--failed` includes cancelled jobs; how a job log is cut into steps;
-and whether the API says who cancelled a job. **A step has no `kind` field**: whether a step is
-setup, a service or a test is not a forge fact, so any step role below is recipe data.
+run `startup_failure`); how a job log is cut into steps; and whether the API says who cancelled a
+job. **A step has no `kind` field**: whether a step is setup, a service or a test is not a forge
+fact, so any step role below is recipe data.
 
 ## The rulings
 
 Each ruling gives its options, what each costs, refuses and changes, and one recommended option.
-The operator may answer "accept all" or pick.
+Ruling 1 is the operator's, ruled on 2026-11-18. For every other ruling the operator may answer
+"accept all" or pick.
 
-### 1. What reads the checks
+### 1. Brokkr makes no forge write
+
+**Ruled by the operator on 2026-11-18: (a).** The operator answered this choice in chat with
+"a for 1093". Accepting the rest of this decision is still the operator's.
+
+- **(a) Ruled by the operator: observe, classify and park.** The engine and the recipes observe
+  CI, judge a pass, classify a failure, and park a runner fault with typed evidence and no seat
+  attempt. They send no re-run request and hold no write credential. A typed
+  `ci_infrastructure` park carries the evidence, and a person reads it and re-runs.
+  - Cost: the issue's "re-run once" is not built. The wall-clock wait for a person remains, but
+    the diagnosing seat attempt the issue counts is gone.
+  - It refuses every forge write. A mistyped failure costs a person's look, never a pass or a
+    re-run (ruling 4).
+- **(b) An automated re-run on GitHub, as the forge offers it.** The engine would send one of
+  the two verbs above. The residual, stated plainly:
+  - **No attempt precondition.** A request names a job or a run, never the attempt the engine
+    classified. A re-run another actor starts between the engine's read and its write is re-run
+    or widened again, and the forge cannot be asked to refuse it.
+  - **Dependents re-run, an audit among them.** Each verb re-runs "and its dependent jobs". A
+    dependent that passed, or an audit job, re-runs with the target, and its new result replaces
+    the one the engine classified.
+  - **A concurrent person's re-run cannot be told apart.** A new attempt carries no mark of which
+    request made it, so the engine cannot attribute a new attempt to its own request.
+  - **A lost receipt is indeterminate.** A request the forge accepted while the effect died before
+    recording it cannot be told from one never sent. Sending again may double it; not sending may
+    leave none.
+
+  The operator did not take it.
+- **(c) An automated re-run only on a forge that gives an attempt-bound, closure-bound write.**
+  That is a forge whose re-run takes the attempt, refuses when the attempt moved, and re-runs
+  exactly the named jobs. None is measured. It is the follow-up decision this one names, and that
+  decision would rule the durable intent, its reconciliation and the scope rules a write needs.
+
+**What leaves with the write.** Fix round 1093r2 drafted them, and each answered a finding that
+held only because a write was sent:
+
+- the credentialed writer seat and its write token;
+- the durable intent and its reconciliation;
+- the multi-target re-run rounds and the per-head re-run count;
+- the re-run routes, and the classes and park kinds only they drew;
+- the rule that let an audit job be re-run.
+
+**Enforcement binding:** 0111c's overlay test refuses any seat in the CI overlay that declares a
+write binding, and the observer's credential is read-only (ruling 2).
+
+### 2. What reads the checks
 
 **Recommended: (a) a recipe-declared exec gate observes, and the engine classifies.**
 
 - **(a) An exec gate, `ci`, observes; core classifies; the table routes.** The gate runs
   `brokkr driver exec` over a script, as `fast`'s verifier does, with no model. It waits for the
-  gated head's checks to settle and writes what the forge said as a typed observation (ruling 2).
-  The engine classifies that observation with a pure core function (ruling 3) and the table
+  gated head's checks to settle and writes what the forge said as a typed observation (ruling 3).
+  The engine classifies that observation with a pure core function (ruling 4) and the table
   routes on the engine-owned result. Observing and deciding stay apart (0071 ruling 10). Cost: one
   script, one core module, one engine input. It refuses forge-specific network code in the
   engine. It serves an adopter's exec gate and a future house one through the same contract.
@@ -146,7 +223,7 @@ The operator may answer "accept all" or pick.
 - **(c) A model seat reads `gh run view` and says.** Refused: a model's reading is prose, and
   no model decides a routing.
 
-**Enforcement binding:** the bundle compile refuses a `ci` declaration (ruling 4) on a seat
+**Enforcement binding:** the bundle compile refuses a `ci` declaration (ruling 5) on a seat
 whose adapter is not `exec`.
 
 **The observer is pinned outside the change.** What the observer runs, and what it resolves,
@@ -170,11 +247,11 @@ must not be anything the gated change can edit:
   never takes the repository from the worktree's git remotes. Whether other change-controlled
   files can reach `gh`'s configuration is unmeasured until 0111b, and until then a run whose
   observer cannot show its tool paths outside the worktree refuses.
-- **Its word is data.** The engine re-checks the observation's binding itself (ruling 2): it
+- **Its word is data.** The engine re-checks the observation's binding itself (ruling 3): it
   compares the head to its own git head and the repository to the pinned one. It never takes
   them from the observer.
 
-### 2. The observation, the classification, and where the journal keeps them
+### 3. The observation, the classification, and where the journal keeps them
 
 **Recommended: (a) two inputs, owned apart.**
 
@@ -216,7 +293,7 @@ conclusion word refuses by name.
 **The required set.** **Recommended: (a) a recipe-declared `required_checks` list, pinned by
 the compiled bundle outside the change.**
 
-- **(a) Recipe-declared.** `required_checks` lives in ruling 4's file, which the operator's
+- **(a) Recipe-declared.** `required_checks` lives in ruling 5's file, which the operator's
   compile pins. It must be non-empty, or the compile refuses. Each entry is a check run by app
   and name, or a commit status by context. For this house the audit entry is the check run
   `RustSec dependency audit` from `github-actions` (`.github/workflows/ci.yml:673-674`), not
@@ -238,13 +315,12 @@ the compiled bundle outside the change.**
 
 - the observation's repository, pull request and head equal the run's pinned repository, the
   pull request the gate names and the engine's own git head;
-- each workflow run's attempt equals the current attempt, which is the latest the forge lists
-  on a first observation and exactly the attempt ruling 6's accepted re-run made on a second;
+- each workflow run's attempt is the latest the forge lists for it;
 - every entry of `required_checks` is matched by exactly one settled check;
 - each matched check's conclusion is `success`, or each matched status's state is `success`.
 
 Nothing short of that is a pass. Where the observation cannot pass and the classifier has no
-failure to type, it refuses with its own closed, typed reason, before and after any re-run:
+failure to type, it refuses with its own closed, typed reason:
 
 | Refusal | When |
 |---|---|
@@ -255,14 +331,9 @@ failure to type, it refuses with its own closed, typed reason, before and after 
 | `not-settled` | a required check is still queued or in progress when the observer's own polling bound ends, short of the seat's deadline |
 | `non-success` | a required check concluded `neutral`, `skipped`, `stale` or `action_required`, words the classifier types as no failure; the refusal names the check and the word |
 | `required-set-disagrees` | the forge requires a check the pinned list lacks |
-| `range-unavailable` | git cannot take ruling 3's pinned base-to-head range |
+| `range-unavailable` | git cannot take ruling 4's pinned base-to-head range |
 
-A refusal never re-runs and never passes. The run parks `ruled`, with the rule's id and the
-refusal's word. On a second observation two more bindings hold. Every required check outside
-the re-run's scope keeps its first observation's identity (ruling 7) and its `success`; a
-higher attempt alone is not accepted. And the second observation must be bound to the exact
-accepted re-run. How the forge presents an unaffected job in a new attempt, with the same check
-run or a copy, is unmeasured until 0111b.
+A refusal never passes. The run parks `ruled`, with the rule's id and the refusal's word.
 
 The gate's word is bound to the engine's class: `pass` is admitted only on `green`, and `fail`
 with a `green` class is refused. A refused word is never rewritten (the same binding 0109
@@ -281,7 +352,7 @@ the pinned list, and must equal the recorded one.
 - **(c) The excerpt kept outside the journal by digest.** Smaller rows, but the classification
   could not be replayed from the journal alone. Refused; the bound below is the cost control.
 
-**Log excerpts, bounded in total and handled before they are durable.** Under ruling 3 (a) the
+**Log excerpts, bounded in total and handled before they are durable.** Under ruling 4 (a) the
 observer reads no log, and the observation carries no excerpt; v1's parser refuses the field.
 Under (b) only, an excerpt is carried only for a failed step that is runner-owned, and the
 observer applies four bounds before the seat's result is written, so they hold before sealing:
@@ -299,7 +370,7 @@ So (b) does not build until 0111b measures it. If masking cannot be shown, the o
 only the matched pattern's id and the excerpt's digest, and the replay property of (c) is lost
 for (b).
 
-### 3. What evidence types a failure as the runner's, and the classifier
+### 4. What evidence types a failure as the runner's, and the classifier
 
 **This is the operator's first choice. Recommended: (a) forge-proven non-execution only.**
 
@@ -308,39 +379,20 @@ a declared literal, and the step's workflow was untouched. That is not enough. A
 setup step can still run the pull request's code: a service bootstrap that starts the
 repository's own compose file or script, or HEAD's own checkout-local action,
 `uses: ./.github/actions/setup-cargo-audit` (`.github/workflows/ci.yml:681-689`), whose code comes
-from the checkout. A source-only change can then make that step print the declared literal, and
-a real code failure is laundered as a runner fault. Untouched declared paths cannot bound what a
-step executes. So the evidence is the operator's choice, stated fairly:
+from the checkout. A source-only change can then make that step print the declared literal. So
+the evidence is the operator's choice, stated fairly:
 
 - **(a) Recommended: forge-proven non-execution only.** A failure is the runner's only when the
-  forge's own job-level conclusion proves the job's steps never ran (ruling 5's proven set). No
-  log pattern types anything, and the list carries no patterns. A change cannot produce a
-  conclusion that says its code never ran without its code never running.
+  forge's own job-level conclusion proves the job's steps never ran. No log pattern types
+  anything, and the list carries no patterns.
   - **Cost, said plainly:** the adopter's port-bind case and their timing-sensitive test are the
-    change's, as they are today. Both still cost a model diagnosis attempt and the wall clock until a person
-    re-runs. Their figures, three parks in one week, stay theirs. This decision recovers neither
-    under (a). It recovers only jobs that never started, and until 0111b measures the proven set,
-    none.
+    change's, as they are today.
 - **(b) Declared runner-owned evidence.** A literal types a failure only from a step whose
   provenance is runner-owned and positively known. An example is the runner's own
   service-container start for the workflow's `services:` block
   (<https://docs.github.com/en/actions/using-containerized-services/about-service-containers>).
-  It qualifies only when all of these hold:
-  - the block is unchanged by the diff over ruling 2's pinned range;
-  - its images are named by digest;
-  - it mounts nothing from the workspace;
-  - no `steps:` entry in the workflow at the gated head carries that step's name, so the step can
-    only be the runner's.
-
-  A step that runs repository code is never runner-owned, whatever its name.
-  - **Cost:** what each forge exposes as runner-owned is partly unmeasured. Unmeasured: whether
-    the jobs API names the runner's container start as its own step, and by what name; whether a
-    user step can take the same name in the API's listing; how a job log is cut into steps; and
-    whether the forge masks every secret in that step's log. The adopter's port bind was a compose
-    service, which a step starts from the repository's compose file. That step runs repository
-    code, so even (b) does not recover their case unless the service moves to `services:`.
-- **(c) Refused: any pattern over a step that runs repository code.** That is the first draft's
-  rule. It lets a change type its own failure as the runner's.
+  - **Cost:** what each forge exposes as runner-owned is partly unmeasured.
+- **(c) Refused: any pattern over a step that runs repository code.**
 
 **Timing-sensitive tests are not runner faults under any option.** A flaky test fails in a step
 that runs the change's code, and nothing the forge states types it. Flaky-test handling is out of
@@ -359,32 +411,36 @@ read over the same range. The docs flag diffs the latest phase entry's head agai
 end, so it sees only that phase's own commits. The CI gate needs the whole change, so its range
 is pinned: from the merge base of the pull request's base commit, as the observation names it,
 to the gated head. Both ends are checked as commit ids before git sees them. A range git cannot
-take (a base it does not have, or no merge base) refuses as `range-unavailable`, with ruling 2's
+take (a base it does not have, or no merge base) refuses as `range-unavailable`, with ruling 3's
 refusals. It is never read as an empty change. In order:
 
-1. The observation passes ruling 2's pass rule: **`green`**. One that cannot pass and holds no
-   failed, timed-out, unstarted or cancelled required check takes ruling 2's refusal.
+1. The observation passes ruling 3's pass rule: **`green`**. One that cannot pass and holds no
+   failed, timed-out, unstarted or cancelled required check takes ruling 3's refusal.
 2. Any changed path matches the list's `infrastructure_paths`: **`change`**, reason
-   `touches-infrastructure`. This guards structure only: job names, the `needs:` graph ruling 6
-   reads, and under (b) the `services:` block. It bounds nothing a step executes.
+   `touches-infrastructure`.
 3. Each failed job is typed on its own:
-   - a job-level conclusion in ruling 5's proven non-execution set: runner, kind
-     **`not-started`**. That set is empty until 0111b measures `startup_failure` on a job;
-   - under (b) only: conclusion `failure`, the job not an audit job (ruling 5), its first failed
-     step runner-owned as (b) defines, and that step's excerpt holding one of the list's literals
-     for that step: runner, kind **`runner-owned-pattern`** with the pattern's id. Under (a) this
-     arm does not exist;
+   - a job-level conclusion that proves non-execution: runner, kind **`not-started`**. That set
+     is empty until 0111b measures `startup_failure` on a job;
+   - under (b) only: conclusion `failure`, its first failed step runner-owned as (b) defines,
+     and that step's excerpt holding one of the list's literals for that step: runner, kind
+     **`runner-owned-pattern`** with the pattern's id. Under (a) this arm does not exist;
    - anything else, `timed_out` included (a hang may be the change's): **untyped**.
-4. Every failed job runner, and at least one failed: **`runner-fault`**, naming each job, its
-   step, its kind and pattern id, and the re-run scope: exactly those jobs by id, each with its
-   attempt (ruling 6). A cancelled job is never in the scope.
-5. Otherwise **`change`**, with a closed reason: `untyped-failure`, `security-job`,
-   `cancelled` (any required job cancelled: who cancelled is unmeasured, though on a pull request
-   a newer push cancels the older run, `.github/workflows/ci.yml:24-26`),
-   `touches-infrastructure`, or `scope-not-enforceable` (ruling 6).
+4. Every failed job runner, and at least one failed: **`ci-infrastructure`**, naming each job,
+   its step, its kind and pattern id.
+5. Otherwise **`change`**, with a closed reason: `untyped-failure`, `cancelled` (any required job
+   cancelled: who cancelled is unmeasured, though on a pull request a newer push cancels the
+   older run, `.github/workflows/ci.yml:24-26`), or `touches-infrastructure`.
 
-One untyped job makes the whole observation `change`: a re-run would hide nothing then, and
-would not help. A failure the classifier cannot type is the change's, as today.
+One untyped job makes the whole observation `change`: the change has a failure to answer. A
+failure the classifier cannot type is the change's, as today.
+
+**Audit jobs need no rule of their own.** Fix round 1093r2 kept an audit job out of any re-run
+unless the forge proved its steps never ran, so a re-run could not launder an advisory. With no
+write, no class reaches a pass but `green`, and `green` needs the audit's own `success` (ruling
+3). An audit failure is typed like any other: the change's, or a person's park. #1113's "Not
+Found" is a failed step inside the `RustSec dependency audit` job
+(`.github/workflows/ci.yml:673-695`). Under ruling 4 (a) it is the change's, as today; this
+decision declares nothing for it and designs no fix for it.
 
 Also refused, under every option: a step's role alone, with no pattern, since a setup step that
 installs the change's dependencies fails for the change's reasons too; and failing open on an
@@ -393,7 +449,7 @@ unread conclusion or a missing excerpt (0004).
 **Enforcement binding:** a table test over recorded observations, one per arm and reason; and
 `classify` matches the conclusion enum without a wildcard (0071 ruling 2).
 
-### 4. The runner-fault list: its home and who declares it
+### 5. The runner-fault list: its home and who declares it
 
 **Recommended: (a) recipe data, `ci-checks.json` beside the policy, under `ci-checks/v1`,
 compiled into the bundle and pinned with it.**
@@ -406,12 +462,11 @@ compiled into the bundle and pinned with it.**
     {"check_run": {"app": "github-actions", "name": "test"}},
     {"check_run": {"app": "github-actions", "name": "RustSec dependency audit"}}
   ],
-  "infrastructure_paths": [".github/workflows/", ".github/actions/"],
-  "audit_checks": [{"check_run": {"app": "github-actions", "name": "RustSec dependency audit"}}]
+  "infrastructure_paths": [".github/workflows/", ".github/actions/"]
 }
 ```
 
-That is the whole list under ruling 3 (a). Under (b) only, two more keys are admitted:
+That is the whole list under ruling 4 (a). Under (b) only, two more keys are admitted:
 
 ```json
 {
@@ -422,10 +477,10 @@ That is the whole list under ruling 3 (a). Under (b) only, two more keys are adm
 }
 ```
 
-The step name above is illustrative and unmeasured (ruling 3 (b)). Under (a) the compile refuses
-either key. A pattern is a literal: 1 to 200 printable ASCII bytes, matched as an exact,
-case-sensitive byte substring. No regex, glob or wildcard is admitted, so matching is linear and
-the same on every host. `id` is kebab-case and unique; every step a pattern names must be in
+The step name above is illustrative and unmeasured. Under (a) the compile refuses either key. A
+pattern is a literal: 1 to 200 printable ASCII bytes, matched as an exact, case-sensitive byte
+substring. No regex, glob or wildcard is admitted, so matching is linear and the same on every
+host. `id` is kebab-case and unique; every step a pattern names must be in
 `runner_owned_steps`.
 
 The list has two syntaxes, and they never mix. A **path** in `infrastructure_paths` is a
@@ -436,9 +491,8 @@ only against log bytes, never against a path. Each field admits only its own syn
 compile refuses a `*`, `?` or `[` in a path, so a glob cannot pass for one, while a literal's
 bytes are all literal.
 
-`required_checks` and `infrastructure_paths` must be non-empty, and `audit_checks` must be
-present, even if empty, with every entry also in `required_checks`. The compile refuses a list
-that leaves any of them to a default. `repository` pins the binding ruling 2 checks.
+`required_checks` and `infrastructure_paths` must be non-empty. The compile refuses a list that
+leaves either to a default. `repository` pins the binding ruling 3 checks.
 
 The operator declares it, as any recipe or `extends` overlay (0017). No seat writes it: the
 run reads the list its compiled bundle pinned at start, never the change's tree, so a branch
@@ -448,262 +502,57 @@ that edits `ci-checks.json` changes the next run's list, by the operator's compi
   property of a workflow, not a machine. Refused.
 - **(c) Engine defaults.** A second home for a fact the recipe owns (0071 ruling 5). Refused.
 
-### 5. Security and audit jobs
+### 6. Each outcome, and every route
 
-**Recommended: (a) a job named in `audit_checks` is re-run only on a job-level forge conclusion
-that proves its steps never ran; a pattern never types it, and nothing else brings it into a
-scope.**
+**Recommended: (a) a pass proceeds; a runner fault parks typed for a person; anything else is
+the change's, under the shared implement bound.**
 
-**Which conclusions prove non-execution.** The forge documents a job's `conclusion`
-(<https://docs.github.com/en/rest/actions/workflow-jobs#get-a-job-for-a-workflow-run>), a check
-run's (<https://docs.github.com/en/rest/checks/runs#get-a-check-run>) and a run's
-(<https://docs.github.com/en/rest/actions/workflow-runs#get-a-workflow-run>). This seat could not
-read them, so each candidate below is **unmeasured**:
-
-| Conclusion | Proves the job's steps never ran? |
-|---|---|
-| `startup_failure` | the candidate. Whether the forge reports it on a **job**, and not only on a run or check suite, is unmeasured |
-| `skipped` | the job's `if:` or a failed `needs:` kept it from starting; unmeasured, and it is no failure, so ruling 2 refuses it rather than re-running it |
-| `cancelled` | no. A job can be cancelled mid-step |
-| `failure`, `timed_out` | no. A step ran |
-| `neutral`, `action_required`, `stale` | no. Ruling 2 refuses them |
-
-Until slice 0111b records a payload showing a job-level `startup_failure` with every step
-unstarted, the proven set is **empty**, and no audit job enters any scope. That fails closed. A
-run-level status or conclusion proves nothing about one job: a run's `startup_failure` says the
-run did not start, and it is never read as a fact about any job inside it.
-
-This cannot launder a real advisory:
-
-- an advisory is evaluated only by a step that runs;
-- a job none of whose steps ran evaluated none, so its re-run is the first evaluation, and what
-  that reports stands;
-- a job that ran any step and failed, an advisory among its causes, is untyped, and the run is
-  `change` with reason `security-job`;
-- an audit job never enters a scope as another job's dependent (ruling 6) unless it has that
-  same proof itself;
-- and a pass needs the audit's own `success` in the re-run's attempt (ruling 2), so a re-run
-  cannot drop it either.
-
-A rename to escape the list is a workflow edit, which is `touches-infrastructure`. Nothing here
-skips a check or marks one passed: the only forge write in this decision is the re-run request.
-
-**#1113 is never re-run under this rule.** RustSec's `update-a-check-run` "Not Found" is a failed
-step inside the `RustSec dependency audit` job (`.github/workflows/ci.yml:673-695`): the job ran.
-It is not a non-execution, so it stays a person's re-run, as today. This decision designs no fix
-for it.
-
-- **(b) A security job's reporting step may be typed by pattern when its audit step concluded
-  `success`.** It would cover #1113's shape, but the step split is the workflow's to declare,
-  and it gives the list a way to type a failure in a security job at all. Refused here; a later
-  decision may weigh it with #1113's measured payload.
-- **(c) Security jobs treated as any other job.** Refused.
-
-### 6. The re-run
-
-**Recommended: (a) once per gated head, by named job ids the classification proved the runner's,
-each validated against the exact classified attempt before the write, by an exec seat holding
-a write token the observer never holds.**
-
-- **Scope: named job ids, never a run's `--failed` set.** The write is the forge's per-job verb,
-  `POST /repos/{owner}/{repo}/actions/jobs/{job_id}/rerun`
-  (<https://docs.github.com/en/rest/actions/workflow-runs#re-run-a-job-from-a-workflow-run>), one
-  request per target. `gh run rerun --failed` is refused, for two reasons. It also re-runs
-  cancelled jobs, a cancelled audit job among them, with no `startup_failure`
-  (<https://cli.github.com/manual/gh_run_rerun>; as a statement of what `--failed` selects, this
-  is unmeasured here). And it lets the forge choose the set at write time, keyed by run id, so a
-  concurrent attempt can change what it selects after the engine classified.
-- **Dependents are in the scope.** The forge's per-job verb is documented to re-run the job
-  "and its dependent jobs"; that wording is unmeasured until 0111b. So a target's scope is the
-  job plus every job that `needs:` it, directly or transitively. The engine reads that graph from
-  the workflow file at the gated head, which ruling 3's `touches-infrastructure` holds to the
-  base's bytes. Every job in that closure must be one of:
-  - a classified target;
-  - a non-audit job whose conclusion is `skipped` because a target failed.
-
-  A closure holding a passed job, a cancelled job, an unclassified failure, or an audit job
-  without ruling 5's proof is **wider than classified**, and the classification is `change` with
-  reason `scope-not-enforceable`. It never re-runs.
-- **Validated before the write.** Immediately before each request, the seat re-reads the target
-  job and its run. The run's attempt must equal the classified attempt, the job's conclusion the
-  classified one, and the run must not be in progress. Otherwise the seat sends nothing and
-  returns `refused` with reason `stale-scope`. A target the forge reports unknown returns
-  `refused` with `unknown-target`.
-- **Checked after the write.** The second observation must show a new attempt for exactly the
-  authorized closure. A job outside it with a new run is `scope-widened`, and the run parks for
-  reconciliation (ruling 7). It never passes. A person's concurrent re-run in the window between
-  the re-read and the write is therefore detected, never passed over.
-- **The effect.** An exec seat, `ci-rerun`, with no model, whose commission is the engine's
-  typed list of `(repository, run id, run attempt, job id)` targets with their closure. It reads
-  no log and classifies nothing. Its result is
-  `requested`, with the forge's acceptance as `inputs`; a refusal by the forge is `refused`, which
-  the table parks `ruled`.
-- **Its credential.** A sealed secret binding (0012) declared in the seat's `secrets` and
-  resolved by the runner, never in argv: `gh` reads a token from its environment, an env-only
-  consumer 0012's compile lint already admits (`crates/brokkr-runtime/src/bundle.rs:4149-4156`).
-  The observer binds a read token and `ci-rerun` a separate write token, so the seat that reads
-  the forge never holds the right to change it. The token scopes a forge needs are unmeasured.
-- **Its egress.** Both seats run on the exec adapter, declared `egress: contracted`
-  (`adapters/exec.json:4`); 0036 ruling 4 keys a binding off that class against the bundle's
-  minimum (`docs/decisions/0036-egress-is-a-property-of-the-route.md:137-143`).
-- **Its effect must compile.** The first draft gave both seats a binding and
-  `"network": true`. HEAD compiles neither. `network` is a field of `hands`
-  (`crates/brokkr-protocol/src/hands.rs:149`, parsed at `:191`), and `record_hands` refuses any
-  site that declares hands with secret bindings, under every boundary
-  (`crates/brokkr-runtime/src/bundle.rs:3940-3967`), as 0043 rules
-  (`docs/decisions/0043-the-hands-are-one-tool.md:113-116`). The operator chooses the effect:
-  - **(a) Recommended: a no-hands exec seat, its script pinned and its inputs the engine's.**
-    Each of the two seats declares its binding and no `hands`. HEAD records such a site as an
-    affirmative `NoHands` (`crates/brokkr-runtime/src/bundle.rs:3970-3973`), and it publishes
-    `hands: none` to the adapter (`crates/brokkr-runtime/src/engine/marks.rs:139-142`). It runs
-    unboxed, with the host's network, and with no box between it and the worktree. Its pins
-    replace the box:
-    - its script is bundle-relative and digested, its layer outside the gated worktree (ruling
-      1);
-    - its argv carries only the engine's typed commission, so no worktree path reaches it;
-    - it changes directory away from the worktree before anything else, and reads and executes
-      nothing in it;
-    - `gh` gets `--repo` from the pinned list, and its tools are checked as ruling 1 checks the
-      observer's.
-
-    Cost: an unboxed seat holds a forge token, bounded by pinned code rather than by a box.
-    Unmeasured: whether the realm's boundary (0046) admits a no-hands exec site that holds a
-    binding, and where the exec driver sets the seat's working directory. 0111c's compile test
-    and a real-harness check settle both before the seat ships. If either refuses, the
-    recommendation falls to (b).
-  - **(b) An explicit amendment of 0043.** A boxed seat with `network: true` receives one named
-    binding as an environment entry named in its hands spec. 0043's own consequences name that
-    as a future ruling (`docs/decisions/0043-the-hands-are-one-tool.md:206-208`). Cost: it amends
-    an accepted decision's refusal, and `record_hands`'s refusal (`bundle.rs:3961-3967`) becomes
-    conditional, so it needs its own enforcement test. Only if (a) cannot be admitted.
-  - **(c) A built-in engine effect.** Ruling 1 (b): the engine holds the token and an HTTP
-    client. Refused there.
-- **Its bounded wait.** The `ci` gate, not the re-run seat, waits: it polls at a fixed interval
-  until every job of the head's runs is settled, within its own `limits.timeout_seconds`. A
-  timeout is 0006's, never a classification.
-- **One re-run is one remote request, durably.** The forge may accept a request while the exec
-  dies before recording it, so a result count cannot prove how many requests were sent. Three
-  rules close this:
-  - *Intent before the write.* The engine dispatches `ci-rerun` once per target, so one effect
-    is one remote request. Its `effect/started`, naming the target, is durable before the driver
-    spawns (`crates/brokkr-runtime/src/engine/dispatch.rs:159-165`). That row is the per-target
-    intent, and it counts as spent whatever follows.
-  - *No re-send.* An attempt that ends with no result is indeterminate. So is one a restarted
-    engine finds in flight (0006's 2026-10-11 addendum, ruling 2,
-    `docs/decisions/0006-bounded-attempts-and-deadlines.md:267-276`;
-    `crates/brokkr-runtime/src/engine/broker/fold.rs:337-361`). The engine never retries it. An
-    operator's retry re-requests the effect (`crates/brokkr-core/src/fold/operator.rs:38-42`): a
-    new effect, not a replay. So every `ci-rerun` attempt reads before it writes. A target whose
-    journal already holds an intent is **never sent again**. The seat only reconciles:
-    - if the forge shows that job in a new attempt, it returns `already-accepted` with that
-      attempt;
-    - otherwise it returns `uncertain`.
-  - *Park on uncertainty.* An indeterminate `ci-rerun` end parks as HEAD parks a closed
-    indeterminate attempt today (`infrastructure`, not retryable,
-    `crates/brokkr-runtime/src/engine/cursor.rs:364-366`). An `uncertain` result parks by rule,
-    with the cause kind `ci-rerun-uncertain` (ruling 8). So does a second observation where some
-    targets show a new attempt and others do not, which is partial acceptance across runs. The
-    operator reconciles by hand. Brokkr does not guess which request the forge kept.
-- **What the journal records.** The first observation and its classification (ruling 2); each
-  target's intent (`effect/started`) and its result, `requested`, `already-accepted`,
-  `refused` or `uncertain`, with the forge's answer; the second observation, bound to exactly
-  the attempts those results name, and its classification.
-
-- **(b) The observer re-runs as it observes.** One seat, but the seat that reads logs would hold
-  a write token and decide when to use it. Refused.
-- **(c) Re-run the whole workflow.** Re-runs passed jobs and spends runner time for nothing.
-  Refused.
-- **(d) `gh run rerun <run-id> --failed`, as the first draft had it.** One call per run, but
-  the forge picks the set at write time, cancelled jobs included, so the scope can widen after
-  classification. Refused.
-
-### 7. Each outcome, and what "identical" means
-
-**Recommended: (a) a pass proceeds; the same fault parks typed; any different second failure,
-a different runner fault included, is the change's, as 1093's commission asks.**
-
-**Identities that hold across forge attempts.** Job and check-run ids change with every
-attempt, so they are never an identity:
-
-- a **workflow** is its file's path as the run reports it, with its triggering event;
-- a **job** is its workflow plus the job's name as the jobs API lists it, matrix values
-  included;
-- a **step** is its job plus its number and name.
-
-Under ruling 3 (a) a fault names no step, since none ran. A fault is `(workflow, job, step or
-none, kind, pattern id or none)`, and an observation's **identity** is the sorted set of its
-faults. Two identities are the same only when the sets are equal. How the forge spells a
-workflow's path and a matrix job's name is unmeasured until 0111b, and an observation missing
-either refuses as `unrelated` (ruling 2).
-
-**A deterministic match.** Under (b) only, where several literals occur in one excerpt, the
-classifier takes the first pattern in the list's declaration order. The fault carries that
-pattern's id, so one excerpt yields one fault.
-
-After the one re-run:
-
-- **`green`**: the gate's `pass`; the run proceeds as if it had passed the first time. The
-  journal still names the re-run.
-- **the same runner-fault identity**: the engine draws `runner-fault-again`, and the run parks,
-  typed (ruling 8).
-- **any other failure**: `change`, with reason `different-after-rerun`. That covers a different
-  runner-fault identity, a superset or a subset of the first, and an untyped failure. Routed
-  exactly as a first-time red gate is.
-- **a refusal** (ruling 2): parks `ruled`, as on a first observation.
-
-"Once per gated head" is an engine-owned count, `ci_reruns`, of `ci-rerun` intents
-(`effect/started`, whatever their end) recorded anywhere in the run's journal for the gated
-head's commit id. It is not counted since the phase was entered, and it is not
-`visits_ci-rerun`, which counts per run (0022). A head the implementer moves to earns its own
-re-run. A return to an already-seen commit id, by a revert or a reset, earns none: that head
-had its one. The classifier reads it: a `runner-fault` on a head whose `ci_reruns` is
-already 1 is either `runner-fault-again` (the same identity) or `change`. So the class a table
-sees is closed: `green`, `runner-fault`, `runner-fault-again`, `change` or `refused`. A seat
+The class a table sees is closed: `green`, `ci-infrastructure`, `change` or `refused`. A seat
 cannot write any of them.
 
+- **`green`**: the gate's `pass`; the run proceeds.
+- **`ci-infrastructure`**: the run parks, typed (ruling 7), with the faults as its evidence, and
+  no seat attempt is spent. A person reads the evidence and re-runs.
+- **`change`**: routed exactly as a red gate is today, to `implement`.
+- **`refused`** (ruling 3): parks `ruled`.
+
+**A deterministic match.** Under ruling 4 (b) only, where several literals occur in one excerpt,
+the classifier takes the first pattern in the list's declaration order. The fault carries that
+pattern's id, so one excerpt yields one fault.
+
 **Every route and cap.** A table in the recipe declares the arms, first match winning. The
-`When` column names the class; ruling 11 gives its schema-legal spelling.
+`When` column names the class; ruling 10 gives its schema-legal spelling.
 
 | Rule | From | Result | When | Next |
 |---|---|---|---|---|
 | `CI-REFUSED` | `ci` | `fail` | class `refused` | park, `ruled`, naming the refusal |
 | `CI-PASS` | `ci` | `pass` | class `green` | the recipe's next phase |
-| `CI-RUNNER-AGAIN` | `ci` | `fail` | class `runner-fault-again` | park, `infrastructure` `ci-runner` |
-| `CI-RUNNER` | `ci` | `fail` | class `runner-fault` | `ci-rerun` |
+| `CI-INFRASTRUCTURE` | `ci` | `fail` | class `ci-infrastructure` | park, `infrastructure` `ci-infrastructure` |
 | `CI-FAIL-EXHAUSTED` | `ci` | `fail` | `visits_implement_gte: 3` | stop, `hard` |
 | `CI-FAIL` | `ci` | `fail` | | `implement`, `flagged` |
-| `CI-RERUN-REQUESTED` | `ci-rerun` | `requested` or `already-accepted` | | `ci` |
-| `CI-RERUN-REFUSED` | `ci-rerun` | `refused` | | park, `ruled` |
-| `CI-RERUN-UNCERTAIN` | `ci-rerun` | `uncertain` | | park, `infrastructure` `ci-rerun-uncertain` |
 
 **The CI loop keeps a bound.** HEAD caps only `VERIFY-FAIL`: `VERIFY-FAIL-EXHAUSTED` stops at
 `visits_implement_gte: 3` (`recipes/fast/policy.json:76-94`). `CI-FAIL-EXHAUSTED` reads the same
 counter. `visits_<phase>_gte` counts the run's entries of that phase, whatever routed into it
 (the `when` description at `contracts/phase-machine.v2.schema.json:71-73`). So a `VERIFY-FAIL`
 return and a `CI-FAIL` return spend the one implement bound of three between them. A green local
-verify and a red CI therefore stop after the third implement visit, not never. The re-run loop is
-bounded too: one intent per head (ruling 6), and a new head needs an implement visit. So a run
-makes at most one re-run more than its implement visits.
+verify and a red CI therefore stop after the third implement visit, not never. No other loop
+exists: every other class parks.
 
-**Refused routes**, each because it would unbound a loop or hide a failure:
+**Refused routes**, each because it would unbound a loop, hide a failure or write to the forge:
 
-- a second re-run on any head, even for a different runner fault (option (c));
-- a refusal routed to `ci-rerun` or to `implement`; a refusal parks;
-- `CI-PASS` on any class but `green`; the word binding refuses it (ruling 2);
-- `CI-RERUN-UNCERTAIN` routed back to `ci`; uncertainty parks;
+- any route to a re-run, under every class (ruling 1);
+- `ci-infrastructure` routed to `implement`: a seat attempt is what the class exists to save;
+- a refusal routed to `implement`; a refusal parks;
+- `CI-PASS` on any class but `green`; the word binding refuses it (ruling 3);
 - a `CI-FAIL` with no exhaustion arm before it; the compile check for this belongs to 0111c's
   overlay test.
 
-The class is spelled in `when` as ruling 11 rules.
+- **(b) A runner fault routed to `implement`, with the class in the commission.** It spends the
+  seat attempt the issue counts, to tell a model what the engine already typed. Not
+  recommended.
 
-- **(b) A different runner fault parks typed, as the first draft had it.** It saves an
-  implement visit when two runner faults in a row are one sick pool. But it reverses the
-  commission's rule that a different second failure is the change's, and it lets the classifier
-  type two observations it never compared as one fault. Not recommended.
-- **(c) A different runner fault earns a second re-run.** It unbounds the re-run per head.
-  Refused.
-
-### 8. The park's cause
+### 7. The park's cause
 
 **Recommended: (b) `infrastructure` with a closed `kind`, under `park-cause/v2`.**
 
@@ -713,74 +562,59 @@ The class is spelled in `when` as ruling 11 rules.
   construction. Cost: a wider change to an accepted ruling's table. It refuses nothing (b) admits.
 - **(b) `infrastructure` with `kind`.** Recommended. `kind` is one of:
   - `engine`, every writer today;
-  - `ci-runner`, with `faults` (the identity tuples) and `reruns: 1`;
-  - `ci-rerun-uncertain`, with the targets whose acceptance is unknown (ruling 6).
+  - `ci-infrastructure`, with `faults`, each naming its workflow, job, step, kind and pattern id.
 
   A v1 cause with no `kind` reads `engine`. The cause stays four words, the readouts already
   paint `infrastructure`, and 0106d's rule reads unchanged: it spends only where `retryable` is
-  true (ruling 9). Cost: one closed enum inside one variant, matched without a wildcard.
+  true (ruling 8). Cost: one closed enum inside one variant, matched without a wildcard.
 
 The writer: the engine's park arm (`crates/brokkr-runtime/src/engine/cursor.rs:361-371`) gains
-one case, bound to a verified repeat and to the park path that matched it. It is not keyed to any
-park whose inputs happen to carry a CI class. The arm writes
-`infrastructure { kind: ci-runner, retryable: false }` instead of `ruled` only when all three
-hold:
+one case. It writes `infrastructure { kind: ci-infrastructure, retryable: false }` instead of
+`ruled` only when both hold:
 
 - the park is a table park, `ParkReason::Stated` with a matched rule id (`:368`);
-- the deciding inputs' `ci_class` is `runner-fault-again`, the class the engine draws only after
-  comparing the head's two observations (ruling 7);
-- the journal holds that head's re-run intent and its accepted result (ruling 6).
+- the deciding inputs' `ci_class` is `ci-infrastructure`.
 
-`ci-rerun-uncertain` is written only from an `uncertain` `ci-rerun` result, or from a second
-observation the engine read as partial acceptance. A closed indeterminate end keeps HEAD's
-`infrastructure` arm (`:364-366`). Every other CI park, every refusal included, stays `ruled`.
-The rule id stays in the decision beside the cause, where 0106 says a rule park's rule already
-lives.
+A closed indeterminate end keeps HEAD's `infrastructure` arm (`:364-366`). Every other CI park,
+every refusal included, stays `ruled`. The rule id stays in the decision beside the cause, where
+0106 says a rule park's rule already lives.
 
 On acceptance, 0106's header and this one's gain the pointer pair for ruling 1's cause gaining
 `kind`, under the errata rule for back-pointers.
 
-### 9. How a CI park reads in 0106d's budget
+### 8. How a CI park reads in 0106d's budget
 
-**Recommended: (a) every typed CI park, `ci-runner` and `ci-rerun-uncertain`, is
-`retryable: false` under this decision, and spends nothing.** A `ci-rerun-uncertain` park has the
-opposite of non-execution evidence: a request may have reached the forge.
+**Recommended: (a) a `ci-infrastructure` park is `retryable: false`, and spends nothing.**
 
 0106 ruling 4 asks for positive evidence that the last attempt never executed. Here the last
 attempt is the `ci` gate's, and it executed: it read the forge and returned a typed result. The
-forge's statement that the change's checks never ran is a fact about CI, not about the attempt,
-and a pattern match is evidence that a step ran. So the rule, read literally, gives `false`.
+forge's statement about the change's checks is a fact about CI, not about the attempt, and a
+pattern match is evidence that a step ran. So the rule, read literally, gives `false`. And a
+budget retry, as 0106d builds it, re-enters the parked phase as a new effect: it would observe
+the same settled runs and park again, spending the budget for nothing. A person's re-run is what
+changes the forge's state, and the operator's retry after it re-observes.
 
-What positive non-execution evidence would be for CI: a conclusion in ruling 5's proven set on
-every failed job of both observations, so that no step of the change's checks ran either time.
-That set is empty until 0111b measures it. Even
-then a budget retry, as 0106d builds it, re-enters the parked phase as a new effect; it would
-observe the same settled runs and park again, spending the budget for nothing. Admitting that
-evidence needs the retry to reach `ci-rerun`, and that is the budget's own decision, not this
-one's.
+- **(b) `retryable: true`.** Spends a retry that cannot help, as above. Refused.
 
-- **(b) `retryable: true` on a twice-`not-started` park.** Spends a retry that cannot help,
-  as above. Refused here.
-
-**Enforcement binding:** `a_ci_runner_park_is_never_retryable` and
-`a_ci_rerun_uncertain_park_is_never_retryable` (0111d). 0106d's non-retryable infrastructure
-test, `a_non_retryable_infrastructure_park_spends_nothing`
+**Enforcement binding:** `a_ci_infrastructure_park_is_never_retryable` (0111d). 0106d's
+non-retryable infrastructure test, `a_non_retryable_infrastructure_park_spends_nothing`
 (`docs/decisions/0106-a-park-names-its-cause-a-held-wait-and-a-budget.md:1224`), is extended
-with one park of each new `kind`, each spending nothing. 0106d's
+with one `ci-infrastructure` park, spending nothing. 0106d's
 `only_an_infrastructure_park_spends_the_budget` is unchanged: it reads `retryable`, not `kind`.
 
-### 10. The readouts
+### 9. The readouts
 
 **Recommended: (a) one derivation in `brokkr-view`, painted by `inspect` and the fleet.**
 
-`inspect` names each observation's class, the re-run's request with its run and job ids, and the
-outcome, from one view model (0071 ruling 7). The fleet paints the park's cause through
-`ParkCause::line` (`crates/brokkr-core/src/park.rs:275`), which the TUI and `inspect` already
-paint (`crates/brokkr-cli/src/tui/columns.rs:375`, `crates/brokkr-cli/src/render/inspect.rs:36`;
-the fleet's row field is `crates/brokkr-view/src/fleet.rs:339`). It reads
-`infrastructure (ci-runner, not retryable): …` with the faults' job and pattern ids.
+`inspect` names each observation's class, its refusal or its faults, and the evidence a person
+needs to re-run: the workflow run's id and attempt and each failed job's id, from one view model
+(0071 ruling 7). The fleet paints the park's cause through `ParkCause::line`
+(`crates/brokkr-core/src/park.rs:275`), which the TUI and `inspect` already paint
+(`crates/brokkr-cli/src/tui/columns.rs:375`, `crates/brokkr-cli/src/render/inspect.rs:36`; the
+fleet's row field is `crates/brokkr-view/src/fleet.rs:339`). It reads
+`infrastructure (ci-infrastructure, not retryable): …` with the faults' job and pattern ids.
 
-### 11. How a table spells the class
+### 10. How a table spells the class
 
 **Recommended: (a) engine-owned flags, one per class word, legal under phase-machine v2 with no
 version.**
@@ -791,12 +625,11 @@ values are a boolean, a number or a string, never an array
 (`crates/brokkr-core/src/policy/conditions.rs:43-75`), but the published contract does not admit
 them, and 0082 mints no version outside an accepted decision.
 
-- **(a) Engine-owned flags.** `ci_green`, `ci_runner_fault`, `ci_runner_fault_again` and
-  `ci_refused`, each an `Owner::Engine` `Flag`. All four are projected from the one
-  `ci_class` enum at decide, so at most one is true, and `change` is all four false. A boolean
-  input by name is what v2's `when` admits (`:73`). Ruling 7's `When` column reads
-  `ci_refused: true`, `ci_green: true`, `ci_runner_fault_again: true` and
-  `ci_runner_fault: true`. Cost: four names for one enum. That is a projection, not a second
+- **(a) Engine-owned flags.** `ci_green`, `ci_infrastructure` and `ci_refused`, each an
+  `Owner::Engine` `Flag`. All three are projected from the one `ci_class` enum at decide, so at
+  most one is true, and `change` is all three false. A boolean input by name is what v2's `when`
+  admits (`:73`). Ruling 6's `When` column reads `ci_refused: true`, `ci_green: true` and
+  `ci_infrastructure: true`. Cost: three names for one enum. That is a projection, not a second
   home, because the enum stays the one fact and the flags are derived in one function. A table
   could also write two of them in one rule, which would never match; 0111c's overlay test refuses
   that at compile. It mints no contract.
@@ -818,48 +651,47 @@ each non-`change` class.
 
 ## What stays out
 
-- No model decides: the gate and the re-run seat are exec seats, the classifier is core.
-- No required check is skipped, marked passed or written, other than by a re-run request.
+- Any forge write: ruling 1. No re-run is requested, and no seat holds a write credential.
+- No model decides: the gate is an exec seat, the classifier is core.
+- No required check is skipped, marked passed or written.
 - No refusal is weakened; `retryable`'s positive-evidence rule stands as 0106 wrote it.
 - No Windows code (0063).
 - #1113's own fix.
-- The dispatcher's retry budget, beyond ruling 9.
-- Flaky-test handling of any kind, quarantine included: a follow-up (ruling 3).
-- `fast`'s `blocked_by_in` array outside v2's published schema: a follow-up (ruling 11).
+- The dispatcher's retry budget, beyond ruling 8.
+- Flaky-test handling of any kind, quarantine included: a follow-up (ruling 4).
+- `fast`'s `blocked_by_in` array outside v2's published schema: a follow-up (ruling 10).
 - A forge other than GitHub: `forge` is a closed enum of one word in v1.
+- An automated re-run: the follow-up decision ruling 1 (c) names.
 
 ## Consequences
 
-Under ruling 3 (a), a job the forge proves never started costs one re-run and no model
-diagnosis attempt, and a second one parks with a cause a script can read. Every other failure
-is the change's, as today. That includes the adopter's port bind and timing-sensitive test, so
-under (a) this decision does not recover the figures #1093 reports, and says so. Under (b) a
-runner-owned service start is recovered as well, at the cost of measuring what the forge
-exposes. A recipe with no list behaves exactly as now. The cost is an exec observer per recipe
-that wants it, two tokens, and a list an operator keeps. Four contract versions are proposed:
-`ci-observation/v1`, `ci-classification/v1`, `ci-checks/v1` and `park-cause/v2`. Each is
-minted only when its slice lands under this decision's acceptance (0082). Under ruling 11 (a)
-the table contract does not move; under (b) a fifth, `phase-machine/v3`, is proposed.
+A runner fault the classifier can type costs no model diagnosis attempt: the run parks with a
+cause a script can read and evidence a person can act on, and the person re-runs. Every other
+failure is the change's, as today. Brokkr sends the forge nothing, so no mistyped class can
+reach a pass or a re-run; its worst cost is a person's look. A recipe with no list behaves
+exactly as now. The cost is an exec observer per recipe that wants it, one read-only token, and
+a list an operator keeps. Four contract versions are proposed: `ci-observation/v1`,
+`ci-classification/v1`, `ci-checks/v1` and `park-cause/v2`. Each is minted only when its slice
+lands under this decision's acceptance (0082). Under ruling 10 (a) the table contract does not
+move; under (b) a fifth, `phase-machine/v3`, is proposed.
 
 ## The slices
 
 Smallest first; each lands on its own.
 
-1. **0111a — the classifier and its record over a recorded payload, with no re-run.** Files: a new
+1. **0111a — the classifier and its record over a recorded payload.** Files: a new
    `crates/brokkr-core/src/ci.rs` with `ci/observation.rs`, `ci/faults.rs`, `ci/classify.rs` and
    `ci/tests.rs`; `crates/brokkr-core/src/lib.rs`; `crates/brokkr-core/src/policy/inputs.rs` (the
-   seat-owned `ci_observation` record; the engine-owned `ci_class` record and ruling 11's four
-   flags); `crates/brokkr-runtime/src/bundle.rs` (load
-   and pin `ci-checks.json`, refuse it on a non-exec seat);
-   `crates/brokkr-runtime/src/engine/decide.rs` (classify at decide and record the input);
-   `crates/brokkr-view/src/` (the CI view model) and `crates/brokkr-cli/src/render/inspect.rs`.
-   About 600 production and 900 test lines, after the revision's refusals and wire test; it may
+   seat-owned `ci_observation` record; the engine-owned `ci_class` record and ruling 10's three
+   flags); `crates/brokkr-runtime/src/bundle.rs` (load and pin `ci-checks.json`, refuse it on a
+   non-exec seat); `crates/brokkr-runtime/src/engine/decide.rs` (classify at decide and record
+   the input); `crates/brokkr-view/src/` (the CI view model) and
+   `crates/brokkr-cli/src/render/inspect.rs`. About 550 production and 850 test lines; it may
    split at triage into the observation and its pass (with the wire test) and the classifier.
-   Contracts: `ci-observation/v1`, `ci-checks/v1`,
-   `ci-classification/v1`. Tests: one per arm and reason of ruling 3, over recorded observations
-   built by a shared builder. The wire, end to end, over one recorded observation fixture, in
-   `ci-observation/v1`'s shape and checked in under the slice's tests. It is hand-built from the
-   documentation until 0111b swaps in a measured payload:
+   Contracts: `ci-observation/v1`, `ci-checks/v1`, `ci-classification/v1`. Tests: one per arm
+   and reason of ruling 4, over recorded observations built by a shared builder. The wire, end
+   to end, over one recorded observation fixture, in `ci-observation/v1`'s shape and checked in
+   under the slice's tests:
    `a_recorded_observation_is_sealed_classified_replayed_and_inspected`. That test drives an
    exec `ci` seat whose result carries the fixture. It asserts that the sealed seat record holds
    the observation; that the decision's inputs hold `ci_class` and its one true flag; that a
@@ -870,25 +702,12 @@ Smallest first; each lands on its own.
    `the_change_range_is_the_merge_base_to_the_gated_head_not_the_phase_entry`;
    `a_range_git_cannot_take_refuses_as_range_unavailable`;
    `a_glob_character_in_an_infrastructure_path_refuses_to_compile`;
-   `a_directory_path_matches_only_under_its_slash`;
-   `an_excerpt_under_option_a_refuses_the_observation`. Ruling 3's evidence, under (a):
-   `no_log_pattern_types_a_failure_as_the_runners`;
-   `a_patterns_key_under_option_a_refuses_to_compile`;
-   `a_declared_literal_printed_by_a_checkout_local_action_is_the_changes`;
-   `a_declared_literal_printed_by_a_service_bootstrap_script_is_the_changes`;
-   `a_timing_sensitive_test_failure_is_the_changes`. Under (b), if ruled:
-   `a_pattern_in_a_step_named_in_the_workflows_steps_is_the_changes`;
-   `a_pattern_in_a_services_block_the_diff_changed_is_the_changes`;
-   `a_service_mounting_the_workspace_is_not_runner_owned`;
-   `a_pattern_in_a_test_step_is_the_changes`. The rest:
-   `a_security_job_failure_is_never_typed_by_pattern`;
-   `an_audit_job_is_the_runners_only_on_a_proven_non_execution_conclusion`;
-   `with_the_proven_set_empty_a_startup_failure_is_the_changes`;
-   `a_cancelled_job_is_the_changes`;
+   `a_directory_path_matches_only_under_its_slash`. The evidence:
+   `a_timing_sensitive_test_failure_is_the_changes`; `a_cancelled_job_is_the_changes`;
    `a_change_to_a_workflow_file_is_the_changes`; `one_untyped_job_makes_the_whole_change`;
-   `a_pattern_beyond_the_excerpt_is_not_found`; `an_unknown_conclusion_refuses_by_name`;
-   `a_stale_head_observation_does_not_read`; `a_pass_with_a_failed_job_is_refused`;
-   `a_seat_cannot_write_the_classification`; `a_ci_list_on_a_model_seat_refuses_to_compile`;
+   `an_unknown_conclusion_refuses_by_name`; `a_stale_head_observation_does_not_read`;
+   `a_pass_with_a_failed_job_is_refused`; `a_seat_cannot_write_the_classification`;
+   `a_ci_list_on_a_model_seat_refuses_to_compile`;
    `an_empty_infrastructure_list_refuses_to_compile`; `inspect_names_the_class`. The pass's
    refusals, one test each, every one asserting the refusal's variant and that the class is not
    `green`: `an_observation_with_no_check_refuses_as_empty`;
@@ -898,76 +717,36 @@ Smallest first; each lands on its own.
    `a_required_check_still_in_progress_refuses_as_not_settled`;
    `two_matches_for_one_required_check_refuse_as_ambiguous`;
    `a_forge_required_check_the_list_lacks_refuses`; `an_empty_required_list_refuses_to_compile`;
-   `a_ci_seat_whose_layer_is_inside_the_worktree_refuses_at_start`. No table routes
-   on it yet, so the next sweep can count what a re-run would have saved.
+   `a_ci_seat_whose_layer_is_inside_the_worktree_refuses_at_start`.
 2. **0111b — a GitHub observer script.** Files: a house observer script and its shellcheck
    clean; a test that runs it against a stub `gh` on the path and holds its output to
    `ci-observation/v1`; one recorded real payload, measured by the operator, which settles this
-   decision's unmeasured forge facts. Those facts are:
-   - whether a job reports `startup_failure`, which fills or leaves empty ruling 5's proven set;
-   - what the per-job re-run verb re-runs;
-   - how an unaffected job appears in a new attempt;
-   - how a workflow's path and a matrix job's name are spelled;
-   - under ruling 3 (b), the runner's own step names and secret masking.
-
-   Tests: `the_observer_refuses_when_gh_resolves_under_the_worktree`;
+   decision's unmeasured forge facts. Tests:
+   `the_observer_refuses_when_gh_resolves_under_the_worktree`;
    `the_observer_names_the_repository_and_never_reads_the_worktrees_remotes`;
-   `the_observer_lists_every_check_for_the_head_unfiltered`. About 150 script and 250 test lines.
-   No contract change.
-3. **0111c — the re-run and its routing.** Files: `crates/brokkr-core/src/policy/inputs.rs`
-   (`ci_reruns`), `crates/brokkr-runtime/src/engine/decide.rs`, a re-run script, and a recipe
-   overlay declaring ruling 7's table. About 350 production and 700 test lines. No contract
-   change. Tests: `a_runner_fault_routes_to_one_rerun`; `a_green_after_the_rerun_passes`;
-   `the_same_fault_after_the_rerun_parks`;
-   `a_different_runner_fault_after_the_rerun_returns_to_implement`;
-   `a_superset_or_subset_of_the_first_identity_is_different`;
-   `the_identity_ignores_job_and_check_run_ids_across_attempts`;
-   `several_literals_in_one_excerpt_match_the_first_declared` (under (b));
+   `the_observer_lists_every_check_for_the_head_unfiltered`;
+   `the_observer_holds_no_write_binding`. About 150 script and 250 test lines. No contract
+   change.
+3. **0111c — the routing overlay.** Files: a recipe overlay declaring ruling 6's table, and its
+   compile tests. About 100 data and 350 test lines. No contract change. Tests:
+   `a_green_observation_passes`; `a_change_failure_returns_to_implement`;
+   `a_runner_fault_parks_with_no_seat_attempt`;
    `a_green_verify_and_a_red_ci_stop_at_the_third_implement_visit`;
    `verify_and_ci_returns_share_one_implement_bound`;
-   `a_refusal_never_routes_to_rerun_or_implement`; `an_uncertain_rerun_never_routes_to_ci`;
+   `a_refusal_never_routes_to_implement`; `no_rule_routes_to_a_rerun`;
+   `a_ci_infrastructure_class_never_routes_to_implement`;
+   `a_ci_overlay_seat_declaring_a_write_binding_refuses_to_compile`;
    `the_ci_overlay_policy_validates_against_phase_machine_v2`;
    `exactly_one_class_flag_is_true_for_each_class_but_change`;
-   `a_rule_naming_two_class_flags_refuses_to_compile`;
-   `a_change_failure_after_the_rerun_returns_to_implement`;
-   `a_moved_head_earns_its_own_rerun`; `the_observer_never_holds_the_write_token`. The
-   credentialed effect (ruling 6 (a)): `a_no_hands_exec_seat_with_a_binding_compiles` (the
-   overlay's two seats, compiled as declared, under each boundary the realm admits);
-   `a_ci_seat_with_hands_and_a_binding_still_refuses` (HEAD's refusal pinned);
-   `the_rerun_script_runs_from_outside_the_worktree_and_reads_nothing_in_it`;
-   `the_rerun_argv_carries_no_worktree_path`;
-   `a_forge_refusal_parks_ruled`. The scope:
-   `the_rerun_names_job_ids_and_never_a_runs_failed_set`;
-   `a_cancelled_audit_job_beside_a_runner_fault_is_never_in_the_scope`;
-   `a_dependent_audit_job_without_proof_makes_the_scope_not_enforceable`;
-   `a_dependent_that_passed_makes_the_scope_not_enforceable`;
-   `a_target_whose_run_attempt_moved_since_classification_sends_nothing_as_stale_scope`;
-   `an_unknown_target_sends_nothing`;
-   `a_job_outside_the_closure_with_a_new_attempt_parks_as_scope_widened`;
-   `an_audit_job_with_a_failed_step_is_never_rerun` (#1113's shape);
-   `a_run_level_startup_failure_proves_nothing_about_an_audit_job`. Durability:
-   `a_lost_receipt_after_the_forge_accepted_is_reconciled_and_never_resent` (the forge stub
-   accepts, the driver exits with no result; the operator's retry reads `already-accepted` and the
-   stub counts one request);
-   `an_indeterminate_rerun_with_no_new_attempt_parks_uncertain_and_sends_nothing`;
-   `partial_acceptance_across_two_runs_parks_ci_rerun_uncertain_naming_the_unknown_target`;
-   `a_return_to_an_already_rerun_head_earns_no_second_rerun`;
-   `the_intent_is_durable_before_the_driver_spawns`. The second observation's
-   refusals:
-   `a_second_observation_on_an_attempt_the_rerun_did_not_make_refuses_as_unrelated`;
-   `an_unaffected_required_check_that_changed_after_the_rerun_refuses`;
-   `a_required_check_missing_after_the_rerun_refuses_as_missing_required`.
+   `a_rule_naming_two_class_flags_refuses_to_compile`.
 4. **0111d — the typed park.** Files: `crates/brokkr-core/src/park.rs` and its `parse` and
    `forms` modules, `crates/brokkr-runtime/src/engine/cursor.rs`, and the view and CLI tests that
-   paint the cause. About 120 production and 200 test lines. Contract: `park-cause/v2`. Tests:
-   `a_v1_infrastructure_cause_reads_kind_engine`; `a_ci_runner_park_is_never_retryable`;
-   `a_ci_rerun_uncertain_park_is_never_retryable`;
-   `a_rerun_park_writes_the_ci_runner_cause_and_keeps_the_rule_in_the_decision`;
-   `a_refusal_park_carrying_a_ci_class_stays_ruled`;
-   `a_runner_fault_again_class_without_an_accepted_rerun_in_the_journal_stays_ruled`;
-   `the_fleet_paints_the_ci_runner_cause`; and, when 0106d lands, its
-   `a_non_retryable_infrastructure_park_spends_nothing` (0106:1224) extended with a `ci-runner`
-   and a `ci-rerun-uncertain` park (ruling 9).
+   paint the cause. About 100 production and 180 test lines. Contract: `park-cause/v2`. Tests:
+   `a_v1_infrastructure_cause_reads_kind_engine`; `a_ci_infrastructure_park_is_never_retryable`;
+   `a_runner_fault_park_writes_the_ci_infrastructure_cause_and_keeps_the_rule_in_the_decision`;
+   `a_refusal_park_carrying_a_ci_class_stays_ruled`; `the_fleet_paints_the_ci_infrastructure_cause`;
+   and, when 0106d lands, its `a_non_retryable_infrastructure_park_spends_nothing` (0106:1224)
+   extended with a `ci-infrastructure` park (ruling 8).
 
 ## Evidence
 
@@ -989,19 +768,16 @@ cites:
   `crates/brokkr-runtime/src/bundle/model_policy_tests.rs:2595-2625`;
 - `crates/brokkr-runtime/src/bundle/assemble.rs:320-342` and
   `crates/brokkr-runtime/src/engine/decide.rs:68-86`;
-- `crates/brokkr-protocol/src/hands.rs:140-200`;
-- `crates/brokkr-runtime/src/bundle.rs:3930-3975` and `:4140-4160`, and
-  `crates/brokkr-runtime/src/engine/marks.rs:125-150`;
 - `crates/brokkr-runtime/src/engine.rs:3150-3180` and `:3217-3229`, and
   `crates/brokkr-runtime/src/anchor.rs:165-175`;
-- `crates/brokkr-runtime/src/engine/cursor.rs:355-390`,
-  `crates/brokkr-runtime/src/engine/dispatch.rs:150-170`,
-  `crates/brokkr-runtime/src/engine/broker/fold.rs:330-365` and
-  `crates/brokkr-core/src/fold/operator.rs:30-46`;
+- `crates/brokkr-runtime/src/engine/cursor.rs:355-390`;
 - `crates/brokkr-core/src/policy/conditions.rs:35-80` and `policy/inputs.rs:75-190`;
 - `contracts/phase-machine.v2.schema.json:55-95` and
   `crates/brokkr-runtime/tests/frozen_contracts.rs:290-320`;
-- decisions 0006 (`:262-276`), 0036 (`:137-150`), 0043 (`:104-118`, `:204-210`) and 0106
-  (`:1205-1235`).
+- decision 0106 (`:1205-1235`).
 
-No forge page was read in either round. Every forge fact cited by URL is unmeasured until 0111b.
+The revision of fix round 1093r3 answered the review positions of run
+`fix-round-1093r2-for-issue-1093--9fd4243a` and the operator's ruling of 2026-11-18. The
+re-run verbs' parameters are the controller's reading of
+<https://docs.github.com/en/rest/actions/workflow-runs> on 2026-11-18; this seat read no forge
+page in any round. Every forge fact cited by URL is unmeasured until 0111b.
