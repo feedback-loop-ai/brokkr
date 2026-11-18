@@ -65,8 +65,7 @@ pub fn gate_records(events: &[EventEnvelope]) -> Vec<GateRecord> {
         .filter_map(|event| {
             let (result, step) = verdict_of(event)?;
             let effect_id = text(event, "effect_id");
-            let read =
-                (result.get("findings")).map(|findings| Vec::<Finding>::deserialize(findings));
+            let read = (result.get("findings")).map(Vec::<Finding>::deserialize);
             let unread = matches!(read, Some(Err(_)));
             let findings = read.and_then(Result::ok).unwrap_or_default();
             let covered = result

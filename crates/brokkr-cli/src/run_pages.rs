@@ -36,9 +36,7 @@ use brokkr_view::{composed_view, composed_whole, seat_keys, Cooling, Participant
 pub(crate) enum Shows {
     /// Every journal row and every participant's checkpoints: `inspect
     /// --json`, `inspect --capability-call`, `seats --json` and
-    /// `/api/view/<run>`, which print the view whole, and `inspect --seat`,
-    /// whose verdicts keep a member's findings by the site its checkpoints
-    /// carry.
+    /// `/api/view/<run>`, which print the view whole.
     Everything,
     /// A terminal frame: `inspect`'s, `seats`' and `watch`'s, which paint
     /// the trail's journal rows (`in_trail`, every one an event of the
@@ -64,9 +62,6 @@ impl Shows {
 pub(crate) struct Viewed {
     pub(crate) view: RunView,
     pub(crate) folded: Result<RunState, FoldError>,
-    /// What each gate verdict recorded beside its word (decision 0109),
-    /// derived from the trail this read already holds.
-    pub(crate) gates: Vec<brokkr_view::GateRecord>,
 }
 
 /// `run`'s view in `store` as a reader that `shows` it reads it: opened,
@@ -106,7 +101,7 @@ pub(crate) fn participants(
     run: &str,
     now: &str,
 ) -> Result<Result<Vec<Participant>, FoldError>, StoreError> {
-    let Viewed { view, folded, .. } = viewed(store, run, Shows::Frame, now)?;
+    let Viewed { view, folded } = viewed(store, run, Shows::Frame, now)?;
     Ok(folded.map(|_| view.participants))
 }
 
@@ -116,12 +111,7 @@ fn whole(store: &Store, run: &str, now: &str) -> Result<Viewed, StoreError> {
     let folded = fold(&events);
     let cooling = crate::fleet::cooling(store, now)?;
     let view = brokkr_view::run_view_with(&events, folded.as_ref().ok(), &cooling);
-    let gates = brokkr_view::gate_records(&events);
-    Ok(Viewed {
-        view,
-        folded,
-        gates,
-    })
+    Ok(Viewed { view, folded })
 }
 
 /// What one read at an opening's head holds, asked past the head so it
@@ -210,15 +200,8 @@ fn composed(
         }
         None => frame.view(),
     };
-    // A read that holds the journal reads the members' checkpoints too,
-    // which name the site of each member's findings (fix round 0109a1r2).
-    let gates = brokkr_view::gate_records(journal.unwrap_or(&frame.trail));
     let folded = Ok(*frame.state);
-    Ok(view.map(|view| Viewed {
-        view,
-        folded,
-        gates,
-    }))
+    Ok(view.map(|view| Viewed { view, folded }))
 }
 
 /// Which of the console's run screens a frame paints, and so what it reads

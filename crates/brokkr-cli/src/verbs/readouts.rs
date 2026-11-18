@@ -102,7 +102,7 @@ type Reads<'r> = &'r dyn Fn(&Store, &str, Shows, &str) -> Result<run_pages::View
 /// The view `inspect` derives and `seats` paints a block of: the run the
 /// selector names, in the journal the world names, read by `read` as a
 /// reader that `shows` it reads it, at `now`, and refused where it does
-/// not fold.
+/// not fold; beside it, the journal it was read from and the run's id.
 fn run_view_of(
     workspace: &Path,
     realms: Option<PathBuf>,
@@ -111,13 +111,13 @@ fn run_view_of(
     shows: Shows,
     now: &str,
     read: Reads<'_>,
-) -> Result<(brokkr_view::RunView, Vec<brokkr_view::GateRecord>)> {
+) -> Result<(brokkr_view::RunView, Store, String)> {
     let db = journal_of(workspace, realms, db)?;
     let store = open_journal(&db, Access::Read)?;
     let run = selector::resolve_run(&store, run)?;
     let read = read(&store, &run, shows, now)?;
     read.folded?;
-    Ok((read.view, read.gates))
+    Ok((read.view, store, run))
 }
 
 /// `inspect --json`'s bytes, which `seats --json` prints too: the view as
@@ -155,12 +155,10 @@ fn inspect_with(
     out: &mut dyn Write,
     read: Reads<'_>,
 ) -> Result<ExitCode> {
-    // Every inspect reads the run whole: its verdicts block shows every
-    // gate verdict the journal records, a sequence step's checkpoint and
-    // a panel member's marker among them, each under its own seat (fix
-    // round 0109a1r3, M3). `watch` and `seats` keep the frame's read.
+    let whole = json || capability_call.is_some();
     let now = crate::now_rfc3339();
-    let (view, gates) = run_view_of(workspace, realms, db, &run, Shows::Everything, &now, read)?;
+    let (view, store, run) =
+        run_view_of(workspace, realms, db, &run, Shows::of(whole), &now, read)?;
     if let Some(call_id) = capability_call {
         let repo = repo.as_deref().unwrap_or(workspace);
         return print_call(repo, &view, &call_id, json, out);
@@ -177,6 +175,11 @@ fn inspect_with(
     let lens = brokkr_view::lens_for(&view, scope.as_ref())
         .map_err(|error| anyhow::Error::msg(render::scope_refusal(&error)))?;
     let frame = render::inspect(&view, lens.as_ref(), true, &now, &render::Style::detect());
+    // The verdicts block reads every gate verdict the journal records, a
+    // sequence step's checkpoint and a panel member's marker among them,
+    // each under its own seat, so it reads the journal whole while the
+    // frame keeps its own read (fix round 0109a1r3, M3).
+    let gates = brokkr_view::gate_records(&store.load(&run)?);
     let gates: Vec<_> = (gates.iter())
         .filter_map(|record| record.kept_by(lens.as_ref()))
         .collect();
@@ -370,7 +373,7 @@ fn seats_with(
     // seats block of `inspect`'s readout or `inspect --json`'s
     // own bytes. Nothing is derived here and no wire object is
     // versioned for the verb.
-    let (view, _) = run_view_of(
+    let (view, ..) = run_view_of(
         workspace,
         realms,
         db,
