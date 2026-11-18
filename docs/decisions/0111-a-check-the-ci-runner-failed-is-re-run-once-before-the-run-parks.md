@@ -693,16 +693,49 @@ cannot write any of them.
 the classifier takes the first pattern in the list's declaration order. The fault carries that
 pattern's id, so one excerpt yields one fault.
 
-**Every route and cap.** A table in the recipe declares the arms, first match winning. The
-`When` column names the class; ruling 10 gives its schema-legal spelling.
+**Where the gate intercepts.** The gate must catch every path that must wait for CI, not only
+the verifier's pass. In `fast`, four rules route into `review`, and one of them skips `verify`:
+a returned implement that changed only docs goes straight to review
+(`IMPL-OK-DOCS-RETURN`, `recipes/fast/policy.json:59-68`). The other three are `VERIFY-PASS`
+(`:95-101`), and `SHIP-DRIFT` (`:186-196`) and `SHIPPED-DRIFT` (`:215-225`), which return a
+head that moved after the review verdict to review. Each moves
+or may move the head that review reads, so each must wait for CI. The overlay replaces each of
+the four by its id (`override.rules`; an overlay's rule of the same id is removed from the base
+and prepended, `crates/brokkr-runtime/src/bundle/compose.rs:906-921`), with `next: ci` in place
+of `next: review`. After the overlay, only a rule `from: ci` routes into `review`, and the
+overlay test refuses any other.
+
+**Every route and cap, from the incoming edge.** First match wins, in the order listed. The
+`When` column names the class; ruling 10 gives its schema-legal spelling. The fast-derived table,
+which ruling 10 lands on 0109's v3:
 
 | Rule | From | Result | When | Next |
 |---|---|---|---|---|
-| `CI-REFUSED` | `ci` | `fail` | class `refused` | park, `ruled`, naming the refusal |
-| `CI-PASS` | `ci` | `pass` | class `green` | the recipe's next phase |
+| `IMPL-OK-DOCS-RETURN` (replaced) | `implement` | `complete` | `fixes_docs_only: true` | `ci` |
+| `VERIFY-PASS` (replaced) | `verify` | `pass` | | `ci` |
+| `SHIP-DRIFT` (replaced) | `ship` | `ready` | `drift_detected: true` | `ci` |
+| `SHIPPED-DRIFT` (replaced) | `ship` | `shipped` | `drift_detected: true` | `ci` |
+| `CI-REFUSED` | `ci` | `fail` | class `refused` | park, `ruled`, naming the refusals |
 | `CI-INFRASTRUCTURE` | `ci` | `fail` | class `ci-infrastructure` | park, `infrastructure` `ci-infrastructure` |
+| `CI-PASS` | `ci` | `pass` | class `green` | `review` |
 | `CI-FAIL-EXHAUSTED` | `ci` | `fail` | `visits_implement_gte: 3` | stop, `hard` |
 | `CI-FAIL` | `ci` | `fail` | | `implement`, `flagged` |
+
+Every other `fast` rule is unchanged: `IMPL-OK` still routes to `verify`, whose pass now reaches
+`ci`, and every review return still goes to `implement`, whose completion reaches `ci` by one of
+the first two rows.
+
+The `verify`-based table, which ruling 10 lands first under v2. `verify`'s phases are `verify`,
+`review`, `done` and `stop`, and it has no `implement` (`recipes/verify/policy.json`), so a red
+CI stops, as its red verify does:
+
+| Rule | From | Result | When | Next |
+|---|---|---|---|---|
+| `VERIFY-PASS` (replaced) | `verify` | `pass` | | `ci` |
+| `CI-REFUSED` | `ci` | `fail` | class `refused` | park, `ruled`, naming the refusals |
+| `CI-INFRASTRUCTURE` | `ci` | `fail` | class `ci-infrastructure` | park, `infrastructure` `ci-infrastructure` |
+| `CI-PASS` | `ci` | `pass` | class `green` | `review` |
+| `CI-FAIL` | `ci` | `fail` | | stop, `hard` |
 
 **The CI loop keeps a bound.** HEAD caps only `VERIFY-FAIL`: `VERIFY-FAIL-EXHAUSTED` stops at
 `visits_implement_gte: 3` (`recipes/fast/policy.json:76-94`). `CI-FAIL-EXHAUSTED` reads the same
@@ -715,11 +748,16 @@ exists: every other class parks.
 **Refused routes**, each because it would unbound a loop, hide a failure or write to the forge:
 
 - any route to a re-run, under every class (ruling 1);
+- any rule into `review` from a phase other than `ci`, the docs-only return among them: it
+  would let a head reach review without waiting for CI;
 - `ci-infrastructure` routed to `implement`: a seat attempt is what the class exists to save;
 - a refusal routed to `implement`; a refusal parks;
 - `CI-PASS` on any class but `green`; the word binding refuses it (ruling 3);
-- a `CI-FAIL` with no exhaustion arm before it; the compile check for this belongs to 0111c's
-  overlay test.
+- in the fast-derived table, a `CI-FAIL` with no exhaustion arm before it.
+
+Each is refused by the overlay test, over the complete composed table (ruling 10). The
+scope-widened reconciliation park fix round 1093r2 promised went with the write (ruling 1); no
+route or cause remains for it.
 
 - **(b) A runner fault routed to `implement`, with the class in the commission.** It spends the
   seat attempt the issue counts, to tell a model what the engine already typed. Not
@@ -741,15 +779,22 @@ exists: every other class parks.
   paint `infrastructure`, and 0106d's rule reads unchanged: it spends only where `retryable` is
   true (ruling 8). Cost: one closed enum inside one variant, matched without a wildcard.
 
-The writer: the engine's park arm (`crates/brokkr-runtime/src/engine/cursor.rs:361-371`) gains
-one case. It writes `infrastructure { kind: ci-infrastructure, retryable: false }` instead of
-`ruled` only when both hold:
+**The typed park matches its own rule explicitly.** A park is not typed because its inputs
+happen to carry the class. The compile marks, in a table whose recipe declares a `ci` seat,
+exactly one rule as the CI-infrastructure park: the park rule `from` the `ci` phase whose `when`
+is exactly `{"ci_infrastructure": true}`. It refuses a table with none, or with more than one.
+The engine's park arm (`crates/brokkr-runtime/src/engine/cursor.rs:361-371`) gains one case. It
+writes `infrastructure { kind: ci-infrastructure, retryable: false }` instead of `ruled` only
+when all three hold:
 
 - the park is a table park, `ParkReason::Stated` with a matched rule id (`:368`);
+- the matched rule is the one the compile marked;
 - the deciding inputs' `ci_class` is `ci-infrastructure`.
 
-A closed indeterminate end keeps HEAD's `infrastructure` arm (`:364-366`). Every other CI park,
-every refusal included, stays `ruled`. The rule id stays in the decision beside the cause, where
+A different table park that carries the same class does not write it. An operator's rule placed
+above the marked one, such as a park on `ci_infrastructure: true` with a counter beside it, stays
+`ruled`, and so does every refusal. A closed indeterminate end keeps HEAD's `infrastructure` arm
+(`:364-366`). The rule id stays in the decision beside the cause, where
 0106 says a rule park's rule already lives.
 
 On acceptance, 0106's header and this one's gain the pointer pair for ruling 1's cause gaining
@@ -978,13 +1023,20 @@ Smallest first; each lands on its own.
    `a_ci_overlay_seat_declaring_a_write_binding_refuses_to_compile`;
    `the_ci_overlay_policy_validates_against_phase_machine_v2`;
    `exactly_one_class_flag_is_true_for_each_class_but_change`;
-   `a_rule_naming_two_class_flags_refuses_to_compile`.
+   `a_rule_naming_two_class_flags_refuses_to_compile`. The interception (ruling 6):
+   `a_docs_only_return_waits_for_ci_before_review`;
+   `a_ship_drift_return_waits_for_ci_before_review`;
+   `every_edge_into_review_comes_from_ci`;
+   `a_rule_into_review_from_another_phase_refuses_to_compile`.
 4. **0111d — the typed park.** Files: `crates/brokkr-core/src/park.rs` and its `parse` and
    `forms` modules, `crates/brokkr-runtime/src/engine/cursor.rs`, and the view and CLI tests that
    paint the cause. About 100 production and 180 test lines. Contract: `park-cause/v2`. Tests:
    `a_v1_infrastructure_cause_reads_kind_engine`; `a_ci_infrastructure_park_is_never_retryable`;
    `a_runner_fault_park_writes_the_ci_infrastructure_cause_and_keeps_the_rule_in_the_decision`;
-   `a_refusal_park_carrying_a_ci_class_stays_ruled`; `the_fleet_paints_the_ci_infrastructure_cause`;
+   `a_refusal_park_carrying_a_ci_class_stays_ruled`;
+   `a_different_table_park_carrying_the_ci_infrastructure_class_stays_ruled`;
+   `a_table_with_no_or_two_marked_ci_infrastructure_parks_refuses_to_compile`;
+   `the_fleet_paints_the_ci_infrastructure_cause`;
    and, when 0106d lands, its `a_non_retryable_infrastructure_park_spends_nothing` (0106:1224)
    extended with a `ci-infrastructure` park (ruling 8).
 
