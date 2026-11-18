@@ -175,6 +175,7 @@ pub struct Launched<'e> {
     pub info: PipeReader,
     pub mounts: Vec<(usize, String)>,
     _entry: &'e ServerEntry,
+    _held: crate::process::reaper::Release,
 }
 
 #[cfg(target_os = "linux")]
@@ -313,8 +314,10 @@ impl ServerBox {
         let started = started(launch, inheritor(carried), startup);
         drop((intent, readied, reporting, informed));
         let mounts = entry.mounts().collect();
+        let (child, _held) = started?.into_parts();
         Ok(Launched {
-            child: started?,
+            child,
+            _held,
             control: Some(control),
             ready,
             status,
@@ -411,7 +414,7 @@ pub(in crate::hands) fn started(
     mut launch: Command,
     hook: impl FnMut() -> std::io::Result<()> + Send + Sync + 'static,
     startup: Startup<'_>,
-) -> Result<Child, Refusal> {
+) -> Result<crate::process::spawned::Spawned, Refusal> {
     let (mut report, reporting) = std::io::pipe().or(Err(Refusal::Establishment))?;
     let (hold, mut releaser) = std::io::pipe().or(Err(Refusal::Establishment))?;
     let ends = [reporting.as_raw_fd(), hold.as_raw_fd()];

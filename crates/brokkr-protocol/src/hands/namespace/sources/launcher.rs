@@ -175,7 +175,9 @@ pub(in crate::hands) fn version(fd: BorrowedFd<'_>) -> String {
         command.arg("--version").env_clear().stdin(stdin);
         command.stdout(Stdio::piped()).stderr(Stdio::null());
         let spawned = crate::process::spawned::spawn(&mut command);
-        spawned.and_then(std::process::Child::wait_with_output).ok()
+        spawned
+            .and_then(crate::process::spawned::Spawned::wait_with_output)
+            .ok()
     });
     let ran = ran.and_then(|out| String::from_utf8(out.stdout).ok());
     ran.map(|text| text.trim().to_string()).unwrap_or_default()

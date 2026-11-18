@@ -1,18 +1,61 @@
 //! The one door every child a driver may spawn goes through (#1133). On
 //! Linux a serving driver holds each child it spawns here in its reaper's
-//! registry, so the reaper leaves the child's status to its own handle;
-//! anywhere else, and in any process that does not serve, a spawn here is
-//! the plain spawn.
+//! registry, so the reaper leaves the child's status to its own handle,
+//! until the handle goes; anywhere else, and in any process that does not
+//! serve, a spawn here is the plain spawn.
 
 use std::io::Result;
+use std::ops::{Deref, DerefMut};
 use std::process::{Child, Command, ExitStatus, Output, Stdio};
 
-/// Spawn `command`, held by the driver's reaper where one runs.
-pub(crate) fn spawn(command: &mut Command) -> Result<Child> {
+/// A child spawned through the door: its handle, and on Linux the claim
+/// that releases the reaper's hold on it when the handle goes.
+#[derive(Debug)]
+pub(crate) struct Spawned {
+    child: Child,
     #[cfg(target_os = "linux")]
-    return super::reaper::spawn(command);
+    _release: super::reaper::Release,
+}
+
+impl Deref for Spawned {
+    type Target = Child;
+
+    fn deref(&self) -> &Child {
+        &self.child
+    }
+}
+
+impl DerefMut for Spawned {
+    fn deref_mut(&mut self) -> &mut Child {
+        &mut self.child
+    }
+}
+
+impl Spawned {
+    /// [`Child::wait_with_output`], the hold released once it returns.
+    pub(crate) fn wait_with_output(self) -> Result<Output> {
+        self.child.wait_with_output()
+    }
+
+    /// The handle and its claim, for a holder that keeps the two apart and
+    /// must drop the claim after the handle's last wait.
+    #[cfg(target_os = "linux")]
+    pub(crate) fn into_parts(self) -> (Child, super::reaper::Release) {
+        (self.child, self._release)
+    }
+}
+
+/// Spawn `command`, held by the driver's reaper where one runs.
+pub(crate) fn spawn(command: &mut Command) -> Result<Spawned> {
+    #[cfg(target_os = "linux")]
+    let (child, _release) = super::reaper::spawn(command)?;
     #[cfg(not(target_os = "linux"))]
-    command.spawn()
+    let child = command.spawn()?;
+    Ok(Spawned {
+        child,
+        #[cfg(target_os = "linux")]
+        _release,
+    })
 }
 
 /// [`Command::output`] through [`spawn`]: the standard input closed, and

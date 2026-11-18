@@ -38,6 +38,16 @@ fn row(pid: i32, zombie: bool) -> Entry {
     }
 }
 
+/// `hold`, under a token no handle names.
+fn held(hold: Hold) -> Held {
+    Held { token: 0, hold }
+}
+
+/// A wait that finds its pidfd's process still the driver's child.
+fn running(_: BorrowedFd<'_>) -> rustix::io::Result<()> {
+    Ok(())
+}
+
 fn started_at(pid: i32, start: &str) -> Entry {
     Entry {
         id: Identity {
@@ -54,7 +64,7 @@ fn started_at(pid: i32, start: &str) -> Entry {
 #[test]
 fn a_sweep_reaps_only_unregistered_zombies_it_saw_before() {
     let mut handled = Handled::default();
-    handled.held.insert(10, Hold::Unread);
+    handled.held.insert(10, held(Hold::Unread));
     let rows = [row(10, true), row(11, true), row(12, false)];
     assert_eq!(handled.doomed(Some(&rows)), Vec::<i32>::new());
     assert_eq!(handled.seen, BTreeSet::from([identity(11)]));
@@ -70,24 +80,24 @@ fn a_sweep_reaps_only_unregistered_zombies_it_saw_before() {
 
 /// A child held by its start is released only by its own row: gone, or
 /// another process's; one held unread only once its row is gone. A read
-/// that fails keeps either, and a pidfd the kernel will not wait on keeps
+/// that fails keeps either, and a pidfd its process still runs under keeps
 /// its child.
 #[test]
 fn a_held_child_is_released_once_its_own_row_is_gone_or_anothers() {
     let mut handled = Handled::default();
-    let start = |start: &str| Hold::Start(start.to_string());
+    let start = |start: &str| held(Hold::Start(start.to_string()));
     let null = std::fs::File::open("/dev/null").unwrap();
     handled.held.extend([
         (10, start("110")),
         (11, start("111")),
         (12, start("112")),
-        (13, Hold::Unread),
+        (13, held(Hold::Unread)),
         (14, start("114")),
-        (15, Hold::Unread),
-        (16, Hold::Unread),
-        (17, Hold::Pidfd(null.into())),
+        (15, held(Hold::Unread)),
+        (16, held(Hold::Unread)),
+        (17, held(Hold::Pidfd(null.into()))),
     ]);
-    handled.retire(|pid| match pid {
+    handled.retire(running, |pid| match pid {
         11 | 15 => Ok(None),
         12 => Ok(Some(started_at(12, "7"))),
         14 | 16 => Err(std::io::ErrorKind::Other.into()),
@@ -97,6 +107,50 @@ fn a_held_child_is_released_once_its_own_row_is_gone_or_anothers() {
         handled.held.keys().copied().collect::<Vec<_>>(),
         [10, 13, 14, 16, 17]
     );
+}
+
+/// A pidfd the kernel will not wait on (Linux 5.3 answers `EINVAL`) is
+/// closed and its child held unread, so its hold ends with its row and
+/// no descriptor is kept for the driver's life.
+#[test]
+fn a_pidfd_the_kernel_will_not_wait_on_is_closed_for_an_unread_hold() {
+    let mut handled = Handled::default();
+    let null = std::fs::File::open("/dev/null").unwrap();
+    handled.held.insert(10, held(Hold::Pidfd(null.into())));
+    handled.retire(|_| Err(Errno::INVAL), |_| Ok(Some(row(10, true))));
+    assert!(matches!(
+        handled.held.get(&10),
+        Some(Held {
+            hold: Hold::Unread,
+            ..
+        })
+    ));
+    handled.retire(|_| Err(Errno::INVAL), |_| Ok(None));
+    assert!(handled.held.is_empty(), "{:?}", handled.held);
+}
+
+/// A handle's release frees its own hold, whatever kind it is, and no
+/// later hold of its pid. An unread hold's pid an adopted orphan reuses
+/// once its handle has gone is then reaped as any other zombie.
+#[test]
+fn a_released_unread_hold_leaves_an_orphan_that_reuses_its_pid_to_the_reaper() {
+    let closed = |_| Err(std::io::ErrorKind::Other.into());
+    let unread = |_| Err(std::io::ErrorKind::Other.into());
+    let mut handled = serving();
+    let (mut child, token) = handled.spawn(&mut sleeping(), closed, unread).unwrap();
+    let pid = Pid::from_child(&child).as_raw_pid();
+    child.kill().unwrap();
+    child.wait().unwrap();
+    let reused = [row(pid, true)];
+    assert_eq!(handled.doomed(Some(&reused)), Vec::<i32>::new());
+    assert_eq!(handled.doomed(Some(&reused)), Vec::<i32>::new());
+    handled.release(pid, token.unwrap() + 1);
+    handled.release(pid + 1, token.unwrap());
+    assert!(handled.held.contains_key(&pid));
+    handled.release(pid, token.unwrap());
+    assert!(handled.held.is_empty(), "{:?}", handled.held);
+    assert_eq!(handled.doomed(Some(&reused)), Vec::<i32>::new());
+    assert_eq!(handled.doomed(Some(&reused)), [pid]);
 }
 
 fn sleeping() -> Command {
@@ -119,20 +173,26 @@ fn serving() -> Handled {
 #[test]
 fn a_child_held_by_its_pidfd_is_released_by_its_own_reap() {
     let mut handled = serving();
-    let mut child = handled
+    let (mut child, _) = handled
         .spawn(&mut sleeping(), pidfd, table::stat_of)
         .unwrap();
     let pid = Pid::from_child(&child).as_raw_pid();
     let own = table::stat_of(pid).unwrap().unwrap();
-    handled.retire(|_| Ok(None));
-    assert!(matches!(handled.held.get(&pid), Some(Hold::Pidfd(_))));
+    handled.retire(waited, |_| Ok(None));
+    assert!(matches!(
+        handled.held.get(&pid),
+        Some(Held {
+            hold: Hold::Pidfd(_),
+            ..
+        })
+    ));
     child.kill().unwrap();
     let zombie = until(|| table::stat_of(pid).unwrap().filter(|row| row.zombie));
     assert!(zombie.is_some(), "the child stands a zombie in time");
-    handled.retire(|_| Ok(None));
+    handled.retire(waited, |_| Ok(None));
     assert!(handled.held.contains_key(&pid));
     assert_eq!(child.wait().unwrap().signal(), Some(9));
-    handled.retire(|_| Ok(Some(own.clone())));
+    handled.retire(waited, |_| Ok(Some(own.clone())));
     assert!(handled.held.is_empty(), "{:?}", handled.held);
 }
 
@@ -141,32 +201,37 @@ fn a_child_held_by_its_pidfd_is_released_by_its_own_reap() {
 /// does not serve holds nothing, and a spawn that fails holds nothing.
 #[test]
 fn a_spawn_holds_its_child_before_its_lock_is_released() {
-    let ended = |mut child: Child| {
+    let ended = |(mut child, _): (Child, Option<u64>)| {
         child.kill().unwrap();
         child.wait().unwrap();
     };
     let closed = |_| Err(std::io::ErrorKind::Other.into());
     let unread = |_| Err(std::io::ErrorKind::Other.into());
     let mut handled = serving();
-    let child = handled
+    fn hold(handled: &Handled, pid: i32) -> Option<&Hold> {
+        handled.held.get(&pid).map(|held| &held.hold)
+    }
+    let spawned = handled
         .spawn(&mut sleeping(), pidfd, table::stat_of)
         .unwrap();
-    let first = Pid::from_child(&child).as_raw_pid();
-    assert!(matches!(handled.held.get(&first), Some(Hold::Pidfd(_))));
-    ended(child);
+    let first = Pid::from_child(&spawned.0).as_raw_pid();
+    assert!(matches!(hold(&handled, first), Some(Hold::Pidfd(_))));
+    assert_eq!(spawned.1, Some(1));
+    ended(spawned);
 
-    let child = handled
+    let spawned = handled
         .spawn(&mut sleeping(), closed, table::stat_of)
         .unwrap();
-    let second = Pid::from_child(&child).as_raw_pid();
+    let second = Pid::from_child(&spawned.0).as_raw_pid();
     let start = table::stat_of(second).unwrap().unwrap().id.start;
-    assert!(matches!(handled.held.get(&second), Some(Hold::Start(held)) if *held == start));
-    ended(child);
+    assert!(matches!(hold(&handled, second), Some(Hold::Start(held)) if *held == start));
+    ended(spawned);
 
-    let child = handled.spawn(&mut sleeping(), closed, unread).unwrap();
-    let third = Pid::from_child(&child).as_raw_pid();
-    assert!(matches!(handled.held.get(&third), Some(Hold::Unread)));
-    ended(child);
+    let spawned = handled.spawn(&mut sleeping(), closed, unread).unwrap();
+    let third = Pid::from_child(&spawned.0).as_raw_pid();
+    assert!(matches!(hold(&handled, third), Some(Hold::Unread)));
+    assert_eq!(spawned.1, Some(3));
+    ended(spawned);
 
     let missing = handled.spawn(
         &mut Command::new("/nonexistent/brokkr-reaper"),
@@ -177,21 +242,49 @@ fn a_spawn_holds_its_child_before_its_lock_is_released() {
     assert_eq!(handled.held.len(), 3);
 
     let mut idle = Handled::default();
-    ended(idle.spawn(&mut sleeping(), pidfd, table::stat_of).unwrap());
+    let spawned = idle.spawn(&mut sleeping(), pidfd, table::stat_of).unwrap();
+    assert_eq!(spawned.1, None);
+    ended(spawned);
     assert!(idle.held.is_empty());
 }
 
-/// However often a driver serves, only its first serve starts a reaper.
+/// However often a driver serves, only its first serve starts a reaper. A
+/// reaper the host refuses leaves it not serving, so no child is held with
+/// no sweep to release it, and the next serve tries again.
 #[test]
 fn only_the_first_serve_starts_a_reaper() {
     let mut handled = Handled::default();
     assert_eq!([handled.serve(), handled.serve()], [true, false]);
     assert!(handled.serving);
+
+    let mut handled = Handled::default();
+    let mut threads = 0;
+    handled.start(|_| {
+        threads += 1;
+        Err(std::io::ErrorKind::WouldBlock.into())
+    });
+    assert!(!handled.serving);
+    let (child, token) = handled
+        .spawn(&mut sleeping(), pidfd, table::stat_of)
+        .unwrap();
+    assert_eq!((token, handled.held.len()), (None, 0));
+    let started = |_| std::thread::Builder::new().spawn(|| ());
+    handled.start(started);
+    assert!(handled.serving);
+    handled.start(|_| {
+        threads += 1;
+        std::thread::Builder::new().spawn(|| ())
+    });
+    assert_eq!(threads, 1);
+    let mut child = child;
+    child.kill().unwrap();
+    child.wait().unwrap();
 }
 
 /// A child of the driver's own whose output another process holds open
 /// stands a zombie across two sweeps before its handle waits: the door
-/// held it, so its status is its own, never `ECHILD`.
+/// held it, so its status is its own, never `ECHILD`, and its handle's
+/// release frees the hold when it goes.
 #[test]
 fn a_probe_whose_output_outlives_it_keeps_its_status() {
     const TEST: &str = "process::reaper::tests::a_probe_whose_output_outlives_it_keeps_its_status";
@@ -207,6 +300,8 @@ fn a_probe_whose_output_outlives_it_keeps_its_status() {
         (output.status.code(), &output.stdout[..]),
         (Some(5), &b"probed\n"[..])
     );
+    // The door's handle released its hold as it went, before any sweep.
+    assert!(handled().held.is_empty(), "{:?}", handled().held);
 }
 
 /// The exec driver this binary serves when it is rerun with [`DRIVING`]
@@ -400,13 +495,14 @@ fn a_driver_reaps_the_orphan_its_harness_leaves_while_the_harness_runs() {
     );
 }
 
-/// Each orphan sleeps 5 s, past the 200 forks, so all are seen adopted.
+/// Each orphan sleeps 15 s, well past the 200 forks on a loaded host, so
+/// all are seen adopted.
 #[test]
 fn a_driver_reaps_every_one_of_many_adopted_orphans() {
     adopted_orphans_are_reaped(
         "process::reaper::tests::a_driver_reaps_every_one_of_many_adopted_orphans",
         "i=0; while [ $i -lt 200 ]; do \
-         (sleep 5 </dev/null >/dev/null 2>&1 & echo $! >> orphans); i=$((i+1)); done",
+         (sleep 15 </dev/null >/dev/null 2>&1 & echo $! >> orphans); i=$((i+1)); done",
         200,
         true,
     );

@@ -71,7 +71,7 @@ use refusal::{
     bounded_wire_line, claude_refusal, codex_refusal, codex_thread_refusal, dsh_refusal,
     epoch_now_nanos, find_codex_thread, thread_header, Now, REFUSAL_TOKEN_LIMIT,
 };
-use spawn::spawn_harness;
+use spawn::{spawn_harness, Spawned};
 #[cfg(test)]
 use start::serve_io;
 use start::{start_prompt, Confine};
@@ -777,7 +777,7 @@ fn spawn_piped(
     command: &[String],
     workdir: &str,
     bindings: &[secret::BoundSecret],
-) -> Result<std::process::Child, String> {
+) -> Result<Spawned, String> {
     let piped = Stdio::piped;
     spawn_harness(command, workdir, piped(), piped(), &[], bindings)
 }
@@ -790,7 +790,7 @@ fn spawn_fed(
     prompt: &str,
     workdir: &str,
     bindings: &[secret::BoundSecret],
-) -> Result<(std::process::Child, StderrCapture), String> {
+) -> Result<(Spawned, StderrCapture), String> {
     let mut child = spawn_piped(command, workdir, bindings)?;
     let mut stdin = child.stdin.take().expect("piped");
     io_context(
@@ -4843,7 +4843,7 @@ fn spawn_dsh(
     stdout: Stdio,
     launch: &DshLaunch,
     bindings: &[secret::BoundSecret],
-) -> Result<(std::process::Child, StderrCapture), String> {
+) -> Result<(Spawned, StderrCapture), String> {
     let env = dsh_child_env(launch);
     let mut child = spawn_harness(command, workdir, Stdio::null(), stdout, &env, bindings)?;
     let stderr_thread = drain_stderr(&mut child);

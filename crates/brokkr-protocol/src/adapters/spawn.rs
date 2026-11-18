@@ -4,6 +4,7 @@
 use std::process::Stdio;
 
 use super::{harness_command, io_context, lost};
+pub(super) use crate::process::spawned::Spawned;
 use crate::secret;
 
 /// Every harness spawns here: the shared [`harness_command`], the child's
@@ -17,7 +18,7 @@ pub(super) fn spawn_harness(
     stdout: Stdio,
     env: &[(&str, &str)],
     bindings: &[secret::BoundSecret],
-) -> Result<std::process::Child, String> {
+) -> Result<Spawned, String> {
     let mut builder = harness_command(command, workdir, env, bindings)?;
     builder.stdin(stdin).stdout(stdout).stderr(Stdio::piped());
     let child = crate::process::spawned::spawn(&mut builder);
