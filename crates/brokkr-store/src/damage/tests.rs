@@ -115,6 +115,29 @@ fn an_envelope_that_is_not_json_is_named_by_run_and_seq() {
     assert_eq!(damaged(store.last_event("r1", 2).unwrap_err()), expected);
 }
 
+/// Text whose start fits no envelope is still not JSON when the rest does
+/// not parse: serde's shape error comes first, and the refusal stays the
+/// envelope's damage.
+#[test]
+fn text_that_fails_the_shape_before_the_syntax_is_still_not_json() {
+    let (_dir, db) = journal();
+    let damage = Damage::Envelope {
+        run_id: "r1".into(),
+        seq: 2,
+    };
+    let expected = refusal(&db, &db.display().to_string(), damage);
+    for text in ["{}trailing", r#"{"run_id": 0"#] {
+        replace_envelope(&db, "r1", 2, text);
+        let store = Store::open_read_only(&db).unwrap();
+        assert_eq!(damaged(store.load("r1").unwrap_err()), expected, "{text}");
+        assert_eq!(
+            damaged(store.open_run("r1").unwrap_err()),
+            expected,
+            "{text}"
+        );
+    }
+}
+
 /// What is not damage keeps its own words: JSON that is no envelope, a
 /// chain that does not verify, a peer's lock, a schema this build does not
 /// read and a missing file.
