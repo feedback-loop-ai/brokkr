@@ -20,31 +20,57 @@ use super::Engine;
 /// record this slice writes says the worktree may be dirty.
 const DIRTY_UNTIL_THE_TREE_CHECK: bool = true;
 
-/// Which `covered` field set a gate effect's successful result records
-/// (decision 0109 ruling 7).
+/// Which `covered` field set a gate-produced result records (decision
+/// 0109 ruling 7). Whether one is recorded at all is the producing
+/// span's: only a gate span's checked observation stamps one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Covering {
-    /// A gate with its own head record: the commit it read, taken at the
-    /// end of the effect, where the stable-head check already holds.
+    /// A gate with its own head record: the commit its span's
+    /// stable-head check accepted.
     Head,
-    /// The protected phase: the SHA-256 of its head, pinned at decide to
-    /// the decide-time `reviewed_heads`.
+    /// The protected phase: the SHA-256 of that head, pinned at decide to
+    /// the `reviewed_heads` the same observation records.
     HeadDigest,
 }
 
 impl Covering {
-    /// What an effect of a seat whose selected body is `gate` class
-    /// records, in the bundle's protected phase or not: nothing for work.
-    pub(super) fn of(gate: bool, protected: bool) -> Option<Covering> {
-        match (gate, protected) {
-            (false, _) => None,
-            (true, true) => Some(Covering::HeadDigest),
-            (true, false) => Some(Covering::Head),
+    /// What an effect records in the bundle's protected phase or not.
+    pub(super) fn of(protected: bool) -> Covering {
+        if protected {
+            Covering::HeadDigest
+        } else {
+            Covering::Head
         }
     }
 }
 
 impl Engine {
+    /// The covered record of `effect_id`'s latest span, under `covering`:
+    /// present only where that span was a gate span whose stable-head
+    /// check accepted a head that reads.
+    fn covered_of(&self, effect_id: &str, covering: Covering) -> Option<Value> {
+        let head = self.observed_head_of(effect_id)?;
+        let covered = match covering {
+            Covering::Head => Covered::commit(head, DIRTY_UNTIL_THE_TREE_CHECK)?,
+            Covering::HeadDigest => Covered::digest_of(head, DIRTY_UNTIL_THE_TREE_CHECK),
+        };
+        Some(serde_json::to_value(covered).expect("a covered record serializes"))
+    }
+
+    /// A sequence step's result before its checkpoint is journaled, with
+    /// the covered record of the step's own span when the step was a gate
+    /// (fix round 0109a1r2, R2): each gate-produced result is stamped
+    /// from the span that produced it.
+    pub(super) fn stamp_step_covered(&self, effect_id: &str, mut result: Value) -> Value {
+        let covered = self
+            .covering
+            .and_then(|covering| self.covered_of(effect_id, covering));
+        if let (Some(covered), Some(result)) = (covered, result.as_object_mut()) {
+            result.insert("covered".into(), covered);
+        }
+        result
+    }
+
     /// A terminal effect payload with its covered record stamped on a
     /// success, before it is appended: each terminal event spends the
     /// covering its dispatch armed, so none outlives its effect. The head
@@ -61,16 +87,10 @@ impl Engine {
             return payload;
         };
         let effect_id = payload.get("effect_id").and_then(Value::as_str);
-        let covered = effect_id
-            .and_then(|effect_id| self.observed_head_of(effect_id))
-            .and_then(|head| match covering {
-                Covering::Head => Covered::commit(head, DIRTY_UNTIL_THE_TREE_CHECK),
-                Covering::HeadDigest => Some(Covered::digest_of(head, DIRTY_UNTIL_THE_TREE_CHECK)),
-            });
+        let covered = effect_id.and_then(|effect_id| self.covered_of(effect_id, covering));
         let result = payload.get_mut("result").and_then(Value::as_object_mut);
         if let (Some(covered), Some(result)) = (covered, result) {
-            let record = serde_json::to_value(covered).expect("a covered record serializes");
-            result.insert("covered".into(), record);
+            result.insert("covered".into(), covered);
         }
         payload
     }
@@ -125,5 +145,7 @@ pub(super) fn admitted(mut report: AttemptReport, site: Option<&SiteContext>) ->
 
 #[cfg(test)]
 pub(super) mod covered_tests;
+#[cfg(test)]
+mod span_tests;
 #[cfg(test)]
 mod tests;

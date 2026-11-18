@@ -165,7 +165,7 @@ impl Engine {
             state.strategy.as_deref(),
         ));
         let protected = phase == self.bundle.protected_phase;
-        self.covering = super::verdict::Covering::of(at.gate, protected);
+        self.covering = Some(super::verdict::Covering::of(protected));
         self.append(EventType::EffectStarted, started, Some(attempt_id.clone()))?;
         std::fs::create_dir_all(self.run_local().join(RESULTS)).ok();
         let deadline = deadline::Deadline::of(

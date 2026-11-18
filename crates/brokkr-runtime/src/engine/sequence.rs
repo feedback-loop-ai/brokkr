@@ -323,7 +323,10 @@ impl Engine {
         // compared and cleared at this step's own end below, before
         // any later step gets to move the tree lawfully (decision
         // 0042 reads an author as a work step). Nothing outer arms
-        // for a sequence, so this is the only observation taken.
+        // for a sequence, so this is the only observation taken. The
+        // class is the compiled step's: a dialect check is a gate
+        // (bundle::sequence::step_class) whether or not its recipe wrote
+        // one, and its span's observation stamps what it produced.
         self.begin_span(at.step.class == SeatClass::Gate);
         let ran = match &at.step.body {
             StepBody::Invocation(Invocation::Single { command, .. }) => {
@@ -655,6 +658,7 @@ impl Engine {
         carried: &mut Carried,
         refused: impl FnOnce(String) -> Value,
     ) -> Result<StepVerdict<()>, EngineError> {
+        let result = self.stamp_step_covered(run.effect_id, result);
         let model = result
             .get("model")
             .and_then(Value::as_str)
