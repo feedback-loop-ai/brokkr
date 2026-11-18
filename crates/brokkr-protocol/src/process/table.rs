@@ -304,6 +304,13 @@ pub(super) fn children_of(pid: i32) -> Option<Vec<Entry>> {
     children_in(std::path::Path::new(PROC), pid)
 }
 
+/// The row of `pid`, or `None` once it is gone: how the driver's reaper
+/// reads the start of a child it holds, and sees its handle reaped it.
+#[cfg(target_os = "linux")]
+pub(super) fn stat_of(pid: i32) -> std::io::Result<Option<Entry>> {
+    read(std::path::Path::new(PROC), pid)
+}
+
 /// [`children_of`] in `proc`, for the planted trees the tests read.
 #[cfg(target_os = "linux")]
 fn children_in(proc: &std::path::Path, pid: i32) -> Option<Vec<Entry>> {
@@ -368,15 +375,17 @@ fn clear_stat_reads() {
 
 /// The row of `pid`, or `None` when the process is gone: its directory
 /// went with it (`ENOENT`), or it exited while its `stat` was read
-/// (`ESRCH`).
+/// (`ESRCH`). The row is read as bytes: its command name is the
+/// process's own to set, and one that is not UTF-8 is no unreadable row.
 #[cfg(target_os = "linux")]
 fn read(proc: &std::path::Path, pid: i32) -> std::io::Result<Option<Entry>> {
     #[cfg(test)]
     count_stat();
-    let stat = match std::fs::read_to_string(proc.join(pid.to_string()).join("stat")) {
+    let stat = match std::fs::read(proc.join(pid.to_string()).join("stat")) {
         Err(error) if gone(&error) => return Ok(None),
         stat => stat?,
     };
+    let stat = String::from_utf8_lossy(&stat);
     parse_stat(pid, &stat).map(Some).ok_or_else(|| {
         std::io::Error::new(
             std::io::ErrorKind::InvalidData,

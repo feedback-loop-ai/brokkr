@@ -343,6 +343,17 @@ fn the_reaper_reads_its_own_children_and_no_partial_read() {
     let rows = children_in(proc.path(), 500).unwrap();
     assert_eq!(rows.iter().map(|row| row.id.pid).collect::<Vec<_>>(), [501]);
 
+    // A child names itself in any bytes, UTF-8 or not, and is still read.
+    let stat = b"501 (\xff\xfe) Z 500 501 501 0 -1 0 0 0 0 0 0 0 0 0 20 0 1 0 601 0 0";
+    std::fs::write(proc.path().join("501/stat"), stat).unwrap();
+    let rows = children_in(proc.path(), 500).unwrap();
+    assert_eq!(
+        rows.iter()
+            .map(|row| (row.id.pid, row.zombie))
+            .collect::<Vec<_>>(),
+        [(501, true)]
+    );
+
     std::fs::write(proc.path().join("500/task/500/children"), "x").unwrap();
     assert_eq!(children_in(proc.path(), 500), None);
     assert_eq!(children_in(unreadable("501/stat").path(), 500), None);

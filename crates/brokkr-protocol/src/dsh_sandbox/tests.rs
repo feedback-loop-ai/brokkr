@@ -1,3 +1,5 @@
+use std::process::Stdio;
+
 use super::*;
 
 /// A fixture's git signs nothing, whatever the host's configuration says:

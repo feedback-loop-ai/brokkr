@@ -465,7 +465,7 @@ pub(crate) fn composition_gate(
     release: Release,
     mode: Mode,
 ) -> Result<(), Composition> {
-    composition::composed_with(command, release, mode, |command| command.output())
+    composition::composed_with(command, release, mode, crate::process::spawned::output)
 }
 
 /// dsh's startup outcome, classified once from the RAW captured stderr

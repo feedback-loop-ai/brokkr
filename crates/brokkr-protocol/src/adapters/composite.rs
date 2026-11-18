@@ -4400,10 +4400,7 @@ fn spawn_node_runtime_at(
     path: PathBuf,
     invocation: &DshInvocation,
 ) -> Result<NodeRuntime, CompositeError> {
-    let output = invocation
-        .command()
-        .arg("--version")
-        .output()
+    let output = crate::process::spawned::output(invocation.command().arg("--version"))
         .map_err(|error| CompositeError::Config(format!("node --version: {error}")))?;
     if !output.status.success() {
         return Err(CompositeError::Config(

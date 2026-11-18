@@ -1,0 +1,45 @@
+//! The one door every child a driver may spawn goes through (#1133). On
+//! Linux a serving driver holds each child it spawns here in its reaper's
+//! registry, so the reaper leaves the child's status to its own handle;
+//! anywhere else, and in any process that does not serve, a spawn here is
+//! the plain spawn.
+
+use std::io::Result;
+use std::process::{Child, Command, ExitStatus, Output, Stdio};
+
+/// Spawn `command`, held by the driver's reaper where one runs.
+pub(crate) fn spawn(command: &mut Command) -> Result<Child> {
+    #[cfg(target_os = "linux")]
+    return super::reaper::spawn(command);
+    #[cfg(not(target_os = "linux"))]
+    command.spawn()
+}
+
+/// [`Command::output`] through [`spawn`]: the standard input closed, and
+/// the two outputs captured. It sets all three streams, so a command that
+/// sets its own runs [`spawn`] and waits for itself.
+pub(crate) fn output(command: &mut Command) -> Result<Output> {
+    command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    spawn(command)?.wait_with_output()
+}
+
+/// [`Command::status`] through [`spawn`].
+pub(crate) fn status(command: &mut Command) -> Result<ExitStatus> {
+    spawn(command)?.wait()
+}
+
+/// Whether `command` runs to a success with all three streams closed:
+/// the probes that ask only whether a tool works here.
+pub(crate) fn succeeds(command: &mut Command) -> bool {
+    command
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    status(command).is_ok_and(|status| status.success())
+}
+
+#[cfg(test)]
+mod tests;

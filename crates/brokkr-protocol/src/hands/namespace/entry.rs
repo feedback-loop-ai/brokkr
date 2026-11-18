@@ -422,7 +422,7 @@ pub(in crate::hands) fn started(
     let ended = AtomicBool::new(false);
     let (started, timely) = std::thread::scope(|scope| {
         let watcher = scope.spawn(|| watched(&ended, &mut report, &mut releaser, startup));
-        let started = launch.spawn().ok();
+        let started = crate::process::spawned::spawn(&mut launch).ok();
         ended.store(true, Ordering::Release);
         (started, watcher.join().unwrap_or(false))
     });
