@@ -12,9 +12,11 @@ use brokkr_core::{EventEnvelope, ProbeAnswer, ProviderWait};
 use brokkr_protocol::hands::HandsSpec;
 use brokkr_store::ProbeHold;
 use serde_json::Value;
+use time::OffsetDateTime;
 use uuid::Uuid;
 
 use super::{Engine, EngineError};
+use crate::admission::spelled;
 use crate::agents::Candidate;
 use crate::bundle::{
     Aggregate, ExecutableBody, Invocation, PanelMember, Seat, SeatClass, SequenceStep, StepBody,
@@ -125,11 +127,27 @@ fn probe_body<'a>(picked: &'a ProbeSeat, strategy: Option<&str>) -> ExecutableBo
 }
 
 /// What an admitted probe holds before its driver composes: the attempt
-/// name, the input it runs with, and the deadline its admission shared.
+/// name, the input it runs with, and the one instant its hold and its
+/// driver both end by (fix round 0106b1r5, H2).
 struct AdmittedProbe {
     attempt: String,
     input: Value,
-    deadline: Duration,
+    ends: OffsetDateTime,
+}
+
+/// A probe whose deadline passed before its driver could be spawned (fix
+/// round 0106b1r5, H2): it is not spawned, and its route's hold stands
+/// until that deadline. Its words are the park's reason.
+#[derive(Debug, thiserror::Error)]
+#[error(
+    "the cool-down probe for {provider}/{route} was not spawned: its deadline {} passed before \
+     its driver could start, and its route's hold stands until then",
+    spelled(*ends)
+)]
+struct Late {
+    provider: String,
+    route: String,
+    ends: OffsetDateTime,
 }
 
 impl Engine {
@@ -150,7 +168,13 @@ impl Engine {
         let observed = observed();
         let began = Instant::now();
         let deadline = Duration::from_secs(picked.seat.limits.timeout_seconds);
-        if let Err(unheld) = self.hold_the_route(wait, deadline) {
+        // The probe's one deadline, taken once as it begins: its hold ends
+        // there and its driver is armed with what remains of it at spawn.
+        let now = self.now();
+        let ends = now.saturating_add(time::Duration::seconds(
+            i64::try_from(deadline.as_secs()).unwrap_or(i64::MAX),
+        ));
+        if let Err(unheld) = self.hold_the_route(wait, now, ends) {
             return Ok(Err(Probe::Parked(Park::ruled(format!(
                 "the cool-down probe for {}/{} was not admitted: its route's hold was not \
                  written: {unheld}",
@@ -173,15 +197,17 @@ impl Engine {
         Ok(Ok(AdmittedProbe {
             attempt,
             input,
-            deadline,
+            ends,
         }))
     }
 
     /// Hold the probe's route before it is reserved and dispatched (fix
     /// round 0106b1r4, F1; the operator's ruling of 2026-11-18, amending
-    /// decision 0103 ruling 2): one hold row, carrying the provider, the
-    /// route and the `deadline` the probe spawns under, that the pass and
-    /// the claim read as cooling down until it ends or its deadline passes.
+    /// decision 0103 ruling 2): one hold row, written at `now`, carrying the
+    /// provider, the route and the instant `ends` the probe's driver is
+    /// killed by (fix round 0106b1r5, H2), which the store rounds up to its
+    /// whole second, that the pass and the claim read as cooling down until
+    /// it ends or that deadline passes.
     /// A hold the store refuses parks the probe unadmitted, so no probe
     /// runs on a route it could not hold. A queue older than version 7, or
     /// one a newer binary stores, takes no hold and the probe runs as it
@@ -192,17 +218,15 @@ impl Engine {
     fn hold_the_route(
         &mut self,
         wait: &ProviderWait,
-        deadline: Duration,
+        now: OffsetDateTime,
+        ends: OffsetDateTime,
     ) -> Result<(), brokkr_store::StoreError> {
-        let now = self.now();
         let hold = ProbeHold {
             run_id: &self.run_id,
             site: wait.site.as_deref().unwrap_or(""),
             provider: &wait.provider,
             route: &wait.route,
-            deadline: now.saturating_add(time::Duration::seconds(
-                i64::try_from(deadline.as_secs()).unwrap_or(i64::MAX),
-            )),
+            deadline: ends,
         };
         self.cooldown.hold = self.store.hold_probe(&hold, now)?;
         Ok(())
@@ -284,7 +308,7 @@ impl Engine {
             admitted.input,
             hands.as_ref(),
             &selection,
-            admitted.deadline,
+            admitted.ends,
             wait,
         );
         Ok(probe)
@@ -354,7 +378,7 @@ impl Engine {
                     body,
                 );
                 let probe =
-                    self.spawn_probe(&at, &run.spawn, run.input.clone(), prepared.deadline, wait);
+                    self.spawn_probe(&at, &run.spawn, run.input.clone(), prepared.ends, wait);
                 Ok(probe)
             }
             ProbeForm::Sequence(steps) => {
@@ -500,7 +524,7 @@ impl Engine {
             at.picked,
             body,
         );
-        let probe = self.spawn_probe(&dispatch, &spawn, input, prepared.deadline, at.wait);
+        let probe = self.spawn_probe(&dispatch, &spawn, input, prepared.ends, at.wait);
         Ok(probe)
     }
 
@@ -568,7 +592,7 @@ impl Engine {
             &dispatch,
             &run.spawn,
             run.input.clone(),
-            prepared.deadline,
+            prepared.ends,
             at.wait,
         );
         Ok(probe)
@@ -585,24 +609,37 @@ impl Engine {
         mut input: Value,
         hands: Option<&HandsSpec>,
         selection: &Selection,
-        deadline: Duration,
+        ends: OffsetDateTime,
         wait: &ProviderWait,
     ) -> Probe {
         let composed = self.composed_single(at, selection, &mut input, hands, &[]);
         let spawn = composed.expect("a single seat composed its command");
-        self.spawn_probe(at, &spawn, input, deadline, wait)
+        self.spawn_probe(at, &spawn, input, ends, wait)
     }
 
     /// Spawn one admitted probe's already-composed site and run it to its
     /// end: the single seat's composed spawn and the panel member's own.
+    /// The driver is armed with what remains to `ends`, the instant its
+    /// hold ends at, never a fresh timeout; with nothing left it is not
+    /// spawned, and its hold stands to `ends` (fix round 0106b1r5, H2).
     fn spawn_probe(
         &mut self,
         at: &Dispatch<'_>,
         spawn: &SiteSpawn,
         input: Value,
-        deadline: Duration,
+        ends: OffsetDateTime,
         wait: &ProviderWait,
     ) -> Probe {
+        let left = ends - self.now();
+        if left <= time::Duration::ZERO {
+            let late = Late {
+                provider: wait.provider.clone(),
+                route: wait.route.clone(),
+                ends,
+            };
+            return Probe::Parked(Park::ruled(late.to_string()));
+        }
+        let deadline = left.unsigned_abs();
         let door = self
             .held
             .as_ref()
