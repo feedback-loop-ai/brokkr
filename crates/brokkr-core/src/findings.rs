@@ -11,7 +11,7 @@
 use std::collections::BTreeSet;
 use std::fmt;
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use thiserror::Error;
 
@@ -20,8 +20,9 @@ use crate::policy::{is_identifier, Severity};
 /// Ruling 3's bound on a finding id, in bytes.
 const ID_MAX_BYTES: usize = 64;
 
-/// The bound on a finding's repository-relative file, as v7 states it.
-const FILE_MAX_BYTES: usize = 4096;
+/// The bound on a finding's repository-relative file, in characters, as
+/// v7's `maxLength` counts them.
+const FILE_MAX_CHARS: usize = 4096;
 
 /// The gate report fields only the engine writes (decision 0109 ruling
 /// 1): it knows the head and the delta, and a seat does not.
@@ -147,8 +148,9 @@ impl TryFrom<String> for SiteDigest {
     }
 }
 
-/// A repository-relative path: non-empty, never absolute, and with no
-/// `..` component.
+/// A repository-relative path: non-empty, at most 4096 characters, never
+/// absolute, and with no `..` component, exactly what v7's `repo_path`
+/// admits.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
 pub struct RepoFile(String);
@@ -158,7 +160,7 @@ impl TryFrom<String> for RepoFile {
 
     fn try_from(file: String) -> Result<RepoFile, WordError> {
         let relative = !file.is_empty()
-            && file.len() <= FILE_MAX_BYTES
+            && file.chars().count() <= FILE_MAX_CHARS
             && !file.starts_with('/')
             && file.split('/').all(|part| part != "..");
         if relative {
@@ -248,13 +250,19 @@ impl FindingKey {
     }
 }
 
+/// A `line` that is present is a positive integer: `null` is refused, and
+/// only an absent line reads as a whole-file finding.
+fn present_line<'de, D: Deserializer<'de>>(line: D) -> Result<Option<Line>, D::Error> {
+    Line::deserialize(line).map(Some)
+}
+
 /// What a seat writes for one finding: everything but the site.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Reported {
     id: FindingId,
     file: RepoFile,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "present_line")]
     line: Option<Line>,
     summary: Summary,
     severity: Severity,
@@ -269,7 +277,11 @@ pub struct Finding {
     site: SiteDigest,
     id: FindingId,
     file: RepoFile,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "present_line",
+        skip_serializing_if = "Option::is_none"
+    )]
     line: Option<Line>,
     summary: Summary,
     severity: Severity,

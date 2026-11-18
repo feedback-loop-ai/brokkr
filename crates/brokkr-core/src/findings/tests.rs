@@ -169,6 +169,7 @@ fn a_record_that_is_not_a_finding_is_refused() {
         with(reported(), "file", json!("")),
         with(reported(), "line", json!(0)),
         with(reported(), "line", json!(-3)),
+        with(reported(), "line", json!(null)),
         with(reported(), "summary", json!("")),
         without(reported(), "summary"),
         with(reported(), "severity", json!("severe")),
@@ -249,6 +250,23 @@ fn findings_from_a_work_site_are_refused_not_repaired() {
     let mut plain = json!({"result": "complete"});
     admit(&mut plain, Some(Reporter::Work)).unwrap();
     assert_eq!(plain, json!({"result": "complete"}));
+}
+
+/// An absent `line` is a whole-file finding, journaled with none; a
+/// present `null` is no line, so the read-back refuses it as the seat's
+/// edge does (a_record_that_is_not_a_finding_is_refused).
+#[test]
+fn an_absent_line_is_a_whole_file_finding_and_a_null_line_is_refused() {
+    let stamped = stamp(&json!([without(reported(), "line")]), &site(SITE)).unwrap();
+    assert_eq!(stamped[0].line(), None);
+    let mut journaled = serde_json::to_value(&stamped).unwrap();
+    assert_eq!(journaled[0].get("line"), None);
+    assert_eq!(
+        recorded(&json!({"findings": journaled.clone()})),
+        Some(stamped)
+    );
+    journaled[0]["line"] = json!(null);
+    assert_eq!(recorded(&json!({"findings": journaled})), None);
 }
 
 /// Decision 0109 ruling 6: a v6 result, which has no `findings`, reads as

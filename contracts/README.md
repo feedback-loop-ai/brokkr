@@ -1176,8 +1176,10 @@ by digest beside the frozen files:
 optional properties on the successful result: `findings`, `follow_ups` and
 `covered`. A finding is closed: `site` (the 64-hex digest of the compiled
 structural site that reported it), `id` (`^[a-z0-9][a-z0-9._-]*$`, at most
-64 bytes), a repository-relative `file`, an optional positive `line`, a
-non-empty `summary`, a `severity` in `none < info < low < medium < high <
+64 bytes), a repository-relative `file` (non-empty, at most 4096
+characters, never absolute and with no `..` component, exactly what the
+engine's reader admits), an optional positive `line` (absent for a whole
+file; a present `null` is refused), a non-empty `summary`, a `severity` in `none < info < low < medium < high <
 critical` and a boolean `security`. Its key is `(site, id)` (ruling 3); the
 rest is the record. `follow_ups` has the same shape. `covered` is closed
 and tagged by `kind`: `head` with exactly one of `head` (a commit id) or
@@ -1188,9 +1190,10 @@ string), beside `dirty`, and no `base`; or `artifacts` with at least one
 `covered`, `follow_ups` and each finding's `site` are the engine's: the
 engine refuses a seat result that carries any of them before this
 contract is asked, and stamps them itself (rulings 1 and 3). In this
-slice the engine writes `findings` wherever a seat reports them, each
-with its own site, and `covered` on a gate's result in the `head` arm
-only; the `artifacts` arm and `follow_ups` are admitted and written by no
+slice the engine writes `findings` where a gate site reports them, each
+with its own site, and refuses a work site's result that carries any; it
+writes `covered` on a gate-produced result in the `head` arm only, from
+the head its span's stable-head check accepted; the `artifacts` arm and `follow_ups` are admitted and written by no
 path until slices 0109c and 0109d, and every `dirty` is `true` until
 0109b's tree check proves a worktree clean.
 

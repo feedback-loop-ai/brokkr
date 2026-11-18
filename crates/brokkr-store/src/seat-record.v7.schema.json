@@ -638,11 +638,14 @@
       "pattern": "^[0-9a-f]{64}$"
     },
     "repo_path": {
-      "description": "A repository-relative path: non-empty and never absolute. The engine also refuses a '..' component.",
+      "description": "A repository-relative path: non-empty, at most 4096 characters, never absolute, and with no '..' component, exactly what the engine's reader admits.",
       "type": "string",
       "minLength": 1,
       "maxLength": 4096,
-      "pattern": "^[^/]"
+      "pattern": "^[^/]",
+      "not": {
+        "pattern": "(^|/)\\.\\.(/|$)"
+      }
     },
     "finding": {
       "description": "One finding as the engine journals it (decision 0109 ruling 3): the seat's report, with the site the engine stamped. The key is (site, id).",

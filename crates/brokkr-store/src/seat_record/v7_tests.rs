@@ -110,6 +110,7 @@ fn v7_closes_the_finding_the_covered_record_and_the_result() {
         found(with(finding(), "", "file", json!("/etc/passwd"))),
         found(with(finding(), "", "file", json!(""))),
         found(with(finding(), "", "line", json!(0))),
+        found(with(finding(), "", "line", json!(null))),
         found(with(finding(), "", "summary", json!(""))),
         found(with(finding(), "", "severity", json!("severe"))),
         found(with(finding(), "", "security", json!("no"))),
@@ -146,6 +147,45 @@ fn v7_closes_the_finding_the_covered_record_and_the_result() {
             refusal.unwrap_err().to_string(),
             "seat record at journal seq 9 violates contracts/seat-record.v7.schema.json at /"
         );
+    }
+}
+
+/// A finding's `file` is closed alike by v7 and by the engine's typed
+/// reader, `brokkr_core::findings::RepoFile`: every case is admitted by
+/// both or refused by both, so the journal fence never takes a finding
+/// `inspect` would drop.
+#[test]
+fn v7_refuses_a_findings_file_exactly_where_the_reader_does() {
+    let (longest, longer) = ("a".repeat(4096), "a".repeat(4097));
+    let wide = "é".repeat(4096);
+    let cases = [
+        ("crates/a/src/lib.rs", true),
+        ("a", true),
+        ("a..b/c", true),
+        ("..a/b", true),
+        ("a/b..", true),
+        (".../x", true),
+        ("./a", true),
+        ("a//b", true),
+        (longest.as_str(), true),
+        (wide.as_str(), true),
+        ("", false),
+        ("/etc/passwd", false),
+        ("..", false),
+        ("../a", false),
+        ("a/..", false),
+        ("a/../../etc", false),
+        ("a/./../b", false),
+        (longer.as_str(), false),
+    ];
+    for (file, admitted) in cases {
+        let record = gate(
+            "findings",
+            json!([with(finding(), "", "file", json!(file))]),
+        );
+        let schema = judged(&record, SeatRecordVersion::V7).is_ok();
+        let reader = brokkr_core::findings::RepoFile::try_from(file.to_string()).is_ok();
+        assert_eq!((schema, reader), (admitted, admitted), "{file:.40}");
     }
 }
 
