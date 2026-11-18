@@ -12,7 +12,8 @@ adopter's figures, and they are theirs: on brokkr 0.12.0 with GitHub-hosted runn
 in one week, each on a runner fault. In one, a compose service could not bind its host port
 (`address already in use`), so the job's tests never ran. In another, a timing-sensitive test
 failed once and passed on re-run. Each, they report, cost a seat attempt to diagnose, plus the
-wall clock until a person re-ran the jobs.
+wall clock until a person re-ran the jobs. Their exact failing steps, those steps' names and
+their log excerpts were not observed here. Every claim below about them is **unmeasured**.
 
 The house has its own instance. #1113 is RustSec's `update-a-check-run` "Not Found" transient on a
 pull request, fixed by a re-run. Another session holds it; this decision names it as an instance
@@ -41,7 +42,7 @@ Read at `e667a04c2`.
 
 Two searches were run over the tree. The first,
 `grep -rnE "gh (pr checks|run (rerun|view|watch|list))|statusCheckRollup|check-runs|check_runs|checks --watch|mergeStateStatus|--required" recipes crates scripts`,
-printed only `recipes/preflight/README.md:48` (a table cell saying preflight has no `gh`) and
+printed only `recipes/preflight/README.md:48` and
 tool-grant strings in tests (`crates/brokkr-runtime/src/agents/tests.rs:4219`,
 `crates/brokkr-runtime/tests/library_data.rs:745`, `crates/brokkr-runtime/tests/capability_launch.rs:5747`,
 `crates/brokkr-protocol/src/native_controls/tests.rs:6434`). The second, for any `gh` subcommand in
@@ -51,14 +52,25 @@ and the agent that hires them (`agents/verify-reviewer.json:7`). A search of non
 `crates/` for `"gh"` as a command, `api.github.com`, `/check-runs` or `/actions/runs` printed no
 reader.
 
+`recipes/preflight/README.md:48` is one table row with two cells. Preflight's cell says it has
+no `gh`. The other cell says the `verify` recipe's driver tools include `gh pr view` and
+`gh run view`. Those are the grants of the reviewer `verify` hires: its `review` seat names the
+agent `verify-reviewer` (`recipes/verify/bundle.json:43`). A grant is not an observed use.
+Whether any run's reviewer called either tool, and what it read, was not looked for in any
+journal here: **unmeasured**.
+
 So Brokkr reads no check. What a model seat may do is call `gh run view` under its grant and
 write prose about it; nothing types what it read.
 
-The house's own runs end before CI. `landing` is `classify` → `verify` → `review` → `ship` →
-`done`, and "the rest of the checks main requires stay CI's" (`recipes/landing/README.md:5-11`).
-`fast`'s two exec seats, the verifier and the shipper, run with `"network": false`
-(`recipes/fast/bundle.json:46`, `:91`). A red check on a house pull request is read by a person or
-the merge queue, outside any run; #1113 is one.
+No house recipe has a CI phase. `landing`'s phases are `classify` → `verify` → `review` →
+`ship` → `done`, and "the rest of the checks main requires stay CI's"
+(`recipes/landing/README.md:5-11`). That is an absence of a CI reader, not an ordering. CI runs
+on a pull request's `opened`, `synchronize`, `reopened`, `labeled` and `unlabeled` events
+(`.github/workflows/ci.yml:3-17`), so on a pull request already open, CI can start before a
+landing run does, and run beside it. When a person or the merge queue reads a red check, and
+which external actors take part, is **unmeasured**. `fast`'s two exec seats, the verifier and the
+shipper, run with `"network": false` (`recipes/fast/bundle.json:46`, `:91`). #1113 is a red check
+read outside any run.
 
 ### What a failed check becomes, and through which rule it parks
 
@@ -73,7 +85,11 @@ shaped like `fast`'s, the two roads a red gate can take are these:
   `VERIFY-FAIL-EXHAUSTED` stops the run (`:76-86`);
 - the implementer, finding nothing to change, returns `blocked` with `blocked_by: environment`,
   and `IMPL-BLOCKED-ENVIRONMENT` parks (`:39-50`, decision 0092). `blocked_by` is a seat-owned
-  choice (`crates/brokkr-core/src/policy/inputs.rs:106-115`): the seat's prose chose the park.
+  typed choice (`crates/brokkr-core/src/policy/inputs.rs:106-115`), matched by `blocked_by_in`
+  (`recipes/fast/policy.json:39-57`). It is not prose: a result that names the environment in
+  its notes but carries no `blocked_by` input does not match `IMPL-BLOCKED-ENVIRONMENT`, and falls
+  to `IMPL-BLOCKED`'s stop. What is the seat's own is the judgment behind the typed word: no
+  forge fact backs it.
 
 A rule park is written `ruled` with the matched rule id
 (`crates/brokkr-runtime/src/engine/cursor.rs:362-369`, `:386`). No writer at HEAD passes
@@ -181,7 +197,7 @@ The observation names its binding:
 
 - the forge (`github`, the one word v1 admits);
 - the repository, by owner, name and numeric id;
-- the pull request's number;
+- the pull request's number, and its base commit's full id;
 - the gated head's full commit id.
 
 It then lists every check the forge reports for that head, with no filtering. Checks outside
@@ -239,6 +255,7 @@ failure to type, it refuses with its own closed, typed reason, before and after 
 | `not-settled` | a required check is still queued or in progress when the observer's own polling bound ends, short of the seat's deadline |
 | `non-success` | a required check concluded `neutral`, `skipped`, `stale` or `action_required`, words the classifier types as no failure; the refusal names the check and the word |
 | `required-set-disagrees` | the forge requires a check the pinned list lacks |
+| `range-unavailable` | git cannot take ruling 3's pinned base-to-head range |
 
 A refusal never re-runs and never passes. The run parks `ruled`, with the rule's id and the
 refusal's word. On a second observation two more bindings hold. Every required check outside
@@ -262,7 +279,25 @@ the pinned list, and must equal the recorded one.
 - **(b) A new `ci/classified` event.** Moves the event envelope, every manifest and every fold
   arm for a fact an input can carry. Refused, as 0106 ruling 1 refused `run/park-caused`.
 - **(c) The excerpt kept outside the journal by digest.** Smaller rows, but the classification
-  could not be replayed from the journal alone. Refused; the 8 KiB bound is the cost control.
+  could not be replayed from the journal alone. Refused; the bound below is the cost control.
+
+**Log excerpts, bounded in total and handled before they are durable.** Under ruling 3 (a) the
+observer reads no log, and the observation carries no excerpt; v1's parser refuses the field.
+Under (b) only, an excerpt is carried only for a failed step that is runner-owned, and the
+observer applies four bounds before the seat's result is written, so they hold before sealing:
+
+- each excerpt is at most 8 KiB, from the step log's tail, with a `truncated` flag;
+- an observation carries at most four excerpts, so 32 KiB in total, and a fifth candidate
+  refuses the observation rather than dropping one silently;
+- each byte outside printable ASCII, the newline aside, is escaped;
+- the excerpt is data the classifier matches bytes against, never text any seat or model reads
+  as instruction.
+
+Whether the forge masks every secret in a step's log is **unmeasured**
+(<https://docs.github.com/en/actions/security-for-github-actions/security-guides/using-secrets-in-github-actions>).
+So (b) does not build until 0111b measures it. If masking cannot be shown, the observer journals
+only the matched pattern's id and the excerpt's digest, and the replay property of (c) is lost
+for (b).
 
 ### 3. What evidence types a failure as the runner's, and the classifier
 
@@ -282,7 +317,7 @@ step executes. So the evidence is the operator's choice, stated fairly:
   log pattern types anything, and the list carries no patterns. A change cannot produce a
   conclusion that says its code never ran without its code never running.
   - **Cost, said plainly:** the adopter's port-bind case and their timing-sensitive test are the
-    change's, as they are today. Both still cost a seat attempt and the wall clock until a person
+    change's, as they are today. Both still cost a model diagnosis attempt and the wall clock until a person
     re-runs. Their figures, three parks in one week, stay theirs. This decision recovers neither
     under (a). It recovers only jobs that never started, and until 0111b measures the proven set,
     none.
@@ -315,9 +350,17 @@ scope; it is a follow-up for a decision of its own.
 paths, with a closed result, failing closed.
 
 `classify(observation, faults, changed_paths) -> Classification` lives in `brokkr-core`, reads
-no clock, environment or network (0071 ruling 1), and is total. `changed_paths` is the
-engine's, read from git as 0039's docs-only flag is
-(`crates/brokkr-core/src/policy/inputs.rs:81-84`). In order:
+no clock, environment or network (0071 ruling 1), and is total.
+
+`changed_paths` is the engine's, through the one git observation HEAD already has:
+`crate::anchor::changed_paths(repo, from, to)` (`crates/brokkr-runtime/src/anchor.rs:171`),
+which 0039's docs-only flag reads (`crates/brokkr-runtime/src/engine.rs:3158-3173`). It is not
+read over the same range. The docs flag diffs the latest phase entry's head against the phase's
+end, so it sees only that phase's own commits. The CI gate needs the whole change, so its range
+is pinned: from the merge base of the pull request's base commit, as the observation names it,
+to the gated head. Both ends are checked as commit ids before git sees them. A range git cannot
+take (a base it does not have, or no merge base) refuses as `range-unavailable`, with ruling 2's
+refusals. It is never read as an empty change. In order:
 
 1. The observation passes ruling 2's pass rule: **`green`**. One that cannot pass and holds no
    failed, timed-out, unstarted or cancelled required check takes ruling 2's refusal.
@@ -363,7 +406,7 @@ compiled into the bundle and pinned with it.**
     {"check_run": {"app": "github-actions", "name": "test"}},
     {"check_run": {"app": "github-actions", "name": "RustSec dependency audit"}}
   ],
-  "infrastructure_paths": [".github/workflows/**", ".github/actions/**"],
+  "infrastructure_paths": [".github/workflows/", ".github/actions/"],
   "audit_checks": [{"check_run": {"app": "github-actions", "name": "RustSec dependency audit"}}]
 }
 ```
@@ -384,6 +427,15 @@ either key. A pattern is a literal: 1 to 200 printable ASCII bytes, matched as a
 case-sensitive byte substring. No regex, glob or wildcard is admitted, so matching is linear and
 the same on every host. `id` is kebab-case and unique; every step a pattern names must be in
 `runner_owned_steps`.
+
+The list has two syntaxes, and they never mix. A **path** in `infrastructure_paths` is a
+repository-relative path. It matches a changed path that equals it, or, when it ends in `/`,
+any changed path under that directory. It is not a glob, and not the docs class's regular
+expressions (`crates/brokkr-runtime/src/engine.rs:3217`). A **literal** in `patterns` is matched
+only against log bytes, never against a path. Each field admits only its own syntax: the
+compile refuses a `*`, `?` or `[` in a path, so a glob cannot pass for one, while a literal's
+bytes are all literal.
+
 `required_checks` and `infrastructure_paths` must be non-empty, and `audit_checks` must be
 present, even if empty, with every entry also in `required_checks`. The compile refuses a list
 that leaves any of them to a default. `repository` pins the binding ruling 2 checks.
@@ -668,10 +720,22 @@ The class is spelled in `when` as ruling 11 rules.
   paint `infrastructure`, and 0106d's rule reads unchanged: it spends only where `retryable` is
   true (ruling 9). Cost: one closed enum inside one variant, matched without a wildcard.
 
-The writer: the engine's table-park arm (`crates/brokkr-runtime/src/engine/cursor.rs:362-369`)
-gains one case. A park whose decision's inputs carry a `runner-fault` classification writes
-`infrastructure { kind: ci-runner, retryable: false }` instead of `ruled`; the rule id stays in
-the decision beside it, where 0106 says a rule park's rule already lives.
+The writer: the engine's park arm (`crates/brokkr-runtime/src/engine/cursor.rs:361-371`) gains
+one case, bound to a verified repeat and to the park path that matched it. It is not keyed to any
+park whose inputs happen to carry a CI class. The arm writes
+`infrastructure { kind: ci-runner, retryable: false }` instead of `ruled` only when all three
+hold:
+
+- the park is a table park, `ParkReason::Stated` with a matched rule id (`:368`);
+- the deciding inputs' `ci_class` is `runner-fault-again`, the class the engine draws only after
+  comparing the head's two observations (ruling 7);
+- the journal holds that head's re-run intent and its accepted result (ruling 6).
+
+`ci-rerun-uncertain` is written only from an `uncertain` `ci-rerun` result, or from a second
+observation the engine read as partial acceptance. A closed indeterminate end keeps HEAD's
+`infrastructure` arm (`:364-366`). Every other CI park, every refusal included, stays `ruled`.
+The rule id stays in the decision beside the cause, where 0106 says a rule park's rule already
+lives.
 
 On acceptance, 0106's header and this one's gain the pointer pair for ruling 1's cause gaining
 `kind`, under the errata rule for back-pointers.
@@ -760,7 +824,8 @@ each non-`change` class.
 - No Windows code (0063).
 - #1113's own fix.
 - The dispatcher's retry budget, beyond ruling 9.
-- Flaky-test quarantine (ruling 3).
+- Flaky-test handling of any kind, quarantine included: a follow-up (ruling 3).
+- `fast`'s `blocked_by_in` array outside v2's published schema: a follow-up (ruling 11).
 - A forge other than GitHub: `forge` is a closed enum of one word in v1.
 
 ## Consequences
@@ -788,7 +853,9 @@ Smallest first; each lands on its own.
    and pin `ci-checks.json`, refuse it on a non-exec seat);
    `crates/brokkr-runtime/src/engine/decide.rs` (classify at decide and record the input);
    `crates/brokkr-view/src/` (the CI view model) and `crates/brokkr-cli/src/render/inspect.rs`.
-   About 450 production and 450 test lines. Contracts: `ci-observation/v1`, `ci-checks/v1`,
+   About 600 production and 900 test lines, after the revision's refusals and wire test; it may
+   split at triage into the observation and its pass (with the wire test) and the classifier.
+   Contracts: `ci-observation/v1`, `ci-checks/v1`,
    `ci-classification/v1`. Tests: one per arm and reason of ruling 3, over recorded observations
    built by a shared builder. The wire, end to end, over one recorded observation fixture, in
    `ci-observation/v1`'s shape and checked in under the slice's tests. It is hand-built from the
@@ -799,7 +866,12 @@ Smallest first; each lands on its own.
    fold rebuilt from the journal re-derives the same class; and that `inspect` paints it. The
    ownership tests: `a_seat_declaring_ci_class_or_a_class_flag_fails_the_compile`;
    `a_seat_payload_carrying_ci_class_is_stripped_before_the_table`;
-   `an_observation_with_an_unknown_field_refuses_whole`. Ruling 3's evidence, under (a):
+   `an_observation_with_an_unknown_field_refuses_whole`. The range and the list's syntax:
+   `the_change_range_is_the_merge_base_to_the_gated_head_not_the_phase_entry`;
+   `a_range_git_cannot_take_refuses_as_range_unavailable`;
+   `a_glob_character_in_an_infrastructure_path_refuses_to_compile`;
+   `a_directory_path_matches_only_under_its_slash`;
+   `an_excerpt_under_option_a_refuses_the_observation`. Ruling 3's evidence, under (a):
    `no_log_pattern_types_a_failure_as_the_runners`;
    `a_patterns_key_under_option_a_refuses_to_compile`;
    `a_declared_literal_printed_by_a_checkout_local_action_is_the_changes`;
@@ -831,10 +903,20 @@ Smallest first; each lands on its own.
 2. **0111b — a GitHub observer script.** Files: a house observer script and its shellcheck
    clean; a test that runs it against a stub `gh` on the path and holds its output to
    `ci-observation/v1`; one recorded real payload, measured by the operator, which settles this
-   decision's unmeasured forge facts. About 150 script and 200 test lines. No contract change.
+   decision's unmeasured forge facts. Those facts are:
+   - whether a job reports `startup_failure`, which fills or leaves empty ruling 5's proven set;
+   - what the per-job re-run verb re-runs;
+   - how an unaffected job appears in a new attempt;
+   - how a workflow's path and a matrix job's name are spelled;
+   - under ruling 3 (b), the runner's own step names and secret masking.
+
+   Tests: `the_observer_refuses_when_gh_resolves_under_the_worktree`;
+   `the_observer_names_the_repository_and_never_reads_the_worktrees_remotes`;
+   `the_observer_lists_every_check_for_the_head_unfiltered`. About 150 script and 250 test lines.
+   No contract change.
 3. **0111c — the re-run and its routing.** Files: `crates/brokkr-core/src/policy/inputs.rs`
    (`ci_reruns`), `crates/brokkr-runtime/src/engine/decide.rs`, a re-run script, and a recipe
-   overlay declaring ruling 7's table. About 200 production and 300 test lines. No contract
+   overlay declaring ruling 7's table. About 350 production and 700 test lines. No contract
    change. Tests: `a_runner_fault_routes_to_one_rerun`; `a_green_after_the_rerun_passes`;
    `the_same_fault_after_the_rerun_parks`;
    `a_different_runner_fault_after_the_rerun_returns_to_implement`;
@@ -881,6 +963,8 @@ Smallest first; each lands on its own.
    `a_v1_infrastructure_cause_reads_kind_engine`; `a_ci_runner_park_is_never_retryable`;
    `a_ci_rerun_uncertain_park_is_never_retryable`;
    `a_rerun_park_writes_the_ci_runner_cause_and_keeps_the_rule_in_the_decision`;
+   `a_refusal_park_carrying_a_ci_class_stays_ruled`;
+   `a_runner_fault_again_class_without_an_accepted_rerun_in_the_journal_stays_ruled`;
    `the_fleet_paints_the_ci_runner_cause`; and, when 0106d lands, its
    `a_non_retryable_infrastructure_park_spends_nothing` (0106:1224) extended with a `ci-runner`
    and a `ci-rerun-uncertain` park (ruling 9).
@@ -893,3 +977,31 @@ Commands run in this seat at `e667a04c2`, each named above where it grounds a cl
 `crates/brokkr-core/src/policy/inputs.rs`, `crates/brokkr-runtime/src/engine/cursor.rs`,
 `recipes/fast/policy.json`, `recipes/fast/bundle.json`, `recipes/landing/README.md`,
 `adapters/exec.json` and `contracts/phase-machine.v2.schema.json`. The forge's shape was not read.
+
+The revision of fix round 1093r2 answered the review positions of run
+`design-story-for-issue-1093-epic-93cc5725`. It read, at the same base, each file:line it newly
+cites:
+
+- `.github/workflows/ci.yml:3-26` and `:673-695`;
+- `recipes/fast/bundle.json:25-100`, `recipes/fast/policy.json:30-100` and
+  `recipes/verify/bundle.json:40-46`;
+- `crates/brokkr-runtime/src/bundle/expand.rs:1-60` and
+  `crates/brokkr-runtime/src/bundle/model_policy_tests.rs:2595-2625`;
+- `crates/brokkr-runtime/src/bundle/assemble.rs:320-342` and
+  `crates/brokkr-runtime/src/engine/decide.rs:68-86`;
+- `crates/brokkr-protocol/src/hands.rs:140-200`;
+- `crates/brokkr-runtime/src/bundle.rs:3930-3975` and `:4140-4160`, and
+  `crates/brokkr-runtime/src/engine/marks.rs:125-150`;
+- `crates/brokkr-runtime/src/engine.rs:3150-3180` and `:3217-3229`, and
+  `crates/brokkr-runtime/src/anchor.rs:165-175`;
+- `crates/brokkr-runtime/src/engine/cursor.rs:355-390`,
+  `crates/brokkr-runtime/src/engine/dispatch.rs:150-170`,
+  `crates/brokkr-runtime/src/engine/broker/fold.rs:330-365` and
+  `crates/brokkr-core/src/fold/operator.rs:30-46`;
+- `crates/brokkr-core/src/policy/conditions.rs:35-80` and `policy/inputs.rs:75-190`;
+- `contracts/phase-machine.v2.schema.json:55-95` and
+  `crates/brokkr-runtime/tests/frozen_contracts.rs:290-320`;
+- decisions 0006 (`:262-276`), 0036 (`:137-150`), 0043 (`:104-118`, `:204-210`) and 0106
+  (`:1205-1235`).
+
+No forge page was read in either round. Every forge fact cited by URL is unmeasured until 0111b.
