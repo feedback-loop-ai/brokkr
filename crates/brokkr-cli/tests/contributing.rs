@@ -436,7 +436,7 @@ const LEG_LINES: [(&str, &[Line]); 12] = [
             Line::Written,
         ],
     ),
-    ("RustSec dependency audit", &[]),
+    ("RustSec dependency audit", &[Line::Written]),
     ("release binary artifact", &[Line::Written, Line::Written]),
     ("mutants in the diff: brokkr-core", &[Line::Written]),
 ];

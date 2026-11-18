@@ -45,8 +45,8 @@ const NIGHTLY: Step = Step {
 };
 
 /// The step that installs the digest-pinned cargo-audit, with no `if:` or
-/// `continue-on-error:` that could leave `rustsec/audit-check` to build
-/// the latest one from source.
+/// `continue-on-error:` that could leave [`CARGO_AUDIT`] to run whatever
+/// cargo-audit the runner image carries, or none.
 const SETUP_CARGO_AUDIT: Step = Step {
     text: &[
         "- name: cargo-audit, pinned by digest",
@@ -54,6 +54,10 @@ const SETUP_CARGO_AUDIT: Step = Step {
     ],
     keys: 1,
 };
+
+/// The audit both workflows run: the pinned cargo-audit's own exit code is
+/// the verdict, and no action writes a check run of its own (#1113).
+const CARGO_AUDIT: &str = "cargo audit";
 
 /// The one home of the Renovate image, by release and digest: the Renovate
 /// workflow runs it and ci.yml validates the config from it.
@@ -173,8 +177,8 @@ enum Unpinned {
     /// An install-action `tool:` entry that names no exact release, which
     /// installs whatever is newest.
     Tool(String),
-    /// A `rustsec/audit-check` with no [`SETUP_CARGO_AUDIT`] before it in
-    /// its job: the action would build the newest cargo-audit from source.
+    /// A `run:` [`CARGO_AUDIT`] with no [`SETUP_CARGO_AUDIT`] before it in
+    /// its job: it would run an unpinned cargo-audit, or none.
     CargoAuditMissing,
     /// A line the scanner cannot read as a plain `key: value` or a plain
     /// scalar — a quoted, anchored, tagged, merge or complex key, an
@@ -576,8 +580,6 @@ impl Scan<'_> {
             action.starts_with("dtolnay/rust-toolchain@") && !self.step_has_input(at, "toolchain");
         let image_missing = action.starts_with("renovatebot/github-action@")
             && !self.step_has_input(at, "renovate-image");
-        let audit_unpinned = action.starts_with("rustsec/audit-check@")
-            && !self.job_has_step(at, &SETUP_CARGO_AUDIT, at);
         let falls_back = action.starts_with("taiki-e/install-action@")
             && self.step_input(at, "fallback") != Some("none");
         // A setup action with no version input installs the runner image's
@@ -596,7 +598,6 @@ impl Scan<'_> {
             .or_else(|| {
                 image_missing.then(|| Unpinned::Image(format!("{action} with no renovate-image")))
             })
-            .or_else(|| audit_unpinned.then_some(Unpinned::CargoAuditMissing))
             .or_else(|| {
                 falls_back.then(|| Unpinned::Fallback(format!("{action} without fallback: none")))
             })
@@ -637,6 +638,11 @@ impl Scan<'_> {
         let reads_the_pins = || self.job_has_step(at, &NIGHTLY, at);
         match key {
             "uses" => self.judge_uses(at, value).into_iter().collect(),
+            "run" => (scalar(value) == CARGO_AUDIT
+                && !self.job_has_step(at, &SETUP_CARGO_AUDIT, at))
+            .then_some(Unpinned::CargoAuditMissing)
+            .into_iter()
+            .collect(),
             "toolchain" => {
                 let toolchain = scalar(value);
                 let pinned = self.toolchains.iter().any(|pin| pin == toolchain)
@@ -941,7 +947,7 @@ fn step_text(step: &Step) -> String {
 }
 
 /// The pin files' outputs and the pinned cargo-audit count only in the
-/// job that carries their step verbatim, and before audit-check runs.
+/// job that carries their step verbatim, and before the audit runs.
 #[test]
 fn a_pin_read_or_an_audit_set_up_counts_only_in_its_own_job() {
     let root = workspace();
@@ -959,7 +965,7 @@ jobs:
         with:
           tool: cargo-llvm-cov@{LLVM_COV_INPUT}
           fallback: none
-{audit}      - uses: rustsec/audit-check@{sha} # v2.0.0
+{audit}      - run: {CARGO_AUDIT}
   extended:
     steps:
 {nightly}          echo \"toolchain=nightly\" >> \"$GITHUB_OUTPUT\"
@@ -969,14 +975,14 @@ jobs:
       - name: cargo-audit, pinned by digest
         if: false
         uses: ./.github/actions/setup-cargo-audit
-      - uses: rustsec/audit-check@{sha} # v2.0.0
+      - run: {CARGO_AUDIT}
   borrows:
     steps:
       - uses: taiki-e/install-action@{sha} # v2.87.20
         with:
           tool: cargo-llvm-cov@{LLVM_COV_INPUT}
           fallback: none
-      - uses: rustsec/audit-check@{sha} # v2.0.0
+      - run: {CARGO_AUDIT}
 {audit}  forward:
     steps:
       - uses: dtolnay/rust-toolchain@{sha} # master
@@ -1409,14 +1415,18 @@ runs:\n"
 }
 
 /// cargo-audit is installed from one place, from a release verified by
-/// digest; every audit-check follows it in its job, which the pin scan
-/// above holds as [`Unpinned::CargoAuditMissing`].
+/// digest; the one plain audit step in each workflow follows it in its job,
+/// which the pin scan above holds as [`Unpinned::CargoAuditMissing`], and
+/// no workflow runs `rustsec/audit-check` (#1113).
 #[test]
 fn cargo_audit_is_installed_once_from_a_release_verified_by_digest() {
+    let step = format!("      - name: RustSec advisory audit\n        run: {CARGO_AUDIT}\n");
     let sites: Vec<(String, usize)> = workflows()
         .into_iter()
         .map(|file| {
-            let count = read(&file).matches("uses: rustsec/audit-check@").count();
+            let text = read(&file);
+            assert!(!text.contains("uses: rustsec/audit-check@"), "{file}");
+            let count = text.matches(&step).count();
             (file, count)
         })
         .filter(|(_, count)| *count > 0)
