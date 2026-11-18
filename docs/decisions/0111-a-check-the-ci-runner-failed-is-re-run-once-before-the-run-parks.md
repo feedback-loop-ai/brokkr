@@ -383,20 +383,64 @@ the compiled bundle outside the change, each entry bound to its producer.**
 - **(c) Whatever checks the forge reports for the head.** Refused: a missing check is invisible
   to it, so an absent audit would pass. That is the fault this ruling closes.
 
-**A changed check definition gets no automatic pass.** A change to CI can keep a required
-check's name while substituting what produces its success. So each required entry declares its
-`definition`: the paths that define what the check runs. These are its workflow file, and every
-local action and script its job runs, with those of every job it `needs:`, transitively. HEAD's
-audit job checks out the change and runs the checkout-local action
-`./.github/actions/setup-cargo-audit` (`.github/workflows/ci.yml:681-689`), so that action's
-directory is in the audit's definition. HEAD's `test (…)` jobs need `engine-machines`
-(`:317`), which runs `./.github/actions/local-runner`, `./.github/actions/setup-bubblewrap` and
-`scripts/test-shards.sh` (`:232`, `:247`, `:255`), so all three are in theirs. The compile
-refuses an entry whose definition lacks its own workflow file. When any changed path falls
-inside any required entry's definition, the observation refuses with `definition-changed`,
-naming the paths, and the run parks for a person. Cost, said plainly: every change to CI's own
-definition is a person's to pass. The residual is the operator's: a script a required job runs
-that the declared definition omits is not guarded, and the review that follows reads the change.
+**A change to CI's verdict machinery gets no automatic pass, whichever file it touches.** A
+change to CI can keep a required check's name while substituting what produces its success, and
+it need not touch the workflow to do it. HEAD's required `test (…)` verdicts are an aggregate:
+job `engine` runs one assertion over `needs.engine-machines.result`
+(`.github/workflows/ci.yml:315-329`), and `engine-machines` runs `scripts/test-shards.sh`
+(`:255`). That script sources `scripts/test-summary.sh` (`scripts/test-shards.sh:444-445`), and
+runs `scripts/parallel-heaps.py` and `scripts/shard-runner.py`, consuming their status
+(`:553-602`). So a change to a helper alone can make a failing shard report success. Fix round
+1093r3's per-entry `definition` listed the shard script and not its helpers, and a list kept by
+hand of what each job runs will always trail what the jobs run. It is removed.
+
+**Recommended: (a) a conservative path set, pinned in the recipe outside the change.**
+`ci-checks.json` (ruling 5) declares `verdict_machinery`, a list of repository paths, and the
+compile refuses a list that lacks `.github/`. This house declares `.github/`, `scripts/`,
+`quality/`, `.cargo/`, `rust-toolchain.toml` and `rust-nightly-version.txt`: the workflows and
+local actions, every script and its helpers, the measured baselines the ratchet jobs read, and
+the toolchain and cargo configuration the test jobs resolve (all tracked at HEAD:
+`git ls-files .cargo .github rust-toolchain.toml rust-nightly-version.txt`). When any changed
+path lies inside the set, the observation refuses with `machinery-changed`, naming the paths,
+and the run parks `ruled` for a person. It is never classified, so no pattern over those jobs is
+read.
+
+**The set is checked closed at the base revision.** The set is only as good as its closure, so
+the engine tests it before it trusts it, over the base revision the observation names (ruling
+3), read through git and never from the change's tree:
+
+- Every required entry's workflow file is parsed at the base into a typed subset: each job's
+  `needs` and its steps' `uses` and `run`. The closure starts from each required job and every
+  job it `needs`, transitively.
+- A **reference** is a local file a reached step or file executes: a `uses: ./…` (and that
+  action's `action.yml`, whose `runs` are read the same way); in a `run:` line, or in a reached
+  script, the operand of `bash`, `sh`, `source`, `.`, `exec`, `python3`, `python`, `node`,
+  `perl` or `ruby`, and any command word that is itself a repository path. Every reached file is
+  scanned for references in turn.
+- **Every reference must lie inside the set,** or the observation refuses with
+  `machinery-escapes`, naming the reference and the file that made it.
+- **A reference the test cannot resolve fails closed,** as `machinery-unresolved`: an operand or
+  command word built by an expansion, a command substitution, `eval`, or a glob, unless it is a
+  variable the same file assigns only from literal words. Whether HEAD's own scripts resolve
+  under this rule is **unmeasured**; 0111b's test runs it over HEAD's base and records the
+  answer. Where they do not, the house's gate refuses every observation until the scripts are
+  written resolvably, which fails closed.
+
+Why the base is enough: any change that could add a reference from inside the set to a file
+outside it must edit a file inside the set, which already refuses. So an unchanged set that
+closes at the base is the machinery the head ran. The parse needs a YAML reader the workspace
+does not hold at HEAD (`Cargo.lock` names no `yaml` crate); 0111b adds one at the runtime's
+edge, into a typed subset, under the house's licence and audit jobs.
+
+What the set does not cover, said plainly: the change's own code under test. A required job
+that runs `cargo test` builds and runs the change's crates, their manifests and their build
+scripts; that is what CI measures, not its machinery. A change that rigs its own test to pass is
+a change review reads, and every landing path reaches review (ruling 6). Cost, said plainly:
+every change to `scripts/` or `quality/` now gets a person's pass, and those are frequent here.
+
+- **(b) A per-entry definition list,** as fix round 1093r3 drafted. Refused: it missed HEAD's
+  own helpers.
+- **(c) Only the workflow files.** Refused: a helper-only change passes.
 
 **The tested revision is established, or the pass refuses.** HEAD's pull-request workflow tells
 three revisions apart: `delivered by brokkr` checks out the trusted base and the pull request's
@@ -411,7 +455,7 @@ unmeasured here). So each required Actions entry declares `tested`, one of two w
   name that merge commit's id and its two parents. Its second parent must be the gated head, and
   its first the base commit the observation names, which must be the pull request's current base.
 
-The declaration is the operator's statement about a pinned workflow, and `definition-changed`
+The declaration is the operator's statement about a pinned workflow, and `machinery-changed`
 holds that workflow to the base's bytes. Whether the forge's run payload names the merge commit
 it tested is **unmeasured**. Until 0111a's evidence shows it, every `merge` entry refuses as
 `revision-unestablished`, and that fails closed.
@@ -420,7 +464,7 @@ it tested is **unmeasured**. Until 0111a's evidence shows it, every `merge` entr
 
 - the observation's repository, pull request and head equal the run's pinned repository, the
   pull request the gate names and the engine's own git head;
-- no changed path falls inside a required entry's definition;
+- no changed path falls inside the verdict-machinery set, and the set closes at the base;
 - every entry of `required_checks` is matched by exactly one settled check from its bound
   producer, in that producer's current execution;
 - each matched Actions entry's tested revision is established, as above;
@@ -441,7 +485,9 @@ otherwise classifiable failure refuses as `missing-required`; it is never typed.
 | `unrelated` | the repository, the pull request or the head differs from the binding |
 | `range-unavailable` | git cannot take ruling 4's pinned base-to-head range |
 | `range-too-large` | the range's changed paths exceed the bound the classification record carries |
-| `definition-changed` | a changed path falls inside a required entry's definition; the refusal names the paths |
+| `machinery-changed` | a changed path falls inside the verdict-machinery set; the refusal names the paths |
+| `machinery-escapes` | at the base, a reached file references a local file outside the set |
+| `machinery-unresolved` | at the base, a reached file holds a reference the closure test cannot resolve |
 | `empty` | the forge reports no check for the head |
 | `producer-mismatch` | a check carries a required entry's name, or a status its context, from another app, workflow path or creator; the refusal names it, so a substitute is never silently passed over |
 | `missing-required` | a required entry matches no check from its bound producer; the refusal names the entry |
@@ -578,8 +624,8 @@ refusals. It is never read as an empty change. In order:
    job cancelled: who cancelled is unmeasured, though on a pull request a newer push cancels the
    older run, `.github/workflows/ci.yml:24-26`).
 
-A change to a required check's definition never reaches step 3: it is refused at step 1 as
-`definition-changed`, for a person, and no pattern over its steps is read.
+A change to CI's verdict machinery never reaches step 3: it is refused at step 1 as
+`machinery-changed`, for a person, and no pattern over its steps is read.
 
 One untyped job makes the whole observation `change`: the change has a failure to answer. A
 failure the classifier cannot type is the change's, as today.
@@ -614,18 +660,17 @@ compiled into the bundle and pinned with it.**
     "tools": {"gh": {"path": "/usr/bin/gh", "sha256": "<64 hex>"},
               "jq": {"path": "/usr/bin/jq", "sha256": "<64 hex>"}}
   },
+  "verdict_machinery": [".github/", "scripts/", "quality/", ".cargo/",
+                        "rust-toolchain.toml", "rust-nightly-version.txt"],
   "required_checks": [
     {"actions_job": {
       "app": "github-actions", "workflow": ".github/workflows/ci.yml",
       "job": "engine", "name": "test (ubuntu-latest)", "event": "pull_request",
-      "tested": "merge",
-      "definition": [".github/workflows/ci.yml", ".github/actions/local-runner/",
-                     ".github/actions/setup-bubblewrap/", "scripts/test-shards.sh"]}},
+      "tested": "merge"}},
     {"actions_job": {
       "app": "github-actions", "workflow": ".github/workflows/ci.yml",
       "job": "dependency-audit", "name": "RustSec dependency audit", "event": "pull_request",
-      "tested": "merge",
-      "definition": [".github/workflows/ci.yml", ".github/actions/setup-cargo-audit/"]}},
+      "tested": "merge"}},
     {"status": {"context": "example/deploy-preview", "creator_id": 1}}
   ]
 }
@@ -652,9 +697,9 @@ refuses either key. A pattern is a literal: 1 to 200 printable ASCII bytes, matc
 case-sensitive byte substring. No regex, glob or wildcard is admitted, so matching is linear and
 the same on every host. Each `id` is kebab-case and unique; every step a pattern names must be
 in `setup_steps`, and every setup step's workflow must be the workflow of a required entry, so
-`definition-changed` holds it to the base's bytes.
+`machinery-changed` holds it to the base's bytes.
 
-The list has two syntaxes, and they never mix. A **path** in a `definition` is a
+The list has two syntaxes, and they never mix. A **path** in `verdict_machinery` is a
 repository-relative path. It matches a changed path that equals it, or, when it ends in `/`,
 any changed path under that directory. It is not a glob, and not the docs class's regular
 expressions (`crates/brokkr-runtime/src/engine.rs:3217`). A **literal** in `patterns` is matched
@@ -663,8 +708,9 @@ compile refuses a `*`, `?` or `[` in a path, so a glob cannot pass for one, whil
 bytes are all literal.
 
 `required_checks` must be non-empty, every Actions entry must name all of its producer's parts
-and its `tested` word, and every `definition` must hold its own workflow file. The compile
-refuses a list that leaves any of them to a default. `repository` pins the binding ruling 3
+and its `tested` word, every entry's workflow must lie inside `verdict_machinery`, and
+`verdict_machinery` must hold `.github/`. The compile refuses a list that leaves any of them to
+a default. `repository` pins the binding ruling 3
 checks.
 
 The operator declares it, as any recipe or `extends` overlay (0017). No seat writes it: the
@@ -957,8 +1003,10 @@ slice that produces it, and each typed assertion is in the slice that builds its
    this slice the classifier's first consumer exists: 0111b's tests read it, so the next sweep
    can count, offline, what a typed park would have saved.
 2. **0111b — the classifier, its record and its readout, over 0111a's evidence.** Files: a new
-   `crates/brokkr-core/src/ci.rs` with `ci/observation.rs`, `ci/checks.rs`, `ci/classify.rs` and
-   `ci/tests.rs`; `crates/brokkr-core/src/lib.rs`; `crates/brokkr-core/src/policy/inputs.rs` (the
+   `crates/brokkr-core/src/ci.rs` with `ci/observation.rs`, `ci/checks.rs`, `ci/classify.rs`,
+   `ci/closure.rs` (ruling 3's verdict-machinery closure over typed workflow data) and
+   `ci/tests.rs`; `crates/brokkr-core/src/lib.rs`; the base workflow's parse into that typed
+   subset at the runtime's edge, with its YAML reader added to the workspace; `crates/brokkr-core/src/policy/inputs.rs` (the
    seat-owned `ci_observation` record; the engine-owned `ci_class` record and ruling 10's three
    flags); `crates/brokkr-runtime/src/bundle.rs` (load and pin `ci-checks.json`, refuse it on a
    non-exec seat); `crates/brokkr-runtime/src/engine/decide.rs` (take the bounded range, classify
@@ -997,14 +1045,22 @@ slice that produces it, and each typed assertion is in the slice that builds its
    `one_untyped_job_makes_the_whole_change`; `an_unknown_conclusion_refuses_by_name`;
    `a_stale_head_observation_does_not_read`; `a_pass_with_a_failed_job_is_refused`;
    `a_seat_cannot_write_the_classification`; `a_ci_list_on_a_model_seat_refuses_to_compile`.
-   The producer, the definition and the tested revision (ruling 3):
+   The producer, the verdict machinery and the tested revision (ruling 3):
    `a_same_named_green_check_from_another_workflow_refuses_as_producer_mismatch`;
    `a_status_from_an_unpinned_creator_refuses_as_producer_mismatch`;
    `a_green_check_on_another_event_does_not_match_its_entry`;
-   `a_change_to_ci_yml_refuses_as_definition_changed`;
-   `a_change_to_the_local_action_a_required_job_runs_refuses_as_definition_changed`;
-   `a_change_to_a_script_a_needed_job_runs_refuses_as_definition_changed`;
-   `a_definition_without_its_own_workflow_refuses_to_compile`;
+   `a_change_to_ci_yml_refuses_as_machinery_changed`;
+   `a_change_to_the_local_action_a_required_job_runs_refuses_as_machinery_changed`;
+   `a_helper_only_change_to_test_summary_sh_with_a_green_bound_observation_refuses`;
+   `a_helper_only_change_to_shard_runner_py_with_a_green_bound_observation_refuses`;
+   `a_change_to_quality_or_cargo_configuration_refuses_as_machinery_changed`;
+   `a_base_reference_outside_the_set_refuses_as_machinery_escapes`;
+   `a_reference_built_by_expansion_refuses_as_machinery_unresolved`;
+   `the_closure_follows_needs_uses_and_sourced_helpers_transitively`;
+   `the_closure_reads_the_base_revision_never_the_changes_tree`;
+   `a_machinery_set_without_github_refuses_to_compile`;
+   `a_required_workflow_outside_the_set_refuses_to_compile`;
+   `the_closure_test_over_heads_own_base_records_its_answer`;
    `an_ambiguous_tested_revision_refuses_as_revision_unestablished`;
    `a_merge_revision_whose_parents_are_not_the_base_and_the_head_refuses`;
    `two_unsettled_runs_for_one_entry_refuse_as_execution_ambiguous`;
