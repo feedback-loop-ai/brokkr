@@ -29,6 +29,11 @@ fn started(dir: &Path, body: SeatBody, limits: Limits) -> Engine {
     let store = brokkr_store::Store::open(&dir.join("forge.db")).unwrap();
     let mut compiled = bundle(dir, body);
     compiled.seats.get_mut("work").unwrap().limits = limits;
+    // A capability record that seats no lane and grants nothing, as a
+    // compile under no realm pins: admission's census measures the run, so
+    // the production pass and claim can judge its journal (fix round
+    // 0106b1r5, M1).
+    compiled.manifest["capabilities"] = json!({"sites": {}});
     Engine::start(store, compiled, "Feature", Some(dir.join("work"))).unwrap()
 }
 

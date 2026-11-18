@@ -35,11 +35,20 @@ pub(crate) struct Fixture {
     _dir: tempfile::TempDir,
     pub(crate) root: PathBuf,
     pub(crate) store: Store,
+    /// The journal its store opened and its launches name.
+    journal: PathBuf,
 }
 
 impl Fixture {
     pub(crate) fn new() -> Fixture {
         let dir = tempfile::tempdir().unwrap();
+        let journal = dir.path().canonicalize().unwrap().join("forge.db");
+        Fixture::opened(dir, journal)
+    }
+
+    /// The fixture's workspace over the journal at `journal`, another
+    /// connection's, and the store it opened there.
+    fn opened(dir: tempfile::TempDir, journal: PathBuf) -> Fixture {
         let root = dir.path().canonicalize().unwrap();
         for sub in ["agents/charters", "adapters", "bundle/roles"] {
             std::fs::create_dir_all(root.join(sub)).unwrap();
@@ -56,7 +65,7 @@ impl Fixture {
                    "tool_permissions": "unsupported", "mcp": "unsupported",
                    "native_capabilities": {"known": {}}})
         };
-        let mut store = Store::open(&root.join("forge.db")).unwrap();
+        let mut store = Store::open(&journal).unwrap();
         // The dispatcher its rooms claim as: generation 1 (decision 0095
         // ruling 2).
         store.dispatch_hold(1).unwrap();
@@ -64,6 +73,7 @@ impl Fixture {
             store,
             _dir: dir,
             root,
+            journal,
         };
         fixture.write(
             "adapters/alpha.json",
@@ -124,7 +134,7 @@ impl Fixture {
             workspace: self.root.clone(),
             bundle: BundleSource::Dir(bundle.into()),
             shelf: None,
-            journal: self.root.join("forge.db"),
+            journal: self.journal.clone(),
             repo: None,
             secrets: None,
             host_path: OsString::new(),
@@ -1832,3 +1842,5 @@ fn a_claim_is_refused_while_a_wait_of_its_entry_does_not_hold() {
     let state = fixture.store.queue_entry(waiting).unwrap().state;
     assert_eq!(state, brokkr_store::EntryState::Launching);
 }
+
+pub(crate) mod gates;

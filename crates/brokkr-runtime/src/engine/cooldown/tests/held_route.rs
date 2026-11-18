@@ -8,18 +8,21 @@
 //!
 //! No other row is planted on the route: the old held row has expired when
 //! the probe dispatches, so whatever a second connection's pass and claim
-//! read is the hold or the probe's own round.
+//! read is the hold or the probe's own round. Both are the production
+//! gates, the real pass and the real claim of an entry queued in the
+//! engine's journal (fix round 0106b1r5, M1).
 
 use std::path::{Path, PathBuf};
 use std::thread::JoinHandle;
 
-use crate::admission::{legs_at, Capacity};
+pub(super) use crate::admission::capacity::tests::gates::{Gates, Legs};
+use crate::admission::Capacity;
 
 use super::held_wait::{held_until, standing};
 use super::*;
 
-/// The pass's and the claim's legs for claude/first at one instant.
-type Legs = [Result<(), Capacity>; 2];
+/// The gates a probe's tests share with the engine's clock and a watcher.
+pub(super) type Shared = Arc<Mutex<Gates>>;
 
 /// A clock over `now` whose every read runs `act` first, and whose slices
 /// advance `now`.
@@ -76,46 +79,57 @@ pub(super) fn held_at_its_end(
     (dir, engine, now)
 }
 
-/// The fixture driven plainly, and the instant its probe will run at.
-fn probing() -> (
+/// The fixture driven plainly with probes that do what `probed` says, the
+/// instant its probe will run at, and the production gates over its
+/// journal, whose pass found room at that instant: nothing holds the route
+/// before the probe is dispatched.
+pub(super) fn probing(
+    probed: Probed,
+) -> (
     tempfile::TempDir,
     Engine,
     Arc<Mutex<OffsetDateTime>>,
     OffsetDateTime,
+    Shared,
 ) {
-    let (dir, engine, now) = held_at_its_end(Probed::BarrierRefuse, |_, engine| {
+    let (dir, engine, now) = held_at_its_end(probed, |_, engine| {
         engine.drive().unwrap();
     });
     let probe_at = *now.lock().unwrap();
-    // Nothing holds the route before the probe is dispatched.
-    assert_eq!(legs(&engine.store, probe_at), [Ok(()), Ok(())]);
-    (dir, engine, now, probe_at)
+    let gates = Gates::over(engine.store.path(), probe_at);
+    (dir, engine, now, probe_at, Arc::new(Mutex::new(gates)))
 }
 
-/// The legs a connection reads for claude/first at `at`.
-fn legs(store: &brokkr_store::Store, at: OffsetDateTime) -> Legs {
-    legs_at(store, at, "claude", "first")
+/// What the shared gates read of claude/first at `at`.
+pub(super) fn legs(gates: &Shared, at: OffsetDateTime) -> Legs {
+    gates.lock().unwrap().legs(at)
 }
 
 /// The probe's deadline as its hold stores it: the seat's two-second
 /// timeout past the instant it was dispatched.
-fn deadline_of(probe_at: OffsetDateTime) -> OffsetDateTime {
+pub(super) fn deadline_of(probe_at: OffsetDateTime) -> OffsetDateTime {
     probe_at + time::Duration::seconds(2)
 }
 
-/// While the barrier probe is in flight, a second connection's legs at
-/// `at` and whether any cool-down row stood then; the probe is released
-/// after the look.
-fn in_flight(dir: &Path, journal: PathBuf, at: OffsetDateTime) -> JoinHandle<(Legs, bool)> {
+/// While the barrier probe is in flight, the gates' legs at `at` and
+/// whether any cool-down row stood then; the probe is released after the
+/// look.
+fn in_flight(
+    dir: &Path,
+    gates: &Shared,
+    journal: PathBuf,
+    at: OffsetDateTime,
+) -> JoinHandle<(Legs, bool)> {
     let (started, release) = (dir.join("work.started"), dir.join("work.release"));
+    let gates = Arc::clone(gates);
     std::thread::spawn(move || {
         let begun = std::time::Instant::now();
         while !started.exists() {
             assert!(begun.elapsed().as_secs() < 30, "the probe never started");
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
+        let seen = legs(&gates, at);
         let store = brokkr_store::Store::open(&journal).unwrap();
-        let seen = legs(&store, at);
         let row = store.cooldown("claude", "first", at).unwrap().is_some();
         std::fs::write(release, "").unwrap();
         (seen, row)
@@ -128,9 +142,9 @@ fn in_flight(dir: &Path, journal: PathBuf, at: OffsetDateTime) -> JoinHandle<(Le
 /// the commit, then the renewed row.
 #[test]
 fn a_probe_holds_its_route_from_dispatch_until_its_refusals_row_commits() {
-    let (dir, mut engine, now, probe_at) = probing();
+    let (dir, mut engine, now, probe_at, gates) = probing(Probed::BarrierRefuse);
     let journal = engine.store.path().to_path_buf();
-    let flight = in_flight(dir.path(), journal.clone(), probe_at);
+    let flight = in_flight(dir.path(), &gates, journal.clone(), probe_at);
     // Every clock read after the probe returned: before its round's commit
     // (no second round yet) and after it.
     let seen: Arc<Mutex<Vec<(Legs, usize)>>> = Arc::default();
@@ -139,12 +153,12 @@ fn a_probe_holds_its_route_from_dispatch_until_its_refusals_row_commits() {
         dir.path().join("work.release"),
         engine.run_id.clone(),
     );
-    let seq = failed(&engine)[0].seq;
+    let (seq, watching) = (failed(&engine)[0].seq, Arc::clone(&gates));
     engine.cooldown.clock = acting_on_read(&now, move |at| {
         if release.exists() {
             let store = brokkr_store::Store::open(&journal).unwrap();
             let rounds = store.cooldown_rounds(&run_id, seq, "").unwrap().len();
-            watch.lock().unwrap().push((legs(&store, at), rounds));
+            watch.lock().unwrap().push((legs(&watching, at), rounds));
         }
     });
     engine.drive().unwrap();
@@ -171,17 +185,16 @@ fn a_probe_holds_its_route_from_dispatch_until_its_refusals_row_commits() {
         let until = if *rounds == 1 { deadline } else { end };
         assert!(held_to(legs, until), "{seen:?}");
     }
-    let competitor = brokkr_store::Store::open(engine.store.path()).unwrap();
     for at in [probe_at, deadline, end - time::Duration::seconds(1)] {
-        assert!(held_to(&legs(&competitor, at), end), "at {at}");
+        assert!(held_to(&legs(&gates, at), end), "at {at}");
     }
-    assert_eq!(legs(&competitor, end), [Ok(()), Ok(())]);
+    assert_eq!(legs(&gates, end), [Ok(()), Ok(())]);
     // The round's commit ended the hold with it: none stands unended.
     assert_eq!(unended_holds(engine.store.path()), 0);
 }
 
 /// How many probe holds the journal at `path` holds unended.
-fn unended_holds(path: &Path) -> i64 {
+pub(super) fn unended_holds(path: &Path) -> i64 {
     rusqlite::Connection::open(path)
         .unwrap()
         .query_row(
@@ -195,11 +208,17 @@ fn unended_holds(path: &Path) -> i64 {
 /// Force every insert into `table` to fail, drive `engine`, and see it
 /// park once.
 fn driven_failing(engine: &mut Engine, table: &str) {
+    driven_raising(engine, table, &format!("ABORT, 'forced {table} failure'"));
+}
+
+/// Force every insert into `table` to `RAISE(raise)`, drive `engine`, and
+/// see it park once.
+pub(super) fn driven_raising(engine: &mut Engine, table: &str, raise: &str) {
     rusqlite::Connection::open(engine.store.path())
         .unwrap()
         .execute_batch(&format!(
             "CREATE TRIGGER forced_insert BEFORE INSERT ON {table}
-             BEGIN SELECT RAISE(ABORT, 'forced {table} failure'); END;"
+             BEGIN SELECT RAISE({raise}); END;"
         ))
         .unwrap();
     engine.drive().unwrap();
@@ -211,21 +230,27 @@ fn driven_failing(engine: &mut Engine, table: &str) {
 /// reads cooling down until the probe's deadline, and is open at it.
 #[test]
 fn a_probe_round_the_store_cannot_take_leaves_its_route_held_until_the_probes_deadline() {
-    let (dir, mut engine, _now, probe_at) = probing();
+    let (dir, mut engine, _now, probe_at, gates) = probing(Probed::BarrierRefuse);
     std::fs::write(dir.path().join("work.release"), "").unwrap();
     driven_failing(&mut engine, "provider_cooldowns");
     assert_eq!(logs(dir.path(), "work"), ["attempt:refuse", "probe"]);
+    held_to_its_deadline(&engine, &gates, deadline_of(probe_at));
+}
+
+/// The probe left no row on the route and its hold standing: the gates read
+/// the route cooling down to `deadline` from the probe's instant until the
+/// second before it, and open at it.
+pub(super) fn held_to_its_deadline(engine: &Engine, gates: &Shared, deadline: OffsetDateTime) {
+    let probe_at = deadline - time::Duration::seconds(2);
     assert_eq!(
         engine.store.cooldown("claude", "first", probe_at).unwrap(),
         None
     );
-    let competitor = brokkr_store::Store::open(engine.store.path()).unwrap();
-    let deadline = deadline_of(probe_at);
     for at in [probe_at, deadline - time::Duration::seconds(1)] {
-        assert!(held_to(&legs(&competitor, at), deadline), "at {at}");
+        assert!(held_to(&legs(gates, at), deadline), "at {at}");
     }
-    assert_eq!(legs(&competitor, deadline), [Ok(()), Ok(())]);
     assert_eq!(unended_holds(engine.store.path()), 1);
+    assert_eq!(legs(gates, deadline), [Ok(()), Ok(())]);
 }
 
 /// An answered probe ends its own hold: the route reads cooling down while
@@ -233,12 +258,13 @@ fn a_probe_round_the_store_cannot_take_leaves_its_route_held_until_the_probes_de
 /// on it at once after the answer, well before the probe's deadline.
 #[test]
 fn an_answered_probe_opens_its_route_at_once() {
-    let (dir, engine, now) = held_at_its_end(Probed::Barrier, |_, engine| {
-        engine.drive().unwrap();
-    });
-    let mut engine = engine;
-    let probe_at = *now.lock().unwrap();
-    let flight = in_flight(dir.path(), engine.store.path().to_path_buf(), probe_at);
+    let (dir, mut engine, _now, probe_at, gates) = probing(Probed::Barrier);
+    let flight = in_flight(
+        dir.path(),
+        &gates,
+        engine.store.path().to_path_buf(),
+        probe_at,
+    );
     engine.drive().unwrap();
     let (flying, row) = flight.join().unwrap();
     assert!(!row, "a cool-down row stood while the probe ran");
@@ -247,15 +273,15 @@ fn an_answered_probe_opens_its_route_at_once() {
         logs(dir.path(), "work"),
         ["attempt:refuse", "probe", "attempt:succeed"]
     );
-    let competitor = brokkr_store::Store::open(engine.store.path()).unwrap();
-    assert_eq!(legs(&competitor, probe_at), [Ok(()), Ok(())]);
+    // The real claim takes the entry on the route at once.
+    assert_eq!(legs(&gates, probe_at), [Ok(()), Ok(())]);
 }
 
 /// A hold the store refuses (every hold insert forced to fail) admits no
 /// probe: the run parks naming the unwritten hold, and nothing is probed.
 #[test]
 fn a_hold_the_store_refuses_parks_before_any_probe() {
-    let (dir, mut engine, _now, _probe_at) = probing();
+    let (dir, mut engine, _now, _probe_at, _gates) = probing(Probed::BarrierRefuse);
     driven_failing(&mut engine, "probe_holds");
     assert_eq!(logs(dir.path(), "work"), ["attempt:refuse"]);
     let events = engine.store.load(&engine.run_id).unwrap();

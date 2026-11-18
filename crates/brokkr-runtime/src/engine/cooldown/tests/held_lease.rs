@@ -8,15 +8,15 @@
 //! The competitor runs inside the engine's own clock: every read after the
 //! barrier probe started asks the protected root for a competing claim
 //! and, where the probe's lease is gone, a second store connection asks
-//! admission's real pass and claim legs for claude/first at that instant.
+//! admission's real pass and claim for claude/first at that instant (fix
+//! round 0106b1r5, M1).
 
 use std::path::PathBuf;
 
-use crate::admission::{legs_at, Capacity};
 use crate::engine::broker::admission::tests::{protecting_refused, Coordinated};
 use crate::engine::broker::admission::{Conflict, Unadmitted};
 
-use super::held_route::{acting_on_read, held_to};
+use super::held_route::{acting_on_read, held_to, legs, Gates, Legs, Shared};
 use super::held_wait::standing;
 use super::*;
 
@@ -26,26 +26,29 @@ enum Seen {
     /// The probe's lease still stood.
     Standing,
     /// The lease was gone, and the pass's and claim's legs said this.
-    Released([Result<(), Capacity>; 2]),
+    Released(Legs),
 }
 
 /// One test's protected root: its home, the worktree a competing claim
-/// names, the journal a second connection opens, and the probe's start
-/// marker.
+/// names, the journal a second connection opens, the probe's start
+/// marker, and the production gates over that journal.
 struct Root {
     home: PathBuf,
     worktree: PathBuf,
     journal: PathBuf,
     started: PathBuf,
+    gates: Shared,
 }
 
 impl Root {
-    fn of(dir: &Path, engine: &Engine) -> Root {
+    /// The root, its gates taking their room at `open`, before the probe.
+    fn of(dir: &Path, engine: &Engine, open: OffsetDateTime) -> Root {
         Root {
             home: dir.join("home"),
             worktree: dir.join("work"),
             journal: engine.store.path().to_path_buf(),
             started: dir.join("work.started"),
+            gates: Arc::new(Mutex::new(Gates::over(engine.store.path(), open))),
         }
     }
 
@@ -57,10 +60,7 @@ impl Root {
         }
         match protecting_refused(&self.home, &self.worktree) {
             Err(Unadmitted::Evidence(Conflict::Held(run))) if run == run_id => Some(Seen::Standing),
-            Ok(()) => {
-                let store = brokkr_store::Store::open(&self.journal).unwrap();
-                Some(Seen::Released(legs_at(&store, at, "claude", "first")))
-            }
+            Ok(()) => Some(Seen::Released(legs(&self.gates, at))),
             other => panic!("the competing claim met neither the lease nor its absence: {other:?}"),
         }
     }
@@ -76,7 +76,7 @@ fn held_at_its_end() -> (tempfile::TempDir, Engine, Arc<Mutex<OffsetDateTime>>, 
             let _stand = Coordinated::at(&super::lease::home(dir));
             engine.drive().unwrap();
         });
-    let root = Root::of(dir.path(), &engine);
+    let root = Root::of(dir.path(), &engine, *now.lock().unwrap());
     std::fs::write(dir.path().join("work.release"), "").unwrap();
     (dir, engine, now, root)
 }
@@ -119,15 +119,11 @@ fn a_probes_renewed_hold_is_committed_before_its_lease_is_released() {
     assert!(seen.contains(&Seen::Standing), "{seen:?}");
     // After the release, a second connection's pass and claim hold the
     // route until the new end, and admit at it.
-    let competitor = brokkr_store::Store::open(&root.journal).unwrap();
     for at in [probe_at, end - time::Duration::seconds(1)] {
-        let legs = legs_at(&competitor, at, "claude", "first");
+        let legs = legs(&root.gates, at);
         assert!(held_to(&legs, end), "at {at}: {legs:?}");
     }
-    assert_eq!(
-        legs_at(&competitor, end, "claude", "first"),
-        [Ok(()), Ok(())]
-    );
+    assert_eq!(legs(&root.gates, end), [Ok(()), Ok(())]);
     if !seen.iter().any(|look| matches!(look, Seen::Released(_))) {
         assert_eq!(protecting_refused(&root.home, &root.worktree), Ok(()));
     }

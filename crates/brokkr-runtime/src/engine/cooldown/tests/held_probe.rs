@@ -100,13 +100,16 @@ fn a_route_a_probe_holds_again_admits_nothing_after_the_first_rows_end() {
         until: held,
         words: "rate_limit: slow down".into(),
     });
-    let legs = |at| crate::admission::legs_at(&engine.store, at, "claude", "first");
-    assert_eq!(legs(between), [cooling.clone(), cooling.clone()]);
+    // The production pass and claim, their room taken where the round has
+    // ended (fix round 0106b1r5, M1).
+    let mut gates =
+        crate::admission::capacity::tests::gates::Gates::over(engine.store.path(), held);
+    assert_eq!(gates.legs(between), [cooling.clone(), cooling.clone()]);
     assert_eq!(
-        legs(held - TimeDuration::seconds(1)),
+        gates.legs(held - TimeDuration::seconds(1)),
         [cooling.clone(), cooling]
     );
-    assert_eq!(legs(held), [Ok(()), Ok(())]);
+    assert_eq!(gates.legs(held), [Ok(()), Ok(())]);
     *now.lock().unwrap() = between;
     let error = engine.drive().unwrap_err();
     let crate::engine::EngineError::HeldWait(refusal) = &error else {
