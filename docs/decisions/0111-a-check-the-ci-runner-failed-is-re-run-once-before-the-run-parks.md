@@ -482,9 +482,33 @@ a write token the observer never holds.**
 - **Its bounded wait.** The `ci` gate, not the re-run seat, waits: it polls at a fixed interval
   until every job of the head's runs is settled, within its own `limits.timeout_seconds`. A
   timeout is 0006's, never a classification.
-- **What the journal records.** The first observation and its classification (ruling 2); the
-  re-run seat's commission, naming the run and job ids, and its result; the second observation,
-  whose run attempt must exceed the first's, and its classification.
+- **One re-run is one remote request, durably.** The forge may accept a request while the exec
+  dies before recording it, so a result count cannot prove how many requests were sent. Three
+  rules close this:
+  - *Intent before the write.* The engine dispatches `ci-rerun` once per target, so one effect
+    is one remote request. Its `effect/started`, naming the target, is durable before the driver
+    spawns (`crates/brokkr-runtime/src/engine/dispatch.rs:159-165`). That row is the per-target
+    intent, and it counts as spent whatever follows.
+  - *No re-send.* An attempt that ends with no result is indeterminate. So is one a restarted
+    engine finds in flight (0006's 2026-10-11 addendum, ruling 2,
+    `docs/decisions/0006-bounded-attempts-and-deadlines.md:267-276`;
+    `crates/brokkr-runtime/src/engine/broker/fold.rs:337-361`). The engine never retries it. An
+    operator's retry re-requests the effect (`crates/brokkr-core/src/fold/operator.rs:38-42`): a
+    new effect, not a replay. So every `ci-rerun` attempt reads before it writes. A target whose
+    journal already holds an intent is **never sent again**. The seat only reconciles:
+    - if the forge shows that job in a new attempt, it returns `already-accepted` with that
+      attempt;
+    - otherwise it returns `uncertain`.
+  - *Park on uncertainty.* An indeterminate `ci-rerun` end parks as HEAD parks a closed
+    indeterminate attempt today (`infrastructure`, not retryable,
+    `crates/brokkr-runtime/src/engine/cursor.rs:364-366`). An `uncertain` result parks by rule,
+    with the cause kind `ci-rerun-uncertain` (ruling 8). So does a second observation where some
+    targets show a new attempt and others do not, which is partial acceptance across runs. The
+    operator reconciles by hand. Brokkr does not guess which request the forge kept.
+- **What the journal records.** The first observation and its classification (ruling 2); each
+  target's intent (`effect/started`) and its result, `requested`, `already-accepted`,
+  `refused` or `uncertain`, with the forge's answer; the second observation, bound to exactly
+  the attempts those results name, and its classification.
 
 - **(b) The observer re-runs as it observes.** One seat, but the seat that reads logs would hold
   a write token and decide when to use it. Refused.
@@ -508,9 +532,12 @@ the one re-run:
 - **`runner-fault`, another identity**: parks, typed. "Once" is once per gated head.
 - **`change`**: the change's, routed by the table exactly as a first-time red gate is.
 
-"Once per gated head" is an engine-owned count, `ci_reruns`, of `ci-rerun` results recorded
-since the gated head was entered. It is not `visits_ci-rerun`, which counts per run (0022): a
-head the implementer moves earns its own re-run. The table reads it as `ci_reruns_gte`; a seat
+"Once per gated head" is an engine-owned count, `ci_reruns`, of `ci-rerun` intents
+(`effect/started`, whatever their end) recorded anywhere in the run's journal for the gated
+head's commit id. It is not counted since the phase was entered, and it is not
+`visits_ci-rerun`, which counts per run (0022). A head the implementer moves to earns its own
+re-run. A return to an already-seen commit id, by a revert or a reset, earns none: that head
+had its one. The table reads it as `ci_reruns_gte`; a seat
 cannot write it. A table in the recipe declares the arms, first match winning:
 
 | Rule | From | Result | When | Next |
@@ -537,8 +564,10 @@ seat-owned `blocked_by` (`crates/brokkr-core/src/policy/inputs.rs:106-115`). Pha
   gains an arm (`crates/brokkr-core/src/park.rs:234`, `:264`, `:276`), 0106 ruling 1's four-word
   table becomes five, and 0106d's "only an `infrastructure` park spends" leaves it out by
   construction. Cost: a wider change to an accepted ruling's table. It refuses nothing (b) admits.
-- **(b) `infrastructure` with `kind`.** Recommended. `kind` is `engine` (every writer today) or
-  `ci-runner`, the latter with `faults` (the identity tuples) and `reruns: 1`. A v1 cause with no
+- **(b) `infrastructure` with `kind`.** Recommended. `kind` is one of:
+  - `engine`, every writer today;
+  - `ci-runner`, with `faults` (the identity tuples) and `reruns: 1`;
+  - `ci-rerun-uncertain`, with the targets whose acceptance is unknown (ruling 6). A v1 cause with no
   `kind` reads `engine`. The cause stays four words, the readouts already paint `infrastructure`,
   and 0106d's rule reads unchanged: it spends only where `retryable` is true (ruling 9). Cost:
   one closed enum inside one variant, matched without a wildcard.
@@ -671,7 +700,14 @@ Smallest first; each lands on its own.
    `an_unknown_target_sends_nothing`;
    `a_job_outside_the_closure_with_a_new_attempt_parks_as_scope_widened`;
    `an_audit_job_with_a_failed_step_is_never_rerun` (#1113's shape);
-   `a_run_level_startup_failure_proves_nothing_about_an_audit_job`. The second observation's
+   `a_run_level_startup_failure_proves_nothing_about_an_audit_job`. Durability:
+   `a_lost_receipt_after_the_forge_accepted_is_reconciled_and_never_resent` (the forge stub
+   accepts, the driver exits with no result; the operator's retry reads `already-accepted` and the
+   stub counts one request);
+   `an_indeterminate_rerun_with_no_new_attempt_parks_uncertain_and_sends_nothing`;
+   `partial_acceptance_across_two_runs_parks_ci_rerun_uncertain_naming_the_unknown_target`;
+   `a_return_to_an_already_rerun_head_earns_no_second_rerun`;
+   `the_intent_is_durable_before_the_driver_spawns`. The second observation's
    refusals:
    `a_second_observation_on_an_attempt_the_rerun_did_not_make_refuses_as_unrelated`;
    `an_unaffected_required_check_that_changed_after_the_rerun_refuses`;
@@ -680,6 +716,7 @@ Smallest first; each lands on its own.
    `forms` modules, `crates/brokkr-runtime/src/engine/cursor.rs`, and the view and CLI tests that
    paint the cause. About 120 production and 200 test lines. Contract: `park-cause/v2`. Tests:
    `a_v1_infrastructure_cause_reads_kind_engine`; `a_ci_runner_park_is_never_retryable`;
+   `a_ci_rerun_uncertain_park_is_never_retryable`;
    `a_rerun_park_writes_the_ci_runner_cause_and_keeps_the_rule_in_the_decision`;
    `the_fleet_paints_the_ci_runner_cause`; and, when 0106d lands, its
    `only_an_infrastructure_park_spends_the_budget` extended with a `ci-runner` park.
