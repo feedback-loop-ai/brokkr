@@ -5,6 +5,7 @@
 use serde_json::{json, Value};
 
 use crate::bundle::{Aggregate, GateAssessment, Invocation, SeatBody, SiteKey};
+use crate::engine::heads::HeadReads;
 use crate::engine::tests::{accepted, bundle, capabilities, git_commit, member, single_body, wire};
 use crate::engine::Engine;
 use brokkr_core::envelope::{EventEnvelope, EventType};
@@ -64,6 +65,16 @@ pub(super) fn driven_with(
     body: SeatBody,
     shape: impl FnOnce(&mut crate::bundle::Bundle),
 ) -> (tempfile::TempDir, Vec<EventEnvelope>) {
+    driven_over(body, shape, |_| HeadReads::default())
+}
+
+/// [`driven_with`], with the engine's HEAD reads answered by what
+/// `heads` returns for the worktree, after the base commit.
+pub(super) fn driven_over(
+    body: SeatBody,
+    shape: impl FnOnce(&mut crate::bundle::Bundle),
+    heads: impl FnOnce(&std::path::Path) -> HeadReads,
+) -> (tempfile::TempDir, Vec<EventEnvelope>) {
     let dir = tempfile::tempdir().unwrap();
     let work = dir.path().join("work");
     std::fs::create_dir(&work).unwrap();
@@ -71,7 +82,9 @@ pub(super) fn driven_with(
     let store = Store::open(&dir.path().join("forge.db")).unwrap();
     let mut compiled = bundle(dir.path(), body);
     shape(&mut compiled);
+    let heads = heads(&work);
     let mut engine = Engine::start(store, compiled, "findings", Some(work)).unwrap();
+    engine.heads = heads;
     engine.drive().unwrap();
     let events = engine.store.load(&engine.run_id).unwrap();
     (dir, events)

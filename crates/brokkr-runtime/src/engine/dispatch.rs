@@ -23,7 +23,7 @@ use super::carry::{CarryPlan, CarryRefusal};
 use super::panel::PanelAt;
 use super::sequence::SequenceAt;
 use super::{
-    argv_for, arms_effect_gate_head, git_head, phase_of, select_candidates, verify_record, Engine,
+    argv_for, arms_effect_gate_head, phase_of, select_candidates, verify_record, Engine,
     EngineError, Selection, SiteSpawn, RESULTS,
 };
 use crate::bundle::{layer_drift, site_charter_text, Bundle, ExecutableBody, Invocation};
@@ -159,9 +159,11 @@ impl Engine {
         let (selection, started) = self.plan_attempt(events, &at, &mut input, carry)?;
         // started is durable BEFORE the driver spawns: a crash in between
         // recovers as indeterminate, never as a silent double-execution.
-        if arms_effect_gate_head(&body, &seat, state.strategy.as_deref()) {
-            self.active_gate_head = Some(git_head(&self.repo));
-        }
+        self.begin_span(arms_effect_gate_head(
+            &body,
+            &seat,
+            state.strategy.as_deref(),
+        ));
         let protected = phase == self.bundle.protected_phase;
         self.covering = super::verdict::Covering::of(at.gate, protected);
         self.append(EventType::EffectStarted, started, Some(attempt_id.clone()))?;

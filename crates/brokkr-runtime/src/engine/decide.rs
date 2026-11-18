@@ -13,9 +13,7 @@ use brokkr_core::policy::{Outcome, CONSECUTIVE_FAILURES, VISIT_PREFIX};
 use brokkr_core::realms::LEGACY_REALM_KEY;
 use serde_json::{json, Map, Value};
 
-use super::{
-    artifact_failures, artifact_problem, git_dirty, git_head, phase_of, Engine, EngineError,
-};
+use super::{artifact_failures, artifact_problem, git_dirty, phase_of, Engine, EngineError};
 use crate::bundle::{Seat, REALM_FACTS};
 use crate::phase_name;
 
@@ -34,7 +32,8 @@ impl Engine {
         // the raw evidence attached — never repaired, coerced, or handed
         // to a model to fix.
         let problem = schema_problem(seat, &raw_result);
-        if let Some(problem) = problem.or_else(|| self.covered_problem(&phase, &raw_result)) {
+        if let Some(problem) = problem.or_else(|| self.covered_problem(state, &phase, &raw_result))
+        {
             self.append(
                 EventType::TransitionDecided,
                 json!({
@@ -120,10 +119,13 @@ impl Engine {
         let key = realm
             .clone()
             .unwrap_or_else(|| LEGACY_REALM_KEY.to_string());
+        // The protected phase's reviewed head is the end head its gate
+        // span's stable-head check accepted, never a fresh read (decision
+        // 0109 ruling 7): a result with no such observation records none.
         if phase == self.bundle.protected_phase {
-            if let Some(head) = git_head(repo) {
-                inputs.insert("reviewed_heads".into(), json!({ key: &head }));
-                if let Some(docs_only) = self.fixes_docs_only(repo, phase, &head) {
+            if let Some(head) = self.decided_head(state) {
+                inputs.insert("reviewed_heads".into(), json!({ key: head }));
+                if let Some(docs_only) = self.fixes_docs_only(repo, phase, head) {
                     inputs.insert("fixes_docs_only".into(), Value::Bool(docs_only));
                 }
             }
@@ -139,14 +141,15 @@ impl Engine {
                 .map(|decision| decision.from.as_str())
                 == Some(self.bundle.protected_phase.as_str());
         if returned_from_review {
-            if let Some(head) = git_head(repo) {
+            if let Some(head) = self.heads.read(repo) {
                 if let Some(docs_only) = self.fixes_docs_only(repo, phase, &head) {
                     inputs.insert("fixes_docs_only".into(), Value::Bool(docs_only));
                 }
             }
         }
         if phase == phase_name::SHIP {
-            ship_inputs(state, repo, realm.as_deref(), inputs);
+            let head = self.heads.read(repo);
+            ship_inputs(state, (repo, head), realm.as_deref(), inputs);
         }
     }
 
@@ -265,15 +268,14 @@ fn schema_problem(seat: &Seat, raw_result: &Value) -> Option<String> {
 
 /// A ship's facts: whether its worktrees are dirty, and whether the head
 /// drifted from the one the protected phase recorded, keyed by realm in
-/// a mapped world.
+/// a mapped world. `head` is the ship's own read of `repo`'s HEAD.
 fn ship_inputs(
     state: &RunState,
-    repo: &Path,
+    (repo, head): (&Path, Option<String>),
     realm: Option<&str>,
     inputs: &mut Map<String, Value>,
 ) {
     let dirty = git_dirty(repo);
-    let head = git_head(repo);
     inputs.insert("dirty_worktrees".into(), Value::Bool(dirty));
     // Fail-closed: when the protected phase RECORDED heads,
     // ship always answers the drift question. A repo that

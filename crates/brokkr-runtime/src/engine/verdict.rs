@@ -7,12 +7,13 @@
 
 use brokkr_core::envelope::EventType;
 use brokkr_core::findings::Covered;
+use brokkr_core::fold::RunState;
 use brokkr_protocol::{AttemptOutcome, AttemptReport};
 use serde::Deserialize;
 use serde_json::Value;
 
 use super::resume::SiteContext;
-use super::{git_head, Engine};
+use super::Engine;
 
 /// Ruling 7's `dirty` is true unless the tree check proved the worktree
 /// clean at commission time. That check is slice 0109b's, so every
@@ -46,8 +47,9 @@ impl Covering {
 impl Engine {
     /// A terminal effect payload with its covered record stamped on a
     /// success, before it is appended: each terminal event spends the
-    /// covering its dispatch armed, so none outlives its effect. A head
-    /// that does not read records nothing rather than a guess.
+    /// covering its dispatch armed, so none outlives its effect. The head
+    /// is the one the effect's stable-head check accepted, never a fresh
+    /// read; an effect with no such observation records nothing.
     pub(super) fn stamp_covered(&mut self, event_type: EventType, mut payload: Value) -> Value {
         let covering = match event_type {
             EventType::EffectSucceeded
@@ -58,10 +60,13 @@ impl Engine {
         let (Some(covering), EventType::EffectSucceeded) = (covering, event_type) else {
             return payload;
         };
-        let covered = git_head(&self.repo).and_then(|head| match covering {
-            Covering::Head => Covered::commit(&head, DIRTY_UNTIL_THE_TREE_CHECK),
-            Covering::HeadDigest => Some(Covered::digest_of(&head, DIRTY_UNTIL_THE_TREE_CHECK)),
-        });
+        let effect_id = payload.get("effect_id").and_then(Value::as_str);
+        let covered = effect_id
+            .and_then(|effect_id| self.observed_head_of(effect_id))
+            .and_then(|head| match covering {
+                Covering::Head => Covered::commit(head, DIRTY_UNTIL_THE_TREE_CHECK),
+                Covering::HeadDigest => Some(Covered::digest_of(head, DIRTY_UNTIL_THE_TREE_CHECK)),
+            });
         let result = payload.get_mut("result").and_then(Value::as_object_mut);
         if let (Some(covered), Some(result)) = (covered, result) {
             let record = serde_json::to_value(covered).expect("a covered record serializes");
@@ -71,16 +76,23 @@ impl Engine {
     }
 
     /// Why the protected phase's result is refused at decide: its covered
-    /// record does not read, or its digest does not pin the head this
-    /// decision records as `reviewed_heads` (ruling 7). A result with no
-    /// covered record, from an older engine, is not judged here.
-    pub(super) fn covered_problem(&self, phase: &str, raw_result: &Value) -> Option<String> {
+    /// record does not read, or its digest does not pin the head the
+    /// effect's stable-head check accepted, which this decision records as
+    /// `reviewed_heads` (ruling 7), or there is no such observation, as
+    /// after a restart between the effect and its decision. A result with
+    /// no covered record is not judged here and is not trusted as covered.
+    pub(super) fn covered_problem(
+        &self,
+        state: &RunState,
+        phase: &str,
+        raw_result: &Value,
+    ) -> Option<String> {
         if phase != self.bundle.protected_phase {
             return None;
         }
         let covered = raw_result.get("covered")?;
-        match (Covered::deserialize(covered).ok(), git_head(&self.repo)) {
-            (Some(covered), Some(head)) if covered.projects(&head) => None,
+        match (Covered::deserialize(covered).ok(), self.decided_head(state)) {
+            (Some(covered), Some(head)) if covered.projects(head) => None,
             _ => Some(
                 "the result's covered head does not pin the head decided on \
                  (decision 0109 ruling 7)"
@@ -112,6 +124,6 @@ pub(super) fn admitted(mut report: AttemptReport, site: Option<&SiteContext>) ->
 }
 
 #[cfg(test)]
-mod covered_tests;
+pub(super) mod covered_tests;
 #[cfg(test)]
 mod tests;

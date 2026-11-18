@@ -11,7 +11,7 @@ use std::process::Command;
 use brokkr_core::dispatch::{bundle_manifest_from_run, DispatchEnvelopeV2, DispatchError};
 use brokkr_core::envelope::EventType;
 use brokkr_core::fold::{Cursor, OperatorCommand, Run, RunState, Status};
-use brokkr_core::gate_moved_head::{self, MovedHead};
+use brokkr_core::gate_moved_head;
 use brokkr_core::park::{Park, ParkCause};
 use brokkr_core::realms::Boundary;
 use brokkr_core::EventEnvelope;
@@ -60,6 +60,7 @@ mod decide;
 mod dispatch;
 use dispatch::{spawn_site, Door};
 mod fence;
+mod heads;
 mod input;
 mod isolation;
 use capability_calls::Calls;
@@ -512,6 +513,10 @@ pub struct Engine {
     /// What the dispatched gate effect's success records as `covered`
     /// (decision 0109 ruling 7), spent by its terminal event.
     covering: Option<verdict::Covering>,
+    /// Every HEAD read the engine takes, and the end head the last gate
+    /// span's check accepted (decision 0109 ruling 7).
+    heads: heads::HeadReads,
+    observed_head: Option<heads::Observed>,
     /// The boundary every site with hands is composed from (decision
     /// 0046 ruling 1): the compiled bundle's word, set once at entry and
     /// never re-read from a map, so the pinned word and the world the run
@@ -611,6 +616,8 @@ fn shell(store: Store, bundle: Bundle, run_id: String, feature: String, repo: Pa
         cooldown: Default::default(),
         active_gate_head: None,
         covering: None,
+        heads: Default::default(),
+        observed_head: None,
         network_prefix: None,
         replay: Default::default(),
         held_outcome: None,
@@ -968,37 +975,6 @@ impl Engine {
         }
         let payload = self.stamp_covered(event_type, payload);
         self.append_raw(event_type, payload, attempt_id)
-    }
-
-    fn finish_gate_head_check(
-        &mut self,
-        effect_id: &str,
-        attempt_id: Option<String>,
-    ) -> Result<Option<EventEnvelope>, EngineError> {
-        let Some(start) = self.active_gate_head.take() else {
-            return Ok(None);
-        };
-        let end = git_head(&self.repo);
-        if start == end {
-            return Ok(None);
-        }
-        let moved = MovedHead {
-            head_at_end: end,
-            head_at_start: start,
-        };
-        // EffectIndeterminate has only a reason string in the frozen event
-        // contract. Keep the evidence packed there and attach its structured
-        // copy to run/parked rather than widening that contract in this slice.
-        self.append_raw(
-            EventType::EffectIndeterminate,
-            json!({
-                "effect_id": effect_id,
-                "attempt_id": attempt_id,
-                "reason": gate_moved_head::encode(&moved),
-            }),
-            attempt_id,
-        )
-        .map(Some)
     }
 
     fn request_or_finish(&mut self, state: &RunState) -> Result<(), EngineError> {
@@ -3138,7 +3114,7 @@ impl Engine {
                 .unwrap_or(0)
                 > 0;
         if phase == self.bundle.protected_phase || returning_implement {
-            if let Some(head) = git_head(&self.repo) {
+            if let Some(head) = self.heads.read(&self.repo) {
                 payload["head"] = Value::String(head);
             }
         }

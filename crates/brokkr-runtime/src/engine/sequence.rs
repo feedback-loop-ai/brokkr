@@ -19,7 +19,7 @@ use super::carry::{
 use super::cooldown::{refused_members, RefusedMember};
 use super::dispatch::deadline::AttemptBound;
 use super::{
-    copy_secret_binding_facts, failed_to_start, git_head, stamp_boundary, start_failure_fields,
+    copy_secret_binding_facts, failed_to_start, stamp_boundary, start_failure_fields,
     start_failure_sites, DriverRun, Engine, EngineError, Indeterminate, Selection, Site, Unproven,
 };
 use crate::bundle::{
@@ -324,9 +324,7 @@ impl Engine {
         // any later step gets to move the tree lawfully (decision
         // 0042 reads an author as a work step). Nothing outer arms
         // for a sequence, so this is the only observation taken.
-        if at.step.class == SeatClass::Gate {
-            self.active_gate_head = Some(git_head(&self.repo));
-        }
+        self.begin_span(at.step.class == SeatClass::Gate);
         let ran = match &at.step.body {
             StepBody::Invocation(Invocation::Single { command, .. }) => {
                 self.single_step(run, at, command)?
