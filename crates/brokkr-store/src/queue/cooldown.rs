@@ -603,7 +603,12 @@ impl Store {
     /// row SQLite cannot hand over refuses the read: a key column's
     /// refusal (its key, provider, route or end, which the scan reads for
     /// every row) precedes a payload column's refusal of any kept row,
-    /// however early that row was written.
+    /// however early that row was written. Its groups are the provider and
+    /// route strings SQLite hands over, which are the stored keys in the
+    /// UTF-8 journal the store makes, the only encoding it makes. A foreign
+    /// UTF-16 journal can store two keys that decode to one string (an
+    /// unpaired surrogate), which this read takes as one group; such a
+    /// journal is outside its scope.
     pub fn cooldowns_newest(&self, now: OffsetDateTime) -> Result<Vec<Cooldown>, StoreError> {
         patiently("cooldowns_newest", self.patience, || {
             if cool_downs_held(&self.conn)? {
