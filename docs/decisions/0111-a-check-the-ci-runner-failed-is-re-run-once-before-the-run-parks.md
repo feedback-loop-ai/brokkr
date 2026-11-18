@@ -617,6 +617,7 @@ otherwise classifiable failure refuses as `missing-required`; it is never typed.
 | `head-unpublished` | the forge's head for the pull request is not the engine's git head: the head the run would gate is not the one pushed |
 | `range-unavailable` | git cannot take ruling 4's pinned base-to-head range |
 | `range-too-large` | the range's changed paths exceed the bound the classification record carries |
+| `basis-too-large` | the classifier's sealed basis would exceed its bound |
 | `machinery-changed` | a changed path falls inside the verdict-machinery set; the refusal names the paths |
 | `machinery-escapes` | at the base, a reached file references a local file outside the set |
 | `machinery-unresolved` | at the base, a reached file holds a reference the closure test cannot resolve |
@@ -650,15 +651,34 @@ as the engine-owned strategy is held (`:87-95`). Both inputs ride in the decisio
 happened, with no new event: the observation the seat sealed, the class the engine drew from it,
 and the rule that routed on it.
 
-**The classification replays from the journal alone.** The engine's `ci_class` record carries
-everything the class was drawn from that is not already sealed: the digest of the sealed
-observation it read, the range's two commit ids, and the changed-path list git gave for that
-range. A replay classifies the sealed observation against the pinned list the run's manifest
-names by digest and the carried path list, and must equal the recorded class. It reads neither
-the Git range nor the forge, so a replay after the branch is gone, or the forge's runs have
-expired, still holds. The path list is bounded: at most 4,096 paths and 256 KiB in total. A
-range beyond the bound refuses as `range-too-large`, with ruling 3's refusals, and is never
-truncated.
+**The classification replays from what the journal seals, and nothing else.** A replay cannot
+read the pinned list out of the run's manifest: HEAD's manifest records each bundle file as a
+digest string, never its bytes (`crates/brokkr-runtime/src/bundle.rs:4214-4239`), so a digest
+can confirm a list but cannot rebuild one. So the engine's `ci_class` record carries a
+**basis**: every input the class was drawn from that the sealed observation does not hold, as
+bounded, typed data under `ci-classification/v1`:
+
+- the digest of the sealed observation it read;
+- **the pinned required list**, every `required_checks` entry as the compiled `ci-checks.json`
+  declares it, with that file's digest beside it;
+- **the declared literal set**: each setup step (workflow, job, step name) and each pattern (id,
+  steps, literal bytes);
+- **the verdict-machinery set** and what ruling 3's closure test took at the base: its verdict,
+  and, for each required job and each job it needs, transitively, its `needs` and its checkout
+  ref;
+- **the comparison values** the binding read: the repository's numeric id, the pull request's
+  number, the base commit, the merge base, the gated head, the engine's git head and the forge's
+  head for the pull request;
+- the range's two commit ids, and the changed-path list git gave for that range.
+
+A replay is `classify(observation, basis)` over the sealed observation and that record alone,
+and must equal the recorded class. It reads no bundle, no manifest file, no checkout, no Git
+range and no forge, so a replay after the bundle is recompiled, the worktree is gone and the
+forge's runs have expired still holds. The bounds: the compile admits at most 64 required
+entries, 64 setup steps and 64 patterns, so the list and the literals are at most 32 KiB; the
+closure's job map is at most 256 jobs; the path list is at most 4,096 paths and 256 KiB. A
+basis beyond its bound refuses as `basis-too-large`, and a range beyond its own as
+`range-too-large`, with ruling 3's refusals; neither is ever truncated.
 
 - **(b) A new `ci/classified` event.** Moves the event envelope, every manifest and every fold
   arm for a fact an input can carry. Refused, as 0106 ruling 1 refused `run/park-caused`.
@@ -731,11 +751,13 @@ that is the operator's declaration; a literal declared over a test step costs th
 person's park and never a pass. Flaky-test handling is out of scope; it is a follow-up for a
 decision of its own.
 
-**The classifier.** One pure function over the observation, the declared list and the change's
-paths, with a closed result, failing closed.
+**The classifier.** One pure function over the observation and its basis (ruling 3: the
+declared list, the literals, the closure, the comparison values and the change's paths), with a
+closed result, failing closed.
 
-`classify(observation, checks, changed_paths) -> Classification` lives in `brokkr-core`, reads
-no clock, environment or network (0071 ruling 1), and is total.
+`classify(observation, basis) -> Classification` lives in `brokkr-core`, reads no clock,
+environment or network (0071 ruling 1), and is total. The engine builds the basis before it
+calls it, and seals the same basis it called it with, so live and replay take one path.
 
 `changed_paths` is the engine's, through the one git observation HEAD already has:
 `crate::anchor::changed_paths(repo, from, to)` (`crates/brokkr-runtime/src/anchor.rs:171`),
@@ -1203,7 +1225,7 @@ slice that produces it, and each typed assertion is in the slice that builds its
    seat-owned `ci_observation` record; the engine-owned `ci_class` record and ruling 10's three
    flags); `crates/brokkr-runtime/src/bundle.rs` (load and pin `ci-checks.json`, refuse it on a
    non-exec seat); `crates/brokkr-runtime/src/engine/decide.rs` (take the bounded range, classify
-   at decide, and record the class with its carried path list); and the readout it produces,
+   at decide, and record the class with its sealed basis); and the readout it produces,
    `crates/brokkr-view/src/` (the CI view model: class, refusals, faults, and the run's id and
    attempt and each failed job's id a person needs) with `crates/brokkr-cli/src/render/inspect.rs`.
    About 600 production and 900 test lines; it may split at triage into the observation and its
@@ -1227,8 +1249,12 @@ slice that produces it, and each typed assertion is in the slice that builds its
    `a_range_git_cannot_take_refuses_as_range_unavailable`;
    `a_glob_character_in_a_machinery_path_refuses_to_compile`;
    `a_directory_path_matches_only_under_its_slash`. The replay (ruling 3):
-   `a_replay_with_no_git_range_and_no_forge_re_derives_the_class`;
+   `a_replay_with_the_bundle_the_checkout_and_the_forge_all_gone_re_derives_the_class`
+   (the journal exported, then the bundle, the worktree and the forge stub removed);
    `a_replay_reads_the_carried_path_list_not_git`;
+   `the_basis_carries_the_required_list_the_literals_the_closure_and_the_comparison_values`;
+   `the_live_class_and_the_replayed_class_take_one_function_over_one_basis`;
+   `a_basis_beyond_its_bound_refuses_as_basis_too_large`;
    `a_range_beyond_the_path_bound_refuses_as_range_too_large`. The evidence (ruling 4):
    `a_port_bind_literal_in_a_declared_setup_step_draws_ci_infrastructure`;
    `a_declared_literal_in_an_undeclared_step_is_the_changes`;
