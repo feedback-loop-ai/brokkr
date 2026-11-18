@@ -475,10 +475,17 @@ fn a_gone_row_whose_attempt_no_event_names_is_kept() {
 /// string key skipped it and removed the succeeded tree. An applied
 /// acceptance's numeric `command_id` is the fold's own refusal, met before
 /// the sweep's decode: the invariant that leaves that decode's refusal a
-/// value no test enters, and its tree is kept the same.
+/// value no test enters, and its tree is kept the same. The 5c2 landing
+/// review's finding: a late `operator/commanded` whose payload is an array
+/// is no late word, so the fold admits it unread, and serde would read it
+/// into the struct by position; only an object decodes.
 #[test]
 fn an_operator_payload_that_does_not_decode_keeps_the_runs_tree() {
-    for (event_type, payload) in malformed_operator_payloads() {
+    let positional = (EventType::OperatorCommanded, json!(["c1", "stop"]));
+    for (event_type, payload) in malformed_operator_payloads()
+        .into_iter()
+        .chain([positional])
+    {
         let (mut fixture, tree) = first_present();
         completed(&mut fixture.store, RUN);
         plant_after_terminal(

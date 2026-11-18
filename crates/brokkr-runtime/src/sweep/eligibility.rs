@@ -46,8 +46,13 @@ struct Accepted<'a> {
 
 /// One event's payload decoded, or the run's rows kept: a payload the
 /// sweep cannot read is a run whose events it cannot fold, never a panic
-/// and never a removal.
+/// and never a removal. Only an object decodes: serde reads a JSON array
+/// into a derived struct by position, which the fold's own readers refuse.
 fn decoded<'a, T: Deserialize<'a>>(event: &'a EventEnvelope) -> Result<T, KeptReason> {
+    event
+        .payload
+        .as_object()
+        .ok_or(KeptReason::RunDoesNotFold)?;
     T::deserialize(&event.payload)
         .ok()
         .ok_or(KeptReason::RunDoesNotFold)
