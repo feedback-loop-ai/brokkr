@@ -285,8 +285,9 @@ attestations; verify an asset with
 
 A journal's own bytes can say it is damaged: SQLite reads a page as
 corrupt or the file as no database, the `meta` table records no schema,
-or a stored envelope is not JSON. A read that meets the damage refuses
-in one sentence, the same on every surface. It names the file and, for
+or a stored envelope is not JSON. Either open, and a read of a run, its
+events or the fleet listing, refuses where it meets the damage, in one
+sentence, the same on every surface. It names the file and, for
 an envelope, the run and the row's seq:
 
 `` error: the journal '<path>' is damaged (<cause>); nothing was read from it; restore it from a backup with `brokkr restore` and see the guide's "A damaged journal" (#1000) ``

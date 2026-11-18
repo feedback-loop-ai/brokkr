@@ -391,10 +391,18 @@ impl Store {
     ///   [`Store::migrate`] for why writing there starved.
     ///
     /// A file its bytes say is damaged refuses as [`StoreError::Damaged`]:
-    /// every statement here that reads the file runs under [`patiently`],
-    /// which names the damage, and the WAL read is the first (bound by
-    /// `damage::tests::a_file_that_is_no_database_is_refused_by_both_opens`).
+    /// every error leaving the open passes through [`damage::classified`],
+    /// the catch-up's included, whose backfills read outside [`patiently`]
+    /// and end quietly only on a peer's lock. The WAL read is the first
+    /// (bound by
+    /// `damage::tests::a_file_that_is_no_database_is_refused_by_both_opens`),
+    /// the catch-up's the last (bound by
+    /// `damage::tests::a_corrupt_page_the_catch_up_reads_refuses_the_writable_open`).
     pub fn open(path: &Path) -> Result<Store, StoreError> {
+        Store::open_writing(path).map_err(|error| damage::classified(path, error))
+    }
+
+    fn open_writing(path: &Path) -> Result<Store, StoreError> {
         if let Some(parent) = path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }

@@ -36,13 +36,13 @@ pub fn overwrite(db: &Path, offset: u64, bytes: &[u8]) {
     file.write_all(bytes).unwrap();
 }
 
-/// Overwrite the root page of `table` in `db` with bytes no b-tree page
-/// holds, so SQLite reads it as corrupt.
+/// Overwrite the root page of `table` in `db`, a table or an index, with
+/// bytes no b-tree page holds, so SQLite reads it as corrupt.
 pub fn damage_table(db: &Path, table: &str) {
     let conn = rusqlite::Connection::open(db).unwrap();
     let page: u64 = conn
         .query_row(
-            "SELECT rootpage FROM sqlite_master WHERE type = 'table' AND name = ?1",
+            "SELECT rootpage FROM sqlite_master WHERE type IN ('table', 'index') AND name = ?1",
             [table],
             |row| row.get(0),
         )

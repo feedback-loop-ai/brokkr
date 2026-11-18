@@ -74,6 +74,21 @@ fn a_file_that_is_no_database_is_refused_by_both_opens() {
     assert_eq!(damaged(Store::open(&db).map(drop).unwrap_err()), expected);
 }
 
+/// A corrupt page the writable open first reads in its catch-up, past the
+/// WAL and schema reads, refuses that open as the journal's damage by name:
+/// the run summary's page index, which the refold walks for behind runs,
+/// and the stale-ordinal index, which the event index's backfill walks.
+#[test]
+fn a_corrupt_page_the_catch_up_reads_refuses_the_writable_open() {
+    for index in ["run_summary_page", "event_index_ordinal_stale"] {
+        let (_dir, db) = journal();
+        damage_table(&db, index);
+        let expected = refusal(&db, &db.display().to_string(), Damage::Malformed);
+        let refused = Store::open(&db).map(drop).unwrap_err();
+        assert_eq!(damaged(refused), expected, "{index}");
+    }
+}
+
 /// A journal whose `meta` table records no schema refuses the read-only
 /// open as damage: what a damaged page read as before SQLite 3.51.3, and
 /// what 0.12.0 printed as "Query returned no rows".
