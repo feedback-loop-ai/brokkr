@@ -6,6 +6,7 @@
 
 use super::*;
 use brokkr_core::EventType;
+use serde::Deserialize;
 use serde_json::{json, Value};
 
 const SITE: &str = "5a1e000000000000000000000000000000000000000000000000000000000000";
@@ -193,6 +194,40 @@ fn v7_refuses_a_findings_file_exactly_where_the_reader_does() {
         let schema = judged(&record, SeatRecordVersion::V7).is_ok();
         let reader = brokkr_core::findings::RepoFile::try_from(file.to_string()).is_ok();
         assert_eq!((schema, reader), (admitted, admitted), "{file:.40}");
+    }
+}
+
+/// A finding's `line` is bounded alike by the fence and by the engine's
+/// typed reader, `brokkr_core::findings::Finding` (fix round 0109a1r3,
+/// M1): each case, parsed from journal text as the store reads it, is
+/// admitted by both or refused by both, standalone and in a step
+/// checkpoint's result, so the fence never takes a finding `inspect`
+/// cannot read. `1.0` is an integer to draft-07 and `2^64` is past `u64`.
+#[test]
+fn v7_refuses_a_findings_line_exactly_where_the_reader_does() {
+    let cases = [
+        ("", true),
+        (r#", "line": 1"#, true),
+        (r#", "line": 18446744073709551615"#, true),
+        (r#", "line": null"#, false),
+        (r#", "line": 0"#, false),
+        (r#", "line": 1.0"#, false),
+        (r#", "line": 18446744073709551616"#, false),
+    ];
+    for (line, admitted) in cases {
+        let text = format!(
+            r#"{{"site": "{SITE}", "id": "a", "file": "a.rs", "summary": "s",
+                "severity": "low", "security": false{line}}}"#
+        );
+        let finding: Value = serde_json::from_str(&text).unwrap();
+        let reader = brokkr_core::findings::Finding::deserialize(&finding).is_ok();
+        let standalone = gate("findings", json!([finding]));
+        let stepped = json!({"step": "sequence-step-finished", "step_name": "judge",
+                             "model": "m", "result": standalone});
+        for record in [&standalone, &stepped] {
+            let fence = judged(record, SeatRecordVersion::V7).is_ok();
+            assert_eq!((fence, reader), (admitted, admitted), "{line}: {record}");
+        }
     }
 }
 

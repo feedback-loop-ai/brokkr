@@ -38,13 +38,18 @@ pub struct GateRecord {
     pub key: String,
     pub findings: Vec<GateFinding>,
     pub covered: Option<String>,
+    /// The result carries findings that do not read as finding records,
+    /// which a surface says rather than printing them as absent (fix
+    /// round 0109a1r3, M1).
+    pub unread: bool,
 }
 
 /// Every successful result in `events` that recorded findings or a
 /// covered head, in journal order. A result an older engine wrote, with
-/// neither, records nothing and is not shown; a record that does not read
-/// is not shown either, so no finding and no head is invented (decision
-/// 0109 ruling 6).
+/// neither, records nothing and is not shown; a covered record that does
+/// not read is not shown either, so no head is invented (decision 0109
+/// ruling 6), and findings that do not read are said not to read, never
+/// shown as none.
 pub fn gate_records(events: &[EventEnvelope]) -> Vec<GateRecord> {
     let phases: BTreeMap<&str, &str> = events
         .iter()
@@ -57,10 +62,10 @@ pub fn gate_records(events: &[EventEnvelope]) -> Vec<GateRecord> {
         .filter(|event| event.event_type == EventType::EffectSucceeded)
         .filter_map(|event| {
             let result = &event.payload["result"];
-            let findings = result
-                .get("findings")
-                .and_then(|findings| Vec::<Finding>::deserialize(findings).ok())
-                .unwrap_or_default();
+            let read =
+                (result.get("findings")).map(|findings| Vec::<Finding>::deserialize(findings));
+            let unread = matches!(read, Some(Err(_)));
+            let findings = read.and_then(Result::ok).unwrap_or_default();
             let covered = result
                 .get("covered")
                 .and_then(|covered| Covered::deserialize(covered).ok());
@@ -70,7 +75,7 @@ pub fn gate_records(events: &[EventEnvelope]) -> Vec<GateRecord> {
                 let member = members.get(&(effect_id, site)).copied();
                 participant::key_of(effect_id, member)
             };
-            (!findings.is_empty() || covered.is_some()).then(|| GateRecord {
+            (!findings.is_empty() || covered.is_some() || unread).then(|| GateRecord {
                 phase: phases.get(effect_id).copied().unwrap_or("-").to_string(),
                 key: participant::key_of(effect_id, None),
                 findings: findings
@@ -78,6 +83,7 @@ pub fn gate_records(events: &[EventEnvelope]) -> Vec<GateRecord> {
                     .map(|finding| gate_finding(finding, reporter(finding)))
                     .collect(),
                 covered: covered.as_ref().map(covered_text),
+                unread,
             })
         })
         .collect()

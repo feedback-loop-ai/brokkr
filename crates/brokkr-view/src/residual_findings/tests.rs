@@ -1,6 +1,7 @@
 //! What each gate verdict recorded, read once (decision 0109 slice
-//! 0109a1): a v7 result's findings and covered head, and nothing for a v6
-//! result or a record that does not read.
+//! 0109a1): a v7 result's findings and covered head, nothing for a v6
+//! result or a covered record that does not read, and findings that do
+//! not read said not to read, never shown as none (fix round 0109a1r3).
 
 use serde_json::{json, Value};
 
@@ -85,12 +86,21 @@ fn a_v7_gate_reads_back_its_findings_and_covered_and_a_v6_one_reads_nothing() {
                 key: "e1".into(),
                 findings: Vec::new(),
                 covered: Some(format!("head {} · dirty", "a".repeat(40))),
+                unread: false,
             },
             GateRecord {
                 phase: "review".into(),
                 key: "e2".into(),
                 findings: vec![one, two],
                 covered: Some(format!("head sha256 {digest} · dirty")),
+                unread: false,
+            },
+            GateRecord {
+                phase: "review".into(),
+                key: "e4".into(),
+                findings: Vec::new(),
+                covered: None,
+                unread: true,
             },
         ]
     );

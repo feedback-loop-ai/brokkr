@@ -192,7 +192,8 @@ impl GateRecord {
     /// (fix round 0109a1r2, R5): a phase lens the record of its phase; a
     /// seat lens the whole record where it holds the effect's own
     /// participant, else only the findings its participants reported,
-    /// beside the covered head the effect read. `None` where it keeps
+    /// beside the covered head the effect read, and never findings that
+    /// do not read, which name no participant. `None` where it keeps
     /// nothing.
     pub fn kept_by(&self, lens: Option<&Lens>) -> Option<GateRecord> {
         let Some(lens) = lens else {
@@ -207,6 +208,7 @@ impl GateRecord {
             .collect();
         (!findings.is_empty()).then(|| GateRecord {
             findings,
+            unread: false,
             ..self.clone()
         })
     }

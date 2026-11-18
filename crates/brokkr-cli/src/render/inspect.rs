@@ -154,6 +154,12 @@ pub(crate) fn gates(records: &[GateRecord]) -> String {
         for finding in &record.findings {
             push_line(&mut out, &finding_line(phase.as_str(), finding));
         }
+        if record.unread {
+            push_line(
+                &mut out,
+                &format!("  {} · findings do not read", phase.as_str()),
+            );
+        }
     }
     match out.is_empty() {
         true => out,

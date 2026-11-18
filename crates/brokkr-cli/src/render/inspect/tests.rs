@@ -123,3 +123,20 @@ fn the_ending_is_painted_in_its_tone() {
     let line = "     status stopped · ending \x1b[33mrefused\x1b[0m · phase stop · seq 14\n";
     assert!(out.contains(line), "{out:?}");
 }
+
+/// Findings that do not read are said not to read, beside the verdict's
+/// covered head, and never printed as none (fix round 0109a1r3, M1).
+#[test]
+fn findings_that_do_not_read_are_said_not_to_read() {
+    let record = brokkr_view::GateRecord {
+        phase: "review".into(),
+        key: "e0".into(),
+        findings: Vec::new(),
+        covered: Some("head sha256 dd · dirty".into()),
+        unread: true,
+    };
+    assert_eq!(
+        crate::render::inspect::gates(&[record]),
+        "\nverdicts\n  review · covered head sha256 dd · dirty\n  review · findings do not read\n"
+    );
+}

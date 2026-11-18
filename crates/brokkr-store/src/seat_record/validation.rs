@@ -3,7 +3,9 @@
 //! table and dispatch; this module only applies it — at the append
 //! fence, and in the export and offline-verify sweeps.
 
+use brokkr_core::findings::Finding;
 use brokkr_core::{EventEnvelope, EventType};
+use serde::Deserialize;
 use serde_json::Value;
 
 use super::{SeatRecordError, SeatRecordVersion};
@@ -41,7 +43,7 @@ pub fn validate_seat_record(
         path: path.to_string(),
         contract: version.contract(),
     };
-    if validator(version).validate(record).is_err() {
+    if validator(version).validate(record).is_err() || !gate_report_reads(record, version) {
         // The contract's top level is a `oneOf`, so a violation is always
         // reported against the record as a whole: the pointer is the root
         // and the offending value is never echoed.
@@ -58,6 +60,26 @@ pub fn validate_seat_record(
         }
     }
     Ok(())
+}
+
+/// Whether a v7 record's gate report reads through the engine's own typed
+/// reader, `brokkr_core::findings::Finding`, so the fence refuses exactly
+/// what the reader refuses, by construction (fix round 0109a1r3, M1): a
+/// number the schema's `integer` admits that is not a `u64`, such as
+/// `1.0` or `2^64`, is refused here as the reader refuses it. The report
+/// is the result's own, or a step checkpoint's nested `result`. Earlier
+/// versions carry no gate report, so there is nothing to read.
+fn gate_report_reads(record: &Value, version: SeatRecordVersion) -> bool {
+    if version != SeatRecordVersion::V7 {
+        return true;
+    }
+    let report = record.get("result").filter(|nested| nested.is_object());
+    let report = report.unwrap_or(record);
+    ["findings", "follow_ups"].iter().all(|field| {
+        report
+            .get(field)
+            .is_none_or(|findings| Vec::<Finding>::deserialize(findings).is_ok())
+    })
 }
 
 /// The seat record an event carries, if its type carries one: a

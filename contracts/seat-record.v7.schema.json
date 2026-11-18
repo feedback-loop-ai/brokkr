@@ -681,9 +681,10 @@
           "$ref": "#/$defs/repo_path"
         },
         "line": {
-          "description": "A positive line locator, not the identity.",
+          "description": "A positive line locator, not the identity: an integer from 1 to the reader's bound, 2^64 - 1, written as an integer. The fence also reads every finding through the engine's typed reader, so a value this schema's integer admits that the reader does not, such as 1.0, is refused there; the two copies of this bound are the reader's and this one.",
           "type": "integer",
-          "minimum": 1
+          "minimum": 1,
+          "maximum": 18446744073709551615
         },
         "summary": {
           "type": "string",
