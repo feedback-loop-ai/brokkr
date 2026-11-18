@@ -425,6 +425,7 @@ pub brokkr_store::CooldownDuplicate::rounds: i64
 pub brokkr_store::CooldownDuplicate::run_id: alloc::string::String
 pub brokkr_store::CooldownDuplicate::site: alloc::string::String
 pub struct brokkr_store::CooldownRound<'a>
+pub brokkr_store::CooldownRound::ends: core::option::Option<brokkr_store::ProbeHoldId>
 pub brokkr_store::CooldownRound::event_seq: u64
 pub brokkr_store::CooldownRound::provider: &'a str
 pub brokkr_store::CooldownRound::reason: &'a str
@@ -467,6 +468,13 @@ pub struct brokkr_store::NotAWait(pub alloc::string::String)
 pub struct brokkr_store::Opened
 pub brokkr_store::Opened::hash: alloc::string::String
 pub brokkr_store::Opened::seq: u64
+pub struct brokkr_store::ProbeHold<'a>
+pub brokkr_store::ProbeHold::deadline: time::offset_date_time::OffsetDateTime
+pub brokkr_store::ProbeHold::provider: &'a str
+pub brokkr_store::ProbeHold::route: &'a str
+pub brokkr_store::ProbeHold::run_id: &'a str
+pub brokkr_store::ProbeHold::site: &'a str
+pub struct brokkr_store::ProbeHoldId(_)
 pub struct brokkr_store::QueueEntry
 pub brokkr_store::QueueEntry::added_at: alloc::string::String
 pub brokkr_store::QueueEntry::id: brokkr_store::EntryId
@@ -558,6 +566,9 @@ pub fn brokkr_store::Store::dispatch_bound(&self) -> core::result::Result<core::
 pub fn brokkr_store::Store::dispatch_hold(&mut self, u32) -> core::result::Result<brokkr_store::Generation, brokkr_store::StoreError>
 pub fn brokkr_store::Store::dispatch_holder(&self) -> core::result::Result<core::option::Option<(brokkr_store::Generation, u32, alloc::string::String)>, brokkr_store::StoreError>
 pub fn brokkr_store::Store::set_dispatch_bound(&mut self, core::num::nonzero::NonZeroU32, brokkr_store::Attribution<'_>) -> core::result::Result<(), brokkr_store::StoreError>
+impl brokkr_store::Store
+pub fn brokkr_store::Store::end_probe_hold(&mut self, brokkr_store::ProbeHoldId, time::offset_date_time::OffsetDateTime) -> core::result::Result<(), brokkr_store::StoreError>
+pub fn brokkr_store::Store::hold_probe(&mut self, &brokkr_store::ProbeHold<'_>, time::offset_date_time::OffsetDateTime) -> core::result::Result<core::option::Option<brokkr_store::ProbeHoldId>, brokkr_store::StoreError>
 impl brokkr_store::Store
 pub fn brokkr_store::Store::envelopes_at(&self, &str, &[u64]) -> core::result::Result<alloc::vec::Vec<brokkr_core::envelope::EventEnvelope>, brokkr_store::StoreError>
 pub fn brokkr_store::Store::index_causes(&self, &str, &[&str]) -> core::result::Result<core::option::Option<alloc::collections::btree::map::BTreeMap<alloc::string::String, u64>>, brokkr_store::StoreError>

@@ -16,7 +16,8 @@ use crate::admission::{legs_at, Capacity};
 use crate::engine::broker::admission::tests::{protecting_refused, Coordinated};
 use crate::engine::broker::admission::{Conflict, Unadmitted};
 
-use super::held_wait::{held_until, standing};
+use super::held_route::{acting_on_read, held_to};
+use super::held_wait::standing;
 use super::*;
 
 /// What the competitor saw at one clock read after the probe started.
@@ -41,7 +42,7 @@ struct Root {
 impl Root {
     fn of(dir: &Path, engine: &Engine) -> Root {
         Root {
-            home: super::lease::home(dir),
+            home: dir.join("home"),
             worktree: dir.join("work"),
             journal: engine.store.path().to_path_buf(),
             started: dir.join("work.started"),
@@ -65,50 +66,17 @@ impl Root {
     }
 }
 
-/// A clock over `now` whose every read runs `act` first, and whose slices
-/// advance `now`.
-fn acting_on_read(
-    now: &Arc<Mutex<OffsetDateTime>>,
-    act: impl Fn(OffsetDateTime) + Send + Sync + 'static,
-) -> Clock {
-    let (read, advance) = (Arc::clone(now), Arc::clone(now));
-    Clock {
-        now: Box::new(move || {
-            let at = *read.lock().unwrap();
-            act(at);
-            at
-        }),
-        sleep: Box::new(move |slice: std::time::Duration| {
-            *advance.lock().unwrap() += time::Duration::seconds(slice.as_secs() as i64);
-        }),
-    }
-}
-
 /// A single seat held five seconds past its two-second maximum, journaled
 /// under a protected root; the clock set to the stored end of that held
 /// row, so the old row no longer holds; and the barrier probe released
 /// ahead, so it states another five seconds at once.
 fn held_at_its_end() -> (tempfile::TempDir, Engine, Arc<Mutex<OffsetDateTime>>, Root) {
-    let (dir, mut engine, now) = seated!(&["refuse", "succeed"], Probed::BarrierRefuse, Some(5), 2);
-    engine.cooldown.host = Some(host(dir.path(), 1, 2));
+    let (dir, engine, now) =
+        super::held_route::held_at_its_end(Probed::BarrierRefuse, |dir, engine| {
+            let _stand = Coordinated::at(&super::lease::home(dir));
+            engine.drive().unwrap();
+        });
     let root = Root::of(dir.path(), &engine);
-    {
-        let _stand = Coordinated::at(&root.home);
-        engine.drive().unwrap();
-    }
-    assert_eq!(standing(&engine), (Status::Running, 0));
-    let until = held_until(&engine);
-    let stored = engine
-        .store
-        .cooldown("claude", "first", until - time::Duration::seconds(1))
-        .unwrap()
-        .expect("the held row holds before its own end")
-        .until;
-    *now.lock().unwrap() = stored;
-    assert_eq!(
-        engine.store.cooldown("claude", "first", stored).unwrap(),
-        None
-    );
     std::fs::write(dir.path().join("work.release"), "").unwrap();
     (dir, engine, now, root)
 }
@@ -163,16 +131,6 @@ fn a_probes_renewed_hold_is_committed_before_its_lease_is_released() {
     if !seen.iter().any(|look| matches!(look, Seen::Released(_))) {
         assert_eq!(protecting_refused(&root.home, &root.worktree), Ok(()));
     }
-}
-
-/// Both legs refuse claude/first as cooling down until exactly `end`.
-fn held_to(legs: &[Result<(), Capacity>; 2], end: OffsetDateTime) -> bool {
-    legs.iter().all(|leg| {
-        matches!(
-            leg,
-            Err(Capacity::CoolingDown { until, .. }) if *until == end
-        )
-    })
 }
 
 /// A probe round the store refuses (a competing round 2 planted between

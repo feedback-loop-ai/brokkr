@@ -1066,6 +1066,7 @@ fn next_round<'a>(
         retry_after_seconds: Some(30),
         rounds,
         seconds: 60,
+        ends: None,
     }
 }
 

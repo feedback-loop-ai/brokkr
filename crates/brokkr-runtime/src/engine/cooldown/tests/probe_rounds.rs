@@ -242,6 +242,7 @@ fn append_round(
             retry_after_seconds: None,
             rounds,
             seconds,
+            ends: None,
         })
         .unwrap();
 }

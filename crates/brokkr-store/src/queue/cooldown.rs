@@ -22,6 +22,9 @@ use super::storage::{cool_downs_held, cool_downs_writable};
 use super::QueueRefusal;
 use crate::{patiently, Store, StoreError};
 
+mod hold;
+pub use hold::{ProbeHold, ProbeHoldId};
+
 /// One cool-down a terminal event records, as its writer derives it. The
 /// store fills `event_seq` and `recorded_at` from the event it writes the
 /// rows with — the seq the event takes inside that transaction and the
@@ -97,6 +100,9 @@ pub struct CooldownRound<'a> {
     pub rounds: u64,
     /// The length this round's wait was computed at.
     pub seconds: u64,
+    /// The probe's hold this round ends, in the round's own transaction
+    /// (fix round 0106b1r4, F1): a round the store does not take ends none.
+    pub ends: Option<ProbeHoldId>,
 }
 
 /// What [`Store::append_cooldown_round`] did. A queue this binary may not
@@ -235,12 +241,16 @@ fn until_second(at: OffsetDateTime) -> i64 {
 const ROWS: &str = "seq, site, provider, route, until_at, reason, retry_after_seconds, rounds,
                 recorded_at";
 
-/// Every row in force at `now`, in the order it was written: the claim's
-/// judge and the aggregate share this reading. A row whose stored instant
-/// this reader cannot spell refuses by name, carrying the row's `seq`.
+/// Every row in force at `now`, in the order it was written, then every
+/// probe hold standing at `now` ([`hold::standing`]): the pass's and the
+/// claim's one reading, so a probe in flight holds its route for both
+/// (fix round 0106b1r4, F1). A row whose stored instant this reader cannot
+/// spell refuses by name, carrying the row's `seq`.
 pub(super) fn in_force(conn: &Connection, now: i64) -> Result<Vec<Cooldown>, StoreError> {
     let sql = format!("SELECT {ROWS} FROM provider_cooldowns WHERE until_at > ?1 ORDER BY seq");
-    read_rows(conn, &sql, now)
+    let mut rows = read_rows(conn, &sql, now)?;
+    rows.extend(hold::standing(conn, now)?);
+    Ok(rows)
 }
 
 /// Every row in force at `now`, and, for a provider and route no row holds
@@ -638,6 +648,9 @@ impl Store {
                     held,
                 },
             )?;
+            if let Some(id) = round.ends {
+                hold::end(&tx, id, recorded)?;
+            }
             tx.commit()?;
             Ok(RoundAppend::Written)
         })

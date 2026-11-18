@@ -58,6 +58,7 @@ fn a_version_6_queue_migrates_to_version_7_and_keeps_its_cool_downs_ordinary() {
         .execute_batch(
             "ALTER TABLE provider_cooldowns DROP COLUMN held;
              ALTER TABLE provider_cooldowns DROP COLUMN max_seconds;
+             DROP TABLE probe_holds;
              UPDATE meta SET value = '6' WHERE key = 'queue_schema';",
         )
         .unwrap();
@@ -79,6 +80,82 @@ fn a_version_6_queue_migrates_to_version_7_and_keeps_its_cool_downs_ordinary() {
     assert_eq!(
         kinds(&store.conn),
         vec![(None, None), (Some(1), Some(7200))]
+    );
+    // And version 7's probe holds' table, empty.
+    let hold = store
+        .hold_probe(&probe_hold("run-b", at(30)), at(0))
+        .unwrap();
+    assert!(hold.is_some());
+}
+
+/// A probe hold on claude/first for `run` until `deadline`.
+fn probe_hold(run: &str, deadline: OffsetDateTime) -> crate::ProbeHold<'_> {
+    crate::ProbeHold {
+        run_id: run,
+        site: "",
+        provider: "claude",
+        route: "first",
+        deadline,
+    }
+}
+
+/// A probe hold is read by the in-force read, the pass's and the claim's
+/// one statement, while it is unended and before its deadline (fix round
+/// 0106b1r4, F1): with its deadline as its end and words naming the
+/// probing run. At its deadline, or once ended, it holds nothing; it ends
+/// once, and a version 6 queue takes none.
+#[test]
+fn a_probe_hold_is_in_force_until_it_ends_or_its_deadline_passes() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = journal(dir.path());
+    let first = store
+        .hold_probe(&probe_hold("run-a", at(30)), at(0))
+        .unwrap()
+        .expect("a version 7 queue takes the hold");
+    let read = store.cooldowns_in_force(at(10)).unwrap();
+    assert_eq!(
+        read,
+        [Cooldown {
+            site: String::new(),
+            provider: "claude".into(),
+            route: "first".into(),
+            until_at: at(30),
+            reason: "a cool-down probe of run run-a holds the route while it is in flight".into(),
+            retry_after_seconds: None,
+            rounds: 0,
+            recorded_at: at(0),
+        }]
+    );
+    assert_eq!(store.cooldowns_in_force(at(30)).unwrap(), []);
+    // The aggregate a wait sleeps to is the table's rows only.
+    assert_eq!(store.cooldown("claude", "first", at(10)).unwrap(), None);
+    let second = store
+        .hold_probe(&probe_hold("run-a", at(60)), at(0))
+        .unwrap()
+        .unwrap();
+    store.end_probe_hold(second, at(5)).unwrap();
+    store.end_probe_hold(second, at(6)).unwrap();
+    assert_eq!(store.cooldowns_in_force(at(10)).unwrap(), read);
+    store.end_probe_hold(first, at(7)).unwrap();
+    assert_eq!(store.cooldowns_in_force(at(10)).unwrap(), []);
+    let ended: Vec<i64> = store
+        .conn
+        .prepare("SELECT ended_at FROM probe_holds ORDER BY seq")
+        .unwrap()
+        .query_map([], |row| row.get(0))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    assert_eq!(ended, [at(7).unix_timestamp(), at(5).unix_timestamp()]);
+    store
+        .conn
+        .execute("UPDATE meta SET value = '6' WHERE key = 'queue_schema'", [])
+        .unwrap();
+    assert_eq!(
+        store
+            .hold_probe(&probe_hold("run-a", at(90)), at(0))
+            .unwrap(),
+        None
     );
 }
 

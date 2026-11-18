@@ -290,9 +290,16 @@ impl Engine {
             }
             // An answer or a park settles the probe's lease here; a renewed
             // refusal keeps it standing until its round is committed
-            // ([`Engine::hold_extension`], fix round 0106b1r3).
+            // ([`Engine::hold_extension`], fix round 0106b1r3). An answer
+            // ends the probe's own hold on its route at once; a park leaves
+            // it standing until its deadline (fix round 0106b1r4, F1).
             match self.probe_wait(events, state, effect_id, seat, wait)? {
-                Probe::Answered(answer) => answers.push(self.settle_probe(answer)?),
+                Probe::Answered(answer) => {
+                    if let Some(hold) = self.cooldown.hold.take() {
+                        self.store.end_probe_hold(hold, self.now())?;
+                    }
+                    answers.push(self.settle_probe(answer)?);
+                }
                 Probe::Extended(round) => return Ok(ProbeRound::Extended(round)),
                 Probe::Parked(reason) => return Ok(ProbeRound::Parked(self.settle_probe(reason)?)),
             }
@@ -422,6 +429,9 @@ impl Engine {
             retry_after_seconds: round.retry_after_seconds,
             rounds: round.rounds,
             seconds: round.seconds,
+            // The probe's hold ends in the round's own transaction, so the
+            // route is never open between them (fix round 0106b1r4, F1).
+            ends: self.cooldown.hold.take(),
         };
         let appended = match held {
             Some(kind) => self.store.append_held_round(row, kind),

@@ -3,7 +3,9 @@
 //! held, and the claim's fence refuses one recorded after the pass read.
 //!
 //! The rows are the store's own read of every unexpired
-//! `provider_cooldowns` row ([`brokkr_store::Store::cooldowns_in_force`]),
+//! `provider_cooldowns` row and every standing probe hold, a probe in
+//! flight holding its route until it ends or its deadline passes (fix round
+//! 0106b1r4) ([`brokkr_store::Store::cooldowns_in_force`]),
 //! aggregated per provider and route to the latest `until_at`, with the
 //! words of the latest row at that maximum (ruling 2's aggregate). A pass
 //! that cannot read a row refuses; it never reads one as no cool-down.

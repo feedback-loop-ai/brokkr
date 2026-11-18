@@ -1324,6 +1324,7 @@ fn a_driver_that_does_not_advertise_the_probe_parks_naming_it() {
 mod held_lease;
 mod held_panel;
 mod held_probe;
+mod held_route;
 mod held_wait;
 mod lease;
 mod probe_driver;

@@ -111,6 +111,7 @@ pub(crate) fn extend_cooling(store: &mut Store, event_seq: u64) {
             retry_after_seconds: Some(3600),
             rounds: 2,
             seconds: 3600,
+            ends: None,
         })
         .unwrap();
     assert_eq!(written, RoundAppend::Written);

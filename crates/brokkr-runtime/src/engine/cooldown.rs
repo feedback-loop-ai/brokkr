@@ -74,6 +74,8 @@ pub(crate) struct Seam {
     pub(crate) answers: Vec<ProbeAnswer>,
     /// Where this drive stands on a held wait (decision 0106 ruling 2).
     pub(crate) held: HeldDrive,
+    /// The hold the probe in flight took on its route (fix round 0106b1r4).
+    pub(crate) hold: Option<brokkr_store::ProbeHoldId>,
 }
 
 impl Default for Seam {
@@ -83,6 +85,7 @@ impl Default for Seam {
             clock: Clock::real(),
             answers: Vec::new(),
             held: HeldDrive::Unheld,
+            hold: None,
         }
     }
 }

@@ -65,7 +65,8 @@ pub(super) fn wait_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Wait> {
 /// `tree_sweeps` table a complete removal is recorded in (decision 0104
 /// ruling 8, slice 5c1). Version 7 adds `provider_cooldowns`' two nullable
 /// columns, `held` and `max_seconds`, so a held wait's row carries its own
-/// kind (decision 0106 ruling 2, slice 0106b1).
+/// kind (decision 0106 ruling 2, slice 0106b1), and the `probe_holds` table
+/// a probe in flight holds its route by (fix round 0106b1r4).
 pub(crate) const QUEUE_SCHEMA: u32 = 7;
 
 /// The `meta` key a journal records [`QUEUE_SCHEMA`] under: one home for
@@ -127,7 +128,7 @@ impl Stored {
     }
 
     /// How many of [`QUEUE_TABLES`] this version holds. Version 7 adds
-    /// columns, not a table, so it holds version 6's.
+    /// cool-down columns and the probe holds' table.
     fn tables(self) -> usize {
         match self {
             Stored::V1 => 3,
@@ -135,7 +136,8 @@ impl Stored {
             Stored::V3 => QUEUE_TABLES_V3,
             Stored::V4 => QUEUE_TABLES_V4,
             Stored::V5 => QUEUE_TABLES_V5,
-            Stored::V6 | Stored::V7 => QUEUE_TABLES.len(),
+            Stored::V6 => QUEUE_TABLES_V6,
+            Stored::V7 => QUEUE_TABLES.len(),
         }
     }
 }
@@ -432,6 +434,42 @@ const MIGRATION_QUEUE_V7: [(&str, &str); 2] = [
     ),
 ];
 
+/// Version 7's probe holds (fix round 0106b1r4, F1; the operator's ruling
+/// of 2026-11-18 amending decision 0103 ruling 2): one row per probe of a
+/// cooled route, written before the probe is reserved. While it stands,
+/// unended and before its deadline, the pass and the claim read its route
+/// as cooling down through the one in-force read. A refusal ends it in the
+/// transaction that writes the renewed round, an answer ends it at once,
+/// and any other end leaves it standing until `deadline_at`, the instant
+/// the probe's own spawn deadline runs out, after which it holds nothing.
+/// Its instants are Unix seconds (UTC), as version 4's are. A hold's route
+/// and deadline are fixed, it ends once, and it is never deleted.
+const MIGRATION_QUEUE_V7_HOLDS: &str = r#"
+CREATE TABLE IF NOT EXISTS probe_holds (
+    seq INTEGER PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES runs(run_id),
+    site TEXT NOT NULL,
+    provider TEXT NOT NULL CONSTRAINT hold_provider_named CHECK (length(provider) > 0),
+    route TEXT NOT NULL CONSTRAINT hold_route_named CHECK (length(route) > 0),
+    recorded_at INTEGER NOT NULL CONSTRAINT hold_recorded_is_seconds
+        CHECK (typeof(recorded_at) = 'integer'),
+    deadline_at INTEGER NOT NULL CONSTRAINT hold_deadline_is_seconds
+        CHECK (typeof(deadline_at) = 'integer'),
+    ended_at INTEGER CONSTRAINT hold_ended_is_seconds
+        CHECK (ended_at IS NULL OR typeof(ended_at) = 'integer')
+);
+CREATE TRIGGER IF NOT EXISTS probe_holds_fixed
+    BEFORE UPDATE OF seq, run_id, site, provider, route, recorded_at, deadline_at ON probe_holds
+    BEGIN SELECT RAISE(ABORT, 'a probe hold''s route and deadline are fixed'); END;
+CREATE TRIGGER IF NOT EXISTS probe_holds_end_once
+    BEFORE UPDATE OF ended_at ON probe_holds
+    WHEN OLD.ended_at IS NOT NULL
+    BEGIN SELECT RAISE(ABORT, 'a probe hold ends once'); END;
+CREATE TRIGGER IF NOT EXISTS probe_holds_kept
+    BEFORE DELETE ON probe_holds
+    BEGIN SELECT RAISE(ABORT, 'probe holds are never deleted'); END;
+"#;
+
 /// Add version 7's columns that `provider_cooldowns` does not declare yet.
 fn add_cool_down_kinds(conn: &Connection) -> Result<(), StoreError> {
     for (column, statement) in MIGRATION_QUEUE_V7 {
@@ -454,7 +492,7 @@ fn cool_down_kinds_present(conn: &Connection) -> Result<bool, StoreError> {
 
 /// The guards the migrations install, by name, so an open can ask
 /// whether a journal still carries every one.
-const QUEUE_TRIGGERS: [&str; 27] = [
+const QUEUE_TRIGGERS: [&str; 30] = [
     "queue_entries_fixed",
     "queue_entries_run_once",
     "queue_entries_kept",
@@ -482,6 +520,9 @@ const QUEUE_TRIGGERS: [&str; 27] = [
     "seat_trees_append_only_delete",
     "tree_sweeps_append_only_update",
     "tree_sweeps_append_only_delete",
+    "probe_holds_fixed",
+    "probe_holds_end_once",
+    "probe_holds_kept",
 ];
 
 /// The version 4 table and the unique index on it, by name beyond the
@@ -499,8 +540,9 @@ const QUEUE_INDEXES: [&str; 3] = [COOLDOWN_INDEX, SEAT_TREE_INDEX, TREE_SWEEP_IN
 /// The queue's tables, in the order the migrations create them: version
 /// 1's three, then version 2's latches and pins, then version 3's claims,
 /// refusals, holders and settings, then version 4's provider cool-downs,
-/// then version 5's seat trees, then version 6's tree sweeps.
-const QUEUE_TABLES: [&str; 12] = [
+/// then version 5's seat trees, then version 6's tree sweeps, then version
+/// 7's probe holds.
+const QUEUE_TABLES: [&str; 13] = [
     "queue_entries",
     "queue_waits",
     "queue_commands",
@@ -513,7 +555,11 @@ const QUEUE_TABLES: [&str; 12] = [
     COOLDOWN_TABLE,
     SEAT_TREE_TABLE,
     TREE_SWEEP_TABLE,
+    PROBE_HOLD_TABLE,
 ];
+
+/// Version 7's probe holds, by name: the in-force read joins it.
+pub(super) const PROBE_HOLD_TABLE: &str = "probe_holds";
 
 /// How many of [`QUEUE_TABLES`] version 3 held: all but the version 4 and
 /// version 5 tables. Slice 3a's build wrote version 3 without the holders
@@ -525,9 +571,13 @@ const QUEUE_TABLES_V3: usize = 9;
 /// version 6 tables.
 const QUEUE_TABLES_V4: usize = 10;
 
-/// How many of [`QUEUE_TABLES`] version 5 held: all but the version 6
-/// table.
+/// How many of [`QUEUE_TABLES`] version 5 held: all but the version 6 and
+/// version 7 tables.
 const QUEUE_TABLES_V5: usize = 11;
+
+/// How many of [`QUEUE_TABLES`] version 6 held: all but the version 7
+/// table.
+const QUEUE_TABLES_V6: usize = 12;
 
 /// How many of [`QUEUE_TABLES`] version 3 held as slice 3a's build wrote
 /// it: all but the holders and the settings (decision 0095 slice 3b).
@@ -601,6 +651,7 @@ pub(crate) fn migrate_queue(conn: &Connection) -> Result<(), StoreError> {
     refuse_sweep_duplicates(conn)?;
     conn.execute_batch(MIGRATION_QUEUE_V6)?;
     add_cool_down_kinds(conn)?;
+    conn.execute_batch(MIGRATION_QUEUE_V7_HOLDS)?;
     record_queue_version(conn)
 }
 

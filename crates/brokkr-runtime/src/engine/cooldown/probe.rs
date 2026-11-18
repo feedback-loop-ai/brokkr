@@ -10,6 +10,7 @@ use brokkr_core::fold::RunState;
 use brokkr_core::park::Park;
 use brokkr_core::{EventEnvelope, ProbeAnswer, ProviderWait};
 use brokkr_protocol::hands::HandsSpec;
+use brokkr_store::ProbeHold;
 use serde_json::Value;
 use uuid::Uuid;
 
@@ -149,6 +150,13 @@ impl Engine {
         let observed = observed();
         let began = Instant::now();
         let deadline = Duration::from_secs(picked.seat.limits.timeout_seconds);
+        if let Err(unheld) = self.hold_the_route(wait, deadline) {
+            return Ok(Err(Probe::Parked(Park::ruled(format!(
+                "the cool-down probe for {}/{} was not admitted: its route's hold was not \
+                 written: {unheld}",
+                wait.provider, wait.route
+            )))));
+        }
         if let Err(refusal) = self.admit_for_probe(
             events,
             [&attempt, &picked.site],
@@ -167,6 +175,37 @@ impl Engine {
             input,
             deadline,
         }))
+    }
+
+    /// Hold the probe's route before it is reserved and dispatched (fix
+    /// round 0106b1r4, F1; the operator's ruling of 2026-11-18, amending
+    /// decision 0103 ruling 2): one hold row, carrying the provider, the
+    /// route and the `deadline` the probe spawns under, that the pass and
+    /// the claim read as cooling down until it ends or its deadline passes.
+    /// A hold the store refuses parks the probe unadmitted, so no probe
+    /// runs on a route it could not hold. A queue older than version 7, or
+    /// one a newer binary stores, takes no hold and the probe runs as it
+    /// always has: the pass and the claim read no hold from such a queue
+    /// either (a version 1 to 3 or unknown one no cool-down at all), and an
+    /// engine's own open moves a version 4 to 6 queue to version 7 before
+    /// any probe.
+    fn hold_the_route(
+        &mut self,
+        wait: &ProviderWait,
+        deadline: Duration,
+    ) -> Result<(), brokkr_store::StoreError> {
+        let now = self.now();
+        let hold = ProbeHold {
+            run_id: &self.run_id,
+            site: wait.site.as_deref().unwrap_or(""),
+            provider: &wait.provider,
+            route: &wait.route,
+            deadline: now.saturating_add(time::Duration::seconds(
+                i64::try_from(deadline.as_secs()).unwrap_or(i64::MAX),
+            )),
+        };
+        self.cooldown.hold = self.store.hold_probe(&hold, now)?;
+        Ok(())
     }
 
     /// The dispatch one admitted probe composes under, at `site_name`: the
