@@ -16,47 +16,16 @@ use std::path::{Path, PathBuf};
 
 use brokkr_core::envelope::{EventEnvelope, EventType};
 use brokkr_core::fold::{fold, OperatorCommand, Run};
+use brokkr_core::{accepted_command, operator_command, succeeded_effect};
 use brokkr_store::{SeatTree, Store};
-use serde::Deserialize;
 use uuid::Uuid;
 
 use super::{HeldReason, KeptReason, ShapeReason, SCRATCH};
 
-/// `effect/succeeded`'s effect, typed where the sweep reads it (0071
-/// ruling 3). The payloads below are open by contract, an extension field
-/// kept as the journal wrote it, so each decode types only the fields the
-/// sweep reads and refuses no other key.
-#[derive(Deserialize)]
-struct Succeeded<'a> {
-    effect_id: &'a str,
-}
-
-/// `operator/commanded`'s id and word.
-#[derive(Deserialize)]
-struct Commanded<'a> {
-    command_id: &'a str,
-    command: &'a str,
-}
-
-/// `operator/accepted`'s command id.
-#[derive(Deserialize)]
-struct Accepted<'a> {
-    command_id: &'a str,
-}
-
-/// One event's payload decoded, or the run's rows kept: a payload the
-/// sweep cannot read is a run whose events it cannot fold, never a panic
-/// and never a removal. Only an object decodes: serde reads a JSON array
-/// into a derived struct by position, which the fold's own readers refuse.
-fn decoded<'a, T: Deserialize<'a>>(event: &'a EventEnvelope) -> Result<T, KeptReason> {
-    event
-        .payload
-        .as_object()
-        .ok_or(KeptReason::RunDoesNotFold)?;
-    T::deserialize(&event.payload)
-        .ok()
-        .ok_or(KeptReason::RunDoesNotFold)
-}
+// The payloads the sweep reads are read by brokkr-core's own readers, the
+// one home of their shapes (0071 rulings 3 and 5): a payload that does not
+// read keeps the run's rows, never a panic and never a removal, and an
+// array is refused as the fold refuses it.
 
 /// What the row decided: remove it, close it as gone, or keep it for one
 /// stated reason.
@@ -247,8 +216,10 @@ fn applied(
         if event.event_type == EventType::EffectSucceeded {
             // The fold read the effect id as a string before this loop
             // runs, so the refusal is a value, not a closure no test enters.
-            let succeeded: Succeeded = decoded(event)?;
-            effects.insert(succeeded.effect_id.to_string());
+            let effect = succeeded_effect(event)
+                .ok()
+                .ok_or(KeptReason::RunDoesNotFold)?;
+            effects.insert(effect.to_string());
         }
         let Some(attempt) = event.attempt_id.as_deref() else {
             continue;
@@ -301,8 +272,8 @@ fn late_attempts(events: &[EventEnvelope], state: &brokkr_core::fold::RunState) 
 /// accepted stop, whether a conclude or a resumed engine's restart wrote it.
 /// Only the events the fold applies are read, as [`applied`] reads them: a
 /// repaired late tail is never applied, so its payloads decide nothing.
-/// Each applied operator payload is decoded once, here; one that does not
-/// decode keeps the run's rows.
+/// Each applied operator payload is read once, here; one that does not
+/// read keeps the run's rows.
 fn stop_acceptances<'a>(
     events: &'a [EventEnvelope],
     state: &brokkr_core::fold::RunState,
@@ -311,17 +282,21 @@ fn stop_acceptances<'a>(
     let mut accepted = Vec::new();
     for event in events.iter().filter(|event| state.applies(event.seq)) {
         if event.event_type == EventType::OperatorCommanded {
-            let commanded: Commanded = decoded(event)?;
-            if commanded.command == OperatorCommand::Stop.as_str() {
-                commands.insert(commanded.command_id);
+            let (command_id, command) = operator_command(event)
+                .ok()
+                .ok_or(KeptReason::RunDoesNotFold)?;
+            if command == OperatorCommand::Stop.as_str() {
+                commands.insert(command_id);
             }
         } else if event.event_type == EventType::OperatorAccepted {
             // The fold read an applied acceptance's command id as a string
             // before this loop runs, so the refusal is a value, not a
             // closure no test enters; the fold's refusal is pinned by
             // `an_operator_payload_that_does_not_decode_keeps_the_runs_tree`.
-            let acceptance: Accepted = decoded(event)?;
-            accepted.push((acceptance.command_id, event.event_id.as_str()));
+            let command_id = accepted_command(event)
+                .ok()
+                .ok_or(KeptReason::RunDoesNotFold)?;
+            accepted.push((command_id, event.event_id.as_str()));
         }
     }
     Ok(accepted

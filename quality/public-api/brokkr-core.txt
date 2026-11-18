@@ -1624,7 +1624,10 @@ impl brokkr_core::fold::RunState
 pub fn brokkr_core::fold::RunState::applies(&self, u64) -> bool
 impl brokkr_core::fold::RunState
 pub fn brokkr_core::fold::RunState::stopping_seq(&self) -> core::option::Option<u64>
+pub fn brokkr_core::accepted_command(&brokkr_core::envelope::EventEnvelope) -> core::result::Result<&str, brokkr_core::fold::FoldError>
 pub fn brokkr_core::cited_shas(&[brokkr_core::envelope::EventEnvelope]) -> alloc::collections::btree::set::BTreeSet<alloc::string::String>
 pub fn brokkr_core::fold(&[brokkr_core::envelope::EventEnvelope]) -> core::result::Result<brokkr_core::fold::RunState, brokkr_core::fold::FoldError>
+pub fn brokkr_core::operator_command(&brokkr_core::envelope::EventEnvelope) -> core::result::Result<(&str, &str), brokkr_core::fold::FoldError>
 pub fn brokkr_core::provider_refusal(&brokkr_core::envelope::EventEnvelope) -> core::result::Result<core::option::Option<brokkr_core::ProviderRefusal>, brokkr_core::ProviderRefusalError>
 pub fn brokkr_core::provider_waits(&brokkr_core::envelope::EventEnvelope) -> core::result::Result<core::option::Option<alloc::vec::Vec<brokkr_core::ProviderWait>>, brokkr_core::ProviderWaitError>
+pub fn brokkr_core::succeeded_effect(&brokkr_core::envelope::EventEnvelope) -> core::result::Result<&str, brokkr_core::fold::FoldError>
