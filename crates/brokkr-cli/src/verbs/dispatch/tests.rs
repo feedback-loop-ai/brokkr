@@ -129,34 +129,56 @@ fn every_is_five_to_3600_seconds_sixty_by_default_and_refused_with_once() {
     }
 }
 
-/// The standing loop's sleep: the whole of a short rest when no stop is
-/// asked, none at all once one is, and it wakes as soon as a stop is asked
-/// while it sleeps. Each rest is short, so a regression fails in seconds.
-#[test]
-fn a_nap_sleeps_its_rest_and_wakes_at_once_on_a_stop() {
-    let rest = Duration::from_millis(120);
-    let began = Instant::now();
-    nap(&AtomicBool::new(false), rest);
-    assert!(began.elapsed() >= rest, "{:?}", began.elapsed());
-    let began = Instant::now();
-    nap(&AtomicBool::new(true), Duration::from_secs(10));
-    assert!(began.elapsed() < Duration::from_secs(1), "woke at once");
+/// Ask `stop` as its signal handlers do: the flag, then a byte to `waker`.
+fn ask(stop: &AtomicBool, mut waker: &UnixStream) {
+    stop.store(true, Ordering::SeqCst);
+    waker.write_all(&[0]).unwrap();
+}
 
-    // The asker's wait and the nap are timed from one origin, taken before
-    // either starts, so a busy host cannot order them the wrong way round.
-    let stop = Arc::new(AtomicBool::new(false));
-    let asks = Arc::clone(&stop);
+/// The standing loop's sleep with no signal: the whole of its rest, and
+/// not less, and none at all once a stop is asked.
+#[test]
+fn a_nap_with_no_signal_sleeps_its_whole_rest() {
+    let (stop, _waker) = Stop::unasked().unwrap();
+    let rest = Duration::from_millis(300);
+    let began = Instant::now();
+    nap(&stop, rest);
+    let slept = began.elapsed();
+    assert!(
+        slept >= rest && slept < rest + Duration::from_secs(2),
+        "{slept:?}"
+    );
+
+    let (stop, waker) = Stop::unasked().unwrap();
+    ask(&stop.asked, &waker);
+    let began = Instant::now();
+    nap(&stop, Duration::from_secs(60));
+    assert!(began.elapsed() < Duration::from_millis(500), "woke at once");
+}
+
+/// Decision 0110 ruling 5: a stop asked while the loop sleeps a long rest
+/// wakes it as the signal's byte lands, not at the rest's end or a beat's.
+/// The asker and the timer share one origin, taken before either starts,
+/// and the asker says when it asked, so a busy host cannot order them the
+/// wrong way round. Removal control (ii), the nap sleeping its whole rest,
+/// fails it after the rest's 60 s.
+#[test]
+fn a_stop_asked_mid_nap_wakes_it_promptly() {
+    let (stop, waker) = Stop::unasked().unwrap();
+    let asks = Arc::clone(&stop.asked);
     let began = Instant::now();
     let asker = std::thread::spawn(move || {
         std::thread::sleep(Duration::from_millis(200).saturating_sub(began.elapsed()));
-        asks.store(true, Ordering::SeqCst);
+        let asking = began.elapsed();
+        ask(&asks, &waker);
+        asking
     });
-    nap(&stop, Duration::from_secs(10));
+    nap(&stop, Duration::from_secs(60));
     let slept = began.elapsed();
-    asker.join().unwrap();
+    let asking = asker.join().unwrap();
     assert!(
-        slept >= Duration::from_millis(200) && slept < Duration::from_secs(2),
-        "woke on the stop asked mid-sleep: {slept:?}"
+        slept >= asking && slept < asking + Duration::from_millis(500),
+        "woke {slept:?} after the origin, the stop asked at {asking:?}"
     );
 }
 
