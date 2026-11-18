@@ -216,7 +216,7 @@ impl Facts {
 /// an effect, and an attempt it names keeps its tree.
 fn folded(events: &[EventEnvelope]) -> Result<Folded, KeptReason> {
     let state = fold(events).map_err(|_| KeptReason::RunDoesNotFold)?;
-    let stops = stop_acceptances(events)?;
+    let stops = stop_acceptances(events, &state)?;
     let (effects, attempts) = applied(events, &state, &stops)?;
     Ok(Folded {
         terminal: matches!(state.run, Run::Completed | Run::Stopped),
@@ -294,18 +294,27 @@ fn late_attempts(events: &[EventEnvelope], state: &brokkr_core::fold::RunState) 
 /// The ids of the `operator/accepted` events that dispose of a stop
 /// command: a terminal caused by one of them closed its attempt under an
 /// accepted stop, whether a conclude or a resumed engine's restart wrote it.
-/// Each operator payload is decoded once, here; one that does not decode
-/// keeps the run's rows.
-fn stop_acceptances(events: &[EventEnvelope]) -> Result<HashSet<&str>, KeptReason> {
+/// Only the events the fold applies are read, as [`applied`] reads them: a
+/// repaired late tail is never applied, so its payloads decide nothing.
+/// Each applied operator payload is decoded once, here; one that does not
+/// decode keeps the run's rows.
+fn stop_acceptances<'a>(
+    events: &'a [EventEnvelope],
+    state: &brokkr_core::fold::RunState,
+) -> Result<HashSet<&'a str>, KeptReason> {
     let mut commands = HashSet::new();
     let mut accepted = Vec::new();
-    for event in events {
+    for event in events.iter().filter(|event| state.applies(event.seq)) {
         if event.event_type == EventType::OperatorCommanded {
             let commanded: Commanded = decoded(event)?;
             if commanded.command == OperatorCommand::Stop.as_str() {
                 commands.insert(commanded.command_id);
             }
         } else if event.event_type == EventType::OperatorAccepted {
+            // The fold read an applied acceptance's command id as a string
+            // before this loop runs, so the refusal is a value, not a
+            // closure no test enters; the fold's refusal is pinned by
+            // `an_operator_payload_that_does_not_decode_keeps_the_runs_tree`.
             let acceptance: Accepted = decoded(event)?;
             accepted.push((acceptance.command_id, event.event_id.as_str()));
         }

@@ -40,9 +40,10 @@ fn plant_after_terminal(
     }
 }
 
-/// The repair record that names the late tail `terminal + 1 ..= last`.
-fn repair(terminal: u64, last: u64) -> Value {
-    let types = vec!["effect/succeeded"; (last - terminal) as usize];
+/// The repair record that names the late tail after `terminal`, one seq
+/// per type in `types`.
+fn repair(terminal: u64, types: &[&str]) -> Value {
+    let last = terminal + types.len() as u64;
     json!({
         "command_id": "c-repair",
         "command": "repair",
@@ -334,7 +335,7 @@ fn a_late_event_naming_an_attempt_keeps_its_tree() {
             ),
             (
                 EventType::OperatorCommanded,
-                repair(terminal, terminal + 2),
+                repair(terminal, &["effect/succeeded"; 2]),
                 None,
                 "repair",
             ),
@@ -385,7 +386,7 @@ fn a_gone_tree_a_late_event_names_closes_as_gone() {
             ),
             (
                 EventType::OperatorCommanded,
-                repair(terminal, terminal + 1),
+                repair(terminal, &["effect/succeeded"]),
                 None,
                 "repair",
             ),
@@ -471,27 +472,73 @@ fn a_gone_row_whose_attempt_no_event_names_is_kept() {
 /// rows, reported and never a panic. A known command word after the
 /// terminal event is admitted as an annotation the fold does not read, so
 /// only the sweep's decode meets its numeric `command_id`; a read by
-/// string key skipped it and removed the succeeded tree.
+/// string key skipped it and removed the succeeded tree. An applied
+/// acceptance's numeric `command_id` is the fold's own refusal, met before
+/// the sweep's decode: the invariant that leaves that decode's refusal a
+/// value no test enters, and its tree is kept the same.
 #[test]
 fn an_operator_payload_that_does_not_decode_keeps_the_runs_tree() {
-    let (mut fixture, tree) = first_present();
-    completed(&mut fixture.store, RUN);
+    for (event_type, payload) in malformed_operator_payloads() {
+        let (mut fixture, tree) = first_present();
+        completed(&mut fixture.store, RUN);
+        plant_after_terminal(
+            &fixture.store,
+            RUN,
+            &[(event_type, payload, None, "operator-unread")],
+        );
+
+        let (swept, _) = pass_one(&mut fixture.store);
+
+        assert!(tree.exists(), "{event_type:?}");
+        assert_eq!(kept_reasons(&swept), [KeptReason::RunDoesNotFold]);
+        assert_eq!(swept.kept()[0].reason(), "its run does not fold");
+        assert_eq!(fixture.store.tree_sweeps().unwrap(), vec![]);
+        brokkr_store::test_support::lags(&mut fixture.store, &[RUN]);
+    }
+}
+
+/// An `operator/commanded` stop and an `operator/accepted` whose numeric
+/// `command_id` the sweep's decode refuses.
+fn malformed_operator_payloads() -> [(EventType, Value); 2] {
+    [
+        (
+            EventType::OperatorCommanded,
+            json!({"command_id": 7, "command": "stop", "operator": "operator", "args": {}}),
+        ),
+        (EventType::OperatorAccepted, json!({"command_id": 7})),
+    ]
+}
+
+/// The 5c2 landing review's finding: the stop reading is the applied
+/// events' only, as the rest of the derivation is. A repaired late tail
+/// carrying operator payloads the sweep cannot decode is never applied, so
+/// the gone row of a completed run still closes as gone (ruling 8); a
+/// decode of the whole journal kept it as a run that does not fold.
+#[test]
+fn a_repaired_tail_of_undecodable_operator_payloads_still_closes_a_gone_row() {
+    let mut fixture = Fixture::new();
+    gone_succeeded_on_completed(&mut fixture);
+    let terminal = fixture.store.load(RUN).unwrap().last().unwrap().seq;
+    let [commanded, accepted] = malformed_operator_payloads();
     plant_after_terminal(
         &fixture.store,
         RUN,
-        &[(
-            EventType::OperatorCommanded,
-            json!({"command_id": 7, "command": "stop", "operator": "operator", "args": {}}),
-            None,
-            "stop-unread",
-        )],
+        &[
+            (commanded.0, commanded.1, None, "late-commanded"),
+            (accepted.0, accepted.1, None, "late-accepted"),
+            (
+                EventType::OperatorCommanded,
+                repair(terminal, &["operator/commanded", "operator/accepted"]),
+                None,
+                "repair",
+            ),
+        ],
     );
 
     let (swept, _) = pass_one(&mut fixture.store);
 
-    assert!(tree.exists());
-    assert_eq!(kept_reasons(&swept), [KeptReason::RunDoesNotFold]);
-    assert_eq!(swept.kept()[0].reason(), "its run does not fold");
-    assert_eq!(fixture.store.tree_sweeps().unwrap(), vec![]);
+    assert!(swept.kept().is_empty());
+    assert_eq!(removed(&swept).path, fixture.root.join(ATTEMPT));
+    closed_gone(&fixture, &swept);
     brokkr_store::test_support::lags(&mut fixture.store, &[RUN]);
 }
