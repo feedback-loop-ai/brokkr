@@ -93,6 +93,7 @@ fn a_run_with_nothing_at_stake_admits_its_unboxed_writers() {
     }
     let dir = tempfile::tempdir().unwrap();
     let work = std::fs::canonicalize(dir.path()).unwrap();
+    crate::committed::committed_repository(&work);
     let answering = crate::office::answering;
     let end = run_of(&work, [answering(":", "complete"), answering(":", "clean")]);
     let ended = (end.run.status(), end.phase.as_deref());

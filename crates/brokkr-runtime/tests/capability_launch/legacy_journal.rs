@@ -34,6 +34,10 @@ use super::{workspace, write};
 
 #[path = "legacy_journal/codex.rs"]
 mod codex;
+#[path = "../support/committed.rs"]
+mod committed;
+#[path = "../support/git.rs"]
+mod git;
 #[path = "../support/own_home.rs"]
 mod own_home;
 
@@ -258,6 +262,7 @@ fn rooted() -> (tempfile::TempDir, PathBuf) {
     for sub in ["bin", "state", "home", "work"] {
         std::fs::create_dir_all(root.join(sub)).unwrap();
     }
+    committed::committed_repository(&root.join("work"));
     (dir, root)
 }
 
@@ -499,10 +504,12 @@ fn wanted() -> Sites {
     site("fallback", "", whole("", "agent-root-1"));
     for (member, root) in [("member", "member-root-0"), ("agent", "agent-root-2")] {
         let mut rows = whole(member, root);
+        // The finish marker keeps its member's site (fix round 0109a1r3, M3).
         rows.push(
             json!({"step": "panel-member-finished", "boundary": "not applicable",
                          "inner_checkpoints": 6, "member": member, "model": OPUS,
-                         "outcome": "succeeded", "session_ref": null}),
+                         "outcome": "succeeded", "session_ref": null,
+                         "site_ref": "site_ref"}),
         );
         site("panel", member, rows);
     }
