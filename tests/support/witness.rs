@@ -10,9 +10,10 @@ use std::path::Path;
 use crate::engine::Engine;
 
 /// The payload fields that say what an event did: a failure's words, a
-/// refusal, a wait, each panel member's outcome and any cleanup left
-/// unproven.
-const SAID: [&str; 7] = [
+/// refusal, a wait, each panel member's outcome, any cleanup left
+/// unproven, and a park's cause (#1132).
+const SAID: [&str; 8] = [
+    "cause",
     "checkpoint",
     "error",
     "reason",
