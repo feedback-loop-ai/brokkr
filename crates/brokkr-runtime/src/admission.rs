@@ -68,6 +68,7 @@ mod host;
 
 use awaited::{awaiting, came_to, observe};
 
+pub(crate) use capacity::Unclaimed;
 pub use capacity::{Capacity, Host, Measured, Room, Shared, Unmeasurable};
 pub(crate) use host::config_dir;
 pub use host::{

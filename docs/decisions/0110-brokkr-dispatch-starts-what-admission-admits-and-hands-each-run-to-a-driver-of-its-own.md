@@ -3,7 +3,7 @@
 Status: accepted — operator ruled in chat 2026-11-16, "go with recommended on all seven" (https://github.com/feedback-loop-ai/brokkr/issues/430#issuecomment-6913524052)
 Date: 2026-11-16
 
-Built: unbuilt (#430)
+Built: built
 Amends: 0068
 
 ## Context

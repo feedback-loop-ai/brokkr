@@ -10,8 +10,9 @@ use brokkr_runtime::sweep::Swept;
 use brokkr_store::{EntryId, StartRefusal, StoreError};
 use clap::Parser;
 
-use super::super::tests::{claimed_by, one_claim, OneClaim};
+use super::super::tests::{claimed_by, one_claim, spawn_of, OneClaim};
 use super::*;
+use crate::cli_args::{DispatchArgs, DispatchCmd};
 use crate::{Cli, Cmd};
 
 /// A store error that is a contention, as the store words it.
@@ -123,7 +124,8 @@ fn a_pass_prints_one_safe_line_per_fact_and_its_counts_last() {
         format!("started: run run-s under {under}, driver pid 42"),
         format!(
             "spawn failed: run run-f under {under} reads running with no driver (no \
-             descriptor); resume it with: brokkr resume --run=run-f --db={}",
+             descriptor); resume it with: brokkr dispatch drive --entry={entry} --claim={seq} \
+             --db={}",
             db.display()
         ),
         format!("left for reconciliation: run run-l under {under}"),
@@ -161,68 +163,62 @@ fn failed_spawn(claim: Claim, run: &str, journal: &Path) -> String {
 }
 
 /// R3: the spawn failure's line, as the pass prints it, gives the command
-/// that resumes the run, spelled from `ResumeArgs`, and clap parses it as a
-/// shell splits it. That holds for a journal whose path holds a space and a
-/// quote, and for a run id the engine spells with a leading hyphen (a
-/// feature with no letter or digit), which only an attached value carries.
+/// that resumes the run as queued, the driver's own (`DriveArgs`), and clap
+/// parses it as a shell splits it, for a journal whose path holds a space
+/// and a quote.
 #[test]
 fn a_spawn_failures_resume_command_parses_as_the_shell_splits_it() {
     let OneClaim { dir, claim, .. } = one_claim("{}");
     let db = dir.path().join("the operator's journals/forge.db");
-    for run in ["run-f", "-33fdff61"] {
-        let said = failed_spawn(claim, run, &db);
-        let (_, command) = said.split_once("resume it with: ").unwrap();
-        // The shell's own split: each word it reads, ended by a NUL.
-        let split = std::process::Command::new("sh")
-            .arg("-c")
-            .arg(format!("printf '%s\\0' {command}"))
-            .output()
-            .unwrap();
-        assert!(split.status.success(), "{command}");
-        let text = String::from_utf8(split.stdout).unwrap();
-        let words = text.split_terminator('\0');
-        let Cmd::Resume(args) = Cli::try_parse_from(words).unwrap().command else {
-            panic!("{command} parses as resume");
-        };
-        assert_eq!(
-            (args.run.as_str(), args.journal.db.as_deref()),
-            (run, Some(db.as_path()))
-        );
-    }
+    let said = failed_spawn(claim, "-33fdff61", &db);
+    let (_, command) = said.split_once("resume it with: ").unwrap();
+    // The shell's own split: each word it reads, ended by a NUL.
+    let split = std::process::Command::new("sh")
+        .arg("-c")
+        .arg(format!("printf '%s\\0' {command}"))
+        .output()
+        .unwrap();
+    assert!(split.status.success(), "{command}");
+    let text = String::from_utf8(split.stdout).unwrap();
+    let words = text.split_terminator('\0');
+    let parsed = Cli::try_parse_from(words).unwrap().command;
+    let Cmd::Grouped(crate::GroupedCmd::Dispatch(DispatchArgs {
+        command: Some(DispatchCmd::Drive(args)),
+        ..
+    })) = parsed
+    else {
+        panic!("{command} parses as a driver");
+    };
+    let (entry, seq) = claim.parts();
+    assert_eq!(
+        (args.entry, args.claim, args.journal.db.as_deref()),
+        (entry.0, seq, Some(db.as_path()))
+    );
 }
 
-/// A journal path or run id that the safe renderer would alter is never
-/// printed as the command's value, since the pasted command would then name
-/// another journal, which `resume` may create:
-/// - a path holding a newline or a reordering mark;
-/// - a path that is not UTF-8;
-/// - a run id holding a control character.
-///
-/// The line says why instead.
+/// A journal path that the safe renderer would alter is never printed as
+/// the command's value, since the pasted command would then name another
+/// journal: a path holding a newline or a reordering mark, or one that is
+/// not UTF-8. The line says why instead.
 #[test]
-fn a_journal_or_run_this_line_cannot_print_is_never_offered_as_a_command() {
+fn a_journal_this_line_cannot_print_is_never_offered_as_a_command() {
     use std::os::unix::ffi::OsStrExt;
     let OneClaim { dir, claim, .. } = one_claim("{}");
+    let (entry, seq) = claim.parts();
     let root = dir.path();
     let cases = [
-        ("run-f", root.join("forge\n.db")),
-        ("run-f", root.join("forge\u{202E}bd.db")),
-        (
-            "run-f",
-            root.join(std::ffi::OsStr::from_bytes(b"forge\xff.db")),
-        ),
-        ("run\u{7}f", root.join("forge.db")),
+        root.join("forge\n.db"),
+        root.join("forge\u{202E}bd.db"),
+        root.join(std::ffi::OsStr::from_bytes(b"forge\xff.db")),
     ];
-    for (run, journal) in &cases {
-        let said = failed_spawn(claim, run, journal);
-        assert!(
-            said.ends_with(
-                "resume it with brokkr resume, naming the run and this journal by hand: \
-                 their spelling holds characters this line cannot print"
-            ),
-            "{said:?}"
+    for journal in &cases {
+        let said = failed_spawn(claim, "run-f", journal);
+        let words = format!(
+            "resume it with brokkr dispatch drive --entry={entry} --claim={seq}, naming this \
+             journal by hand with --db: its path holds characters this line cannot print"
         );
-        assert!(!said.contains("--db"), "{said:?}");
+        assert!(said.ends_with(&words), "{said:?}");
+        assert!(!said.contains("--db="), "{said:?}");
     }
 }
 
@@ -312,6 +308,83 @@ fn every_step_and_subject_is_named() {
     );
 }
 
+/// Ruling 5: a reaped driver's line names its run, pid and exit, or why its
+/// exit did not read, and what its run reads; a run still running gives
+/// the command that resumes it.
+#[test]
+fn a_reaped_driver_names_its_exit_and_what_its_run_reads() {
+    use std::os::unix::process::ExitStatusExt;
+    let OneClaim { claim, .. } = one_claim("{}");
+    let (entry, seq) = claim.parts();
+    let journal = Path::new("/j/forge.db");
+    let reaped = |reads, exit| Reaped {
+        exited: Exited {
+            run: "run-r".into(),
+            claim,
+            pid: 9,
+            exit,
+        },
+        reads,
+    };
+    let exit = || Ok(std::process::ExitStatus::from_raw(1 << 8));
+    let gone = brokkr_runtime::EngineError::Store(StoreError::RunNotFound("run-r".into()));
+    let unread = Err(std::io::Error::from_raw_os_error(10));
+    let said: Vec<String> = [
+        (Ok(Status::Running), exit()),
+        (Ok(Status::Completed), exit()),
+        (Err(gone), exit()),
+        (Ok(Status::Running), unread),
+    ]
+    .into_iter()
+    .map(|(reads, exit)| super::reaped(&reaped(reads, exit), journal))
+    .collect();
+    let exited = "driver exited: run run-r, driver pid 9, exit status: 1; the run";
+    let resume = format!(
+        "resume it with: brokkr dispatch drive --entry={entry} --claim={seq} --db=/j/forge.db"
+    );
+    let unread = std::io::Error::from_raw_os_error(10);
+    assert_eq!(
+        said,
+        [
+            format!("{exited} reads running with no driver; {resume}\n"),
+            format!("{exited} reads completed\n"),
+            format!(
+                "{exited} does not read: {}\n",
+                StoreError::RunNotFound("run-r".into())
+            ),
+            format!(
+                "driver exited: run run-r, driver pid 9, its exit status unread ({unread}); the \
+                 run reads running with no driver; {resume}\n"
+            ),
+        ]
+    );
+}
+
+/// Ruling 5: the standing loop's last lines name each driver left running,
+/// then its stop, or its ending's words.
+#[test]
+fn the_standing_loops_last_lines_name_its_drivers_then_its_ending() {
+    let OneClaim { claim, .. } = one_claim("{}");
+    let mut child = std::process::Command::new("true").spawn().unwrap();
+    child.wait().unwrap();
+    let mut drivers = super::super::Drivers::new();
+    drivers.insert(child.id(), ("run-on".into(), claim, child));
+    let pid = drivers.keys().next().copied().unwrap();
+    assert_eq!(
+        super::running(&drivers),
+        format!("left running: run run-on, driver pid {pid}\n")
+    );
+    assert_eq!(
+        super::stopped(),
+        "stopped: a signal asked the dispatcher to stop; it claimed nothing after, and its \
+         drivers run on\n"
+    );
+    assert_eq!(
+        super::ending(&Ending::Fenced(Generation(3))),
+        "ended: dispatch: generation 3 was fenced out; it is not the journal's latest holder\n"
+    );
+}
+
 #[test]
 fn an_ending_prints_what_the_pass_did_then_why_it_ended() {
     let dir = tempfile::tempdir().unwrap();
@@ -333,4 +406,14 @@ fn an_ending_prints_what_the_pass_did_then_why_it_ended() {
          waiting, 0 held\nended: dispatch: the brokkr at /opt/brokkr is not the one this \
          dispatcher started from; it claimed nothing after; start the dispatcher again\n"
     );
+}
+
+/// The command a line pastes is the argv a driver is started with, word
+/// for word (decision 0071 ruling 5).
+#[test]
+fn the_pasted_command_is_the_argv_a_driver_is_started_with() {
+    let OneClaim { db, claim, .. } = one_claim("{}");
+    let argv = super::super::drive_args(&db, &spawn_of(claim));
+    let argv: Vec<String> = argv.into_iter().map(|w| w.into_string().unwrap()).collect();
+    assert_eq!(resume(claim, &db), format!(": brokkr {}", argv.join(" ")));
 }

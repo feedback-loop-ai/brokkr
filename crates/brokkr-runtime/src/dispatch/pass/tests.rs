@@ -16,7 +16,9 @@ use crate::dispatch::{take_dispatch, Dispatcher};
 
 pub(crate) mod support;
 
-use support::{claims, commands, host, quiet, run_pass, runs, spawned_one, stands_ok};
+use support::{
+    always_claims, claims, commands, host, quiet, run_pass, runs, spawned_one, stands_ok,
+};
 
 /// A spawn seam's recording answer.
 fn recording(
@@ -52,6 +54,7 @@ fn one_pass_pid(
 ) -> (Passed, Vec<crate::dispatch::Spawn>) {
     let seen = Rc::new(RefCell::new(Vec::new()));
     let seams = Seams {
+        claims: || true,
         stands: stands_ok,
         spawn: recording(&seen, pid),
     };
@@ -457,6 +460,7 @@ fn a_stand_that_ends_before_a_claim_claims_nothing() {
     let (mut fixture, file, dispatcher, entries) = setup(1);
     let entry = entries[0];
     let seams = Seams {
+        claims: || true,
         stands: || Err(Ending::Stood),
         spawn: spawned_one,
     };
@@ -466,11 +470,38 @@ fn a_stand_that_ends_before_a_claim_claims_nothing() {
     assert_eq!(state(&fixture.store, entry), EntryState::Queued);
 }
 
+/// Decision 0110 ruling 5: the stop is read inside the claim's own
+/// transaction, once it holds the journal's write lock, so a stop asked
+/// while the claim waited on another writer still claims nothing.
+#[test]
+fn a_stop_is_read_with_the_claims_write_lock_held_and_claims_nothing() {
+    let (mut fixture, file, dispatcher, entries) = setup(1);
+    let path = fixture.store.path().to_path_buf();
+    let mut asked = Vec::new();
+    let seams = Seams {
+        claims: || {
+            let other = rusqlite::Connection::open(&path).unwrap();
+            other.busy_timeout(std::time::Duration::ZERO).unwrap();
+            let begun = other.execute_batch("BEGIN IMMEDIATE");
+            asked.push(begun.err().and_then(|error| error.sqlite_error_code()));
+            false
+        },
+        stands: stands_ok,
+        spawn: spawned_one,
+    };
+    let passed = run_pass(&mut fixture.store, &dispatcher, &file, seams).unwrap();
+    assert_eq!(asked, [Some(rusqlite::ErrorCode::DatabaseBusy)]);
+    assert!(passed.started.is_empty());
+    assert_eq!(claims(&fixture.store), vec![]);
+    assert_eq!(state(&fixture.store, entries[0]), EntryState::Queued);
+}
+
 #[test]
 fn a_stand_that_ends_before_a_spawn_row_leaves_the_entry_for_reconciliation() {
     let (mut fixture, file, dispatcher, entries) = setup(1);
     let entry = entries[0];
     let seams = Seams {
+        claims: || true,
         stands: stands_once(),
         spawn: spawned_one,
     };
@@ -512,6 +543,7 @@ fn a_newer_holder_row_fences_the_pass_out_with_nothing_written_after() {
     let generation = dispatcher.generation;
     let path = fixture.store.path().to_path_buf();
     let seams = Seams {
+        claims: || true,
         stands: fences_on_second(path),
         spawn: spawned_one,
     };
@@ -568,6 +600,7 @@ fn a_bundle_moved_between_the_pass_and_the_start_is_reclaimed_uncounted() {
     let role = fixture.root.join("bundle/roles/seat.md");
     let mut moved = false;
     let seams = Seams {
+        claims: || true,
         stands: move || {
             if !moved {
                 std::fs::write(&role, "# moved\n").unwrap();
@@ -613,6 +646,7 @@ fn a_compile_refusal_under_a_bound_of_one_holds_the_entry_with_its_variant() {
     let bundle = fixture.root.join("bundle/bundle.json");
     let mut broken = false;
     let seams = Seams {
+        claims: || true,
         stands: move || {
             if !broken {
                 std::fs::write(&bundle, "{not json").unwrap();
@@ -824,6 +858,7 @@ fn a_pass_over_queue_storage_this_binary_does_not_write_ends_naming_it() {
 fn a_spawn_failure_is_reported_with_the_run_and_never_retried() {
     let (mut fixture, file, dispatcher, _) = setup(1);
     let seams = Seams {
+        claims: || true,
         stands: || Ok(()),
         spawn: |_: &crate::dispatch::Spawn| {
             Err(crate::dispatch::SpawnFailed::Refused(
@@ -864,6 +899,7 @@ fn an_ending_after_a_spawn_failure_keeps_the_report_of_what_the_pass_did() {
     // The stand ends before the second entry's claim, after the first
     // entry's failed spawn has been reported.
     let seams = Seams {
+        claims: || true,
         stands: move || stands(),
         spawn: |_: &crate::dispatch::Spawn| {
             Err(crate::dispatch::SpawnFailed::Refused(
@@ -884,7 +920,7 @@ fn an_ending_after_a_spawn_failure_keeps_the_report_of_what_the_pass_did() {
 }
 
 #[test]
-fn every_start_outcome_is_reported_and_only_two_stop_the_claims() {
+fn every_start_outcome_is_reported_and_only_three_stop_the_claims() {
     use crate::dispatch::{ClaimRefused, Contended, Held, Reclaimed};
     use crate::launch::tests::claimed::claimed;
 
@@ -955,6 +991,9 @@ fn every_start_outcome_is_reported_and_only_two_stop_the_claims() {
     );
     assert!(!stop);
     assert!(passed.admission_refused.is_some());
+
+    let stop = record_start(&mut passed, crate::dispatch::start::Outcome::Stopped);
+    assert!(!stop);
 }
 
 #[test]
@@ -971,6 +1010,7 @@ fn reconciliation_spawn_stops_on_a_stand_that_ends_and_on_a_store_refusal() {
         ..Passed::default()
     };
     let mut seams = Seams {
+        claims: always_claims(),
         stands: || Err(Ending::Stood),
         spawn: spawned_one,
     };
@@ -998,6 +1038,7 @@ fn reconciliation_spawn_stops_on_a_stand_that_ends_and_on_a_store_refusal() {
     )
     .unwrap();
     let mut seams = Seams {
+        claims: always_claims(),
         stands: stands_ok,
         spawn: spawned_one,
     };
@@ -1010,6 +1051,7 @@ fn reconciliation_spawn_stops_on_a_stand_that_ends_and_on_a_store_refusal() {
         ..Passed::default()
     };
     let mut seams = Seams {
+        claims: always_claims(),
         stands: stands_ok,
         spawn: spawned_one,
     };
@@ -1048,7 +1090,8 @@ fn a_store_refusal_at_the_claim_ends_the_pass_and_writes_no_claim() {
 
 /// A stand that takes a write lock on `path` when the pass first calls it,
 /// and the held connection a test releases.
-type LockingSeams = Seams<
+type LockingSeams = PassSeams<
+    'static,
     Box<dyn FnMut() -> Result<(), Ending>>,
     fn(&crate::dispatch::Spawn) -> Result<crate::dispatch::Spawned, crate::dispatch::SpawnFailed>,
 >;
@@ -1069,6 +1112,7 @@ fn lock_seams(
         Seams {
             stands,
             spawn: spawned_one,
+            claims: always_claims(),
         },
     )
 }
@@ -1224,6 +1268,7 @@ fn a_claim_whose_moved_run_does_not_fold_is_reported_and_stops_claims() {
     let entry = entries[0];
     let path = fixture.store.path().to_path_buf();
     let seams = Seams {
+        claims: || true,
         stands: move || {
             let mut side = Store::open(&path).unwrap();
             side.create_run("does-not-fold", "f", "b", &json!({}))
@@ -1270,6 +1315,7 @@ fn a_crossing_that_moves_between_the_pass_and_the_start_counts_a_reclaim() {
     );
     let dispatcher = take_dispatch(&mut fixture.store).unwrap().unwrap();
     let seams = Seams {
+        claims: || true,
         stands: move || {
             std::fs::remove_file(&crossing).unwrap();
             Ok(())
@@ -1291,6 +1337,7 @@ fn a_stand_that_ends_in_the_reconciliation_spawn_keeps_every_settled_item() {
     let dir = tempfile::tempdir().unwrap();
     let (claimed, run, mut store) = linked_claimed(dir.path());
     let seams = Seams {
+        claims: || true,
         stands: || Err(Ending::Stood),
         spawn: spawned_one,
     };

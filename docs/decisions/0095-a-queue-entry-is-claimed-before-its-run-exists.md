@@ -3,7 +3,7 @@
 Status: accepted — operator ruled 2026-10-23 (PR #849), every choice asked taken as recommended except 8, taken as (b) with a per-journal bound of 3 unless set
 Date: 2026-10-23
 
-Built: unbuilt (#430)
+Built: built
 Amends: 0068
 
 ## Context

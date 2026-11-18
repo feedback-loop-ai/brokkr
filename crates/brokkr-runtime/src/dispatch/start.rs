@@ -23,9 +23,9 @@ use brokkr_store::{
     Claim, Disposal, EntryId, Generation, QueueEntry, QueueRefusal, StartRefusal, Store, StoreError,
 };
 
-use super::pass::{Contended, Ending, Held, Left, Reclaimed, Seams, Stage, Started, Subject};
+use super::pass::{Contended, Ending, Held, Left, PassSeams, Reclaimed, Stage, Started, Subject};
 use super::Dispatcher;
-use crate::admission::{AdmissionError, Reason, Room};
+use crate::admission::{AdmissionError, Reason, Room, Unclaimed};
 use crate::launch::{LaunchError, LaunchRequest, NewRun, QueuedLaunch};
 use crate::realms::WorldError;
 use crate::{Engine, EngineError};
@@ -90,6 +90,9 @@ pub(crate) enum Outcome {
     /// A claim could not be judged: reported, and no further entry is
     /// claimed this pass.
     Admission(AdmissionError),
+    /// A stop was asked before the claim wrote (decision 0110 ruling 5): nothing
+    /// was written, and no further entry is claimed this pass.
+    Stopped,
 }
 
 /// A claim a re-check refused: the entry and the reason, with nothing
@@ -118,7 +121,7 @@ pub(crate) fn start<S, P>(
     dispatcher: &Dispatcher,
     admitted: Admitted,
     shared: &Shared<'_>,
-    seams: &mut Seams<S, P>,
+    seams: &mut PassSeams<'_, S, P>,
     left: &mut Vec<Left>,
 ) -> Result<Outcome, Ending>
 where
@@ -133,9 +136,17 @@ where
     let id = entry.id;
     let generation = dispatcher.generation;
     (seams.stands)()?;
-    let claim = match room.claim(store, generation, &claim_reason(id, generation)) {
+    // A stop claims nothing more (decision 0110 ruling 5). It is read after
+    // the binary check, inside the claim's transaction once it holds the
+    // write lock, so a stop asked during the check or while the claim
+    // waited on another writer is honoured.
+    let reason = claim_reason(id, generation);
+    let claim = match room.claim(store, generation, &reason, &mut *seams.claims) {
         Ok(Ok(claim)) => claim,
-        Ok(Err(reason)) => return Ok(Outcome::ClaimRefused(ClaimRefused { entry: id, reason })),
+        Ok(Err(Unclaimed::Stopped)) => return Ok(Outcome::Stopped),
+        Ok(Err(Unclaimed::Refused(reason))) => {
+            return Ok(Outcome::ClaimRefused(ClaimRefused { entry: id, reason }))
+        }
         Err(error) => match admission_refused(error) {
             AdmissionRefused::Store(error) => {
                 return contend(error, Subject::Entry(id), Stage::Claim)

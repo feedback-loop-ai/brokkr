@@ -29,14 +29,21 @@ use crate::sweep::{self, SweepError, Swept};
 /// The queue admission judged, and the reasons no entry waits on.
 type JudgedQueue = (Vec<Judged>, Vec<Reason>);
 
-/// The two seams a pass is handed in place of a process and a binary check
-/// (decision 0110 ruling 1): `stands` is ruling 4's check, called before
-/// each claim and before each `spawn` row, and `spawn` starts one run once
-/// its `spawn` row has landed.
-pub struct Seams<S, P> {
+/// The three seams a pass is handed in place of a process, a binary check
+/// and a stop (decision 0110 rulings 1 and 5): `stands` is ruling 4's
+/// check, called before each claim and before each `spawn` row; `spawn`
+/// starts one run once its `spawn` row has landed; and `claims`, called
+/// inside each claim's transaction alone, answers false once a stop asks
+/// the pass to claim nothing more, which it then reports as a [`Passed`].
+pub struct Seams<S, P, C> {
     pub stands: S,
     pub spawn: P,
+    pub claims: C,
 }
+
+/// The seams as the pass's own steps take them, `claims` behind a
+/// reference: only the claim reads it.
+pub(crate) type PassSeams<'c, S, P> = Seams<S, P, &'c mut dyn FnMut() -> bool>;
 
 /// A step of the pass, as a test's seam records its order and a report
 /// names where a contention stood.
@@ -88,6 +95,13 @@ pub enum Ending {
     /// Any other store error that is not `Contended`.
     #[error(transparent)]
     Store(StoreError),
+    /// The standing loop's report seam could not write a tick's facts: it
+    /// claimed nothing after, and its drivers run on.
+    #[error(
+        "dispatch: a tick's report could not be written ({0}); the dispatcher claimed nothing \
+         after, and its drivers run on"
+    )]
+    Unreported(std::io::Error),
 }
 
 /// A pass that ended: the typed [`Ending`] and the [`Passed`] report of
@@ -222,20 +236,32 @@ pub struct Passed {
 /// and the boundary tool search path `host_path`: reconcile, sweep, read
 /// the bound, judge the queue and start each admitted entry, reporting what
 /// it did. A typed [`Ending`] carries the report [`Ended::passed`].
-pub fn pass<S, P>(
+pub fn pass<S, P, C>(
     store: &mut Store,
     dispatcher: &Dispatcher,
     host: &Host<'_>,
     host_path: OsString,
-    seams: Seams<S, P>,
+    seams: Seams<S, P, C>,
 ) -> Result<Passed, Box<Ended>>
 where
     S: FnMut() -> Result<(), Ending>,
     P: FnMut(&Spawn) -> Result<Spawned, SpawnFailed>,
+    C: FnMut() -> bool,
 {
     let watch = Watch {
         observe: |_| {},
         launch: crate::launch::start,
+    };
+    let Seams {
+        stands,
+        spawn,
+        mut claims,
+    } = seams;
+    let claims: &mut dyn FnMut() -> bool = &mut claims;
+    let seams = Seams {
+        stands,
+        spawn,
+        claims,
     };
     pass_with(store, dispatcher, host, host_path, seams, watch)
 }
@@ -256,7 +282,7 @@ fn pass_with<S, P, O>(
     dispatcher: &Dispatcher,
     host: &Host<'_>,
     host_path: OsString,
-    seams: Seams<S, P>,
+    seams: PassSeams<'_, S, P>,
     mut watch: Watch<O>,
 ) -> Result<Passed, Box<Ended>>
 where
@@ -286,7 +312,7 @@ fn run<S, P, O>(
     dispatcher: &Dispatcher,
     host: &Host<'_>,
     host_path: OsString,
-    mut seams: Seams<S, P>,
+    mut seams: PassSeams<'_, S, P>,
     passed: &mut Passed,
     watch: &mut Watch<O>,
 ) -> Result<(), Ending>
@@ -373,8 +399,8 @@ fn reconcile_once(
     }
 }
 
-/// Take one entry's start into the report. A contention or a claim that
-/// could not be judged stops the pass's claims; every other outcome lets
+/// Take one entry's start into the report. A contention, a claim that
+/// could not be judged or a stop ends the pass's claims; every other outcome lets
 /// the next entry be judged.
 fn record_start(passed: &mut Passed, outcome: start::Outcome) -> bool {
     match outcome {
@@ -390,6 +416,7 @@ fn record_start(passed: &mut Passed, outcome: start::Outcome) -> bool {
             passed.admission_refused = Some(error);
             return false;
         }
+        start::Outcome::Stopped => return false,
     }
     true
 }
@@ -402,7 +429,7 @@ fn spawned_after_reconcile<S, P>(
     store: &mut Store,
     dispatcher: &Dispatcher,
     passed: &mut Passed,
-    seams: &mut Seams<S, P>,
+    seams: &mut PassSeams<'_, S, P>,
 ) -> Result<bool, Ending>
 where
     S: FnMut() -> Result<(), Ending>,

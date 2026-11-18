@@ -1,17 +1,19 @@
 //! The dispatcher (decision 0068, as decisions 0095 and 0110 amend it): the
-//! one process a journal admits to start its queue's entries. Built so far:
+//! one process a journal admits to start its queue's entries. Built here:
 //! how it takes the journal (0095 ruling 2), by its lock and its holder row,
 //! whose generation every step it takes is fenced by in the store; its
 //! reconciliation of what a dispatcher left mid-start (0095 ruling 3); its
 //! one pass under that lock (0110 ruling 1), which reconciles, sweeps, reads
 //! the bound, judges and starts each admitted entry through its claim,
 //! start, link and `spawn` row; one entry's start with the start's disposal
-//! by variant (0110 ruling 2); and, in safe code, what the driver each run
+//! by variant (0110 ruling 2); in safe code, what the driver each run
 //! is handed to needs (0110 rulings 3 and 4): the binary's identity, the
-//! driver's log and the driver's own checks. `brokkr dispatch --once`, its
-//! `drive`, `set-bound` and `status` are built in brokkr-cli, which starts
-//! the driver's process; the standing loop is #430's slice 6c. Nothing here
-//! prints.
+//! driver's log and the driver's own checks; and the standing loop that
+//! repeats the pass while it stands, reaping the drivers it spawned
+//! (0110 ruling 5), over seams for its clock, its stop and its drivers.
+//! `brokkr dispatch`, its `drive`, `set-bound` and `status` are built in
+//! brokkr-cli, which starts the driver's process and holds the signals.
+//! Nothing here prints.
 
 use std::path::PathBuf;
 
@@ -23,6 +25,7 @@ mod lock;
 mod pass;
 mod reconcile;
 mod spawn;
+mod standing;
 mod start;
 
 pub use lock::{dispatched, take_dispatch, Dispatcher};
@@ -32,6 +35,7 @@ pub use pass::{
 };
 pub use reconcile::{reconcile, Settled};
 pub use spawn::{driven, driver_log, workspace, Binary, DriverError};
+pub use standing::{stand, Exited, Reaped, Stand, Stopped, Tick};
 pub use start::{ClaimRefused, Spawn, SpawnFailed, Spawned};
 
 /// Why this process could not take a journal as its dispatcher, or, as

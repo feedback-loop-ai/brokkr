@@ -7,13 +7,13 @@
 use std::path::{Path, PathBuf};
 
 use brokkr_core::envelope::{EventEnvelope, EventType};
-use brokkr_store::{Cooling as Row, Generation, QueueRefusal, Store, StoreError};
+use brokkr_store::{Cooling as Row, QueueRefusal, Store, StoreError};
 use serde_json::json;
 use time::format_description::well_known::Rfc3339;
 use time::{Duration, OffsetDateTime};
 
 use crate::admission::capacity::tests::{
-    ceilings, refused_rows as refuse, route, started_run, verdicts, Fixture, PLENTY, TEMP,
+    ceilings, claimed, refused_rows as refuse, route, started_run, verdicts, Fixture, PLENTY, TEMP,
 };
 use crate::admission::capacity::{Capacity, Room};
 use crate::admission::{pass_within_at, AdmissionError, Host, Judged, Reason, Standing};
@@ -272,10 +272,7 @@ fn the_latest_row_at_the_latest_end_speaks_for_the_lane() {
         "run-second",
         &[row("beta", "cloud", until, "second")],
     );
-    match room
-        .claim(&mut fixture.store, Generation(1), "admitted")
-        .unwrap()
-    {
+    match claimed(&mut fixture, &room) {
         Err(reason) => assert_eq!(reason, cooling("beta", "cloud", until, "second")),
         Ok(claim) => panic!("the claim took {claim:?} over a cool-down"),
     }
@@ -378,10 +375,7 @@ fn the_claim_refuses_a_row_recorded_after_the_pass_read() {
         &[row("beta", "cloud", until, "recorded in between")],
     );
 
-    match room
-        .claim(&mut fixture.store, Generation(1), "admitted")
-        .unwrap()
-    {
+    match claimed(&mut fixture, &room) {
         Err(reason) => assert_eq!(
             reason,
             cooling("beta", "cloud", until, "recorded in between")

@@ -1,9 +1,9 @@
-//! `brokkr dispatch` (decision 0110 rulings 3, 4 and 6) in the process:
-//! no dispatch without `--once` yet, the bound's command, the holder's
-//! readout that writes nothing, a pass that holds the journal's lock, a
-//! driver's spawn refused by its log, its entry or its directory, and the
-//! session a driver leads. The built binary's passes are `it`'s
-//! `dispatch` tests.
+//! `brokkr dispatch` (decision 0110 rulings 3 to 6) in the process: the
+//! standing loop's interval, its sleep and its reaping, the bound's
+//! command, the holder's readout that writes nothing, a pass that holds
+//! the journal's lock, a driver's spawn refused by its log, its entry or
+//! its directory, and the session a driver leads. The built binary's
+//! passes and its standing loop are `it`'s `dispatch` tests.
 
 use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
@@ -102,22 +102,136 @@ pub(super) fn one_claim(payload: &str) -> OneClaim {
     }
 }
 
+/// Ruling 5: `--every` takes 5 to 3600 seconds, 60 by default, and
+/// never beside `--once`.
 #[test]
-fn a_dispatch_without_once_is_refused_until_the_standing_loop_is_built() {
-    let dir = tempfile::tempdir().unwrap();
-    let db = dir.path().join("forge.db");
-    let refused = dispatch(
-        dir.path(),
-        parsed(&["--db", db.to_str().unwrap()]),
-        &mut Vec::new(),
-    )
-    .unwrap_err();
-    assert_eq!(
-        refused.to_string(),
-        "dispatch: the standing loop is not built yet (decision 0110 slice 6c); pass --once to \
-         run one pass"
+fn every_is_five_to_3600_seconds_sixty_by_default_and_refused_with_once() {
+    assert_eq!(parsed(&[]).every, 60);
+    assert_eq!((parsed(&["--every", "5"]).every), 5);
+    assert_eq!((parsed(&["--every", "3600"]).every), 3600);
+    for (argv, kind) in [
+        (
+            &["--every", "4"][..],
+            clap::error::ErrorKind::ValueValidation,
+        ),
+        (
+            &["--every", "3601"],
+            clap::error::ErrorKind::ValueValidation,
+        ),
+        (
+            &["--every", "5", "--once"],
+            clap::error::ErrorKind::ArgumentConflict,
+        ),
+    ] {
+        let argv = [&["brokkr", "dispatch"], argv].concat();
+        let refused = Cli::try_parse_from(&argv).err().expect("refused");
+        assert_eq!(refused.kind(), kind, "{argv:?}");
+    }
+}
+
+/// The standing loop's sleep: the whole of a short rest when no stop is
+/// asked, none at all once one is, and it wakes as soon as a stop is asked
+/// while it sleeps. Each rest is short, so a regression fails in seconds.
+#[test]
+fn a_nap_sleeps_its_rest_and_wakes_at_once_on_a_stop() {
+    let rest = Duration::from_millis(120);
+    let began = Instant::now();
+    nap(&AtomicBool::new(false), rest);
+    assert!(began.elapsed() >= rest, "{:?}", began.elapsed());
+    let began = Instant::now();
+    nap(&AtomicBool::new(true), Duration::from_secs(10));
+    assert!(began.elapsed() < Duration::from_secs(1), "woke at once");
+
+    // The asker's wait and the nap are timed from one origin, taken before
+    // either starts, so a busy host cannot order them the wrong way round.
+    let stop = Arc::new(AtomicBool::new(false));
+    let asks = Arc::clone(&stop);
+    let began = Instant::now();
+    let asker = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(200).saturating_sub(began.elapsed()));
+        asks.store(true, Ordering::SeqCst);
+    });
+    nap(&stop, Duration::from_secs(10));
+    let slept = began.elapsed();
+    asker.join().unwrap();
+    assert!(
+        slept >= Duration::from_millis(200) && slept < Duration::from_secs(2),
+        "woke on the stop asked mid-sleep: {slept:?}"
     );
-    assert!(!db.exists(), "nothing was opened");
+}
+
+/// A child that runs `script` in a shell.
+fn child(script: &str) -> Child {
+    Command::new("sh").args(["-c", script]).spawn().unwrap()
+}
+
+/// Ruling 5: reaping takes out each driver that exited, without waiting on
+/// one still running, which stays for the next tick.
+#[test]
+fn reaping_takes_each_exited_driver_and_keeps_one_still_running() {
+    let mut exited = child("exit 3");
+    let pid = exited.id();
+    let running = child("sleep 30");
+    let kept = running.id();
+    exited.wait().unwrap();
+    // A waited child's status is cached on its handle, which `try_wait`
+    // reads back, so the reap does not race the exit.
+    let OneClaim { claim, .. } = one_claim("{}");
+    let mut drivers = Drivers::new();
+    drivers.insert(pid, ("run-done".into(), claim, exited));
+    drivers.insert(kept, ("run-on".into(), claim, running));
+    let reaped = reaped(&mut drivers);
+    let [Exited {
+        run,
+        claim: handed,
+        pid: at,
+        exit: Ok(exit),
+    }] = reaped.as_slice()
+    else {
+        panic!("{reaped:?}");
+    };
+    assert_eq!(
+        (run.as_str(), *handed, *at, exit.code()),
+        ("run-done", claim, pid, Some(3))
+    );
+    assert_eq!(drivers.keys().copied().collect::<Vec<_>>(), [kept]);
+    let (.., mut running) = drivers.remove(&kept).unwrap();
+    running.kill().unwrap();
+    running.wait().unwrap();
+}
+
+/// Ruling 5: a driver whose handle cannot say how it exited, here because
+/// it was waited on behind the handle's back, as the system does when
+/// SIGCHLD is inherited ignored, is reaped with why rather than kept as
+/// running for ever.
+#[test]
+fn a_driver_whose_handle_does_not_read_is_reaped_with_why() {
+    let exited = child("exit 0");
+    let pid = exited.id();
+    let waited = rustix::process::Pid::from_raw(pid as i32);
+    rustix::process::waitpid(waited, rustix::process::WaitOptions::empty()).unwrap();
+    let OneClaim { claim, .. } = one_claim("{}");
+    let mut drivers = Drivers::new();
+    drivers.insert(pid, ("run-gone".into(), claim, exited));
+    let reaped = reaped(&mut drivers);
+    let [Exited {
+        run,
+        pid: at,
+        exit: Err(error),
+        ..
+    }] = reaped.as_slice()
+    else {
+        panic!("{reaped:?}");
+    };
+    assert_eq!(
+        (run.as_str(), *at, error.raw_os_error()),
+        (
+            "run-gone",
+            pid,
+            Some(rustix::io::Errno::CHILD.raw_os_error())
+        )
+    );
+    assert!(drivers.is_empty());
 }
 
 #[test]
@@ -159,6 +273,7 @@ fn set_bound_two_governs_the_next_pass() {
     };
     let seams = Seams {
         stands: || Ok(()),
+        claims: || true,
         spawn: |_: &Spawn| Ok(Spawned { pid: 1 }),
     };
     let passed = dispatch::pass(&mut store, &held, &host, OsString::new(), seams).unwrap();
@@ -289,7 +404,7 @@ fn a_pass_over_an_empty_queue_says_what_it_read_and_exits_zero() {
 }
 
 /// A driver handed `claim`'s run `run-1` under `journal`.
-fn spawn_of(claim: Claim) -> Spawn {
+pub(super) fn spawn_of(claim: Claim) -> Spawn {
     Spawn {
         entry: claim.parts().0,
         claim,
@@ -346,15 +461,14 @@ fn a_drivers_argv_names_the_journal_entry_and_claim() {
     let OneClaim { db, claim, .. } = one_claim("{}");
     let (entry, seq) = claim.parts();
     let argv = drive_args(&db, &spawn_of(claim));
+    let mut journal = OsString::from("--db=");
+    journal.push(&db);
     let expected: Vec<OsString> = [
         "dispatch".into(),
         "drive".into(),
-        "--db".into(),
-        db.clone().into_os_string(),
-        "--entry".into(),
-        entry.to_string().into(),
-        "--claim".into(),
-        seq.to_string().into(),
+        format!("--entry={entry}").into(),
+        format!("--claim={seq}").into(),
+        journal,
     ]
     .into();
     assert_eq!(argv, expected);
