@@ -237,6 +237,27 @@ fn a_probe_round_the_store_cannot_take_leaves_its_route_held_until_the_probes_de
     held_to_its_deadline(&engine, &gates, deadline_of(probe_at));
 }
 
+/// A renewed round the table takes without writing (every cool-down insert
+/// ignored by a trigger) refuses by name and ends no hold (fix round
+/// 0106b1r5, H3): the run parks naming the unwritten row, and the route
+/// reads cooling down until the probe's deadline.
+#[test]
+fn a_probe_round_the_table_does_not_write_ends_no_hold() {
+    let (dir, mut engine, _now, probe_at, gates) = probing(Probed::BarrierRefuse);
+    std::fs::write(dir.path().join("work.release"), "").unwrap();
+    driven_raising(&mut engine, "provider_cooldowns", "IGNORE");
+    assert_eq!(logs(dir.path(), "work"), ["attempt:refuse", "probe"]);
+    let parked = (engine.store.load(&engine.run_id).unwrap().into_iter())
+        .find(|event| event.event_type == EventType::RunParked)
+        .expect("the run parked");
+    let reason = parked.payload["reason"].as_str().unwrap();
+    assert!(
+        reason.contains("wrote no row for run") && reason.contains("hold on its route stands"),
+        "{reason}"
+    );
+    held_to_its_deadline(&engine, &gates, deadline_of(probe_at));
+}
+
 /// The probe left no row on the route and its hold standing: the gates read
 /// the route cooling down to `deadline` from the probe's instant until the
 /// second before it, and open at it.

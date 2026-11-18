@@ -120,6 +120,17 @@ pub enum QueueRefusal {
         .0.run_id, .0.event_seq, .0.site, .0.standing, .0.rounds
     )]
     CooldownRoundNotNext(Box<CooldownRoundMismatch>),
+    /// A probe round the table took without writing its row, as a trigger
+    /// that ignores the insert leaves it (fix round 0106b1r5, H3): the
+    /// probe's hold is not ended over a row that was never written, and
+    /// nothing was. It carries the round and the round its site stood at,
+    /// boxed as [`QueueRefusal::CooldownRoundNotNext`]'s are.
+    #[error(
+        "the journal's provider cool-downs wrote no row for run '{}' event {} site '{}' round \
+         {}, so the probe's hold on its route stands and nothing was written",
+        .0.run_id, .0.event_seq, .0.site, .0.rounds
+    )]
+    CooldownRoundUnwritten(Box<CooldownRoundMismatch>),
     /// A command on an entry the dispatcher has claimed and not yet
     /// linked, returned or held (decision 0095 ruling 1).
     #[error("queue entry {0} is launching; the dispatcher links, returns or holds it first")]

@@ -259,3 +259,55 @@ fn the_kind_checks_refuse_a_kind_without_its_maximum() {
         assert!(error.to_string().contains(broken), "{case}: {error}");
     }
 }
+
+/// A probe round the table takes without writing its row (a trigger that
+/// ignores the insert) refuses by name, and its transaction ends no hold:
+/// the hold stands and the round is not read back (fix round 0106b1r5,
+/// H3).
+#[test]
+fn a_round_the_table_does_not_write_refuses_and_leaves_its_hold_standing() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut store, event) = waited_journal(dir.path());
+    let hold = (store.hold_probe(&probe_hold("run-a", at(90)), at(0))).unwrap();
+    store
+        .conn
+        .execute_batch(
+            "CREATE TRIGGER ignored BEFORE INSERT ON provider_cooldowns
+             BEGIN SELECT RAISE(IGNORE); END;",
+        )
+        .unwrap();
+    let mut round = next_round("run-a", event.seq, "a", at(120), 2);
+    round.ends = hold;
+    let refused = store.append_cooldown_round(round).unwrap_err();
+    let StoreError::Queue(QueueRefusal::CooldownRoundUnwritten(unwritten)) = &refused else {
+        panic!("an unwritten round was not refused by name: {refused:?}");
+    };
+    assert_eq!(
+        **unwritten,
+        crate::queue::CooldownRoundMismatch {
+            run_id: "run-a".into(),
+            event_seq: event.seq,
+            site: "a".into(),
+            rounds: 2,
+            standing: 1,
+        }
+    );
+    assert_eq!(
+        refused.to_string(),
+        format!(
+            "the journal's provider cool-downs wrote no row for run 'run-a' event {} site 'a' \
+             round 2, so the probe's hold on its route stands and nothing was written",
+            event.seq
+        )
+    );
+    let rounds = store.cooldown_rounds("run-a", event.seq, "a").unwrap();
+    assert_eq!(rounds.len(), 1);
+    let unended: i64 = (store.conn)
+        .query_row(
+            "SELECT COUNT(*) FROM probe_holds WHERE ended_at IS NULL",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(unended, 1);
+}
