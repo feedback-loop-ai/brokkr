@@ -15,13 +15,14 @@
 
 Brokkr is a deterministic delivery engine for autonomous multi-agent software delivery: you give it a feature and a reviewable recipe, its agents implement, verify, review and ship, and its event-sourced phase machine records every result and ruling in a journal you can replay and audit.
 
-The [v0.14.0 “Megingjörð” release](docs/releases/v0.14.0.md) holds a run
-by its driver and repairs a broken one by a record, releases a
-quarantined run's worktree, and turns a provider's rate limit into a
-cool-down the run waits out.
-[v0.13.1](docs/releases/v0.13.1.md) types a provider's pre-session
-refusal, lets the operator name how a stopped run ended, and pages the dsh
-console's fleet.
+The [v0.14.1 release](docs/releases/v0.14.1.md) gives a park a typed
+cause, starts queued runs with `brokkr dispatch --once` under a run
+ceiling the host declares, decodes Claude Code 2.1.326, and lets the
+harness probe bind a CLI's login file.
+[v0.14.0 “Megingjörð”](docs/releases/v0.14.0.md) holds a run by its
+driver and repairs a broken one by a record, releases a quarantined run's
+worktree, and turns a provider's rate limit into a cool-down the run
+waits out.
 
 ## Install
 
