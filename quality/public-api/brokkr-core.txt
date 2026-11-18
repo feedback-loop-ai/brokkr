@@ -318,7 +318,7 @@ pub struct brokkr_core::findings::Finding
 impl brokkr_core::findings::Finding
 pub fn brokkr_core::findings::Finding::file(&self) -> &brokkr_core::findings::RepoFile
 pub fn brokkr_core::findings::Finding::key(&self) -> brokkr_core::findings::FindingKey
-pub fn brokkr_core::findings::Finding::line(&self) -> core::option::Option<core::num::nonzero::NonZeroU64>
+pub fn brokkr_core::findings::Finding::line(&self) -> core::option::Option<u64>
 pub fn brokkr_core::findings::Finding::security(&self) -> bool
 pub fn brokkr_core::findings::Finding::severity(&self) -> brokkr_core::policy::Severity
 pub fn brokkr_core::findings::Finding::summary(&self) -> &brokkr_core::findings::Summary

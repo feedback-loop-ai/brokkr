@@ -10,7 +10,6 @@
 
 use std::collections::BTreeSet;
 use std::fmt;
-use std::num::NonZeroU64;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -94,6 +93,12 @@ pub enum WordError {
     Summary,
 }
 
+/// Why a number is not a [`Line`]; a seat's bad line is refused as
+/// [`AdmissionRefusal::Malformed`], so the reason stays inside the module.
+#[derive(Debug, Error)]
+#[error("not a positive line number")]
+struct NotALine;
+
 /// A seat's stable identifier for one finding.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
@@ -167,6 +172,29 @@ impl TryFrom<String> for Summary {
     }
 }
 
+/// A finding's positive, one-based line number.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(try_from = "u64", into = "u64")]
+struct Line(u64);
+
+impl TryFrom<u64> for Line {
+    type Error = NotALine;
+
+    fn try_from(line: u64) -> Result<Line, NotALine> {
+        if line == 0 {
+            Err(NotALine)
+        } else {
+            Ok(Line(line))
+        }
+    }
+}
+
+impl From<Line> for u64 {
+    fn from(line: Line) -> u64 {
+        line.0
+    }
+}
+
 macro_rules! word_text {
     ($($word:ident),*) => {$(
         impl From<$word> for String {
@@ -213,7 +241,7 @@ struct Reported {
     id: FindingId,
     file: RepoFile,
     #[serde(default)]
-    line: Option<NonZeroU64>,
+    line: Option<Line>,
     summary: Summary,
     severity: Severity,
     security: bool,
@@ -228,7 +256,7 @@ pub struct Finding {
     id: FindingId,
     file: RepoFile,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    line: Option<NonZeroU64>,
+    line: Option<Line>,
     summary: Summary,
     severity: Severity,
     security: bool,
@@ -247,8 +275,9 @@ impl Finding {
         &self.file
     }
 
-    pub fn line(&self) -> Option<NonZeroU64> {
-        self.line
+    /// The one-based line it was reported at, when the seat named one.
+    pub fn line(&self) -> Option<u64> {
+        self.line.map(u64::from)
     }
 
     pub fn summary(&self) -> &Summary {

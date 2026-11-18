@@ -80,7 +80,7 @@ fn gate_finding(finding: &Finding) -> GateFinding {
         site: key.site().to_string(),
         id: key.id().to_string(),
         file: finding.file().to_string(),
-        line: finding.line().map(std::num::NonZeroU64::get),
+        line: finding.line(),
         summary: finding.summary().to_string(),
         severity: finding.severity().name(),
         security: finding.security(),

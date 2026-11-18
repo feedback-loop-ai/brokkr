@@ -79,7 +79,7 @@ fn the_engine_stamps_the_reporting_site_and_keeps_the_record() {
     assert_eq!(read.len(), 1);
     assert_eq!(read[0].key(), keys(&[reported()], SITE)[0]);
     assert_eq!(read[0].file().to_string(), "crates/a/src/lib.rs");
-    assert_eq!(read[0].line().map(NonZeroU64::get), Some(12));
+    assert_eq!(read[0].line(), Some(12));
     assert_eq!(read[0].summary().to_string(), "the length is not checked");
     assert_eq!(read[0].severity(), Severity::Medium);
     assert!(!read[0].security());
