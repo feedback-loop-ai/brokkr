@@ -1402,12 +1402,20 @@ fn retry() -> Value {
 }
 
 /// Append each of `events` to `run`.
-fn appended(fixture: &mut Fixture, run: &str, events: Vec<(EventType, Value)>) {
+pub(crate) fn appended(fixture: &mut Fixture, run: &str, events: Vec<(EventType, Value)>) {
     for (event, payload) in events {
         (fixture.store)
             .append_next(run, event, payload, None, None)
             .unwrap();
     }
+}
+
+/// `run` enters its `work` phase and requests `effect` of its `work` seat.
+pub(crate) fn requested(fixture: &mut Fixture, run: &str, effect: &str) {
+    let entered = (EventType::PhaseEntered, json!({"phase": "work"}));
+    let request = json!({"effect_id": effect, "seat": "work"});
+    let request = (EventType::EffectRequested, request);
+    appended(fixture, run, vec![entered, request]);
 }
 
 /// Under a ceiling of 1, a parked run retried and a run started between
@@ -1425,14 +1433,12 @@ fn a_run_retried_or_started_after_the_pass_refuses_the_claim_on_capacity() {
         let file = fixture.declare(&ceilings(1, 1, json!({})));
         fixture.seating("r1", &[("alpha", "a-1")], false);
         // Parked where its seat's attempts ran out, so a retry returns it.
-        let entered = (EventType::PhaseEntered, json!({"phase": "work"}));
-        let requested = json!({"effect_id": "e", "seat": "work"});
-        let requested = (EventType::EffectRequested, requested);
+        requested(&mut fixture, "r1", "e");
         let parked = (
             EventType::RunParked,
             json!({"reason": "attempts exhausted"}),
         );
-        appended(&mut fixture, "r1", vec![entered, requested, parked]);
+        appended(&mut fixture, "r1", vec![parked]);
         let judged = passed(&fixture.store, &file).unwrap();
         let rooms: Vec<bool> = judged.iter().map(|judged| judged.room.is_some()).collect();
         assert_eq!(rooms, [true, false]);

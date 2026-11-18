@@ -30,17 +30,25 @@ pub(super) fn acting_on_read(
     now: &Arc<Mutex<OffsetDateTime>>,
     act: impl Fn(OffsetDateTime) + Send + Sync + 'static,
 ) -> Clock {
-    let (read, advance) = (Arc::clone(now), Arc::clone(now));
+    let read = Arc::clone(now);
     Clock {
         now: Box::new(move || {
             let at = *read.lock().unwrap();
             act(at);
             at
         }),
-        sleep: Box::new(move |slice: std::time::Duration| {
-            *advance.lock().unwrap() += time::Duration::seconds(slice.as_secs() as i64);
-        }),
+        sleep: slicing(now),
     }
+}
+
+/// A test clock's sleep: each slice advances `now` by its whole seconds.
+pub(super) fn slicing(
+    now: &Arc<Mutex<OffsetDateTime>>,
+) -> Box<dyn FnMut(std::time::Duration) + Send + Sync> {
+    let advance = Arc::clone(now);
+    Box::new(move |slice: std::time::Duration| {
+        *advance.lock().unwrap() += time::Duration::seconds(slice.as_secs() as i64);
+    })
 }
 
 /// Both legs refuse claude/first as cooling down until exactly `end`.

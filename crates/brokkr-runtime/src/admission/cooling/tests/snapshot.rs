@@ -7,26 +7,17 @@
 use brokkr_store::{CooldownAppend, CooldownRound, ProbeHold, RoundAppend};
 
 use super::*;
+use crate::admission::capacity::tests::{appended, requested};
 
 /// A running `run`, seated on alpha, and its terminal effect event, whose
 /// one `waits` entry is beta/cloud's and whose row ended at `until`: the
 /// episode a probe's round extends.
 fn waited(fixture: &mut Fixture, run: &str, until: OffsetDateTime) -> EventEnvelope {
     fixture.seating(run, &[("alpha", "a-1")], false);
+    requested(fixture, run, "effect");
+    let started = json!({"effect_id": "effect", "attempt_id": "a1"});
+    appended(fixture, run, vec![(EventType::EffectStarted, started)]);
     let store = &mut fixture.store;
-    for (event, payload) in [
-        (EventType::PhaseEntered, json!({"phase": "work"})),
-        (
-            EventType::EffectRequested,
-            json!({"effect_id": "effect", "seat": "work"}),
-        ),
-        (
-            EventType::EffectStarted,
-            json!({"effect_id": "effect", "attempt_id": "a1"}),
-        ),
-    ] {
-        store.append_next(run, event, payload, None, None).unwrap();
-    }
     let wait = json!({"provider": "beta", "route": "cloud", "words": "slow down",
                       "seconds": 60, "until": until.format(&Rfc3339).unwrap(), "rounds": 1});
     store

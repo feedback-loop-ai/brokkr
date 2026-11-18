@@ -10,7 +10,7 @@
 
 use std::path::PathBuf;
 
-use super::held_route::{deadline_of, held_to_its_deadline, probing, unended_holds};
+use super::held_route::{deadline_of, held_to_its_deadline, probing, slicing, unended_holds};
 use super::held_wait::standing;
 use super::*;
 
@@ -22,7 +22,7 @@ fn pausing_after_the_hold(
     journal: PathBuf,
     pause: time::Duration,
 ) -> Clock {
-    let (read, advance) = (Arc::clone(now), Arc::clone(now));
+    let read = Arc::clone(now);
     let paused = std::sync::atomic::AtomicBool::new(false);
     Clock {
         now: Box::new(move || {
@@ -34,9 +34,7 @@ fn pausing_after_the_hold(
             }
             *at
         }),
-        sleep: Box::new(move |slice: std::time::Duration| {
-            *advance.lock().unwrap() += time::Duration::seconds(slice.as_secs() as i64);
-        }),
+        sleep: slicing(now),
     }
 }
 
