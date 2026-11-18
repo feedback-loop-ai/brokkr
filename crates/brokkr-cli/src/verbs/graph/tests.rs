@@ -423,7 +423,7 @@ fn a_recipe_that_does_not_compile_is_drawn_with_its_refusal_and_named_among_the_
     assert_eq!((view.runs, view.states.len()), (0, 0));
     // No run carries it, so there is no state to draw: the refusal is
     // printed as it was, with no drawing above it.
-    assert_eq!(shown(&view, PIPED_WIDTH), paint(&view));
+    assert_eq!(shown(&view, PIPED_WIDTH).unwrap(), paint(&view));
     assert_eq!(
         paint(&view),
         format!(
@@ -728,18 +728,67 @@ fn a_linear_recipe_is_drawn_on_one_rail_with_each_rules_runs_above_its_arrow() {
         journal.run(run_id, &manifest, &events);
     }
     let view = view_of(dir.path(), &machine, "linear");
-    let drawing = recipe_graph(&view, PIPED_WIDTH);
+    let drawing = drawn(&view, PIPED_WIDTH);
     insta::assert_snapshot!("graph_linear", drawing);
     // The drawing comes first, and today's lines follow it unchanged.
-    let shown = shown(&view, PIPED_WIDTH);
+    let shown = shown(&view, PIPED_WIDTH).unwrap();
     assert_eq!(shown.strip_prefix(&drawing), Some(paint(&view).as_str()));
+}
+
+/// `view` drawn at `width`, every line of it held within `width`.
+fn drawn(view: &GraphView, width: usize) -> String {
+    let drawing = recipe_graph(view, width).unwrap();
+    for line in drawing.lines() {
+        assert!(line.chars().count() <= width, "{line}\n{drawing}");
+    }
+    drawing
 }
 
 #[test]
 fn a_reforge_loop_taken_more_than_once_is_a_return_arc_with_its_count() {
     let dir = tempfile::tempdir().unwrap();
     let view = reforged(dir.path());
-    insta::assert_snapshot!("graph_reforged", recipe_graph(&view, PIPED_WIDTH));
+    insta::assert_snapshot!("graph_reforged", drawn(&view, PIPED_WIDTH));
+}
+
+#[test]
+fn a_return_arc_nested_in_another_is_listed_so_neither_count_is_lost() {
+    let dir = tempfile::tempdir().unwrap();
+    let machine = table(
+        &["a", "b", "c", "d"],
+        &[
+            ("A-OK", "a", "complete", Some("b")),
+            ("B-OK", "b", "complete", Some("c")),
+            ("C-OK", "c", "complete", Some("d")),
+            ("C-BACK", "c", "residual", Some("b")),
+            ("D-BACK", "d", "residual", Some("a")),
+            ("D-OK", "d", "complete", Some("done")),
+            ("D-STOP", "d", "blocked", Some("stop")),
+        ],
+    );
+    let step = |state, result, rule, next| (state, result, rule, Some(next));
+    let (a, b) = (
+        step("a", "complete", "A-OK", "b"),
+        step("b", "complete", "B-OK", "c"),
+    );
+    let mut events = walked(&[
+        a,
+        b,
+        step("c", "residual", "C-BACK", "b"),
+        b,
+        step("c", "complete", "C-OK", "d"),
+        step("d", "residual", "D-BACK", "a"),
+        a,
+        b,
+        step("c", "complete", "C-OK", "d"),
+        step("d", "complete", "D-OK", "done"),
+    ]);
+    events.push((EventType::RunCompleted, json!({})));
+    Journal::at(dir.path()).run("nested", &json!({"bundle_name": "nested"}), &events);
+    let view = view_of(dir.path(), &machine, "nested");
+    // b ᐸ c rides the arc row; a ᐸ d would share its centre, so it is
+    // listed with its count rather than written over the other's.
+    insta::assert_snapshot!("graph_nested", drawn(&view, PIPED_WIDTH));
 }
 
 #[test]
@@ -755,7 +804,7 @@ fn a_parked_run_is_live_on_its_state_and_a_stopped_one_is_listed_beneath() {
     stopped.push((EventType::RunStopped, json!({})));
     journal.run("stopped", &manifest, &stopped);
     let view = view_of(dir.path(), &reforging(), "reforge");
-    insta::assert_snapshot!("graph_parked", recipe_graph(&view, PIPED_WIDTH));
+    insta::assert_snapshot!("graph_parked", drawn(&view, PIPED_WIDTH));
 }
 
 #[test]
@@ -764,7 +813,7 @@ fn a_range_with_no_runs_draws_the_table_with_no_traffic() {
     Journal::at(dir.path());
     let view = view_of(dir.path(), &reforging(), "reforge");
     assert_eq!(view.runs, 0);
-    insta::assert_snapshot!("graph_no_runs", recipe_graph(&view, PIPED_WIDTH));
+    insta::assert_snapshot!("graph_no_runs", drawn(&view, PIPED_WIDTH));
 }
 
 #[test]
@@ -811,11 +860,8 @@ fn at_80_columns_a_wide_recipe_folds_whole_states_and_lists_what_crosses_the_fol
     events.push((EventType::RunCompleted, json!({})));
     Journal::at(dir.path()).run("wide", &json!({"bundle_name": "wide"}), &events);
     let view = view_of(dir.path(), &machine, "wide");
-    let drawing = recipe_graph(&view, 80);
+    let drawing = drawn(&view, 80);
     insta::assert_snapshot!("graph_wide_80", drawing);
-    for line in drawing.lines() {
-        assert!(line.chars().count() <= 80, "{line}");
-    }
     // No label is cut: every state's whole name is drawn, and nothing is
     // clamped.
     for state in states {
@@ -825,10 +871,58 @@ fn at_80_columns_a_wide_recipe_folds_whole_states_and_lists_what_crosses_the_fol
 }
 
 #[test]
+fn at_80_columns_a_long_link_across_the_fold_wraps_and_a_long_id_continues() {
+    let dir = tempfile::tempdir().unwrap();
+    let (first, second) = (
+        "the-specification-intake-and-its-triage",
+        "the-implementation-planning-and-staffing",
+    );
+    // The longest id a table admits: 64 columns.
+    let long = "A-RULE-WHOSE-ID-RUNS-AS-WIDE-AS-THE-TABLE-ADMITS-AND-STILL-HOLDS";
+    let machine = table(
+        &[first, second],
+        &[
+            ("INTAKE-OK", first, "complete", Some(second)),
+            ("PLANNING-OK", second, "complete", Some("done")),
+            (long, second, "abandoned", Some("stop")),
+        ],
+    );
+    let mut events = walked(&[
+        (first, "complete", "INTAKE-OK", Some(second)),
+        (second, "complete", "PLANNING-OK", Some("done")),
+    ]);
+    events.push((EventType::RunCompleted, json!({})));
+    Journal::at(dir.path()).run("long", &json!({"bundle_name": "long"}), &events);
+    let view = view_of(dir.path(), &machine, "long");
+    let drawing = drawn(&view, 80);
+    insta::assert_snapshot!("graph_long_80", drawing);
+    // The link the fold split is listed, broken between words.
+    assert!(
+        drawing.contains(&format!("  {first} ──ᐳ\n     {second}  1\n")),
+        "{drawing}"
+    );
+    // At the narrowest width the id is wider than a line: it is continued,
+    // `…` to `…`, and reads whole with its breaks taken out.
+    let narrowest = drawn(&view, NARROWEST);
+    assert!(!narrowest.contains(long), "{narrowest}");
+    assert!(
+        narrowest.replace("…\n   …", "").contains(long),
+        "{narrowest}"
+    );
+}
+
+#[test]
 fn the_terminals_width_is_the_drawings_and_a_pipe_draws_at_the_stated_width() {
     assert_eq!(drawing_width(Some(Ok((80, 24)))), 80);
     let unread = Some(Err(std::io::Error::other("no size")));
     assert_eq!((drawing_width(unread), drawing_width(None)), (100, 100));
+    // A pty with no size set answers 0 columns: a terminal narrower than
+    // the drawing fits is drawn as a pipe is.
+    let narrow = [0, 39].map(|columns| drawing_width(Some(Ok((columns, 24)))));
+    assert_eq!(
+        (narrow, drawing_width(Some(Ok((40, 24))))),
+        ([100, 100], 40)
+    );
 }
 
 /// `json` with the stamps of this run's clock, and the stays it measured

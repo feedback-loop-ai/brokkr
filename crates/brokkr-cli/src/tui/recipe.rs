@@ -5,14 +5,18 @@
 //! renderer (decision 0071 ruling 5). Every figure is the view's own
 //! (ruling 7); this file places them and counts nothing.
 //!
-//! What the rail cannot draw is listed under it, never dropped: a rule
-//! taken between states that are not neighbours on the rail, or that a
-//! fold put on two rails, a rule into a terminal beneath the row, and a
-//! park.
+//! An arrow is a link the range took: two neighbours no taken link joins
+//! stand apart on the rail with no road between them. What the rail
+//! cannot draw is listed under it, never dropped: a rule taken between
+//! states that are not neighbours on one rail, a return arc that would
+//! overlap another, a rule into a terminal beneath the row, and a park.
 
 use std::collections::BTreeSet;
+use std::fmt;
 
 use brokkr_view::{GraphView, ModelAtBoundary, Road};
+use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
 
 use super::*;
 
@@ -20,16 +24,89 @@ use super::*;
 /// text that pipes and snapshots alike on every host.
 pub(crate) const PIPED_WIDTH: usize = 100;
 
+/// The narrowest terminal the drawing fits: one that reports fewer
+/// columns (a pty with no size set answers 0) is drawn at [`PIPED_WIDTH`]
+/// as a pipe is.
+pub(crate) const NARROWEST: usize = 40;
+
 /// The rows one rail is planned in: the counts' row, the rail, the names
 /// and the return arcs' row, with the selection box's row the plan
 /// reserves left blank (no state is selected here) and dropped.
 const RAIL_ROWS: usize = 5;
 
-/// The drawing's legend, so a bare number on the rail says what it counts.
-const LEGEND: [&str; 2] = [
+/// The drawing's legend, so a bare number on the rail says what it counts;
+/// each line fits 80 columns.
+const LEGEND: [&str; 3] = [
     "nodes: runs entered · median stay · ∙ a live run · · never entered",
-    "arrows: runs moved · ↻ to itself · ×n back · ⊗ a terminal beneath the row",
+    "arrows: runs moved · ↻ to itself · ×n back · none where no run moved",
+    "⊗ a terminal: those beneath the row are drawn under it, their rules listed",
 ];
+
+/// Where the view places a state (design D3), read at the drawing's edge
+/// from the view's wire word into this file's own type: the view's
+/// `Place` is not named outside `brokkr-view`, and naming it grows that
+/// crate's public API, which is the operator's to rule.
+#[derive(Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[serde(rename_all = "snake_case")]
+enum Placed {
+    Row,
+    End,
+    Beneath,
+}
+
+/// How a link moves the run (design D3), read as [`Placed`] is, from the
+/// view's `RuleKind`.
+#[derive(Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[serde(rename_all = "snake_case")]
+enum Moved {
+    Forward,
+    #[serde(rename = "self")]
+    SelfLoop,
+    Back,
+    Terminal,
+}
+
+/// Why the view could not be drawn (decision 0071 ruling 8).
+#[derive(Debug)]
+pub(crate) enum DrawError {
+    /// The view carries a word this file has not learned: a place or a
+    /// kind the view grew.
+    Unread {
+        what: &'static str,
+        source: serde_json::Error,
+    },
+}
+
+impl fmt::Display for DrawError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            DrawError::Unread { what, source } => {
+                write!(
+                    f,
+                    "the drawing cannot read the graph view's {what}: {source}"
+                )
+            }
+        }
+    }
+}
+
+impl std::error::Error for DrawError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            DrawError::Unread { source, .. } => Some(source),
+        }
+    }
+}
+
+/// `value` as the view's wire writes it, read into the drawing's `U`.
+fn read_as<T: Serialize, U: DeserializeOwned>(
+    what: &'static str,
+    value: T,
+) -> Result<U, DrawError> {
+    serde_json::to_value(value)
+        .and_then(serde_json::from_value)
+        .map_err(|source| DrawError::Unread { what, source })
+}
 
 /// A state's node carries no served model: the rail's node shape asks for
 /// one, and the recipe's graph has none to show.
@@ -45,85 +122,258 @@ fn unserved() -> ModelAtBoundary {
     }
 }
 
-/// Where the view places state `at`, in the words its wire carries: `row`,
-/// `end` or `beneath`. The view's `Place`, like its `State`, `Link` and
-/// `RuleKind`, is not named outside `brokkr-view`, and naming it would
-/// grow that crate's public API, which is the operator's to rule; so the
-/// drawing reads states and links by index and these two by their words.
-fn place_of(view: &GraphView, at: usize) -> String {
-    let word = serde_json::to_value(view.states[at].place).ok();
-    word.and_then(|word| word.as_str().map(str::to_string))
-        .unwrap_or_default()
+/// A return arc one rail draws: its landing and departure as positions on
+/// the rail, and the link it carries.
+#[derive(Clone, Copy)]
+struct Return {
+    to: usize,
+    from: usize,
+    link: usize,
 }
 
-/// The runs the range moved from `from` to `next`: at most one count, as
-/// the view holds one link per pair, and none when it took none.
-fn taken<'a>(
+/// The view, its places and kinds read once, at `width` columns.
+struct Drawing<'a> {
     view: &'a GraphView,
-    from: &'a str,
-    next: &'a str,
-) -> impl Iterator<Item = usize> + 'a {
-    (view.links.iter())
-        .filter(move |link| link.from == from && link.next == next && link.count > 0)
-        .map(|link| link.count)
+    places: Vec<Placed>,
+    kinds: Vec<Moved>,
+    width: usize,
 }
 
-/// One state as a rail phase: its node labelled with its figures, lit as
-/// live when a run stands in it, and the back links taken into it as the
-/// roads its return arcs draw.
-fn phase_of(view: &GraphView, at: usize, label: String) -> Phase {
-    let state = &view.states[at];
-    let live = (view.live.iter()).any(|run| run.state.as_deref() == Some(state.name.as_str()));
-    let (word, class) = match (live, state.entered > 0) {
-        (true, _) => ("active", "in-active"),
-        (false, true) => ("finished", "on-phosphor"),
-        (false, false) => ("", ""),
-    };
-    let back = (view.links.iter()).filter(|link| link.kind.word() == "back");
-    Phase {
-        name: state.name.clone(),
-        strategy: None,
-        visits: 0,
-        current: false,
-        plain: false,
-        columns: vec![Column {
-            label: Some(label),
-            nodes: vec![Node {
-                label: String::new(),
-                key: state.name.clone(),
-                state: word.to_string(),
-                state_class: class.to_string(),
-                served: unserved(),
+impl<'a> Drawing<'a> {
+    fn new(view: &'a GraphView, width: usize) -> Result<Self, DrawError> {
+        let places = (view.states.iter())
+            .map(|state| read_as("place", state.place))
+            .collect::<Result<_, _>>()?;
+        let kinds = (view.links.iter())
+            .map(|link| read_as("rule kind", link.kind))
+            .collect::<Result<_, _>>()?;
+        Ok(Drawing {
+            view,
+            places,
+            kinds,
+            width,
+        })
+    }
+
+    /// The states the view places at `place`, in its order.
+    fn placed(&self, place: Placed) -> Vec<usize> {
+        (0..self.places.len())
+            .filter(|at| self.places[*at] == place)
+            .collect()
+    }
+
+    /// The link that took runs from state `from` to state `next`, the view
+    /// holding at most one per pair.
+    fn taken(&self, from: usize, next: usize) -> Option<usize> {
+        let (from, next) = (&self.view.states[from].name, &self.view.states[next].name);
+        (0..self.view.links.len()).find(|at| {
+            let link = &self.view.links[*at];
+            &link.from == from && &link.next == next && link.count > 0
+        })
+    }
+
+    /// One state as a rail phase: its node labelled with its entered count
+    /// and median, a terminal's name marked `⊗`, lit as live when a run
+    /// stands in it, and `returns` as the roads its return arcs draw.
+    fn phase_of(&self, at: usize, returns: Vec<Road>) -> Phase {
+        let state = &self.view.states[at];
+        let live =
+            (self.view.live.iter()).any(|run| run.state.as_deref() == Some(state.name.as_str()));
+        let (word, class) = match (live, state.entered > 0) {
+            (true, _) => ("active", "in-active"),
+            (false, true) => ("finished", "on-phosphor"),
+            (false, false) => ("", ""),
+        };
+        let name = match self.places[at] {
+            Placed::Row => state.name.clone(),
+            Placed::End | Placed::Beneath => format!("⊗ {}", state.name),
+        };
+        Phase {
+            name,
+            strategy: None,
+            visits: 0,
+            current: false,
+            plain: false,
+            columns: vec![Column {
+                label: Some(format!("{} · {}", state.entered, state.median.text)),
+                nodes: vec![Node {
+                    label: String::new(),
+                    key: state.name.clone(),
+                    state: word.to_string(),
+                    state_class: class.to_string(),
+                    served: unserved(),
+                }],
             }],
-        }],
-        returns: back
-            .filter(|link| link.next == state.name && link.count > 0)
-            .map(|link| Road {
-                from: link.from.clone(),
-                taken: link.count as u64,
-                rules: Vec::new(),
+            returns,
+        }
+    }
+
+    /// The return arcs `rail` draws: the back links taken between two of
+    /// its states, in the view's order, each kept only when its span
+    /// shares no column with one kept before it. The arcs ride one row,
+    /// so an overlapping one would merge into its neighbour and its `×n`
+    /// fall on the other's; it is listed instead.
+    fn returns(&self, rail: &[usize]) -> Vec<Return> {
+        let position = |name: &str| (rail.iter()).position(|at| self.view.states[*at].name == name);
+        let mut kept: Vec<Return> = Vec::new();
+        for (link, kind) in self.kinds.iter().enumerate() {
+            let road = &self.view.links[link];
+            if *kind != Moved::Back || road.count == 0 {
+                continue;
+            }
+            let (Some(to), Some(from)) = (position(&road.next), position(&road.from)) else {
+                continue;
+            };
+            let apart = |other: &Return| from < other.to || to > other.from;
+            if to < from && kept.iter().all(apart) {
+                kept.push(Return { to, from, link });
+            }
+        }
+        kept
+    }
+
+    /// `rail`'s states as phases, each carrying the arcs that land on it.
+    fn phases(&self, rail: &[usize], arcs: &[Return]) -> Vec<Phase> {
+        (rail.iter().enumerate())
+            .map(|(position, at)| {
+                let roads = (arcs.iter())
+                    .filter(|arc| arc.to == position)
+                    .map(|arc| Road {
+                        from: self.view.states[rail[arc.from]].name.clone(),
+                        taken: self.view.links[arc.link].count as u64,
+                        rules: Vec::new(),
+                    });
+                self.phase_of(*at, roads.collect())
             })
-            .collect(),
+            .collect()
+    }
+
+    /// The roads between neighbours: a taken link's runs above its arrow,
+    /// and no road at all where none was taken. Each pair drawn goes into
+    /// `drawn`.
+    fn roads(&self, cells: &mut Cells, plan: &Plan, rail: &[usize], drawn: &mut Drawn) {
+        let above = plan.rail_row - 1;
+        for (pair, segs) in rail.windows(2).zip(plan.segments.windows(2)) {
+            let Some(link) = self.taken(pair[0], pair[1]) else {
+                for x in segs[0].rail.1 + 1..segs[1].rail.0 {
+                    put(cells, x, plan.rail_row, " ", plain());
+                }
+                continue;
+            };
+            let text = self.view.links[link].count.to_string();
+            let head = segs[1].rail.0 - 1;
+            let x = head.saturating_sub(width_of(&text));
+            put(cells, x, above, &text, plain());
+            drawn.insert(link);
+        }
+        for (at, seg) in rail.iter().zip(&plan.segments) {
+            if let Some(link) = self.taken(*at, *at) {
+                let text = format!("↻{}", self.view.links[link].count);
+                put(cells, seg.rail.0, above, &text, plain());
+                drawn.insert(link);
+            }
+        }
+    }
+
+    /// Each kept arc's `×n`, centred on it. Two states' nodes stand at
+    /// least a labelled node and a connector apart, so an arc is always
+    /// wider than its ` ×n `, and the kept arcs share no column.
+    fn arc_counts(&self, cells: &mut Cells, plan: &Plan, arcs: &[Return], drawn: &mut Drawn) {
+        let Some(row) = plan.arc_row else {
+            return;
+        };
+        for arc in arcs {
+            let text = format!(" ×{} ", self.view.links[arc.link].count);
+            let to = centre_of(&plan.segments[arc.to]);
+            let from = centre_of(&plan.segments[arc.from]);
+            put(
+                cells,
+                (to + from) / 2 - width_of(&text) / 2,
+                row,
+                &text,
+                plain(),
+            );
+            drawn.insert(arc.link);
+        }
+    }
+
+    /// One rail of the fold, painted and counted, as plain text: no colour,
+    /// trailing blanks trimmed and blank rows dropped. A rail the fold
+    /// continues wears the TUI's own elision marks, `›` and `‹`.
+    fn rail_lines(&self, rail: &[usize], folded: (bool, bool), drawn: &mut Drawn) -> Vec<String> {
+        let arcs = self.returns(rail);
+        let plan = planned(&self.phases(rail, &arcs), self.width);
+        let mut cells = paint_cells(&plan, 0, false);
+        self.roads(&mut cells, &plan, rail, drawn);
+        self.arc_counts(&mut cells, &plan, &arcs, drawn);
+        if folded.0 {
+            put(&mut cells, 0, plan.rail_row, "‹", plain());
+        }
+        if folded.1 {
+            let x = self.width.saturating_sub(1);
+            put(&mut cells, x, plan.rail_row, "›", plain());
+        }
+        (cells.iter())
+            .map(|row| {
+                let text: String = (row.iter().flatten())
+                    .map(|(glyph, _)| glyph.as_str())
+                    .collect();
+                text.trim_end().to_string()
+            })
+            .filter(|text| !text.is_empty())
+            .collect()
+    }
+
+    /// `states` folded into rails at the drawing's width, each painted.
+    fn folded(&self, states: &[usize], drawn: &mut Drawn) -> Vec<String> {
+        let rails = folds(&self.phases(states, &[]), self.width);
+        let mut lines = Vec::new();
+        for (index, rail) in rails.iter().enumerate() {
+            let folded = (index > 0, index + 1 < rails.len());
+            lines.extend(self.rail_lines(&states[rail.clone()], folded, drawn));
+        }
+        lines
+    }
+
+    /// A rule taken that no rail drew, in the rail's own glyphs: a back
+    /// rule as its arc's head and `×n`, any other to its next state, a
+    /// terminal marked `⊗`.
+    fn listed(&self, at: usize) -> String {
+        let link = &self.view.links[at];
+        match self.kinds[at] {
+            Moved::Back => format!("  {} ᐸ── {}  ×{}", link.next, link.from, link.count),
+            Moved::Terminal => format!("  {} ──ᐳ ⊗ {}  {}", link.from, link.next, link.count),
+            Moved::Forward | Moved::SelfLoop => {
+                format!("  {} ──ᐳ {}  {}", link.from, link.next, link.count)
+            }
+        }
+    }
+
+    /// The lines under the rails: the taken links no rail drew, the parks,
+    /// the rules that never fired, and the legend.
+    fn under(&self, drawn: &Drawn) -> Vec<String> {
+        let view = self.view;
+        let unseen =
+            (0..view.links.len()).filter(|at| view.links[*at].count > 0 && !drawn.contains(at));
+        let mut lines: Vec<String> = unseen.map(|at| self.listed(at)).collect();
+        let parks = (view.rules.iter()).filter(|rule| rule.next.is_none() && rule.count > 0);
+        lines.extend(
+            parks.map(|rule| format!("  {} ⊙ park  {} · {}", rule.from, rule.count, rule.id)),
+        );
+        let dormant = (view.rules.iter()).filter(|rule| rule.count == 0);
+        let dormant: Vec<&str> = dormant.map(|rule| rule.id.as_str()).collect();
+        lines.push(format!(
+            "never fired {}  {}",
+            view.never_fired.text,
+            dormant.join("  ")
+        ));
+        lines.extend(LEGEND.map(str::to_string));
+        lines
     }
 }
 
-/// The rail's phases: the row's states in the view's order, then the
-/// state that ends the row. A terminal beneath the row is no node on it.
-fn railed(view: &GraphView) -> Vec<Phase> {
-    let placed =
-        |place: &'static str| (0..view.states.len()).filter(move |at| place_of(view, *at) == place);
-    let row = placed("row").map(|at| {
-        let state = &view.states[at];
-        phase_of(
-            view,
-            at,
-            format!("{} · {}", state.entered, state.median.text),
-        )
-    });
-    let end =
-        placed("end").map(|at| phase_of(view, at, format!("{} · end", view.states[at].entered)));
-    row.chain(end).collect()
-}
+/// The links a rail drew, by their index in the view.
+type Drawn = BTreeSet<usize>;
 
 fn planned(phases: &[Phase], width: usize) -> Plan {
     plan(phases, None, "running", None, None, width, RAIL_ROWS)
@@ -155,160 +405,124 @@ fn folds(phases: &[Phase], width: usize) -> Vec<std::ops::Range<usize>> {
     rails
 }
 
-/// The segments whose road meets the arc row at `x`.
-fn seg_at(plan: &Plan, x: usize) -> impl Iterator<Item = &Seg> {
-    (plan.segments.iter()).filter(move |seg| centre_of(seg) == x)
+/// `body`'s words, each with the blanks before it.
+fn spaced(body: &str) -> Vec<(&str, &str)> {
+    let mut words = Vec::new();
+    let mut rest = body;
+    loop {
+        let after = rest.trim_start_matches(' ');
+        let end = after.find(' ').unwrap_or(after.len());
+        if end == 0 {
+            return words;
+        }
+        words.push((&rest[..rest.len() - after.len()], &after[..end]));
+        rest = &after[end..];
+    }
 }
 
-/// The counts written over one painted rail: a forward rule's above its
-/// arrow, a self rule's above its node, a back rule's on its arc. Each
-/// pair it draws goes into `drawn`.
-fn counted(
-    cells: &mut Cells,
-    plan: &Plan,
-    view: &GraphView,
-    drawn: &mut BTreeSet<(String, String)>,
-) {
-    let above = plan.rail_row - 1;
-    for pair in plan.segments.windows(2) {
-        for count in taken(view, &pair[0].key, &pair[1].key) {
-            let text = count.to_string();
-            let head = pair[1].rail.0 - 1;
-            put(
-                cells,
-                head.saturating_sub(width_of(&text)),
-                above,
-                &text,
-                plain(),
-            );
-            drawn.insert((pair[0].key.clone(), pair[1].key.clone()));
-        }
-    }
-    for seg in &plan.segments {
-        for count in taken(view, &seg.key, &seg.key) {
-            put(cells, seg.rail.0, above, &format!("↻{count}"), plain());
-            drawn.insert((seg.key.clone(), seg.key.clone()));
-        }
-    }
-    let Some(row) = plan.arc_row else {
-        return;
-    };
-    // Two states' nodes stand at least a labelled node and a connector
-    // apart, so an arc is always wider than its ` ×n ` and the count sits
-    // inside it, centred.
-    for arc in &plan.arcs {
-        for (from, to) in seg_at(plan, arc.from).zip(seg_at(plan, arc.to)) {
-            for count in taken(view, &from.key, &to.key) {
-                let text = format!(" ×{count} ");
-                let x = (arc.to + arc.from) / 2 - width_of(&text) / 2;
-                put(cells, x, row, &text, plain());
-                drawn.insert((from.key.clone(), to.key.clone()));
+/// `word` appended to `line`, broken where it passes `width`: the piece
+/// that fits ends `…`, and the rest carries on a new line from `…`, so a
+/// word is never cut, only continued.
+fn broken(line: &mut String, lines: &mut Vec<String>, word: &str, width: usize, carried: &str) {
+    let mut rest = word;
+    while !rest.is_empty() && width_of(line) + width_of(rest) > width {
+        let room = width.saturating_sub(width_of(line) + 1);
+        let mut cut = rest.chars().next().map_or(0, char::len_utf8);
+        for (at, character) in rest.char_indices().skip(1) {
+            if width_of(&rest[..at + character.len_utf8()]) > room {
+                break;
             }
+            cut = at + character.len_utf8();
         }
+        line.push_str(&rest[..cut]);
+        line.push('…');
+        lines.push(std::mem::replace(line, format!("{carried}…")));
+        rest = &rest[cut..];
     }
+    line.push_str(rest);
 }
 
-/// One rail of the fold, painted and counted, as plain text: no colour,
-/// trailing blanks trimmed and blank rows dropped. A rail the fold
-/// continues wears the TUI's own elision marks, `›` and `‹`.
-fn rail_lines(
-    view: &GraphView,
-    phases: &[Phase],
-    width: usize,
-    folded: (bool, bool),
-    drawn: &mut BTreeSet<(String, String)>,
-) -> Vec<String> {
-    let plan = planned(phases, width);
-    let mut cells = paint_cells(&plan, 0, false);
-    counted(&mut cells, &plan, view, drawn);
-    if folded.0 {
-        put(&mut cells, 0, plan.rail_row, "‹", plain());
-    }
-    if folded.1 {
-        put(&mut cells, width - 1, plan.rail_row, "›", plain());
-    }
-    (cells.iter())
-        .map(|row| {
-            let text: String = row
-                .iter()
-                .flatten()
-                .map(|(glyph, _)| glyph.as_str())
-                .collect();
-            text.trim_end().to_string()
-        })
-        .filter(|text| !text.is_empty())
-        .collect()
-}
-
-/// A rule taken that no rail drew, in the rail's own glyphs: a back rule
-/// as its arc's head and `×n`, any other to its next state, a terminal
-/// beneath the row marked `⊗`.
-fn listed(view: &GraphView, at: usize) -> String {
-    let link = &view.links[at];
-    let beneath = (0..view.states.len())
-        .any(|state| view.states[state].name == link.next && place_of(view, state) == "beneath");
-    let mark = ["", "⊗ "][usize::from(beneath)];
-    match link.kind.word() == "back" {
-        true => format!("  {} ᐸ── {}  ×{}", link.next, link.from, link.count),
-        false => format!("  {} ──ᐳ {mark}{}  {}", link.from, link.next, link.count),
-    }
-}
-
-/// `words` after `head`, two spaces apart, a line broken before a word
-/// that would pass `width`, each further line indented.
-fn wrapped(head: String, words: &[&str], width: usize) -> Vec<String> {
+/// The rule every line under the rails is held to: `line` broken before
+/// a word that would pass `width`, each further line indented three
+/// columns past the first, and a word wider than a line continued with
+/// `…` (see [`broken`]).
+fn fitted(line: &str, width: usize) -> Vec<String> {
+    let body = line.trim_start_matches(' ');
+    let indent = &line[..line.len() - body.len()];
+    let carried = format!("{indent}   ");
     let mut lines = Vec::new();
-    let mut line = head;
-    for word in words {
-        if width_of(&line) + 2 + width_of(word) > width {
-            lines.push(std::mem::replace(&mut line, "   ".to_string()));
+    let mut current = indent.to_string();
+    let mut fresh = true;
+    for (gap, word) in spaced(body) {
+        if !fresh && width_of(&current) + width_of(gap) + width_of(word) > width {
+            lines.push(std::mem::replace(&mut current, carried.clone()));
+            fresh = true;
         }
-        line.push_str("  ");
-        line.push_str(word);
+        if !fresh {
+            current.push_str(gap);
+        }
+        broken(&mut current, &mut lines, word, width, &carried);
+        fresh = false;
     }
-    lines.push(line);
+    lines.push(current);
     lines
 }
 
-/// `brokkr graph`'s drawing of `view` at `width` columns: the rails, what
-/// they could not draw, the rules that never fired, and the legend, then
-/// a blank line. Nothing at all when the view has no state to draw: a
-/// recipe that does not compile and that no run carries.
-pub(crate) fn recipe_graph(view: &GraphView, width: usize) -> String {
+/// `brokkr graph`'s drawing of `view` at `width` columns: the row's rails,
+/// the terminals beneath it, what they could not draw, the rules that
+/// never fired, and the legend, then a blank line. Nothing at all when the
+/// view has no state to draw: a recipe that does not compile and that no
+/// run carries.
+pub(crate) fn recipe_graph(view: &GraphView, width: usize) -> Result<String, DrawError> {
     if view.states.is_empty() {
-        return String::new();
+        return Ok(String::new());
     }
-    let phases = railed(view);
-    let rails = folds(&phases, width);
-    let mut drawn = BTreeSet::new();
-    let mut lines = Vec::new();
-    for (index, rail) in rails.iter().enumerate() {
-        let folded = (index > 0, index + 1 < rails.len());
-        lines.extend(rail_lines(
-            view,
-            &phases[rail.clone()],
-            width,
-            folded,
-            &mut drawn,
-        ));
-    }
-    let unseen = (0..view.links.len()).filter(|at| {
-        let link = &view.links[*at];
-        link.count > 0 && !drawn.contains(&(link.from.clone(), link.next.clone()))
-    });
-    lines.extend(unseen.map(|at| listed(view, at)));
-    let parks = (view.rules.iter()).filter(|rule| rule.next.is_none() && rule.count > 0);
-    lines.extend(parks.map(|rule| format!("  {} ⊙ park  {} · {}", rule.from, rule.count, rule.id)));
-    let dormant: Vec<&str> = (view.rules.iter())
-        .filter(|rule| rule.count == 0)
-        .map(|rule| rule.id.as_str())
-        .collect();
-    let head = format!("never fired {}", view.never_fired.text);
-    lines.extend(wrapped(head, &dormant, width));
-    lines.extend(LEGEND.map(str::to_string));
-    lines
+    let drawing = Drawing::new(view, width)?;
+    let mut row = drawing.placed(Placed::Row);
+    row.extend(drawing.placed(Placed::End));
+    let mut drawn = Drawn::new();
+    let mut lines = drawing.folded(&row, &mut drawn);
+    lines.extend(drawing.folded(&drawing.placed(Placed::Beneath), &mut drawn));
+    let under = drawing.under(&drawn);
+    lines.extend(under.iter().flat_map(|line| fitted(line, width)));
+    Ok(lines
         .iter()
         .map(|line| format!("{line}\n"))
         .collect::<String>()
-        + "\n"
+        + "\n")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_word_the_drawing_has_not_learned_is_refused_with_what_it_read() {
+        let read: Result<Placed, DrawError> = read_as("place", "sideways");
+        let error = read.unwrap_err();
+        assert!(matches!(error, DrawError::Unread { what: "place", .. }));
+        assert_eq!(
+            error.to_string(),
+            "the drawing cannot read the graph view's place: unknown variant `sideways`, \
+             expected one of `row`, `end`, `beneath`"
+        );
+        assert!(std::error::Error::source(&error).is_some());
+        assert_eq!(
+            read_as::<_, Moved>("rule kind", "self").unwrap(),
+            Moved::SelfLoop
+        );
+    }
+
+    #[test]
+    fn a_line_breaks_before_a_word_and_a_word_wider_than_a_line_continues() {
+        assert_eq!(
+            fitted("  alpha beta  gamma", 12),
+            ["  alpha beta", "     gamma"]
+        );
+        assert_eq!(
+            fitted("  abcdefghijklmnop", 10),
+            ["  abcdefg…", "     …hij…", "     …klm…", "     …nop"]
+        );
+        assert_eq!(fitted("", 10), [""]);
+    }
 }

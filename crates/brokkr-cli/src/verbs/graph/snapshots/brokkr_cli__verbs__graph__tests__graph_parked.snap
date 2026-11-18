@@ -1,12 +1,15 @@
 ---
 source: crates/brokkr-cli/src/verbs/graph/tests.rs
-expression: "recipe_graph(&view, PIPED_WIDTH)"
+expression: "drawn(&view, PIPED_WIDTH)"
 ---
              2
-    ⏺ 2 · 0m──ᐳ∙ 2 · 0m──ᐳ· 0 · —──ᐳ· 0 · end
-   implement   review      ship       done
+    ⏺ 2 · 0m──ᐳ∙ 2 · 0m   · 0 · —   · 0 · —
+   implement   review      ship     ⊗ done
+   ⏺ 1 · 0m
+   ⊗ stop
   review ──ᐳ ⊗ stop  1
   review ⊙ park  1 · REVIEW-HOLD
 never fired 4 of 7  REVIEW-CLEAN  REVIEW-REFORGE  SHIP-RETRY  SHIP-OK
 nodes: runs entered · median stay · ∙ a live run · · never entered
-arrows: runs moved · ↻ to itself · ×n back · ⊗ a terminal beneath the row
+arrows: runs moved · ↻ to itself · ×n back · none where no run moved
+⊗ a terminal: those beneath the row are drawn under it, their rules listed

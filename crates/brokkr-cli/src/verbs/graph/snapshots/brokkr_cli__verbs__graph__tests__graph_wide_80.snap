@@ -6,11 +6,14 @@ expression: drawing
           ⏺ 1 · 0m───────────────ᐳ⏺ 1 · 0m───────────────ᐳ⏺ 1 · 0m             ›
    specification-intake   implementation-planning     implementation
                                 1                      1
-‹          ⏺ 1 · 0m──────────────ᐳ⏺ 1 · 0m──────────────ᐳ⏺ 1 · end
-   verification-and-review   release-shipping              done
+‹          ⏺ 1 · 0m──────────────ᐳ⏺ 1 · 0m──────────────ᐳ⏺ 1 · 0m
+   verification-and-review   release-shipping            ⊗ done
+   · 0 · —
+   ⊗ stop
   implementation ──ᐳ verification-and-review  3
   implementation ᐸ── verification-and-review  ×1
   specification-intake ᐸ── verification-and-review  ×1
 never fired 3 of 10  REVIEW-BLOCKED  PLANNING-ABANDONED  RELEASE-WITHDRAWN
 nodes: runs entered · median stay · ∙ a live run · · never entered
-arrows: runs moved · ↻ to itself · ×n back · ⊗ a terminal beneath the row
+arrows: runs moved · ↻ to itself · ×n back · none where no run moved
+⊗ a terminal: those beneath the row are drawn under it, their rules listed

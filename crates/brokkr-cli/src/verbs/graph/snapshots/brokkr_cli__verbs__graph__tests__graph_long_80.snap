@@ -1,0 +1,18 @@
+---
+source: crates/brokkr-cli/src/verbs/graph/tests.rs
+expression: drawing
+---
+                   ⏺ 1 · 0m                                                    ›
+   the-specification-intake-and-its-triage
+                                            1
+‹                   ⏺ 1 · 0m─────────────────ᐳ⏺ 1 · 0m
+   the-implementation-planning-and-staffing   ⊗ done
+   · 0 · —
+   ⊗ stop
+  the-specification-intake-and-its-triage ──ᐳ
+     the-implementation-planning-and-staffing  1
+never fired 1 of 3
+   A-RULE-WHOSE-ID-RUNS-AS-WIDE-AS-THE-TABLE-ADMITS-AND-STILL-HOLDS
+nodes: runs entered · median stay · ∙ a live run · · never entered
+arrows: runs moved · ↻ to itself · ×n back · none where no run moved
+⊗ a terminal: those beneath the row are drawn under it, their rules listed

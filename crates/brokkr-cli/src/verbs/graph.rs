@@ -28,7 +28,7 @@ use super::analytics::{printed, range, read_hearths};
 use crate::folder::Layout;
 use crate::recipes::listed;
 use crate::recipes::personal::ShelfPath;
-use crate::tui::{recipe_graph, PIPED_WIDTH};
+use crate::tui::{recipe_graph, DrawError, NARROWEST, PIPED_WIDTH};
 use crate::{fleet_of, now_rfc3339, Invocation};
 
 #[derive(clap::Args)]
@@ -355,23 +355,27 @@ pub(crate) fn graph(workspace: &Path, args: GraphArgs) -> Result<ExitCode> {
         .is_terminal()
         .then(ratatui::crossterm::terminal::size);
     let width = drawing_width(columns);
-    printed(&view, args.json, |view| shown(view, width))
+    let lines = match args.json {
+        true => String::new(),
+        false => shown(&view, width)?,
+    };
+    printed(&view, args.json, move |_| lines)
 }
 
 /// The columns the drawing fits: the terminal's when stdout is one whose
-/// size reads, else [`PIPED_WIDTH`].
+/// size reads at [`NARROWEST`] columns or more, else [`PIPED_WIDTH`].
 fn drawing_width(terminal: Option<std::io::Result<(u16, u16)>>) -> usize {
     match terminal {
-        Some(Ok((columns, _))) => usize::from(columns),
-        Some(Err(_)) | None => PIPED_WIDTH,
+        Some(Ok((columns, _))) if usize::from(columns) >= NARROWEST => usize::from(columns),
+        Some(Ok(_) | Err(_)) | None => PIPED_WIDTH,
     }
 }
 
 /// What `brokkr graph` prints without `--json` (#1145): the recipe's
 /// delivery graph drawn in the run rail's grammar at `width`, then the
 /// lines [`paint`] writes.
-fn shown(view: &GraphView, width: usize) -> String {
-    recipe_graph(view, width) + &paint(view)
+fn shown(view: &GraphView, width: usize) -> Result<String, DrawError> {
+    Ok(recipe_graph(view, width)? + &paint(view))
 }
 
 /// One line per state and per rule, then the rest the view states,
