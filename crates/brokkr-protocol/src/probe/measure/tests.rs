@@ -973,9 +973,17 @@ fn a_claude_mcp_client_log_lists_the_server_it_is_named_after() {
     };
     assert_eq!(stream.events[0].said, [listed]);
     assert_eq!(stream.events.len(), 1 + CLAUDE_326_MCP_LOG.lines().count());
-    let elsewhere =
-        "~/.cache/claude-cli-nodejs/-work/mcp-logs-brokkr-probe-user-scope/deeper/x.jsonl";
-    for (path, harness) in [(elsewhere, Harness::Claude), (path, Harness::Codex)] {
+    let deeper = "~/.cache/claude-cli-nodejs/-work/mcp-logs-brokkr-probe-user-scope/deeper/x.jsonl";
+    let not_jsonl = "~/.cache/claude-cli-nodejs/-work/mcp-logs-brokkr-probe-user-scope/x.log";
+    let not_a_log = "~/.cache/claude-cli-nodejs/-work/projects/x.jsonl";
+    let not_cached = "~/.claude/projects/-work/mcp-logs-brokkr-probe-user-scope/x.jsonl";
+    for (path, harness) in [
+        (deeper, Harness::Claude),
+        (not_jsonl, Harness::Claude),
+        (not_a_log, Harness::Claude),
+        (not_cached, Harness::Claude),
+        (path, Harness::Codex),
+    ] {
         let stream = transcript_stream(&transcript(path), harness);
         assert!(stream.events.is_empty(), "{path}");
         assert_eq!(

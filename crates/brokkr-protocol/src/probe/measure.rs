@@ -19,6 +19,7 @@ use read::{Block, Counted, Harness, Said};
 mod answer;
 mod claude;
 mod claude_log;
+mod claude_mcp_log;
 mod claude_message;
 mod codex;
 mod codex_log;
@@ -298,7 +299,7 @@ enum Line {
 fn read_line(line: &str, reader: Reader, block: &mut Block) -> Result<Line, Fault> {
     match (strict::object(line), reader.lines) {
         (Some(fields), Lines::Transcript) => reader.harness.row(fields).map(Line::Event),
-        (Some(fields), Lines::McpLog) => claude_log::mcp_log_row(fields).map(Line::Event),
+        (Some(fields), Lines::McpLog) => claude_mcp_log::row(fields).map(Line::Event),
         (Some(fields), Lines::Events | Lines::Text(_)) => {
             reader.harness.event(fields).map(Line::Event)
         }
@@ -357,30 +358,9 @@ fn transcript_stream(transcript: &Transcript, harness: Harness) -> Stream {
         Written::Appended { from_line } => (transcript.path.clone(), from_line),
         Written::Rewritten => (format!("{}, which the turn rewrote,", transcript.path), 1),
     };
-    let server = match harness {
-        Harness::Claude => claude_log::mcp_log_server(&transcript.path),
-        Harness::Codex | Harness::Dsh => None,
-    };
-    let lines = match server {
-        Some(_) => Lines::McpLog,
-        None => Lines::Transcript,
-    };
-    let reader = Reader { harness, lines };
-    let mut stream = parse_lines(&transcript.text, &source, first, reader);
-    if let Some(name) = server {
-        let servers = vec![read::Server {
-            name,
-            status: "logged",
-        }];
-        stream.events.insert(
-            0,
-            Event {
-                line: first,
-                label: "mcp-log-file".to_string(),
-                said: vec![Said::Servers { at: "/", servers }],
-            },
-        );
-    }
+    let (lines, server) = claude_mcp_log::reading(harness, &transcript.path);
+    let mut stream = parse_lines(&transcript.text, &source, first, Reader { harness, lines });
+    claude_mcp_log::list_in(&mut stream, server, first);
     stream
 }
 

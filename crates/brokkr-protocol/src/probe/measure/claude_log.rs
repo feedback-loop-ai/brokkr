@@ -638,49 +638,6 @@ struct Cost {
     _unknown: bool,
 }
 
-/// The MCP server a file of claude's is the client log of, from 2.1.326:
-/// claude writes one for each server it starts,
-/// `~/.cache/claude-cli-nodejs/<cwd>/mcp-logs-<server>/<when>.jsonl`, so
-/// the file is that server reaching the turn, whatever its lines say of
-/// how the connection went.
-pub(super) fn mcp_log_server(path: &str) -> Option<String> {
-    let rest = path.strip_prefix("~/.cache/claude-cli-nodejs/")?;
-    let parts: Vec<&str> = rest.split('/').collect();
-    match parts.as_slice() {
-        [_cwd, dir, file] if file.ends_with(".jsonl") => {
-            dir.strip_prefix("mcp-logs-").map(str::to_string)
-        }
-        _ => None,
-    }
-}
-
-/// A line of claude's MCP client log. Inert, every key: the client's own
-/// account of the server its file is named after, which that name already
-/// lists.
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct McpLogLine {
-    #[serde(rename = "cwd")]
-    _cwd: String,
-    #[serde(rename = "sessionId")]
-    _session: String,
-    #[serde(rename = "timestamp")]
-    _timestamp: String,
-    #[serde(default, rename = "debug")]
-    _debug: Given<String>,
-    #[serde(default, rename = "error")]
-    _error: Given<String>,
-}
-
-/// One line of claude's MCP client log, decoded, or why it is unread.
-pub(super) fn mcp_log_row(fields: Map<String, Value>) -> Result<Decoded, Fault> {
-    let _: McpLogLine = decode(Harness::Claude, fields)?;
-    Ok(Decoded {
-        label: "mcp-log".to_string(),
-        said: Vec::new(),
-    })
-}
-
 /// One row of claude's log, decoded, or why it is unread.
 pub(super) fn row(mut fields: Map<String, Value>) -> Result<Decoded, Fault> {
     let _: Envelope = envelope(Harness::Claude, &mut fields, &ENVELOPE)?;
