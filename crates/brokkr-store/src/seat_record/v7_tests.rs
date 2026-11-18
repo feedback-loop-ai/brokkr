@@ -134,8 +134,15 @@ fn v7_closes_the_finding_the_covered_record_and_the_result() {
             json!({"kind": "artifacts", "files": [], "head": HEAD}),
         ),
         gate("verdict", json!("clean")),
+        gate("checked_head", json!("HEAD")),
+        gate("checked_head", json!(HEAD.to_uppercase())),
+        gate("checked_head", json!(null)),
     ];
     assert_eq!(judged(&found(finding()), SeatRecordVersion::V7), Ok(()));
+    assert_eq!(
+        judged(&gate("checked_head", json!(HEAD)), SeatRecordVersion::V7),
+        Ok(())
+    );
     assert_eq!(
         judged(&gate("covered", head), SeatRecordVersion::V7),
         Ok(())
@@ -201,6 +208,7 @@ fn a_v6_record_carrying_a_v7_field_is_refused() {
             "covered",
             json!({"kind": "head", "head": HEAD, "dirty": true}),
         ),
+        ("checked_head", json!(HEAD)),
     ];
     for (field, value) in fields {
         let record = gate(field, value);

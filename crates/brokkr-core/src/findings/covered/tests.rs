@@ -75,3 +75,32 @@ fn a_record_projects_only_the_head_it_names() {
         "a covered head record names exactly one of a commit head or a SHA-256 head_digest"
     );
 }
+
+/// A checked head is a SHA-1 or SHA-256 commit id and nothing else, and
+/// reads back as the string it was journaled as (fix round 0109a1r3).
+#[test]
+fn a_checked_head_is_a_commit_id_and_nothing_else() {
+    let sha256 = "a".repeat(64);
+    for head in [HEAD, sha256.as_str()] {
+        let read = CheckedHead::deserialize(json!(head)).unwrap();
+        assert_eq!(read.as_str(), head);
+        assert_eq!(serde_json::to_value(&read).unwrap(), json!(head));
+    }
+    let refused = [
+        json!("HEAD"),
+        json!(HEAD.to_uppercase()),
+        json!(&HEAD[1..]),
+        json!(7),
+    ];
+    for head in &refused {
+        assert!(CheckedHead::deserialize(head).is_err(), "{head}");
+    }
+    assert_eq!(
+        CheckedHead::try_from("HEAD".to_string()).unwrap_err(),
+        CoveredError::Commit
+    );
+    assert_eq!(
+        CoveredError::Commit.to_string(),
+        "a checked head is a commit id: 40 or 64 lowercase hex characters"
+    );
+}

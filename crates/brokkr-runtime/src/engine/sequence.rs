@@ -18,6 +18,7 @@ use super::carry::{
 };
 use super::cooldown::{refused_members, RefusedMember};
 use super::dispatch::deadline::AttemptBound;
+use super::heads::Span;
 use super::{
     copy_secret_binding_facts, failed_to_start, stamp_boundary, start_failure_fields,
     start_failure_sites, DriverRun, Engine, EngineError, Indeterminate, Selection, Site, Unproven,
@@ -323,11 +324,13 @@ impl Engine {
         // compared and cleared at this step's own end below, before
         // any later step gets to move the tree lawfully (decision
         // 0042 reads an author as a work step). Nothing outer arms
-        // for a sequence, so this is the only observation taken. The
-        // class is the compiled step's: a dialect check is a gate
+        // for a sequence with a gate step, so its gate steps are the
+        // only observations taken, and a later work step spends the
+        // step's own observation but not the effect's (heads::Spans).
+        // The class is the compiled step's: a dialect check is a gate
         // (bundle::sequence::step_class) whether or not its recipe wrote
         // one, and its span's observation stamps what it produced.
-        self.begin_span(at.step.class == SeatClass::Gate);
+        self.begin_step_span(at.step.class == SeatClass::Gate);
         let ran = match &at.step.body {
             StepBody::Invocation(Invocation::Single { command, .. }) => {
                 self.single_step(run, at, command)?
@@ -342,8 +345,9 @@ impl Engine {
                 }
             }
         };
+        let (span, attempt_id) = (Span::Step, Some(run.attempt_id.to_string()));
         if self
-            .finish_gate_head_check(run.effect_id, Some(run.attempt_id.to_string()))?
+            .finish_gate_head_check(span, run.effect_id, attempt_id)?
             .is_some()
         {
             return Ok(StepVerdict::Ended);

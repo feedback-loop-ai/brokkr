@@ -389,7 +389,7 @@ fn bundle(dir: &Path, seats: BTreeMap<String, Seat>) -> Bundle {
 }
 
 fn run(dir: &Path, bundle: Bundle) -> Vec<EventEnvelope> {
-    std::fs::create_dir_all(dir.join("work")).unwrap();
+    super::tests::git_commit(&dir.join("work"), "base"); // review decides on its checked head
     let store = Store::open(&dir.join("forge.db")).unwrap();
     let mut engine = Engine::start(store, bundle, "resume", Some(dir.join("work"))).unwrap();
     engine.drive().unwrap();

@@ -499,24 +499,19 @@ pub struct Engine {
     /// sleep the wait reads (decision 0071 ruling 1), and the probe's
     /// answer the retry journals (decision 0103 rulings 3 and 5).
     pub(crate) cooldown: cooldown::Seam,
-    /// Present only while this process is executing a gate-bearing site,
-    /// and it holds exactly one observation: the head as that site's own
-    /// span began. The span is the gate STEP inside a sequence and the
-    /// whole effect for a gate single seat or panel — never both at once,
-    /// so a sequence's steps are the only observation a sequence makes.
-    /// The observations are compared at the end of the span that armed
-    /// them; only a mismatch is journaled, as the raw evidence on the
-    /// resulting park. A span that ends through an `Err` — appending no
-    /// terminal event — clears it rather than leaving it for the next
-    /// effect to spend.
-    active_gate_head: Option<Option<String>>,
+    /// The checked spans of the effect this process is executing: the
+    /// head each armed span began on, compared at the end of the span
+    /// that armed it, where only a mismatch is journaled, as the raw
+    /// evidence on the resulting park, and the observations the matches
+    /// kept (heads.rs). A span that ends through an `Err`, appending no
+    /// terminal event, is abandoned rather than left for the next effect
+    /// to spend.
+    spans: heads::Spans,
     /// What the dispatched gate effect's success records as `covered`
     /// (decision 0109 ruling 7), spent by its terminal event.
     covering: Option<verdict::Covering>,
-    /// Every HEAD read the engine takes, and the end head the last gate
-    /// span's check accepted (decision 0109 ruling 7).
+    /// Every HEAD read the engine takes (decision 0109 ruling 7).
     heads: heads::HeadReads,
-    observed_head: Option<heads::Observed>,
     /// The boundary every site with hands is composed from (decision
     /// 0046 ruling 1): the compiled bundle's word, set once at entry and
     /// never re-read from a map, so the pinned word and the world the run
@@ -614,10 +609,9 @@ fn shell(store: Store, bundle: Bundle, run_id: String, feature: String, repo: Pa
         secrets_file: None,
         state: None,
         cooldown: Default::default(),
-        active_gate_head: None,
+        spans: Default::default(),
         covering: None,
         heads: Default::default(),
-        observed_head: None,
         network_prefix: None,
         replay: Default::default(),
         held_outcome: None,
@@ -969,7 +963,8 @@ impl Engine {
                 .get("effect_id")
                 .and_then(Value::as_str)
                 .unwrap_or("unknown");
-            if let Some(moved) = self.finish_gate_head_check(effect_id, attempt_id.clone())? {
+            let span = heads::Span::Effect;
+            if let Some(moved) = self.finish_gate_head_check(span, effect_id, attempt_id.clone())? {
                 return Ok(moved);
             }
         }

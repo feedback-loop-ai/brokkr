@@ -1172,9 +1172,9 @@ by digest beside the frozen files:
 |---|---|---|
 | Seat record with a gate's findings, follow-ups and covered identity | `seat-record.v7.schema.json` | brokkr-store append/export/verify (an embedded copy held byte-equal by test), `brokkr inspect`'s findings and covered lines, every seat readout |
 
-`seat-record.v7` is `v6` with its definitions kept under `$defs` and three
-optional properties on the successful result: `findings`, `follow_ups` and
-`covered`. A finding is closed: `site` (the 64-hex digest of the compiled
+`seat-record.v7` is `v6` with its definitions kept under `$defs` and four
+optional properties on the successful result: `findings`, `follow_ups`,
+`covered` and `checked_head`. A finding is closed: `site` (the 64-hex digest of the compiled
 structural site that reported it), `id` (`^[a-z0-9][a-z0-9._-]*$`, at most
 64 bytes), a repository-relative `file` (non-empty, at most 4096
 characters, never absolute and with no `..` component, exactly what the
@@ -1185,9 +1185,14 @@ rest is the record. `follow_ups` has the same shape. `covered` is closed
 and tagged by `kind`: `head` with exactly one of `head` (a commit id) or
 `head_digest` (the SHA-256 of the protected phase's decide-time head
 string), beside `dirty`, and no `base`; or `artifacts` with at least one
-`{path, sha256}`.
+`{path, sha256}`. `checked_head` is a commit id: the head the protected
+phase's effect's stable-head check accepted, journaled with its result
+(and with a protected sequence gate step's checkpoint) so decide records
+it as `reviewed_heads` from the journal, and a resumed engine decides on
+the same head with no HEAD read of its own. A protected result without
+one, or whose `covered` does not project it, is refused at decide.
 
-`covered`, `follow_ups` and each finding's `site` are the engine's: the
+`covered`, `follow_ups`, `checked_head` and each finding's `site` are the engine's: the
 engine refuses a seat result that carries any of them before this
 contract is asked, and stamps them itself (rulings 1 and 3). In this
 slice the engine writes `findings` where a gate site reports them, each
@@ -1200,5 +1205,5 @@ path until slices 0109c and 0109d, and every `dirty` is `true` until
 The store dispatches the 0.14 engine line and later to v7, and the 0.12
 and 0.13 lines to v6, at append, export, import verification and offline
 verification alike. 0.14 is the development line on main after the 0.14.0
-tag when v7 landed; the tagged 0.14.0 engine wrote none of the three, so
+tag when v7 landed; the tagged 0.14.0 engine wrote none of the four, so
 every row it wrote reads under v7 exactly as it did under v6.

@@ -30,16 +30,23 @@ const FILE_MAX_CHARS: usize = 4096;
 pub enum EngineWritten {
     Covered,
     FollowUps,
+    /// The head a protected effect's check accepted (fix round 0109a1r3).
+    CheckedHead,
 }
 
 impl EngineWritten {
-    const ALL: [EngineWritten; 2] = [EngineWritten::Covered, EngineWritten::FollowUps];
+    const ALL: [EngineWritten; 3] = [
+        EngineWritten::Covered,
+        EngineWritten::FollowUps,
+        EngineWritten::CheckedHead,
+    ];
 
     /// The result field it is.
     fn field(self) -> &'static str {
         match self {
             EngineWritten::Covered => "covered",
             EngineWritten::FollowUps => "follow_ups",
+            EngineWritten::CheckedHead => "checked_head",
         }
     }
 }
@@ -403,7 +410,7 @@ fn is_lower_hex(value: &str) -> bool {
 
 mod covered;
 
-pub use covered::{Covered, CoveredHead};
+pub use covered::{CheckedHead, Covered, CoveredHead};
 
 #[cfg(test)]
 mod tests;

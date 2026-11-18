@@ -1,21 +1,20 @@
 //! The engine's reads of the repository's HEAD behind one seam, and the
-//! one observation a gate span's stable-head check accepted (decision
-//! 0109 ruling 7, fix round 0109a1r2).
+//! observation a checked span's stable-head check accepted (decision
+//! 0109 ruling 7, fix rounds 0109a1r2 and r3).
 //!
-//! A gate span reads HEAD as it begins and as it ends, and the check
+//! A checked span reads HEAD as it begins and as it ends, and the check
 //! compares the two. The end read the check accepted is kept as the
-//! span's [`Observed`] head: the `covered` stamp, decide's covered check
-//! and its `reviewed_heads` all read that observation, so the head
-//! recorded as reviewed is the head the check compared, "equal by
-//! construction". None of them reads HEAD again, and a span that armed
-//! no check leaves no observation, so its result carries no `covered`
-//! and decide records no reviewed head for it. A head that moves after
-//! the span ends is the drift ship already refuses.
+//! span's [`Observed`] head, and the `covered` stamp reads it. A
+//! protected effect journals its observation as its result's
+//! `checked_head`, durable before the success is, and decide's covered
+//! check and its `reviewed_heads` read that record from the fold, never
+//! process memory, so a resumed engine decides on the head the check
+//! compared, "equal by construction", with no HEAD read of its own. A
+//! head that moves after the observation is the drift ship refuses.
 
 use std::path::Path;
 
 use brokkr_core::envelope::EventType;
-use brokkr_core::fold::{Cursor, Run, RunState};
 use brokkr_core::gate_moved_head::{self, MovedHead};
 use brokkr_core::EventEnvelope;
 use serde_json::json;
@@ -57,60 +56,120 @@ impl HeadReads {
     }
 }
 
-/// The end head the stable-head check of `effect_id`'s latest gate span
-/// compared with its start and accepted; `None` where HEAD did not read
-/// at either end.
+/// The end head the stable-head check of `effect_id`'s span compared
+/// with its start and accepted; `None` where HEAD did not read at either
+/// end.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct Observed {
     pub(super) effect_id: String,
     pub(super) head: Option<String>,
 }
 
+/// The engine's head spans (fix round 0109a1r3, H1). An effect's span and
+/// a sequence gate step's span are armed apart, and two observations are
+/// kept apart: the latest span's own accepted head, which stamps that
+/// span's `covered`, and the effect's observation, which a protected
+/// effect journals as its `checked_head`. A gate step sets both; a later
+/// work step spends only the first, so a sequence's observation stays
+/// its latest gate step's accepted head.
+#[derive(Debug, Default)]
+pub(super) struct Spans {
+    /// The head the armed effect span began on.
+    effect: Option<Option<String>>,
+    /// The head the armed sequence gate step's span began on.
+    step: Option<Option<String>>,
+    /// The latest span's accepted end head.
+    pub(super) observed: Option<Observed>,
+    /// The effect's one observation source.
+    pub(super) checked: Option<Observed>,
+    /// Whether the effect is the protected phase's, whose results
+    /// journal the effect's observation.
+    pub(super) protected: bool,
+}
+
+/// Which span a head check closes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Span {
+    Effect,
+    Step,
+}
+
+impl Spans {
+    /// Abandon every armed span: an attempt that left through an `Err`
+    /// appends no terminal event, so no start outlives it.
+    pub(super) fn abandon(&mut self) {
+        self.effect = None;
+        self.step = None;
+    }
+}
+
+/// `observed`'s head, when it is `effect_id`'s and HEAD read.
+fn head_of<'a>(observed: Option<&'a Observed>, effect_id: &str) -> Option<&'a str> {
+    observed
+        .filter(|observed| observed.effect_id == effect_id)
+        .and_then(|observed| observed.head.as_deref())
+}
+
 impl Engine {
-    /// Begin a span, an effect or a sequence step: the previous span's
-    /// observation is spent, and a `gate` span reads its start head.
-    pub(super) fn begin_span(&mut self, gate: bool) {
-        self.observed_head = None;
+    /// Begin an effect: every earlier observation is spent, the effect's
+    /// span reads its start head when `armed`, and `protected` says
+    /// whether its results journal the effect's observation.
+    pub(super) fn begin_effect_span(&mut self, armed: bool, protected: bool) {
+        self.spans = Spans {
+            effect: armed.then(|| self.heads.read(&self.repo)),
+            protected,
+            ..Spans::default()
+        };
+    }
+
+    /// Begin a sequence step: the previous span's own observation is
+    /// spent, the effect's is not, and a `gate` step reads its start head.
+    pub(super) fn begin_step_span(&mut self, gate: bool) {
+        self.spans.observed = None;
         if gate {
-            self.active_gate_head = Some(self.heads.read(&self.repo));
+            self.spans.step = Some(self.heads.read(&self.repo));
         }
     }
 
-    /// The observed head of `effect_id`'s latest gate span, if that span
-    /// was checked and HEAD read.
+    /// The accepted head of `effect_id`'s latest span, if that span was
+    /// checked and HEAD read: what stamps that span's own `covered`.
     pub(super) fn observed_head_of(&self, effect_id: &str) -> Option<&str> {
-        self.observed_head
-            .as_ref()
-            .filter(|observed| observed.effect_id == effect_id)
-            .and_then(|observed| observed.head.as_deref())
+        head_of(self.spans.observed.as_ref(), effect_id)
     }
 
-    /// The observed head of the effect `state` is deciding.
-    pub(super) fn decided_head(&self, state: &RunState) -> Option<&str> {
-        match &state.run {
-            Run::Running(Cursor::Decide { effect_id, .. }) => self.observed_head_of(effect_id),
-            _ => None,
-        }
+    /// The observation a protected effect journals as its `checked_head`:
+    /// none outside the protected phase, and none where no span of the
+    /// effect accepted a head that reads.
+    pub(super) fn checked_head_of(&self, effect_id: &str) -> Option<&str> {
+        let checked = head_of(self.spans.checked.as_ref(), effect_id);
+        checked.filter(|_| self.spans.protected)
     }
 
-    /// Close the armed gate span of `effect_id`: its end head is read
+    /// Close `span` of `effect_id` when it is armed: its end head is read
     /// once and compared with its start. A match is kept as the span's
-    /// observation; a move is journaled as the indeterminate end whose
-    /// reason carries both heads.
+    /// observation and the effect's; a move is journaled as the
+    /// indeterminate end whose reason carries both heads.
     pub(super) fn finish_gate_head_check(
         &mut self,
+        span: Span,
         effect_id: &str,
         attempt_id: Option<String>,
     ) -> Result<Option<EventEnvelope>, EngineError> {
-        let Some(start) = self.active_gate_head.take() else {
+        let armed = match span {
+            Span::Effect => self.spans.effect.take(),
+            Span::Step => self.spans.step.take(),
+        };
+        let Some(start) = armed else {
             return Ok(None);
         };
         let end = self.heads.read(&self.repo);
         if start == end {
-            self.observed_head = Some(Observed {
+            let observed = Observed {
                 effect_id: effect_id.to_string(),
                 head: end,
-            });
+            };
+            self.spans.checked = Some(observed.clone());
+            self.spans.observed = Some(observed);
             return Ok(None);
         }
         let moved = MovedHead {

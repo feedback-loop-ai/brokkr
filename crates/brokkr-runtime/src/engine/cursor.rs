@@ -341,7 +341,7 @@ impl Engine {
         let dispatched = self.execute(events, state, effect_id, seat);
         self.cooldown.answers.clear();
         if dispatched.is_err() {
-            self.active_gate_head = None;
+            self.spans.abandon();
         }
         dispatched
     }

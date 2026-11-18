@@ -5,7 +5,7 @@ mod park_cause;
 use super::boundary_tests::sealed_tests::{boxed, boxed_a, REACH_ARG};
 use super::conclude_tests::invariant;
 use super::sequence::{dialect_attempt_outcome, expand_dialect_argv, nearest_change, SequenceAt};
-use super::verdict::covered_tests::reviewing;
+use super::verdict::covered_tests::{reviewing, reviewing_on};
 use super::*;
 use crate::agents::HarnessHands;
 use crate::bundle::{Limits, Seat};
@@ -2259,6 +2259,7 @@ fn carry_definitions(operated: &Path) {
 }
 
 pub(super) fn git_commit(repo: &Path, message: &str) -> String {
+    std::fs::create_dir_all(repo).unwrap();
     if !repo.join(".git").exists() {
         crate::realms::tests::initialised(repo);
     }
@@ -4227,8 +4228,8 @@ fn repository_facts_are_recorded_under_the_realm_name() {
     let reviewed = git_commit(&repo, "reviewed");
     let world = world_over(dir.path(), &repo, "brokkr");
     let mut engine = engine_in(dir.path(), Some(world), &repo);
-    let review = reviewing(&mut engine);
-    engine.decide(&review, json!({"result":"clean"})).unwrap();
+    let (review, raw) = reviewing(&engine, json!({"result":"clean"}));
+    engine.decide(&review, raw).unwrap();
     let events = engine.store.load(&engine.run_id).unwrap();
     assert_eq!(
         events[1].payload["inputs"]["reviewed_heads"],
@@ -4302,8 +4303,8 @@ fn a_repository_the_map_does_not_name_keeps_the_unkeyed_facts() {
     let world = world_over(dir.path(), &mapped, "brokkr");
     let mut engine = engine_in(dir.path(), Some(world), &stranger);
     let reviewed = git_commit(&stranger, "reviewed");
-    let review = reviewing(&mut engine);
-    engine.decide(&review, json!({"result":"clean"})).unwrap();
+    let (review, raw) = reviewing(&engine, json!({"result":"clean"}));
+    engine.decide(&review, raw).unwrap();
     let inputs = engine.store.load(&engine.run_id).unwrap()[1].payload["inputs"].clone();
     assert_eq!(inputs["reviewed_heads"], json!({ "repo": reviewed }));
     assert!(inputs.get("realm_facts").is_none());
@@ -4393,8 +4394,8 @@ fn realm_facts_key_two_repositories_by_their_own_realm_and_never_cross() {
     let moved = git_commit(&alpha, "moved");
     assert_ne!(moved, alpha_head, "alpha moved off its fixture head");
     assert_ne!(moved, beta_head);
-    let review = reviewing(&mut engine);
-    engine.decide(&review, json!({"result":"clean"})).unwrap();
+    let (review, raw) = reviewing(&engine, json!({"result":"clean"}));
+    engine.decide(&review, raw).unwrap();
     assert_eq!(
         engine.store.load(&engine.run_id).unwrap()[1].payload["inputs"]["reviewed_heads"],
         json!({ "alpha": moved }),
@@ -4487,8 +4488,8 @@ fn a_resumed_run_keeps_the_world_its_manifest_pinned() {
     );
 
     let reviewed = git_commit(&repo, "reviewed");
-    let review = reviewing(&mut resumed);
-    resumed.decide(&review, json!({"result": "clean"})).unwrap();
+    let (review, raw) = reviewing(&resumed, json!({"result": "clean"}));
+    resumed.decide(&review, raw).unwrap();
     let events = resumed.store.load(&run_id).unwrap();
     assert_eq!(
         events.last().unwrap().payload["inputs"]["reviewed_heads"],
@@ -5028,10 +5029,8 @@ fn enter_review_at(engine: &mut Engine, head: &str) {
 }
 
 fn review_inputs(engine: &mut Engine, claim: Value) -> Map<String, Value> {
-    let review = reviewing(engine);
-    engine
-        .decide(&review, json!({"result": "clean", "inputs": claim}))
-        .unwrap();
+    let (review, raw) = reviewing(engine, json!({"result": "clean", "inputs": claim}));
+    engine.decide(&review, raw).unwrap();
     let events = engine.store.load(&engine.run_id).unwrap();
     events.last().unwrap().payload["inputs"]
         .as_object()
@@ -5413,10 +5412,15 @@ fn fixes_docs_only_is_absent_when_the_question_has_no_answer() {
     let inputs = review_inputs(&mut engine, json!({}));
     assert!(inputs.get("fixes_docs_only").is_none(), "{inputs:?}");
 
-    // A repository whose head can no longer be read.
+    // A repository that no longer reads after its check accepted a head.
     enter_review_at(&mut engine, &entered);
+    let checked = git_head(&repo).unwrap();
     std::fs::remove_dir_all(repo.join(".git")).unwrap();
-    let inputs = review_inputs(&mut engine, json!({}));
+    let (review, raw) = reviewing_on(&checked, json!({"result": "clean"}));
+    engine.decide(&review, raw).unwrap();
+    let events = engine.store.load(&engine.run_id).unwrap();
+    let inputs = &events.last().unwrap().payload["inputs"];
+    assert_eq!(inputs["reviewed_heads"], json!({ "repo": checked }));
     assert!(inputs.get("fixes_docs_only").is_none(), "{inputs:?}");
 }
 

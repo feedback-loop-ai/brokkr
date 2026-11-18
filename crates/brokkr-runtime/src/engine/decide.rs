@@ -8,6 +8,7 @@
 use std::path::Path;
 
 use brokkr_core::envelope::EventType;
+use brokkr_core::findings::CheckedHead;
 use brokkr_core::fold::{computed_inputs, RunState};
 use brokkr_core::policy::{Outcome, CONSECUTIVE_FAILURES, VISIT_PREFIX};
 use brokkr_core::realms::LEGACY_REALM_KEY;
@@ -27,13 +28,17 @@ impl Engine {
         let seat = &self.bundle.seats[&phase];
 
         // Result schema (decision 0001): an object with a declared result
-        // string, and in the protected phase a covered head pinned to the
-        // head decided on (decision 0109 ruling 7). Violations park with
-        // the raw evidence attached — never repaired, coerced, or handed
-        // to a model to fix.
-        let problem = schema_problem(seat, &raw_result);
-        if let Some(problem) = problem.or_else(|| self.covered_problem(state, &phase, &raw_result))
-        {
+        // string, and in the protected phase a durable checked head of
+        // its own effect, which any covered record projects (decision
+        // 0109 ruling 7, fix round 0109a1r3). Violations park with the raw
+        // evidence attached — never repaired, coerced, or handed to a
+        // model to fix.
+        let protected = phase == self.bundle.protected_phase;
+        let checked = protected.then(|| super::verdict::checked_head(&raw_result));
+        let observation = checked.as_ref().and_then(|checked| checked.as_ref().err());
+        let problem =
+            schema_problem(seat, &raw_result).or_else(|| observation.map(ToString::to_string));
+        if let Some(problem) = problem {
             self.append(
                 EventType::TransitionDecided,
                 json!({
@@ -55,7 +60,8 @@ impl Engine {
             .as_str()
             .expect("checked above")
             .to_string();
-        let inputs = self.decision_inputs(state, &phase, seat, object, &result);
+        let checked = checked.and_then(Result::ok);
+        let inputs = self.decision_inputs(state, (&phase, checked), seat, object, &result);
         let payload = self.ruling(&phase, &result, &inputs, object);
         self.append(EventType::TransitionDecided, payload, None)?;
         Ok(())
@@ -67,7 +73,7 @@ impl Engine {
     fn decision_inputs(
         &self,
         state: &RunState,
-        phase: &str,
+        (phase, checked): (&str, Option<CheckedHead>),
         seat: &Seat,
         object: &Map<String, Value>,
         result: &str,
@@ -97,14 +103,20 @@ impl Engine {
             let count = state.visits.get(&visited).copied().unwrap_or(0);
             inputs.insert(format!("{VISIT_PREFIX}{visited}"), Value::from(count));
         }
-        self.repository_inputs(state, phase, &mut inputs);
+        self.repository_inputs(state, (phase, checked), &mut inputs);
         inputs
     }
 
     /// The facts the repository answers at decide time: the reviewed
     /// heads and the docs-only shortcut where a phase asks for them, and
-    /// a ship's worktree and drift facts.
-    fn repository_inputs(&self, state: &RunState, phase: &str, inputs: &mut Map<String, Value>) {
+    /// a ship's worktree and drift facts. `checked` is the protected
+    /// result's journaled checked head.
+    fn repository_inputs(
+        &self,
+        state: &RunState,
+        (phase, checked): (&str, Option<CheckedHead>),
+        inputs: &mut Map<String, Value>,
+    ) {
         let repo = self.repo.as_path();
         // The realm this repository IS, when a map named it
         // (decision 0023): repository facts are recorded under the
@@ -119,15 +131,16 @@ impl Engine {
         let key = realm
             .clone()
             .unwrap_or_else(|| LEGACY_REALM_KEY.to_string());
-        // The protected phase's reviewed head is the end head its gate
-        // span's stable-head check accepted, never a fresh read (decision
-        // 0109 ruling 7): a result with no such observation records none.
-        if phase == self.bundle.protected_phase {
-            if let Some(head) = self.decided_head(state) {
-                inputs.insert("reviewed_heads".into(), json!({ key: head }));
-                if let Some(docs_only) = self.fixes_docs_only(repo, phase, head) {
-                    inputs.insert("fixes_docs_only".into(), Value::Bool(docs_only));
-                }
+        // The protected phase's reviewed head is the head its effect's
+        // check accepted, as its result journaled it, never a fresh read
+        // nor process memory (decision 0109 ruling 7): a protected result
+        // without one is refused before here, so each protected decision
+        // records its own head and no earlier review's stands in for it.
+        if let Some(head) = checked {
+            let head = head.as_str();
+            inputs.insert("reviewed_heads".into(), json!({ key: head }));
+            if let Some(docs_only) = self.fixes_docs_only(repo, phase, head) {
+                inputs.insert("fixes_docs_only".into(), Value::Bool(docs_only));
             }
         }
         // Decision 0041 ruling 5: the smith owns review findings. Expose

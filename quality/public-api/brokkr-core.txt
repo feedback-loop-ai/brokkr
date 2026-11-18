@@ -299,6 +299,7 @@ pub enum brokkr_core::findings::CoveredHead
 pub brokkr_core::findings::CoveredHead::Commit(alloc::string::String)
 pub brokkr_core::findings::CoveredHead::Digest(alloc::string::String)
 pub enum brokkr_core::findings::EngineWritten
+pub brokkr_core::findings::EngineWritten::CheckedHead
 pub brokkr_core::findings::EngineWritten::Covered
 pub brokkr_core::findings::EngineWritten::FollowUps
 impl core::fmt::Display for brokkr_core::findings::EngineWritten
@@ -311,6 +312,14 @@ pub brokkr_core::findings::WordError::File
 pub brokkr_core::findings::WordError::Id
 pub brokkr_core::findings::WordError::Site
 pub brokkr_core::findings::WordError::Summary
+pub struct brokkr_core::findings::CheckedHead(_)
+impl brokkr_core::findings::CheckedHead
+pub fn brokkr_core::findings::CheckedHead::as_str(&self) -> &str
+impl core::convert::From<brokkr_core::findings::CheckedHead> for alloc::string::String
+pub fn alloc::string::String::from(brokkr_core::findings::CheckedHead) -> alloc::string::String
+impl core::convert::TryFrom<alloc::string::String> for brokkr_core::findings::CheckedHead
+pub type brokkr_core::findings::CheckedHead::Error = brokkr_core::findings::covered::CoveredError
+pub fn brokkr_core::findings::CheckedHead::try_from(alloc::string::String) -> core::result::Result<brokkr_core::findings::CheckedHead, brokkr_core::findings::covered::CoveredError>
 pub struct brokkr_core::findings::Covered
 impl brokkr_core::findings::Covered
 pub fn brokkr_core::findings::Covered::commit(&str, bool) -> core::option::Option<brokkr_core::findings::Covered>

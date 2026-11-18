@@ -193,8 +193,9 @@ fn a_record_that_is_not_a_finding_is_refused() {
     }
 }
 
-/// Ruling 1: `covered` and `follow_ups` are the engine's, so a seat result
-/// carrying either is refused, whatever it holds, and is left as it was.
+/// Ruling 1: `covered`, `follow_ups` and a protected effect's
+/// `checked_head` (fix round 0109a1r3) are the engine's, so a seat result
+/// carrying any is refused, whatever it holds, and is left as it was.
 #[test]
 fn a_seat_supplied_covered_or_follow_ups_is_refused_not_repaired() {
     let head = json!({"kind": "head", "head": "0".repeat(40), "dirty": false});
@@ -203,6 +204,11 @@ fn a_seat_supplied_covered_or_follow_ups_is_refused_not_repaired() {
         ("covered", json!(null), EngineWritten::Covered),
         ("follow_ups", json!([]), EngineWritten::FollowUps),
         ("follow_ups", json!([reported()]), EngineWritten::FollowUps),
+        (
+            "checked_head",
+            json!("0".repeat(40)),
+            EngineWritten::CheckedHead,
+        ),
     ] {
         let mut result = json!({"result": "clean", "findings": [reported()]});
         result[field] = value.clone();

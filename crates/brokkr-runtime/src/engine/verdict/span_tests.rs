@@ -79,7 +79,7 @@ fn planned(
 }
 
 /// The result each sequence step's checkpoint journaled, by step name.
-fn checkpointed<'a>(events: &'a [EventEnvelope], name: &str) -> &'a Value {
+pub(super) fn checkpointed<'a>(events: &'a [EventEnvelope], name: &str) -> &'a Value {
     events
         .iter()
         .filter(|event| event.event_type == EventType::EffectCheckpointed)
@@ -164,10 +164,14 @@ fn a_gate_step_that_moved_head_in_its_span_refuses_as_an_all_gate_body_does() {
     let (events, heads) = specify(&[1, 2]);
     assert!(ended(&events, EventType::EffectSucceeded).is_empty());
     let moved = ended(&events, EventType::EffectIndeterminate);
-    let reason = moved[0]["reason"].as_str().unwrap();
+    assert_eq!(moved_heads(&moved), (heads[1].clone(), heads[2].clone()));
+}
+
+/// The start and end heads the first of `indeterminate` ends recorded as
+/// its moved-head reason.
+pub(super) fn moved_heads(indeterminate: &[Value]) -> (String, String) {
+    let reason = indeterminate[0]["reason"].as_str().unwrap();
     let decoded = gate_moved_head::decode::<Value>(reason).unwrap().unwrap();
-    assert_eq!(
-        decoded,
-        json!({"head_at_start": heads[1], "head_at_end": heads[2]})
-    );
+    let head = |end: &str| decoded[end].as_str().unwrap().to_string();
+    (head("head_at_start"), head("head_at_end"))
 }

@@ -34,6 +34,8 @@ pub struct Covered {
 pub enum CoveredError {
     #[error("a covered head record names exactly one of a commit head or a SHA-256 head_digest")]
     Head,
+    #[error("a checked head is a commit id: 40 or 64 lowercase hex characters")]
+    Commit,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -119,6 +121,37 @@ impl Covered {
             CoveredHead::Commit(commit) => commit == head,
             CoveredHead::Digest(digest) => *digest == sha256_bytes(head.as_bytes()),
         }
+    }
+}
+
+/// The head a protected effect's checked span accepted, as its result
+/// journals it in v7's engine-written `checked_head` (fix round
+/// 0109a1r3): a commit id, the one head decide records as reviewed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(try_from = "String", into = "String")]
+pub struct CheckedHead(String);
+
+impl TryFrom<String> for CheckedHead {
+    type Error = CoveredError;
+
+    fn try_from(head: String) -> Result<CheckedHead, CoveredError> {
+        if is_commit(&head) {
+            Ok(CheckedHead(head))
+        } else {
+            Err(CoveredError::Commit)
+        }
+    }
+}
+
+impl From<CheckedHead> for String {
+    fn from(head: CheckedHead) -> String {
+        head.0
+    }
+}
+
+impl CheckedHead {
+    pub fn as_str(&self) -> &str {
+        &self.0
     }
 }
 

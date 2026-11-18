@@ -10,6 +10,8 @@ use super::tests::{driven, driven_over, driver, ended, ended_in, reported};
 use crate::bundle::GateAssessment;
 use crate::engine::heads::{HeadReads, Observed};
 use crate::engine::tests::{bundle, git_commit, single_body, state};
+use crate::engine::verdict::checked_head;
+use crate::engine::verdict::ObservationProblem::{Disagrees, Missing, Unreadable};
 use crate::engine::{git_head, Engine};
 use brokkr_core::canonical::sha256_bytes;
 use brokkr_core::envelope::{EventEnvelope, EventType};
@@ -26,21 +28,24 @@ fn results(events: &[EventEnvelope]) -> Vec<&Value> {
         .collect()
 }
 
-/// The protected phase deciding an effect whose review gate's stable-head
-/// check accepted the head `engine`'s repository stands at now: what a
-/// hand-fed decide of review needs to record a reviewed head.
-pub(in crate::engine) fn reviewing(engine: &mut Engine) -> RunState {
+/// The protected phase deciding `raw`, journaled as an effect whose check
+/// accepted the head `engine`'s repository stands at now: the state and
+/// the result a hand-fed decide of review needs to record a reviewed head.
+pub(in crate::engine) fn reviewing(engine: &Engine, raw: Value) -> (RunState, Value) {
+    reviewing_on(&git_head(&engine.repo).unwrap(), raw)
+}
+
+/// [`reviewing`], journaled as checked on `head`.
+pub(in crate::engine) fn reviewing_on(head: &str, mut raw: Value) -> (RunState, Value) {
+    raw["checked_head"] = json!(head);
     let effect_id = "review-effect".to_string();
-    engine.observed_head = Some(Observed {
-        effect_id: effect_id.clone(),
-        head: git_head(&engine.repo),
-    });
-    let result = Value::Null;
-    state(Some("review"), Cursor::Decide { effect_id, result })
+    let result = raw.clone();
+    let deciding = state(Some("review"), Cursor::Decide { effect_id, result });
+    (deciding, raw)
 }
 
 /// The run's first decision from `phase`.
-fn decided_from<'a>(events: &'a [EventEnvelope], phase: &str) -> &'a Value {
+pub(super) fn decided_from<'a>(events: &'a [EventEnvelope], phase: &str) -> &'a Value {
     events
         .iter()
         .find(|event| {
@@ -51,8 +56,14 @@ fn decided_from<'a>(events: &'a [EventEnvelope], phase: &str) -> &'a Value {
 }
 
 /// The test table with ship's drift arm ahead of its plain one.
-fn drift_refusing() -> Machine {
-    Machine::from_table(&json!({
+pub(super) fn drift_refusing() -> Machine {
+    Machine::from_table(&drift_table()).unwrap()
+}
+
+/// [`drift_refusing`]'s table, whose rules are work's, review's and
+/// ship's two, in that order.
+pub(super) fn drift_table() -> Value {
+    json!({
         "phases": ["work", "review", "ship", "done", "stop"],
         "initial": "work",
         "terminal": ["done", "stop"],
@@ -63,8 +74,7 @@ fn drift_refusing() -> Machine {
              "next": "stop", "severity": "hard", "reason": "drift"},
             {"id": "SHIP", "from": "ship", "result": "shipped", "next": "done", "reason": "ship"}
         ]
-    }))
-    .unwrap()
+    })
 }
 
 /// A gate outside the protected phase writes the new record: the commit
@@ -191,12 +201,15 @@ fn the_reviewed_head_is_the_one_the_stable_head_check_accepted() {
     assert_eq!(decided_from(&events, "ship")["rule_id"], "SHIP-DRIFT");
 }
 
-/// A protected-phase result whose digest does not pin the head its
-/// effect's stable-head check accepted is refused at decide with the
-/// schema refusal and parks, and so is one decided with no observation
-/// of its own effect, as after a restart; the one that pins it is ruled.
+/// A protected-phase result is refused at decide with its own typed
+/// problem, and parks, when it carries no journaled checked head, whether
+/// or not it carries `covered`, when that head is not a commit id, and
+/// when its covered record does not read or does not project the head;
+/// the consistent one is ruled and records that head, whatever process
+/// memory the engine holds (fix round 0109a1r3, H1). The texts are pinned
+/// here once.
 #[test]
-fn a_covered_digest_that_does_not_pin_the_decide_time_head_refuses_at_decide() {
+fn a_protected_result_without_one_consistent_checked_head_refuses_at_decide() {
     let dir = tempfile::tempdir().unwrap();
     let repo = dir.path().join("repo");
     std::fs::create_dir(&repo).unwrap();
@@ -205,42 +218,47 @@ fn a_covered_digest_that_does_not_pin_the_decide_time_head_refuses_at_decide() {
     let compiled = bundle(dir.path(), single_body(vec!["driver".into()]));
     let mut engine = Engine::start(store, compiled, "pinned", Some(repo.clone())).unwrap();
     let covered = |head: &str| json!({"kind": "head", "head_digest": sha256_bytes(head.as_bytes()), "dirty": true});
-    let deciding = |effect_id: &str| {
-        state(
-            Some("review"),
-            Cursor::Decide {
-                effect_id: effect_id.into(),
-                result: Value::Null,
-            },
-        )
-    };
-    let observed = |effect_id: &str| {
-        Some(Observed {
-            effect_id: effect_id.into(),
-            head: Some(head.clone()),
-        })
-    };
-    for (raw, observation) in [
-        (
-            json!({"result": "clean", "covered": covered("0123456789abcdef0123456789abcdef01234567")}),
-            observed("review"),
-        ),
-        (
-            json!({"result": "clean", "covered": {"kind": "head", "dirty": true}}),
-            observed("review"),
-        ),
-        (json!({"result": "clean", "covered": covered(&head)}), None),
+    let other = "0123456789abcdef0123456789abcdef01234567";
+    let cases = [
+        (json!({"result": "clean"}), Err(Missing)),
         (
             json!({"result": "clean", "covered": covered(&head)}),
-            observed("another"),
+            Err(Missing),
         ),
         (
-            json!({"result": "clean", "covered": covered(&head)}),
-            observed("review"),
+            json!({"result": "clean", "checked_head": "HEAD"}),
+            Err(Unreadable),
         ),
-    ] {
-        engine.observed_head = observation;
-        engine.decide(&deciding("review"), raw).unwrap();
+        (
+            json!({"result": "clean", "checked_head": head, "covered": covered(other)}),
+            Err(Disagrees),
+        ),
+        (
+            json!({"result": "clean", "checked_head": head,
+                   "covered": {"kind": "head", "head": other, "dirty": true}}),
+            Err(Disagrees),
+        ),
+        (
+            json!({"result": "clean", "checked_head": head, "covered": {"kind": "head", "dirty": true}}),
+            Err(Disagrees),
+        ),
+        (
+            json!({"result": "clean", "checked_head": head, "covered": covered(&head)}),
+            Ok(head.clone()),
+        ),
+    ];
+    // Process memory names another head: decide never reads it.
+    engine.spans.checked = Some(Observed {
+        effect_id: "review".into(),
+        head: Some(other.into()),
+    });
+    for (raw, want) in &cases {
+        let read = checked_head(raw).map(|head| head.as_str().to_string());
+        assert_eq!(&read, want, "{raw}");
+        let result = raw.clone();
+        let effect_id = "review".to_string();
+        let deciding = state(Some("review"), Cursor::Decide { effect_id, result });
+        engine.decide(&deciding, raw.clone()).unwrap();
     }
     let events = engine.store.load(&engine.run_id).unwrap();
     let decided: Vec<&Value> = events
@@ -248,14 +266,39 @@ fn a_covered_digest_that_does_not_pin_the_decide_time_head_refuses_at_decide() {
         .filter(|event| event.event_type == EventType::TransitionDecided)
         .map(|event| &event.payload)
         .collect();
-    let refusal = "result failed schema validation: the result's covered head does not pin \
-                   the head decided on (decision 0109 ruling 7)";
-    for refused in &decided[..4] {
-        assert_eq!(refused["result"], "__schema-invalid__");
-        assert_eq!(refused["problem"], refusal);
+    let texts = [
+        (
+            Missing,
+            "the protected result carries no durable checked head of its own effect \
+             (decision 0109 ruling 7)",
+        ),
+        (
+            Unreadable,
+            "the protected result's checked head is not a commit id (decision 0109 ruling 7)",
+        ),
+        (
+            Disagrees,
+            "the result's covered head does not pin the head decided on \
+             (decision 0109 ruling 7)",
+        ),
+    ];
+    for (problem, text) in &texts {
+        assert_eq!(problem.to_string(), *text);
     }
-    assert_eq!(decided[4]["rule_id"], "REVIEW");
-    assert_eq!(decided[4]["inputs"]["reviewed_heads"]["repo"], json!(head));
+    for ((_, want), decided) in cases.iter().zip(&decided) {
+        match want {
+            Err(problem) => {
+                assert_eq!(decided["result"], "__schema-invalid__");
+                let text = format!("result failed schema validation: {problem}");
+                assert_eq!(decided["problem"], text);
+                assert!(decided["inputs"].get("reviewed_heads").is_none());
+            }
+            Ok(head) => {
+                assert_eq!(decided["rule_id"], "REVIEW");
+                assert_eq!(decided["inputs"]["reviewed_heads"]["repo"], json!(head));
+            }
+        }
+    }
 }
 
 /// Ruling 1 through the real result path: a seat-supplied `covered` or
@@ -264,7 +307,12 @@ fn a_covered_digest_that_does_not_pin_the_decide_time_head_refuses_at_decide() {
 #[test]
 fn a_seat_supplied_covered_or_follow_ups_fails_the_attempt() {
     let head = json!({"kind": "head", "head": "0".repeat(40), "dirty": false});
-    for (field, value) in [("covered", head), ("follow_ups", json!([]))] {
+    let checked = json!("0".repeat(40));
+    for (field, value) in [
+        ("covered", head),
+        ("follow_ups", json!([])),
+        ("checked_head", checked),
+    ] {
         let mut result = json!({"result": "complete"});
         result[field] = value;
         let (_dir, events) = driven(single_body(driver(&result)), true);

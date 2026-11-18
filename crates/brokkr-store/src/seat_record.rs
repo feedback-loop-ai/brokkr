@@ -108,11 +108,11 @@ const V6_ENGINE: (u64, u64, u64) = (0, 12, 0);
 /// 1, slice 0109a1). Drawn at the 0.14 line, the development line on main
 /// after the 0.14.0 tag, on the same argument as `V2_ENGINE`: `engine`
 /// carries no position within a line, and v7 adds only optional
-/// properties on the successful result — `findings`, `follow_ups` and
-/// `covered` — and takes nothing away. So every record the tagged 0.14.0
-/// engine already wrote validates under v7 exactly as it did under v6,
-/// and the 0.12 and 0.13 lines are dispatched to v6, where any of the
-/// three is refused.
+/// properties on the successful result — `findings`, `follow_ups`,
+/// `covered` and `checked_head` — and takes nothing away. So every record
+/// the tagged 0.14.0 engine already wrote validates under v7 exactly as
+/// it did under v6, and the 0.12 and 0.13 lines are dispatched to v6,
+/// where any of the four is refused.
 const V7_ENGINE: (u64, u64, u64) = (0, 14, 0);
 
 /// Which seat-record contract a record is judged against.

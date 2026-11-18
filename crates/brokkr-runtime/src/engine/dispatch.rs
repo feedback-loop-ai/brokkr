@@ -26,7 +26,9 @@ use super::{
     argv_for, arms_effect_gate_head, phase_of, select_candidates, verify_record, Engine,
     EngineError, Selection, SiteSpawn, RESULTS,
 };
-use crate::bundle::{layer_drift, site_charter_text, Bundle, ExecutableBody, Invocation};
+use crate::bundle::{
+    layer_drift, site_charter_text, Bundle, ExecutableBody, Invocation, SeatClass,
+};
 
 pub(super) mod deadline;
 
@@ -162,13 +164,16 @@ impl Engine {
         let protected = phase == self.bundle.protected_phase;
         let gate_effect = arms_effect_gate_head(&body, &seat, state.strategy.as_deref());
         let sequence = matches!(body, ExecutableBody::Sequence { .. });
-        // The protected phase's effect is always a checked span, whatever
-        // its class: decide's `reviewed_heads` is that span's accepted end
-        // head and never a fresh read (decision 0109 ruling 7), so ship's
-        // drift check always has the head the phase read. Only a gate
+        // Every protected effect has exactly one observation source
+        // (decision 0109 ruling 7, fix round 0109a1r3): a sequence with a
+        // gate step observes through its gate steps' own spans, and any
+        // other protected effect, a sequence of work steps included, is a
+        // checked span of its own, whatever its class. Only a gate
         // records `covered`: a sequence's gate steps from their own
         // spans, an all-gate body from the effect's.
-        self.begin_span(gate_effect || (protected && !sequence));
+        let gate_steps = matches!(body, ExecutableBody::Sequence { steps }
+            if steps.iter().any(|step| step.class == SeatClass::Gate));
+        self.begin_effect_span(gate_effect || (protected && !gate_steps), protected);
         self.covering = (gate_effect || sequence).then(|| super::verdict::Covering::of(protected));
         self.append(EventType::EffectStarted, started, Some(attempt_id.clone()))?;
         std::fs::create_dir_all(self.run_local().join(RESULTS)).ok();

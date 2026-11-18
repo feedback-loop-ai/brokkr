@@ -75,9 +75,20 @@ pub(super) fn driven_over(
     shape: impl FnOnce(&mut crate::bundle::Bundle),
     heads: impl FnOnce(&std::path::Path) -> HeadReads,
 ) -> (tempfile::TempDir, Vec<EventEnvelope>) {
+    let (dir, mut engine) = begun(body, shape, heads);
+    engine.drive().unwrap();
+    let events = engine.store.load(&engine.run_id).unwrap();
+    (dir, events)
+}
+
+/// The engine [`driven_over`] drives, started and not yet driven.
+pub(super) fn begun(
+    body: SeatBody,
+    shape: impl FnOnce(&mut crate::bundle::Bundle),
+    heads: impl FnOnce(&std::path::Path) -> HeadReads,
+) -> (tempfile::TempDir, Engine) {
     let dir = tempfile::tempdir().unwrap();
     let work = dir.path().join("work");
-    std::fs::create_dir(&work).unwrap();
     git_commit(&work, "base");
     let store = Store::open(&dir.path().join("forge.db")).unwrap();
     let mut compiled = bundle(dir.path(), body);
@@ -85,9 +96,7 @@ pub(super) fn driven_over(
     let heads = heads(&work);
     let mut engine = Engine::start(store, compiled, "findings", Some(work)).unwrap();
     engine.heads = heads;
-    engine.drive().unwrap();
-    let events = engine.store.load(&engine.run_id).unwrap();
-    (dir, events)
+    (dir, engine)
 }
 
 /// The `work` effect's journaled successes and failures, in order.

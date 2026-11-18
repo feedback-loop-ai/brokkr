@@ -6,11 +6,11 @@
 //! (decision 0001). No word is refused here and no routing moves.
 
 use brokkr_core::envelope::EventType;
-use brokkr_core::findings::{Covered, Reporter};
-use brokkr_core::fold::RunState;
+use brokkr_core::findings::{CheckedHead, Covered, Reporter};
 use brokkr_protocol::{AttemptOutcome, AttemptReport};
 use serde::Deserialize;
-use serde_json::Value;
+use serde_json::{Map, Value};
+use thiserror::Error;
 
 use super::resume::SiteContext;
 use super::Engine;
@@ -58,25 +58,52 @@ impl Engine {
         Some(serde_json::to_value(covered).expect("a covered record serializes"))
     }
 
+    /// What the engine stamps on a result of `effect_id` produced by its
+    /// latest span: the covered record under `covering`, and, in the
+    /// protected phase, the effect's observation as `checked_head` (fix
+    /// round 0109a1r3, H1), so the head decide records is durable before
+    /// the success is. `step` stamps a sequence step's checkpoint, which
+    /// carries the observation only when the step's own span accepted it.
+    fn stamps(
+        &self,
+        effect_id: &str,
+        covering: Option<Covering>,
+        step: bool,
+    ) -> Map<String, Value> {
+        let mut stamps = Map::new();
+        if let Some(covered) = covering.and_then(|covering| self.covered_of(effect_id, covering)) {
+            stamps.insert("covered".into(), covered);
+        }
+        let checked = match step {
+            true => self
+                .observed_head_of(effect_id)
+                .filter(|_| self.spans.protected),
+            false => self.checked_head_of(effect_id),
+        };
+        if let Some(head) = checked {
+            stamps.insert(CHECKED_HEAD.into(), Value::from(head));
+        }
+        stamps
+    }
+
     /// A sequence step's result before its checkpoint is journaled, with
     /// the covered record of the step's own span when the step was a gate
     /// (fix round 0109a1r2, R2): each gate-produced result is stamped
-    /// from the span that produced it.
+    /// from the span that produced it, and a protected gate step's
+    /// checkpoint journals the head its span accepted.
     pub(super) fn stamp_step_covered(&self, effect_id: &str, mut result: Value) -> Value {
-        let covered = self
-            .covering
-            .and_then(|covering| self.covered_of(effect_id, covering));
-        if let (Some(covered), Some(result)) = (covered, result.as_object_mut()) {
-            result.insert("covered".into(), covered);
+        if let Some(result) = result.as_object_mut() {
+            result.extend(self.stamps(effect_id, self.covering, true));
         }
         result
     }
 
-    /// A terminal effect payload with its covered record stamped on a
-    /// success, before it is appended: each terminal event spends the
-    /// covering its dispatch armed, so none outlives its effect. The head
-    /// is the one the effect's stable-head check accepted, never a fresh
-    /// read; an effect with no such observation records nothing.
+    /// A terminal effect payload with its covered record and its checked
+    /// head stamped on a success, before it is appended: each terminal
+    /// event spends the covering its dispatch armed, so none outlives its
+    /// effect. The head is the one the effect's observation accepted,
+    /// never a fresh read; an effect with no such observation records
+    /// neither.
     pub(super) fn stamp_covered(&mut self, event_type: EventType, mut payload: Value) -> Value {
         let covering = match event_type {
             EventType::EffectSucceeded
@@ -84,42 +111,56 @@ impl Engine {
             | EventType::EffectIndeterminate => self.covering.take(),
             _ => None,
         };
-        let (Some(covering), EventType::EffectSucceeded) = (covering, event_type) else {
+        if event_type != EventType::EffectSucceeded {
             return payload;
-        };
+        }
         let effect_id = payload.get("effect_id").and_then(Value::as_str);
-        let covered = effect_id.and_then(|effect_id| self.covered_of(effect_id, covering));
+        let stamps = effect_id.map(|effect_id| self.stamps(effect_id, covering, false));
         let result = payload.get_mut("result").and_then(Value::as_object_mut);
-        if let (Some(covered), Some(result)) = (covered, result) {
-            result.insert("covered".into(), covered);
+        if let (Some(stamps), Some(result)) = (stamps, result) {
+            result.extend(stamps);
         }
         payload
     }
+}
 
-    /// Why the protected phase's result is refused at decide: its covered
-    /// record does not read, or its digest does not pin the head the
-    /// effect's stable-head check accepted, which this decision records as
-    /// `reviewed_heads` (ruling 7), or there is no such observation, as
-    /// after a restart between the effect and its decision. A result with
-    /// no covered record is not judged here and is not trusted as covered.
-    pub(super) fn covered_problem(
-        &self,
-        state: &RunState,
-        phase: &str,
-        raw_result: &Value,
-    ) -> Option<String> {
-        if phase != self.bundle.protected_phase {
-            return None;
-        }
-        let covered = raw_result.get("covered")?;
-        match (Covered::deserialize(covered).ok(), self.decided_head(state)) {
-            (Some(covered), Some(head)) if covered.projects(head) => None,
-            _ => Some(
-                "the result's covered head does not pin the head decided on \
-                 (decision 0109 ruling 7)"
-                    .into(),
-            ),
-        }
+/// The engine-written field a protected effect's result journals its
+/// observation in (seat-record v7).
+const CHECKED_HEAD: &str = "checked_head";
+
+/// Why the protected phase's result is refused at decide (fix round
+/// 0109a1r3, H1): it never advances on a head no check of its own effect
+/// accepted, and decide reads that head from the journaled result, never
+/// from process memory, so a resumed engine decides alike.
+#[derive(Debug, Error, PartialEq, Eq)]
+pub(super) enum ObservationProblem {
+    #[error(
+        "the protected result carries no durable checked head of its own effect \
+         (decision 0109 ruling 7)"
+    )]
+    Missing,
+    #[error("the protected result's checked head is not a commit id (decision 0109 ruling 7)")]
+    Unreadable,
+    #[error(
+        "the result's covered head does not pin the head decided on \
+         (decision 0109 ruling 7)"
+    )]
+    Disagrees,
+}
+
+/// The head a protected `raw_result` was checked on, read from its
+/// journaled `checked_head`, or why it does not stand: none recorded,
+/// one that is not a commit id, or a `covered` record that does not read
+/// or does not project it.
+pub(super) fn checked_head(raw_result: &Value) -> Result<CheckedHead, ObservationProblem> {
+    let head = raw_result
+        .get(CHECKED_HEAD)
+        .ok_or(ObservationProblem::Missing)?;
+    let head = CheckedHead::deserialize(head).map_err(|_| ObservationProblem::Unreadable)?;
+    match raw_result.get("covered").map(Covered::deserialize) {
+        None => Ok(head),
+        Some(Ok(covered)) if covered.projects(head.as_str()) => Ok(head),
+        Some(_) => Err(ObservationProblem::Disagrees),
     }
 }
 
@@ -150,6 +191,8 @@ pub(super) fn admitted(mut report: AttemptReport, site: Option<&SiteContext>) ->
 
 #[cfg(test)]
 pub(super) mod covered_tests;
+#[cfg(test)]
+mod observation_tests;
 #[cfg(test)]
 mod span_tests;
 #[cfg(test)]
