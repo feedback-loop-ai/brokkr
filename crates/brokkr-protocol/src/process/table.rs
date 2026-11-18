@@ -295,6 +295,26 @@ fn children(proc: &std::path::Path, pid: i32) -> std::io::Result<(Vec<i32>, bool
     Ok((children, doubt))
 }
 
+/// The rows of `pid`'s own children, for the driver's reaper (#1133). A
+/// row whose stat names another parent is a pid reused since its listing,
+/// and is left out. `None` when the listing or a row cannot be read: the
+/// reaper skips that interval, and reaps nothing on a partial read.
+#[cfg(target_os = "linux")]
+pub(super) fn children_of(pid: i32) -> Option<Vec<Entry>> {
+    children_in(std::path::Path::new(PROC), pid)
+}
+
+/// [`children_of`] in `proc`, for the planted trees the tests read.
+#[cfg(target_os = "linux")]
+fn children_in(proc: &std::path::Path, pid: i32) -> Option<Vec<Entry>> {
+    let (children, _) = children(proc, pid).ok()?;
+    let mut rows = Vec::new();
+    for child in children {
+        rows.extend(read(proc, child).ok()?.filter(|entry| entry.ppid == pid));
+    }
+    Some(rows)
+}
+
 /// Is `error` a process or thread that exited while it was read?
 #[cfg(target_os = "linux")]
 fn gone(error: &std::io::Error) -> bool {
@@ -476,8 +496,9 @@ fn refusal(signalled: rustix::io::Result<()>) -> std::io::Result<()> {
 }
 
 /// Reap `pid`, a zombie the engine adopted as a subreaper (`attempts`),
-/// so the pid is released. Never called on a child the engine spawned:
-/// those are reaped by their own handle.
+/// so the pid is released, and by each driver's reaper (`reaper`) for its
+/// own. Never called on a child the engine or a driver spawned: those are
+/// reaped by their own handle.
 #[cfg(target_os = "linux")]
 pub(super) fn reap(pid: i32) {
     use rustix::process::{waitpid, WaitOptions};

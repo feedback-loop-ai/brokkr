@@ -37,6 +37,7 @@ mod refusal;
 mod round430_tests;
 mod route_overlay;
 mod served_route;
+mod spawn;
 mod start;
 mod stderr;
 // Design D6 (b) seals the producer: the seams, the structured
@@ -70,6 +71,7 @@ use refusal::{
     bounded_wire_line, claude_refusal, codex_refusal, codex_thread_refusal, dsh_refusal,
     epoch_now_nanos, find_codex_thread, thread_header, Now, REFUSAL_TOKEN_LIMIT,
 };
+use spawn::spawn_harness;
 #[cfg(test)]
 use start::serve_io;
 use start::{start_prompt, Confine};
@@ -768,23 +770,6 @@ pub(super) fn harness_command(
     secret::bind_environment(&mut builder, bindings)?;
     mcp::unbind(&mut builder);
     Ok(builder)
-}
-
-/// Every harness spawns here: the shared [`harness_command`], the child's
-/// stdio, and the one spawn fact every route reports.
-fn spawn_harness(
-    command: &[String],
-    workdir: &str,
-    stdin: Stdio,
-    stdout: Stdio,
-    env: &[(&str, &str)],
-    bindings: &[secret::BoundSecret],
-) -> Result<std::process::Child, String> {
-    let mut builder = harness_command(command, workdir, env, bindings)?;
-    builder.stdin(stdin).stdout(stdout).stderr(Stdio::piped());
-    let child = io_context(builder.spawn(), "could not invoke the agent CLI")?;
-    lost::spawned();
-    Ok(child)
 }
 
 /// [`spawn_harness`] with stdin and stdout piped and no extra environment.
@@ -6935,7 +6920,11 @@ fn serve_with(
     Ok(())
 }
 
+/// The adapter main loop over the process's stdio. On Linux the driver is its
+/// harness tree's subreaper, and its reaper starts first (#1133).
 pub fn serve(kind: AdapterKind, extra: Vec<String>, confine: Confine) -> std::io::Result<()> {
+    #[cfg(target_os = "linux")]
+    crate::process::reaper::start();
     let input = std::io::stdin().lock();
     serve_with(kind, &extra, input, std::io::stdout(), confine)
 }

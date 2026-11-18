@@ -330,6 +330,24 @@ fn a_tree_walk_skips_what_exited_and_fails_what_it_cannot_read() {
     );
 }
 
+/// #1133: the driver's reaper reads the rows of its own children. A pid
+/// its listing names whose row names another parent, or that is gone, is
+/// left out; a listing or a row it cannot read is no read at all.
+#[cfg(target_os = "linux")]
+#[test]
+fn the_reaper_reads_its_own_children_and_no_partial_read() {
+    let tree = [(501, 500), (502, 501), (503, 500)];
+    let proc = tree_proc(500, &tree, 0);
+    std::fs::write(proc.path().join("500/task/500/children"), "501 502 503 504").unwrap();
+    std::fs::remove_dir_all(proc.path().join("503")).unwrap();
+    let rows = children_in(proc.path(), 500).unwrap();
+    assert_eq!(rows.iter().map(|row| row.id.pid).collect::<Vec<_>>(), [501]);
+
+    std::fs::write(proc.path().join("500/task/500/children"), "x").unwrap();
+    assert_eq!(children_in(proc.path(), 500), None);
+    assert_eq!(children_in(unreadable("501/stat").path(), 500), None);
+}
+
 /// #918 H1: a child's own `stat` names its parent, never the listing. A
 /// pid that A's `children` named, now reused by an unrelated process U
 /// with another parent, is dropped from the walk: `Live::record` never
