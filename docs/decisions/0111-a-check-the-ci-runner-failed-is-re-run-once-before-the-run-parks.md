@@ -465,18 +465,27 @@ The classification is engine-written: an `Owner::Engine` record input, as `revie
 as the engine-owned strategy is held (`:87-95`). Both inputs ride in the decision's `inputs`
 (`crates/brokkr-core/src/decision.rs:86`). So the journal holds three things, in the order they
 happened, with no new event: the observation the seat sealed, the class the engine drew from it,
-and the rule that routed on it. A replay re-derives the class from the sealed observation and
-the pinned list, and must equal the recorded one.
+and the rule that routed on it.
+
+**The classification replays from the journal alone.** The engine's `ci_class` record carries
+everything the class was drawn from that is not already sealed: the digest of the sealed
+observation it read, the range's two commit ids, and the changed-path list git gave for that
+range. A replay classifies the sealed observation against the pinned list the run's manifest
+names by digest and the carried path list, and must equal the recorded class. It reads neither
+the Git range nor the forge, so a replay after the branch is gone, or the forge's runs have
+expired, still holds. The path list is bounded: at most 4,096 paths and 256 KiB in total. A
+range beyond the bound refuses as `range-too-large`, with ruling 3's refusals, and is never
+truncated.
 
 - **(b) A new `ci/classified` event.** Moves the event envelope, every manifest and every fold
   arm for a fact an input can carry. Refused, as 0106 ruling 1 refused `run/park-caused`.
 - **(c) The excerpt kept outside the journal by digest.** Smaller rows, but the classification
   could not be replayed from the journal alone. Refused; the bound below is the cost control.
 
-**Log excerpts, bounded in total and handled before they are durable.** Under ruling 4 (a) the
-observer reads no log, and the observation carries no excerpt; v1's parser refuses the field.
-Under (b) only, an excerpt is carried only for a failed step that is runner-owned, and the
-observer applies four bounds before the seat's result is written, so they hold before sealing:
+**Log excerpts, bounded in total and handled before they are durable.** An excerpt is carried
+only for the first failed step of a failed required job, and only when that step is one ruling
+4's list declares as setup. The observer applies four bounds before the seat's result is
+written, so they hold before sealing:
 
 - each excerpt is at most 8 KiB, from the step log's tail, with a `truncated` flag;
 - an observation carries at most four excerpts, so 32 KiB in total, and a fifth candidate
@@ -487,42 +496,59 @@ observer applies four bounds before the seat's result is written, so they hold b
 
 Whether the forge masks every secret in a step's log is **unmeasured**
 (<https://docs.github.com/en/actions/security-for-github-actions/security-guides/using-secrets-in-github-actions>).
-So (b) does not build until 0111b measures it. If masking cannot be shown, the observer journals
-only the matched pattern's id and the excerpt's digest, and the replay property of (c) is lost
-for (b).
+So ruling 4's pattern arm does not build until 0111a's evidence measures it. If masking cannot be
+shown, the arm is not built at all, and ruling 4 (b) holds: no excerpt is carried, and every
+failure is the change's. An excerpt is never journaled by digest alone, because a replay could
+not re-derive the class from it.
 
-### 4. What evidence types a failure as the runner's, and the classifier
+### 4. What evidence types a park, and the classifier
 
-**This is the operator's first choice. Recommended: (a) forge-proven non-execution only.**
+**Recommended: (a) recipe-declared literals over declared setup steps type a person's park, and
+nothing a failure draws reaches a pass or a re-run.**
 
-The first draft typed a failure as the runner's when an allow-listed setup step's excerpt held
-a declared literal, and the step's workflow was untouched. That is not enough. An unchanged
-setup step can still run the pull request's code: a service bootstrap that starts the
-repository's own compose file or script, or HEAD's own checkout-local action,
-`uses: ./.github/actions/setup-cargo-audit` (`.github/workflows/ci.yml:681-689`), whose code comes
-from the checkout. A source-only change can then make that step print the declared literal. So
-the evidence is the operator's choice, stated fairly:
+**A classification of a failure chooses between two outcomes, and neither is a pass.** Under
+ruling 1 no write is sent, so a failed observation can only be:
 
-- **(a) Recommended: forge-proven non-execution only.** A failure is the runner's only when the
-  forge's own job-level conclusion proves the job's steps never ran. No log pattern types
-  anything, and the list carries no patterns.
-  - **Cost, said plainly:** the adopter's port-bind case and their timing-sensitive test are the
-    change's, as they are today.
-- **(b) Declared runner-owned evidence.** A literal types a failure only from a step whose
-  provenance is runner-owned and positively known. An example is the runner's own
-  service-container start for the workflow's `services:` block
-  (<https://docs.github.com/en/actions/using-containerized-services/about-service-containers>).
-  - **Cost:** what each forge exposes as runner-owned is partly unmeasured.
-- **(c) Refused: any pattern over a step that runs repository code.**
+- **the change's**: a seat attempt, as today; or
+- **a person's `ci_infrastructure` park**, with the evidence and no seat attempt.
 
-**Timing-sensitive tests are not runner faults under any option.** A flaky test fails in a step
-that runs the change's code, and nothing the forge states types it. Flaky-test handling is out of
-scope; it is a follow-up for a decision of its own.
+A mistyped code failure therefore costs a person's look, not a laundered pass. That is why
+evidence a change can produce is admissible here, where fix round 1093r2 refused it: there, a
+literal could buy a re-run, and a re-run could buy a pass. A pass is drawn only by ruling 3's
+rule, which reads every required check's own `success` and never reads a log.
+
+- **(a) Recommended: declared literals over declared setup steps.** The list declares setup
+  steps, each by workflow, job and step name, and the literals each may match. A failed required
+  job is typed `ci-infrastructure` only when its first failed step is a declared setup step and
+  that step's bounded excerpt holds one of that step's literals. The issue's port-bind case is one:
+  the step that boots the compose services, declared setup, with the literal
+  `address already in use`. The adopter's step name and excerpt are unmeasured.
+  - **The bounded cost, said plainly:** a change that makes its own failure print a declared
+    literal in a declared setup step reaches a person's park, not a pass. Both an unchanged
+    setup step that runs repository code, such as a service bootstrap that starts the
+    repository's own compose file, and HEAD's checkout-local action
+    `uses: ./.github/actions/setup-cargo-audit` (`.github/workflows/ci.yml:681-689`) can print
+    it. The person reads the evidence and decides; nothing passes.
+- **(b) Nothing types a park.** Every failure is the change's, as today. Cost: the narrowed
+  acceptance is not delivered, and the port bind still costs a seat attempt. This is what holds
+  if 0111a's evidence cannot show secret masking (ruling 3).
+- **(c) A forge-proven non-execution set as a precondition**, as fix round 1093r2 recommended.
+  Removed. One observed payload establishes a reported value, not its semantics, and not that
+  the change could not cause it. The set is left **unmeasured and empty**; no classifier arm
+  reads it, so a job-level `startup_failure` or `timed_out` is untyped, and the change's.
+- **(d) Any class drawn from a pattern that reaches a pass or a re-run.** Refused by ruling 1
+  and by ruling 3's pass rule.
+
+**Timing-sensitive tests stay the change's.** A flaky test fails in the step that runs the tests,
+and a test step is not a setup step. The compile cannot tell a test step from a setup step, so
+that is the operator's declaration; a literal declared over a test step costs the same bounded
+person's park and never a pass. Flaky-test handling is out of scope; it is a follow-up for a
+decision of its own.
 
 **The classifier.** One pure function over the observation, the declared list and the change's
 paths, with a closed result, failing closed.
 
-`classify(observation, faults, changed_paths) -> Classification` lives in `brokkr-core`, reads
+`classify(observation, checks, changed_paths) -> Classification` lives in `brokkr-core`, reads
 no clock, environment or network (0071 ruling 1), and is total.
 
 `changed_paths` is the engine's, through the one git observation HEAD already has:
@@ -540,14 +566,13 @@ refusals. It is never read as an empty change. In order:
 2. The observation passes ruling 3's pass rule: **`green`**. One that cannot pass and holds no
    failed, timed-out, unstarted or cancelled required check is **`refused`** as `non-success`.
 3. Each failed required job is typed on its own:
-   - a job-level conclusion that proves non-execution: runner, kind **`not-started`**. That set
-     is empty until 0111b measures `startup_failure` on a job;
-   - under (b) only: conclusion `failure`, its first failed step runner-owned as (b) defines,
-     and that step's excerpt holding one of the list's literals for that step: runner, kind
-     **`runner-owned-pattern`** with the pattern's id. Under (a) this arm does not exist;
-   - anything else, `timed_out` included (a hang may be the change's): **untyped**.
-4. Every failed job runner, and at least one failed: **`ci-infrastructure`**, naming each job,
-   its step, its kind and pattern id.
+   - conclusion `failure`, its first failed step a declared setup step, and that step's excerpt
+     holding one of that step's literals: **setup-pattern**, with the pattern's id;
+   - anything else, `startup_failure` and `timed_out` included (a hang may be the change's):
+     **untyped**.
+4. Every failed required job setup-pattern, and at least one failed: **`ci-infrastructure`**,
+   naming each job, its step and its pattern id, with the workflow run's id and attempt a person
+   needs to re-run it.
 5. Otherwise **`change`**, with a closed reason: `untyped-failure`, or `cancelled` (any required
    job cancelled: who cancelled is unmeasured, though on a pull request a newer push cancels the
    older run, `.github/workflows/ci.yml:24-26`).
@@ -563,8 +588,9 @@ unless the forge proved its steps never ran, so a re-run could not launder an ad
 write, no class reaches a pass but `green`, and `green` needs the audit's own `success` (ruling
 3). An audit failure is typed like any other: the change's, or a person's park. #1113's "Not
 Found" is a failed step inside the `RustSec dependency audit` job
-(`.github/workflows/ci.yml:673-695`). Under ruling 4 (a) it is the change's, as today; this
-decision declares nothing for it and designs no fix for it.
+(`.github/workflows/ci.yml:673-695`), in the step that runs the audit and reports it
+(`:693-695`), which is not a setup step. This decision declares nothing for it and designs no
+fix for it; it stays the change's, as today.
 
 Also refused, under every option: a step's role alone, with no pattern, since a setup step that
 installs the change's dependencies fails for the change's reasons too; and failing open on an
@@ -607,22 +633,25 @@ compiled into the bundle and pinned with it.**
 The `tested` words, the status entry and its creator id are illustrative; the app's numeric id
 is pinned beside its slug once 0111a's evidence shows it.
 
-That is the whole list under ruling 4 (a). Under (b) only, two more keys are admitted:
+Under ruling 4 (a), two more keys declare the evidence that types a park:
 
 ```json
 {
-  "runner_owned_steps": [{"workflow": ".github/workflows/ci.yml", "job": "test", "step": "Initialize containers"}],
+  "setup_steps": [
+    {"id": "compose-up", "workflow": ".github/workflows/ci.yml", "job": "integration", "step": "start services"}
+  ],
   "patterns": [
-    {"id": "port-in-use", "steps": ["Initialize containers"], "literal": "address already in use"}
+    {"id": "port-in-use", "steps": ["compose-up"], "literal": "address already in use"}
   ]
 }
 ```
 
-The step name above is illustrative and unmeasured. Under (a) the compile refuses either key. A
-pattern is a literal: 1 to 200 printable ASCII bytes, matched as an exact, case-sensitive byte
-substring. No regex, glob or wildcard is admitted, so matching is linear and the same on every
-host. `id` is kebab-case and unique; every step a pattern names must be in
-`runner_owned_steps`.
+The job and step names above are illustrative and unmeasured. Under ruling 4 (b) the compile
+refuses either key. A pattern is a literal: 1 to 200 printable ASCII bytes, matched as an exact,
+case-sensitive byte substring. No regex, glob or wildcard is admitted, so matching is linear and
+the same on every host. Each `id` is kebab-case and unique; every step a pattern names must be
+in `setup_steps`, and every setup step's workflow must be the workflow of a required entry, so
+`definition-changed` holds it to the base's bytes.
 
 The list has two syntaxes, and they never mix. A **path** in a `definition` is a
 repository-relative path. It matches a changed path that equals it, or, when it ends in `/`,
@@ -659,7 +688,7 @@ cannot write any of them.
 - **`change`**: routed exactly as a red gate is today, to `implement`.
 - **`refused`** (ruling 3): parks `ruled`.
 
-**A deterministic match.** Under ruling 4 (b) only, where several literals occur in one excerpt,
+**A deterministic match.** Under ruling 4 (a), where several literals occur in one excerpt,
 the classifier takes the first pattern in the list's declaration order. The fault carries that
 pattern's id, so one excerpt yields one fault.
 
@@ -845,7 +874,19 @@ Smallest first; each lands on its own.
    `the_change_range_is_the_merge_base_to_the_gated_head_not_the_phase_entry`;
    `a_range_git_cannot_take_refuses_as_range_unavailable`;
    `a_glob_character_in_a_definition_path_refuses_to_compile`;
-   `a_directory_path_matches_only_under_its_slash`. The evidence:
+   `a_directory_path_matches_only_under_its_slash`. The replay (ruling 3):
+   `a_replay_with_no_git_range_and_no_forge_re_derives_the_class`;
+   `a_replay_reads_the_carried_path_list_not_git`;
+   `a_range_beyond_the_path_bound_refuses_as_range_too_large`. The evidence (ruling 4):
+   `a_port_bind_literal_in_a_declared_setup_step_draws_ci_infrastructure`;
+   `a_declared_literal_in_an_undeclared_step_is_the_changes`;
+   `a_literal_printed_by_the_change_in_a_declared_setup_step_draws_a_park_never_green`;
+   `no_class_a_failure_draws_is_green`;
+   `a_startup_failure_or_timed_out_job_is_the_changes`;
+   `several_literals_in_one_excerpt_match_the_first_declared`;
+   `a_pattern_naming_an_undeclared_step_refuses_to_compile`;
+   `a_setup_step_outside_every_required_workflow_refuses_to_compile`;
+   `a_fifth_excerpt_refuses_the_observation`;
    `a_timing_sensitive_test_failure_is_the_changes`; `a_cancelled_job_is_the_changes`;
    `one_untyped_job_makes_the_whole_change`;
    `an_unknown_conclusion_refuses_by_name`; `a_stale_head_observation_does_not_read`;
