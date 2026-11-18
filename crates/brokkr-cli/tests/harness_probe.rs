@@ -526,3 +526,65 @@ fn what_the_verb_cannot_probe_is_refused_by_name() {
         );
     }
 }
+
+/// `brokkr probe harness` with `HOME` set to `home`, given `extra`.
+fn probe_with_home(host: &Host, cli: &Path, home: &Path, extra: &[&str]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_brokkr"))
+        .args(["probe", "harness", "--cli"])
+        .arg(cli)
+        .arg("--secrets-file")
+        .arg(&host.store)
+        .arg("--adapters-dir")
+        .arg(repo_adapters())
+        .args(extra)
+        .env("HOME", home)
+        .output()
+        .unwrap()
+}
+
+#[test]
+fn a_credential_file_under_home_logs_the_turn_in_and_one_that_is_not_there_is_refused() {
+    use std::os::unix::fs::PermissionsExt;
+    let host = host();
+    let by_file = FAKE.replace(r#"[ -n "$FAKE_TOKEN" ]"#, r#"[ -f "$HOME/.fake/login" ]"#);
+    let cli = executable::install(host.dir.path(), "fake-by-file", &by_file);
+    std::fs::write(host.path("version"), "1.0.0 (Fake)\n").unwrap();
+    let home = host.path("operator");
+    std::fs::create_dir_all(home.join(".fake")).unwrap();
+    let args = ["--adapter", "claude", "--credential-file", ".fake/login"];
+
+    let output = probe_with_home(&host, &cli, Path::new(""), &args);
+    assert_eq!(
+        (output.status.code(), stderr(&output)),
+        (
+            Some(1),
+            "error: --credential-file names a file under HOME, and HOME is not set\n".to_string()
+        )
+    );
+    let output = probe_with_home(&host, &cli, &home, &args);
+    assert!(
+        stderr(&output)
+            .starts_with("error: credential file ~/.fake/login cannot be read: No such file"),
+        "{}",
+        stderr(&output)
+    );
+
+    let login = home.join(".fake/login");
+    std::fs::write(&login, "operator\n").unwrap();
+    std::fs::set_permissions(&login, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let output = probe_with_home(&host, &cli, &home, &args);
+    assert_eq!(
+        (output.status.code(), stderr(&output)),
+        (Some(0), String::new())
+    );
+    let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let evidence = report["facts"]["headless"]["evidence"].as_str().unwrap();
+    assert!(
+        evidence.starts_with(
+            "one turn ran under a scratch HOME with only these credentials bound: [~/.fake/login]; "
+        ),
+        "{evidence}"
+    );
+    assert_eq!(report["facts"]["headless"]["value"]["exit"], 0);
+    assert_eq!(std::fs::read_to_string(&login).unwrap(), "operator\n");
+}

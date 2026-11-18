@@ -16,6 +16,7 @@ use crate::secret;
 
 mod answered;
 mod compressed;
+mod credential_file;
 mod evidence;
 #[path = "../../../../tests/support/executable.rs"]
 mod executable;
@@ -263,11 +264,23 @@ fn probe_with(
     bindings: &[secret::BoundSecret],
     deadline: Duration,
 ) -> Result<Report, ProbeError> {
+    probe_given(kind, cli, declared, bindings, &[], deadline)
+}
+
+fn probe_given(
+    kind: AdapterKind,
+    cli: &Path,
+    declared: &Declared,
+    bindings: &[secret::BoundSecret],
+    credential_files: &[CredentialFile],
+    deadline: Duration,
+) -> Result<Report, ProbeError> {
     run(&ProbeInput {
         kind,
         cli: cli.to_str().unwrap(),
         declared,
         bindings,
+        credential_files,
         brokkr: Path::new("/opt/brokkr/bin/brokkr"),
         date: DATE,
         deadline,
