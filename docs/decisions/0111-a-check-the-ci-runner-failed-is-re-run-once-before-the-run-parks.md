@@ -440,6 +440,7 @@ otherwise classifiable failure refuses as `missing-required`; it is never typed.
 |---|---|
 | `unrelated` | the repository, the pull request or the head differs from the binding |
 | `range-unavailable` | git cannot take ruling 4's pinned base-to-head range |
+| `range-too-large` | the range's changed paths exceed the bound the classification record carries |
 | `definition-changed` | a changed path falls inside a required entry's definition; the refusal names the paths |
 | `empty` | the forge reports no check for the head |
 | `producer-mismatch` | a check carries a required entry's name, or a status its context, from another app, workflow path or creator; the refusal names it, so a substitute is never silently passed over |
@@ -803,23 +804,57 @@ them, and 0082 mints no version outside an accepted decision.
   admits (`:73`). Ruling 6's `When` column reads `ci_refused: true`, `ci_green: true` and
   `ci_infrastructure: true`. Cost: three names for one enum. That is a projection, not a second
   home, because the enum stays the one fact and the flags are derived in one function. A table
-  could also write two of them in one rule, which would never match; 0111c's overlay test refuses
+  could also write two of them in one rule, which would never match; the overlay test refuses
   that at compile. It mints no contract.
-- **(b) `phase-machine/v3`, admitting a non-empty string array for a `<choice>_in` key.** It
-  is the honest shape for a closed choice, and it would also bring `fast`'s existing
-  `blocked_by_in: ["environment"]` (`recipes/fast/policy.json:44-46`) inside a published schema.
-  Cost: a new frozen contract file under 0082, its pin beside v2's in
-  `crates/brokkr-runtime/tests/frozen_contracts.rs:303`, and every table's `schema` word moving
-  or a reader for both. A wider change than this decision needs.
+- **(b) A table contract of this decision's own, admitting a `<choice>_in` array.** Refused.
+  Phase-machine v3 is decision 0109's, which is accepted, and its v3 is proposed in its slice
+  0109c (`docs/decisions/0109-a-gate-s-re-visit-reads-what-changed.md:1500-1520`, `:1830`). This
+  decision claims no table version of its own. What it needs from v3 is the ask below.
 - **(c) `ci_fault_in` under v2, as drafted.** Refused: it is not legal under the schema it
   claims.
 
-`fast`'s `blocked_by_in` array already sits outside v2's published schema. That is a finding
-for a follow-up, and this decision does not fix it.
+**One result per row.** Each rule's `result` is one string under v2
+(`contracts/phase-machine.v2.schema.json:31`, `:50`), and the engine matches it by exact
+equality (`crates/brokkr-core/src/policy.rs:264-273`). Ruling 1 removed the two re-run words
+fix round 1093r2 put on one row. Every row of ruling 6's tables names one result: `pass`,
+`fail`, `complete`, `ready` or `shipped`.
 
-**Enforcement binding:** 0111c validates the overlay's `policy.json` against
-`contracts/phase-machine.v2.schema.json`, and a test asserts that exactly one flag is true for
-each non-`change` class.
+**The whole composed table validates, not the overlay alone.** A recipe's table is composed: an
+overlay's rules precede its base's, and an overlay rule that overrides a base rule's id replaces
+it (`crates/brokkr-runtime/src/bundle/compose.rs:871-921`). The layers of one composition share
+one schema (`:826-836`). So what must validate is the complete materialized table. Every
+delivering recipe extends `fast`, directly or through `brokkr-fast`
+(`recipes/brokkr-fast/bundle.json:4`), and `fast`'s `IMPL-BLOCKED-ENVIRONMENT` matches
+`blocked_by_in: ["environment"]` (`recipes/fast/policy.json:40-50`). That array fails v2's
+scalar-only `when` (`:71-77`), and HEAD's runtime spells a choice only as an array
+(`crates/brokkr-core/src/policy/conditions.rs:43-75`). So no fast-derived composed table that
+keeps the environment park validates whole under v2. A `jq` scan of every
+`recipes/*/policy.json` for an array-valued condition printed `blocked_by_in` for `fast`,
+`drift_in` and `strategy_in` for `triage`, and nothing for any other table.
+
+**Recommended: (a) a compliant base first, and the fast-derived gate on 0109's v3.**
+
+- **(a) Recommended.** The CI overlay lands first over `recipes/verify/policy.json`, a v2 table
+  with no array-valued condition and no base of its own (`recipes/verify/bundle.json` has no
+  `extends`). Its composed table validates whole under v2, and ruling 6 gives its routes. The
+  fast-derived overlay, which keeps the environment park, lands only after 0109c moves `fast` to
+  v3, and only if the operator grants the ask below. Cost: the fast-derived gate waits on 0109c.
+- **(b) An engine-owned boolean projection of `blocked_by`,** such as `blocked_by_environment`,
+  so `fast`'s park spells as a scalar under v2. It edits `fast`'s table and adds a second name
+  for a fact the choice already holds. Not recommended.
+- **(c) Validate the overlay's own rules alone.** Refused: the table the engine runs is the
+  composed one.
+
+**The ask on 0109's proposed v3, for the operator.** That `forge.phase-machine/v3` admit a
+`<choice>_in` key as a non-empty array of words from that choice's closed vocabulary, which is
+the shape HEAD's runtime already reads (`conditions.rs:43-75`). `fast`'s `blocked_by_in` and
+`triage`'s `drift_in` and `strategy_in` would then validate whole, and so would a fast-derived CI
+overlay. 0111 mints nothing for it; the ask is 0109's to rule.
+
+**Enforcement binding:** each overlay slice validates the complete materialized table its
+recipe composes, not the overlay's file, against the schema the composition declares: v2 for
+the `verify` overlay, and v3 for the fast-derived one. A test asserts that exactly one flag is
+true for each non-`change` class.
 
 ## What stays out
 
