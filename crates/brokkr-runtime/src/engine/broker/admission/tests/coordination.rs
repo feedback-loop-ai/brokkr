@@ -100,7 +100,7 @@ fn an_unopened_roots_path_keeps_boxed_writers_on_every_host() {
     let beside = home.join("beside");
     std::fs::create_dir_all(&beside).unwrap();
     let records = coordination(&home);
-    let budget = Budget::new(soon());
+    let budget = Budget::new(unhurried());
     let of = |root: &Path| {
         claim(
             &work,
@@ -390,7 +390,7 @@ fn a_fifo_artifact_refuses_without_blocking() {
     std::fs::create_dir_all(&digests).unwrap();
     let fifo = digests.join(canonical::sha256_bytes(b"x"));
     made_fifo(&fifo);
-    let mut budget = Budget::new(soon());
+    let mut budget = Budget::new(unhurried());
     assert_eq!(
         historical::verified(&dir, &mut budget),
         Err(Unadmitted::Evidence(Conflict::Corrupt(fifo)))
@@ -416,7 +416,7 @@ fn a_historical_root_that_is_no_directory_refuses() {
     let root = host.dir.path().join("root");
     std::fs::write(&root, b"x").unwrap();
     assert_eq!(
-        historical::verified(&root, &mut Budget::new(soon())),
+        historical::verified(&root, &mut Budget::new(unhurried())),
         Err(Unadmitted::Evidence(Conflict::Corrupt(root.join("sha256"))))
     );
 }
@@ -480,7 +480,7 @@ fn a_deadline_that_passes_inside_an_artifacts_read_ends_its_verification() {
     );
     hashed.borrow_mut().clear();
     let counted = |hasher: &sha2::Sha256| hashed.borrow_mut().push(read(hasher));
-    let verified = historical::verified_with(&root, &mut Budget::new(soon()), &counted);
+    let verified = historical::verified_with(&root, &mut Budget::new(unhurried()), &counted);
     let each = [prefix(1), prefix(2), prefix(3), prefix(3)];
     assert_eq!(
         (verified, hashed.take()),
@@ -504,7 +504,7 @@ fn an_artifact_past_the_artifact_bound_is_refused_though_its_name_digests_it() {
     let exact = vec![1_u8; allowance];
     std::fs::write(digests.join(canonical::sha256_bytes(&exact)), &exact).unwrap();
     assert_eq!(
-        historical::verified(&root, &mut Budget::new(soon())),
+        historical::verified(&root, &mut Budget::new(unhurried())),
         Ok(())
     );
     let over = vec![2_u8; allowance + 1];
@@ -513,7 +513,7 @@ fn an_artifact_past_the_artifact_bound_is_refused_though_its_name_digests_it() {
     // Whatever order the directory lists them in, the refusal is the
     // one-over artifact's.
     assert_eq!(
-        historical::verified(&root, &mut Budget::new(soon())),
+        historical::verified(&root, &mut Budget::new(unhurried())),
         Err(Unadmitted::Evidence(Conflict::Corrupt(at)))
     );
 }
@@ -600,12 +600,12 @@ fn every_step_under_the_lock_spends_the_shared_deadline() {
     assert_eq!(verified(expired()), unknown(Unknown::Expired));
     let one = Budget {
         entries: 1,
-        deadline: soon(),
+        deadline: unhurried(),
     };
     assert_eq!(verified(one), unknown(Unknown::Bounds));
     let two = Budget {
         entries: 2,
-        deadline: soon(),
+        deadline: unhurried(),
     };
     assert_eq!(verified(two), Ok(()));
     freed(&held);
@@ -643,7 +643,7 @@ pub(super) fn died_after_its_end(host: &Host) -> (tempfile::TempDir, Engine, Pat
 /// engine gone before the release.
 pub(super) fn died_proved(host: &Host, died: &Claim) {
     let held = host.admit(died).unwrap();
-    assert_eq!(proved(&held, soon()), Ok(Commit::Synced));
+    assert_eq!(proved(&held, unhurried()), Ok(Commit::Synced));
 }
 
 /// Append a genuine settled end for attempt `a1` of `run` to `engine`'s
@@ -797,7 +797,7 @@ fn the_mount_table_shows_a_root_once_or_proves_nothing() {
 /// [`exclusion::once`] on the bytes `table`, well within its deadline.
 #[cfg(target_os = "linux")]
 fn once(table: &[u8], mount: u64, root: &Path) -> Shown {
-    exclusion::once(&mut &table[..], mount, root, &Budget::new(soon()))
+    exclusion::once(&mut &table[..], mount, root, &Budget::new(unhurried()))
 }
 
 /// A mount table that never ends (M3): each record its own mount on one
@@ -876,18 +876,18 @@ impl std::io::BufRead for Endless {
 fn the_mount_table_is_collected_one_record_at_a_time_within_its_bounds() {
     let root = Path::new("/one/x");
     let mut endless = Endless::new(false);
-    let shown = exclusion::once(&mut endless, 1, root, &Budget::new(soon()));
+    let shown = exclusion::once(&mut endless, 1, root, &Budget::new(unhurried()));
     assert_eq!((shown, endless.served), (Shown::TooMany, 65_537));
     let mut blank = Endless::new(false);
     blank.blank = true;
-    let shown = exclusion::once(&mut blank, 1, root, &Budget::new(soon()));
+    let shown = exclusion::once(&mut blank, 1, root, &Budget::new(unhurried()));
     assert_eq!(
         (shown, blank.served),
         (Shown::TooMany, 65_537),
         "empty records"
     );
     let mut unended = Endless::new(true);
-    let shown = exclusion::once(&mut unended, 1, root, &Budget::new(soon()));
+    let shown = exclusion::once(&mut unended, 1, root, &Budget::new(unhurried()));
     assert_eq!((shown, unended.consumed), (Shown::TooMany, (64 << 10) + 1));
     let mut endless = Endless::new(false);
     let shown = exclusion::once(&mut endless, 1, root, &Budget::new(Instant::now()));
@@ -998,7 +998,7 @@ fn aliased(dir: &Path) {
             historical: &evidence,
             coordination: &coordination,
         };
-        compared(&comparison, &mut Budget::new(soon())).map(drop)
+        compared(&comparison, &mut Budget::new(unhurried())).map(drop)
     };
     assert_eq!(judged("alias", &alias), Ok(()), "before the bind");
     assert_eq!(judged("holder", &holder), Ok(()), "before the bind");
@@ -1031,7 +1031,7 @@ fn a_released_runs_lock_is_held_from_the_proof_until_the_claim_is_sealed() {
     let fixture = quarantined(&[Witnessed::Settled], None);
     let claim = boxed_claim(&fixture.work, ["run-b", "b1"]);
     let checked = std::cell::Cell::new(false);
-    let admitted = admit_with(&fixture.host.root, &claim, soon(), &|| {
+    let admitted = admit_with(&fixture.host.root, &claim, unhurried(), &|| {
         let taken = crate::run_lock::take(&fixture.store, "run-a");
         assert!(
             matches!(taken, Err(crate::RunLockError::Driven { .. })),

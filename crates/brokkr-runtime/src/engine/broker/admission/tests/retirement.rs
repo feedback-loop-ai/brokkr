@@ -76,7 +76,7 @@ fn archive(host: &Host, root: &Path, to: &Path) -> Result<evidence::Retirement, 
     evidence::retire_in(
         &host.root,
         options(root, RetireAction::Archived { to }, "archived"),
-        soon(),
+        unhurried(),
     )
 }
 
@@ -154,7 +154,7 @@ fn retiring_an_archived_root_stops_it_staking_and_names_every_digest() {
     let retired = evidence::retire_in(
         &host.root,
         options(&root, RetireAction::Archived { to: &to }, "archived"),
-        soon(),
+        unhurried(),
     )
     .unwrap();
     assert_eq!(retired.cause, Cause::Archived);
@@ -198,7 +198,7 @@ fn retiring_an_archived_root_stops_it_staking_and_names_every_digest() {
         retirement_path(&host, &kept, "run-a", &root).exists(),
         "the retirement is sealed beside the historical record"
     );
-    let listed = evidence::list_in(&host.root, soon()).unwrap();
+    let listed = evidence::list_in(&host.root, unhurried()).unwrap();
     let found = listed
         .iter()
         .find(|root| root.artifacts == artifacts(&kept));
@@ -220,7 +220,7 @@ fn retiring_an_archived_root_stops_it_staking_and_names_every_digest() {
         evidence::retire_in(
             &host.root,
             options(&root, RetireAction::Discarded, "again"),
-            soon()
+            unhurried()
         ),
         Err(EvidenceError::AlreadyRetired(at)) if at == root
     ));
@@ -235,13 +235,13 @@ fn discarding_a_root_removes_it_and_records_an_absent_one() {
     let retired = evidence::retire_in(
         &host.root,
         options(&root, RetireAction::Discarded, "discarded"),
-        soon(),
+        unhurried(),
     )
     .unwrap();
     assert_eq!(retired.cause, Cause::Discarded);
     assert!(retired.archive.is_none() && retired.inventory_sha256.is_none());
     assert!(!root.exists(), "the discard removed the root");
-    let listed = evidence::list_in(&host.root, soon()).unwrap();
+    let listed = evidence::list_in(&host.root, unhurried()).unwrap();
     let found = listed.iter().find(|held| held.artifacts == root).unwrap();
     assert!(!found.exists);
     assert_eq!(found.retirement.as_ref().unwrap().cause, Cause::Discarded);
@@ -251,7 +251,7 @@ fn discarding_a_root_removes_it_and_records_an_absent_one() {
     let retired = evidence::retire_in(
         &host.root,
         options(&gone, RetireAction::Discarded, "already absent"),
-        soon(),
+        unhurried(),
     )
     .unwrap();
     assert_eq!(retired.cause, Cause::Discarded);
@@ -298,7 +298,7 @@ fn a_dangling_root_link_refuses_an_archive_and_a_discard_with_one_text() {
     let discarded = evidence::retire_in(
         &host.root,
         options(&root, RetireAction::Discarded, "given up"),
-        soon(),
+        unhurried(),
     )
     .unwrap_err();
     assert!(
@@ -328,13 +328,13 @@ fn discards_as_absent(host: &Host, root: &Path) {
     let retired = evidence::retire_in(
         &host.root,
         options(root, RetireAction::Discarded, "already absent"),
-        soon(),
+        unhurried(),
     )
     .unwrap();
     assert_eq!(retired.cause, Cause::Discarded);
     assert!(retired.archive.is_none());
     assert!(!root.exists());
-    let listed = evidence::list_in(&host.root, soon()).unwrap();
+    let listed = evidence::list_in(&host.root, unhurried()).unwrap();
     let row = listed.iter().find(|held| held.artifacts == root).unwrap();
     assert!(!row.exists, "the record says the root is absent");
     assert_eq!(row.retirement.as_ref(), Some(&retired));
@@ -371,7 +371,7 @@ fn an_empty_reason_refuses_before_anything_is_written() {
     let refused = evidence::retire_in(
         &host.root,
         options(&root, RetireAction::Archived { to: &to }, "  "),
-        soon(),
+        unhurried(),
     );
     assert!(matches!(refused, Err(EvidenceError::Reason)));
     assert!(!to.exists(), "nothing was written");
@@ -411,7 +411,7 @@ fn retiring_through_a_symlinked_worktree_finds_the_root() {
     let retired = evidence::retire_in(
         &host.root,
         options(&spelled, RetireAction::Discarded, "given up"),
-        soon(),
+        unhurried(),
     )
     .unwrap();
     assert_eq!(
@@ -433,7 +433,7 @@ fn a_standing_attempt_that_protects_a_root_refuses_its_retirement() {
     match evidence::retire_in(
         &host.root,
         options(&root, RetireAction::Archived { to: &to }, "archived"),
-        soon(),
+        unhurried(),
     ) {
         Err(EvidenceError::Protected { root: at, run }) => {
             assert_eq!(at, root);
@@ -470,7 +470,7 @@ fn a_standing_writer_that_can_reach_a_root_refuses_its_retirement() {
     match evidence::retire_in(
         &host.root,
         options(&root, RetireAction::Discarded, "discarded"),
-        soon(),
+        unhurried(),
     ) {
         Err(EvidenceError::Protected { root: at, run }) => {
             assert_eq!(at, root);
@@ -493,7 +493,7 @@ fn a_destination_that_holds_a_file_refuses() {
         evidence::retire_in(
             &host.root,
             options(&root, RetireAction::Archived { to: &full }, "archived"),
-            soon()
+            unhurried()
         ),
         Err(EvidenceError::DestinationNotEmpty(at)) if at == full
     ));
@@ -503,7 +503,7 @@ fn a_destination_that_holds_a_file_refuses() {
         evidence::retire_in(
             &host.root,
             options(&root, RetireAction::Archived { to: &file }, "archived"),
-            soon()
+            unhurried()
         ),
         Err(EvidenceError::DestinationNotDirectory(at)) if at == file
     ));
@@ -523,7 +523,7 @@ fn a_mismatched_digest_refuses_with_nothing_written() {
     let refused = evidence::retire_in_with(
         &host.root,
         options(&root, RetireAction::Archived { to: &to }, "archived"),
-        soon(),
+        unhurried(),
         &between,
     );
     assert!(
@@ -536,7 +536,7 @@ fn a_mismatched_digest_refuses_with_nothing_written() {
         "the directories the resolution made are removed too"
     );
     assert!(!retirement_path(&host, &kept, "run-a", &root).exists());
-    let listed = evidence::list_in(&host.root, soon()).unwrap();
+    let listed = evidence::list_in(&host.root, unhurried()).unwrap();
     let found = listed.iter().find(|held| held.artifacts == root).unwrap();
     assert!(found.retirement.is_none(), "no retirement was written");
     // The evidence still stakes the host: nothing was laundered.
@@ -579,7 +579,7 @@ fn a_link_at_the_root_refuses_the_discard() {
         evidence::retire_in(
             &host.root,
             options(&root, RetireAction::Discarded, "discarded"),
-            soon()
+            unhurried()
         ),
         Err(EvidenceError::Link(at)) if at == root
     ));
@@ -620,7 +620,7 @@ fn a_root_with_no_historical_record_or_a_past_deadline_refuses() {
         evidence::retire_in(
             &host.root,
             options(&root, RetireAction::Discarded, "not recorded"),
-            soon()
+            unhurried()
         ),
         Err(EvidenceError::NotRecorded(at)) if at == root
     ));
@@ -644,7 +644,7 @@ fn list_names_every_root_its_existence_and_its_retirement() {
     let root = historical_root(&host, &kept, ["run-a", "a1"]);
     let gone = historical_root(&host, &absent, ["run-b", "b1"]);
     std::fs::remove_dir_all(&gone).unwrap();
-    let listed: Vec<EvidenceRoot> = evidence::list_in(&host.root, soon()).unwrap();
+    let listed: Vec<EvidenceRoot> = evidence::list_in(&host.root, unhurried()).unwrap();
     assert_eq!(listed.len(), 2);
     let kept_row = listed.iter().find(|held| held.artifacts == root).unwrap();
     let absent_row = listed.iter().find(|held| held.artifacts == gone).unwrap();
@@ -654,7 +654,7 @@ fn list_names_every_root_its_existence_and_its_retirement() {
         "an absent root is still unretired"
     );
     assert_eq!(
-        evidence::retirement_in(&host.root, &root, soon()).unwrap(),
+        evidence::retirement_in(&host.root, &root, unhurried()).unwrap(),
         None
     );
 }
@@ -667,11 +667,11 @@ fn a_retirement_is_read_back_by_its_root_and_only_a_deadline_can_hide_it() {
     let retired = evidence::retire_in(
         &host.root,
         options(&root, RetireAction::Discarded, "discarded"),
-        soon(),
+        unhurried(),
     )
     .unwrap();
     assert_eq!(
-        evidence::retirement_in(&host.root, &root, soon()).unwrap(),
+        evidence::retirement_in(&host.root, &root, unhurried()).unwrap(),
         Some(retired)
     );
     assert!(matches!(
@@ -719,7 +719,7 @@ fn retired_discarded(host: &Host, kept: &Path, reason: &str) -> (PathBuf, eviden
     let retirement = evidence::retire_in(
         &host.root,
         options(&root, RetireAction::Discarded, reason),
-        soon(),
+        unhurried(),
     )
     .unwrap();
     (root, retirement)
@@ -749,7 +749,7 @@ fn a_retired_root_that_protects_evidence_again_stakes_and_refuses_an_unboxed_wri
 
     unboxed_refused(&host, &other);
 
-    let listed = evidence::list_in(&host.root, soon()).unwrap();
+    let listed = evidence::list_in(&host.root, unhurried()).unwrap();
     let row = listed.iter().find(|held| held.artifacts == root).unwrap();
     assert!(row.retirement.is_none(), "the old retirement is history");
     assert_eq!(row.history.len(), 1, "it is on record as superseded");
@@ -760,11 +760,11 @@ fn a_retired_root_that_protects_evidence_again_stakes_and_refuses_an_unboxed_wri
     let retired = evidence::retire_in(
         &host.root,
         options(&root, RetireAction::Discarded, "again"),
-        soon(),
+        unhurried(),
     )
     .unwrap();
     assert_eq!(retired.cause, Cause::Discarded);
-    let listed = evidence::list_in(&host.root, soon()).unwrap();
+    let listed = evidence::list_in(&host.root, unhurried()).unwrap();
     let row = listed.iter().find(|held| held.artifacts == root).unwrap();
     assert_eq!(row.retirement.as_ref(), Some(&retired));
     assert_eq!(
@@ -814,7 +814,7 @@ fn a_crash_between_superseding_steps_finishes_with_one_copy() {
         "one copy, no second"
     );
     assert!(!retirement_path(&host, &kept, "run-a", &root).exists());
-    let listed = evidence::list_in(&host.root, soon()).unwrap();
+    let listed = evidence::list_in(&host.root, unhurried()).unwrap();
     let row = listed.iter().find(|held| held.artifacts == root).unwrap();
     assert_eq!(row.history.len(), 1);
 }
@@ -862,7 +862,7 @@ fn a_reservation_seal_that_fails_keeps_the_retirement() {
     let again = claim(&kept, ["run-a", "a2"], Protects::Evidence, &[]);
     assert_eq!(host.admit(&again), mb3(Unknown::Unsealed));
     assert_eq!(
-        evidence::retirement_in(&host.root, &root, soon()).unwrap(),
+        evidence::retirement_in(&host.root, &root, unhurried()).unwrap(),
         Some(retirement),
         "the retirement still stands after the reservation seal failed"
     );
@@ -928,7 +928,7 @@ fn a_home_whose_ancestors_are_not_protected_refuses_the_retire_verb() {
         evidence::retire(
             &home,
             options(&root, RetireAction::Discarded, "not recorded"),
-            soon()
+            unhurried()
         ),
         Err(EvidenceError::Coordination)
     ));
@@ -1017,10 +1017,10 @@ fn chief_refused_admission_keeps_the_retirement() {
     );
     assert_eq!(host.admit(&again), cr2(unboxed("work", "run-a")));
     assert_eq!(
-        evidence::retirement_in(&host.root, &root, soon()).unwrap(),
+        evidence::retirement_in(&host.root, &root, unhurried()).unwrap(),
         Some(retirement)
     );
-    let listed = evidence::list_in(&host.root, soon()).unwrap();
+    let listed = evidence::list_in(&host.root, unhurried()).unwrap();
     let row = listed.iter().find(|held| held.artifacts == root).unwrap();
     assert!(
         row.history.is_empty(),
@@ -1146,7 +1146,7 @@ fn a_source_that_cannot_be_read_after_verification_removes_the_digest_directory(
     let refused = evidence::retire_in_with(
         &host.root,
         options(&root, RetireAction::Archived { to: &to }, "archived"),
-        soon(),
+        unhurried(),
         &between,
     );
     std::fs::set_permissions(&source, std::fs::Permissions::from_mode(0o600)).unwrap();

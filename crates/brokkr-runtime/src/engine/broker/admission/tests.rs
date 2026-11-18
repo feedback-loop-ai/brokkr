@@ -30,7 +30,7 @@ use crate::engine::broker::inventory::Budget;
 use crate::engine::broker::root::{coordination, Commit, Exchange};
 use crate::engine::broker::settlement::{proved, witnessed, witnessed_by};
 use crate::engine::broker::{
-    owned, surveyed, Host as Hosting, Surveyor, Unprovisioned, PROTECTED_ROOT,
+    owned, surveyed, Host as Hosting, Surveyor, Unprovisioned, PROTECTED_ROOT, STARTUP,
 };
 use crate::engine::tests::{
     capturing_driver_command, draft_then_finish, engine, execute_work, in_its_own_engine, member,
@@ -162,8 +162,8 @@ fn opened_by(home: &Path, exchange: Option<Exchange>) -> Root {
 /// `held`'s positive settlement fact sealed, and then its lease released,
 /// as its engine settles a proven attempt.
 fn freed(held: &Held) {
-    assert_eq!(proved(held, soon()), Ok(Commit::Synced));
-    assert_eq!(release(held, soon()), Ok(Commit::Synced));
+    assert_eq!(proved(held, unhurried()), Ok(Commit::Synced));
+    assert_eq!(release(held, unhurried()), Ok(Commit::Synced));
 }
 
 /// TMPDIR, canonical: where every fixture of these suites is made.
@@ -318,17 +318,17 @@ impl Host {
         )
     }
 
-    /// `claim` admitted in this HOME's root within five seconds.
+    /// `claim` admitted in this HOME's root by an [`unhurried`] deadline.
     pub(in crate::engine) fn admit(&self, claim: &Claim) -> Result<Held, Unadmitted> {
-        admit(&self.root, claim, soon())
+        admit(&self.root, claim, unhurried())
     }
 }
 
-/// The lock at `lock` taken exclusively, within five seconds: a process
+/// The lock at `lock` taken exclusively, by an [`unhurried`] deadline: a process
 /// another test forks may carry its open description until it execs.
 fn taken(lock: &Path) -> std::fs::File {
     let file = std::fs::File::open(lock).unwrap();
-    let deadline = soon();
+    let deadline = unhurried();
     while flock(file.as_fd(), FlockOperation::NonBlockingLockExclusive).is_err() {
         assert!(Instant::now() < deadline, "the lock was never free");
         std::thread::sleep(Duration::from_millis(10));
@@ -342,8 +342,22 @@ fn taken(lock: &Path) -> std::fs::File {
 /// lock to its own startup deadline, and never on this (#835).
 const HOLD: Duration = Duration::from_millis(500);
 
-/// Five seconds from now.
-pub(in crate::engine) fn soon() -> Instant {
+/// The deadline of a call whose claim is not about its deadline: the
+/// deadline only stops a hang. It is production's own [`STARTUP`] from now,
+/// the longest any admission is given (`began + STARTUP.min(bound)`), so it
+/// measures the claim and not the queue of a whole test binary's admissions
+/// for the lock and its synced writes, which five seconds did not outlast
+/// on an 8-thread host (#1124). It stays fail-closed: a call that hangs is
+/// still refused as late, at the bound production itself would refuse at.
+pub(in crate::engine) fn unhurried() -> Instant {
+    Instant::now() + STARTUP
+}
+
+/// The deadline of a seal whose claim is about its deadline: a hook waits
+/// it out once the seal is committed or as it retires, so the test's run
+/// spends it whole. Five seconds from now, short enough to spend, and long
+/// enough that the steps before the commit finish first (#1099, #1124).
+fn to_outlast() -> Instant {
     Instant::now() + Duration::from_secs(5)
 }
 
@@ -353,7 +367,7 @@ pub(in crate::engine) fn soon() -> Instant {
 pub(in crate::engine) fn protecting(home: &Path, worktree: &Path) -> Held {
     let root = Arc::new(opened(home));
     let claim = claim(worktree, ["run-p", "p1"], Protects::Evidence, &[]);
-    admit(&root, &claim, soon()).unwrap()
+    admit(&root, &claim, unhurried()).unwrap()
 }
 
 /// [`protecting`]'s claim returned rather than unwrapped: a cool-down test
@@ -366,7 +380,7 @@ pub(in crate::engine) fn protecting_refused(
 ) -> Result<(), Unadmitted> {
     let root = Arc::new(opened(home));
     let claim = claim(worktree, ["run-p", "p1"], Protects::Evidence, &[]);
-    admit(&root, &claim, soon()).map(drop)
+    admit(&root, &claim, unhurried()).map(drop)
 }
 
 /// `engine` holding on `host` the lease of its run's attempt `attempt` on
@@ -698,9 +712,9 @@ fn simultaneous_admissions_on_one_worktree_admit_exactly_one() {
             };
             // The sender goes with this thread, so a failure here ends
             // the wait below rather than holding it.
-            admit_with(root, &first, soon(), &between)
+            admit_with(root, &first, unhurried(), &between)
         });
-        let racing = told.recv().map(|()| admit(root, &second, soon()));
+        let racing = told.recv().map(|()| admit(root, &second, unhurried()));
         (holding.join().unwrap().map(drop), racing)
     });
     assert_eq!(outcomes.0, Ok(()));
@@ -834,7 +848,13 @@ fn a_writer_starts_only_after_its_reservation_is_renamed_in() {
     let staged = lease.with_file_name("reservation.json.new");
     let seen = RefCell::new(None);
     let between = || *seen.borrow_mut() = Some((lease.exists(), staged.exists()));
-    let held = admit_with(&host.root, &open(&work, ["run-a", "a1"]), soon(), &between).unwrap();
+    let held = admit_with(
+        &host.root,
+        &open(&work, ["run-a", "a1"]),
+        unhurried(),
+        &between,
+    )
+    .unwrap();
     assert_eq!(
         *seen.borrow(),
         Some((false, false)),
@@ -946,8 +966,11 @@ fn the_inventory_reads_within_its_entry_bound() {
         found.map(|found| found.standing.len())
     };
     use super::super::inventory::Unread;
-    assert_eq!(within(4, soon()), Ok(1));
-    assert_eq!(within(3, soon()), Err(Unread::Unknown(Unknown::Bounds)));
+    assert_eq!(within(4, unhurried()), Ok(1));
+    assert_eq!(
+        within(3, unhurried()),
+        Err(Unread::Unknown(Unknown::Bounds))
+    );
     assert_eq!(
         within(4, Instant::now()),
         Err(Unread::Unknown(Unknown::Expired))
@@ -1406,7 +1429,7 @@ fn the_dispatch_door_spawns_only_under_a_lease_that_stands() {
 /// lease, or the refusal a reservation standing there makes (U8e2).
 pub(in crate::engine) fn conflicting(home: &Path, engine: &Engine) -> Result<Held, Unadmitted> {
     let incoming = open(&worktree(engine), ["another-run", "b1"]);
-    admit(&Arc::new(opened(home)), &incoming, soon())
+    admit(&Arc::new(opened(home)), &incoming, unhurried())
 }
 
 /// The door of the `work` site, under the lease `held`, of a driver whose
@@ -1861,7 +1884,7 @@ fn held_open(dir: &Path, first: &str) -> (String, impl FnOnce()) {
     );
     let (release_holder, held_until) = mpsc::channel::<()>();
     let holder = std::thread::spawn(move || {
-        let deadline = soon();
+        let deadline = unhurried();
         let pid = loop {
             let read = std::fs::read_to_string(&pid).ok();
             if let Some(pid) = read.and_then(|pid| pid.trim().parse::<u32>().ok()) {
@@ -1936,6 +1959,6 @@ fn off_linux_no_boxed_writer_is_kept_from_a_servers_inputs() {
     let held = host.admit(&claim(&work, ["run-a", "a1"], Protects::Nothing, &writers));
     let bootstrap = host.dir.path().join("brokkr");
     let commits = Cell::new(Commit::Synced);
-    let extension = extended(&held.unwrap(), fixed(&bootstrap), soon(), &commits);
+    let extension = extended(&held.unwrap(), fixed(&bootstrap), unhurried(), &commits);
     assert_eq!(extension, Err(Unknown::Unmounted(bootstrap).into()));
 }
