@@ -1,11 +1,5 @@
 use super::*;
-
-/// A pid no process holds: a child that has exited and been waited for.
-fn dead_pid() -> u32 {
-    let mut child = std::process::Command::new("true").spawn().unwrap();
-    child.wait().unwrap();
-    child.id()
-}
+use crate::reaped::exited_pid;
 
 /// A tree named as a session names it, planted without an owner.
 fn planted(tmp: &Path, label: &str, pid: &str) -> PathBuf {
@@ -268,7 +262,7 @@ fn a_lock_create_that_fails_for_want_of_a_descriptor_leaves_no_staging_directory
 #[test]
 fn a_hostile_name_is_sanitized_before_the_lines_are_joined() {
     let tmp = tempfile::tempdir().unwrap();
-    let tree = unheld(tmp.path(), "x\r\nforged line", &dead_pid().to_string());
+    let tree = unheld(tmp.path(), "x\r\nforged line", &exited_pid().to_string());
     let reaped = reap_dead_sessions_in(tmp.path(), flock);
     let said: String = tree
         .file_name()
@@ -297,7 +291,7 @@ fn a_lock_that_cannot_be_probed_keeps_the_tree_and_says_so() {
         std::fs::set_permissions(path, std::fs::Permissions::from_mode(bits)).unwrap();
     };
     let tmp = tempfile::tempdir().unwrap();
-    let dead = dead_pid().to_string();
+    let dead = exited_pid().to_string();
     let refusing = planted(tmp.path(), "serve", &dead);
     std::fs::write(refusing.join(LOCK), "").unwrap();
     let reaped = reap_dead_sessions_in(tmp.path(), refused);
@@ -351,7 +345,7 @@ fn a_lock_that_cannot_be_probed_keeps_the_tree_and_says_so() {
 fn a_lock_that_is_not_a_regular_file_is_kept_without_blocking() {
     for through_a_symlink in [false, true] {
         let tmp = tempfile::tempdir().unwrap();
-        let tree = planted(tmp.path(), "serve", &dead_pid().to_string());
+        let tree = planted(tmp.path(), "serve", &exited_pid().to_string());
         let fifo = tmp.path().join("fifo");
         let at = if through_a_symlink {
             &fifo
@@ -398,7 +392,7 @@ fn a_zombie_owner_is_dead() {
 #[test]
 fn only_a_tree_whose_owner_is_dead_and_unlocked_is_reaped() {
     let tmp = tempfile::tempdir().unwrap();
-    let dead = dead_pid().to_string();
+    let dead = exited_pid().to_string();
     let mine = std::process::id().to_string();
     let serve = unheld(tmp.path(), "serve", &dead);
     let exec = unheld(tmp.path(), "exec", &dead);
@@ -481,7 +475,7 @@ fn a_live_owner_s_free_tree_is_never_reapable() {
 #[test]
 fn a_lockless_tree_is_kept_and_said_and_a_held_one_kept() {
     let tmp = tempfile::tempdir().unwrap();
-    let dead = dead_pid().to_string();
+    let dead = exited_pid().to_string();
     let mine = std::process::id().to_string();
     let mut lockless = vec![
         planted(tmp.path(), "serve", &dead),
@@ -531,8 +525,8 @@ fn a_lockless_tree_is_kept_and_said_and_a_held_one_kept() {
 #[test]
 fn the_listing_keeps_what_the_reaping_keeps_with_its_words() {
     let tmp = tempfile::tempdir().unwrap();
-    let lockless = planted(tmp.path(), "serve", &dead_pid().to_string());
-    let free = unheld(tmp.path(), "exec", &dead_pid().to_string());
+    let lockless = planted(tmp.path(), "serve", &exited_pid().to_string());
+    let free = unheld(tmp.path(), "exec", &exited_pid().to_string());
 
     let listing = list_reapable_under(tmp.path());
 
@@ -584,7 +578,7 @@ fn set_mode(path: &Path, bits: u32) {
 #[test]
 fn a_free_tree_that_cannot_be_removed_is_kept_and_said() {
     let tmp = tempfile::tempdir().unwrap();
-    let dead = dead_pid().to_string();
+    let dead = exited_pid().to_string();
     let tree = unheld(tmp.path(), "exec", &dead);
     let sealed = tree.join("sealed");
     std::fs::create_dir(&sealed).unwrap();
@@ -653,7 +647,7 @@ fn sealed_overlay_work(tree: &Path, layer: &str) -> PathBuf {
 #[test]
 fn a_tree_whose_overlay_work_is_sealed_is_removed() {
     let tmp = tempfile::tempdir().unwrap();
-    let tree = unheld(tmp.path(), "exec", &dead_pid().to_string());
+    let tree = unheld(tmp.path(), "exec", &exited_pid().to_string());
     sealed_overlay_work(&tree, "0");
     set_mode(&sealed_overlay_work(&tree, "1"), 0o200);
     std::fs::write(tree.join("overlay").join("2"), "").unwrap();
@@ -679,9 +673,9 @@ fn a_tree_whose_overlay_work_is_sealed_is_removed() {
 #[test]
 fn a_dead_owner_s_free_tree_reports_its_bytes() {
     let tmp = tempfile::tempdir().unwrap();
-    let tree = unheld(tmp.path(), "exec", &dead_pid().to_string());
+    let tree = unheld(tmp.path(), "exec", &exited_pid().to_string());
     std::fs::write(tree.join("payload"), vec![9u8; 12_345]).unwrap();
-    let (_held, live) = held_under(tmp.path(), &dead_pid().to_string());
+    let (_held, live) = held_under(tmp.path(), &exited_pid().to_string());
     let expected = crate::tree::count_tree(&tree).unwrap().unwrap().bytes;
 
     let reaped = reap_dead_sessions_in(tmp.path(), flock);
@@ -697,9 +691,9 @@ fn a_dead_owner_s_free_tree_reports_its_bytes() {
 #[test]
 fn the_listing_removes_nothing_and_counts_what_the_reaping_would() {
     let tmp = tempfile::tempdir().unwrap();
-    let tree = unheld(tmp.path(), "exec", &dead_pid().to_string());
+    let tree = unheld(tmp.path(), "exec", &exited_pid().to_string());
     std::fs::write(tree.join("payload"), vec![3u8; 9_000]).unwrap();
-    let (_held, live) = held_under(tmp.path(), &dead_pid().to_string());
+    let (_held, live) = held_under(tmp.path(), &exited_pid().to_string());
     let expected = crate::tree::count_tree(&tree).unwrap().unwrap().bytes;
 
     assert_eq!(
@@ -739,7 +733,7 @@ fn the_overlay_walk_follows_no_symlink_out_of_the_tree() {
     std::fs::create_dir(&outside).unwrap();
     std::fs::write(outside.join("kept"), "").unwrap();
     set_mode(&outside, 0o500);
-    let tree = unheld(tmp.path(), "exec", &dead_pid().to_string());
+    let tree = unheld(tmp.path(), "exec", &exited_pid().to_string());
     let work = tree.join("overlay").join("0").join("work");
     std::fs::create_dir_all(&work).unwrap();
     std::os::unix::fs::symlink(&outside, work.join("work")).unwrap();
@@ -803,7 +797,7 @@ fn hostile_listing_root(label: &str) -> (tempfile::TempDir, PathBuf, PathBuf) {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path().join("evil\n\u{1b}[31mlist");
     std::fs::create_dir(&root).unwrap();
-    let tree = unheld(&root, label, &dead_pid().to_string());
+    let tree = unheld(&root, label, &exited_pid().to_string());
     (tmp, root, tree)
 }
 
@@ -813,7 +807,7 @@ fn hostile_listing_root(label: &str) -> (tempfile::TempDir, PathBuf, PathBuf) {
 #[test]
 fn a_hostile_name_never_reaches_a_kept_or_a_removed_line() {
     let tmp = tempfile::tempdir().unwrap();
-    let dead = dead_pid().to_string();
+    let dead = exited_pid().to_string();
 
     let removed_root = tmp.path().join("evil\n\u{1b}[31mremoved");
     std::fs::create_dir(&removed_root).unwrap();
@@ -924,7 +918,7 @@ fn a_listing_line_passes_every_named_path_through_safe() {
 #[test]
 fn the_listing_names_a_lower_bound_and_the_unreadable_directory() {
     let tmp = tempfile::tempdir().unwrap();
-    let tree = unheld(tmp.path(), "exec", &dead_pid().to_string());
+    let tree = unheld(tmp.path(), "exec", &exited_pid().to_string());
     let work = tree.join("overlay").join("0").join("work").join("work");
     std::fs::create_dir_all(&work).unwrap();
     std::fs::write(work.join("index"), vec![3u8; 4096]).unwrap();
@@ -963,7 +957,7 @@ fn the_listing_names_a_lower_bound_and_the_unreadable_directory() {
 #[test]
 fn the_listing_names_a_count_that_failed() {
     let tmp = tempfile::tempdir().unwrap();
-    let tree = unheld(tmp.path(), "serve", &dead_pid().to_string());
+    let tree = unheld(tmp.path(), "serve", &exited_pid().to_string());
     let outside = tmp.path().join("outside");
     std::fs::create_dir(&outside).unwrap();
     std::fs::write(outside.join("kept"), "").unwrap();
@@ -996,7 +990,7 @@ fn the_listing_names_a_count_that_failed() {
 /// A fresh root holding one session tree the next probe vanishes.
 fn vanishing_tree() -> (tempfile::TempDir, PathBuf) {
     let tmp = tempfile::tempdir().unwrap();
-    let tree = unheld(tmp.path(), "exec", &dead_pid().to_string());
+    let tree = unheld(tmp.path(), "exec", &exited_pid().to_string());
     ON_PROBE.set(Some(OnProbe::Vanish(tree.clone())));
     (tmp, tree)
 }

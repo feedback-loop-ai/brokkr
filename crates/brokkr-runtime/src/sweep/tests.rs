@@ -30,6 +30,7 @@ use env_guard::EnvGuard;
 use super::*;
 use crate::engine::{Cause, Named};
 use crate::envelope_builder::EnvelopeBuilder;
+use crate::reaped::exited_pid;
 
 const RUN: &str = "run-sweep";
 const RUN2: &str = "run-sweep-two";
@@ -1785,12 +1786,25 @@ fn hands_tree(tmp: &Path, pid: u32, label: &str) -> PathBuf {
     tree
 }
 
-/// A pid the kernel has reaped: a child that ran to completion.
-fn exited_pid() -> u32 {
-    let mut child = Command::new("true").spawn().unwrap();
-    let pid = child.id();
-    assert!(child.wait().unwrap().success());
-    pid
+/// The reaped-pid fixture is bounded: a child that never exits is killed,
+/// and the fixture fails saying so within PATIENCE rather than hang.
+#[test]
+fn the_reaped_pid_fixture_fails_within_its_patience_on_a_child_that_never_exits() {
+    let started = std::time::Instant::now();
+    let failed = std::panic::catch_unwind(|| {
+        crate::reaped::reaped_within(
+            Command::new("sleep").arg("600"),
+            std::time::Duration::from_millis(200),
+        )
+    })
+    .unwrap_err();
+
+    assert!(started.elapsed() < crate::reaped::PATIENCE);
+    let words = failed.downcast_ref::<String>().unwrap();
+    assert!(
+        words.ends_with("did not exit within 200ms; it was killed"),
+        "{words}"
+    );
 }
 
 /// A safe renderer for the lines: the CLI's own strips controls and the
