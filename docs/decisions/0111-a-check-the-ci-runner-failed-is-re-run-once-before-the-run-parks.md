@@ -682,28 +682,36 @@ basis beyond its bound refuses as `basis-too-large`, and a range beyond its own 
 
 - **(b) A new `ci/classified` event.** Moves the event envelope, every manifest and every fold
   arm for a fact an input can carry. Refused, as 0106 ruling 1 refused `run/park-caused`.
-- **(c) The excerpt kept outside the journal by digest.** Smaller rows, but the classification
-  could not be replayed from the journal alone. Refused; the bound below is the cost control.
+- **(c) The excerpt kept outside the journal by digest.** Refused: the journal would point at
+  log bytes kept somewhere else, and a replay would need them. No log byte is kept at all
+  (below).
 
-**Log excerpts, bounded in total and handled before they are durable.** An excerpt is carried
-only for the first failed step of a failed required job, or of a failed dependency of a
-required aggregate (ruling 4), and only when that step is one ruling
-4's list declares as setup. The observer applies four bounds before the seat's result is
-written, so they hold before sealing:
+**No raw log byte enters the journal.** The journal records only what matched. An excerpt is
+read only for the first failed step of a failed required job, or of a failed dependency of a
+required aggregate (ruling 4), and only when that step is one ruling 4's list declares as
+setup. It lives only in the engine's memory, between the observer's stdout (ruling 2) and the
+edge parse:
 
-- each excerpt is at most 8 KiB, from the step log's tail, with a `truncated` flag;
-- an observation carries at most four excerpts, so 32 KiB in total, and a fifth candidate
-  refuses the observation rather than dropping one silently;
-- each byte outside printable ASCII, the newline aside, is escaped;
-- the excerpt is data the classifier matches bytes against, never text any seat or model reads
-  as instruction.
+- the observer reads each excerpt from the step log's tail, at most 8 KiB, and at most four of
+  them, so 32 KiB in total; a fifth candidate refuses the observation rather than dropping one
+  silently;
+- at the edge, before anything is sealed, a pure core function matches each excerpt against
+  that step's declared literals and replaces it with the set of literal ids that occur in it;
+- the excerpt's bytes are then dropped. The sealed observation holds, for each such step, the
+  job's id, the step's number and name, the run's id and attempt, and the matched literal ids,
+  possibly none. The `ci_class` basis holds the literal bytes the ids name, from the pinned
+  list (above), never from a log;
+- no excerpt reaches a seat, a model, a notes field or the stderr tail (ruling 2's `ci` site
+  journals stderr's length and digest only).
 
-Whether the forge masks every secret in a step's log is **unmeasured**
-(<https://docs.github.com/en/actions/security-for-github-actions/security-guides/using-secrets-in-github-actions>).
-So ruling 4's pattern arm does not build until 0111a's evidence measures it. If masking cannot be
-shown, the arm is not built at all, and ruling 4 (b) holds: no excerpt is carried, and every
-failure is the change's. An excerpt is never journaled by digest alone, because a replay could
-not re-derive the class from it.
+So a replay re-derives the class from the matched ids, which is all the classifier reads, and
+the person reads the log itself on the forge, from the run, attempt and job ids the park names.
+Because no log byte is durable, the forge's secret masking
+(<https://docs.github.com/en/actions/security-for-github-actions/security-guides/using-secrets-in-github-actions>)
+is no longer a precondition of ruling 4's pattern arm, as fix round 1093r3 made it; whether the
+forge masks every secret stays **unmeasured**, and nothing here relies on it. What is durable is
+bounded by the compile: a literal id is kebab-case and at most 64 bytes, and a matched set holds
+at most the step's declared literals.
 
 ### 4. What evidence types a park, and the classifier
 
@@ -736,8 +744,8 @@ rule, which reads every required check's own `success` and never reads a log.
     `uses: ./.github/actions/setup-cargo-audit` (`.github/workflows/ci.yml:681-689`) can print
     it. The person reads the evidence and decides; nothing passes.
 - **(b) Nothing types a park.** Every failure is the change's, as today. Cost: the narrowed
-  acceptance is not delivered, and the port bind still costs a seat attempt. This is what holds
-  if 0111a's evidence cannot show secret masking (ruling 3).
+  acceptance is not delivered, and the port bind still costs a seat attempt. It no longer
+  depends on secret masking: no log byte is journaled under (a) either (ruling 3).
 - **(c) A forge-proven non-execution set as a precondition**, as fix round 1093r2 recommended.
   Removed. One observed payload establishes a reported value, not its semantics, and not that
   the change could not cause it. The set is left **unmeasured and empty**; no classifier arm
@@ -777,7 +785,7 @@ refusals. It is never read as an empty change. In order:
    not `success`, each instance of a matrix job on its own. Every element gets one closed type,
    matched without a wildcard:
    - **setup-pattern**: conclusion `failure`, its first failed step a declared setup step, and
-     that step's excerpt holding one of that step's literals, with the pattern's id;
+     that step's sealed match naming one of that step's literals, with the pattern's id;
    - **setup-via-needs**: a required aggregate (below) with conclusion `failure`, whose failed
      dependencies are each, in turn, setup-pattern or setup-via-needs, and at least one failed;
    - **cancelled**: conclusion `cancelled`, the required job's own or a dependency's through an
@@ -926,9 +934,9 @@ cannot write any of them.
 - **`change`**: routed exactly as a red gate is today, to `implement`.
 - **`refused`** (ruling 3): parks `ruled`.
 
-**A deterministic match.** Under ruling 4 (a), where several literals occur in one excerpt,
-the classifier takes the first pattern in the list's declaration order. The fault carries that
-pattern's id, so one excerpt yields one fault.
+**A deterministic match.** Under ruling 4 (a), where several of a step's literals matched, the
+classifier takes the first matched pattern in the list's declaration order. The fault carries
+that pattern's id, so one step yields one fault.
 
 **Where the gate sits: where the head is already published.** Fix round 1093r3 put an
 exact-head CI gate before review in `fast` and `verify`. But `fast`'s implement completes with
@@ -1198,8 +1206,11 @@ slice that produces it, and each typed assertion is in the slice that builds its
    any run, and with a read-only token, representative payloads for this repository's own pull
    requests: the check runs and the commit statuses for a head; the workflow runs that produced
    them, with path, event, number, attempt, head and whatever the forge says of the revision it
-   tested; their jobs with steps; one job's log; and the base branch's required set. A failed
-   setup step is added if one recurs. Files: the captured payloads, redacted, as test data under
+   tested; their jobs with steps; one step log's bounded tail, cut to what 0111b's matcher reads;
+   and the base branch's required set. A failed setup step is added if one recurs. The log sample
+   is reviewed by the operator before it is committed, as any test data is. It needs no claim
+   that the forge masked a secret, because under ruling 3 no log byte reaches a journal; the
+   sample is a matcher's test input, not a journal row. Files: the captured payloads, redacted, as test data under
    `crates/brokkr-core/src/ci/evidence/` with a note of how each was taken; one test that pins
    their digests, so no later slice regenerates them. About 40 test lines and the data. No
    contract and no production code. It settles, or marks still unmeasured:
@@ -1209,9 +1220,9 @@ slice that produces it, and each typed assertion is in the slice that builds its
    - what a run's and a check run's `pull_requests` association holds, and in which cases it is
      empty, a fork's pull request among them (ruling 3);
    - how a matrix job's name is spelled;
-   - the closed list of conclusion words, and how a job log is cut into steps;
-   - whether the forge masks every secret in a step's log, which decides whether ruling 4's
-     pattern arm is built at all.
+   - the closed list of conclusion words, and how a job log is cut into steps.
+
+   Secret masking is no longer among them: ruling 4's pattern arm does not depend on it.
 
    Where a fact differs from what this decision assumes, the decision is revised before it is
    accepted, or before 0111b mints. Test: `the_ci_evidence_files_are_pinned_by_digest`. With
@@ -1263,7 +1274,10 @@ slice that produces it, and each typed assertion is in the slice that builds its
    `several_literals_in_one_excerpt_match_the_first_declared`;
    `a_pattern_naming_an_undeclared_step_refuses_to_compile`;
    `a_setup_step_outside_every_required_workflow_refuses_to_compile`;
-   `a_fifth_excerpt_refuses_the_observation`;
+   `a_fifth_excerpt_refuses_the_observation`; the journal's bytes (ruling 3):
+   `no_log_byte_reaches_the_sealed_observation_or_the_basis`;
+   `a_sealed_observation_names_only_the_matched_literal_ids_and_the_job_step_and_attempt`;
+   `an_unmasked_secret_in_an_excerpt_never_reaches_the_journal`;
    `a_timing_sensitive_test_failure_is_the_changes`; `a_cancelled_job_is_the_changes`;
    `one_untyped_job_makes_the_whole_change`; `an_unknown_conclusion_refuses_by_name`;
    the whole failure set (ruling 4):
