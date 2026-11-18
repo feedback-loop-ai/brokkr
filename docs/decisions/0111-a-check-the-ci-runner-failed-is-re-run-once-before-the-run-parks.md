@@ -400,6 +400,9 @@ The observation names its binding:
 - the forge (`github`, the one word v1 admits);
 - the repository, by owner, name and numeric id;
 - the pull request's number, and its base commit's full id;
+- the pull request's head commit as the forge reports it
+  (<https://docs.github.com/en/rest/pulls/pulls#get-a-pull-request>, its `head.sha`), which must
+  be the engine's own git head, or the head is unpublished (ruling 6);
 - the gated head's full commit id.
 
 It then lists every check the forge reports for that head, with no filtering. Checks outside
@@ -610,6 +613,7 @@ otherwise classifiable failure refuses as `missing-required`; it is never typed.
 | Refusal | When |
 |---|---|
 | `unrelated` | the repository, the pull request or the head differs from the binding |
+| `head-unpublished` | the forge's head for the pull request is not the engine's git head: the head the run would gate is not the one pushed |
 | `range-unavailable` | git cannot take ruling 4's pinned base-to-head range |
 | `range-too-large` | the range's changed paths exceed the bound the classification record carries |
 | `machinery-changed` | a changed path falls inside the verdict-machinery set; the refusal names the paths |
@@ -870,71 +874,70 @@ cannot write any of them.
 the classifier takes the first pattern in the list's declaration order. The fault carries that
 pattern's id, so one excerpt yields one fault.
 
-**Where the gate intercepts.** The gate must catch every path that must wait for CI, not only
-the verifier's pass. In `fast`, four rules route into `review`, and one of them skips `verify`:
-a returned implement that changed only docs goes straight to review
-(`IMPL-OK-DOCS-RETURN`, `recipes/fast/policy.json:59-68`). The other three are `VERIFY-PASS`
-(`:95-101`), and `SHIP-DRIFT` (`:186-196`) and `SHIPPED-DRIFT` (`:215-225`), which return a
-head that moved after the review verdict to review. Each moves
-or may move the head that review reads, so each must wait for CI. The overlay replaces each of
-the four by its id (`override.rules`; an overlay's rule of the same id is removed from the base
-and prepended, `crates/brokkr-runtime/src/bundle/compose.rs:906-921`), with `next: ci` in place
-of `next: review`. After the overlay, only a rule `from: ci` routes into `review`, and the
-overlay test refuses any other.
+**Where the gate sits: where the head is already published.** Fix round 1093r3 put an
+exact-head CI gate before review in `fast` and `verify`. But `fast`'s implement completes with
+a local commit (`recipes/fast/policy.json:69-75`), and pushing is a person's act after review:
+the shipper's notes say "review, push, and merge next"
+(`recipes/fast/scripts/ship-seat.sh:73`, `:91`). A head no one has pushed has no remote checks,
+so that gate could only refuse or wait. **Recommended: (a) the gate is the `landing` recipe's
+check-watching step, its entry phase.** The issue names the step ("a land run that watches pull
+request checks", as the commission quotes it; the issue was not read in this seat). Landing runs
+over a branch that already exists (`recipes/landing/README.md:5-8`), and at its entry no seat
+has committed, so the head is the one the person brought. Whether they pushed it is checked, not
+assumed: the observation names the pull request's head as the forge reports it, and the engine
+refuses with `head-unpublished` when that is not its own git head (ruling 3). A person pushes,
+and the operator's retry observes again.
+
+The overlay, `landing-ci`, extends `landing` and overrides its table's `initial` to `ci` and
+its `phases` to add `ci`; `landing` overrides the same keys over `brokkr-fast`
+(`recipes/landing/bundle.json:7-10`). Its rules precede landing's
+(`crates/brokkr-runtime/src/bundle/compose.rs:871-921`), and no rule of landing's or `fast`'s
+changes.
 
 **Every route and cap, from the incoming edge.** First match wins, in the order listed. The
-`When` column names the class; ruling 10 gives its schema-legal spelling. The fast-derived table,
-which ruling 10 lands on 0109's v3:
+`When` column names the class; ruling 10 gives its schema-legal spelling.
 
 | Rule | From | Result | When | Next |
 |---|---|---|---|---|
-| `IMPL-OK-DOCS-RETURN` (replaced) | `implement` | `complete` | `fixes_docs_only: true` | `ci` |
-| `VERIFY-PASS` (replaced) | `verify` | `pass` | | `ci` |
-| `SHIP-DRIFT` (replaced) | `ship` | `ready` | `drift_detected: true` | `ci` |
-| `SHIPPED-DRIFT` (replaced) | `ship` | `shipped` | `drift_detected: true` | `ci` |
+| (entry) | | | `initial: ci` | `ci` |
 | `CI-REFUSED` | `ci` | `fail` | class `refused` | park, `ruled`, naming the refusals |
 | `CI-INFRASTRUCTURE` | `ci` | `fail` | class `ci-infrastructure` | park, `infrastructure` `ci-infrastructure` |
-| `CI-PASS` | `ci` | `pass` | class `green` | `review` |
-| `CI-FAIL-EXHAUSTED` | `ci` | `fail` | `visits_implement_gte: 3` | stop, `hard` |
+| `CI-PASS` | `ci` | `pass` | class `green` | `classify` |
 | `CI-FAIL` | `ci` | `fail` | | `implement`, `flagged` |
 
-Every other `fast` rule is unchanged: `IMPL-OK` still routes to `verify`, whose pass now reaches
-`ci`, and every review return still goes to `implement`, whose completion reaches `ci` by one of
-the first two rows.
+Then landing's own two rules, `CLASSIFY-DOCS` to `review` and `CLASSIFY-CODE` to `verify`
+(`recipes/landing/policy.json:9-21`), and every `fast` rule, unchanged.
 
-The `verify`-based table, which ruling 10 lands first under v2. `verify`'s phases are `verify`,
-`review`, `done` and `stop`, and it has no `implement` (`recipes/verify/policy.json`), so a red
-CI stops, as its red verify does:
+**The CI loop keeps a bound.** `ci` is entered only as the run's `initial`, and again only by
+the operator's retry of its own park; the compile refuses any rule whose `next` is `ci`. So
+`CI-FAIL` fires at most once a run, and the implement visit it buys is counted by `fast`'s one
+implement bound, `visits_implement_gte: 3` (`recipes/fast/policy.json:76-94`;
+`visits_<phase>_gte` counts every entry of the phase, whatever routed into it,
+`contracts/phase-machine.v2.schema.json:73`). No loop runs through `ci`.
 
-| Rule | From | Result | When | Next |
-|---|---|---|---|---|
-| `VERIFY-PASS` (replaced) | `verify` | `pass` | | `ci` |
-| `CI-REFUSED` | `ci` | `fail` | class `refused` | park, `ruled`, naming the refusals |
-| `CI-INFRASTRUCTURE` | `ci` | `fail` | class `ci-infrastructure` | park, `infrastructure` `ci-infrastructure` |
-| `CI-PASS` | `ci` | `pass` | class `green` | `review` |
-| `CI-FAIL` | `ci` | `fail` | | stop, `hard` |
+**What this does not gate.** A head the run itself makes, by an implement after `CI-FAIL` or a
+review return, is local, and no gate in this run reads its CI: it is verified locally, judged,
+and shipped for a person to push, and the pull request's CI then runs on it as it does today.
+Gating a head the run made needs a publish-and-resume handoff: a park that names the head to
+push, and a resume that refuses any head but that one. That is a follow-up, and the pre-review
+interception in `fast` and `verify` that fix round 1093r3 drafted, removed here, waits on it.
 
-**The CI loop keeps a bound.** HEAD caps only `VERIFY-FAIL`: `VERIFY-FAIL-EXHAUSTED` stops at
-`visits_implement_gte: 3` (`recipes/fast/policy.json:76-94`). `CI-FAIL-EXHAUSTED` reads the same
-counter. `visits_<phase>_gte` counts the run's entries of that phase, whatever routed into it
-(the `when` description at `contracts/phase-machine.v2.schema.json:71-73`). So a `VERIFY-FAIL`
-return and a `CI-FAIL` return spend the one implement bound of three between them. A green local
-verify and a red CI therefore stop after the third implement visit, not never. No other loop
-exists: every other class parks.
-
-**Refused routes**, each because it would unbound a loop, hide a failure or write to the forge:
+**Refused routes**, each because it would unbound a loop, hide a failure, read an unpublished
+head or write to the forge:
 
 - any route to a re-run, under every class (ruling 1);
-- any rule into `review` from a phase other than `ci`, the docs-only return among them: it
-  would let a head reach review without waiting for CI;
+- any rule whose `next` is `ci`: it would gate a head the run made, which is unpublished;
+- any rule into `classify` but `CI-PASS`: it would skip the gate;
 - `ci-infrastructure` routed to `implement`: a seat attempt is what the class exists to save;
 - a refusal routed to `implement`; a refusal parks;
-- `CI-PASS` on any class but `green`; the word binding refuses it (ruling 3);
-- in the fast-derived table, a `CI-FAIL` with no exhaustion arm before it.
+- `CI-PASS` on any class but `green`; the word binding refuses it (ruling 3).
 
 Each is refused by the overlay test, over the complete composed table (ruling 10). The
 scope-widened reconciliation park fix round 1093r2 promised went with the write (ruling 1); no
 route or cause remains for it.
+
+- **(c) The pre-review gate in `fast` and `verify`, as fix round 1093r3 drafted.** Refused for
+  now: its head is unpublished by construction. It returns with the follow-up handoff above.
 
 - **(b) A runner fault routed to `implement`, with the class in the commission.** It spends the
   seat attempt the issue counts, to tell a model what the engine already typed. Not
@@ -1038,8 +1041,20 @@ them, and 0082 mints no version outside an accepted decision.
 **One result per row.** Each rule's `result` is one string under v2
 (`contracts/phase-machine.v2.schema.json:31`, `:50`), and the engine matches it by exact
 equality (`crates/brokkr-core/src/policy.rs:264-273`). Ruling 1 removed the two re-run words
-fix round 1093r2 put on one row. Every row of ruling 6's tables names one result: `pass`,
-`fail`, `complete`, `ready` or `shipped`.
+fix round 1093r2 put on one row. **Each row of ruling 6's landing table, checked against v2:**
+
+- `CI-REFUSED` and `CI-INFRASTRUCTURE`: one result, `fail`; a `when` of one boolean input,
+  `ci_refused: true` or `ci_infrastructure: true` (`:73`); `park: true`, with no `next`, no
+  severity and no `requires_artifacts`, as v2's park admits (`:53-57`). Legal.
+- `CI-PASS`: one result, `pass`; `when` `ci_green: true`; `next: classify`, a declared phase.
+  Legal.
+- `CI-FAIL`: one result, `fail`; no `when`; `next: implement` with severity `flagged`. Legal,
+  and not made unreachable by an unconditional rule above it for the same `(from, result)`
+  (`:28`), since the two parks above it are conditional.
+- The overlay's `initial: ci` and its `phases`, which add `ci` to landing's seven, are one
+  string and a list of strings (`:16-20`). Legal.
+
+So every row 0111 adds is v2-legal on its own.
 
 **The whole composed table validates, not the overlay alone.** A recipe's table is composed: an
 overlay's rules precede its base's, and an overlay rule that overrides a base rule's id replaces
@@ -1054,29 +1069,37 @@ keeps the environment park validates whole under v2. A `jq` scan of every
 `recipes/*/policy.json` for an array-valued condition printed `blocked_by_in` for `fast`,
 `drift_in` and `strategy_in` for `triage`, and nothing for any other table.
 
-**Recommended: (a) a compliant base first, and the fast-derived gate on 0109's v3.**
+**But the composed landing table does not validate whole under v2, so 0111 still needs 0109's
+v3.** `landing` extends `brokkr-fast`, which extends `fast` (`recipes/landing/bundle.json:5`,
+`recipes/brokkr-fast/bundle.json:4`), so `landing-ci`'s composed table carries `fast`'s
+`IMPL-BLOCKED-ENVIRONMENT` and its array. That is true of `landing` today, before 0111 adds a
+row; 0111 adds no array and inherits the one there. Fix round 1093r3's v2 route was the
+`verify`-based gate, and that gate goes with the pre-review interception (ruling 6). No
+composition that holds the landing gate and keeps the environment park validates under v2, so
+the ask below stays.
 
-- **(a) Recommended.** The CI overlay lands first over `recipes/verify/policy.json`, a v2 table
-  with no array-valued condition and no base of its own (`recipes/verify/bundle.json` has no
-  `extends`). Its composed table validates whole under v2, and ruling 6 gives its routes. The
-  fast-derived overlay, which keeps the environment park, lands only after 0109c moves `fast` to
-  v3, and only if the operator grants the ask below. Cost: the fast-derived gate waits on 0109c.
+**Recommended: (a) the landing gate on 0109's v3.**
+
+- **(a) Recommended.** `landing-ci` lands only after 0109c moves `fast` to v3, and only if the
+  operator grants the ask below. Its composed table then validates whole under v3. Cost, said
+  plainly: no live producer exists before 0109c. 0111a to 0111c land and test offline, and live
+  telemetry waits on 0109c.
 - **(b) An engine-owned boolean projection of `blocked_by`,** such as `blocked_by_environment`,
-  so `fast`'s park spells as a scalar under v2. It edits `fast`'s table and adds a second name
-  for a fact the choice already holds. Not recommended.
+  so `fast`'s park spells as a scalar under v2 and `landing-ci` validates under v2 now. It edits
+  `fast`'s table, which every delivering recipe composes, and adds a second name for a fact the
+  choice already holds. Not recommended; it is the operator's way to land the gate before 0109c.
 - **(c) Validate the overlay's own rules alone.** Refused: the table the engine runs is the
   composed one.
 
 **The ask on 0109's proposed v3, for the operator.** That `forge.phase-machine/v3` admit a
 `<choice>_in` key as a non-empty array of words from that choice's closed vocabulary, which is
 the shape HEAD's runtime already reads (`conditions.rs:43-75`). `fast`'s `blocked_by_in` and
-`triage`'s `drift_in` and `strategy_in` would then validate whole, and so would a fast-derived CI
-overlay. 0111 mints nothing for it; the ask is 0109's to rule.
+`triage`'s `drift_in` and `strategy_in` would then validate whole, and so would `landing` and
+`landing-ci`. 0111 mints nothing for it; the ask is 0109's to rule.
 
-**Enforcement binding:** each overlay slice validates the complete materialized table its
-recipe composes, not the overlay's file, against the schema the composition declares: v2 for
-the `verify` overlay, and v3 for the fast-derived one. A test asserts that exactly one flag is
-true for each non-`change` class.
+**Enforcement binding:** 0111e validates the complete materialized table `landing-ci` composes,
+not the overlay's file, against v3. A test asserts that exactly one flag is true for each
+non-`change` class.
 
 ## What stays out
 
@@ -1089,6 +1112,9 @@ true for each non-`change` class.
 - The dispatcher's retry budget, beyond ruling 8.
 - Flaky-test handling of any kind, quarantine included: a follow-up (ruling 4).
 - `fast`'s `blocked_by_in` array outside v2's published schema: a follow-up (ruling 10).
+- A CI gate on a head the run itself made, before review in `fast` or `verify`: a follow-up
+  that needs a publish-and-resume handoff (ruling 6).
+- Commit statuses as required evidence: a follow-up that needs a revision attestation (ruling 3).
 - A forge other than GitHub: `forge` is a closed enum of one word in v1.
 - An automated re-run: the follow-up decision ruling 1 (c) names.
 
@@ -1102,8 +1128,8 @@ exactly as now. The cost is an exec observer per recipe that wants it, one read-
 a list an operator keeps. Four contract versions are proposed: `ci-observation/v1`,
 `ci-classification/v1`, `ci-checks/v1` and `park-cause/v2`. Each is minted only when its slice
 lands under this decision's acceptance (0082), and the first three only after 0111a's evidence.
-This decision proposes no table contract: the `verify` gate runs under v2, and the `fast` gate
-waits on 0109's v3 and ruling 10's ask.
+This decision proposes no table contract: the gate is `landing`'s entry, over a published head,
+and it waits on 0109's v3 and ruling 10's ask.
 
 ## The slices
 
@@ -1256,44 +1282,44 @@ slice that produces it, and each typed assertion is in the slice that builds its
    path, its output held to `ci-observation/v1` and to 0111a's evidence);
    `the_observer_refuses_as_not_settled_when_its_polling_bound_ends`;
    `the_observer_holds_no_write_binding`.
-4. **0111d — the gate on `verify`, and the typed park it writes.** The first slice with a live
-   producer. Files: a recipe overlay over `recipes/verify` declaring ruling 6's `verify`-based
-   table; `crates/brokkr-core/src/park.rs` and its `parse` and `forms` modules;
-   `crates/brokkr-runtime/src/engine/cursor.rs` (the marked rule's typed park);
-   `crates/brokkr-runtime/src/bundle/` (the compile's marking of that rule); and the readout it
-   produces, the fleet's and `inspect`'s paint of the cause. About 150 production, 100 data and
-   450 test lines. Contract: `park-cause/v2`. **Live read-only telemetry starts here**: from the
-   first run the operator drives under this overlay on a real pull request, each observation,
-   class and park is journaled, and a sweep can count typed parks against seat attempts. The
-   park's lifecycle is this slice's too: a person re-runs, then the operator retries the parked
-   `ci` phase, which observes again. Tests: `a_green_observation_passes_to_review`;
-   `a_red_ci_on_verify_stops`; `a_refusal_parks_ruled_and_never_passes`;
-   `no_rule_routes_to_a_rerun`; `a_ci_overlay_seat_declaring_a_write_binding_refuses_to_compile`;
-   `the_composed_verify_ci_table_validates_whole_against_phase_machine_v2`;
-   `exactly_one_class_flag_is_true_for_each_class_but_change`;
-   `a_rule_naming_two_class_flags_refuses_to_compile`;
+4. **0111d — the typed park and its marked rule.** Files: `crates/brokkr-core/src/park.rs` and
+   its `parse` and `forms` modules; `crates/brokkr-runtime/src/engine/cursor.rs` (the marked
+   rule's typed park); `crates/brokkr-runtime/src/bundle/` (the compile's marking of that rule,
+   and the refusals of ruling 6's routes); and the readout it produces, the fleet's and
+   `inspect`'s paint of the cause. About 150 production and 400 test lines, over test-built
+   tables; no recipe yet. Contract: `park-cause/v2`. Tests:
    `a_runner_fault_parks_with_no_seat_attempt` (the typed park, asserted here with its writer);
    `a_v1_infrastructure_cause_reads_kind_engine`; `a_ci_infrastructure_park_is_never_retryable`;
    `a_runner_fault_park_writes_the_ci_infrastructure_cause_and_keeps_the_rule_in_the_decision`;
    `a_refusal_park_carrying_a_ci_class_stays_ruled`;
    `a_different_table_park_carrying_the_ci_infrastructure_class_stays_ruled`;
    `a_table_with_no_or_two_marked_ci_infrastructure_parks_refuses_to_compile`;
-   `an_operator_retry_after_a_person_re_runs_observes_again`;
+   `exactly_one_class_flag_is_true_for_each_class_but_change`;
+   `a_rule_naming_two_class_flags_refuses_to_compile`;
+   `a_rule_whose_next_is_ci_refuses_to_compile`;
+   `a_rule_into_classify_but_ci_pass_refuses_to_compile`;
+   `no_rule_routes_to_a_rerun`; `a_ci_overlay_seat_declaring_a_write_binding_refuses_to_compile`;
    `the_fleet_paints_the_ci_infrastructure_cause`; and, when 0106d lands, its
    `a_non_retryable_infrastructure_park_spends_nothing` (0106:1224) extended with a
    `ci-infrastructure` park (ruling 8).
-5. **0111e — the gate on `fast`'s delivery path.** Lands only after 0109c moves `fast` to v3,
-   and only if the operator grants ruling 10's ask. Files: a recipe overlay over `fast`
-   declaring ruling 6's fast-derived table, and its compile tests. About 100 data and 400 test
-   lines. No contract of this decision's own. Tests: `a_change_failure_returns_to_implement`;
-   `a_green_verify_and_a_red_ci_stop_at_the_third_implement_visit`;
-   `verify_and_ci_returns_share_one_implement_bound`;
+5. **0111e — the gate on `landing`, over a published head.** The first slice with a live
+   producer. Lands only after 0109c moves `fast` to v3, and only if the operator grants ruling
+   10's ask (or rules its option (b)). Files: `recipes/landing-ci/`, the overlay declaring ruling
+   6's table, and its compile tests. About 100 data and 400 test lines. No contract of this
+   decision's own. **Live read-only telemetry starts here**: from the first landing the operator
+   drives under this overlay on a real pull request, each observation, class and park is
+   journaled, and a sweep can count typed parks against diagnosis seat attempts. The park's
+   lifecycle is this slice's too: a person re-runs, then the operator retries the parked `ci`
+   phase, which observes again. Tests: `a_green_observation_passes_to_classify`;
+   `a_change_failure_returns_to_implement_once`;
+   `a_refusal_parks_ruled_and_never_passes`;
    `a_ci_infrastructure_class_never_routes_to_implement`;
-   `a_docs_only_return_waits_for_ci_before_review`;
-   `a_ship_drift_return_waits_for_ci_before_review`; `every_edge_into_review_comes_from_ci`;
-   `a_rule_into_review_from_another_phase_refuses_to_compile`;
+   `an_unpushed_head_refuses_as_head_unpublished`;
+   `a_pushed_head_after_a_head_unpublished_park_observes_again_on_retry`;
+   `a_head_the_run_made_is_never_gated_by_ci`;
    `the_environment_park_survives_the_ci_overlay`;
-   `the_composed_fast_ci_table_validates_whole_against_phase_machine_v3`.
+   `an_operator_retry_after_a_person_re_runs_observes_again`;
+   `the_composed_landing_ci_table_validates_whole_against_phase_machine_v3`.
 
 ## Evidence
 
