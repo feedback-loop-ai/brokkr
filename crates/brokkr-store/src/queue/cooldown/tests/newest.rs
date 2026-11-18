@@ -362,15 +362,17 @@ fn a_key_column_refusal_precedes_an_earlier_kept_rows_payload_refusal() {
 /// table, each its own round, the provider and the words of whatever type
 /// SQLite stores, which only direct SQL writes.
 fn plant_values(conn: &Connection, rows: Vec<(Value, &str, i64, Value)>) {
-    for (round, (provider, route, until, reason)) in rows.into_iter().enumerate() {
-        conn.execute(
+    let mut insert = conn
+        .prepare(
             "INSERT INTO provider_cooldowns
-                (run_id, event_seq, site, provider, route, until_at, reason,
-                 retry_after_seconds, rounds, recorded_at)
-             VALUES ('run-a', 1, '', ?1, ?2, ?3, ?4, NULL, ?5, 0)",
-            params![provider, route, until, reason, round as i64 + 1],
+                (rounds, provider, route, until_at, reason, run_id, event_seq, site, recorded_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, 'run-a', 1, '', 0)",
         )
         .unwrap();
+    for (round, (provider, route, until, reason)) in (1i64..).zip(rows) {
+        insert
+            .execute(params![round, provider, route, until, reason])
+            .unwrap();
     }
 }
 
