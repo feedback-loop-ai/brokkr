@@ -2,7 +2,9 @@
 //! it, its parse and closed vocabulary, the results it can emit, and the
 //! aggregation the engine runs over the members' results.
 
+use brokkr_core::findings::Finding;
 use brokkr_core::policy::SEVERITY_ORDER;
+use serde::Deserialize;
 use serde_json::{json, Map, Value};
 
 use super::CompileError;
@@ -107,7 +109,8 @@ impl Aggregate {
     }
 
     /// Deterministic, order-independent aggregation of member results. A
-    /// member payload without a readable result string poisons the
+    /// member payload without a readable result string, or with findings
+    /// that are not the engine's stamped records, poisons the
     /// aggregate into a marker the engine's own schema validation parks
     /// with the full member evidence attached — never coerced (law 0001).
     /// A member result outside the three ranked words ranks WORST and is
@@ -128,42 +131,35 @@ impl Aggregate {
             Aggregate::UnanimousPass => unanimous_pass(&read.parsed, meta),
             Aggregate::ReviewPanel => review_panel(&read.parsed, meta),
         };
-        let findings = joined_findings(members);
-        if !findings.is_empty() {
-            result["findings"] = Value::Array(findings);
+        if !read.findings.is_empty() {
+            result["findings"] = serde_json::to_value(&read.findings).expect("findings serialize");
         }
         result
     }
 }
 
-/// Every member's findings, in declared order, each as the engine
-/// stamped it with that member's own site (decision 0109 ruling 3), so a
-/// copy of a sibling's finding is another key and never a borrowed one.
-fn joined_findings(members: &[(String, Value)]) -> Vec<Value> {
-    members
-        .iter()
-        .filter_map(|(_, payload)| payload.get("findings").and_then(Value::as_array))
-        .flatten()
-        .cloned()
-        .collect()
-}
-
 /// Every member's result string, read once for the aggregate: by member,
 /// its notes and its verdict as evidence, and beside its name the result
-/// and the payload it came in.
+/// and the payload it came in; and every member's findings, typed, in
+/// declared order, each as the engine stamped it with that member's own
+/// site (decision 0109 ruling 3), so a copy of a sibling's finding is
+/// another key and never a borrowed one.
 struct Verdicts<'a> {
     notes: Map<String, Value>,
     verdicts: Map<String, Value>,
     parsed: Vec<(&'a str, &'a str, &'a Value)>,
+    findings: Vec<Finding>,
 }
 
 impl<'a> Verdicts<'a> {
     /// The members' verdicts, or `None` when any member's payload has no
-    /// readable result string.
+    /// readable result string or carries findings that do not read as the
+    /// engine's stamped records.
     fn read(members: &'a [(String, Value)]) -> Option<Self> {
         let mut notes = Map::new();
         let mut verdicts = Map::new();
         let mut parsed: Vec<(&str, &str, &Value)> = Vec::new();
+        let mut findings = Vec::new();
         for (name, payload) in members {
             if let Some(note) = payload.get("notes") {
                 notes.insert(name.clone(), note.clone());
@@ -171,11 +167,15 @@ impl<'a> Verdicts<'a> {
             let result = payload.get("result").and_then(Value::as_str)?;
             verdicts.insert(name.clone(), Value::String(result.to_string()));
             parsed.push((name.as_str(), result, payload));
+            if let Some(reported) = payload.get("findings") {
+                findings.extend(Vec::<Finding>::deserialize(reported).ok()?);
+            }
         }
         Some(Verdicts {
             notes,
             verdicts,
             parsed,
+            findings,
         })
     }
 }
