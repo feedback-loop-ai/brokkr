@@ -13,7 +13,7 @@ use std::fmt;
 
 use serde::Serialize;
 
-use crate::{JournalRow, Participant, Phase, RunView};
+use crate::{GateRecord, JournalRow, Participant, Phase, RunView};
 
 /// The console's exclusive scoping, as the verbs a terminal has.
 pub enum Scope {
@@ -184,6 +184,31 @@ pub fn keeps_row(lens: Option<&Lens>, row: &JournalRow) -> bool {
     match lens {
         None => true,
         Some(lens) => row.phases.iter().any(|name| lens.phases.contains(name)),
+    }
+}
+
+impl GateRecord {
+    /// What `lens` keeps of this verdict's record, the frame's own scope
+    /// (fix round 0109a1r2, R5): a phase lens the record of its phase; a
+    /// seat lens the whole record where it holds the effect's own
+    /// participant, else only the findings its participants reported,
+    /// beside the covered head the effect read. `None` where it keeps
+    /// nothing.
+    pub fn kept_by(&self, lens: Option<&Lens>) -> Option<GateRecord> {
+        let Some(lens) = lens else {
+            return Some(self.clone());
+        };
+        if !lens.by_key || lens.keys.contains(&self.key) {
+            return (lens.by_key || lens.phases.contains(&self.phase)).then(|| self.clone());
+        }
+        let findings: Vec<_> = (self.findings.iter())
+            .filter(|finding| lens.keys.contains(&finding.participant))
+            .cloned()
+            .collect();
+        (!findings.is_empty()).then(|| GateRecord {
+            findings,
+            ..self.clone()
+        })
     }
 }
 

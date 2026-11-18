@@ -563,7 +563,8 @@ Six blocks, and each one answers a different question:
 
 `--run` takes a selector, not only the 41-character id: any unique
 run-id prefix, or `latest`. `--phase <name>` and `--seat <name>` narrow
-the readout; `--json` emits the same view model verbatim, which is what
+the readout, its `verdicts` block included: `--seat` on one review
+position prints that position's findings and none of its siblings'; `--json` emits the same view model verbatim, which is what
 scripts should read.
 
 **A run that ends at `stop` is a normal outcome, not a crash.** The

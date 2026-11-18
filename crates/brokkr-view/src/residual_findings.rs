@@ -10,6 +10,8 @@ use brokkr_core::summary::Stated;
 use brokkr_core::{EventEnvelope, EventType};
 use serde::Deserialize;
 
+use crate::participant;
+
 /// One finding a verdict recorded, as it reads: its key, `site` and
 /// `id`, and its record.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -21,14 +23,19 @@ pub struct GateFinding {
     pub summary: String,
     pub severity: &'static str,
     pub security: bool,
+    /// The participant key of the seat that reported it: the panel
+    /// member whose checkpoints carry its site, else the effect's own.
+    pub participant: String,
 }
 
 /// What one successful result recorded beside its word (decision 0109
-/// slice 0109a1): the phase it answered, its findings in the order it
-/// reported them, and its covered head as one line of text.
+/// slice 0109a1): the phase it answered, the effect's own participant
+/// key, its findings in the order it reported them, and its covered head
+/// as one line of text.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GateRecord {
     pub phase: String,
+    pub key: String,
     pub findings: Vec<GateFinding>,
     pub covered: Option<String>,
 }
@@ -44,6 +51,7 @@ pub fn gate_records(events: &[EventEnvelope]) -> Vec<GateRecord> {
         .filter(|event| event.event_type == EventType::EffectRequested)
         .map(|event| (text(event, "effect_id"), text(event, "phase")))
         .collect();
+    let members = site_members(events);
     events
         .iter()
         .filter(|event| event.event_type == EventType::EffectSucceeded)
@@ -56,15 +64,36 @@ pub fn gate_records(events: &[EventEnvelope]) -> Vec<GateRecord> {
             let covered = result
                 .get("covered")
                 .and_then(|covered| Covered::deserialize(covered).ok());
+            let effect_id = text(event, "effect_id");
+            let reporter = |finding: &Finding| {
+                let site = finding.key().site().to_string();
+                let member = members.get(&(effect_id, site)).copied();
+                participant::key_of(effect_id, member)
+            };
             (!findings.is_empty() || covered.is_some()).then(|| GateRecord {
-                phase: phases
-                    .get(text(event, "effect_id"))
-                    .copied()
-                    .unwrap_or("-")
-                    .to_string(),
-                findings: findings.iter().map(gate_finding).collect(),
+                phase: phases.get(effect_id).copied().unwrap_or("-").to_string(),
+                key: participant::key_of(effect_id, None),
+                findings: findings
+                    .iter()
+                    .map(|finding| gate_finding(finding, reporter(finding)))
+                    .collect(),
                 covered: covered.as_ref().map(covered_text),
             })
+        })
+        .collect()
+}
+
+/// The panel member each `(effect, site)` belongs to, as the engine's
+/// structural stamp on a member's checkpoints names it.
+fn site_members(events: &[EventEnvelope]) -> BTreeMap<(&str, String), &str> {
+    events
+        .iter()
+        .filter(|event| event.event_type == EventType::EffectCheckpointed)
+        .filter_map(|event| {
+            let checkpoint = &event.payload["checkpoint"];
+            let site = checkpoint.get("site_ref")?.as_str()?;
+            let member = checkpoint.get("member")?.as_str()?;
+            Some(((text(event, "effect_id"), site.to_string()), member))
         })
         .collect()
 }
@@ -74,7 +103,7 @@ fn text<'a>(event: &'a EventEnvelope, key: &str) -> &'a str {
     event.payload[key].as_str().unwrap_or("-")
 }
 
-fn gate_finding(finding: &Finding) -> GateFinding {
+fn gate_finding(finding: &Finding, participant: String) -> GateFinding {
     let key = finding.key();
     GateFinding {
         site: key.site().to_string(),
@@ -84,6 +113,7 @@ fn gate_finding(finding: &Finding) -> GateFinding {
         summary: finding.summary().to_string(),
         severity: finding.severity().name(),
         security: finding.security(),
+        participant,
     }
 }
 

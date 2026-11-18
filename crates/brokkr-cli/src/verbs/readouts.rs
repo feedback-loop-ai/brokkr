@@ -155,7 +155,9 @@ fn inspect_with(
     out: &mut dyn Write,
     read: Reads<'_>,
 ) -> Result<ExitCode> {
-    let whole = json || capability_call.is_some();
+    // A seat scope reads the members' checkpoints, which link each
+    // member's findings to it (fix round 0109a1r2, R5).
+    let whole = json || capability_call.is_some() || seat.is_some();
     let now = crate::now_rfc3339();
     let (view, gates) = run_view_of(workspace, realms, db, &run, Shows::of(whole), &now, read)?;
     if let Some(call_id) = capability_call {
@@ -174,6 +176,9 @@ fn inspect_with(
     let lens = brokkr_view::lens_for(&view, scope.as_ref())
         .map_err(|error| anyhow::Error::msg(render::scope_refusal(&error)))?;
     let frame = render::inspect(&view, lens.as_ref(), true, &now, &render::Style::detect());
+    let gates: Vec<_> = (gates.iter())
+        .filter_map(|record| record.kept_by(lens.as_ref()))
+        .collect();
     write!(out, "{frame}{}", render::inspect::gates(&gates))?;
     Ok(Exit::Completed.into())
 }

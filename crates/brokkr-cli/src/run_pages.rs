@@ -36,7 +36,9 @@ use brokkr_view::{composed_view, composed_whole, seat_keys, Cooling, Participant
 pub(crate) enum Shows {
     /// Every journal row and every participant's checkpoints: `inspect
     /// --json`, `inspect --capability-call`, `seats --json` and
-    /// `/api/view/<run>`, which print the view whole.
+    /// `/api/view/<run>`, which print the view whole, and `inspect --seat`,
+    /// whose verdicts keep a member's findings by the site its checkpoints
+    /// carry.
     Everything,
     /// A terminal frame: `inspect`'s, `seats`' and `watch`'s, which paint
     /// the trail's journal rows (`in_trail`, every one an event of the
@@ -208,7 +210,9 @@ fn composed(
         }
         None => frame.view(),
     };
-    let gates = brokkr_view::gate_records(&frame.trail);
+    // A read that holds the journal reads the members' checkpoints too,
+    // which name the site of each member's findings (fix round 0109a1r2).
+    let gates = brokkr_view::gate_records(journal.unwrap_or(&frame.trail));
     let folded = Ok(*frame.state);
     Ok(view.map(|view| Viewed {
         view,

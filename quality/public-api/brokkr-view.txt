@@ -440,6 +440,7 @@ pub struct brokkr_view::GateFinding
 pub brokkr_view::GateFinding::file: alloc::string::String
 pub brokkr_view::GateFinding::id: alloc::string::String
 pub brokkr_view::GateFinding::line: core::option::Option<u64>
+pub brokkr_view::GateFinding::participant: alloc::string::String
 pub brokkr_view::GateFinding::security: bool
 pub brokkr_view::GateFinding::severity: &'static str
 pub brokkr_view::GateFinding::site: alloc::string::String
@@ -447,7 +448,10 @@ pub brokkr_view::GateFinding::summary: alloc::string::String
 pub struct brokkr_view::GateRecord
 pub brokkr_view::GateRecord::covered: core::option::Option<alloc::string::String>
 pub brokkr_view::GateRecord::findings: alloc::vec::Vec<brokkr_view::GateFinding>
+pub brokkr_view::GateRecord::key: alloc::string::String
 pub brokkr_view::GateRecord::phase: alloc::string::String
+impl brokkr_view::GateRecord
+pub fn brokkr_view::GateRecord::kept_by(&self, core::option::Option<&brokkr_view::Lens>) -> core::option::Option<brokkr_view::GateRecord>
 pub struct brokkr_view::GraphQuery<'a>
 pub brokkr_view::GraphQuery::does_not_compile: &'a [alloc::string::String]
 pub brokkr_view::GraphQuery::hearths: &'a [brokkr_view::AnalyticsHearth<'a>]

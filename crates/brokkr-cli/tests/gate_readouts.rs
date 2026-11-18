@@ -17,25 +17,48 @@ const HEAD: &str = "0123456789abcdef0123456789abcdef01234567";
 /// A run through `review`, whose one result is `result`, written by the
 /// engine line `engine`.
 fn plant(db: &Path, run_id: &str, engine: &str, result: Value) {
+    plant_phases(db, run_id, engine, &[("review", &[], result)]);
+}
+
+/// One phase a planted run passes: its name, its panel members' `(name,
+/// site)` stamps, and its result.
+type Planted<'a> = (&'a str, &'a [(&'a str, &'a str)], Value);
+
+/// A run through each `(phase, members, result)` in turn, one effect per
+/// phase, whose seat is the phase and whose panel `members` each journal
+/// a checkpoint carrying its `(name, site)` stamp.
+fn plant_phases(db: &Path, run_id: &str, engine: &str, phases: &[Planted<'_>]) {
     let manifest = json!({"engine": engine});
-    let attempt = json!({"effect_id": "e1", "attempt_id": "a1"});
-    let mut started = attempt.clone();
-    started["driver"] = json!("claude");
-    let mut succeeded = attempt;
-    succeeded["result"] = result;
-    let journal = [
-        (
-            EventType::RunStarted,
-            json!({"feature": "gate it", "manifest": &manifest}),
-        ),
-        (EventType::PhaseEntered, json!({"phase": "review"})),
-        (
-            EventType::EffectRequested,
-            json!({"effect_id": "e1", "seat": "review", "phase": "review"}),
-        ),
-        (EventType::EffectStarted, started),
-        (EventType::EffectSucceeded, succeeded),
-    ];
+    let mut journal = vec![(
+        EventType::RunStarted,
+        json!({"feature": "gate it", "manifest": &manifest}),
+    )];
+    for (index, (phase, members, result)) in phases.iter().enumerate() {
+        if let Some(index) = index.checked_sub(1) {
+            let (from, _, word) = &phases[index];
+            let decided = json!({"rule_id": "ON", "severity": "normal", "from": from,
+                                 "next": phase, "result": word["result"]});
+            journal.push((EventType::TransitionDecided, decided));
+        }
+        let attempt = json!({"effect_id": format!("e{index}"), "attempt_id": format!("a{index}")});
+        let mut started = attempt.clone();
+        started["driver"] = json!("claude");
+        let mut requested = attempt.clone();
+        requested["seat"] = json!(phase);
+        requested["phase"] = json!(phase);
+        journal.push((EventType::PhaseEntered, json!({"phase": phase})));
+        journal.push((EventType::EffectRequested, requested));
+        journal.push((EventType::EffectStarted, started));
+        for (member, site) in members.iter() {
+            let mut checkpoint = attempt.clone();
+            checkpoint["checkpoint"] = json!({"step": "turn", "member": member, "site_ref": site,
+                                              "instance_ref": site, "model": "m"});
+            journal.push((EventType::EffectCheckpointed, checkpoint));
+        }
+        let mut succeeded = attempt;
+        succeeded["result"] = result.clone();
+        journal.push((EventType::EffectSucceeded, succeeded));
+    }
     let mut store = Store::open(db).unwrap();
     store
         .create_run(run_id, "gate it", "test", &manifest)
@@ -45,6 +68,70 @@ fn plant(db: &Path, run_id: &str, engine: &str, result: Value) {
             .append_next(run_id, kind, payload, None, None)
             .unwrap();
     }
+}
+
+/// A finding at `site` with `id`, as the engine journals it.
+fn stamped(site: &str, id: &str) -> Value {
+    json!({"site": site, "id": id, "file": "a.rs", "summary": "s", "severity": "low",
+           "security": false})
+}
+
+/// R5: a scoped `inspect` prints only its own scope's verdicts. `--phase
+/// verify` keeps verify's record and none of review's findings; `--seat`
+/// on one review position keeps that position's findings and the head
+/// the panel covered, and none of the other position's or of verify.
+#[test]
+fn a_scoped_inspect_prints_only_its_own_scopes_verdicts() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    let other = "07e4000000000000000000000000000000000000000000000000000000000000";
+    let verify = json!({"result": "pass", "inputs": {}, "notes": "",
+                        "findings": [stamped(SITE, "verify-note")],
+                        "covered": {"kind": "head", "head": HEAD, "dirty": true}});
+    let review = json!({"result": "residual", "inputs": {}, "notes": "",
+                        "findings": [stamped(SITE, "adversarial-one"), stamped(other, "correct-one")]});
+    let members: &[(&str, &str)] = &[("adversarial", SITE), ("correctness", other)];
+    plant_phases(
+        &db,
+        "scoped",
+        "0.14.0",
+        &[("verify", &[], verify), ("review", members, review)],
+    );
+    let db = db.to_str().unwrap();
+    let read = |scope: &[&str]| {
+        let args = [&["inspect", "--run", "scoped", "--db", db][..], scope].concat();
+        let (inspect, err, ok) = brokkr(dir.path(), &args);
+        assert!(ok, "{inspect}{err}");
+        inspect
+            .split("\nverdicts\n")
+            .nth(1)
+            .unwrap_or("")
+            .to_string()
+    };
+    let finding = |phase: &str, id: &str, site: &str| {
+        format!(
+            "  {phase} · finding {id} · site {} · low · a.rs · s\n",
+            &site[..12]
+        )
+    };
+    let covered = format!("  verify · covered head {HEAD} · dirty\n");
+    assert_eq!(
+        read(&["--phase", "verify"]),
+        format!("{covered}{}", finding("verify", "verify-note", SITE))
+    );
+    assert_eq!(
+        read(&["--seat", "review:adversarial"]),
+        finding("review", "adversarial-one", SITE)
+    );
+    assert_eq!(
+        read(&[]),
+        format!(
+            "{covered}{}{}{}",
+            finding("verify", "verify-note", SITE),
+            finding("review", "adversarial-one", SITE),
+            finding("review", "correct-one", other)
+        )
+    );
 }
 
 #[test]
