@@ -93,12 +93,10 @@ fn head(commit: &str) -> Value {
     json!({"kind": "head", "head": commit, "dirty": true})
 }
 
-/// Triage's `specify`: a work author, then the dialect validator. The
-/// seat is not all-gate, and its result is the validator's, stamped with
-/// the head the validator's own span accepted; the author's checkpoint,
-/// a work step's, carries none.
-#[test]
-fn a_work_then_gate_sequence_stamps_the_gate_steps_span() {
+/// Triage's `specify` driven over two commits with the seam reading
+/// `plan`: a work author, then the dialect validator. The run's events
+/// and the heads the plan indexes.
+fn specify(plan: &[usize]) -> (Vec<EventEnvelope>, Vec<String>) {
     let author = step(
         "author",
         SeatClass::Work,
@@ -110,8 +108,17 @@ fn a_work_then_gate_sequence_stamps_the_gate_steps_span() {
     let (_dir, events) = driven_over(
         SeatBody::Sequence { steps: Vec::new() },
         shaped(steps, &["drafted", "fail"], "drafted"),
-        |repo| planned(repo, 2, &[1, 1, 2], &mut heads),
+        |repo| planned(repo, 2, plan, &mut heads),
     );
+    (events, heads)
+}
+
+/// Triage's `specify`: the seat is not all-gate, and its result is the
+/// validator's, stamped with the head the validator's own span accepted;
+/// the author's checkpoint, a work step's, carries none.
+#[test]
+fn a_work_then_gate_sequence_stamps_the_gate_steps_span() {
+    let (events, heads) = specify(&[1, 1, 2]);
     let succeeded = ended(&events, EventType::EffectSucceeded);
     assert_eq!(
         succeeded[0]["result"]["covered"],
@@ -154,19 +161,7 @@ fn an_analyze_sequence_stamps_each_gate_step_from_its_own_span() {
 /// effect does, and nothing is stamped or journaled as succeeded.
 #[test]
 fn a_gate_step_that_moved_head_in_its_span_refuses_as_an_all_gate_body_does() {
-    let author = step(
-        "author",
-        SeatClass::Work,
-        &["drafted"],
-        step_body(driver(&json!({"result": "drafted"}))),
-    );
-    let steps = vec![author, dialect("validate", &["drafted", "fail"])];
-    let mut heads = Vec::new();
-    let (_dir, events) = driven_over(
-        SeatBody::Sequence { steps: Vec::new() },
-        shaped(steps, &["drafted", "fail"], "drafted"),
-        |repo| planned(repo, 2, &[1, 2], &mut heads),
-    );
+    let (events, heads) = specify(&[1, 2]);
     assert!(ended(&events, EventType::EffectSucceeded).is_empty());
     let moved = ended(&events, EventType::EffectIndeterminate);
     let reason = moved[0]["reason"].as_str().unwrap();

@@ -4224,10 +4224,9 @@ fn repository_facts_are_recorded_under_the_realm_name() {
     let dir = tempfile::tempdir().unwrap();
     let repo = dir.path().join("repo");
     std::fs::create_dir(&repo).unwrap();
+    let reviewed = git_commit(&repo, "reviewed");
     let world = world_over(dir.path(), &repo, "brokkr");
     let mut engine = engine_in(dir.path(), Some(world), &repo);
-
-    let reviewed = git_commit(&repo, "reviewed");
     let review = reviewing(&mut engine);
     engine.decide(&review, json!({"result":"clean"})).unwrap();
     let events = engine.store.load(&engine.run_id).unwrap();
