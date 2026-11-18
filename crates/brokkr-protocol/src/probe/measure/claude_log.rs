@@ -104,6 +104,139 @@ enum Row {
     Assistant(Box<Assistant>),
     System(Stop),
     CostState(Box<Cost>),
+    /// From 2.1.326: the system prompt and tools a request carried.
+    ApiRequestShape(Box<RequestShape>),
+    /// From 2.1.326: one message a request carried.
+    ApiRequestBlob(Box<RequestBlob>),
+    /// From 2.1.326: a request's parameters.
+    ApiRequest(Box<Request>),
+}
+
+/// The shape of a request as sent: its tools a listing, and, inert, its
+/// hash and its system prompt, which lists no tool and reaches no server.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RequestShape {
+    shape: Shape,
+    #[serde(rename = "shapeHash")]
+    _hash: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Shape {
+    #[serde(default)]
+    tools: Given<Vec<RequestTool>>,
+    #[serde(rename = "system")]
+    _system: Vec<RequestText>,
+}
+
+/// A tool a request carried: its name, read, and, inert, how to call it,
+/// which does not say whether it is listed.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RequestTool {
+    name: String,
+    #[serde(rename = "description")]
+    _description: String,
+    #[serde(rename = "input_schema")]
+    _input: IgnoredAny,
+    #[serde(default, rename = "eager_input_streaming")]
+    _eager: Given<bool>,
+    /// Inert: a deferred tool is listed all the same, as a deferred
+    /// listing's names are.
+    #[serde(default, rename = "defer_loading")]
+    _deferred: Given<bool>,
+}
+
+/// A block of text a request carried: the only block a request of the
+/// probe's turn reads, so a tool's use or result is not one the reader
+/// names.
+#[derive(Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+enum RequestText {
+    /// Inert: the prompt's or the system's text.
+    Text {
+        #[serde(rename = "text")]
+        _text: String,
+    },
+}
+
+/// One message of a request, inert: its text, which runs nothing, its
+/// role and the effort it asks for.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RequestBlob {
+    #[serde(rename = "hash")]
+    _hash: String,
+    #[serde(rename = "message")]
+    _message: BlobMessage,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BlobMessage {
+    #[serde(rename = "role")]
+    _role: BlobRole,
+    #[serde(rename = "content")]
+    _content: Vec<RequestText>,
+    #[serde(default, rename = "output_config")]
+    _output: Given<OutputConfig>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum BlobRole {
+    User,
+    System,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct OutputConfig {
+    #[serde(rename = "effort")]
+    _effort: String,
+}
+
+/// A request's parameters, inert, every key: the model, betas, limits and
+/// caching it asked for. The parameters carry no tool: a request's tools
+/// are its shape's, so a `tools` key here is not one the reader names.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Request {
+    #[serde(rename = "id")]
+    _id: String,
+    #[serde(rename = "querySource")]
+    _source: String,
+    #[serde(rename = "shapeHash")]
+    _hash: String,
+    #[serde(rename = "params")]
+    _params: Params,
+    #[serde(rename = "keep")]
+    _keep: u64,
+    #[serde(rename = "tail")]
+    _tail: Vec<String>,
+    #[serde(rename = "cacheControl")]
+    _cache: IgnoredAny,
+    #[serde(rename = "requestDigest")]
+    _digest: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Params {
+    #[serde(rename = "model")]
+    _model: String,
+    #[serde(default, rename = "betas")]
+    _betas: Given<Vec<String>>,
+    #[serde(rename = "max_tokens")]
+    _max_tokens: u64,
+    #[serde(default, rename = "thinking")]
+    _thinking: Given<IgnoredAny>,
+    #[serde(default, rename = "context_management")]
+    _context: Given<IgnoredAny>,
+    #[serde(default, rename = "output_config")]
+    _output: Given<OutputConfig>,
 }
 
 #[derive(Deserialize)]
@@ -148,6 +281,9 @@ struct Attached {
     _rendered: Given<Vec<Rendered>>,
     #[serde(default, rename = "renderedRole")]
     _role: Given<String>,
+    /// Inert: where the rendering sits, from 2.1.326.
+    #[serde(default, rename = "renderedBesideToolResult")]
+    _beside: Given<bool>,
 }
 
 #[derive(Deserialize)]
@@ -181,6 +317,8 @@ enum Attachment {
         _lines: Vec<String>,
         #[serde(rename = "builtInTypes")]
         _built_in: Vec<String>,
+        #[serde(default, rename = "builtInPluginTypes")]
+        _built_in_plugins: Given<Vec<String>>,
         #[serde(rename = "removedTypes")]
         _removed: Empty,
         #[serde(rename = "isInitial")]
@@ -208,6 +346,9 @@ enum Attachment {
         _initial: bool,
         #[serde(rename = "names")]
         _names: Vec<String>,
+        /// Inert: a hash per skill, from 2.1.326.
+        #[serde(default, rename = "digests")]
+        _digests: Given<Vec<String>>,
     },
     /// Inert: a reminder to the model.
     TotalTokensReminder {
@@ -284,8 +425,9 @@ struct Identity {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Context {
-    #[serde(rename = "userEmail")]
-    _email: String,
+    /// Absent from 2.1.326 under a scratch HOME.
+    #[serde(default, rename = "userEmail")]
+    _email: Given<String>,
     #[serde(rename = "gitStatus")]
     _git: String,
 }
@@ -296,7 +438,10 @@ struct Context {
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 struct Deferred {
     added_names: Vec<String>,
+    /// Absent from 2.1.326 when it would be empty, like the one after it.
+    #[serde(default)]
     surfaced_names: Vec<String>,
+    #[serde(default)]
     surfaced_definitions: Vec<Definition>,
     pending_mcp_servers: Vec<String>,
     needs_auth_mcp_servers: Vec<String>,
@@ -414,6 +559,17 @@ struct Assistant {
     _effort: Given<String>,
     #[serde(default, rename = "perTurnEffort")]
     _per_turn: Option<String>,
+    /// Inert, like each key after it, from 2.1.326: who made the request,
+    /// the request's reference, the model asked for, which `message`
+    /// answers with the model it names, and the cache asked for.
+    #[serde(default, rename = "madeBy")]
+    _made_by: Given<String>,
+    #[serde(default, rename = "requestRef")]
+    _request_ref: Given<String>,
+    #[serde(default, rename = "requestedModel")]
+    _requested_model: Given<String>,
+    #[serde(default, rename = "promptCacheRequested")]
+    _cache_requested: Given<String>,
 }
 
 #[derive(Deserialize)]
@@ -499,6 +655,16 @@ pub(super) fn row(mut fields: Map<String, Value>) -> Result<Decoded, Fault> {
             ("system/stop_hook_summary", said)
         }
         Row::CostState(cost) => ("cost-state", cost_said(&cost)),
+        Row::ApiRequestShape(shape) => {
+            let listed = shape.shape.tools.0.into_iter().flatten();
+            let names = listed.map(|tool| tool.name).collect();
+            (
+                "api-request-shape",
+                tools("/shape/tools", names).into_iter().collect(),
+            )
+        }
+        Row::ApiRequestBlob(_blob) => ("api-request-blob", Vec::new()),
+        Row::ApiRequest(_request) => ("api-request", Vec::new()),
     };
     Ok(Decoded {
         label: label.to_string(),

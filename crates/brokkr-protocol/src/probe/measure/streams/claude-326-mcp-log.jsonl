@@ -1,0 +1,4 @@
+{"debug":"Starting connection with timeout of 30000ms","timestamp":"<timestamp>","sessionId":"<sessionId>","cwd":"<cwd>"}
+{"debug":"version negotiation probe closed the stdio server (rmcp-class pre-init hard close); respawning pinned legacy","timestamp":"<timestamp>","sessionId":"<sessionId>","cwd":"<cwd>"}
+{"debug":"Connection failed after 120ms, 120ms of it awake (CONNECTION_CLOSED): Connection closed","timestamp":"<timestamp>","sessionId":"<sessionId>","cwd":"<cwd>"}
+{"error":"Connection failed (CONNECTION_CLOSED): Connection closed","timestamp":"<timestamp>","sessionId":"<sessionId>","cwd":"<cwd>"}
