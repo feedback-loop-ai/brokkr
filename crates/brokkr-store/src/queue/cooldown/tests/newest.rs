@@ -358,6 +358,28 @@ fn a_key_column_refusal_precedes_an_earlier_kept_rows_payload_refusal() {
     assert!(refuses_blob(&refused, 1, "provider"), "{refused:?}");
 }
 
+/// A table that no longer names a column the scan reads refuses the read
+/// at the scan's own statement, before any row is read, and nothing is
+/// repaired (0001). Only direct SQL renames a column.
+#[test]
+fn a_table_without_a_scanned_column_refuses_the_read() {
+    let (_dir, store) = planting();
+    plant(&store.conn, &[("claude", "first", 500)]);
+    store
+        .conn
+        .execute_batch("ALTER TABLE provider_cooldowns RENAME COLUMN until_at TO ends_at")
+        .unwrap();
+    let refused = newest(&store, 100).unwrap_err();
+    assert!(
+        matches!(
+            &refused,
+            StoreError::Sqlite(rusqlite::Error::SqlInputError { msg, sql, .. })
+                if msg == "no such column: until_at" && sql.contains("WHERE seq >= ?1")
+        ),
+        "{refused:?}"
+    );
+}
+
 /// Plant one row per `(provider, route, until, reason)` into an empty
 /// table, each its own round, the provider and the words of whatever type
 /// SQLite stores, which only direct SQL writes.
