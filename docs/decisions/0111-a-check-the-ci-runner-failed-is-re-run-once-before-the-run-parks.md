@@ -51,7 +51,11 @@ Linux and macOS only.
 ### What #1093's acceptance becomes
 
 Narrowed by ruling 1 (a), the issue's acceptance is this: **a port-bind failure during service
-boot parks with cause `ci_infrastructure` and no seat attempt.** The engine draws the class
+boot parks with cause `ci_infrastructure` and no diagnosis seat attempt.** The observation is
+itself an exec attempt: the engine journals `effect/started` with an attempt id before the `ci`
+gate's driver starts (`crates/brokkr-runtime/src/engine/dispatch.rs:147-165`), and ruling 8 says
+that attempt executed. What the park saves is the model seat the adopter counted, the one that
+diagnoses; a person still re-runs. The engine draws the class
 `ci-infrastructure` (ruling 3), the table matches it as the flag `ci_infrastructure` (ruling 10),
 and the park is written `infrastructure` with `kind: ci-infrastructure` (ruling 7). These are one
 fact in three places, each in the spelling of the surface it lives on.
@@ -166,8 +170,8 @@ Ruling 1 is the operator's, ruled on 2026-11-18. For every other ruling the oper
 "a for 1093". Accepting the rest of this decision is still the operator's.
 
 - **(a) Ruled by the operator: observe, classify and park.** The engine and the recipes observe
-  CI, judge a pass, classify a failure, and park a runner fault with typed evidence and no seat
-  attempt. They send no re-run request and hold no write credential. A typed
+  CI, judge a pass, classify a failure, and park a runner fault with typed evidence and no
+  diagnosis seat attempt. They send no re-run request and hold no write credential. A typed
   `ci_infrastructure` park carries the evidence, and a person reads it and re-runs.
   - Cost: the issue's "re-run once" is not built. The wall-clock wait for a person remains, but
     the diagnosing seat attempt the issue counts is gone.
@@ -721,8 +725,8 @@ nothing a failure draws reaches a pass or a re-run.**
 **A classification of a failure chooses between two outcomes, and neither is a pass.** Under
 ruling 1 no write is sent, so a failed observation can only be:
 
-- **the change's**: a seat attempt, as today; or
-- **a person's `ci_infrastructure` park**, with the evidence and no seat attempt.
+- **the change's**: a diagnosis seat attempt, as today; or
+- **a person's `ci_infrastructure` park**, with the evidence and no diagnosis seat attempt.
 
 A mistyped code failure therefore costs a person's look, not a laundered pass. That is why
 evidence a change can produce is admissible here, where fix round 1093r2 refused it: there, a
@@ -744,7 +748,7 @@ rule, which reads every required check's own `success` and never reads a log.
     `uses: ./.github/actions/setup-cargo-audit` (`.github/workflows/ci.yml:681-689`) can print
     it. The person reads the evidence and decides; nothing passes.
 - **(b) Nothing types a park.** Every failure is the change's, as today. Cost: the narrowed
-  acceptance is not delivered, and the port bind still costs a seat attempt. It no longer
+  acceptance is not delivered, and the port bind still costs a diagnosis seat attempt. It no longer
   depends on secret masking: no log byte is journaled under (a) either (ruling 3).
 - **(c) A forge-proven non-execution set as a precondition**, as fix round 1093r2 recommended.
   Removed. One observed payload establishes a reported value, not its semantics, and not that
@@ -930,7 +934,8 @@ cannot write any of them.
 
 - **`green`**: the gate's `pass`; the run proceeds.
 - **`ci-infrastructure`**: the run parks, typed (ruling 7), with the faults as its evidence, and
-  no seat attempt is spent. A person reads the evidence and re-runs.
+  no diagnosis seat attempt is spent beyond the `ci` gate's own exec attempt. A person reads
+  the evidence and re-runs.
 - **`change`**: routed exactly as a red gate is today, to `implement`.
 - **`refused`** (ruling 3): parks `ruled`.
 
@@ -992,7 +997,8 @@ head or write to the forge:
 - any route to a re-run, under every class (ruling 1);
 - any rule whose `next` is `ci`: it would gate a head the run made, which is unpublished;
 - any rule into `classify` but `CI-PASS`: it would skip the gate;
-- `ci-infrastructure` routed to `implement`: a seat attempt is what the class exists to save;
+- `ci-infrastructure` routed to `implement`: a diagnosis seat attempt is what the class exists
+  to save;
 - a refusal routed to `implement`; a refusal parks;
 - `CI-PASS` on any class but `green`; the word binding refuses it (ruling 3).
 
@@ -1000,12 +1006,11 @@ Each is refused by the overlay test, over the complete composed table (ruling 10
 scope-widened reconciliation park fix round 1093r2 promised went with the write (ruling 1); no
 route or cause remains for it.
 
+- **(b) A runner fault routed to `implement`, with the class in the commission.** It spends the
+  diagnosis seat attempt the issue counts, to tell a model what the engine already typed. Not
+  recommended.
 - **(c) The pre-review gate in `fast` and `verify`, as fix round 1093r3 drafted.** Refused for
   now: its head is unpublished by construction. It returns with the follow-up handoff above.
-
-- **(b) A runner fault routed to `implement`, with the class in the commission.** It spends the
-  seat attempt the issue counts, to tell a model what the engine already typed. Not
-  recommended.
 
 ### 7. The park's cause
 
@@ -1372,7 +1377,9 @@ slice that produces it, and each typed assertion is in the slice that builds its
    and the refusals of ruling 6's routes); and the readout it produces, the fleet's and
    `inspect`'s paint of the cause. About 150 production and 400 test lines, over test-built
    tables; no recipe yet. Contract: `park-cause/v2`. Tests:
-   `a_runner_fault_parks_with_no_seat_attempt` (the typed park, asserted here with its writer);
+   `a_runner_fault_parks_with_no_diagnosis_seat_attempt` (the typed park, asserted here with its
+   writer: the `ci` gate's one exec attempt is journaled, and no `implement` or other model seat
+   attempt follows it);
    `a_v1_infrastructure_cause_reads_kind_engine`; `a_ci_infrastructure_park_is_never_retryable`;
    `a_runner_fault_park_writes_the_ci_infrastructure_cause_and_keeps_the_rule_in_the_decision`;
    `a_refusal_park_carrying_a_ci_class_stays_ruled`;
@@ -1455,3 +1462,25 @@ story's base, each file:line it newly cites:
 - `crates/brokkr-core/src/park.rs:25-70`, and `crates/brokkr-bridge/src/lib.rs:1-30`, `:210-229`;
 - `contracts/phase-machine.v2.schema.json:25-80`;
 - decisions 0049 (`:30-60`) and 0109 (`:1500-1530`, `:1830`).
+
+The revision of fix round 1093r4 answered the review positions of run
+`fix-round-1093r3-for-issue-1093--413225f3`. This seat again read no forge page or issue: the
+`pull_requests` association, the pull request's `head.sha`, the commit-pulls listing,
+`execveat` and statuses' lack of revision attestation are named from their documentation by URL
+and stay unmeasured until 0111a. It read, at the story's base, each file:line it newly cites:
+
+- `.github/workflows/ci.yml:25-27`, `:40-105` and `:225-330`, with a `grep -n` of its
+  `pull_request.head.sha` and `pull_request.base.sha` references and of every job's display name
+  in it and in `.github/workflows/mutants.yml`;
+- `.github/branch-protection.json` whole, and `git ls-files .cargo .config .github
+  rust-toolchain.toml rust-nightly-version.txt`;
+- `scripts/test-shards.sh:19-47`, `:440-450` and `:553-602`, with a `grep -noE` of every local
+  path it, `scripts/test-summary.sh`, `scripts/shard-runner.py` and `scripts/parallel-heaps.py`
+  name; and `grep -n 'name = ".*yaml' Cargo.lock`, which printed nothing;
+- `recipes/landing/README.md`, `recipes/landing/bundle.json`, `recipes/landing/policy.json` (by
+  `jq`), `recipes/brokkr-fast/bundle.json`, and `recipes/fast/scripts/ship-seat.sh`'s `push`
+  lines;
+- `crates/brokkr-protocol/src/adapters/exec.rs:30-75`, `adapters.rs:756-770`, `:791-847` and
+  `process.rs:295-310`, with a `grep` of `pre_exec`, `fexecve` and `execveat` under `crates/`;
+- `crates/brokkr-runtime/src/engine/input.rs:66-84`, `engine.rs:1044-1052`,
+  `places.rs:684-692`, `engine/dispatch.rs:145-166` and `bundle.rs:4212-4240`.
