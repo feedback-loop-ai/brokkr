@@ -294,6 +294,7 @@ pub brokkr_core::findings::AdmissionRefusal::NotAnArray
 pub brokkr_core::findings::AdmissionRefusal::SeatSite
 pub brokkr_core::findings::AdmissionRefusal::SeatSite::index: usize
 pub brokkr_core::findings::AdmissionRefusal::Unsited
+pub brokkr_core::findings::AdmissionRefusal::WorkSite
 pub enum brokkr_core::findings::CoveredHead
 pub brokkr_core::findings::CoveredHead::Commit(alloc::string::String)
 pub brokkr_core::findings::CoveredHead::Digest(alloc::string::String)
@@ -302,6 +303,9 @@ pub brokkr_core::findings::EngineWritten::Covered
 pub brokkr_core::findings::EngineWritten::FollowUps
 impl core::fmt::Display for brokkr_core::findings::EngineWritten
 pub fn brokkr_core::findings::EngineWritten::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub enum brokkr_core::findings::Reporter<'a>
+pub brokkr_core::findings::Reporter::Gate(&'a str)
+pub brokkr_core::findings::Reporter::Work
 pub enum brokkr_core::findings::WordError
 pub brokkr_core::findings::WordError::File
 pub brokkr_core::findings::WordError::Id
@@ -358,7 +362,7 @@ pub type brokkr_core::findings::Summary::Error = brokkr_core::findings::WordErro
 pub fn brokkr_core::findings::Summary::try_from(alloc::string::String) -> core::result::Result<brokkr_core::findings::Summary, brokkr_core::findings::WordError>
 impl core::fmt::Display for brokkr_core::findings::Summary
 pub fn brokkr_core::findings::Summary::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-pub fn brokkr_core::findings::admit(&mut serde_json::value::Value, core::option::Option<&str>) -> core::result::Result<(), brokkr_core::findings::AdmissionRefusal>
+pub fn brokkr_core::findings::admit(&mut serde_json::value::Value, core::option::Option<brokkr_core::findings::Reporter<'_>>) -> core::result::Result<(), brokkr_core::findings::AdmissionRefusal>
 pub mod brokkr_core::fold
 pub enum brokkr_core::fold::Cursor
 pub brokkr_core::fold::Cursor::Decide

@@ -7,6 +7,7 @@ use super::*;
 
 const SITE: &str = "5a1e000000000000000000000000000000000000000000000000000000000000";
 const OTHER: &str = "07e4000000000000000000000000000000000000000000000000000000000000";
+const GATE: Option<Reporter<'static>> = Some(Reporter::Gate(SITE));
 
 /// The findings a journaled result carries, read back as a reader reads
 /// them: absent is the empty set, and a record that does not read is none.
@@ -68,7 +69,7 @@ fn a_moved_line_a_reworded_summary_and_a_moved_file_are_the_same_key() {
 #[test]
 fn the_engine_stamps_the_reporting_site_and_keeps_the_record() {
     let mut result = json!({"result": "residual", "findings": [reported()]});
-    admit(&mut result, Some(SITE)).unwrap();
+    admit(&mut result, GATE).unwrap();
     assert_eq!(
         result["findings"],
         json!([{"site": SITE, "id": "unchecked-len", "file": "crates/a/src/lib.rs", "line": 12,
@@ -141,7 +142,7 @@ fn a_seat_supplied_site_is_refused_even_when_it_is_the_right_one() {
     for supplied in [json!(SITE), json!(OTHER), json!(null)] {
         let finding = with(reported(), "site", supplied.clone());
         let mut result = json!({"result": "residual", "findings": [finding]});
-        let refused = admit(&mut result, Some(SITE)).unwrap_err();
+        let refused = admit(&mut result, GATE).unwrap_err();
         assert_eq!(
             refused,
             AdmissionRefusal::SeatSite { index: 0 },
@@ -205,7 +206,7 @@ fn a_seat_supplied_covered_or_follow_ups_is_refused_not_repaired() {
         let mut result = json!({"result": "clean", "findings": [reported()]});
         result[field] = value.clone();
         let before = result.clone();
-        let refused = admit(&mut result, Some(SITE)).unwrap_err();
+        let refused = admit(&mut result, GATE).unwrap_err();
         assert_eq!(refused, AdmissionRefusal::EngineWritten(written), "{field}");
         assert_eq!(result, before, "nothing is stamped or repaired");
     }
@@ -217,7 +218,8 @@ fn a_seat_supplied_covered_or_follow_ups_is_refused_not_repaired() {
 
 #[test]
 fn findings_with_no_site_to_stamp_are_refused_not_journaled_unkeyed() {
-    for unsited in [None, Some("not-a-digest"), Some(&SITE[1..])] {
+    let short = Some(Reporter::Gate(&SITE[1..]));
+    for unsited in [None, Some(Reporter::Gate("not-a-digest")), short] {
         let mut result = json!({"result": "residual", "findings": []});
         assert_eq!(
             admit(&mut result, unsited),
@@ -225,6 +227,28 @@ fn findings_with_no_site_to_stamp_are_refused_not_journaled_unkeyed() {
             "{unsited:?}"
         );
     }
+}
+
+/// Ruling 1 gives findings to a gate: a work site's result that carries
+/// any, even none, is refused and left as it was; one without findings
+/// is admitted untouched.
+#[test]
+fn findings_from_a_work_site_are_refused_not_repaired() {
+    for findings in [json!([reported()]), json!([])] {
+        let mut result = json!({"result": "complete", "findings": findings});
+        let before = result.clone();
+        let refused = admit(&mut result, Some(Reporter::Work)).unwrap_err();
+        assert_eq!(refused, AdmissionRefusal::WorkSite);
+        assert_eq!(result, before, "nothing is stamped or repaired");
+    }
+    assert_eq!(
+        AdmissionRefusal::WorkSite.to_string(),
+        "the result carries 'findings' from a work site: only a gate reports findings \
+         (decision 0109 ruling 1)"
+    );
+    let mut plain = json!({"result": "complete"});
+    admit(&mut plain, Some(Reporter::Work)).unwrap();
+    assert_eq!(plain, json!({"result": "complete"}));
 }
 
 /// Decision 0109 ruling 6: a v6 result, which has no `findings`, reads as

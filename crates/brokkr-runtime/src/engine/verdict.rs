@@ -6,7 +6,7 @@
 //! (decision 0001). No word is refused here and no routing moves.
 
 use brokkr_core::envelope::EventType;
-use brokkr_core::findings::Covered;
+use brokkr_core::findings::{Covered, Reporter};
 use brokkr_core::fold::RunState;
 use brokkr_protocol::{AttemptOutcome, AttemptReport};
 use serde::Deserialize;
@@ -14,6 +14,7 @@ use serde_json::Value;
 
 use super::resume::SiteContext;
 use super::Engine;
+use crate::bundle::SeatClass;
 
 /// Ruling 7's `dirty` is true unless the tree check proved the worktree
 /// clean at commission time. That check is slice 0109b's, so every
@@ -123,7 +124,8 @@ impl Engine {
 }
 
 /// `report` with its successful result admitted at `site`, the site whose
-/// driver produced it: its findings stamped in place, or the refusal put
+/// driver produced it, read as a gate or a work site by its compiled
+/// class: its findings stamped in place, or the refusal put
 /// in place of the outcome acted on, as a refused checkpoint's is
 /// (decision 0034 ruling 6), so the attempt fails, is retried and parks
 /// under decision 0006. A report already refused is left as it stands.
@@ -134,8 +136,11 @@ pub(super) fn admitted(mut report: AttemptReport, site: Option<&SiteContext>) ->
     let AttemptOutcome::Succeeded { result } = &mut report.outcome else {
         return report;
     };
-    let site = site.map(|site| site.site_ref.as_str());
-    if let Err(refusal) = brokkr_core::findings::admit(result, site) {
+    let reporter = site.map(|site| match site.class {
+        SeatClass::Gate => Reporter::Gate(&site.site_ref),
+        SeatClass::Work => Reporter::Work,
+    });
+    if let Err(refusal) = brokkr_core::findings::admit(result, reporter) {
         report.refused = Some(AttemptOutcome::Failed {
             error: format!("the result was refused: {refusal}"),
         });

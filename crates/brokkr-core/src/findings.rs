@@ -78,6 +78,20 @@ pub enum AdmissionRefusal {
     Duplicate { id: FindingId },
     #[error("findings were reported at a site the engine cannot stamp")]
     Unsited,
+    #[error(
+        "the result carries 'findings' from a work site: only a gate reports findings \
+         (decision 0109 ruling 1)"
+    )]
+    WorkSite,
+}
+
+/// The compiled site a seat's result was written at, as admission reads
+/// it (decision 0109 ruling 1): a gate's, by its site digest, which may
+/// report findings, or a work site's, which may not.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Reporter<'a> {
+    Gate(&'a str),
+    Work,
 }
 
 /// Why a value is not one of this module's typed words.
@@ -339,12 +353,12 @@ fn stamp(findings: &Value, site: &SiteDigest) -> Result<Vec<Finding>, AdmissionR
     Ok(stamped)
 }
 
-/// Admit a seat's result at the site whose digest is `site`: a result
-/// that writes a field only the engine writes is refused (ruling 1), and
-/// its `findings`, if it wrote any, are read, refused or stamped in place
-/// (ruling 3). A result with findings and no site to stamp is refused
-/// rather than journaled unkeyed.
-pub fn admit(result: &mut Value, site: Option<&str>) -> Result<(), AdmissionRefusal> {
+/// Admit a seat's result written at `reporter`: a result that writes a
+/// field only the engine writes is refused (ruling 1), and so is one
+/// carrying `findings` from a work site; a gate's `findings` are read,
+/// refused or stamped in place (ruling 3). A result with findings and no
+/// site to stamp is refused rather than journaled unkeyed.
+pub fn admit(result: &mut Value, reporter: Option<Reporter<'_>>) -> Result<(), AdmissionRefusal> {
     if let Some(written) = EngineWritten::ALL
         .into_iter()
         .find(|written| result.get(written.field()).is_some())
@@ -354,9 +368,12 @@ pub fn admit(result: &mut Value, site: Option<&str>) -> Result<(), AdmissionRefu
     let Some(findings) = result.get("findings") else {
         return Ok(());
     };
-    let site = site
-        .and_then(|site| SiteDigest::try_from(site.to_string()).ok())
-        .ok_or(AdmissionRefusal::Unsited)?;
+    let site = match reporter {
+        Some(Reporter::Work) => return Err(AdmissionRefusal::WorkSite),
+        Some(Reporter::Gate(site)) => SiteDigest::try_from(site.to_string()).ok(),
+        None => None,
+    }
+    .ok_or(AdmissionRefusal::Unsited)?;
     let stamped = stamp(findings, &site)?;
     result["findings"] = serde_json::to_value(stamped).expect("a finding serializes");
     Ok(())

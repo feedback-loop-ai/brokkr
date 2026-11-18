@@ -114,7 +114,7 @@ pub(super) fn ended_in(events: &[EventEnvelope], phase: &str, kind: EventType) -
 #[test]
 fn a_single_seats_findings_carry_its_own_site_through_the_real_result_path() {
     let result = json!({"result": "complete", "findings": [reported("unchecked-len", 12)]});
-    let (_dir, events) = driven(single_body(driver(&result)), false);
+    let (_dir, events) = driven(single_body(driver(&result)), true);
     let succeeded = ended(&events, EventType::EffectSucceeded);
     let site = SiteKey::single("work", None).digest();
     assert_eq!(
@@ -132,9 +132,10 @@ fn a_single_seats_findings_carry_its_own_site_through_the_real_result_path() {
     );
 }
 
-/// Ruling 3's three refusals, each through the real result path: the
-/// attempt fails with the refusal named, the bad result is never
-/// journaled, and the cap parks the run as any determinate failure does.
+/// Ruling 3's three refusals at a gate, and ruling 1's of findings from a
+/// work site, each through the real result path: the attempt fails with
+/// the refusal named, the bad result is never journaled, and the cap
+/// parks the run as any determinate failure does.
 #[test]
 fn a_seat_supplied_site_a_duplicate_id_and_a_bad_id_each_fail_the_attempt() {
     let site = SiteKey::single("work", None).digest();
@@ -143,22 +144,31 @@ fn a_seat_supplied_site_a_duplicate_id_and_a_bad_id_each_fail_the_attempt() {
     let cases = [
         (
             json!([sited]),
+            true,
             "finding 0 carries a site: the engine stamps each finding's site (decision 0109 \
              ruling 3)",
         ),
         (
             json!([reported("twice", 1), reported("twice", 9)]),
+            true,
             "finding 'twice' is reported twice by one site (decision 0109 ruling 3)",
         ),
         (
             json!([reported("Not.An.Id", 1)]),
+            true,
             "finding 0 has no id matching ^[a-z0-9][a-z0-9._-]*$ of at most 64 bytes \
              (decision 0109 ruling 3)",
         ),
+        (
+            json!([reported("unchecked-len", 12)]),
+            false,
+            "the result carries 'findings' from a work site: only a gate reports findings \
+             (decision 0109 ruling 1)",
+        ),
     ];
-    for (findings, refusal) in cases {
+    for (findings, gate, refusal) in cases {
         let result = json!({"result": "complete", "findings": findings});
-        let (_dir, events) = driven(single_body(driver(&result)), false);
+        let (_dir, events) = driven(single_body(driver(&result)), gate);
         assert!(
             ended(&events, EventType::EffectSucceeded).is_empty(),
             "{refusal}"
@@ -186,7 +196,7 @@ fn a_panels_member_findings_each_carry_their_members_site() {
         members: vec![member("a", driver(&a)), member("b", driver(&b))],
         aggregate: Aggregate::ReviewPanel,
     });
-    let (_dir, events) = driven(body, false);
+    let (_dir, events) = driven(body, true);
     let succeeded = ended(&events, EventType::EffectSucceeded);
     let findings = succeeded[0]["result"]["findings"].as_array().unwrap();
     let sites: Vec<&Value> = findings.iter().map(|finding| &finding["site"]).collect();
