@@ -6,7 +6,7 @@ use std::process::Command;
 
 use serde_json::{json, Value};
 
-use super::tests::{driven, driven_over, driven_with, driver, ended, ended_in, reported};
+use super::tests::{driven, driven_over, driver, ended, ended_in, reported};
 use crate::bundle::GateAssessment;
 use crate::engine::heads::{HeadReads, Observed};
 use crate::engine::tests::{bundle, git_commit, single_body, state};
@@ -104,8 +104,11 @@ fn a_gate_outside_the_protected_phase_records_the_commit_it_read() {
 /// every read after the check reads `moved`. The covered digest and
 /// `reviewed_heads` both name `reviewed`, the head the check accepted,
 /// `entered` is its strict ancestor, and ship's drift check refuses the
-/// moved head. A review that armed no check records neither. No path in
-/// this slice writes the `artifacts` arm or a follow-up.
+/// moved head. A work-class review is a checked span too: it records no
+/// `covered`, and its `reviewed_heads` is still the head its check
+/// accepted, so ship's drift check refuses the moved head there as well
+/// (fix round 0109a1r2, verify's return). No path in this slice writes
+/// the `artifacts` arm or a follow-up.
 #[test]
 fn the_reviewed_head_is_the_one_the_stable_head_check_accepted() {
     let mut planned = Vec::new();
@@ -169,17 +172,23 @@ fn the_reviewed_head_is_the_one_the_stable_head_check_accepted() {
         let kind = result.pointer("/covered/kind");
         assert!(kind.is_none() || kind == Some(&json!("head")), "{result}");
     }
-    let (_dir, events) = driven_with(work(), shape(false));
+    let mut accepted = String::new();
+    let (_dir, events) = driven_over(work(), shape(false), |repo| {
+        accepted = git_commit(repo, "reviewed");
+        let moved = git_commit(repo, "moved");
+        HeadReads::scripted(&[&accepted, &accepted, &accepted, &moved])
+    });
     let succeeded = ended_in(&events, "review", EventType::EffectSucceeded);
     assert!(
         succeeded[0]["result"].get("covered").is_none(),
         "{succeeded:?}"
     );
     let decided = decided_from(&events, "review");
-    assert!(
-        decided["inputs"].get("reviewed_heads").is_none(),
-        "{decided}"
+    assert_eq!(
+        decided["inputs"]["reviewed_heads"],
+        json!({"repo": accepted})
     );
+    assert_eq!(decided_from(&events, "ship")["rule_id"], "SHIP-DRIFT");
 }
 
 /// A protected-phase result whose digest does not pin the head its

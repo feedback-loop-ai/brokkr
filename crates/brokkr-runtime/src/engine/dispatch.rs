@@ -159,13 +159,17 @@ impl Engine {
         let (selection, started) = self.plan_attempt(events, &at, &mut input, carry)?;
         // started is durable BEFORE the driver spawns: a crash in between
         // recovers as indeterminate, never as a silent double-execution.
-        self.begin_span(arms_effect_gate_head(
-            &body,
-            &seat,
-            state.strategy.as_deref(),
-        ));
         let protected = phase == self.bundle.protected_phase;
-        self.covering = Some(super::verdict::Covering::of(protected));
+        let gate_effect = arms_effect_gate_head(&body, &seat, state.strategy.as_deref());
+        let sequence = matches!(body, ExecutableBody::Sequence { .. });
+        // The protected phase's effect is always a checked span, whatever
+        // its class: decide's `reviewed_heads` is that span's accepted end
+        // head and never a fresh read (decision 0109 ruling 7), so ship's
+        // drift check always has the head the phase read. Only a gate
+        // records `covered`: a sequence's gate steps from their own
+        // spans, an all-gate body from the effect's.
+        self.begin_span(gate_effect || (protected && !sequence));
+        self.covering = (gate_effect || sequence).then(|| super::verdict::Covering::of(protected));
         self.append(EventType::EffectStarted, started, Some(attempt_id.clone()))?;
         std::fs::create_dir_all(self.run_local().join(RESULTS)).ok();
         let deadline = deadline::Deadline::of(
