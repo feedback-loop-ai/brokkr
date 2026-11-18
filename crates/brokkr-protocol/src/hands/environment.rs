@@ -39,6 +39,35 @@ pub(crate) fn inherited_git_group_closed() -> (&'static str, &'static str) {
     ("GIT_CONFIG_COUNT", "0")
 }
 
+/// The volta home a child under a private `HOME` must be told, the one
+/// home the unboxed dispatch and the probe's launches read: the engine's
+/// own `VOLTA_HOME` as it stands, else the operator's `~/.volta` exactly
+/// when `path` reaches that home's `bin`, else nothing.
+///
+/// A volta shim finds its home as `$VOLTA_HOME`, else `$HOME/.volta`.
+/// Under a private `HOME` the second is an empty directory: the shim finds
+/// no tool there, "delegates to system", takes only that empty home's
+/// `bin` out of `PATH`, finds the operator's shim (itself) next, and
+/// recurses until fork fails. A seat on the ripper that ran `dsh
+/// --version` so on 2026-11-17 left about 180,000 processes and a load
+/// average over 130,000. No locator is synthesized that no shim on `path`
+/// would read, as the toolchain homes are set only where a bind declares
+/// them.
+pub(crate) fn volta_home(
+    named: Option<&str>,
+    path: Option<&str>,
+    home: &Path,
+) -> Option<(&'static str, String)> {
+    if let Some(named) = named {
+        return Some(("VOLTA_HOME", named.to_string()));
+    }
+    let default = home.join(".volta");
+    let shims = default.join("bin");
+    std::env::split_paths(path?)
+        .any(|dir| dir == shims)
+        .then(|| ("VOLTA_HOME", default.to_string_lossy().into_owned()))
+}
+
 /// The workspace box's environment, in the order it is set: the fixed
 /// switches, then each toolchain home its own bind declares.
 pub(super) fn box_environment(spec: &HandsSpec, home: &Path) -> Vec<(&'static str, String)> {
