@@ -68,6 +68,8 @@ impl Workspace {
         // A canary the overseer must never see, in a directory that
         // looks exactly like a repository it might be tempted to read.
         std::fs::write(ws.path().join("repo/CANARY.md"), "untouched\n").unwrap();
+        // The staged run's review is checked on a head (fix round 0109a1r3, H1).
+        crate::brokkr_folder::clean_head(&ws.path().join("repo"));
         ws.write(
             "adapters/fake.json",
             json!({

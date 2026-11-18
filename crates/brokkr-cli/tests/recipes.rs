@@ -789,6 +789,8 @@ fn add_has_no_dir_and_installs_at_a_librarys_root() {
 fn run_recipe_completes_a_delivery_and_arg_group_holds() {
     let (ws, src, _) = Ws::installed("good");
     let rdir = ws.recipes_dir();
+    // The run's review is checked on a head (fix round 0109a1r3, H1).
+    crate::brokkr_folder::clean_head(ws.path());
 
     let db = ws.path().join("forge.db");
     let (code, stdout, stderr) = ws.brokkr(&[

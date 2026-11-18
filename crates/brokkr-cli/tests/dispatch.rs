@@ -54,6 +54,9 @@ impl Machine {
         let work = base.join("work");
         std::fs::create_dir_all(work.join("recipes/mark")).unwrap();
         std::fs::write(work.join("recipes/mark/bundle.json"), "{}").unwrap();
+        // The dispatched run's review is checked on a head (fix round
+        // 0109a1r3, H1).
+        crate::brokkr_folder::clean_head(&work);
         let machine = Machine {
             bundle: base.join("bundle"),
             journal: base.join("forge.db"),

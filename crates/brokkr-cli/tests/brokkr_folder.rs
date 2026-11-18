@@ -266,10 +266,17 @@ pub(crate) const BASE_COMMIT: [&str; 12] = [
 /// head and its ship reads the tree as clean (fix round 0109a1r3, H1).
 pub(crate) fn clean_repository() -> tempfile::TempDir {
     let dir = tempfile::tempdir().unwrap();
-    git(dir.path(), &["init", "-q"]);
-    std::fs::write(dir.path().join(".gitignore"), "*\n").unwrap();
-    git(dir.path(), &BASE_COMMIT);
+    clean_head(dir.path());
     dir
+}
+
+/// `dir`, created when needed, made a git repository with a clean head as
+/// [`clean_repository`] makes one: the fixture a run operates in place.
+pub(crate) fn clean_head(dir: &Path) {
+    std::fs::create_dir_all(dir).unwrap();
+    git(dir, &["init", "-q"]);
+    std::fs::write(dir.join(".gitignore"), "*\n").unwrap();
+    git(dir, &BASE_COMMIT);
 }
 
 pub(crate) fn git(dir: &Path, args: &[&str]) -> String {

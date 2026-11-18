@@ -73,7 +73,8 @@ impl Workspace {
         let bundle = ws.path().join("bundle");
         std::fs::create_dir_all(bundle.join("scripts")).unwrap();
         std::fs::create_dir_all(bundle.join("roles")).unwrap();
-        std::fs::create_dir_all(ws.path().join("repo")).unwrap();
+        // The run's review is checked on a head (fix round 0109a1r3, H1).
+        crate::brokkr_folder::clean_head(&ws.path().join("repo"));
         std::fs::write(bundle.join("policy.json"), POLICY).unwrap();
         std::fs::write(bundle.join("roles/work.md"), ROLE).unwrap();
         std::fs::write(bundle.join("scripts/seat.sh"), SEAT).unwrap();
