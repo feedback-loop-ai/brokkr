@@ -280,24 +280,37 @@ The observation names its binding:
 It then lists every check the forge reports for that head, with no filtering. Checks outside
 Actions are included:
 
-- a check run carries its id, its app, its name, its `head_sha`, its status and its conclusion
+- a check run carries its id, its app (slug and numeric id), its name, its `head_sha`, its
+  status and its conclusion
   (<https://docs.github.com/en/rest/checks/runs#list-check-runs-for-a-git-reference>);
-- a check from Actions also carries its workflow run's id and attempt, its workflow file's path,
-  and its job's id, name and steps;
-- a commit status carries its context and state
+- a check from Actions also carries its producer: its workflow run's id, number and attempt, its
+  workflow file's path, its triggering event, the revision the run tested, and its job's id,
+  name and steps (<https://docs.github.com/en/rest/actions/workflow-runs>,
+  <https://docs.github.com/en/rest/actions/workflow-jobs>);
+- every workflow run the forge lists for the head, with its path, event, number, attempt and
+  status, so the engine can tell which run is current;
+- a commit status carries its context, its state and its creator's login and numeric id
   (<https://docs.github.com/en/rest/commits/statuses#get-the-combined-status-for-a-specific-reference>).
 
 It is parsed once at the edge, with unknown fields refused (0071 ruling 3). An unknown
-conclusion word refuses by name.
+conclusion word refuses by name. Whether the forge reports a workflow job's key, as the workflow
+file spells it, is unmeasured until 0111a's evidence; if it does, the observation carries it.
 
 **The required set.** **Recommended: (a) a recipe-declared `required_checks` list, pinned by
-the compiled bundle outside the change.**
+the compiled bundle outside the change, each entry bound to its producer.**
 
 - **(a) Recipe-declared.** `required_checks` lives in ruling 5's file, which the operator's
-  compile pins. It must be non-empty, or the compile refuses. Each entry is a check run by app
-  and name, or a commit status by context. For this house the audit entry is the check run
-  `RustSec dependency audit` from `github-actions` (`.github/workflows/ci.yml:673-674`), not
-  "RustSec". Where the observer can also read the forge's own required set for the base branch
+  compile pins. It must be non-empty, or the compile refuses. Each entry names its producer, and
+  a check matches it only when every part of that producer matches:
+  - **an Actions job** is bound to its app, its workflow file's path, its job (the key the
+    workflow declares, and the display name the forge reports for it), and its triggering event.
+    For this house the audit entry is job `dependency-audit` in `.github/workflows/ci.yml`,
+    displayed `RustSec dependency audit` (`:673-674`), from `github-actions`, on `pull_request`.
+    The required test jobs are named by system: `test (ubuntu-latest)` and
+    `test (macos-latest)`, job `engine` over its matrix (`:315-322`). Each is its own entry;
+  - **a commit status** is bound to its context and a pinned creator, by numeric id.
+
+  Where the observer can also read the forge's own required set for the base branch
   (branch protection, <https://docs.github.com/en/rest/branches/branch-protection>, or rulesets,
   <https://docs.github.com/en/rest/repos/rules>), every check the forge requires must be in the
   declared list, or the observation refuses with `required-set-disagrees`. The forge's set can
@@ -311,29 +324,78 @@ the compiled bundle outside the change.**
 - **(c) Whatever checks the forge reports for the head.** Refused: a missing check is invisible
   to it, so an absent audit would pass. That is the fault this ruling closes.
 
+**A changed check definition gets no automatic pass.** A change to CI can keep a required
+check's name while substituting what produces its success. So each required entry declares its
+`definition`: the paths that define what the check runs. These are its workflow file, and every
+local action and script its job runs, with those of every job it `needs:`, transitively. HEAD's
+audit job checks out the change and runs the checkout-local action
+`./.github/actions/setup-cargo-audit` (`.github/workflows/ci.yml:681-689`), so that action's
+directory is in the audit's definition. HEAD's `test (…)` jobs need `engine-machines`
+(`:317`), which runs `./.github/actions/local-runner`, `./.github/actions/setup-bubblewrap` and
+`scripts/test-shards.sh` (`:232`, `:247`, `:255`), so all three are in theirs. The compile
+refuses an entry whose definition lacks its own workflow file. When any changed path falls
+inside any required entry's definition, the observation refuses with `definition-changed`,
+naming the paths, and the run parks for a person. Cost, said plainly: every change to CI's own
+definition is a person's to pass. The residual is the operator's: a script a required job runs
+that the declared definition omits is not guarded, and the review that follows reads the change.
+
+**The tested revision is established, or the pass refuses.** HEAD's pull-request workflow tells
+three revisions apart: `delivered by brokkr` checks out the trusted base and the pull request's
+head by explicit ref (`.github/workflows/ci.yml:49-64`), and the ratchet job asserts that its
+checkout is the pull request's merge commit (`:663-671`). A checkout with no `ref`, as the audit
+job's (`:681-683`), tests the forge's generated merge revision on a `pull_request` event
+(<https://docs.github.com/en/actions/writing-workflows/choosing-when-your-workflow-runs/events-that-trigger-workflows#pull_request>;
+unmeasured here). So each required Actions entry declares `tested`, one of two words:
+
+- `head`: the run tested the gated head itself. The run's `head_sha` must equal it;
+- `merge`: the run tested the forge's merge revision of the pull request. The observation must
+  name that merge commit's id and its two parents. Its second parent must be the gated head, and
+  its first the base commit the observation names, which must be the pull request's current base.
+
+The declaration is the operator's statement about a pinned workflow, and `definition-changed`
+holds that workflow to the base's bytes. Whether the forge's run payload names the merge commit
+it tested is **unmeasured**. Until 0111a's evidence shows it, every `merge` entry refuses as
+`revision-unestablished`, and that fails closed.
+
 **What a pass is.** The engine draws `green` only when all of these hold:
 
 - the observation's repository, pull request and head equal the run's pinned repository, the
   pull request the gate names and the engine's own git head;
-- each workflow run's attempt is the latest the forge lists for it;
-- every entry of `required_checks` is matched by exactly one settled check;
+- no changed path falls inside a required entry's definition;
+- every entry of `required_checks` is matched by exactly one settled check from its bound
+  producer, in that producer's current execution;
+- each matched Actions entry's tested revision is established, as above;
 - each matched check's conclusion is `success`, or each matched status's state is `success`.
 
-Nothing short of that is a pass. Where the observation cannot pass and the classifier has no
-failure to type, it refuses with its own closed, typed reason:
+The **current execution** of an Actions entry is the workflow run with the highest run number
+among those the forge lists for its workflow path, its event and the head, read at its highest
+attempt. Any other run for that key still queued or in progress, or a run list the observer could
+not read whole, refuses as `execution-ambiguous`.
+
+Nothing short of that is a pass. **Every binding and completeness refusal comes before any
+classification.** The engine checks each row below in order, records every one that holds, and
+classifies a failure only when none does. So a required check that is missing beside an
+otherwise classifiable failure refuses as `missing-required`; it is never typed.
 
 | Refusal | When |
 |---|---|
-| `empty` | the forge reports no check for the head |
-| `missing-required` | a required entry matches no check; the refusal names the entry |
-| `ambiguous-required` | a required entry matches more than one check in the current attempt |
-| `unrelated` | the repository, the pull request, the head or the attempt differs from the binding |
-| `not-settled` | a required check is still queued or in progress when the observer's own polling bound ends, short of the seat's deadline |
-| `non-success` | a required check concluded `neutral`, `skipped`, `stale` or `action_required`, words the classifier types as no failure; the refusal names the check and the word |
-| `required-set-disagrees` | the forge requires a check the pinned list lacks |
+| `unrelated` | the repository, the pull request or the head differs from the binding |
 | `range-unavailable` | git cannot take ruling 4's pinned base-to-head range |
+| `definition-changed` | a changed path falls inside a required entry's definition; the refusal names the paths |
+| `empty` | the forge reports no check for the head |
+| `producer-mismatch` | a check carries a required entry's name, or a status its context, from another app, workflow path or creator; the refusal names it, so a substitute is never silently passed over |
+| `missing-required` | a required entry matches no check from its bound producer; the refusal names the entry |
+| `ambiguous-required` | a required entry matches more than one check in its current execution |
+| `execution-ambiguous` | a required entry's current execution cannot be told, as above |
+| `revision-unestablished` | a required entry's tested revision is not established, as above |
+| `not-settled` | a required check is still queued or in progress when the observer's own polling bound ends, short of the seat's deadline |
+| `required-set-disagrees` | the forge requires a check the pinned list lacks |
 
-A refusal never passes. The run parks `ruled`, with the rule's id and the refusal's word.
+One more refusal follows the pass and precedes classification: `non-success`, when no required
+check failed, and one concluded `neutral`, `skipped`, `stale` or `action_required`. It names the
+check and the word.
+
+A refusal never passes. The run parks `ruled`, with the rule's id and the refusals' words.
 
 The gate's word is bound to the engine's class: `pass` is admitted only on `green`, and `fail`
 with a `green` class is refused. A refused word is never rewritten (the same binding 0109
@@ -414,11 +476,11 @@ to the gated head. Both ends are checked as commit ids before git sees them. A r
 take (a base it does not have, or no merge base) refuses as `range-unavailable`, with ruling 3's
 refusals. It is never read as an empty change. In order:
 
-1. The observation passes ruling 3's pass rule: **`green`**. One that cannot pass and holds no
-   failed, timed-out, unstarted or cancelled required check takes ruling 3's refusal.
-2. Any changed path matches the list's `infrastructure_paths`: **`change`**, reason
-   `touches-infrastructure`.
-3. Each failed job is typed on its own:
+1. Any binding or completeness refusal of ruling 3 holds: **`refused`**, naming every one that
+   holds. Nothing below runs, so no refusal is ever outranked by a classifiable failure.
+2. The observation passes ruling 3's pass rule: **`green`**. One that cannot pass and holds no
+   failed, timed-out, unstarted or cancelled required check is **`refused`** as `non-success`.
+3. Each failed required job is typed on its own:
    - a job-level conclusion that proves non-execution: runner, kind **`not-started`**. That set
      is empty until 0111b measures `startup_failure` on a job;
    - under (b) only: conclusion `failure`, its first failed step runner-owned as (b) defines,
@@ -427,9 +489,12 @@ refusals. It is never read as an empty change. In order:
    - anything else, `timed_out` included (a hang may be the change's): **untyped**.
 4. Every failed job runner, and at least one failed: **`ci-infrastructure`**, naming each job,
    its step, its kind and pattern id.
-5. Otherwise **`change`**, with a closed reason: `untyped-failure`, `cancelled` (any required job
-   cancelled: who cancelled is unmeasured, though on a pull request a newer push cancels the
-   older run, `.github/workflows/ci.yml:24-26`), or `touches-infrastructure`.
+5. Otherwise **`change`**, with a closed reason: `untyped-failure`, or `cancelled` (any required
+   job cancelled: who cancelled is unmeasured, though on a pull request a newer push cancels the
+   older run, `.github/workflows/ci.yml:24-26`).
+
+A change to a required check's definition never reaches step 3: it is refused at step 1 as
+`definition-changed`, for a person, and no pattern over its steps is read.
 
 One untyped job makes the whole observation `change`: the change has a failure to answer. A
 failure the classifier cannot type is the change's, as today.
@@ -459,12 +524,24 @@ compiled into the bundle and pinned with it.**
   "schema": "ci-checks/v1",
   "repository": {"owner": "example", "name": "app", "id": 1},
   "required_checks": [
-    {"check_run": {"app": "github-actions", "name": "test"}},
-    {"check_run": {"app": "github-actions", "name": "RustSec dependency audit"}}
-  ],
-  "infrastructure_paths": [".github/workflows/", ".github/actions/"]
+    {"actions_job": {
+      "app": "github-actions", "workflow": ".github/workflows/ci.yml",
+      "job": "engine", "name": "test (ubuntu-latest)", "event": "pull_request",
+      "tested": "merge",
+      "definition": [".github/workflows/ci.yml", ".github/actions/local-runner/",
+                     ".github/actions/setup-bubblewrap/", "scripts/test-shards.sh"]}},
+    {"actions_job": {
+      "app": "github-actions", "workflow": ".github/workflows/ci.yml",
+      "job": "dependency-audit", "name": "RustSec dependency audit", "event": "pull_request",
+      "tested": "merge",
+      "definition": [".github/workflows/ci.yml", ".github/actions/setup-cargo-audit/"]}},
+    {"status": {"context": "example/deploy-preview", "creator_id": 1}}
+  ]
 }
 ```
+
+The `tested` words, the status entry and its creator id are illustrative; the app's numeric id
+is pinned beside its slug once 0111a's evidence shows it.
 
 That is the whole list under ruling 4 (a). Under (b) only, two more keys are admitted:
 
@@ -483,7 +560,7 @@ substring. No regex, glob or wildcard is admitted, so matching is linear and the
 host. `id` is kebab-case and unique; every step a pattern names must be in
 `runner_owned_steps`.
 
-The list has two syntaxes, and they never mix. A **path** in `infrastructure_paths` is a
+The list has two syntaxes, and they never mix. A **path** in a `definition` is a
 repository-relative path. It matches a changed path that equals it, or, when it ends in `/`,
 any changed path under that directory. It is not a glob, and not the docs class's regular
 expressions (`crates/brokkr-runtime/src/engine.rs:3217`). A **literal** in `patterns` is matched
@@ -491,8 +568,10 @@ only against log bytes, never against a path. Each field admits only its own syn
 compile refuses a `*`, `?` or `[` in a path, so a glob cannot pass for one, while a literal's
 bytes are all literal.
 
-`required_checks` and `infrastructure_paths` must be non-empty. The compile refuses a list that
-leaves either to a default. `repository` pins the binding ruling 3 checks.
+`required_checks` must be non-empty, every Actions entry must name all of its producer's parts
+and its `tested` word, and every `definition` must hold its own workflow file. The compile
+refuses a list that leaves any of them to a default. `repository` pins the binding ruling 3
+checks.
 
 The operator declares it, as any recipe or `extends` overlay (0017). No seat writes it: the
 run reads the list its compiled bundle pinned at start, never the change's tree, so a branch
@@ -701,18 +780,29 @@ Smallest first; each lands on its own.
    `an_observation_with_an_unknown_field_refuses_whole`. The range and the list's syntax:
    `the_change_range_is_the_merge_base_to_the_gated_head_not_the_phase_entry`;
    `a_range_git_cannot_take_refuses_as_range_unavailable`;
-   `a_glob_character_in_an_infrastructure_path_refuses_to_compile`;
+   `a_glob_character_in_a_definition_path_refuses_to_compile`;
    `a_directory_path_matches_only_under_its_slash`. The evidence:
    `a_timing_sensitive_test_failure_is_the_changes`; `a_cancelled_job_is_the_changes`;
-   `a_change_to_a_workflow_file_is_the_changes`; `one_untyped_job_makes_the_whole_change`;
+   `one_untyped_job_makes_the_whole_change`;
    `an_unknown_conclusion_refuses_by_name`; `a_stale_head_observation_does_not_read`;
    `a_pass_with_a_failed_job_is_refused`; `a_seat_cannot_write_the_classification`;
-   `a_ci_list_on_a_model_seat_refuses_to_compile`;
-   `an_empty_infrastructure_list_refuses_to_compile`; `inspect_names_the_class`. The pass's
+   `a_ci_list_on_a_model_seat_refuses_to_compile`; `inspect_names_the_class`. The producer, the
+   definition and the tested revision (ruling 3):
+   `a_same_named_green_check_from_another_workflow_refuses_as_producer_mismatch`;
+   `a_status_from_an_unpinned_creator_refuses_as_producer_mismatch`;
+   `a_green_check_on_another_event_does_not_match_its_entry`;
+   `a_change_to_ci_yml_refuses_as_definition_changed`;
+   `a_change_to_the_local_action_a_required_job_runs_refuses_as_definition_changed`;
+   `a_change_to_a_script_a_needed_job_runs_refuses_as_definition_changed`;
+   `a_definition_without_its_own_workflow_refuses_to_compile`;
+   `an_ambiguous_tested_revision_refuses_as_revision_unestablished`;
+   `a_merge_revision_whose_parents_are_not_the_base_and_the_head_refuses`;
+   `two_unsettled_runs_for_one_entry_refuse_as_execution_ambiguous`;
+   `missing_required_beside_a_classifiable_failure_refuses_and_is_never_typed`. The pass's
    refusals, one test each, every one asserting the refusal's variant and that the class is not
    `green`: `an_observation_with_no_check_refuses_as_empty`;
    `a_required_audit_missing_from_the_observation_refuses_as_missing_required`;
-   `an_observation_of_another_head_repository_pull_request_or_attempt_refuses_as_unrelated`;
+   `an_observation_of_another_head_repository_or_pull_request_refuses_as_unrelated`;
    `a_skipped_or_neutral_required_check_refuses_as_non_success`;
    `a_required_check_still_in_progress_refuses_as_not_settled`;
    `two_matches_for_one_required_check_refuse_as_ambiguous`;
