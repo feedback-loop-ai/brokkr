@@ -216,10 +216,13 @@ write binding, and the observer's credential is read-only (ruling 2).
   routes on the engine-owned result. Observing and deciding stay apart (0071 ruling 10). Cost: one
   script, one core module, one engine input. It refuses forge-specific network code in the
   engine. It serves an adopter's exec gate and a future house one through the same contract.
-- **(b) A built-in engine effect that calls the forge.** One reader for every recipe, but the
-  engine gains an HTTP client, a credential path and a forge vocabulary of its own, a second
-  effect kind for one forge. Refused for now; the observation contract in (a) is what (b) would
-  write, so (b) stays open.
+- **(b) A built-in engine effect that calls the forge.** One reader for every recipe, and no
+  child process whose launch must be proven. But the engine holds no forge client at HEAD: its
+  one HTTP client, `ureq`, is in `brokkr-bridge`, which speaks to Looper, not to a forge
+  (`crates/brokkr-bridge/src/lib.rs:1-7`, `:210-219`). So (b) builds an HTTP client, a
+  credential path and a forge vocabulary into the runtime, a second effect kind for one forge.
+  Not recommended now; the observation contract in (a) is what (b) would write, so (b) stays
+  open, as a slice of its own if ruled.
 - **(c) A model seat reads `gh run view` and says.** Refused: a model's reading is prose, and
   no model decides a routing.
 
@@ -238,15 +241,71 @@ must not be anything the gated change can edit:
   change's own tree; in this house `recipes/fast/` is repository code. This decision therefore
   requires that the observer's layer lie outside the gated worktree: run start refuses a `ci`
   seat whose bundle layer is inside it. Whether run start can see both paths today is
-  unmeasured; slice 0111a's test settles it.
-- **Its tools.** The interpreter and `gh` resolve through the seat's `PATH`, which 0049 ruling 3
-  leaves unpinned under `harness` and `open` (quoted at
-  `crates/brokkr-runtime/src/bundle/model_policy_tests.rs:2595-2596`). Pinning them is
-  **unmeasured**, so the observer fails closed: it refuses, typed, when `bash`, `gh` or `jq`
-  resolves under the gated worktree. It names the repository explicitly (`--repo`), so `gh`
-  never takes the repository from the worktree's git remotes. Whether other change-controlled
-  files can reach `gh`'s configuration is unmeasured until 0111b, and until then a run whose
-  observer cannot show its tool paths outside the worktree refuses.
+  unmeasured; slice 0111b's test settles it.
+- **Its launch.** Checking where `gh` resolves from inside the script proves nothing about the
+  process that runs the script. An inherited `BASH_ENV` naming a worktree file runs before the
+  script's first line, and `bash` itself resolves through `PATH`, which 0049 ruling 3 leaves
+  unpinned under `harness` and `open` (quoted at
+  `crates/brokkr-runtime/src/bundle/model_policy_tests.rs:2595-2596`). So the launch is ruled
+  below, and the engine proves it before it spawns anything.
+
+**The observer's launch is trusted, or the observation refuses.** **Recommended: (a) an
+engine-built launch, proven before the spawn.** The process that observes CI, read-only as it
+is, is launched with all four of these, or the engine refuses before the spawn, parks `ruled`
+with the reason `launch-untrusted` naming the condition that failed, and observes nothing:
+
+- **A pinned executable identity outside the change.** The `ci` seat's interpreter and each tool
+  it calls (`gh`, `jq`) are declared in ruling 5's file by absolute path and SHA-256 digest. The
+  launcher hashes each before the spawn, and refuses a mismatch, a path that is not absolute, or
+  a path under any worktree the run holds. The argv's first word is the pinned interpreter's
+  path, never a bare name, and it runs as `bash --noprofile --norc` over the pinned script. The
+  tools reach the script as absolute paths in its argv, never through `PATH`.
+- **A working directory outside the worktree.** The launcher creates an empty directory of its
+  own, outside every worktree, runs the observer there, and removes it after. No git
+  configuration, `.envrc` or tool file in the worktree is beneath it.
+- **A cleared, allow-listed environment.** The environment is cleared, then holds only a closed
+  list: the read-only token's one variable, `HOME`, `XDG_CONFIG_HOME` and `GH_CONFIG_DIR` set to
+  empty directories the launcher made, `LC_ALL=C`, and an empty `PATH`. There is no `BASH_ENV`,
+  no `ENV` and no shell startup file. The compile refuses any other key.
+- **No tool configuration the change controls.** `gh` reads its configuration only from the
+  launcher's empty directory, and is told the repository by `--repo` from the pinned list, so it
+  never reads the worktree's remotes. Nothing the observer opens is under a worktree.
+
+What HEAD lacks for this form, each built by slice 0111b:
+
+- **A cleared environment for a site without hands.** Such a site spawns in the engine's own
+  environment: `SiteSpawn::inherit` sets `SpawnEnv::Inherit`
+  (`crates/brokkr-runtime/src/engine.rs:2040-2050`), and `harness_command` adds the bindings
+  without clearing what it inherited (`crates/brokkr-protocol/src/adapters.rs:756-770`). The
+  cleared form exists: `SpawnEnv::Exactly` (`crates/brokkr-protocol/src/process.rs:85-94`,
+  applied with `env_clear` at `:303-305`). Today only an unboxed exec dispatch with hands uses
+  it (`crates/brokkr-runtime/src/engine.rs:2871-2880`).
+- **A working directory other than the worktree.** The exec adapter runs its command from the
+  workdir it is handed (`crates/brokkr-protocol/src/adapters/exec.rs:33-42`), and no site
+  declares another.
+- **A pinned executable identity.** None exists for any exec site (0049 ruling 3).
+
+The other forms:
+
+- **(b) The engine observes through a forge client.** It has no child process to prove, but
+  HEAD holds no forge client (ruling 2 (b)), so it is that option's cost.
+- **(c) A boxed observer under `namespace`.** The box clears the environment and starts from `/`
+  (`crates/brokkr-protocol/src/hands.rs:764`), and supplies the filesystem and `PATH` (0049,
+  `docs/decisions/0049-the-platform-classes.md:43-46`). But HEAD refuses any hands site with a
+  secret binding (`crates/brokkr-runtime/src/bundle.rs:3940-3967`), so a boxed observer could
+  read only with no credential: a public repository, under the forge's unauthenticated rate
+  limit (unmeasured), and on Linux only. Not recommended.
+
+**The observer's credential is read-only.** A forged pass is the worst case here: an observer
+the change controlled could write a green observation, and the engine's own checks (the head,
+the repository, the pinned list) would not see it. The launch rules exist for that case. The
+credential is a sealed secret binding (0012), resolved by the runner into the one allow-listed
+variable and never into argv; `gh` reads a token from its environment, an env-only consumer
+0012's compile lint already admits (`crates/brokkr-runtime/src/bundle.rs:4149-4156`). Its scope
+is read-only: Actions, checks, commit statuses, pull requests and metadata, and administration
+only where ruling 3's forge-required set is read. The forge's permission names, and whether
+Brokkr can read a token's scopes, are unmeasured; so a token with write scopes is the operator's
+misconfiguration, and the observer never sends a write whatever its token holds.
 - **Its word is data.** The engine re-checks the observation's binding itself (ruling 3): it
   compares the head to its own git head and the repository to the pinned one. It never takes
   them from the observer.
@@ -523,6 +582,11 @@ compiled into the bundle and pinned with it.**
 {
   "schema": "ci-checks/v1",
   "repository": {"owner": "example", "name": "app", "id": 1},
+  "observer": {
+    "interpreter": {"path": "/usr/bin/bash", "sha256": "<64 hex>"},
+    "tools": {"gh": {"path": "/usr/bin/gh", "sha256": "<64 hex>"},
+              "jq": {"path": "/usr/bin/jq", "sha256": "<64 hex>"}}
+  },
   "required_checks": [
     {"actions_job": {
       "app": "github-actions", "workflow": ".github/workflows/ci.yml",
@@ -808,15 +872,25 @@ Smallest first; each lands on its own.
    `two_matches_for_one_required_check_refuse_as_ambiguous`;
    `a_forge_required_check_the_list_lacks_refuses`; `an_empty_required_list_refuses_to_compile`;
    `a_ci_seat_whose_layer_is_inside_the_worktree_refuses_at_start`.
-2. **0111b — a GitHub observer script.** Files: a house observer script and its shellcheck
-   clean; a test that runs it against a stub `gh` on the path and holds its output to
-   `ci-observation/v1`; one recorded real payload, measured by the operator, which settles this
-   decision's unmeasured forge facts. Tests:
-   `the_observer_refuses_when_gh_resolves_under_the_worktree`;
+2. **0111b — the trusted launch and a GitHub observer script.** Files: the launch in
+   `crates/brokkr-runtime/src/engine.rs` (a `ci` site's cleared `SpawnEnv::Exactly` table, its
+   own working directory and its digest-checked executables) and
+   `crates/brokkr-protocol/src/adapters/exec.rs` (a working directory the site names);
+   `crates/brokkr-runtime/src/bundle.rs` (the pinned interpreter and tools, and the allow-list);
+   a house observer script and its shellcheck clean; a test that runs it against a stub `gh`
+   given by absolute path and holds its output to `ci-observation/v1`; one recorded real
+   payload, measured by the operator, which settles this decision's unmeasured forge facts.
+   Tests: `an_inherited_bash_env_never_reaches_the_observer`;
+   `an_observer_interpreter_whose_digest_moved_refuses_before_the_spawn`;
+   `an_observer_tool_under_the_worktree_refuses_before_the_spawn`;
+   `a_bare_interpreter_name_refuses_to_compile`;
+   `the_observer_runs_from_a_directory_outside_the_worktree`;
+   `an_environment_key_outside_the_allow_list_refuses_to_compile`;
+   `the_observer_reads_no_gh_configuration_from_the_worktree_or_home`;
    `the_observer_names_the_repository_and_never_reads_the_worktrees_remotes`;
    `the_observer_lists_every_check_for_the_head_unfiltered`;
-   `the_observer_holds_no_write_binding`. About 150 script and 250 test lines. No contract
-   change.
+   `the_observer_holds_no_write_binding`. About 250 production, 150 script and 400 test lines.
+   No contract change.
 3. **0111c — the routing overlay.** Files: a recipe overlay declaring ruling 6's table, and its
    compile tests. About 100 data and 350 test lines. No contract change. Tests:
    `a_green_observation_passes`; `a_change_failure_returns_to_implement`;
