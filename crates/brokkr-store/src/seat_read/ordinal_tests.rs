@@ -8,9 +8,11 @@
 use brokkr_core::envelope::{EventEnvelope, EventType};
 use serde_json::{json, Value as Json};
 
-use crate::test_support::{append, checkpoint_of, opened};
+use crate::test_support::checkpoint_of;
 use crate::tests::store;
 use crate::{Opened, SeatRead, Store};
+
+mod plant;
 
 /// The two events that ask for `effect` and start its `attempt`.
 fn asked_and_started(effect: &str, attempt: &str) -> Vec<(EventType, Json)> {
@@ -39,7 +41,6 @@ fn turns(effect: &str, attempt: &str, member: Option<&str>, n: u64) -> Vec<(Even
 }
 
 /// `n` result-only records of `member`'s at `attempt`.
-#[cfg(feature = "test-support")]
 fn results(effect: &str, attempt: &str, member: &str, n: u64) -> Vec<(EventType, Json)> {
     (0..n)
         .map(|_| {
@@ -85,12 +86,10 @@ fn interleaved_member() -> Vec<(EventType, Json)> {
     events
 }
 
-/// A run `r` with `events` appended, opened.
+/// A run `r` with `events` after `test_support::opened`'s two, planted in one
+/// transaction as the writer appends them (#1130), opened.
 fn journal(store: &mut Store, events: Vec<(EventType, Json)>) -> Opened {
-    opened(store, "r", "implement", &[]);
-    for (kind, payload) in events {
-        append(store, "r", kind, payload);
-    }
+    plant::plant(store, "r", events);
     store.open_run("r").unwrap()
 }
 
