@@ -529,14 +529,15 @@ graph
     → ⏺ intake · finished
 …
   · done ×1  ←current
+…
 ```
 
 That is Step 3's run, read back, with its seats and the middles of its
-trail and graph elided, and the `boundary` line, which is your host's:
+trail and graph and its verdicts elided, and the `boundary` line, which is your host's:
 [the read surfaces](read-surfaces.md#brokkr-inspect--one-run-explained)
 show the whole readout.
 
-Five blocks, and each one answers a different question:
+Six blocks, and each one answers a different question:
 
 - **header** — the run id, its status (`running`, `awaiting_operator`,
   `completed`, `stopped`), the phase it is in, and the journal sequence
@@ -554,6 +555,11 @@ Five blocks, and each one answers a different question:
   typed results, the table produces rulings.
 - **graph** — phases with their visit counts (`×N`), and where the run
   currently is.
+- **verdicts** — what each gate's result recorded beside its word
+  (decision 0109): the head it covered, and each finding it reported,
+  keyed by its id and its site, one line each under `verdicts`. A run
+  whose results recorded neither, as every run before seat-record v7
+  is, prints no such block.
 
 `--run` takes a selector, not only the 41-character id: any unique
 run-id prefix, or `latest`. `--phase <name>` and `--seat <name>` narrow
