@@ -417,7 +417,8 @@ Actions are included:
   <https://docs.github.com/en/rest/actions/workflow-jobs>);
 - every workflow run the forge lists for the head, with its path, event, number, attempt,
   status, `head_sha` and its pull-request association (below), so the engine can tell which
-  run is current and whose it is;
+  run is current and whose it is, and every job of each current run with its steps, so a
+  required aggregate's dependencies are seen (ruling 4);
 - every open pull request the forge lists for the head commit
   (<https://docs.github.com/en/rest/commits/commits#list-pull-requests-associated-with-a-commit>),
   so a head two pull requests share is seen;
@@ -665,7 +666,8 @@ truncated.
   could not be replayed from the journal alone. Refused; the bound below is the cost control.
 
 **Log excerpts, bounded in total and handled before they are durable.** An excerpt is carried
-only for the first failed step of a failed required job, and only when that step is one ruling
+only for the first failed step of a failed required job, or of a failed dependency of a
+required aggregate (ruling 4), and only when that step is one ruling
 4's list declares as setup. The observer applies four bounds before the seat's result is
 written, so they hold before sealing:
 
@@ -701,8 +703,10 @@ rule, which reads every required check's own `success` and never reads a log.
 
 - **(a) Recommended: declared literals over declared setup steps.** The list declares setup
   steps, each by workflow, job and step name, and the literals each may match. A failed required
-  job is typed `ci-infrastructure` only when its first failed step is a declared setup step and
-  that step's bounded excerpt holds one of that step's literals. The issue's port-bind case is one:
+  job, or a failed dependency of a required aggregate, is typed setup only when its first failed
+  step is a declared setup step and that step's bounded excerpt holds one of that step's
+  literals, and the observation parks only when its whole failure set is setup (the classifier,
+  below). The issue's port-bind case is one:
   the step that boots the compose services, declared setup, with the literal
   `address already in use`. The adopter's step name and excerpt are unmeasured.
   - **The bounded cost, said plainly:** a change that makes its own failure print a declared
@@ -747,23 +751,49 @@ refusals. It is never read as an empty change. In order:
    holds. Nothing below runs, so no refusal is ever outranked by a classifiable failure.
 2. The observation passes ruling 3's pass rule: **`green`**. One that cannot pass and holds no
    failed, timed-out, unstarted or cancelled required check is **`refused`** as `non-success`.
-3. Each failed required job is typed on its own:
-   - conclusion `failure`, its first failed step a declared setup step, and that step's excerpt
-     holding one of that step's literals: **setup-pattern**, with the pattern's id;
-   - anything else, `startup_failure` and `timed_out` included (a hang may be the change's):
-     **untyped**.
-4. Every failed required job setup-pattern, and at least one failed: **`ci-infrastructure`**,
-   naming each job, its step and its pattern id, with the workflow run's id and attempt a person
-   needs to re-run it.
-5. Otherwise **`change`**, with a closed reason: `untyped-failure`, or `cancelled` (any required
-   job cancelled: who cancelled is unmeasured, though on a pull request a newer push cancels the
-   older run, `.github/workflows/ci.yml:24-26`).
+3. **The whole failure set is typed.** The failure set is every required job whose conclusion is
+   not `success`, each instance of a matrix job on its own. Every element gets one closed type,
+   matched without a wildcard:
+   - **setup-pattern**: conclusion `failure`, its first failed step a declared setup step, and
+     that step's excerpt holding one of that step's literals, with the pattern's id;
+   - **setup-via-needs**: a required aggregate (below) with conclusion `failure`, whose failed
+     dependencies are each, in turn, setup-pattern or setup-via-needs, and at least one failed;
+   - **cancelled**: conclusion `cancelled`, the required job's own or a dependency's through an
+     aggregate. Who cancelled is unmeasured, though on a pull request a newer push cancels the
+     older run (`.github/workflows/ci.yml:25-27`);
+   - **untyped**: anything else: a `failure` no declared literal matches, `startup_failure` and
+     `timed_out` (a hang may be the change's), and `neutral`, `skipped`, `stale` or
+     `action_required` beside a failure, so a skipped required check never rides along with a
+     setup fault into a park.
+
+   A failure ruling 3 refuses to admit (an unproven association, a disagreeing revision, a
+   status) never reaches this step: step 1 has refused the whole observation for a person, so it
+   is never counted toward a `ci_infrastructure` park.
+4. **Only an all-setup failure set parks.** Every element setup-pattern or setup-via-needs, and
+   the set non-empty: **`ci-infrastructure`**, naming each job, its step and its pattern id,
+   with the workflow run's id and attempt a person needs to re-run it.
+5. Otherwise **`change`**, with a closed reason naming the first element that is not setup, in
+   the set's order: `cancelled`, or `untyped-failure`. One such element beside any number of
+   setup faults makes the whole observation the change's.
+
+**A required aggregate is followed through its pinned `needs`.** HEAD's required `test (…)`
+jobs are an aggregate: job `engine` `needs: engine-machines`, runs `always()`, and its one step
+asserts `needs.engine-machines.result` is `success` (`.github/workflows/ci.yml:315-329`). A
+port bind during service boot in an `engine-machines` instance therefore fails `engine` in a
+step that prints no setup literal, and read alone it is `untyped`. So a failed required job
+whose job, in the base revision's pinned workflow, declares `needs` is typed through them: the
+classifier reads the `needs` that ruling 3's closure parse took from the base workflow, finds
+those jobs in the same workflow run and attempt, and types each that did not succeed by the
+same rules, recursively. A dependency the observation does not carry, or one in another run or
+attempt, is `untyped`. This is safe because the base workflow is the one the run used (ruling 3
+refuses a changed one as `machinery-changed`), and because the type only parks: a mistyped
+aggregate costs a person's look, never a pass. The aggregate's own failed step is taken as the
+dependency's consequence, not read; that is the bounded cost.
 
 A change to CI's verdict machinery never reaches step 3: it is refused at step 1 as
 `machinery-changed`, for a person, and no pattern over its steps is read.
 
-One untyped job makes the whole observation `change`: the change has a failure to answer. A
-failure the classifier cannot type is the change's, as today.
+A failure the classifier cannot type is the change's, as today.
 
 **Audit jobs need no rule of their own.** Fix round 1093r2 kept an audit job out of any re-run
 unless the forge proved its steps never ran, so a re-run could not launder an advisory. With no
@@ -819,7 +849,7 @@ Under ruling 4 (a), two more keys declare the evidence that types a park:
 ```json
 {
   "setup_steps": [
-    {"id": "compose-up", "workflow": ".github/workflows/ci.yml", "job": "integration", "step": "start services"}
+    {"id": "compose-up", "workflow": ".github/workflows/ci.yml", "job": "engine-machines", "step": "start services"}
   ],
   "patterns": [
     {"id": "port-in-use", "steps": ["compose-up"], "literal": "address already in use"}
@@ -827,8 +857,12 @@ Under ruling 4 (a), two more keys declare the evidence that types a park:
 }
 ```
 
-The job and step names above are illustrative and unmeasured. Under ruling 4 (b) the compile
-refuses either key. A pattern is a literal: 1 to 200 printable ASCII bytes, matched as an exact,
+The job is HEAD's: `engine-machines`, which the required `test (…)` aggregate needs
+(`.github/workflows/ci.yml:315-329`). The step is illustrative: HEAD's `engine-machines` boots no
+compose service, and the adopter's step name and excerpt are unmeasured. A setup step's job must
+be a required entry's job, or a job a required aggregate needs at the base, transitively; the
+check runs with ruling 3's closure parse, and a setup step outside both refuses the observation
+as `machinery-unresolved`. Under ruling 4 (b) the compile refuses either key. A pattern is a literal: 1 to 200 printable ASCII bytes, matched as an exact,
 case-sensitive byte substring. No regex, glob or wildcard is admitted, so matching is linear and
 the same on every host. Each `id` is kebab-case and unique; every step a pattern names must be
 in `setup_steps`, and every setup step's workflow must be the workflow of a required entry, so
@@ -1206,6 +1240,16 @@ slice that produces it, and each typed assertion is in the slice that builds its
    `a_fifth_excerpt_refuses_the_observation`;
    `a_timing_sensitive_test_failure_is_the_changes`; `a_cancelled_job_is_the_changes`;
    `one_untyped_job_makes_the_whole_change`; `an_unknown_conclusion_refuses_by_name`;
+   the whole failure set (ruling 4):
+   `a_cancelled_required_job_beside_a_setup_failure_is_the_changes`;
+   `an_unclassifiable_failure_beside_a_setup_failure_is_the_changes`;
+   `a_skipped_required_check_beside_a_setup_failure_is_the_changes`;
+   `an_unadmitted_failure_beside_a_setup_failure_refuses_and_never_parks_typed`;
+   `a_port_bind_in_engine_machines_through_the_engine_aggregate_draws_ci_infrastructure`;
+   `an_aggregate_with_one_untyped_dependency_is_the_changes`;
+   `an_aggregate_whose_dependency_is_in_another_attempt_is_the_changes`;
+   `the_aggregate_reads_its_needs_from_the_base_workflow_never_the_head`;
+   `a_setup_step_in_a_job_no_required_aggregate_needs_refuses`;
    `a_stale_head_observation_does_not_read`; `a_pass_with_a_failed_job_is_refused`;
    `a_seat_cannot_write_the_classification`; `a_ci_list_on_a_model_seat_refuses_to_compile`.
    The producer, the verdict machinery and the tested revision (ruling 3):
