@@ -478,14 +478,32 @@ fn a_gone_row_whose_attempt_no_event_names_is_kept() {
 /// value no test enters, and its tree is kept the same. The 5c2 landing
 /// review's finding: a late `operator/commanded` whose payload is an array
 /// is no late word, so the fold admits it unread, and serde would read it
-/// into the struct by position; only an object decodes.
+/// into the struct by position; only an object decodes. #430's L3: the
+/// fold folds a run whose late annotation does not read, so that keep has
+/// a reason of its own, not "its run does not fold"; a command word that
+/// does not read keeps the same.
 #[test]
 fn an_operator_payload_that_does_not_decode_keeps_the_runs_tree() {
-    let positional = (EventType::OperatorCommanded, json!(["c1", "stop"]));
-    for (event_type, payload) in malformed_operator_payloads()
-        .into_iter()
-        .chain([positional])
-    {
+    let [commanded, accepted] = malformed_operator_payloads();
+    let unread = (
+        KeptReason::OperatorPayloadUnread,
+        "an operator command after its end does not read",
+    );
+    let unfolded = (KeptReason::RunDoesNotFold, "its run does not fold");
+    for (event_type, payload, (reason, words)) in [
+        (commanded.0, commanded.1, unread.clone()),
+        (
+            EventType::OperatorCommanded,
+            json!(["c1", "stop"]),
+            unread.clone(),
+        ),
+        (
+            EventType::OperatorCommanded,
+            json!({"command_id": "c1", "command": 7, "operator": "operator", "args": {}}),
+            unread,
+        ),
+        (accepted.0, accepted.1, unfolded),
+    ] {
         let (mut fixture, tree) = first_present();
         completed(&mut fixture.store, RUN);
         plant_after_terminal(
@@ -497,8 +515,8 @@ fn an_operator_payload_that_does_not_decode_keeps_the_runs_tree() {
         let (swept, _) = pass_one(&mut fixture.store);
 
         assert!(tree.exists(), "{event_type:?}");
-        assert_eq!(kept_reasons(&swept), [KeptReason::RunDoesNotFold]);
-        assert_eq!(swept.kept()[0].reason(), "its run does not fold");
+        assert_eq!(kept_reasons(&swept), [reason]);
+        assert_eq!(swept.kept()[0].reason(), words);
         assert_eq!(fixture.store.tree_sweeps().unwrap(), vec![]);
         brokkr_store::test_support::lags(&mut fixture.store, &[RUN]);
     }

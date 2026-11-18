@@ -1685,6 +1685,7 @@ fn every_kept_reason_has_words() {
         KeptReason::Shape(ShapeReason::ForeignFilesystem),
         KeptReason::RunCannotBeRead,
         KeptReason::RunDoesNotFold,
+        KeptReason::OperatorPayloadUnread,
         KeptReason::TmpdirRelative,
         KeptReason::TmpdirNotUtf8,
         KeptReason::Held(HeldReason::RunNotEnded),

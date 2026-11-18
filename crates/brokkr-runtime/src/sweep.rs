@@ -50,6 +50,9 @@ pub(crate) enum KeptReason {
     NoTerminalEvent,
     RunCannotBeRead,
     RunDoesNotFold,
+    /// An `operator/commanded` annotation after the terminal event, which
+    /// the fold admits unread, whose command id or word does not read.
+    OperatorPayloadUnread,
     TmpdirRelative,
     TmpdirNotUtf8,
     /// The row's path is not the engine's shape (R5).
@@ -100,6 +103,7 @@ impl std::fmt::Display for KeptReason {
             KeptReason::NoTerminalEvent => "no terminal event names its attempt",
             KeptReason::RunCannotBeRead => "its run cannot be read",
             KeptReason::RunDoesNotFold => "its run does not fold",
+            KeptReason::OperatorPayloadUnread => "an operator command after its end does not read",
             KeptReason::TmpdirRelative => "its TMPDIR is not an absolute path",
             KeptReason::TmpdirNotUtf8 => "its TMPDIR is not UTF-8",
             KeptReason::Shape(reason) => return reason.fmt(f),

@@ -273,7 +273,9 @@ fn late_attempts(events: &[EventEnvelope], state: &brokkr_core::fold::RunState) 
 /// Only the events the fold applies are read, as [`applied`] reads them: a
 /// repaired late tail is never applied, so its payloads decide nothing.
 /// Each applied operator payload is read once, here; one that does not
-/// read keeps the run's rows.
+/// read keeps the run's rows. An `operator/commanded` the fold admitted
+/// unread, an annotation after the terminal event, is the only one that
+/// can refuse here, and it keeps them for that reason of its own.
 fn stop_acceptances<'a>(
     events: &'a [EventEnvelope],
     state: &brokkr_core::fold::RunState,
@@ -284,7 +286,7 @@ fn stop_acceptances<'a>(
         if event.event_type == EventType::OperatorCommanded {
             let (command_id, command) = operator_command(event)
                 .ok()
-                .ok_or(KeptReason::RunDoesNotFold)?;
+                .ok_or(KeptReason::OperatorPayloadUnread)?;
             if command == OperatorCommand::Stop.as_str() {
                 commands.insert(command_id);
             }
