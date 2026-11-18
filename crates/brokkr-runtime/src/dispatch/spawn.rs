@@ -119,8 +119,8 @@ fn identity(path: &Path) -> Option<(u64, u64)> {
 /// exec, and refused unless it is this user's own regular file of one link
 /// in the run locks' own directory.
 pub fn driver_log(journal: &Path, run: &str) -> Result<File, DriverError> {
-    let name = format!("{run}{LOG}");
-    let at = run_lock::directory_path(journal).join(&name);
+    let name = log_name(run);
+    let at = driver_log_path(journal, run);
     if !run_lock::safe(run) {
         return Err(DriverError::Log(at));
     }
@@ -135,6 +135,17 @@ pub fn driver_log(journal: &Path, run: &str) -> Result<File, DriverError> {
         Ok(()) => Ok(File::from(log)),
         Err(_) => Err(DriverError::Log(at)),
     }
+}
+
+/// Where run `run`'s driver log is, `<journal>.runs/<run>.log`: the file
+/// [`driver_log`] opens, and the one a `started:` line names.
+pub fn driver_log_path(journal: &Path, run: &str) -> PathBuf {
+    run_lock::directory_path(journal).join(log_name(run))
+}
+
+/// A driver log's name in the run locks' directory.
+fn log_name(run: &str) -> String {
+    format!("{run}{LOG}")
 }
 
 /// The workspace `entry`'s payload names, where its driver is started.

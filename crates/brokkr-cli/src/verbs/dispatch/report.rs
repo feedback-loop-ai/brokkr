@@ -9,8 +9,8 @@ use std::path::Path;
 
 use brokkr_core::fold::Status;
 use brokkr_runtime::dispatch::{
-    BoundOutcome, Contended, Ended, Ending, Exited, Held, Left, Passed, Reaped, Reclaimed, Settled,
-    SpawnFailed, Spawned, Spawning, Stage, Started, Subject, SweepOutcome,
+    driver_log_path, BoundOutcome, Contended, Ended, Ending, Exited, Held, Left, Passed, Reaped,
+    Reclaimed, Settled, SpawnFailed, Spawned, Spawning, Stage, Started, Subject, SweepOutcome,
 };
 use brokkr_store::{Claim, Generation};
 
@@ -156,7 +156,8 @@ fn entries(lines: &mut String, passed: &Passed, journal: &Path) {
     }
 }
 
-/// A run handed to its driver, or the spawn that failed and how to resume
+/// A run handed to its driver, with the driver's pid and the log it writes
+/// (decision 0110 ruling 5), or the spawn that failed and how to resume
 /// the run.
 fn started_line(
     claim: Claim,
@@ -166,7 +167,10 @@ fn started_line(
 ) -> String {
     let under = claimed(claim);
     match spawned {
-        Ok(Spawned { pid }) => format!("started: run {run} under {under}, driver pid {pid}"),
+        Ok(Spawned { pid }) => format!(
+            "started: run {run} under {under}, driver pid {pid}, log {}",
+            driver_log_path(journal, run).display()
+        ),
         Err(SpawnFailed::Refused(why)) => format!(
             "spawn failed: run {run} under {under} reads running with no driver ({why}); \
              resume it with{}",

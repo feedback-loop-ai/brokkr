@@ -207,11 +207,20 @@ fn answering(before: &str, result: &str) -> serde_json::Value {
     json!({"results": [result], "role": "role.md", "driver": {"command": command}})
 }
 
-/// The run, entry, claim and driver pid a pass's `started:` line names.
-fn started(stdout: &str) -> (String, String, String, i32) {
+/// A pass's first `started:` line: its words before the driver's log, and
+/// that log's path, which it names last.
+fn started_line(stdout: &str) -> (&str, PathBuf) {
     let line = (stdout.lines())
         .find(|line| line.starts_with("started: "))
         .unwrap_or_else(|| panic!("no started line in {stdout}"));
+    let (named, log) = (line.rsplit_once(", log "))
+        .unwrap_or_else(|| panic!("the started line names no log: {line}"));
+    (named, PathBuf::from(log))
+}
+
+/// The run, entry, claim and driver pid a pass's `started:` line names.
+fn started(stdout: &str) -> (String, String, String, i32) {
+    let (line, _) = started_line(stdout);
     let words: Vec<&str> = line.split([' ', ',']).filter(|w| !w.is_empty()).collect();
     // started: run R under claim S of entry E driver pid P
     let pid = words[words.len() - 1].parse().unwrap();
@@ -266,8 +275,10 @@ fn a_pass_hands_its_run_to_a_driver_of_its_own_that_completes_it() {
     assert_eq!(session(pid), pid);
     assert_ne!(session(pid), session(std::process::id() as i32));
 
-    // Its log is this user's own, mode 0600, one link.
-    let log = machine.log(&run);
+    // Its log, which the started line names last (decision 0110 ruling 5)
+    // and the driver writes, is this user's own, mode 0600, one link.
+    let (_, log) = started_line(&stdout);
+    assert_eq!(log, machine.log(&run));
     let read = std::fs::symlink_metadata(&log).unwrap();
     assert_eq!(
         (read.mode() & 0o777, read.uid(), read.nlink()),
@@ -296,9 +307,14 @@ fn a_pass_hands_its_run_to_a_driver_of_its_own_that_completes_it() {
         said.contains(&format!("run '{run}' is driven by pid {pid}")),
         "{said}"
     );
+    released_to_complete(&machine, &log);
+}
 
+/// Release `machine`'s working seat, wait for its driver's `log` to say the
+/// run completed, and see that the queue recorded nothing more.
+fn released_to_complete(machine: &Machine, log: &Path) {
     std::fs::write(machine.released(), "").unwrap();
-    completes(&log);
+    completes(log);
     assert_eq!(machine.commands(), ["add", "claim", "link", "spawn"]);
 }
 
@@ -611,9 +627,10 @@ fn a_standing_dispatcher_stops_on_sigterm_and_its_driver_runs_on() {
     assert!(alive(pid), "the driver was not signalled");
     assert_eq!(machine.commands(), ["add", "claim", "link", "spawn"]);
 
-    std::fs::write(machine.released(), "").unwrap();
-    completes(&machine.log(&run));
-    assert_eq!(machine.commands(), ["add", "claim", "link", "spawn"]);
+    // The tick's started line names the log the driver writes.
+    let (_, log) = started_line(&stdout);
+    assert_eq!(log, machine.log(&run));
+    released_to_complete(&machine, &log);
 }
 
 /// Decision 0110 ruling 5 at the binary: a stop asked in the middle of a
