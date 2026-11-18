@@ -450,15 +450,8 @@ pub fn probe_network_prefix(
     };
     let mut argv = network_prefix(uid, gid);
     argv.push("true".to_string());
-    Command::new(unshare)
-        .args(&argv[1..])
-        .env_clear()
-        .envs(env)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .is_ok_and(|status| status.success())
+    let mut command = Command::new(unshare);
+    crate::process::spawned::succeeds(command.args(&argv[1..]).env_clear().envs(env))
 }
 
 extern "C" {
@@ -486,9 +479,7 @@ pub fn require_bwrap_for(spec: &HandsSpec) -> Result<PathBuf, String> {
 /// Refuse a spec with overlay binds on a bwrap older than 0.11.
 pub fn overlay_supported(spec: &HandsSpec, bwrap: &Path) -> Result<(), String> {
     overlay_supported_with(spec, bwrap, || {
-        Command::new(bwrap)
-            .arg("--version")
-            .output()
+        crate::process::spawned::output(Command::new(bwrap).arg("--version"))
             .ok()
             .map(|out| String::from_utf8_lossy(&out.stdout).trim().to_string())
             .unwrap_or_default()
@@ -664,7 +655,7 @@ pub fn execute_in(
             .env_clear()
             .env("PATH", "/usr/bin:/bin");
         let bwrap = bwrap.stdin(Stdio::null()).stdout(Stdio::piped());
-        bwrap.stderr(Stdio::piped()).spawn()
+        crate::process::spawned::spawn(bwrap.stderr(Stdio::piped()))
     });
     let mut child = io_context(spawned, "could not spawn bwrap")?;
     let stdout_pipe = child.stdout.take().expect("piped");
@@ -764,7 +755,7 @@ pub fn run_boxed_in(
     let boxed = io_context(workspace.boxed(command), "namespace")?;
     let ran = boxed.launch(bwrap, |bwrap| {
         let bwrap = bwrap.current_dir("/").env_clear();
-        bwrap.env("PATH", "/usr/bin:/bin").status()
+        crate::process::spawned::status(bwrap.env("PATH", "/usr/bin:/bin"))
     });
     let status = io_context(ran, "could not spawn bwrap")?;
     Ok(status.code().unwrap_or(-1))

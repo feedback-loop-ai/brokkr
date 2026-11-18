@@ -4,6 +4,9 @@
 /// an engine of its own.
 const OWN_ENGINE: &str = "BROKKR_TEST_OWN_ENGINE";
 
+/// How long a re-executed test may run before its parent fails it.
+const RERUN: std::time::Duration = std::time::Duration::from_secs(180);
+
 /// Whether this test runs in an engine of its own. An in-process launch is
 /// one of the test binary's engine's attempts, and every test in the binary
 /// shares that engine as its subreaper. An orphan another test hands it (a
@@ -12,17 +15,24 @@ const OWN_ENGINE: &str = "BROKKR_TEST_OWN_ENGINE";
 /// so such a test re-executes this binary on `test`, its full path, alone.
 /// True in the re-executed child, which runs the body; false in the parent,
 /// once it has asserted that exactly one test passed there. The child's
-/// own output is shown when it did not.
+/// own output is shown when it did not. A child that has not ended within
+/// [`RERUN`] fails the test rather than hold it forever.
 pub fn in_its_own_engine(test: &str) -> bool {
     if std::env::var_os(OWN_ENGINE).is_some() {
         return true;
     }
-    let output = std::process::Command::new(std::env::current_exe().unwrap())
+    let child = std::process::Command::new(std::env::current_exe().unwrap())
         .args(["--exact", test])
         .env(OWN_ENGINE, "1")
         .stdin(std::process::Stdio::null())
-        .output()
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
         .unwrap();
+    let (sent, ended) = std::sync::mpsc::channel();
+    std::thread::spawn(move || sent.send(child.wait_with_output()));
+    let output = ended.recv_timeout(RERUN).expect("the rerun ends in time");
+    let output = output.unwrap();
     let shown = format!(
         "{}{}",
         String::from_utf8_lossy(&output.stdout),

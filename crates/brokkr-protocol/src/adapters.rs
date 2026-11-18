@@ -37,6 +37,7 @@ mod refusal;
 mod round430_tests;
 mod route_overlay;
 mod served_route;
+mod spawn;
 mod start;
 mod stderr;
 // Design D6 (b) seals the producer: the seams, the structured
@@ -70,6 +71,7 @@ use refusal::{
     bounded_wire_line, claude_refusal, codex_refusal, codex_thread_refusal, dsh_refusal,
     epoch_now_nanos, find_codex_thread, thread_header, Now, REFUSAL_TOKEN_LIMIT,
 };
+use spawn::{spawn_harness, Spawned};
 #[cfg(test)]
 use start::serve_io;
 use start::{start_prompt, Confine};
@@ -770,29 +772,12 @@ pub(super) fn harness_command(
     Ok(builder)
 }
 
-/// Every harness spawns here: the shared [`harness_command`], the child's
-/// stdio, and the one spawn fact every route reports.
-fn spawn_harness(
-    command: &[String],
-    workdir: &str,
-    stdin: Stdio,
-    stdout: Stdio,
-    env: &[(&str, &str)],
-    bindings: &[secret::BoundSecret],
-) -> Result<std::process::Child, String> {
-    let mut builder = harness_command(command, workdir, env, bindings)?;
-    builder.stdin(stdin).stdout(stdout).stderr(Stdio::piped());
-    let child = io_context(builder.spawn(), "could not invoke the agent CLI")?;
-    lost::spawned();
-    Ok(child)
-}
-
 /// [`spawn_harness`] with stdin and stdout piped and no extra environment.
 fn spawn_piped(
     command: &[String],
     workdir: &str,
     bindings: &[secret::BoundSecret],
-) -> Result<std::process::Child, String> {
+) -> Result<Spawned, String> {
     let piped = Stdio::piped;
     spawn_harness(command, workdir, piped(), piped(), &[], bindings)
 }
@@ -805,7 +790,7 @@ fn spawn_fed(
     prompt: &str,
     workdir: &str,
     bindings: &[secret::BoundSecret],
-) -> Result<(std::process::Child, StderrCapture), String> {
+) -> Result<(Spawned, StderrCapture), String> {
     let mut child = spawn_piped(command, workdir, bindings)?;
     let mut stdin = child.stdin.take().expect("piped");
     io_context(
@@ -824,7 +809,7 @@ fn spawn_fed(
 /// tree, and waiting here would reintroduce the hang the stop removes.
 /// Its one wait failure is typed and converted at the existing text
 /// boundary (#430 L3; decision 0071 ruling 8).
-fn stop_harness(child: &mut std::process::Child) -> std::io::Result<std::process::ExitStatus> {
+fn stop_harness(child: &mut Spawned) -> std::io::Result<std::process::ExitStatus> {
     let _ = child.kill();
     child.wait()
 }
@@ -832,7 +817,7 @@ fn stop_harness(child: &mut std::process::Child) -> std::io::Result<std::process
 /// [`stop_harness`] at the ONE existing text boundary: every stopped route
 /// converts its typed wait failure here, so the operator's words have one
 /// home (#430 L3; decision 0071 rulings 5 and 8).
-fn conclude_harness(child: &mut std::process::Child) -> Result<std::process::ExitStatus, String> {
+fn conclude_harness(child: &mut Spawned) -> Result<std::process::ExitStatus, String> {
     io_context(stop_harness(child), "agent CLI did not conclude")
 }
 
@@ -2413,8 +2398,8 @@ const DSH_POLL_IDLE: std::time::Duration = std::time::Duration::from_millis(25);
 /// case the harness is stopped at once and the answer's exit code stands
 /// (decision 0103 ruling 4(a)); no later pass can admit a second.
 fn poll_until_exit(
-    child: &mut std::process::Child,
-    mut wait: impl FnMut(&mut std::process::Child) -> std::io::Result<Option<i32>>,
+    child: &mut Spawned,
+    mut wait: impl FnMut(&mut Spawned) -> std::io::Result<Option<i32>>,
     mut drain: impl FnMut() -> bool,
 ) -> Result<i32, String> {
     loop {
@@ -3853,9 +3838,7 @@ fn invoke_dsh(
         &workdir,
         input,
     )?;
-    let wait = |child: &mut std::process::Child| {
-        child.try_wait().map(|status| status.map(lost::exit_code))
-    };
+    let wait = |child: &mut Spawned| child.try_wait().map(|status| status.map(lost::exit_code));
     dsh_launch::invoke_dsh_launch_observed(
         launch,
         command,
@@ -4833,7 +4816,7 @@ fn invoke_dsh_launch(
     workdir: &str,
     bindings: &[secret::BoundSecret],
     emit: &mut impl FnMut(&Value),
-    wait: impl FnMut(&mut std::process::Child) -> std::io::Result<Option<i32>>,
+    wait: impl FnMut(&mut Spawned) -> std::io::Result<Option<i32>>,
 ) -> Result<Invocation, String> {
     let mut command = launch.command.clone();
     command.push(prompt.to_string());
@@ -4858,7 +4841,7 @@ fn spawn_dsh(
     stdout: Stdio,
     launch: &DshLaunch,
     bindings: &[secret::BoundSecret],
-) -> Result<(std::process::Child, StderrCapture), String> {
+) -> Result<(Spawned, StderrCapture), String> {
     let env = dsh_child_env(launch);
     let mut child = spawn_harness(command, workdir, Stdio::null(), stdout, &env, bindings)?;
     let stderr_thread = drain_stderr(&mut child);
@@ -4887,7 +4870,7 @@ fn invoke_dsh_shipped(
     command: &[String],
     launch: &DshLaunch,
     bindings: &[secret::BoundSecret],
-    mut wait: impl FnMut(&mut std::process::Child) -> std::io::Result<Option<i32>>,
+    mut wait: impl FnMut(&mut Spawned) -> std::io::Result<Option<i32>>,
     probe: &mut ProbeAnswer,
     session_meta: &mut Map<String, Value>,
     emit: &mut impl FnMut(&Value),
@@ -6935,7 +6918,11 @@ fn serve_with(
     Ok(())
 }
 
+/// The adapter main loop over the process's stdio. On Linux the driver is its
+/// harness tree's subreaper, and its reaper starts first (#1133).
 pub fn serve(kind: AdapterKind, extra: Vec<String>, confine: Confine) -> std::io::Result<()> {
+    #[cfg(target_os = "linux")]
+    crate::process::reaper::start();
     let input = std::io::stdin().lock();
     serve_with(kind, &extra, input, std::io::stdout(), confine)
 }

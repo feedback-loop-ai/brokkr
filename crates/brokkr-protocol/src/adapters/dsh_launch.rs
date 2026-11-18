@@ -49,7 +49,7 @@ pub(super) fn invoke_dsh_launch_observed(
     bindings: &[secret::BoundSecret],
     probe: &mut ProbeAnswer,
     emit: &mut impl FnMut(&Value),
-    wait: impl FnMut(&mut std::process::Child) -> std::io::Result<Option<i32>>,
+    wait: impl FnMut(&mut Spawned) -> std::io::Result<Option<i32>>,
     observer: &mut impl FnMut(&DshObservation),
 ) -> Result<Invocation, String> {
     let workdir = launch.workdir.clone();
@@ -243,8 +243,8 @@ impl DshStreamState<'_> {
         &mut self,
         open: &mut bool,
         reads: &std::sync::mpsc::Receiver<std::io::Result<String>>,
-        child: &mut std::process::Child,
-        wait: &mut impl FnMut(&mut std::process::Child) -> std::io::Result<Option<i32>>,
+        child: &mut Spawned,
+        wait: &mut impl FnMut(&mut Spawned) -> std::io::Result<Option<i32>>,
         emit: &mut impl FnMut(&Value),
         observer: &mut impl FnMut(&DshObservation),
     ) -> Result<DshPass, std::io::Error> {
@@ -339,7 +339,7 @@ fn invoke_dsh_stream_json(
     call: DshStreamCall<'_>,
     emit: &mut impl FnMut(&Value),
     observer: &mut impl FnMut(&DshObservation),
-    mut wait: impl FnMut(&mut std::process::Child) -> std::io::Result<Option<i32>>,
+    mut wait: impl FnMut(&mut Spawned) -> std::io::Result<Option<i32>>,
 ) -> Result<DshRun, String> {
     let DshStreamCall {
         command,
@@ -521,10 +521,11 @@ mod tests {
         // exercised once here and then handed to the invocation, whose
         // refusal proves they were not needed.
         let mut emit = |_: &Value| {};
-        let wait = |_: &mut std::process::Child| Ok(None);
+        let wait = |_: &mut Spawned| Ok(None);
         let mut observer = |_: &DshObservation| {};
         emit(&Value::Null);
-        let mut child = std::process::Command::new("true").spawn().unwrap();
+        let mut child =
+            crate::process::spawned::spawn(&mut std::process::Command::new("true")).unwrap();
         assert_eq!(wait(&mut child).unwrap(), None);
         let _ = child.wait();
         observer(&DshObservation {

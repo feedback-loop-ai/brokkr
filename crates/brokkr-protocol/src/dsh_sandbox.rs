@@ -80,7 +80,7 @@
 //! which host path the box could write through it.
 
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Command;
 
 mod errors;
 
@@ -1368,14 +1368,13 @@ struct GitRun {
 
 /// Run one git command outside every box.
 fn run_git(program: &str, args: &[&str]) -> Result<GitRun, StoreError> {
-    let out = Command::new(program)
-        .args(args)
-        .stdin(Stdio::null())
-        .output()
-        .map_err(|error| StoreError::CouldNotRun {
-            program: program.to_string(),
-            args: owned(args),
-            cause: error.to_string(),
+    let out =
+        crate::process::spawned::output(Command::new(program).args(args)).map_err(|error| {
+            StoreError::CouldNotRun {
+                program: program.to_string(),
+                args: owned(args),
+                cause: error.to_string(),
+            }
         })?;
     Ok(GitRun {
         ok: out.status.success(),
@@ -1402,13 +1401,8 @@ fn owned(args: &[&str]) -> Vec<String> {
 /// True when this bubblewrap can build the empty-root profile here. The
 /// probe is the provider's own: a read-only root around `true`.
 pub fn bwrap_usable(bwrap: &Path) -> bool {
-    Command::new(bwrap)
-        .args(["--ro-bind", "/", "/", "--", "true"])
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .is_ok_and(|status| status.success())
+    let mut command = Command::new(bwrap);
+    crate::process::spawned::succeeds(command.args(["--ro-bind", "/", "/", "--", "true"]))
 }
 
 /// Refuse a bubblewrap that is present but cannot build the namespace.

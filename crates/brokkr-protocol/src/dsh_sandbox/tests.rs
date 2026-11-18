@@ -1893,8 +1893,8 @@ fn fill_the_loose_object_sample(main: &Path, scratch: &Path, wanted: usize) {
                 "-w",
                 "--stdin-paths",
             ])
-            .stdin(Stdio::piped())
-            .stdout(Stdio::null())
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::null())
             .spawn()
             .unwrap();
         hash.stdin

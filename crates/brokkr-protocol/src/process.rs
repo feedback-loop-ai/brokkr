@@ -46,7 +46,10 @@ mod limits;
 mod outcome;
 mod own_engine;
 mod queue;
+#[cfg(target_os = "linux")]
+pub(crate) mod reaper;
 mod refusal;
+pub(crate) mod spawned;
 mod table;
 mod tree;
 

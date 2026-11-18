@@ -175,6 +175,7 @@ pub struct Launched<'e> {
     pub info: PipeReader,
     pub mounts: Vec<(usize, String)>,
     _entry: &'e ServerEntry,
+    _held: crate::process::reaper::Release,
 }
 
 #[cfg(target_os = "linux")]
@@ -313,8 +314,10 @@ impl ServerBox {
         let started = started(launch, inheritor(carried), startup);
         drop((intent, readied, reporting, informed));
         let mounts = entry.mounts().collect();
+        let (child, _held) = started?.into_parts();
         Ok(Launched {
-            child: started?,
+            child,
+            _held,
             control: Some(control),
             ready,
             status,
@@ -411,7 +414,7 @@ pub(in crate::hands) fn started(
     mut launch: Command,
     hook: impl FnMut() -> std::io::Result<()> + Send + Sync + 'static,
     startup: Startup<'_>,
-) -> Result<Child, Refusal> {
+) -> Result<crate::process::spawned::Spawned, Refusal> {
     let (mut report, reporting) = std::io::pipe().or(Err(Refusal::Establishment))?;
     let (hold, mut releaser) = std::io::pipe().or(Err(Refusal::Establishment))?;
     let ends = [reporting.as_raw_fd(), hold.as_raw_fd()];
@@ -422,7 +425,7 @@ pub(in crate::hands) fn started(
     let ended = AtomicBool::new(false);
     let (started, timely) = std::thread::scope(|scope| {
         let watcher = scope.spawn(|| watched(&ended, &mut report, &mut releaser, startup));
-        let started = launch.spawn().ok();
+        let started = crate::process::spawned::spawn(&mut launch).ok();
         ended.store(true, Ordering::Release);
         (started, watcher.join().unwrap_or(false))
     });
