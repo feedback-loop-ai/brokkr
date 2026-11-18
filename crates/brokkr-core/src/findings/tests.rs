@@ -69,7 +69,13 @@ fn a_moved_line_a_reworded_summary_and_a_moved_file_are_the_same_key() {
 #[test]
 fn the_engine_stamps_the_reporting_site_and_keeps_the_record() {
     let mut result = json!({"result": "residual", "findings": [reported()]});
-    admit(&mut result, GATE).unwrap();
+    let stamped = admit(&mut result, GATE).unwrap().unwrap();
+    assert_eq!(
+        result,
+        json!({"result": "residual"}),
+        "findings leave typed"
+    );
+    journal(&mut result, &stamped);
     assert_eq!(
         result["findings"],
         json!([{"site": SITE, "id": "unchecked-len", "file": "crates/a/src/lib.rs", "line": 12,
@@ -85,7 +91,7 @@ fn the_engine_stamps_the_reporting_site_and_keeps_the_record() {
     assert_eq!(read[0].severity(), Severity::Medium);
     assert!(!read[0].security());
     let mut plain = json!({"result": "clean", "notes": "n"});
-    admit(&mut plain, None).unwrap();
+    assert_eq!(admit(&mut plain, None), Ok(None));
     assert_eq!(plain, json!({"result": "clean", "notes": "n"}));
 }
 
@@ -254,7 +260,7 @@ fn findings_from_a_work_site_are_refused_not_repaired() {
          (decision 0109 ruling 1)"
     );
     let mut plain = json!({"result": "complete"});
-    admit(&mut plain, Some(Reporter::Work)).unwrap();
+    assert_eq!(admit(&mut plain, Some(Reporter::Work)), Ok(None));
     assert_eq!(plain, json!({"result": "complete"}));
 }
 

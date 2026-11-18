@@ -371,7 +371,8 @@ pub type brokkr_core::findings::Summary::Error = brokkr_core::findings::WordErro
 pub fn brokkr_core::findings::Summary::try_from(alloc::string::String) -> core::result::Result<brokkr_core::findings::Summary, brokkr_core::findings::WordError>
 impl core::fmt::Display for brokkr_core::findings::Summary
 pub fn brokkr_core::findings::Summary::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-pub fn brokkr_core::findings::admit(&mut serde_json::value::Value, core::option::Option<brokkr_core::findings::Reporter<'_>>) -> core::result::Result<(), brokkr_core::findings::AdmissionRefusal>
+pub fn brokkr_core::findings::admit(&mut serde_json::value::Value, core::option::Option<brokkr_core::findings::Reporter<'_>>) -> core::result::Result<core::option::Option<alloc::vec::Vec<brokkr_core::findings::Finding>>, brokkr_core::findings::AdmissionRefusal>
+pub fn brokkr_core::findings::journal(&mut serde_json::value::Value, &[brokkr_core::findings::Finding])
 pub mod brokkr_core::fold
 pub enum brokkr_core::fold::Cursor
 pub brokkr_core::fold::Cursor::Decide

@@ -8,6 +8,7 @@
 //! journals each member's outcome in declared order, and [`panel_outcome`]
 //! joins the reports by the [`Aggregate`] the seat declares.
 
+use std::collections::BTreeMap;
 use std::path::Path;
 
 use brokkr_core::envelope::EventType;
@@ -30,7 +31,9 @@ use super::{
     stamp_boundary, start_failure_fields, tag_member, Calls, Checkpoints, Door, DriverRun, Engine,
     EngineError, Indeterminate, Selection, Site, SiteSpawn, Unproven,
 };
-use crate::bundle::{Aggregate, Bundle, PanelMember, ENGINE_VERSION};
+use crate::bundle::{
+    Aggregate, Bundle, MemberFindings, MemberVerdict, PanelMember, ENGINE_VERSION,
+};
 
 pub(super) struct PanelAt<'a> {
     effect_id: &'a str,
@@ -91,13 +94,14 @@ impl Engine {
             "",
             gate,
         );
-        let reports = self.run_panel(effect_id, attempt_id, &runs, bound.remaining, "")?;
+        let (reports, stamped) =
+            self.run_panel(effect_id, attempt_id, &runs, bound.remaining, "")?;
         self.usage.panel(attempt_id, &reports);
         self.journal_panel_members(effect_id, attempt_id, &reports, &runs, "")?;
         span.close(&self.repo);
         let record = PanelRecord {
             span,
-            settled_members: settled_members(&reports, None),
+            settled_members: settled_members((&reports, &stamped), None),
         };
         let start_failures = start_failure_sites(&reports, "");
         // Every member that refused with a rate limit records its own wait
@@ -110,7 +114,8 @@ impl Engine {
         // One line, as `disposed`'s refusal callsites: the exact-coverage
         // gate reads a multi-line call's `?` edge as its own region.
         let name = bound.deadline.panel_namer(&reports);
-        let mut outcome = outcome_under(aggregate, carry, reports, &record.span, attempt_id)?;
+        let members = (reports, stamped);
+        let mut outcome = outcome_under(aggregate, carry, members, &record.span, attempt_id)?;
         name(&mut outcome);
         match outcome.outcome() {
             AttemptOutcome::Indeterminate { reason } => {
@@ -261,7 +266,7 @@ impl Engine {
         runs: &[MemberRun],
         deadline: std::time::Duration,
         tag_prefix: &str,
-    ) -> Result<Vec<(String, AttemptReport)>, EngineError> {
+    ) -> Result<Members, EngineError> {
         let workdir = self.workdir();
         // Where each member's attempt began, before anything of it spawns.
         let begun =
@@ -337,8 +342,10 @@ impl Engine {
     /// member's evidence is read while a sibling's broker may still write
     /// (#403; D7), then each report carrying what its checkpoints left of
     /// it and settled by its own broker calls ([`Engine::settled_by`])
-    /// before any is admitted. A sink that failed is handed up once every
-    /// member is witnessed.
+    /// before any is admitted. Each member's admitted findings are handed
+    /// back typed beside the reports, by member, never in its result's
+    /// `Value`. A sink that failed is handed up once every member is
+    /// witnessed.
     pub(super) fn settle_members(
         &mut self,
         ids: [&str; 2],
@@ -346,19 +353,24 @@ impl Engine {
         reports: Vec<(String, AttemptReport, Option<Begun>)>,
         settled: Result<checkpoints::Settled, EngineError>,
         tag_prefix: &str,
-    ) -> Result<Vec<(String, AttemptReport)>, EngineError> {
+    ) -> Result<Members, EngineError> {
         for ((_, report, _), run) in reports.iter().zip(runs) {
             ended(&mut self.held, &run.driver_seat, &report.cleanup);
         }
         let settled = settled?;
         let mut members = Vec::with_capacity(reports.len());
+        let mut stamped = Stamped::new();
         for ((name, mut report, begun), run) in reports.into_iter().zip(runs) {
             settled.carry(&Tag::prefixed(tag_prefix, &name).0, &mut report);
             // Each member's findings carry the member's own site.
             let report = self.settled_by(ids, &run.spawn, begun, report)?;
-            members.push((name, super::verdict::admitted(report, run.context.as_ref())));
+            let admitted = super::verdict::admitted(report, run.context.as_ref());
+            if let Some(findings) = admitted.findings {
+                stamped.insert(name.clone(), MemberFindings::Read(findings));
+            }
+            members.push((name, admitted.report));
         }
-        Ok(members)
+        Ok((members, stamped))
     }
 
     /// Journal member outcomes as checkpoint evidence in declared
@@ -555,6 +567,7 @@ fn offer_member_checkpoint(
 pub(super) fn panel_outcome(
     aggregate: Aggregate,
     reports: Vec<(String, AttemptReport)>,
+    stamped: Stamped,
 ) -> AttemptOutcome {
     outcome_over(
         aggregate,
@@ -562,19 +575,39 @@ pub(super) fn panel_outcome(
             .into_iter()
             .map(|(name, report)| (name, report.settled_outcome()))
             .collect(),
+        stamped,
     )
 }
+
+/// Each panel member's findings, typed, by member name: what admission
+/// stamped for a fresh member, or what a carried member's journaled
+/// result records. A member absent here reported none.
+pub(crate) type Stamped = BTreeMap<String, MemberFindings>;
+
+/// A panel's settled members: their reports in declared order, and their
+/// findings, typed, beside them.
+pub(crate) type Members = (Vec<(String, AttemptReport)>, Stamped);
 
 pub(super) fn outcome_over(
     aggregate: Aggregate,
     reports: Vec<(String, AttemptOutcome)>,
+    mut stamped: Stamped,
 ) -> AttemptOutcome {
     let mut indeterminate = Vec::new();
     let mut failures = Vec::new();
     let mut member_results = Vec::new();
     for (name, report) in reports {
         match report {
-            AttemptOutcome::Succeeded { result } => member_results.push((name, result)),
+            AttemptOutcome::Succeeded { result } => {
+                let findings = stamped
+                    .remove(&name)
+                    .unwrap_or(MemberFindings::Read(Vec::new()));
+                member_results.push(MemberVerdict {
+                    name,
+                    payload: result,
+                    findings,
+                });
+            }
             AttemptOutcome::Failed { error } => failures.push(format!("{name}: {error}")),
             AttemptOutcome::Indeterminate { .. } => indeterminate.push(name),
         }

@@ -450,13 +450,14 @@ impl Engine {
         // One line, as panel.rs's callsites: the exact-coverage gate reads a
         // multi-line call's `?` edge as its own region.
         let remaining = run.bound.remaining;
-        let reports = self.run_panel(effect_id, attempt_id, &runs, remaining, &tag_prefix)?;
+        let (reports, stamped) =
+            self.run_panel(effect_id, attempt_id, &runs, remaining, &tag_prefix)?;
         self.usage.panel_step(attempt_id, &tag_prefix, &reports);
         self.journal_panel_members(effect_id, attempt_id, &reports, &runs, &tag_prefix)?;
         span.close(&self.repo);
         let record = PanelRecord {
             span,
-            settled_members: settled_members(&reports, Some(&at.step.name)),
+            settled_members: settled_members((&reports, &stamped), Some(&at.step.name)),
         };
         let plan = (at.index == 0)
             .then_some(run.selection.carry.as_ref())
@@ -465,7 +466,8 @@ impl Engine {
         let refused = refused_members(&reports, &tag_prefix);
         let unproven = Unproven::panel(&reports);
         let name = run.bound.deadline.panel_namer(&reports);
-        let mut outcome = outcome_under(aggregate, plan, reports, &record.span, run.attempt_id)?;
+        let members = (reports, stamped);
+        let mut outcome = outcome_under(aggregate, plan, members, &record.span, run.attempt_id)?;
         name(&mut outcome);
         Ok(StepRun {
             record: Some(record),

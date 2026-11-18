@@ -118,9 +118,10 @@ impl Aggregate {
     /// emit; undeclared, a non-final step's `vocabulary_problem` fails the
     /// attempt, and only a final step's word reaches decide(), whose
     /// declared-results check parks it with evidence.
-    pub(crate) fn aggregate_results(self, members: &[(String, Value)]) -> Value {
+    pub(crate) fn aggregate_results(self, members: &[MemberVerdict]) -> Value {
         let Some(read) = Verdicts::read(members) else {
-            let evidence: Map<String, Value> = members.iter().cloned().collect();
+            let evidence: Map<String, Value> =
+                members.iter().map(MemberVerdict::evidence).collect();
             return json!({
                 "result": Aggregate::MEMBER_SCHEMA_INVALID,
                 "notes": {"members": Value::Object(evidence)},
@@ -132,9 +133,80 @@ impl Aggregate {
             Aggregate::ReviewPanel => review_panel(&read.parsed, meta),
         };
         if !read.findings.is_empty() {
-            result["findings"] = serde_json::to_value(&read.findings).expect("findings serialize");
+            brokkr_core::findings::journal(&mut result, &read.findings);
         }
         result
+    }
+}
+
+/// A panel member's findings as the aggregate joins them, typed: those
+/// admission stamped for a fresh member, or a carried member's read once
+/// from its journaled result; or a carried record whose findings do not
+/// read, which poisons the aggregate.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum MemberFindings {
+    Read(Vec<Finding>),
+    Unread,
+}
+
+impl MemberFindings {
+    /// The findings a journaled `result` records, taken out of it: none
+    /// where it records none; [`MemberFindings::Unread`], leaving them in
+    /// place as evidence, where they do not read as stamped records.
+    pub(crate) fn taken_from(result: &mut Value) -> Self {
+        let Some(recorded) = result.get("findings") else {
+            return MemberFindings::Read(Vec::new());
+        };
+        let Ok(findings) = Vec::<Finding>::deserialize(recorded) else {
+            return MemberFindings::Unread;
+        };
+        let _taken = result
+            .as_object_mut()
+            .and_then(|fields| fields.remove("findings"));
+        MemberFindings::Read(findings)
+    }
+}
+
+/// One panel member's verdict as the aggregate reads it: its name, its
+/// result's payload, and its findings kept typed beside it.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct MemberVerdict {
+    pub(crate) name: String,
+    pub(crate) payload: Value,
+    pub(crate) findings: MemberFindings,
+}
+
+impl MemberVerdict {
+    /// A member verdict read from its journaled `payload`, as a carried
+    /// member's is: the tests' one builder.
+    #[cfg(test)]
+    pub(crate) fn journaled(name: &str, mut payload: Value) -> Self {
+        let findings = MemberFindings::taken_from(&mut payload);
+        MemberVerdict {
+            name: name.to_string(),
+            payload,
+            findings,
+        }
+    }
+
+    /// Every `(name, payload)` pair read as [`MemberVerdict::journaled`].
+    #[cfg(test)]
+    pub(crate) fn all(pairs: &[(&str, Value)]) -> Vec<Self> {
+        (pairs.iter())
+            .map(|(name, payload)| Self::journaled(name, payload.clone()))
+            .collect()
+    }
+
+    /// The member's payload as a poisoned aggregate's evidence names it,
+    /// with the findings it read written back where it reported any.
+    fn evidence(&self) -> (String, Value) {
+        let mut payload = self.payload.clone();
+        if let MemberFindings::Read(findings) = &self.findings {
+            if !findings.is_empty() {
+                brokkr_core::findings::journal(&mut payload, findings);
+            }
+        }
+        (self.name.clone(), payload)
     }
 }
 
@@ -155,21 +227,27 @@ impl<'a> Verdicts<'a> {
     /// The members' verdicts, or `None` when any member's payload has no
     /// readable result string or carries findings that do not read as the
     /// engine's stamped records.
-    fn read(members: &'a [(String, Value)]) -> Option<Self> {
+    fn read(members: &'a [MemberVerdict]) -> Option<Self> {
         let mut notes = Map::new();
         let mut verdicts = Map::new();
         let mut parsed: Vec<(&str, &str, &Value)> = Vec::new();
         let mut findings = Vec::new();
-        for (name, payload) in members {
+        for MemberVerdict {
+            name,
+            payload,
+            findings: reported,
+        } in members
+        {
             if let Some(note) = payload.get("notes") {
                 notes.insert(name.clone(), note.clone());
             }
             let result = payload.get("result").and_then(Value::as_str)?;
             verdicts.insert(name.clone(), Value::String(result.to_string()));
             parsed.push((name.as_str(), result, payload));
-            if let Some(reported) = payload.get("findings") {
-                findings.extend(Vec::<Finding>::deserialize(reported).ok()?);
-            }
+            let MemberFindings::Read(reported) = reported else {
+                return None;
+            };
+            findings.extend(reported.iter().cloned());
         }
         Some(Verdicts {
             notes,

@@ -1610,7 +1610,9 @@ impl Engine {
             },
         )?;
         let report = self.folded([effect_id, attempt_id, driver_seat], spawn, begun, report)?;
-        Ok(DriverRun::Ran(verdict::admitted(report, stamp.as_ref())))
+        Ok(DriverRun::Ran(
+            verdict::admitted(report, stamp.as_ref()).journaled(),
+        ))
     }
 
     /// Append the attempt's successful result — or, when the journal

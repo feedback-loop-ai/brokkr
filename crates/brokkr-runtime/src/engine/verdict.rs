@@ -6,7 +6,7 @@
 //! (decision 0001). No word is refused here and no routing moves.
 
 use brokkr_core::envelope::EventType;
-use brokkr_core::findings::{CheckedHead, Covered, Reporter};
+use brokkr_core::findings::{CheckedHead, Covered, Finding, Reporter};
 use brokkr_protocol::{AttemptOutcome, AttemptReport};
 use serde::Deserialize;
 use serde_json::{Map, Value};
@@ -166,27 +166,57 @@ pub(super) fn checked_head(raw_result: &Value) -> Result<CheckedHead, Observatio
 
 /// `report` with its successful result admitted at `site`, the site whose
 /// driver produced it, read as a gate or a work site by its compiled
-/// class: its findings stamped in place, or the refusal put
+/// class: its findings stamped and handed back typed, or the refusal put
 /// in place of the outcome acted on, as a refused checkpoint's is
 /// (decision 0034 ruling 6), so the attempt fails, is retried and parks
 /// under decision 0006. A report already refused is left as it stands.
-pub(super) fn admitted(mut report: AttemptReport, site: Option<&SiteContext>) -> AttemptReport {
+pub(super) fn admitted(mut report: AttemptReport, site: Option<&SiteContext>) -> Admitted {
+    let unstamped = |report| Admitted {
+        report,
+        findings: None,
+    };
     if report.refused.is_some() {
-        return report;
+        return unstamped(report);
     }
     let AttemptOutcome::Succeeded { result } = &mut report.outcome else {
-        return report;
+        return unstamped(report);
     };
     let reporter = site.map(|site| match site.class {
         SeatClass::Gate => Reporter::Gate(&site.site_ref),
         SeatClass::Work => Reporter::Work,
     });
-    if let Err(refusal) = brokkr_core::findings::admit(result, reporter) {
-        report.refused = Some(AttemptOutcome::Failed {
-            error: format!("the result was refused: {refusal}"),
-        });
+    match brokkr_core::findings::admit(result, reporter) {
+        Ok(findings) => Admitted { report, findings },
+        Err(refusal) => {
+            report.refused = Some(AttemptOutcome::Failed {
+                error: format!("the result was refused: {refusal}"),
+            });
+            unstamped(report)
+        }
     }
-    report
+}
+
+/// An admitted attempt: its report, and beside it the findings its
+/// successful result reported, stamped and typed (`None` where it
+/// reported none), kept out of the result's `Value` until the journal's
+/// boundary writes them (fix round 0109a1r3, L1).
+#[derive(Debug)]
+pub(crate) struct Admitted {
+    pub(crate) report: AttemptReport,
+    pub(crate) findings: Option<Vec<Finding>>,
+}
+
+impl Admitted {
+    /// The report the journal records: its successful result carrying
+    /// the stamped findings it was admitted with.
+    pub(super) fn journaled(mut self) -> AttemptReport {
+        if let (AttemptOutcome::Succeeded { result }, Some(findings)) =
+            (&mut self.report.outcome, &self.findings)
+        {
+            brokkr_core::findings::journal(result, findings);
+        }
+        self.report
+    }
 }
 
 #[cfg(test)]

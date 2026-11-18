@@ -6,8 +6,10 @@ use brokkr_protocol::{AttemptOutcome, AttemptReport};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
 
+use super::super::panel::Stamped;
 use super::super::worktree::{read_tree, TreeReading};
 use super::super::{git_head, is_commit_id};
+use crate::bundle::MemberFindings;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -158,14 +160,22 @@ impl PanelRecord {
     }
 }
 
+/// Each member that succeeded, by its tag, with the result the panel's
+/// record journals: its payload carrying the findings it was admitted
+/// with, written here at the journal's boundary.
 pub(crate) fn settled_members(
-    reports: &[(String, AttemptReport)],
+    (reports, stamped): (&[(String, AttemptReport)], &Stamped),
     step: Option<&str>,
 ) -> BTreeMap<Tag, Value> {
     reports
         .iter()
         .filter_map(|(name, report)| match report.settled_outcome() {
-            AttemptOutcome::Succeeded { result } => Some((Tag::new(step, name), result)),
+            AttemptOutcome::Succeeded { mut result } => {
+                if let Some(MemberFindings::Read(findings)) = stamped.get(name) {
+                    brokkr_core::findings::journal(&mut result, findings);
+                }
+                Some((Tag::new(step, name), result))
+            }
             AttemptOutcome::Failed { .. } | AttemptOutcome::Indeterminate { .. } => None,
         })
         .collect()

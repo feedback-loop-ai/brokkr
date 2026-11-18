@@ -3887,7 +3887,7 @@ fn every_panel_spawn_rechecks_its_layer_and_journals_a_moved_member_failure() {
         input: json!({}),
     }];
     let deadline = std::time::Duration::from_secs(5);
-    let clean = engine
+    let (clean, _) = engine
         .run_panel("effect", "attempt", &runs, deadline, "")
         .unwrap();
     assert!(clean[0].1.accepted);
@@ -3900,7 +3900,7 @@ fn every_panel_spawn_rechecks_its_layer_and_journals_a_moved_member_failure() {
         let original = std::fs::read(&path).unwrap();
         std::fs::write(&path, "moved\n").unwrap();
         for prefix in ["", "step:"] {
-            let reports = engine
+            let (reports, stamped) = engine
                 .run_panel("effect", "attempt", &runs, deadline, prefix)
                 .unwrap();
             assert!(!reports[0].1.accepted, "nothing spawned");
@@ -3908,7 +3908,7 @@ fn every_panel_spawn_rechecks_its_layer_and_journals_a_moved_member_failure() {
                 panic!("moved member ran")
             };
             assert!(error.contains(&format!("changed: {key}")), "{error}");
-            let outcome = panel_outcome(Aggregate::UnanimousPass, reports);
+            let outcome = panel_outcome(Aggregate::UnanimousPass, reports, stamped);
             engine
                 .conclude_single(
                     "effect",

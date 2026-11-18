@@ -24,30 +24,36 @@ fn member_findings_join_typed_and_an_unstamped_one_poisons_the_aggregate() {
         json!({"site": site.to_string().repeat(64), "id": id, "file": "a.rs", "summary": "s",
                "severity": "low", "security": false})
     };
-    let members = [
-        (
-            "a".to_string(),
-            json!({"result": "residual", "findings": [stamped('a', "x")]}),
-        ),
-        ("b".to_string(), json!({"result": "clean"})),
-        (
-            "c".to_string(),
-            json!({"result": "clean", "findings": [stamped('c', "x")]}),
-        ),
+    let payloads = [
+        json!({"result": "residual", "findings": [stamped('a', "x")]}),
+        json!({"result": "clean"}),
+        json!({"result": "clean", "findings": [stamped('c', "x")]}),
     ];
-    let joined = Aggregate::ReviewPanel.aggregate_results(&members);
+    let members = |payloads: &[Value]| {
+        ["a", "b", "c"]
+            .into_iter()
+            .zip(payloads)
+            .map(|(name, payload)| MemberVerdict::journaled(name, payload.clone()))
+            .collect::<Vec<_>>()
+    };
+    let read = members(&payloads);
+    let typed = Vec::<Finding>::deserialize(json!([stamped('a', "x")])).unwrap();
+    assert_eq!(read[0].findings, MemberFindings::Read(typed));
+    assert_eq!(read[0].payload, json!({"result": "residual"}), "taken out");
+    let joined = Aggregate::ReviewPanel.aggregate_results(&read);
     assert_eq!(joined["result"], "residual");
     assert_eq!(
         joined["findings"],
         json!([stamped('a', "x"), stamped('c', "x")])
     );
-    let mut unstamped = members.clone();
-    unstamped[2].1["findings"][0]
+    let mut unstamped = payloads.clone();
+    unstamped[2]["findings"][0]
         .as_object_mut()
         .unwrap()
         .remove("site");
-    let poisoned = Aggregate::ReviewPanel.aggregate_results(&unstamped);
+    let poisoned = Aggregate::ReviewPanel.aggregate_results(&members(&unstamped));
     assert_eq!(poisoned["result"], Aggregate::MEMBER_SCHEMA_INVALID);
-    assert_eq!(poisoned["notes"]["members"]["c"], unstamped[2].1);
+    assert_eq!(poisoned["notes"]["members"]["c"], unstamped[2]);
+    assert_eq!(poisoned["notes"]["members"]["a"], payloads[0], "{poisoned}");
     assert!(poisoned.get("findings").is_none(), "{poisoned}");
 }

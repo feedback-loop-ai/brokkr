@@ -113,7 +113,7 @@ fn every_member_is_witnessed_before_any_member_is_read() {
     };
     let settled = Checkpoints::new(&mut engine.store, &mut engine.current_cause, attempt).settle();
     let members = engine.settle_members([EFFECT, ATTEMPT], &runs, reports, settled, "");
-    let refused = (members.unwrap().into_iter()).map(|(name, report)| (name, report.refused));
+    let refused = (members.unwrap().0.into_iter()).map(|(name, report)| (name, report.refused));
     let refused: Vec<_> = refused.collect();
     let unchanged = [("docs".to_string(), None), ("sibling".to_string(), None)];
     assert_eq!((refused, site.rows()), (unchanged.to_vec(), vec![]));
@@ -147,7 +147,7 @@ fn every_panel_member_is_settled_by_its_own_broker_calls() {
     ];
     let deadline = Duration::from_secs(10);
     let reports = site.engine.run_panel(EFFECT, ATTEMPT, &runs, deadline, "");
-    let outcomes: Vec<_> = (reports.unwrap().into_iter())
+    let outcomes: Vec<_> = (reports.unwrap().0.into_iter())
         .map(|(name, report)| (name, report.settled_outcome()))
         .collect();
     let expected = [

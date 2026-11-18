@@ -46,7 +46,7 @@ fn a_panels_members_each_carry_their_own_refusal() {
         "",
         false,
     );
-    let reports = engine
+    let (reports, _) = engine
         .run_panel(
             "effect",
             "attempt",

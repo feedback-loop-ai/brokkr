@@ -375,9 +375,15 @@ fn stamp(findings: &Value, site: &SiteDigest) -> Result<Vec<Finding>, AdmissionR
 /// Admit a seat's result written at `reporter`: a result that writes a
 /// field only the engine writes is refused (ruling 1), and so is one
 /// carrying `findings` from a work site; a gate's `findings` are read,
-/// refused or stamped in place (ruling 3). A result with findings and no
-/// site to stamp is refused rather than journaled unkeyed.
-pub fn admit(result: &mut Value, reporter: Option<Reporter<'_>>) -> Result<(), AdmissionRefusal> {
+/// refused or stamped (ruling 3) and handed back typed, taken out of
+/// `result`, so they stay typed until [`journal`] writes them at the
+/// journal's boundary. `None` is a result that reported no `findings`.
+/// A result with findings and no site to stamp is refused rather than
+/// journaled unkeyed.
+pub fn admit(
+    result: &mut Value,
+    reporter: Option<Reporter<'_>>,
+) -> Result<Option<Vec<Finding>>, AdmissionRefusal> {
     if let Some(written) = EngineWritten::ALL
         .into_iter()
         .find(|written| result.get(written.field()).is_some())
@@ -385,7 +391,7 @@ pub fn admit(result: &mut Value, reporter: Option<Reporter<'_>>) -> Result<(), A
         return Err(AdmissionRefusal::EngineWritten(written));
     }
     let Some(findings) = result.get("findings") else {
-        return Ok(());
+        return Ok(None);
     };
     let site = match reporter {
         Some(Reporter::Work) => return Err(AdmissionRefusal::WorkSite),
@@ -394,8 +400,17 @@ pub fn admit(result: &mut Value, reporter: Option<Reporter<'_>>) -> Result<(), A
     }
     .ok_or(AdmissionRefusal::Unsited)?;
     let stamped = stamp(findings, &site)?;
-    result["findings"] = serde_json::to_value(stamped).expect("a finding serializes");
-    Ok(())
+    // Only an object carries `findings`, so the removal always reaches one.
+    let _taken = result
+        .as_object_mut()
+        .and_then(|fields| fields.remove("findings"));
+    Ok(Some(stamped))
+}
+
+/// Write the stamped `findings` into the `result` the journal records:
+/// the one place an admitted finding leaves its type.
+pub fn journal(result: &mut Value, findings: &[Finding]) {
+    result["findings"] = serde_json::to_value(findings).expect("a finding serializes");
 }
 
 fn is_sha256(value: &str) -> bool {

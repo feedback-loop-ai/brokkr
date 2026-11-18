@@ -8,7 +8,7 @@ use super::sequence::{dialect_attempt_outcome, expand_dialect_argv, nearest_chan
 use super::verdict::covered_tests::{reviewing, reviewing_on};
 use super::*;
 use crate::agents::HarnessHands;
-use crate::bundle::{Limits, Seat};
+use crate::bundle::{Limits, MemberVerdict, Seat};
 use crate::dispatch_fixture::dispatch_envelope;
 use crate::engine::dispatch::deadline::{AttemptBound, Deadline};
 use crate::envelope_builder::EnvelopeBuilder;
@@ -17,6 +17,7 @@ use brokkr_core::canonical::ZERO_HASH;
 use brokkr_core::decision::{Decision, PhaseResult, ReviewedHeads};
 use brokkr_core::{fold::Status, policy::Machine};
 use entry::fixture_seat;
+use panel::Stamped;
 // A test whose sites get real hands plays in an engine of its own (#403),
 // so no other test's orphan reads as a stray of its attempt.
 pub(super) use brokkr_protocol::process::in_its_own_engine;
@@ -1973,58 +1974,56 @@ fn panel_sequence_and_aggregation_cover_all_terminal_shapes() {
     engine
         .journal_panel_members("effect", "attempt", &outcomes, &[], "step:")
         .unwrap();
-    assert!(matches!(
-        panel_outcome(Aggregate::UnanimousPass, outcomes.clone()),
-        AttemptOutcome::Indeterminate { .. }
-    ));
-    assert!(matches!(
-        panel_outcome(Aggregate::UnanimousPass, outcomes[..2].to_vec()),
-        AttemptOutcome::Failed { .. }
-    ));
-    assert!(matches!(
-        panel_outcome(Aggregate::UnanimousPass, outcomes[..1].to_vec()),
-        AttemptOutcome::Succeeded { .. }
-    ));
-
+    let joined = |n: usize| {
+        panel_outcome(
+            Aggregate::UnanimousPass,
+            outcomes[..n].to_vec(),
+            Stamped::new(),
+        )
+    };
+    assert!(matches!(joined(3), AttemptOutcome::Indeterminate { .. }));
+    assert!(matches!(joined(2), AttemptOutcome::Failed { .. }));
+    assert!(matches!(joined(1), AttemptOutcome::Succeeded { .. }));
+    let all = MemberVerdict::all;
     assert_eq!(
-        Aggregate::UnanimousPass
-            .aggregate_results(&[("bad".into(), json!({"notes":"missing result"}))])["result"],
-        "__member-schema-invalid__"
-    );
-    assert_eq!(
-        Aggregate::UnanimousPass.aggregate_results(&[("bad".into(), json!({"result":"invented"}))])
+        Aggregate::UnanimousPass.aggregate_results(&all(&[("bad", json!({"notes":"missing"}))]))
             ["result"],
         "__member-schema-invalid__"
     );
     assert_eq!(
-        Aggregate::UnanimousPass.aggregate_results(&[
-            ("one".into(), json!({"result":"pass"})),
-            ("two".into(), json!({"result":"fail"}))
-        ])["result"],
+        Aggregate::UnanimousPass.aggregate_results(&all(&[("bad", json!({"result":"invented"}))]))
+            ["result"],
+        "__member-schema-invalid__"
+    );
+    assert_eq!(
+        Aggregate::UnanimousPass.aggregate_results(&all(&[
+            ("one", json!({"result":"pass"})),
+            ("two", json!({"result":"fail"}))
+        ]))["result"],
         "fail"
     );
-    let review = Aggregate::ReviewPanel.aggregate_results(&[
+    let review = Aggregate::ReviewPanel.aggregate_results(&all(&[
         (
-            "clean".into(),
+            "clean",
             json!({"result":"clean", "inputs":{"spec_defect":true}}),
         ),
         (
-            "residual".into(),
+            "residual",
             json!({"result":"residual", "inputs":{
                 "max_residual_severity":"high", "has_security_residual":true
             }}),
         ),
-        ("unknown".into(), json!({"result":"invented"})),
-    ]);
+        ("unknown", json!({"result":"invented"})),
+    ]));
     assert_eq!(review["result"], "invented");
     assert_eq!(review["inputs"]["max_residual_severity"], "high");
     assert_eq!(review["inputs"]["has_security_residual"], true);
     assert_eq!(review["inputs"]["fixes_applied"], false);
     assert_eq!(review["inputs"]["spec_defect"], true);
-    let unknown_severity = Aggregate::ReviewPanel.aggregate_results(&[(
-        "residual".into(),
+    let unknown_severity = Aggregate::ReviewPanel.aggregate_results(&all(&[(
+        "residual",
         json!({"result":"residual","inputs":{"max_residual_severity":"invented"}}),
-    )]);
+    )]));
     assert_eq!(unknown_severity["inputs"]["max_residual_severity"], "none");
 
     assert_eq!(
