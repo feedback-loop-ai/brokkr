@@ -490,10 +490,42 @@ a write token the observer never holds.**
   resolved by the runner, never in argv: `gh` reads a token from its environment, an env-only
   consumer 0012's compile lint already admits (`crates/brokkr-runtime/src/bundle.rs:4149-4156`).
   The observer binds a read token and `ci-rerun` a separate write token, so the seat that reads
-  logs never holds the right to change the forge. The token scopes a forge needs are unmeasured.
+  the forge never holds the right to change it. The token scopes a forge needs are unmeasured.
 - **Its egress.** Both seats run on the exec adapter, declared `egress: contracted`
   (`adapters/exec.json:4`); 0036 ruling 4 keys a binding off that class against the bundle's
-  minimum. Both need `"network": true`, unlike `fast`'s exec seats.
+  minimum (`docs/decisions/0036-egress-is-a-property-of-the-route.md:137-143`).
+- **Its effect must compile.** The first draft gave both seats a binding and
+  `"network": true`. HEAD compiles neither. `network` is a field of `hands`
+  (`crates/brokkr-protocol/src/hands.rs:149`, parsed at `:191`), and `record_hands` refuses any
+  site that declares hands with secret bindings, under every boundary
+  (`crates/brokkr-runtime/src/bundle.rs:3940-3967`), as 0043 rules
+  (`docs/decisions/0043-the-hands-are-one-tool.md:113-116`). The operator chooses the effect:
+  - **(a) Recommended: a no-hands exec seat, its script pinned and its inputs the engine's.**
+    Each of the two seats declares its binding and no `hands`. HEAD records such a site as an
+    affirmative `NoHands` (`crates/brokkr-runtime/src/bundle.rs:3970-3973`), and it publishes
+    `hands: none` to the adapter (`crates/brokkr-runtime/src/engine/marks.rs:139-142`). It runs
+    unboxed, with the host's network, and with no box between it and the worktree. Its pins
+    replace the box:
+    - its script is bundle-relative and digested, its layer outside the gated worktree (ruling
+      1);
+    - its argv carries only the engine's typed commission, so no worktree path reaches it;
+    - it changes directory away from the worktree before anything else, and reads and executes
+      nothing in it;
+    - `gh` gets `--repo` from the pinned list, and its tools are checked as ruling 1 checks the
+      observer's.
+
+    Cost: an unboxed seat holds a forge token, bounded by pinned code rather than by a box.
+    Unmeasured: whether the realm's boundary (0046) admits a no-hands exec site that holds a
+    binding, and where the exec driver sets the seat's working directory. 0111c's compile test
+    and a real-harness check settle both before the seat ships. If either refuses, the
+    recommendation falls to (b).
+  - **(b) An explicit amendment of 0043.** A boxed seat with `network: true` receives one named
+    binding as an environment entry named in its hands spec. 0043's own consequences name that
+    as a future ruling (`docs/decisions/0043-the-hands-are-one-tool.md:206-208`). Cost: it amends
+    an accepted decision's refusal, and `record_hands`'s refusal (`bundle.rs:3961-3967`) becomes
+    conditional, so it needs its own enforcement test. Only if (a) cannot be admitted.
+  - **(c) A built-in engine effect.** Ruling 1 (b): the engine holds the token and an HTTP
+    client. Refused there.
 - **Its bounded wait.** The `ci` gate, not the re-run seat, waits: it polls at a fixed interval
   until every job of the head's runs is settled, within its own `limits.timeout_seconds`. A
   timeout is 0006's, never a classification.
@@ -816,7 +848,12 @@ Smallest first; each lands on its own.
    `exactly_one_class_flag_is_true_for_each_class_but_change`;
    `a_rule_naming_two_class_flags_refuses_to_compile`;
    `a_change_failure_after_the_rerun_returns_to_implement`;
-   `a_moved_head_earns_its_own_rerun`; `the_observer_never_holds_the_write_token`;
+   `a_moved_head_earns_its_own_rerun`; `the_observer_never_holds_the_write_token`. The
+   credentialed effect (ruling 6 (a)): `a_no_hands_exec_seat_with_a_binding_compiles` (the
+   overlay's two seats, compiled as declared, under each boundary the realm admits);
+   `a_ci_seat_with_hands_and_a_binding_still_refuses` (HEAD's refusal pinned);
+   `the_rerun_script_runs_from_outside_the_worktree_and_reads_nothing_in_it`;
+   `the_rerun_argv_carries_no_worktree_path`;
    `a_forge_refusal_parks_ruled`. The scope:
    `the_rerun_names_job_ids_and_never_a_runs_failed_set`;
    `a_cancelled_audit_job_beside_a_runner_fault_is_never_in_the_scope`;
