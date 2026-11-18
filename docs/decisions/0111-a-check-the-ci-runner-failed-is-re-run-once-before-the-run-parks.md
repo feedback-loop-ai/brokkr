@@ -520,41 +520,92 @@ a write token the observer never holds.**
 
 ### 7. Each outcome, and what "identical" means
 
-**Recommended: (a) a pass proceeds; the same fault parks typed; a different runner fault also
-parks typed; a change failure is the change's.**
+**Recommended: (a) a pass proceeds; the same fault parks typed; any different second failure,
+a different runner fault included, is the change's, as 1093's commission asks.**
 
-A fault's identity is the set of `(workflow, job, failed step, kind, pattern id)` tuples. After
-the one re-run:
+**Identities that hold across forge attempts.** Job and check-run ids change with every
+attempt, so they are never an identity:
+
+- a **workflow** is its file's path as the run reports it, with its triggering event;
+- a **job** is its workflow plus the job's name as the jobs API lists it, matrix values
+  included;
+- a **step** is its job plus its number and name.
+
+Under ruling 3 (a) a fault names no step, since none ran. A fault is `(workflow, job, step or
+none, kind, pattern id or none)`, and an observation's **identity** is the sorted set of its
+faults. Two identities are the same only when the sets are equal. How the forge spells a
+workflow's path and a matrix job's name is unmeasured until 0111b, and an observation missing
+either refuses as `unrelated` (ruling 2).
+
+**A deterministic match.** Under (b) only, where several literals occur in one excerpt, the
+classifier takes the first pattern in the list's declaration order. The fault carries that
+pattern's id, so one excerpt yields one fault.
+
+After the one re-run:
 
 - **`green`**: the gate's `pass`; the run proceeds as if it had passed the first time. The
   journal still names the re-run.
-- **`runner-fault`, the same identity**: parks, typed (ruling 8).
-- **`runner-fault`, another identity**: parks, typed. "Once" is once per gated head.
-- **`change`**: the change's, routed by the table exactly as a first-time red gate is.
+- **the same runner-fault identity**: the engine draws `runner-fault-again`, and the run parks,
+  typed (ruling 8).
+- **any other failure**: `change`, with reason `different-after-rerun`. That covers a different
+  runner-fault identity, a superset or a subset of the first, and an untyped failure. Routed
+  exactly as a first-time red gate is.
+- **a refusal** (ruling 2): parks `ruled`, as on a first observation.
 
 "Once per gated head" is an engine-owned count, `ci_reruns`, of `ci-rerun` intents
 (`effect/started`, whatever their end) recorded anywhere in the run's journal for the gated
 head's commit id. It is not counted since the phase was entered, and it is not
 `visits_ci-rerun`, which counts per run (0022). A head the implementer moves to earns its own
 re-run. A return to an already-seen commit id, by a revert or a reset, earns none: that head
-had its one. The table reads it as `ci_reruns_gte`; a seat
-cannot write it. A table in the recipe declares the arms, first match winning:
+had its one. The classifier reads it: a `runner-fault` on a head whose `ci_reruns` is
+already 1 is either `runner-fault-again` (the same identity) or `change`. So the class a table
+sees is closed: `green`, `runner-fault`, `runner-fault-again`, `change` or `refused`. A seat
+cannot write any of them.
+
+**Every route and cap.** A table in the recipe declares the arms, first match winning. The
+`When` column names the class; ruling 11 gives its schema-legal spelling.
 
 | Rule | From | Result | When | Next |
 |---|---|---|---|---|
-| `CI-PASS` | `ci` | `pass` | | the recipe's next phase |
-| `CI-RUNNER-AGAIN` | `ci` | `fail` | `ci_fault_in: [runner-fault]`, `ci_reruns_gte: 1` | park |
-| `CI-RUNNER` | `ci` | `fail` | `ci_fault_in: [runner-fault]` | `ci-rerun` |
-| `CI-RERUN-REQUESTED` | `ci-rerun` | `requested` | | `ci` |
-| `CI-FAIL` | `ci` | `fail` | | `implement`, as `VERIFY-FAIL` |
+| `CI-REFUSED` | `ci` | `fail` | class `refused` | park, `ruled`, naming the refusal |
+| `CI-PASS` | `ci` | `pass` | class `green` | the recipe's next phase |
+| `CI-RUNNER-AGAIN` | `ci` | `fail` | class `runner-fault-again` | park, `infrastructure` `ci-runner` |
+| `CI-RUNNER` | `ci` | `fail` | class `runner-fault` | `ci-rerun` |
+| `CI-FAIL-EXHAUSTED` | `ci` | `fail` | `visits_implement_gte: 3` | stop, `hard` |
+| `CI-FAIL` | `ci` | `fail` | | `implement`, `flagged` |
+| `CI-RERUN-REQUESTED` | `ci-rerun` | `requested` or `already-accepted` | | `ci` |
+| `CI-RERUN-REFUSED` | `ci-rerun` | `refused` | | park, `ruled` |
+| `CI-RERUN-UNCERTAIN` | `ci-rerun` | `uncertain` | | park, `infrastructure` `ci-rerun-uncertain` |
+
+**The CI loop keeps a bound.** HEAD caps only `VERIFY-FAIL`: `VERIFY-FAIL-EXHAUSTED` stops at
+`visits_implement_gte: 3` (`recipes/fast/policy.json:76-94`). `CI-FAIL-EXHAUSTED` reads the same
+counter. `visits_<phase>_gte` counts the run's entries of that phase, whatever routed into it
+(the `when` description at `contracts/phase-machine.v2.schema.json:71-73`). So a `VERIFY-FAIL`
+return and a `CI-FAIL` return spend the one implement bound of three between them. A green local
+verify and a red CI therefore stop after the third implement visit, not never. The re-run loop is
+bounded too: one intent per head (ruling 6), and a new head needs an implement visit. So a run
+makes at most one re-run more than its implement visits.
+
+**Refused routes**, each because it would unbound a loop or hide a failure:
+
+- a second re-run on any head, even for a different runner fault (option (c));
+- a refusal routed to `ci-rerun` or to `implement`; a refusal parks;
+- `CI-PASS` on any class but `green`; the word binding refuses it (ruling 2);
+- `CI-RERUN-UNCERTAIN` routed back to `ci`; uncertainty parks;
+- a `CI-FAIL` with no exhaustion arm before it; the compile check for this belongs to 0111c's
+  overlay test.
 
 `ci_fault` is an engine-owned choice over `green`, `runner-fault` and `change`, beside the
 seat-owned `blocked_by` (`crates/brokkr-core/src/policy/inputs.rs:106-115`). Phase-machine v2's
 `when` already admits any named condition the engine defines
 (`contracts/phase-machine.v2.schema.json:71-77`), so no table contract version moves.
 
-- **(b) A different runner fault earns a second re-run.** Two different faults in a row are
-  more likely one sick runner pool than luck; a bound of one is the point. Refused.
+- **(b) A different runner fault parks typed, as the first draft had it.** It saves an
+  implement visit when two runner faults in a row are one sick pool. But it reverses the
+  commission's rule that a different second failure is the change's, and it lets the classifier
+  type two observations it never compared as one fault. Not recommended.
+- **(c) A different runner fault earns a second re-run.** It unbounds the re-run per head.
+  Refused.
 
 ### 8. The park's cause
 
@@ -582,16 +633,18 @@ On acceptance, 0106's header and this one's gain the pointer pair for ruling 1's
 
 ### 9. How a CI park reads in 0106d's budget
 
-**Recommended: (a) a `ci-runner` park is `retryable: false` under this decision, and spends
-nothing.**
+**Recommended: (a) every typed CI park, `ci-runner` and `ci-rerun-uncertain`, is
+`retryable: false` under this decision, and spends nothing.** A `ci-rerun-uncertain` park has the
+opposite of non-execution evidence: a request may have reached the forge.
 
 0106 ruling 4 asks for positive evidence that the last attempt never executed. Here the last
 attempt is the `ci` gate's, and it executed: it read the forge and returned a typed result. The
 forge's statement that the change's checks never ran is a fact about CI, not about the attempt,
 and a pattern match is evidence that a step ran. So the rule, read literally, gives `false`.
 
-What positive non-execution evidence would be for CI: the forge's own `startup_failure` on every
-failed job of both observations, so that no step of the change's checks ran either time. Even
+What positive non-execution evidence would be for CI: a conclusion in ruling 5's proven set on
+every failed job of both observations, so that no step of the change's checks ran either time.
+That set is empty until 0111b measures it. Even
 then a budget retry, as 0106d builds it, re-enters the parked phase as a new effect; it would
 observe the same settled runs and park again, spending the budget for nothing. Admitting that
 evidence needs the retry to reach `ci-rerun`, and that is the budget's own decision, not this
@@ -600,9 +653,12 @@ one's.
 - **(b) `retryable: true` on a twice-`startup-failure` park.** Spends a retry that cannot help,
   as above. Refused here.
 
-**Enforcement binding:** `a_ci_runner_park_is_never_retryable` and 0106d's
-`only_an_infrastructure_park_spends_the_budget`, extended with a `ci-runner` park that spends
-nothing.
+**Enforcement binding:** `a_ci_runner_park_is_never_retryable` and
+`a_ci_rerun_uncertain_park_is_never_retryable` (0111d). 0106d's non-retryable infrastructure
+test, `a_non_retryable_infrastructure_park_spends_nothing`
+(`docs/decisions/0106-a-park-names-its-cause-a-held-wait-and-a-budget.md:1224`), is extended
+with one park of each new `kind`, each spending nothing. 0106d's
+`only_an_infrastructure_park_spends_the_budget` is unchanged: it reads `retryable`, not `kind`.
 
 ### 10. The readouts
 
@@ -688,7 +744,14 @@ Smallest first; each lands on its own.
    (`ci_reruns`), `crates/brokkr-runtime/src/engine/decide.rs`, a re-run script, and a recipe
    overlay declaring ruling 7's table. About 200 production and 300 test lines. No contract
    change. Tests: `a_runner_fault_routes_to_one_rerun`; `a_green_after_the_rerun_passes`;
-   `the_same_fault_after_the_rerun_parks`; `a_different_runner_fault_after_the_rerun_parks`;
+   `the_same_fault_after_the_rerun_parks`;
+   `a_different_runner_fault_after_the_rerun_returns_to_implement`;
+   `a_superset_or_subset_of_the_first_identity_is_different`;
+   `the_identity_ignores_job_and_check_run_ids_across_attempts`;
+   `several_literals_in_one_excerpt_match_the_first_declared` (under (b));
+   `a_green_verify_and_a_red_ci_stop_at_the_third_implement_visit`;
+   `verify_and_ci_returns_share_one_implement_bound`;
+   `a_refusal_never_routes_to_rerun_or_implement`; `an_uncertain_rerun_never_routes_to_ci`;
    `a_change_failure_after_the_rerun_returns_to_implement`;
    `a_moved_head_earns_its_own_rerun`; `the_observer_never_holds_the_write_token`;
    `a_forge_refusal_parks_ruled`. The scope:
@@ -719,7 +782,8 @@ Smallest first; each lands on its own.
    `a_ci_rerun_uncertain_park_is_never_retryable`;
    `a_rerun_park_writes_the_ci_runner_cause_and_keeps_the_rule_in_the_decision`;
    `the_fleet_paints_the_ci_runner_cause`; and, when 0106d lands, its
-   `only_an_infrastructure_park_spends_the_budget` extended with a `ci-runner` park.
+   `a_non_retryable_infrastructure_park_spends_nothing` (0106:1224) extended with a `ci-runner`
+   and a `ci-rerun-uncertain` park (ruling 9).
 
 ## Evidence
 
