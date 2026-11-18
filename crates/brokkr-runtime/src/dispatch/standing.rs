@@ -99,6 +99,9 @@ pub fn stand(
             }
         }
     }
+    // A driver that exited during the last sleep is reported as exited,
+    // not left running.
+    reap(store, &mut stand);
     Ok(Stopped)
 }
 
@@ -122,11 +125,16 @@ fn tick(
         Ok(passed) => (stand.report)(Tick::Passed(passed)),
         Err(ended) => (stand.report)(Tick::Passed(&ended.passed)),
     }
+    reap(store, stand);
+    passed.map(drop)
+}
+
+/// Report each driver that has exited, beside what its run reads now.
+fn reap(store: &Store, stand: &mut Stand<'_>) {
     for exited in (stand.reap)() {
         let reads = reads(store, &exited.run);
         (stand.report)(Tick::Reaped(&Reaped { exited, reads }));
     }
-    passed.map(drop)
 }
 
 /// What `run` reads now in the journal, folded from its events.

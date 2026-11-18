@@ -90,6 +90,9 @@ pub(crate) enum Outcome {
     /// A claim could not be judged: reported, and no further entry is
     /// claimed this pass.
     Admission(AdmissionError),
+    /// A stop was asked before the claim (decision 0110 ruling 5): nothing
+    /// was written, and no further entry is claimed this pass.
+    Stopped,
 }
 
 /// A claim a re-check refused: the entry and the reason, with nothing
@@ -124,6 +127,7 @@ pub(crate) fn start<S, P, C>(
 where
     S: FnMut() -> Result<(), Ending>,
     P: FnMut(&Spawn) -> Result<Spawned, SpawnFailed>,
+    C: FnMut() -> bool,
 {
     let Admitted {
         entry,
@@ -133,6 +137,12 @@ where
     let id = entry.id;
     let generation = dispatcher.generation;
     (seams.stands)()?;
+    // A stop claims nothing more (decision 0110 ruling 5). It is read after
+    // the binary check, last before the claim, so a stop asked during the
+    // check is honoured.
+    if !(seams.claims)() {
+        return Ok(Outcome::Stopped);
+    }
     let claim = match room.claim(store, generation, &claim_reason(id, generation)) {
         Ok(Ok(claim)) => claim,
         Ok(Err(reason)) => return Ok(Outcome::ClaimRefused(ClaimRefused { entry: id, reason })),

@@ -207,6 +207,29 @@ fn a_stop_during_one_entry_ends_the_loop_after_its_driver_with_no_further_claim(
 }
 
 #[test]
+fn a_stop_during_the_binary_check_before_a_claim_claims_nothing() {
+    let (mut fixture, file, dispatcher) = setup(2);
+    let mut script = Script::new();
+    let (stop, mut calls) = (Rc::clone(&script.stop), 0);
+    // The stop arrives in the binary check before the second entry's claim.
+    script.stands = Box::new(move || {
+        calls += 1;
+        if calls == 3 {
+            stop.set(true);
+        }
+        Ok(())
+    });
+    let (ended, seen) = script.run(&mut fixture.store, &dispatcher, &file);
+    assert_eq!(ended.unwrap(), Stopped);
+    let run = the_run(&fixture.store);
+    assert_eq!(seen, vec![passed(&[run.as_str()])]);
+    assert_eq!(
+        words(&fixture.store),
+        ["add", "add", "claim", "link", "spawn"]
+    );
+}
+
+#[test]
 fn a_stand_that_ends_before_the_spawn_row_ends_the_loop_and_reconciliation_spawns_it() {
     let (mut fixture, file, dispatcher) = setup(1);
     let mut script = Script::new();
@@ -280,6 +303,35 @@ fn an_exited_driver_is_reaped_and_its_still_running_run_reported() {
             passed(&[]),
         ]
     );
+}
+
+#[test]
+fn a_driver_that_exits_during_the_sleep_a_stop_ends_is_reaped_before_the_loop_ends() {
+    let (mut fixture, file, dispatcher) = setup(1);
+    let exits = Rc::new(RefCell::new(Vec::new()));
+    let mut script = Script::new();
+    let drained = Rc::clone(&exits);
+    script.reap = Box::new(move || std::mem::take(&mut *drained.borrow_mut()));
+    // In the first sleep, the driver pid 1 started exits, and a stop ends
+    // the sleep.
+    let (stop, store) = (Rc::clone(&script.stop), fixture.store.path().to_path_buf());
+    script.slept = Box::new(move |_| {
+        let run = the_run(&Store::open(&store).unwrap());
+        let exit = ExitStatus::from_raw(0);
+        exits.borrow_mut().push(Exited { run, pid: 1, exit });
+        stop.set(true);
+    });
+    let (ended, seen) = script.run(&mut fixture.store, &dispatcher, &file);
+    assert_eq!(ended.unwrap(), Stopped);
+    let run = the_run(&fixture.store);
+    let reaped = Seen::Reaped {
+        run: run.clone(),
+        pid: 1,
+        code: Some(0),
+        reads: Some(Status::Running),
+    };
+    let slept = Seen::Slept(Duration::from_secs(59));
+    assert_eq!(seen, vec![passed(&[run.as_str()]), slept, reaped]);
 }
 
 #[test]

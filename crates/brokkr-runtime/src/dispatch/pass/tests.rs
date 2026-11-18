@@ -892,7 +892,7 @@ fn an_ending_after_a_spawn_failure_keeps_the_report_of_what_the_pass_did() {
 }
 
 #[test]
-fn every_start_outcome_is_reported_and_only_two_stop_the_claims() {
+fn every_start_outcome_is_reported_and_only_three_stop_the_claims() {
     use crate::dispatch::{ClaimRefused, Contended, Held, Reclaimed};
     use crate::launch::tests::claimed::claimed;
 
@@ -963,6 +963,9 @@ fn every_start_outcome_is_reported_and_only_two_stop_the_claims() {
     );
     assert!(!stop);
     assert!(passed.admission_refused.is_some());
+
+    let stop = record_start(&mut passed, crate::dispatch::start::Outcome::Stopped);
+    assert!(!stop);
 }
 
 #[test]

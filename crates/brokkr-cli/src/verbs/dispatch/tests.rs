@@ -130,7 +130,8 @@ fn every_is_five_to_3600_seconds_sixty_by_default_and_refused_with_once() {
 }
 
 /// The standing loop's sleep: the whole of a short rest when no stop is
-/// asked, and none at all once one is.
+/// asked, none at all once one is, and it wakes as soon as a stop is asked
+/// while it sleeps. Each rest is short, so a regression fails in seconds.
 #[test]
 fn a_nap_sleeps_its_rest_and_wakes_at_once_on_a_stop() {
     let rest = Duration::from_millis(120);
@@ -138,8 +139,23 @@ fn a_nap_sleeps_its_rest_and_wakes_at_once_on_a_stop() {
     nap(&AtomicBool::new(false), rest);
     assert!(began.elapsed() >= rest, "{:?}", began.elapsed());
     let began = Instant::now();
-    nap(&AtomicBool::new(true), Duration::from_secs(3600));
-    assert!(began.elapsed() < Duration::from_secs(5), "woke at once");
+    nap(&AtomicBool::new(true), Duration::from_secs(10));
+    assert!(began.elapsed() < Duration::from_secs(1), "woke at once");
+
+    let stop = Arc::new(AtomicBool::new(false));
+    let asks = Arc::clone(&stop);
+    let asker = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(200));
+        asks.store(true, Ordering::SeqCst);
+    });
+    let began = Instant::now();
+    nap(&stop, Duration::from_secs(10));
+    let slept = began.elapsed();
+    asker.join().unwrap();
+    assert!(
+        slept >= Duration::from_millis(200) && slept < Duration::from_secs(2),
+        "woke on the stop asked mid-sleep: {slept:?}"
+    );
 }
 
 /// A child that runs `script` in a shell.

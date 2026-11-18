@@ -9,9 +9,11 @@
 //! driver a pass leaves behind is never adopted by a test binary another
 //! test made a subreaper.
 
+use std::io::Read;
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use brokkr_protocol::process::in_its_own_engine;
@@ -82,8 +84,12 @@ impl Machine {
         std::fs::create_dir_all(&self.bundle).unwrap();
         std::fs::write(self.bundle.join("policy.json"), policy().to_string()).unwrap();
         std::fs::write(self.bundle.join("role.md"), "# seat\n").unwrap();
+        // The wait is bounded by the patience (2400 naps of 50 ms), so a
+        // test that fails before it releases the seat leaves no driver
+        // polling past it.
         let wait = format!(
-            ": > '{}'; until [ -e '{}' ]; do sleep 0.05; done",
+            ": > '{}'; n=0; until [ -e '{}' ]; do n=$((n+1)); [ $n -le 2400 ] || exit 1; \
+             sleep 0.05; done",
             self.working().display(),
             self.released().display()
         );
@@ -384,33 +390,68 @@ fn a_dispatcher_whose_binary_was_replaced_claims_nothing_and_ends() {
 }
 
 /// A standing dispatcher this test started, killed and waited on if the
-/// test fails before it ends, so no dispatcher outlives its test.
-struct Standing(Option<std::process::Child>);
+/// test fails before it ends, so no dispatcher outlives its test. Its
+/// stdout is read as it comes, so a test can see a tick's lines while it
+/// stands.
+struct Standing {
+    child: Option<std::process::Child>,
+    said: Arc<Mutex<String>>,
+    reader: Option<std::thread::JoinHandle<()>>,
+}
 
 impl Standing {
     /// `brokkr dispatch` given `args` on `machine`, its output piped.
     fn start(machine: &Machine, args: &[&str]) -> Standing {
         let brokkr = Path::new(env!("CARGO_BIN_EXE_brokkr"));
-        let child = machine
+        let mut child = machine
             .command(brokkr, args)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
             .unwrap();
-        Standing(Some(child))
+        let mut stdout = child.stdout.take().unwrap();
+        let said = Arc::new(Mutex::new(String::new()));
+        let into = Arc::clone(&said);
+        let reader = std::thread::spawn(move || {
+            let mut chunk = [0u8; 4096];
+            while let Ok(read @ 1..) = stdout.read(&mut chunk) {
+                into.lock()
+                    .unwrap()
+                    .push_str(&String::from_utf8_lossy(&chunk[..read]));
+            }
+        });
+        Standing {
+            child: Some(child),
+            said,
+            reader: Some(reader),
+        }
     }
 
     /// Send `signal` to the dispatcher's own pid, not this test's group.
     fn signal(&self, signal: rustix::process::Signal) {
-        let pid = self.0.as_ref().unwrap().id() as i32;
+        let pid = self.child.as_ref().unwrap().id() as i32;
         let pid = rustix::process::Pid::from_raw(pid).unwrap();
         rustix::process::kill_process(pid, signal).unwrap();
+    }
+
+    /// Wait up to the patience for the first tick's `started:` line: the
+    /// pid of the driver it names.
+    fn first_driver(&self) -> i32 {
+        let began = Instant::now();
+        loop {
+            let said = self.said.lock().unwrap().clone();
+            if said.contains("queue: ") {
+                return started(&said).3;
+            }
+            assert!(began.elapsed() < PATIENCE, "no tick reported: {said}");
+            std::thread::sleep(Duration::from_millis(25));
+        }
     }
 
     /// Wait up to the patience for the dispatcher to end, and read what it
     /// said.
     fn ended(mut self) -> Output {
-        let mut child = self.0.take().unwrap();
+        let mut child = self.child.take().unwrap();
         let began = Instant::now();
         while child.try_wait().unwrap().is_none() {
             if began.elapsed() > PATIENCE {
@@ -420,13 +461,16 @@ impl Standing {
             }
             std::thread::sleep(Duration::from_millis(25));
         }
-        child.wait_with_output().unwrap()
+        let mut ended = child.wait_with_output().unwrap();
+        self.reader.take().unwrap().join().unwrap();
+        ended.stdout = self.said.lock().unwrap().clone().into_bytes();
+        ended
     }
 }
 
 impl Drop for Standing {
     fn drop(&mut self) {
-        if let Some(mut child) = self.0.take() {
+        if let Some(mut child) = self.child.take() {
             let _ = child.kill();
             let _ = child.wait();
         }
@@ -472,6 +516,62 @@ fn a_standing_dispatcher_stops_on_sigterm_and_its_driver_runs_on() {
     assert_eq!(machine.commands(), ["add", "claim", "link", "spawn"]);
 }
 
+/// Wait up to the patience for `pid`, a driver, to have exited: `ps` reads
+/// it a zombie its dispatcher has not reaped, or gone.
+fn exited(pid: i32) {
+    let began = Instant::now();
+    loop {
+        let ps = Command::new("ps")
+            .args(["-o", "stat=", "-p", &pid.to_string()])
+            .output()
+            .unwrap();
+        let stat = String::from_utf8_lossy(&ps.stdout);
+        if stat.trim().is_empty() || stat.trim_start().starts_with('Z') {
+            return;
+        }
+        assert!(began.elapsed() < PATIENCE, "the driver never exited");
+        std::thread::sleep(Duration::from_millis(25));
+    }
+}
+
+/// Decision 0110 ruling 5: a SIGTERM during the standing loop's sleep wakes
+/// it at once, well inside `--every`, and a driver that exited during that
+/// sleep is reported as exited with what its run reads, not left running.
+/// An entry queued during the sleep is never claimed.
+#[test]
+fn a_sigterm_during_the_sleep_wakes_it_and_reaps_a_driver_that_exited() {
+    if !in_its_own_engine(
+        "dispatch::a_sigterm_during_the_sleep_wakes_it_and_reaps_a_driver_that_exited",
+    ) {
+        return;
+    }
+    let machine = Machine::new();
+    machine.queued();
+    let args = ["dispatch", "--every", "60", "--db", machine.db()];
+    let dispatcher = Standing::start(&machine, &args);
+    machine.seat_runs();
+    std::fs::write(machine.released(), "").unwrap();
+    let pid = dispatcher.first_driver();
+    exited(pid);
+    machine.queued();
+    let asked = Instant::now();
+    dispatcher.signal(rustix::process::Signal::TERM);
+    let ended = dispatcher.ended();
+    let woke = asked.elapsed();
+    assert!(woke < Duration::from_secs(20), "the sleep woke: {woke:?}");
+    let stdout = String::from_utf8_lossy(&ended.stdout).into_owned();
+    assert_eq!(ended.status.code(), Some(0), "{ended:?}");
+    let (run, ..) = started(&stdout);
+    let last = format!(
+        "driver exited: run {run}, driver pid {pid}, exit status: 0; the run reads completed\n\
+         stopped: a signal asked the dispatcher to stop; it claimed nothing after, and its \
+         drivers run on\n"
+    );
+    assert!(stdout.ends_with(&last), "{stdout}");
+    assert!(!stdout.contains("left running"), "{stdout}");
+    assert_eq!(machine.commands(), ["add", "claim", "link", "spawn", "add"]);
+}
+
 /// Decision 0110 ruling 5: a second signal while the first's stop is asked
 /// ends the dispatcher at once, 128 plus SIGTERM's number. The dispatcher
 /// is held on the journal's write lock, so the first stop cannot end it
@@ -505,6 +605,29 @@ fn a_second_sigterm_ends_the_dispatcher_at_once() {
     assert_eq!(ended.status.code(), Some(143), "{ended:?}");
     holder.execute_batch("ROLLBACK").unwrap();
     assert_eq!(machine.commands(), ["add"], "nothing claimed");
+}
+
+/// Decision 0110 ruling 5 through the built binary: `--every` below 5 or
+/// above 3600, or beside `--once`, is refused by its parser before any
+/// journal is opened.
+#[test]
+fn every_out_of_its_range_or_beside_once_is_refused() {
+    let machine = Machine::new();
+    for (args, said) in [
+        (&["--every", "4"][..], "4 is not in 5..=3600"),
+        (&["--every", "3601"], "3601 is not in 5..=3600"),
+        (
+            &["--every", "5", "--once"],
+            "the argument '--every <SECONDS>' cannot be used with '--once'",
+        ),
+    ] {
+        let argv = [&["dispatch", "--db", machine.db()][..], args].concat();
+        let refused = machine.brokkr(&argv);
+        let stderr = String::from_utf8_lossy(&refused.stderr);
+        assert_eq!(refused.status.code(), Some(2), "{argv:?}: {stderr}");
+        assert!(stderr.contains(said), "{argv:?}: {stderr}");
+    }
+    assert!(!machine.journal.exists(), "no journal was opened");
 }
 
 /// `from` copied to `to` by a staging name renamed into place, so no

@@ -51,8 +51,9 @@ The first SIGINT or SIGTERM:
 - lets an entry already in flight get its `spawn` row and its driver;
 - claims nothing after that.
 
-The dispatcher then prints that tick's lines, names each driver still
-running with `left running:`, and exits 0 with a `stopped:` line.
+The dispatcher then prints that tick's lines, and a `driver exited:` line
+for each driver that exited since. It names each driver still running
+with `left running:`, and exits 0 with a `stopped:` line.
 
 A second signal while the first is being handled ends the process at
 once, with exit 128 plus the signal's number: 130 for SIGINT and 143 for
@@ -148,12 +149,13 @@ loaded. `bootout` unloads it, and also stops it with SIGTERM.
 
 ## What an ending leaves, and how to recover
 
-Apart from a stop, the dispatcher ends with a line that begins `ended:`,
-and exits non-zero. Read that line, then act on it as below.
+A stop ends with its `stopped:` line, and a crash ends with no line of
+its own. Every other ending prints a line that begins `ended:`, and exits
+non-zero. Read that line, then act on it as below.
 
 | Ending | What it leaves | How to recover |
 |---|---|---|
-| **A crash** (killed, a second signal, the host went down) | Possibly one entry `launching`, or linked to a run with no `spawn` row. Drivers already started run on. | Start the dispatcher again. Its first pass reconciles: a claim with no run goes back to its place uncounted, and a linked run is handed to a driver. A run that already has its `spawn` row is never spawned twice. |
+| **A crash** (killed, a second signal, the host went down) | Possibly one entry `launching`, or linked to a run with no `spawn` row. Drivers already started run on. A crash after an entry's `spawn` row and before its driver started leaves that run reading `running` with no driver. | Start the dispatcher again. Its first pass reconciles: a claim with no run goes back to its place uncounted, and a linked run is handed to a driver. A run that already has its `spawn` row is never spawned twice, so a run left `running` with no driver needs your `brokkr resume`, as for a spawn failure below. |
 | **Fenced out** (`generation N was fenced out`) | Nothing written after the fence. A newer dispatcher holds the journal. | Run `brokkr dispatch status --db <journal>` to see who holds it. Start a dispatcher only if it says the journal is not held. |
 | **A replaced binary** (`the brokkr at … is not the one this dispatcher started from`) | Nothing claimed after the check. An entry already linked waits. | Start the dispatcher again, from the new binary. Its reconciliation hands the waiting entry to a driver of the new version. |
 | **Any other start refusal**, or a store error | The entry in flight stays `launching`. The line names the refusal. | Fix what the line names (the journal or the host), then start the dispatcher again. Reconciliation returns the entry to its place uncounted. |
@@ -172,6 +174,12 @@ with:
   --db=<journal>`. The run's `spawn` row already stands, so reconciliation
   will not spawn it again. Paste the command once the cause (for example,
   no free descriptor) has cleared.
+
+The command names only the run and the journal. `brokkr resume` compiles
+its bundle the way `brokkr run` does, so run it from the workspace the
+entry was queued in. If the entry was queued with `--bundle <dir>` or
+`--recipe <name>`, or with `--repo <path>`, add the same flags to the
+command; without them, `resume` looks for the workspace's default bundle.
 
 A driver that exits once its run has finished, with the run reading
 `completed` or anything else that is not `running`, needs nothing from

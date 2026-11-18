@@ -344,11 +344,6 @@ where
         let Some(room) = room else {
             continue;
         };
-        // A stop claims nothing more (decision 0110 ruling 5): the entry
-        // in flight already has its `spawn` row and its driver.
-        if !(seams.claims)() {
-            break;
-        }
         observe(Stage::Start);
         let admitted = start::Admitted {
             entry,
@@ -384,8 +379,8 @@ fn reconcile_once(
     }
 }
 
-/// Take one entry's start into the report. A contention or a claim that
-/// could not be judged stops the pass's claims; every other outcome lets
+/// Take one entry's start into the report. A contention, a claim that
+/// could not be judged or a stop ends the pass's claims; every other outcome lets
 /// the next entry be judged.
 fn record_start(passed: &mut Passed, outcome: start::Outcome) -> bool {
     match outcome {
@@ -401,6 +396,7 @@ fn record_start(passed: &mut Passed, outcome: start::Outcome) -> bool {
             passed.admission_refused = Some(error);
             return false;
         }
+        start::Outcome::Stopped => return false,
     }
     true
 }
