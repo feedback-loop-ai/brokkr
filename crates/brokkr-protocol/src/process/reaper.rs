@@ -10,11 +10,14 @@
 //! under the registry's lock, in the critical section of the spawn itself,
 //! and each sweep takes the same lock, so a child that exits at once is
 //! never seen unregistered. A registered child is left to its handle,
-//! whose `wait` must still return the child's own status. It is released
-//! only once its own row is gone, or names a process that started at
-//! another time: only its handle's reap does either, and a pid reused by
-//! an adopted orphan is that orphan's, and reaped. A `waitpid(-1)` loop
-//! would take a handle's status, and is not one.
+//! whose `wait` must still return the child's own status. It is held by
+//! what the spawn read while the driver still owned it, before any wait:
+//! a pidfd, released once the kernel says its process is no longer the
+//! driver's child, which only its handle's reap makes so, and which no
+//! reuse of its pid can move. Where no pidfd opens, it is held by its
+//! start, released once its row is gone or names a process that started
+//! at another time. A `waitpid(-1)` loop would take a handle's status, and
+//! is not one.
 //!
 //! A zombie is reaped on the sweep after the one that first saw it, so a
 //! child spawned past the door is still left a moment to its own handle.
@@ -24,11 +27,13 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Result;
+use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
 use std::process::{Child, Command};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
-use rustix::process::{getpid, Pid};
+use rustix::io::Errno;
+use rustix::process::{getpid, pidfd_open, waitid, Pid, PidfdFlags, WaitId, WaitIdOptions};
 
 use super::table::{self, Entry, Identity};
 
@@ -42,10 +47,21 @@ struct Handled {
     /// Whether this process serves as a driver: only then is a child held,
     /// so no other process keeps a registry no sweep empties.
     serving: bool,
-    /// Each held child by pid, with its start as read at its spawn, or
-    /// `None` where that read failed.
-    held: BTreeMap<i32, Option<String>>,
+    /// Each held child by pid, with what its spawn read of it.
+    held: BTreeMap<i32, Hold>,
     seen: BTreeSet<Identity>,
+}
+
+/// What a held child is known by: read at its spawn, while the driver
+/// still owned it and no wait could have reaped it.
+#[derive(Debug)]
+enum Hold {
+    /// A pidfd: the process itself, whatever later reuses its pid.
+    Pidfd(OwnedFd),
+    /// Its start, where no pidfd opened.
+    Start(String),
+    /// Neither read: held until its row is gone.
+    Unread,
 }
 
 static HANDLED: Mutex<Handled> = Mutex::new(Handled {
@@ -62,16 +78,31 @@ fn handled() -> MutexGuard<'static, Handled> {
 
 /// Spawn `builder` as a held child, under the registry's lock.
 pub(super) fn spawn(builder: &mut Command) -> Result<Child> {
-    handled().spawn(builder, table::stat_of)
+    handled().spawn(builder, pidfd, table::stat_of)
 }
 
-/// Start the reaper, once per driver (`adapters::serve`). A thread the
-/// host refuses leaves the driver unreaped, as it was before.
+/// A pidfd of `pid`, the driver's own child.
+fn pidfd(pid: Pid) -> Result<OwnedFd> {
+    Ok(pidfd_open(pid, PidfdFlags::empty())?)
+}
+
+/// Whether the process `pidfd` names is no longer the driver's child: its
+/// handle reaped it. The wait neither blocks nor reaps; a wait that fails
+/// otherwise says nothing, and keeps it.
+fn reaped(pidfd: BorrowedFd<'_>) -> bool {
+    let options = WaitIdOptions::EXITED | WaitIdOptions::NOHANG | WaitIdOptions::NOWAIT;
+    waitid(WaitId::PidFd(pidfd), options).err() == Some(Errno::CHILD)
+}
+
+/// Start the reaper, once per process however often a driver serves
+/// (`adapters::serve`). A thread the host refuses leaves the driver
+/// unreaped, as it was before.
 pub(crate) fn start() {
-    handled().serving = true;
-    let _ = std::thread::Builder::new()
-        .name("reaper".to_string())
-        .spawn(run);
+    if handled().serve() {
+        let _ = std::thread::Builder::new()
+            .name("reaper".to_string())
+            .spawn(run);
+    }
 }
 
 /// The reaper thread's body: a sweep every [`INTERVAL`], for as long as
@@ -97,30 +128,48 @@ fn sweep() {
 }
 
 impl Handled {
+    /// Mark this process a serving driver: whether it was not one yet, so
+    /// its reaper is still to start.
+    fn serve(&mut self) -> bool {
+        !std::mem::replace(&mut self.serving, true)
+    }
+
     /// Spawn `builder` and, in a serving driver, hold the child before
-    /// `self`'s lock is released, with its start as `stat` reads it.
+    /// `self`'s lock is released: by the pidfd `open` gives, or else by its
+    /// start as `stat` reads it.
     fn spawn(
         &mut self,
         builder: &mut Command,
+        open: impl Fn(Pid) -> Result<OwnedFd>,
         stat: impl Fn(i32) -> Result<Option<Entry>>,
     ) -> Result<Child> {
         let child = builder.spawn()?;
         if self.serving {
-            let pid = Pid::from_child(&child).as_raw_pid();
-            let start = stat(pid).ok().flatten().map(|row| row.id.start);
-            self.held.insert(pid, start);
+            let pid = Pid::from_child(&child);
+            let hold = match open(pid) {
+                Ok(pidfd) => Hold::Pidfd(pidfd),
+                Err(_) => match stat(pid.as_raw_pid()) {
+                    Ok(Some(row)) => Hold::Start(row.id.start),
+                    _ => Hold::Unread,
+                },
+            };
+            self.held.insert(pid.as_raw_pid(), hold);
         }
         Ok(child)
     }
 
-    /// Release each held child whose handle reaped it, by `stat`, its own
-    /// row now: gone, or another process's. A read that fails, or a start
-    /// that was never read, keeps it.
+    /// Release each held child whose handle reaped it: by its pidfd, or by
+    /// `stat`, its own row now, gone or another process's. A read that
+    /// fails keeps it.
     fn retire(&mut self, stat: impl Fn(i32) -> Result<Option<Entry>>) {
-        self.held.retain(|pid, start| match stat(*pid) {
-            Ok(Some(row)) => start.as_ref().is_none_or(|start| *start == row.id.start),
-            Ok(None) => false,
-            Err(_) => true,
+        self.held.retain(|&pid, hold| match hold {
+            Hold::Pidfd(pidfd) => !reaped(pidfd.as_fd()),
+            Hold::Start(start) => match stat(pid) {
+                Ok(Some(row)) => *start == row.id.start,
+                Ok(None) => false,
+                Err(_) => true,
+            },
+            Hold::Unread => !matches!(stat(pid), Ok(None)),
         });
     }
 

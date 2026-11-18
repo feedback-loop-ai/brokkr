@@ -297,8 +297,9 @@ fn children(proc: &std::path::Path, pid: i32) -> std::io::Result<(Vec<i32>, bool
 
 /// The rows of `pid`'s own children, for the driver's reaper (#1133). A
 /// row whose stat names another parent is a pid reused since its listing,
-/// and is left out. `None` when the listing or a row cannot be read: the
-/// reaper skips that interval, and reaps nothing on a partial read.
+/// and is left out, as is a row that cannot be read: the reaper reaps only
+/// a zombie it read, so one unreadable child stops no other's reap. `None`
+/// when the listing cannot be read: the reaper skips that interval.
 #[cfg(target_os = "linux")]
 pub(super) fn children_of(pid: i32) -> Option<Vec<Entry>> {
     children_in(std::path::Path::new(PROC), pid)
@@ -317,8 +318,9 @@ fn children_in(proc: &std::path::Path, pid: i32) -> Option<Vec<Entry>> {
     let (children, _) = children(proc, pid).ok()?;
     let mut rows = Vec::new();
     for child in children {
-        rows.extend(read(proc, child).ok()?.filter(|entry| entry.ppid == pid));
+        rows.extend(read(proc, child).ok().flatten());
     }
+    rows.retain(|entry| entry.ppid == pid);
     Some(rows)
 }
 
