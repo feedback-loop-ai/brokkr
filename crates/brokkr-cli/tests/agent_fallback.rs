@@ -61,7 +61,7 @@ struct Workspace {
 impl Workspace {
     fn new() -> Workspace {
         let ws = Workspace {
-            dir: tempfile::tempdir().unwrap(),
+            dir: crate::brokkr_folder::clean_repository(),
         };
         for sub in ["bundle/roles", "agents/charters", "adapters", "state"] {
             std::fs::create_dir_all(ws.path().join(sub)).unwrap();

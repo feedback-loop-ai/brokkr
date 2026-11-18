@@ -265,6 +265,9 @@ impl World {
         chmod(&base.join("tmp"), 0o700);
         let repo = base.join("repo");
         crate::brokkr_folder::git(&repo, &["init", "-q"]);
+        // Review is decided on the head its check accepted, so the
+        // worktree has one (fix round 0109a1r3, H1).
+        crate::brokkr_folder::git(&repo, &crate::brokkr_folder::BASE_COMMIT);
         // One world at a time: each attempt surveys and reobserves the host's
         // whole system set, unpruned (SD4), within the shared 30 s startup
         // bound, and a loaded host's concurrent surveys outlast it.

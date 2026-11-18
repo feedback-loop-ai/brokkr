@@ -43,6 +43,9 @@ impl<'w> Second<'w> {
         let repo = world.base.join("second");
         std::fs::create_dir(&repo).unwrap();
         crate::brokkr_folder::git(&repo, &["init", "-q"]);
+        // Review is decided on the head its check accepted, so the
+        // second worktree has one (fix round 0109a1r3, H1).
+        crate::brokkr_folder::git(&repo, &crate::brokkr_folder::BASE_COMMIT);
         let signals = world.base.join("signals");
         std::fs::create_dir(&signals).unwrap();
         let (live, release) = (signals.join("second-live"), signals.join("second-go"));

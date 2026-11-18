@@ -216,9 +216,19 @@ fn one_member_runs_and_the_aggregate_and_readouts_keep_the_settled_verdict() {
     let (code, _, stderr) = full.run();
     assert_eq!(code, Some(0), "{stderr}");
     assert_eq!(
-        aggregate(&events),
-        aggregate(&journal(&full, &Workspace::run_id(&stderr)))
+        checked_aggregate(&ws, &events),
+        checked_aggregate(&full, &journal(&full, &Workspace::run_id(&stderr)))
     );
+}
+
+/// The aggregate `events` journal, its `checked_head` first proved to be
+/// `ws`'s own head and then set aside, since each workspace commits its
+/// own (fix round 0109a1r3, H1).
+fn checked_aggregate(ws: &Workspace, events: &[brokkr_core::EventEnvelope]) -> Value {
+    let mut aggregate = aggregate(events);
+    let head = aggregate.as_object_mut().unwrap().remove("checked_head");
+    assert_eq!(head, Some(json!(git(ws, &["rev-parse", "HEAD"]))));
+    aggregate
 }
 
 #[test]

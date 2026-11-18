@@ -213,7 +213,7 @@ impl Workspace {
 
     fn with_policy(script: Value, policy: &str) -> Workspace {
         let ws = Workspace {
-            dir: tempfile::tempdir().unwrap(),
+            dir: crate::brokkr_folder::clean_repository(),
         };
         let bundle = ws.bundle_dir();
         std::fs::create_dir_all(bundle.join("roles")).unwrap();
@@ -247,7 +247,7 @@ impl Workspace {
 
     fn triage(script: Value) -> Workspace {
         let ws = Workspace {
-            dir: tempfile::tempdir().unwrap(),
+            dir: crate::brokkr_folder::clean_repository(),
         };
         let bundle = ws.bundle_dir();
         std::fs::create_dir_all(bundle.join("roles")).unwrap();

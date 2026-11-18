@@ -73,6 +73,9 @@ impl Repo {
         let root = dir.path().canonicalize().unwrap().join("repo");
         std::fs::create_dir_all(&root).unwrap();
         git(&root, &["init", "-q"]);
+        // Review is decided on the head its check accepted, so the
+        // repository has one (fix round 0109a1r3, H1).
+        git(&root, &BASE_COMMIT);
         Repo {
             root,
             aside: aside.path().canonicalize().unwrap(),
@@ -238,6 +241,35 @@ impl Repo {
 
 pub(crate) fn completes() -> Value {
     json!([{"behavior": "succeed", "result": {"result": "complete"}}])
+}
+
+/// An empty commit with a fixed identity and no signature, so a fresh
+/// repository has a HEAD a run's review can be checked on (fix round
+/// 0109a1r3, H1).
+pub(crate) const BASE_COMMIT: [&str; 12] = [
+    "-c",
+    "user.name=Brokkr Test",
+    "-c",
+    "user.email=brokkr@test",
+    "-c",
+    "commit.gpgSign=false",
+    "commit",
+    "-q",
+    "--allow-empty",
+    "--no-verify",
+    "-m",
+    "base",
+];
+
+/// A temporary directory that is a git repository with a clean head:
+/// everything it will hold is ignored, so a run's review is checked on its
+/// head and its ship reads the tree as clean (fix round 0109a1r3, H1).
+pub(crate) fn clean_repository() -> tempfile::TempDir {
+    let dir = tempfile::tempdir().unwrap();
+    git(dir.path(), &["init", "-q"]);
+    std::fs::write(dir.path().join(".gitignore"), "*\n").unwrap();
+    git(dir.path(), &BASE_COMMIT);
+    dir
 }
 
 pub(crate) fn git(dir: &Path, args: &[&str]) -> String {
