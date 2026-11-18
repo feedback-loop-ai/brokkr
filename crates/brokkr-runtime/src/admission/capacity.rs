@@ -374,12 +374,25 @@ impl Room {
         generation: Generation,
         reason: &str,
     ) -> Result<Result<Claim, Reason>, AdmissionError> {
+        self.claim_at(store, generation, reason, Stamp::now_utc())
+    }
+
+    /// [`Room::claim`] at `now`, as [`super::pass_within_at`] holds the
+    /// pass's: the tests judge a cool-down's end on both gates at one
+    /// instant (fix round 0106b1r5, M1).
+    pub(crate) fn claim_at(
+        &self,
+        store: &mut Store,
+        generation: Generation,
+        reason: &str,
+        now: Stamp,
+    ) -> Result<Result<Claim, Reason>, AdmissionError> {
         let over = Claiming {
             entry: &self.entry,
             high_water: self.high_water,
             digest: &self.digest,
             generation,
-            now: Stamp::now_utc(),
+            now,
         };
         let claimed = store.queue_claim_with(&over, reason, self.judge(store.path()));
         match claimed? {

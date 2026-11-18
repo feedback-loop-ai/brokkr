@@ -80,13 +80,18 @@ fn admitted_at(fixture: &Fixture, file: &Path, now: OffsetDateTime) -> Vec<Reaso
 
 /// Every entry the pass judged at `now`.
 fn judged_at(fixture: &Fixture, file: &Path, now: OffsetDateTime) -> Vec<Judged> {
+    judged_in(&fixture.store, file, now)
+}
+
+/// Every entry the pass over `store` judged at `now`.
+fn judged_in(store: &Store, file: &Path, now: OffsetDateTime) -> Vec<Judged> {
     let probe = |_: &Path| Ok(PLENTY);
     let host = Host {
         file,
         temp: TEMP.as_ref(),
         free: &probe,
     };
-    pass_within_at(&fixture.store, &host, now).unwrap().0
+    pass_within_at(store, &host, now).unwrap().0
 }
 
 /// The capacity reason a lane stands at.
@@ -431,3 +436,5 @@ fn the_claim_refuses_a_row_recorded_after_the_pass_read() {
         Ok(claim) => panic!("the claim took {claim:?} over a cool-down"),
     }
 }
+
+mod snapshot;

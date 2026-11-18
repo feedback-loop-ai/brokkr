@@ -246,6 +246,13 @@ const ROWS: &str = "seq, site, provider, route, until_at, reason, retry_after_se
 /// claim's one reading, so a probe in flight holds its route for both
 /// (fix round 0106b1r4, F1). A row whose stored instant this reader cannot
 /// spell refuses by name, carrying the row's `seq`.
+///
+/// Its two statements read one snapshot on every caller (fix round
+/// 0106b1r5, H1): the claim's `Immediate` transaction, and
+/// [`Store::cooldowns_in_force`]'s [`Store::read_snapshot`]. Read in two, a
+/// refusal that commits its renewed row and ends its hold between them
+/// leaves neither visible, and the route reads open though it was held in
+/// every committed state.
 pub(super) fn in_force(conn: &Connection, now: i64) -> Result<Vec<Cooldown>, StoreError> {
     let sql = format!("SELECT {ROWS} FROM provider_cooldowns WHERE until_at > ?1 ORDER BY seq");
     let mut rows = read_rows(conn, &sql, now)?;
@@ -461,14 +468,18 @@ impl Store {
 
     /// Every cool-down row in force at `now`, in the order it was written:
     /// the rows the claim's judge reads inside its transaction. The
-    /// queue's version is judged first, as [`Store::cooldown`] does.
+    /// queue's version is judged first, as [`Store::cooldown`] does. The
+    /// version, the rows and the probe holds are read in one snapshot,
+    /// which joins a caller's own (fix round 0106b1r5, H1).
     pub fn cooldowns_in_force(&self, now: OffsetDateTime) -> Result<Vec<Cooldown>, StoreError> {
         patiently("cooldowns_in_force", self.patience, || {
-            if cool_downs_held(&self.conn)? {
-                in_force(&self.conn, now.unix_timestamp())
-            } else {
-                Ok(Vec::new())
-            }
+            self.read_snapshot(|| {
+                if cool_downs_held(&self.conn)? {
+                    in_force(&self.conn, now.unix_timestamp())
+                } else {
+                    Ok(Vec::new())
+                }
+            })
         })
     }
 

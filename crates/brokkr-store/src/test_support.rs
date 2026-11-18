@@ -514,6 +514,67 @@ pub fn statements_traced<T>(store: &mut Store, read: impl FnOnce(&Store) -> T) -
     (read, begun)
 }
 
+/// Run `read` on `store`, and run `between` once, on this thread, as the
+/// first statement whose text holds `needle` begins on `store`'s
+/// connection: SQLite's trace runs before the statement reads anything, so
+/// whatever `between` commits through another connection lands between the
+/// statements before it and that one. The deterministic seam the cool-down
+/// snapshot test commits a refusal through (fix round 0106b1r5, H1).
+/// Returns `read`'s value and whether `between` ran.
+#[cfg(feature = "test-support")]
+pub fn before_statement<T>(
+    store: &mut Store,
+    needle: &'static str,
+    between: impl FnOnce() + 'static,
+    read: impl FnOnce(&Store) -> T,
+) -> (T, bool) {
+    use rusqlite::trace::{TraceEvent, TraceEventCodes};
+    use std::cell::RefCell;
+    type Between = (&'static str, Box<dyn FnOnce()>);
+    thread_local! {
+        // The trace runs on the thread stepping the statement, so one slot
+        // per test thread keeps parallel tests apart.
+        static BETWEEN: RefCell<Option<Between>> = const { RefCell::new(None) };
+    }
+    fn begun(event: TraceEvent<'_>) {
+        let TraceEvent::Stmt(_, sql) = event else {
+            return;
+        };
+        let due = BETWEEN.with(|slot| {
+            let mut slot = slot.borrow_mut();
+            match slot.as_ref() {
+                Some((needle, _)) if sql.contains(needle) => slot.take(),
+                _ => None,
+            }
+        });
+        if let Some((_, between)) = due {
+            between();
+        }
+    }
+    /// The slot is cleared however `read` leaves, so a panic leaves no
+    /// pending `between` for the thread's next test.
+    struct Cleared;
+    impl Drop for Cleared {
+        fn drop(&mut self) {
+            BETWEEN.with(|slot| slot.borrow_mut().take());
+        }
+    }
+    BETWEEN.with(|slot| *slot.borrow_mut() = Some((needle, Box::new(between))));
+    let guard = Cleared;
+    store
+        .conn
+        .trace_v2(TraceEventCodes::SQLITE_TRACE_STMT, Some(begun))
+        .expect("a statement trace installs");
+    let read = read(store);
+    let ran = BETWEEN.with(|slot| slot.borrow().is_none());
+    drop(guard);
+    store
+        .conn
+        .trace_v2(TraceEventCodes::empty(), None::<fn(TraceEvent<'_>)>)
+        .expect("a statement trace clears");
+    (read, ran)
+}
+
 /// The plan SQLite takes for each statement begun on `store`'s connection
 /// while `read` ran, each step's detail in the order begun, each statement
 /// as its trace gives it, its parameters written in, but for the comment
