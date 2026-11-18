@@ -84,6 +84,15 @@ impl Host {
     }
 }
 
+/// The report a probe printed, once it exited 0 with nothing on stderr.
+fn printed_report(output: &Output) -> Value {
+    assert_eq!(
+        (output.status.code(), stderr(output)),
+        (Some(0), String::new())
+    );
+    serde_json::from_slice(&output.stdout).unwrap()
+}
+
 fn stderr(output: &Output) -> String {
     String::from_utf8_lossy(&output.stderr).into_owned()
 }
@@ -207,11 +216,7 @@ fn the_verb_writes_the_shipped_adapter_s_report_and_its_drift_on_a_new_version()
 fn without_out_the_report_is_printed_and_a_turn_with_no_credential_is_refused() {
     let host = host();
     let output = host.probe(&repo_adapters(), &["--adapter", "codex"]);
-    assert_eq!(
-        (output.status.code(), stderr(&output)),
-        (Some(0), String::new())
-    );
-    let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let report = printed_report(&output);
     assert_eq!(
         (
             &report["adapter"],
@@ -573,11 +578,7 @@ fn a_credential_file_under_home_logs_the_turn_in_and_one_that_is_not_there_is_re
     std::fs::write(&login, "operator\n").unwrap();
     std::fs::set_permissions(&login, std::fs::Permissions::from_mode(0o600)).unwrap();
     let output = probe_with_home(&host, &cli, &home, &args);
-    assert_eq!(
-        (output.status.code(), stderr(&output)),
-        (Some(0), String::new())
-    );
-    let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let report = printed_report(&output);
     let evidence = report["facts"]["headless"]["evidence"].as_str().unwrap();
     assert!(
         evidence.starts_with(
