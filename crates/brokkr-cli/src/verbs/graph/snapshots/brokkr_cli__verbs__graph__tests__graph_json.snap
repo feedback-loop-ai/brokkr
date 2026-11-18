@@ -1,0 +1,502 @@
+---
+source: crates/brokkr-cli/src/verbs/graph/tests.rs
+expression: "steadied(&view, &json)"
+---
+{
+  "view_version": 2,
+  "realm": "world",
+  "recipe": "reforge",
+  "range": "24h",
+  "from": "<stamp>",
+  "to": "<stamp>",
+  "recipes": [
+    "reforge"
+  ],
+  "does_not_compile": [],
+  "table": {
+    "kind": "resolved"
+  },
+  "runs": 2,
+  "states": [
+    {
+      "name": "implement",
+      "place": "row",
+      "entered": 2,
+      "median": {
+        "millis": <millis>,
+        "text": "0m"
+      },
+      "p90": {
+        "millis": <millis>,
+        "text": "0m"
+      },
+      "cost": {
+        "cost": {
+          "kind": "not_reported"
+        },
+        "text": "not reported",
+        "reporting": [],
+        "silent": [],
+        "note": null
+      },
+      "tokens": {
+        "total": {
+          "text": "—",
+          "absent": true,
+          "note": "not reported"
+        },
+        "input": {
+          "text": "—",
+          "absent": true,
+          "note": "not reported"
+        },
+        "output": {
+          "text": "—",
+          "absent": true,
+          "note": "not reported"
+        },
+        "cache_hit": {
+          "text": "—",
+          "absent": true,
+          "note": "no cache reads and input reported to compare"
+        }
+      },
+      "seats": []
+    },
+    {
+      "name": "review",
+      "place": "row",
+      "entered": 2,
+      "median": {
+        "millis": <millis>,
+        "text": "0m"
+      },
+      "p90": {
+        "millis": <millis>,
+        "text": "0m"
+      },
+      "cost": {
+        "cost": {
+          "kind": "not_reported"
+        },
+        "text": "not reported",
+        "reporting": [],
+        "silent": [],
+        "note": null
+      },
+      "tokens": {
+        "total": {
+          "text": "—",
+          "absent": true,
+          "note": "not reported"
+        },
+        "input": {
+          "text": "—",
+          "absent": true,
+          "note": "not reported"
+        },
+        "output": {
+          "text": "—",
+          "absent": true,
+          "note": "not reported"
+        },
+        "cache_hit": {
+          "text": "—",
+          "absent": true,
+          "note": "no cache reads and input reported to compare"
+        }
+      },
+      "seats": []
+    },
+    {
+      "name": "ship",
+      "place": "row",
+      "entered": 2,
+      "median": {
+        "millis": <millis>,
+        "text": "0m"
+      },
+      "p90": {
+        "millis": <millis>,
+        "text": "0m"
+      },
+      "cost": {
+        "cost": {
+          "kind": "not_reported"
+        },
+        "text": "not reported",
+        "reporting": [],
+        "silent": [],
+        "note": null
+      },
+      "tokens": {
+        "total": {
+          "text": "—",
+          "absent": true,
+          "note": "not reported"
+        },
+        "input": {
+          "text": "—",
+          "absent": true,
+          "note": "not reported"
+        },
+        "output": {
+          "text": "—",
+          "absent": true,
+          "note": "not reported"
+        },
+        "cache_hit": {
+          "text": "—",
+          "absent": true,
+          "note": "no cache reads and input reported to compare"
+        }
+      },
+      "seats": []
+    },
+    {
+      "name": "done",
+      "place": "end",
+      "entered": 2,
+      "median": {
+        "millis": <millis>,
+        "text": "0m"
+      },
+      "p90": {
+        "millis": <millis>,
+        "text": "0m"
+      },
+      "cost": {
+        "cost": {
+          "kind": "not_reported"
+        },
+        "text": "not reported",
+        "reporting": [],
+        "silent": [],
+        "note": null
+      },
+      "tokens": {
+        "total": {
+          "text": "—",
+          "absent": true,
+          "note": "not reported"
+        },
+        "input": {
+          "text": "—",
+          "absent": true,
+          "note": "not reported"
+        },
+        "output": {
+          "text": "—",
+          "absent": true,
+          "note": "not reported"
+        },
+        "cache_hit": {
+          "text": "—",
+          "absent": true,
+          "note": "no cache reads and input reported to compare"
+        }
+      },
+      "seats": []
+    },
+    {
+      "name": "stop",
+      "place": "beneath",
+      "entered": 0,
+      "median": {
+        "millis": null,
+        "text": "—"
+      },
+      "p90": {
+        "millis": null,
+        "text": "—"
+      },
+      "cost": {
+        "cost": {
+          "kind": "not_reported"
+        },
+        "text": "not reported",
+        "reporting": [],
+        "silent": [],
+        "note": null
+      },
+      "tokens": {
+        "total": {
+          "text": "—",
+          "absent": true,
+          "note": "not reported"
+        },
+        "input": {
+          "text": "—",
+          "absent": true,
+          "note": "not reported"
+        },
+        "output": {
+          "text": "—",
+          "absent": true,
+          "note": "not reported"
+        },
+        "cache_hit": {
+          "text": "—",
+          "absent": true,
+          "note": "no cache reads and input reported to compare"
+        }
+      },
+      "seats": []
+    }
+  ],
+  "rules": [
+    {
+      "id": "IMPL-OK",
+      "from": "implement",
+      "next": "review",
+      "result": "complete",
+      "when": [],
+      "severity": "normal",
+      "count": 5,
+      "kind": "forward",
+      "text": "IMPL-OK · 5",
+      "latest": [
+        {
+          "run_id": "once",
+          "label": "Draw the graph",
+          "at": "<stamp>"
+        },
+        {
+          "run_id": "twice",
+          "label": "Draw the graph",
+          "at": "<stamp>"
+        }
+      ]
+    },
+    {
+      "id": "REVIEW-CLEAN",
+      "from": "review",
+      "next": "ship",
+      "result": "clean",
+      "when": [],
+      "severity": "normal",
+      "count": 2,
+      "kind": "forward",
+      "text": "REVIEW-CLEAN · 2",
+      "latest": [
+        {
+          "run_id": "once",
+          "label": "Draw the graph",
+          "at": "<stamp>"
+        },
+        {
+          "run_id": "twice",
+          "label": "Draw the graph",
+          "at": "<stamp>"
+        }
+      ]
+    },
+    {
+      "id": "REVIEW-REFORGE",
+      "from": "review",
+      "next": "implement",
+      "result": "residual",
+      "when": [],
+      "severity": "normal",
+      "count": 3,
+      "kind": "back",
+      "text": "REVIEW-REFORGE · 3",
+      "latest": [
+        {
+          "run_id": "once",
+          "label": "Draw the graph",
+          "at": "<stamp>"
+        },
+        {
+          "run_id": "twice",
+          "label": "Draw the graph",
+          "at": "<stamp>"
+        }
+      ]
+    },
+    {
+      "id": "REVIEW-HOLD",
+      "from": "review",
+      "next": null,
+      "result": "hold",
+      "when": [],
+      "severity": null,
+      "count": 0,
+      "kind": "self",
+      "text": "REVIEW-HOLD · 0",
+      "latest": []
+    },
+    {
+      "id": "REVIEW-STOP",
+      "from": "review",
+      "next": "stop",
+      "result": "blocked",
+      "when": [],
+      "severity": "normal",
+      "count": 0,
+      "kind": "terminal",
+      "text": "REVIEW-STOP · 0",
+      "latest": []
+    },
+    {
+      "id": "SHIP-RETRY",
+      "from": "ship",
+      "next": "ship",
+      "result": "retry",
+      "when": [],
+      "severity": "normal",
+      "count": 1,
+      "kind": "self",
+      "text": "SHIP-RETRY · 1",
+      "latest": [
+        {
+          "run_id": "twice",
+          "label": "Draw the graph",
+          "at": "<stamp>"
+        }
+      ]
+    },
+    {
+      "id": "SHIP-OK",
+      "from": "ship",
+      "next": "done",
+      "result": "complete",
+      "when": [],
+      "severity": "normal",
+      "count": 2,
+      "kind": "terminal",
+      "text": "SHIP-OK · 2",
+      "latest": [
+        {
+          "run_id": "once",
+          "label": "Draw the graph",
+          "at": "<stamp>"
+        },
+        {
+          "run_id": "twice",
+          "label": "Draw the graph",
+          "at": "<stamp>"
+        }
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "implement",
+      "next": "review",
+      "kind": "forward",
+      "count": 5,
+      "rules": 1,
+      "outcomes": [
+        {
+          "result": "complete",
+          "count": 5,
+          "text": "complete 5"
+        }
+      ],
+      "text": "complete 5"
+    },
+    {
+      "from": "review",
+      "next": "ship",
+      "kind": "forward",
+      "count": 2,
+      "rules": 1,
+      "outcomes": [
+        {
+          "result": "clean",
+          "count": 2,
+          "text": "clean 2"
+        }
+      ],
+      "text": "clean 2"
+    },
+    {
+      "from": "review",
+      "next": "implement",
+      "kind": "back",
+      "count": 3,
+      "rules": 1,
+      "outcomes": [
+        {
+          "result": "residual",
+          "count": 3,
+          "text": "residual 3"
+        }
+      ],
+      "text": "residual 3"
+    },
+    {
+      "from": "review",
+      "next": "stop",
+      "kind": "terminal",
+      "count": 0,
+      "rules": 1,
+      "outcomes": [],
+      "text": ""
+    },
+    {
+      "from": "ship",
+      "next": "ship",
+      "kind": "self",
+      "count": 1,
+      "rules": 1,
+      "outcomes": [
+        {
+          "result": "retry",
+          "count": 1,
+          "text": "retry 1"
+        }
+      ],
+      "text": "retry 1"
+    },
+    {
+      "from": "ship",
+      "next": "done",
+      "kind": "terminal",
+      "count": 2,
+      "rules": 1,
+      "outcomes": [
+        {
+          "result": "complete",
+          "count": 2,
+          "text": "complete 2"
+        }
+      ],
+      "text": "complete 2"
+    }
+  ],
+  "never_fired": {
+    "count": 2,
+    "of": 7,
+    "text": "2 of 7"
+  },
+  "retired": [],
+  "drifted_runs": 0,
+  "drift_text": null,
+  "ends": {
+    "done": 2,
+    "stop": [],
+    "stopped": 0,
+    "operator": 0,
+    "open": 0,
+    "text": "2 done · 0 stop by a rule · 0 stopped by you · 0 open",
+    "refused_by": [],
+    "ledger": {
+      "judged": 2,
+      "shipped": 2,
+      "rate_percent": 100,
+      "excluded": {
+        "blocked": 0,
+        "superseded": 0,
+        "infrastructure": 0,
+        "delivered-elsewhere": 0,
+        "withdrawn": 0,
+        "operator-stopped": 0
+      },
+      "unclassified": 0,
+      "text": "2 of 2 shipped (100%) · 0 excluded · 0 unclassified"
+    }
+  },
+  "live": []
+}

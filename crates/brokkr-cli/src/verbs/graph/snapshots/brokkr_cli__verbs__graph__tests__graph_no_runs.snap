@@ -1,0 +1,10 @@
+---
+source: crates/brokkr-cli/src/verbs/graph/tests.rs
+expression: "recipe_graph(&view, PIPED_WIDTH)"
+---
+    · 0 · —───ᐳ· 0 · —───ᐳ· 0 · —───ᐳ· 0 · end
+   implement   review      ship        done
+never fired 7 of 7  IMPL-OK  REVIEW-CLEAN  REVIEW-REFORGE  REVIEW-HOLD  REVIEW-STOP  SHIP-RETRY
+     SHIP-OK
+nodes: runs entered · median stay · ∙ a live run · · never entered
+arrows: runs moved · ↻ to itself · ×n back · ⊗ a terminal beneath the row

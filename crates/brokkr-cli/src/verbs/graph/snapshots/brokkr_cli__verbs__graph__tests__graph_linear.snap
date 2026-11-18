@@ -1,0 +1,10 @@
+---
+source: crates/brokkr-cli/src/verbs/graph/tests.rs
+expression: drawing
+---
+            2          2          2
+   ⏺ 2 · 0m──ᐳ⏺ 2 · 0m──ᐳ⏺ 2 · 0m──ᐳ⏺ 2 · end
+    plan       build      ship        done
+never fired 1 of 4  BUILD-FAIL
+nodes: runs entered · median stay · ∙ a live run · · never entered
+arrows: runs moved · ↻ to itself · ×n back · ⊗ a terminal beneath the row

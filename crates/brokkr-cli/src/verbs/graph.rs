@@ -13,6 +13,7 @@
 
 use std::collections::BTreeSet;
 use std::fmt;
+use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -27,6 +28,7 @@ use super::analytics::{printed, range, read_hearths};
 use crate::folder::Layout;
 use crate::recipes::listed;
 use crate::recipes::personal::ShelfPath;
+use crate::tui::{recipe_graph, PIPED_WIDTH};
 use crate::{fleet_of, now_rfc3339, Invocation};
 
 #[derive(clap::Args)]
@@ -349,7 +351,27 @@ pub(crate) fn graph(workspace: &Path, args: GraphArgs) -> Result<ExitCode> {
         now: &now,
     };
     let view = derive(&hearths, &compiles, &shelf, &asked)?;
-    printed(&view, args.json, paint)
+    let columns = std::io::stdout()
+        .is_terminal()
+        .then(ratatui::crossterm::terminal::size);
+    let width = drawing_width(columns);
+    printed(&view, args.json, |view| shown(view, width))
+}
+
+/// The columns the drawing fits: the terminal's when stdout is one whose
+/// size reads, else [`PIPED_WIDTH`].
+fn drawing_width(terminal: Option<std::io::Result<(u16, u16)>>) -> usize {
+    match terminal {
+        Some(Ok((columns, _))) => usize::from(columns),
+        Some(Err(_)) | None => PIPED_WIDTH,
+    }
+}
+
+/// What `brokkr graph` prints without `--json` (#1145): the recipe's
+/// delivery graph drawn in the run rail's grammar at `width`, then the
+/// lines [`paint`] writes.
+fn shown(view: &GraphView, width: usize) -> String {
+    recipe_graph(view, width) + &paint(view)
 }
 
 /// One line per state and per rule, then the rest the view states,

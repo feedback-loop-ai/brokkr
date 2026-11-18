@@ -2,6 +2,7 @@
 //! where a recipe's table resolves, the journal it hands over, the lines it
 //! paints, and its refusals. The journals are synthetic, written here.
 
+use brokkr_core::policy::Machine;
 use brokkr_core::EventType;
 use brokkr_store::Store;
 use clap::Parser;
@@ -420,6 +421,9 @@ fn a_recipe_that_does_not_compile_is_drawn_with_its_refusal_and_named_among_the_
         )
     );
     assert_eq!((view.runs, view.states.len()), (0, 0));
+    // No run carries it, so there is no state to draw: the refusal is
+    // printed as it was, with no drawing above it.
+    assert_eq!(shown(&view, PIPED_WIDTH), paint(&view));
     assert_eq!(
         paint(&view),
         format!(
@@ -594,4 +598,261 @@ fn with_no_recipe_named_the_busiest_is_drawn_else_the_first_known() {
         none.to_string(),
         "no recipe in brokkr: none is installed and no run in the range names one"
     );
+}
+
+// ------------------------------------------------------------- the drawing
+
+/// A table whose rows are `states` in order, ending in `done` and beneath
+/// it `stop`, ruled by `rules` of `(id, from, result, next)`; a rule with
+/// no next parks.
+fn table(states: &[&str], rules: &[(&str, &str, &str, Option<&str>)]) -> Machine {
+    let rules: Vec<Value> = (rules.iter())
+        .map(|(id, from, result, next)| {
+            let mut rule = json!({"id": id, "from": from, "result": result, "reason": id});
+            match next {
+                Some(next) => rule["next"] = json!(next),
+                None => rule["park"] = json!(true),
+            }
+            rule
+        })
+        .collect();
+    let mut phases: Vec<&str> = states.to_vec();
+    phases.extend(["done", "stop"]);
+    Machine::from_table(&json!({
+        "schema": brokkr_core::policy::TABLE_SCHEMA_V2,
+        "phases": phases,
+        "initial": states[0],
+        "terminal": ["done", "stop"],
+        "rules": rules,
+    }))
+    .unwrap()
+}
+
+/// The reforge loop's table: implement, review and ship, review sending
+/// the work back, holding it, or stopping it, and ship retrying itself.
+fn reforging() -> Machine {
+    table(
+        &["implement", "review", "ship"],
+        &[
+            ("IMPL-OK", "implement", "complete", Some("review")),
+            ("REVIEW-CLEAN", "review", "clean", Some("ship")),
+            ("REVIEW-REFORGE", "review", "residual", Some("implement")),
+            ("REVIEW-HOLD", "review", "hold", None),
+            ("REVIEW-STOP", "review", "blocked", Some("stop")),
+            ("SHIP-RETRY", "ship", "retry", Some("ship")),
+            ("SHIP-OK", "ship", "complete", Some("done")),
+        ],
+    )
+}
+
+/// One step of a run: the state it is in, its seat's result, and the rule
+/// that moves it on, or parks it when there is no next.
+type Step<'a> = (&'a str, &'a str, &'a str, Option<&'a str>);
+
+/// The events of a run through `steps`: it enters each state, its seat
+/// says the result, and the rule moves it.
+fn walked(steps: &[Step]) -> Vec<(EventType, Value)> {
+    let mut events = vec![entered(steps[0].0)];
+    for (state, result, rule, next) in steps {
+        events.extend(seat(state, result));
+        events.push(ruled(rule, state, *next));
+        events.extend(next.map(entered));
+    }
+    events
+}
+
+/// `recipe`'s graph over the journal in `dir`, drawn from `machine`.
+fn view_of(dir: &Path, machine: &Machine, recipe: &str) -> GraphView {
+    let manifest = json!({"bundle_name": recipe});
+    let now = now_rfc3339();
+    let view = read_hearths(&hearth(dir), |grouped| {
+        brokkr_view::graph(&GraphQuery {
+            hearths: grouped,
+            recipe,
+            realm: UNMAPPED,
+            table: GraphResolution::Compiled(GraphTable {
+                machine,
+                manifest: &manifest,
+            }),
+            shelved: &[],
+            does_not_compile: &[],
+            range: Range::Day,
+            now: &now,
+        })
+    });
+    view.unwrap()
+}
+
+/// The reforge table's journal: one run reforged twice and shipped on a
+/// retry, one reforged once and shipped.
+fn reforged(dir: &Path) -> GraphView {
+    let manifest = json!({"bundle_name": "reforge"});
+    let reforge = ("review", "residual", "REVIEW-REFORGE", Some("implement"));
+    let implement = ("implement", "complete", "IMPL-OK", Some("review"));
+    let clean = ("review", "clean", "REVIEW-CLEAN", Some("ship"));
+    let ship = ("ship", "complete", "SHIP-OK", Some("done"));
+    let retry = ("ship", "retry", "SHIP-RETRY", Some("ship"));
+    let mut journal = Journal::at(dir);
+    let mut twice = walked(&[
+        implement, reforge, implement, reforge, implement, clean, retry, ship,
+    ]);
+    twice.push((EventType::RunCompleted, json!({})));
+    journal.run("twice", &manifest, &twice);
+    let mut once = walked(&[implement, reforge, implement, clean, ship]);
+    once.push((EventType::RunCompleted, json!({})));
+    journal.run("once", &manifest, &once);
+    view_of(dir, &reforging(), "reforge")
+}
+
+#[test]
+fn a_linear_recipe_is_drawn_on_one_rail_with_each_rules_runs_above_its_arrow() {
+    let dir = tempfile::tempdir().unwrap();
+    let machine = table(
+        &["plan", "build", "ship"],
+        &[
+            ("PLAN-OK", "plan", "complete", Some("build")),
+            ("BUILD-OK", "build", "complete", Some("ship")),
+            ("BUILD-FAIL", "build", "fail", Some("stop")),
+            ("SHIP-OK", "ship", "complete", Some("done")),
+        ],
+    );
+    let manifest = json!({"bundle_name": "linear"});
+    let mut journal = Journal::at(dir.path());
+    for run_id in ["first", "second"] {
+        let mut events = walked(&[
+            ("plan", "complete", "PLAN-OK", Some("build")),
+            ("build", "complete", "BUILD-OK", Some("ship")),
+            ("ship", "complete", "SHIP-OK", Some("done")),
+        ]);
+        events.push((EventType::RunCompleted, json!({})));
+        journal.run(run_id, &manifest, &events);
+    }
+    let view = view_of(dir.path(), &machine, "linear");
+    let drawing = recipe_graph(&view, PIPED_WIDTH);
+    insta::assert_snapshot!("graph_linear", drawing);
+    // The drawing comes first, and today's lines follow it unchanged.
+    let shown = shown(&view, PIPED_WIDTH);
+    assert_eq!(shown.strip_prefix(&drawing), Some(paint(&view).as_str()));
+}
+
+#[test]
+fn a_reforge_loop_taken_more_than_once_is_a_return_arc_with_its_count() {
+    let dir = tempfile::tempdir().unwrap();
+    let view = reforged(dir.path());
+    insta::assert_snapshot!("graph_reforged", recipe_graph(&view, PIPED_WIDTH));
+}
+
+#[test]
+fn a_parked_run_is_live_on_its_state_and_a_stopped_one_is_listed_beneath() {
+    let dir = tempfile::tempdir().unwrap();
+    let manifest = json!({"bundle_name": "reforge"});
+    let implement = ("implement", "complete", "IMPL-OK", Some("review"));
+    let mut journal = Journal::at(dir.path());
+    let held = walked(&[implement, ("review", "hold", "REVIEW-HOLD", None)]);
+    journal.run("held", &manifest, &held);
+    let blocked = ("review", "blocked", "REVIEW-STOP", Some("stop"));
+    let mut stopped = walked(&[implement, blocked]);
+    stopped.push((EventType::RunStopped, json!({})));
+    journal.run("stopped", &manifest, &stopped);
+    let view = view_of(dir.path(), &reforging(), "reforge");
+    insta::assert_snapshot!("graph_parked", recipe_graph(&view, PIPED_WIDTH));
+}
+
+#[test]
+fn a_range_with_no_runs_draws_the_table_with_no_traffic() {
+    let dir = tempfile::tempdir().unwrap();
+    Journal::at(dir.path());
+    let view = view_of(dir.path(), &reforging(), "reforge");
+    assert_eq!(view.runs, 0);
+    insta::assert_snapshot!("graph_no_runs", recipe_graph(&view, PIPED_WIDTH));
+}
+
+#[test]
+fn at_80_columns_a_wide_recipe_folds_whole_states_and_lists_what_crosses_the_fold() {
+    let dir = tempfile::tempdir().unwrap();
+    let states = [
+        "specification-intake",
+        "implementation-planning",
+        "implementation",
+        "verification-and-review",
+        "release-shipping",
+    ];
+    let rule = |id, at: usize, result, next: usize| (id, states[at], result, Some(states[next]));
+    let machine = table(
+        &states,
+        &[
+            rule("INTAKE-COMPLETE", 0, "complete", 1),
+            rule("PLANNING-COMPLETE", 1, "complete", 2),
+            rule("IMPLEMENTATION-COMPLETE", 2, "complete", 3),
+            rule("REVIEW-CLEAN", 3, "clean", 4),
+            rule("REVIEW-RESIDUAL", 3, "residual", 2),
+            rule("REVIEW-RESPECIFY", 3, "unclear", 0),
+            ("REVIEW-BLOCKED", states[3], "blocked", Some("stop")),
+            ("PLANNING-ABANDONED", states[1], "abandoned", Some("stop")),
+            ("RELEASE-SHIPPED", states[4], "complete", Some("done")),
+            ("RELEASE-WITHDRAWN", states[4], "withdrawn", Some("stop")),
+        ],
+    );
+    let step =
+        |at: usize, result, rule, next: usize| (states[at], result, rule, Some(states[next]));
+    let mut events = walked(&[
+        step(0, "complete", "INTAKE-COMPLETE", 1),
+        step(1, "complete", "PLANNING-COMPLETE", 2),
+        step(2, "complete", "IMPLEMENTATION-COMPLETE", 3),
+        step(3, "residual", "REVIEW-RESIDUAL", 2),
+        step(2, "complete", "IMPLEMENTATION-COMPLETE", 3),
+        step(3, "unclear", "REVIEW-RESPECIFY", 0),
+        step(0, "complete", "INTAKE-COMPLETE", 1),
+        step(1, "complete", "PLANNING-COMPLETE", 2),
+        step(2, "complete", "IMPLEMENTATION-COMPLETE", 3),
+        step(3, "clean", "REVIEW-CLEAN", 4),
+        (states[4], "complete", "RELEASE-SHIPPED", Some("done")),
+    ]);
+    events.push((EventType::RunCompleted, json!({})));
+    Journal::at(dir.path()).run("wide", &json!({"bundle_name": "wide"}), &events);
+    let view = view_of(dir.path(), &machine, "wide");
+    let drawing = recipe_graph(&view, 80);
+    insta::assert_snapshot!("graph_wide_80", drawing);
+    for line in drawing.lines() {
+        assert!(line.chars().count() <= 80, "{line}");
+    }
+    // No label is cut: every state's whole name is drawn, and nothing is
+    // clamped.
+    for state in states {
+        assert!(drawing.contains(state), "{state}\n{drawing}");
+    }
+    assert!(!drawing.contains('…'), "{drawing}");
+}
+
+#[test]
+fn the_terminals_width_is_the_drawings_and_a_pipe_draws_at_the_stated_width() {
+    assert_eq!(drawing_width(Some(Ok((80, 24)))), 80);
+    let unread = Some(Err(std::io::Error::other("no size")));
+    assert_eq!((drawing_width(unread), drawing_width(None)), (100, 100));
+}
+
+/// `json` with the stamps of this run's clock, and the stays it measured
+/// to the millisecond, put in words: the rest is the wire's own bytes.
+fn steadied(view: &GraphView, json: &str) -> String {
+    let mut json = json.to_string();
+    let stamps = (view.rules.iter()).flat_map(|rule| rule.latest.iter().map(|run| &run.at));
+    for stamp in stamps.chain([&view.from, &view.to]) {
+        json = json.replace(stamp.as_str(), "<stamp>");
+    }
+    let lines = json.lines().map(|line| {
+        let millis = line.trim_start().strip_prefix("\"millis\": ");
+        match millis.filter(|millis| !millis.starts_with("null")) {
+            Some(_) => format!("{}\"millis\": <millis>,", &line[..line.find('"').unwrap()]),
+            None => line.to_string(),
+        }
+    });
+    lines.collect::<Vec<String>>().join("\n")
+}
+
+#[test]
+fn the_json_is_the_view_model_verbatim_as_before_the_drawing() {
+    let dir = tempfile::tempdir().unwrap();
+    let view = reforged(dir.path());
+    let json = serde_json::to_string_pretty(&view).unwrap();
+    insta::assert_snapshot!("graph_json", steadied(&view, &json));
 }

@@ -165,6 +165,7 @@ mod painter;
 mod panes;
 mod participant;
 mod reader;
+mod recipe;
 mod seats;
 mod settle;
 mod state;
@@ -202,6 +203,7 @@ pub(crate) use self::movement::{asked_window, keeps};
 pub(crate) use self::panes::draw;
 pub use self::participant::transcript_surfaces_for_test;
 pub(crate) use self::reader::behind;
+pub(crate) use self::recipe::{recipe_graph, PIPED_WIDTH};
 #[cfg(test)]
 pub(crate) use self::settle::{hold, settle_end, settle_when};
 #[cfg(test)]
