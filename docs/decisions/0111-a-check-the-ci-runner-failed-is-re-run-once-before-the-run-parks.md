@@ -759,7 +759,7 @@ observe the same settled runs and park again, spending the budget for nothing. A
 evidence needs the retry to reach `ci-rerun`, and that is the budget's own decision, not this
 one's.
 
-- **(b) `retryable: true` on a twice-`startup-failure` park.** Spends a retry that cannot help,
+- **(b) `retryable: true` on a twice-`not-started` park.** Spends a retry that cannot help,
   as above. Refused here.
 
 **Enforcement binding:** `a_ci_runner_park_is_never_retryable` and
