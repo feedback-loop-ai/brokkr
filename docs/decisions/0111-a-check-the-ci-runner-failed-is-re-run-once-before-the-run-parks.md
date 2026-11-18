@@ -249,10 +249,55 @@ on it, in the order they happened, with no new event.
 - **(c) The excerpt kept outside the journal by digest.** Smaller rows, but the classification
   could not be replayed from the journal alone. Refused; the 8 KiB bound is the cost control.
 
-### 3. The classifier
+### 3. What evidence types a failure as the runner's, and the classifier
 
-**Recommended: (a) one pure function over the observation, the declared list and the change's
-paths, with a closed result, failing closed.**
+**This is the operator's first choice. Recommended: (a) forge-proven non-execution only.**
+
+The first draft typed a failure as the runner's when an allow-listed setup step's excerpt held
+a declared literal, and the step's workflow was untouched. That is not enough. An unchanged
+setup step can still run the pull request's code: a service bootstrap that starts the
+repository's own compose file or script, or HEAD's own checkout-local action,
+`uses: ./.github/actions/setup-cargo-audit` (`.github/workflows/ci.yml:681-689`), whose code comes
+from the checkout. A source-only change can then make that step print the declared literal, and
+a real code failure is laundered as a runner fault. Untouched declared paths cannot bound what a
+step executes. So the evidence is the operator's choice, stated fairly:
+
+- **(a) Recommended: forge-proven non-execution only.** A failure is the runner's only when the
+  forge's own job-level conclusion proves the job's steps never ran (ruling 5's proven set). No
+  log pattern types anything, and the list carries no patterns. A change cannot produce a
+  conclusion that says its code never ran without its code never running.
+  - **Cost, said plainly:** the adopter's port-bind case and their timing-sensitive test are the
+    change's, as they are today. Both still cost a seat attempt and the wall clock until a person
+    re-runs. Their figures, three parks in one week, stay theirs. This decision recovers neither
+    under (a). It recovers only jobs that never started, and until 0111b measures the proven set,
+    none.
+- **(b) Declared runner-owned evidence.** A literal types a failure only from a step whose
+  provenance is runner-owned and positively known. An example is the runner's own
+  service-container start for the workflow's `services:` block
+  (<https://docs.github.com/en/actions/using-containerized-services/about-service-containers>).
+  It qualifies only when all of these hold:
+  - the block is unchanged by the diff over ruling 2's pinned range;
+  - its images are named by digest;
+  - it mounts nothing from the workspace;
+  - no `steps:` entry in the workflow at the gated head carries that step's name, so the step can
+    only be the runner's.
+
+  A step that runs repository code is never runner-owned, whatever its name.
+  - **Cost:** what each forge exposes as runner-owned is partly unmeasured. Unmeasured: whether
+    the jobs API names the runner's container start as its own step, and by what name; whether a
+    user step can take the same name in the API's listing; how a job log is cut into steps; and
+    whether the forge masks every secret in that step's log. The adopter's port bind was a compose
+    service, which a step starts from the repository's compose file. That step runs repository
+    code, so even (b) does not recover their case unless the service moves to `services:`.
+- **(c) Refused: any pattern over a step that runs repository code.** That is the first draft's
+  rule. It lets a change type its own failure as the runner's.
+
+**Timing-sensitive tests are not runner faults under any option.** A flaky test fails in a step
+that runs the change's code, and nothing the forge states types it. Flaky-test handling is out of
+scope; it is a follow-up for a decision of its own.
+
+**The classifier.** One pure function over the observation, the declared list and the change's
+paths, with a closed result, failing closed.
 
 `classify(observation, faults, changed_paths) -> Classification` lives in `brokkr-core`, reads
 no clock, environment or network (0071 ruling 1), and is total. `changed_paths` is the
@@ -262,15 +307,15 @@ engine's, read from git as 0039's docs-only flag is
 1. The observation passes ruling 2's pass rule: **`green`**. One that cannot pass and holds no
    failed, timed-out, unstarted or cancelled required check takes ruling 2's refusal.
 2. Any changed path matches the list's `infrastructure_paths`: **`change`**, reason
-   `touches-infrastructure`. Job and step names are written in the workflow files; a change that
-   edits them could rename a failing step into a setup step. A change that touches none is run
-   by the base's names.
+   `touches-infrastructure`. This guards structure only: job names, the `needs:` graph ruling 6
+   reads, and under (b) the `services:` block. It bounds nothing a step executes.
 3. Each failed job is typed on its own:
    - a job-level conclusion in ruling 5's proven non-execution set: runner, kind
      **`not-started`**. That set is empty until 0111b measures `startup_failure` on a job;
-   - conclusion `failure`, the job not a security job (ruling 5), its first failed step named in
-     the list's `setup_steps`, and that step's excerpt holding one of the list's patterns for
-     that step byte for byte: runner, kind **`declared-pattern`** with the pattern's id;
+   - under (b) only: conclusion `failure`, the job not an audit job (ruling 5), its first failed
+     step runner-owned as (b) defines, and that step's excerpt holding one of the list's literals
+     for that step: runner, kind **`runner-owned-pattern`** with the pattern's id. Under (a) this
+     arm does not exist;
    - anything else, `timed_out` included (a hang may be the change's): **untyped**.
 4. Every failed job runner, and at least one failed: **`runner-fault`**, naming each job, its
    step, its kind and pattern id, and the re-run scope: exactly those jobs by id, each with its
@@ -283,17 +328,9 @@ engine's, read from git as 0039's docs-only flag is
 One untyped job makes the whole observation `change`: a re-run would hide nothing then, and
 would not help. A failure the classifier cannot type is the change's, as today.
 
-The adopter's two cases read differently, and the decision says so. The port bind fails in a
-setup step and matches a declared `address already in use` pattern: `runner-fault`. The
-timing-sensitive test fails in a test step: **`change`**, as today. A flaky test is not typed as
-the runner's by anything the forge states, and no pattern may type a test step's failure, so this
-decision does not recover it. Quarantining a named flaky test is a different decision.
-
-- **(b) Step role alone, no pattern.** Cheaper to declare, but a setup step that installs the
-  change's dependencies fails for the change's reasons too. Refused.
-- **(c) Pattern alone, any step.** Lets a test's own output type its failure as the runner's.
-  Refused.
-- **(d) Fail open on an unread conclusion or a missing excerpt.** Refused by 0004.
+Also refused, under every option: a step's role alone, with no pattern, since a setup step that
+installs the change's dependencies fails for the change's reasons too; and failing open on an
+unread conclusion or a missing excerpt (0004).
 
 **Enforcement binding:** a table test over recorded observations, one per arm and reason; and
 `classify` matches the conclusion enum without a wildcard (0071 ruling 2).
@@ -311,18 +348,27 @@ compiled into the bundle and pinned with it.**
     {"check_run": {"app": "github-actions", "name": "test"}},
     {"check_run": {"app": "github-actions", "name": "RustSec dependency audit"}}
   ],
-  "infrastructure_paths": [".github/workflows/**", "compose.yaml"],
-  "setup_steps": ["Start services", "Set up job"],
-  "audit_checks": [{"check_run": {"app": "github-actions", "name": "RustSec dependency audit"}}],
+  "infrastructure_paths": [".github/workflows/**", ".github/actions/**"],
+  "audit_checks": [{"check_run": {"app": "github-actions", "name": "RustSec dependency audit"}}]
+}
+```
+
+That is the whole list under ruling 3 (a). Under (b) only, two more keys are admitted:
+
+```json
+{
+  "runner_owned_steps": [{"workflow": ".github/workflows/ci.yml", "job": "test", "step": "Initialize containers"}],
   "patterns": [
-    {"id": "port-in-use", "steps": ["Start services"], "literal": "address already in use"}
+    {"id": "port-in-use", "steps": ["Initialize containers"], "literal": "address already in use"}
   ]
 }
 ```
 
-A pattern is a literal: 1 to 200 printable ASCII bytes, matched as an exact, case-sensitive byte
-substring. No regex, glob or wildcard is admitted, so matching is linear and the same on every
-host. `id` is kebab-case and unique; every step a pattern names must be in `setup_steps`.
+The step name above is illustrative and unmeasured (ruling 3 (b)). Under (a) the compile refuses
+either key. A pattern is a literal: 1 to 200 printable ASCII bytes, matched as an exact,
+case-sensitive byte substring. No regex, glob or wildcard is admitted, so matching is linear and
+the same on every host. `id` is kebab-case and unique; every step a pattern names must be in
+`runner_owned_steps`.
 `required_checks` and `infrastructure_paths` must be non-empty, and `audit_checks` must be
 present, even if empty, with every entry also in `required_checks`. The compile refuses a list
 that leaves any of them to a default. `repository` pins the binding ruling 2 checks.
@@ -553,11 +599,13 @@ the fleet's row field is `crates/brokkr-view/src/fleet.rs:339`). It reads
 
 ## Consequences
 
-A runner fault the operator declared costs one re-run and no seat attempt, and a second one
-parks with a cause a script can read. Everything the list does not name is the change's, as
-today, so a recipe with no list behaves exactly as now. The cost is an exec observer per recipe
-that wants it, two tokens, and a list an operator keeps; a pattern that matches too much is the
-operator's to narrow. Four contract versions are proposed: `ci-observation/v1`,
+Under ruling 3 (a), a job the forge proves never started costs one re-run and no model
+diagnosis attempt, and a second one parks with a cause a script can read. Every other failure
+is the change's, as today. That includes the adopter's port bind and timing-sensitive test, so
+under (a) this decision does not recover the figures #1093 reports, and says so. Under (b) a
+runner-owned service start is recovered as well, at the cost of measuring what the forge
+exposes. A recipe with no list behaves exactly as now. The cost is an exec observer per recipe
+that wants it, two tokens, and a list an operator keeps. Four contract versions are proposed: `ci-observation/v1`,
 `ci-classification/v1`, `ci-checks/v1` and `park-cause/v2`; each is minted only when its slice
 lands under this decision's acceptance (0082).
 
@@ -574,7 +622,16 @@ Smallest first; each lands on its own.
    `crates/brokkr-view/src/` (the CI view model) and `crates/brokkr-cli/src/render/inspect.rs`.
    About 450 production and 450 test lines. Contracts: `ci-observation/v1`, `ci-checks/v1`,
    `ci-classification/v1`. Tests: one per arm and reason of ruling 3, over recorded observations
-   built by a shared builder; `a_pattern_in_a_test_step_is_the_changes`;
+   built by a shared builder. Ruling 3's evidence, under (a):
+   `no_log_pattern_types_a_failure_as_the_runners`;
+   `a_patterns_key_under_option_a_refuses_to_compile`;
+   `a_declared_literal_printed_by_a_checkout_local_action_is_the_changes`;
+   `a_declared_literal_printed_by_a_service_bootstrap_script_is_the_changes`;
+   `a_timing_sensitive_test_failure_is_the_changes`. Under (b), if ruled:
+   `a_pattern_in_a_step_named_in_the_workflows_steps_is_the_changes`;
+   `a_pattern_in_a_services_block_the_diff_changed_is_the_changes`;
+   `a_service_mounting_the_workspace_is_not_runner_owned`;
+   `a_pattern_in_a_test_step_is_the_changes`. The rest:
    `a_security_job_failure_is_never_typed_by_pattern`;
    `an_audit_job_is_the_runners_only_on_a_proven_non_execution_conclusion`;
    `with_the_proven_set_empty_a_startup_failure_is_the_changes`;
