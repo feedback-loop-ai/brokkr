@@ -12,7 +12,7 @@ use std::process::Command;
 use serde_json::json;
 
 use super::super::{git_identity, server_environment, unboxed_environment, HandsSpec};
-use super::{box_environment, seat_git_environment};
+use super::{box_environment, seat_git_environment, volta_home};
 
 /// The words dsh 0.2.1's `SENSITIVE_ENV_PATTERN`
 /// (`/KEY|PASSWORD|SECRET|TOKEN/i`, `@deepseek-ai/dsh-subprocess`) drops
@@ -180,4 +180,62 @@ fn no_other_fixed_seat_name_is_one_a_credential_scrub_drops() {
         .filter(|name| scrubbed(name))
         .collect();
     assert_eq!(dropped, Vec::<&str>::new());
+}
+
+/// A child under a private `HOME` is told the volta home exactly where a
+/// shim could read one: the engine's own `VOLTA_HOME` as it stands, the
+/// operator's `~/.volta` where `PATH` reaches its `bin` (however that
+/// directory is spelled), and nothing where no shim of that home is on
+/// `PATH`.
+#[test]
+fn a_private_home_is_told_the_volta_home_a_shim_on_path_reads() {
+    let home = Path::new("/operator");
+    let default = Some(("VOLTA_HOME", "/operator/.volta".to_string()));
+    let named = Some(("VOLTA_HOME", "/srv/volta".to_string()));
+    for path in [
+        "/opt/tools/bin:/operator/.volta/bin:/usr/bin",
+        "/operator/.volta/bin/",
+    ] {
+        assert_eq!(volta_home(None, Some(path), home), default, "{path}");
+    }
+    for path in [Some("/operator/.volta/bin"), Some("/usr/bin"), None] {
+        assert_eq!(
+            volta_home(Some("/srv/volta"), path, home),
+            named,
+            "{path:?}"
+        );
+    }
+    for path in [
+        Some("/usr/bin:/bin"),
+        Some("/other/.volta/bin"),
+        Some("/operator/.volta"),
+        Some(""),
+        None,
+    ] {
+        assert_eq!(volta_home(None, path, home), None, "{path:?}");
+    }
+}
+
+/// The unboxed dispatch's table carries that volta home, read from the
+/// engine's own environment, and leaves it out where nothing calls for it.
+#[test]
+fn the_unboxed_dispatch_names_the_volta_home_its_path_reaches() {
+    let home = Path::new("/operator");
+    let table = |engine: &[(&str, &str)]| {
+        let engine = engine
+            .iter()
+            .map(|(key, value)| (key.to_string(), value.to_string()));
+        let engine: BTreeMap<String, String> = engine.collect();
+        let (private, spec) = (Path::new("/private"), HandsSpec::default());
+        unboxed_environment(&engine, home, &spec, &[], private, private)
+    };
+    let reaching = ("PATH", "/operator/.volta/bin:/usr/bin:/bin");
+    let volta = |table: BTreeMap<String, String>| table.get("VOLTA_HOME").cloned();
+    assert_eq!(
+        volta(table(&[reaching])).as_deref(),
+        Some("/operator/.volta")
+    );
+    let named = [reaching, ("VOLTA_HOME", "/srv/volta")];
+    assert_eq!(volta(table(&named)).as_deref(), Some("/srv/volta"));
+    assert_eq!(volta(table(&[("PATH", "/usr/bin:/bin")])), None);
 }

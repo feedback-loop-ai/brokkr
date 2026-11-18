@@ -492,7 +492,13 @@ its exact name; `CARGO_HOME`,
 `~/.rustup` and `~/.npm` — `~` the engine's home as `expand_home` reads
 it — exactly when the site's `hands.binds` declare that path, as the box
 sets them, and absent otherwise, a bind's `mask` being declared and not
-enforced outside a namespace; the in-box marker `BROKKR_HANDS_BOX` —
+enforced outside a namespace; `VOLTA_HOME`, the engine's own verbatim
+when set there, else the operator's `~/.volta` exactly when the
+inherited `PATH` lists that home's `bin`, and absent otherwise — a
+volta shim finds its home as `$VOLTA_HOME`, else `$HOME/.volta`, so
+under the private `HOME` it finds no install, delegates to the next
+shim of its name on `PATH`, which is itself, and recurses until fork
+fails; the in-box marker `BROKKR_HANDS_BOX` —
 true of the child exactly when the engine itself already stands inside
 a box. No other inherited name SHALL be carried; fixed as the box
 sets them, `LANG` and `LC_ALL` as `C.UTF-8`, `CI` as `true`,
@@ -527,6 +533,11 @@ from which the table is taken).
 #### Scenario: The locators follow the binds, not the engine's environment
 - **WHEN** the engine's environment sets `CARGO_HOME`, `RUSTUP_HOME` and `NPM_CONFIG_CACHE` and the site declares no bind
 - **THEN** the composed environment carries none of them; and when the site declares `~/.npm`, it carries `NPM_CONFIG_CACHE` as the engine's home joined with `.npm`
+
+#### Scenario: A volta shim on PATH is told its home
+- **GIVEN** an engine environment of `HOME=/home/op` and `PATH=/home/op/.volta/bin:/usr/bin:/bin` with no `VOLTA_HOME`
+- **WHEN** an unboxed exec dispatch is composed
+- **THEN** it carries `VOLTA_HOME=/home/op/.volta`; with `VOLTA_HOME=/srv/volta` in the engine's environment it carries `/srv/volta`; and with a `PATH` that lists no `/home/op/.volta/bin` and no `VOLTA_HOME` it carries none
 
 #### Scenario: The marker is inherited, never set
 - **WHEN** the engine's environment carries `BROKKR_HANDS_BOX`, and again when it does not

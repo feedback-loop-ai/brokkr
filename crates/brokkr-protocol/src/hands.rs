@@ -345,6 +345,9 @@ pub fn ids() -> (u32, u32) {
 /// - `PATH`, `USER` and `LOGNAME`: the engine's own, each only when set
 ///   there — the box's fixed `PATH` names mounts that exist only inside a
 ///   namespace, and a `runner` name would not match the operator's uid;
+/// - `VOLTA_HOME`: the engine's own, or the operator's `~/.volta` where
+///   that `PATH` reaches its shims ([`environment::volta_home`]), so a
+///   volta shim does not recurse under the private `HOME`;
 /// - `CARGO_HOME`, `RUSTUP_HOME`, `NPM_CONFIG_CACHE`: the operator's
 ///   `~/.cargo`, `~/.rustup`, `~/.npm` exactly when the spec's binds
 ///   declare that path, as the box sets them; a bind's `mask` is declared
@@ -376,6 +379,12 @@ pub fn unboxed_environment(
         if let Some(value) = engine_env.get(key) {
             set(key, value.clone());
         }
+    }
+    let (named, path) = (engine_env.get("VOLTA_HOME"), engine_env.get("PATH"));
+    if let Some((key, value)) =
+        environment::volta_home(named.map(String::as_str), path.map(String::as_str), home)
+    {
+        set(key, value);
     }
     for (key, value) in [
         ("LANG", "C.UTF-8"),
