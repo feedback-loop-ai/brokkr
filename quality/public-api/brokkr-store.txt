@@ -208,6 +208,7 @@ pub brokkr_store::QueueRefusal::CooldownRoundEvent
 pub brokkr_store::QueueRefusal::CooldownRoundEvent::event_seq: u64
 pub brokkr_store::QueueRefusal::CooldownRoundEvent::run_id: alloc::string::String
 pub brokkr_store::QueueRefusal::CooldownRoundNotNext(alloc::boxed::Box<brokkr_store::CooldownRoundMismatch>)
+pub brokkr_store::QueueRefusal::CooldownRoundUnwritten(alloc::boxed::Box<brokkr_store::CooldownRoundMismatch>)
 pub brokkr_store::QueueRefusal::CooldownRoundWait
 pub brokkr_store::QueueRefusal::CooldownRoundWait::event_seq: u64
 pub brokkr_store::QueueRefusal::CooldownRoundWait::run_id: alloc::string::String
