@@ -5,8 +5,9 @@ The runner owns its child's output and process group, so these tests drive
 the real script as a subprocess: a bound that fires, an exit on the child's
 own, a signal forwarded, a record that cannot be written and a group that
 cannot be shown ended. A test binary is a real executable copied into a
-directory named `deps`, so the kernel's own executable path is what the
-runner reads, never a line the binary prints. The process-table readers are
+directory named `deps`, or into the pinned nightly's coverage layout
+`build/<package>/<hash>/out/`, so the kernel's own executable path is what
+the runner reads, never a line the binary prints. The process-table readers are
 unit-tested against planted /proc trees and a stub ps, since a test cannot
 make the host's own table unreadable.
 """
@@ -121,9 +122,17 @@ class ShardRunner(unittest.TestCase):
         return False
 
     def test_a_deps_binary_past_the_bound_is_named_ended_and_recorded(self):
+        self.assert_past_the_bound_is_named_ended_and_recorded("target/debug/deps")
+
+    def test_a_coverage_binary_past_the_bound_is_named_ended_and_recorded(self):
+        # The pinned nightly's coverage layout, with no `deps` folder (#1129).
+        self.assert_past_the_bound_is_named_ended_and_recorded(
+            "target/llvm-cov-target/debug/build/hang/0123abcd/out")
+
+    def assert_past_the_bound_is_named_ended_and_recorded(self, folder):
         pidfile = self.root / "hang.pid"
         argv = self.deps_argv(
-            "hang", 'printf "%s\\n" "$$" > "$1"; sleep 600; :', pidfile)
+            "hang", 'printf "%s\\n" "$$" > "$1"; sleep 600; :', pidfile, folder=folder)
         started = time.monotonic()
         result = self.launch(argv, bound=1)
         elapsed = time.monotonic() - started
@@ -427,6 +436,17 @@ class ShardRunner(unittest.TestCase):
             (member(8, 0, "/usr/bin/rustdoc"), ["rustdoc", "--crate-name", "x"], None),
             (member(9, 0, "/usr/bin/cargo"), None, None),
             (member(10, 0, "/tmp/target/debug/build/x"), None, None),
+            (member(13, 0, "/tmp/cov/debug/build/brokkr-store/00a67ddfb17d4241/out/"
+                           "brokkr_store-00a67ddfb17d4241"), None,
+             "brokkr_store-00a67ddfb17d4241"),
+            (member(14, 0, "/tmp/cov/debug/build/brokkr-store-00a67ddfb17d4241/"
+                           "build-script-build"), None, None),
+            (member(15, 0, "/tmp/cov/debug/build/brokkr-store-00a67ddfb17d4241/out/"
+                           "helper-00a67ddfb17d4241"), None, None),
+            (member(16, 0, "/tmp/cov/debug/build/brokkr-store/00a67ddfb17d4241/out/"
+                           "brokkr_store-1111222233334444"), None, None),
+            (member(17, 0, "/tmp/cov/debug/other/brokkr-store/00a67ddfb17d4241/out/"
+                           "brokkr_store-00a67ddfb17d4241"), None, None),
             (member(12, 0, "/bin/sleep"), None, None),
         ]
         for entry, args, expected in cases:
