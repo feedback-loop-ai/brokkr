@@ -177,6 +177,19 @@ impl Machine {
     fn log(&self, run: &str) -> PathBuf {
         self.base.join(format!("forge.db.runs/{run}.log"))
     }
+
+    /// Wait up to the patience for a dispatcher to take this journal's lock
+    /// file, then a moment for it to reach the journal's write lock.
+    fn dispatching(&self) {
+        let lock = self.base.join("forge.db.dispatch.lock");
+        let began = Instant::now();
+        while !lock.exists() {
+            let waited = began.elapsed();
+            assert!(waited < PATIENCE, "the dispatcher never took its lock");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    }
 }
 
 /// An unboxed `exec` seat that runs `before`, then answers `result` in the
@@ -340,6 +353,37 @@ fn a_driver_of_a_claim_with_no_spawn_row_refuses_and_writes_nothing() {
     assert_eq!(machine.commands(), ["add"]);
 }
 
+/// Decision 0110 ruling 4 on a machine with one entry queued: `brokkr
+/// dispatch` given `mode`, started from a copy of the binary, records its
+/// binary as it starts, then waits on the journal's write lock, which the
+/// test holds until the copy is replaced. It claims nothing, ends in the
+/// ruling's words and exits 1. What it said.
+fn ended_on_its_replaced_binary(mode: &[&str]) -> String {
+    let machine = Machine::new();
+    machine.queued();
+    let copy = machine.base.join("bin/brokkr");
+    stage(Path::new(env!("CARGO_BIN_EXE_brokkr")), &copy);
+    let holder = rusqlite::Connection::open(&machine.journal).unwrap();
+    holder.execute_batch("BEGIN IMMEDIATE").unwrap();
+    let args = [&["dispatch"][..], mode, &["--db", machine.db()]].concat();
+    let dispatcher = Standing::spawned(&mut machine.command(&copy, &args));
+    machine.dispatching();
+    let other = machine.base.join("bin/other");
+    std::fs::write(&other, "#!/bin/sh\nexit 0\n").unwrap();
+    std::fs::rename(&other, &copy).unwrap();
+    holder.execute_batch("ROLLBACK").unwrap();
+
+    let stdout = dispatcher.ended_as(1);
+    let words = format!(
+        "ended: dispatch: the brokkr at {} is not the one this dispatcher started from; it \
+         claimed nothing after; start the dispatcher again\n",
+        copy.display()
+    );
+    assert!(stdout.ends_with(&words), "{mode:?}: {stdout}");
+    assert_eq!(machine.commands(), ["add"], "{mode:?}: nothing claimed");
+    stdout
+}
+
 /// Decision 0110 ruling 4: the dispatcher started from a copy of the
 /// binary, the copy replaced while the dispatcher waits on the journal's
 /// write lock, claims nothing and ends in the ruling's words.
@@ -350,43 +394,23 @@ fn a_dispatcher_whose_binary_was_replaced_claims_nothing_and_ends() {
     ) {
         return;
     }
-    let machine = Machine::new();
-    machine.queued();
-    let copy = machine.base.join("bin/brokkr");
-    stage(Path::new(env!("CARGO_BIN_EXE_brokkr")), &copy);
+    ended_on_its_replaced_binary(&["--once"]);
+}
 
-    // The dispatcher records its binary as it starts, then waits on the
-    // journal's write lock, which the test holds until the copy is
-    // replaced.
-    let holder = rusqlite::Connection::open(&machine.journal).unwrap();
-    holder.execute_batch("BEGIN IMMEDIATE").unwrap();
-    let dispatcher = machine
-        .command(&copy, &["dispatch", "--once", "--db", machine.db()])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
-    let lock = machine.base.join("forge.db.dispatch.lock");
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while !lock.exists() && Instant::now() < deadline {
-        std::thread::sleep(Duration::from_millis(20));
+/// Decision 0110 rulings 4 and 5: a standing dispatcher ends on its pass's
+/// ending as `--once` does. Its binary, a copy, is replaced while it waits
+/// on the journal's write lock, so its first pass claims nothing and the
+/// loop ends in ruling 4's words, exiting non-zero, with no driver to
+/// leave running.
+#[test]
+fn a_standing_dispatcher_whose_binary_was_replaced_claims_nothing_and_ends() {
+    if !in_its_own_engine(
+        "dispatch::a_standing_dispatcher_whose_binary_was_replaced_claims_nothing_and_ends",
+    ) {
+        return;
     }
-    std::thread::sleep(Duration::from_millis(200));
-    let other = machine.base.join("bin/other");
-    std::fs::write(&other, "#!/bin/sh\nexit 0\n").unwrap();
-    std::fs::rename(&other, &copy).unwrap();
-    holder.execute_batch("ROLLBACK").unwrap();
-
-    let ended = dispatcher.wait_with_output().unwrap();
-    let stdout = String::from_utf8_lossy(&ended.stdout);
-    assert_eq!(ended.status.code(), Some(1), "{ended:?}");
-    let words = format!(
-        "ended: dispatch: the brokkr at {} is not the one this dispatcher started from; it \
-         claimed nothing after; start the dispatcher again\n",
-        copy.display()
-    );
-    assert!(stdout.ends_with(&words), "{stdout}");
-    assert_eq!(machine.commands(), ["add"], "nothing claimed");
+    let stdout = ended_on_its_replaced_binary(&["--every", "5"]);
+    assert!(!stdout.contains("left running"), "{stdout}");
 }
 
 /// A standing dispatcher this test started, killed and waited on if the
@@ -469,6 +493,13 @@ impl Standing {
             assert!(began.elapsed() < PATIENCE, "never said {words}: {said}");
             std::thread::sleep(Duration::from_millis(25));
         }
+    }
+
+    /// [`Standing::ended`], which must have exited `code`: what it said.
+    fn ended_as(self, code: i32) -> String {
+        let ended = self.ended();
+        assert_eq!(ended.status.code(), Some(code), "{ended:?}");
+        String::from_utf8_lossy(&ended.stdout).into_owned()
     }
 
     /// The ticks reported so far: each tick's report ends on its `queue:`
@@ -616,9 +647,7 @@ fn a_stop_asked_while_a_pass_waits_on_the_journal_claims_nothing_after_it() {
     dispatcher.signal(rustix::process::Signal::TERM);
     std::thread::sleep(Duration::from_millis(300));
     holder.execute_batch("ROLLBACK").unwrap();
-    let ended = dispatcher.ended();
-    let stdout = String::from_utf8_lossy(&ended.stdout).into_owned();
-    assert_eq!(ended.status.code(), Some(0), "{ended:?}");
+    let stdout = dispatcher.ended_as(0);
     // One tick reported after the lock was taken: the stop landed inside
     // that pass, not in a sleep, where the loop's own reading would end it.
     assert_eq!(stdout.matches("\nqueue: ").count(), held + 1, "{stdout}");
@@ -756,16 +785,7 @@ fn a_second_sigterm_ends_the_dispatcher_at_once() {
     let args = ["dispatch", "--every", "5", "--db", machine.db()];
     let dispatcher = Standing::start(&machine, &args);
     // Its handlers are installed before it takes the lock file.
-    let lock = machine.base.join("forge.db.dispatch.lock");
-    let began = Instant::now();
-    while !lock.exists() {
-        assert!(
-            began.elapsed() < PATIENCE,
-            "the dispatcher never took its lock"
-        );
-        std::thread::sleep(Duration::from_millis(20));
-    }
-    std::thread::sleep(Duration::from_millis(200));
+    machine.dispatching();
     dispatcher.signal(rustix::process::Signal::TERM);
     std::thread::sleep(Duration::from_millis(300));
     dispatcher.signal(rustix::process::Signal::TERM);
