@@ -391,12 +391,30 @@ fn a_dispatcher_whose_binary_was_replaced_claims_nothing_and_ends() {
 
 /// A standing dispatcher this test started, killed and waited on if the
 /// test fails before it ends, so no dispatcher outlives its test. Its
-/// stdout is read as it comes, so a test can see a tick's lines while it
-/// stands.
+/// stdout and stderr are each read as they come, so a test can see a
+/// tick's lines while it stands, and so the end of its output is waited on
+/// within the patience like the end of its process.
 struct Standing {
     child: Option<std::process::Child>,
     said: Arc<Mutex<String>>,
-    reader: Option<std::thread::JoinHandle<()>>,
+    heard: Arc<Mutex<String>>,
+    readers: Vec<std::thread::JoinHandle<()>>,
+}
+
+/// A thread that appends what `from` gives to `into` until it closes.
+fn reading(
+    mut from: impl Read + Send + 'static,
+    into: &Arc<Mutex<String>>,
+) -> std::thread::JoinHandle<()> {
+    let into = Arc::clone(into);
+    std::thread::spawn(move || {
+        let mut chunk = [0u8; 4096];
+        while let Ok(read @ 1..) = from.read(&mut chunk) {
+            into.lock()
+                .unwrap()
+                .push_str(&String::from_utf8_lossy(&chunk[..read]));
+        }
+    })
 }
 
 impl Standing {
@@ -413,21 +431,16 @@ impl Standing {
             .stderr(Stdio::piped())
             .spawn()
             .unwrap();
-        let mut stdout = child.stdout.take().unwrap();
-        let said = Arc::new(Mutex::new(String::new()));
-        let into = Arc::clone(&said);
-        let reader = std::thread::spawn(move || {
-            let mut chunk = [0u8; 4096];
-            while let Ok(read @ 1..) = stdout.read(&mut chunk) {
-                into.lock()
-                    .unwrap()
-                    .push_str(&String::from_utf8_lossy(&chunk[..read]));
-            }
-        });
+        let (said, heard) = (Arc::default(), Arc::default());
+        let readers = vec![
+            reading(child.stdout.take().unwrap(), &said),
+            reading(child.stderr.take().unwrap(), &heard),
+        ];
         Standing {
             child: Some(child),
             said,
-            reader: Some(reader),
+            heard,
+            readers,
         }
     }
 
@@ -458,23 +471,62 @@ impl Standing {
         }
     }
 
-    /// Wait up to the patience for the dispatcher to end, and read what it
-    /// said.
+    /// The ticks reported so far: each tick's report ends on its `queue:`
+    /// line.
+    fn reports(&self) -> usize {
+        self.said.lock().unwrap().matches("\nqueue: ").count()
+    }
+
+    /// Wait up to the patience for a tick to report after the `seen` ones:
+    /// its sleep has just begun.
+    fn next_report(&self, seen: usize) {
+        let began = Instant::now();
+        while self.reports() <= seen {
+            let said = self.said.lock().unwrap().clone();
+            assert!(began.elapsed() < PATIENCE, "no tick reported: {said}");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    /// Wait up to the patience for the dispatcher to end and for its output
+    /// to close, and read what it said. Its pipes close only once every
+    /// process holding them has gone, so a driver that kept them would
+    /// hold the test: that wait is bounded by the same patience.
     fn ended(mut self) -> Output {
         let mut child = self.child.take().unwrap();
         let began = Instant::now();
-        while child.try_wait().unwrap().is_none() {
+        let status = loop {
+            if let Some(status) = child.try_wait().unwrap() {
+                break status;
+            }
             if began.elapsed() > PATIENCE {
                 let _ = child.kill();
                 let _ = child.wait();
                 panic!("the dispatcher did not end within the patience");
             }
             std::thread::sleep(Duration::from_millis(25));
+        };
+        while !self
+            .readers
+            .iter()
+            .all(std::thread::JoinHandle::is_finished)
+        {
+            let said = self.said.lock().unwrap().clone();
+            assert!(
+                began.elapsed() < PATIENCE,
+                "the dispatcher ended, {status}, but its output never closed: a process it \
+                 left holds its pipes. It said: {said}"
+            );
+            std::thread::sleep(Duration::from_millis(25));
         }
-        let mut ended = child.wait_with_output().unwrap();
-        self.reader.take().unwrap().join().unwrap();
-        ended.stdout = self.said.lock().unwrap().clone().into_bytes();
-        ended
+        for reader in self.readers.drain(..) {
+            reader.join().unwrap();
+        }
+        Output {
+            status,
+            stdout: self.said.lock().unwrap().clone().into_bytes(),
+            stderr: self.heard.lock().unwrap().clone().into_bytes(),
+        }
     }
 }
 
@@ -531,6 +583,54 @@ fn a_standing_dispatcher_stops_on_sigterm_and_its_driver_runs_on() {
     std::fs::write(machine.released(), "").unwrap();
     completes(&machine.log(&run));
     assert_eq!(machine.commands(), ["add", "claim", "link", "spawn"]);
+}
+
+/// Decision 0110 ruling 5 at the binary: a stop asked in the middle of a
+/// pass claims nothing after it, though an entry stands eligible. Just as
+/// a tick reports, its sleep begun, the test queues a second entry and
+/// holds the journal's write lock: the next tick, which starts within
+/// `--every`, waits on it inside its pass, past the loop's own reading of
+/// the stop. The signal lands there, and the claim's transaction, once it
+/// has the lock, reads the stop and leaves the entry queued. Removal
+/// control (i), the stop ignored at the claim, claims the second entry
+/// here.
+#[test]
+fn a_stop_asked_while_a_pass_waits_on_the_journal_claims_nothing_after_it() {
+    if !in_its_own_engine(
+        "dispatch::a_stop_asked_while_a_pass_waits_on_the_journal_claims_nothing_after_it",
+    ) {
+        return;
+    }
+    let (machine, dispatcher) = standing_over_a_working_seat("5");
+    let (run, _, _, pid) = started(&dispatcher.said("queue: "));
+    let seen = dispatcher.reports();
+    dispatcher.next_report(seen);
+    machine.queued();
+    let holder = rusqlite::Connection::open(&machine.journal).unwrap();
+    holder.execute_batch("BEGIN IMMEDIATE").unwrap();
+    let held = dispatcher.reports();
+    // The next pass starts within `--every` of the sleep that began as the
+    // last tick reported, and waits on the lock, well inside the store's
+    // busy timeout.
+    std::thread::sleep(Duration::from_secs(5 + 3));
+    dispatcher.signal(rustix::process::Signal::TERM);
+    std::thread::sleep(Duration::from_millis(300));
+    holder.execute_batch("ROLLBACK").unwrap();
+    let ended = dispatcher.ended();
+    let stdout = String::from_utf8_lossy(&ended.stdout).into_owned();
+    assert_eq!(ended.status.code(), Some(0), "{ended:?}");
+    // One tick reported after the lock was taken: the stop landed inside
+    // that pass, not in a sleep, where the loop's own reading would end it.
+    assert_eq!(stdout.matches("\nqueue: ").count(), held + 1, "{stdout}");
+    let last = format!(
+        "queue: 0 waiting, 0 held\nleft running: run {run}, driver pid {pid}\nstopped: a signal \
+         asked the dispatcher to stop; it claimed nothing after, and its drivers run on\n"
+    );
+    assert!(stdout.ends_with(&last), "{stdout}");
+    assert_eq!(machine.commands(), ["add", "claim", "link", "spawn", "add"]);
+
+    std::fs::write(machine.released(), "").unwrap();
+    completes(&machine.log(&run));
 }
 
 /// Wait up to the patience for `pid`, a driver, to have exited: `ps` reads

@@ -152,8 +152,11 @@ loaded. `bootout` unloads it, and also stops it with SIGTERM.
 ## What an ending leaves, and how to recover
 
 A stop ends with its `stopped:` line, and a crash ends with no line of
-its own. Every other ending prints a line that begins `ended:`, and exits
-non-zero. Read that line, then act on it as below.
+its own. A refusal before the first pass is the verb's error on standard
+error, and exits non-zero: another dispatcher holds the journal, or the
+journal or its queue storage cannot be opened. Every other ending prints
+a line that begins `ended:`, and exits non-zero. Read that line, then act
+on it as below.
 
 | Ending | What it leaves | How to recover |
 |---|---|---|
@@ -191,7 +194,12 @@ host went down, read the entry's `launch` in `brokkr queue list --json
 of its other fields that is set:
 
 - `bundle` of `dir`: `--bundle <dir>`;
-- `bundle` of `recipe`: `--recipe <name> --recipes-dir <recipes_dir>`;
+- `bundle` of `recipe`: `--recipe <name>`, and `--recipes-dir
+  <recipes_dir>` unless `recipes_dir` is your personal shelf
+  (`$XDG_CONFIG_HOME/brokkr/recipes`, else `$HOME/.config/brokkr/recipes`).
+  `--recipe` reads that shelf already, after the project's, and naming
+  it as `--recipes-dir` too puts the recipe on both shelves, which
+  `resume` refuses;
 - `repo`: `--repo <path>`;
 - `secrets`: `--secrets-file <path>`.
 
