@@ -4,6 +4,7 @@ use crate::tests::run_state::{run_state, standing};
 use brokkr_core::{EventEnvelope, EventType, RunState, Status};
 use brokkr_view::{keeps_phase, lens_for, Scope};
 use serde_json::{json, Value};
+use std::ffi::OsString;
 
 const T0: &str = "2026-01-01T00:00:00Z";
 const T1: &str = "2026-01-01T00:00:05Z";
@@ -434,6 +435,32 @@ fn a_hostile_feature_and_result_token_render_as_inert_text() {
 }
 
 // ------------------------------------------------------------- AC-23
+
+/// The width a terminal that is `tty` draws, under `columns`, when the
+/// terminal measures 60 by 24, or will not say.
+fn detected_width(tty: bool, columns: Option<&str>, measures: bool) -> usize {
+    let env = |name: &str| match name {
+        "COLUMNS" => columns.map(OsString::from),
+        _ => None,
+    };
+    let size: fn() -> std::io::Result<(u16, u16)> = match measures {
+        true => || Ok((60, 24)),
+        false => || Err(std::io::Error::other("no terminal")),
+    };
+    Style::detect_in(tty, env, size).width
+}
+
+#[test]
+fn the_width_is_columns_else_the_terminals_own_else_the_default() {
+    assert_eq!(detected_width(true, Some("120"), true), 120, "COLUMNS wins");
+    assert_eq!(detected_width(true, None, true), 60, "the terminal's own");
+    assert_eq!(detected_width(true, None, false), 80, "it will not say");
+    assert_eq!(
+        detected_width(false, None, true),
+        80,
+        "stdout is no terminal"
+    );
+}
 
 #[test]
 fn width_and_colour_come_from_the_environment_through_pure_rules() {
@@ -1417,6 +1444,32 @@ fn the_seats_block_is_the_one_inspect_prints() {
         let end = whole[start..].find("\n\n").unwrap();
         format!("{}\n", &whole[start..start + end])
     });
+}
+
+/// The seats block pads in `char`s as it always has: the graph's tables
+/// moving to terminal cells (#1167) leaves a wide label where it was.
+#[test]
+fn the_seats_block_pads_a_wide_label_as_it_did_before_the_graph_tables() {
+    let mut boxed = boxed_view("harness", true);
+    boxed.participants[0].label = "界".repeat(20);
+    // Twenty `界` are twenty `char`s padded to the 27
+    // `design:positions:simplicity` takes, though the terminal draws them
+    // in forty cells.
+    assert_eq!(
+        seats(&boxed, &Style::plain(120)),
+        "seats\n  model is the provider's claim, not proof · effort is configuration\n  \
+         participant                 status    attempts turns cost    tokens model            boundary effort activity\n  \
+         界界界界界界界界界界界界界界界界界界界界        succeeded 1        3     $0.0313 —      claude-fable-5-1 harness  —      intook · 2m03s\n    \
+         transcript  claude-session · sess-a · home /home/operator/.claude/projects\n  \
+         design                      working   1        Σ 2   —       —      —                —        —      3 members ↓\n    \
+         transcript  —\n  \
+         design:positions:simplicity succeeded 1        —     —       —      —                —        —      0s\n    \
+         transcript  —\n  \
+         design:positions:robustness succeeded 1        —     —       —      —                —        —      0s\n    \
+         transcript  —\n  \
+         design:chief                working   1        2     —       —      —                —        —      Write\n    \
+         transcript  —\n"
+    );
 }
 
 /// The pair helper's text face carries both cells sanitized and whether

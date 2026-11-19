@@ -6,7 +6,7 @@
 use std::cmp::Reverse;
 
 use super::{push_line, tint, Safe, Style, BOLD};
-use crate::tui::{clamp, width_of};
+use crate::tui::width_of;
 
 /// How a column's cells sit in it: text to the left, numbers to the right.
 #[derive(Clone, Copy)]
@@ -118,6 +118,25 @@ pub(crate) fn table(columns: &[Column], rows: &[Vec<Safe>], style: &Style) -> St
     out
 }
 
+/// `text` cut to `max` terminal cells, the cut marked with `…`. The
+/// TUI's clamp also bounds `char`s, as its buffer spends a cell on each;
+/// a printed row spends only the cells the terminal draws, so a
+/// decomposed accent costs nothing here (#1167). `max` is at least one,
+/// a header's width.
+fn fit(text: &str, max: usize) -> String {
+    if width_of(text) <= max {
+        return text.to_string();
+    }
+    let kept: String = text
+        .chars()
+        .scan(String::new(), |seen, character| {
+            seen.push(character);
+            (width_of(seen) < max).then_some(character)
+        })
+        .collect();
+    kept + "…"
+}
+
 /// One row's cells, each clamped to its column's width in cells and set
 /// in it, with no trailing space for a bold header to carry.
 fn line(cells: &[Safe], columns: &[Column], widths: &[usize], gap: &str) -> String {
@@ -125,7 +144,7 @@ fn line(cells: &[Safe], columns: &[Column], widths: &[usize], gap: &str) -> Stri
         .iter()
         .zip(columns.iter().zip(widths))
         .map(|(cell, (column, &width))| {
-            let text = clamp(cell.as_str(), width);
+            let text = fit(cell.as_str(), width);
             let pad = " ".repeat(width.saturating_sub(width_of(&text)));
             match column.align {
                 Align::Left => text + &pad,
