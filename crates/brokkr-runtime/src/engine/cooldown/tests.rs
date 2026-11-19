@@ -30,7 +30,11 @@ fn base() -> OffsetDateTime {
 /// keeps a row only while its `until` is past the event's `recorded_at`,
 /// and a loaded host's attempts lock can stall a test's append by many
 /// seconds while its clock stands still: an hour outlasts any such stall.
-const LONG_WAIT: time::Duration = time::Duration::hours(1);
+const LONG_WAIT: time::Duration = time::Duration::seconds(LONG_WAIT_SECONDS as i64);
+
+/// [`LONG_WAIT`] in the whole seconds a host file or a provider answer
+/// spells.
+const LONG_WAIT_SECONDS: u64 = 3_600;
 
 /// Where a fixture's clock starts when the journal's real instant is `real`:
 /// [`LONG_WAIT`] past it, so a short wait the test waits out on its own clock

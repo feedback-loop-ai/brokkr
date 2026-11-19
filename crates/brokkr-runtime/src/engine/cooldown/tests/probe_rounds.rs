@@ -1126,11 +1126,15 @@ fn a_round_that_passes_any_cooled_sites_maximum_writes_no_row() {
 /// round 2 at 60s, where the terminal recorded round 1 at 30s.
 #[test]
 fn a_resume_after_a_written_round_parks_with_the_episodes_round_and_length() {
-    let start = ahead_of(OffsetDateTime::now_utc());
-    let until = start + Duration::seconds(30);
+    // Nothing waits these ends out (the resume parks first), so each lies
+    // `LONG_WAIT` past a clock at real time, with no lead: the rows are in
+    // force however long the host stalls (#857). The park reads the
+    // rounds' own seconds, not their ends.
+    let start = OffsetDateTime::now_utc();
+    let until = start + LONG_WAIT;
     let (dir, mut engine, _now) = resumed_at(&["succeed"], until, 30, start, false);
     let event = failed(&engine).remove(0);
-    append_round(&mut engine, event.seq, start + Duration::seconds(90), 2, 60);
+    append_round(&mut engine, event.seq, until + Duration::seconds(60), 2, 60);
     engine.cooldown.host = Some(host(dir.path(), 30, 50));
     engine.drive().unwrap();
     assert!(
