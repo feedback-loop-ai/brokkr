@@ -118,6 +118,12 @@ fn a_protected_sequence_of_work_steps_is_a_checked_span_of_its_own() {
     let (events, heads) = reviewed_over(drift_refusing(), review(), &[0, 0, 0, 1]);
     let succeeded = ended_in(&events, "review", EventType::EffectSucceeded);
     assert_eq!(succeeded[0]["result"]["checked_head"], json!(heads[0]));
+    // Only gate work is stamped `covered` (fix round 0109a1r4, K3).
+    assert_eq!(succeeded[0]["result"].get("covered"), None);
+    let steps = (events.iter()).filter(|event| event.event_type == EventType::EffectCheckpointed);
+    for step in steps {
+        assert_eq!(step.payload["checkpoint"]["result"].get("covered"), None);
+    }
     let decided = decided_from(&events, "review");
     assert_eq!(
         decided["inputs"]["reviewed_heads"],
