@@ -1102,8 +1102,13 @@ bounded, typed data under `ci-classification/v1`:
 - **the comparison values** the binding read: the repository's numeric id, the pull request's
   number, the base commit, the merge base, the gated head, the engine's git head and the forge's
   head for the pull request;
-- the range's two commit ids, and the changed-path list 0109's verified reader gave for that
-  range.
+- the range's two commit ids, and **the range read's outcome**, one of three closed forms:
+  `verified`, with the changed-path list 0109's verified reader gave for that range, possibly
+  empty; `overflowed`, with the overflow witness below; or `unproven`, naming the reader's end
+  (`read-failed`, `delta-incomplete`, or `reader-unbuilt` while 0109b is not built) and no path
+  list. So an unreadable range and a verified empty one, over the same two commit ids, seal
+  different bases: the first replays `range-unproven`, and the second replays as a change that
+  touched no path, never the other.
 
 A replay is `classify(observation, basis)` over the sealed observation and that record alone,
 and must equal the recorded class. It reads no bundle, no manifest file, no checkout, no Git
@@ -1948,6 +1953,10 @@ slice that produces it, and each typed assertion is in the slice that builds its
    `a_replay_with_the_bundle_the_checkout_and_the_forge_all_gone_re_derives_the_class`
    (the journal exported, then the bundle, the worktree and the forge stub removed);
    `a_replay_reads_the_carried_path_list_not_git`;
+   `a_failed_range_read_and_a_verified_empty_range_replay_with_distinct_reasons` (one all-setup
+   observation, the same two commit ids: the failed read seals `unproven` and replays `change`,
+   `withheld`, `range-unproven`; the verified empty range seals `verified` with no path and
+   replays `ci-infrastructure`);
    `the_basis_carries_the_required_list_the_literals_the_closure_and_the_comparison_values`;
    `the_live_class_and_the_replayed_class_take_one_function_over_one_basis`;
    `a_closure_beyond_its_bound_withholds_as_basis_too_large`;
