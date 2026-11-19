@@ -1,19 +1,25 @@
 //! A recipe's delivery graph in the run rail's grammar (#1145). `brokkr
 //! graph` lays the recipe's states on the rail [`plan`] lays a run's phases
-//! on, paints it with the one painter, and writes the traffic the view
-//! counted over those cells: a recipe and a run read alike, drawn by one
-//! renderer (decision 0071 ruling 5). Every figure is the view's own
-//! (ruling 7); this file places them and counts nothing.
+//! on, deals its roads back onto arc rows with the one [`nest`], paints it
+//! with the one painter, and writes the traffic the view counted over
+//! those cells: a recipe and a run read alike, drawn by one renderer
+//! (decision 0071 ruling 5). Every figure is the view's own (ruling 7);
+//! this file places them and counts nothing.
 //!
 //! An arrow is a link the range took: two neighbours no taken link joins
-//! stand apart on the rail with no road between them. What the rail
-//! cannot draw is listed under it, never dropped: a rule taken between
-//! states that are not neighbours on one rail, a return arc that would
-//! overlap another, a rule into a terminal beneath the row, and a park.
+//! stand apart on the rail with no road between them. Every taken back
+//! link is a return arc, nested under another where their spans meet, and
+//! cut at the fold's marks `›` and `‹` where a fold put its states on two
+//! rails. A taken rule into a terminal beneath the row is a road down
+//! from the state it leaves. No count is written over or against another.
+//! What the rail still cannot draw is listed under it, never dropped: a
+//! rule taken between states that are not neighbours, a count the width
+//! leaves no room for, and a park.
 
 use std::collections::BTreeSet;
+use std::ops::Range;
 
-use brokkr_view::{GraphView, ModelAtBoundary, Place, Road, RuleKind};
+use brokkr_view::{GraphView, ModelAtBoundary, Place, RuleKind};
 
 use super::*;
 
@@ -26,17 +32,19 @@ pub(crate) const PIPED_WIDTH: usize = 100;
 /// as a pipe is.
 pub(crate) const NARROWEST: usize = 40;
 
-/// The rows one rail is planned in: the counts' row, the rail, the names
-/// and the return arcs' row, with the selection box's row the plan
-/// reserves left blank (no state is selected here) and dropped.
+/// The rows one rail is planned in: two for the counts over the rail, the
+/// rail, the names, and the selection box's row the plan reserves (no
+/// state is selected here, so it stays blank and is dropped). [`nest`]
+/// adds the arc rows under them.
 const RAIL_ROWS: usize = 5;
 
 /// The drawing's legend, so a bare number on the rail says what it counts;
-/// each line fits 80 columns.
-const LEGEND: [&str; 3] = [
+/// each line fits 80 columns, and a narrower drawing wraps it.
+const LEGEND: [&str; 4] = [
     "nodes: runs entered · median stay · ∙ a live run · · never entered",
     "arrows: runs moved · ↻ to itself · ×n back · none where no run moved",
-    "⊗ a terminal: those beneath the row are drawn under it, their rules listed",
+    "⊗ a terminal · ╰─ n ─ᐳ ⊗ the road down to one beneath the row",
+    "› ‹ a rail the next continues, with its arrows and arcs",
 ];
 
 /// A state's node carries no served model: the rail's node shape asks for
@@ -53,13 +61,76 @@ fn unserved() -> ModelAtBoundary {
     }
 }
 
-/// A return arc one rail draws: its landing and departure as positions on
-/// the rail, and the link it carries.
-#[derive(Clone, Copy)]
-struct Return {
-    to: usize,
-    from: usize,
-    link: usize,
+/// States of the view in their order, and the fold that puts them on
+/// rails.
+struct Folded<'r> {
+    states: &'r [usize],
+    rails: Vec<Range<usize>>,
+}
+
+impl Folded<'_> {
+    /// The states on rail `index`.
+    fn rail(&self, index: usize) -> &[usize] {
+        &self.states[self.rails[index].clone()]
+    }
+
+    /// The rail the state named `name` stands on, and its place on that
+    /// rail, when it is one of these states.
+    fn spot(&self, view: &GraphView, name: &str) -> Option<(usize, usize)> {
+        let at = (self.states.iter()).position(|at| view.states[*at].name == name);
+        at.map(|at| {
+            let rail = (self.rails.iter())
+                .take_while(|rail| rail.end <= at)
+                .count();
+            (rail, at - self.rails[rail].start)
+        })
+    }
+}
+
+/// What an arc a rail draws carries, written over it once it is painted.
+enum Carried {
+    /// A back link's `×n`.
+    Back(usize),
+    /// A road down's runs, and the terminal it reaches, written from its
+    /// head.
+    Down {
+        link: usize,
+        head: usize,
+        tag: String,
+    },
+}
+
+/// The counts written over the rows above the rail, each kept a blank
+/// column from every other on its row, so no count is written over or
+/// against another (review 2's R2).
+#[derive(Default)]
+struct Labels {
+    /// `(row, first column, one past the last)`.
+    taken: Vec<(usize, usize, usize)>,
+}
+
+impl Labels {
+    /// `text` written at `x` on the first of `rows` where it stands clear,
+    /// when it ends by `limit`; false, with nothing written, when it does
+    /// not or no row has room.
+    fn write(
+        &mut self,
+        cells: &mut Cells,
+        rows: &[usize],
+        (x, limit): (usize, usize),
+        text: &str,
+    ) -> bool {
+        let last = x + width_of(text);
+        let clear = |row: &usize| {
+            (self.taken.iter()).all(|(other, first, end)| other != row || last < *first || *end < x)
+        };
+        let Some(row) = rows.iter().copied().find(clear).filter(|_| last <= limit) else {
+            return false;
+        };
+        put(cells, x, row, text, plain());
+        self.taken.push((row, x, last));
+        true
+    }
 }
 
 /// The view, drawn at `width` columns.
@@ -87,9 +158,9 @@ impl Drawing<'_> {
     }
 
     /// One state as a rail phase: its node labelled with its entered count
-    /// and median, a terminal's name marked `⊗`, lit as live when a run
-    /// stands in it, and `returns` as the roads its return arcs draw.
-    fn phase_of(&self, at: usize, returns: Vec<Road>) -> Phase {
+    /// and median, a terminal's name marked `⊗`, and lit as live when a run
+    /// stands in it.
+    fn phase_of(&self, at: usize) -> Phase {
         let state = &self.view.states[at];
         let live =
             (self.view.live.iter()).any(|run| run.state.as_deref() == Some(state.name.as_str()));
@@ -102,6 +173,7 @@ impl Drawing<'_> {
             Place::Row => state.name.clone(),
             Place::End | Place::Beneath => format!("⊗ {}", state.name),
         };
+        let label = format!("{} · {}", state.entered, state.median.text);
         Phase {
             name,
             strategy: None,
@@ -109,7 +181,7 @@ impl Drawing<'_> {
             current: false,
             plain: false,
             columns: vec![Column {
-                label: Some(format!("{} · {}", state.entered, state.median.text)),
+                label: Some(label),
                 nodes: vec![Node {
                     label: String::new(),
                     key: state.name.clone(),
@@ -118,117 +190,229 @@ impl Drawing<'_> {
                     served: unserved(),
                 }],
             }],
-            returns,
+            returns: Vec::new(),
         }
     }
 
-    /// The return arcs `rail` draws: the back links taken between two of
-    /// its states, in the view's order, each kept only when its span
-    /// shares no column with one kept before it. The arcs ride one row,
-    /// so an overlapping one would merge into its neighbour and its `×n`
-    /// fall on the other's; it is listed instead.
-    fn returns(&self, rail: &[usize]) -> Vec<Return> {
-        let position = |name: &str| (rail.iter()).position(|at| self.view.states[*at].name == name);
-        let mut kept: Vec<Return> = Vec::new();
-        for (link, road) in self.view.links.iter().enumerate() {
-            let back = match road.kind {
-                RuleKind::Back => road.count > 0,
-                RuleKind::Forward | RuleKind::SelfLoop | RuleKind::Terminal => false,
+    /// The arcs rail `index` of `row` draws, each with what it carries:
+    /// the taken back links ([`Drawing::back`]) and the roads down
+    /// ([`Drawing::down`]). The links landing furthest right come first,
+    /// so of two arcs of one width (two halves leaving one state for an
+    /// earlier rail) [`nest`] deals the shallower row to the one whose
+    /// landing half rides shallower too.
+    fn arcs(&self, row: &Folded, index: usize, plan: &Plan) -> Vec<(Arc, Carried)> {
+        let mut links: Vec<usize> = (0..self.view.links.len()).collect();
+        links.sort_by_key(|at| std::cmp::Reverse(row.spot(self.view, &self.view.links[*at].next)));
+        let mut arcs = Vec::new();
+        for link in links {
+            let road = &self.view.links[link];
+            let arc = match (road.kind, road.count > 0) {
+                (RuleKind::Back, true) => self.back(row, index, link, plan),
+                (RuleKind::Terminal, true) => self.down(row, index, link, plan),
+                (RuleKind::Forward | RuleKind::SelfLoop, _)
+                | (RuleKind::Back | RuleKind::Terminal, false) => None,
             };
-            if !back {
-                continue;
-            }
-            let (Some(to), Some(from)) = (position(&road.next), position(&road.from)) else {
-                continue;
-            };
-            let apart = |other: &Return| from < other.to || to > other.from;
-            if to < from && kept.iter().all(apart) {
-                kept.push(Return { to, from, link });
-            }
+            arcs.extend(arc);
         }
-        kept
+        arcs
     }
 
-    /// `rail`'s states as phases, each carrying the arcs that land on it.
-    fn phases(&self, rail: &[usize], arcs: &[Return]) -> Vec<Phase> {
-        (rail.iter().enumerate())
-            .map(|(position, at)| {
-                let roads = (arcs.iter())
-                    .filter(|arc| arc.to == position)
-                    .map(|arc| Road {
-                        from: self.view.states[rail[arc.from]].name.clone(),
-                        taken: self.view.links[arc.link].count as u64,
-                        rules: Vec::new(),
-                    });
-                self.phase_of(*at, roads.collect())
-            })
-            .collect()
+    /// A taken back link as rail `index` draws it: whole when both its
+    /// states stand on this rail, its landing half (out to `›`) or its
+    /// departing half (in from `‹`) when the fold put the other on
+    /// another rail, and nothing when neither is here or it does not run
+    /// leftward along the row.
+    fn back(&self, row: &Folded, index: usize, link: usize, plan: &Plan) -> Option<(Arc, Carried)> {
+        let road = &self.view.links[link];
+        let to = row.spot(self.view, &road.next)?;
+        let from = row.spot(self.view, &road.from).filter(|from| to < *from)?;
+        let centre = |(_, at): (usize, usize)| centre_of(&plan.segments[at]);
+        let half = |to, from, reach| Arc {
+            to,
+            from,
+            level: 0,
+            reach,
+        };
+        let arc = match (to.0 == index, from.0 == index) {
+            (true, true) => Arc::whole(centre(to), centre(from)),
+            (true, false) => half(centre(to), self.width - 1, Reach::FromLater),
+            (false, true) => half(0, centre(from), Reach::ToEarlier),
+            (false, false) => return None,
+        };
+        Some((arc, Carried::Back(link)))
+    }
+
+    /// A taken terminal link from a state of rail `index` into a terminal
+    /// beneath the row, as its road down: `╰─ n ─ᐳ ⊗ stop`, the name
+    /// clamped with `…` to the columns left, and nothing when the width
+    /// leaves no room for the head and a letter.
+    fn down(&self, row: &Folded, index: usize, link: usize, plan: &Plan) -> Option<(Arc, Carried)> {
+        let road = &self.view.links[link];
+        let next = (self.view.states.iter()).find(|state| state.name == road.next)?;
+        let (rail, at) = row.spot(self.view, &road.from)?;
+        let beneath = match next.place {
+            Place::Beneath => rail == index,
+            Place::Row | Place::End => false,
+        };
+        let to = centre_of(&plan.segments[at]);
+        // `╰─ n ─`, then the head.
+        let head = to + 5 + width_of(&road.count.to_string());
+        let room = self.width.saturating_sub(head + 4);
+        if !beneath || room == 0 {
+            return None;
+        }
+        let tag = format!("ᐳ ⊗ {}", clamp(&road.next, room));
+        let arc = Arc {
+            to,
+            from: head + width_of(&tag) - 1,
+            level: 0,
+            reach: Reach::Down,
+        };
+        Some((arc, Carried::Down { link, head, tag }))
+    }
+
+    /// `link`'s runs over the arrow whose head is at `head`, ending a
+    /// column before it, on the first counts row with room; into `drawn`
+    /// when written.
+    fn count_before(&self, paint: &mut Paint, head: usize, link: usize, drawn: &mut Drawn) {
+        let text = self.view.links[link].count.to_string();
+        let x = head.saturating_sub(width_of(&text));
+        if paint
+            .labels
+            .write(paint.cells, &paint.rows, (x, head), &text)
+        {
+            drawn.insert(link);
+        }
     }
 
     /// The roads between neighbours: a taken link's runs above its arrow,
-    /// and no road at all where none was taken. Each pair drawn goes into
-    /// `drawn`.
-    fn roads(&self, cells: &mut Cells, plan: &Plan, rail: &[usize], drawn: &mut Drawn) {
-        let above = plan.rail_row - 1;
+    /// and no road at all where none was taken; then each state's runs to
+    /// itself, `↻n` from its node, on the counts row that keeps it clear
+    /// of every count before it.
+    fn roads(&self, paint: &mut Paint, plan: &Plan, rail: &[usize], drawn: &mut Drawn) {
         for (pair, segs) in rail.windows(2).zip(plan.segments.windows(2)) {
             let Some(link) = self.taken(pair[0], pair[1]) else {
                 for x in segs[0].rail.1 + 1..segs[1].rail.0 {
-                    put(cells, x, plan.rail_row, " ", plain());
+                    put(paint.cells, x, plan.rail_row, " ", plain());
                 }
                 continue;
             };
-            let text = self.view.links[link].count.to_string();
-            let head = segs[1].rail.0 - 1;
-            let x = head.saturating_sub(width_of(&text));
-            put(cells, x, above, &text, plain());
-            drawn.insert(link);
+            self.count_before(paint, segs[1].rail.0 - 1, link, drawn);
         }
         for (at, seg) in rail.iter().zip(&plan.segments) {
             if let Some(link) = self.taken(*at, *at) {
                 let text = format!("↻{}", self.view.links[link].count);
-                put(cells, seg.rail.0, above, &text, plain());
-                drawn.insert(link);
+                let x = seg.rail.0;
+                if paint
+                    .labels
+                    .write(paint.cells, &paint.rows, (x, self.width), &text)
+                {
+                    drawn.insert(link);
+                }
             }
         }
     }
 
-    /// Each kept arc's `×n`, centred on it. Two states' nodes stand at
-    /// least a labelled node and a connector apart, so an arc is always
-    /// wider than its ` ×n `, and the kept arcs share no column.
-    fn arc_counts(&self, cells: &mut Cells, plan: &Plan, arcs: &[Return], drawn: &mut Drawn) {
-        let Some(row) = plan.arc_row else {
-            return;
-        };
-        for arc in arcs {
-            let text = format!(" ×{} ", self.view.links[arc.link].count);
-            let to = centre_of(&plan.segments[arc.to]);
-            let from = centre_of(&plan.segments[arc.from]);
-            put(
-                cells,
-                (to + from) / 2 - width_of(&text) / 2,
-                row,
-                &text,
-                plain(),
-            );
-            drawn.insert(arc.link);
+    /// The link across the fold between the last state of one rail and
+    /// the first of the next, when the range took it: its road runs out
+    /// to the one rail's `›`, and in from the next's `‹` to an arrow with
+    /// its runs above it.
+    fn crossing(
+        &self,
+        paint: &mut Paint,
+        plan: &Plan,
+        row: &Folded,
+        index: usize,
+        drawn: &mut Drawn,
+    ) {
+        let rail = row.rail(index);
+        let out = (row.rails.get(index + 1))
+            .and_then(|next| self.taken(rail[rail.len() - 1], row.states[next.start]));
+        if out.is_some() {
+            let last = plan.segments[plan.segments.len() - 1].rail.1;
+            for x in last + 1..self.width - 1 {
+                put(paint.cells, x, plan.rail_row, "─", plain());
+            }
+        }
+        let before = (index.checked_sub(1)).map(|before| row.states[row.rails[before].end - 1]);
+        if let Some(link) = before.and_then(|before| self.taken(before, rail[0])) {
+            let head = plan.segments[0].rail.0 - 1;
+            for x in 1..head {
+                put(paint.cells, x, plan.rail_row, "─", plain());
+            }
+            put(paint.cells, head, plan.rail_row, "ᐳ", plain());
+            self.count_before(paint, head, link, drawn);
         }
     }
 
-    /// One rail of the fold, painted and counted, as plain text: no colour,
-    /// trailing blanks trimmed and blank rows dropped. A rail the fold
-    /// continues wears the TUI's own elision marks, `›` and `‹`.
-    fn rail_lines(&self, rail: &[usize], folded: (bool, bool), drawn: &mut Drawn) -> Vec<String> {
-        let arcs = self.returns(rail);
-        let plan = planned(&self.phases(rail, &arcs), self.width);
+    /// A back arc's ` ×n ` on its own dashes, as near its middle as they
+    /// stand clear of its head, its corners and any deeper arc's end;
+    /// false when no stretch of them is wide enough.
+    fn arc_count(&self, cells: &mut Cells, arc: &Arc, row: usize, link: usize) -> bool {
+        let text = format!(" ×{} ", self.view.links[link].count);
+        let wide = width_of(&text);
+        let middle = (arc.to + arc.from) / 2;
+        let mut starts: Vec<usize> = (arc.to + 1..arc.from).collect();
+        starts.sort_by_key(|x| (x + wide / 2).abs_diff(middle));
+        let clear = |x: &usize| (*x..*x + wide).all(|column| under(cells, column, row) == "─");
+        let Some(x) = starts
+            .into_iter()
+            .filter(|x| x + wide <= arc.from)
+            .find(clear)
+        else {
+            return false;
+        };
+        put(cells, x, row, &text, plain());
+        true
+    }
+
+    /// What each arc carries, written over its painted row: a back arc's
+    /// count, and a road down's runs and the terminal it reaches.
+    fn arc_counts(&self, cells: &mut Cells, plan: &Plan, carried: &[Carried], drawn: &mut Drawn) {
+        let row = plan.arc_row.unwrap_or(plan.rows);
+        for (arc, carried) in plan.arcs.iter().zip(carried) {
+            let at = row + arc.level;
+            match carried {
+                Carried::Back(link) => {
+                    if self.arc_count(cells, arc, at, *link) {
+                        drawn.insert(*link);
+                    }
+                }
+                Carried::Down { link, head, tag } => {
+                    let runs = format!(" {} ", self.view.links[*link].count);
+                    put(cells, arc.to + 2, at, &runs, plain());
+                    put(cells, *head, at, tag, plain());
+                    drawn.insert(*link);
+                }
+            }
+        }
+    }
+
+    /// Rail `index` of `row`, painted and counted, as plain text: no
+    /// colour, trailing blanks trimmed and blank rows dropped. A rail the
+    /// fold continues wears the TUI's own elision marks, `›` and `‹`.
+    fn rail_lines(&self, row: &Folded, index: usize, drawn: &mut Drawn) -> Vec<String> {
+        let rail = row.rail(index);
+        let phases: Vec<Phase> = rail.iter().map(|at| self.phase_of(*at)).collect();
+        let mut plan = planned(&phases, self.width);
+        let (arcs, carried): (Vec<Arc>, Vec<Carried>) =
+            self.arcs(row, index, &plan).into_iter().unzip();
+        plan.arcs = arcs;
+        nest(&mut plan);
         let mut cells = paint_cells(&plan, 0, false);
-        self.roads(&mut cells, &plan, rail, drawn);
-        self.arc_counts(&mut cells, &plan, &arcs, drawn);
-        if folded.0 {
+        let mut paint = Paint {
+            cells: &mut cells,
+            labels: Labels::default(),
+            rows: [plan.rail_row - 1, plan.rail_row - 2],
+        };
+        self.roads(&mut paint, &plan, rail, drawn);
+        self.crossing(&mut paint, &plan, row, index, drawn);
+        self.arc_counts(&mut cells, &plan, &carried, drawn);
+        if index > 0 {
             put(&mut cells, 0, plan.rail_row, "‹", plain());
         }
-        if folded.1 {
-            let x = self.width.saturating_sub(1);
-            put(&mut cells, x, plan.rail_row, "›", plain());
+        if index + 1 < row.rails.len() {
+            put(&mut cells, self.width - 1, plan.rail_row, "›", plain());
         }
         (cells.iter())
             .map(|row| {
@@ -241,15 +425,13 @@ impl Drawing<'_> {
             .collect()
     }
 
-    /// `states` folded into rails at the drawing's width, each painted.
-    fn folded(&self, states: &[usize], drawn: &mut Drawn) -> Vec<String> {
-        let rails = folds(&self.phases(states, &[]), self.width);
-        let mut lines = Vec::new();
-        for (index, rail) in rails.iter().enumerate() {
-            let folded = (index > 0, index + 1 < rails.len());
-            lines.extend(self.rail_lines(&states[rail.clone()], folded, drawn));
+    /// `states` folded into rails at the drawing's width.
+    fn fold<'r>(&self, states: &'r [usize]) -> Folded<'r> {
+        let phases: Vec<Phase> = states.iter().map(|at| self.phase_of(*at)).collect();
+        Folded {
+            states,
+            rails: folds(&phases, self.width),
         }
-        lines
     }
 
     /// A rule taken that no rail drew, in the rail's own glyphs: a back
@@ -289,6 +471,14 @@ impl Drawing<'_> {
     }
 }
 
+/// One rail's cells as its counts are written over them: the counts rows
+/// over the rail, and what each already holds.
+struct Paint<'c> {
+    cells: &'c mut Cells,
+    labels: Labels,
+    rows: [usize; 2],
+}
+
 /// The links a rail drew, by their index in the view.
 type Drawn = BTreeSet<usize>;
 
@@ -299,8 +489,8 @@ fn planned(phases: &[Phase], width: usize) -> Plan {
 /// The fold: each rail takes as many states as fit `width` whole, from
 /// the first, and a state that does not is the next rail's first. A rail
 /// never scrolls a state away as the TUI's window does, so every state is
-/// drawn; one state too wide alone clamps its name with `…`.
-fn folds(phases: &[Phase], width: usize) -> Vec<std::ops::Range<usize>> {
+/// drawn; at the narrowest a rail holds one state.
+fn folds(phases: &[Phase], width: usize) -> Vec<Range<usize>> {
     let mut rails = Vec::new();
     let mut start = 0;
     while start < phases.len() {
@@ -391,21 +581,34 @@ fn fitted(line: &str, width: usize) -> Vec<String> {
 /// view has no state to draw: a recipe that does not compile and that no
 /// run carries.
 pub(crate) fn recipe_graph(view: &GraphView, width: usize) -> String {
+    drawn_links(view, width).0
+}
+
+/// [`recipe_graph`], with the links its rails drew: every other taken
+/// link is listed under them.
+pub(crate) fn drawn_links(view: &GraphView, width: usize) -> (String, Drawn) {
+    let mut drawn = Drawn::new();
     if view.states.is_empty() {
-        return String::new();
+        return (String::new(), drawn);
     }
     let drawing = Drawing { view, width };
     let mut row = drawing.placed(Place::Row);
     row.extend(drawing.placed(Place::End));
-    let mut drawn = Drawn::new();
-    let mut lines = drawing.folded(&row, &mut drawn);
-    lines.extend(drawing.folded(&drawing.placed(Place::Beneath), &mut drawn));
+    let beneath = drawing.placed(Place::Beneath);
+    let mut lines = Vec::new();
+    for states in [&row, &beneath] {
+        let folded = drawing.fold(states);
+        for index in 0..folded.rails.len() {
+            lines.extend(drawing.rail_lines(&folded, index, &mut drawn));
+        }
+    }
     let under = drawing.under(&drawn);
     lines.extend(under.iter().flat_map(|line| fitted(line, width)));
-    (lines.iter())
+    let text = (lines.iter())
         .map(|line| format!("{line}\n"))
         .collect::<String>()
-        + "\n"
+        + "\n";
+    (text, drawn)
 }
 
 #[cfg(test)]

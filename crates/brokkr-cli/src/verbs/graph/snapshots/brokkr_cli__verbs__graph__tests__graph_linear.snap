@@ -10,4 +10,5 @@ expression: drawing
 never fired 1 of 4  BUILD-FAIL
 nodes: runs entered · median stay · ∙ a live run · · never entered
 arrows: runs moved · ↻ to itself · ×n back · none where no run moved
-⊗ a terminal: those beneath the row are drawn under it, their rules listed
+⊗ a terminal · ╰─ n ─ᐳ ⊗ the road down to one beneath the row
+› ‹ a rail the next continues, with its arrows and arcs

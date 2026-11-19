@@ -164,13 +164,43 @@ pub(super) fn selection_box(cells: &mut Cells, seg: &Seg, plan: &Plan) {
 /// wears a head, matching the rail's own asymmetry: `ᐳ` marks arrival,
 /// never departure. The head sits inside the landing corner, pointing
 /// into it.
+///
+/// An arc [`nest`] dealt a deeper row rides `level` rows under `row`, and
+/// its ends rise to `row` through the rows between ([`stem`]). An arc a
+/// fold cut ends at the fold's own marks, `›` and `‹` (#1145).
 pub(super) fn arc(cells: &mut Cells, arc: &Arc, row: usize) {
+    let at = row + arc.level;
     for x in arc.to..=arc.from {
-        put(cells, x, row, "─", plain());
+        put(cells, x, at, "─", plain());
     }
-    put(cells, arc.to, row, "╰", plain());
-    put(cells, arc.from, row, "╯", plain());
-    put(cells, arc.to + 1, row, "ᐸ", plain());
+    let (left, right, head) = match arc.reach {
+        Reach::Whole => ("╰", "╯", true),
+        Reach::FromLater => ("╰", "›", true),
+        Reach::ToEarlier => ("‹", "╯", false),
+        Reach::Down => ("╰", "─", false),
+    };
+    put(cells, arc.to, at, left, plain());
+    put(cells, arc.from, at, right, plain());
+    if head {
+        put(cells, arc.to + 1, at, "ᐸ", plain());
+    }
+    for x in arc.stems() {
+        for above in row..at {
+            stem(cells, x, above);
+        }
+    }
+}
+
+/// A deeper arc's end passing a shallower row: a junction where it meets
+/// a road already drawn there, so both read through it, else `│`.
+fn stem(cells: &mut Cells, x: usize, row: usize) {
+    let glyph = match under(cells, x, row).as_str() {
+        "─" | "┼" => "┼",
+        "╰" | "├" => "├",
+        "╯" | "┤" => "┤",
+        _ => "│",
+    };
+    put(cells, x, row, glyph, plain());
 }
 
 /// A fork and its rejoin. **The rejoin is drawn always** — it is the
@@ -305,9 +335,12 @@ pub(super) fn paint_cells(plan: &Plan, tick: usize, animate: bool) -> Cells {
     }
     // The roads back run on their own reserved row, under the names and
     // under the box's lower edge: nothing else is drawn there, so the
-    // arcs overwrite nothing and are overwritten by nothing.
+    // arcs overwrite nothing and are overwritten by nothing. The shallow
+    // rows first, so a deeper arc's ends find the roads they pass.
     if let Some(row) = plan.arc_row {
-        for road in &plan.arcs {
+        let mut roads: Vec<&Arc> = plan.arcs.iter().collect();
+        roads.sort_by_key(|road| road.level);
+        for road in roads {
             arc(&mut cells, road, row);
         }
     }

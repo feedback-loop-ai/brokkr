@@ -11,4 +11,5 @@ expression: "drawn(&view, PIPED_WIDTH)"
 never fired 2 of 7  REVIEW-HOLD  REVIEW-STOP
 nodes: runs entered · median stay · ∙ a live run · · never entered
 arrows: runs moved · ↻ to itself · ×n back · none where no run moved
-⊗ a terminal: those beneath the row are drawn under it, their rules listed
+⊗ a terminal · ╰─ n ─ᐳ ⊗ the road down to one beneath the row
+› ‹ a rail the next continues, with its arrows and arcs

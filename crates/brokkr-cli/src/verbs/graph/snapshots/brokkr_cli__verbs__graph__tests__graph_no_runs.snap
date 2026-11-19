@@ -10,4 +10,5 @@ never fired 7 of 7  IMPL-OK  REVIEW-CLEAN  REVIEW-REFORGE  REVIEW-HOLD  REVIEW-S
    SHIP-OK
 nodes: runs entered · median stay · ∙ a live run · · never entered
 arrows: runs moved · ↻ to itself · ×n back · none where no run moved
-⊗ a terminal: those beneath the row are drawn under it, their rules listed
+⊗ a terminal · ╰─ n ─ᐳ ⊗ the road down to one beneath the row
+› ‹ a rail the next continues, with its arrows and arcs

@@ -9,8 +9,10 @@ use clap::Parser;
 use serde_json::{json, Value};
 
 use super::*;
+use crate::tui::drawn_links;
 use crate::verbs::analytics::CrossRunCmd;
 use crate::{Cli, Cmd, Exit};
+use brokkr_view::RuleKind;
 
 /// The repository root: its `recipes/` holds `self`, which composes
 /// `panel-review` over its base.
@@ -735,13 +737,54 @@ fn a_linear_recipe_is_drawn_on_one_rail_with_each_rules_runs_above_its_arrow() {
     assert_eq!(shown.strip_prefix(&drawing), Some(paint(&view).as_str()));
 }
 
-/// `view` drawn at `width`, every line of it held within `width`.
+/// `view` drawn at `width`, every line of it held within `width`, and
+/// every link the range took either drawn by a rail or listed under it
+/// with its count, never both and never neither: none is lost.
 fn drawn(view: &GraphView, width: usize) -> String {
-    let drawing = recipe_graph(view, width);
+    let (drawing, drawn) = drawn_links(view, width);
     for line in drawing.lines() {
         assert!(line.chars().count() <= width, "{line}\n{drawing}");
     }
+    let read = unbroken(&drawing);
+    let taken = (view.links.iter().enumerate()).filter(|(_, link)| link.count > 0);
+    for (at, link) in taken {
+        let (from, next, count) = (&link.from, &link.next, link.count);
+        let listed = match link.kind {
+            RuleKind::Back => format!(" {next} ᐸ── {from} ×{count} "),
+            RuleKind::Terminal => format!(" {from} ──ᐳ ⊗ {next} {count} "),
+            RuleKind::Forward | RuleKind::SelfLoop => format!(" {from} ──ᐳ {next} {count} "),
+        };
+        assert_ne!(
+            drawn.contains(&at),
+            read.contains(&listed),
+            "{listed}\n{drawing}"
+        );
+    }
     drawing
+}
+
+/// `drawing`'s lines read as one: a word continued `…` to `…` joined, and
+/// every run of blanks one blank.
+fn unbroken(drawing: &str) -> String {
+    let mut read = String::new();
+    for line in drawing.lines() {
+        let line = line.trim_start();
+        match (read.strip_suffix('…'), line.strip_prefix('…')) {
+            (Some(kept), Some(rest)) => read = format!("{kept}{rest}"),
+            _ => read = format!("{read} {line}"),
+        }
+    }
+    read.split_whitespace().collect::<Vec<_>>().join(" ") + " "
+}
+
+/// The back links `view` took, each drawn as a return arc at `width`.
+fn arcs_drawn(view: &GraphView, width: usize) {
+    let (drawing, drawn) = drawn_links(view, width);
+    for (at, link) in view.links.iter().enumerate() {
+        if link.kind == RuleKind::Back && link.count > 0 {
+            assert!(drawn.contains(&at), "{link:?}\n{drawing}");
+        }
+    }
 }
 
 #[test]
@@ -752,7 +795,7 @@ fn a_reforge_loop_taken_more_than_once_is_a_return_arc_with_its_count() {
 }
 
 #[test]
-fn a_return_arc_nested_in_another_is_listed_so_neither_count_is_lost() {
+fn a_return_arc_nested_in_another_rides_a_row_of_its_own_with_its_count() {
     let dir = tempfile::tempdir().unwrap();
     let machine = table(
         &["a", "b", "c", "d"],
@@ -786,13 +829,111 @@ fn a_return_arc_nested_in_another_is_listed_so_neither_count_is_lost() {
     events.push((EventType::RunCompleted, json!({})));
     Journal::at(dir.path()).run("nested", &json!({"bundle_name": "nested"}), &events);
     let view = view_of(dir.path(), &machine, "nested");
-    // b ᐸ c rides the arc row; a ᐸ d would share its centre, so it is
-    // listed with its count rather than written over the other's.
-    insta::assert_snapshot!("graph_nested", drawn(&view, PIPED_WIDTH));
+    // b ᐸ c rides the arc row, and a ᐸ d, whose span holds it, the row
+    // under it, rising past it to its states: both arcs, both counts.
+    let drawing = drawn(&view, PIPED_WIDTH);
+    insta::assert_snapshot!("graph_nested", drawing);
+    arcs_drawn(&view, PIPED_WIDTH);
+    assert_eq!(drawing.matches(" ×1 ").count(), 2, "{drawing}");
+}
+
+/// The delivery recipe's shape: implement, verify, review and ship, verify
+/// sending the work back three times and review once, both to implement.
+fn delivered(dir: &Path) -> GraphView {
+    let states = ["implement", "verify", "review", "ship"];
+    let machine = table(
+        &states,
+        &[
+            ("IMPL-OK", "implement", "complete", Some("verify")),
+            ("VERIFY-OK", "verify", "pass", Some("review")),
+            ("VERIFY-FAIL", "verify", "fail", Some("implement")),
+            ("REVIEW-CLEAN", "review", "clean", Some("ship")),
+            ("REVIEW-REFORGE", "review", "residual", Some("implement")),
+            ("REVIEW-STOP", "review", "blocked", Some("stop")),
+            ("SHIP-OK", "ship", "complete", Some("done")),
+        ],
+    );
+    let implement = ("implement", "complete", "IMPL-OK", Some("verify"));
+    let pass = ("verify", "pass", "VERIFY-OK", Some("review"));
+    let fail = ("verify", "fail", "VERIFY-FAIL", Some("implement"));
+    let reforge = ("review", "residual", "REVIEW-REFORGE", Some("implement"));
+    let clean = ("review", "clean", "REVIEW-CLEAN", Some("ship"));
+    let ship = ("ship", "complete", "SHIP-OK", Some("done"));
+    let manifest = json!({"bundle_name": "delivery"});
+    let mut journal = Journal::at(dir);
+    let runs = [
+        vec![implement, fail, implement, pass, reforge, implement, pass],
+        vec![implement, fail, implement, fail, implement, pass],
+    ];
+    for (index, mut steps) in runs.into_iter().enumerate() {
+        steps.extend([clean, ship]);
+        let mut events = walked(&steps);
+        events.push((EventType::RunCompleted, json!({})));
+        journal.run(&format!("run-{index}"), &manifest, &events);
+    }
+    view_of(dir, &machine, "delivery")
 }
 
 #[test]
-fn a_parked_run_is_live_on_its_state_and_a_stopped_one_is_listed_beneath() {
+fn the_delivery_shape_draws_its_two_reforges_as_nested_return_arcs() {
+    let dir = tempfile::tempdir().unwrap();
+    let view = delivered(dir.path());
+    let drawing = drawn(&view, PIPED_WIDTH);
+    insta::assert_snapshot!("graph_delivery", drawing);
+    arcs_drawn(&view, PIPED_WIDTH);
+    // verify ᐸ implement ×3 rides the arc row, review's ×1 the row under.
+    let rows: Vec<&str> = drawing.lines().filter(|line| line.contains('ᐸ')).collect();
+    assert_eq!(rows.len(), 2, "{drawing}");
+    assert!(
+        rows[0].contains(" ×3 ") && rows[1].contains(" ×1 "),
+        "{drawing}"
+    );
+}
+
+#[test]
+fn a_self_loops_count_and_a_forward_links_count_never_share_a_column() {
+    let dir = tempfile::tempdir().unwrap();
+    let machine = table(
+        &["a", "b"],
+        &[
+            ("A-AGAIN", "a", "retry", Some("a")),
+            ("A-OK", "a", "complete", Some("b")),
+            ("B-OK", "b", "complete", Some("done")),
+            ("B-STOP", "b", "blocked", Some("stop")),
+        ],
+    );
+    let mut events = walked(&[
+        ("a", "retry", "A-AGAIN", Some("a")),
+        ("a", "complete", "A-OK", Some("b")),
+        ("b", "complete", "B-OK", Some("done")),
+    ]);
+    events.push((EventType::RunCompleted, json!({})));
+    Journal::at(dir.path()).run("loud", &json!({"bundle_name": "loud"}), &events);
+    let mut view = view_of(dir.path(), &machine, "loud");
+    // Review 2's case: entered `1 · 0m`, ten thousand runs to itself and
+    // ten thousand on: the two counts would share a column on one row.
+    let leaving = |view: &mut GraphView, count| {
+        for link in view.links.iter_mut().filter(|link| link.from == "a") {
+            link.count = count;
+        }
+    };
+    leaving(&mut view, 10_000);
+    let drawing = drawn(&view, PIPED_WIDTH);
+    insta::assert_snapshot!("graph_counts_apart", drawing);
+    let words: Vec<&str> = drawing.split_whitespace().collect();
+    assert!(
+        words.contains(&"↻10000") && words.contains(&"10000"),
+        "{drawing}"
+    );
+    // Where the count is wider than the room before its arrow, the link
+    // is listed whole.
+    leaving(&mut view, 1_000_000_000_000);
+    let drawing = drawn(&view, 24);
+    assert!(drawing.contains("  a ──ᐳ b  1000000000000\n"), "{drawing}");
+}
+
+#[test]
+fn a_parked_run_is_live_on_its_state_and_a_stopped_one_takes_the_road_down_to_stop() {
     let dir = tempfile::tempdir().unwrap();
     let manifest = json!({"bundle_name": "reforge"});
     let implement = ("implement", "complete", "IMPL-OK", Some("review"));
@@ -804,7 +945,9 @@ fn a_parked_run_is_live_on_its_state_and_a_stopped_one_is_listed_beneath() {
     stopped.push((EventType::RunStopped, json!({})));
     journal.run("stopped", &manifest, &stopped);
     let view = view_of(dir.path(), &reforging(), "reforge");
-    insta::assert_snapshot!("graph_parked", drawn(&view, PIPED_WIDTH));
+    let drawing = drawn(&view, PIPED_WIDTH);
+    insta::assert_snapshot!("graph_parked", drawing);
+    assert!(drawing.contains("╰─ 1 ─ᐳ ⊗ stop"), "{drawing}");
 }
 
 #[test]
@@ -817,7 +960,7 @@ fn a_range_with_no_runs_draws_the_table_with_no_traffic() {
 }
 
 #[test]
-fn at_80_columns_a_wide_recipe_folds_whole_states_and_lists_what_crosses_the_fold() {
+fn at_80_columns_a_wide_recipe_folds_whole_states_and_draws_its_arcs_across_the_fold() {
     let dir = tempfile::tempdir().unwrap();
     let states = [
         "specification-intake",
@@ -868,6 +1011,13 @@ fn at_80_columns_a_wide_recipe_folds_whole_states_and_lists_what_crosses_the_fol
         assert!(drawing.contains(state), "{state}\n{drawing}");
     }
     assert!(!drawing.contains('…'), "{drawing}");
+    // Both back links leave the second rail for the first: each is drawn
+    // as its landing half out to `›` and its departing half in from `‹`.
+    arcs_drawn(&view, 80);
+    let lines = || drawing.lines().filter(|line| !line.contains('⏺'));
+    let landing = lines().filter(|line| line.contains('ᐸ') && line.ends_with('›'));
+    let leaving = lines().filter(|line| line.starts_with('‹'));
+    assert_eq!((landing.count(), leaving.count()), (2, 2), "{drawing}");
 }
 
 #[test]
@@ -896,11 +1046,8 @@ fn at_80_columns_a_long_link_across_the_fold_wraps_and_a_long_id_continues() {
     let view = view_of(dir.path(), &machine, "long");
     let drawing = drawn(&view, 80);
     insta::assert_snapshot!("graph_long_80", drawing);
-    // The link the fold split is listed, broken between words.
-    assert!(
-        drawing.contains(&format!("  {first} ──ᐳ\n     {second}  1\n")),
-        "{drawing}"
-    );
+    // The link the fold split runs out to `›` and in from `‹`.
+    assert!(drawing.contains("‹──────────────────ᐳ⏺"), "{drawing}");
     // At the narrowest width the id is wider than a line: it is continued,
     // `…` to `…`, and reads whole with its breaks taken out.
     let narrowest = drawn(&view, NARROWEST);

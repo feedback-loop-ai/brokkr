@@ -4503,10 +4503,7 @@ fn a_recorded_reforging_draws_one_return_arc_under_the_names() {
     let review = centre_of(segment(&plan, "review"));
     assert_eq!(
         plan.arcs,
-        vec![Arc {
-            to: implement,
-            from: review,
-        }],
+        vec![Arc::whole(implement, review)],
         "one road, landing where the ruling sent the run"
     );
 
@@ -4670,8 +4667,9 @@ fn the_return_arc_names_only_the_solid_vocabulary() {
         .collect();
     assert!(!drawn.is_empty(), "the painter names glyphs");
     for glyph in &drawn {
+        // `‹ ›` are the fold's own elision marks, where a recipe's arc is cut (#1145).
         assert!(
-            "─│╭╮╰╯┼ᐸ".contains(*glyph),
+            "─│╭╮╰╯┼ᐸ‹›".contains(*glyph),
             "the arc drew {glyph}, outside the solid vocabulary"
         );
     }
