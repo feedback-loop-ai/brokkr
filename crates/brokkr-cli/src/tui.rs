@@ -157,7 +157,7 @@ const PULSE_FRAMES: usize = 4;
 
 mod columns;
 mod footer;
-pub(crate) mod glyphs;
+mod glyphs;
 mod keys;
 mod layout;
 mod movement;
@@ -174,6 +174,8 @@ mod terminal;
 use self::columns::*;
 use self::footer::*;
 use self::glyphs::*;
+/// The cell width and clamp `brokkr graph`'s tables measure with (#1167).
+pub(crate) use self::glyphs::{clamp, width_of};
 use self::keys::*;
 use self::layout::*;
 use self::movement::*;
