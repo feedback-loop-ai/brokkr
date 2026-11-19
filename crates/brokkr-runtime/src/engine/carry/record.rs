@@ -6,9 +6,12 @@ use brokkr_protocol::{AttemptOutcome, AttemptReport};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
 
+use brokkr_core::envelope::{EventEnvelope, EventType};
+use brokkr_store::StoreError;
+
 use super::super::panel::Stamped;
 use super::super::worktree::{read_tree, TreeReading};
-use super::super::{git_head, is_commit_id};
+use super::super::{git_head, is_commit_id, Engine, EngineError};
 use crate::bundle::MemberFindings;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -179,6 +182,44 @@ pub(crate) fn settled_members(
             AttemptOutcome::Failed { .. } | AttemptOutcome::Indeterminate { .. } => None,
         })
         .collect()
+}
+
+impl Engine {
+    /// `payload` appended under the seat-record fence. A panel's failed or
+    /// indeterminate terminal whose marked settled member's payload the
+    /// fence refuses (fix round 0109a1r6, W3) carries no settled verdict:
+    /// it is journaled again without `settled_members`, the refusal named
+    /// in its own words, as a refused success is journaled as a failure.
+    /// That member is then unsettled, so a retry runs it fresh.
+    pub(in crate::engine) fn append_settled(
+        &mut self,
+        event_type: EventType,
+        payload: Value,
+        attempt_id: Option<String>,
+    ) -> Result<EventEnvelope, EngineError> {
+        let settled = payload.get("settled_members").is_some();
+        let again = settled.then(|| payload.clone());
+        match (
+            self.append_raw(event_type, payload, attempt_id.clone()),
+            again,
+        ) {
+            (Err(EngineError::Store(StoreError::SeatRecord(refusal))), Some(mut payload)) => {
+                let fields = payload
+                    .as_object_mut()
+                    .expect("a terminal payload is an object");
+                fields.remove("settled_members");
+                let said = ["error", "reason"]
+                    .into_iter()
+                    .find(|field| fields.contains_key(*field));
+                let said = said.expect("a failed or indeterminate terminal says why");
+                let why = fields[said].as_str().unwrap_or_default();
+                fields[said] =
+                    Value::from(format!("{why}; a settled member was refused: {refusal}"));
+                self.append_raw(event_type, payload, attempt_id)
+            }
+            (appended, _) => appended,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

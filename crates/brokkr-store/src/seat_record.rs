@@ -27,7 +27,9 @@ use thiserror::Error;
 mod validation;
 
 pub use validation::validate_seat_record;
-pub(crate) use validation::{record_of, validate_events};
+pub(crate) use validation::{
+    marked_member, record_of, settled_of, validate_events, validate_settled,
+};
 
 const SCHEMA_V1: &str = include_str!("seat-record.v1.schema.json");
 const SCHEMA_V2: &str = include_str!("seat-record.v2.schema.json");

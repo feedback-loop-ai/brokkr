@@ -395,8 +395,20 @@ fn refused_at_append_export_and_verify(
     payload: Value,
     path: &str,
 ) {
+    let rows = [(EventType::EffectCheckpointed, payload)];
+    refused_after(store, run, &rows, path);
+}
+
+/// The last of `rows`, in a new v7 run `run` whose earlier rows are
+/// appended as they stand, refused at the append fence, by export and by
+/// offline verify alike, at `path`.
+fn refused_after(store: &mut crate::Store, run: &str, rows: &[(EventType, Value)], path: &str) {
     super::tests::started_run(store, run, "0.14.0");
-    let kind = EventType::EffectCheckpointed;
+    let ((kind, payload), earlier) = rows.split_last().unwrap();
+    for (kind, payload) in earlier {
+        (store.append_next(run, *kind, payload.clone(), None, None)).unwrap();
+    }
+    let (kind, payload) = (*kind, payload.clone());
     let crate::StoreError::SeatRecord(appended) = store
         .append_next(run, kind, payload.clone(), None, None)
         .unwrap_err()
@@ -442,6 +454,43 @@ fn a_nested_results_subsets_are_checked_as_a_standalone_results_are() {
     let (_dir, mut store) = crate::tests::store();
     let path = "/result/cache_read_tokens";
     refused_at_append_export_and_verify(&mut store, "nested", stepped(over), path);
+}
+
+/// Fix round 0109a1r6, W3: a marked settled member's payload reads as a
+/// verdict, so it gets every fence a standalone result gets. A current
+/// panel member settled with `input_tokens: 1` and `cache_read_tokens: 2`
+/// beside its failed sibling, its engine marker journaled, is refused at
+/// `/settled_members/a/cache_read_tokens` at append, export and verify. The
+/// same row beside a released engine's unauthored marker keeps its
+/// admission.
+#[test]
+fn a_marked_settled_members_payload_is_validated_as_a_standalone_result() {
+    let over = json!({"result": "clean", "input_tokens": 1, "cache_read_tokens": 2});
+    let failed = json!({"effect_id": "fx", "attempt_id": "attempt-1", "error": "b failed",
+                        "tree": {}, "settled_members": {"a": over}});
+    let marker = |authored: bool| {
+        let mut marker = json!({"step": "panel-member-finished", "member": "a",
+                                "outcome": "succeeded", "model": "m"});
+        if authored {
+            marker["authored"] = json!("engine");
+        }
+        json!({"effect_id": "fx", "attempt_id": "attempt-1", "checkpoint": marker})
+    };
+    let rows = |authored| {
+        [
+            (EventType::EffectCheckpointed, marker(authored)),
+            (EventType::EffectFailed, failed.clone()),
+        ]
+    };
+    let (_dir, mut store) = crate::tests::store();
+    let path = "/settled_members/a/cache_read_tokens";
+    refused_after(&mut store, "marked", &rows(true), path);
+    super::tests::started_run(&mut store, "released", "0.14.0");
+    for (kind, payload) in rows(false) {
+        (store.append_next("released", kind, payload, None, None)).unwrap();
+    }
+    let exported = store.export_ndjson("released").unwrap();
+    assert!(crate::verify_export(&exported).is_ok());
 }
 
 /// Fix round 0109a1r4, K5: a released engine's records stay admissible.

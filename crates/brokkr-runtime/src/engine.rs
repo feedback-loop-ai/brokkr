@@ -969,7 +969,7 @@ impl Engine {
             }
         }
         let payload = self.stamp_covered(event_type, payload);
-        self.append_raw(event_type, payload, attempt_id)
+        self.append_settled(event_type, payload, attempt_id)
     }
 
     fn request_or_finish(&mut self, state: &RunState) -> Result<(), EngineError> {

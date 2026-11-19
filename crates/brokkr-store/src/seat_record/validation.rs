@@ -3,7 +3,9 @@
 //! table and dispatch; this module only applies it — at the append
 //! fence, and in the export and offline-verify sweeps.
 
-use brokkr_core::findings::{Finding, AUTHORED};
+use std::collections::{BTreeMap, BTreeSet};
+
+use brokkr_core::findings::{EngineMarker, Finding, AUTHORED};
 use brokkr_core::{EventEnvelope, EventType};
 use serde::Deserialize;
 use serde_json::Value;
@@ -103,6 +105,50 @@ fn gate_report_reads(record: &Value, version: SeatRecordVersion) -> bool {
     })
 }
 
+/// Each settled member of a panel's failed or indeterminate terminal
+/// `payload`, by its tag, with its journaled result: the payloads a
+/// failure's evidence carries beside the members that succeeded.
+pub(crate) fn settled_of(
+    event_type: EventType,
+    payload: &Value,
+) -> impl Iterator<Item = (&String, &Value)> {
+    let terminal = matches!(
+        event_type,
+        EventType::EffectFailed | EventType::EffectIndeterminate
+    );
+    (terminal.then(|| payload.get("settled_members").and_then(Value::as_object)))
+        .flatten()
+        .into_iter()
+        .flatten()
+}
+
+/// Validate each settled member's payload in `payload` that the engine
+/// marked, `marked` naming the members its own markers settled in the
+/// attempt, as a standalone result is validated (fix round 0109a1r6, W3):
+/// the marked payload reads as a verdict, so it gets every fence one does,
+/// and a refusal names `/settled_members/<tag>` before the result's own
+/// pointer. An unmarked payload, a released engine's raw copy, keeps its
+/// admission.
+pub(crate) fn validate_settled(
+    (event_type, payload): (EventType, &Value),
+    marked: &BTreeSet<String>,
+    seq: u64,
+    version: SeatRecordVersion,
+) -> Result<(), SeatRecordError> {
+    let marked = settled_of(event_type, payload).filter(|(tag, _)| marked.contains(*tag));
+    for (tag, result) in marked {
+        validate_seat_record(result, seq, version).map_err(|mut refusal| {
+            let inner = refusal.path.strip_prefix('/').unwrap_or_default();
+            refusal.path = match inner {
+                "" => format!("/settled_members/{tag}"),
+                inner => format!("/settled_members/{tag}/{inner}"),
+            };
+            refusal
+        })?;
+    }
+    Ok(())
+}
+
 /// The seat record an event carries, if its type carries one: a
 /// checkpoint's `checkpoint`, a successful result's `result`. This is
 /// the one place that knows which events are seat records. The append
@@ -123,10 +169,30 @@ pub(crate) fn validate_events(events: &[EventEnvelope]) -> Result<(), SeatRecord
         .find(|event| event.event_type == EventType::RunStarted)
         .and_then(|event| event.payload.pointer("/manifest/engine"));
     let version = SeatRecordVersion::of_manifest(engine.and_then(Value::as_str));
+    let mut marked: BTreeMap<&str, BTreeSet<String>> = BTreeMap::new();
+    let none = BTreeSet::new();
     for event in events {
         if let Some(record) = record_of(event.event_type, &event.payload) {
             validate_seat_record(record, event.seq, version)?;
         }
+        let attempt = event.payload["attempt_id"].as_str().unwrap_or_default();
+        if let Some(member) = marked_member(event.event_type, &event.payload) {
+            marked.entry(attempt).or_default().insert(member.to_owned());
+        }
+        let settled = marked.get(attempt).unwrap_or(&none);
+        validate_settled(
+            (event.event_type, &event.payload),
+            settled,
+            event.seq,
+            version,
+        )?;
     }
     Ok(())
+}
+
+/// The member a checkpoint event's engine marker settles, by the one
+/// check inspect and the carry read the mark by.
+pub(crate) fn marked_member(event_type: EventType, payload: &Value) -> Option<&str> {
+    (event_type == EventType::EffectCheckpointed).then_some(())?;
+    EngineMarker::settled_member(payload.get("checkpoint")?)
 }

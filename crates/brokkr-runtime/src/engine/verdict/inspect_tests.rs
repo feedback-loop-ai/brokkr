@@ -167,8 +167,13 @@ fn a_gate_steps_finding_shows_under_its_own_seat_before_the_end_and_at_it() {
 /// A run whose review is a top-level gate panel of member `a`, which
 /// reports `mine`, and member `b`, driven by `b`.
 fn panel_reviewed(b: Vec<String>) -> (tempfile::TempDir, Vec<EventEnvelope>) {
+    panel_of(residual("mine", 5), b)
+}
+
+/// A run whose review is a top-level gate panel of members `a` and `b`.
+fn panel_of(a: Vec<String>, b: Vec<String>) -> (tempfile::TempDir, Vec<EventEnvelope>) {
     let review = SeatBody::Invocation(Invocation::Panel {
-        members: vec![member("a", residual("mine", 5)), member("b", b)],
+        members: vec![member("a", a), member("b", b)],
         aggregate: Aggregate::ReviewPanel,
     });
     driven_with(
@@ -212,6 +217,30 @@ fn a_settled_members_finding_shows_when_its_sibling_fails() {
     );
     let named = producers(&events, Scope::Phase("review".into()));
     assert!(named.iter().all(|(_, by)| by == "review:a"), "{named:?}");
+}
+
+/// Fix round 0109a1r6, W3, through the real writer: member `a` settles
+/// with `input_tokens: 1` and `cache_read_tokens: 2` while `b` fails. Its
+/// marked payload is refused by the append fence, so the failed row is
+/// journaled without `settled_members`, naming the refusal, and `a` shows
+/// no verdict; the drive never errors.
+#[test]
+fn a_marked_settled_member_the_fence_refuses_is_no_settled_verdict() {
+    let over = json!({"result": "clean", "input_tokens": 1, "cache_read_tokens": 2});
+    let (_dir, events) = panel_of(driver(&over), failing());
+    let failed: Vec<&Value> = (events.iter())
+        .filter(|event| event.event_type == EventType::EffectFailed)
+        .map(|event| &event.payload)
+        .collect();
+    assert_eq!(failed.len(), 1, "{failed:?}");
+    assert!(failed[0].get("settled_members").is_none(), "{}", failed[0]);
+    let error = failed[0]["error"].as_str().unwrap();
+    assert!(
+        error.ends_with("at /settled_members/a/cache_read_tokens"),
+        "{error}"
+    );
+    assert!(error.contains("; a settled member was refused: seat record at journal seq"));
+    assert!(gate_records(&events, None).is_empty());
 }
 
 /// A top-level gate panel where one member reports: its seat shows the
