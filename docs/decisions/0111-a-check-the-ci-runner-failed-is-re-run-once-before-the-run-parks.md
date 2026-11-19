@@ -70,6 +70,55 @@ What is not delivered, and why:
 - **The timing-sensitive test.** It stays the change's, as today. Flaky-test handling is a
   follow-up (ruling 4).
 
+### The gate grants nothing
+
+This is the frame every ruling below is read in, and this is its one home.
+
+**No class the `ci` gate draws lets anything reach a later phase, or a merge, that landing
+without the gate would not.** `green` proceeds to `classify`, exactly as landing's own entry
+does today (`recipes/landing/bundle.json:7-10` overrides `initial`; `recipes/landing/README.md:5`).
+No later rule, seat, script or check reads the gate's result as evidence of CI's verdict. The
+forge's required checks at merge stay the only CI authority, unchanged.
+
+Why that holds at HEAD:
+
+- landing reads no forge check ([below](#nothing-in-the-engine-or-the-house-recipes-reads-a-forge-check));
+- its ship seat merges nothing and pushes nothing ("never commit or push",
+  `recipes/fast/scripts/ship-seat.sh:2`); it leaves a clean tree, the gated head, the ledger and
+  the anchor (`recipes/landing/README.md:35`) for a person to "review, push, and merge next"
+  (`ship-seat.sh:73`, `:91`);
+- "the rest of the checks main requires stay CI's" (`recipes/landing/README.md:9-11`), and the
+  forge enforces them at merge (`.github/branch-protection.json:5-20`);
+- the contribution gate reads, of a run's journal, only its `ship` decision and a preflight's
+  `review` decision (`scripts/delivered-by-brokkr.sh:197-200`, `:265-267`), never a gate's
+  inputs, so a `ci` decision in a shipped run's journal moves no tier.
+
+So `green` is not a verdict. It is the absence of the gate's two new outcomes, a typed park for
+a person and one bounded return to `implement`. Every proof the gate takes below is therefore a
+precision guard on the `ci-infrastructure` class, and each fails closed to "not
+infrastructure" (ruling 3).
+
+**Every outcome of a wrong or forged observation is bounded:**
+
+| A wrong … | Costs |
+|---|---|
+| `green` | landing as it is today: review, ship, and the forge's required checks at merge |
+| `ci-infrastructure` | a typed park a person reads before re-running |
+| `change` | one implement visit, under `fast`'s existing implement bound (ruling 6) |
+| `refused` | a `ruled` park a person reads |
+
+**What this is not.** A change that weakens CI's own verdict, such as `deny.toml` widened to
+admit a licence, is green on the forge as well. That is landing's existing exposure, and review
+and the forge hold it, unchanged. It is not a residual of this gate, and this decision does not
+claim to close it.
+
+**Enforcement binding (0111e):**
+`after_ci_pass_the_composed_table_is_landings_own_rule_for_rule` (the composed `landing-ci`
+table, less its four `CI-` rules, its `initial` and its `ci` phase, equals `landing`'s composed
+table rule for rule); and `nothing_in_the_recipes_or_seat_scripts_reads_the_ci_phases_result`
+(a search of every recipe's bundle, policy and scripts, and of `scripts/`, for `ci_class`, the
+three class flags and a `from: ci` decision finds only the four `CI-` rules).
+
 ## What main holds at HEAD
 
 Read at `e667a04c2`.
@@ -170,7 +219,7 @@ Ruling 1 is the operator's, ruled on 2026-11-18. For every other ruling the oper
 "a for 1093". Accepting the rest of this decision is still the operator's.
 
 - **(a) Ruled by the operator: observe, classify and park.** The engine and the recipes observe
-  CI, judge a pass, classify a failure, and park a runner fault with typed evidence and no
+  CI, classify what they observed, and park a runner fault with typed evidence and no
   diagnosis seat attempt. They send no re-run request and hold no write credential. A typed
   `ci_infrastructure` park carries the evidence, and a person reads it and re-runs.
   - Cost: the issue's "re-run once" is not built. The wall-clock wait for a person remains, but
@@ -366,9 +415,10 @@ The other forms:
   read only with no credential: a public repository, under the forge's unauthenticated rate
   limit (unmeasured), and on Linux only. Not recommended.
 
-**The observer's credential is read-only.** A forged pass is the worst case here: an observer
-the change controlled could write a green observation, and the engine's own checks (the head,
-the repository, the pinned list) would not see it. The launch rules exist for that case. The
+**The observer's credential is read-only.** A forged observation reaches no further than the
+bounded table in [The gate grants nothing](#the-gate-grants-nothing): a forged `green` is landing
+as it is today. What the launch rules guard is the precision of `ci-infrastructure` and the
+read-only token itself. The
 credential is a sealed secret binding (0012), resolved by the runner into the one allow-listed
 variable and never into argv; `gh` reads a token from its environment, an env-only consumer
 0012's compile lint already admits (`crates/brokkr-runtime/src/bundle.rs:4149-4156`). Its scope
@@ -594,7 +644,9 @@ tested merge commit, every `merge` entry refuses as `revision-unestablished`, an
 closed. Every required entry in this house's list is `merge` (ruling 5), so until then this
 house's gate never passes on its own.
 
-**What a pass is.** The engine draws `green` only when all of these hold:
+**When `green` is drawn.** `green` grants nothing
+([The gate grants nothing](#the-gate-grants-nothing)); the rule below says only when the gate
+proceeds without either new outcome. The engine draws `green` only when all of these hold:
 
 - the observation's repository, pull request and head equal the run's pinned repository, the
   pull request the gate names and the engine's own git head;
@@ -610,7 +662,7 @@ among those the forge lists for its workflow path, its event, the head and this 
 association, read at its highest attempt. Any other run for that key still queued or in
 progress, or a run list the observer could not read whole, refuses as `execution-ambiguous`.
 
-Nothing short of that is a pass. **Every binding and completeness refusal comes before any
+Nothing short of that is `green`. **Every binding and completeness refusal comes before any
 classification.** The engine checks each row below in order, records every one that holds, and
 classifies a failure only when none does. So a required check that is missing beside an
 otherwise classifiable failure refuses as `missing-required`; it is never typed.
@@ -831,8 +883,9 @@ A failure the classifier cannot type is the change's, as today.
 
 **Audit jobs need no rule of their own.** Fix round 1093r2 kept an audit job out of any re-run
 unless the forge proved its steps never ran, so a re-run could not launder an advisory. With no
-write, no class reaches a pass but `green`, and `green` needs the audit's own `success` (ruling
-3). An audit failure is typed like any other: the change's, or a person's park. #1113's "Not
+write, no class reaches a pass but `green`, `green` grants nothing, and the forge still requires
+the audit's own `success` at merge ([The gate grants nothing](#the-gate-grants-nothing)). An audit
+failure is typed like any other: the change's, or a person's park. #1113's "Not
 Found" is a failed step inside the `RustSec dependency audit` job
 (`.github/workflows/ci.yml:673-695`), in the step that runs the audit and reports it
 (`:693-695`), which is not a setup step. This decision declares nothing for it and designs no
@@ -932,7 +985,8 @@ the change's, under the shared implement bound.**
 The class a table sees is closed: `green`, `ci-infrastructure`, `change` or `refused`. A seat
 cannot write any of them.
 
-- **`green`**: the gate's `pass`; the run proceeds.
+- **`green`**: the gate's `pass`; the run proceeds to `classify`, exactly as landing's own entry
+  does, and nothing later reads it ([The gate grants nothing](#the-gate-grants-nothing)).
 - **`ci-infrastructure`**: the run parks, typed (ruling 7), with the faults as its evidence, and
   no diagnosis seat attempt is spent beyond the `ci` gate's own exec attempt. A person reads
   the evidence and re-runs.
@@ -1191,8 +1245,10 @@ non-`change` class.
 
 A runner fault the classifier can type costs no model diagnosis attempt: the run parks with a
 cause a script can read and evidence a person can act on, and the person re-runs. Every other
-failure is the change's, as today. Brokkr sends the forge nothing, so no mistyped class can
-reach a pass or a re-run; its worst cost is a person's look. A recipe with no list behaves
+failure is the change's, as today. Brokkr sends the forge nothing, and no class the gate draws
+lets anything reach a later phase or a merge that landing without it would not, so the gate is
+not a CI authority: the forge's required checks at merge stay the only one. A wrong class costs
+at most a person's look or one bounded implement visit. A recipe with no list behaves
 exactly as now. The cost is an exec observer per recipe that wants it, one read-only token, and
 a list an operator keeps. Four contract versions are proposed: `ci-observation/v1`,
 `ci-classification/v1`, `ci-checks/v1` and `park-cause/v2`. Each is minted only when its slice
@@ -1401,7 +1457,11 @@ slice that produces it, and each typed assertion is in the slice that builds its
    drives under this overlay on a real pull request, each observation, class and park is
    journaled, and a sweep can count typed parks against diagnosis seat attempts. The park's
    lifecycle is this slice's too: a person re-runs, then the operator retries the parked `ci`
-   phase, which observes again. Tests: `a_green_observation_passes_to_classify`;
+   phase, which observes again. Tests: the frame's two
+   ([The gate grants nothing](#the-gate-grants-nothing)),
+   `after_ci_pass_the_composed_table_is_landings_own_rule_for_rule` and
+   `nothing_in_the_recipes_or_seat_scripts_reads_the_ci_phases_result`;
+   `a_green_observation_passes_to_classify`;
    `a_change_failure_returns_to_implement_once`;
    `a_refusal_parks_ruled_and_never_passes`;
    `a_ci_infrastructure_class_never_routes_to_implement`;
