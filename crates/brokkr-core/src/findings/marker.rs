@@ -23,6 +23,20 @@ pub const AUTHORED: &str = "authored";
 /// `authored`'s one value.
 const BY_THE_ENGINE: &str = "engine";
 
+/// `fields` with the engine's authorship written over whatever it held:
+/// a marker checkpoint's, and an `effect/succeeded` payload's, the row's
+/// mark that its result is the engine's admitted verdict (fix round
+/// 0109a1r6, W6). No released engine wrote it on either.
+pub fn stamp_authored(fields: &mut Value) {
+    fields[AUTHORED] = Value::from(BY_THE_ENGINE);
+}
+
+/// Whether `fields` carries the engine's authorship: the one read of the
+/// mark [`stamp_authored`] writes.
+pub fn by_the_engine(fields: &Value) -> bool {
+    fields.get(AUTHORED).and_then(Value::as_str) == Some(BY_THE_ENGINE)
+}
+
 /// A checkpoint the engine authors beside a verdict.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EngineMarker {
@@ -49,7 +63,7 @@ impl EngineMarker {
     /// authorship written over whatever `fields` held.
     pub fn record(self, mut fields: Value) -> Value {
         fields["step"] = Value::from(self.word());
-        fields[AUTHORED] = Value::from(BY_THE_ENGINE);
+        stamp_authored(&mut fields);
         fields
     }
 
@@ -57,7 +71,7 @@ impl EngineMarker {
     /// a record that names a marker's word without that provenance is no
     /// marker.
     pub fn authored(checkpoint: &Value) -> Option<EngineMarker> {
-        if checkpoint.get(AUTHORED).and_then(Value::as_str) != Some(BY_THE_ENGINE) {
+        if !by_the_engine(checkpoint) {
             return None;
         }
         let word = checkpoint.get("step").and_then(Value::as_str)?;

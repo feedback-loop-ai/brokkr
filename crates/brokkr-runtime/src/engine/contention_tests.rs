@@ -1396,9 +1396,13 @@ fn a_terminal_event_behind_a_held_lock_gets_every_settling_patience_first() {
     let events = engine.store.load(&engine.run_id).unwrap();
     assert_eq!(events.len(), before + 1);
     let last = events.last().unwrap();
+    // The held row is the success the engine stamped, its mark included
+    // (fix round 0109a1r6, W6).
+    let mut landed = result;
+    landed["authored"] = json!("engine");
     assert_eq!(
         (last.event_type, &last.payload, last.attempt_id.as_deref()),
-        (EventType::EffectSucceeded, &result, Some("attempt-1"))
+        (EventType::EffectSucceeded, &landed, Some("attempt-1"))
     );
 }
 

@@ -5,7 +5,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use brokkr_core::findings::{Covered, CoveredHead, EngineMarker, Finding};
+use brokkr_core::findings::{by_the_engine, Covered, CoveredHead, EngineMarker, Finding};
 use brokkr_core::fold::RunState;
 use brokkr_core::residual::{closings_of, residuals_of, Mark};
 use brokkr_core::summary::Stated;
@@ -189,7 +189,12 @@ fn verdicts_of<'a>(event: &'a EventEnvelope, settled: &BTreeSet<StepOf<'_>>) -> 
     let payload = &event.payload;
     match event.event_type {
         EventType::EffectSucceeded => {
-            vec![verdict(&payload["result"], payload["step"].as_str(), true)]
+            let marked = by_the_engine(payload);
+            vec![verdict(
+                &payload["result"],
+                payload["step"].as_str(),
+                marked,
+            )]
         }
         EventType::EffectCheckpointed => {
             let checkpoint = &payload["checkpoint"];

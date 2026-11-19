@@ -57,8 +57,11 @@ fn plant_phases(db: &Path, run_id: &str, engine: &str, phases: &[Planted<'_>]) {
                                               "model": "m"});
             journal.push((EventType::EffectCheckpointed, checkpoint));
         }
+        // The success as the current writer journals it, with its mark
+        // (fix round 0109a1r6, W6).
         let mut succeeded = attempt;
         succeeded["result"] = result.clone();
+        succeeded["authored"] = json!("engine");
         journal.push((EventType::EffectSucceeded, succeeded));
     }
     let mut store = Store::open(db).unwrap();

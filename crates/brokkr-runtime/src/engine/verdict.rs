@@ -116,6 +116,10 @@ impl Engine {
         if event_type != EventType::EffectSucceeded {
             return payload;
         }
+        // The row's mark that its result is this engine's admitted
+        // verdict, which a released engine's success never carries (fix
+        // round 0109a1r6, W6).
+        brokkr_core::findings::stamp_authored(&mut payload);
         let effect_id = payload.get("effect_id").and_then(Value::as_str);
         let stamps = effect_id.map(|effect_id| self.stamps(effect_id, covering, false));
         let result = payload.get_mut("result").and_then(Value::as_object_mut);

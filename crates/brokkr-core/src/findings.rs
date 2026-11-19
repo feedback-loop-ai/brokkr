@@ -427,7 +427,7 @@ mod covered;
 mod marker;
 
 pub use covered::{CheckedHead, Covered, CoveredHead};
-pub use marker::{admit_live, EngineMarker, LiveRefusal, AUTHORED};
+pub use marker::{admit_live, by_the_engine, stamp_authored, EngineMarker, LiveRefusal, AUTHORED};
 
 #[cfg(test)]
 mod tests;

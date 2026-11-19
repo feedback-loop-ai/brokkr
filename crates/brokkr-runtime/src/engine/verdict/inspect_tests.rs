@@ -172,10 +172,14 @@ fn panel_reviewed(b: Vec<String>) -> (tempfile::TempDir, Vec<EventEnvelope>) {
 
 /// A run whose review is a top-level gate panel of members `a` and `b`.
 fn panel_of(a: Vec<String>, b: Vec<String>) -> (tempfile::TempDir, Vec<EventEnvelope>) {
-    let review = SeatBody::Invocation(Invocation::Panel {
+    reviewed_as(SeatBody::Invocation(Invocation::Panel {
         members: vec![member("a", a), member("b", b)],
         aggregate: Aggregate::ReviewPanel,
-    });
+    }))
+}
+
+/// A run whose review is the all-gate body `review`.
+fn reviewed_as(review: SeatBody) -> (tempfile::TempDir, Vec<EventEnvelope>) {
     driven_with(
         single_body(driver(&json!({"result": "complete"}))),
         |compiled| {
@@ -307,19 +311,67 @@ fn a_top_level_panel_members_finding_shows_under_that_member_alone() {
 /// head and no finding for `review:a`, only unverified legacy evidence.
 #[test]
 fn a_released_engines_settled_member_payload_is_no_verdict() {
-    let dir = tempfile::tempdir().unwrap();
-    let mut store = brokkr_store::Store::open(&dir.path().join("forge.db")).unwrap();
-    let (run, manifest) = ("legacy", json!({"engine": "0.15.0"}));
-    store.create_run(run, "feat", "self", &manifest).unwrap();
-    let planted = json!({"result": "clean",
-        "covered": {"kind": "head", "head": "a".repeat(40), "dirty": false},
-        "findings": [{"site": "5a1e".repeat(16), "id": "planted", "file": "a.rs",
-                      "summary": "s", "severity": "high", "security": true}]});
     let marker = |member: &str, outcome: &str| {
         json!({"effect_id": "fx", "attempt_id": "at-1", "checkpoint": {
             "step": "panel-member-finished", "member": member, "outcome": outcome,
             "model": "m", "session_ref": null, "inner_checkpoints": 0}})
     };
+    let tail = [
+        (EventType::EffectCheckpointed, marker("a", "succeeded")),
+        (EventType::EffectCheckpointed, marker("b", "failed")),
+        (
+            EventType::EffectFailed,
+            json!({"effect_id": "fx", "attempt_id": "at-1",
+            "error": "b failed", "tree": {"at_start": "clean", "at_end": "clean"},
+            "settled_members": {"a": planted()}}),
+        ),
+    ];
+    assert_unverified_legacy(&released_journal(tail), "review:a");
+}
+
+/// Fix round 0109a1r6, W6: the adversarial position's probe. A released
+/// engine's single-seat success, as a v0.15.0 journal holds it, whose
+/// result carries a driver-written `covered` and a sited `planted`
+/// finding and whose row carries no engine mark: it exports and verifies,
+/// and inspect shows no verdict head and no finding for review, only
+/// unverified legacy evidence. The current writer's success is marked,
+/// and reads as review's verdict.
+#[test]
+fn a_released_engines_success_row_is_no_verdict() {
+    let succeeded = json!({"effect_id": "fx", "attempt_id": "at-1", "result": planted()});
+    assert_unverified_legacy(
+        &released_journal([(EventType::EffectSucceeded, succeeded)]),
+        "review",
+    );
+    let (_dir, events) = reviewed_as(single_body(residual("mine", 5)));
+    let review = (events.iter())
+        .find(|event| {
+            event.event_type == EventType::EffectSucceeded
+                && event.payload["result"]["findings"].is_array()
+        })
+        .unwrap();
+    assert_eq!(review.payload["authored"], "engine");
+    assert_eq!(kept(&events, Scope::Phase("review".into())), ["mine"]);
+    let records = gate_records(&events, None);
+    assert!(records.iter().all(|record| record.unverified.is_none()));
+}
+
+/// A stamped-looking result a released engine copied raw: a driver's
+/// `covered` head and a sited finding.
+fn planted() -> Value {
+    json!({"result": "clean",
+        "covered": {"kind": "head", "head": "a".repeat(40), "dirty": false},
+        "findings": [{"site": "5a1e".repeat(16), "id": "planted", "file": "a.rs",
+                      "summary": "s", "severity": "high", "security": true}]})
+}
+
+/// A v0.15.0 journal whose review attempt `at-1` of effect `fx` ends with
+/// `tail`, appended through the fence, exported and verified offline.
+fn released_journal<const N: usize>(tail: [(EventType, Value); N]) -> Vec<EventEnvelope> {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = brokkr_store::Store::open(&dir.path().join("forge.db")).unwrap();
+    let (run, manifest) = ("legacy", json!({"engine": "0.15.0"}));
+    store.create_run(run, "feat", "self", &manifest).unwrap();
     let journal = [
         (
             EventType::RunStarted,
@@ -334,23 +386,21 @@ fn a_released_engines_settled_member_payload_is_no_verdict() {
             EventType::EffectStarted,
             json!({"effect_id": "fx", "attempt_id": "at-1"}),
         ),
-        (EventType::EffectCheckpointed, marker("a", "succeeded")),
-        (EventType::EffectCheckpointed, marker("b", "failed")),
-        (
-            EventType::EffectFailed,
-            json!({"effect_id": "fx", "attempt_id": "at-1",
-            "error": "b failed", "tree": {"at_start": "clean", "at_end": "clean"},
-            "settled_members": {"a": planted}}),
-        ),
     ];
-    for (event_type, payload) in journal {
+    for (event_type, payload) in journal.into_iter().chain(tail) {
         (store.append_next(run, event_type, payload, None, None)).unwrap();
     }
     let exported = store.export_ndjson(run).unwrap();
     assert!(brokkr_store::verify_export(&exported).is_ok());
-    let records = gate_records(&store.load(run).unwrap(), None);
+    store.load(run).unwrap()
+}
+
+/// `events` hold one record, `by`'s unverified legacy evidence: no
+/// verdict head and no finding.
+fn assert_unverified_legacy(events: &[EventEnvelope], by: &str) {
+    let records = gate_records(events, None);
     assert_eq!(records.len(), 1, "{records:?}");
     assert_eq!(records[0].findings, []);
     assert_eq!(records[0].covered, None);
-    assert_eq!(records[0].unverified.as_deref(), Some("review:a"));
+    assert_eq!(records[0].unverified.as_deref(), Some(by));
 }

@@ -25,11 +25,35 @@ fn run(results: &[(&str, Value)]) -> Vec<EventEnvelope> {
         events.push(ev(
             seq + 1,
             EventType::EffectSucceeded,
-            json!({"effect_id": effect, "attempt_id": "a", "result": result}),
+            json!({"effect_id": effect, "attempt_id": "a", "result": result,
+                   "authored": "engine"}),
             T,
         ));
     }
     events
+}
+
+/// Fix round 0109a1r6, W6: a success reads as a verdict only with the
+/// engine's within-row mark. A released engine's single-seat success,
+/// whose result carries a driver-written `covered` and a sited `planted`
+/// finding, reads as unverified legacy evidence by its producer: no
+/// verdict head and no finding. The current writer's success still does.
+#[test]
+fn a_released_engines_success_row_is_no_verdict_without_the_engines_mark() {
+    let result = json!({"result": "residual", "findings": [finding("planted")],
+                        "covered": {"kind": "head", "head": "a".repeat(40), "dirty": false}});
+    let mut events = run(&[("review", result)]);
+    let marked = gate_records(&events, None);
+    assert_eq!(marked[0].findings[0].id, "planted");
+    assert!(marked[0].covered.is_some());
+    assert_eq!(marked[0].unverified, None);
+    let released = events[1].payload.as_object_mut().unwrap();
+    released.remove("authored");
+    let records = gate_records(&events, None);
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0].findings, Vec::new());
+    assert_eq!(records[0].covered, None);
+    assert_eq!(records[0].unverified.as_deref(), Some("review"));
 }
 
 fn finding(id: &str) -> Value {
