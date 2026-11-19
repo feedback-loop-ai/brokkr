@@ -15,7 +15,7 @@ use crate::engine::verdict::ObservationProblem::{Disagrees, Missing, Unreadable}
 use crate::engine::{git_head, Engine};
 use brokkr_core::canonical::sha256_bytes;
 use brokkr_core::envelope::{EventEnvelope, EventType};
-use brokkr_core::fold::{Cursor, RunState};
+use brokkr_core::fold::{Cursor, RunState, StepObservation};
 use brokkr_core::policy::Machine;
 use brokkr_store::Store;
 
@@ -253,7 +253,7 @@ fn a_protected_result_without_one_consistent_checked_head_refuses_at_decide() {
         head: Some(other.into()),
     });
     for (raw, want) in &cases {
-        let read = checked_head(raw).map(|head| head.as_str().to_string());
+        let read = checked_head(raw, None).map(|head| head.as_str().to_string());
         assert_eq!(&read, want, "{raw}");
         let result = raw.clone();
         let effect_id = "review".to_string();
@@ -278,7 +278,7 @@ fn a_protected_result_without_one_consistent_checked_head_refuses_at_decide() {
         ),
         (
             Disagrees,
-            "the result's covered head does not pin the head decided on \
+            "the protected effect's durable observations disagree on the head decided on \
              (decision 0109 ruling 7)",
         ),
     ];
@@ -298,6 +298,30 @@ fn a_protected_result_without_one_consistent_checked_head_refuses_at_decide() {
                 assert_eq!(decided["inputs"]["reviewed_heads"]["repo"], json!(head));
             }
         }
+    }
+}
+
+/// The attempt's latest gate step checkpoint is a durable observation too
+/// (fix round 0109a1r4, K2): a result its final gate span did not stamp
+/// agrees with it or is refused; one its final gate span stamped is the
+/// newer observation.
+#[test]
+fn a_result_no_final_gate_span_stamped_agrees_with_its_gate_step_or_is_refused() {
+    let head = "89abcdef0123456789abcdef0123456789abcdef".to_string();
+    let other = "0123456789abcdef0123456789abcdef01234567";
+    let covered = |head: &str| json!({"kind": "head", "head_digest": sha256_bytes(head.as_bytes()), "dirty": true});
+    let checked = |head: &str| StepObservation::Checked(head.to_string().try_into().unwrap());
+    let plain = json!({"result": "clean", "checked_head": head});
+    let stamped = json!({"result": "clean", "checked_head": head, "covered": covered(&head)});
+    let steps = [
+        (&plain, checked(&head), Ok(head.clone())),
+        (&plain, checked(other), Err(Disagrees)),
+        (&plain, StepObservation::Unreadable, Err(Disagrees)),
+        (&stamped, checked(other), Ok(head.clone())),
+    ];
+    for (raw, step, want) in steps {
+        let read = checked_head(raw, Some(&step)).map(|head| head.as_str().to_string());
+        assert_eq!(read, want, "{raw} {step:?}");
     }
 }
 

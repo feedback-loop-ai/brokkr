@@ -42,7 +42,7 @@ impl EngineWritten {
     ];
 
     /// The result field it is.
-    fn field(self) -> &'static str {
+    pub const fn field(self) -> &'static str {
         match self {
             EngineWritten::Covered => "covered",
             EngineWritten::FollowUps => "follow_ups",

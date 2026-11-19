@@ -145,7 +145,11 @@ impl Stopped {
     /// reviewed head, and stop once review's success, all-gate when
     /// `gate`, is journaled.
     fn after_review(gate: bool) -> Stopped {
-        let review = single_body(driver(&json!({"result": "clean"})));
+        Stopped::after(single_body(driver(&json!({"result": "clean"}))), gate)
+    }
+
+    /// [`Stopped::after_review`], with review's body `review`.
+    fn after(review: SeatBody, gate: bool) -> Stopped {
         let mut heads = Vec::new();
         let shape = reviewed_by(drift_refusing(), review, gate);
         let (dir, mut engine) = begun(completes(), shape, |repo| planned(repo, &[0], &mut heads));
@@ -265,6 +269,52 @@ fn a_missing_or_inconsistent_journaled_observation_refuses_at_decide() {
             event.event_type == EventType::EffectRequested && event.payload["phase"] == "ship"
         }));
     }
+}
+
+/// Fix round 0109a1r4, K2: a protected sequence whose gate step was
+/// checked on A and whose later work step was clean, stopped once its
+/// success is durable. Left as journaled, the resumed engine decides on A.
+/// With only the terminal result's checked head replaced by B, the gate
+/// step's checkpoint still saying A, decide reads both durable
+/// observations, refuses with `Disagrees` and takes no transition.
+#[test]
+fn decide_refuses_while_two_durable_observations_of_its_attempt_disagree() {
+    let review = || SeatBody::Sequence {
+        steps: vec![
+            clean_step("judge", SeatClass::Gate),
+            clean_step("tidy", SeatClass::Work),
+        ],
+    };
+    let agreed = Stopped::after(review(), false);
+    let events = agreed.resumed();
+    assert_eq!(
+        checkpointed(&events, "judge")["checked_head"],
+        json!(agreed.reviewed)
+    );
+    let decided = decided_from(&events, "review");
+    assert_eq!(decided["rule_id"], "REVIEW", "{decided}");
+    assert_eq!(
+        decided["inputs"]["reviewed_heads"],
+        json!({"repo": agreed.reviewed})
+    );
+
+    let stopped = Stopped::after(review(), false);
+    let moved = stopped.moved.clone();
+    stopped.replanted(|result| result["checked_head"] = json!(moved));
+    let events = stopped.resumed();
+    assert_eq!(
+        checkpointed(&events, "judge")["checked_head"],
+        json!(stopped.reviewed)
+    );
+    let decided = decided_from(&events, "review");
+    assert_eq!(decided["result"], "__schema-invalid__", "{decided}");
+    assert_eq!(decided["next"], Value::Null);
+    let text = format!("result failed schema validation: {Disagrees}");
+    assert_eq!(decided["problem"], text);
+    assert!(decided["inputs"].get("reviewed_heads").is_none());
+    assert!(!events.iter().any(|event| {
+        event.event_type == EventType::EffectRequested && event.payload["phase"] == "ship"
+    }));
 }
 
 /// A run reviewed twice, on A and then on B: the later review's decision

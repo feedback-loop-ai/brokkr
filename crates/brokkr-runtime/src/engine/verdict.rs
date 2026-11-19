@@ -6,7 +6,8 @@
 //! (decision 0001). No word is refused here and no routing moves.
 
 use brokkr_core::envelope::EventType;
-use brokkr_core::findings::{CheckedHead, Covered, Finding};
+use brokkr_core::findings::{CheckedHead, Covered, EngineWritten, Finding};
+use brokkr_core::fold::StepObservation;
 use brokkr_protocol::{AttemptOutcome, AttemptReport};
 use serde::Deserialize;
 use serde_json::{Map, Value};
@@ -125,7 +126,7 @@ impl Engine {
 
 /// The engine-written field a protected effect's result journals its
 /// observation in (seat-record v7).
-const CHECKED_HEAD: &str = "checked_head";
+const CHECKED_HEAD: &str = EngineWritten::CheckedHead.field();
 
 /// Why the protected phase's result is refused at decide (fix round
 /// 0109a1r3, H1): it never advances on a head no check of its own effect
@@ -141,25 +142,33 @@ pub(super) enum ObservationProblem {
     #[error("the protected result's checked head is not a commit id (decision 0109 ruling 7)")]
     Unreadable,
     #[error(
-        "the result's covered head does not pin the head decided on \
+        "the protected effect's durable observations disagree on the head decided on \
          (decision 0109 ruling 7)"
     )]
     Disagrees,
 }
 
-/// The head a protected `raw_result` was checked on, read from its
-/// journaled `checked_head`, or why it does not stand: none recorded,
-/// one that is not a commit id, or a `covered` record that does not read
-/// or does not project it.
-pub(super) fn checked_head(raw_result: &Value) -> Result<CheckedHead, ObservationProblem> {
+/// The head a protected `raw_result` was checked on, read from every
+/// durable observation of its attempt (fix round 0109a1r4, K2): the
+/// result's journaled `checked_head`, its `covered` where present, and
+/// `step`, the attempt's latest gate step checkpoint the fold carried,
+/// or why they do not stand: none recorded, one that is not a commit id,
+/// or any two that disagree. A result with `covered` was stamped by its
+/// own final gate span, which is the attempt's latest observation, so
+/// only a result without one is held to the earlier step's.
+pub(super) fn checked_head(
+    raw_result: &Value,
+    step: Option<&StepObservation>,
+) -> Result<CheckedHead, ObservationProblem> {
     let head = raw_result
         .get(CHECKED_HEAD)
         .ok_or(ObservationProblem::Missing)?;
     let head = CheckedHead::deserialize(head).map_err(|_| ObservationProblem::Unreadable)?;
-    match raw_result.get("covered").map(Covered::deserialize) {
-        None => Ok(head),
-        Some(Ok(covered)) if covered.projects(head.as_str()) => Ok(head),
-        Some(_) => Err(ObservationProblem::Disagrees),
+    match (raw_result.get("covered").map(Covered::deserialize), step) {
+        (None, None) => Ok(head),
+        (None, Some(StepObservation::Checked(seen))) if *seen == head => Ok(head),
+        (Some(Ok(covered)), _) if covered.projects(head.as_str()) => Ok(head),
+        _ => Err(ObservationProblem::Disagrees),
     }
 }
 
