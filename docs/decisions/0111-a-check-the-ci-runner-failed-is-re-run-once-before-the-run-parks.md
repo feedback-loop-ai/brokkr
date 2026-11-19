@@ -991,9 +991,17 @@ proceeds without either new outcome. The engine draws `green` only when all of t
   an entry in the entry set from another producer, and no context the forge's own required set
   names, other than one an `"after": "ship"` entry declares, has concluded red.
 
-**Absent and inadmissible are told apart.** A required failure is **absent** when no observed
-check or status carries the entry's name, or the forge-required context, at all. It is
-**observed but inadmissible** when one does, and the gate cannot admit it: a check under the
+**Present, absent and inadmissible are told apart.** A required entry is **present** only by an
+**eligible current match**: a check from its bound producer (its app, workflow path, job and
+event) in that producer's current execution, the one run attempt defined below. Nothing else
+makes it present. A check from the same producer in another run, or in another attempt of the
+current run, is **stale**, whatever it concluded: a stale `success` never satisfies the entry,
+and a stale red is never an observed inadmissible failure (below), so neither moves the entry
+from absent. A required entry with no eligible current match is **absent**, whatever else
+carries its name, and so is a forge-required context no current observation reports. A
+required failure is
+**observed but inadmissible** when a check or status the gate cannot admit carries the
+required name: a check under the
 entry's name from another app, workflow path or event (`producer-mismatch`); a commit status
 the forge requires (`status-required`); a context the forge requires that the pinned list lacks
 (`required-set-disagrees`). An inadmissible check whose conclusion is red, `failure`,
@@ -1012,20 +1020,35 @@ The **current execution** of an Actions entry is the workflow run with the highe
 among those the forge lists for its workflow path, its event and the head, read at its highest
 attempt. Any other run for that key still queued or in
 progress, or a run list the observer could not read whole, refuses as `execution-ambiguous`.
+The sealed observation holds each check's run id and attempt and each key's whole run list, so
+a replay re-derives which match is current, and which is stale, from the journal alone.
 
-Nothing short of that is `green`. **Every binding and completeness refusal comes before any
-classification.** The engine checks each row below in order, records every one that holds, and
-classifies a failure only when none does. So a required check that is missing beside an
-otherwise classifiable failure refuses as `missing-required`; it is never typed. The one
-exception is the precedence above: an observed inadmissible failure is `change`, ahead of
-`missing-required`, because it is not missing.
+Nothing short of that is `green`. **The order, stated once.** `classify` takes these in this
+order, live and on replay alike, over the one sealed observation and basis; ruling 4's numbered
+steps are this order and no other:
+
+1. the binding refusals other than absence (every row below but `missing-required`):
+   **`refused`**, naming every one that holds;
+2. **the explicit exception**, an observed inadmissible failure: **`change`**, with
+   `inadmissible-failure`, because it is observed and red, not missing;
+3. **completeness, by eligible current match**: a required entry with none refuses as
+   `missing-required`, beside any failure the classes could type, and whatever stale or
+   other-producer check carries its name;
+4. then the classes: `green` or `non-success`, the withholdings, and the failure set.
+
+So a required check that is missing beside an otherwise classifiable failure refuses as
+`missing-required`; it is never typed. A required audit with no check in its current run, an
+older same-producer `success` on the same head, and a second, eligible required job with an
+ordinary failed test is `refused`, `missing-required`, routed `CI-REFUSED`: the stale success
+never makes the audit present, and the test failure is never reached. The same holds when the
+second job's failure is all-setup: `refused`, never `ci-infrastructure`.
 
 | Refusal | When |
 |---|---|
 | `unrelated` | the repository, the pull request or the head differs from the binding |
 | `head-unpublished` | the forge's head for the pull request is not the engine's git head: the head the run would gate is not the one pushed |
 | `empty` | the forge reports no check for the head |
-| `missing-required` | a required entry is absent: no observed check carries its name from any producer; the refusal names the entry |
+| `missing-required` | a required entry is absent: it has no eligible current match, a check from its bound producer in its current run attempt; a stale same-producer check of any conclusion, and a check under its name from another producer, never count; the refusal names the entry |
 | `ambiguous-required` | a required entry matches more than one check in its current execution |
 | `execution-ambiguous` | a required entry's current execution cannot be told, as above |
 | `instance-duplicated` | one expected matrix instance's key is observed more than once in one run attempt; it names the key and the jobs |
@@ -1264,18 +1287,19 @@ the pull request's base commit, as the observation names it, to the gated head, 
 taken by 0109's ancestry walk over verified commits. Both ends are checked as full commit ids
 before the reader sees them. A range the reader cannot take (a base it does not have, no merge
 base, an object that does not verify) withholds the class as `range-unproven`. It is never read
-as an empty change. In order:
+as an empty change. In ruling 3's one order:
 
-1. Any binding or completeness refusal of ruling 3 holds, `missing-required` apart:
+1. Any binding refusal of ruling 3 holds, `missing-required` apart:
    **`refused`**, naming every one that holds. Nothing below runs, so no refusal is ever
    outranked by a classifiable failure.
 2. **An observed inadmissible failure** (ruling 3: a red check under an entry-set entry's name
    from another producer, or a red context the forge requires that the gate cannot admit and no
-   after-ship entry declares):
+   after-ship entry declares; never a stale check of the entry's own producer):
    **`change`**, with the reason `inadmissible-failure`, naming the check and its withholding.
    It outranks `missing-required` and `green` below, because it is observed, not absent, and it
    is red.
-3. A required entry is absent: **`refused`** as `missing-required`.
+3. A required entry has no eligible current match (ruling 3): **`refused`** as
+   `missing-required`. A stale success never satisfies it, so nothing below runs.
 4. The observation passes ruling 3's rule for `green`: **`green`**. One that cannot and holds no
    failed, timed-out, unstarted or cancelled required check is **`refused`** as `non-success`.
 5. **Any withholding of ruling 3 holds: `change`,** with the reason `withheld`, naming every
@@ -2224,6 +2248,18 @@ slice that produces it, and each typed assertion is in the slice that builds its
    `a_ci_infrastructure_park_is_never_retryable`;
    `a_runner_fault_park_writes_the_ci_infrastructure_cause_and_keeps_the_rule_in_the_decision`;
    `a_refusal_park_carrying_a_ci_class_stays_ruled`;
+   the eligible current match (ruling 3's one order), each over a test-built table holding ruling
+   6's rows and asserting the class, the reason and the routed rule, live and again from the
+   journal alone (exported, then the bundle, the worktree and the forge stub removed):
+   `a_stale_same_producer_success_beside_an_ordinary_failure_refuses_as_missing_required`
+   (a required audit with no check in its current run, an older same-producer `success` on the
+   same head, and a second, eligible required job with an ordinary failed test: `refused`,
+   `missing-required` naming the audit, `CI-REFUSED`, a `ruled` park, never `CI-FAIL`);
+   `a_stale_same_producer_success_beside_an_all_setup_failure_refuses_as_missing_required` (the
+   sibling: the second job's failure all-setup: the same `refused`, `missing-required`,
+   `CI-REFUSED`, never `ci-infrastructure`);
+   `a_stale_same_producer_red_is_neither_a_match_nor_an_inadmissible_failure` (the stale check
+   red instead: `refused`, `missing-required`, not `change` with `inadmissible-failure`);
    `a_different_table_park_carrying_the_ci_infrastructure_class_stays_ruled`;
    `a_table_with_no_or_two_marked_ci_infrastructure_parks_refuses_to_compile`;
    `exactly_one_class_flag_is_true_for_each_class_but_change`;
