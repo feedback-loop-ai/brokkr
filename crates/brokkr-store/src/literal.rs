@@ -25,5 +25,18 @@ pub(crate) fn journal(path: &Path) -> Result<PathBuf, rusqlite::Error> {
         .ok_or(rusqlite::Error::InvalidPath(path.to_path_buf()))
 }
 
+/// `error` from SQLite's open of `bound`, the [`journal`] of `given`, with
+/// the bound path its diagnostic names shown as `given`, so a refusal to
+/// open names the path the operator gave. Any other error passes as it is.
+pub(crate) fn as_given(error: rusqlite::Error, given: &Path, bound: &Path) -> rusqlite::Error {
+    match error {
+        rusqlite::Error::SqliteFailure(code, Some(message)) => {
+            let shown = message.replace(&*bound.to_string_lossy(), &given.to_string_lossy());
+            rusqlite::Error::SqliteFailure(code, Some(shown))
+        }
+        error => error,
+    }
+}
+
 #[cfg(test)]
 mod tests;
