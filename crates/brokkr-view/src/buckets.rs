@@ -64,7 +64,13 @@ pub(super) fn bucket(events: &[EventEnvelope]) -> Buckets<'_> {
             | EventType::EffectFailed
             | EventType::EffectIndeterminate
             | EventType::TransitionDecided
-            | run_and_operator!() => {}
+            | EventType::RunStarted
+            | EventType::OperatorCommanded
+            | EventType::OperatorAccepted
+            | EventType::OperatorRejected
+            | EventType::RunParked
+            | EventType::RunCompleted
+            | EventType::RunStopped => {}
         }
     }
     buckets

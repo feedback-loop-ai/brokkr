@@ -93,7 +93,13 @@ pub(super) fn phase_rail(
             | EventType::EffectSucceeded
             | EventType::EffectFailed
             | EventType::EffectIndeterminate
-            | run_and_operator!() => continue,
+            | EventType::RunStarted
+            | EventType::OperatorCommanded
+            | EventType::OperatorAccepted
+            | EventType::OperatorRejected
+            | EventType::RunParked
+            | EventType::RunCompleted
+            | EventType::RunStopped => continue,
         }
     }
     let current = match state.and_then(|state| state.phase.as_deref()) {

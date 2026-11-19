@@ -25,23 +25,6 @@
 
 #![forbid(unsafe_code)]
 
-/// The run's own lifecycle and the operator's dispositions, as one
-/// pattern: the events no participant, bucket, visit or rail fold reads.
-/// A pattern rather than a predicate, so each match it stands in stays
-/// exhaustive and a new `EventType` fails to compile there (decision 0071
-/// ruling 2; #950).
-macro_rules! run_and_operator {
-    () => {
-        EventType::RunStarted
-            | EventType::OperatorCommanded
-            | EventType::OperatorAccepted
-            | EventType::OperatorRejected
-            | EventType::RunParked
-            | EventType::RunCompleted
-            | EventType::RunStopped
-    };
-}
-
 mod buckets;
 mod entry;
 mod rail;
@@ -1190,7 +1173,13 @@ fn scan_participants(events: &[EventEnvelope]) -> Scan {
             EventType::PhaseEntered
             | EventType::EffectRequested
             | EventType::TransitionDecided
-            | run_and_operator!() => {}
+            | EventType::RunStarted
+            | EventType::OperatorCommanded
+            | EventType::OperatorAccepted
+            | EventType::OperatorRejected
+            | EventType::RunParked
+            | EventType::RunCompleted
+            | EventType::RunStopped => {}
         }
     }
     for part in &mut scan.parts {
