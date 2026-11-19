@@ -6807,7 +6807,7 @@ fn an_authored_capability_option_refuses_the_compile_under_every_grant_state() {
         ),
         (
             "codex",
-            "gpt-6.2-astra",
+            "gpt-6-astra",
             "codex-native-search",
             vec![
                 (&["-c", "web_search=\"disabled\""], "--config"),

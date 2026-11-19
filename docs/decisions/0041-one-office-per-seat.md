@@ -546,8 +546,8 @@ The operator asked in chat that day, before 0.15.1, for the default
 model set to move to its latest models. Ruling 1 already says what that
 means for `fable`: the bare family name is the current generation. So
 `adapters/claude.json` maps `fable` to `claude-fable-5-2`, the
-`lanetally` adapter's `fable-tallied` likewise, and `brokkr init`
-scaffolds the same map. Ruling 1's `claude-fable-5-1` was the current
+`lanetally` adapter's `fable-tallied` likewise. `brokkr init` scaffolds
+claude's `fable` map; it lays down no `lanetally` adapter. Ruling 1's `claude-fable-5-1` was the current
 generation on the day it was written. Opus, Sonnet and Haiku keep their
 ids, and no alias name, judge, effort or chain moves. Preflight's
 inline judge pins `claude-fable-5-2`, the id its gate must find among
@@ -557,5 +557,6 @@ claude's judges.
 `crates/brokkr-cli/src/init/adapters.rs`; the pins in
 `crates/brokkr-runtime/tests/adoption.rs` follow;
 `init_doctor.rs::assert_shipped_mcp_facts` holds every alias a scaffold
-declares to the shipped id; the witness pins move with the adapters'
-digests.
+declares to the shipped id;
+`roster.rs::the_shipped_adapters_map_the_2026_11_19_roster_exactly`
+pins both files' ids; the witness pins move with the adapters' digests.
