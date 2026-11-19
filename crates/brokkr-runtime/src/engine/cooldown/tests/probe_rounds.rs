@@ -298,8 +298,8 @@ pub(super) fn clock_on_marker(
 fn a_probe_refusal_extends_the_wait_without_an_attempt() {
     let (dir, mut engine, now) = seated!(&["refuse", "succeed"], Probed::RefuseThenAnswer, None, 2);
     let start = start_of(&now);
-    // A length no loaded host's event-recording delay outlasts, so the
-    // terminal's own row lands before it records (as 4d1's fixtures do).
+    // A wait the clock takes in slices; the clock's `LONG_WAIT` lead keeps
+    // the terminal's own row in force when it records (#857).
     engine.cooldown.host = Some(host(dir.path(), 30, 1000));
     engine.drive().unwrap();
     assert_eq!(
@@ -498,8 +498,8 @@ fn the_unchanged_probe_ends_write_no_row() {
         (Probed::MalformedRefusal, "driver refusal is unreadable"),
     ] {
         let (dir, mut engine, _now) = seated!(&["refuse", "succeed"], probed, None, 2);
-        // Long enough that the terminal's own row lands however delayed the
-        // host's recording is; only a probe row would be new.
+        // The clock's `LONG_WAIT` lead lands the terminal's own row however
+        // delayed the host's recording is (#857); only a probe row is new.
         engine.cooldown.host = Some(host(dir.path(), 30, 1000));
         let (reason, seen) = drove_one(dir.path(), &mut engine, &["attempt:refuse", "probe"]);
         assert!(reason.contains(expected), "{expected}: {reason}{seen}");
@@ -525,7 +525,7 @@ fn a_probes_cleanup_refusal_parks_first_and_writes_no_row() {
     // count below can fail (finding F6).
     append_waited(
         &mut engine,
-        wait_value(OffsetDateTime::now_utc() + Duration::hours(1), 60),
+        wait_value(OffsetDateTime::now_utc() + LONG_WAIT, 60),
     );
     let refusal: PreSessionRefusal = serde_json::from_value(json!({
         "class": "rate_limit", "provider": "claude", "route": "first",
@@ -621,7 +621,7 @@ fn a_probe_refusal_parks_when_its_declaration_journal_or_episode_cannot_read() {
     parked(&mut engine, "no terminal event to extend");
 
     // A version this binary does not know: the rounds cannot be read.
-    let (dir, mut engine) = engine_with_wait(2, OffsetDateTime::now_utc() + Duration::hours(1), 60);
+    let (dir, mut engine) = engine_with_wait(2, OffsetDateTime::now_utc() + LONG_WAIT, 60);
     rusqlite::Connection::open(dir.path().join("forge.db"))
         .unwrap()
         .execute("UPDATE meta SET value = '9' WHERE key = 'queue_schema'", [])
@@ -637,7 +637,7 @@ fn a_probe_refusal_parks_when_its_declaration_journal_or_episode_cannot_read() {
         .append(
             EventType::EffectFailed,
             json!({"effect_id": "effect", "attempt_id": "a2",
-                   "waits": wait_value(OffsetDateTime::now_utc() + Duration::hours(1), 60)}),
+                   "waits": wait_value(OffsetDateTime::now_utc() + LONG_WAIT, 60)}),
             Some("a2".to_string()),
         )
         .unwrap();
@@ -842,9 +842,10 @@ fn a_non_empty_sites_refusal_extends_and_reprobes_the_answered_member() {
 }
 
 /// The single-seat round fixture the unreadable-input cases share: a
-/// journal with one future wait, a wide host, and its events.
+/// journal with one future wait whose row is in force (#857), a wide host,
+/// and its events.
 fn waited_round_fixture() -> (tempfile::TempDir, Engine, Vec<brokkr_core::EventEnvelope>) {
-    let (dir, engine) = engine_with_wait(2, OffsetDateTime::now_utc() + Duration::seconds(60), 60);
+    let (dir, engine) = engine_with_wait(2, OffsetDateTime::now_utc() + LONG_WAIT, 60);
     let events = engine.store.load(&engine.run_id).unwrap();
     (dir, engine, events)
 }
@@ -962,7 +963,7 @@ fn a_stop_journaled_before_the_first_slice_is_honoured() {
 /// written end, the probe answers and the retry runs, spending no attempt.
 #[test]
 fn a_resume_over_a_written_round_counts_it_once() {
-    let start = OffsetDateTime::now_utc();
+    let start = ahead_of(OffsetDateTime::now_utc());
     let (dir, mut engine, now) = resumed_at(
         &["succeed"],
         start + Duration::seconds(30),
@@ -1125,7 +1126,7 @@ fn a_round_that_passes_any_cooled_sites_maximum_writes_no_row() {
 /// round 2 at 60s, where the terminal recorded round 1 at 30s.
 #[test]
 fn a_resume_after_a_written_round_parks_with_the_episodes_round_and_length() {
-    let start = OffsetDateTime::now_utc();
+    let start = ahead_of(OffsetDateTime::now_utc());
     let until = start + Duration::seconds(30);
     let (dir, mut engine, _now) = resumed_at(&["succeed"], until, 30, start, false);
     let event = failed(&engine).remove(0);
@@ -1147,7 +1148,7 @@ fn a_resume_after_a_written_round_parks_with_the_episodes_round_and_length() {
 /// generic "an earlier wait does not read" alone (finding 2).
 #[test]
 fn every_episode_store_refusal_parks_naming_the_store() {
-    let (dir, mut engine) = engine_with_wait(3, OffsetDateTime::now_utc() + Duration::hours(1), 60);
+    let (dir, mut engine) = engine_with_wait(3, OffsetDateTime::now_utc() + LONG_WAIT, 60);
     let events = engine.store.load(&engine.run_id).unwrap();
     alter_journal(
         &dir.path().join("forge.db"),
@@ -1241,7 +1242,7 @@ fn a_round_whose_wait_found_no_declaration_is_not_written() {
             "first",
         );
         let mut engine = started(dir.path(), single_body(command), work(2));
-        let (clock, now) = Clock::advancing(OffsetDateTime::now_utc());
+        let (clock, now) = Clock::advancing(ahead_of(OffsetDateTime::now_utc()));
         engine.cooldown.clock = clock;
         let start = start_of(&now);
         // The declaration is absent at the wait and written after its first

@@ -36,9 +36,9 @@ fn a_two_route_panel_writes_a_row_per_refused_site() {
         Probed::Answer,
         2,
     );
-    // Bounds long enough that the failed event records while both waits
-    // still run, however loaded the host is: the table holds what is in
-    // force when the event records it.
+    // The fixture's clock starts `LONG_WAIT` ahead of the journal, so the
+    // failed event records while both waits still run, however loaded the
+    // host is (#857): the table holds what is in force when it records.
     engine.cooldown.host = Some(route_host(dir.path(), (30, 60), (40, 60)));
     engine.drive().unwrap();
 
@@ -96,8 +96,8 @@ fn a_held_terminal_event_lands_with_its_rows() {
     let mut engine = in_flight(dir.path());
     let holder = write_lock_on(&dir.path().join("realm.db"));
     // An end no loaded host reaches while the lock is held and the held
-    // outcome lands, so the row is still in force when it records.
-    let until = OffsetDateTime::now_utc() + time::Duration::seconds(60);
+    // outcome lands, so the row is still in force when it records (#857).
+    let until = OffsetDateTime::now_utc() + LONG_WAIT;
     let payload = json!({
         "effect_id": "effect-1",
         "attempt_id": "attempt-1",

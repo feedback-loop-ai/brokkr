@@ -25,6 +25,20 @@ fn base() -> OffsetDateTime {
     OffsetDateTime::parse("2026-11-01T00:00:00Z", &Rfc3339).unwrap()
 }
 
+/// How far past the journal's real recording instant a fixture keeps every
+/// end that must be in force when it is written or read (#857). The store
+/// keeps a row only while its `until` is past the event's `recorded_at`,
+/// and a loaded host's attempts lock can stall a test's append by many
+/// seconds while its clock stands still: an hour outlasts any such stall.
+const LONG_WAIT: time::Duration = time::Duration::hours(1);
+
+/// Where a fixture's clock starts when the journal's real instant is `real`:
+/// [`LONG_WAIT`] past it, so a short wait the test waits out on its own clock
+/// still ends past the instant the journal records its row (#857).
+fn ahead_of(real: OffsetDateTime) -> OffsetDateTime {
+    real + LONG_WAIT
+}
+
 /// A seat with the limits this test needs.
 fn started(dir: &Path, body: SeatBody, limits: Limits) -> Engine {
     std::fs::create_dir_all(dir.join("work")).unwrap();
@@ -356,11 +370,17 @@ fn with_clock_at(mut engine: Engine, at: OffsetDateTime) -> (Engine, Arc<Mutex<O
     (engine, now)
 }
 
+/// The run's own advancing clock, started [`LONG_WAIT`] past the run's
+/// first recorded instant: the waits these fixtures take stay short and end
+/// on the clock, and their rows are in force however long the host stalls.
 fn with_clock(engine: Engine) -> (Engine, Arc<Mutex<OffsetDateTime>>) {
     let start = engine.store.load(&engine.run_id).unwrap()[0]
         .recorded_at
         .clone();
-    with_clock_at(engine, OffsetDateTime::parse(&start, &Rfc3339).unwrap())
+    with_clock_at(
+        engine,
+        ahead_of(OffsetDateTime::parse(&start, &Rfc3339).unwrap()),
+    )
 }
 
 /// Where a test clock's one action runs: after its first slice, or on its
