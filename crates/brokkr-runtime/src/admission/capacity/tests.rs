@@ -289,7 +289,8 @@ pub(crate) fn refused_rows(store: &mut Store, run: &str, rows: &[Row]) -> EventE
 }
 
 /// Write one beta/cloud cool-down row through the store's own writer, in
-/// force for the next five minutes.
+/// force for the next hour: longer than any stall a loaded host puts
+/// between this instant and the row's recording (#857).
 pub(crate) fn write_cooling(store: &mut Store, run: &str) {
     refused_rows(
         store,
@@ -298,7 +299,7 @@ pub(crate) fn write_cooling(store: &mut Store, run: &str) {
             site: String::new(),
             provider: "beta".into(),
             route: "cloud".into(),
-            until_at: Stamp::now_utc() + time::Duration::minutes(5),
+            until_at: Stamp::now_utc() + time::Duration::hours(1),
             reason: "cooling".into(),
             retry_after_seconds: None,
             rounds: 1,

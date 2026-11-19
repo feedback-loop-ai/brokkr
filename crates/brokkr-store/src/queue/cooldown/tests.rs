@@ -1121,7 +1121,9 @@ fn a_round_one_fills_a_terminal_whose_own_row_is_absent() {
     let event = append_waited(
         &mut store,
         "run-a",
-        OffsetDateTime::now_utc() - Duration::seconds(10),
+        // Well in the past, never "a few seconds ago" (#857): the row is
+        // history however long the test took.
+        OffsetDateTime::now_utc() - Duration::hours(1),
     );
     assert_eq!(raw(&store.conn).len(), 0, "a past row landed");
     assert!(store
