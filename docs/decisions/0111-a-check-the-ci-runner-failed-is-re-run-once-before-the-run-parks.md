@@ -1278,8 +1278,11 @@ as an empty change. In order:
 6. **The whole failure set is typed.** The failure set is every job of an entry in the entry
    set (ruling 6) whose conclusion is not `success`, each instance of a matrix job on its own. Every element gets one closed type,
    matched without a wildcard:
-   - **setup-pattern**: conclusion `failure`, and **every** failed step of the job a declared
-     setup step whose sealed match names one of that step's literals, with the pattern's id.
+   - **setup-pattern**: conclusion `failure`, **at least one** failed step reported, and
+     **every** failed step of the job a declared setup step whose sealed match names one of that
+     step's literals, with the pattern's id. A failed job that reports no failed step satisfies
+     no setup predicate vacuously: it is `untyped`, and beside a matched fault in another job it
+     makes the observation `change`, `untyped-failure`.
      That includes a later step that runs after the first failure under `if: always()` or
      `if: failure()`, as HEAD's mutants artifact upload does
      (`.github/workflows/mutants.yml:64-68`): if it fails and is not a matched setup step, the
@@ -2001,6 +2004,9 @@ slice that produces it, and each typed assertion is in the slice that builds its
    `two_failed_setup_steps_each_matching_their_literals_draw_ci_infrastructure` (the control:
    every failed step a matched setup step: `ci-infrastructure`, naming both pattern ids);
    `an_all_setup_failure_set_draws_ci_infrastructure` (the all-setup control across jobs);
+   `a_failed_job_with_no_failed_step_beside_a_matched_fault_is_change` (one independent job
+   concludes `failure` and reports zero failed steps, another holds a matched setup fault:
+   `change`, `untyped-failure`, naming the stepless job);
    `a_duplicated_matrix_instance_key_in_one_attempt_refuses_as_instance_duplicated` (all nine
    expected keys, plus a second job for one key, contradicting it: `refused`,
    `instance-duplicated`, never `ci-infrastructure`);
