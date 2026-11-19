@@ -12,11 +12,8 @@
 //! overlap another, a rule into a terminal beneath the row, and a park.
 
 use std::collections::BTreeSet;
-use std::fmt;
 
-use brokkr_view::{GraphView, ModelAtBoundary, Road};
-use serde::de::DeserializeOwned;
-use serde::{Deserialize, Serialize};
+use brokkr_view::{GraphView, ModelAtBoundary, Place, Road, RuleKind};
 
 use super::*;
 
@@ -42,72 +39,6 @@ const LEGEND: [&str; 3] = [
     "⊗ a terminal: those beneath the row are drawn under it, their rules listed",
 ];
 
-/// Where the view places a state (design D3), read at the drawing's edge
-/// from the view's wire word into this file's own type: the view's
-/// `Place` is not named outside `brokkr-view`, and naming it grows that
-/// crate's public API, which is the operator's to rule.
-#[derive(Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
-#[serde(rename_all = "snake_case")]
-enum Placed {
-    Row,
-    End,
-    Beneath,
-}
-
-/// How a link moves the run (design D3), read as [`Placed`] is, from the
-/// view's `RuleKind`.
-#[derive(Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
-#[serde(rename_all = "snake_case")]
-enum Moved {
-    Forward,
-    #[serde(rename = "self")]
-    SelfLoop,
-    Back,
-    Terminal,
-}
-
-/// Why the view could not be drawn (decision 0071 ruling 8).
-#[derive(Debug)]
-pub(crate) enum DrawError {
-    /// The view carries a word this file has not learned: a place or a
-    /// kind the view grew.
-    Unread {
-        what: &'static str,
-        source: serde_json::Error,
-    },
-}
-
-impl fmt::Display for DrawError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            DrawError::Unread { what, source } => {
-                write!(
-                    f,
-                    "the drawing cannot read the graph view's {what}: {source}"
-                )
-            }
-        }
-    }
-}
-
-impl std::error::Error for DrawError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            DrawError::Unread { source, .. } => Some(source),
-        }
-    }
-}
-
-/// `value` as the view's wire writes it, read into the drawing's `U`.
-fn read_as<T: Serialize, U: DeserializeOwned>(
-    what: &'static str,
-    value: T,
-) -> Result<U, DrawError> {
-    serde_json::to_value(value)
-        .and_then(serde_json::from_value)
-        .map_err(|source| DrawError::Unread { what, source })
-}
-
 /// A state's node carries no served model: the rail's node shape asks for
 /// one, and the recipe's graph has none to show.
 fn unserved() -> ModelAtBoundary {
@@ -131,34 +62,17 @@ struct Return {
     link: usize,
 }
 
-/// The view, its places and kinds read once, at `width` columns.
+/// The view, drawn at `width` columns.
 struct Drawing<'a> {
     view: &'a GraphView,
-    places: Vec<Placed>,
-    kinds: Vec<Moved>,
     width: usize,
 }
 
-impl<'a> Drawing<'a> {
-    fn new(view: &'a GraphView, width: usize) -> Result<Self, DrawError> {
-        let places = (view.states.iter())
-            .map(|state| read_as("place", state.place))
-            .collect::<Result<_, _>>()?;
-        let kinds = (view.links.iter())
-            .map(|link| read_as("rule kind", link.kind))
-            .collect::<Result<_, _>>()?;
-        Ok(Drawing {
-            view,
-            places,
-            kinds,
-            width,
-        })
-    }
-
+impl Drawing<'_> {
     /// The states the view places at `place`, in its order.
-    fn placed(&self, place: Placed) -> Vec<usize> {
-        (0..self.places.len())
-            .filter(|at| self.places[*at] == place)
+    fn placed(&self, place: Place) -> Vec<usize> {
+        (0..self.view.states.len())
+            .filter(|at| self.view.states[*at].place == place)
             .collect()
     }
 
@@ -184,9 +98,9 @@ impl<'a> Drawing<'a> {
             (false, true) => ("finished", "on-phosphor"),
             (false, false) => ("", ""),
         };
-        let name = match self.places[at] {
-            Placed::Row => state.name.clone(),
-            Placed::End | Placed::Beneath => format!("⊗ {}", state.name),
+        let name = match state.place {
+            Place::Row => state.name.clone(),
+            Place::End | Place::Beneath => format!("⊗ {}", state.name),
         };
         Phase {
             name,
@@ -216,9 +130,12 @@ impl<'a> Drawing<'a> {
     fn returns(&self, rail: &[usize]) -> Vec<Return> {
         let position = |name: &str| (rail.iter()).position(|at| self.view.states[*at].name == name);
         let mut kept: Vec<Return> = Vec::new();
-        for (link, kind) in self.kinds.iter().enumerate() {
-            let road = &self.view.links[link];
-            if *kind != Moved::Back || road.count == 0 {
+        for (link, road) in self.view.links.iter().enumerate() {
+            let back = match road.kind {
+                RuleKind::Back => road.count > 0,
+                RuleKind::Forward | RuleKind::SelfLoop | RuleKind::Terminal => false,
+            };
+            if !back {
                 continue;
             }
             let (Some(to), Some(from)) = (position(&road.next), position(&road.from)) else {
@@ -340,10 +257,10 @@ impl<'a> Drawing<'a> {
     /// terminal marked `⊗`.
     fn listed(&self, at: usize) -> String {
         let link = &self.view.links[at];
-        match self.kinds[at] {
-            Moved::Back => format!("  {} ᐸ── {}  ×{}", link.next, link.from, link.count),
-            Moved::Terminal => format!("  {} ──ᐳ ⊗ {}  {}", link.from, link.next, link.count),
-            Moved::Forward | Moved::SelfLoop => {
+        match link.kind {
+            RuleKind::Back => format!("  {} ᐸ── {}  ×{}", link.next, link.from, link.count),
+            RuleKind::Terminal => format!("  {} ──ᐳ ⊗ {}  {}", link.from, link.next, link.count),
+            RuleKind::Forward | RuleKind::SelfLoop => {
                 format!("  {} ──ᐳ {}  {}", link.from, link.next, link.count)
             }
         }
@@ -473,45 +390,27 @@ fn fitted(line: &str, width: usize) -> Vec<String> {
 /// never fired, and the legend, then a blank line. Nothing at all when the
 /// view has no state to draw: a recipe that does not compile and that no
 /// run carries.
-pub(crate) fn recipe_graph(view: &GraphView, width: usize) -> Result<String, DrawError> {
+pub(crate) fn recipe_graph(view: &GraphView, width: usize) -> String {
     if view.states.is_empty() {
-        return Ok(String::new());
+        return String::new();
     }
-    let drawing = Drawing::new(view, width)?;
-    let mut row = drawing.placed(Placed::Row);
-    row.extend(drawing.placed(Placed::End));
+    let drawing = Drawing { view, width };
+    let mut row = drawing.placed(Place::Row);
+    row.extend(drawing.placed(Place::End));
     let mut drawn = Drawn::new();
     let mut lines = drawing.folded(&row, &mut drawn);
-    lines.extend(drawing.folded(&drawing.placed(Placed::Beneath), &mut drawn));
+    lines.extend(drawing.folded(&drawing.placed(Place::Beneath), &mut drawn));
     let under = drawing.under(&drawn);
     lines.extend(under.iter().flat_map(|line| fitted(line, width)));
-    Ok(lines
-        .iter()
+    (lines.iter())
         .map(|line| format!("{line}\n"))
         .collect::<String>()
-        + "\n")
+        + "\n"
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn a_word_the_drawing_has_not_learned_is_refused_with_what_it_read() {
-        let read: Result<Placed, DrawError> = read_as("place", "sideways");
-        let error = read.unwrap_err();
-        assert!(matches!(error, DrawError::Unread { what: "place", .. }));
-        assert_eq!(
-            error.to_string(),
-            "the drawing cannot read the graph view's place: unknown variant `sideways`, \
-             expected one of `row`, `end`, `beneath`"
-        );
-        assert!(std::error::Error::source(&error).is_some());
-        assert_eq!(
-            read_as::<_, Moved>("rule kind", "self").unwrap(),
-            Moved::SelfLoop
-        );
-    }
 
     #[test]
     fn a_line_breaks_before_a_word_and_a_word_wider_than_a_line_continues() {

@@ -28,7 +28,7 @@ use super::analytics::{printed, range, read_hearths};
 use crate::folder::Layout;
 use crate::recipes::listed;
 use crate::recipes::personal::ShelfPath;
-use crate::tui::{recipe_graph, DrawError, NARROWEST, PIPED_WIDTH};
+use crate::tui::{recipe_graph, NARROWEST, PIPED_WIDTH};
 use crate::{fleet_of, now_rfc3339, Invocation};
 
 #[derive(clap::Args)]
@@ -357,7 +357,7 @@ pub(crate) fn graph(workspace: &Path, args: GraphArgs) -> Result<ExitCode> {
     let width = drawing_width(columns);
     let lines = match args.json {
         true => String::new(),
-        false => shown(&view, width)?,
+        false => shown(&view, width),
     };
     printed(&view, args.json, move |_| lines)
 }
@@ -374,8 +374,8 @@ fn drawing_width(terminal: Option<std::io::Result<(u16, u16)>>) -> usize {
 /// What `brokkr graph` prints without `--json` (#1145): the recipe's
 /// delivery graph drawn in the run rail's grammar at `width`, then the
 /// lines [`paint`] writes.
-fn shown(view: &GraphView, width: usize) -> Result<String, DrawError> {
-    Ok(recipe_graph(view, width)? + &paint(view))
+fn shown(view: &GraphView, width: usize) -> String {
+    recipe_graph(view, width) + &paint(view)
 }
 
 /// One line per state and per rule, then the rest the view states,

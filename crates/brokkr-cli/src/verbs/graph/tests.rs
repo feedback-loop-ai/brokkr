@@ -423,7 +423,7 @@ fn a_recipe_that_does_not_compile_is_drawn_with_its_refusal_and_named_among_the_
     assert_eq!((view.runs, view.states.len()), (0, 0));
     // No run carries it, so there is no state to draw: the refusal is
     // printed as it was, with no drawing above it.
-    assert_eq!(shown(&view, PIPED_WIDTH).unwrap(), paint(&view));
+    assert_eq!(shown(&view, PIPED_WIDTH), paint(&view));
     assert_eq!(
         paint(&view),
         format!(
@@ -731,13 +731,13 @@ fn a_linear_recipe_is_drawn_on_one_rail_with_each_rules_runs_above_its_arrow() {
     let drawing = drawn(&view, PIPED_WIDTH);
     insta::assert_snapshot!("graph_linear", drawing);
     // The drawing comes first, and today's lines follow it unchanged.
-    let shown = shown(&view, PIPED_WIDTH).unwrap();
+    let shown = shown(&view, PIPED_WIDTH);
     assert_eq!(shown.strip_prefix(&drawing), Some(paint(&view).as_str()));
 }
 
 /// `view` drawn at `width`, every line of it held within `width`.
 fn drawn(view: &GraphView, width: usize) -> String {
-    let drawing = recipe_graph(view, width).unwrap();
+    let drawing = recipe_graph(view, width);
     for line in drawing.lines() {
         assert!(line.chars().count() <= width, "{line}\n{drawing}");
     }

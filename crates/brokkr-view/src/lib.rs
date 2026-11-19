@@ -94,8 +94,8 @@ pub use fleet::{
     VERDICT_COLUMNS,
 };
 pub use graph::{
-    graph, GraphError, GraphQuery, GraphResolution, GraphTable, GraphView, Table,
-    GRAPH_VIEW_VERSION,
+    graph, GraphError, GraphQuery, GraphResolution, GraphTable, GraphView, Link, Place, RuleKind,
+    State, Table, GRAPH_VIEW_VERSION,
 };
 pub use participant::Subject;
 pub use run_summary::{summary, Summary};
