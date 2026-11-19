@@ -241,6 +241,9 @@ impl Engine {
             route: &wait.route,
             deadline: ends,
         };
+        // Only a hold this insert returned is ever ended: one the store
+        // refuses, or did not write, leaves none (fix round 0106b1r6, D2).
+        self.cooldown.hold = None;
         self.cooldown.hold = self.store.hold_probe(&hold, now)?;
         Ok(())
     }

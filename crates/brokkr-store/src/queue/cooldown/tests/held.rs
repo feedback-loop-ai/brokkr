@@ -314,3 +314,56 @@ fn a_round_the_table_does_not_write_refuses_and_leaves_its_hold_standing() {
         .unwrap();
     assert_eq!(unended, 1);
 }
+
+/// The probe holds standing unended, by run, in seq order.
+fn unended_holds(conn: &Connection) -> Vec<String> {
+    conn.prepare("SELECT run_id FROM probe_holds WHERE ended_at IS NULL ORDER BY seq")
+        .unwrap()
+        .query_map([], |row| row.get(0))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap()
+}
+
+/// A hold the table takes without writing its row (a trigger that ignores
+/// the insert) refuses by name, though an earlier insert on the same
+/// connection, another run's hold, left the connection a rowid: the hold's
+/// id is only ever the row its own insert returned, so the refused probe
+/// holds no id that could end the other run's hold, which stands (fix
+/// round 0106b1r6, D2).
+#[test]
+fn a_hold_the_table_does_not_write_refuses_and_ends_no_other() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = journal(dir.path());
+    store
+        .hold_probe(&probe_hold("run-a", at(90)), at(0))
+        .unwrap()
+        .expect("a version 7 queue takes the hold");
+    store
+        .conn
+        .execute_batch(
+            "CREATE TRIGGER ignored BEFORE INSERT ON probe_holds
+             BEGIN SELECT RAISE(IGNORE); END;",
+        )
+        .unwrap();
+    let refused = store
+        .hold_probe(&probe_hold("run-b", at(90)), at(0))
+        .unwrap_err();
+    let StoreError::Queue(QueueRefusal::ProbeHoldUnwritten(unwritten)) = &refused else {
+        panic!("an unwritten hold was not refused by name: {refused:?}");
+    };
+    assert_eq!(
+        **unwritten,
+        crate::queue::UnwrittenHold {
+            run_id: "run-b".into(),
+            provider: "claude".into(),
+            route: "first".into(),
+        }
+    );
+    assert_eq!(
+        refused.to_string(),
+        "the journal's probe holds wrote no row for run 'run-b' on claude/first, so no probe \
+         runs on it and nothing was written"
+    );
+    assert_eq!(unended_holds(&store.conn), ["run-a"]);
+}

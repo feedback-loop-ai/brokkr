@@ -7,11 +7,12 @@
 //! round; an answer ends it at once; any other end leaves it standing
 //! until its deadline, after which it holds nothing.
 
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 use time::OffsetDateTime;
 
 use super::{time_of, Cooldown, LAST_SECOND};
 use crate::queue::storage::cool_downs_writable;
+use crate::queue::{QueueRefusal, UnwrittenHold};
 use crate::{patiently, Store, StoreError};
 
 /// The hold one probe takes on its route before it is reserved: the run
@@ -103,7 +104,10 @@ impl Store {
     /// Write `hold` at `now`, before its probe is reserved, in its own
     /// `Immediate` transaction: `None` where the queue holds no table this
     /// binary may write, which the engine parks on rather than probing an
-    /// unheld route.
+    /// unheld route. An insert the table took without writing its row, as
+    /// a trigger that ignores it leaves it, refuses by name
+    /// ([`QueueRefusal::ProbeHoldUnwritten`]), so no probe runs on a hold
+    /// believed written (fix round 0106b1r6, D2).
     pub fn hold_probe(
         &mut self,
         hold: &ProbeHold<'_>,
@@ -116,20 +120,34 @@ impl Store {
             if !cool_downs_writable(&tx)? {
                 return Ok(None);
             }
-            tx.execute(
-                "INSERT INTO probe_holds
-                    (run_id, site, provider, route, recorded_at, deadline_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                params![
-                    hold.run_id,
-                    hold.site,
-                    hold.provider,
-                    hold.route,
-                    now.unix_timestamp(),
-                    after_second(hold.deadline),
-                ],
-            )?;
-            let seq = tx.last_insert_rowid();
+            // The hold's id is the row this INSERT returns, never the
+            // connection's last rowid, which an ignored insert leaves at an
+            // earlier row's (fix round 0106b1r6, D2).
+            let written = tx
+                .query_row(
+                    "INSERT INTO probe_holds
+                        (run_id, site, provider, route, recorded_at, deadline_at)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+                     RETURNING seq",
+                    params![
+                        hold.run_id,
+                        hold.site,
+                        hold.provider,
+                        hold.route,
+                        now.unix_timestamp(),
+                        after_second(hold.deadline),
+                    ],
+                    |row| row.get(0),
+                )
+                .optional()?;
+            let Some(seq) = written else {
+                let unwritten = UnwrittenHold {
+                    run_id: hold.run_id.to_string(),
+                    provider: hold.provider.to_string(),
+                    route: hold.route.to_string(),
+                };
+                return Err(QueueRefusal::ProbeHoldUnwritten(Box::new(unwritten)).into());
+            };
             tx.commit()?;
             Ok(Some(ProbeHoldId(seq)))
         })

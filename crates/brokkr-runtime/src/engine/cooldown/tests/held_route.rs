@@ -336,3 +336,47 @@ fn a_hold_the_store_refuses_parks_before_any_probe() {
         "{reason}"
     );
 }
+
+/// A hold the table takes without writing (every hold insert ignored by a
+/// trigger), after another hold, on codex/second, went in on the engine's
+/// own connection, admits no probe (fix round 0106b1r6, D2): no driver starts,
+/// the run parks with the store's typed refusal, the other hold stands,
+/// and the route is as the store holds it, open.
+#[test]
+fn a_hold_the_table_does_not_write_parks_before_any_probe_and_ends_no_other() {
+    let (dir, mut engine, _now, probe_at, gates) = probing(Probed::BarrierRefuse);
+    let run_id = engine.run_id.clone();
+    let other = brokkr_store::ProbeHold {
+        run_id: &run_id,
+        site: "",
+        provider: "codex",
+        route: "second",
+        deadline: probe_at + time::Duration::hours(1),
+    };
+    engine.store.hold_probe(&other, probe_at).unwrap().unwrap();
+    driven_raising(&mut engine, "probe_holds", "IGNORE");
+    assert_eq!(logs(dir.path(), "work"), ["attempt:refuse"]);
+    let events = engine.store.load(&engine.run_id).unwrap();
+    let parked = (events.iter())
+        .find(|event| event.event_type == EventType::RunParked)
+        .expect("the run parked");
+    assert_eq!(
+        parked.payload["reason"],
+        format!(
+            "the cool-down probe for claude/first was not admitted: its route's hold was not \
+             written: the journal's probe holds wrote no row for run '{}' on claude/first, so \
+             no probe runs on it and nothing was written",
+            engine.run_id
+        )
+    );
+    let unended: Vec<String> = rusqlite::Connection::open(engine.store.path())
+        .unwrap()
+        .prepare("SELECT route FROM probe_holds WHERE ended_at IS NULL")
+        .unwrap()
+        .query_map([], |row| row.get(0))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    assert_eq!(unended, ["second"]);
+    assert_eq!(legs(&gates, probe_at), [Ok(()), Ok(())]);
+}

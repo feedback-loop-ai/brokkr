@@ -31,6 +31,16 @@ pub struct CooldownRoundMismatch {
     pub standing: u64,
 }
 
+/// The probe hold a [`QueueRefusal::ProbeHoldUnwritten`] names: the run
+/// whose probe asked, and the provider and route it would have held (fix
+/// round 0106b1r6, D2), boxed so the store's error stays small.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnwrittenHold {
+    pub run_id: String,
+    pub provider: String,
+    pub route: String,
+}
+
 /// Why the queue refused, with the operator's text. Nothing was written.
 #[derive(Debug, Clone, Error, PartialEq, Eq)]
 pub enum QueueRefusal {
@@ -131,6 +141,16 @@ pub enum QueueRefusal {
         .0.run_id, .0.event_seq, .0.site, .0.rounds
     )]
     CooldownRoundUnwritten(Box<CooldownRoundMismatch>),
+    /// A probe's hold on its route the table took without writing its row,
+    /// as a trigger that ignores the insert leaves it (fix round 0106b1r6,
+    /// D2): no hold stands, so the probe is not dispatched, and nothing
+    /// was written.
+    #[error(
+        "the journal's probe holds wrote no row for run '{}' on {}/{}, so no probe runs on it \
+         and nothing was written",
+        .0.run_id, .0.provider, .0.route
+    )]
+    ProbeHoldUnwritten(Box<UnwrittenHold>),
     /// A command on an entry the dispatcher has claimed and not yet
     /// linked, returned or held (decision 0095 ruling 1).
     #[error("queue entry {0} is launching; the dispatcher links, returns or holds it first")]

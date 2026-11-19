@@ -231,6 +231,7 @@ pub brokkr_store::QueueRefusal::PastTheEnds::last: u32
 pub brokkr_store::QueueRefusal::PastTheEnds::to: u32
 pub brokkr_store::QueueRefusal::PinMoved
 pub brokkr_store::QueueRefusal::PinMoved::entry: brokkr_store::EntryId
+pub brokkr_store::QueueRefusal::ProbeHoldUnwritten(alloc::boxed::Box<brokkr_store::UnwrittenHold>)
 pub brokkr_store::QueueRefusal::RunTaken
 pub brokkr_store::QueueRefusal::RunTaken::entry: brokkr_store::EntryId
 pub brokkr_store::QueueRefusal::RunTaken::run: alloc::string::String
@@ -641,6 +642,10 @@ pub brokkr_store::Unread::lane_running: bool
 pub brokkr_store::Unread::order_at: i64
 pub brokkr_store::Unread::run_id: alloc::string::String
 pub brokkr_store::Unread::why: brokkr_store::RowRefusal
+pub struct brokkr_store::UnwrittenHold
+pub brokkr_store::UnwrittenHold::provider: alloc::string::String
+pub brokkr_store::UnwrittenHold::route: alloc::string::String
+pub brokkr_store::UnwrittenHold::run_id: alloc::string::String
 pub struct brokkr_store::Wait
 pub brokkr_store::Wait::entry: brokkr_store::EntryId
 pub brokkr_store::Wait::on: brokkr_store::WaitOn
