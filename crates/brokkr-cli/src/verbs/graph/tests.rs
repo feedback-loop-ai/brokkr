@@ -7,7 +7,10 @@ use brokkr_store::Store;
 use clap::Parser;
 use serde_json::{json, Value};
 
+use std::ffi::OsString;
+
 use super::*;
+use crate::tui::glyphs::width_of;
 use crate::verbs::analytics::{shown, CrossRunCmd};
 use crate::{Cli, Cmd, Exit};
 
@@ -432,6 +435,9 @@ fn a_recipe_that_does_not_compile_is_drawn_with_its_refusal_and_named_among_the_
         paint(&view, &Style::plain(80)),
         format!(
             "world / starter · {} → {now} · 0 runs\n{text}\n  {reason}\n  bundle .brokkr\n\
+             STATE  ENTERED  MEDIAN  P90  COST  TOKENS  CACHE\n\
+             \n\
+             RULE  COUNT  FROM  TO  KIND\n\
              ends   0 done · 0 stop by a rule · 0 stopped by you · 0 open\n\
              ledger 0 of 0 shipped (—) · 0 excluded · 0 unclassified\n",
             view.from
@@ -683,15 +689,15 @@ fn a_narrow_terminal_clamps_the_name_column_and_keeps_the_numbers_whole() {
         ]
     );
     // 40 columns that do not: each table gives its overflow up from its
-    // name alone, down to the name's header.
+    // widest text column, down to eight cells.
     let mut view = drawn("REVIEW-PARKS-THE-RUN-FOR-THE-OPERATOR");
     view.states[1].name = "review-with-a-long-name".into();
     assert_eq!(
         tables(&view),
         [
-            "STATE ENTERED MEDIAN P90         COST TOKENS CACHE",
-            "work        2     0m  0m not reported      —     —",
-            "revi…       1      —   — not reported      —     —",
+            "STATE    ENTERED MEDIAN P90         COST TOKENS CACHE",
+            "work           2     0m  0m not reported      —     —",
+            "review-…       1      —   — not reported      —     —",
             "",
             "RULE         COUNT FROM   TO     KIND",
             "WORK-OK          1 work   review forward",
@@ -747,4 +753,94 @@ fn no_color_paints_no_escape_byte_and_colour_bolds_only_the_header_rows() {
             "\x1b[1mRULE     COUNT  FROM    TO      KIND\x1b[0m",
         ]
     );
+}
+
+/// The table lines `painted` holds: from under its notes to its ends.
+fn table_lines(painted: &str) -> Vec<String> {
+    painted
+        .lines()
+        .skip(2)
+        .take_while(|line| !line.starts_with("ends"))
+        .map(String::from)
+        .collect()
+}
+
+#[test]
+fn every_text_column_gives_way_before_a_row_overflows_and_every_number_stays_whole() {
+    let long = "a-state-named-at-length-for-a-narrow-terminal";
+    let mut view = drawn("REVIEW-PARK");
+    view.states[1].name = long.into();
+    view.rules[1].from = long.into();
+    let lines = table_lines(&paint(&view, &Style::plain(60)));
+    assert_eq!(
+        lines,
+        [
+            "STATE           ENTERED MEDIAN P90         COST TOKENS CACHE",
+            "work                  2     0m  0m not reported      —     —",
+            "a-state-named-…       1      —   — not reported      —     —",
+            "",
+            "RULE        COUNT FROM                        TO     KIND",
+            "WORK-OK         1 work                        review forward",
+            "REVIEW-PARK     1 a-state-named-at-length-fo… park   self",
+        ]
+    );
+    let widest = lines.iter().map(|line| width_of(line)).max();
+    assert_eq!(widest, Some(60));
+}
+
+#[test]
+fn a_wide_name_is_measured_in_the_cells_the_terminal_draws() {
+    let mut view = drawn("REVIEW-PARK");
+    view.states[0].name = "界界界".into();
+    view.states[1].name = "界".repeat(12);
+    // Room for every cell: the column is the 24 cells twelve 界 draw.
+    let lines = table_lines(&paint(&view, &Style::plain(200)));
+    assert_eq!(
+        lines[..3],
+        [
+            "STATE                     ENTERED  MEDIAN  P90          COST  TOKENS  CACHE",
+            "界界界                          2      0m   0m  not reported       —      —",
+            "界界界界界界界界界界界界        1       —    —  not reported       —      —",
+        ]
+    );
+    // Too little: the name gives way to eight cells, its ellipsis one.
+    let lines = table_lines(&paint(&view, &Style::plain(53)));
+    assert_eq!(
+        lines[..3],
+        [
+            "STATE    ENTERED MEDIAN P90         COST TOKENS CACHE",
+            "界界界         2     0m  0m not reported      —     —",
+            "界界界…        1      —   — not reported      —     —",
+        ]
+    );
+    // The seats block still sizes its columns in `char`s, as it pads them.
+    let seats = crate::render::table::widths(&["A"], &[[Safe::new("界界")]]);
+    assert_eq!(seats, [2]);
+}
+
+#[test]
+fn no_color_turns_off_the_colour_a_terminal_would_otherwise_take() {
+    let dir = tempfile::tempdir().unwrap();
+    Journal::at(dir.path()).run("live", &json!({"bundle_name": "gone"}), &[entered("work")]);
+    let drawn = |no_color: Option<&str>| {
+        let args = GraphArgs {
+            recipe: Some("gone".into()),
+            realm: None,
+            range: Range::Week,
+            realms: None,
+            db: Some(dir.path().join("forge.db")),
+            json: false,
+        };
+        let env = |name: &str| match name {
+            "NO_COLOR" => no_color.map(OsString::from),
+            "COLUMNS" => Some(OsString::from("120")),
+            _ => None,
+        };
+        graph_with(dir.path(), args, || Style::detect_in(true, env)).unwrap()
+    };
+    let plain = drawn(Some("1"));
+    assert!(!plain.contains('\x1b'), "{plain:?}");
+    let coloured = drawn(None);
+    let header = "\x1b[1mSTATE  ENTERED  MEDIAN  P90          COST  TOKENS  CACHE\x1b[0m\n";
+    assert!(coloured.contains(header), "{coloured:?}");
 }

@@ -23,13 +23,13 @@ use brokkr_runtime::{Bundle, CompileError};
 use brokkr_view::{GraphQuery, GraphResolution, GraphTable, GraphView, Query, Range, Table};
 use serde::Deserialize;
 
-use super::analytics::{printed, range, read_hearths};
+use super::analytics::{range, read_hearths, shown};
 use crate::folder::Layout;
 use crate::recipes::listed;
 use crate::recipes::personal::ShelfPath;
 use crate::render::table::{table, Column};
 use crate::render::{Safe, Style};
-use crate::{fleet_of, now_rfc3339, Invocation};
+use crate::{fleet_of, now_rfc3339, Exit, Invocation};
 
 #[derive(clap::Args)]
 #[group(skip)]
@@ -333,8 +333,16 @@ fn chosen(
     Ok(recipe.clone())
 }
 
-/// `brokkr graph`: the recipe's graph for the range ending now.
+/// `brokkr graph`: the recipe's graph for the range ending now, in the
+/// style the terminal asks for.
 pub(crate) fn graph(workspace: &Path, args: GraphArgs) -> Result<ExitCode> {
+    print!("{}", graph_with(workspace, args, Style::detect)?);
+    Ok(Exit::Completed.into())
+}
+
+/// The text `brokkr graph` prints, painted in the style `style` reads
+/// (#1167): the one seam its colour and width come through.
+fn graph_with(workspace: &Path, args: GraphArgs, style: impl FnOnce() -> Style) -> Result<String> {
     let (world, hearths) = fleet_of(workspace, args.realms, args.db, Invocation::resolve)?;
     let (realm, folder) = place(world.as_ref(), args.realm.as_deref(), workspace)?;
     let shelf = shelf(&folder)?;
@@ -351,7 +359,7 @@ pub(crate) fn graph(workspace: &Path, args: GraphArgs) -> Result<ExitCode> {
         now: &now,
     };
     let view = derive(&hearths, &compiles, &shelf, &asked)?;
-    printed(&view, args.json, |view| paint(view, &Style::detect()))
+    shown(&view, args.json, |view| paint(view, &style()))
 }
 
 /// The states table's columns: the name, then its figures (#1167).
@@ -393,7 +401,7 @@ fn states(view: &GraphView, style: &Style) -> String {
             ]
         })
         .collect();
-    table(&STATE_COLUMNS, &rows, 0, style)
+    table(&STATE_COLUMNS, &rows, style)
 }
 
 /// One row per rule, in the view's order: a park goes `park`.
@@ -411,7 +419,7 @@ fn rules(view: &GraphView, style: &Style) -> String {
             ]
         })
         .collect();
-    table(&RULE_COLUMNS, &rows, 0, style)
+    table(&RULE_COLUMNS, &rows, style)
 }
 
 /// `text` from a recipe or a journal with its escapes stripped (#1167).
@@ -420,8 +428,9 @@ fn safe(text: &str) -> String {
 }
 
 /// The header and the table's notes, the states and the rules as two
-/// tables a blank line apart when the graph has either, then the rest the
-/// view states as lines, painted from the view's own text.
+/// tables a blank line apart, each its header alone when it has no row,
+/// then the rest the view states as lines, painted from the view's own
+/// text.
 fn paint(view: &GraphView, style: &Style) -> String {
     let mut out = format!(
         "{} / {} · {} → {} · {} runs\n",
@@ -443,9 +452,7 @@ fn paint(view: &GraphView, style: &Style) -> String {
             out += &format!("{text}\n  {reason}\n  bundle {bundle}\n");
         }
     }
-    if !(view.states.is_empty() && view.rules.is_empty()) {
-        out += &[states(view, style), rules(view, style)].join("\n");
-    }
+    out += &[states(view, style), rules(view, style)].join("\n");
     for retired in &view.retired {
         let id = safe(retired.rule_id.as_deref().unwrap_or_default());
         out += &format!("retired {id} · {}\n", retired.count);

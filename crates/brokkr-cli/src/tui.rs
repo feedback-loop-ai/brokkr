@@ -157,7 +157,7 @@ const PULSE_FRAMES: usize = 4;
 
 mod columns;
 mod footer;
-mod glyphs;
+pub(crate) mod glyphs;
 mod keys;
 mod layout;
 mod movement;

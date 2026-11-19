@@ -202,6 +202,116 @@ fn analytics_without_json_paints_the_headline_and_the_quarantined_hearth() {
     assert!(stdout.contains("not recorded yet: "), "{stdout}");
 }
 
+/// `brokkr graph --json` for one live run of `gone` at the state `<long>`,
+/// written out by hand in the view's field order, its clock read as
+/// `<time>` (#1167).
+const GRAPH_JSON: &str = r#"{
+  "view_version": 2,
+  "realm": "alpha",
+  "recipe": "gone",
+  "range": "7d",
+  "from": "<time>",
+  "to": "<time>",
+  "recipes": [
+    "gone"
+  ],
+  "does_not_compile": [],
+  "table": {
+    "kind": "not_found",
+    "text": "this recipe's table was not found in alpha"
+  },
+  "runs": 1,
+  "states": [
+    {
+      "name": "<long>",
+      "place": "row",
+      "entered": 1,
+      "median": {
+        "millis": null,
+        "text": "—"
+      },
+      "p90": {
+        "millis": null,
+        "text": "—"
+      },
+      "cost": {
+        "cost": {
+          "kind": "not_reported"
+        },
+        "text": "not reported",
+        "reporting": [],
+        "silent": [],
+        "note": null
+      },
+      "tokens": {
+        "total": {
+          "text": "—",
+          "absent": true,
+          "note": "not reported"
+        },
+        "input": {
+          "text": "—",
+          "absent": true,
+          "note": "not reported"
+        },
+        "output": {
+          "text": "—",
+          "absent": true,
+          "note": "not reported"
+        },
+        "cache_hit": {
+          "text": "—",
+          "absent": true,
+          "note": "no cache reads and input reported to compare"
+        }
+      },
+      "seats": []
+    }
+  ],
+  "rules": [],
+  "links": [],
+  "never_fired": {
+    "count": 0,
+    "of": 0,
+    "text": "0 of 0"
+  },
+  "retired": [],
+  "drifted_runs": 0,
+  "drift_text": null,
+  "ends": {
+    "done": 0,
+    "stop": [],
+    "stopped": 0,
+    "operator": 0,
+    "open": 1,
+    "text": "0 done · 0 stop by a rule · 0 stopped by you · 1 open",
+    "refused_by": [],
+    "ledger": {
+      "judged": 0,
+      "shipped": 0,
+      "rate_percent": null,
+      "excluded": {
+        "blocked": 0,
+        "superseded": 0,
+        "infrastructure": 0,
+        "delivered-elsewhere": 0,
+        "withdrawn": 0,
+        "operator-stopped": 0
+      },
+      "unclassified": 0,
+      "text": "0 of 0 shipped (—) · 0 excluded · 0 unclassified"
+    }
+  },
+  "live": [
+    {
+      "run_id": "live",
+      "label": "feature",
+      "state": "<long>"
+    }
+  ]
+}
+"#;
+
 #[test]
 fn graph_prints_its_view_as_json_or_as_tables_the_terminals_columns_fit() {
     let ws = Workspace::new();
@@ -231,17 +341,17 @@ fn graph_prints_its_view_as_json_or_as_tables_the_terminals_columns_fit() {
         assert_eq!(code, Some(0), "{}", String::from_utf8_lossy(&stderr));
         String::from_utf8(out.stdout).unwrap()
     };
-    // `--json` is the view model alone, pretty in its own field order.
+    // `--json` is the view model alone, pretty in its own field order,
+    // pinned whole: only its two clock readings are the clock's.
     let json = graph(&["--json"]);
-    let view: Value = serde_json::from_str(&json).unwrap();
-    assert!(
-        json.starts_with(
-            "{\n  \"view_version\": 2,\n  \"realm\": \"alpha\",\n  \"recipe\": \"gone\",\n"
-        ),
-        "{json}"
-    );
-    assert!(json.ends_with("\n}\n"), "{json}");
-    assert_eq!(view["states"][0]["name"], long);
+    let unclocked: String = json
+        .lines()
+        .map(|line| match line.split_once(": ") {
+            Some((key @ ("  \"from\"" | "  \"to\""), _)) => format!("{key}: \"<time>\",\n"),
+            _ => format!("{line}\n"),
+        })
+        .collect();
+    assert_eq!(unclocked, GRAPH_JSON.replace("<long>", long));
     // Without it, tables the terminal's 60 columns fit: one-space gaps and
     // the state's name clamped, every number whole, no escape byte.
     let painted = graph(&[]);
