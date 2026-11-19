@@ -745,10 +745,20 @@ operator's compile names it. Cost, said plainly: a change to `Cargo.toml`, a dep
 them, can never park as `ci-infrastructure`; a setup fault beside it costs one implement visit,
 as today.
 
-**The closure is checked at the base revision.** The change classes are only as good as the
-machinery's closure, so the engine tests it before it trusts it, over the base revision the
-observation names (ruling 3), read through 0109's verified reader (below) and never from the
-change's tree:
+**The closure is checked on the tree each judged job executed.** The change classes are only as
+good as the machinery's closure, so the engine tests it before it trusts it, over the tree the
+job actually ran, read through 0109's verified reader (below) and never from the worktree. A
+job's **closure tree** is the commit its one proven checkout (ruling 3, below) holds: for a
+`merge` entry, the merge commit the run records, whose first parent is the base the observation
+names; for a `head` entry, the gated head. Its workflow definition is read from the revision
+the run's event ran the workflow from, which for `pull_request` the forge documents as the
+merge revision
+(<https://docs.github.com/en/actions/writing-workflows/choosing-when-your-workflow-runs/events-that-trigger-workflows#pull_request>;
+unmeasured until 0111a). A job whose closure tree, or whose workflow's revision, the
+observation does not establish is `revision-unmeasured`, and no closure verdict is taken for
+it. Where this decision reads the closure, the aggregate parse or a matrix "at the base", it
+reads it at that job's closure tree; the basis seals each job's closure-tree commit, so a
+replay reads which tree was judged.
 
 - Every workflow file of an entry in the entry set (ruling 6's one derivation) is parsed at the
   base into a typed subset: each job's
@@ -889,9 +899,16 @@ reference after it, is unresolved. That closure withholds as `machinery-unresolv
 The narrowed acceptance ([above](#what-1093s-acceptance-becomes)) is therefore delivered for an
 adopter whose closure resolves, and for this house only after the follow-up.
 
-Why the base is enough: any change that could add a reference from the machinery into a change
-class must edit a machinery file, which already withholds. So an untouched machinery whose
-closure holds at the base is the machinery the head ran. The parse needs a YAML reader the
+Why the executed tree, and not the current base: the base moves. Start a pull request on A,
+advance its base to B, where a setup helper is replaced with one whose reads close, and let the
+pull request change only a product file A's helper reads. `merge-base..head` holds no machinery
+edit, so `machinery-touched` is silent; a `head` entry's job checks out the head, which still
+holds A's helper, and runs it. A scan of B passes while the executed helper reads the changed
+file. Scanned on the head's tree, the closure finds A's helper and its read, and withholds as
+`machinery-escapes`. A `merge` entry's tree has the base as its first parent, so with the
+machinery untouched its machinery is the base's byte for byte, and the scan agrees with it.
+Any change that could add a reference from the machinery into a change class must edit a
+machinery file, which already withholds. The parse needs a YAML reader the
 workspace does not hold at HEAD (`Cargo.lock` names no `yaml` crate); 0111b adds one at the
 runtime's edge, into a typed subset, under the house's licence and audit jobs.
 
@@ -999,6 +1016,13 @@ closure parse:
 - each job the rule judges has exactly one `actions/checkout` step,
   and its `path` (the workspace root when it names none) is **the proven checkout**; a job with
   two, or with a `path` built by an expression, is unproven;
+- **the checkout completed before any step claimed to run in it.** The checkout step precedes,
+  in the job's step list, every reached step the rule judges inside it, and the sealed
+  observation reports that step concluded `success` in the same job attempt, its number and
+  conclusion sealed with the job. A literal working directory inside the checkout's `path`
+  proves no order: a step listed before the checkout ran in whatever that directory held, a
+  runner's earlier workspace among them. A step listed before it, or a checkout step the
+  observation does not report as succeeded, is unproven;
 - every reached step of that job, the matched setup step and every step before it among them,
   has an effective working directory (ruling 3's rule: its own, else the job's default, else
   the workflow's, else the workspace root, moved by any literal `cd`) that is, or lies under,
@@ -1121,7 +1145,7 @@ stops nothing landing would do. Each is a precision guard on the one class, and 
 | `association-ambiguous` | an execution's association array names more than one pull request, open or closed; it names them |
 | `revision-unestablished` | an entry's pinned checkout does not establish its tested revision, as above |
 | `revision-disagrees` | one of the separate comparisons above fails; it names the two values |
-| `revision-unmeasured` | the forge exposes no field proving the revision the entry's run checked out, or a relevant step's effective working directory is not inside the job's one proven checkout; it names the step |
+| `revision-unmeasured` | the forge exposes no field proving the revision the entry's run checked out, a job's closure tree or workflow revision is not established, a relevant step's effective working directory is not inside the job's one proven checkout, or the step precedes that checkout's observed success; it names the step |
 | `producer-mismatch` | a check carries a required entry's name from another app or workflow path; it names it, so a substitute is never silently passed over |
 | `status-required` | the forge's required set names a commit status context, which is never admitted |
 | `required-set-disagrees` | the forge requires a check the pinned list lacks |
@@ -1150,9 +1174,10 @@ bounded, typed data under `ci-classification/v1`:
   declares it, with that file's digest beside it;
 - **the declared literal set**: each setup step (workflow, job, step name) and each pattern (id,
   steps, literal bytes);
-- **the change classes** and what ruling 3's closure test took at the base: its verdict,
+- **the change classes** and what ruling 3's closure test took at each closure tree: its verdict,
   and, for each required job and each job it needs, transitively, its `needs`, its checkout
-  ref, its proven checkout's path and each reached step's effective working directory;
+  ref, its closure tree's commit, its proven checkout's path and step number, and each reached
+  step's effective working directory;
 - **each such job's aggregate kind**, as ruling 4's pinned parse derived it: `verdict-only`,
   with the dependency each of its steps asserts and the `env` binding that ties the assertion to
   `needs.<dep>.result`; or `independent`, naming its first independent step; or the typed
@@ -1996,7 +2021,7 @@ slice that produces it, and each typed assertion is in the slice that builds its
 2. **0111b — the classifier, its record and its readout, over 0111a's evidence.** Files: a new
    `crates/brokkr-core/src/ci.rs` with `ci/observation.rs`, `ci/checks.rs`, `ci/classify.rs`,
    `ci/closure.rs` (ruling 3's machinery closure over typed workflow data) and
-   `ci/tests.rs`; `crates/brokkr-core/src/lib.rs`; the base workflow's parse into that typed
+   `ci/tests.rs`; `crates/brokkr-core/src/lib.rs`; each closure tree's workflow parse into that typed
    subset at the runtime's edge, with its YAML reader added to the workspace; `crates/brokkr-core/src/policy/inputs.rs` (the
    seat-owned `ci_observation` record; the engine-owned `ci_class` record and ruling 10's three
    flags); `crates/brokkr-runtime/src/bundle.rs` (load and pin `ci-checks.json`, refuse it on a
@@ -2205,7 +2230,19 @@ slice that produces it, and each typed assertion is in the slice that builds its
    `a_remote_action_the_pinned_table_does_not_name_withholds_as_machinery_unresolved`;
    `a_docker_compose_step_whose_compose_file_lies_in_a_change_class_withholds_as_machinery_escapes`;
    `the_closure_follows_needs_uses_and_sourced_helpers_transitively`;
-   `the_closure_reads_the_base_revision_never_the_changes_tree`;
+   `the_closure_reads_each_jobs_executed_tree_through_the_verified_reader_never_the_worktree`;
+   `a_setup_helper_the_advanced_base_replaced_but_the_tested_head_still_runs_draws_no_ci_infrastructure`
+   (a `head` entry, its workflow revision recorded; the pull request opened on A, the base
+   advanced to B, where the setup helper no longer reads `crates/ci/ready`, and the change
+   editing only that file so A's helper, still in the head, prints the declared literal:
+   `change`, `withheld`, with `machinery-escapes` naming A's helper and the read, though a scan
+   of B closes);
+   `a_job_whose_closure_tree_is_not_established_withholds_as_revision_unmeasured`;
+   `a_setup_step_listed_before_the_checkout_withholds_as_revision_unmeasured` (the declared
+   setup step precedes the job's one `actions/checkout`, and its literal `working-directory` is
+   inside the checkout's `path`: `change`, `withheld`, `revision-unmeasured` naming the step and
+   the checkout step; and its sibling, the checkout listed first but not reported `success`,
+   the same);
    `an_empty_change_class_list_refuses_to_compile`;
    `a_change_class_under_github_or_a_required_workflow_refuses_to_compile`;
    `the_houses_own_closure_withholds_as_machinery_unresolved_at_test_shards_sh` (HEAD's base,
