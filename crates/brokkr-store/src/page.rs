@@ -373,7 +373,12 @@ impl Store {
     /// summary and its backfill finished (ruling 8). A journal that does
     /// not is read whole, run by run, by a reader that cannot write to
     /// migrate it.
+    /// Every read of a page names a damaged journal ([`Store::named`]).
     pub fn pages(&self) -> Result<bool, StoreError> {
+        self.named(self.paging())
+    }
+
+    fn paging(&self) -> Result<bool, StoreError> {
         if !summary_intact(&self.conn)? {
             return Ok(false);
         }
@@ -397,10 +402,7 @@ impl Store {
         &self,
         read: impl FnOnce() -> Result<T, E>,
     ) -> Result<T, E> {
-        let snapshot = self
-            .conn
-            .unchecked_transaction()
-            .map_err(StoreError::from)?;
+        let snapshot = self.named(self.conn.unchecked_transaction().map_err(StoreError::from))?;
         let read = read();
         // A read writes nothing, so its end is the same either way.
         drop(snapshot);
@@ -416,7 +418,7 @@ impl Store {
         after: Option<(i64, &str)>,
         limit: usize,
     ) -> Result<Vec<Paged>, StoreError> {
-        self.section_with(ranges, after, limit, |_, _| {})
+        self.named(self.section_with(ranges, after, limit, |_, _| {}))
     }
 
     /// [`Store::section`], handing `stepped` each range and the steps
@@ -470,7 +472,7 @@ impl Store {
     /// Whether `run_id`'s last event is the head its row was folded to,
     /// by seq and hash, read by the run's key (ruling 5).
     pub fn stands_at(&self, run_id: &str, folded: (u64, &str)) -> Result<bool, StoreError> {
-        let (seq, hash) = head_of(&self.conn, run_id)?;
+        let (seq, hash) = self.named(head_of(&self.conn, run_id))?;
         Ok((seq, hash.as_str()) == folded)
     }
 
@@ -479,6 +481,14 @@ impl Store {
     /// id is past what a writer admits ([`keyed`]), and how many more it
     /// holds below `after`, counted by the index alone.
     pub fn behind(
+        &self,
+        after: Option<(i64, &str)>,
+        limit: usize,
+    ) -> Result<(Vec<Keyed>, u64), StoreError> {
+        self.named(self.behind_read(after, limit))
+    }
+
+    fn behind_read(
         &self,
         after: Option<(i64, &str)>,
         limit: usize,
@@ -508,7 +518,7 @@ impl Store {
 
     /// How many rows `range` holds, counted by the index alone.
     pub fn counted(&self, range: &Range) -> Result<u64, StoreError> {
-        self.counted_below(range, None)
+        self.named(self.counted_below(range, None))
     }
 
     /// How many rows `range` holds below `after`, counted by the index.
@@ -529,6 +539,10 @@ impl Store {
     /// refusal, a value no writer writes, and its run is read whole
     /// (ruling 5).
     pub fn whole(&self, row: &mut Row) -> Result<Result<Whole, RowRefusal>, StoreError> {
+        self.named(self.whole_read(row))
+    }
+
+    fn whole_read(&self, row: &mut Row) -> Result<Result<Whole, RowRefusal>, StoreError> {
         let (feature, residuals, values): (String, String, [Option<String>; 11]) =
             self.conn.query_row(
                 "SELECT feature, residuals, created_at_whole, last_recorded_at_whole,
@@ -587,13 +601,12 @@ impl Store {
 
     /// What `run_id`'s `runs` row lists: its feature and creation stamp.
     pub fn listing(&self, run_id: &str) -> Result<(String, String), StoreError> {
-        self.conn
-            .query_row(
-                "SELECT feature, created_at FROM runs WHERE run_id = ?1",
-                [run_id],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .optional()?
+        let listed = self.conn.query_row(
+            "SELECT feature, created_at FROM runs WHERE run_id = ?1",
+            [run_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        );
+        self.named(listed.optional().map_err(StoreError::from))?
             .ok_or_else(|| StoreError::RunNotFound(run_id.to_string()))
     }
 }

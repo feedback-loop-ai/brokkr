@@ -673,7 +673,9 @@ impl Store {
         while let Some(run_id) = walk.next(&self.conn)? {
             if !cleared {
                 let conn = &self.conn;
-                patiently("checkpoints", self.patience, || clear_backfilled(conn))?;
+                patiently("checkpoints", self.patience, &self.path, || {
+                    clear_backfilled(conn)
+                })?;
                 cleared = true;
             }
             if !self.checkpoint_run(&run_id, &mut between)? {
@@ -683,7 +685,7 @@ impl Store {
         let done = !unfinished && (cleared || !finished(&self.conn, BACKFILLED)?);
         if done {
             let conn = &self.conn;
-            patiently("checkpoints", self.patience, || {
+            patiently("checkpoints", self.patience, &self.path, || {
                 mark_finished(conn, BACKFILLED)
             })?;
         }
@@ -710,7 +712,9 @@ impl Store {
         if !unwritten(&self.conn, run_id)? {
             between(&self.conn);
             let conn = &mut self.conn;
-            return patiently("checkpoints", self.patience, || refold_once(conn, run_id));
+            return patiently("checkpoints", self.patience, &self.path, || {
+                refold_once(conn, run_id)
+            });
         }
         let Ok(events) = self.load(run_id) else {
             return Ok(false);
@@ -718,7 +722,9 @@ impl Store {
         let account = Account::whole(run_id, &events);
         between(&self.conn);
         let conn = &mut self.conn;
-        match patiently("checkpoints", self.patience, || once(conn, &account)) {
+        match patiently("checkpoints", self.patience, &self.path, || {
+            once(conn, &account)
+        }) {
             Err(StoreError::TokenCountOutOfRange(..)) => Ok(false),
             written => written,
         }

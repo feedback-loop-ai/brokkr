@@ -166,7 +166,7 @@ impl Store {
         attempt_id: Option<String>,
     ) -> Result<Chain, StoreError> {
         let (conn, carried) = (&mut self.conn, self.carried.as_ref());
-        let (chain, settled) = patiently("append", self.patience, || {
+        let (chain, settled) = patiently("append", self.patience, &self.path, || {
             chain_once(
                 (conn, carried),
                 run_id,

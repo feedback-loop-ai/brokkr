@@ -636,6 +636,15 @@ fn watch_loop(
                     }
                 }
             }
+            // Damage is no poll's accident, so it is refused at once (#1000).
+            Err(error)
+                if matches!(
+                    error.downcast_ref(),
+                    Some(brokkr_store::StoreError::Damaged { .. })
+                ) =>
+            {
+                return Err(error)
+            }
             Err(error) => {
                 failures += 1;
                 let frame = format!("the journal is not readable right now: {error}\n");

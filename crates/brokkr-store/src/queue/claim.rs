@@ -651,7 +651,7 @@ impl Store {
     /// claim re-reads each run with an event past it. Events are never
     /// updated or deleted, so it only rises.
     pub fn high_water(&self) -> Result<i64, StoreError> {
-        patiently("high_water", self.patience, || {
+        patiently("high_water", self.patience, &self.path, || {
             let query = "SELECT COALESCE(MAX(rowid), 0) FROM events";
             Ok(self.conn.query_row(query, [], |row| row.get(0))?)
         })
@@ -663,7 +663,9 @@ impl Store {
     /// a journal not yet named, which only a read-only open sees, or one
     /// whose id does not read as one.
     pub fn journal(&self) -> Result<Option<Uuid>, StoreError> {
-        patiently("journal", self.patience, || journal_id(&self.conn))
+        patiently("journal", self.patience, &self.path, || {
+            journal_id(&self.conn)
+        })
     }
 
     /// Claim `entry`, as a pass read it, for the dispatcher of
@@ -691,7 +693,7 @@ impl Store {
         mut judge: impl FnMut(ClaimFacts<'_>) -> Result<(), R>,
     ) -> Result<Result<Claim, R>, StoreError> {
         let conn = &mut self.conn;
-        patiently("queue_claim", self.patience, || {
+        patiently("queue_claim", self.patience, &self.path, || {
             in_step(conn, |tx| claim_in(tx, claiming, reason, &mut judge))
         })
     }
@@ -713,7 +715,7 @@ impl Store {
             reason,
         };
         let conn = &mut self.conn;
-        patiently("queue_link", self.patience, || {
+        patiently("queue_link", self.patience, &self.path, || {
             in_step(conn, |tx| link_in(tx, under, run))
         })
     }
@@ -733,7 +735,7 @@ impl Store {
             reason,
         };
         let conn = &mut self.conn;
-        patiently("queue_spawn", self.patience, || {
+        patiently("queue_spawn", self.patience, &self.path, || {
             in_step(conn, |tx| spawn_in(tx, under))
         })
     }
@@ -763,7 +765,7 @@ impl Store {
             reason,
         };
         let conn = &mut self.conn;
-        patiently("queue_reclaim", self.patience, || {
+        patiently("queue_reclaim", self.patience, &self.path, || {
             in_step(conn, |tx| reclaim_in(tx, under, refused, bound))
         })
     }
@@ -788,7 +790,7 @@ impl Store {
         mut judge: impl FnMut(Option<Uuid>) -> Result<(), R>,
     ) -> Result<Result<Unsettled, R>, StoreError> {
         let conn = &mut self.conn;
-        patiently("queue_unsettled", self.patience, || {
+        patiently("queue_unsettled", self.patience, &self.path, || {
             in_step(conn, |tx| unsettled_in(tx, generation, &mut judge))
         })
     }

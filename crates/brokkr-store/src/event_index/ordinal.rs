@@ -307,12 +307,14 @@ impl Store {
             numbered = true;
             between(&self.conn);
             let conn = &mut self.conn;
-            patiently("ordinals", self.patience, || once(conn, &run_id))?;
+            patiently("ordinals", self.patience, &self.path, || {
+                once(conn, &run_id)
+            })?;
             after = Some(run_id);
         }
         if numbered || !finished(&self.conn, BACKFILLED)? {
             let conn = &self.conn;
-            patiently("ordinals", self.patience, || {
+            patiently("ordinals", self.patience, &self.path, || {
                 mark_finished(conn, BACKFILLED)
             })?;
         }

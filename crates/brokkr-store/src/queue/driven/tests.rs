@@ -74,3 +74,31 @@ fn a_journal_whose_queue_this_binary_does_not_read_refuses_both() {
     assert!(mismatch(store.queue_spawned(EntryId(1), 1).unwrap_err()));
     assert!(mismatch(store.queue_unspawned().unwrap_err()));
 }
+
+/// A page of the queue's claims SQLite reads as corrupt refuses both reads
+/// as the journal's damage, naming the file (#1000), never bare SQLite.
+#[test]
+fn a_corrupt_claims_page_is_the_journals_damage_by_name() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("forge.db");
+    let (ids, [first, ..]) = three_entries(&mut Store::open(&path).unwrap());
+    crate::test_support::damaged::damage_table(&path, "queue_claims");
+    let store = Store::open_read_only(&path).unwrap();
+    let damaged = |error: StoreError| match error {
+        StoreError::Damaged { journal, damage } => (journal, damage),
+        other => panic!("not damage: {other:?}"),
+    };
+    let expected = (path.clone(), crate::Damage::Malformed);
+    let spawned = store.queue_spawned(ids[0], first.parts().1).unwrap_err();
+    assert_eq!(
+        spawned.to_string(),
+        format!(
+            "the journal '{}' is damaged (SQLite reads its disk image as malformed); nothing \
+             was read from it; restore it from a backup with `brokkr restore` and see the \
+             guide's \"A damaged journal\" (#1000)",
+            path.display()
+        )
+    );
+    assert_eq!(damaged(spawned), expected);
+    assert_eq!(damaged(store.queue_unspawned().unwrap_err()), expected);
+}

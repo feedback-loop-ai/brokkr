@@ -9,6 +9,7 @@ use brokkr_core::canonical::ZERO_HASH;
 use brokkr_core::envelope::{verify_chain_after, ChainError, EventEnvelope};
 use rusqlite::params;
 
+use crate::damage::envelope;
 use crate::{patiently, Store, StoreError};
 
 /// The head a run's opening verified its chain to: its last event's seq
@@ -28,21 +29,24 @@ struct Verified {
     head: Opened,
 }
 
-/// One row's envelope `text` into an opening: parsed and its chain
-/// extended while no defect stands, each event it verifies handed to
-/// `keep`. The first defect stands, and past an unparsed row nothing more
-/// is parsed.
+/// One row's envelope `text`, at the row's `seq`, into an opening: parsed
+/// and its chain extended while no defect stands, each event it verifies
+/// handed to `keep`. The first defect stands, and past an unparsed row
+/// nothing more is parsed.
 fn admit(
-    text: &str,
+    (run_id, seq, text): (&str, i64, &str),
     chain: &mut Option<Verified>,
     defect: &mut Option<StoreError>,
     keep: &mut impl FnMut(EventEnvelope),
 ) {
-    if matches!(defect, Some(StoreError::Json(_))) {
+    if matches!(
+        defect,
+        Some(StoreError::Json(_) | StoreError::Unparsed { .. })
+    ) {
         return;
     }
-    match serde_json::from_str::<EventEnvelope>(text) {
-        Err(unparsed) => *defect = Some(unparsed.into()),
+    match envelope(run_id, seq, text) {
+        Err(unparsed) => *defect = Some(unparsed),
         Ok(event) if defect.is_none() => match extend(chain, &event) {
             Ok(()) => keep(event),
             Err(broken) => *defect = Some(broken.into()),
@@ -98,7 +102,9 @@ impl Store {
     /// contention is named `load`'s, so a readout that moves from `load`
     /// to this opening refuses in the same words.
     pub fn open_run(&self, run_id: &str) -> Result<Opened, StoreError> {
-        patiently("load", self.patience, || self.open_once(run_id, drop))
+        patiently("load", self.patience, &self.path, || {
+            self.open_once(run_id, drop)
+        })
     }
 
     /// [`Store::open_run`], keeping every envelope it verifies: the head
@@ -108,7 +114,7 @@ impl Store {
     /// 0089 ruling 7). Its refusals, their order and their words are the
     /// opening's, and it keeps nothing of a run it refuses.
     pub fn open_kept(&self, run_id: &str) -> Result<(Opened, Vec<EventEnvelope>), StoreError> {
-        patiently("load", self.patience, || {
+        patiently("load", self.patience, &self.path, || {
             let mut kept = Vec::new();
             let opened = self.open_once(run_id, |event| kept.push(event))?;
             Ok((opened, kept))
@@ -123,7 +129,7 @@ impl Store {
     ) -> Result<Opened, StoreError> {
         let mut statement = self
             .conn
-            .prepare("SELECT envelope FROM events WHERE run_id = ?1 ORDER BY seq")?;
+            .prepare("SELECT envelope, seq FROM events WHERE run_id = ?1 ORDER BY seq")?;
         let mut rows = statement.query(params![run_id])?;
         let (mut chain, mut defect) = (None, None);
         while let Some(row) = rows.next()? {
@@ -133,7 +139,8 @@ impl Store {
             let Ok(text) = row.get_ref(0)?.as_str() else {
                 return Err(row.get::<_, String>(0).expect_err("unborrowed").into());
             };
-            admit(text, &mut chain, &mut defect, &mut keep);
+            let seq: i64 = row.get(1)?;
+            admit((run_id, seq, text), &mut chain, &mut defect, &mut keep);
         }
         if let Some(defect) = defect {
             return Err(defect);

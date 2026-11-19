@@ -336,7 +336,7 @@ impl Store {
         let summary = Summary::of(&account, listing);
 
         let conn = &mut self.conn;
-        patiently("import_run", self.patience, || {
+        patiently("import_run", self.patience, &self.path, || {
             adopt_once(conn, &row, &arrival, &events, (&account, &summary))
         })
         .map_err(|refused| match refused {
@@ -360,7 +360,7 @@ impl Store {
     /// none to select; a read-write open migrates before anything asks.
     pub fn arrival(&self, run_id: &str) -> Result<Option<Arrival>, StoreError> {
         let row: Option<(Option<String>, Option<String>)> =
-            patiently("arrival", self.patience, || {
+            patiently("arrival", self.patience, &self.path, || {
                 Ok(self
                     .conn
                     .query_row(

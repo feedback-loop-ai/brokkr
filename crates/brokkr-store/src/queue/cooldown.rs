@@ -552,7 +552,7 @@ impl Store {
         route: &str,
         now: OffsetDateTime,
     ) -> Result<Option<CooldownAggregate>, StoreError> {
-        patiently("cooldown", self.patience, || {
+        patiently("cooldown", self.patience, &self.path, || {
             if cool_downs_held(&self.conn)? {
                 aggregate(&self.conn, provider, route, now.unix_timestamp())
             } else {
@@ -565,7 +565,7 @@ impl Store {
     /// the rows the claim's judge reads inside its transaction. The
     /// queue's version is judged first, as [`Store::cooldown`] does.
     pub fn cooldowns_in_force(&self, now: OffsetDateTime) -> Result<Vec<Cooldown>, StoreError> {
-        patiently("cooldowns_in_force", self.patience, || {
+        patiently("cooldowns_in_force", self.patience, &self.path, || {
             if cool_downs_held(&self.conn)? {
                 in_force(&self.conn, now.unix_timestamp())
             } else {
@@ -610,7 +610,7 @@ impl Store {
     /// unpaired surrogate), which this read takes as one group; such a
     /// journal is outside its scope.
     pub fn cooldowns_newest(&self, now: OffsetDateTime) -> Result<Vec<Cooldown>, StoreError> {
-        patiently("cooldowns_newest", self.patience, || {
+        patiently("cooldowns_newest", self.patience, &self.path, || {
             if cool_downs_held(&self.conn)? {
                 newest(self, now.unix_timestamp())
             } else {
@@ -631,7 +631,7 @@ impl Store {
         event_seq: u64,
         site: &str,
     ) -> Result<Vec<Cooldown>, StoreError> {
-        patiently("cooldown_rounds", self.patience, || {
+        patiently("cooldown_rounds", self.patience, &self.path, || {
             if cool_downs_held(&self.conn)? {
                 rounds(&self.conn, run_id, event_seq, site)
             } else {
@@ -653,7 +653,7 @@ impl Store {
         &mut self,
         round: CooldownRound<'_>,
     ) -> Result<RoundAppend, StoreError> {
-        patiently("append_cooldown_round", self.patience, || {
+        patiently("append_cooldown_round", self.patience, &self.path, || {
             let tx = self
                 .conn
                 .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;

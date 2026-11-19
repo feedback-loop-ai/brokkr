@@ -534,8 +534,8 @@ impl Store {
             after = Some(place);
         }
         if !finished(&self.conn, BACKFILLED)? {
-            let conn = &self.conn;
-            patiently("catch_up", self.patience, || mark_backfilled(conn))?;
+            let (conn, journal) = (&self.conn, &self.path);
+            patiently("catch_up", self.patience, journal, || mark_backfilled(conn))?;
         }
         Ok(())
     }

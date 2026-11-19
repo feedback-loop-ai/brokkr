@@ -405,6 +405,7 @@ pub(crate) fn refused(error: StoreError) -> Refused {
         | StoreError::AlreadyAcknowledged { .. }
         | StoreError::Chain(_)
         | StoreError::Clock { .. }
+        | StoreError::Damaged { .. }
         | StoreError::HeadMoved { .. }
         | StoreError::Json(_)
         | StoreError::RowBeforeChain { .. }
@@ -417,7 +418,8 @@ pub(crate) fn refused(error: StoreError) -> Refused {
         | StoreError::SeatTree(_)
         | StoreError::Sqlite(_)
         | StoreError::TokenCountOutOfRange(..)
-        | StoreError::UnknownHead { .. }) => Refused::Store(other),
+        | StoreError::UnknownHead { .. }
+        | StoreError::Unparsed { .. }) => Refused::Store(other),
     }
 }
 

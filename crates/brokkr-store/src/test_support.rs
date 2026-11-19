@@ -25,6 +25,7 @@ use crate::import::INSERT_EVENT;
 use crate::summary::{Compared, Listed};
 use crate::{Disagreement, IndexFault, Store};
 
+pub mod damaged;
 mod generated;
 mod older;
 

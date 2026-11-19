@@ -3,6 +3,8 @@
 //! connection shares. Opening reads it; only a journal missing something
 //! takes the write lock.
 
+use std::path::Path;
+
 use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::acknowledgement::{acknowledgements_intact, migrate_acknowledgements};
@@ -378,8 +380,8 @@ fn initialize_additions(conn: &Connection) -> Result<(), StoreError> {
 /// retries it until [`BUSY_TIMEOUT`] elapses — the race is
 /// self-resolving, because a peer that beats us to it leaves the file in
 /// exactly the mode we wanted, which the next read observes.
-pub(crate) fn ensure_wal(conn: &Connection) -> Result<(), StoreError> {
-    ensure_wal_by(conn, BUSY_TIMEOUT)
+pub(crate) fn ensure_wal(conn: &Connection, journal: &Path) -> Result<(), StoreError> {
+    ensure_wal_by(conn, BUSY_TIMEOUT, journal)
 }
 
 /// [`ensure_wal`] with the patience in hand: an argument so the test
@@ -388,8 +390,9 @@ pub(crate) fn ensure_wal(conn: &Connection) -> Result<(), StoreError> {
 pub(crate) fn ensure_wal_by(
     conn: &Connection,
     patience: std::time::Duration,
+    journal: &Path,
 ) -> Result<(), StoreError> {
-    patiently("ensure_wal", patience, || {
+    patiently("ensure_wal", patience, journal, || {
         let mode: String = conn.pragma_query_value(None, "journal_mode", |row| row.get(0))?;
         if !mode.eq_ignore_ascii_case("wal") {
             conn.pragma_update(None, "journal_mode", "WAL")?;

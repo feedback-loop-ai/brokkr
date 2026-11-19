@@ -5,6 +5,7 @@ use brokkr_core::canonical::ZERO_HASH;
 use brokkr_core::envelope::{verify_chain_after, EventEnvelope};
 use rusqlite::{params, Connection, OptionalExtension};
 
+use crate::damage::envelope;
 use crate::{patiently, Store, StoreError, HEAD_OF_RUN};
 
 /// The rows of each `[run_id, seq]` pair of the JSON array `?1` at or
@@ -31,7 +32,7 @@ impl Store {
         hash: &str,
     ) -> Result<Vec<EventEnvelope>, StoreError> {
         let head = i64::try_from(seq).map_err(|_| StoreError::UnknownHead { seq })?;
-        patiently("load", self.patience, || {
+        patiently("load", self.patience, &self.path, || {
             let (stored, lowest): (Option<String>, Option<i64>) = self
                 .conn
                 .query_row(HEAD_OF_RUN, params![run_id, head], |r| {
@@ -64,7 +65,7 @@ impl Store {
     /// run whole.
     pub fn last_event(&self, run_id: &str, seq: u64) -> Result<Option<EventEnvelope>, StoreError> {
         let seq = i64::try_from(seq).map_err(|_| StoreError::UnknownHead { seq })?;
-        patiently("last_event", self.patience, || {
+        patiently("last_event", self.patience, &self.path, || {
             let raw: Option<String> = self
                 .conn
                 .query_row(
@@ -73,9 +74,7 @@ impl Store {
                     |row| row.get(0),
                 )
                 .optional()?;
-            raw.map(|raw| serde_json::from_str(&raw))
-                .transpose()
-                .map_err(StoreError::from)
+            raw.map(|raw| envelope(run_id, seq, &raw)).transpose()
         })
     }
 
@@ -87,7 +86,7 @@ impl Store {
     /// row below it is gone. A run the journal lacks holds none.
     pub fn rows_through(&self, heads: &[(&str, u64)]) -> Result<Vec<u64>, StoreError> {
         let heads = serde_json::to_string(heads)?;
-        patiently("count", self.patience, || {
+        patiently("count", self.patience, &self.path, || {
             Ok(self
                 .conn
                 .prepare(ROWS_THROUGH)?
@@ -113,21 +112,25 @@ pub(crate) fn rows_in(
     run_id: &str,
     after: Option<i64>,
 ) -> Result<Vec<EventEnvelope>, StoreError> {
+    const ALL: &str = "SELECT envelope, seq FROM events WHERE run_id = ?1 ORDER BY seq";
+    const AFTER: &str =
+        "SELECT envelope, seq FROM events WHERE run_id = ?1 AND seq > ?2 ORDER BY seq";
+    // The seq beside each envelope names a row whose envelope is not JSON.
+    let row = |r: &rusqlite::Row<'_>| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?));
     let texts = match after {
         None => conn
-            .prepare("SELECT envelope FROM events WHERE run_id = ?1 ORDER BY seq")?
-            .query_map(params![run_id], |r| r.get::<_, String>(0))?
+            .prepare(ALL)?
+            .query_map(params![run_id], row)?
             .collect::<Result<Vec<_>, _>>()?,
         Some(seq) => conn
-            .prepare("SELECT envelope FROM events WHERE run_id = ?1 AND seq > ?2 ORDER BY seq")?
-            .query_map(params![run_id, seq], |r| r.get::<_, String>(0))?
+            .prepare(AFTER)?
+            .query_map(params![run_id, seq], row)?
             .collect::<Result<Vec<_>, _>>()?,
     };
-    let events = texts
-        .into_iter()
-        .map(|raw| serde_json::from_str::<EventEnvelope>(&raw))
-        .collect::<Result<Vec<_>, _>>()?;
-    Ok(events)
+    texts
+        .iter()
+        .map(|(raw, seq)| envelope(run_id, *seq, raw))
+        .collect()
 }
 
 #[cfg(test)]

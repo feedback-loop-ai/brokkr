@@ -647,13 +647,13 @@ impl Store {
                 let rows = unindexed(&self.conn, &run_id)?;
                 if !rows.is_empty() {
                     between(&self.conn);
-                    let conn = &mut self.conn;
-                    patiently("index", self.patience, || index_once(conn, &rows))?;
+                    let (conn, journal) = (&mut self.conn, &self.path);
+                    patiently("index", self.patience, journal, || index_once(conn, &rows))?;
                 }
                 after = Some(run_id);
             }
             let conn = &self.conn;
-            patiently("index", self.patience, || mark_indexed(conn))?;
+            patiently("index", self.patience, &self.path, || mark_indexed(conn))?;
         }
         self.ordinal_behind_with(&mut between)
     }
@@ -687,8 +687,8 @@ impl Store {
             if let Ok(events) = self.load(&run_id) {
                 let account = Account::whole(&run_id, &events);
                 between(&self.conn);
-                let conn = &mut self.conn;
-                patiently("parks", self.patience, || park_once(conn, &account))?;
+                let (conn, at) = (&mut self.conn, &self.path);
+                patiently("parks", self.patience, at, || park_once(conn, &account))?;
             }
         }
         #[cfg(test)]
@@ -706,7 +706,7 @@ impl Store {
     /// A run's trail (ruling 7): the seq of every event but its
     /// checkpoints, in order.
     pub fn index_trail(&self, run_id: &str) -> Result<Vec<u64>, StoreError> {
-        patiently("index", self.patience, || {
+        patiently("index", self.patience, &self.path, || {
             seqs(&self.conn, &TRAIL, params![run_id])
         })
     }
@@ -724,7 +724,7 @@ impl Store {
     ) -> Result<Vec<u64>, StoreError> {
         let below = before.map_or(i64::MAX, |seq| seq.min(i64::MAX as u64) as i64) - 1;
         let page = CHECKPOINT_PAGE as i64;
-        patiently("index", self.patience, || {
+        patiently("index", self.patience, &self.path, || {
             seqs(
                 &self.conn,
                 &STREAM,
@@ -746,7 +746,7 @@ impl Store {
         run_id: &str,
         event_ids: &[&str],
     ) -> Result<Option<BTreeMap<String, u64>>, StoreError> {
-        patiently("index", self.patience, || {
+        patiently("index", self.patience, &self.path, || {
             let mut statement = self.conn.prepare_cached(CAUSE)?;
             let mut causes = BTreeMap::new();
             for id in event_ids {
@@ -773,7 +773,7 @@ impl Store {
         run_id: &str,
         seqs: &[u64],
     ) -> Result<Vec<EventEnvelope>, StoreError> {
-        patiently("load", self.patience, || {
+        patiently("load", self.patience, &self.path, || {
             let mut statement = self.conn.prepare_cached(ENVELOPE)?;
             seqs.iter()
                 .map(|seq| {

@@ -22,7 +22,7 @@ impl Store {
     /// `None` where the entry is not linked under that claim, or has no
     /// `spawn` row.
     pub fn queue_spawned(&self, entry: EntryId, seq: i64) -> Result<Option<String>, StoreError> {
-        patiently("queue_spawned", self.patience, || {
+        patiently("queue_spawned", self.patience, &self.path, || {
             queue_stored(&self.conn)?;
             let query = "SELECT run_id FROM queue_claims
                 WHERE seq = ?1 AND entry_id = ?2 AND run_id IS NOT NULL
@@ -36,7 +36,7 @@ impl Store {
     /// entry: launching, with no run, or linked to its run with no `spawn`
     /// row.
     pub fn queue_unspawned(&self) -> Result<Vec<(Claim, Option<String>)>, StoreError> {
-        patiently("queue_unspawned", self.patience, || {
+        patiently("queue_unspawned", self.patience, &self.path, || {
             queue_stored(&self.conn)?;
             let words = params![Standing::Launching.word(), Step::Spawn.word()];
             let mut rows = self.conn.prepare(STANDING)?;

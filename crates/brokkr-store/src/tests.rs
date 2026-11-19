@@ -1255,7 +1255,7 @@ fn ensure_wal_retries_past_a_reader_that_eventually_leaves() {
             // No busy handler: every locked answer returns at once, so
             // the loop's own sleep-and-retry is the only patience there is.
             let conn = rusqlite::Connection::open(&path).unwrap();
-            ensure_wal(&conn)
+            ensure_wal(&conn, &path)
         }
     });
     std::thread::sleep(std::time::Duration::from_millis(100));
@@ -1279,7 +1279,7 @@ fn a_lock_still_held_at_the_deadline_is_returned_not_slept_on() {
     holder.execute_batch("BEGIN IMMEDIATE").unwrap();
     holder.execute_batch("INSERT INTO seed VALUES (1)").unwrap();
     let conn = rusqlite::Connection::open(&path).unwrap();
-    let refused = ensure_wal_by(&conn, std::time::Duration::ZERO).unwrap_err();
+    let refused = ensure_wal_by(&conn, std::time::Duration::ZERO, &path).unwrap_err();
     assert!(
         matches!(&refused, StoreError::Contended { operation, .. } if *operation == "ensure_wal"),
         "{refused:?}"
