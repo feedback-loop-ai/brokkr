@@ -1,9 +1,11 @@
 //! Fix round 0109a1r4, K2, bound: the fold carries the in-flight attempt's
-//! latest engine-authored gate step observation, and nothing else.
+//! latest engine-authored gate step observation, and nothing else; V1
+//! (r5): with the record's `covered`, which must agree with its head.
 
 use serde_json::{json, Value};
 
 use super::StepObservation;
+use crate::canonical::sha256_bytes;
 use crate::envelope::{EventEnvelope, EventType};
 use crate::envelope_builder::EnvelopeBuilder;
 use crate::fold::{apply, Cursor, Run, RunState};
@@ -51,9 +53,38 @@ fn step(attempt: &str, head: &str, authored: bool) -> EventEnvelope {
 }
 
 fn checked(head: &str) -> Option<StepObservation> {
-    Some(StepObservation::Checked(
-        head.to_string().try_into().unwrap(),
-    ))
+    Some(StepObservation::Checked {
+        head: head.to_string().try_into().unwrap(),
+        covered: None,
+    })
+}
+
+/// The protected phase's `covered` of `head`.
+fn digest_of(head: &str) -> Value {
+    json!({"kind": "head", "head_digest": sha256_bytes(head.as_bytes()), "dirty": true})
+}
+
+/// Fix round 0109a1r5, V1: the fold keeps each record's `covered`, and a
+/// record whose own `checked_head` and `covered` disagree, or whose
+/// `covered` does not read, is no observation decide can agree with.
+#[test]
+fn the_fold_keeps_a_records_covered_and_refuses_one_that_disagrees_with_its_head() {
+    let covered = |head: &str, covered: Value| {
+        let mut record = step("a1", head, true);
+        record.payload["checkpoint"]["result"]["covered"] = covered;
+        record
+    };
+    let mut state = flying();
+    apply(&mut state, &covered(A, digest_of(A))).unwrap();
+    let kept = StepObservation::Checked {
+        head: A.to_string().try_into().unwrap(),
+        covered: Some(serde_json::from_value(digest_of(A)).unwrap()),
+    };
+    assert_eq!(state.step_checked, Some(kept));
+    apply(&mut state, &covered(A, digest_of(B))).unwrap();
+    assert_eq!(state.step_checked, Some(StepObservation::Unreadable));
+    apply(&mut state, &covered(B, json!({"kind": "head"}))).unwrap();
+    assert_eq!(state.step_checked, Some(StepObservation::Unreadable));
 }
 
 #[test]

@@ -7,10 +7,8 @@
 //! [`StepVerdict`] is that answer, matched at every stage.
 
 use brokkr_core::envelope::EventType;
-use brokkr_core::findings::EngineMarker;
 use brokkr_core::realms::Boundary;
 use brokkr_protocol::AttemptOutcome;
-use brokkr_store::StoreError;
 use serde_json::{json, Map, Value};
 
 use super::carry::{
@@ -32,6 +30,7 @@ use crate::dialect::DialectPhase;
 mod compose;
 mod contradiction;
 mod dialect;
+mod record;
 mod step_facts;
 mod success;
 
@@ -652,6 +651,10 @@ impl Engine {
             return Ok(StepVerdict::Ended);
         }
         let (effect_id, attempt_id) = (run.effect_id, run.attempt_id);
+        let refused = match self.record_ending_gate_step(run, at, &result)? {
+            Ok(()) => refused,
+            Err(refusal) => return self.end_failed(run, refused(refusal)),
+        };
         let payload = json!({"effect_id": effect_id, "attempt_id": attempt_id, "result": result,
                              "step": at.step.name});
         self.append_succeeded_under_fence(payload, attempt_id, refused)?;
@@ -671,34 +674,8 @@ impl Engine {
         refused: impl FnOnce(String) -> Value,
     ) -> Result<StepVerdict<()>, EngineError> {
         let result = self.stamp_step_covered(run.effect_id, result);
-        let model = result
-            .get("model")
-            .and_then(Value::as_str)
-            .unwrap_or("not reported")
-            .to_string();
-        let marker = stamp_boundary(
-            EngineMarker::StepFinished.record(json!({
-                "step_name": at.step.name,
-                "member": at.step.name,
-                "model": model,
-                "result": result,
-            })),
-            boundary,
-        );
-        match self.append(
-            EventType::EffectCheckpointed,
-            json!({
-                "effect_id": run.effect_id,
-                "attempt_id": run.attempt_id,
-                "checkpoint": marker,
-            }),
-            Some(run.attempt_id.to_string()),
-        ) {
-            Ok(_) => {}
-            Err(EngineError::Store(StoreError::SeatRecord(refusal))) => {
-                return self.end_failed(run, refused(refusal.to_string()));
-            }
-            Err(error) => return Err(error),
+        if let Err(refusal) = self.journal_step_record(run, at, &result, boundary)? {
+            return self.end_failed(run, refused(refusal));
         }
         carried.prior_results.insert(at.step.name.clone(), result);
         Ok(StepVerdict::Goes(()))
@@ -720,6 +697,10 @@ impl Engine {
     ) -> Result<StepVerdict<()>, EngineError> {
         if let StepVerdict::Ended = self.refuse_contradiction(run, at, result, carried)? {
             return Ok(StepVerdict::Ended);
+        }
+        if let Err(mut refusal) = self.record_ending_gate_step(run, at, result)? {
+            run.bound.deadline.name_words(&mut refusal);
+            return self.end_failed(run, run.failed_payload(at, &refusal, start_failures));
         }
         self.append_succeeded_under_fence(
             json!({

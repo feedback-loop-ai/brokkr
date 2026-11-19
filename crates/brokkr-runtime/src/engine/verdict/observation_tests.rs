@@ -189,34 +189,66 @@ impl Stopped {
     /// Replace the journaled success by direct SQL with one whose result
     /// `edit` changed, appended at the same position so the chain holds.
     fn replanted(&self, edit: impl FnOnce(&mut Value)) {
+        let mut edit = Some(edit);
+        let succeeded = |event: &EventEnvelope| event.event_type == EventType::EffectSucceeded;
+        self.rewritten(succeeded, |event| {
+            if let Some(edit) = edit.take().filter(|_| succeeded(event)) {
+                edit(&mut event.payload["result"]);
+            }
+        });
+    }
+
+    /// Replace the journal's tail from review's step record named `step`
+    /// by direct SQL, each event re-appended at its own position with
+    /// `edit` applied, so the chain holds.
+    fn replanted_from(&self, step: &str, edit: impl FnMut(&mut EventEnvelope)) {
+        self.rewritten(
+            |event| {
+                event.event_type == EventType::EffectCheckpointed
+                    && event.payload["checkpoint"]["step_name"] == step
+            },
+            edit,
+        );
+    }
+
+    /// The journal's tail from the last event `from` picks deleted by
+    /// direct SQL and re-appended in order, each with `edit` applied.
+    fn rewritten(
+        &self,
+        from: impl Fn(&EventEnvelope) -> bool,
+        mut edit: impl FnMut(&mut EventEnvelope),
+    ) {
         let db = self.dir.path().join("forge.db");
         let mut store = Store::open(&db).unwrap();
-        let last = store.load(&self.run_id).unwrap().pop().unwrap();
+        let mut events = store.load(&self.run_id).unwrap();
+        let at = events.iter().rposition(from).unwrap();
+        let tail = events.split_off(at);
         let raw = rusqlite::Connection::open(&db).unwrap();
         raw.execute_batch("DROP TRIGGER events_append_only_delete;")
             .unwrap();
         for table in ["events", "event_index"] {
             let deleted = raw
                 .execute(
-                    &format!("DELETE FROM {table} WHERE run_id = ?1 AND seq = ?2"),
-                    (&self.run_id, last.seq as i64),
+                    &format!("DELETE FROM {table} WHERE run_id = ?1 AND seq >= ?2"),
+                    (&self.run_id, tail[0].seq as i64),
                 )
                 .unwrap();
-            assert_eq!(deleted, 1, "{table}");
+            assert_eq!(deleted, tail.len(), "{table}");
         }
         drop(raw);
-        let mut payload = last.payload;
-        edit(&mut payload["result"]);
-        let (cause, attempt) = (last.causation_id, last.attempt_id);
-        store
-            .append_next(
-                &self.run_id,
-                EventType::EffectSucceeded,
-                payload,
-                cause,
-                attempt,
-            )
-            .unwrap();
+        for mut event in tail {
+            edit(&mut event);
+            let (cause, attempt) = (event.causation_id, event.attempt_id);
+            store
+                .append_next(
+                    &self.run_id,
+                    event.event_type,
+                    event.payload,
+                    cause,
+                    attempt,
+                )
+                .unwrap();
+        }
     }
 
     /// Resume the run on the same bundle in a new engine whose every HEAD
@@ -319,6 +351,89 @@ fn decide_refuses_while_two_durable_observations_of_its_attempt_disagree() {
         json!(stopped.reviewed)
     );
     refused_at_decide(&events, &Disagrees);
+}
+
+/// Fix round 0109a1r5, V1: the terminal agrees with the attempt's latest
+/// gate step record on every field, and its own `covered` never stands in
+/// for a span. A gate step checked on A, then a work step, stopped once the
+/// success is durable:
+/// - the terminal's `checked_head` and `covered` both replaced by B and
+///   SHA-256(B), the gate step's record still on A;
+/// - both `checked_head` values replaced by B, the record's `covered` left
+///   on A.
+///
+/// Each refuses with `Disagrees` on a clean B, and takes no transition.
+#[test]
+fn a_terminals_own_covered_never_outweighs_its_latest_gate_step_record() {
+    let review = || SeatBody::Sequence {
+        steps: vec![
+            clean_step("judge", SeatClass::Gate),
+            clean_step("tidy", SeatClass::Work),
+        ],
+    };
+    let digest = |head: &str| json!({"kind": "head", "head_digest": sha256_bytes(head.as_bytes()), "dirty": true});
+
+    let stopped = Stopped::after(review(), false);
+    let moved = stopped.moved.clone();
+    stopped.replanted(|result| {
+        result["checked_head"] = json!(moved);
+        result["covered"] = digest(&moved);
+    });
+    let events = stopped.resumed();
+    assert_eq!(
+        checkpointed(&events, "judge")["checked_head"],
+        json!(stopped.reviewed)
+    );
+    refused_at_decide(&events, &Disagrees);
+
+    let stopped = Stopped::after(review(), false);
+    let moved = stopped.moved.clone();
+    stopped.replanted_from("judge", |event| {
+        let result = match event.event_type {
+            EventType::EffectSucceeded => &mut event.payload["result"],
+            _ => &mut event.payload["checkpoint"]["result"],
+        };
+        if result.get("checked_head").is_some() {
+            result["checked_head"] = json!(moved);
+        }
+    });
+    let events = stopped.resumed();
+    let judged = checkpointed(&events, "judge");
+    assert_eq!(judged["checked_head"], json!(stopped.moved));
+    assert_eq!(judged["covered"], digest(&stopped.reviewed));
+    refused_at_decide(&events, &Disagrees);
+}
+
+/// Fix round 0109a1r5, V1: a legitimately newer final gate is the latest
+/// record. A gate step checked on A, a work step after which HEAD reads B,
+/// and a final gate step checked on B: the final gate step journals its own
+/// record on B before the success, and review decides B.
+#[test]
+fn a_final_gate_step_checked_after_a_moving_work_step_decides_its_own_head() {
+    let steps = vec![
+        clean_step("judge", SeatClass::Gate),
+        clean_step("tidy", SeatClass::Work),
+        clean_step("chief", SeatClass::Gate),
+    ];
+    let review = SeatBody::Sequence { steps };
+    // Review's entry and judge's span read A; tidy leaves B for chief.
+    let (events, heads) = reviewed_over(drift_refusing(), review, &[0, 0, 0, 1]);
+    let (reviewed, moved) = (&heads[0], &heads[1]);
+    assert_eq!(
+        checkpointed(&events, "judge")["checked_head"],
+        json!(reviewed)
+    );
+    let chief = checkpointed(&events, "chief");
+    assert_eq!(chief["checked_head"], json!(moved));
+    let digest = sha256_bytes(moved.as_bytes());
+    let covered = json!({"kind": "head", "head_digest": digest, "dirty": true});
+    assert_eq!(chief["covered"], covered);
+    let succeeded = ended_in(&events, "review", EventType::EffectSucceeded);
+    assert_eq!(succeeded[0]["result"]["checked_head"], json!(moved));
+    assert_eq!(succeeded[0]["result"]["covered"], covered);
+    let decided = decided_from(&events, "review");
+    assert_eq!(decided["rule_id"], "REVIEW", "{decided}");
+    assert_eq!(decided["inputs"]["reviewed_heads"], json!({"repo": moved}));
 }
 
 /// A run reviewed twice, on A and then on B: the later review's decision

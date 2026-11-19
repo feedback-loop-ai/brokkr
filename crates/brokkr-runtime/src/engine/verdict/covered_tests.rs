@@ -301,23 +301,31 @@ fn a_protected_result_without_one_consistent_checked_head_refuses_at_decide() {
     }
 }
 
-/// The attempt's latest gate step checkpoint is a durable observation too
-/// (fix round 0109a1r4, K2): a result its final gate span did not stamp
-/// agrees with it or is refused; one its final gate span stamped is the
-/// newer observation.
+/// The attempt's latest gate step record is a durable observation too
+/// (fix rounds 0109a1r4, K2, and 0109a1r5, V1): the terminal agrees with
+/// it field by field, its `checked_head` always and its `covered` where it
+/// carries one, or is refused. A terminal `covered` is no newer span of
+/// its own: a gate step that ends the sequence journals its own record.
 #[test]
-fn a_result_no_final_gate_span_stamped_agrees_with_its_gate_step_or_is_refused() {
+fn a_terminal_agrees_with_its_latest_gate_step_record_field_by_field_or_is_refused() {
     let head = "89abcdef0123456789abcdef0123456789abcdef".to_string();
     let other = "0123456789abcdef0123456789abcdef01234567";
     let covered = |head: &str| json!({"kind": "head", "head_digest": sha256_bytes(head.as_bytes()), "dirty": true});
-    let checked = |head: &str| StepObservation::Checked(head.to_string().try_into().unwrap());
+    let checked = |seen: &str, stamped: Option<&str>| StepObservation::Checked {
+        head: seen.to_string().try_into().unwrap(),
+        covered: stamped.map(|stamped| serde_json::from_value(covered(stamped)).unwrap()),
+    };
     let plain = json!({"result": "clean", "checked_head": head});
     let stamped = json!({"result": "clean", "checked_head": head, "covered": covered(&head)});
     let steps = [
-        (&plain, checked(&head), Ok(head.clone())),
-        (&plain, checked(other), Err(Disagrees)),
+        (&plain, checked(&head, None), Ok(head.clone())),
+        (&plain, checked(&head, Some(&head)), Ok(head.clone())),
+        (&plain, checked(other, Some(other)), Err(Disagrees)),
         (&plain, StepObservation::Unreadable, Err(Disagrees)),
-        (&stamped, checked(other), Ok(head.clone())),
+        (&stamped, checked(&head, Some(&head)), Ok(head.clone())),
+        // The terminal's own covered pair never outweighs the record.
+        (&stamped, checked(other, Some(other)), Err(Disagrees)),
+        (&stamped, checked(&head, None), Err(Disagrees)),
     ];
     for (raw, step, want) in steps {
         let read = checked_head(raw, Some(&step)).map(|head| head.as_str().to_string());

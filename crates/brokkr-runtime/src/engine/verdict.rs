@@ -149,13 +149,21 @@ pub(super) enum ObservationProblem {
 }
 
 /// The head a protected `raw_result` was checked on, read from every
-/// durable observation of its attempt (fix round 0109a1r4, K2): the
-/// result's journaled `checked_head`, its `covered` where present, and
-/// `step`, the attempt's latest gate step checkpoint the fold carried,
-/// or why they do not stand: none recorded, one that is not a commit id,
-/// or any two that disagree. A result with `covered` was stamped by its
-/// own final gate span, which is the attempt's latest observation, so
-/// only a result without one is held to the earlier step's.
+/// durable observation of its attempt (fix rounds 0109a1r4, K2, and
+/// 0109a1r5, V1): the result's journaled `checked_head`, its `covered`
+/// where present, and `step`, the latest gate step record of the attempt
+/// the fold carried, or why they do not stand: none recorded, one that is
+/// not a commit id, or any two that disagree.
+///
+/// Every gate step journals its own record, the one that ends the
+/// sequence included, so the span that produced each observation is on
+/// the record and none is inferred from the terminal: the terminal agrees
+/// with the latest record field by field, its `checked_head` always and
+/// its `covered` where it carries one (a later work step spends the
+/// span's own `covered`, never the effect's head). A legitimately newer
+/// final gate is that latest record, so it agrees by construction. An
+/// effect with no step record, a single body or a sequence of work steps
+/// only, has its terminal as its one observation.
 pub(super) fn checked_head(
     raw_result: &Value,
     step: Option<&StepObservation>,
@@ -164,11 +172,24 @@ pub(super) fn checked_head(
         .get(CHECKED_HEAD)
         .ok_or(ObservationProblem::Missing)?;
     let head = CheckedHead::deserialize(head).map_err(|_| ObservationProblem::Unreadable)?;
-    match (raw_result.get("covered").map(Covered::deserialize), step) {
-        (None, None) => Ok(head),
-        (None, Some(StepObservation::Checked(seen))) if *seen == head => Ok(head),
-        (Some(Ok(covered)), _) if covered.projects(head.as_str()) => Ok(head),
-        _ => Err(ObservationProblem::Disagrees),
+    let covered = match raw_result.get("covered").map(Covered::deserialize) {
+        None => None,
+        Some(Ok(covered)) if covered.projects(head.as_str()) => Some(covered),
+        Some(_) => return Err(ObservationProblem::Disagrees),
+    };
+    match step {
+        None => Ok(head),
+        Some(StepObservation::Checked {
+            head: seen,
+            covered: stamped,
+        }) if *seen == head
+            && covered
+                .as_ref()
+                .is_none_or(|covered| Some(covered) == stamped.as_ref()) =>
+        {
+            Ok(head)
+        }
+        Some(_) => Err(ObservationProblem::Disagrees),
     }
 }
 

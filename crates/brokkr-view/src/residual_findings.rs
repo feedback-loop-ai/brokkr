@@ -3,7 +3,7 @@
 //! sequence step's included, each finding under the site that reported it
 //! (decision 0109).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use brokkr_core::findings::{Covered, CoveredHead, EngineMarker, Finding};
 use brokkr_core::fold::RunState;
@@ -72,7 +72,9 @@ pub fn gate_records(events: &[EventEnvelope]) -> Vec<GateRecord> {
         effects,
         members: site_members(events),
     };
+    let ended = ending_steps(events);
     (events.iter())
+        .filter(|event| !read_at_its_success(event, &ended))
         .flat_map(verdicts_of)
         .filter_map(|verdict| reading.record(&verdict))
         .collect()
@@ -173,6 +175,32 @@ fn verdicts_of(event: &EventEnvelope) -> Vec<Verdict<'_>> {
         .collect(),
         _ => Vec::new(),
     }
+}
+
+/// Each `(effect, attempt, step)` whose success names the step that
+/// produced it. A gate step that ends its sequence journals its own step
+/// record before that success (fix round 0109a1r5, V1), carrying the same
+/// verdict, so the success is read and the record is not read twice.
+fn ending_steps(events: &[EventEnvelope]) -> BTreeSet<StepOf<'_>> {
+    (events.iter())
+        .filter(|event| event.event_type == EventType::EffectSucceeded)
+        .filter_map(|event| Some(step_of(event, event.payload["step"].as_str()?)))
+        .collect()
+}
+
+/// A step of one attempt of one effect.
+type StepOf<'a> = (&'a str, &'a str, &'a str);
+
+/// `step` of `event`'s effect and attempt.
+fn step_of<'a>(event: &'a EventEnvelope, step: &'a str) -> StepOf<'a> {
+    (text(event, "effect_id"), text(event, "attempt_id"), step)
+}
+
+/// Whether `event` is a step record whose step's success `ended` holds.
+fn read_at_its_success(event: &EventEnvelope, ended: &BTreeSet<StepOf<'_>>) -> bool {
+    let step = event.payload["checkpoint"]["step_name"].as_str();
+    event.event_type == EventType::EffectCheckpointed
+        && step.is_some_and(|step| ended.contains(&step_of(event, step)))
 }
 
 /// The panel member each `(effect, site)` belongs to, as the engine's own

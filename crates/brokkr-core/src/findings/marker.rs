@@ -25,7 +25,8 @@ const BY_THE_ENGINE: &str = "engine";
 /// A checkpoint the engine authors beside a verdict.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EngineMarker {
-    /// A sequence step before the last finished, its result beside it.
+    /// A sequence step before the last finished, or a gate step ended the
+    /// sequence (fix round 0109a1r5, V1), its result beside it.
     StepFinished,
     /// A panel member finished, with the site its findings carry.
     MemberFinished,
