@@ -477,11 +477,14 @@ impl Drawing<'_> {
         if index + 1 < row.rails.len() {
             put(&mut cells, self.width - 1, plan.rail_row, "›", plain());
         }
-        // The arc rows down to the deepest lane this rail's arcs hold stay,
-        // blank or not: a fold-cut link passing under a rail where a
-        // shallower lane holds nothing keeps its row, so its `›` and the
-        // next rail's `‹` stand on one row (review 2's C1).
-        let lanes = plan.arc_row.map_or(0..0, |row| row..plan.rows);
+        // Every row under the rail down to the deepest lane this rail's
+        // arcs hold stays, blank or not: a fold-cut link passing under a
+        // rail where a shallower lane holds nothing, or whose state's name
+        // paints blank, keeps its row, so its `›` and the next rail's `‹`
+        // stand on one row (review 2's C1). The box row alone may go: the
+        // drawing selects nothing, so it is blank under every rail alike.
+        let lanes = plan.arc_row.map_or(0..0, |_| plan.rail_row + 1..plan.rows);
+        let kept = |at: &usize| lanes.contains(at) && plan.box_row != Some(*at);
         (cells.iter().enumerate())
             .map(|(at, row)| {
                 let text: String = (row.iter().flatten())
@@ -489,7 +492,7 @@ impl Drawing<'_> {
                     .collect();
                 (at, text.trim_end().to_string())
             })
-            .filter(|(at, text)| !text.is_empty() || lanes.contains(at))
+            .filter(|(at, text)| !text.is_empty() || kept(at))
             .map(|(_, text)| text)
             .collect()
     }

@@ -1099,6 +1099,18 @@ fn a_link_passing_under_a_rail_keeps_its_row_where_a_shallower_one_has_ended() {
         [vec![2, 3], vec![3], vec![3], vec![2], vec![]],
         "{drawing}"
     );
+    // A state whose name paints blank, narrow or wide, keeps its name row
+    // under a rail a link passes, so e ᐸ a holds its row there too.
+    for (at, blank) in [" ", "\u{2003}"].into_iter().enumerate() {
+        let shape = dir.path().join(format!("blank{at}"));
+        let view = returned(&shape, &["a", "b", "c", blank, "e"], &[(2, 0), (4, 0)]);
+        let drawing = drawn(&view, 12);
+        assert_eq!(
+            lanes_kept(&drawing),
+            [vec![2, 3], vec![2, 3], vec![3], vec![3], vec![]],
+            "{drawing}"
+        );
+    }
 }
 
 #[test]
