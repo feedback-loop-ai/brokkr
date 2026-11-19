@@ -946,7 +946,13 @@ as HEAD's `delivered by brokkr` checks out the base and the head into two direct
 on its revision, and every comparison above can still pass. So, at the base, by ruling 3's
 closure parse:
 
-- each job an entry or its aggregate is drawn through has exactly one `actions/checkout` step,
+- the rule judges a job that executes checkout contents: every job an entry or its aggregate is
+  drawn through, **except a verdict-only aggregate** (ruling 4), which by its definition has no
+  checkout and no `uses` step, and executes nothing but an assertion over `needs`. Its revision
+  is not its own: it is derived recursively from every expected instance of every job it
+  `needs`, each judged by this rule (or, if itself verdict-only, derived in turn), and all of
+  them must be one commit, or `revision-disagrees` withholds, naming the two instances;
+- each job the rule judges has exactly one `actions/checkout` step,
   and its `path` (the workspace root when it names none) is **the proven checkout**; a job with
   two, or with a `path` built by an expression, is unproven;
 - every reached step of that job, the matched setup step and every step before it among them,
@@ -1086,7 +1092,9 @@ bounded, typed data under `ci-classification/v1`:
   `kind-unmeasured`, naming the step the parse could not read;
 - **each matrix dependency's expected instance identities**, the base's pinned
   `strategy.matrix` expanded into its fixed list of instance keys, each the matrix values in
-  their declared order, with the forge's name for it once 0111a measures how the forge names an
+  their declared order, each with the revision its own entry rule established for it, so a
+  verdict-only aggregate's derived revision replays, with the forge's name for it once 0111a
+  measures how the forge names an
   instance; or the typed `matrix-unexpandable`, naming the expression or `fromJSON` that built
   it; or `instance-naming-unmeasured` while 0111a has not measured the naming. Each of the
   latter two is ruling 4's `matrix-incomplete`, drawn by a replay from the outcome alone;
@@ -1936,7 +1944,14 @@ slice that produces it, and each typed assertion is in the slice that builds its
    `a_closure_over_128_kib_withholds_as_basis_too_large`;
    `a_valid_all_setup_aggregate_replays_from_the_journal_alone` (the journal exported, then the
    bundle, the worktree, the workflow and the forge stub removed: `ci-infrastructure`, from the
-   sealed `verdict-only` kind and nine expected keys);
+   sealed `verdict-only` kind, nine expected keys and their nine established revisions, all one
+   merge commit, with the checkout-less aggregate passing the revision check through them);
+   `a_checkout_less_verdict_only_aggregate_is_not_judged_by_the_one_checkout_rule` (the
+   aggregate is not `revision-unmeasured` for having no checkout; an aggregate with an
+   independent step and no checkout is);
+   `an_all_setup_aggregate_with_one_disagreeing_dependency_instance_replays_as_revision_disagrees`
+   (the negative control, live and from the journal alone: one instance's established revision
+   another commit: `change`, `withheld`, `revision-disagrees` naming both instances);
    `a_missing_sibling_replays_from_the_journal_alone_as_matrix_incomplete` (the same, one
    instance short: `change`, `withheld`, `matrix-incomplete` naming the missing key);
    `a_sealed_matrix_unexpandable_outcome_replays_as_matrix_incomplete`;
