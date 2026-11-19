@@ -122,10 +122,18 @@ impl Aggregate {
         let Some(read) = Verdicts::read(members) else {
             let evidence: Map<String, Value> =
                 members.iter().map(MemberVerdict::evidence).collect();
-            return json!({
+            let mut poisoned = json!({
                 "result": Aggregate::MEMBER_SCHEMA_INVALID,
                 "notes": {"members": Value::Object(evidence)},
             });
+            // The members' admitted findings stay the record's keyed
+            // findings, each under its member's own site, so a refused
+            // aggregate hides none in its notes (fix round 0109a1r6, W4).
+            let admitted = MemberVerdict::admitted(members);
+            if !admitted.is_empty() {
+                brokkr_core::findings::journal(&mut poisoned, &admitted);
+            }
+            return poisoned;
         };
         let meta = json!({"members": read.notes, "verdicts": read.verdicts});
         let mut result = match self {
@@ -197,16 +205,24 @@ impl MemberVerdict {
             .collect()
     }
 
-    /// The member's payload as a poisoned aggregate's evidence names it,
-    /// with the findings it read written back where it reported any.
+    /// The member's payload as a poisoned aggregate's evidence names it.
+    /// The findings it read are the record's own keyed findings, so they
+    /// are not written here a second time (fix round 0109a1r6, W4); a
+    /// payload whose findings do not read keeps them in place.
     fn evidence(&self) -> (String, Value) {
-        let mut payload = self.payload.clone();
-        if let MemberFindings::Read(findings) = &self.findings {
-            if !findings.is_empty() {
-                brokkr_core::findings::journal(&mut payload, findings);
-            }
-        }
-        (self.name.clone(), payload)
+        (self.name.clone(), self.payload.clone())
+    }
+
+    /// Every finding `members` read, in declared order: what a poisoned
+    /// aggregate keeps as its keyed findings, each with its member's site.
+    fn admitted(members: &[MemberVerdict]) -> Vec<Finding> {
+        (members.iter())
+            .filter_map(|member| match &member.findings {
+                MemberFindings::Read(findings) => Some(findings.iter().cloned()),
+                MemberFindings::Unread => None,
+            })
+            .flatten()
+            .collect()
     }
 }
 

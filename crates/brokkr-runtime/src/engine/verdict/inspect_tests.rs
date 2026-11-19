@@ -243,6 +243,43 @@ fn a_marked_settled_member_the_fence_refuses_is_no_settled_verdict() {
     assert!(gate_records(&events, None).is_empty());
 }
 
+/// Fix round 0109a1r6, W4: a top-level gate panel whose member `a`
+/// reports a finding and whose sibling's JSON carries no result word. The
+/// aggregate is still refused, and `a`'s admitted finding stays verdict
+/// evidence under `a` and in the phase, never under `b`.
+#[test]
+fn an_admitted_finding_stays_visible_when_its_panels_aggregate_is_refused() {
+    let (_dir, events) = panel_reviewed(driver(&json!({"notes": "no word"})));
+    let succeeded = (events.iter())
+        .find(|event| {
+            event.event_type == EventType::EffectSucceeded
+                && event.payload["result"]["notes"]["members"].is_object()
+        })
+        .unwrap();
+    let result = &succeeded.payload["result"];
+    assert_eq!(result["result"], "__member-schema-invalid__", "{result}");
+    assert_eq!(result["notes"]["members"]["b"], json!({"notes": "no word"}));
+    let decided = (events.iter())
+        .find(|event| {
+            event.event_type == EventType::TransitionDecided && event.payload["from"] == "review"
+        })
+        .unwrap();
+    assert_eq!(
+        decided.payload["result"], "__schema-invalid__",
+        "{}",
+        decided.payload
+    );
+    assert_eq!(kept(&events, Scope::Seat("review:a".into())), ["mine"]);
+    assert_eq!(
+        kept(&events, Scope::Seat("review:b".into())),
+        Vec::<String>::new()
+    );
+    assert_eq!(
+        producers(&events, Scope::Phase("review".into())),
+        [("mine".to_string(), "review:a".to_string())]
+    );
+}
+
 /// A top-level gate panel where one member reports: its seat shows the
 /// finding, its sibling's seat does not, and the phase does, naming it.
 #[test]

@@ -54,6 +54,13 @@ fn member_findings_join_typed_and_an_unstamped_one_poisons_the_aggregate() {
     let poisoned = Aggregate::ReviewPanel.aggregate_results(&members(&unstamped));
     assert_eq!(poisoned["result"], Aggregate::MEMBER_SCHEMA_INVALID);
     assert_eq!(poisoned["notes"]["members"]["c"], unstamped[2]);
-    assert_eq!(poisoned["notes"]["members"]["a"], payloads[0], "{poisoned}");
-    assert!(poisoned.get("findings").is_none(), "{poisoned}");
+    // Fix round 0109a1r6, W4: a's admitted finding stays the record's
+    // keyed finding, once, under its own site, never hidden in the notes.
+    let bare = json!({"result": "residual"});
+    assert_eq!(poisoned["notes"]["members"]["a"], bare, "{poisoned}");
+    assert_eq!(
+        poisoned["findings"],
+        json!([stamped('a', "x")]),
+        "{poisoned}"
+    );
 }
