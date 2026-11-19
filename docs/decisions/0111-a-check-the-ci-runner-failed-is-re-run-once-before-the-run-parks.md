@@ -317,11 +317,13 @@ with the reason `launch-untrusted` naming the condition that failed, and observe
   a directory outside the worktree that another seat under the same account can write may change
   between the two. So the rules below bind what runs to what was hashed.
 - **A working directory outside the worktree.** The launcher creates an empty directory of its
-  own, outside every worktree, runs the observer there, and removes it after. No git
-  configuration, `.envrc` or tool file in the worktree is beneath it.
+  own, outside every worktree, by the walk the live-launch rule below names, runs the observer
+  there, and removes it after. No git configuration, `.envrc` or tool file in the worktree is
+  beneath it.
 - **A cleared, allow-listed environment.** The environment is cleared, then holds only a closed
-  list: the read-only token's one variable, `HOME`, `XDG_CONFIG_HOME` and `GH_CONFIG_DIR` set to
-  empty directories the launcher made, `LC_ALL=C`, and an empty `PATH`. There is no `BASH_ENV`,
+  list: the read-only token's one variable, `HOME`, `XDG_CONFIG_HOME` and `GH_CONFIG_DIR` naming
+  empty directories the launcher made by that walk and holds by descriptor, `LC_ALL=C`, and an
+  empty `PATH`. There is no `BASH_ENV`,
   no `ENV` and no shell startup file. The compile refuses any other key.
 - **No tool configuration the change controls.** `gh` reads its configuration only from the
   launcher's empty directory, and is told the repository by `--repo` from the pinned list, so it
@@ -349,8 +351,9 @@ file, execute that file; and no path anyone but root can change.**
   but no site executes a descriptor, so 0111c builds that.
 - **The script never passes through a file.** The engine reads the pinned script from the
   compiled bundle once, checks its digest against the manifest's, and hands those bytes to the
-  interpreter over a pipe it owns, as `bash --noprofile --norc /dev/fd/3`. Nothing outside the
-  engine holds the pipe's other end, so no one can change the script after it is checked.
+  interpreter over a pipe it owns, as `bash --noprofile --norc /dev/fd/3`. No process Brokkr
+  launches can reach the pipe's other end under the boundary the live launch requires (below),
+  so no seat can change the script after it is checked.
 - **macOS.** Darwin offers no `execveat`, and whether its `fexecve` is usable is **unmeasured**
   here. So on macOS the interpreter is executed by its path, and the root-owned chain above is
   what holds it; the pipe holds the script on both systems. Where the chain does not hold, the
@@ -364,6 +367,73 @@ file, execute that file; and no path anyone but root can change.**
   dependency cost is an HTTP client with TLS, a credential path and a GitHub vocabulary in the
   runtime: the one client HEAD holds is `ureq` in `brokkr-bridge`, which speaks to Looper
   (`crates/brokkr-bridge/src/lib.rs:1-7`, `:210-219`). It stays open as that option's slice.
+
+**The live launch needs a boundary a same-account peer cannot cross, or it refuses.** The rules
+above bind files and paths. They do not bind live descriptors or the directories the launcher
+makes:
+
+- **The fault.** In a read-only Linux probe, the adversarial review of run
+  `fix-round-1093r4-for-issue-1093--b1cf18e6` had a same-UID sibling open another process's
+  anonymous pipe write endpoint through procfs (`/proc/<pid>/fd/<n>`). So the script's pipe and
+  the stdout channel do not isolate the observer from an unboxed seat under the same account.
+  The launcher-made `HOME`, `XDG_CONFIG_HOME` and `GH_CONFIG_DIR`, and the working directory,
+  are mutable inputs on the very basis this ruling uses to refuse a 0700 copy directory (option
+  (b) above).
+- **Why nothing inside the engine closes it.** Decision 0046 names `harness` "nothing of
+  Brokkr's" and `open` "nothing at all" (`docs/decisions/0046-the-boundary-is-named.md:129-135`),
+  and its ruling 4 lets an exec gate run unboxed under them (`:179-191`). An unboxed seat runs
+  with the engine's UID, so it holds the engine's authority over the account's processes, and no
+  rule the engine applies to its own child isolates the observer from it.
+
+**Recommended: (a) the live launch is admitted only under the `namespace` boundary, where every
+seat is boxed.** HEAD's box opens every box, workspace and server alike, with
+`--unshare-pid` among its isolation flags
+(`crates/brokkr-protocol/src/hands/namespace/isolation.rs:4-23`), mounts a `/proc` of its own
+(`crates/brokkr-protocol/src/hands/namespace.rs:161`) and clears the environment (`:154`). So a
+boxed seat's `/proc` lists only its own PID namespace's processes, and the engine's and the
+observer's `/proc/<pid>/fd` entries are not in it. That is read from HEAD's argv and was not
+exercised in this session: **unmeasured** until 0111c's test, and if that test can open the
+observer's endpoint from inside the box, the launch refuses there as well. The admission, all
+checked at run start and again before the spawn:
+
+- the realm's boundary is `namespace`;
+- every site in the compiled bundle is boxed. A site without hands spawns in the engine's own
+  environment, unboxed (`crates/brokkr-runtime/src/engine.rs:2040-2050`), so one such site
+  refuses the launch;
+- no realm the host's `realms.json` names declares `harness` or `open`, because a run of
+  another realm under the same engine account is an unboxed seat that shares the UID;
+- the observer's `HOME`, `XDG_CONFIG_HOME`, `GH_CONFIG_DIR` and working directory are made by
+  the same anchored, no-follow, one-descriptor-per-component 0700 walk 1091a builds (#1091; in
+  fix round at the story's base, so 0111c lands after it), and are held by descriptor through
+  use: the working directory is set by `fchdir` before the exec, and each configuration
+  directory reaches the observer as an inherited descriptor named `/dev/fd/<n>`, so no path is
+  resolved again after the walk. Whether `gh` accepts a `/dev/fd` directory for its
+  configuration is **unmeasured**; where it does not, the launch refuses.
+
+Otherwise the launch refuses before the spawn, parks `ruled` as `launch-unboxed-peer`, naming
+the realm's boundary, the unboxed site or the other realm, and observes nothing. Under
+`harness` that is every launch. On macOS the `seatbelt` box is unbuilt at HEAD
+(`crates/brokkr-runtime/src/boundary.rs:86`), and whether it would hide another process's
+descriptors is unmeasured, so the live launch refuses on macOS until a decision of its own
+proves it; the offline classification (0111b) runs on both systems (0063).
+
+What this does not claim: a process of the account that Brokkr did not launch, such as the
+operator's own shell or another session, holds everything the engine holds, its journal and
+its secret store included. It is the account, the trust root, and no boundary here isolates
+the observer from it. Under the frame its reach is the bounded table and the read-only token.
+
+- **(b) Linux non-dumpable processes.** `PR_SET_DUMPABLE` 0 on the observer and on the
+  engine's pipe holder makes their `/proc/<pid>/fd` entries and `ptrace` closed to a same-UID
+  process without `CAP_SYS_PTRACE` (<https://man7.org/linux/man-pages/man2/prctl.2.html>; not
+  read in this session), which would also cover a process Brokkr did not launch. Costs: the
+  engine's own diagnostics, no core dump and no `gdb`, `strace` or `/proc/<pid>/fd` read of the
+  engine by the operator; and the attribute is expected to reset on `execve` (unmeasured), so
+  the observer would have to set it after its own exec, which `bash` cannot: it needs an
+  observer that is not a shell, such as the engine's own forge call (the bytes rule's option
+  (c)). Not recommended alone, because macOS has no
+  equivalent and 0063 needs both. It may be added beside (a) on Linux by a later ruling.
+- **(c) Admit the launch under `harness` with the rules above alone.** Refused: the probe shows
+  they do not hold against an unboxed peer.
 
 **The result comes back through the engine, never the worktree.** HEAD hands every seat a result
 path under the run-local results directory (`crates/brokkr-runtime/src/engine/input.rs:69-82`),
@@ -403,6 +473,9 @@ What HEAD lacks for this form, each built by slice 0111c:
   pipe, and none checks a root-owned chain.
 - **A result channel the engine owns.** Every seat's result is a file under the run-local
   results directory, by default the worktree's `.forge` (above).
+- **A boundary admission for the launch.** Nothing at HEAD refuses a spawn because another site
+  of the run, or another realm on the host, is unboxed; and the descriptor-held 0700 walk is
+  1091a's, not yet on main.
 
 The other forms:
 
@@ -1513,9 +1586,22 @@ slice that produces it, and each typed assertion is in the slice that builds its
    of an opened descriptor on Linux, and the root-owned chain check on both systems);
    `crates/brokkr-runtime/src/bundle.rs` (the pinned interpreter and tools, the allow-list, and
    the lift of 0111b's live-admission refusal); run start's refusal of a `ci` seat whose bundle
-   layer is inside the worktree; a house observer script, with its polling bound inside the
-   seat's deadline, and its shellcheck clean. About 350 production, 150 script and 550 test
-   lines. No contract change. Tests:
+   layer is inside the worktree, and its `namespace`-only admission (ruling 2's live-launch
+   rule), over 1091a's descriptor-held walk, so 0111c lands after 1091a; a house observer
+   script, with its polling bound inside the seat's deadline, and its shellcheck clean. About
+   400 production, 150 script and 650 test lines. No contract change. Tests: the boundary
+   (Linux, under a real box, as 0043's boundary tests are):
+   `a_live_launch_beside_an_unboxed_same_uid_sibling_refuses_as_launch_unboxed_peer`
+   (a hands-less site in the same bundle, and separately another realm under `harness`);
+   `a_live_launch_under_harness_refuses_as_launch_unboxed_peer`;
+   `a_live_launch_on_macos_refuses`;
+   `inside_the_box_opening_the_observers_pipe_endpoint_through_proc_fails`
+   (a boxed seat walks its `/proc` for the observer's and the engine's pids and their `fd`
+   entries; its control, the same walk from an unboxed same-UID sibling, opens the endpoint);
+   `a_configuration_directory_replaced_before_gh_opens_it_refuses`
+   (the directory swapped by name between the walk and the spawn: the held descriptor is the
+   one `gh` reads, or the launch refuses);
+   `the_observers_working_directory_is_set_from_the_held_descriptor`;
    `an_interpreter_replaced_after_verification_never_runs` (Linux: the hashed descriptor runs;
    both systems: a path whose chain the run's account can write refuses before the spawn);
    `a_tool_whose_directory_the_runs_account_can_write_refuses_before_the_spawn`;
