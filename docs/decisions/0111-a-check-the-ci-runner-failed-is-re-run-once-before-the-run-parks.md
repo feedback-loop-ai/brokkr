@@ -336,7 +336,7 @@ with the reason `launch-untrusted` naming the condition that failed, and observe
   there, and removes it after. No git configuration, `.envrc` or tool file in the worktree is
   beneath it.
 - **A cleared, allow-listed environment.** The environment is cleared, then holds only a closed
-  list: the read-only token's one variable, `HOME`, `XDG_CONFIG_HOME` and `GH_CONFIG_DIR` naming
+  list: the read-only token's one variable, `GH_TOKEN` (below), `HOME`, `XDG_CONFIG_HOME` and `GH_CONFIG_DIR` naming
   empty directories the launcher made by that walk and holds by descriptor, `LC_ALL=C`, and an
   empty `PATH`. There is no `BASH_ENV`,
   no `ENV` and no shell startup file. The compile refuses any other key.
@@ -551,7 +551,14 @@ change's tree and boxed seats; what bounds the account is the trust root
 ([above](#the-account-is-the-trust-root)). The
 credential is a sealed secret binding (0012), resolved by the runner into the one allow-listed
 variable and never into argv; `gh` reads a token from its environment, an env-only consumer
-0012's compile lint already admits (`crates/brokkr-runtime/src/bundle.rs:4149-4156`). Its scope
+0012's compile lint already admits (`crates/brokkr-runtime/src/bundle.rs:4149-4156`).
+**The binding is named `GH_TOKEN`, and the compile refuses any other name.** HEAD's runner
+exports a binding under its own name, with no mapping (`bind_environment`,
+`crates/brokkr-protocol/src/secret.rs:123-130`), and `GH_TOKEN` is the variable the lint's own
+comment names as `gh`'s input (`crates/brokkr-runtime/src/bundle.rs:4153-4155`). So the name
+the operator declares is the variable `gh` reads; a binding called anything else would reach
+`gh` as a variable it ignores, beside an empty configuration directory, and the observer would
+read unauthenticated. No mapping layer is added. Its scope
 is read-only and one repository's: Actions runs and jobs, checks, commit statuses, pull requests
 and metadata, and administration only where ruling 3's forge-required set is read. It comes from
 the same operator-side store every unboxed seat of the account can already read, so it is never
@@ -1326,7 +1333,7 @@ compiled into the bundle and pinned with it.**
     "interpreter": {"path": "/usr/bin/bash", "sha256": "<64 hex>"},
     "tools": {"gh": {"path": "/usr/bin/gh", "sha256": "<64 hex>"},
               "jq": {"path": "/usr/bin/jq", "sha256": "<64 hex>"}},
-    "credential": {"binding": "GH_READ_TOKEN", "access": "read"}
+    "credential": {"binding": "GH_TOKEN", "access": "read"}
   },
   "change_classes": ["crates/", "docs/", "Cargo.lock", "recipes/", "README.md"],
   "required_checks": [
@@ -2040,13 +2047,15 @@ slice that produces it, and each typed assertion is in the slice that builds its
    Tests, the launch driven through a test-only bundle the live compile does not admit:
    `one_admitted_launch_resolves_the_sealed_binding_into_the_cleared_environment_captures_stdout_and_parses_the_result`
    (the real credential arrangement: a sealed binding in the operator-side store, resolved by
-   the runner into the one allow-listed variable of a cleared `SpawnEnv::Exactly`, no other key
-   present; a stub `gh` by absolute path asserts it read the token from that variable and
-   nothing from argv; its stdout is captured over the engine's pipe and parsed into
+   the runner into `GH_TOKEN`, the one allow-listed token variable of a cleared
+   `SpawnEnv::Exactly`, no other key present, and `GH_CONFIG_DIR` an empty directory; a stub
+   `gh` by absolute path asserts it read the token from `GH_TOKEN`, nothing from argv and no
+   stored login from its configuration directory; its stdout is captured over the engine's pipe and parsed into
    `ci-observation/v1`; run once under `harness` and once beside a boxed seat under
    `namespace`, both admitted);
    `an_observer_credential_declared_write_scoped_refuses_to_compile` (`"access"` of any word but
    `read`, and a second secret binding on the `ci` seat, each refused by name);
+   `an_observer_credential_bound_under_any_name_but_gh_token_refuses_to_compile`;
    `on_macos_the_interpreter_runs_by_path_only_under_a_root_owned_chain`. The boundary
    (Linux, under a real box, as 0043's boundary tests are):
    `inside_the_box_opening_the_observers_pipe_endpoint_through_proc_fails`
