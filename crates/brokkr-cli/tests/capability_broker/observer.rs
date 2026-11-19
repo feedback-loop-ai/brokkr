@@ -1119,23 +1119,67 @@ fn group_felled(group: i32) {
 fn a_torn_down_fixture_takes_what_was_observed_outside_its_tree() {
     // The inner shell ends at once, so its sleep is reparented out of the
     // attempt's tree, as a broker gone late leaves what it started.
+    // It stays in the attempt's process group, which `Planted` kills.
     let script = "sh -c 'sleep 600 & echo $!'; exec sleep 600";
     let mut command = Command::new("sh");
-    let mut attempt = command
+    let attempt = command
         .args(["-c", script])
         .stdout(Stdio::piped())
+        .process_group(0)
         .spawn()
         .unwrap();
-    let mut said = String::new();
-    let out = attempt.stdout.take().unwrap();
-    std::io::BufRead::read_line(&mut std::io::BufReader::new(out), &mut said).unwrap();
+    let mut planted = Planted { attempt };
+    let out = planted.attempt.stdout.take().unwrap();
+    let said = first_line_within(out).expect("the fixture never said its orphan");
     let orphan: i32 = said.trim().parse().unwrap();
-    let root = i32::try_from(attempt.id()).unwrap();
+    let root = i32::try_from(planted.attempt.id()).unwrap();
     let outside = within(|| !descendants(root).contains(&orphan));
-    torn_down(&mut attempt, || felled_live(&[orphan]));
+    // Still live once seen outside, so that outside is no vacuous truth.
+    let live = !exited(orphan);
+    let late = torn_down_within(&mut planted, || felled_live(&[orphan]));
     let left = (!gone(orphan), status(root));
-    felled_live(&[orphan]);
-    assert_eq!((outside, left), (true, (false, None)));
+    // Every observation is taken before the group's fallback kill.
+    drop(planted);
+    assert_eq!(
+        (live, outside, late, left),
+        (true, true, false, (false, None))
+    );
+}
+
+/// The first line `out` says within [`WHILE`], read on a thread of its own,
+/// so a writer that never says one, its pipe held open, blocks no proof;
+/// none when no line came by then.
+fn first_line_within(out: impl std::io::Read + Send + 'static) -> Option<String> {
+    let (said, heard) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut line = String::new();
+        let read = std::io::BufRead::read_line(&mut std::io::BufReader::new(out), &mut line);
+        if read.is_ok_and(|bytes| bytes > 0) {
+            said.send(line).ok();
+        }
+    });
+    heard.recv_timeout(WHILE).ok()
+}
+
+/// [`torn_down`] of `planted`'s attempt with what the proof `observed`,
+/// bounded: one that has not reaped the attempt within [`WHILE`] has the
+/// attempt's process group killed, which ends its wait; and whether it had
+/// to be.
+fn torn_down_within(planted: &mut Planted, observed: impl FnOnce()) -> bool {
+    use std::sync::mpsc::RecvTimeoutError;
+    let group = Pid::from_raw(i32::try_from(planted.attempt.id()).unwrap()).unwrap();
+    let (done, waited) = std::sync::mpsc::channel::<()>();
+    let bound = std::thread::spawn(move || {
+        let late = matches!(waited.recv_timeout(WHILE), Err(RecvTimeoutError::Timeout));
+        if late {
+            let signal = rustix::process::Signal::KILL;
+            rustix::process::kill_process_group(group, signal).ok();
+        }
+        late
+    });
+    torn_down(&mut planted.attempt, observed);
+    done.send(()).ok();
+    bound.join().unwrap()
 }
 
 #[test]
@@ -1161,10 +1205,13 @@ fn a_hang_kills_the_whole_tree_of_its_attempt() {
     }
     uprooted(root);
     let left: Vec<i32> = tree.iter().copied().filter(|pid| !gone(*pid)).collect();
-    let status = planted.attempt.wait().unwrap();
+    // The root looked at within a while, never waited on: one left standing
+    // on its children fails here, not when its sleep ends.
+    let ended = within(|| exited(root)).then(|| planted.attempt.try_wait().unwrap());
     // Its survivors are counted first, so this teardown hides none.
     drop(planted);
-    assert_eq!((left, status.signal()), (vec![], Some(9)));
+    let signal = ended.flatten().and_then(|status| status.signal());
+    assert_eq!((left, signal), (vec![], Some(9)));
 }
 
 /// A fixture's attempt, started as the leader of a process group of its
@@ -1207,9 +1254,12 @@ pub(super) fn gone(pid: i32) -> bool {
     within(|| status(pid).is_none_or(|(state, _, _)| state == 'Z'))
 }
 
-/// Whether `holds` comes true within five seconds.
+/// The while a fixture's process is given to do what is looked for.
+const WHILE: Duration = Duration::from_secs(5);
+
+/// Whether `holds` comes true within [`WHILE`].
 pub(super) fn within(holds: impl Fn() -> bool) -> bool {
-    let until = Instant::now() + Duration::from_secs(5);
+    let until = Instant::now() + WHILE;
     while Instant::now() < until {
         if holds() {
             return true;
