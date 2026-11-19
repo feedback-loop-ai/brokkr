@@ -36,7 +36,7 @@ fn stat(pid: i32) -> Option<(char, i32, i32, i32)> {
 }
 
 /// Every live descendant of `root`, found by its parent links.
-fn descendants(root: i32) -> Vec<i32> {
+pub(super) fn descendants(root: i32) -> Vec<i32> {
     let parents: BTreeMap<i32, i32> = processes()
         .filter_map(|pid| {
             stat(pid)

@@ -22,7 +22,7 @@ use rustix::net::{SocketFlags, SocketType};
 use rustix::process::Pid;
 use serde_json::{json, Value};
 
-use super::cleanup::{identity, left_for_the_next_start};
+use super::cleanup::{descendants, identity, left_for_the_next_start};
 use super::{admitted, bootstrap, brokkr, chmod, euid, refused, setpriv, skip, unservable};
 use super::{Refusal, Sealed, Store, HARNESS, STARTUP};
 
@@ -1009,14 +1009,13 @@ fn the_suites_startup_is_the_brokers_own() {
 /// When `pid` is gone, or only a zombie, waiting no longer than the hang
 /// guard, [`super::TALK_MAX`] from the wait's start.
 pub(super) fn awaited(pid: i32) -> Instant {
-    guarded(pid).0
+    guarded(pid, || felled(pid)).0
 }
 
 /// [`awaited`], and whether `pid` ended by the hang guard: seen ended at a
 /// time no later than the guard, so that one exiting past it, however late
-/// this wakes, did not. One still running there is killed; one gone and
-/// reaped since is no failure of the kill's.
-fn guarded(pid: i32) -> (Instant, bool) {
+/// this wakes, did not. One still running there is ended by `kill`.
+fn guarded(pid: i32, kill: impl FnOnce()) -> (Instant, bool) {
     let until = Instant::now() + super::TALK_MAX;
     loop {
         // Its state first: an exit seen here came no later than `at`.
@@ -1024,9 +1023,7 @@ fn guarded(pid: i32) -> (Instant, bool) {
         let at = Instant::now();
         if ended | (at >= until) {
             if !ended {
-                let signal = rustix::process::Signal::KILL;
-                let gone = rustix::process::kill_process(Pid::from_raw(pid).unwrap(), signal);
-                assert!(matches!(gone, Ok(()) | Err(Errno::SRCH)), "{gone:?}");
+                kill();
             }
             return (at, ended & (at <= until));
         }
@@ -1034,17 +1031,50 @@ fn guarded(pid: i32) -> (Instant, bool) {
     }
 }
 
-/// When `broker`, started by `attempt`, ended, within the hang guard
-/// ([`guarded`]). One that did not fails `what` there and then, `attempt`'s
-/// tree killed with it, so that no cleanup wait of its fixture outlasts the
-/// guard first.
-pub(super) fn ended_by_the_guard(broker: i32, attempt: &Child, what: &str) -> Instant {
-    let (at, finished) = guarded(broker);
-    if !finished {
-        super::killed(attempt.id());
-        panic!("{what}: broker still running at the hang guard");
+/// Kill `pid` outright; one gone and reaped since is no failure of the
+/// kill's.
+fn felled(pid: i32) {
+    let signal = rustix::process::Signal::KILL;
+    let gone = rustix::process::kill_process(Pid::from_raw(pid).unwrap(), signal);
+    assert!(matches!(gone, Ok(()) | Err(Errno::SRCH)), "{gone:?}");
+}
+
+/// Kill `root` and every live process below it, all found before any is
+/// killed, while each parent still stands, so no killed parent's orphan is
+/// left running.
+fn uprooted(root: i32) {
+    for pid in std::iter::once(root).chain(descendants(root)) {
+        felled(pid);
     }
+}
+
+/// When `broker`, started by `attempt`, ended, within the hang guard
+/// ([`guarded`]). One that did not fails `what` there and then, `attempt`
+/// and every process below it, the broker, its starter and all they
+/// started, killed first ([`uprooted`]), so that no cleanup wait of its
+/// fixture outlasts the guard and nothing of it is left running.
+pub(super) fn ended_by_the_guard(broker: i32, attempt: &Child, what: &str) -> Instant {
+    let root = i32::try_from(attempt.id()).unwrap();
+    let (at, finished) = guarded(broker, || uprooted(root));
+    assert!(finished, "{what}: broker still running at the hang guard");
     at
+}
+
+#[test]
+fn a_hang_kills_the_whole_tree_of_its_attempt() {
+    use std::os::unix::process::ExitStatusExt;
+    // A grandchild and its own child below the attempt, as the harness
+    // shell and the broker stand below the adopter's strace: past a kill
+    // of the attempt's children alone.
+    let script = "sh -c 'sleep 600 & wait' & wait";
+    let mut attempt = Command::new("sh").args(["-c", script]).spawn().unwrap();
+    let root = i32::try_from(attempt.id()).unwrap();
+    assert!(within(|| descendants(root).len() == 2));
+    let tree = descendants(root);
+    uprooted(root);
+    let left: Vec<i32> = tree.into_iter().filter(|pid| !gone(*pid)).collect();
+    let status = attempt.wait().unwrap();
+    assert_eq!((left, status.signal()), (vec![], Some(9)));
 }
 
 /// Whether the process is gone or a zombie, without another wait.
