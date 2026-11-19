@@ -16,10 +16,12 @@ pub(crate) fn literal(path: &Path) -> std::io::Result<PathBuf> {
     std::path::absolute(path)
 }
 
-/// [`literal`], for a journal SQLite is about to open: a path that cannot
+/// [`literal`], for a journal SQLite is about to open: a path holding a nul
+/// byte is refused at the nul in the path as given, and a path that cannot
 /// be bound, an empty one or a relative one under a working directory that
 /// is gone, is refused as SQLite's own invalid path, before SQLite sees it.
 pub(crate) fn journal(path: &Path) -> Result<PathBuf, rusqlite::Error> {
+    std::ffi::CString::new(path.as_os_str().as_encoded_bytes())?;
     literal(path)
         .ok()
         .ok_or(rusqlite::Error::InvalidPath(path.to_path_buf()))

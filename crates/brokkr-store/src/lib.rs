@@ -405,9 +405,8 @@ impl Store {
 
     fn open_writing(path: &Path) -> Result<Store, StoreError> {
         let bound = literal::journal(path)?;
-        if let Some(parent) = bound.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
+        // A bound path has a parent unless it is the root, which exists.
+        let _ = std::fs::create_dir_all(bound.parent().unwrap_or(&bound));
         let mut conn =
             Connection::open(&bound).map_err(|error| literal::as_given(error, path, &bound))?;
         conn.busy_timeout(BUSY_TIMEOUT)?;

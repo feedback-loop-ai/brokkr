@@ -37,31 +37,66 @@ fn an_empty_path_is_refused_by_both_opens() {
     }
 }
 
-/// Both opens' refusal to open a relative journal names the path as it was
-/// given, where SQLite's diagnostic names the absolute path it was handed:
-/// the writer's parent is a file, so no directory is made, and the reader
-/// finds no file. Nothing is created under the crate.
+/// SQLite's cannot-open diagnostic naming `path`, the one text this module
+/// pins.
+fn cannot_open(path: &Path) -> String {
+    format!("unable to open database file: {}", path.display())
+}
+
+/// SQLite's diagnostic names the absolute path it was handed; it is shown
+/// as the path the operator gave, and its code is kept.
 #[test]
-fn a_journal_that_cannot_be_opened_is_named_as_given() {
-    let given = Path::new("Cargo.toml/journal.db");
-    for opened in [Store::open(given), Store::open_read_only(given)] {
-        assert_eq!(
-            opened.err().map(|error| error.to_string()),
-            Some("sqlite: unable to open database file: Cargo.toml/journal.db".to_owned())
-        );
+fn a_diagnostic_naming_the_bound_path_names_the_path_as_given() {
+    let code = rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_CANTOPEN);
+    let bound = Path::new("/work/blocked/journal.db");
+    let given = Path::new("blocked/journal.db");
+    let shown = super::as_given(
+        rusqlite::Error::SqliteFailure(code, Some(cannot_open(bound))),
+        given,
+        bound,
+    );
+    assert_eq!(
+        shown,
+        rusqlite::Error::SqliteFailure(code, Some(cannot_open(given)))
+    );
+}
+
+/// Both opens refuse a journal they cannot open as SQLite's cannot-open,
+/// naming the path: the writer's parent is a file, so no directory is
+/// made, and the reader finds no file.
+#[test]
+fn a_journal_that_cannot_be_opened_is_refused_as_cannot_open() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("blocked"), "").unwrap();
+    let given = dir.path().join("blocked/journal.db");
+    for opened in [Store::open(&given), Store::open_read_only(&given)] {
+        match opened.err() {
+            Some(StoreError::Sqlite(rusqlite::Error::SqliteFailure(
+                rusqlite::ffi::Error {
+                    code: rusqlite::ErrorCode::CannotOpen,
+                    ..
+                },
+                Some(message),
+            ))) => assert_eq!(message, cannot_open(&given)),
+            other => panic!("not refused as cannot-open: {other:?}"),
+        }
     }
 }
 
-/// An open's error that carries no SQLite diagnostic passes as it is: a
-/// path holding a nul byte is refused before SQLite sees it, at the nul in
-/// the bound path.
+/// A path holding a nul byte is refused before it is bound or SQLite sees
+/// it, at the nul in the path as given; an error that carries no SQLite
+/// diagnostic passes as it is.
 #[test]
-fn an_open_error_without_a_diagnostic_passes_as_it_is() {
-    let before_nul = std::env::current_dir().unwrap().join("nul");
-    match Store::open_read_only(Path::new("nul\0byte")).err() {
-        Some(StoreError::Sqlite(rusqlite::Error::NulError(nul))) => {
-            assert_eq!(nul.nul_position(), before_nul.as_os_str().len());
+fn a_nul_byte_is_refused_at_its_place_in_the_path_as_given() {
+    for opened in [
+        Store::open(Path::new("nul\0byte")),
+        Store::open_read_only(Path::new("nul\0byte")),
+    ] {
+        match opened.err() {
+            Some(StoreError::Sqlite(rusqlite::Error::NulError(nul))) => {
+                assert_eq!(nul.nul_position(), 3);
+            }
+            other => panic!("not refused as a nul byte: {other:?}"),
         }
-        other => panic!("not refused as a nul byte: {other:?}"),
     }
 }
