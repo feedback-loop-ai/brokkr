@@ -544,7 +544,8 @@ fn orphaning(orphans: &str) -> String {
 /// writes its pid to `orphans`, and its subshell has exited before the
 /// harness writes its own: all `count` are the driver's by then. Each is
 /// first seen among the driver's children, running or a zombie, so no
-/// orphan the driver never adopted passes for one it reaped.
+/// orphan the driver never adopted passes for one it reaped; `adopted`
+/// appears once it is.
 fn adopted_orphans_are_reaped(test: &str, orphans: &str, count: usize) {
     if elsewhere(test) {
         return;
@@ -568,6 +569,7 @@ fn adopted_orphans_are_reaped(test: &str, orphans: &str, count: usize) {
     };
     let unadopted = "orphans the driver did not adopt";
     assert_eq!(adopted, Some(()), "{unadopted}: {:?}", strays());
+    std::fs::write(driver.dir.path().join("adopted"), "").unwrap();
     let cleared = until(|| driver.adopted(harness).filter(|&(adopted, _)| adopted == 0));
     assert_eq!(
         cleared,
@@ -580,11 +582,14 @@ fn adopted_orphans_are_reaped(test: &str, orphans: &str, count: usize) {
     driver.finish();
 }
 
+/// The orphan runs until it is seen adopted, for [`PATIENCE`] at most, so
+/// no stall of the test's reads lets the reaper clear it first.
 #[test]
 fn a_driver_reaps_the_orphan_its_harness_leaves_while_the_harness_runs() {
     adopted_orphans_are_reaped(
         "process::reaper::tests::a_driver_reaps_the_orphan_its_harness_leaves_while_the_harness_runs",
-        "(sleep 0.2 & echo $! >> orphans)",
+        "(i=0; while [ ! -e adopted ] && [ $i -lt 600 ]; do sleep 0.05; i=$((i+1)); done \
+         </dev/null >/dev/null 2>&1 & echo $! >> orphans)",
         1,
     );
 }
