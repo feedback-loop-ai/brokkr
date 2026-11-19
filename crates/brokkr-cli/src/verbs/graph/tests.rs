@@ -666,18 +666,19 @@ fn the_states_and_rules_are_painted_as_two_aligned_tables() {
     );
 }
 
+/// The table lines `painted` holds: from under its notes to its ends.
+fn table_lines(painted: &str) -> Vec<String> {
+    painted
+        .lines()
+        .skip(2)
+        .take_while(|line| !line.starts_with("ends"))
+        .map(String::from)
+        .collect()
+}
+
 #[test]
 fn a_narrow_terminal_clamps_the_name_column_and_keeps_the_numbers_whole() {
-    let tables = |view: &GraphView| {
-        let painted = paint(view, &Style::plain(40));
-        let lines: Vec<String> = painted
-            .lines()
-            .skip(2)
-            .take_while(|line| !line.starts_with("ends"))
-            .map(String::from)
-            .collect();
-        lines
-    };
+    let tables = |view: &GraphView| table_lines(&paint(view, &Style::plain(40)));
     // 40 columns that hold every cell at one-space gaps: the gaps give way
     // and every name stays whole.
     assert_eq!(
@@ -755,21 +756,13 @@ fn no_color_paints_no_escape_byte_and_colour_bolds_only_the_header_rows() {
     );
 }
 
-/// The table lines `painted` holds: from under its notes to its ends.
-fn table_lines(painted: &str) -> Vec<String> {
-    painted
-        .lines()
-        .skip(2)
-        .take_while(|line| !line.starts_with("ends"))
-        .map(String::from)
-        .collect()
-}
-
 #[test]
 fn every_text_column_gives_way_before_a_row_overflows_and_every_number_stays_whole() {
     let long = "a-state-named-at-length-for-a-narrow-terminal";
     let mut view = drawn("REVIEW-PARK");
     view.states[1].name = long.into();
+    view.rules[0].next = Some(format!("{long}-too"));
+    view.rules[0].count = 1_234_567;
     view.rules[1].from = long.into();
     let lines = table_lines(&paint(&view, &Style::plain(60)));
     assert_eq!(
@@ -779,9 +772,9 @@ fn every_text_column_gives_way_before_a_row_overflows_and_every_number_stays_who
             "work                  2     0m  0m not reported      —     —",
             "a-state-named-…       1      —   — not reported      —     —",
             "",
-            "RULE        COUNT FROM                        TO     KIND",
-            "WORK-OK         1 work                        review forward",
-            "REVIEW-PARK     1 a-state-named-at-length-fo… park   self",
+            "RULE          COUNT FROM            TO               KIND",
+            "WORK-OK     1234567 work            a-state-named-a… forward",
+            "REVIEW-PARK       1 a-state-named-… park             self",
         ]
     );
     let widest = lines.iter().map(|line| width_of(line)).max();
@@ -813,9 +806,24 @@ fn a_wide_name_is_measured_in_the_cells_the_terminal_draws() {
             "界界界…        1      —   — not reported      —     —",
         ]
     );
-    // The seats block still sizes its columns in `char`s, as it pads them.
-    let seats = crate::render::table::widths(&["A"], &[[Safe::new("界界")]]);
-    assert_eq!(seats, [2]);
+}
+
+#[test]
+fn a_decomposed_accent_costs_no_cell_and_never_clamps_the_name_it_marks() {
+    let mut view = drawn("REVIEW-PARK");
+    // Four cells the terminal draws from eight `char`s, in the five STATE's
+    // header gives the column.
+    view.states[0].name = "e\u{301}".repeat(4);
+    view.states[1].name = "ab".into();
+    let lines = table_lines(&paint(&view, &Style::plain(200)));
+    assert_eq!(
+        lines[..3],
+        [
+            "STATE  ENTERED  MEDIAN  P90          COST  TOKENS  CACHE",
+            "e\u{301}e\u{301}e\u{301}e\u{301}         2      0m   0m  not reported       —      —",
+            "ab           1       —    —  not reported       —      —",
+        ]
+    );
 }
 
 #[test]
@@ -833,10 +841,10 @@ fn no_color_turns_off_the_colour_a_terminal_would_otherwise_take() {
         };
         let env = |name: &str| match name {
             "NO_COLOR" => no_color.map(OsString::from),
-            "COLUMNS" => Some(OsString::from("120")),
             _ => None,
         };
-        graph_with(dir.path(), args, || Style::detect_in(true, env)).unwrap()
+        let style = || Style::detect_in(true, env, || Ok((120, 40)));
+        graph_with(dir.path(), args, style).unwrap()
     };
     let plain = drawn(Some("1"));
     assert!(!plain.contains('\x1b'), "{plain:?}");

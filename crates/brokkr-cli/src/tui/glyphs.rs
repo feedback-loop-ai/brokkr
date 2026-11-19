@@ -159,9 +159,8 @@ pub(crate) fn width_of(text: &str) -> usize {
 
 /// Clamp to a display width, marking the cut with `…`. Text is what
 /// gives way when a segment is tight; the rail, the arrows, the fork
-/// corners and the rejoin never are. `brokkr graph`'s tables clamp a
-/// text cell here (#1167).
-pub(crate) fn clamp(text: &str, max: usize) -> String {
+/// corners and the rejoin never are.
+pub(super) fn clamp(text: &str, max: usize) -> String {
     let text = safe(text);
     // TWO bounds, deliberately. Display width is what the layout plans
     // in, but the buffer consumes a cell per `char`, and a zero-width
