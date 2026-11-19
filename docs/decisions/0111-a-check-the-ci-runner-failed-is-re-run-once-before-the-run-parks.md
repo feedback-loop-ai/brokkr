@@ -1736,7 +1736,24 @@ without `"after"`, and refuses the list otherwise (ruling 5).
 | `CI-REFUSED` | `ci` | `fail` | class `refused` | park, `ruled`, naming the refusals |
 | `CI-INFRASTRUCTURE` | `ci` | `fail` | class `ci-infrastructure` | park, `infrastructure` `ci-infrastructure` |
 | `CI-PASS` | `ci` | `pass` | class `green` | `classify` |
+| `CI-PASS-UNBOUND` | `ci` | `pass` | | park, `ruled`, naming the word binding |
 | `CI-FAIL` | `ci` | `fail` | | `implement`, `flagged` |
+
+**The table is total.** HEAD's compile refuses a table with an unruled valuation:
+`seated_and_ruled` calls `refuse_unruled` (`crates/brokkr-runtime/src/bundle/phases.rs:118-130`),
+which sweeps every valuation of each `(from, result)` group's axes through the real evaluator
+and refuses the first no rule rules (`crates/brokkr-core/src/policy/audit.rs:187-197`,
+`:358-381`). A flag axis is both booleans (`:441-443`), whoever owns the flag. So with
+`CI-PASS` the sole `(ci, pass)` row, the valuation `ci_green = false` is unruled and the
+composed overlay would not compile. **Recommended: (a) `CI-PASS-UNBOUND`, a named, fail-closed
+row:** the unconditional `(ci, pass)` rule after `CI-PASS`, parking `ruled` for a person and
+naming the word binding. It is never reached while the binding holds: ruling 3 refuses `pass`
+on any class but `green` before the table reads it. It is the table's answer if the binding
+were ever lifted, and a park, never a route. The `(ci, fail)` group is already total:
+`CI-FAIL` is unconditional beneath its two parks. **(b) Proving the valuation impossible** is
+not taken: the audit sweeps each flag on its own, and HEAD gives it no way to read a
+cross-input invariant such as the word binding, so the proof would need an engine change for
+one row.
 
 Then landing's own two rules, `CLASSIFY-DOCS` to `review` and `CLASSIFY-CODE` to `verify`
 (`recipes/landing/policy.json:9-21`), and every `fast` rule, unchanged.
@@ -1929,6 +1946,8 @@ fix round 1093r2 put on one row. **Each row of ruling 6's landing table, checked
   severity and no `requires_artifacts`, as v2's park admits (`:53-57`). Legal.
 - `CI-PASS`: one result, `pass`; `when` `ci_green: true`; `next: classify`, a declared phase.
   Legal.
+- `CI-PASS-UNBOUND`: one result, `pass`; no `when`; `park: true`, as the two parks above. Legal,
+  and not made unreachable by `CI-PASS`, which is conditional.
 - `CI-FAIL`: one result, `fail`; no `when`; `next: implement` with severity `flagged`. Legal,
   and not made unreachable by an unconditional rule above it for the same `(from, result)`
   (`:28`), since the two parks above it are conditional.
@@ -2479,7 +2498,13 @@ slice that produces it, and each typed assertion is in the slice that builds its
    `a_head_the_run_made_is_never_gated_by_ci`;
    `the_environment_park_survives_the_ci_overlay`;
    `an_operator_retry_after_a_person_re_runs_observes_again`;
-   `the_composed_landing_ci_table_validates_whole_against_phase_machine_v3`.
+   `the_composed_landing_ci_table_validates_whole_against_phase_machine_v3`;
+   `the_whole_composed_landing_ci_overlay_compiles_against_heads_totality_gate` (the
+   materialized bundle through `seated_and_ruled` and `refuse_unruled`: it compiles; and its
+   control, the same overlay less `CI-PASS-UNBOUND`, refuses with
+   `Refusal::Totality` naming `ci`, `pass` and `ci_green = false`);
+   `a_pass_word_on_a_non_green_class_never_reaches_ci_pass_unbound` (the word binding refuses it
+   first).
 
 ## Evidence
 
