@@ -683,7 +683,9 @@ fn a_probe_refusal_fills_a_terminal_whose_own_row_is_absent() {
     let (clock, now) = Clock::advancing(base());
     engine.cooldown.clock = clock;
     // The terminal records a wait whose end has already passed, so `insert`
-    // writes no row for it and the site stands at round zero.
+    // writes no row for it and the site stands at round zero. A deliberate
+    // exception to `LONG_WAIT` (#857): `base()` lies weeks before any real
+    // `recorded_at`, so no stall can bring the end back into force.
     append_waited(&mut engine, wait_value(base() - Duration::seconds(1), 30));
     engine.drive().unwrap();
     assert_eq!(
@@ -722,14 +724,15 @@ fn a_remainder_already_in_force_counts_toward_the_maximum_before_the_first_probe
     engine.cooldown.host = Some(host(dir.path(), 30, 100));
     let start = start_of(&now);
     let b = second_run(dir.path());
-    // Nothing waits b's end out (the run parks before any probe), so it lies
-    // `LONG_WAIT` past the clock's reading, in force however long the host
-    // stalls (#857); its remainder past the run's own 30s end still passes
-    // the 100s maximum.
+    // b's end is measured on the clock, which starts `LONG_WAIT` ahead of the
+    // journal (`with_clock`), so the row is in force however long the host
+    // stalls (#857). Its 90s remainder past the run's own 30s end is under
+    // the 100s maximum; only the episode's 30s and the remainder together
+    // (120s) pass it.
     append_second_row(
         &dir.path().join("forge.db"),
         &b,
-        start + LONG_WAIT + Duration::seconds(120),
+        start + Duration::seconds(120),
     );
     engine.drive().unwrap();
     assert_eq!(
@@ -1019,6 +1022,9 @@ fn a_filled_round_is_counted_so_the_next_round_parks_at_the_maximum() {
     engine.cooldown.host = Some(host(dir.path(), 30, 100));
     let (clock, _now) = Clock::advancing(base());
     engine.cooldown.clock = clock;
+    // An end already past, so no own row lands: a deliberate exception to
+    // `LONG_WAIT` (#857), since `base()` lies weeks before any real
+    // `recorded_at`.
     append_waited(&mut engine, wait_value(base() - Duration::seconds(1), 30));
     engine.drive().unwrap();
     assert_eq!(logs(dir.path(), "work"), ["probe", "probe"]);
@@ -1324,6 +1330,9 @@ fn a_row_recorded_during_a_panels_probe_holds_the_next_member() {
     let (mut engine, now) = with_clock(engine);
     let start = *now.lock().unwrap();
     let (b, db) = second_run_route(dir.path());
+    // A deliberately short 120s hold (#857, R4): both members wait it out on
+    // the clock, and the clock's `LONG_WAIT` lead keeps the row in force
+    // however long the host stalls its append.
     engine.cooldown.clock = clock_on_marker(&now, &dir.path().join("a.done"), true, move || {
         append_second_row_on(&db, &b, "codex", "second", start + Duration::seconds(120));
     });

@@ -138,6 +138,9 @@ fn copy_bundle(fixture: &Fixture, name: &str) {
 
 #[test]
 fn a_cooling_entry_is_not_admitted_and_its_lane_never_latches() {
+    // A deliberate short end, not `LONG_WAIT` (#857): it is five minutes on
+    // the fixed injected clock, which lies decades past the journal's real
+    // recording, so no lock stall can lose the row.
     let until = at(300);
     let words = "the provider's words";
     let (fixture, file) = refused(&[row("beta", "cloud", until, words)]);
@@ -280,6 +283,9 @@ fn the_latest_row_at_the_latest_end_speaks_for_the_lane() {
 
 #[test]
 fn an_expired_row_never_holds() {
+    // A deliberate past end, not `LONG_WAIT` (#857): it is expired only on
+    // the fixed injected clock, and still decades past the journal's real
+    // recording, so the store keeps the row however long the append stalls.
     let (fixture, file) = refused(&[row("beta", "cloud", at(-60), "expired")]);
     assert_eq!(admitted_at(&fixture, &file, base()), vec![]);
     // The pass writes nothing: the expired row is history still.
