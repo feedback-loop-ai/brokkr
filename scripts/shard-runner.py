@@ -24,14 +24,20 @@ A test binary is a member of argv's process group that is either
     (`target/<profile>/deps/<name>-<hash>`, a target-triple profile, and
     cargo-llvm-cov's `target/llvm-cov-target/...` alike), whose name is the
     executable's file name; or
+  * a coverage test binary in the pinned nightly's layout: its executable's
+    parent directory is named `out`, inside a `<hash>` folder inside a
+    `<package>` folder inside `build`
+    (`build/<package>/<hash>/out/<name>-<hash>`), and its file name ends in
+    that folder's `-<hash>`, whose name is the executable's file name; or
   * a doctest run: its executable's file name is `rustdoc` and its
     arguments hold the --test flag, whose name is `Doc-tests <crate>` from its
     `--crate-name` argument, or `Doc-tests <pid>` when that argument
     cannot be read.
 
-Nothing else is judged: cargo, rustc, linkers, build scripts and a test's
-helpers outside `deps` get no clock. A helper is inside its parent binary's
-life anyway.
+Nothing else is judged: cargo, rustc, linkers, build scripts
+(`build/<package>-<hash>/build-script-build`) and what their runs leave in
+`build/<package>-<hash>/out/`, and a test's helpers outside those layouts get
+no clock. A helper is inside its parent binary's life anyway.
 
 The runner copies every output byte to its own stdout unchanged and never
 decodes it, so nothing a test prints can start, restart, stop or delay a
@@ -391,10 +397,11 @@ def test_binary_name(member, read=read_args):
 
     A cargo test binary is named by its file name: a `deps` executable,
     stable cargo's layout, or a coverage executable in the pinned nightly's
-    layout (`coverage_test_binary`). A `rustdoc` whose arguments hold the --test flag is a doctest run named by its
-    `--crate-name` or, when that cannot be read, by its pid. A `rustdoc`
-    whose arguments cannot be read at all is still judged, the fail-closed
-    reading of a doctest whose arguments a test cannot hide.
+    layout (`coverage_test_binary`). A `rustdoc` whose arguments hold the
+    --test flag is a doctest run named by its `--crate-name` or, when that
+    cannot be read, by its pid. A `rustdoc` whose arguments cannot be read
+    at all is still judged, the fail-closed reading of a doctest whose
+    arguments a test cannot hide.
     """
     if member.exe is None:
         return None

@@ -458,6 +458,14 @@ class ShardRunner(unittest.TestCase):
             self.runner.judged_name(unreadable),
             (None, "a member's executable could not be read"))
 
+    def test_help_names_both_judged_layouts(self):
+        shown = subprocess.run([sys.executable, str(SCRIPT), "--help"],
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                               timeout=40, text=True)
+        self.assertEqual(shown.returncode, 0, shown.stderr)
+        self.assertIn("deps/", shown.stdout)
+        self.assertIn("build/<package>/<hash>/out/", shown.stdout)
+
     def test_a_clock_is_first_sight_plus_the_bound_and_never_moves(self):
         runner = self.runner.Runner(["unused"], 4, str(self.record), str(self.status))
         clocks = {}
