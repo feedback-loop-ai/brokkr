@@ -1014,21 +1014,45 @@ pub(super) fn awaited(pid: i32) -> Instant {
 
 /// [`awaited`], and whether `pid` ended by the hang guard: seen ended at a
 /// time no later than the guard, so that one exiting past it, however late
-/// this wakes, did not. One still running there is ended by `kill`.
+/// this wakes, did not. One not ended by the guard is ended by `kill`.
 fn guarded(pid: i32, kill: impl FnOnce()) -> (Instant, bool) {
     let until = Instant::now() + super::TALK_MAX;
+    // Its state first: an exit seen here came no later than the time.
+    guarded_with(until, || (exited(pid), Instant::now()), kill)
+}
+
+/// [`guarded`] on what `seen` observes, whether the process has ended and
+/// when that was looked at, until it ended or `until` passed. Every verdict
+/// short of an end by `until`, a late exit included, calls `kill`, so no
+/// failed proof leaves its attempt's tree standing.
+fn guarded_with(
+    until: Instant,
+    mut seen: impl FnMut() -> (bool, Instant),
+    kill: impl FnOnce(),
+) -> (Instant, bool) {
     loop {
-        // Its state first: an exit seen here came no later than `at`.
-        let ended = exited(pid);
-        let at = Instant::now();
+        let (ended, at) = seen();
         if ended | (at >= until) {
-            if !ended {
+            let finished = ended & (at <= until);
+            if !finished {
                 kill();
             }
-            return (at, ended & (at <= until));
+            return (at, finished);
         }
         std::thread::sleep(Duration::from_millis(20));
     }
+}
+
+#[test]
+fn an_exit_seen_past_the_guard_is_killed_as_a_hang_is() {
+    let until = Instant::now();
+    let late = until + Duration::from_millis(1);
+    let verdicts = [until, late].map(|at| {
+        let killed = std::cell::Cell::new(false);
+        let (_, finished) = guarded_with(until, || (true, at), || killed.set(true));
+        (finished, killed.get())
+    });
+    assert_eq!(verdicts, [(true, false), (false, true)]);
 }
 
 /// Kill `pid` outright; one gone and reaped since is no failure of the
@@ -1067,14 +1091,54 @@ fn a_hang_kills_the_whole_tree_of_its_attempt() {
     // shell and the broker stand below the adopter's strace: past a kill
     // of the attempt's children alone.
     let script = "sh -c 'sleep 600 & wait' & wait";
-    let mut attempt = Command::new("sh").args(["-c", script]).spawn().unwrap();
-    let root = i32::try_from(attempt.id()).unwrap();
-    assert!(within(|| descendants(root).len() == 2));
-    let tree = descendants(root);
+    let attempt = Command::new("sh").args(["-c", script]).spawn().unwrap();
+    let mut planted = Planted {
+        attempt,
+        tree: vec![],
+    };
+    let root = i32::try_from(planted.attempt.id()).unwrap();
+    let stood = within(|| descendants(root).len() == 2);
+    planted.tree = descendants(root);
+    if !stood {
+        drop(planted);
+        panic!("the attempt's tree never stood");
+    }
     uprooted(root);
-    let left: Vec<i32> = tree.into_iter().filter(|pid| !gone(*pid)).collect();
-    let status = attempt.wait().unwrap();
+    let left: Vec<i32> = planted
+        .tree
+        .iter()
+        .copied()
+        .filter(|pid| !gone(*pid))
+        .collect();
+    let status = planted.attempt.wait().unwrap();
+    // Its survivors are counted first, so this teardown hides none.
+    drop(planted);
     assert_eq!((left, status.signal()), (vec![], Some(9)));
+}
+
+/// A fixture's attempt and the tree found below it, all killed when it
+/// drops, a failed proof's unwind included: the attempt and its live
+/// descendants, found before any is killed, and every member of `tree`
+/// still live, orphans of a killed parent among them. The attempt is then
+/// reaped, so nothing of the fixture outlives the test.
+struct Planted {
+    attempt: Child,
+    tree: Vec<i32>,
+}
+
+impl Drop for Planted {
+    fn drop(&mut self) {
+        // An attempt already reaped is no pid of its own any longer.
+        let standing = matches!(self.attempt.try_wait(), Ok(None));
+        let root = i32::try_from(self.attempt.id()).unwrap();
+        let rooted = standing.then(|| std::iter::once(root).chain(descendants(root)));
+        let live = self.tree.iter().copied().filter(|pid| !exited(*pid));
+        for pid in rooted.into_iter().flatten().chain(live) {
+            let signal = rustix::process::Signal::KILL;
+            rustix::process::kill_process(Pid::from_raw(pid).unwrap(), signal).ok();
+        }
+        self.attempt.wait().ok();
+    }
 }
 
 /// Whether the process is gone or a zombie, without another wait.
