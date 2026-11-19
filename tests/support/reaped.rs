@@ -3,6 +3,7 @@
 //! ruling 9). Each test binary includes this through `#[path]`; it is test
 //! code by its path, so it stays outside the coverage denominator.
 
+use std::fmt;
 use std::process::{Child, Command, ExitStatus};
 use std::time::{Duration, Instant};
 
@@ -17,33 +18,56 @@ pub(crate) const REAP_GRACE: Duration = Duration::from_secs(1);
 /// How often the fixture polls its child.
 const POLL: Duration = Duration::from_millis(5);
 
-/// A pid the kernel has reaped: a child that ran `true` to completion.
+/// A pid the kernel has reaped: a child that ran `true` to completion. It
+/// returns or fails within PATIENCE: an overdue child fails it at once,
+/// saying which way it was overdue.
 pub(crate) fn exited_pid() -> u32 {
     reaped_with(&mut Command::new("true"), PATIENCE, |child| {
         child.kill().unwrap()
     })
-    .unwrap_or_else(|overdue| {
-        let words = overdue.words.clone();
-        overdue.reap();
-        panic!("{words}")
-    })
+    .unwrap_or_else(Overdue::fail)
 }
 
-/// A fixture's child that did not end within its patience: what the fixture
-/// says of it, and the child itself, still owned so the caller reaps it.
+/// A fixture's child that did not end within its patience.
 pub(crate) struct Overdue {
-    pub(crate) words: String,
-    pub(crate) child: Child,
+    pub(crate) pid: u32,
+    pub(crate) patience: Duration,
+    pub(crate) outcome: OverdueOutcome,
+}
+
+/// How an overdue child stood at the patience's end.
+pub(crate) enum OverdueOutcome {
+    /// The stop ended it, and it was reaped within the patience.
+    Killed(ExitStatus),
+    /// It was not reaped within the patience; the child is still owned, so
+    /// the caller kills and reaps it.
+    Unreaped(Child),
+}
+
+/// The one home of what the fixture says of an overdue child.
+impl fmt::Display for Overdue {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let (pid, patience) = (self.pid, self.patience);
+        let end = match &self.outcome {
+            OverdueOutcome::Killed(status) => format!("it was killed, and ended {status}"),
+            OverdueOutcome::Unreaped(_) => "it was stopped but not reaped within it".to_owned(),
+        };
+        write!(
+            f,
+            "the fixture's child {pid} did not exit within {patience:?}; {end}"
+        )
+    }
 }
 
 impl Overdue {
-    /// Kill the child and reap it within `REAP_GRACE`, failing saying so.
-    pub(crate) fn reap(mut self) -> ExitStatus {
-        self.child.kill().unwrap();
-        let pid = self.child.id();
-        exited_before(&mut self.child, Instant::now() + REAP_GRACE).unwrap_or_else(|| {
-            panic!("the overdue child {pid} was not reaped within {REAP_GRACE:?}")
-        })
+    /// Fail saying how the child was overdue, taking no time past the
+    /// patience already spent: an unreaped child is sent SIGKILL and not
+    /// waited for.
+    pub(crate) fn fail(mut self) -> u32 {
+        if let OverdueOutcome::Unreaped(child) = &mut self.outcome {
+            let _ = child.kill();
+        }
+        panic!("{self}")
     }
 }
 
@@ -65,19 +89,21 @@ pub(crate) fn reaped_with(
         return Ok(pid);
     }
     stop(&mut child);
-    let words = match exited_before(&mut child, deadline) {
-        Some(_) => format!("the fixture's child {pid} did not exit within {patience:?}; it was killed"),
-        None => format!(
-            "the fixture's child {pid} did not exit within {patience:?}; it was stopped but not reaped within it"
-        ),
+    let outcome = match exited_before(&mut child, deadline) {
+        Some(status) => OverdueOutcome::Killed(status),
+        None => OverdueOutcome::Unreaped(child),
     };
-    Err(Overdue { words, child })
+    Err(Overdue {
+        pid,
+        patience,
+        outcome,
+    })
 }
 
 /// The child's status if it is reaped before `deadline`. The clock is read
 /// after each poll, so an exit seen once the deadline has passed is not a
 /// success, and no sleep runs past the deadline.
-fn exited_before(child: &mut Child, deadline: Instant) -> Option<ExitStatus> {
+pub(crate) fn exited_before(child: &mut Child, deadline: Instant) -> Option<ExitStatus> {
     loop {
         let status = child.try_wait().unwrap();
         let now = Instant::now();

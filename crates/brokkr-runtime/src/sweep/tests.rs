@@ -1794,12 +1794,10 @@ fn hands_tree(tmp: &Path, pid: u32, label: &str) -> PathBuf {
 const FIXTURE_PATIENCE: std::time::Duration = std::time::Duration::from_secs(1);
 
 /// What the fixture gave back for a child that never exits, stopped by
-/// `stop`: how long it took, what it said, and the signal the child ended
-/// by once reaped. The child is reaped before anything is asserted, so a
-/// failing assertion leaves no process behind.
+/// `stop`, and how long it took.
 fn overdue_after(
     stop: impl FnOnce(&mut std::process::Child),
-) -> (std::time::Duration, String, Option<i32>) {
+) -> (std::time::Duration, crate::reaped::Overdue) {
     let mut never_exits = Command::new("sleep");
     never_exits.arg("600").stdout(std::process::Stdio::null());
     never_exits.stderr(std::process::Stdio::null());
@@ -1807,40 +1805,63 @@ fn overdue_after(
     let overdue = crate::reaped::reaped_with(&mut never_exits, FIXTURE_PATIENCE, stop)
         .err()
         .unwrap();
-    let elapsed = started.elapsed();
-    let words = overdue.words.clone();
-    (elapsed, words, overdue.reap().signal())
+    (started.elapsed(), overdue)
+}
+
+/// The words the fixture's entry point fails with on `overdue`.
+fn failed_with(overdue: crate::reaped::Overdue) -> String {
+    let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| overdue.fail()));
+    *panicked.err().unwrap().downcast::<String>().unwrap()
 }
 
 /// The reaped-pid fixture is bounded by its one patience: a child that never
-/// exits is killed with the grace kept back, and the fixture gives it back
-/// as overdue before that patience runs out rather than hang.
+/// exits is killed with the grace kept back, reaped, and given back as
+/// killed before that patience runs out rather than hang; the entry point
+/// fails with the fixture's words for it.
 #[test]
 fn the_reaped_pid_fixture_fails_within_its_patience_on_a_child_that_never_exits() {
-    let (elapsed, words, signal) = overdue_after(|child| child.kill().unwrap());
+    use crate::reaped::OverdueOutcome;
+    let (elapsed, overdue) = overdue_after(|child| child.kill().unwrap());
 
     assert!(elapsed < FIXTURE_PATIENCE, "{elapsed:?}");
-    assert!(
-        words.ends_with("did not exit within 1s; it was killed"),
-        "{words}"
+    let status = match &overdue.outcome {
+        OverdueOutcome::Killed(status) => *status,
+        OverdueOutcome::Unreaped(_) => panic!("{overdue}"),
+    };
+    assert_eq!(status.signal(), Some(SIGKILL));
+    let pid = overdue.pid;
+    assert_eq!(
+        failed_with(overdue),
+        format!(
+            "the fixture's child {pid} did not exit within 1s; it was killed, and ended {status}"
+        )
     );
-    assert_eq!(signal, Some(SIGKILL));
 }
 
 /// The reap after the stop shares that patience: a child the stop leaves
-/// alive fails the fixture by the patience's end, not a fresh grace after
-/// it, and is still the caller's to kill and reap.
+/// alive is given back unreaped by the patience's end, not a fresh grace
+/// after it, still the caller's to kill and reap.
 #[test]
 fn the_reaped_pid_fixture_fails_within_its_patience_on_a_child_its_stop_leaves_alive() {
-    let (elapsed, words, signal) = overdue_after(|_| {});
+    use crate::reaped::{exited_before, OverdueOutcome, REAP_GRACE};
+    let (elapsed, mut overdue) = overdue_after(|_| {});
+    let words = overdue.to_string();
+    let OverdueOutcome::Unreaped(child) = &mut overdue.outcome else {
+        panic!("{words}")
+    };
+    child.kill().unwrap();
+    let status = exited_before(child, std::time::Instant::now() + REAP_GRACE);
 
     let slack = std::time::Duration::from_millis(100);
     assert!(elapsed < FIXTURE_PATIENCE + slack, "{elapsed:?}");
-    assert!(
-        words.ends_with("did not exit within 1s; it was stopped but not reaped within it"),
-        "{words}"
+    assert_eq!(status.map(|status| status.signal()), Some(Some(SIGKILL)));
+    assert_eq!(
+        words,
+        format!(
+            "the fixture's child {} did not exit within 1s; it was stopped but not reaped within it",
+            overdue.pid
+        )
     );
-    assert_eq!(signal, Some(SIGKILL));
 }
 
 /// The signal number of SIGKILL on both supported hosts.
