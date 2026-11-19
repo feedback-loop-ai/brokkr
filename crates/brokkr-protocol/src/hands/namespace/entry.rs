@@ -27,7 +27,7 @@ use std::os::fd::{BorrowedFd, OwnedFd};
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 #[cfg(target_os = "linux")]
-use std::process::{Child, Command};
+use std::process::Command;
 #[cfg(target_os = "linux")]
 use std::sync::atomic::{AtomicBool, Ordering};
 #[cfg(target_os = "linux")]
@@ -157,15 +157,17 @@ impl Drop for Identity {
 /// end, the box's only protocol; its standard error's read end, which the
 /// broker drains and masks (U6f1b); the info pipe's read end, on which
 /// bubblewrap names the box's first process; and each mounted source, by
-/// the place of its handle and where it stands in the box. Dropping it
-/// settles the box: the launcher is killed and reaped, which the box it
-/// started does not outlive, and the pipes are closed. It borrows the
-/// entry it launched, so that entry, and the generated identity tree it
-/// removes, outlives the box.
+/// the place of its handle and where it stands in the box. The launcher is
+/// held as every child the door spawns (`process::spawned`): a wait that
+/// reaps it releases the reaper's hold at once. Dropping it settles the
+/// box: the launcher is killed and reaped, which the box it started does
+/// not outlive, and the pipes are closed. It borrows the entry it
+/// launched, so that entry, and the generated identity tree it removes,
+/// outlives the box.
 #[cfg(target_os = "linux")]
 #[derive(Debug)]
 pub struct Launched<'e> {
-    pub child: Child,
+    pub child: crate::process::spawned::Spawned,
     pub control: Option<PipeWriter>,
     pub ready: PipeReader,
     pub status: PipeReader,
@@ -175,7 +177,6 @@ pub struct Launched<'e> {
     pub info: PipeReader,
     pub mounts: Vec<(usize, String)>,
     _entry: &'e ServerEntry,
-    _held: crate::process::reaper::Release,
 }
 
 #[cfg(target_os = "linux")]
@@ -314,10 +315,8 @@ impl ServerBox {
         let started = started(launch, inheritor(carried), startup);
         drop((intent, readied, reporting, informed));
         let mounts = entry.mounts().collect();
-        let (child, _held) = started?.into_parts();
         Ok(Launched {
-            child,
-            _held,
+            child: started?,
             control: Some(control),
             ready,
             status,

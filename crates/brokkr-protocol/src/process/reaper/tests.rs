@@ -245,6 +245,39 @@ fn a_handle_kept_past_its_reap_holds_no_pid_an_orphan_reuses() {
     drop((first, second));
 }
 
+/// A launched box's launcher is held as the door holds every child: a wait
+/// on it releases its hold at once, while the box is still kept. A shell
+/// stands for bubblewrap, the launch's flags its arguments.
+#[test]
+fn a_wait_on_a_launched_boxs_launcher_releases_its_hold() {
+    const TEST: &str =
+        "process::reaper::tests::a_wait_on_a_launched_boxs_launcher_releases_its_hold";
+    if !crate::process::in_its_own_engine(TEST) {
+        return;
+    }
+    // Serving with no reaper: no sweep runs to release the hold instead.
+    handled().serving = true;
+    let own = std::process::id();
+    let tree = std::env::temp_dir().join(format!("brokkr-reaper-{own}-launched"));
+    let argv = json!([{"text": "sh"}, {"text": "-c"}, {"text": "exit 4"}]);
+    let entry = json!({"argv": argv, "launcher": 0, "bootstrap": "/brokkr", "identity": tree});
+    let entry: crate::hands::ServerEntry = serde_json::from_value(entry).unwrap();
+    let sh = std::fs::File::open("/bin/sh").unwrap();
+    let never = || false;
+    let startup = (
+        Instant::now() + PATIENCE,
+        &never as &(dyn Fn() -> bool + Sync),
+    );
+    let launch = crate::hands::ServerBox::launch;
+    let mut launched = launch(&entry, &[sh.as_fd()], |_, _, _| Vec::new(), startup).unwrap();
+    let pid = Pid::from_child(&launched.child).as_raw_pid();
+    let held = || handled().held.keys().copied().collect::<Vec<_>>();
+    assert_eq!(held(), [pid]);
+    assert_eq!(launched.child.wait().unwrap().code(), Some(4));
+    assert_eq!(held(), Vec::<i32>::new());
+    drop(launched);
+}
+
 /// A serving driver holds a child in the spawn's own critical section, by
 /// its pidfd, else by its start as read then, else unread; a process that
 /// does not serve holds nothing, and a spawn that fails holds nothing.
