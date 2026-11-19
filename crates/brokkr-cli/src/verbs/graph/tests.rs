@@ -1005,6 +1005,96 @@ fn arcs_a_fold_cuts_keep_one_row_each_across_it_so_nested_and_crossed_read_apart
     insta::assert_snapshot!("graph_crossed_30", crossed);
 }
 
+/// The row `states` over one run that walks it and is sent back once by
+/// each of `backs`, `(from, to)` by place in the row and in the order
+/// walked, then walks on to `done`.
+fn returned(dir: &Path, states: &[&str], backs: &[(usize, usize)]) -> GraphView {
+    let ids: Vec<[String; 2]> = (states.iter())
+        .map(|state| [format!("{state}-OK"), format!("{state}-BACK")].map(|id| id.to_uppercase()))
+        .collect();
+    let last = states.len() - 1;
+    let next = |at: usize| states.get(at + 1).copied().unwrap_or("done");
+    let on = |at: usize| (states[at], "complete", ids[at][0].as_str(), Some(next(at)));
+    fn ruled((state, result, id, next): Step<'_>) -> (&str, &str, &str, Option<&str>) {
+        (id, state, result, next)
+    }
+    let mut rules: Vec<_> = (0..=last).map(on).map(ruled).collect();
+    rules.push(("STOP", states[last], "blocked", Some("stop")));
+    let mut steps: Vec<Step> = Vec::new();
+    let mut at = 0;
+    for (from, to) in backs {
+        let back = (
+            states[*from],
+            "residual",
+            ids[*from][1].as_str(),
+            Some(states[*to]),
+        );
+        rules.push(ruled(back));
+        steps.extend((at..*from).map(on));
+        steps.push(back);
+        at = *to;
+    }
+    steps.extend((at..=last).map(on));
+    one_run(dir, &table(states, &rules), "returned", &steps)
+}
+
+/// Each fold of `drawing` (its rails each have a `⏺`, every state having
+/// been entered) leaves its rail by the same arc rows, counted from the
+/// rail, as the next rail is entered by: a link's `›` and its `‹` stand
+/// on one row. The rows that pass the fold, in their order.
+fn lanes_kept(drawing: &str) -> Vec<Vec<usize>> {
+    let lines: Vec<&str> = drawing.lines().collect();
+    let mut rails: Vec<usize> = (0..lines.len())
+        .filter(|at| lines[*at].contains('⏺'))
+        .collect();
+    rails.push(lines.len());
+    let rows = |rail: usize, end: usize, mark: fn(&str) -> bool| -> Vec<usize> {
+        (rail + 1..end)
+            .filter(|at| mark(lines[*at]))
+            .map(|at| at - rail)
+            .collect()
+    };
+    let mut passed = Vec::new();
+    for rail in rails.windows(3) {
+        let leaving = rows(rail[0], rail[1], |line| line.ends_with('›'));
+        let entering = rows(rail[1], rail[2], |line| line.starts_with('‹'));
+        assert_eq!(
+            leaving, entering,
+            "the fold under line {}\n{drawing}",
+            rail[0]
+        );
+        passed.push(leaving);
+    }
+    passed
+}
+
+#[test]
+fn a_link_passing_under_a_rail_keeps_its_row_where_a_shallower_one_has_ended() {
+    let dir = tempfile::tempdir().unwrap();
+    let (five, ten) = (dir.path().join("five"), dir.path().join("ten"));
+    // Review 2's C1, correctness's shape: at 12 columns one state to a
+    // rail, c ᐸ a ends on c's rail and e ᐸ a passes under d's on its own.
+    let view = returned(&five, &["a", "b", "c", "d", "e"], &[(2, 0), (4, 0)]);
+    let drawing = drawn(&view, 12);
+    arcs_drawn(&view, 12);
+    assert_eq!(
+        lanes_kept(&drawing),
+        [vec![2, 3], vec![2, 3], vec![3], vec![3], vec![]],
+        "{drawing}"
+    );
+    // Adversarial's: at 30 columns two states to a rail, c ᐸ b and j ᐸ g
+    // ride the first lane, h ᐸ a the second, alone under e and f's rail.
+    let states = ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j"];
+    let view = returned(&ten, &states, &[(2, 1), (7, 0), (9, 6)]);
+    let drawing = drawn(&view, 30);
+    arcs_drawn(&view, 30);
+    assert_eq!(
+        lanes_kept(&drawing),
+        [vec![2, 3], vec![3], vec![3], vec![2], vec![]],
+        "{drawing}"
+    );
+}
+
 #[test]
 fn a_range_with_no_runs_draws_the_table_with_no_traffic() {
     let dir = tempfile::tempdir().unwrap();

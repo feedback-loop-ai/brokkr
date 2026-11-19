@@ -437,7 +437,8 @@ impl Drawing<'_> {
     }
 
     /// Rail `index` of `row`, painted and counted, as plain text: no
-    /// colour, trailing blanks trimmed and blank rows dropped. A rail the
+    /// colour, trailing blanks trimmed and blank rows dropped, but for an
+    /// arc lane a link holds deeper. A rail the
     /// fold continues wears the TUI's own elision marks, `›` and `‹`.
     /// Under [`RAIL_LEAST`] columns its states are written as lines
     /// instead, held to the width as every line under the rails is.
@@ -476,14 +477,20 @@ impl Drawing<'_> {
         if index + 1 < row.rails.len() {
             put(&mut cells, self.width - 1, plan.rail_row, "›", plain());
         }
-        (cells.iter())
-            .map(|row| {
+        // The arc rows down to the deepest lane this rail's arcs hold stay,
+        // blank or not: a fold-cut link passing under a rail where a
+        // shallower lane holds nothing keeps its row, so its `›` and the
+        // next rail's `‹` stand on one row (review 2's C1).
+        let lanes = plan.arc_row.map_or(0..0, |row| row..plan.rows);
+        (cells.iter().enumerate())
+            .map(|(at, row)| {
                 let text: String = (row.iter().flatten())
                     .map(|(glyph, _)| glyph.as_str())
                     .collect();
-                text.trim_end().to_string()
+                (at, text.trim_end().to_string())
             })
-            .filter(|text| !text.is_empty())
+            .filter(|(at, text)| !text.is_empty() || lanes.contains(at))
+            .map(|(_, text)| text)
             .collect()
     }
 
