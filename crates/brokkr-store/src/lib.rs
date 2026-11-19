@@ -76,6 +76,7 @@ mod chain;
 mod damage;
 mod event_index;
 mod import;
+mod literal;
 pub mod metered;
 mod opening;
 mod origin;
@@ -403,10 +404,11 @@ impl Store {
     }
 
     fn open_writing(path: &Path) -> Result<Store, StoreError> {
-        if let Some(parent) = path.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
-        let mut conn = Connection::open(path)?;
+        let bound = literal::journal(path)?;
+        // A bound path has a parent unless it is the root, which exists.
+        let _ = std::fs::create_dir_all(bound.parent().unwrap_or(&bound));
+        let mut conn =
+            Connection::open(&bound).map_err(|error| literal::as_given(error, path, &bound))?;
         conn.busy_timeout(BUSY_TIMEOUT)?;
         ensure_wal(&conn, path)?;
         conn.pragma_update(None, "foreign_keys", "ON")?;
@@ -450,7 +452,9 @@ impl Store {
     }
 
     fn open_reading(path: &Path) -> Result<Store, StoreError> {
-        let conn = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+        let bound = literal::journal(path)?;
+        let conn = Connection::open_with_flags(&bound, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .map_err(|error| literal::as_given(error, path, &bound))?;
         conn.busy_timeout(BUSY_TIMEOUT)?;
         conn.pragma_update(None, "cache_size", -READER_CACHE_KIB)?;
         let found: Option<String> = patiently("open_read_only", BUSY_TIMEOUT, path, || {

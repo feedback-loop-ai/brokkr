@@ -287,7 +287,10 @@ fn restore_through(
     to: &Path,
     publish: &mut dyn FnMut(&Path, &Path) -> std::io::Result<()>,
 ) -> Result<Restored, BackupError> {
-    let (from, to) = (&literal::literal(from)?, &literal::literal(to)?);
+    let (from, to) = (
+        &crate::literal::literal(from)?,
+        &crate::literal::literal(to)?,
+    );
     refuse_existing(to)?;
     let inventory = inventory::read_inventory(from)?;
     let source = from.join(SNAPSHOT_FILE);

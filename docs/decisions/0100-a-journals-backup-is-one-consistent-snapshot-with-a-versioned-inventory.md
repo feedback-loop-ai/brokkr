@@ -241,3 +241,30 @@ before SQLite or the filesystem sees them. The bundled SQLite reads a name
 beginning `file:` as a URI (landing 431L4's finding), so without that
 binding the checks above and the publication could name different files.
 The same exposure on the CLI's other journal paths is #954.
+
+## Addendum — 2026-11-19, accepted 2026-11-19: every journal open binds its path, and two names SQLite read specially are literal files (#954)
+
+Addendum status: accepted (operator, 2026-11-19)
+
+The operator accepted this addendum in chat on 2026-11-19, "go with
+recommended" (https://github.com/feedback-loop-ai/brokkr/issues/954#issuecomment-7005169956),
+ruling both asked items below as recommended: `--db :memory:` is the
+literal file `./:memory:`, and an empty path is refused by both opens.
+
+Under the operator's 2026-11-01 ruling on #431, #954 moves the binding
+into the store's one open, so `Store::open` and `Store::open_read_only`
+make every journal path absolute before SQLite sees it, and backup and
+restore use the same home. Ordinary paths open the file they named
+before. Two names SQLite read specially do not, and the operator rules on
+them:
+
+1. **`:memory:`.** SQLite opened `--db :memory:` as a private database
+   that vanished with the process. It is now the durable file `./:memory:`,
+   created by a writer and read back by a later reader. Recommended:
+   accept, because one literal identity has no name that is not a file.
+2. **The empty path.** SQLite opened `--db ''` for writing as a private
+   temporary database. Both opens now refuse it as SQLite's invalid path
+   before SQLite sees it. Recommended: accept.
+
+A refusal to open a journal names the path as the operator gave it, not
+the absolute path SQLite was handed.
