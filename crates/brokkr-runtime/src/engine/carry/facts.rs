@@ -1,6 +1,7 @@
 //! Read evidence at the journal edge, then observe the repository without deciding.
 use std::collections::{BTreeMap, BTreeSet};
 
+use brokkr_core::findings::EngineMarker;
 use brokkr_core::fold::RunState;
 use brokkr_core::{EventEnvelope, EventType};
 use serde::de::DeserializeOwned;
@@ -33,6 +34,9 @@ pub(crate) struct PanelAttempt {
     pub(crate) record: Option<PanelRecord>,
     pub(crate) carried: Vec<CarriedEntry>,
     pub(crate) steps: Vec<String>,
+    /// The members the engine's own marker settled in this attempt: the
+    /// mark a settled payload is carried as a verdict by (W2).
+    pub(crate) marked: BTreeSet<Tag>,
     pub(crate) park_reason: Option<String>,
     pub(crate) input_holds: bool,
     ended_at: Option<u64>,
@@ -142,6 +146,7 @@ fn record_start(
         record: None,
         carried,
         steps: Vec::new(),
+        marked: BTreeSet::new(),
         park_reason: None,
         input_holds: false,
         ended_at: None,
@@ -172,17 +177,24 @@ fn record_park(attempts: &mut [PanelAttempt], payload: &Value) {
     }
 }
 
+/// A checkpoint of one of this visit's attempts: a finished step's name,
+/// and each member the engine's own marker settles (fix round 0109a1r6,
+/// W2), read by the one check inspect reads it by.
 fn record_step(attempts: &mut [PanelAttempt], payload: &Value) {
-    if payload["checkpoint"]["step"] != "sequence-step-finished" {
-        return;
-    }
     let Some(at) = attempts
         .iter_mut()
         .find(|at| payload["attempt_id"].as_str() == Some(&at.id))
     else {
         return;
     };
-    if let Some(step) = payload["checkpoint"]["step_name"].as_str() {
+    let checkpoint = &payload["checkpoint"];
+    if let Some(member) = EngineMarker::settled_member(checkpoint) {
+        at.marked.insert(Tag(member.to_owned()));
+    }
+    if checkpoint["step"] != "sequence-step-finished" {
+        return;
+    }
+    if let Some(step) = checkpoint["step_name"].as_str() {
         at.steps.push(step.to_owned());
     }
 }

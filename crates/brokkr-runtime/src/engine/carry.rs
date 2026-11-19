@@ -424,9 +424,17 @@ fn contributions<'a>(
         match verdict {
             Some((source, result)) => {
                 // The carried member's findings, read once, here, where
-                // the plan reads its journaled result.
+                // the plan reads its journaled result, and only beside the
+                // engine's mark for its source attempt and member (fix
+                // round 0109a1r6, W2): an unmarked payload, a released
+                // engine's raw copy, keeps its result word, and its
+                // findings and `covered` stay in it as unverified legacy
+                // evidence, never the new aggregate's keyed findings.
                 let mut result = result.clone();
-                let findings = MemberFindings::taken_from(&mut result);
+                let findings = match source.marked.contains(tag) {
+                    true => MemberFindings::taken_from(&mut result),
+                    false => MemberFindings::Read(Vec::new()),
+                };
                 entries.push(Contribution::Carried {
                     tag: tag.clone(),
                     result,

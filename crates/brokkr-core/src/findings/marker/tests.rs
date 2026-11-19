@@ -36,6 +36,29 @@ fn a_marker_reads_by_the_engines_authorship_never_by_its_word() {
     assert_eq!(EngineMarker::authored(&other), None);
 }
 
+/// Fix round 0109a1r6, W2: the one mark a settled member's payload reads
+/// as a verdict by is the engine's own member marker naming it as
+/// succeeded; a released engine's unauthored marker, a step marker and a
+/// member that did not succeed mark none.
+#[test]
+fn a_member_is_settled_only_by_the_engines_own_succeeded_member_marker() {
+    let marker = |outcome: &str| {
+        EngineMarker::MemberFinished.record(json!({"member": "a", "outcome": outcome}))
+    };
+    assert_eq!(
+        EngineMarker::settled_member(&marker("succeeded")),
+        Some("a")
+    );
+    assert_eq!(EngineMarker::settled_member(&marker("failed")), None);
+    let mut released = marker("succeeded");
+    released.as_object_mut().unwrap().remove(AUTHORED);
+    assert_eq!(EngineMarker::settled_member(&released), None);
+    let step = EngineMarker::StepFinished.record(json!({"member": "a", "outcome": "succeeded"}));
+    assert_eq!(EngineMarker::settled_member(&step), None);
+    let unnamed = EngineMarker::MemberFinished.record(json!({"outcome": "succeeded"}));
+    assert_eq!(EngineMarker::settled_member(&unnamed), None);
+}
+
 #[test]
 fn a_live_checkpoint_that_claims_the_engines_record_is_refused() {
     for mut claimed in [

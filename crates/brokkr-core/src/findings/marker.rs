@@ -65,6 +65,19 @@ impl EngineMarker {
             .into_iter()
             .find(|marker| marker.word() == word)
     }
+
+    /// The member `checkpoint` marks as settled: the engine's own
+    /// panel-member-finished marker naming it with outcome `succeeded`.
+    /// It is the one mark a settled member's payload is read as a verdict
+    /// by, beside it in the same attempt, wherever it is read: by inspect
+    /// and by a partial retry's carry alike (fix rounds 0109a1r5, V2, and
+    /// 0109a1r6, W2).
+    pub fn settled_member(checkpoint: &Value) -> Option<&str> {
+        (EngineMarker::authored(checkpoint) == Some(EngineMarker::MemberFinished)).then_some(())?;
+        let succeeded = checkpoint.get("outcome").and_then(Value::as_str) == Some("succeeded");
+        succeeded.then_some(())?;
+        checkpoint.get("member").and_then(Value::as_str)
+    }
 }
 
 /// Why a driver's live checkpoint is refused.

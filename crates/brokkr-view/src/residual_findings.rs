@@ -216,13 +216,14 @@ fn verdicts_of<'a>(event: &'a EventEnvelope, settled: &BTreeSet<StepOf<'_>>) -> 
 
 /// Each `(effect, attempt, member)` the engine's own authored
 /// `panel-member-finished` marker names as succeeded: the engine's mark
-/// on that member's settled payload. A released engine's marker carries
+/// on that member's settled payload, read by
+/// [`EngineMarker::settled_member`], the check a partial retry's carry
+/// asks too (fix round 0109a1r6, W2). A released engine's marker carries
 /// no `authored`, which v6's closed checkpoint refuses and the live sink
 /// refuses from a driver, so none of its rows is marked.
 fn settled_marks<'a>(events: &[&'a EventEnvelope]) -> BTreeSet<StepOf<'a>> {
     member_markers(events)
-        .filter(|(_, marker)| marker["outcome"] == "succeeded")
-        .filter_map(|(event, marker)| Some(step_of(event, marker["member"].as_str()?)))
+        .filter_map(|(event, marker)| Some(step_of(event, EngineMarker::settled_member(marker)?)))
         .collect()
 }
 

@@ -3,6 +3,7 @@ use super::*;
 use crate::engine::tests::{engine, git_commit, member, report, state};
 use crate::engine::{Cursor, SeatBody};
 use crate::envelope_builder::EnvelopeBuilder;
+use brokkr_core::findings::EngineMarker;
 use brokkr_protocol::AttemptReport;
 use serde_json::json;
 
@@ -37,6 +38,54 @@ fn subject(runtime: &Engine, state: &RunState, result: Value) -> Vec<EventEnvelo
         ),
         event(4, brokkr_core::EventType::EffectIndeterminate, terminal),
     ]
+}
+
+/// `events` with the engine's own marker settling member `a` of attempt
+/// `settled` before its terminal, as the current writer journals it; a
+/// [`subject`] alone is a released engine's row, which carries none.
+fn marked(mut events: Vec<EventEnvelope>) -> Vec<EventEnvelope> {
+    let terminal = events.pop().unwrap();
+    let marker = EngineMarker::MemberFinished.record(json!({"member":"a", "outcome":"succeeded"}));
+    let payload = json!({"effect_id":"source", "attempt_id":"settled", "checkpoint":marker});
+    let checkpointed = brokkr_core::EventType::EffectCheckpointed;
+    events.push(event(terminal.seq, checkpointed, payload));
+    events.push(event(
+        terminal.seq + 1,
+        terminal.event_type,
+        terminal.payload,
+    ));
+    events
+}
+
+/// Fix round 0109a1r6, W2: a partial retry carries a settled member's
+/// findings as the new aggregate's keyed findings only beside the engine's
+/// mark for its source attempt and member. A same-manifest released row,
+/// unmarked, keeps its result word; its `covered` and stamped-looking
+/// finding stay unverified and never key the new aggregate. The current
+/// writer's marked member carries its finding as a verdict.
+#[test]
+fn a_carried_members_findings_key_the_aggregate_only_beside_the_engines_mark() {
+    let (_dir, runtime, initial) = panel_fixture();
+    let finding = json!({"site":"a".repeat(64), "id":"planted", "file":"a.rs", "summary":"s",
+                         "severity":"low", "security":false});
+    let covered = json!({"kind":"head", "head":"c".repeat(40), "dirty":false});
+    let settled = json!({"result":"residual", "covered":covered, "findings":[finding]});
+    for (mark, keyed) in [(false, None), (true, Some(json!([finding])))] {
+        let events = subject(&runtime, &initial, settled.clone());
+        let events = if mark { marked(events) } else { events };
+        let facts = observed(&runtime, &initial, &events, u64::MAX);
+        let plan = carry_plan(&facts, &[Tag("b".into())]).unwrap();
+        let span = PanelSpan::open(&runtime.repo);
+        let fresh = vec![("b".into(), success(json!({"result":"clean"})))];
+        let members = (fresh, Stamped::new());
+        let carried = outcome_under(Aggregate::ReviewPanel, Some(&plan), members, &span, "retry");
+        let AttemptOutcome::Succeeded { result } = carried.unwrap().outcome() else {
+            panic!("the carried panel succeeds");
+        };
+        assert_eq!(result["result"], "residual", "{mark}: {result}");
+        assert_eq!(result.get("findings"), keyed.as_ref(), "{mark}: {result}");
+        assert_eq!(result.get("covered"), None, "{mark}: {result}");
+    }
 }
 
 fn panel_fixture() -> (tempfile::TempDir, Engine, RunState) {
@@ -398,7 +447,7 @@ fn both_aggregates_keep_opaque_and_settled_verdicts_in_declared_order() {
             "residual",
         ),
     ] {
-        let events = subject(&runtime, &initial, verdict.clone());
+        let events = marked(subject(&runtime, &initial, verdict.clone()));
         let facts = observed(&runtime, &initial, &events, u64::MAX);
         let plan = carry_plan(&facts, &[Tag("b".into())]).unwrap();
         let fresh = json!({"result":if matches!(aggregate, Aggregate::ReviewPanel) {"clean"} else {"pass"}});
