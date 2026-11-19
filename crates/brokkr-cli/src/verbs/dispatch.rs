@@ -198,18 +198,44 @@ fn stopping() -> Result<Stop> {
 }
 
 /// Sleep `rest`, or less once `stop` is asked: a wait on the byte its
-/// handlers write, so it wakes as the signal lands. A wait that times out
-/// early or that a signal interrupted waits again for the time left; one
-/// that finds the byte, or fails, ends the sleep.
+/// handlers write, so it wakes as the signal lands ([`nap_with`]).
 fn nap(stop: &Stop, rest: Duration) {
-    let until = Instant::now() + rest;
+    nap_with(
+        rest,
+        &|| stop.asked(),
+        &mut Instant::now,
+        &mut |left| ready(&stop.woken, PollFlags::IN, left),
+        &mut std::thread::sleep,
+    );
+}
+
+/// The longest a [`nap_with`] whose wait failed pauses before it looks at
+/// the stop again.
+const UNWAITABLE: Duration = Duration::from_secs(1);
+
+/// Sleep `rest` by `now`'s clock, or less once `asked`: `wait` for the
+/// time left, which says whether the stop's byte arrived. A wait that
+/// times out early or that a signal interrupted waits again for the time
+/// left, and one that finds the byte ends the sleep. One that fails
+/// `pause`s the time left, at most [`UNWAITABLE`], and looks again, so the
+/// loop keeps its pace and still sees the stop's flag.
+fn nap_with(
+    rest: Duration,
+    asked: &dyn Fn() -> bool,
+    now: &mut dyn FnMut() -> Instant,
+    wait: &mut dyn FnMut(Duration) -> std::io::Result<bool>,
+    pause: &mut dyn FnMut(Duration),
+) {
+    let until = now() + rest;
     loop {
-        let left = until.saturating_duration_since(Instant::now());
-        if stop.asked() || left.is_zero() {
+        let left = until.saturating_duration_since(now());
+        if asked() || left.is_zero() {
             return;
         }
-        if !matches!(ready(&stop.woken, PollFlags::IN, left), Ok(false)) {
-            return;
+        match wait(left) {
+            Ok(true) => return,
+            Ok(false) => {}
+            Err(_) => pause(left.min(UNWAITABLE)),
         }
     }
 }

@@ -136,7 +136,8 @@ fn ask(stop: &AtomicBool, mut waker: &UnixStream) {
 }
 
 /// The standing loop's sleep with no signal: the whole of its rest, and
-/// not less, and none at all once a stop is asked.
+/// not less, and none at all once a stop is asked. Removal control: the
+/// nap returning before its first wait fails it.
 #[test]
 fn a_nap_with_no_signal_sleeps_its_whole_rest() {
     let (stop, _waker) = Stop::unasked().unwrap();
@@ -158,28 +159,111 @@ fn a_nap_with_no_signal_sleeps_its_whole_rest() {
 
 /// Decision 0110 ruling 5: a stop asked while the loop sleeps a long rest
 /// wakes it as the signal's byte lands, not at the rest's end or a beat's.
-/// The asker and the timer share one origin, taken before either starts,
-/// and the asker says when it asked, so a busy host cannot order them the
-/// wrong way round. Removal control (ii), the nap sleeping its whole rest,
-/// fails it after the rest's 60 s.
+/// The nap's wait is [`nap`]'s own, which first tells the asker it is
+/// waiting, so the stop is asked once the flag has been read clear and
+/// only the byte can end the wait. The asker and the timer share one
+/// origin, taken before either starts, and the asker says when it asked,
+/// so a busy host cannot order them the wrong way round. Removal control
+/// (ii), the nap pausing its whole rest with the wait ignored, fails it
+/// after the rest's 60 s.
 #[test]
 fn a_stop_asked_mid_nap_wakes_it_promptly() {
     let (stop, waker) = Stop::unasked().unwrap();
     let asks = Arc::clone(&stop.asked);
+    let (entered, waiting) = std::sync::mpsc::channel();
     let began = Instant::now();
     let asker = std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_millis(200).saturating_sub(began.elapsed()));
+        waiting.recv_timeout(Duration::from_secs(30)).unwrap();
         let asking = began.elapsed();
         ask(&asks, &waker);
         asking
     });
-    nap(&stop, Duration::from_secs(60));
+    nap_with(
+        Duration::from_secs(60),
+        &|| stop.asked(),
+        &mut Instant::now,
+        &mut |left| {
+            // Only the first wait has an asker to tell.
+            let _ = entered.send(());
+            ready(&stop.woken, PollFlags::IN, left)
+        },
+        &mut std::thread::sleep,
+    );
     let slept = began.elapsed();
     let asking = asker.join().unwrap();
     assert!(
         slept >= asking && slept < asking + Duration::from_millis(500),
         "woke {slept:?} after the origin, the stop asked at {asking:?}"
     );
+}
+
+/// What one [`nap_with`] asked of its clock-driven seams: the time left
+/// each wait was given, and each pause.
+#[derive(Debug, Default, PartialEq)]
+struct Napped {
+    waits: Vec<Duration>,
+    pauses: Vec<Duration>,
+}
+
+/// [`nap_with`] of `rest` on a clock that only its seams move: each wait
+/// takes its next answer from `answers`, moving the clock by the answer's
+/// time (or the whole time left, for `None`), and each pause moves it by
+/// what it paused. Returns what the nap asked and the clock's travel.
+fn napped(
+    rest: Duration,
+    mut answers: Vec<(Option<Duration>, std::io::Result<bool>)>,
+) -> (Napped, Duration) {
+    let origin = Instant::now();
+    let clock = std::cell::Cell::new(origin);
+    let napped = RefCell::new(Napped::default());
+    answers.reverse();
+    nap_with(
+        rest,
+        &|| false,
+        &mut || clock.get(),
+        &mut |left| {
+            napped.borrow_mut().waits.push(left);
+            let (took, answer) = answers.pop().expect("no more waits than answers");
+            clock.set(clock.get() + took.unwrap_or(left));
+            answer
+        },
+        &mut |pause| {
+            napped.borrow_mut().pauses.push(pause);
+            clock.set(clock.get() + pause);
+        },
+    );
+    (napped.into_inner(), clock.get() - origin)
+}
+
+/// The sleep's retries: a wait that ends early with no byte, as a signal's
+/// EINTR does, waits again for the time left and not the whole rest; a
+/// wait that fails pauses at most [`UNWAITABLE`] of what is left and waits
+/// again; the nap ends when the rest has run out, and not before. A wait
+/// that finds the byte ends it at once. Removal controls: one poll and no
+/// retry, a retry given the whole rest, and a failed wait ending the nap,
+/// each fail it.
+#[test]
+fn a_nap_woken_early_or_refused_waits_again_for_the_time_left() {
+    let s = Duration::from_secs;
+    let unwaitable = std::io::Error::other("poll refused");
+    // `ready` answers a poll a signal interrupted as no byte.
+    let answers = vec![
+        (Some(s(3)), Ok(false)),
+        (Some(s(2)), Err(unwaitable)),
+        (None, Ok(false)),
+    ];
+    let expected = Napped {
+        waits: vec![s(10), s(7), s(4)],
+        pauses: vec![UNWAITABLE],
+    };
+    assert_eq!(napped(s(10), answers), (expected, s(10)));
+
+    let answers = vec![(Some(s(3)), Ok(false)), (Some(s(1)), Ok(true))];
+    let expected = Napped {
+        waits: vec![s(10), s(7)],
+        pauses: vec![],
+    };
+    assert_eq!(napped(s(10), answers), (expected, s(4)));
 }
 
 /// A child that runs `script` in a shell.
