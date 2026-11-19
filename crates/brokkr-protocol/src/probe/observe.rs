@@ -276,17 +276,15 @@ impl Runner<'_> {
                 .into_iter()
                 .map(|(path, bytes)| (path, Seen::of(&bytes)))
                 .collect();
-        let path = std::env::var("PATH").ok();
-        let volta = std::env::var_os("HOME").and_then(|home| {
-            let named = std::env::var("VOLTA_HOME").ok();
-            volta_home(named.as_deref(), path.as_deref(), Path::new(&home))
-        });
+        let (named, path) = (std::env::var_os("VOLTA_HOME"), std::env::var_os("PATH"));
+        let home = std::env::var_os("HOME").unwrap_or_default();
+        let volta = volta_home(named.as_deref(), path.as_deref(), Path::new(&home));
         let mut command = Command::new(&argv[0]);
         command
             .args(&argv[1..])
             .current_dir(&self.scratch.repo)
             .env_clear()
-            .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+            .env("PATH", path.unwrap_or_default())
             .env("HOME", &self.scratch.home)
             .envs(volta)
             .stdin(Stdio::null())

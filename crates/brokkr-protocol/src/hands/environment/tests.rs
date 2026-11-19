@@ -184,36 +184,43 @@ fn no_other_fixed_seat_name_is_one_a_credential_scrub_drops() {
 
 /// A child under a private `HOME` is told the volta home exactly where a
 /// shim could read one: the engine's own `VOLTA_HOME` as it stands, the
-/// operator's `~/.volta` where `PATH` reaches its `bin` (however that
-/// directory is spelled), and nothing where no shim of that home is on
-/// `PATH`.
+/// operator's `~/.volta` where `PATH` reaches its `bin` (with or without a
+/// trailing slash, beside entries that are not UTF-8), and nothing where
+/// no shim of that home is on `PATH` or no absolute home names one.
 #[test]
 fn a_private_home_is_told_the_volta_home_a_shim_on_path_reads() {
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt;
     let home = Path::new("/operator");
-    let default = Some(("VOLTA_HOME", "/operator/.volta".to_string()));
-    let named = Some(("VOLTA_HOME", "/srv/volta".to_string()));
+    let os = |text: &'static str| Some(OsStr::new(text));
+    let default = Some(("VOLTA_HOME", PathBuf::from("/operator/.volta")));
+    let named = Some(("VOLTA_HOME", PathBuf::from("/srv/volta")));
+    let unreadable = OsStr::from_bytes(b"/opt/\xff/bin:/operator/.volta/bin");
     for path in [
-        "/opt/tools/bin:/operator/.volta/bin:/usr/bin",
-        "/operator/.volta/bin/",
+        OsStr::new("/opt/tools/bin:/operator/.volta/bin:/usr/bin"),
+        OsStr::new("/operator/.volta/bin/"),
+        unreadable,
     ] {
-        assert_eq!(volta_home(None, Some(path), home), default, "{path}");
+        assert_eq!(volta_home(None, Some(path), home), default, "{path:?}");
     }
-    for path in [Some("/operator/.volta/bin"), Some("/usr/bin"), None] {
-        assert_eq!(
-            volta_home(Some("/srv/volta"), path, home),
-            named,
-            "{path:?}"
-        );
+    for path in [os("/operator/.volta/bin"), os("/usr/bin"), None] {
+        assert_eq!(volta_home(os("/srv/volta"), path, home), named, "{path:?}");
+        let unset = Path::new("");
+        assert_eq!(volta_home(os("/srv/volta"), path, unset), named);
     }
+    let bytes = OsStr::from_bytes(b"/srv/\xff");
+    let verbatim = Some(("VOLTA_HOME", PathBuf::from(bytes)));
+    assert_eq!(volta_home(Some(bytes), None, home), verbatim);
     for path in [
-        Some("/usr/bin:/bin"),
-        Some("/other/.volta/bin"),
-        Some("/operator/.volta"),
-        Some(""),
+        os("/usr/bin:/bin"),
+        os("/other/.volta/bin"),
+        os("/operator/.volta"),
+        os(""),
         None,
     ] {
         assert_eq!(volta_home(None, path, home), None, "{path:?}");
     }
+    assert_eq!(volta_home(None, os(".volta/bin"), Path::new("")), None);
 }
 
 /// The unboxed dispatch's table carries that volta home, read from the

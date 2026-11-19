@@ -908,8 +908,8 @@ fn a_cli_that_exits_leaving_a_child_on_its_stdout_is_read_without_waiting_for_th
 
 /// A launch runs under the scratch `HOME`, so a volta shim on `PATH`
 /// would find no volta install there and recurse: the launch is told the
-/// operator's volta home where `PATH` reaches its shims, and nothing
-/// otherwise.
+/// operator's volta home where `PATH` reaches its shims, the engine's own
+/// `VOLTA_HOME` verbatim even with no `HOME` set, and nothing otherwise.
 #[test]
 fn a_launch_is_told_the_volta_home_its_path_reaches() {
     if !in_its_own_engine("probe::tests::a_launch_is_told_the_volta_home_its_path_reaches") {
@@ -932,14 +932,17 @@ fn a_launch_is_told_the_volta_home_its_path_reaches() {
             &world.bindings,
             DEADLINE,
         );
-        serde_json::to_value(report.unwrap()).unwrap()["cli"]["version"].clone()
+        report.unwrap().cli.version
     };
-    let printed = |line: String| measured(json!(line), "the first line `--version` printed");
+    let printed = |line: String| Fact::measured(line, "the first line `--version` printed");
     env.set("PATH", format!("{}:{path}", shims.display()));
     let told = format!("dsh {}", operator.join(".volta").display());
     assert_eq!(version(), printed(told));
     env.set("PATH", &path);
     assert_eq!(version(), printed("dsh unset".to_string()));
+    env.remove("HOME");
+    env.set("VOLTA_HOME", "/srv/volta");
+    assert_eq!(version(), printed("dsh /srv/volta".to_string()));
 }
 
 #[test]
