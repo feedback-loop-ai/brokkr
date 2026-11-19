@@ -28,8 +28,8 @@ use sha2::{Digest, Sha256};
 mod refusal;
 
 use super::dsh_hands::{Mode, Release, SANDBOX_POLICY};
-pub(super) use refusal::Refused;
-use refusal::{Field, Overlay, Part};
+use refusal::{Field, Part};
+pub(super) use refusal::{Overlay, Refused};
 
 /// A route overlay is a handful of block lines; a larger file is not the
 /// shipped shape and is refused before it is parsed.

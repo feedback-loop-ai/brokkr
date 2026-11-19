@@ -119,8 +119,8 @@ controller can follow this procedure.
 4. Ask the model for its tool list in one session, once with the overlay's
    `agent-default-model` row alone and once with the release's hands rows
    (`Release::pinned_rows`: the ten common rows, and on 0.2.2-rc.1 the
-   `tool-executor-ptc` pin as well). Record both lists and every tool that
-   changed.
+   `tool-executor-ptc` pin as well; on 0.2.2-rc.5 the `tool-agent-team`
+   pin after it). Record both lists and every tool that changed.
 5. Check the sandbox rows: `sandbox`, `sandbox-policy`, `bash-sandbox`,
    `pwsh-sandbox`, `permission` and `fs-sandbox` keep their ids and
    packages, and the hands overlay's `sandbox-policy` row carries the
@@ -793,6 +793,138 @@ clean); `git diff --check`. The 649f80072 message names the reverted bare
 filter word with no `::` as `UnreadFilter` (its `path_of` finds no
 module). The gate verdict is unchanged, and the commit is not amended.
 
+## 0.2.2-rc.5: a measured release with its own composed set (2026-11-19)
+
+The operator, 2026-11-19: "can we update dsh to latest and qualify it for
+review seats?" This section covers the first step only: npm's `latest` and
+`next` are 0.2.2-rc.5 (published 2026-11-18), and Brokkr now admits it as a
+measured hands release. Qualifying it for review seats is later work.
+
+### Provenance
+
+The implementing seat has no dsh and no network. **No dsh figure in this
+section was re-run by that seat.** Every live figure is the controller's
+measurement of 2026-11-19, by the procedure above, quoted from the story's
+framing. The offline bindings at the end were run by the seat.
+
+| Figure | Source |
+| --- | --- |
+| The 0.2.2-rc.5 install, its 673 packages and `dsh --version` | controller, 2026-11-19, Linux workstation |
+| The plain `--dump-config`'s 101 rows, the three row deltas and the dump's digest | controller, 2026-11-19 |
+| Both tool lists, with and without the hands rows | controller, 2026-11-19, `spark-glm/GLM-5.3-Flash-EXL3` |
+| The sandbox rows, the executor defaults and the hands dump's digest | controller, 2026-11-19 |
+| The release tables, the overlay bytes and the judge's refusals | offline tests, this change |
+
+### Install and home
+
+| Item | Value |
+| --- | --- |
+| Host | Linux (the controller's workstation). macOS: pending, no macOS host |
+| Install | `npm install --prefix /var/tmp/dsh-0.2.2-rc.5 @deepseek-ai/dsh@0.2.2-rc.5`; 673 packages; `dsh --version` = `0.2.2-rc.5` |
+| Home | a scratch `DSH_HOME` (`/var/tmp/dsh-home-0225`) holding a copy of the operator's `headless` profile, identical to the one 0.2.2-rc.1 was measured with; the installed 0.2.1-rc.2 and the operator's `~/.dsh` were untouched |
+| Profile modules | the copy's `node_modules` held 0 entries, so every row is 0.2.2-rc.5's own |
+
+### The composition diff
+
+`dsh --profile headless --dump-config` (no model call) composed 101
+top-level rows, against 0.2.2-rc.1's 99. Its sha256 starts
+`271ed858f3d14686`. Every other `(id, name)` pair is unchanged. The deltas
+against 0.2.2-rc.1, by `(id, name)`:
+
+| Change | Row | Package | State |
+| --- | --- | --- | --- |
+| new | `agent-team` | `@deepseek-ai/dsh-agent-team` | enabled by default; config `maxTasks: 256` |
+| new | `tool-agent-team` | `@deepseek-ai/dsh-tool-agent-team` | enabled by default; no config |
+| changed | `deepseek-account` | `@deepseek-ai/dsh-deepseek-account-platform` → `@deepseek-ai/dsh-deepseek-account` | still `disabled: true` |
+| unchanged | `brokkr-hands` | `@deepseek-ai/dsh-mcp-client` | absent from a plain dump: the seat overlay's own insert |
+
+So 0.2.2-rc.5's measured set is 0.2.2-rc.1's, plus `agent-team` and
+`tool-agent-team`, with `deepseek-account` under its new package name, plus
+`brokkr-hands`: 102 rows in a seat's tree. The two counts measure different
+things: 101 (0.2.2-rc.1: 99) is a plain `--dump-config`, which carries no
+`brokkr-hands`; 102 (0.2.2-rc.1: 100) is a seat's composed tree, which adds
+that one row. In the code that is
+`ADDED_0_2_2_RC5` and `REMOVED_0_2_2_RC5` over 0.2.2-rc.1's set. Each
+release admits only its own set: a 0.2.2-rc.1 tree that carries either team
+row or the new `deepseek-account` package is refused `Unmeasured` naming
+0.2.2-rc.1, and a 0.2.2-rc.5 tree that carries the old package is refused
+naming 0.2.2-rc.5. 0.2.2-rc.2, rc.3 and rc.4 are not measured, so a seat on
+any of them is refused, and the refusal names every measured release.
+
+### The overlay
+
+The overlay is unchanged for 0.2.1 and 0.2.2-rc.1: the same bytes, the same
+sets and the same refusal texts, except that the version refusal now lists
+0.2.2-rc.5 among the measured releases. On 0.2.2-rc.5 it writes one more
+row, after the `tool-executor-ptc` pin and before the workspace server:
+
+```yaml
+- id: tool-agent-team
+  disabled: true
+```
+
+The new surface fails closed. `tool-agent-team` is the agent-team tool row,
+enabled by default. It offered no tool in either measured list, but nobody
+measured what it serves once a team is formed. So the overlay pins it
+disabled, and a composed tree that enables it is refused
+`Composition::Enabled`. `agent-team` is the host row and has no tool. It
+added no tool to either list below, so it stays as composed.
+
+### Tool lists
+
+Asked of the model in one session each on `spark-glm/GLM-5.3-Flash-EXL3`:
+
+| Overlay | Tools |
+| --- | --- |
+| the `agent-default-model` row alone | 24 tools (the controller recorded the count, not the names) |
+| the 0.2.2 hands rows: the ten common rows and the `tool-executor-ptc` pin (8) | `create_goal` `get_goal` `list_agents` `send_message` `todo_write` `update_goal` `wait_agent` `working_directory` |
+
+Compared with 0.2.2-rc.1, both lists changed the same way:
+`interrupt_agent` is gone and `wait_agent` is new. No team tool appears in
+either list. The hands list was measured with 0.2.2-rc.1's pins. The
+`tool-agent-team` pin this change adds only removes a row that offered
+nothing, so a tool list measured under the rc.5 overlay itself is listed
+under Pending.
+
+### Sandbox rows and digests
+
+- The six sandbox rows (`sandbox`, `sandbox-policy`, `bash-sandbox`,
+  `pwsh-sandbox`, `permission`, `fs-sandbox`) keep their ids and package
+  names.
+- `tool-executor-ptc` is `disabled: true` by default, and
+  `tool-executor-native` is enabled, as on 0.2.2-rc.1.
+- With the hands rows the dump still has 101 rows. The hands dump's sha256
+  starts `be8e3716a26ffbf0`; the plain dump's starts `271ed858f3d14686`.
+  The hands dump was taken with 0.2.2-rc.1's pins (the ten common rows and
+  the `tool-executor-ptc` pin), the same overlay as the hands tool list
+  above, not with the rc.5 overlay's `tool-agent-team` pin; a digest under
+  the rc.5 overlay itself is listed under Pending.
+
+### Offline bindings (0.2.2-rc.5)
+
+Run by the implementing seat with
+`cargo test -p brokkr-protocol --lib --locked -- --test-threads=16
+adapters::dsh_hands`, which gave 103 passed. The new tests are in
+`dsh_hands/tests/releases.rs`:
+
+- `a_0_2_2_rc5_tree_is_admitted`: the delta tables are pinned literally,
+  and the rc.5 fixture tree has 102 rows, with `agent-team` enabled and
+  `tool-agent-team` disabled. The judge admits it.
+- `a_0_2_2_rc5_row_is_refused_under_another_release`: each rc.5 row in a
+  0.2.2-rc.1 tree is refused `Unmeasured` naming 0.2.2-rc.1, and the old
+  `deepseek-account` package in an rc.5 tree is refused naming 0.2.2-rc.5.
+- `a_0_2_2_rc5_tree_with_the_team_tool_enabled_is_refused`:
+  `Composition::Enabled { id: "tool-agent-team" }`.
+- `only_0_2_2_rc5_whole_is_the_new_release`: `Release::named` matches
+  `0.2.2-rc.5` whole. `0.2.2-rc.2`, `rc.3`, `rc.4`, `0.2.2` and
+  `0.2.2-rc.50` refuse, and the refusal's text names all four measured
+  versions.
+- `the_0_2_2_rc5_overlay_is_pinned`: the rc.5 overlay's bytes are pinned.
+  The bounded reader refuses an rc.5 overlay that lacks the team pin
+  (`Overlay::HandsRowMissing("tool-agent-team")`), and refuses the team pin
+  on 0.2.2-rc.1 (`Overlay::HandsRow("tool-agent-team")`), each matched by
+  variant.
+
 ## Pending
 
 - Exact coverage and `quality/ratchet.sh crap`: this seat's box has no
@@ -809,3 +941,9 @@ module). The gate verdict is unchanged, and the commit is not amended.
   owed to the controller).
 - A planted write through any remaining path in a read-only seat with the
   composed hands row, on 0.2.2-rc.1 as on 0.2.1.
+- On 0.2.2-rc.5: a tool list and a `--dump-config` digest measured under
+  the rc.5 overlay itself (with the `tool-agent-team` pin), which is also
+  the first live run of `agent-team` enabled beside its tool row disabled
+  and so the first thing the next measurement closes, a live
+  `mcp__brokkr__workspace` call, macOS, and the review-seat qualification
+  the operator asked for, which later units own.

@@ -7,7 +7,9 @@
 //! the release it observed: the 99 rows of 0.2.1-rc.2 and rc.3
 //! (`docs/evidence/adapters/dsh-hands-round2/dump-stdio.txt`), or
 //! 0.2.2-rc.1's 100, that set minus `tool-subagent-list-agents` and plus
-//! `tool-executor-native` and `tool-executor-ptc`
+//! `tool-executor-native` and `tool-executor-ptc`, or 0.2.2-rc.5's 102,
+//! 0.2.2-rc.1's plus `agent-team` and `tool-agent-team` with
+//! `deepseek-account` under its new package
 //! (`docs/evidence/adapters/dsh-hands-0-2-2.md`). The one
 //! `dsh-mcp-client` row must be Brokkr's `brokkr-hands`. An extra row — an
 //! operator home's own `dsh-mcp-client` insert, any `dsh-tool-*` a profile
@@ -32,7 +34,7 @@ use std::process::Command;
 
 use thiserror::Error;
 
-use super::{Mode, Release, HANDS_ID, MCP_CLIENT, SANDBOX_POLICY};
+use super::{Mode, Release, HANDS_ID, MCP_CLIENT, SANDBOX_POLICY, TEAM_TOOL_ROW};
 
 mod rows;
 
@@ -222,8 +224,8 @@ pub(crate) fn judge_mode(rows: &[Row], expected: Mode) -> Result<(), Composition
 
 /// Whether `(id, name)` is one of `release`'s measured top-level rows.
 /// 0.2.2-rc.1's set is 0.2.1's 99 minus the removed row and plus the two
-/// executor rows; the delta tables keep the 99 measured once (decision
-/// 0071 ruling 5).
+/// executor rows, and 0.2.2-rc.5's is 0.2.2-rc.1's with its own delta; the
+/// delta tables keep the 99 measured once (decision 0071 ruling 5).
 fn measured(release: Release, id: &str, name: &str) -> bool {
     match release {
         Release::V0_2_1 => MEASURED_COMPOSITION.contains(&(id, name)),
@@ -232,8 +234,28 @@ fn measured(release: Release, id: &str, name: &str) -> bool {
                 || (MEASURED_COMPOSITION.contains(&(id, name))
                     && !REMOVED_0_2_2.contains(&(id, name)))
         }
+        Release::V0_2_2Rc5 => {
+            ADDED_0_2_2_RC5.contains(&(id, name))
+                || (measured(Release::V0_2_2, id, name) && !REMOVED_0_2_2_RC5.contains(&(id, name)))
+        }
     }
 }
+
+/// The rows 0.2.2-rc.5 adds to 0.2.2-rc.1's measured set (2026-11-19): the
+/// agent-team host row and its tool row, both enabled by default, and the
+/// `deepseek-account` row under its new package name.
+pub(crate) const ADDED_0_2_2_RC5: [(&str, &str); 3] = [
+    ("agent-team", "@deepseek-ai/dsh-agent-team"),
+    (TEAM_TOOL_ROW, "@deepseek-ai/dsh-tool-agent-team"),
+    ("deepseek-account", "@deepseek-ai/dsh-deepseek-account"),
+];
+
+/// The one 0.2.2-rc.1 row 0.2.2-rc.5 no longer carries: `deepseek-account`
+/// under its old package name.
+pub(crate) const REMOVED_0_2_2_RC5: [(&str, &str); 1] = [(
+    "deepseek-account",
+    "@deepseek-ai/dsh-deepseek-account-platform",
+)];
 
 /// The rows 0.2.2-rc.1 adds to 0.2.1's measured set (2026-11-11): its
 /// native tool executor, enabled, and the programmatic tool-calling
