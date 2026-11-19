@@ -1157,21 +1157,31 @@ fn a_torn_down_fixture_takes_what_was_observed_outside_its_tree() {
     // by the teardown, gone from /proc and no zombie, and the orphan ended.
     let reaped = back.is_some() && status(root).is_none();
     let survived = !gone(orphan);
-    if back.is_none() {
+    // A teardown that never came back is felled by its group, then awaited
+    // once more within a while, so the worker reaps the root and hands the
+    // fixture back before the proof fails, leaving no zombie to the host.
+    let back = back.or_else(|| {
         group_felled(root);
-    }
+        came.recv_timeout(WHILE).ok()
+    });
     drop(back);
     assert_eq!((reaped, survived), (true, false));
 }
 
-/// The first line `out` says within [`WHILE`], read on a thread of its own,
-/// so a writer that never says one, its pipe held open, blocks no proof;
-/// none when no line came by then.
+/// The most a fixture's first line may hold: a PID and its newline fit
+/// many times over, and a writer that streams with no newline stops here.
+const LINE_CAP: u64 = 64;
+
+/// The first line `out` says within [`WHILE`] and [`LINE_CAP`] bytes, read
+/// on a thread of its own, so a writer that never says one, its pipe held
+/// open or streaming without a newline, blocks and grows no proof; none
+/// when no line came by then.
 fn first_line_within(out: impl std::io::Read + Send + 'static) -> Option<String> {
     let (said, heard) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
         let mut line = String::new();
-        let read = std::io::BufRead::read_line(&mut std::io::BufReader::new(out), &mut line);
+        let capped = std::io::Read::take(out, LINE_CAP);
+        let read = std::io::BufRead::read_line(&mut std::io::BufReader::new(capped), &mut line);
         if read.is_ok_and(|bytes| bytes > 0) {
             said.send(line).ok();
         }
