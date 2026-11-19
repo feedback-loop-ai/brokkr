@@ -249,9 +249,9 @@ fn a_handle_kept_past_its_reap_holds_no_pid_an_orphan_reuses() {
 /// on it releases its hold at once, while the box is still kept. A shell
 /// stands for bubblewrap, the launch's flags its arguments.
 #[test]
-fn a_wait_on_a_launched_boxs_launcher_releases_its_hold() {
+fn a_wait_on_the_launcher_of_a_launched_box_releases_its_hold() {
     const TEST: &str =
-        "process::reaper::tests::a_wait_on_a_launched_boxs_launcher_releases_its_hold";
+        "process::reaper::tests::a_wait_on_the_launcher_of_a_launched_box_releases_its_hold";
     if !crate::process::in_its_own_engine(TEST) {
         return;
     }
