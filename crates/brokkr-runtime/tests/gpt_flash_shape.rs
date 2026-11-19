@@ -294,7 +294,7 @@ fn assert_sol_chief_falling_back_to_astra(body: &StepBody, strategy: &str) {
         ],
         "{strategy} chief must be Sol, falling back to Astra alone"
     );
-    for (candidate, id) in candidates.iter().zip(["gpt-6.1-sol", "gpt-6-astra"]) {
+    for (candidate, id) in candidates.iter().zip(["gpt-6.2-sol", "gpt-6.2-astra"]) {
         assert!(
             candidate.argv.iter().any(|token| token == id),
             "{strategy} chief must compose {id}: {:?}",

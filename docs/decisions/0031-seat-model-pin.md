@@ -82,3 +82,15 @@ The wire protocol does not change. Its checkpoint `data` and successful
 `result` objects already admit driver-owned fields, so `model` is an
 additive payload fact under `forge-driver/v1`, not a new control-plane
 message or a reinterpretation of a frozen field.
+
+## Addendum — 2026-11-19, operator ruled: the pins follow the roster update
+
+Ruling 2's concrete ids name the roster of the day it was written. On
+2026-11-19 the operator moved the shipped roster to its latest models
+(decision 0041's and 0045's addenda of that day): Fable is
+`claude-fable-5-2`, and Sol is `gpt-6.2-sol`. The repository recipes'
+inline pins moved with it, preflight's Claude judge to
+`claude-fable-5-2` and the codex seats of standby, review-first and
+wager-harness to `gpt-6.2-sol`. Every ruling here stands: each model
+seat is still pinned to a concrete id, and the served model is still the
+evidence.

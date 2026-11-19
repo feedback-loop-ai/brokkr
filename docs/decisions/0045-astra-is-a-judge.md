@@ -330,3 +330,33 @@ codex adapter maps `sol` to `gpt-6.1-sol`, that no agent hires sol above
 `max`, and that no inline codex site in a shipped bundle pins astra's
 model or pins sol's above `high`; the witness pins move for every bundle
 that hires a moved office.
+
+## Addendum — 2026-11-19, operator ruled: the codex roster moves to its latest models
+
+The operator asked in chat that day, before 0.15.1, for the default
+model set to move to the latest GPT models. The ids are transcribed from
+codex-cli 0.170.0's own catalog (`~/.codex/models_cache.json`, fetched
+2026-11-19), as ruling 1's were. They amend ruling 1's mapping and the
+first item of the 2026-09-30 addendum:
+
+| Alias | Before | From 2026-11-19 |
+|---|---|---|
+| `sol` | `gpt-6.1-sol` | `gpt-6.2-sol` |
+| `astra` | `gpt-6-astra` | `gpt-6.2-astra` |
+| `terra` | `gpt-5.6-terra` | `gpt-6.1-terra` |
+| `luna` | `gpt-6-luna` | `gpt-6-luna`, already the latest |
+
+Every alias ruling stands. The `astra` alias stays, now mapped to
+`gpt-6.2-astra`, and stands only as a chief's last fallback at `max`.
+`judges` stay `["astra", "sol"]`, sol's cap of `high` and every chain in
+the 2026-09-30 table are unchanged. The inline codex sites that pinned
+sol's concrete id (`recipes/standby`'s two, `recipes/review-first`'s
+judge and `recipes/wager-harness`'s arm) pin `gpt-6.2-sol`, so they stay
+sol's and stay under its cap.
+
+**Enforcement binding:** `adapters/codex.json` and the codex declaration
+`brokkr init` writes (`crates/brokkr-cli/src/init/adapters.rs`);
+`roster.rs::sol_is_capped_and_astra_is_a_chiefs_last_fallback` pins
+`sol` to `gpt-6.2-sol`; `init_doctor.rs::assert_shipped_mcp_facts` holds
+every alias a scaffold declares to the shipped id; the witness pins move
+for every bundle the adapter's digest reaches.

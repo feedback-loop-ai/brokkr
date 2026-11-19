@@ -282,7 +282,7 @@ fn seat(provider: &str, class: Option<&str>, secrets: Option<Value>) -> Value {
             provider,
             "--",
             "--model",
-            "claude-fable-5-1",
+            "claude-fable-5-2",
             "--effort",
             "high"
         ]),
@@ -292,7 +292,7 @@ fn seat(provider: &str, class: Option<&str>, secrets: Option<Value>) -> Value {
             provider,
             "--",
             "--model",
-            "gpt-6.1-sol",
+            "gpt-6.2-sol",
             "--effort",
             "medium"
         ]),
@@ -2216,7 +2216,9 @@ fn the_shipped_codex_adapter_maps_the_models_its_own_cli_names() {
     // with a `codex exec` turn; the `gpt-6.0-*` spellings are refused for
     // a ChatGPT-account codex. On 2026-09-30 (codex-cli 0.159.0) `sol`
     // moved to `gpt-6.1-sol`, probed the same way; `gpt-6-1-sol` is
-    // refused. `terra` has no 6 release and stays. The
+    // refused. On 2026-11-19 the operator moved `sol`, `astra` and
+    // `terra` to `gpt-6.2-sol`, `gpt-6.2-astra` and `gpt-6.1-terra`, the
+    // latest in codex-cli 0.170.0's catalog; `luna` stays. The
     // pairs live once, in `adapters/codex.json` (#358); what holds here
     // is what each must satisfy: the id is a `gpt-` slug from codex's
     // own catalog, and the abstract names are codex's own family words —
