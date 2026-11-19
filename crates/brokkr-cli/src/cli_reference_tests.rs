@@ -415,12 +415,12 @@ fn every_selector_names_an_argument() {
 /// Every citation in `text` a code reader would make and an operator
 /// cannot use (#1170): `decision 0016`, `ruling 4`, `R5` or `#511`.
 fn citations(text: &str) -> Vec<String> {
-    // A word is a run of letters, digits and `#`, so punctuation such as
-    // `selection—decision` or `issue(#511)` cannot hide a citation. Each word
-    // keeps the gap before it: a lead and its number are parted by spaces or
-    // a hyphen alone, so `a ruling, 4` cites nothing.
+    // A word is a run of letters and digits, so punctuation such as
+    // `selection—decision` cannot hide a citation. Each word keeps the gap
+    // before it: a lead and its number are parted by spaces or a hyphen
+    // alone, so `a ruling, 4` cites nothing.
     let words: Vec<(&str, &str)> = text
-        .split(|c: char| !c.is_alphanumeric() && c != '#')
+        .split(|c: char| !c.is_alphanumeric())
         .filter(|word| !word.is_empty())
         .scan(0, |end, word| {
             let start = word.as_ptr() as usize - text.as_ptr() as usize;
@@ -446,13 +446,25 @@ fn citations(text: &str) -> Vec<String> {
     let alone = |&(_, word): &(&str, &str)| {
         let (tag, rest) = word.split_at_checked(1)?;
         number(rest)
-            .filter(|_| tag == "R" || tag == "#")
+            .filter(|_| tag == "R")
             .map(|n| format!("{tag}{n}"))
     };
+    // An issue is `#` and digits wherever the `#` stands, so `issue#511` and
+    // `owner/repo#511` cite one too; digits running on into letters, as in
+    // `#5a5a5a`, are no issue.
+    let issues = text.match_indices('#').filter_map(|(at, _)| {
+        let rest = &text[at + 1..];
+        let digits = rest
+            .find(|c: char| !c.is_ascii_digit())
+            .unwrap_or(rest.len());
+        let ends = !rest[digits..].starts_with(char::is_alphanumeric);
+        (digits > 0 && ends).then(|| format!("#{}", &rest[..digits]))
+    });
     words
         .windows(2)
         .filter_map(cites)
         .chain(words.iter().filter_map(alone))
+        .chain(issues)
         .collect()
 }
 
@@ -499,7 +511,12 @@ fn the_help_cites_no_decision_ruling_or_issue() {
         citations("selection—decision 0016/ruling 4 (see:R5) tracked in issue(#511)."),
         ["decision 0016", "ruling 4", "R5", "#511"]
     );
-    assert!(citations("a ruling, 4 Ruby lines, issue C#, C#5 and 0064's R2D2").is_empty());
+    // An issue glued to a word or a repository is still an issue.
+    assert_eq!(
+        citations("issue#511, feedback-loop-ai/brokkr#512 and brokkr#513"),
+        ["#511", "#512", "#513"]
+    );
+    assert!(citations("a ruling, 4 Ruby lines, issue C#, #5a5a5a and 0064's R2D2").is_empty());
     let cited: Vec<String> = help_texts(&Cli::command(), "")
         .into_iter()
         .filter(|text| !citations(text).is_empty())
