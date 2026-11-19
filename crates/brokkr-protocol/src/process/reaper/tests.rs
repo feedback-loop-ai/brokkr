@@ -509,9 +509,10 @@ fn orphaning(orphans: &str) -> String {
 /// While the harness runs, every orphan the driver adopted from its tree
 /// is reaped; the harness's own exit is reported as before. Each orphan
 /// writes its pid to `orphans`, and its subshell has exited before the
-/// harness writes its own: all `count` are the driver's by then. Orphans
-/// that are `living` still then are each seen among the driver's children.
-fn adopted_orphans_are_reaped(test: &str, orphans: &str, count: usize, living: bool) {
+/// harness writes its own: all `count` are the driver's by then. Each is
+/// first seen among the driver's children, running or a zombie, so no
+/// orphan the driver never adopted passes for one it reaped.
+fn adopted_orphans_are_reaped(test: &str, orphans: &str, count: usize) {
     if elsewhere(test) {
         return;
     }
@@ -521,16 +522,19 @@ fn adopted_orphans_are_reaped(test: &str, orphans: &str, count: usize, living: b
     let recorded = std::fs::read_to_string(driver.dir.path().join("orphans")).unwrap();
     let recorded: BTreeSet<i32> = recorded.lines().map(|pid| pid.parse().unwrap()).collect();
     assert_eq!(recorded.len(), count, "{recorded:?}");
-    if living {
+    let children = || {
         let rows = table::children_of(driver.pid()).unwrap();
-        let children: BTreeSet<i32> = rows.iter().map(|row| row.id.pid).collect();
-        let strays: Vec<_> = recorded.difference(&children).collect();
-        assert_eq!(
-            strays,
-            Vec::<&i32>::new(),
-            "orphans the driver did not adopt"
-        );
-    }
+        rows.iter().map(|row| row.id.pid).collect::<BTreeSet<i32>>()
+    };
+    let adopted = until(|| children().is_superset(&recorded).then_some(()));
+    let strays = || {
+        recorded
+            .difference(&children())
+            .copied()
+            .collect::<Vec<_>>()
+    };
+    let unadopted = "orphans the driver did not adopt";
+    assert_eq!(adopted, Some(()), "{unadopted}: {:?}", strays());
     let cleared = until(|| driver.adopted(harness).filter(|&(adopted, _)| adopted == 0));
     assert_eq!(
         cleared,
@@ -549,7 +553,6 @@ fn a_driver_reaps_the_orphan_its_harness_leaves_while_the_harness_runs() {
         "process::reaper::tests::a_driver_reaps_the_orphan_its_harness_leaves_while_the_harness_runs",
         "(sleep 0.2 & echo $! >> orphans)",
         1,
-        false,
     );
 }
 
@@ -562,7 +565,6 @@ fn a_driver_reaps_every_one_of_many_adopted_orphans() {
         "i=0; while [ $i -lt 200 ]; do \
          (sleep 15 </dev/null >/dev/null 2>&1 & echo $! >> orphans); i=$((i+1)); done",
         200,
-        true,
     );
 }
 
