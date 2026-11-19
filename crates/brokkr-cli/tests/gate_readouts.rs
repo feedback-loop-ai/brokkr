@@ -183,3 +183,43 @@ fn inspect_prints_no_verdict_for_a_v6_gate_and_invents_none() {
     assert!(!inspect.contains("· finding "), "{inspect}");
     assert!(!inspect.contains("· covered "), "{inspect}");
 }
+
+/// Fix round 0109a1r5, V5: a repaired run's late tail is kept and shown,
+/// never applied (decision 0108 ruling 4), and the verdict block reads
+/// through the same range as the frame. A run concluded after its review,
+/// with an engine-authored step verdict carrying a finding planted after
+/// its terminal and repaired by the shipped verb: neither the unscoped
+/// nor the phase's verdict block shows the late finding.
+#[test]
+fn a_repaired_runs_late_tail_records_no_verdict() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    let clean = json!({"result": "clean", "inputs": {}, "notes": ""});
+    plant(&db, "late", "0.14.0", clean);
+    let mut store = Store::open(&db).unwrap();
+    let stopped = json!({"reason": "concluded"});
+    (store.append_next("late", EventType::RunStopped, stopped, None, None)).unwrap();
+    let head = store.load("late").unwrap().pop().unwrap();
+    drop(store);
+    let verdict = json!({"step": "sequence-step-finished", "authored": "engine",
+                         "step_name": "judge", "model": "m",
+                         "result": {"result": "residual", "findings": [stamped(SITE, "late-one")]}});
+    let late = json!({"effect_id": "e0", "attempt_id": "a0", "checkpoint": verdict});
+    let connection = rusqlite::Connection::open(&db).unwrap();
+    let planted = [(EventType::EffectCheckpointed, late)];
+    brokkr_store::test_support::plant_chained(&connection, "late", &head, &planted).unwrap();
+    drop(connection);
+    let db = db.to_str().unwrap();
+    let repair = [
+        "operator", "repair", "--run", "late", "--reason", "evidence", "--db", db,
+    ];
+    let (said, err, ok) = brokkr(dir.path(), &repair);
+    assert!(ok, "{said}{err}");
+    for scope in [&[][..], &["--phase", "review"][..]] {
+        let args = [&["inspect", "--run", "late", "--db", db][..], scope].concat();
+        let (inspect, err, ok) = brokkr(dir.path(), &args);
+        assert!(ok, "{inspect}{err}");
+        assert!(!inspect.contains("late-one"), "{scope:?}: {inspect}");
+        assert!(!inspect.contains("\nverdicts\n"), "{scope:?}: {inspect}");
+    }
+}

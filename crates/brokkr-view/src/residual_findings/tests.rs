@@ -63,7 +63,7 @@ fn a_v7_gate_reads_back_its_findings_and_covered_and_a_v6_one_reads_nothing() {
                           "covered": {"kind": "head", "dirty": true}}),
         ),
     ]);
-    let records = gate_records(&events);
+    let records = gate_records(&events, None);
     let one = GateFinding {
         site: SITE.into(),
         id: "one".into(),
@@ -109,7 +109,7 @@ fn a_v7_gate_reads_back_its_findings_and_covered_and_a_v6_one_reads_nothing() {
         ]
     );
     assert!(
-        gate_records(&events[..2]).is_empty(),
+        gate_records(&events[..2], None).is_empty(),
         "a v6-shaped result records nothing"
     );
 }
@@ -138,7 +138,7 @@ fn a_finding_names_the_panel_member_the_engines_marker_gives_its_site() {
     events.insert(1, checkpointed(3, marker));
     let driver = json!({"step": "panel-member-finished", "member": "b", "site_ref": other});
     events.insert(1, checkpointed(4, driver));
-    let records = gate_records(&events);
+    let records = gate_records(&events, None);
     let named: Vec<&str> = (records[0].findings.iter())
         .map(|finding| finding.participant.as_str())
         .collect();
@@ -156,11 +156,11 @@ fn a_step_verdict_reads_by_the_engines_authorship_never_by_its_word() {
     let worded = json!({"step": "sequence-step-finished", "step_name": "judge",
                         "result": result});
     events.insert(1, checkpointed(3, worded.clone()));
-    assert_eq!(gate_records(&events), []);
+    assert_eq!(gate_records(&events, None), []);
     let mut authored = worded;
     authored["authored"] = json!("engine");
     events.insert(1, checkpointed(4, authored));
-    let keys: Vec<String> = (gate_records(&events).into_iter())
+    let keys: Vec<String> = (gate_records(&events, None).into_iter())
         .map(|record| record.key)
         .collect();
     assert_eq!(keys, ["e0:judge"]);

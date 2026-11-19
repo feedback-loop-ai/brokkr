@@ -57,7 +57,7 @@ fn a_work_drivers_live_step_marker_is_refused_and_inspect_shows_no_verdict() {
         );
     }
     assert!(!journaled_steps(&events).contains(&&json!("sequence-step-finished")));
-    assert_eq!(gate_records(&events), []);
+    assert_eq!(gate_records(&events, None), []);
 }
 
 #[test]
@@ -84,7 +84,7 @@ fn a_live_checkpoints_nested_result_passes_the_standalone_admission() {
             assert!(error.starts_with(want), "{error}");
         }
         assert!(!journaled_steps(&events).contains(&&json!("seat-turn")));
-        assert_eq!(gate_records(&events), []);
+        assert_eq!(gate_records(&events, None), []);
     }
 }
 
@@ -122,5 +122,5 @@ fn a_gate_drivers_live_finding_is_refused_and_no_keyed_finding_is_journaled() {
     assert!(!journaled_steps(&events).contains(&&json!("seat-turn")));
     let keyed: usize = events.iter().map(|event| keyed(&event.payload)).sum();
     assert_eq!(keyed, 0);
-    assert_eq!(gate_records(&events), []);
+    assert_eq!(gate_records(&events, None), []);
 }

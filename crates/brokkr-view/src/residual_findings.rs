@@ -62,10 +62,15 @@ pub struct GateRecord {
 /// neither, records nothing and is not shown; a covered record that does
 /// not read is not shown either, so no head is invented (decision 0109
 /// ruling 6), and findings that do not read are said not to read, never
-/// shown as none.
-pub fn gate_records(events: &[EventEnvelope]) -> Vec<GateRecord> {
-    let effects: BTreeMap<&str, (&str, &str)> = events
-        .iter()
+/// shown as none. Read with `state`, the run's fold, so a repaired run's
+/// late tail records no verdict, through the same `RunState::applies`
+/// range the frame and [`residual_findings_at`] read (decision 0108
+/// ruling 4, fix round 0109a1r5, V5). A caller with no fold passes `None`.
+pub fn gate_records(events: &[EventEnvelope], state: Option<&RunState>) -> Vec<GateRecord> {
+    let kept = |event: &&EventEnvelope| state.is_none_or(|state| state.applies(event.seq));
+    let events: Vec<&EventEnvelope> = events.iter().filter(kept).collect();
+    let events = events.as_slice();
+    let effects: BTreeMap<&str, (&str, &str)> = (events.iter().copied())
         .filter(|event| event.event_type == EventType::EffectRequested)
         .map(|event| {
             (
@@ -79,7 +84,7 @@ pub fn gate_records(events: &[EventEnvelope]) -> Vec<GateRecord> {
         members: site_members(events),
     };
     let (ended, settled) = (ending_steps(events), settled_marks(events));
-    (events.iter())
+    (events.iter().copied())
         .filter(|event| !read_at_its_success(event, &ended))
         .flat_map(|event| verdicts_of(event, &settled))
         .filter_map(|verdict| reading.record(&verdict))
@@ -214,8 +219,8 @@ fn verdicts_of<'a>(event: &'a EventEnvelope, settled: &BTreeSet<StepOf<'_>>) -> 
 /// on that member's settled payload. A released engine's marker carries
 /// no `authored`, which v6's closed checkpoint refuses and the live sink
 /// refuses from a driver, so none of its rows is marked.
-fn settled_marks(events: &[EventEnvelope]) -> BTreeSet<StepOf<'_>> {
-    (events.iter())
+fn settled_marks<'a>(events: &[&'a EventEnvelope]) -> BTreeSet<StepOf<'a>> {
+    (events.iter().copied())
         .filter(|event| event.event_type == EventType::EffectCheckpointed)
         .filter_map(|event| {
             let checkpoint = &event.payload["checkpoint"];
@@ -231,8 +236,8 @@ fn settled_marks(events: &[EventEnvelope]) -> BTreeSet<StepOf<'_>> {
 /// produced it. A gate step that ends its sequence journals its own step
 /// record before that success (fix round 0109a1r5, V1), carrying the same
 /// verdict, so the success is read and the record is not read twice.
-fn ending_steps(events: &[EventEnvelope]) -> BTreeSet<StepOf<'_>> {
-    (events.iter())
+fn ending_steps<'a>(events: &[&'a EventEnvelope]) -> BTreeSet<StepOf<'a>> {
+    (events.iter().copied())
         .filter(|event| event.event_type == EventType::EffectSucceeded)
         .filter_map(|event| Some(step_of(event, event.payload["step"].as_str()?)))
         .collect()
@@ -257,9 +262,8 @@ fn read_at_its_success(event: &EventEnvelope, ended: &BTreeSet<StepOf<'_>>) -> b
 /// `panel-member-finished` marker names it: the member's site beside its
 /// name, whether or not the member journaled a checkpoint, and never a
 /// driver's record.
-fn site_members(events: &[EventEnvelope]) -> BTreeMap<(&str, String), &str> {
-    events
-        .iter()
+fn site_members<'a>(events: &[&'a EventEnvelope]) -> BTreeMap<(&'a str, String), &'a str> {
+    (events.iter().copied())
         .filter(|event| event.event_type == EventType::EffectCheckpointed)
         .filter_map(|event| {
             let checkpoint = &event.payload["checkpoint"];

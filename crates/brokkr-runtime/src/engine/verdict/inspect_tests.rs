@@ -89,7 +89,7 @@ fn every_gate_verdict_the_journal_records_reads_back_under_its_own_seat() {
     // Each record is filed under the step that produced it, the final
     // chief's success included, which names its step (fix round
     // 0109a1r4, K6).
-    let records = gate_records(&events);
+    let records = gate_records(&events, None);
     let keys: Vec<&str> = records.iter().map(|record| record.key.as_str()).collect();
     let review = keys[0].split(':').next().unwrap();
     assert_eq!(
@@ -129,7 +129,7 @@ fn producers(events: &[EventEnvelope], scope: Scope) -> Vec<(String, String)> {
     let state = brokkr_core::fold::fold(events).unwrap();
     let view = brokkr_view::run_view(events, Some(&state));
     let lens = lens_for(&view, Some(&scope)).unwrap();
-    gate_records(events)
+    gate_records(events, Some(&state))
         .iter()
         .filter_map(|record| record.kept_by(lens.as_ref()))
         .flat_map(|record: GateRecord| record.findings)
@@ -282,7 +282,7 @@ fn a_released_engines_settled_member_payload_is_no_verdict() {
     }
     let exported = store.export_ndjson(run).unwrap();
     assert!(brokkr_store::verify_export(&exported).is_ok());
-    let records = gate_records(&store.load(run).unwrap());
+    let records = gate_records(&store.load(run).unwrap(), None);
     assert_eq!(records.len(), 1, "{records:?}");
     assert_eq!(records[0].findings, []);
     assert_eq!(records[0].covered, None);

@@ -111,13 +111,13 @@ fn run_view_of(
     shows: Shows,
     now: &str,
     read: Reads<'_>,
-) -> Result<(brokkr_view::RunView, Store, String)> {
+) -> Result<(brokkr_view::RunView, Store, String, brokkr_core::RunState)> {
     let db = journal_of(workspace, realms, db)?;
     let store = open_journal(&db, Access::Read)?;
     let run = selector::resolve_run(&store, run)?;
     let read = read(&store, &run, shows, now)?;
-    read.folded?;
-    Ok((read.view, store, run))
+    let state = read.folded?;
+    Ok((read.view, store, run, state))
 }
 
 /// `inspect --json`'s bytes, which `seats --json` prints too: the view as
@@ -157,7 +157,7 @@ fn inspect_with(
 ) -> Result<ExitCode> {
     let whole = json || capability_call.is_some();
     let now = crate::now_rfc3339();
-    let (view, store, run) =
+    let (view, store, run, state) =
         run_view_of(workspace, realms, db, &run, Shows::of(whole), &now, read)?;
     if let Some(call_id) = capability_call {
         let repo = repo.as_deref().unwrap_or(workspace);
@@ -178,8 +178,10 @@ fn inspect_with(
     // The verdicts block reads every gate verdict the journal records, a
     // sequence step's checkpoint and a panel member's marker among them,
     // each under its own seat, so it reads the journal whole while the
-    // frame keeps its own read (fix round 0109a1r3, M3).
-    let gates = brokkr_view::gate_records(&store.load(&run)?);
+    // frame keeps its own read (fix round 0109a1r3, M3), through the
+    // run's fold, so a repaired run's late tail records no verdict, as the
+    // frame shows none (fix round 0109a1r5, V5).
+    let gates = brokkr_view::gate_records(&store.load(&run)?, Some(&state));
     let gates: Vec<_> = (gates.iter())
         .filter_map(|record| record.kept_by(lens.as_ref()))
         .collect();
