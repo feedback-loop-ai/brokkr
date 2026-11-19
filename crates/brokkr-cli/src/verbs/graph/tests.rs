@@ -8,7 +8,7 @@ use clap::Parser;
 use serde_json::{json, Value};
 
 use super::*;
-use crate::verbs::analytics::CrossRunCmd;
+use crate::verbs::analytics::{shown, CrossRunCmd};
 use crate::{Cli, Cmd, Exit};
 
 /// The repository root: its `recipes/` holds `self`, which composes
@@ -298,23 +298,28 @@ fn a_composed_recipe_is_drawn_from_its_table_with_its_traffic_and_drift() {
         serde_json::to_value(&view).unwrap()["view_version"],
         json!(2)
     );
-    let painted = paint(&view);
+    let painted = paint(&view, &Style::plain(1000));
     let lines: Vec<&str> = painted.lines().collect();
     assert_eq!(
         lines[0],
         format!("world / self · {} → {now} · 2 runs", view.from)
     );
-    assert_eq!(lines.len(), 1 + view.states.len() + view.rules.len() + 4);
-    let intake = format!(
-        "state  {} · entered 2 · median 0m · p90 0m · not reported · —",
-        first.from
+    // The header, two tables of a header row each a blank line apart, and
+    // the four lines under them.
+    assert_eq!(
+        lines.len(),
+        1 + 1 + view.states.len() + 1 + 1 + view.rules.len() + 4
     );
-    assert!(lines.contains(&intake.as_str()), "{painted}");
-    let rule = format!(
-        "rule   {} · 2 · {} → {next} · forward",
-        first.id, first.from
-    );
-    assert!(lines.contains(&rule.as_str()), "{painted}");
+    assert_eq!(lines[2 + view.states.len()], "", "{painted}");
+    let words = |line: &str| {
+        line.split_whitespace()
+            .map(String::from)
+            .collect::<Vec<_>>()
+    };
+    let intake = [&first.from, "2", "0m", "0m", "not", "reported", "—", "—"];
+    assert!(lines.iter().any(|line| words(line) == intake), "{painted}");
+    let rule = [&first.id, "2", &first.from, next, "forward"];
+    assert!(lines.iter().any(|line| words(line) == rule), "{painted}");
     assert_eq!(
         &lines[lines.len() - 4..],
         [
@@ -335,13 +340,14 @@ fn a_recipe_only_runs_carry_is_drawn_from_them_and_its_live_run_named() {
     journal.run("live", &gone, &[entered("work")]);
     let now = now_rfc3339();
     let view = derive(&hearth(dir.path()), &unshelved(), &[], &asked("gone", &now)).unwrap();
-    let painted = paint(&view);
+    let painted = paint(&view, &Style::plain(80));
     assert_eq!(
         painted,
         format!(
             "world / gone · {} → {now} · 1 runs\n\
              this recipe's table was not found in world\n\
-             state  work · entered 1 · median — · p90 — · not reported · —\n\
+             STATE  ENTERED  MEDIAN  P90          COST  TOKENS  CACHE\n\
+             work         1       —    —  not reported       —      —\n\
              ends   0 done · 0 stop by a rule · 0 stopped by you · 1 open\n\
              ledger 0 of 0 shipped (—) · 0 excluded · 0 unclassified\n\
              live   Draw the graph · work\n",
@@ -421,7 +427,7 @@ fn a_recipe_that_does_not_compile_is_drawn_with_its_refusal_and_named_among_the_
     );
     assert_eq!((view.runs, view.states.len()), (0, 0));
     assert_eq!(
-        paint(&view),
+        paint(&view, &Style::plain(80)),
         format!(
             "world / starter · {} → {now} · 0 runs\n{text}\n  {reason}\n  bundle .brokkr\n\
              ends   0 done · 0 stop by a rule · 0 stopped by you · 0 open\n\
@@ -593,5 +599,123 @@ fn with_no_recipe_named_the_busiest_is_drawn_else_the_first_known() {
     assert_eq!(
         none.to_string(),
         "no recipe in brokkr: none is installed and no run in the range names one"
+    );
+}
+
+/// The graph of `gone`, a recipe only its runs carry: one run worked and
+/// parked in review by `parked`, another still at work.
+fn drawn(parked: &str) -> GraphView {
+    let dir = tempfile::tempdir().unwrap();
+    let mut journal = Journal::at(dir.path());
+    let gone = json!({"bundle_name": "gone"});
+    let mut worked = vec![entered("work")];
+    worked.extend(seat("work", "resolved"));
+    worked.extend([ruled("WORK-OK", "work", Some("review")), entered("review")]);
+    worked.extend(seat("review", "resolved"));
+    worked.push(ruled(parked, "review", None));
+    journal.run("worked", &gone, &worked);
+    journal.run("live", &gone, &[entered("work")]);
+    let now = now_rfc3339();
+    derive(&hearth(dir.path()), &unshelved(), &[], &asked("gone", &now)).unwrap()
+}
+
+#[test]
+fn the_states_and_rules_are_painted_as_two_aligned_tables() {
+    let mut view = drawn("REVIEW-PARK");
+    // The first state as a reported one reads: its cost and tokens.
+    let work = &mut view.states[0];
+    work.entered = 33;
+    work.cost.text = "$325.28".into();
+    let tokens = &mut work.tokens;
+    for (cell, text) in [
+        (&mut tokens.total, "1363.30M tok"),
+        (&mut tokens.input, "1359.93M"),
+        (&mut tokens.output, "3.38M"),
+        (&mut tokens.cache_hit, "99.0%"),
+    ] {
+        (cell.text, cell.absent) = (text.into(), false);
+    }
+    assert_eq!(
+        paint(&view, &Style::plain(200)),
+        format!(
+            "world / gone · {} → {} · 2 runs\n\
+             this recipe's table was not found in world\n\
+             STATE   ENTERED  MEDIAN  P90          COST                             TOKENS  CACHE\n\
+             work         33      0m   0m       $325.28  Σ 1363.30M tok ↑ 1359.93M ↓ 3.38M  99.0%\n\
+             review        1       —    —  not reported                                  —      —\n\
+             \n\
+             RULE         COUNT  FROM    TO      KIND\n\
+             WORK-OK          1  work    review  forward\n\
+             REVIEW-PARK      1  review  park    self\n\
+             ends   0 done · 0 stop by a rule · 0 stopped by you · 2 open\n\
+             ledger 0 of 0 shipped (—) · 0 excluded · 0 unclassified\n\
+             live   Draw the graph · work\n\
+             live   Draw the graph · review\n",
+            view.from, view.to
+        )
+    );
+}
+
+#[test]
+fn a_narrow_terminal_clamps_the_name_column_and_keeps_the_numbers_whole() {
+    let mut view = drawn("REVIEW-PARKS-THE-RUN-FOR-THE-OPERATOR");
+    view.states[1].name = "review-with-a-long-name".into();
+    // 40 columns: each table gives its overflow up from its name alone.
+    let painted = paint(&view, &Style::plain(40));
+    let tables: Vec<&str> = painted
+        .lines()
+        .skip(2)
+        .take_while(|line| !line.starts_with("ends"))
+        .collect();
+    assert_eq!(
+        tables,
+        [
+            "STATE  ENTERED  MEDIAN  P90          COST  TOKENS  CACHE",
+            "work         2      0m   0m  not reported       —      —",
+            "revi…        1       —    —  not reported       —      —",
+            "",
+            "RULE      COUNT  FROM    TO      KIND",
+            "WORK-OK       1  work    review  forward",
+            "REVIEW-…      1  review  park    self",
+        ]
+    );
+}
+
+#[test]
+fn json_prints_the_view_model_verbatim_and_never_the_tables() {
+    let view = drawn("REVIEW-PARK");
+    let painted = |view: &GraphView| paint(view, &Style::plain(80));
+    let verbatim = format!("{}\n", serde_json::to_string_pretty(&view).unwrap());
+    assert_eq!(shown(&view, true, painted).unwrap(), verbatim);
+    assert_eq!(shown(&view, false, painted).unwrap(), painted(&view));
+}
+
+#[test]
+fn no_color_paints_no_escape_byte_and_colour_bolds_only_the_header_rows() {
+    // A journal-authored rule id that would clear the operator's screen.
+    let view = drawn("PARK\x1b[2J");
+    let plain = paint(&view, &Style::plain(80));
+    assert!(!plain.contains('\x1b'), "{plain:?}");
+    assert!(
+        plain.contains("\nPARK[2J      1  review  park    self\n"),
+        "{plain:?}"
+    );
+    let coloured = paint(
+        &view,
+        &Style {
+            color: true,
+            width: 80,
+        },
+    );
+    let escaped: Vec<&str> = coloured
+        .lines()
+        .filter(|line| line.contains('\x1b'))
+        .collect();
+    assert_eq!(
+        escaped,
+        [
+            "\x1b[1mSTATE   ENTERED  MEDIAN  P90          COST  TOKENS  CACHE\x1b[0m",
+            "\x1b[1mRULE     COUNT  FROM    TO      KIND\x1b[0m",
+        ]
     );
 }

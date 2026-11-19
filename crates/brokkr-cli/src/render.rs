@@ -34,6 +34,7 @@ use brokkr_view::{
 
 pub(crate) mod ending;
 mod inspect;
+pub(crate) mod table;
 
 const RESET: &str = "\x1b[0m";
 const DIM: &str = "\x1b[2m";
@@ -458,15 +459,7 @@ fn seats_block(view: &RunView, lens: Option<&Lens>, style: &Style) -> String {
             Safe::new(&part.activity.text),
         ]);
     }
-    let mut widths = [0usize; 9];
-    for (index, name) in header.iter().enumerate() {
-        widths[index] = name.chars().count();
-    }
-    for row in &rows {
-        for (index, width) in widths.iter_mut().enumerate() {
-            *width = (*width).max(row[index].width());
-        }
-    }
+    let widths = table::widths(&header, &rows);
     let used = widths.iter().sum::<usize>() + widths.len() + 2;
     let remaining = style.width.saturating_sub(used);
     let mut out = String::from("seats\n");
