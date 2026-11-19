@@ -16,7 +16,8 @@
 //! rule taken between states that are not neighbours, a count the width
 //! leaves no room for, and a park.
 
-use std::collections::BTreeSet;
+use std::cmp::Ordering;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ops::Range;
 
 use brokkr_view::{GraphView, ModelAtBoundary, Place, RuleKind};
@@ -64,11 +65,13 @@ fn unserved() -> ModelAtBoundary {
     }
 }
 
-/// States of the view in their order, and the fold that puts them on
-/// rails.
+/// States of the view in their order, the fold that puts them on rails,
+/// and the arc row each taken back link the fold cut rides on every rail
+/// it spans ([`Folded::lanes`]).
 struct Folded<'r> {
     states: &'r [usize],
     rails: Vec<Range<usize>>,
+    lanes: BTreeMap<usize, usize>,
 }
 
 impl Folded<'_> {
@@ -87,6 +90,42 @@ impl Folded<'_> {
                 .count();
             (rail, at - self.rails[rail].start)
         })
+    }
+
+    /// The lane of each taken back link of `view` whose states the fold
+    /// put on two rails: the narrowest first, each on the shallowest lane
+    /// no link already dealt holds on a rail they share. Its pieces ride
+    /// that one row on every rail between its ends, so the `›` a link
+    /// leaves one rail by is the `‹` it enters the next by, on the same
+    /// row, and two links cut by one fold are never read as each other
+    /// (review 3's F2).
+    fn lanes(&mut self, view: &GraphView) {
+        let mut cut: Vec<(usize, (usize, usize), usize)> = Vec::new();
+        for (link, road) in view.links.iter().enumerate() {
+            let (Some(to), Some(from)) = (self.spot(view, &road.next), self.spot(view, &road.from))
+            else {
+                continue;
+            };
+            let at = |(rail, place): (usize, usize)| self.rails[rail].start + place;
+            let back = match road.kind {
+                RuleKind::Back => road.count > 0,
+                RuleKind::Forward | RuleKind::SelfLoop | RuleKind::Terminal => false,
+            };
+            if back && to.0 < from.0 {
+                cut.push((at(from) - at(to), (to.0, from.0), link));
+            }
+        }
+        cut.sort_unstable();
+        let mut dealt: Vec<((usize, usize), usize)> = Vec::new();
+        for (_, span, link) in cut {
+            let shares =
+                |(other, _): &&((usize, usize), usize)| span.0 <= other.1 && other.0 <= span.1;
+            let held: BTreeSet<usize> =
+                dealt.iter().filter(shares).map(|(_, lane)| *lane).collect();
+            let lane = (0..).find(|lane| !held.contains(lane)).unwrap_or(0);
+            self.lanes.insert(link, lane);
+            dealt.push((span, lane));
+        }
     }
 }
 
@@ -202,10 +241,8 @@ impl Drawing<'_> {
 
     /// The arcs rail `index` of `row` draws, each with what it carries:
     /// the taken back links ([`Drawing::back`]) and the roads down
-    /// ([`Drawing::down`]). The links landing furthest right come first,
-    /// so of two arcs of one width (two halves leaving one state for an
-    /// earlier rail) [`nest`] deals the shallower row to the one whose
-    /// landing half rides shallower too.
+    /// ([`Drawing::down`]), the links landing furthest right first: the
+    /// order [`nest`] keeps among arcs of one width.
     fn arcs(&self, row: &Folded, index: usize, plan: &Plan) -> Vec<(Arc, Carried)> {
         let mut links: Vec<usize> = (0..self.view.links.len()).collect();
         links.sort_by_key(|at| std::cmp::Reverse(row.spot(self.view, &self.view.links[*at].next)));
@@ -224,26 +261,31 @@ impl Drawing<'_> {
     }
 
     /// A taken back link as rail `index` draws it: whole when both its
-    /// states stand on this rail, its landing half (out to `›`) or its
-    /// departing half (in from `‹`) when the fold put the other on
-    /// another rail, and nothing when neither is here or it does not run
-    /// leftward along the row.
+    /// states stand on this rail; when the fold put them on two, its
+    /// landing half (out to `›`), its departing half (in from `‹`), or
+    /// its passage under a rail between them (`‹` to `›`), each on the
+    /// link's one lane ([`Folded::lanes`]); and nothing when the rail is
+    /// not within its span or it does not run leftward along the row.
     fn back(&self, row: &Folded, index: usize, link: usize, plan: &Plan) -> Option<(Arc, Carried)> {
         let road = &self.view.links[link];
         let to = row.spot(self.view, &road.next)?;
         let from = row.spot(self.view, &road.from).filter(|from| to < *from)?;
         let centre = |(_, at): (usize, usize)| centre_of(&plan.segments[at]);
-        let half = |to, from, reach| Arc {
+        let level = row.lanes.get(&link).copied().unwrap_or(0);
+        let cut = |to, from, reach| Arc {
             to,
             from,
-            level: 0,
+            level,
             reach,
         };
-        let arc = match (to.0 == index, from.0 == index) {
-            (true, true) => Arc::whole(centre(to), centre(from)),
-            (true, false) => half(centre(to), self.width - 1, Reach::FromLater),
-            (false, true) => half(0, centre(from), Reach::ToEarlier),
-            (false, false) => return None,
+        let edge = self.width - 1;
+        let arc = match (to.0.cmp(&index), from.0.cmp(&index)) {
+            (Ordering::Equal, Ordering::Equal) => Arc::whole(centre(to), centre(from)),
+            (Ordering::Equal, Ordering::Greater) => cut(centre(to), edge, Reach::FromLater),
+            (Ordering::Less, Ordering::Equal) => cut(0, centre(from), Reach::ToEarlier),
+            (Ordering::Less, Ordering::Greater) => cut(0, edge, Reach::Through),
+            (Ordering::Less | Ordering::Equal | Ordering::Greater, Ordering::Less)
+            | (Ordering::Greater, Ordering::Equal | Ordering::Greater) => return None,
         };
         Some((arc, Carried::Back(link)))
     }
@@ -448,10 +490,13 @@ impl Drawing<'_> {
     /// `states` folded into rails at the drawing's width.
     fn fold<'r>(&self, states: &'r [usize]) -> Folded<'r> {
         let phases: Vec<Phase> = states.iter().map(|at| self.phase_of(*at)).collect();
-        Folded {
+        let mut folded = Folded {
             states,
             rails: folds(&phases, self.width),
-        }
+            lanes: BTreeMap::new(),
+        };
+        folded.lanes(self.view);
+        folded
     }
 
     /// A rule taken that no rail drew, in the rail's own glyphs: a back

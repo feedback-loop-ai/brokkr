@@ -177,6 +177,7 @@ pub(super) fn arc(cells: &mut Cells, arc: &Arc, row: usize) {
         Reach::Whole => ("╰", "╯", true),
         Reach::FromLater => ("╰", "›", true),
         Reach::ToEarlier => ("‹", "╯", false),
+        Reach::Through => ("‹", "›", false),
         Reach::Down => ("╰", "─", false),
     };
     put(cells, arc.to, at, left, plain());

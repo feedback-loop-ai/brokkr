@@ -68,6 +68,17 @@ impl Arc {
             Reach::Whole => vec![self.to, self.from],
             Reach::FromLater | Reach::Down => vec![self.to],
             Reach::ToEarlier => vec![self.from],
+            Reach::Through => Vec::new(),
+        }
+    }
+
+    /// True for a piece of an arc a fold cut: its row is its caller's,
+    /// who holds it on one lane on every rail the arc spans, so a reader
+    /// follows it from `›` to the `‹` on the same row of the next rail.
+    fn cut(&self) -> bool {
+        match self.reach {
+            Reach::FromLater | Reach::ToEarlier | Reach::Through => true,
+            Reach::Whole | Reach::Down => false,
         }
     }
 }
@@ -84,6 +95,10 @@ pub(super) enum Reach {
     /// It leaves at `from` for an earlier rail of the fold, past the left
     /// edge at `to`: `‹──╯`.
     ToEarlier,
+    /// It passes under this rail between an earlier rail and a later
+    /// one, from the left edge at `to` to the right edge at `from`:
+    /// `‹──›`.
+    Through,
     /// A road down from the node over `to` to a terminal beneath the row,
     /// running right to `from`, where its caller writes the terminal:
     /// `╰──`.
@@ -97,10 +112,11 @@ pub(super) enum Reach {
 /// above it to the arc row ([`Arc::stems`]). The roads down
 /// ([`Reach::Down`]) ride under every road back, the rightmost first, so
 /// no end rising from a deeper row passes through a road down's text.
-/// The rows are added under the plan's; a plan with arcs and no arc row
-/// (one whose own phases recorded no return) gains one. A plan whose arcs
-/// share no column keeps them all on its one arc row, as [`plan`] laid
-/// them.
+/// The pieces of an arc a fold cut keep the level their caller gave them
+/// ([`Arc::cut`]), and are dealt before the rest. The rows are added
+/// under the plan's; a plan with arcs and no arc row (one whose own
+/// phases recorded no return) gains one. A plan whose arcs share no
+/// column keeps them all on its one arc row, as [`plan`] laid them.
 pub(super) fn nest(plan: &mut Plan) {
     if plan.arcs.is_empty() {
         return;
@@ -108,14 +124,14 @@ pub(super) fn nest(plan: &mut Plan) {
     let row = *plan.arc_row.get_or_insert(plan.rows);
     let down = |arc: &Arc| match arc.reach {
         Reach::Down => Some(usize::MAX - arc.to),
-        Reach::Whole | Reach::FromLater | Reach::ToEarlier => None,
+        Reach::Whole | Reach::FromLater | Reach::ToEarlier | Reach::Through => None,
     };
-    let mut order: Vec<usize> = (0..plan.arcs.len()).collect();
+    let (mut dealt, mut order): (Vec<usize>, Vec<usize>) =
+        (0..plan.arcs.len()).partition(|at| plan.arcs[*at].cut());
     order.sort_by_key(|at| {
         let arc = &plan.arcs[*at];
         (down(arc), arc.from - arc.to)
     });
-    let mut dealt: Vec<usize> = Vec::new();
     let mut floor: Option<usize> = None;
     for at in order {
         let arcs = &plan.arcs;

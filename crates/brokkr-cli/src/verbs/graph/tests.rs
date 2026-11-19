@@ -974,6 +974,38 @@ fn two_return_arcs_that_cross_ride_two_rows_one_passing_through_the_other() {
 }
 
 #[test]
+fn arcs_a_fold_cuts_keep_one_row_each_across_it_so_nested_and_crossed_read_apart() {
+    let dir = tempfile::tempdir().unwrap();
+    let (nested, crossed) = (dir.path().join("nested"), dir.path().join("crossed"));
+    // At 30 columns a and b stand on the first rail, c and d on the next:
+    // c ᐸ b and d ᐸ a nest across the fold, a ᐸ c and b ᐸ d cross it.
+    let nested = drawn(&sent_back(&nested, "b", "a"), 30);
+    let crossed = drawn(&sent_back(&crossed, "a", "b"), 30);
+    assert_ne!(nested, crossed);
+    // Each link lands on the first rail on the row its departing half
+    // rides on the next: the rows under the names pair the states it joins.
+    for (drawing, pairs) in [
+        (&nested, [('a', 'd'), ('b', 'c')]),
+        (&crossed, [('a', 'c'), ('b', 'd')]),
+    ] {
+        let lines: Vec<&str> = drawing.lines().collect();
+        let row = |name: char, corner: char| {
+            let named = |line: &&str| line.split_whitespace().any(|word| word == name.to_string());
+            let names = lines.iter().position(named).unwrap();
+            let column = lines[names].chars().position(|glyph| glyph == name);
+            (1..lines.len() - names)
+                .find(|below| lines[names + below].chars().nth(column.unwrap()) == Some(corner))
+        };
+        for (to, from) in pairs {
+            assert_eq!(row(to, '╰'), row(from, '╯'), "{to} ᐸ {from}\n{drawing}");
+            assert!(row(to, '╰').is_some(), "{drawing}");
+        }
+    }
+    insta::assert_snapshot!("graph_nested_30", nested);
+    insta::assert_snapshot!("graph_crossed_30", crossed);
+}
+
+#[test]
 fn a_range_with_no_runs_draws_the_table_with_no_traffic() {
     let dir = tempfile::tempdir().unwrap();
     Journal::at(dir.path());
