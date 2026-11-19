@@ -45,7 +45,9 @@ Alternatives weighed:
    read (0071 ruling 5). It returns the engine's own `VOLTA_HOME`
    verbatim when set; else the operator's `~/.volta`, only when the
    operator's home is absolute and the inherited `PATH` lists that home's
-   `bin` exactly; else nothing.
+   `bin` exactly; else nothing. The unboxed dispatch carries it as the
+   engine's UTF-8 environment holds it, the probe's launches as the OS
+   holds it (see Consequences).
 
    **Enforcement binding:** `hands::environment::tests::a_private_home_is_told_the_volta_home_a_shim_on_path_reads`,
    `hands::environment::tests::the_unboxed_dispatch_names_the_volta_home_its_path_reaches`
@@ -78,5 +80,5 @@ Alternatives weighed:
 - The unboxed dispatch composes from the engine's environment as UTF-8
   strings (`engine/seat_tree.rs` collects `std::env::vars()`, which
   panics on a non-UTF-8 entry), so a non-UTF-8 `PATH` or `VOLTA_HOME`
-  never reaches the resolver there; the probe hands OS strings. That
+  panics the engine before the resolver runs there; the probe hands OS strings. That
   limit predates this decision and is a follow-up of its own.
