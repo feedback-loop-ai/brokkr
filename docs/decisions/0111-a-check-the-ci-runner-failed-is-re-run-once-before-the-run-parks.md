@@ -1698,9 +1698,11 @@ run must have ruled `shipped` (`scripts/delivered-by-brokkr.sh:189-204`), which 
 ship produces (decision 0051 ruling 2). At entry it fails on every first landing without the
 label, and would send a sound change to `implement`. **Recommended: (a) the entry set excludes
 every required check whose evidence is this landing's own output.** The recipe data says which:
-a `required_checks` entry may carry `"after": "ship"`, a closed one-word field, and the gate
-neither observes nor counts such an entry; the forge's required-set comparison counts it as
-declared. The rule for the recipe data: an entry whose producer reads anything this run's ship
+a `required_checks` entry may carry `"after": "ship"`, a closed one-word field. **An after-ship
+check is in the observed inventory and excluded from entry classification**, stated here once:
+the observer lists it with every other check, unfiltered, and the sealed observation holds it;
+no failure predicate, closure, revision check or completeness test reads it; and the forge's
+required-set comparison counts it as declared. The rule for the recipe data: an entry whose producer reads anything this run's ship
 seat writes (its anchor, its journal, its ledger) carries `"after": "ship"`. For the house that
 is `delivered by brokkr`, and only it. The forge's requirement stays at merge, unchanged. The
 declaration is the operator's: the compile cannot see what a check reads, and an entry left
@@ -1994,8 +1996,10 @@ non-`change` class.
 - A CI gate on a head the run itself made, before review in `fast` or `verify`: a follow-up
   that needs a publish-and-resume handoff (ruling 6).
 - Commit statuses as required evidence: a follow-up that needs a revision attestation (ruling 3).
-- This house's own typed parking: deferred until `scripts/test-shards.sh`'s dispatch is
-  written so the closure resolves, a follow-up issue under #1094 (ruling 3).
+- This house's own typed parking: deferred to ruling 3's one follow-up issue under #1094, which
+  resolves the house's whole eligible closure, `scripts/test-shards.sh`'s computed dispatch and
+  `scripts/mutants.sh`'s substituted `cd` among it, and names every closure still unresolved
+  (ruling 3).
 - A forge other than GitHub: `forge` is a closed enum of one word in v1.
 - An automated re-run: the follow-up decision ruling 1 (c) names.
 
@@ -2458,7 +2462,9 @@ slice that produces it, and each typed assertion is in the slice that builds its
    `a_required_list_whose_every_entry_is_after_ship_refuses_to_compile`;
    `a_fresh_published_pull_request_with_no_anchor_and_no_label_is_not_routed_to_implement_by_the_contribution_check`
    (`delivered by brokkr` red, every other entry green: `green`, never `change`);
-   `an_after_ship_entry_is_never_observed_and_the_forge_set_comparison_counts_it_declared`;
+   `an_after_ship_check_is_in_the_observed_inventory_and_excluded_from_entry_classification`
+   (the sealed observation lists `delivered by brokkr`; no failure, closure root, revision or
+   completeness test reads it; and the forge-set comparison counts it declared);
    `a_red_after_ship_check_beside_every_eligible_entry_green_is_green` (`green`, not `change`
    with `inadmissible-failure`, though the forge requires the context);
    `a_red_after_ship_check_beside_a_valid_setup_failure_draws_ci_infrastructure` (the class
