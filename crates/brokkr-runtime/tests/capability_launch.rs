@@ -177,7 +177,7 @@ impl Operator {
                 "codex",
                 "--",
                 "--model",
-                "gpt-6-astra",
+                "gpt-6.2-astra",
                 "--effort",
                 "high",
             ];
@@ -559,7 +559,7 @@ fn rejoin(bundle: &Bundle, label: &str, shim: &Path) -> Vec<String> {
 /// denies the store, never as `--sandbox` (U9c2).
 fn assert_intact(argv: &[String], label: &str) {
     for expected in [
-        ["--model", "gpt-6-astra"],
+        ["--model", "gpt-6.2-astra"],
         ["-c", "model_reasoning_effort=\"high\""],
     ] {
         assert!(
@@ -756,7 +756,7 @@ fn a_compiled_links_origins_reach_its_sealed_record_and_copied_bytes_stay_author
     assert_eq!(
         record["segments"],
         json!([
-            {"origin": "template", "argv": ["--model", "gpt-6-astra"]},
+            {"origin": "template", "argv": ["--model", "gpt-6.2-astra"]},
             {"origin": "template", "argv": ["--effort", "high"]},
             {"origin": "hands", "argv": ["--sandbox", "workspace-write"]},
         ])
@@ -782,7 +782,7 @@ fn a_compiled_links_origins_reach_its_sealed_record_and_copied_bytes_stay_author
     assert_eq!(
         copied["segments"],
         json!([{"origin": "authored",
-                "argv": ["--model", "gpt-6-astra", "--effort", "high"]},
+                "argv": ["--model", "gpt-6.2-astra", "--effort", "high"]},
                {"origin": "local", "argv": ["--sandbox", "workspace-write"]}])
     );
     assert_eq!(inline.argv[1..], agent.argv[1..]);
@@ -824,7 +824,7 @@ fn a_compiled_links_origins_reach_its_sealed_record_and_copied_bytes_stay_author
     assert_eq!(
         input["launch_record"]["segments"],
         json!([{"origin": "authored",
-                "argv": ["--model", "gpt-6-astra", "--effort", "high"]},
+                "argv": ["--model", "gpt-6.2-astra", "--effort", "high"]},
                {"origin": "hands", "argv": codex_hands()}])
     );
     assert_eq!(
@@ -974,7 +974,7 @@ fn checked_codex(hands: &[String]) -> Vec<String> {
         "-c",
         "model_reasoning_effort=\"high\"",
         "--model",
-        "gpt-6-astra",
+        "gpt-6.2-astra",
     ]);
     assert_eq!(hands[..2], ["--sandbox", "read-only"]);
     let profile = profile("read-only").to_vec();
@@ -1016,7 +1016,7 @@ fn a_compiled_inline_codex_panel_member_with_hands_passes_the_final_check_as_an_
                 "inline": {"role": "roles/role.md",
                     "hands": {"kind": "workspace", "network": false, "binds": []},
                     "driver": {"command": ["{brokkr}", "driver", "codex", "--",
-                                           "--model", "gpt-6-astra", "--effort", "high"]}},
+                                           "--model", "gpt-6.2-astra", "--effort", "high"]}},
                 "agent": {"agent": "searcher"}}},
             "review": {"results": ["clean"], "role": "roles/role.md",
                        "driver": {"command": redrive::exec()}}}}),
@@ -3056,7 +3056,7 @@ fn an_inline_codex_work_seat_and_gate_reach_their_final_commands_with_the_engine
             "door": door,
         })
     };
-    let pins = ["--model", "gpt-6-astra", "--effort", "high"];
+    let pins = ["--model", "gpt-6.2-astra", "--effort", "high"];
     // The class is the profile that leads the command (U9c2), and what
     // remains of the fragment, a gate's capture, follows the pins.
     let expected = |segment: &[&str], class: &str, last: &[&str], door: &str| {
@@ -5592,7 +5592,7 @@ fn the_shipped_claude_recipes_seat_their_typed_allow_as_the_engines_exact_local_
 /// the resolver composes the template, the pins and the list into the
 /// authored command, in that order: the same flags and limits, and fallbacks.
 fn shipped_claude_record(names: &[&str], list: &str, office: Option<usize>) -> Value {
-    let pins = ["--model", "claude-fable-5-1", "--effort", "high"];
+    let pins = ["--model", "claude-fable-5-2", "--effort", "high"];
     let template = ["--permission-mode", "acceptEdits"];
     let local = ["--allowedTools", list];
     let (model, effort) = pins.split_at(2);
@@ -5745,12 +5745,12 @@ fn the_shipped_verify_and_codex_recipes_seat_their_typed_restrictions_as_the_eng
 
     let list = "Bash(cargo:*),Bash(git:*),Bash(ls:*),Bash(rg:*),Bash(gh pr view:*),\
                 Bash(gh run view:*)";
-    let codex_pins = ["--model", "gpt-6.1-sol", "--effort", "high"];
+    let codex_pins = ["--model", "gpt-6.2-sol", "--effort", "high"];
     let codex = |segment: &[&str], class: &str, door: &str| {
-        let last = profiled_cold("codex", ("gpt-6.1-sol", "high"), class, &segment[2..]);
+        let last = profiled_cold("codex", ("gpt-6.2-sol", "high"), class, &segment[2..]);
         json!({
             "authored command": ["driver", "codex", "--",
-                                 "--model", "gpt-6.1-sol", "--effort", "high"],
+                                 "--model", "gpt-6.2-sol", "--effort", "high"],
             "held": [0],
             "sealed": "Ok(())",
             "segments": [{"origin": "authored", "argv": codex_pins},
@@ -5830,12 +5830,12 @@ fn the_shipped_wager_harness_seats_its_typed_sandbox_narrowed_as_the_engines_own
         "final": launched.map_err(|refusal| format!("refused: {refusal}")),
         "door": door,
     });
-    let pins = ["--model", "gpt-6.1-sol", "--effort", "low"];
+    let pins = ["--model", "gpt-6.2-sol", "--effort", "low"];
     let segment = ["--sandbox", "workspace-write"];
-    let last = profiled_cold("codex", ("gpt-6.1-sol", "low"), "workspace-write", &[]);
+    let last = profiled_cold("codex", ("gpt-6.2-sol", "low"), "workspace-write", &[]);
     let expected = json!({
         "authored command": ["driver", "codex", "--",
-                             "--model", "gpt-6.1-sol", "--effort", "low"],
+                             "--model", "gpt-6.2-sol", "--effort", "low"],
         "held": [0],
         "sealed": "Ok(())",
         "segments": [{"origin": "authored", "argv": pins},
@@ -5947,7 +5947,7 @@ fn a_panel_member_and_a_sequence_step_resolve_under_their_own_labels() {
     let site = |asks: Option<Value>| {
         // No authored `--sandbox` (fixture migration of 2026-09-26).
         let mut site = json!({"role": "roles/role.md", "driver": {"command": [
-            "{brokkr}", "driver", "codex", "--", "--model", "gpt-6-astra", "--effort", "high"]}});
+            "{brokkr}", "driver", "codex", "--", "--model", "gpt-6.2-astra", "--effort", "high"]}});
         if let Some(asks) = asks {
             site["capabilities"] = asks;
         }
@@ -6324,7 +6324,7 @@ const CODEX_SEAT: [&str; 8] = [
     "codex",
     "--",
     "--model",
-    "gpt-6-astra",
+    "gpt-6.2-astra",
     "--effort",
     "high",
 ];
@@ -8728,7 +8728,7 @@ fn compile_every_shape_on(
     let root = operator.root();
     let command = |harness: &str| -> Value {
         let model = match harness {
-            "codex" => "gpt-6-astra",
+            "codex" => "gpt-6.2-astra",
             "dsh" => "deepseek-v4-flash",
             _ => "claude-opus-5-5",
         };
@@ -9063,7 +9063,7 @@ fn every_compiled_site_shape_of_every_harness_is_served_its_whole_command_beside
         "-c",
         "model_reasoning_effort=\"high\"",
         "--model",
-        "gpt-6-astra",
+        "gpt-6.2-astra",
     ];
     let capture = ["--output-last-message", "/w/result.json"];
     let (lanetally_bin, dsh_bin) = (root.join("lanetally-harness"), root.join("dsh-harness"));
@@ -9515,7 +9515,7 @@ fn an_authored_capability_option_refuses_every_site_shape_of_every_harness() {
         ),
         (
             "codex",
-            "gpt-6-astra",
+            "gpt-6.2-astra",
             &["-c", "mcp_servers.x.command=\"y\""],
             "--config",
         ),
@@ -10977,7 +10977,7 @@ fn a_restricted_grant_reaches_only_cq1s_outcomes_at_every_compiled_codex_site_sh
         "-c",
         "model_reasoning_effort=\"high\"",
         "--model",
-        "gpt-6-astra",
+        "gpt-6.2-astra",
     ];
     // A class is the profile denying the store (U9c2).
     let capture = ["--output-last-message", "/w/result.json"];
@@ -11139,7 +11139,7 @@ fn a_restricted_grant_reaches_only_cq1s_outcomes_at_every_boxed_codex_site_shape
                 "inline" => {
                     let mut site = json!({"role": "roles/x.md", "hands": hands,
                         "driver": {"command": ["{brokkr}", "driver", "codex", "--", "--model",
-                                               "gpt-6-astra", "--effort", "high"]}});
+                                               "gpt-6.2-astra", "--effort", "high"]}});
                     if let Some(asks) = &asks {
                         site["capabilities"] = asks.clone();
                     }

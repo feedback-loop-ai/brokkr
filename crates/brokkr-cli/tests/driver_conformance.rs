@@ -2373,7 +2373,7 @@ fn the_shipped_codex_harness_work_seat_rejoins_its_retry() {
         resume_line.contains("model_reasoning_effort=\"high\""),
         "{resume_line}"
     );
-    assert!(resume_line.contains("gpt-6.1-sol"), "{resume_line}");
+    assert!(resume_line.contains("gpt-6.2-sol"), "{resume_line}");
     // The same argv over element boundaries. The class expected here is
     // the one this coordinate declares and the composed spawn argv above
     // already pinned: `--sandbox workspace-write`, from the shipped
@@ -2421,7 +2421,7 @@ fn the_shipped_inline_codex_work_seat_rejoins_its_retry() {
         "codex",
         "--",
         "--model",
-        "gpt-6.1-sol",
+        "gpt-6.2-sol",
         "--effort",
         "high",
         "--sandbox",

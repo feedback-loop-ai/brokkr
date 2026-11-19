@@ -35,7 +35,7 @@
     "acceptEdits"
   ],
   "models": {
-    "fable-tallied": "claude-fable-5-1",
+    "fable-tallied": "claude-fable-5-2",
     "opus-tallied": "claude-opus-5-5",
     "sonnet-tallied": "claude-sonnet-5-5"
   },

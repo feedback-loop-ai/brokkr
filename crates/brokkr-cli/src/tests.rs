@@ -293,7 +293,7 @@ pub(crate) fn stage_hands_free_fast(
         seat.entry("role").or_insert(json!("shipper.md"));
         let kept = keep_review_gate && phase == "review";
         let command = match kept {
-            true => "{brokkr} driver claude -- --model claude-fable-5-1 --effort high",
+            true => "{brokkr} driver claude -- --model claude-fable-5-2 --effort high",
             false => "{brokkr} driver exec -- true", // model-free past the fence (U9b1)
         };
         let command: Vec<&str> = command.split(' ').collect();

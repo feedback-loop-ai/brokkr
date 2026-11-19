@@ -104,8 +104,8 @@ type Roster = [(&'static str, &'static str, &'static str)];
 const PANEL_REVIEW: &Roster = &[
     ("intake", "claude-sonnet-5-5", "intake.md"),
     ("implement", "claude-opus-5-5", "implementer.md"),
-    ("review:correctness", "gpt-6.1-sol", "review-correctness.md"),
-    ("review:security", "claude-fable-5-1", "review-security.md"),
+    ("review:correctness", "gpt-6.2-sol", "review-correctness.md"),
+    ("review:security", "claude-fable-5-2", "review-security.md"),
 ];
 
 const TRIAGE: &Roster = &[
@@ -117,14 +117,14 @@ const TRIAGE: &Roster = &[
     ),
     (
         "review:design:positions:security",
-        "claude-fable-5-1",
+        "claude-fable-5-2",
         "review-security.md",
     ),
-    ("design:chief", "claude-fable-5-1", "chief-architect.md"),
-    ("specify:author", "claude-fable-5-1", "chief-architect.md"),
+    ("design:chief", "claude-fable-5-2", "chief-architect.md"),
+    ("specify:author", "claude-fable-5-2", "chief-architect.md"),
     ("tasks:author", "claude-opus-5-5", "implementer-sdd.md"),
     ("clarify:judge", "claude-opus-5-5", "clarifier.md"),
-    ("analyze:judge", "claude-fable-5-1", "analyst.md"),
+    ("analyze:judge", "claude-fable-5-2", "analyst.md"),
     (
         "design:positions:simplicity",
         "claude-opus-5-5",
@@ -132,14 +132,14 @@ const TRIAGE: &Roster = &[
     ),
     (
         "design:positions:robustness",
-        "gpt-6.1-sol",
+        "gpt-6.2-sol",
         "position-robustness.md",
     ),
 ];
 const SELF: &Roster = &[
     ("intake", "claude-sonnet-5-5", "intake.md"),
     ("implement", "claude-opus-5-5", "implementer.md"),
-    ("review", "gpt-6.1-sol", "reviewer.md"),
+    ("review", "gpt-6.2-sol", "reviewer.md"),
 ];
 
 fn expected_argv(site: &str, model: &str) -> Vec<String> {
@@ -168,8 +168,8 @@ fn expected_argv(site: &str, model: &str) -> Vec<String> {
     // Sol's scale sits one step down, capped at `high` (decision 0045's
     // addendum of 2026-09-30).
     let effort = match (model, effort) {
-        ("gpt-6.1-sol", "max" | "xhigh") => "high",
-        ("gpt-6.1-sol", "high") => "medium",
+        ("gpt-6.2-sol", "max" | "xhigh") => "high",
+        ("gpt-6.2-sol", "high") => "medium",
         _ => effort,
     };
     argv.extend(["--model", model, "--effort", effort]);

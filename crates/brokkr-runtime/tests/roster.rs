@@ -797,7 +797,27 @@ fn inline_codex_pins(root: &Path) -> Vec<(String, String, String)> {
 }
 
 /// The operator's roster ruling of 2026-09-30 (decision 0045's addendum):
-/// `sol` is Sol 6.1, its effort is capped at `high`, and `astra` stands
+/// The operator's roster update of 2026-11-19 maps each moved alias, and
+/// the one it kept, to exactly this id in the shipped adapter that declares
+/// it. `init` is held to the shipped files by parity; this pins the files.
+#[test]
+fn the_shipped_adapters_map_the_2026_11_19_roster_exactly() {
+    let root = workspace();
+    for (adapter, alias, id) in [
+        ("codex", "sol", "gpt-6.2-sol"),
+        ("codex", "astra", "gpt-6.2-astra"),
+        ("codex", "terra", "gpt-6.1-terra"),
+        ("codex", "luna", "gpt-6-luna"),
+        ("claude", "fable", "claude-fable-5-2"),
+        ("lanetally", "fable-tallied", "claude-fable-5-2"),
+    ] {
+        let declared = json(&root.join(format!("adapters/{adapter}.json")));
+        assert_eq!(declared["models"][alias], id, "{adapter}'s {alias}");
+    }
+}
+
+/// `sol` is Sol 6.2 since the roster update of 2026-11-19 (Sol 6.1 before
+/// it), its effort is capped at `high`, and `astra` stands
 /// only as a chief's last fallback, at `max`. The inline codex sites of
 /// decision 0041 ruling 7 are held to the same two rules by the concrete
 /// model they pin, so a recipe cannot hire past the library's cap.
@@ -805,7 +825,7 @@ fn inline_codex_pins(root: &Path) -> Vec<(String, String, String)> {
 fn sol_is_capped_and_astra_is_a_chiefs_last_fallback() {
     let root = workspace();
     let codex = json(&root.join("adapters/codex.json"));
-    assert_eq!(codex["models"]["sol"], "gpt-6.1-sol", "sol is Sol 6.1");
+    assert_eq!(codex["models"]["sol"], "gpt-6.2-sol", "sol is Sol 6.2");
     let inline = inline_codex_pins(&root);
     assert!(
         inline.len() >= 4,

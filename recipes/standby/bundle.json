@@ -38,7 +38,7 @@
           "codex",
           "--",
           "--model",
-          "gpt-6.1-sol",
+          "gpt-6.2-sol",
           "--effort",
           "high"
         ]
@@ -70,7 +70,7 @@
           "codex",
           "--",
           "--model",
-          "gpt-6.1-sol",
+          "gpt-6.2-sol",
           "--effort",
           "high"
         ]

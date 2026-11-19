@@ -198,7 +198,7 @@ fn claude(grants: &Grants) -> String {
         "binary": "claude",
         "driver": ["{brokkr}", "driver", "claude", "--", "--permission-mode", "acceptEdits"],
         "models": {
-            "fable": "claude-fable-5-1",
+            "fable": "claude-fable-5-2",
             "opus": "claude-opus-5-5",
             "sonnet": "claude-sonnet-5-5",
             "haiku": "claude-haiku-4-5-20251001"
@@ -268,9 +268,9 @@ const CODEX: &str = r#"{
   "binary": "codex",
   "driver": ["{brokkr}", "driver", "codex", "--"],
   "models": {
-    "astra": "gpt-6-astra",
-    "sol": "gpt-6.1-sol",
-    "terra": "gpt-5.6-terra"
+    "astra": "gpt-6.2-astra",
+    "sol": "gpt-6.2-sol",
+    "terra": "gpt-6.1-terra"
   },
   "judges": ["astra", "sol"],
   "model_flag": "--model",

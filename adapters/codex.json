@@ -18,9 +18,9 @@
     "--"
   ],
   "models": {
-    "astra": "gpt-6-astra",
-    "sol": "gpt-6.1-sol",
-    "terra": "gpt-5.6-terra",
+    "astra": "gpt-6.2-astra",
+    "sol": "gpt-6.2-sol",
+    "terra": "gpt-6.1-terra",
     "luna": "gpt-6-luna"
   },
   "judges": [

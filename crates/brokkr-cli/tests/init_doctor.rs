@@ -243,6 +243,13 @@ pub(crate) fn assert_shipped_mcp_facts(bundle: &std::path::Path, provider: &str)
         assert!(shipped["mcp"]["inapplicable"].is_string(), "{shipped}");
         return;
     };
+    // Every alias the scaffold hires names the shipped adapter's model id,
+    // so `init` cannot lay down a roster the shipped one has moved past.
+    let models = generated["models"].as_object().unwrap();
+    assert!(!models.is_empty(), "{provider}: {generated}");
+    for (alias, id) in models {
+        assert_eq!(shipped["models"][alias], *id, "{provider}: {alias}");
+    }
     let shapes: Vec<&serde_json::Value> = shipped["mcp"]["shapes"]
         .as_array()
         .unwrap()
