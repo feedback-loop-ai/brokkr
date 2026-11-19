@@ -41,6 +41,13 @@ The operator settled this decision's asks for #1145:
   every line under the rails wrapped to it. Nothing is drawn wider than the
   width it was given. A size of 0 or one that cannot be read draws at the
   piped 100 columns.
+- **Glyphs three columns wide** (2026-11-19, "accept it as debt, file the
+  follow-up and land it"): the painter the drawing shares with the TUI pays
+  any glyph wider than one column exactly two cells. So a glyph `width_of`
+  measures at three columns (U+17D8) prints one column more than its cells
+  hold, and a full rail that names one runs past the width. That predates
+  this decision. It is accepted as debt for #1145's landing and tracked
+  as #1177. One- and two-column glyphs hold every width ruling 6 states.
 
 ## Rulings
 
@@ -120,8 +127,9 @@ The operator settled this decision's asks for #1145:
    by any rule (a two-column glyph at one column); it is written as `…`, the
    mark a clamp leaves for what it cut, one to each glyph, so the line keeps
    to its column and says a glyph stood there. Nothing is drawn wider than
-   the width. Enforcement: every drawing test holds every line within its
-   width in display columns, at 100, 80, 39, 30, 24, 12 and 8 columns
+   the width, save a glyph three columns wide, which the operator's ruling
+   above leaves to #1177. Enforcement: every drawing test holds every line
+   within its width in display columns, at 100, 80, 39, 30, 24, 12 and 8 columns
    (`graph_delivery_24`, `graph_delivery_12`, `graph_name_wider_30`,
    `graph_no_runs_8`) and at every width from 1 to 12 (`graph_reforged_3`,
    and a state named `界界界`, whose pieces `fitted`'s test pins from 1 to 6
