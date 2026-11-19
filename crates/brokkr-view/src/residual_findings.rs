@@ -73,7 +73,7 @@ pub fn gate_records(events: &[EventEnvelope]) -> Vec<GateRecord> {
         members: site_members(events),
     };
     (events.iter())
-        .filter_map(verdict_of)
+        .flat_map(verdicts_of)
         .filter_map(|verdict| reading.record(&verdict))
         .collect()
 }
@@ -137,30 +137,42 @@ struct Producer {
     label: String,
 }
 
-/// The verdict `event` journals, if it journals one, admitted only by
-/// provenance the engine established (fix round 0109a1r4, K1): a
-/// success's result, which only the engine appends, under the sequence
-/// step it names (K6), or a sequence step's result in the step's
-/// checkpoint the engine authored, under the step's name. A checkpoint
-/// that names the marker's word without the engine's `authored` is a
-/// driver's, and is no verdict.
-fn verdict_of(event: &EventEnvelope) -> Option<Verdict<'_>> {
+/// The verdicts `event` journals, admitted only by provenance the engine
+/// established (fix round 0109a1r4, K1): a success's result, which only
+/// the engine appends, under the sequence step it names (K6); a sequence
+/// step's result in the step's checkpoint the engine authored, under the
+/// step's name; and each settled member's result in a failed or
+/// indeterminate attempt's panel evidence, which only the engine writes,
+/// under that member (K7). A checkpoint that names the marker's word
+/// without the engine's `authored` is a driver's, and is no verdict.
+fn verdicts_of(event: &EventEnvelope) -> Vec<Verdict<'_>> {
     let effect_id = text(event, "effect_id");
-    let (result, seat) = match event.event_type {
-        EventType::EffectSucceeded => (&event.payload["result"], event.payload["step"].as_str()),
-        EventType::EffectCheckpointed => {
-            let checkpoint = &event.payload["checkpoint"];
-            (EngineMarker::authored(checkpoint) == Some(EngineMarker::StepFinished))
-                .then_some(())?;
-            (&checkpoint["result"], checkpoint["step_name"].as_str())
-        }
-        _ => return None,
-    };
-    Some(Verdict {
+    let verdict = |result, seat| Verdict {
         effect_id,
         result,
         seat,
-    })
+    };
+    let payload = &event.payload;
+    match event.event_type {
+        EventType::EffectSucceeded => vec![verdict(&payload["result"], payload["step"].as_str())],
+        EventType::EffectCheckpointed => {
+            let checkpoint = &payload["checkpoint"];
+            let step = EngineMarker::authored(checkpoint) == Some(EngineMarker::StepFinished);
+            let seat = checkpoint["step_name"].as_str();
+            (step
+                .then(|| verdict(&checkpoint["result"], seat))
+                .into_iter())
+            .collect()
+        }
+        EventType::EffectFailed | EventType::EffectIndeterminate => (payload
+            .get("settled_members")
+            .and_then(Value::as_object)
+            .into_iter()
+            .flatten())
+        .map(|(member, result)| verdict(result, Some(member.as_str())))
+        .collect(),
+        _ => Vec::new(),
+    }
 }
 
 /// The panel member each `(effect, site)` belongs to, as the engine's own

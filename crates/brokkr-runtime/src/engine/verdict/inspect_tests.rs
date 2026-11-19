@@ -6,12 +6,12 @@
 use serde_json::{json, Value};
 
 use super::covered_tests::drift_refusing;
-use super::tests::{driven_with, driver, reported};
+use super::tests::{driven_with, driver, failing, reported};
 use crate::bundle::{
     Aggregate, Bundle, GateAssessment, Invocation, SeatBody, SeatClass, SequenceStep, StepBody,
 };
 use crate::engine::tests::{member, single_body, step_body};
-use brokkr_core::envelope::EventEnvelope;
+use brokkr_core::envelope::{EventEnvelope, EventType};
 use brokkr_view::{gate_records, lens_for, GateRecord, Scope};
 
 /// A gate step `name` of `body` answering one of `results`.
@@ -170,18 +170,14 @@ fn a_gate_steps_finding_shows_under_its_own_seat_before_the_end_and_at_it() {
     );
 }
 
-/// A top-level gate panel where one member reports: its seat shows the
-/// finding, its sibling's seat does not, and the phase does, naming it.
-#[test]
-fn a_top_level_panel_members_finding_shows_under_that_member_alone() {
+/// A run whose review is a top-level gate panel of member `a`, which
+/// reports `mine`, and member `b`, driven by `b`.
+fn panel_reviewed(b: Vec<String>) -> (tempfile::TempDir, Vec<EventEnvelope>) {
     let review = SeatBody::Invocation(Invocation::Panel {
-        members: vec![
-            member("a", residual("mine", 5)),
-            member("b", driver(&json!({"result": "clean"}))),
-        ],
+        members: vec![member("a", residual("mine", 5)), member("b", b)],
         aggregate: Aggregate::ReviewPanel,
     });
-    let (_dir, events) = driven_with(
+    driven_with(
         single_body(driver(&json!({"result": "complete"}))),
         |compiled| {
             compiled.machine = drift_refusing();
@@ -191,7 +187,44 @@ fn a_top_level_panel_members_finding_shows_under_that_member_alone() {
             let ship = compiled.seats.get_mut("ship").unwrap();
             ship.body = single_body(driver(&json!({"result": "shipped"})));
         },
+    )
+}
+
+/// Fix round 0109a1r4, K7: in a top-level gate panel whose member `b`
+/// fails through its last retry, member `a`'s finding is durable in each
+/// failed attempt's settled members, and shows under `a` and in the
+/// phase, never under `b`.
+#[test]
+fn a_settled_members_finding_shows_when_its_sibling_fails() {
+    let (_dir, events) = panel_reviewed(failing());
+    assert!(!events.iter().any(|event| {
+        event.event_type == EventType::EffectSucceeded
+            && event.payload["result"]["findings"].is_array()
+    }));
+    let failed = events
+        .iter()
+        .filter(|event| event.event_type == EventType::EffectFailed);
+    let attempts = failed.count();
+    assert_eq!(attempts, 1);
+    assert!(events
+        .iter()
+        .any(|event| event.event_type == EventType::RunParked));
+    let mine = vec!["mine".to_string(); attempts];
+    assert_eq!(kept(&events, Scope::Seat("review:a".into())), mine);
+    assert_eq!(kept(&events, Scope::Phase("review".into())), mine);
+    assert_eq!(
+        kept(&events, Scope::Seat("review:b".into())),
+        Vec::<String>::new()
     );
+    let named = producers(&events, Scope::Phase("review".into()));
+    assert!(named.iter().all(|(_, by)| by == "review:a"), "{named:?}");
+}
+
+/// A top-level gate panel where one member reports: its seat shows the
+/// finding, its sibling's seat does not, and the phase does, naming it.
+#[test]
+fn a_top_level_panel_members_finding_shows_under_that_member_alone() {
+    let (_dir, events) = panel_reviewed(driver(&json!({"result": "clean"})));
     assert_eq!(kept(&events, Scope::Seat("review:a".into())), ["mine"]);
     // Neither the sibling's seat nor the panel's own keeps a member's.
     for seat in ["review:b", "review"] {

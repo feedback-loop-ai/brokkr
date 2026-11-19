@@ -36,7 +36,6 @@ pub(super) fn checkpointing(checkpoints: &[Value], result: &Value) -> Vec<String
             format!(" '{}'", wire(body))
         })
         .collect();
-    let live = live.concat();
     let answered = wire(Body::Result {
         refusal: None,
         effect_id: EFFECT.into(),
@@ -45,6 +44,25 @@ pub(super) fn checkpointing(checkpoints: &[Value], result: &Value) -> Vec<String
         result: Some(result.clone()),
         error: None,
     });
+    answering(&live.concat(), &answered)
+}
+
+/// A driver that fails every attempt it is given, determinately.
+pub(super) fn failing() -> Vec<String> {
+    let answered = wire(Body::Result {
+        refusal: None,
+        effect_id: EFFECT.into(),
+        attempt_id: ATTEMPT.into(),
+        status: ResultStatus::Failed,
+        result: None,
+        error: Some("the member failed".into()),
+    });
+    answering("", &answered)
+}
+
+/// The script that forwards `live` then `answered` for the attempt its
+/// start names.
+fn answering(live: &str, answered: &str) -> Vec<String> {
     let (hello, started) = (capabilities(), accepted(EFFECT, ATTEMPT, None));
     let script = format!(
         r#"read -r hello
