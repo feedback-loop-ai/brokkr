@@ -34,7 +34,7 @@ use std::process::Command;
 
 use thiserror::Error;
 
-use super::{Mode, Release, HANDS_ID, MCP_CLIENT, SANDBOX_POLICY};
+use super::{Mode, Release, HANDS_ID, MCP_CLIENT, SANDBOX_POLICY, TEAM_TOOL_ROW};
 
 mod rows;
 
@@ -246,7 +246,7 @@ fn measured(release: Release, id: &str, name: &str) -> bool {
 /// `deepseek-account` row under its new package name.
 pub(crate) const ADDED_0_2_2_RC5: [(&str, &str); 3] = [
     ("agent-team", "@deepseek-ai/dsh-agent-team"),
-    ("tool-agent-team", "@deepseek-ai/dsh-tool-agent-team"),
+    (TEAM_TOOL_ROW, "@deepseek-ai/dsh-tool-agent-team"),
     ("deepseek-account", "@deepseek-ai/dsh-deepseek-account"),
 ];
 

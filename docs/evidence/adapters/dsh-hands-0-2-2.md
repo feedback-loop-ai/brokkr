@@ -840,7 +840,10 @@ against 0.2.2-rc.1, by `(id, name)`:
 
 So 0.2.2-rc.5's measured set is 0.2.2-rc.1's, plus `agent-team` and
 `tool-agent-team`, with `deepseek-account` under its new package name, plus
-`brokkr-hands`: 102 rows in a seat's tree. In the code that is
+`brokkr-hands`: 102 rows in a seat's tree. The two counts measure different
+things: 101 (0.2.2-rc.1: 99) is a plain `--dump-config`, which carries no
+`brokkr-hands`; 102 (0.2.2-rc.1: 100) is a seat's composed tree, which adds
+that one row. In the code that is
 `ADDED_0_2_2_RC5` and `REMOVED_0_2_2_RC5` over 0.2.2-rc.1's set. Each
 release admits only its own set: a 0.2.2-rc.1 tree that carries either team
 row or the new `deepseek-account` package is refused `Unmeasured` naming
@@ -873,7 +876,7 @@ Asked of the model in one session each on `spark-glm/GLM-5.3-Flash-EXL3`:
 
 | Overlay | Tools |
 | --- | --- |
-| the `agent-default-model` row alone | 24 tools |
+| the `agent-default-model` row alone | 24 tools (the controller recorded the count, not the names) |
 | the 0.2.2 hands rows: the ten common rows and the `tool-executor-ptc` pin (8) | `create_goal` `get_goal` `list_agents` `send_message` `todo_write` `update_goal` `wait_agent` `working_directory` |
 
 Compared with 0.2.2-rc.1, both lists changed the same way:
@@ -892,6 +895,10 @@ under Pending.
   `tool-executor-native` is enabled, as on 0.2.2-rc.1.
 - With the hands rows the dump still has 101 rows. The hands dump's sha256
   starts `be8e3716a26ffbf0`; the plain dump's starts `271ed858f3d14686`.
+  The hands dump was taken with 0.2.2-rc.1's pins (the ten common rows and
+  the `tool-executor-ptc` pin), the same overlay as the hands tool list
+  above, not with the rc.5 overlay's `tool-agent-team` pin; a digest under
+  the rc.5 overlay itself is listed under Pending.
 
 ### Offline bindings (0.2.2-rc.5)
 
@@ -913,8 +920,10 @@ adapters::dsh_hands`, which gave 103 passed. The new tests are in
   `0.2.2-rc.50` refuse, and the refusal's text names all four measured
   versions.
 - `the_0_2_2_rc5_overlay_is_pinned`: the rc.5 overlay's bytes are pinned.
-  The bounded reader refuses an rc.5 overlay that lacks the team pin, and
-  refuses the team pin on 0.2.2-rc.1.
+  The bounded reader refuses an rc.5 overlay that lacks the team pin
+  (`Overlay::HandsRowMissing("tool-agent-team")`), and refuses the team pin
+  on 0.2.2-rc.1 (`Overlay::HandsRow("tool-agent-team")`), each matched by
+  variant.
 
 ## Pending
 
@@ -933,6 +942,8 @@ adapters::dsh_hands`, which gave 103 passed. The new tests are in
 - A planted write through any remaining path in a read-only seat with the
   composed hands row, on 0.2.2-rc.1 as on 0.2.1.
 - On 0.2.2-rc.5: a tool list and a `--dump-config` digest measured under
-  the rc.5 overlay itself (with the `tool-agent-team` pin), a live
+  the rc.5 overlay itself (with the `tool-agent-team` pin), which is also
+  the first live run of `agent-team` enabled beside its tool row disabled
+  and so the first thing the next measurement closes, a live
   `mcp__brokkr__workspace` call, macOS, and the review-seat qualification
   the operator asked for, which later units own.

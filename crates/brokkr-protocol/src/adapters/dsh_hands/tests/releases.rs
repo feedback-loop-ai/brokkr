@@ -7,9 +7,8 @@ use super::super::composition::{
     judge, rows, Composition, ADDED_0_2_2, ADDED_0_2_2_RC5, MEASURED_COMPOSITION, REMOVED_0_2_2,
     REMOVED_0_2_2_RC5,
 };
-use super::super::{
-    hands_rows, measured, route_overlay, Mode, Refusal, Release, MEASURED_VERSIONS,
-};
+use super::super::route_overlay::{self, Overlay, Refused};
+use super::super::{hands_rows, measured, Mode, Refusal, Release, MEASURED_VERSIONS};
 #[cfg(unix)]
 use super::{dump_of, measured_dump_0_2_2};
 use super::{s, server_row, MEASURED_HEAD};
@@ -165,20 +164,15 @@ fn the_0_2_2_rc5_overlay_is_pinned() {
         )
     );
     let rc1 = format!("{MEASURED_HEAD}read-only\n- id: tool-executor-ptc\n  disabled: true\n");
+    let missing = route_overlay::hands(rc1.as_bytes(), Release::V0_2_2Rc5);
     assert_eq!(
-        route_overlay::hands(rc1.as_bytes(), Release::V0_2_2Rc5)
-            .unwrap_err()
-            .to_string(),
-        "refusing to invoke the dsh driver: the hands rows carry no row 'tool-agent-team', which \
-         the measured hands set names"
+        missing,
+        Err(Refused(Overlay::HandsRowMissing("tool-agent-team")))
     );
     let rc5 = format!("{MEASURED_HEAD}read-only\n{pins}");
     assert_eq!(
-        route_overlay::hands(rc5.as_bytes(), Release::V0_2_2)
-            .unwrap_err()
-            .to_string(),
-        "refusing to invoke the dsh driver: the hands rows carry row 'tool-agent-team' in a shape \
-         the measured hands set does not name"
+        route_overlay::hands(rc5.as_bytes(), Release::V0_2_2),
+        Err(Refused(Overlay::HandsRow("tool-agent-team".into())))
     );
 }
 

@@ -162,7 +162,7 @@ pub(super) const PTC_ROW: &str = "tool-executor-ptc";
 /// serves when a team is formed, so the hands overlay pins it disabled and
 /// the judge refuses a tree that enables it (fail closed). Its host row,
 /// `agent-team`, adds no tool to either list and stays as composed.
-const TEAM_TOOL_ROW: &str = "tool-agent-team";
+pub(super) const TEAM_TOOL_ROW: &str = "tool-agent-team";
 
 /// The rows one release's hands overlay pins disabled, split where dsh's
 /// sandbox row sits: `before` it and `after` it. The bounded reader and
