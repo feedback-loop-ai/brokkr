@@ -414,38 +414,50 @@ fn rules(view: &GraphView, style: &Style) -> String {
     table(&RULE_COLUMNS, &rows, 0, style)
 }
 
+/// `text` from a recipe or a journal with its escapes stripped (#1167).
+fn safe(text: &str) -> String {
+    Safe::new(text).as_str().to_string()
+}
+
 /// The header and the table's notes, the states and the rules as two
-/// tables a blank line apart, then the rest the view states as lines,
-/// painted from the view's own text.
+/// tables a blank line apart when the graph has either, then the rest the
+/// view states as lines, painted from the view's own text.
 fn paint(view: &GraphView, style: &Style) -> String {
     let mut out = format!(
         "{} / {} · {} → {} · {} runs\n",
-        view.realm, view.recipe, view.from, view.to, view.runs
+        safe(&view.realm),
+        safe(&view.recipe),
+        safe(&view.from),
+        safe(&view.to),
+        view.runs
     );
     match &view.table {
         Table::Resolved => {}
-        Table::NotFound { text } => out += &format!("{text}\n"),
+        Table::NotFound { text } => out += &format!("{}\n", safe(text)),
         Table::Refused {
             text,
             reason,
             bundle,
-        } => out += &format!("{text}\n  {reason}\n  bundle {bundle}\n"),
+        } => {
+            let [text, reason, bundle] = [text, reason, bundle].map(|t| safe(t));
+            out += &format!("{text}\n  {reason}\n  bundle {bundle}\n");
+        }
     }
-    let tables = [states(view, style), rules(view, style)];
-    let drawn: Vec<String> = tables.into_iter().filter(|t| !t.is_empty()).collect();
-    out += &drawn.join("\n");
+    if !(view.states.is_empty() && view.rules.is_empty()) {
+        out += &[states(view, style), rules(view, style)].join("\n");
+    }
     for retired in &view.retired {
-        let id = retired.rule_id.as_deref().unwrap_or_default();
+        let id = safe(retired.rule_id.as_deref().unwrap_or_default());
         out += &format!("retired {id} · {}\n", retired.count);
     }
     if let Some(drift) = &view.drift_text {
-        out += &format!("drift  {drift}\n");
+        out += &format!("drift  {}\n", safe(drift));
     }
-    out += &format!("ends   {}\n", view.ends.text);
-    out += &format!("ledger {}\n", view.ends.ledger.text);
+    out += &format!("ends   {}\n", safe(&view.ends.text));
+    out += &format!("ledger {}\n", safe(&view.ends.ledger.text));
     for live in &view.live {
-        let state = live.state.as_deref().unwrap_or("—");
-        out += &format!("live   {} · {state}\n", live.label);
+        let state = safe(live.state.as_deref().unwrap_or("—"));
+        out += &format!("live   {} · {state}\n", safe(&live.label));
     }
     out
 }

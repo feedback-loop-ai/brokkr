@@ -201,3 +201,60 @@ fn analytics_without_json_paints_the_headline_and_the_quarantined_hearth() {
     assert!(stdout.contains("quarantined    ghost: "), "{stdout}");
     assert!(stdout.contains("not recorded yet: "), "{stdout}");
 }
+
+#[test]
+fn graph_prints_its_view_as_json_or_as_tables_the_terminals_columns_fit() {
+    let ws = Workspace::new();
+    let long = "a-state-named-at-length-for-a-narrow-terminal";
+    let mut store = brokkr_store::Store::open(&ws.path().join("state/world.db")).unwrap();
+    let manifest = json!({"bundle_name": "gone"});
+    store
+        .create_run("live", "feature", "gone", &manifest)
+        .unwrap();
+    let started = json!({"feature": "feature", "manifest": manifest});
+    for (kind, payload) in [
+        (EventType::RunStarted, started),
+        (EventType::PhaseEntered, json!({"phase": long})),
+    ] {
+        store
+            .append_next("live", kind, payload, None, None)
+            .unwrap();
+    }
+    let graph = |json: &[&str]| {
+        let mut brokkr = Command::new(env!("CARGO_BIN_EXE_brokkr"));
+        brokkr.envs([("COLUMNS", "60"), ("NO_COLOR", "1")]);
+        brokkr
+            .current_dir(ws.path())
+            .args(["graph", "--recipe", "gone"]);
+        let out = brokkr.args(json).output().unwrap();
+        let (code, stderr) = (out.status.code(), out.stderr);
+        assert_eq!(code, Some(0), "{}", String::from_utf8_lossy(&stderr));
+        String::from_utf8(out.stdout).unwrap()
+    };
+    // `--json` is the view model alone, pretty in its own field order.
+    let json = graph(&["--json"]);
+    let view: Value = serde_json::from_str(&json).unwrap();
+    assert!(
+        json.starts_with(
+            "{\n  \"view_version\": 2,\n  \"realm\": \"alpha\",\n  \"recipe\": \"gone\",\n"
+        ),
+        "{json}"
+    );
+    assert!(json.ends_with("\n}\n"), "{json}");
+    assert_eq!(view["states"][0]["name"], long);
+    // Without it, tables the terminal's 60 columns fit: one-space gaps and
+    // the state's name clamped, every number whole, no escape byte.
+    let painted = graph(&[]);
+    assert!(!painted.contains('\x1b'), "{painted:?}");
+    let tables: Vec<&str> = painted.lines().skip(2).take(4).collect();
+    assert_eq!(
+        tables,
+        [
+            "STATE           ENTERED MEDIAN P90         COST TOKENS CACHE",
+            "a-state-named-…       1      —   — not reported      —     —",
+            "",
+            "RULE  COUNT  FROM  TO  KIND",
+        ],
+        "{painted}"
+    );
+}
