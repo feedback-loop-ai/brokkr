@@ -24,11 +24,11 @@ use crate::bundle::{
 };
 use crate::engine::broker::{observed, settlement};
 use crate::engine::carry::record::Tag;
-use crate::engine::dispatch::Dispatch;
+use crate::engine::dispatch::{spawn_site_by, Dispatch, SpawnDeadline, Unspawned};
 use crate::engine::sequence::{
     step_allowed_results, step_driver_input, StepComposition, StepInputKind,
 };
-use crate::engine::{phase_of, spawn_site, Door, Selection, SiteSpawn};
+use crate::engine::{phase_of, Door, Selection, SiteSpawn};
 
 mod end;
 mod sequence;
@@ -150,6 +150,18 @@ struct Late {
     ends: OffsetDateTime,
 }
 
+impl Late {
+    /// The park of `wait`'s probe, unspawned at its deadline `ends`.
+    fn park(wait: &ProviderWait, ends: OffsetDateTime) -> Probe {
+        let late = Late {
+            provider: wait.provider.clone(),
+            route: wait.route.clone(),
+            ends,
+        };
+        Probe::Parked(Park::ruled(late.to_string()))
+    }
+}
+
 impl Engine {
     /// Read the probe's input and admit it under its attempt, holding no
     /// effect attempt: `Ok` is the admitted probe, `Err` the park reason.
@@ -205,9 +217,10 @@ impl Engine {
     /// round 0106b1r4, F1; the operator's ruling of 2026-11-18, amending
     /// decision 0103 ruling 2): one hold row, written at `now`, carrying the
     /// provider, the route and the instant `ends` the probe's driver is
-    /// killed by (fix round 0106b1r5, H2), which the store rounds up to its
-    /// whole second, that the pass and the claim read as cooling down until
-    /// it ends or that deadline passes.
+    /// killed by (fix round 0106b1r5, H2), which the store ends at the
+    /// first whole second strictly after it (fix round 0106b1r6, D1), that
+    /// the pass and the claim read as cooling down until it ends or that
+    /// second comes.
     /// A hold the store refuses parks the probe unadmitted, so no probe
     /// runs on a route it could not hold. A queue older than version 7, or
     /// one a newer binary stores, takes no hold and the probe runs as it
@@ -619,9 +632,12 @@ impl Engine {
 
     /// Spawn one admitted probe's already-composed site and run it to its
     /// end: the single seat's composed spawn and the panel member's own.
-    /// The driver is armed with what remains to `ends`, the instant its
-    /// hold ends at, never a fresh timeout; with nothing left it is not
-    /// spawned, and its hold stands to `ends` (fix round 0106b1r5, H2).
+    /// `ends`, the probe's one deadline, travels to the fork as an instant
+    /// on the engine's clock: a probe already past it composes no spawn,
+    /// the fork checks it again after every other check, and the watchdog
+    /// kills at it, never at a length sampled earlier. A probe not spawned
+    /// leaves its hold standing past `ends` (fix rounds 0106b1r5, H2, and
+    /// 0106b1r6, D1).
     fn spawn_probe(
         &mut self,
         at: &Dispatch<'_>,
@@ -630,31 +646,27 @@ impl Engine {
         ends: OffsetDateTime,
         wait: &ProviderWait,
     ) -> Probe {
-        let left = ends - self.now();
-        if left <= time::Duration::ZERO {
-            let late = Late {
-                provider: wait.provider.clone(),
-                route: wait.route.clone(),
-                ends,
-            };
-            return Probe::Parked(Park::ruled(late.to_string()));
+        if ends <= self.now() {
+            return Late::park(wait, ends);
         }
-        let deadline = left.unsigned_abs();
         let door = self
             .held
             .as_ref()
             .map(|held| Door::of(held, at.site_name, None));
         let workdir = self.workdir();
-        let (process, input) =
-            match spawn_site(&self.bundle, spawn, &input, &workdir, deadline, door) {
-                Ok(started) => started,
-                Err(reason) => {
-                    return Probe::Parked(Park::ruled(format!(
-                        "the cool-down probe for {}/{} did not spawn: {reason}",
-                        wait.provider, wait.route
-                    )));
-                }
-            };
+        let now = &*self.cooldown.clock.now;
+        let by = SpawnDeadline::By { ends, now };
+        let (process, input) = match spawn_site_by(&self.bundle, spawn, &input, &workdir, by, door)
+        {
+            Ok(started) => started,
+            Err(Unspawned::Late) => return Late::park(wait, ends),
+            Err(Unspawned::Refused(reason)) => {
+                return Probe::Parked(Park::ruled(format!(
+                    "the cool-down probe for {}/{} did not spawn: {reason}",
+                    wait.provider, wait.route
+                )));
+            }
+        };
         let report = process.probing().run_attempt_resuming(
             ENGINE_VERSION,
             at.effect_id,

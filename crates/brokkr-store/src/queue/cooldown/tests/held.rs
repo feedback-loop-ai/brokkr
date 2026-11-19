@@ -100,10 +100,12 @@ fn probe_hold(run: &str, deadline: OffsetDateTime) -> crate::ProbeHold<'_> {
 }
 
 /// A probe hold is read by the in-force read, the pass's and the claim's
-/// one statement, while it is unended and before its deadline (fix round
-/// 0106b1r4, F1): with its deadline as its end and words naming the
-/// probing run. At its deadline, or once ended, it holds nothing; it ends
-/// once, and a version 6 queue takes none.
+/// one statement, while it is unended and before its end (fix round
+/// 0106b1r4, F1): the first whole second strictly after its deadline, so
+/// a deadline on a whole second is still held at that instant, the kill's
+/// (fix round 0106b1r6, D1), with words naming the probing run. At its
+/// end, or once ended, it holds nothing; it ends once, and a version 6
+/// queue takes none.
 #[test]
 fn a_probe_hold_is_in_force_until_it_ends_or_its_deadline_passes() {
     let dir = tempfile::tempdir().unwrap();
@@ -119,14 +121,15 @@ fn a_probe_hold_is_in_force_until_it_ends_or_its_deadline_passes() {
             site: String::new(),
             provider: "claude".into(),
             route: "first".into(),
-            until_at: at(30),
+            until_at: at(31),
             reason: "a cool-down probe of run run-a holds the route while it is in flight".into(),
             retry_after_seconds: None,
             rounds: 0,
             recorded_at: at(0),
         }]
     );
-    assert_eq!(store.cooldowns_in_force(at(30)).unwrap(), []);
+    assert_eq!(store.cooldowns_in_force(at(30)).unwrap(), read);
+    assert_eq!(store.cooldowns_in_force(at(31)).unwrap(), []);
     // The aggregate a wait sleeps to is the table's rows only.
     assert_eq!(store.cooldown("claude", "first", at(10)).unwrap(), None);
     let second = store

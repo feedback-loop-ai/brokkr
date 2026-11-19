@@ -113,10 +113,16 @@ pub(super) fn legs(gates: &Shared, at: OffsetDateTime) -> Legs {
     gates.lock().unwrap().legs(at)
 }
 
-/// The probe's deadline as its hold stores it: the seat's two-second
-/// timeout past the instant it was dispatched.
+/// The probe's deadline, the instant its driver is killed by: the seat's
+/// two-second timeout past the instant it was dispatched.
 pub(super) fn deadline_of(probe_at: OffsetDateTime) -> OffsetDateTime {
     probe_at + time::Duration::seconds(2)
+}
+
+/// The probe's hold's end as the store keeps it: the first whole second
+/// strictly after its deadline (fix round 0106b1r6, D1).
+fn hold_end_of(probe_at: OffsetDateTime) -> OffsetDateTime {
+    deadline_of(probe_at) + time::Duration::seconds(1)
 }
 
 /// While the barrier probe is in flight, the gates' legs at `at` and
@@ -172,8 +178,8 @@ fn a_probe_holds_its_route_from_dispatch_until_its_refusals_row_commits() {
     engine.drive().unwrap();
     let (flying, row) = flight.join().unwrap();
     assert!(!row, "a cool-down row stood while the probe ran");
-    let deadline = deadline_of(probe_at);
-    assert!(held_to(&flying, deadline), "{flying:?}");
+    let held = hold_end_of(probe_at);
+    assert!(held_to(&flying, held), "{flying:?}");
     assert_eq!(standing(&engine), (Status::Running, 0));
     let end = engine
         .store
@@ -186,14 +192,14 @@ fn a_probe_holds_its_route_from_dispatch_until_its_refusals_row_commits() {
     // Between the refusal and the commit the hold still held the route.
     assert!(
         seen.iter()
-            .any(|(legs, rounds)| *rounds == 1 && held_to(legs, deadline)),
+            .any(|(legs, rounds)| *rounds == 1 && held_to(legs, held)),
         "{seen:?}"
     );
     for (legs, rounds) in &seen {
-        let until = if *rounds == 1 { deadline } else { end };
+        let until = if *rounds == 1 { held } else { end };
         assert!(held_to(legs, until), "{seen:?}");
     }
-    for at in [probe_at, deadline, end - time::Duration::seconds(1)] {
+    for at in [probe_at, held, end - time::Duration::seconds(1)] {
         assert!(held_to(&legs(&gates, at), end), "at {at}");
     }
     assert_eq!(legs(&gates, end), [Ok(()), Ok(())]);
@@ -267,19 +273,21 @@ fn a_probe_round_the_table_does_not_write_ends_no_hold() {
 }
 
 /// The probe left no row on the route and its hold standing: the gates read
-/// the route cooling down to `deadline` from the probe's instant until the
-/// second before it, and open at it.
+/// the route cooling down from the probe's instant through `deadline`, the
+/// instant its driver is killed by, to the first whole second after it,
+/// and open at that second (fix round 0106b1r6, D1).
 pub(super) fn held_to_its_deadline(engine: &Engine, gates: &Shared, deadline: OffsetDateTime) {
     let probe_at = deadline - time::Duration::seconds(2);
+    let end = deadline + time::Duration::seconds(1);
     assert_eq!(
         engine.store.cooldown("claude", "first", probe_at).unwrap(),
         None
     );
-    for at in [probe_at, deadline - time::Duration::seconds(1)] {
-        assert!(held_to(&legs(gates, at), deadline), "at {at}");
+    for at in [probe_at, deadline] {
+        assert!(held_to(&legs(gates, at), end), "at {at}");
     }
     assert_eq!(unended_holds(engine.store.path()), 1);
-    assert_eq!(legs(gates, deadline), [Ok(()), Ok(())]);
+    assert_eq!(legs(gates, end), [Ok(()), Ok(())]);
 }
 
 /// An answered probe ends its own hold: the route reads cooling down while
@@ -297,7 +305,7 @@ fn an_answered_probe_opens_its_route_at_once() {
     engine.drive().unwrap();
     let (flying, row) = flight.join().unwrap();
     assert!(!row, "a cool-down row stood while the probe ran");
-    assert!(held_to(&flying, deadline_of(probe_at)), "{flying:?}");
+    assert!(held_to(&flying, hold_end_of(probe_at)), "{flying:?}");
     assert_eq!(
         logs(dir.path(), "work"),
         ["attempt:refuse", "probe", "attempt:succeed"]

@@ -1,12 +1,15 @@
-//! Fix round 0106b1r5, H2: a probe has one deadline. It is taken once, as
-//! the probe begins; the probe's hold ends there, and its driver is armed
-//! with what remains of it at spawn, never a fresh timeout, so the driver
-//! is killed no later than its hold ends. A probe with nothing left is not
-//! spawned, and its hold stands until that deadline.
+//! Fix rounds 0106b1r5, H2, and 0106b1r6, D1: a probe has one deadline. It
+//! is taken once, as the probe begins, as an instant on the engine's
+//! clock; that instant, never a length sampled from it, travels to the
+//! fork, which checks it again after every other check, and to the
+//! watchdog, which kills at it. The probe's hold ends at the first whole
+//! second strictly after it, so the kill is always earlier than the hold's
+//! end. A probe past its deadline is not spawned, and its hold stands.
 //!
-//! The pause before spawn is scripted on the engine's clock: its first
-//! read after the hold is written moves the clock on, as store contention
-//! or slow pre-spawn work would, and no test sleeps for it.
+//! The pause is scripted on the engine's clock: one read after the hold is
+//! written moves the clock on, as store contention or slow dispatch work
+//! would, and no test sleeps for it. The first such read is the probe's
+//! own sample as its spawn begins; the second is the fork's.
 
 use std::path::PathBuf;
 
@@ -14,22 +17,29 @@ use super::held_route::{deadline_of, held_to_its_deadline, probing, slicing, une
 use super::held_wait::standing;
 use super::*;
 
-/// A clock over `now` whose first read after the journal at `journal`
+/// The probe's sample as its spawn begins, and the fork's check after the
+/// door, record, charter and settlement work.
+const SAMPLE: usize = 1;
+const FORK: usize = 2;
+
+/// A clock over `now` whose `read`th read once the journal at `journal`
 /// holds a standing probe hold moves `now` on by `pause` first; its slices
 /// advance `now`.
-fn pausing_after_the_hold(
+fn pausing_at(
     now: &Arc<Mutex<OffsetDateTime>>,
     journal: PathBuf,
-    pause: time::Duration,
+    (read, pause): (usize, time::Duration),
 ) -> Clock {
-    let read = Arc::clone(now);
-    let paused = std::sync::atomic::AtomicBool::new(false);
+    let shared = Arc::clone(now);
+    let reads = std::sync::atomic::AtomicUsize::new(0);
     Clock {
         now: Box::new(move || {
-            let mut at = read.lock().unwrap();
+            let mut at = shared.lock().unwrap();
             let ordering = std::sync::atomic::Ordering::SeqCst;
-            if !paused.load(ordering) && unended_holds(&journal) == 1 {
-                paused.store(true, ordering);
+            if reads.load(ordering) < read
+                && unended_holds(&journal) == 1
+                && reads.fetch_add(1, ordering) + 1 == read
+            {
                 *at += pause;
             }
             *at
@@ -47,15 +57,14 @@ fn parked_reason(engine: &Engine) -> String {
     parked.payload["reason"].as_str().unwrap().to_string()
 }
 
-/// The adversarial position's pause: 3.3 seconds before spawn, against the
-/// seat's two-second timeout. The probe is not spawned past its deadline;
-/// the run parks naming it, and the real pass and claim read the route
-/// cooling down until that deadline, and open at it.
-#[test]
-fn a_probe_whose_deadline_passes_before_its_spawn_is_not_spawned_and_holds_to_it() {
+/// The adversarial position's pause, 3.3 seconds against the seat's
+/// two-second timeout, at clock read `read`: the probe is not spawned past
+/// its deadline, the run parks naming it, and the real pass and claim read
+/// the route cooling down through its hold's end.
+fn a_probe_paused_past_its_deadline_at(read: usize) {
     let (dir, mut engine, now, probe_at, gates) = probing(Probed::Answer);
-    let pause = time::Duration::milliseconds(3_300);
-    engine.cooldown.clock = pausing_after_the_hold(&now, engine.store.path().into(), pause);
+    let pause = (read, time::Duration::milliseconds(3_300));
+    engine.cooldown.clock = pausing_at(&now, engine.store.path().into(), pause);
     engine.drive().unwrap();
     assert_eq!(standing(&engine), (Status::AwaitingOperator, 1));
     assert_eq!(logs(dir.path(), "work"), ["attempt:refuse"]);
@@ -71,14 +80,30 @@ fn a_probe_whose_deadline_passes_before_its_spawn_is_not_spawned_and_holds_to_it
     held_to_its_deadline(&engine, &gates, deadline);
 }
 
-/// A pause short of the deadline, one second of the seat's two: the driver
-/// is armed with the one second that remains, as its watchdog's kill of
-/// the hanging probe names, not with a fresh two-second timeout.
+/// Paused before its spawn begins, the probe composes no spawn.
 #[test]
-fn a_probe_paused_before_its_spawn_is_armed_with_the_time_that_remains() {
+fn a_probe_whose_deadline_passes_before_its_spawn_is_not_spawned_and_holds_to_it() {
+    a_probe_paused_past_its_deadline_at(SAMPLE);
+}
+
+/// The adversarial position's case: paused after the probe's own sample,
+/// while dispatch does its door, record, charter and settlement work, the
+/// fork finds the deadline passed and spawns nothing.
+#[test]
+fn a_probe_whose_deadline_passes_after_its_sample_is_not_spawned_and_holds_to_it() {
+    a_probe_paused_past_its_deadline_at(FORK);
+}
+
+/// A pause after the probe's sample, one second of the seat's two: the
+/// watchdog kills the hanging probe at the probe's deadline, the one
+/// second that remained at the fork, as its kill's words name, not at the
+/// two seconds the sample saw. Its hold stands past that kill, to the
+/// whole second after the deadline.
+#[test]
+fn a_probe_paused_after_its_sample_is_killed_at_its_deadline() {
     let (dir, mut engine, now, probe_at, gates) = probing(Probed::Hang);
-    let pause = time::Duration::seconds(1);
-    engine.cooldown.clock = pausing_after_the_hold(&now, engine.store.path().into(), pause);
+    let pause = (FORK, time::Duration::seconds(1));
+    engine.cooldown.clock = pausing_at(&now, engine.store.path().into(), pause);
     engine.drive().unwrap();
     assert_eq!(standing(&engine), (Status::AwaitingOperator, 1));
     assert_eq!(logs(dir.path(), "work"), ["attempt:refuse", "probe"]);

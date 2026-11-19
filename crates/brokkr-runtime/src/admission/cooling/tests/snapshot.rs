@@ -86,7 +86,7 @@ fn a_refusal_committed_between_the_pass_reads_leaves_its_route_cooling_down() {
     assert!(judged[0].room.is_none(), "the pass offered room");
     assert_eq!(
         verdicts(judged),
-        vec![vec![cooling("beta", "cloud", at(30), words)]]
+        vec![vec![cooling("beta", "cloud", at(31), words)]]
     );
     // The claim, after it, reads the renewed row.
     match (room.claim_at(&mut fixture.store, Generation(1), "admitted", base())).unwrap() {

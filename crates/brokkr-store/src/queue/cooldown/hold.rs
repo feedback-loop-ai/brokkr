@@ -10,7 +10,7 @@
 use rusqlite::{params, Connection};
 use time::OffsetDateTime;
 
-use super::{time_of, until_second, Cooldown};
+use super::{time_of, Cooldown, LAST_SECOND};
 use crate::queue::storage::cool_downs_writable;
 use crate::{patiently, Store, StoreError};
 
@@ -24,7 +24,9 @@ pub struct ProbeHold<'a> {
     pub site: &'a str,
     pub provider: &'a str,
     pub route: &'a str,
-    /// When the hold stops counting, whatever became of the probe.
+    /// The instant the probe's driver is killed by. The hold stops
+    /// counting at the first whole second after it, whatever became of the
+    /// probe.
     pub deadline: OffsetDateTime,
 }
 
@@ -32,6 +34,14 @@ pub struct ProbeHold<'a> {
 /// round, ends.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ProbeHoldId(i64);
+
+/// The first whole second strictly after `deadline`, never past
+/// [`LAST_SECOND`]: a hold stored here ends later than the probe's driver
+/// is killed, even on a deadline that falls on a whole second, where a
+/// round-up would end both at once (fix round 0106b1r6, D1).
+fn after_second(deadline: OffsetDateTime) -> i64 {
+    deadline.unix_timestamp().saturating_add(1).min(LAST_SECOND)
+}
 
 /// The words a hold is read with, naming the run whose probe is in flight.
 fn words(run_id: &str) -> String {
@@ -116,7 +126,7 @@ impl Store {
                     hold.provider,
                     hold.route,
                     now.unix_timestamp(),
-                    until_second(hold.deadline),
+                    after_second(hold.deadline),
                 ],
             )?;
             let seq = tx.last_insert_rowid();

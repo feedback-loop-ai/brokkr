@@ -40,6 +40,7 @@ use crate::{
     AttemptOutcome, AttemptReport, Body, Cleanup, Message, PreSessionRefusal, Probe, PROTO,
 };
 mod attempts;
+mod deadline;
 mod evidence;
 mod launched;
 mod limits;
@@ -51,6 +52,7 @@ mod table;
 mod tree;
 
 use attempts::{Attempt, Unspawned};
+pub use deadline::Deadline;
 pub(crate) use launched::Launched;
 use limits::{Exceeded, Frame, Limits, Retained, STDOUT_LINES};
 use outcome::{reached, refuse_foreign, unread};
@@ -159,7 +161,7 @@ pub struct DriverProcess {
     /// Dropping the sender disarms the watchdog; `finish` joins the
     /// thread before it reaps, so no kill can land after the reap.
     watchdog: Option<(mpsc::Sender<()>, JoinHandle<()>)>,
-    deadline: Option<Duration>,
+    deadline: Option<Deadline>,
     started: Instant,
     bounds: Bounds,
     limits: Limits,
@@ -280,6 +282,7 @@ impl DriverProcess {
         env: &SpawnEnv,
         host: Host,
     ) -> Result<Self, SpawnError> {
+        let deadline = deadline.map(Deadline::After);
         Self::spawn_limited(command, workdir, deadline, env, host, Limits::DEFAULT)
     }
 
@@ -287,7 +290,7 @@ impl DriverProcess {
     fn spawn_limited(
         command: &[String],
         workdir: &std::path::Path,
-        deadline: Option<Duration>,
+        deadline: Option<Deadline>,
         env: &SpawnEnv,
         host: Host,
         limits: Limits,
@@ -322,7 +325,7 @@ impl DriverProcess {
             let (tx, rx) = mpsc::channel::<()>();
             let timed_out = Arc::clone(&timed_out);
             let thread = std::thread::spawn(move || {
-                if let Err(RecvTimeoutError::Timeout) = rx.recv_timeout(deadline) {
+                if let Err(RecvTimeoutError::Timeout) = rx.recv_timeout(deadline.left()) {
                     timed_out.store(true, Ordering::SeqCst);
                     // A refusal here is met again, and carried, by
                     // `tree::end`, whose kill reads the table and signals
@@ -387,7 +390,7 @@ impl DriverProcess {
         match self.deadline {
             None => self.stdout.recv().ok(),
             Some(deadline) => {
-                let give_up = self.started + deadline + self.bounds.drain;
+                let give_up = deadline.kills(self.started) + self.bounds.drain;
                 let wait = give_up.checked_duration_since(Instant::now())?;
                 self.stdout.recv_timeout(wait).ok()
             }
@@ -510,7 +513,10 @@ impl DriverProcess {
     /// the attempt was accepted.
     fn eof_outcome(&self, accepted: bool) -> AttemptOutcome {
         if self.timed_out.load(Ordering::SeqCst) {
-            let secs = self.deadline.map(|d| d.as_secs()).unwrap_or_default();
+            let secs = self
+                .deadline
+                .map(|d| d.armed().as_secs())
+                .unwrap_or_default();
             return AttemptOutcome::Indeterminate {
                 reason: format!(
                     "attempt exceeded its {secs}s deadline and was killed; its process \

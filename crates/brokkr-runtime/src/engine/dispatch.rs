@@ -29,6 +29,8 @@ use super::{
 use crate::bundle::{layer_drift, site_charter_text, Bundle, ExecutableBody, Invocation};
 
 pub(super) mod deadline;
+mod kill;
+pub(super) use kill::{SpawnDeadline, Unspawned};
 
 /// One attempt of a requested effect, as [`Engine::execute`] names it
 /// before anything spawns: the effect, the attempt, the seat and the case
@@ -468,6 +470,34 @@ pub(super) fn spawn_site(
     deadline: std::time::Duration,
     door: Option<Door<'_>>,
 ) -> Result<(DriverProcess, Value), String> {
+    let deadline = SpawnDeadline::After(deadline);
+    spawn_site_by(bundle, spawn, input, workdir, deadline, door).map_err(|not| not.to_string())
+}
+
+/// [`spawn_site`] under `deadline`, which a probe gives as its one
+/// absolute instant: checked again immediately before the fork, and the
+/// instant its watchdog kills at (fix round 0106b1r6, D1).
+pub(super) fn spawn_site_by(
+    bundle: &Bundle,
+    spawn: &SiteSpawn,
+    input: &Value,
+    workdir: &Path,
+    deadline: SpawnDeadline<'_>,
+    door: Option<Door<'_>>,
+) -> Result<(DriverProcess, Value), Unspawned> {
+    let input = checked_input(bundle, spawn, input, door).map_err(Unspawned::Refused)?;
+    spawned(spawn, workdir, deadline, door).map(|process| (process, input))
+}
+
+/// Every check [`spawn_site`] takes before its driver is spawned, and the
+/// input it is told: the door's recheck, the launch record, the charter
+/// and the layer's re-walk.
+fn checked_input(
+    bundle: &Bundle,
+    spawn: &SiteSpawn,
+    input: &Value,
+    door: Option<Door<'_>>,
+) -> Result<Value, String> {
     if let Some(reason) = &spawn.refusal {
         return Err(reason.clone());
     }
@@ -525,7 +555,7 @@ pub(super) fn spawn_site(
             return Err(rewalk_refusal(bundle, spawn, moved));
         }
     }
-    spawned(spawn, workdir, deadline, door).map(|process| (process, input))
+    Ok(input)
 }
 
 /// The driver `spawn` names, spawned. Under a door, its settlement record
@@ -534,18 +564,20 @@ pub(super) fn spawn_site(
 /// a later release asks the host about every driver that is not settled and
 /// never about a sibling's group (decision 0108 ruling 3). A seal that fails
 /// leaves this driver without a group: the release refuses for it and never
-/// guesses.
+/// guesses. The deadline is armed last, immediately before the fork.
 fn spawned(
     spawn: &SiteSpawn,
     workdir: &Path,
-    deadline: std::time::Duration,
+    deadline: SpawnDeadline<'_>,
     door: Option<Door<'_>>,
-) -> Result<DriverProcess, String> {
+) -> Result<DriverProcess, Unspawned> {
     if let Some(Door { held, site, begun }) = door {
-        settlement::spawning(held, site, begun).map_err(|refusal| refusal.to_string())?;
+        settlement::spawning(held, site, begun)
+            .map_err(|refusal| Unspawned::Refused(refusal.to_string()))?;
     }
-    let process = DriverProcess::spawn(&spawn.argv, workdir, Some(deadline), &spawn.env)
-        .map_err(|error| error.to_string())?;
+    let deadline = deadline.armed()?;
+    let process = DriverProcess::spawn_by(&spawn.argv, workdir, deadline, &spawn.env)
+        .map_err(|error| Unspawned::Refused(error.to_string()))?;
     if let Some(Door { held, site, .. }) = door {
         settlement::release::spawned(held, site, process.group());
     }
