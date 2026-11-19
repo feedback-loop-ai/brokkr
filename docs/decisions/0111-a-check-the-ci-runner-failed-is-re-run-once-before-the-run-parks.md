@@ -728,15 +728,41 @@ observation names (ruling 3), read through 0109's verified reader (below) and ne
 change's tree:
 
 - Every required entry's workflow file is parsed at the base into a typed subset: each job's
-  `needs`, its `strategy.matrix` and its steps' `uses` and `run`. The closure starts from each
-  required job and every job it `needs`, transitively.
+  `needs`, its `strategy.matrix`, its steps' `uses`, `run` and `working-directory`, and the
+  workflow's and the job's `defaults.run.working-directory`
+  (<https://docs.github.com/en/actions/writing-workflows/workflow-syntax-for-github-actions#defaultsrunworking-directory>;
+  not read in this session). The closure starts from each required job and every job it
+  `needs`, transitively.
 - A **reference** is a local file a reached step or file executes: a `uses: ./…` (and that
   action's `action.yml`, whose `runs` are read the same way); in a `run:` line, or in a reached
   script, the operand of `bash`, `sh`, `source`, `.`, `exec`, `python3`, `python`, `node`,
   `perl` or `ruby`, and any command word that is itself a repository path. Every reached file is
   scanned for references in turn.
-- **Every file a required job executes at the base lies outside the change classes,** or
-  `machinery-escapes` withholds the class, naming the reference and the file that made it.
+- **A reached step's effective working directory lies in the machinery.** It is the step's own
+  `working-directory`, else the job's default, else the workflow's, else the checkout's root,
+  moved by any `cd` the step runs; a `cd` whose operand is not a literal is unresolved. A
+  directory that is, or lies under, a change class withholds as `machinery-escapes`, naming the
+  directory and the step. A program run there reads what it finds there.
+- **So do each command word's implicit inputs.** A program reads files no operand names: `make`
+  reads `GNUmakefile`, `makefile` or `Makefile` in its working directory; `docker compose` reads
+  `compose.yaml`, `compose.yml`, `docker-compose.yaml` or `docker-compose.yml`; `npm` reads
+  `package.json` and `.npmrc`. A pinned table in `ci/closure.rs` names, for every command word
+  and every remote action (`owner/repo`) the closure admits, its implicit inputs relative to the
+  effective working directory, possibly none (`echo`, `test`, `printf`, `mkdir`), and, apart,
+  the inputs that are the change under test, which may lie in a change class (for `cargo`, the
+  workspace members' manifests, build scripts and sources, and `Cargo.lock`; its own
+  configuration, the root `Cargo.toml`, `.cargo/` and `rust-toolchain.toml`, is an implicit
+  input). A setup step that builds the change under test can still print a declared literal;
+  that is ruling 4's bounded cost, a person's park, and never a pass. Every implicit input
+  lies outside the change classes, or `machinery-escapes`
+  withholds, naming the word, the input and the step. **A command word or a remote action the
+  table does not name withholds as `machinery-unresolved`**: its inputs are not known, so they
+  are not known to be machinery. The table is the engine's, one home, and a word it lacks fails
+  closed; the closure verdict it gave is sealed in the basis, so a later table never moves a
+  replay.
+- **Every file a required job executes, reads as an implicit input or runs from at the base
+  lies outside the change classes,** or `machinery-escapes` withholds the class, naming the
+  reference and the file that made it.
 - **A reference the test cannot resolve fails closed,** as `machinery-unresolved`: an operand or
   command word built by an expansion, a command substitution, `eval`, or a glob, unless it is a
   variable the same file assigns only from literal words. Whether HEAD's own scripts resolve
@@ -892,8 +918,8 @@ stops nothing landing would do. Each is a precision guard on the one class, and 
 | Withholding | When |
 |---|---|
 | `machinery-touched` | a changed path lies outside every change class; it names the paths |
-| `machinery-escapes` | at the base, a file a required job executes lies inside a change class |
-| `machinery-unresolved` | at the base, a reached file holds a reference the closure test cannot resolve |
+| `machinery-escapes` | at the base, a file a required job executes, a command word's implicit input, or a reached step's effective working directory lies inside a change class |
+| `machinery-unresolved` | at the base, a reached file holds a reference the closure test cannot resolve, or a command word or remote action the pinned table does not name |
 | `range-unproven` | 0109's verified reader cannot establish the range's provenance and its complete, byte-exact path list |
 | `range-too-large` | the range's changed paths exceed the bound the classification record carries |
 | `basis-too-large` | the classifier's sealed basis would exceed its bound |
@@ -1705,6 +1731,16 @@ slice that produces it, and each typed assertion is in the slice that builds its
    `a_change_class_only_change_with_a_red_setup_only_observation_draws_ci_infrastructure`;
    `a_base_file_a_required_job_executes_inside_a_change_class_withholds_as_machinery_escapes`;
    `a_reference_built_by_expansion_withholds_as_machinery_unresolved`;
+   `a_makefile_only_change_under_a_pinned_working_directory_draws_no_ci_infrastructure` (a
+   required setup step runs a bare `make` under a base `defaults.run.working-directory` of
+   `crates/ci`, and the change edits only `crates/ci/Makefile` so the step prints the declared
+   port-bind literal: `change`, `withheld`, with `machinery-escapes` naming the directory and the
+   `Makefile`);
+   `a_step_whose_effective_working_directory_lies_in_a_change_class_withholds_as_machinery_escapes`;
+   `a_cd_to_a_non_literal_directory_withholds_as_machinery_unresolved`;
+   `a_command_word_the_pinned_table_does_not_name_withholds_as_machinery_unresolved`;
+   `a_remote_action_the_pinned_table_does_not_name_withholds_as_machinery_unresolved`;
+   `a_docker_compose_step_whose_compose_file_lies_in_a_change_class_withholds_as_machinery_escapes`;
    `the_closure_follows_needs_uses_and_sourced_helpers_transitively`;
    `the_closure_reads_the_base_revision_never_the_changes_tree`;
    `an_empty_change_class_list_refuses_to_compile`;
