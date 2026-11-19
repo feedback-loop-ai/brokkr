@@ -994,11 +994,7 @@ fn ensure(scan: &mut Scan, slot: usize, effect_id: &str, member: Option<&str>) -
     if let Some(index) = scan.by_key.get(&key) {
         return *index;
     }
-    let seat = &scan.effects[slot].seat;
-    let label = match member {
-        Some(member) => format!("{seat}:{member}"),
-        None => seat.clone(),
-    };
+    let label = participant::label_of(&scan.effects[slot].seat, member);
     scan.parts.push(Build {
         carried: None,
         effect_index: slot,
@@ -1080,19 +1076,7 @@ fn scan_participants(events: &[EventEnvelope]) -> Scan {
                 // it does not clear `open`, set the status, or
                 // contribute a duration or a result token.
                 if field(payload, "attempt_id") == scan.effects[slot].open.as_deref() {
-                    if let Some(model) = payload.pointer("/result/model").and_then(Value::as_str) {
-                        let part = ensure(&mut scan, slot, effect_id, None);
-                        scan.parts[part].model = Some(model.to_string());
-                    }
-                    if let Some(word) = payload.get("result").and_then(stamp_of) {
-                        let part = ensure(&mut scan, slot, effect_id, None);
-                        scan.parts[part].stamp = Some(word);
-                    }
-                    if let Some(effort) = payload.pointer("/result/effort").and_then(Value::as_str)
-                    {
-                        let part = ensure(&mut scan, slot, effect_id, None);
-                        scan.parts[part].effort = Some(effort.to_string());
-                    }
+                    started::terminal(&mut scan, slot, effect_id, payload);
                     let effect = &mut scan.effects[slot];
                     effect.open = None;
                     effect.terminal = terminal_status(event.event_type);

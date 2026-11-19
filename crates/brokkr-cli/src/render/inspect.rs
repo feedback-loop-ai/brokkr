@@ -137,8 +137,9 @@ pub(super) fn ruling_lines(out: &mut String, ruling: &Ruling) {
 
 /// The block after the readout's frame that says what each gate verdict
 /// recorded beside its word (decision 0109 slice 0109a1): its covered head
-/// and each finding, one line each, the finding's key as its id and the
-/// first twelve hex of its site. Empty for a run whose results recorded
+/// and each finding, one line each, the finding's key as its id, the seat
+/// that produced it (fix round 0109a1r4, K6) and the first twelve hex of
+/// its site. Empty for a run whose results recorded
 /// neither, so an older run reads exactly as it did.
 pub(crate) fn gates(records: &[GateRecord]) -> String {
     let mut out = String::new();
@@ -174,8 +175,9 @@ fn finding_line(phase: &str, finding: &GateFinding) -> String {
     };
     let security = if finding.security { " · security" } else { "" };
     format!(
-        "  {phase} · finding {} · site {} · {}{security} · {} · {}",
+        "  {phase} · finding {} · by {} · site {} · {}{security} · {} · {}",
         Safe::new(&finding.id).as_str(),
+        Safe::new(&finding.producer).as_str(),
         finding.site.get(..12).unwrap_or(&finding.site),
         finding.severity,
         Safe::new(&at).as_str(),

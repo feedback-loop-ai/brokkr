@@ -637,7 +637,9 @@ impl Engine {
     }
 
     /// The last step's result is the attempt's, unless it contradicts a
-    /// deterministic dialect check's failure, which parks.
+    /// deterministic dialect check's failure, which parks. The success
+    /// names the step that produced it, as an early ending's does, so a
+    /// reader files its verdict under that step (fix round 0109a1r4, K6).
     fn finish_sequence(
         &mut self,
         run: &SequenceRun,
@@ -649,7 +651,10 @@ impl Engine {
         if let StepVerdict::Ended = self.refuse_contradiction(run, at, &result, carried)? {
             return Ok(StepVerdict::Ended);
         }
-        self.append_succeeded(run.effect_id, run.attempt_id, result, refused)?;
+        let (effect_id, attempt_id) = (run.effect_id, run.attempt_id);
+        let payload = json!({"effect_id": effect_id, "attempt_id": attempt_id, "result": result,
+                             "step": at.step.name});
+        self.append_succeeded_under_fence(payload, attempt_id, refused)?;
         Ok(StepVerdict::Ended)
     }
 
@@ -674,6 +679,7 @@ impl Engine {
         let marker = stamp_boundary(
             EngineMarker::StepFinished.record(json!({
                 "step_name": at.step.name,
+                "member": at.step.name,
                 "model": model,
                 "result": result,
             })),

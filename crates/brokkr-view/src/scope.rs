@@ -189,26 +189,27 @@ pub fn keeps_row(lens: Option<&Lens>, row: &JournalRow) -> bool {
 
 impl GateRecord {
     /// What `lens` keeps of this verdict's record, the frame's own scope
-    /// (fix round 0109a1r2, R5): a phase lens the record of its phase; a
-    /// seat lens the whole record where it holds the effect's own
-    /// participant, else only the findings its participants reported,
-    /// beside the covered head the effect read, and never findings that
-    /// do not read, which name no participant. `None` where it keeps
+    /// (fix round 0109a1r2, R5): a phase lens the whole record of its
+    /// phase; a seat lens only the findings its own participants produced
+    /// (fix round 0109a1r4, K6), beside the covered head the verdict read,
+    /// and the record's covered head and unread flag only where it holds
+    /// the participant that produced the verdict. `None` where it keeps
     /// nothing.
     pub fn kept_by(&self, lens: Option<&Lens>) -> Option<GateRecord> {
         let Some(lens) = lens else {
             return Some(self.clone());
         };
-        if !lens.by_key || lens.keys.contains(&self.key) {
-            return (lens.by_key || lens.phases.contains(&self.phase)).then(|| self.clone());
+        if !lens.by_key {
+            return lens.phases.contains(&self.phase).then(|| self.clone());
         }
         let findings: Vec<_> = (self.findings.iter())
             .filter(|finding| lens.keys.contains(&finding.participant))
             .cloned()
             .collect();
-        (!findings.is_empty()).then(|| GateRecord {
+        let own = lens.keys.contains(&self.key);
+        (own || !findings.is_empty()).then(|| GateRecord {
             findings,
-            unread: false,
+            unread: own && self.unread,
             ..self.clone()
         })
     }

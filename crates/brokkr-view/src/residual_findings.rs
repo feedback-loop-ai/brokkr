@@ -27,8 +27,12 @@ pub struct GateFinding {
     pub severity: &'static str,
     pub security: bool,
     /// The participant key of the seat that reported it: the panel
-    /// member whose checkpoints carry its site, else the effect's own.
+    /// member the engine's marker gives its site, else the sequence step
+    /// that produced its verdict, else the effect's own.
     pub participant: String,
+    /// That seat's label, as a seat scope names it: the effect's seat,
+    /// and `:` and its member or step (fix round 0109a1r4, K6).
+    pub producer: String,
 }
 
 /// What one successful result recorded beside its word (decision 0109
@@ -54,61 +58,109 @@ pub struct GateRecord {
 /// ruling 6), and findings that do not read are said not to read, never
 /// shown as none.
 pub fn gate_records(events: &[EventEnvelope]) -> Vec<GateRecord> {
-    let phases: BTreeMap<&str, &str> = events
+    let effects: BTreeMap<&str, (&str, &str)> = events
         .iter()
         .filter(|event| event.event_type == EventType::EffectRequested)
-        .map(|event| (text(event, "effect_id"), text(event, "phase")))
-        .collect();
-    let members = site_members(events);
-    events
-        .iter()
-        .filter_map(|event| {
-            let (result, step) = verdict_of(event)?;
-            let effect_id = text(event, "effect_id");
-            let read = (result.get("findings")).map(Vec::<Finding>::deserialize);
-            let unread = matches!(read, Some(Err(_)));
-            let findings = read.and_then(Result::ok).unwrap_or_default();
-            let covered = result
-                .get("covered")
-                .and_then(|covered| Covered::deserialize(covered).ok());
-            // A finding is its member's where a member's record carries
-            // its site, else the step's that journaled it, else the
-            // effect's own.
-            let reporter = |finding: &Finding| {
-                let site = finding.key().site().to_string();
-                let member = members.get(&(effect_id, site)).copied();
-                participant::key_of(effect_id, member.or(step))
-            };
-            (!findings.is_empty() || covered.is_some() || unread).then(|| GateRecord {
-                phase: phases.get(effect_id).copied().unwrap_or("-").to_string(),
-                key: participant::key_of(effect_id, step),
-                findings: findings
-                    .iter()
-                    .map(|finding| gate_finding(finding, reporter(finding)))
-                    .collect(),
-                covered: covered.as_ref().map(covered_text),
-                unread,
-            })
+        .map(|event| {
+            (
+                text(event, "effect_id"),
+                (text(event, "phase"), text(event, "seat")),
+            )
         })
+        .collect();
+    let reading = Reading {
+        effects,
+        members: site_members(events),
+    };
+    (events.iter())
+        .filter_map(verdict_of)
+        .filter_map(|verdict| reading.record(&verdict))
         .collect()
+}
+
+/// One verdict the journal records: its effect, its result, and the seat
+/// within the effect that produced it, a sequence step's, or none for
+/// the effect's own body.
+struct Verdict<'a> {
+    effect_id: &'a str,
+    result: &'a Value,
+    seat: Option<&'a str>,
+}
+
+/// What a verdict is read with: each effect's phase and seat, and the
+/// panel member each `(effect, site)` belongs to.
+struct Reading<'a> {
+    effects: BTreeMap<&'a str, (&'a str, &'a str)>,
+    members: BTreeMap<(&'a str, String), &'a str>,
+}
+
+impl Reading<'_> {
+    /// `verdict`'s record, if it recorded findings or a covered head. A
+    /// finding is filed under the member whose site it carries, else the
+    /// seat that produced the verdict (fix round 0109a1r4, K6), and names
+    /// that producer.
+    fn record(&self, verdict: &Verdict<'_>) -> Option<GateRecord> {
+        let Verdict {
+            effect_id, result, ..
+        } = *verdict;
+        let read = (result.get("findings")).map(Vec::<Finding>::deserialize);
+        let unread = matches!(read, Some(Err(_)));
+        let findings = read.and_then(Result::ok).unwrap_or_default();
+        let covered = result
+            .get("covered")
+            .and_then(|covered| Covered::deserialize(covered).ok());
+        let (phase, seat) = self.effects.get(effect_id).copied().unwrap_or(("-", "-"));
+        let producer = |finding: &Finding| {
+            let site = finding.key().site().to_string();
+            let member = self.members.get(&(effect_id, site)).copied();
+            let member = member.or(verdict.seat);
+            Producer {
+                key: participant::key_of(effect_id, member),
+                label: participant::label_of(seat, member),
+            }
+        };
+        (!findings.is_empty() || covered.is_some() || unread).then(|| GateRecord {
+            phase: phase.to_string(),
+            key: participant::key_of(effect_id, verdict.seat),
+            findings: (findings.iter())
+                .map(|finding| gate_finding(finding, producer(finding)))
+                .collect(),
+            covered: covered.as_ref().map(covered_text),
+            unread,
+        })
+    }
+}
+
+/// The seat that produced a finding: its participant key and its label.
+struct Producer {
+    key: String,
+    label: String,
 }
 
 /// The verdict `event` journals, if it journals one, admitted only by
 /// provenance the engine established (fix round 0109a1r4, K1): a
-/// success's result, which only the engine appends, or a sequence step's
-/// result in the step's checkpoint the engine authored, under the step's
-/// name. A checkpoint that names the marker's word without the engine's
-/// `authored` is a driver's, and is no verdict.
-fn verdict_of(event: &EventEnvelope) -> Option<(&Value, Option<&str>)> {
-    match event.event_type {
-        EventType::EffectSucceeded => Some((&event.payload["result"], None)),
+/// success's result, which only the engine appends, under the sequence
+/// step it names (K6), or a sequence step's result in the step's
+/// checkpoint the engine authored, under the step's name. A checkpoint
+/// that names the marker's word without the engine's `authored` is a
+/// driver's, and is no verdict.
+fn verdict_of(event: &EventEnvelope) -> Option<Verdict<'_>> {
+    let effect_id = text(event, "effect_id");
+    let (result, seat) = match event.event_type {
+        EventType::EffectSucceeded => (&event.payload["result"], event.payload["step"].as_str()),
         EventType::EffectCheckpointed => {
             let checkpoint = &event.payload["checkpoint"];
             (EngineMarker::authored(checkpoint) == Some(EngineMarker::StepFinished))
-                .then(|| (&checkpoint["result"], checkpoint["step_name"].as_str()))
+                .then_some(())?;
+            (&checkpoint["result"], checkpoint["step_name"].as_str())
         }
-        _ => None,
-    }
+        _ => return None,
+    };
+    Some(Verdict {
+        effect_id,
+        result,
+        seat,
+    })
 }
 
 /// The panel member each `(effect, site)` belongs to, as the engine's own
@@ -135,7 +187,7 @@ fn text<'a>(event: &'a EventEnvelope, key: &str) -> &'a str {
     event.payload[key].as_str().unwrap_or("-")
 }
 
-fn gate_finding(finding: &Finding, participant: String) -> GateFinding {
+fn gate_finding(finding: &Finding, producer: Producer) -> GateFinding {
     let key = finding.key();
     GateFinding {
         site: key.site().to_string(),
@@ -145,7 +197,8 @@ fn gate_finding(finding: &Finding, participant: String) -> GateFinding {
         summary: finding.summary().to_string(),
         severity: finding.severity().name(),
         security: finding.security(),
-        participant,
+        participant: producer.key,
+        producer: producer.label,
     }
 }
 

@@ -19,7 +19,7 @@ fn run(results: &[(&str, Value)]) -> Vec<EventEnvelope> {
         events.push(ev(
             seq,
             EventType::EffectRequested,
-            json!({"effect_id": effect, "phase": phase}),
+            json!({"effect_id": effect, "phase": phase, "seat": phase}),
             T,
         ));
         events.push(ev(
@@ -73,6 +73,7 @@ fn a_v7_gate_reads_back_its_findings_and_covered_and_a_v6_one_reads_nothing() {
         severity: "low",
         security: false,
         participant: "e2".into(),
+        producer: "review".into(),
     };
     let two = GateFinding {
         id: "two".into(),

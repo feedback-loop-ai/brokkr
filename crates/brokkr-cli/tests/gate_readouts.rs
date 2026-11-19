@@ -110,28 +110,29 @@ fn a_scoped_inspect_prints_only_its_own_scopes_verdicts() {
             .unwrap_or("")
             .to_string()
     };
-    let finding = |phase: &str, id: &str, site: &str| {
+    let finding = |phase: &str, id: &str, by: &str, site: &str| {
         format!(
-            "  {phase} · finding {id} · site {} · low · a.rs · s\n",
+            "  {phase} · finding {id} · by {by} · site {} · low · a.rs · s\n",
             &site[..12]
         )
     };
     let covered = format!("  verify · covered head {HEAD} · dirty\n");
+    let adversarial = finding("review", "adversarial-one", "review:adversarial", SITE);
+    let correct = finding("review", "correct-one", "review:correctness", other);
     assert_eq!(
         read(&["--phase", "verify"]),
-        format!("{covered}{}", finding("verify", "verify-note", SITE))
+        format!(
+            "{covered}{}",
+            finding("verify", "verify-note", "verify", SITE)
+        )
     );
-    assert_eq!(
-        read(&["--seat", "review:adversarial"]),
-        finding("review", "adversarial-one", SITE)
-    );
+    assert_eq!(read(&["--seat", "review:adversarial"]), adversarial);
+    assert_eq!(read(&["--seat", "review:correctness"]), correct);
     assert_eq!(
         read(&[]),
         format!(
-            "{covered}{}{}{}",
-            finding("verify", "verify-note", SITE),
-            finding("review", "adversarial-one", SITE),
-            finding("review", "correct-one", other)
+            "{covered}{}{adversarial}{correct}",
+            finding("verify", "verify-note", "verify", SITE),
         )
     );
 }
@@ -156,9 +157,9 @@ fn inspect_prints_the_findings_and_covered_of_a_v7_gate() {
     assert!(ok, "{inspect}{err}");
     let block = format!(
         "\nverdicts\n  review · covered head {HEAD} · dirty\n  review · finding unchecked-len · \
-         site 5a1e00000000 · medium · crates/a/src/lib.rs:12 · the length is not checked\n  \
-         review · finding token-in-log · site 5a1e00000000 · high · security · \
-         crates/b/src/log.rs · a token reaches the log\n"
+         by review · site 5a1e00000000 · medium · crates/a/src/lib.rs:12 · the length is not \
+         checked\n  review · finding token-in-log · by review · site 5a1e00000000 · high · \
+         security · crates/b/src/log.rs · a token reaches the log\n"
     );
     assert!(inspect.ends_with(&block), "{inspect}");
 }

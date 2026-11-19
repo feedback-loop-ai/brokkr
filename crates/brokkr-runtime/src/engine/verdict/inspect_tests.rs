@@ -33,6 +33,11 @@ fn residual(id: &str, line: u64) -> Vec<String> {
 /// positions whose adversarial member reports `omitted` and whose
 /// correctness member reports `theirs`, and a chief that reports none.
 fn reviewed(compiled: &mut Bundle) {
+    reviewed_by_a_chief(compiled, driver(&json!({"result": "clean"})));
+}
+
+/// [`reviewed`], with the chief's driver `chief`.
+fn reviewed_by_a_chief(compiled: &mut Bundle, chief: Vec<String>) {
     compiled.machine = drift_refusing();
     let positions = StepBody::Invocation(Invocation::Panel {
         members: vec![
@@ -45,11 +50,7 @@ fn reviewed(compiled: &mut Bundle) {
     let steps = vec![
         gate_step("judge", &words, step_body(residual("early", 2))),
         gate_step("positions", &words, positions),
-        gate_step(
-            "chief",
-            &["clean"],
-            step_body(driver(&json!({"result": "clean"}))),
-        ),
+        gate_step("chief", &["clean"], step_body(chief)),
     ];
     let review = compiled.seats.get_mut("review").unwrap();
     review.body = SeatBody::Sequence { steps };
@@ -91,8 +92,9 @@ fn every_gate_verdict_the_journal_records_reads_back_under_its_own_seat() {
     assert_eq!(ids(seat("adversarial")), ["omitted"]);
     assert_eq!(ids(seat("correctness")), ["theirs"]);
     assert!(ids(Scope::Phase("work".into())).is_empty());
-    // The judge's step, a single driver with no participant of its own,
-    // is filed under its step, and the chief's success records none.
+    // Each record is filed under the step that produced it, the final
+    // chief's success included, which names its step (fix round
+    // 0109a1r4, K6).
     let records = gate_records(&events);
     let keys: Vec<&str> = records.iter().map(|record| record.key.as_str()).collect();
     let review = keys[0].split(':').next().unwrap();
@@ -101,7 +103,7 @@ fn every_gate_verdict_the_journal_records_reads_back_under_its_own_seat() {
         [
             format!("{review}:judge"),
             format!("{review}:positions"),
-            review.into()
+            format!("{review}:chief"),
         ]
     );
     let markers: Vec<&Value> = (events.iter())
@@ -125,4 +127,81 @@ fn every_gate_verdict_the_journal_records_reads_back_under_its_own_seat() {
             "{marker}"
         );
     }
+}
+
+/// The producer of each finding `scope` keeps of the run's verdicts, by
+/// id, in order.
+fn producers(events: &[EventEnvelope], scope: Scope) -> Vec<(String, String)> {
+    let state = brokkr_core::fold::fold(events).unwrap();
+    let view = brokkr_view::run_view(events, Some(&state));
+    let lens = lens_for(&view, Some(&scope)).unwrap();
+    gate_records(events)
+        .iter()
+        .filter_map(|record| record.kept_by(lens.as_ref()))
+        .flat_map(|record: GateRecord| record.findings)
+        .map(|finding| (finding.id, finding.producer))
+        .collect()
+}
+
+/// Fix round 0109a1r4, K6, through the real engine with no planted
+/// checkpoint: a finding-bearing single gate step before the end of a
+/// sequence and one at its end are each selected by their own seat, and
+/// by no other; the phase keeps both and names each one's producer.
+#[test]
+fn a_gate_steps_finding_shows_under_its_own_seat_before_the_end_and_at_it() {
+    let chief = driver(&json!({"result": "clean", "findings": [reported("late", 9)]}));
+    let (_dir, events) = driven_with(
+        single_body(driver(&json!({"result": "complete"}))),
+        |compiled| reviewed_by_a_chief(compiled, chief),
+    );
+    let ids = |seat: &str| kept(&events, Scope::Seat(seat.into()));
+    assert_eq!(ids("review:judge"), ["early"]);
+    assert_eq!(ids("review:chief"), ["late"]);
+    assert_eq!(ids("review"), Vec::<String>::new());
+    let named = |id: &str, by: &str| (id.to_string(), by.to_string());
+    assert_eq!(
+        producers(&events, Scope::Phase("review".into())),
+        [
+            named("early", "review:judge"),
+            named("omitted", "review:positions:adversarial"),
+            named("theirs", "review:positions:correctness"),
+            named("late", "review:chief"),
+        ]
+    );
+}
+
+/// A top-level gate panel where one member reports: its seat shows the
+/// finding, its sibling's seat does not, and the phase does, naming it.
+#[test]
+fn a_top_level_panel_members_finding_shows_under_that_member_alone() {
+    let review = SeatBody::Invocation(Invocation::Panel {
+        members: vec![
+            member("a", residual("mine", 5)),
+            member("b", driver(&json!({"result": "clean"}))),
+        ],
+        aggregate: Aggregate::ReviewPanel,
+    });
+    let (_dir, events) = driven_with(
+        single_body(driver(&json!({"result": "complete"}))),
+        |compiled| {
+            compiled.machine = drift_refusing();
+            let seat = compiled.seats.get_mut("review").unwrap();
+            seat.body = review;
+            seat.gate = GateAssessment::AllGate;
+            let ship = compiled.seats.get_mut("ship").unwrap();
+            ship.body = single_body(driver(&json!({"result": "shipped"})));
+        },
+    );
+    assert_eq!(kept(&events, Scope::Seat("review:a".into())), ["mine"]);
+    // Neither the sibling's seat nor the panel's own keeps a member's.
+    for seat in ["review:b", "review"] {
+        assert_eq!(
+            kept(&events, Scope::Seat(seat.into())),
+            Vec::<String>::new()
+        );
+    }
+    assert_eq!(
+        producers(&events, Scope::Phase("review".into())),
+        [("mine".to_string(), "review:a".to_string())]
+    );
 }
