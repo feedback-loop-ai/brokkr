@@ -1144,13 +1144,24 @@ fn a_torn_down_fixture_takes_what_was_observed_outside_its_tree() {
     let outside = within(|| !descendants(root).contains(&orphan));
     let member = members(root).contains(&orphan);
     assert_eq!((orphan == root, outside, member), (false, true, true));
-    felled_with(root, || felled_live(&[orphan]));
-    // The teardown looked at within a while, never waited on, and every
-    // observation taken before `Planted`'s fallback kill.
+    // `torn_down` itself, on a thread of its own awaited within a while, so
+    // one that kills nothing fails here, not when the attempt's sleep ends;
+    // the fixture comes back with nothing else having reaped its root.
+    let (done, came) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        torn_down(&mut planted.attempt, || felled_live(&[orphan]));
+        done.send(planted).ok();
+    });
+    let back = came.recv_timeout(WHILE).ok();
+    // Every observation is taken before any fallback kill: the root reaped
+    // by the teardown, gone from /proc and no zombie, and the orphan ended.
+    let reaped = back.is_some() && status(root).is_none();
     let survived = !gone(orphan);
-    let signal = planted.ended_by();
-    drop(planted);
-    assert_eq!((survived, signal), (false, Some(9)));
+    if back.is_none() {
+        group_felled(root);
+    }
+    drop(back);
+    assert_eq!((reaped, survived), (true, false));
 }
 
 /// The first line `out` says within [`WHILE`], read on a thread of its own,
