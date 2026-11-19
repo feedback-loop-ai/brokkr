@@ -1,7 +1,7 @@
 # review-first
 
 Found-branch delivery for work that already exists: the suite verifies the
-branch as found, Sol 6.1 (codex, high) judges it, findings return to
+branch as found, Sol 6.2 (codex, high) judges it, findings return to
 Muse Spark 1.3-contributor (dsh, xhigh) for remediation, and a clean
 verified branch ships through the exec ship seat, boxed where the
 realm's boundary is `namespace`.
@@ -22,7 +22,8 @@ Proposed by decision 0060: the verify entry and the forced Muse/Astra
 crew are the 0041 ruling 7 exception for the reason a wager forces its
 crew, named and asserted; landing stays the shop-work road. The judge
 seat moved from Astra 6.0 to Sol 6.1 at `high` on the operator's
-2026-09-30 roster ruling (decision 0045's addendum).
+2026-09-30 roster ruling (decision 0045's addendum), and to Sol 6.2
+(`gpt-6.2-sol`) on the roster update of 2026-11-19.
 
 The recipe declares that forcing as `forced_crew` (decision 0041's
 addendum of 2026-10-07). Muse remediates through
