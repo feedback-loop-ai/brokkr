@@ -803,41 +803,40 @@ fn a_reforge_loop_taken_more_than_once_is_a_return_arc_with_its_count() {
     insta::assert_snapshot!("graph_reforged", drawn(&view, PIPED_WIDTH));
 }
 
-#[test]
-fn a_return_arc_nested_in_another_rides_a_row_of_its_own_with_its_count() {
-    let dir = tempfile::tempdir().unwrap();
+/// The row `a` to `d` over one run that `c` sends back to `c_back` once
+/// and `d` to `d_back` once, each walked forward again from there.
+fn sent_back(dir: &Path, c_back: &'static str, d_back: &'static str) -> GraphView {
     let machine = table(
         &["a", "b", "c", "d"],
         &[
             ("A-OK", "a", "complete", Some("b")),
             ("B-OK", "b", "complete", Some("c")),
             ("C-OK", "c", "complete", Some("d")),
-            ("C-BACK", "c", "residual", Some("b")),
-            ("D-BACK", "d", "residual", Some("a")),
+            ("C-BACK", "c", "residual", Some(c_back)),
+            ("D-BACK", "d", "residual", Some(d_back)),
             ("D-OK", "d", "complete", Some("done")),
             ("D-STOP", "d", "blocked", Some("stop")),
         ],
     );
-    let step = |state, result, rule, next| (state, result, rule, Some(next));
-    let (a, b) = (
-        step("a", "complete", "A-OK", "b"),
-        step("b", "complete", "B-OK", "c"),
-    );
-    let mut events = walked(&[
-        a,
-        b,
-        step("c", "residual", "C-BACK", "b"),
-        b,
-        step("c", "complete", "C-OK", "d"),
-        step("d", "residual", "D-BACK", "a"),
-        a,
-        b,
-        step("c", "complete", "C-OK", "d"),
-        step("d", "complete", "D-OK", "done"),
-    ]);
-    events.push((EventType::RunCompleted, json!({})));
-    Journal::at(dir.path()).run("nested", &json!({"bundle_name": "nested"}), &events);
-    let view = view_of(dir.path(), &machine, "nested");
+    let on: [Step; 3] = [
+        ("a", "complete", "A-OK", Some("b")),
+        ("b", "complete", "B-OK", Some("c")),
+        ("c", "complete", "C-OK", Some("d")),
+    ];
+    let back = |at: &str| (on.iter()).position(|step| step.0 == at).unwrap();
+    let mut steps = on[..2].to_vec();
+    steps.push(("c", "residual", "C-BACK", Some(c_back)));
+    steps.extend(&on[back(c_back)..]);
+    steps.push(("d", "residual", "D-BACK", Some(d_back)));
+    steps.extend(&on[back(d_back)..]);
+    steps.push(("d", "complete", "D-OK", Some("done")));
+    one_run(dir, &machine, "sent", &steps)
+}
+
+#[test]
+fn a_return_arc_nested_in_another_rides_a_row_of_its_own_with_its_count() {
+    let dir = tempfile::tempdir().unwrap();
+    let view = sent_back(dir.path(), "b", "a");
     // b ᐸ c rides the arc row, and a ᐸ d, whose span holds it, the row
     // under it, rising past it to its states: both arcs, both counts.
     let drawing = drawn(&view, PIPED_WIDTH);
@@ -957,6 +956,21 @@ fn a_parked_run_is_live_on_its_state_and_a_stopped_one_takes_the_road_down_to_st
     let drawing = drawn(&view, PIPED_WIDTH);
     insta::assert_snapshot!("graph_parked", drawing);
     assert!(drawing.contains("╰─ 1 ─ᐳ ⊗ stop"), "{drawing}");
+    // At 12 columns the road has no room for its head and a letter past
+    // its state: the rule is listed whole instead (`drawn` checks it).
+    let narrow = drawn(&view, 12);
+    assert!(!narrow.contains("╰─ 1 ─ᐳ"), "{narrow}");
+}
+
+#[test]
+fn two_return_arcs_that_cross_ride_two_rows_one_passing_through_the_other() {
+    let dir = tempfile::tempdir().unwrap();
+    // a ᐸ c and b ᐸ d: each holds one end of the other.
+    let view = sent_back(dir.path(), "a", "b");
+    let drawing = drawn(&view, PIPED_WIDTH);
+    insta::assert_snapshot!("graph_crossed", drawing);
+    arcs_drawn(&view, PIPED_WIDTH);
+    assert!(drawing.contains('┼'), "{drawing}");
 }
 
 #[test]
