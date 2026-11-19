@@ -242,7 +242,14 @@ beginning `file:` as a URI (landing 431L4's finding), so without that
 binding the checks above and the publication could name different files.
 The same exposure on the CLI's other journal paths is #954.
 
-## Addendum — 2026-11-19, proposed: every journal open binds its path, and two names SQLite read specially are literal files (#954)
+## Addendum — 2026-11-19, accepted 2026-11-19: every journal open binds its path, and two names SQLite read specially are literal files (#954)
+
+Addendum status: accepted (operator, 2026-11-19)
+
+The operator accepted this addendum in chat on 2026-11-19, "go with
+recommended" (https://github.com/feedback-loop-ai/brokkr/issues/954#issuecomment-7005169956),
+ruling both asked items below as recommended: `--db :memory:` is the
+literal file `./:memory:`, and an empty path is refused by both opens.
 
 Under the operator's 2026-11-01 ruling on #431, #954 moves the binding
 into the store's one open, so `Store::open` and `Store::open_read_only`

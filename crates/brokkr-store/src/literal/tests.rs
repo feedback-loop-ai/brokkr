@@ -61,6 +61,20 @@ fn a_diagnostic_naming_the_bound_path_names_the_path_as_given() {
     );
 }
 
+/// An error that carries no SQLite diagnostic passes as it is, even when
+/// it names the bound path.
+#[test]
+fn an_error_without_a_diagnostic_passes_as_it_is() {
+    let bound = Path::new("/work/blocked/journal.db");
+    let given = Path::new("blocked/journal.db");
+    let shown = super::as_given(
+        rusqlite::Error::InvalidPath(bound.to_path_buf()),
+        given,
+        bound,
+    );
+    assert_eq!(shown, rusqlite::Error::InvalidPath(bound.to_path_buf()));
+}
+
 /// Both opens refuse a journal they cannot open as SQLite's cannot-open,
 /// naming the path: the writer's parent is a file, so no directory is
 /// made, and the reader finds no file.
@@ -84,8 +98,7 @@ fn a_journal_that_cannot_be_opened_is_refused_as_cannot_open() {
 }
 
 /// A path holding a nul byte is refused before it is bound or SQLite sees
-/// it, at the nul in the path as given; an error that carries no SQLite
-/// diagnostic passes as it is.
+/// it, at the nul in the path as given.
 #[test]
 fn a_nul_byte_is_refused_at_its_place_in_the_path_as_given() {
     for opened in [
