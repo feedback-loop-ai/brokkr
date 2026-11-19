@@ -1,7 +1,8 @@
 //! One test played in an engine of its own (#403, #484).
 
+use std::io::{ErrorKind, PipeReader, Read};
+use std::os::unix::process::ExitStatusExt;
 use std::process::{Command, ExitStatus, Stdio};
-use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 /// Set in the re-executed test binary: the one test it runs is already in
@@ -11,8 +12,8 @@ const OWN_ENGINE: &str = "BROKKR_TEST_OWN_ENGINE";
 /// How long a re-executed test may run before its parent fails it.
 const RERUN: Duration = Duration::from_secs(180);
 
-/// How long a rerun killed at its deadline may take to be reaped, and its
-/// output's reader to answer, each.
+/// How long a rerun killed at its deadline may take to be reaped, and one
+/// that ended may take to close its output.
 const GRACE: Duration = Duration::from_secs(5);
 
 /// Whether this test runs in an engine of its own. An in-process launch is
@@ -38,11 +39,13 @@ pub fn in_its_own_engine(test: &str) -> bool {
 }
 
 /// `command`'s status and what it printed, its standard input closed and
-/// its output and error one pipe, read by a thread of its own. One that has
-/// not ended within `bound` is killed, reaped and its reader answered, each
-/// within [`GRACE`], before the test fails: it leaves no child behind.
+/// its output and error one pipe, read without blocking as it waits. One
+/// that has not ended within `bound` is killed and reaped within [`GRACE`]
+/// before the test fails, showing what it printed so far: it leaves no
+/// child behind, and no reader that a descendant holding the pipe blocks.
 fn ended(mut command: Command, bound: Duration) -> (ExitStatus, String) {
     let (mut reader, writer) = std::io::pipe().unwrap();
+    rustix::io::ioctl_fionbio(&reader, true).unwrap();
     command
         .stdin(Stdio::null())
         .stdout(writer.try_clone().unwrap())
@@ -51,25 +54,46 @@ fn ended(mut command: Command, bound: Duration) -> (ExitStatus, String) {
     // The command holds the pipe's write ends: dropped, the reader ends
     // with the child's output.
     drop(command);
-    let (sent, read) = mpsc::channel();
-    std::thread::spawn(move || {
-        let mut shown = Vec::new();
-        let _ = std::io::Read::read_to_end(&mut reader, &mut shown);
-        let _ = sent.send(String::from_utf8_lossy(&shown).into_owned());
-    });
+    let mut shown = Vec::new();
     let deadline = Instant::now() + bound;
-    let status = until(deadline, || child.try_wait().unwrap());
-    let status = status.unwrap_or_else(|| {
+    let status = until(deadline, || {
+        drain(&mut reader, &mut shown);
+        child.try_wait().unwrap()
+    });
+    let Some(status) = status else {
         child.kill().unwrap();
         let reaped = until(Instant::now() + GRACE, || child.try_wait().unwrap());
-        let shown = read.recv_timeout(GRACE).unwrap_or_default();
-        panic!("the rerun ends within {bound:?}; killed, reaped {reaped:?}, it printed:\n{shown}");
-    });
-    let left = deadline.saturating_duration_since(Instant::now()) + GRACE;
-    let shown = read
-        .recv_timeout(left)
-        .expect("the rerun's output ends in time");
-    (status, shown)
+        drain(&mut reader, &mut shown);
+        let signal = reaped.and_then(|status| status.signal());
+        let reaped = signal.map_or("not by a signal".to_owned(), |signal| {
+            format!("by signal {signal}")
+        });
+        let shown = String::from_utf8_lossy(&shown);
+        panic!("the rerun ends within {bound:?}; killed, reaped {reaped}, it printed:\n{shown}");
+    };
+    let left = deadline.max(Instant::now()) + GRACE;
+    let read = until(left, || drain(&mut reader, &mut shown));
+    read.expect("the rerun's output ends in time");
+    (status, String::from_utf8_lossy(&shown).into_owned())
+}
+
+/// Read what `reader` holds now into `shown`: `Some` once its writers are
+/// all gone, `None` while it would block.
+fn drain(reader: &mut PipeReader, shown: &mut Vec<u8>) -> Option<()> {
+    let mut chunk = [0; 8192];
+    loop {
+        let read = reader.read(&mut chunk);
+        if read
+            .as_ref()
+            .is_err_and(|error| error.kind() == ErrorKind::WouldBlock)
+        {
+            return None;
+        }
+        match read.expect("the rerun's output reads") {
+            0 => return Some(()),
+            read => shown.extend_from_slice(&chunk[..read]),
+        }
+    }
 }
 
 /// `probe`'s first answer before `deadline`, asked every 20 ms.
