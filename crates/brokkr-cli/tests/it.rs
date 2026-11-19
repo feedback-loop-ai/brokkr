@@ -67,6 +67,7 @@ mod init_stacks;
 mod journal_backup;
 #[path = "layering/main.rs"]
 mod layering;
+mod literal_journal;
 mod machine_profiles;
 mod machine_proof;
 mod muninn;

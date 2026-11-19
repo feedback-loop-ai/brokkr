@@ -893,9 +893,14 @@ fn exported_garbage_is_a_parse_refusal() {
 
 #[test]
 fn open_and_create_surface_sqlite_failures_at_exact_boundaries() {
-    // SQLite treats an empty filename as a private temporary database; this
-    // also exercises the path-without-parent initialization branch.
-    Store::open(Path::new("")).unwrap();
+    // The root is the one bound path without a parent, which exercises the
+    // path-without-parent initialization branch; SQLite cannot open a
+    // directory. An empty path is refused before it (#954), bound by
+    // `literal::tests::an_empty_path_is_refused_by_both_opens`.
+    assert!(matches!(
+        Store::open(Path::new("/")),
+        Err(StoreError::Sqlite(rusqlite::Error::SqliteFailure(..)))
+    ));
 
     let insert_dir = tempfile::tempdir().unwrap();
     let insert_db = insert_dir.path().join("insert.db");
