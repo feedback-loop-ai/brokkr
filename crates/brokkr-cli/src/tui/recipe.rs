@@ -23,14 +23,17 @@ use brokkr_view::{GraphView, ModelAtBoundary, Place, RuleKind};
 
 use super::*;
 
-/// The columns the drawing takes when stdout is not a terminal: plain
-/// text that pipes and snapshots alike on every host.
+/// The columns the drawing takes when stdout is not a terminal, or is one
+/// whose size reads as 0 or not at all: plain text that pipes and
+/// snapshots alike on every host.
 pub(crate) const PIPED_WIDTH: usize = 100;
 
-/// The narrowest terminal the drawing fits: one that reports fewer
-/// columns (a pty with no size set answers 0) is drawn at [`PIPED_WIDTH`]
-/// as a pipe is.
-pub(crate) const NARROWEST: usize = 40;
+/// The narrowest drawing that has rails: the plan's margins either side
+/// of a node, the blank beside it, and a label clamped to three columns
+/// and `…` (see [`Drawing::phase_of`]). One state to a rail fits from
+/// here by construction; narrower, a state's node and name would clamp to
+/// nothing, so its states are written as lines.
+const RAIL_LEAST: usize = 2 * (1 + BOX_PAD) + 2 + 4;
 
 /// The rows one rail is planned in: two for the counts over the rail, the
 /// rail, the names, and the selection box's row the plan reserves (no
@@ -158,8 +161,9 @@ impl Drawing<'_> {
     }
 
     /// One state as a rail phase: its node labelled with its entered count
-    /// and median, a terminal's name marked `⊗`, and lit as live when a run
-    /// stands in it.
+    /// and median, clamped with `…` where the width leaves no room for it
+    /// beside the node, a terminal's name marked `⊗`, and lit as live when
+    /// a run stands in it.
     fn phase_of(&self, at: usize) -> Phase {
         let state = &self.view.states[at];
         let live =
@@ -173,6 +177,8 @@ impl Drawing<'_> {
             Place::Row => state.name.clone(),
             Place::End | Place::Beneath => format!("⊗ {}", state.name),
         };
+        // The plan's budget less the node and the blank beside it.
+        let room = self.width.saturating_sub(2 * (1 + BOX_PAD) + 2);
         let label = format!("{} · {}", state.entered, state.median.text);
         Phase {
             name,
@@ -181,7 +187,7 @@ impl Drawing<'_> {
             current: false,
             plain: false,
             columns: vec![Column {
-                label: Some(label),
+                label: Some(clamp(&label, room)),
                 nodes: vec![Node {
                     label: String::new(),
                     key: state.name.clone(),
@@ -249,9 +255,9 @@ impl Drawing<'_> {
     fn down(&self, row: &Folded, index: usize, link: usize, plan: &Plan) -> Option<(Arc, Carried)> {
         let road = &self.view.links[link];
         let next = (self.view.states.iter()).find(|state| state.name == road.next)?;
-        let (rail, at) = row.spot(self.view, &road.from)?;
+        let (_, at) = (row.spot(self.view, &road.from)).filter(|(rail, _)| *rail == index)?;
         let beneath = match next.place {
-            Place::Beneath => rail == index,
+            Place::Beneath => true,
             Place::Row | Place::End => false,
         };
         let to = centre_of(&plan.segments[at]);
@@ -391,10 +397,24 @@ impl Drawing<'_> {
     /// Rail `index` of `row`, painted and counted, as plain text: no
     /// colour, trailing blanks trimmed and blank rows dropped. A rail the
     /// fold continues wears the TUI's own elision marks, `›` and `‹`.
+    /// Under [`RAIL_LEAST`] columns its states are written as lines
+    /// instead, held to the width as every line under the rails is.
     fn rail_lines(&self, row: &Folded, index: usize, drawn: &mut Drawn) -> Vec<String> {
         let rail = row.rail(index);
         let phases: Vec<Phase> = rail.iter().map(|at| self.phase_of(*at)).collect();
         let mut plan = planned(&phases, self.width);
+        if self.width < RAIL_LEAST {
+            return (rail.iter().zip(&phases))
+                .map(|(at, phase)| {
+                    let state = &self.view.states[*at];
+                    format!(
+                        "  {}  {} · {}",
+                        phase.name, state.entered, state.median.text
+                    )
+                })
+                .flat_map(|line| fitted(&line, self.width))
+                .collect();
+        }
         let (arcs, carried): (Vec<Arc>, Vec<Carried>) =
             self.arcs(row, index, &plan).into_iter().unzip();
         plan.arcs = arcs;

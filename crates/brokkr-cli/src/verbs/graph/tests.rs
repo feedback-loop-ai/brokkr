@@ -1050,7 +1050,7 @@ fn at_80_columns_a_long_link_across_the_fold_wraps_and_a_long_id_continues() {
     assert!(drawing.contains("‹──────────────────ᐳ⏺"), "{drawing}");
     // At the narrowest width the id is wider than a line: it is continued,
     // `…` to `…`, and reads whole with its breaks taken out.
-    let narrowest = drawn(&view, NARROWEST);
+    let narrowest = drawn(&view, 40);
     assert!(!narrowest.contains(long), "{narrowest}");
     assert!(
         narrowest.replace("…\n   …", "").contains(long),
@@ -1063,13 +1063,62 @@ fn the_terminals_width_is_the_drawings_and_a_pipe_draws_at_the_stated_width() {
     assert_eq!(drawing_width(Some(Ok((80, 24)))), 80);
     let unread = Some(Err(std::io::Error::other("no size")));
     assert_eq!((drawing_width(unread), drawing_width(None)), (100, 100));
-    // A pty with no size set answers 0 columns: a terminal narrower than
-    // the drawing fits is drawn as a pipe is.
-    let narrow = [0, 39].map(|columns| drawing_width(Some(Ok((columns, 24)))));
+    // A known positive width is fitted, however narrow; a pty with no size
+    // set answers 0 columns, and is drawn as a pipe is.
+    let narrow = [39, 12, 1].map(|columns| drawing_width(Some(Ok((columns, 24)))));
     assert_eq!(
-        (narrow, drawing_width(Some(Ok((40, 24))))),
-        ([100, 100], 40)
+        (narrow, drawing_width(Some(Ok((0, 24))))),
+        ([39, 12, 1], 100)
     );
+}
+
+#[test]
+fn a_narrow_terminal_is_fitted_one_state_to_a_rail_with_every_arc_still_drawn() {
+    let dir = tempfile::tempdir().unwrap();
+    let (delivery, reforge) = (dir.path().join("delivery"), dir.path().join("reforge"));
+    let views = [delivered(&delivery), reforged(&reforge)];
+    for width in [39, 24, 12] {
+        for view in &views {
+            // `drawn` holds every line, the legend's too, within the width.
+            drawn(view, width);
+            arcs_drawn(view, width);
+        }
+    }
+    insta::assert_snapshot!("graph_delivery_24", drawn(&views[0], 24));
+    insta::assert_snapshot!("graph_delivery_12", drawn(&views[0], 12));
+    // Under the twelve columns a node and a clamped label need, the states
+    // are written as lines, held to the width like the lines under them.
+    Journal::at(&dir.path().join("none"));
+    let none = view_of(&dir.path().join("none"), &reforging(), "reforge");
+    insta::assert_snapshot!("graph_no_runs_8", drawn(&none, 8));
+}
+
+#[test]
+fn a_state_named_wider_than_the_terminal_is_clamped_on_its_rail() {
+    let dir = tempfile::tempdir().unwrap();
+    let wide = "a-state-whose-name-runs-wider-than-the-terminal";
+    let machine = table(
+        &[wide, "ship"],
+        &[
+            ("WIDE-OK", wide, "complete", Some("ship")),
+            ("WIDE-AGAIN", "ship", "residual", Some(wide)),
+            ("SHIP-OK", "ship", "complete", Some("done")),
+            ("SHIP-STOP", "ship", "blocked", Some("stop")),
+        ],
+    );
+    let mut events = walked(&[
+        (wide, "complete", "WIDE-OK", Some("ship")),
+        ("ship", "residual", "WIDE-AGAIN", Some(wide)),
+        (wide, "complete", "WIDE-OK", Some("ship")),
+        ("ship", "complete", "SHIP-OK", Some("done")),
+    ]);
+    events.push((EventType::RunCompleted, json!({})));
+    Journal::at(dir.path()).run("wide", &json!({"bundle_name": "wide"}), &events);
+    let view = view_of(dir.path(), &machine, "wide");
+    let drawing = drawn(&view, 30);
+    insta::assert_snapshot!("graph_name_wider_30", drawing);
+    arcs_drawn(&view, 30);
+    assert!(drawing.contains("a-state-whose-name-runs…"), "{drawing}");
 }
 
 /// `json` with the stamps of this run's clock, and the stays it measured

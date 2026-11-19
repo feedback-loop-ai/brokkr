@@ -28,7 +28,7 @@ use super::analytics::{printed, range, read_hearths};
 use crate::folder::Layout;
 use crate::recipes::listed;
 use crate::recipes::personal::ShelfPath;
-use crate::tui::{recipe_graph, NARROWEST, PIPED_WIDTH};
+use crate::tui::{recipe_graph, PIPED_WIDTH};
 use crate::{fleet_of, now_rfc3339, Invocation};
 
 #[derive(clap::Args)]
@@ -362,11 +362,13 @@ pub(crate) fn graph(workspace: &Path, args: GraphArgs) -> Result<ExitCode> {
     printed(&view, args.json, move |_| lines)
 }
 
-/// The columns the drawing fits: the terminal's when stdout is one whose
-/// size reads at [`NARROWEST`] columns or more, else [`PIPED_WIDTH`].
+/// The columns the drawing fits: the terminal's whenever stdout is one
+/// whose size reads as a positive width, however narrow (the operator,
+/// 2026-11-19: "Fit any width"), else [`PIPED_WIDTH`]. A pty with no size
+/// set answers 0 columns, and is drawn as a pipe is.
 fn drawing_width(terminal: Option<std::io::Result<(u16, u16)>>) -> usize {
     match terminal {
-        Some(Ok((columns, _))) if usize::from(columns) >= NARROWEST => usize::from(columns),
+        Some(Ok((columns, _))) if columns > 0 => usize::from(columns),
         Some(Ok(_) | Err(_)) | None => PIPED_WIDTH,
     }
 }

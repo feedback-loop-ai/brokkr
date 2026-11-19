@@ -1,0 +1,57 @@
+---
+source: crates/brokkr-cli/src/verbs/graph/tests.rs
+expression: "drawn(&views[0], 12)"
+---
+    ⏺ 2 ·…─›
+   imple…
+      ├ᐸ───›
+      ╰ᐸ───›
+  6
+‹──ᐳ⏺ 2 ·…─›
+   verify
+‹ ×3 ─╯
+  3
+‹──ᐳ⏺ 2 ·…─›
+   review
+‹ ×1 ─╯
+ 2
+‹─ᐳ⏺ 2 ·…──›
+   ship
+  2
+‹──ᐳ⏺ 2 ·…
+   ⊗ done
+    · 0 ·…
+   ⊗ stop
+never fired
+   1 of 7
+   REVIEW-S…
+   …TOP
+nodes: runs
+   entered ·
+   median
+   stay · ∙
+   a live
+   run · ·
+   never
+   entered
+arrows: runs
+   moved · ↻
+   to itself
+   · ×n back
+   · none
+   where no
+   run moved
+⊗ a terminal
+   · ╰─ n ─ᐳ
+   ⊗ the
+   road down
+   to one
+   beneath
+   the row
+› ‹ a rail
+   the next
+   continue…
+   …s, with
+   its
+   arrows
+   and arcs

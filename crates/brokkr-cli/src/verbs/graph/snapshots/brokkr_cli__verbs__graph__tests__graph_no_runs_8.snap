@@ -1,0 +1,104 @@
+---
+source: crates/brokkr-cli/src/verbs/graph/tests.rs
+expression: "drawn(&none, 8)"
+---
+  imple…
+     …m…
+     …e…
+     …nt
+     0 ·
+     —
+  review
+     0 ·
+     —
+  ship
+     0 ·
+     —
+  ⊗ done
+     0 ·
+     —
+  ⊗ stop
+     0 ·
+     —
+never
+   fired
+   7 of
+   7
+   IMPL…
+   …-OK
+   REVI…
+   …EW-…
+   …CLE…
+   …AN
+   REVI…
+   …EW-…
+   …REF…
+   …ORGE
+   REVI…
+   …EW-…
+   …HOLD
+   REVI…
+   …EW-…
+   …STOP
+   SHIP…
+   …-RE…
+   …TRY
+   SHIP…
+   …-OK
+nodes:
+   runs
+   ente…
+   …red
+   ·
+   medi…
+   …an
+   stay
+   · ∙ a
+   live
+   run ·
+   ·
+   never
+   ente…
+   …red
+arrows:
+   runs
+   moved
+   · ↻
+   to
+   itse…
+   …lf ·
+   ×n
+   back
+   ·
+   none
+   where
+   no
+   run
+   moved
+⊗ a
+   term…
+   …inal
+   · ╰─
+   n ─ᐳ
+   ⊗ the
+   road
+   down
+   to
+   one
+   bene…
+   …ath
+   the
+   row
+› ‹ a
+   rail
+   the
+   next
+   cont…
+   …inu…
+   …es,
+   with
+   its
+   arro…
+   …ws
+   and
+   arcs

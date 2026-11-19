@@ -205,7 +205,7 @@ pub use self::participant::transcript_surfaces_for_test;
 pub(crate) use self::reader::behind;
 #[cfg(test)]
 pub(crate) use self::recipe::drawn_links;
-pub(crate) use self::recipe::{recipe_graph, NARROWEST, PIPED_WIDTH};
+pub(crate) use self::recipe::{recipe_graph, PIPED_WIDTH};
 #[cfg(test)]
 pub(crate) use self::settle::{hold, settle_end, settle_when};
 #[cfg(test)]
