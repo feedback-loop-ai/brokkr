@@ -370,6 +370,20 @@ controller can follow this procedure.
    overlay, by adding it to that release's `Release::pinned_rows`, the
    one table the judge, the overlay writer and the bounded reader all
    read.
+7. Read the release's transcripts (#1176). Run one seat session that uses
+   the job tools, so its transcript holds background-job records. Record
+   the set of record kinds (`type`) that session's transcript carries as
+   the release's catalogue fixture: a const list named for the release and
+   the date observed, beside `DSH_0_2_1_RC_2_CATALOGUE_2026_11_19` in
+   `crates/brokkr-view/src/transcript/dsh_versions/tests.rs`, with a test
+   that every kind is placed under its session version, as content, quiet
+   or a counted omission. A kind the reader cannot place fails that test
+   until the reader decides it; a kind no version places still refuses
+   the read (decision 0086). Then read the session with
+   `brokkr transcript`, which must not print `unsupported-format`.
+   The 0.2.1-rc.2 catalogue is the controller's, from 589 real seat
+   transcripts (2026-11-19). The 0.2.2-rc.5 catalogue is owed by the
+   controller, from a real rc.5 seat.
 
 ## Offline bindings (this change)
 
@@ -947,3 +961,6 @@ adapters::dsh_hands`, which gave 103 passed. The new tests are in
   and so the first thing the next measurement closes, a live
   `mcp__brokkr__workspace` call, macOS, and the review-seat qualification
   the operator asked for, which later units own.
+- On 0.2.2-rc.5: the record-kind catalogue of a real rc.5 seat session
+  that used the job tools, read with `brokkr transcript` (step 7; owed to
+  the controller).

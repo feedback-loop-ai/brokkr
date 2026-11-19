@@ -65,7 +65,10 @@ change's `specs/` delta.
 4. **Version four reads as version three, save its named conversions.**
    Every released version-three event type keeps its version-three
    disposition, because the V3-to-V4 edge rewrites none;
-   `developer/message` joins the quiet vocabulary; version-zero storage
+   `developer/message` joins the quiet vocabulary, and so do the
+   `job/registered`, `job/settled` and `working-directory/change`
+   bookkeeping names a 0.2.1-rc.2 seat's log carries (#1176; a job's
+   output reaches the log through `tool/result`); version-zero storage
    rows and `assistant/chunk` stay version-zero only (0061 ruling 2). A
    `tool/result` projects its tool-role message: `toolCallId` names the
    call and the message's own `content` is the output. The retired
