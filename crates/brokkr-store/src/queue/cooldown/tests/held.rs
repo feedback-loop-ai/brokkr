@@ -186,6 +186,45 @@ fn a_held_waits_row_carries_the_kind_its_writer_derived() {
     );
 }
 
+/// A terminal's row the table takes without writing (a trigger that
+/// ignores the insert) refuses the whole append by name, and the event
+/// that records the wait rolls back with it (fix round 0106b1r6, D3).
+#[test]
+fn a_terminals_row_the_table_does_not_write_refuses_and_writes_no_event() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = journal(dir.path());
+    let before = store.load("run-a").unwrap().len();
+    store
+        .conn
+        .execute_batch(
+            "CREATE TRIGGER ignored BEFORE INSERT ON provider_cooldowns
+             BEGIN SELECT RAISE(IGNORE); END;",
+        )
+        .unwrap();
+    let refused = append(&mut store, "run-a", &[row("a", "claude", "first", at(60))]).unwrap_err();
+    let StoreError::Queue(QueueRefusal::CooldownRowUnwritten(unwritten)) = &refused else {
+        panic!("an unwritten row was not refused by name: {refused:?}");
+    };
+    let seq = u64::try_from(before + 1).unwrap();
+    assert_eq!(
+        **unwritten,
+        crate::queue::UnwrittenRow {
+            run_id: "run-a".into(),
+            event_seq: seq,
+            site: "a".into(),
+            rounds: 1,
+        }
+    );
+    assert_eq!(
+        refused.to_string(),
+        format!(
+            "the journal's provider cool-downs wrote no row for run 'run-a' event {seq} site 'a' \
+             round 1, so the event that records its wait was not written either"
+        )
+    );
+    assert_eq!(store.load("run-a").unwrap().len(), before);
+}
+
 /// A probe's held round is written with its kind beside an ordinary round,
 /// and read back by round (decision 0106 ruling 2, fix round 0106b1r2); a
 /// version 6 queue has no kind columns and a version 3 one no table, and

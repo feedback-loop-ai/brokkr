@@ -142,6 +142,53 @@ fn an_accumulated_stated_reset_past_the_maximum_still_parks_as_a_provider_limit(
     ));
 }
 
+/// The adversarial position's case (fix round 0106b1r6, D3): the first
+/// refusal states five seconds against the two-second maximum with
+/// attempts left, and the table takes its held row without writing it
+/// (every cool-down insert ignored by a trigger). The terminal's append
+/// refuses with the store's typed words and rolls back, so no held wait is
+/// journaled: the attempt is settled indeterminate naming the refusal, and
+/// the run parks on it, never Running with no park.
+#[test]
+fn a_held_wait_the_table_does_not_write_is_not_journaled_and_parks() {
+    let (dir, mut engine, _now) = held_seat(&["refuse", "succeed"], 2);
+    super::held_route::driven_raising(&mut engine, "provider_cooldowns", "IGNORE");
+    assert_eq!(logs(dir.path(), "work"), ["attempt:refuse"]);
+    assert_eq!(failed(&engine).len(), 0);
+    let events = engine.store.load(&engine.run_id).unwrap();
+    assert!(
+        events
+            .iter()
+            .all(|event| event.payload.get("waits").is_none()),
+        "a wait was journaled"
+    );
+    let words = format!(
+        "the journal's provider cool-downs wrote no row for run '{}' event 5 site '' round 1, so \
+         the event that records its wait was not written either",
+        engine.run_id
+    );
+    let settled = (events.iter())
+        .find(|event| event.event_type == EventType::EffectIndeterminate)
+        .expect("the attempt was settled");
+    assert!(
+        settled.payload["reason"].as_str().unwrap().contains(&words),
+        "{}",
+        settled.payload
+    );
+    let reason = park_reason(&engine);
+    assert!(reason.contains(&words), "{reason}");
+    // The journal, not the provider, refused: the house's park for an
+    // attempt whose outcome the journal could not take.
+    let cause = park_cause_of(&engine);
+    assert!(
+        matches!(
+            &cause,
+            ParkCause::Infrastructure { retryable: false, detail } if reason.starts_with(detail)
+        ),
+        "{cause:?}"
+    );
+}
+
 /// The cap is untouched: a held wait at 0006's cap parks `attempt-cap`,
 /// with the provider's limit as its failure class.
 #[test]

@@ -26,8 +26,8 @@
 
 use brokkr_core::envelope::EventType;
 use brokkr_core::EventEnvelope;
-use brokkr_store::{CooldownAppend, StoreError};
-use serde_json::Value;
+use brokkr_store::{CooldownAppend, QueueRefusal, StoreError};
+use serde_json::{json, Value};
 
 use super::{checkpoints, cooldown, Engine, EngineError};
 
@@ -115,6 +115,13 @@ impl Engine {
             Err(error @ StoreError::AfterTerminal { .. }) => {
                 return Err(EngineError::concluded_beneath(error, attempt_id.as_deref()))
             }
+            // A held or cooling row the store did not write rolled the
+            // terminal back with it (fix round 0106b1r6, D3): no wait is
+            // journaled that the store does not hold. Only a terminal carries
+            // rows, so only a terminal meets this.
+            Err(StoreError::Queue(refusal @ QueueRefusal::CooldownRowUnwritten(_))) => {
+                return self.unwritten_wait(&payload, attempt_id, &refusal)
+            }
             Err(error) => return Err(error.into()),
         };
         // A held wait this drive journaled ends the drive at its next turn
@@ -129,5 +136,25 @@ impl Engine {
             .filter(|_| event_type != EventType::EffectStarted)
             .map(|_| (envelope.seq, envelope.event_hash.clone()));
         Ok(envelope)
+    }
+
+    /// Settle the attempt whose terminal the store refused for a wait row
+    /// it did not write: `effect/indeterminate`, naming the refusal and
+    /// carrying no wait, so the drive parks on it as it parks a probe round
+    /// the table did not write, and never runs on as if the wait were held
+    /// (fix round 0106b1r6, D3).
+    fn unwritten_wait(
+        &mut self,
+        terminal: &Value,
+        attempt_id: Option<String>,
+        refusal: &QueueRefusal,
+    ) -> Result<EventEnvelope, EngineError> {
+        let reason = format!("the journal refused the attempt's outcome: {refusal}");
+        let settled = json!({
+            "effect_id": terminal["effect_id"],
+            "attempt_id": attempt_id,
+            "reason": reason,
+        });
+        self.append_raw(EventType::EffectIndeterminate, settled, attempt_id)
     }
 }

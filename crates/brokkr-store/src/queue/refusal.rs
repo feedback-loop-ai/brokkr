@@ -31,6 +31,17 @@ pub struct CooldownRoundMismatch {
     pub standing: u64,
 }
 
+/// The cool-down row a [`QueueRefusal::CooldownRowUnwritten`] names: the
+/// run, event seq, site and round of a terminal's row the table did not
+/// write (fix round 0106b1r6, D3), boxed so the store's error stays small.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnwrittenRow {
+    pub run_id: String,
+    pub event_seq: u64,
+    pub site: String,
+    pub rounds: u64,
+}
+
 /// The probe hold a [`QueueRefusal::ProbeHoldUnwritten`] names: the run
 /// whose probe asked, and the provider and route it would have held (fix
 /// round 0106b1r6, D2), boxed so the store's error stays small.
@@ -141,6 +152,16 @@ pub enum QueueRefusal {
         .0.run_id, .0.event_seq, .0.site, .0.rounds
     )]
     CooldownRoundUnwritten(Box<CooldownRoundMismatch>),
+    /// A terminal event's cool-down row, held or cooling, the table took
+    /// without writing, as a trigger that ignores the insert leaves it (fix
+    /// round 0106b1r6, D3): the event is rolled back with it, so no wait is
+    /// journaled that the store does not hold, and nothing was written.
+    #[error(
+        "the journal's provider cool-downs wrote no row for run '{}' event {} site '{}' round \
+         {}, so the event that records its wait was not written either",
+        .0.run_id, .0.event_seq, .0.site, .0.rounds
+    )]
+    CooldownRowUnwritten(Box<UnwrittenRow>),
     /// A probe's hold on its route the table took without writing its row,
     /// as a trigger that ignores the insert leaves it (fix round 0106b1r6,
     /// D2): no hold stands, so the probe is not dispatched, and nothing

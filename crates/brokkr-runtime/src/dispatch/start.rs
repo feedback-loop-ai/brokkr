@@ -408,6 +408,7 @@ fn queue_refusal(refusal: QueueRefusal) -> Queue {
         | QueueRefusal::CooldownRoundWait { .. }
         | QueueRefusal::CooldownRoundNotNext(_)
         | QueueRefusal::CooldownRoundUnwritten(_)
+        | QueueRefusal::CooldownRowUnwritten(_)
         | QueueRefusal::ProbeHoldUnwritten(_)
         | QueueRefusal::Launching(_)
         | QueueRefusal::InFlight(_)

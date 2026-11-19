@@ -150,6 +150,17 @@ pub(crate) fn insert(
         if until <= recorded {
             continue;
         }
+        // A row the table did not write rolls the event back with it: a
+        // terminal never stands over a held or cooling row the store does
+        // not hold (fix round 0106b1r6, D3).
+        let unwritten = || {
+            QueueRefusal::CooldownRowUnwritten(Box::new(super::UnwrittenRow {
+                run_id: event.run_id.clone(),
+                event_seq: event.seq,
+                site: row.site.clone(),
+                rounds: row.rounds,
+            }))
+        };
         insert_row(
             tx,
             &StoredRow {
@@ -165,6 +176,7 @@ pub(crate) fn insert(
                 recorded,
                 held: row.held,
             },
+            unwritten,
         )?;
     }
     Ok(())
@@ -188,10 +200,17 @@ struct StoredRow<'a> {
     held: Option<Held>,
 }
 
-/// Insert one row, and say how many rows it wrote: one, unless a trigger
-/// ignored the insert. The table's CHECK constraints and unique index judge
-/// it.
-fn insert_row(conn: &Connection, row: &StoredRow<'_>) -> Result<usize, StoreError> {
+/// Insert one row, refusing with `unwritten`'s words where the table wrote
+/// none, as a trigger that ignores the insert leaves it: the one check
+/// every cool-down writer takes, a terminal's rows, a resume's landing of
+/// them and a probe's renewed round alike, so no row is ever believed
+/// written that the store did not write (fix rounds 0106b1r5, H3, and
+/// 0106b1r6, D3). The table's CHECK constraints and unique index judge it.
+fn insert_row(
+    conn: &Connection,
+    row: &StoredRow<'_>,
+    unwritten: impl FnOnce() -> QueueRefusal,
+) -> Result<(), StoreError> {
     let written = conn.execute(
         "INSERT INTO provider_cooldowns
             (run_id, event_seq, site, provider, route, until_at, reason,
@@ -212,7 +231,10 @@ fn insert_row(conn: &Connection, row: &StoredRow<'_>) -> Result<usize, StoreErro
             row.held.map(|held| held.max_seconds as i64),
         ],
     )?;
-    Ok(written)
+    if written != 1 {
+        return Err(unwritten().into());
+    }
+    Ok(())
 }
 
 /// The last whole second an RFC 3339 instant can name:
@@ -645,7 +667,20 @@ impl Store {
             // bounds (decision 0071 ruling 5, one home for the length).
             let until = until_second(round.until_at);
             let recorded = until.saturating_sub(i64::try_from(round.seconds).unwrap_or(i64::MAX));
-            let written = insert_row(
+            // The hold ends only over the renewed row the table wrote (fix
+            // round 0106b1r5, H3): a row it did not write refuses, and the
+            // dropped transaction rolls back, leaving the hold standing.
+            let unwritten = || {
+                let mismatch = super::CooldownRoundMismatch {
+                    run_id: round.run_id.to_string(),
+                    event_seq: round.event_seq,
+                    site: round.site.to_string(),
+                    rounds: round.rounds,
+                    standing,
+                };
+                QueueRefusal::CooldownRoundUnwritten(Box::new(mismatch))
+            };
+            insert_row(
                 &tx,
                 &StoredRow {
                     run_id: round.run_id,
@@ -660,20 +695,8 @@ impl Store {
                     recorded,
                     held,
                 },
+                unwritten,
             )?;
-            // The hold ends only over the renewed row the table wrote (fix
-            // round 0106b1r5, H3): a row it did not write refuses, and the
-            // dropped transaction rolls back, leaving the hold standing.
-            if written != 1 {
-                let unwritten = super::CooldownRoundMismatch {
-                    run_id: round.run_id.to_string(),
-                    event_seq: round.event_seq,
-                    site: round.site.to_string(),
-                    rounds: round.rounds,
-                    standing,
-                };
-                return Err(QueueRefusal::CooldownRoundUnwritten(Box::new(unwritten)).into());
-            }
             hold::ended(&tx, round.ends, recorded)?;
             tx.commit()?;
             Ok(RoundAppend::Written)

@@ -213,6 +213,7 @@ pub brokkr_store::QueueRefusal::CooldownRoundWait
 pub brokkr_store::QueueRefusal::CooldownRoundWait::event_seq: u64
 pub brokkr_store::QueueRefusal::CooldownRoundWait::run_id: alloc::string::String
 pub brokkr_store::QueueRefusal::CooldownRoundWait::site: alloc::string::String
+pub brokkr_store::QueueRefusal::CooldownRowUnwritten(alloc::boxed::Box<brokkr_store::UnwrittenRow>)
 pub brokkr_store::QueueRefusal::CooldownTime
 pub brokkr_store::QueueRefusal::CooldownTime::seq: i64
 pub brokkr_store::QueueRefusal::Dropped(brokkr_store::EntryId)
@@ -646,6 +647,11 @@ pub struct brokkr_store::UnwrittenHold
 pub brokkr_store::UnwrittenHold::provider: alloc::string::String
 pub brokkr_store::UnwrittenHold::route: alloc::string::String
 pub brokkr_store::UnwrittenHold::run_id: alloc::string::String
+pub struct brokkr_store::UnwrittenRow
+pub brokkr_store::UnwrittenRow::event_seq: u64
+pub brokkr_store::UnwrittenRow::rounds: u64
+pub brokkr_store::UnwrittenRow::run_id: alloc::string::String
+pub brokkr_store::UnwrittenRow::site: alloc::string::String
 pub struct brokkr_store::Wait
 pub brokkr_store::Wait::entry: brokkr_store::EntryId
 pub brokkr_store::Wait::on: brokkr_store::WaitOn
