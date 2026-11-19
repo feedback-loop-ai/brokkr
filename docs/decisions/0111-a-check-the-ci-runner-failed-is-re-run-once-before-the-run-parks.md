@@ -1701,6 +1701,15 @@ the result is exact:
 | `{"kind":"infrastructure","origin":"engine",…}` | refused by name | refused by name: `engine` is never written |
 | `{"kind":"infrastructure","origin":"ci",…}` with no `faults`, or `faults` empty | refused by name | refused by name |
 | `{"kind":"infrastructure","retryable":false,"detail":"d","faults":[…]}` (no `origin`) | refused by name | refused by name: `faults` needs `origin: ci` |
+| `{"kind":"infrastructure","origin":"ci","retryable":true,"detail":"d","faults":[…]}` (valid faults) | refused by name: unknown field `origin` | refused: `a ci infrastructure park cause is never retryable` |
+| `{"kind":"infrastructure","retryable":true,"detail":"d"}` (legacy, no `origin`) | `Infrastructure { retryable: true }` | `Infrastructure { origin: Engine, retryable: true }` |
+
+**A CI cause is never retryable, at the schema and at decode.** HEAD's parser accepts either
+boolean for an engine infrastructure cause, and that stays. Under `origin: ci`,
+`park-cause/v2`'s schema holds `retryable` to `{"const": false}`, and v2's decode refuses
+`true` with the typed error whose text the row above pins, before any reader sees the cause.
+The writer this decision specifies already emits `false` (ruling 8); the refusal keeps a
+hand-written or tampered cause from spending 0106d's budget.
 
 No object decodes under both readers to two different meanings: the only object both read is
 the v1 shape, and both read it as the engine's.
@@ -2207,6 +2216,10 @@ slice that produces it, and each typed assertion is in the slice that builds its
    `an_origin_engine_word_is_refused_by_name`;
    `an_origin_ci_cause_without_faults_is_refused_by_name`;
    `faults_without_origin_ci_are_refused_by_name`;
+   `an_origin_ci_cause_with_retryable_true_is_refused_at_schema_and_decode` (valid faults: the
+   schema rejects it, and v2's decode returns the exact never-retryable error);
+   `a_legacy_retryable_engine_cause_still_decodes_retryable_under_v1_and_v2` (the control beside
+   it);
    `every_engine_infrastructure_writer_serializes_v1_bytes_under_v2`;
    `a_ci_infrastructure_park_is_never_retryable`;
    `a_runner_fault_park_writes_the_ci_infrastructure_cause_and_keeps_the_rule_in_the_decision`;
