@@ -14,6 +14,7 @@ mod gone;
 use std::ffi::OsString;
 use std::os::unix::ffi::OsStringExt;
 use std::os::unix::fs::PermissionsExt;
+use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -1787,48 +1788,63 @@ fn hands_tree(tmp: &Path, pid: u32, label: &str) -> PathBuf {
     tree
 }
 
-/// The reaped-pid fixture is bounded: a child that never exits is killed,
-/// and the fixture fails saying so within PATIENCE rather than hang.
+/// The patience the fixture's own tests give it: under twice `REAP_GRACE`,
+/// so the grace it keeps back is half of it, and a fresh `REAP_GRACE`
+/// after the stop would overrun it.
+const FIXTURE_PATIENCE: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// What the fixture gave back for a child that never exits, stopped by
+/// `stop`: how long it took, what it said, and the signal the child ended
+/// by once reaped. The child is reaped before anything is asserted, so a
+/// failing assertion leaves no process behind.
+fn overdue_after(
+    stop: impl FnOnce(&mut std::process::Child),
+) -> (std::time::Duration, String, Option<i32>) {
+    let mut never_exits = Command::new("sleep");
+    never_exits.arg("600").stdout(std::process::Stdio::null());
+    never_exits.stderr(std::process::Stdio::null());
+    let started = std::time::Instant::now();
+    let overdue = crate::reaped::reaped_with(&mut never_exits, FIXTURE_PATIENCE, stop)
+        .err()
+        .unwrap();
+    let elapsed = started.elapsed();
+    let words = overdue.words.clone();
+    (elapsed, words, overdue.reap().signal())
+}
+
+/// The reaped-pid fixture is bounded by its one patience: a child that never
+/// exits is killed with the grace kept back, and the fixture gives it back
+/// as overdue before that patience runs out rather than hang.
 #[test]
 fn the_reaped_pid_fixture_fails_within_its_patience_on_a_child_that_never_exits() {
-    let started = std::time::Instant::now();
-    let failed = std::panic::catch_unwind(|| {
-        crate::reaped::reaped_within(
-            Command::new("sleep").arg("600"),
-            std::time::Duration::from_millis(200),
-        )
-    })
-    .unwrap_err();
+    let (elapsed, words, signal) = overdue_after(|child| child.kill().unwrap());
 
-    assert!(started.elapsed() < crate::reaped::PATIENCE);
-    let words = failed.downcast_ref::<String>().unwrap();
+    assert!(elapsed < FIXTURE_PATIENCE, "{elapsed:?}");
     assert!(
-        words.ends_with("did not exit within 200ms; it was killed"),
+        words.ends_with("did not exit within 1s; it was killed"),
         "{words}"
     );
+    assert_eq!(signal, Some(SIGKILL));
 }
 
-/// The reap after the stop is bounded too: a child the stop leaves alive
-/// fails the fixture within `REAP_GRACE`, not when the child ends itself.
+/// The reap after the stop shares that patience: a child the stop leaves
+/// alive fails the fixture by the patience's end, not a fresh grace after
+/// it, and is still the caller's to kill and reap.
 #[test]
-fn the_reaped_pid_fixture_fails_within_its_grace_on_a_child_its_stop_leaves_alive() {
-    let started = std::time::Instant::now();
-    let failed = std::panic::catch_unwind(|| {
-        crate::reaped::reaped_with(
-            Command::new("sleep").arg("4"),
-            std::time::Duration::from_millis(200),
-            |_| {},
-        )
-    })
-    .unwrap_err();
+fn the_reaped_pid_fixture_fails_within_its_patience_on_a_child_its_stop_leaves_alive() {
+    let (elapsed, words, signal) = overdue_after(|_| {});
 
-    assert!(started.elapsed() < std::time::Duration::from_secs(3));
-    let words = failed.downcast_ref::<String>().unwrap();
+    let slack = std::time::Duration::from_millis(100);
+    assert!(elapsed < FIXTURE_PATIENCE + slack, "{elapsed:?}");
     assert!(
-        words.ends_with("did not exit within 200ms; it was stopped but not reaped within 1s"),
+        words.ends_with("did not exit within 1s; it was stopped but not reaped within it"),
         "{words}"
     );
+    assert_eq!(signal, Some(SIGKILL));
 }
+
+/// The signal number of SIGKILL on both supported hosts.
+const SIGKILL: i32 = 9;
 
 /// A safe renderer for the lines: the CLI's own strips controls and the
 /// bidi marks, and this pins the same visible result for a control byte.
