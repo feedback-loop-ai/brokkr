@@ -765,10 +765,30 @@ change's tree:
   reference and the file that made it.
 - **A reference the test cannot resolve fails closed,** as `machinery-unresolved`: an operand or
   command word built by an expansion, a command substitution, `eval`, or a glob, unless it is a
-  variable the same file assigns only from literal words. Whether HEAD's own scripts resolve
-  under this rule is **unmeasured**; 0111b's test runs it over HEAD's base and records the
-  answer. Where they do not, the house's gate never draws `ci-infrastructure` until the scripts
-  are written resolvably, which fails closed.
+  variable the same file assigns only from literal words.
+
+**The house's own closure does not resolve, so the house does not park today.** HEAD's required
+`test (…)` aggregate needs `engine-machines`, which runs `scripts/test-shards.sh`
+(`.github/workflows/ci.yml:255`). That script builds each shard's argv at run time, from
+non-literal words (`"$bound"`, `"$work/$index.bound"`, `"${prefix[1]#+}"`), prepends a runner to
+an argv another function filled, and executes the array itself as its command word:
+`{ "${argv[@]}" >"$work/$index.log" 2>&1; }` (`scripts/test-shards.sh:558-575`). Each of those
+is the unresolved category above. So the closure from `engine` through `engine-machines` to
+`scripts/test-shards.sh` withholds as `machinery-unresolved`, naming that line, and **this
+house's gate never draws `ci-infrastructure`** while it stands: a red house observation is
+`change`, and an all-success one `green`. This decision does not claim the house parks.
+
+- **House typed parking is deferred** until that dispatch is written so the closure resolves:
+  each shard's command word and the files it executes spelled as literal words, or as variables
+  the same file assigns only from literal words. That rewrite is a follow-up issue under
+  #1094, outside this decision and outside its slices.
+- The synthetic matrix test (0111b) stays the classifier's positive case for a verdict-only
+  aggregate over nine instances, over a workflow whose closure resolves; it does not stand for
+  the house.
+- 0111b's house integration case asserts the exact withholding over HEAD's base.
+
+The narrowed acceptance ([above](#what-1093s-acceptance-becomes)) is therefore delivered for an
+adopter whose closure resolves, and for this house only after the follow-up.
 
 Why the base is enough: any change that could add a reference from the machinery into a change
 class must edit a machinery file, which already withholds. So an untouched machinery whose
@@ -864,8 +884,9 @@ proof GitHub does not give.
 The declaration is the operator's statement about a pinned workflow, and `machinery-touched`
 withholds the class whenever that workflow moved from the base's bytes. Every required entry in
 this house's list is `merge` (ruling 5), so until 0111a's evidence shows a forge field that
-records the tested merge commit, this house's gate never draws `ci-infrastructure`, and the
-narrowed acceptance ([above](#what-1093s-acceptance-becomes)) waits on that evidence. If 0111a
+records the tested merge commit, no `merge` entry draws `ci-infrastructure`, for this house or
+an adopter, and the narrowed acceptance ([above](#what-1093s-acceptance-becomes)) waits on that
+evidence; this house waits on the closure follow-up as well (above). If 0111a
 finds no such field, the decision is revised before acceptance, and the acceptance is not
 delivered on GitHub. That fails closed: `green` and `change` still behave as landing does
 today.
@@ -1565,6 +1586,8 @@ non-`change` class.
 - A CI gate on a head the run itself made, before review in `fast` or `verify`: a follow-up
   that needs a publish-and-resume handoff (ruling 6).
 - Commit statuses as required evidence: a follow-up that needs a revision attestation (ruling 3).
+- This house's own typed parking: deferred until `scripts/test-shards.sh`'s dispatch is
+  written so the closure resolves, a follow-up issue under #1094 (ruling 3).
 - A forge other than GitHub: `forge` is a closed enum of one word in v1.
 - An automated re-run: the follow-up decision ruling 1 (c) names.
 
@@ -1710,9 +1733,11 @@ slice that produces it, and each typed assertion is in the slice that builds its
    `an_association_and_a_checkout_that_disagree_withhold_as_revision_disagrees`;
    `a_head_entry_whose_pinned_job_checks_out_another_ref_withholds_as_revision_unestablished`;
    `the_full_two_entry_engine_matrix_with_a_distinct_valid_merge_commit_reaches_classification`
-   (both `test (…)` entries over all nine `engine-machines` instances, each with a merge commit
-   distinct from the head whose parents are the base and the head, and a declared port-bind
-   literal in one instance: `ci-infrastructure`, so no comparison demands merge and head be one);
+   (a synthetic workflow of the house's shape, whose closure resolves: both `test (…)` entries
+   over all nine `engine-machines` instances, each with a merge commit distinct from the head
+   whose parents are the base and the head, and a declared port-bind literal in one instance:
+   `ci-infrastructure`, so no comparison demands merge and head be one. It is the classifier's
+   positive case, not the house's);
    `changing_the_checkout_revision_of_a_dependency_draws_no_ci_infrastructure`
    (one `engine-machines` instance records another merge commit: `revision-disagrees` for the
    aggregate);
@@ -1745,7 +1770,11 @@ slice that produces it, and each typed assertion is in the slice that builds its
    `the_closure_reads_the_base_revision_never_the_changes_tree`;
    `an_empty_change_class_list_refuses_to_compile`;
    `a_change_class_under_github_or_a_required_workflow_refuses_to_compile`;
-   `the_closure_test_over_heads_own_base_records_its_answer`;
+   `the_houses_own_closure_withholds_as_machinery_unresolved_at_test_shards_sh` (HEAD's base,
+   the house's required list and a red setup-only observation of `engine-machines`: the class is
+   exactly `change`, `withheld`, and its withholdings hold `machinery-unresolved` naming
+   `scripts/test-shards.sh` and its array command word; until the follow-up rewrite, when this
+   test is replaced by the house's positive case);
    `an_ambiguous_tested_revision_withholds_as_revision_unestablished`;
    `a_merge_revision_whose_parents_are_not_the_base_and_the_head_withholds`;
    `two_unsettled_runs_for_one_entry_refuse_as_execution_ambiguous`;
