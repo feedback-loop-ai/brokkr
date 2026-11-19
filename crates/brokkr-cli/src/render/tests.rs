@@ -495,53 +495,61 @@ fn width_and_colour_come_from_the_environment_through_pure_rules() {
 }
 
 /// #1168: the plain graph shows each node's still glyph — `·` unknown,
-/// `⊙` park, `⊗` failed, `∙` live — and, on a terminal that takes colour,
-/// paints it and the current phase's name in the console's colour. With
-/// colour off (`NO_COLOR`) the glyphs stay and no escape byte is written.
+/// `⏺` finished, `⊙` park, `⊗` failed, `∙` live — and, on a terminal that
+/// takes colour, paints it and the current phase's name in the console's
+/// colour. A `watch` frame is `inspect` without the trail, so the graph is
+/// proved there, in the frame's own style. With colour off (`NO_COLOR`)
+/// the glyphs stay and the bytes a piped frame writes hold no escape.
 #[test]
 fn the_plain_graph_shows_each_class_glyph_in_the_consoles_colour() {
-    let mut view = view(None);
-    let classes = ["", "on-park", "on-halt", "in-active"];
-    let nodes = view
-        .phases
-        .iter_mut()
-        .flat_map(|phase| phase.columns.iter_mut())
-        .flat_map(|column| column.nodes.iter_mut());
-    for (node, class) in nodes.zip(classes) {
-        node.state_class = class.to_string();
-    }
-    let no_color = Style {
-        color: color_enabled(true, true, false),
-        width: 80,
-    };
-    assert_eq!(
-        graph::graph_block(&view, None, &no_color),
-        "graph
+    let unknown = ("", "·", "\x1b[2m·\x1b[0m");
+    let finished = ("on-phosphor", "⏺", "\x1b[32m⏺\x1b[0m");
+    for (first, still, painted) in [unknown, finished] {
+        let mut view = view(None);
+        let classes = [first, "on-park", "on-halt", "in-active"];
+        let nodes = view
+            .phases
+            .iter_mut()
+            .flat_map(|phase| phase.columns.iter_mut())
+            .flat_map(|column| column.nodes.iter_mut());
+        for (node, class) in nodes.zip(classes) {
+            node.state_class = class.to_string();
+        }
+        let frame = |color| {
+            let style = Style { color, width: 80 };
+            inspect(&view, None, false, &crate::now_rfc3339(), &style)
+        };
+        let mut piped = Vec::new();
+        let no_color = frame(color_enabled(true, true, false));
+        crate::write_frame(&mut piped, &no_color, false, &mut || T0.to_string()).unwrap();
+        let piped = String::from_utf8(piped).unwrap();
+        assert!(!piped.contains('\x1b'), "{piped:?}");
+        let graph = format!(
+            "graph
   intake ×1
-    → · intake · finished
+    → {still} intake · finished
   design ×1  ←current
     ⑂ positions
       ⊙ simplicity · finished
       ⊗ robustness · finished
     → ∙ chief · active
 "
-    );
-    let coloured = Style {
-        color: true,
-        width: 80,
-    };
-    assert_eq!(
-        graph::graph_block(&view, None, &coloured),
-        "graph
+        );
+        assert!(piped.ends_with(&graph), "{piped:?}");
+        let coloured = frame(true);
+        let graph = format!(
+            "graph
   intake ×1
-    → \x1b[2m·\x1b[0m intake · finished
+    → {painted} intake · finished
   \x1b[32mdesign\x1b[0m ×1  ←current
     ⑂ positions
       \x1b[33m⊙\x1b[0m simplicity · finished
       \x1b[31m⊗\x1b[0m robustness · finished
     → \x1b[35m\x1b[1m∙\x1b[0m chief · active
 "
-    );
+        );
+        assert!(coloured.ends_with(&graph), "{coloured:?}");
+    }
 }
 
 /// #1168: a phase without columns is the console's one rail node, so its
