@@ -256,7 +256,8 @@ held only because a write was sent:
 - the rule that let an audit job be re-run.
 
 **Enforcement binding:** 0111d's overlay test refuses any seat in the CI overlay that declares a
-write binding, and the observer's credential is read-only (ruling 2).
+write binding, and 0111c's compile refuses an observer credential declared with any `access`
+but `read` (ruling 2).
 
 ### 2. What reads the checks
 
@@ -317,7 +318,7 @@ with the reason `launch-untrusted` naming the condition that failed, and observe
   a directory outside the worktree that another seat under the same account can write may change
   between the two. So the rules below bind what runs to what was hashed.
 - **A working directory outside the worktree.** The launcher creates an empty directory of its
-  own, outside every worktree, by the walk the live-launch rule below names, runs the observer
+  own, outside every worktree, by the walk [below](#the-account-is-the-trust-root) names, runs the observer
   there, and removes it after. No git configuration, `.envrc` or tool file in the worktree is
   beneath it.
 - **A cleared, allow-listed environment.** The environment is cleared, then holds only a closed
@@ -351,9 +352,10 @@ file, execute that file; and no path anyone but root can change.**
   but no site executes a descriptor, so 0111c builds that.
 - **The script never passes through a file.** The engine reads the pinned script from the
   compiled bundle once, checks its digest against the manifest's, and hands those bytes to the
-  interpreter over a pipe it owns, as `bash --noprofile --norc /dev/fd/3`. No process Brokkr
-  launches can reach the pipe's other end under the boundary the live launch requires (below),
-  so no seat can change the script after it is checked.
+  interpreter over a pipe it owns, as `bash --noprofile --norc /dev/fd/3`. No boxed seat can
+  reach the pipe's other end, and the change's tree holds no path to it, so neither can change
+  the script after it is checked. A process of the account can; that is the trust root's reach,
+  bounded below ([The account is the trust root](#the-account-is-the-trust-root)).
 - **macOS.** Darwin offers no `execveat`, and whether its `fexecve` is usable is **unmeasured**
   here. So on macOS the interpreter is executed by its path, and the root-owned chain above is
   what holds it; the pipe holds the script on both systems. Where the chain does not hold, the
@@ -368,72 +370,105 @@ file, execute that file; and no path anyone but root can change.**
   runtime: the one client HEAD holds is `ureq` in `brokkr-bridge`, which speaks to Looper
   (`crates/brokkr-bridge/src/lib.rs:1-7`, `:210-219`). It stays open as that option's slice.
 
-**The live launch needs a boundary a same-account peer cannot cross, or it refuses.** The rules
-above bind files and paths. They do not bind live descriptors or the directories the launcher
-makes:
+#### The account is the trust root
 
-- **The fault.** In a read-only Linux probe, the adversarial review of run
-  `fix-round-1093r4-for-issue-1093--b1cf18e6` had a same-UID sibling open another process's
-  anonymous pipe write endpoint through procfs (`/proc/<pid>/fd/<n>`). So the script's pipe and
-  the stdout channel do not isolate the observer from an unboxed seat under the same account.
-  The launcher-made `HOME`, `XDG_CONFIG_HOME` and `GH_CONFIG_DIR`, and the working directory,
-  are mutable inputs on the very basis this ruling uses to refuse a 0700 copy directory (option
-  (b) above).
-- **Why nothing inside the engine closes it.** Decision 0046 names `harness` "nothing of
-  Brokkr's" and `open` "nothing at all" (`docs/decisions/0046-the-boundary-is-named.md:129-135`),
-  and its ruling 4 lets an exec gate run unboxed under them (`:179-191`). An unboxed seat runs
-  with the engine's UID, so it holds the engine's authority over the account's processes, and no
-  rule the engine applies to its own child isolates the observer from it.
+This is the one home of the rule; every other mention points here.
 
-**Recommended: (a) the live launch is admitted only under the `namespace` boundary, where every
-seat is boxed.** HEAD's box opens every box, workspace and server alike, with
-`--unshare-pid` among its isolation flags
-(`crates/brokkr-protocol/src/hands/namespace/isolation.rs:4-23`), mounts a `/proc` of its own
-(`crates/brokkr-protocol/src/hands/namespace.rs:161`) and clears the environment (`:154`). So a
+**The launch claims no isolation of the observer from any process of the account, whether
+Brokkr launched it or not.** Fix round 1093r5 admitted the live launch only where this bundle's
+sites were boxed and no realm in this invocation's map was unboxed. Both review positions of run
+`fix-round-1093r5-for-issue-1093--a8bd2af6` showed that neither check sees a second Brokkr run
+under the same UID: one started with another map (`--realms`,
+`crates/brokkr-cli/src/cli_args.rs:220-225`; `World::discover`,
+`crates/brokkr-runtime/src/realms.rs:409-412`), or one in the same `namespace` realm with a
+site that has no hands, which HEAD spawns unboxed
+(`crates/brokkr-runtime/src/engine/dispatch.rs:555-559`;
+`crates/brokkr-runtime/src/engine.rs:2867-2869`, `:2040-2050`). In a read-only Linux probe, the
+adversarial review of run `fix-round-1093r4-for-issue-1093--b1cf18e6` had such a same-UID
+sibling open another process's anonymous pipe write endpoint through procfs
+(`/proc/<pid>/fd/<n>`). The correctness position added that the r5 rule contradicted itself:
+it required every site boxed, while a boxed observer cannot hold the credential binding (form
+(c) below) and the plan launched the observer without hands.
+
+Fencing is the wrong frame, for three reasons:
+
+- **The account already holds what the fence would protect.** A process of the account Brokkr
+  did not launch, such as the operator's own shell or another session, holds everything the
+  engine holds, its journal and its secret store included. Decision 0046's ruling 4 puts every
+  unboxed seat on the same footing: it runs with the engine UID's authority
+  (`docs/decisions/0046-the-boundary-is-named.md:179-191`). The observer's credential is a
+  sealed binding resolved from the operator-side store, an env-format file the account owns
+  (`docs/decisions/0012-sealed-secret-bindings.md:33-37`). So an unboxed sibling can read the
+  token from the store without going near the observer.
+- **No check can enumerate the account.** A host registry of every run, realm and site
+  sharing the UID is something Brokkr does not keep, and it would still not see the operator's
+  own processes.
+- **Within its own run, the observer has no neighbour.** `ci` is `landing-ci`'s entry phase
+  (ruling 6): it runs before any seat of its run, and again only on the operator's retry of its
+  own park, after every earlier seat has ended. No seat of the run runs beside it.
+
+**What bounds the account's reach through the observer:**
+
+- **The frame.** A forged or tampered observation costs at most a person's park or one bounded
+  implement visit, never a merge ([The gate grants nothing](#the-gate-grants-nothing)).
+- **The credential.** It is read-only, scoped to the one repository's checks and Actions runs,
+  and a sealed binding (0012), declared with a closed `access: read` the compile admits alone
+  (ruling 5). It is never broader than what the account's unboxed seats can already read from
+  the same store.
+
+So a process of the account gains, through the observer, nothing beyond what it already holds
+and that table.
+
+**What the remaining launch rules guard: what is outside the account.** That is two things: the
+change's tree, which the operator's push brings and anyone may have written; and boxed seats,
+which HEAD's box confines with `--unshare-pid` among its isolation flags
+(`crates/brokkr-protocol/src/hands/namespace/isolation.rs:4-23`), a `/proc` of its own
+(`crates/brokkr-protocol/src/hands/namespace.rs:161`) and a cleared environment (`:154`). So a
 boxed seat's `/proc` lists only its own PID namespace's processes, and the engine's and the
 observer's `/proc/<pid>/fd` entries are not in it. That is read from HEAD's argv and was not
 exercised in this session: **unmeasured** until 0111c's test, and if that test can open the
-observer's endpoint from inside the box, the launch refuses there as well. The admission, all
-checked at run start and again before the spawn:
+observer's endpoint from inside the box, the launch refuses under a boxed boundary until it
+cannot. Rule by rule:
 
-- the realm's boundary is `namespace`;
-- every site in the compiled bundle is boxed. A site without hands spawns in the engine's own
-  environment, unboxed (`crates/brokkr-runtime/src/engine.rs:2040-2050`), so one such site
-  refuses the launch;
-- no realm the host's `realms.json` names declares `harness` or `open`, because a run of
-  another realm under the same engine account is an unboxed seat that shares the UID;
-- the observer's `HOME`, `XDG_CONFIG_HOME`, `GH_CONFIG_DIR` and working directory are made by
-  the same anchored, no-follow, one-descriptor-per-component 0700 walk 1091a builds (#1091; in
-  fix round at the story's base, so 0111c lands after it), and are held by descriptor through
-  use: the working directory is set by `fchdir` before the exec, and each configuration
-  directory reaches the observer as an inherited descriptor named `/dev/fd/<n>`, so no path is
-  resolved again after the walk. Whether `gh` accepts a `/dev/fd` directory for its
-  configuration is **unmeasured**; where it does not, the launch refuses.
+| Rule | Guards against |
+|---|---|
+| the cleared, allow-listed environment | the change's tree: no `BASH_ENV`, `ENV` or startup file names a worktree file; and no key a boxed seat could have planted reaches the observer |
+| the verified bytes: pinned digests, the root-owned chain, the interpreter run from the descriptor it hashed, the script over the engine's pipe | the change's tree: no observer byte is a path the change controls; and a boxed seat whose binds can write a directory on that path |
+| the working directory and `gh`'s configuration outside the worktree | the change's tree: no git configuration, `.envrc`, remote or tool file the change controls is read |
+| the engine-owned result channel, the observer's stdout | the change's tree and boxed seats, which can write `.forge/results` under the worktree; neither can reach the pipe |
+| the directories made and held by 1091a's walk | the change's tree, and a boxed seat whose binds reach a parent of them |
 
-Otherwise the launch refuses before the spawn, parks `ruled` as `launch-unboxed-peer`, naming
-the realm's boundary, the unboxed site or the other realm, and observes nothing. Under
-`harness` that is every launch. On macOS the `seatbelt` box is unbuilt at HEAD
-(`crates/brokkr-runtime/src/boundary.rs:86`), and whether it would hide another process's
-descriptors is unmeasured, so the live launch refuses on macOS until a decision of its own
-proves it; the offline classification (0111b) runs on both systems (0063).
+The directories: the observer's `HOME`, `XDG_CONFIG_HOME`, `GH_CONFIG_DIR` and working directory
+are made by the same anchored, no-follow, one-descriptor-per-component 0700 walk 1091a builds
+(#1091; in fix round at the story's base, so 0111c lands after it), and are held by descriptor
+through use: the working directory is set by `fchdir` before the exec, and each configuration
+directory reaches the observer as an inherited descriptor named `/dev/fd/<n>`, so no path is
+resolved again after the walk. Whether `gh` accepts a `/dev/fd` directory for its
+configuration is **unmeasured**; where it does not, the launch refuses.
 
-What this does not claim: a process of the account that Brokkr did not launch, such as the
-operator's own shell or another session, holds everything the engine holds, its journal and
-its secret store included. It is the account, the trust root, and no boundary here isolates
-the observer from it. Under the frame its reach is the bounded table and the read-only token.
+**Recommended: (a) the account is the trust root, and the live launch is admitted on the same
+terms under every boundary.** Under `harness`, as under `namespace`, the launch is admitted when
+every rule above holds, unless the verified-bytes rule refuses on that system. The `ci` site has
+no hands, so 0046's hands law, which judges only a site that declares hands, does not judge it
+(`crates/brokkr-runtime/src/bundle.rs:2436-2443`). What macOS offers is the bytes rule's own
+statement above: no `execveat` and an unmeasured `fexecve`, so the interpreter is executed by
+its path under the root-owned chain, and the script over the pipe; where the chain does not
+hold, the launch refuses. The offline classification (0111b) runs on both systems (0063).
 
-- **(b) Linux non-dumpable processes.** `PR_SET_DUMPABLE` 0 on the observer and on the
+- **(b) An account-wide fence: refuse while any unboxed site of any run shares the UID.** Not
+  taken. It needs a host registry of runs and sites that Brokkr does not keep, and it still
+  cannot see the operator's own processes, which hold the same store.
+- **(c) Fix round 1093r5's `namespace`-only admission.** Removed, with its refusal word
+  `launch-unboxed-peer`. Its checks could not see another run's map or a site without hands in
+  another bundle, and it required every site boxed while the observer itself has no hands.
+- **(d) Linux non-dumpable processes.** `PR_SET_DUMPABLE` 0 on the observer and on the
   engine's pipe holder makes their `/proc/<pid>/fd` entries and `ptrace` closed to a same-UID
   process without `CAP_SYS_PTRACE` (<https://man7.org/linux/man-pages/man2/prctl.2.html>; not
-  read in this session), which would also cover a process Brokkr did not launch. Costs: the
-  engine's own diagnostics, no core dump and no `gdb`, `strace` or `/proc/<pid>/fd` read of the
-  engine by the operator; and the attribute is expected to reset on `execve` (unmeasured), so
-  the observer would have to set it after its own exec, which `bash` cannot: it needs an
-  observer that is not a shell, such as the engine's own forge call (the bytes rule's option
-  (c)). Not recommended alone, because macOS has no
-  equivalent and 0063 needs both. It may be added beside (a) on Linux by a later ruling.
-- **(c) Admit the launch under `harness` with the rules above alone.** Refused: the probe shows
-  they do not hold against an unboxed peer.
+  read in this session). Under the trust root it buys nothing the store does not already give
+  away. Costs: the engine's own diagnostics, no core dump and no `gdb`, `strace` or
+  `/proc/<pid>/fd` read of the engine by the operator; and the attribute is expected to reset on
+  `execve` (unmeasured), so `bash` cannot hold it. Not recommended; macOS has no equivalent and
+  0063 needs both.
 
 **The result comes back through the engine, never the worktree.** HEAD hands every seat a result
 path under the run-local results directory (`crates/brokkr-runtime/src/engine/input.rs:69-82`),
@@ -449,12 +484,17 @@ for a `ci` seat is ignored, and its presence is journaled as a refusal word, `re
 never read. The observer writes nothing to stderr but its own diagnostics, and the `ci` site
 journals stderr's length and digest only.
 
-**Live admission is refused until the launcher exists.** 0111b builds the classifier and the
-compile's `ci` declaration, but its compile refuses every bundle that declares a `ci` seat, a
-`ci_observation` input or a `ci-checks.json`, a custom exec recipe's included, with the reason
-that the trusted launch is unbuilt. 0111c lifts that refusal in the same change that lands the
-launcher. 0111b's tests drive the classifier through builders and test-only bundles, never a
-live compile.
+**Live admission is refused until the first live producer lands, and this is the one statement
+of the order.** 0111b builds the classifier and the compile's `ci` declaration, but its compile
+refuses every bundle that declares a `ci` seat, a `ci_observation` input or a `ci-checks.json`, a
+custom exec recipe's included, with the reason that the gate is unbuilt. 0111c lands the
+launcher and 0111d the typed park, each tested through builders and test-only bundles the live
+compile never admits. **0111e lifts the refusal**, for `landing-ci` and a custom exec recipe
+alike, in the same change that lands the first live producer, so no live compile admits a `ci`
+seat before the launcher, the typed park and a composed table that validates whole all exist.
+Refused alternative: lifting it in 0111c, which would admit a live `ci` seat whose
+`ci-infrastructure` class has no typed park to write (0111d) and whose table validates under no
+published schema (ruling 10).
 
 What HEAD lacks for this form, each built by slice 0111c:
 
@@ -473,9 +513,9 @@ What HEAD lacks for this form, each built by slice 0111c:
   pipe, and none checks a root-owned chain.
 - **A result channel the engine owns.** Every seat's result is a file under the run-local
   results directory, by default the worktree's `.forge` (above).
-- **A boundary admission for the launch.** Nothing at HEAD refuses a spawn because another site
-  of the run, or another realm on the host, is unboxed; and the descriptor-held 0700 walk is
-  1091a's, not yet on main.
+- **Directories held by descriptor.** The descriptor-held 0700 walk is 1091a's, not yet on
+  main. No boundary admission is needed: the account is the trust root
+  ([above](#the-account-is-the-trust-root)).
 
 The other forms:
 
@@ -490,14 +530,20 @@ The other forms:
 
 **The observer's credential is read-only.** A forged observation reaches no further than the
 bounded table in [The gate grants nothing](#the-gate-grants-nothing): a forged `green` is landing
-as it is today. What the launch rules guard is the precision of `ci-infrastructure` and the
-read-only token itself. The
+as it is today. What the launch rules guard is the precision of `ci-infrastructure` against the
+change's tree and boxed seats; what bounds the account is the trust root
+([above](#the-account-is-the-trust-root)). The
 credential is a sealed secret binding (0012), resolved by the runner into the one allow-listed
 variable and never into argv; `gh` reads a token from its environment, an env-only consumer
 0012's compile lint already admits (`crates/brokkr-runtime/src/bundle.rs:4149-4156`). Its scope
-is read-only: Actions, checks, commit statuses, pull requests and metadata, and administration
-only where ruling 3's forge-required set is read. The forge's permission names, and whether
-Brokkr can read a token's scopes, are unmeasured; so a token with write scopes is the operator's
+is read-only and one repository's: Actions runs and jobs, checks, commit statuses, pull requests
+and metadata, and administration only where ruling 3's forge-required set is read. It comes from
+the same operator-side store every unboxed seat of the account can already read, so it is never
+broader than what they hold. It is declared in ruling 5's file as `observer.credential`, a
+binding name with `"access": "read"`, a closed enum of one word: the compile refuses any other
+word, and any further secret binding on the `ci` seat. The compile checks the declaration, not
+the token: the forge's permission names, and whether Brokkr can read a token's scopes, are
+unmeasured; so a token with write scopes behind a `read` declaration is the operator's
 misconfiguration, and the observer never sends a write whatever its token holds.
 - **Its word is data.** The engine re-checks the observation's binding itself (ruling 3): it
   compares the head to its own git head and the repository to the pinned one. It never takes
@@ -921,9 +967,9 @@ limit is malformed and refuses the replay, so a witness cannot stand in for a li
 witness is at most a few hundred bytes. Fix round 1093r4 specified only the in-bound replay; with
 the witness, every class replays from the journal alone, both size withholdings included.
 
-The two launch refusals of ruling 2, `launch-untrusted` and `launch-unboxed-peer`, are not
-`classify`'s: they hold before any observation exists. Each is the engine's pre-spawn fact,
-journaled as the park's reason with the condition that failed, and a replay reads it there.
+Ruling 2's launch refusal, `launch-untrusted`, is not `classify`'s: it holds before any
+observation exists. It is the engine's pre-spawn fact, journaled as the park's reason with the
+condition that failed, and a replay reads it there.
 
 - **(b) A new `ci/classified` event.** Moves the event envelope, every manifest and every fold
   arm for a fact an input can carry. Refused, as 0106 ruling 1 refused `run/park-caused`.
@@ -1124,7 +1170,8 @@ compiled into the bundle and pinned with it.**
   "observer": {
     "interpreter": {"path": "/usr/bin/bash", "sha256": "<64 hex>"},
     "tools": {"gh": {"path": "/usr/bin/gh", "sha256": "<64 hex>"},
-              "jq": {"path": "/usr/bin/jq", "sha256": "<64 hex>"}}
+              "jq": {"path": "/usr/bin/jq", "sha256": "<64 hex>"}},
+    "credential": {"binding": "GH_READ_TOKEN", "access": "read"}
   },
   "change_classes": ["crates/", "docs/", "Cargo.lock", "recipes/", "README.md"],
   "required_checks": [
@@ -1459,7 +1506,7 @@ the ask below stays.
 
 - **(a) Recommended.** `landing-ci` lands only after 0109c moves `fast` to v3, and only if the
   operator grants the ask below. Its composed table then validates whole under v3. Cost, said
-  plainly: no live producer exists before 0109c. 0111a to 0111c land and test offline, and live
+  plainly: no live producer exists before 0109c. 0111a to 0111d land and test offline, and live
   telemetry waits on 0109c.
 - **(b) An engine-owned boolean projection of `blocked_by`,** such as `blocked_by_environment`,
   so `fast`'s park spells as a scalar under v2 and `landing-ci` validates under v2 now. It edits
@@ -1559,8 +1606,8 @@ slice that produces it, and each typed assertion is in the slice that builds its
    pass (with the wire test) and the classifier. Contracts, minted here and only after 0111a:
    `ci-observation/v1`, `ci-checks/v1` and `ci-classification/v1`. No live producer yet: its
    observations are 0111a's evidence and builders over it, and its compile refuses every live
-   `ci` declaration until 0111c (ruling 2):
-   `a_bundle_declaring_a_ci_seat_refuses_to_compile_until_the_trusted_launch_lands`, a custom
+   `ci` declaration until 0111e (ruling 2):
+   `a_bundle_declaring_a_ci_seat_refuses_to_compile_until_the_first_live_producer_lands`, a custom
    exec recipe's declaration included. Tests: one per arm and reason of
    ruling 4, over observations built by a shared builder from 0111a's evidence. The wire, end to
    end, over 0111a's evidence in `ci-observation/v1`'s shape:
@@ -1686,22 +1733,30 @@ slice that produces it, and each typed assertion is in the slice that builds its
    site names, and the raw stdout channel); `crates/brokkr-protocol/src/process.rs` (execution
    of an opened descriptor on Linux, and the root-owned chain check on both systems);
    `crates/brokkr-runtime/src/bundle.rs` (the pinned interpreter and tools, the allow-list, and
-   the lift of 0111b's live-admission refusal); run start's refusal of a `ci` seat whose bundle
-   layer is inside the worktree, and its `namespace`-only admission (ruling 2's live-launch
-   rule), over 1091a's descriptor-held walk, so 0111c lands after 1091a; a house observer
-   script, with its polling bound inside the seat's deadline, and its shellcheck clean. About
-   400 production, 150 script and 650 test lines. No contract change. Tests: the boundary
+   the observer credential's `access: read` declaration); run start's refusal of a `ci` seat
+   whose bundle layer is inside the worktree, over 1091a's descriptor-held walk, so 0111c lands
+   after 1091a; a house observer script, with its polling bound inside the seat's deadline, and
+   its shellcheck clean. 0111b's live-admission refusal stands through this slice; 0111e lifts
+   it (ruling 2). About 400 production, 150 script and 650 test lines. No contract change.
+   Tests, the launch driven through a test-only bundle the live compile does not admit:
+   `one_admitted_launch_resolves_the_sealed_binding_into_the_cleared_environment_captures_stdout_and_parses_the_result`
+   (the real credential arrangement: a sealed binding in the operator-side store, resolved by
+   the runner into the one allow-listed variable of a cleared `SpawnEnv::Exactly`, no other key
+   present; a stub `gh` by absolute path asserts it read the token from that variable and
+   nothing from argv; its stdout is captured over the engine's pipe and parsed into
+   `ci-observation/v1`; run once under `harness` and once beside a boxed seat under
+   `namespace`, both admitted);
+   `an_observer_credential_declared_write_scoped_refuses_to_compile` (`"access"` of any word but
+   `read`, and a second secret binding on the `ci` seat, each refused by name);
+   `on_macos_the_interpreter_runs_by_path_only_under_a_root_owned_chain`. The boundary
    (Linux, under a real box, as 0043's boundary tests are):
-   `a_live_launch_beside_an_unboxed_same_uid_sibling_refuses_as_launch_unboxed_peer`
-   (a hands-less site in the same bundle, and separately another realm under `harness`);
-   `a_live_launch_under_harness_refuses_as_launch_unboxed_peer`;
-   `a_live_launch_on_macos_refuses`;
    `inside_the_box_opening_the_observers_pipe_endpoint_through_proc_fails`
    (a boxed seat walks its `/proc` for the observer's and the engine's pids and their `fd`
-   entries; its control, the same walk from an unboxed same-UID sibling, opens the endpoint);
-   `a_configuration_directory_replaced_before_gh_opens_it_refuses`
-   (the directory swapped by name between the walk and the spawn: the held descriptor is the
-   one `gh` reads, or the launch refuses);
+   entries; its control, the same walk from an unboxed same-UID sibling, opens the endpoint,
+   which the trust root accepts);
+   `a_configuration_directory_replaced_by_a_boxed_seat_before_gh_opens_it_refuses`
+   (a boxed seat whose binds reach the directory's parent swaps it by name between the walk
+   and the spawn: the held descriptor is the one `gh` reads, or the launch refuses);
    `the_observers_working_directory_is_set_from_the_held_descriptor`;
    `an_interpreter_replaced_after_verification_never_runs` (Linux: the hashed descriptor runs;
    both systems: a path whose chain the run's account can write refuses before the spawn);
@@ -1755,7 +1810,10 @@ slice that produces it, and each typed assertion is in the slice that builds its
    producer. Lands only after 0109c moves `fast` to v3, and only if the operator grants ruling
    10's ask (or rules its option (b)). Files: `recipes/landing-ci/`, the overlay declaring ruling
    6's table and the house's `ci-checks.json` with `delivered by brokkr` as `"after": "ship"`;
-   `crates/brokkr-runtime/src/bundle/entry.rs` (the `BeforeCi` arm); and its compile tests.
+   `crates/brokkr-runtime/src/bundle/entry.rs` (the `BeforeCi` arm);
+   `crates/brokkr-runtime/src/bundle.rs` (the lift of 0111b's live-admission refusal, ruling 2:
+   `a_bundle_declaring_a_ci_seat_compiles_once_the_launcher_the_park_and_the_table_exist`); and
+   its compile tests.
    About 100 data, 40 production and 450 test lines. No contract of this
    decision's own. **Live read-only telemetry starts here**: from the first landing the operator
    drives under this overlay on a real pull request, each observation, class and park is
