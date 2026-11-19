@@ -93,10 +93,18 @@ Why that holds at HEAD:
   `review` decision (`scripts/delivered-by-brokkr.sh:197-200`, `:265-267`), never a gate's
   inputs, so a `ci` decision in a shipped run's journal moves no tier.
 
-So `green` is not a verdict. It is the absence of the gate's two new outcomes, a typed park for
-a person and one bounded return to `implement`. Every proof the gate takes below is therefore a
+**The outcomes beyond ordinary landing, stated once.** The gate adds three, and only three:
+
+- **one bounded return to `implement`**, on `change`;
+- **a typed park** for a person, `infrastructure` with `origin: ci`, on `ci-infrastructure`;
+- **a `ruled` park** for a person: on `refused`, an observation that cannot be read as this pull
+  request's settled checks (ruling 3), and on `launch-untrusted`, a launch the engine refuses
+  before the spawn (ruling 2).
+
+So `green` is not a verdict. It is the absence of those three. Every other part of this
+decision points here rather than restating them. Every proof the gate takes below is a
 precision guard on the `ci-infrastructure` class, and each fails closed to "not
-infrastructure" (ruling 3).
+infrastructure" (ruling 3); a refusal fails closed to a person's look.
 
 **Every outcome of a wrong or forged observation is bounded:**
 
@@ -106,6 +114,9 @@ infrastructure" (ruling 3).
 | `ci-infrastructure` | a typed park a person reads before re-running |
 | `change` | one implement visit, under `fast`'s existing implement bound (ruling 6) |
 | `refused` | a `ruled` park a person reads |
+
+No row reaches a seat's input as authority either: later seats receive no projection of the
+observation (ruling 6's projection).
 
 **What this is not.** A change that weakens CI's own verdict, such as `deny.toml` widened to
 admit a licence, is green on the forge as well. That is landing's existing exposure, and review
@@ -117,7 +128,10 @@ claim to close it.
 table, less its four `CI-` rules, its `initial` and its `ci` phase, equals `landing`'s composed
 table rule for rule); and `nothing_in_the_recipes_or_seat_scripts_reads_the_ci_phases_result`
 (a search of every recipe's bundle, policy and scripts, and of `scripts/`, for `ci_class`, the
-three class flags and a `from: ci` decision finds only the four `CI-` rules).
+three class flags and a `from: ci` decision finds only the four `CI-` rules). A text search
+cannot prove what a seat reads, because a seat reads its built input, not the tree; so the
+consumer input is tested too, over the engine's own input builder, by ruling 6's projection
+tests.
 
 ## What main holds at HEAD
 
@@ -410,7 +424,9 @@ Fencing is the wrong frame, for three reasons:
 **What bounds the account's reach through the observer:**
 
 - **The frame.** A forged or tampered observation costs at most a person's park or one bounded
-  implement visit, never a merge ([The gate grants nothing](#the-gate-grants-nothing)).
+  implement visit, never a merge ([The gate grants nothing](#the-gate-grants-nothing)); and no
+  later seat's input carries the observation (ruling 6's projection), so a forged one reaches no
+  model as text.
 - **The credential.** It is read-only, scoped to the one repository's checks and Actions runs,
   and a sealed binding (0012), declared with a closed `access: read` the compile admits alone
   (ruling 5). It is never broader than what the account's unboxed seats can already read from
@@ -970,7 +986,8 @@ One more refusal follows the pass and precedes classification: `non-success`, wh
 check failed, and one concluded `neutral`, `skipped`, `stale` or `action_required`. It names the
 check and the word.
 
-A refusal never passes. The run parks `ruled`, with the rule's id and the refusals' words.
+A refusal never passes. It is the frame's `ruled` park
+([stated once](#the-gate-grants-nothing)), with the rule's id and the refusals' words.
 
 **What withholds `ci-infrastructure`.** A withholding is not a refusal: it parks nothing and
 stops nothing landing would do. Each is a precision guard on the one class, and fails closed to
@@ -1394,6 +1411,34 @@ cannot write any of them.
   the evidence and re-runs.
 - **`change`**: routed exactly as a red gate is today, to `implement`.
 - **`refused`** (ruling 3): parks `ruled`.
+
+These are the frame's three outcomes beyond ordinary landing
+([stated once](#the-gate-grants-nothing)), and `green`.
+
+**The `ci` result's projection.** A rule is not the only reader of a phase's result: a seat
+reads its built input. HEAD hands every seat but triage its run context: `last_decision`, the
+decision that brought it here; `results`, the result and inputs of every phase earlier in the
+table's order; and, on a return, `returned_from` (`crates/brokkr-runtime/src/engine/input.rs:110-168`).
+A phase result carries its decision's inputs (`crates/brokkr-core/src/decision.rs:113-126`).
+Unchanged, that would hand `ci_observation`, `ci_class` and its flags to `classify` (its
+`last_decision` after `CI-PASS`) and to `verify`, `review` and `ship` (`results.ci`, because
+`ci` precedes them in the order above), where a model reviewer could weigh a `pass` as CI's
+verdict. **Recommended: (a) the projection is fixed, in the one input builder:**
+
+- `results` never holds `ci`, for any seat;
+- a `last_decision` or `returned_from` whose phase is `ci` carries its rule id and result word,
+  and no `ci_*` input;
+- with one exception: `implement`, entered by `CI-FAIL`, receives `ci_class` alone, the class
+  `change`, its closed reason, and the workflow run's id and attempt and each failed job's id, so
+  it knows what to read on the forge. That is a reason to work, not a verdict to rely on, and it
+  is typed and bounded;
+- no seat ever receives `ci_observation`. The review seat receives nothing of `ci` on any road.
+
+So the `ci` result has exactly one projection, the class to `implement` after `CI-FAIL`, and
+nothing a later seat reads can stand for CI's verdict. **(b)** projecting it unchanged: a model
+seat would read the observation and a `green` it could take as authority. Not recommended.
+**(c)** projecting nothing, `implement` included: the implementer would diagnose a red CI
+without the job ids a person would give it. Not recommended.
 
 **A deterministic match.** Under ruling 4 (a), where several of a step's literals matched, the
 classifier takes the first matched pattern in the list's declaration order. The fault carries
@@ -2073,9 +2118,10 @@ slice that produces it, and each typed assertion is in the slice that builds its
    6's table and the house's `ci-checks.json` with `delivered by brokkr` as `"after": "ship"`;
    `crates/brokkr-runtime/src/bundle/entry.rs` (the `BeforeCi` arm);
    `crates/brokkr-runtime/src/bundle.rs` (the lift of 0111b's live-admission refusal, ruling 2:
-   `a_bundle_declaring_a_ci_seat_compiles_once_the_launcher_the_park_and_the_table_exist`); and
+   `a_bundle_declaring_a_ci_seat_compiles_once_the_launcher_the_park_and_the_table_exist`);
+   `crates/brokkr-runtime/src/engine/input.rs` (ruling 6's projection of the `ci` result); and
    its compile tests.
-   About 100 data, 40 production and 450 test lines. No contract of this
+   About 100 data, 80 production and 500 test lines. No contract of this
    decision's own. **Live read-only telemetry starts here**: from the first landing the operator
    drives under this overlay on a real pull request, each observation, class and park is
    journaled, and a sweep can count typed parks against diagnosis seat attempts. The park's
@@ -2083,7 +2129,15 @@ slice that produces it, and each typed assertion is in the slice that builds its
    phase, which observes again. Tests: the frame's two
    ([The gate grants nothing](#the-gate-grants-nothing)),
    `after_ci_pass_the_composed_table_is_landings_own_rule_for_rule` and
-   `nothing_in_the_recipes_or_seat_scripts_reads_the_ci_phases_result`;
+   `nothing_in_the_recipes_or_seat_scripts_reads_the_ci_phases_result`; the consumer input
+   (ruling 6's projection), each built by the engine's own input builder over a journal holding
+   the `ci` decision and asserting the exact keys:
+   `after_ci_pass_no_later_seat_input_holds_the_ci_observation_or_class` (`classify`, `verify`,
+   `review` and `ship`: no `results.ci`, and no `ci_*` key anywhere in the input);
+   `after_ci_fail_implement_receives_the_class_and_never_the_observation` (exactly `ci_class`'s
+   class, reason and ids under `last_decision`);
+   `the_review_seat_input_holds_no_ci_key_on_any_road` (after `CLASSIFY-DOCS`, after
+   `VERIFY-PASS`, and after an implement visit `CI-FAIL` bought);
    the entry (ruling 6), each over the overlay's materialized bundle, its composed table and
    phase order, through HEAD's `first_phase` and `admitted()`:
    `the_landing_ci_default_start_enters_ci`;
