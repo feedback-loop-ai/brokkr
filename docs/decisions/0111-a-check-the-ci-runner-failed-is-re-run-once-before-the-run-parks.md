@@ -1807,16 +1807,25 @@ So the subtype cannot also be `kind`, and fix round 1093r5's "a v1 cause with no
   after v2, the engine's own included. Not recommended.
 
 **The decode table, pinned.** Each object below is serialized and decoded in 0111d's tests, and
-the result is exact:
+the result is exact. The v1 reader is HEAD's frozen one. It reads the infrastructure arm with
+`retryable` and `detail` allowed, and refuses the **first** other key it meets as
+`ParkCauseError::Forbidden { kind: "infrastructure", field }`
+(`crates/brokkr-core/src/park/parse.rs:24-37`, `:137-142`), whose text is "the park cause does
+not read: a infrastructure cause forbids `<field>`" (`crates/brokkr-core/src/park/error.rs:24-26`).
+The keys come in the map's sorted order: the workspace's `serde_json` has no `preserve_order`
+feature (`Cargo.lock:2401-2411` lists no `indexmap` among its dependencies), so its `Map` is a
+`BTreeMap`, and `faults` sorts before `origin`. So an object holding both is refused for
+`faults`, never for `origin`; the origin-only extension is the control that names `origin`.
 
 | Object | v1 reader | v2 reader |
 |---|---|---|
 | `{"kind":"infrastructure","retryable":false,"detail":"d"}` | `Infrastructure { retryable: false }` | `Infrastructure { origin: Engine, retryable: false }` |
-| `{"kind":"infrastructure","origin":"ci","retryable":false,"detail":"d","faults":[…]}` | refused by name: unknown field `origin` | `Infrastructure { origin: Ci { faults }, retryable: false }` |
-| `{"kind":"infrastructure","origin":"engine",…}` | refused by name | refused by name: `engine` is never written |
-| `{"kind":"infrastructure","origin":"ci",…}` with no `faults`, or `faults` empty | refused by name | refused by name |
-| `{"kind":"infrastructure","retryable":false,"detail":"d","faults":[…]}` (no `origin`) | refused by name | refused by name: `faults` needs `origin: ci` |
-| `{"kind":"infrastructure","origin":"ci","retryable":true,"detail":"d","faults":[…]}` (valid faults) | refused by name: unknown field `origin` | refused: `a ci infrastructure park cause is never retryable` |
+| `{"kind":"infrastructure","origin":"ci","retryable":false,"detail":"d","faults":[…]}` | `Forbidden { kind: "infrastructure", field: "faults" }` | `Infrastructure { origin: Ci { faults }, retryable: false }` |
+| `{"kind":"infrastructure","origin":"ci","retryable":false,"detail":"d"}` (origin only) | `Forbidden { kind: "infrastructure", field: "origin" }` | refused by name: `origin: ci` requires `faults` |
+| `{"kind":"infrastructure","origin":"ci","retryable":false,"detail":"d","faults":[]}` | `Forbidden { kind: "infrastructure", field: "faults" }` | refused by name: `faults` is empty |
+| `{"kind":"infrastructure","origin":"engine","retryable":false,"detail":"d"}` | `Forbidden { kind: "infrastructure", field: "origin" }` | refused by name: `engine` is never written |
+| `{"kind":"infrastructure","retryable":false,"detail":"d","faults":[…]}` (no `origin`) | `Forbidden { kind: "infrastructure", field: "faults" }` | refused by name: `faults` needs `origin: ci` |
+| `{"kind":"infrastructure","origin":"ci","retryable":true,"detail":"d","faults":[…]}` (valid faults) | `Forbidden { kind: "infrastructure", field: "faults" }` | refused: `a ci infrastructure park cause is never retryable` |
 | `{"kind":"infrastructure","retryable":true,"detail":"d"}` (legacy, no `origin`) | `Infrastructure { retryable: true }` | `Infrastructure { origin: Engine, retryable: true }` |
 
 **A CI cause is never retryable, at the schema and at decode.** HEAD's parser accepts either
@@ -2361,12 +2370,18 @@ slice that produces it, and each typed assertion is in the slice that builds its
    attempt follows it);
    the decode table (ruling 7), each object serialized and decoded by both readers with the
    exact result: `a_v1_infrastructure_cause_decodes_identically_under_v1_and_v2_as_origin_engine`;
-   `a_v2_ci_cause_decodes_under_v2_and_is_refused_by_name_under_v1`;
+   `a_full_v2_ci_cause_decodes_under_v2_and_the_frozen_v1_reader_refuses_it_as_forbidden_faults`
+   (v1: exactly `ParkCauseError::Forbidden { kind: "infrastructure", field: "faults" }`, and
+   its pinned text);
+   `an_origin_only_extension_is_refused_by_the_frozen_v1_reader_as_forbidden_origin` (the
+   origin-specific v1 control: `Forbidden { kind: "infrastructure", field: "origin" }`; v2
+   refuses it for its missing `faults`);
    `an_origin_engine_word_is_refused_by_name`;
-   `an_origin_ci_cause_without_faults_is_refused_by_name`;
+   `an_origin_ci_cause_with_empty_faults_is_refused_by_name`;
    `faults_without_origin_ci_are_refused_by_name`;
    `an_origin_ci_cause_with_retryable_true_is_refused_at_schema_and_decode` (valid faults: the
-   schema rejects it, and v2's decode returns the exact never-retryable error);
+   schema rejects it, v2's decode returns the exact never-retryable error, and the frozen v1
+   reader returns `Forbidden { kind: "infrastructure", field: "faults" }`);
    `a_legacy_retryable_engine_cause_still_decodes_retryable_under_v1_and_v2` (the control beside
    it);
    `every_engine_infrastructure_writer_serializes_v1_bytes_under_v2`;
