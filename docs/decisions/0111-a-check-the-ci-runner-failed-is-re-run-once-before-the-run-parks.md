@@ -1133,7 +1133,8 @@ compile refuses a `*`, `?` or `[` in a path, so a glob cannot pass for one, whil
 bytes are all literal.
 
 `required_checks` must be non-empty, every Actions entry must name all of its producer's parts
-and its `tested` word, and `change_classes` must be non-empty and hold no path that is, or lies
+and its `tested` word, and may carry `"after": "ship"` (ruling 6's entry set; the only word
+v1 admits, so the field is a closed enum of one), and `change_classes` must be non-empty and hold no path that is, or lies
 under, `.github/` or any required entry's workflow. The compile refuses a list that leaves any
 of them to a default. A path `change_classes` does not name is machinery; there is no machinery
 list to keep. `repository` pins the binding ruling 3 checks.
@@ -1186,12 +1187,49 @@ its `phases` to add `ci`; `landing` overrides the same keys over `brokkr-fast`
 (`crates/brokkr-runtime/src/bundle/compose.rs:871-921`), and no rule of landing's or `fast`'s
 changes.
 
+**CI is the only way in.** A table's `initial` is not the only entry: an explicit `--enter`
+phase is admitted on its own, through the entry check, and `initial` is used only when no entry
+is named (`crates/brokkr-runtime/src/bundle/entry.rs:139-150`). The check refuses an absent,
+terminal or work phase, and one from which a path reaches a terminal around the protected phase
+(`:152-184`); `fast`'s protected phase is `review` (`recipes/fast/bundle.json:6`). Landing
+documents `--enter review` and `--enter classify --continues <run>`
+(`recipes/landing/README.md:91-99`), and both pass that check. So, as fix round 1093r4 left it,
+`landing-ci --enter review` would skip `ci`. Under the frame that is landing as it is today, not
+a pass the gate grants; it is still designed out, so the overlay's typed outcomes are reached on
+every run that names it. **Recommended: (a) `landing-ci`'s entry admission admits `ci` alone,
+through the existing entry check.** The check's chain of refusals gains one arm: in a bundle
+whose table declares a `ci` seat, every phase but that one refuses as a new `EntryRefusal`
+variant, `BeforeCi`, naming the `ci` phase, and `admitted()` lists `ci` alone. `--enter ci`,
+with or without `--continues`, stays admitted. The protected-phase arm is unchanged, so `review`
+stays unavoidable before `ship`: every path from `ci` runs through `classify` or `implement`, and
+landing's table already admits both only on roads through `review`. Refused alternatives: **(b)**
+a table rule alone, which the explicit entry never reads; **(c)** removing `--enter` from the
+CLI for every recipe, which takes landing's documented continuation away from recipes that have
+no `ci` phase.
+
+**The entry set holds only checks that can be green before landing.** HEAD's required
+`delivered by brokkr` (`.github/branch-protection.json:8`) fails until landing publishes its
+shipped evidence: with no `by-hand` label, a body with no `Brokkr-Run:` line fails, and a named
+run must have ruled `shipped` (`scripts/delivered-by-brokkr.sh:189-204`), which only this landing's
+ship produces (decision 0051 ruling 2). At entry it fails on every first landing without the
+label, and would send a sound change to `implement`. **Recommended: (a) the entry set excludes
+every required check whose evidence is this landing's own output.** The recipe data says which:
+a `required_checks` entry may carry `"after": "ship"`, a closed one-word field, and the gate
+neither observes nor counts such an entry; the forge's required-set comparison counts it as
+declared. The rule for the recipe data: an entry whose producer reads anything this run's ship
+seat writes (its anchor, its journal, its ledger) carries `"after": "ship"`. For the house that
+is `delivered by brokkr`, and only it. The forge's requirement stays at merge, unchanged. The
+declaration is the operator's: the compile cannot see what a check reads, and an entry left
+undeclared costs one implement visit (the frame's table), never a pass. Refused alternative:
+**(b)** observing it and treating its failure as untyped, which is fix round 1093r4's behaviour
+and spends the implement visit on every first landing.
+
 **Every route and cap, from the incoming edge.** First match wins, in the order listed. The
 `When` column names the class; ruling 10 gives its schema-legal spelling.
 
 | Rule | From | Result | When | Next |
 |---|---|---|---|---|
-| (entry) | | | `initial: ci` | `ci` |
+| (entry) | | | `initial: ci`; an explicit entry admits `ci` alone | `ci` |
 | `CI-REFUSED` | `ci` | `fail` | class `refused` | park, `ruled`, naming the refusals |
 | `CI-INFRASTRUCTURE` | `ci` | `fail` | class `ci-infrastructure` | park, `infrastructure` `ci-infrastructure` |
 | `CI-PASS` | `ci` | `pass` | class `green` | `classify` |
@@ -1219,7 +1257,8 @@ head or write to the forge:
 
 - any route to a re-run, under every class (ruling 1);
 - any rule whose `next` is `ci`: it would gate a head the run made, which is unpublished;
-- any rule into `classify` but `CI-PASS`: it would skip the gate;
+- any rule into `classify` but `CI-PASS`, and any explicit entry but `ci`: either would skip
+  the gate;
 - `ci-infrastructure` routed to `implement`: a diagnosis seat attempt is what the class exists
   to save;
 - a refusal routed to `implement`; a refusal parks;
@@ -1653,7 +1692,9 @@ slice that produces it, and each typed assertion is in the slice that builds its
 5. **0111e — the gate on `landing`, over a published head.** The first slice with a live
    producer. Lands only after 0109c moves `fast` to v3, and only if the operator grants ruling
    10's ask (or rules its option (b)). Files: `recipes/landing-ci/`, the overlay declaring ruling
-   6's table, and its compile tests. About 100 data and 400 test lines. No contract of this
+   6's table and the house's `ci-checks.json` with `delivered by brokkr` as `"after": "ship"`;
+   `crates/brokkr-runtime/src/bundle/entry.rs` (the `BeforeCi` arm); and its compile tests.
+   About 100 data, 40 production and 450 test lines. No contract of this
    decision's own. **Live read-only telemetry starts here**: from the first landing the operator
    drives under this overlay on a real pull request, each observation, class and park is
    journaled, and a sweep can count typed parks against diagnosis seat attempts. The park's
@@ -1662,6 +1703,13 @@ slice that produces it, and each typed assertion is in the slice that builds its
    ([The gate grants nothing](#the-gate-grants-nothing)),
    `after_ci_pass_the_composed_table_is_landings_own_rule_for_rule` and
    `nothing_in_the_recipes_or_seat_scripts_reads_the_ci_phases_result`;
+   the entry (ruling 6): `landing_ci_enter_review_refuses_as_before_ci`;
+   `landing_ci_enter_classify_refuses_as_before_ci`;
+   `landing_ci_admits_ci_alone_as_an_explicit_entry`;
+   `review_stays_unavoidable_before_ship_from_ci`;
+   `a_fresh_published_pull_request_with_no_anchor_and_no_label_is_not_routed_to_implement_by_the_contribution_check`
+   (`delivered by brokkr` red, every other entry green: `green`, never `change`);
+   `an_after_ship_entry_is_never_observed_and_the_forge_set_comparison_counts_it_declared`;
    `a_green_observation_passes_to_classify`;
    `a_change_failure_returns_to_implement_once`;
    `a_refusal_parks_ruled_and_never_passes`;
