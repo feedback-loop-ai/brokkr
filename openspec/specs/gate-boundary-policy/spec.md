@@ -493,7 +493,8 @@ its exact name; `CARGO_HOME`,
 it — exactly when the site's `hands.binds` declare that path, as the box
 sets them, and absent otherwise, a bind's `mask` being declared and not
 enforced outside a namespace; `VOLTA_HOME`, the engine's own verbatim
-when set there, else the operator's `~/.volta` exactly when the
+when set there, as the engine's UTF-8 environment holds it (the probe's
+launches hand it as the OS holds it), else the operator's `~/.volta` exactly when the
 inherited `PATH` lists that home's `bin`, and absent otherwise — a
 volta shim finds its home as `$VOLTA_HOME`, else `$HOME/.volta`, so
 under the private `HOME` it finds no install, delegates to the next
