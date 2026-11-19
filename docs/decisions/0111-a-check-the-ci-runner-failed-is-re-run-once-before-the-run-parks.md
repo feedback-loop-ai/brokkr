@@ -783,7 +783,25 @@ change's tree:
   are not known to be machinery. The table is the engine's, one home, and a word it lacks fails
   closed; the closure verdict it gave is sealed in the basis, so a later table never moves a
   replay.
-- **Every file a required job executes, reads as an implicit input or runs from at the base
+- **So do each command word's data operands.** A program also reads files its operands name
+  without executing them: `test -f crates/ci/ready` run from the workspace root reads the
+  change's tree as surely as a `make` there does. The same table names, for every command word it
+  admits, which operand positions are paths it reads (for `test`, the operand of `-f`, `-e`,
+  `-d`, `-s` and `-r`; for `cat`, `cmp` and `diff`, every operand; for `echo` and `printf`,
+  none). Each such operand, taken relative to the effective working directory, lies outside the
+  change classes, or `machinery-escapes` withholds, naming the word, the operand and the step;
+  one that is not a literal word is `machinery-unresolved`.
+- **And so does everything an implicit input includes.** An implicit input is a reached file:
+  it is scanned in turn, by the table's grammar for its format, for what it pulls in. A
+  `Makefile`'s `include`, `-include` and `sinclude` operands, and each recipe line as a `run:`
+  line; a compose file's `include`, `extends.file` and `env_file`. So a machinery `Makefile`
+  that includes `crates/ci/setup.mk` escapes, as `machinery-escapes` naming the `Makefile`, the
+  include and the step. An included path that is not a literal word, an implicit input whose
+  format the table gives no grammar for, and a read or include form the grammar does not name
+  (a `$(shell …)` or `$(wildcard …)` in a `Makefile`) each withhold as `machinery-unresolved`:
+  what they read is not known, so it is not known to be machinery.
+- **Every file a required job executes, reads as an implicit input, a read operand or an
+  include, or runs from at the base
   lies outside the change classes,** or `machinery-escapes` withholds the class, naming the
   reference and the file that made it.
 - **A reference the test cannot resolve fails closed,** as `machinery-unresolved`: an operand or
@@ -1004,8 +1022,8 @@ stops nothing landing would do. Each is a precision guard on the one class, and 
 | Withholding | When |
 |---|---|
 | `machinery-touched` | a changed path lies outside every change class; it names the paths |
-| `machinery-escapes` | at the base, a file a required job executes, a command word's implicit input, or a reached step's effective working directory lies inside a change class |
-| `machinery-unresolved` | at the base, a reached file holds a reference the closure test cannot resolve, or a command word or remote action the pinned table does not name |
+| `machinery-escapes` | at the base, a file a required job executes, a command word's implicit input or read operand, a file an implicit input includes, or a reached step's effective working directory lies inside a change class |
+| `machinery-unresolved` | at the base, a reached file holds a reference, read operand or include the closure test cannot resolve, or a command word, remote action or implicit input format the pinned table does not name |
 | `range-unproven` | 0109's verified reader cannot establish the range's provenance and its complete, byte-exact path list |
 | `range-too-large` | the range's changed paths exceed the bound the classification record carries |
 | `basis-too-large` | the classifier's sealed basis would exceed its bound |
@@ -2002,6 +2020,16 @@ slice that produces it, and each typed assertion is in the slice that builds its
    `crates/ci`, and the change edits only `crates/ci/Makefile` so the step prints the declared
    port-bind literal: `change`, `withheld`, with `machinery-escapes` naming the directory and the
    `Makefile`);
+   `a_read_operand_in_a_change_class_draws_no_ci_infrastructure` (a required setup step runs
+   `test -f crates/ci/ready` from the workspace root, and the change only removes that file:
+   `change`, `withheld`, with `machinery-escapes` naming `test`, the operand and the step);
+   `a_machinery_makefile_including_a_change_class_file_draws_no_ci_infrastructure` (a bare
+   `make` under a machinery directory whose `Makefile` includes `crates/ci/setup.mk`, the
+   change editing only `setup.mk`: `change`, `withheld`, with `machinery-escapes` naming the
+   `Makefile` and the include);
+   `a_non_literal_or_unsupported_include_or_read_withholds_as_machinery_unresolved` (a
+   `Makefile` `include $(DIR)/setup.mk`, a `$(shell cat …)`, and a `test -f "$X"`: each `change`,
+   `withheld`, `machinery-unresolved` naming the form);
    `a_step_whose_effective_working_directory_lies_in_a_change_class_withholds_as_machinery_escapes`;
    `a_cd_to_a_non_literal_directory_withholds_as_machinery_unresolved`;
    `a_command_word_the_pinned_table_does_not_name_withholds_as_machinery_unresolved`;
