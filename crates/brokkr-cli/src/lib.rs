@@ -98,7 +98,7 @@ enum Cmd {
     /// Anchor a run's journal head in refs/forge/<run> (tamper evidence),
     /// or verify the existing anchor with --check.
     Anchor(AnchorArgs),
-    /// Keep-refs (decision 0028): the git objects a run's journal cites,
+    /// Keep-refs: the git objects a run's journal cites,
     /// held by refs/forge/keep/<run>/<sha> so a squash-merge, a branch
     /// delete and a gc cannot collect the evidence the journal names.
     /// Runs plant these themselves at conclusion; these verbs cover the
@@ -113,7 +113,7 @@ enum Cmd {
     /// Explore runs interactively in the terminal: the fleet as a
     /// navigable table, one run's phase graph, seats and decision
     /// trail, and one seat's own checkpoint and session stream.
-    /// Read-only like every other readout (decision 0014) — it issues
+    /// Read-only like every other readout — it issues
     /// no operator commands and writes nothing to the journal.
     Tui(TuiArgs),
     /// Verify tools, drivers, the workspace database, and optionally a
@@ -146,13 +146,14 @@ enum Cmd {
     /// policy loop needs the bundle by construction. For a run believed
     /// dead: every write is fenced, so a journal that moves beneath the
     /// conclusion — something still driving the run — refuses instead
-    /// of being closed over (decision 0029). Check `brokkr runs` first.
+    /// of being closed over. Check `brokkr runs` first.
+    // The fenced write is decision 0029's.
     Conclude(ConcludeArgs),
     /// Record an operator command (retry | stop | release | supersede |
     /// classify | repair) as journal events, or acknowledge a quarantined
     /// run beside its journal.
     Operator(OperatorArgs),
-    /// The dispatcher's queue (decision 0068): runs waiting to start, in
+    /// The dispatcher's queue: runs waiting to start, in
     /// the journal's own database. Add, list, judge, move, hold, release,
     /// re-pin and drop entries; each change is journaled with its reason.
     Queue {
@@ -172,7 +173,7 @@ enum Cmd {
     Transcript(TranscriptArgs),
     /// The seats of a run: the seats block `inspect` renders — every
     /// seat's model with the boundary its hands stood behind beside it
-    /// (decision 0046 ruling 3) — from the same view. `--json` prints
+    /// — from the same view. `--json` prints
     /// that view verbatim, the bytes `inspect --json` prints.
     Seats(SeatsArgs),
     /// Watch a run live: redraw the graph, seats, last ruling and seat
@@ -185,8 +186,7 @@ enum Cmd {
     Export(ExportArgs),
     /// List every historical evidence root, or retire one under the
     /// admission lock once its evidence is archived or discarded. The
-    /// sealed retirement sits beside the historical record, which stays
-    /// (decision 0105).
+    /// sealed retirement sits beside the historical record, which stays.
     Evidence {
         #[command(subcommand)]
         command: verbs::evidence::EvidenceCmd,
@@ -214,7 +214,7 @@ enum Cmd {
     /// fleet's sections in order and each by last activity, read a page at
     /// a time. `--json` emits the view model for scripts.
     Runs(RunsArgs),
-    /// List the world (decision 0023): each realm with its path, default
+    /// List the world: each realm with its path, default
     /// branch and current HEAD, and the journal the world writes.
     /// Read-only, like every other readout.
     Realms(RealmsArgs),
@@ -223,9 +223,9 @@ enum Cmd {
     /// Run a built-in forge-driver/v1 adapter (claude | lanetally | codex | dsh | exec).
     /// Bundles reference these as {brokkr} driver <kind> -- <extra args>.
     Driver(DriverArgs),
-    /// The model's hands are one tool, and the tool runs in an empty root
-    /// (decision 0043): serve the `workspace` tool over MCP on stdio, or
-    /// run one command whole inside the same box.
+    /// The model's hands are one tool, and the tool runs in an empty root:
+    /// serve the `workspace` tool over MCP on stdio, or run one command
+    /// whole inside the same box.
     Hands {
         #[command(subcommand)]
         command: HandsCommand,
@@ -236,7 +236,7 @@ enum Cmd {
         command: ProbeCmd,
     },
     /// (internal) The MCP capability broker the harness starts beside
-    /// `hands` from the engine's configuration (decision 0077).
+    /// `hands` from the engine's configuration.
     #[command(hide = true)]
     Broker {
         #[command(subcommand)]
@@ -389,7 +389,7 @@ enum RecipesCmd {
         personal: bool,
     },
     /// Print one recipe's RESOLVED bundle and, when it extends another,
-    /// the composition chain it was resolved from (decision 0017).
+    /// the composition chain it was resolved from.
     Show {
         /// The recipe's name, resolved to <dir>/<name>, else to the
         /// personal shelf's; a name on both refuses.

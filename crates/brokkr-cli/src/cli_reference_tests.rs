@@ -412,6 +412,123 @@ fn every_selector_names_an_argument() {
     assert_eq!(selector("brokkr runs", run), Some(Selector::Literal));
 }
 
+/// Every citation in `text` a code reader would make and an operator
+/// cannot use (#1170): `decision 0016`, `ruling 4`, `R5` or `#511`.
+fn citations(text: &str) -> Vec<String> {
+    // A word is a run of letters and digits, so punctuation such as
+    // `selection—decision` cannot hide a citation. Each word keeps the gap
+    // before it: a lead and its number are parted by spaces or a hyphen
+    // alone, so `a ruling, 4` cites nothing.
+    let words: Vec<(&str, &str)> = text
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|word| !word.is_empty())
+        .scan(0, |end, word| {
+            let start = word.as_ptr() as usize - text.as_ptr() as usize;
+            let gap = &text[*end..start];
+            *end = start + word.len();
+            Some((gap, word))
+        })
+        .collect();
+    let number = |word: &str| {
+        (!word.is_empty() && word.bytes().all(|b| b.is_ascii_digit())).then(|| word.to_string())
+    };
+    let leads = ["decision", "decisions", "ruling", "rulings"];
+    let cites = |pair: &[(&str, &str)]| {
+        let [(_, lead), (gap, n)] = pair else {
+            unreachable!("windows(2) yields pairs")
+        };
+        let parted = gap.chars().all(|c| c.is_whitespace() || c == '-');
+        let lead_word = leads.contains(&lead.to_ascii_lowercase().as_str());
+        number(n)
+            .filter(|_| parted && lead_word)
+            .map(|n| format!("{lead} {n}"))
+    };
+    let alone = |&(_, word): &(&str, &str)| {
+        let (tag, rest) = word.split_at_checked(1)?;
+        number(rest)
+            .filter(|_| tag == "R")
+            .map(|n| format!("{tag}{n}"))
+    };
+    // An issue is `#` and digits wherever the `#` stands, so `issue#511` and
+    // `owner/repo#511` cite one too; digits running on into letters, as in
+    // `#5a5a5a`, are no issue.
+    let issues = text.match_indices('#').filter_map(|(at, _)| {
+        let rest = &text[at + 1..];
+        let digits = rest
+            .find(|c: char| !c.is_ascii_digit())
+            .unwrap_or(rest.len());
+        let ends = !rest[digits..].starts_with(char::is_alphanumeric);
+        (digits > 0 && ends).then(|| format!("#{}", &rest[..digits]))
+    });
+    words
+        .windows(2)
+        .filter_map(cites)
+        .chain(words.iter().filter_map(alone))
+        .chain(issues)
+        .collect()
+}
+
+/// Every text clap prints for `command` and every command below it,
+/// hidden ones included, as `path: text`.
+fn help_texts(command: &Command, path: &str) -> Vec<String> {
+    let path = format!("{path} {}", command.get_name()).trim().to_string();
+    let own = [command.get_about(), command.get_long_about()]
+        .into_iter()
+        .chain([command.get_before_help(), command.get_after_help()])
+        .flatten()
+        .map(|text| format!("{path}: {text}"));
+    let args = command.get_arguments().flat_map(|arg| {
+        let values = arg.get_possible_values();
+        [arg.get_help(), arg.get_long_help()]
+            .into_iter()
+            .flatten()
+            .map(ToString::to_string)
+            .chain(
+                values
+                    .iter()
+                    .filter_map(|value| value.get_help().map(ToString::to_string)),
+            )
+            .map(|text| format!("{path} {}: {text}", arg.get_id()))
+            .collect::<Vec<_>>()
+    });
+    own.chain(args)
+        .chain(
+            command
+                .get_subcommands()
+                .flat_map(|sub| help_texts(sub, &path)),
+        )
+        .collect()
+}
+
+#[test]
+fn the_help_cites_no_decision_ruling_or_issue() {
+    assert_eq!(
+        citations("(decision 0064 ruling 4), R5, #511 and decisions 0004 and 0005"),
+        ["decision 0064", "ruling 4", "decisions 0004", "R5", "#511"]
+    );
+    // Punctuation glued to either side hides none of the four forms.
+    assert_eq!(
+        citations("selection—decision 0016/ruling 4 (see:R5) tracked in issue(#511)."),
+        ["decision 0016", "ruling 4", "R5", "#511"]
+    );
+    // An issue glued to a word or a repository is still an issue.
+    assert_eq!(
+        citations("issue#511, feedback-loop-ai/brokkr#512 and brokkr#513"),
+        ["#511", "#512", "#513"]
+    );
+    assert!(citations("a ruling, 4 Ruby lines, issue C#, #5a5a5a and 0064's R2D2").is_empty());
+    let cited: Vec<String> = help_texts(&Cli::command(), "")
+        .into_iter()
+        .filter(|text| !citations(text).is_empty())
+        .collect();
+    assert!(
+        cited.is_empty(),
+        "help text an operator reads cites decisions, rulings or issues; say in plain \
+         words what each meant:\n{}",
+        cited.join("\n")
+    );
+}
+
 #[test]
 fn every_exit_is_in_the_table_once() {
     let names: Vec<&str> = exits().into_iter().map(|exit| exit_row(exit).0).collect();
