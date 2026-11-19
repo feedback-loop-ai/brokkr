@@ -8,12 +8,12 @@ Every `brokkr` verb and argument with its default, and every exit code, as the b
 - [`brokkr costs`](#brokkr-costs): Per-seat cost and session accounting from journal checkpoints — the LaneTally join surface (stable seat ids, journal-derived)
 - [`brokkr ledger`](#brokkr-ledger): Render the shipper's delivery ledger from journal and repository evidence
 - [`brokkr anchor`](#brokkr-anchor): Anchor a run's journal head in refs/forge/&lt;run&gt; (tamper evidence), or verify the existing anchor with --check
-- [`brokkr keep-refs`](#brokkr-keep-refs): Keep-refs (decision 0028): the git objects a run's journal cites, held by refs/forge/keep/&lt;run&gt;/&lt;sha&gt; so a squash-merge, a branch delete and a gc cannot collect the evidence the journal names. Runs plant these themselves at conclusion; these verbs cover the runs that concluded before the mechanism existed, and the deliberate letting-go that is the operator's alone
+- [`brokkr keep-refs`](#brokkr-keep-refs): Keep-refs: the git objects a run's journal cites, held by refs/forge/keep/&lt;run&gt;/&lt;sha&gt; so a squash-merge, a branch delete and a gc cannot collect the evidence the journal names. Runs plant these themselves at conclusion; these verbs cover the runs that concluded before the mechanism existed, and the deliberate letting-go that is the operator's alone
 - [`brokkr keep-refs plant`](#brokkr-keep-refs-plant): Plant a keep-ref for every object the run's journal cites. Idempotent: replanting moves nothing
 - [`brokkr keep-refs list`](#brokkr-keep-refs-list): Which runs hold which exhibits — one `for-each-ref`, no journal needed. `--run` narrows the listing to one run
 - [`brokkr keep-refs delete`](#brokkr-keep-refs-delete): Let one run's exhibits go: remove refs/forge/keep/&lt;run&gt;/*. The operator's decision alone — nothing in the engine ever deletes a keep-ref, and the objects are then as mortal as gc leaves them
 - [`brokkr ui`](#brokkr-ui): Serve the embedded read-only surface on loopback
-- [`brokkr tui`](#brokkr-tui): Explore runs interactively in the terminal: the fleet as a navigable table, one run's phase graph, seats and decision trail, and one seat's own checkpoint and session stream. Read-only like every other readout (decision 0014) — it issues no operator commands and writes nothing to the journal
+- [`brokkr tui`](#brokkr-tui): Explore runs interactively in the terminal: the fleet as a navigable table, one run's phase graph, seats and decision trail, and one seat's own checkpoint and session stream. Read-only like every other readout — it issues no operator commands and writes nothing to the journal
 - [`brokkr doctor`](#brokkr-doctor): Verify tools, drivers, the workspace database, and optionally a bundle, without executing any agent
 - [`brokkr compile`](#brokkr-compile): Validate a bundle and print its pinned manifest and digest
 - [`brokkr run`](#brokkr-run): Start a new run and drive it until it parks or finishes
@@ -23,24 +23,24 @@ Every `brokkr` verb and argument with its default, and every exit code, as the b
 - [`brokkr recipes`](#brokkr-recipes): The recipe library: bundle directories as named, swappable delivery strategies
 - [`brokkr recipes list`](#brokkr-recipes-list): List recipes under --dir, then those on the personal shelf, each with its origin, project or personal; broken ones print a warning line, never abort the listing
 - [`brokkr recipes add`](#brokkr-recipes-add): Install a recipe from a local path or a git URL into the shelf at the repository's root, .brokkr/recipes/&lt;name&gt; where the folder is, else recipes/&lt;name&gt;, with the agents and charters it names that the agent library lacks
-- [`brokkr recipes show`](#brokkr-recipes-show): Print one recipe's RESOLVED bundle and, when it extends another, the composition chain it was resolved from (decision 0017)
-- [`brokkr agents`](#brokkr-agents): The agent library (decision 0016): one definition per agent — description, charter, an ordered chain of abstract model names, abstract tool/MCP configuration — that seats reference by name
+- [`brokkr recipes show`](#brokkr-recipes-show): Print one recipe's RESOLVED bundle and, when it extends another, the composition chain it was resolved from
+- [`brokkr agents`](#brokkr-agents): The agent library: one definition per agent — description, charter, an ordered chain of abstract model names, abstract tool/MCP configuration — that seats reference by name
 - [`brokkr agents list`](#brokkr-agents-list): One line per agent — name, model chain, description. A broken definition prints a warning line and never aborts the listing
 - [`brokkr agents show`](#brokkr-agents-show): The definition as written, plus the per-chain-entry resolution the compiler would compute. An unknown name errors naming the known set
-- [`brokkr muninn`](#brokkr-muninn): The standing overseer (decision 0020): read the fleet, propose to the operator, execute nothing. It opens the journal read-only, issues no operator command, starts no run, and records every proposal — with the run ids and sequence numbers it was derived from — in its own append-only file beside the journal
+- [`brokkr muninn`](#brokkr-muninn): The standing overseer: read the fleet, propose to the operator, execute nothing. It opens the journal read-only, issues no operator command, starts no run, and records every proposal — with the run ids and sequence numbers it was derived from — in its own append-only file beside the journal
 - [`brokkr muninn run`](#brokkr-muninn-run): Derive the fleet dossier, ask one bounded seat for proposals, and record them. Nothing is executed: a proposal becomes an action only when the operator issues the command themselves
 - [`brokkr muninn list`](#brokkr-muninn-list): Read the record back: every proposal, with the run ids and sequence numbers it cited
-- [`brokkr secrets`](#brokkr-secrets): Manage the operator-side secrets store (decision 0012): bundles and journals carry NAMES only; values live in this env-format file outside version control. There is no value-printing verb
+- [`brokkr secrets`](#brokkr-secrets): Manage the operator-side secrets store: bundles and journals carry NAMES only; values live in this env-format file outside version control. There is no value-printing verb
 - [`brokkr secrets set`](#brokkr-secrets-set): Bind NAME to a value read from STDIN (never argv — the CLI obeys its own injection discipline). Creates the store 0600
 - [`brokkr secrets list`](#brokkr-secrets-list): Print bound names, one per line — names, never values
 - [`brokkr secrets remove`](#brokkr-secrets-remove): Remove NAME from the store
 - [`brokkr sweep`](#brokkr-sweep): Remove the run-local seat scratch trees the journal proves free and record what each complete removal freed, and reap the hands session trees whose owners are dead. One pass under the journal's dispatch lock; `--dry-run` lists what a pass would remove, with sizes, and writes nothing
-- [`brokkr dispatch`](#brokkr-dispatch): Start what admission admits from the journal's queue, each run handed to a driver of its own (decision 0110): one pass with `--once` under the journal's dispatch lock, the bound's command and the holder's readout
+- [`brokkr dispatch`](#brokkr-dispatch): Start what admission admits from the journal's queue, each run handed to a driver of its own: one pass with `--once` under the journal's dispatch lock, the bound's command and the holder's readout
 - [`brokkr dispatch set-bound`](#brokkr-dispatch-set-bound): Set the journal's bound on the refusals counted against one entry before the dispatcher holds it, a whole number of at least 1, journaled as the operator's command
 - [`brokkr dispatch status`](#brokkr-dispatch-status): Say whether a dispatcher holds the journal, the bound in force, and each entry left launching or linked with no `spawn` row. Opens the journal read-only and writes nothing
-- [`brokkr conclude`](#brokkr-conclude): Close a stopped or parked run from its journal alone — no bundle, no recipe, no effect. `resume` compiles the exact pinned recipe and refuses on any drift, which is right for the branches that spend money but leaves a run from a moved engine with no lawful ending. This appends the operator stop conclusion and nothing else, so it needs no pinned recipe to be honest about what it wrote. It cannot retry: that re-enters the policy loop, and the policy loop needs the bundle by construction. For a run believed dead: every write is fenced, so a journal that moves beneath the conclusion — something still driving the run — refuses instead of being closed over (decision 0029). Check `brokkr runs` first
+- [`brokkr conclude`](#brokkr-conclude): Close a stopped or parked run from its journal alone — no bundle, no recipe, no effect. `resume` compiles the exact pinned recipe and refuses on any drift, which is right for the branches that spend money but leaves a run from a moved engine with no lawful ending. This appends the operator stop conclusion and nothing else, so it needs no pinned recipe to be honest about what it wrote. It cannot retry: that re-enters the policy loop, and the policy loop needs the bundle by construction. For a run believed dead: every write is fenced, so a journal that moves beneath the conclusion — something still driving the run — refuses instead of being closed over. Check `brokkr runs` first
 - [`brokkr operator`](#brokkr-operator): Record an operator command (retry \| stop \| release \| supersede \| classify \| repair) as journal events, or acknowledge a quarantined run beside its journal
-- [`brokkr queue`](#brokkr-queue): The dispatcher's queue (decision 0068): runs waiting to start, in the journal's own database. Add, list, judge, move, hold, release, re-pin and drop entries; each change is journaled with its reason
+- [`brokkr queue`](#brokkr-queue): The dispatcher's queue: runs waiting to start, in the journal's own database. Add, list, judge, move, hold, release, re-pin and drop entries; each change is journaled with its reason
 - [`brokkr queue add`](#brokkr-queue-add): Queue a new run, taking `brokkr run`'s arguments, at the end of the queue. Nothing starts: the entry waits for the dispatcher
 - [`brokkr queue list`](#brokkr-queue-list): The queue in order: each waiting entry's place, state, priority, waits, launch and admission (admissible, or why it waits or is held), then the entries that started a run, with it. `--json` emits the view model for scripts
 - [`brokkr queue judge`](#brokkr-queue-judge): Judge the queue as `list` shows it, and first latch on each waiting entry the realm drift found: from then on it is held until the operator re-pins, re-queues or drops it, whatever the map comes to. Each latch is journaled with the reason
@@ -51,11 +51,11 @@ Every `brokkr` verb and argument with its default, and every exit code, as the b
 - [`brokkr queue drop`](#brokkr-queue-drop): Take an entry out of the queue. One that started a run cannot be
 - [`brokkr inspect`](#brokkr-inspect): Explain a run: header, ruling, seats, decision trail, and the phase graph as a tree. `--phase` and `--seat` are the scoping verbs the console's clicks became; `--json` emits the view model, or with `--capability-call` the call and its verified response
 - [`brokkr transcript`](#brokkr-transcript): Read one participant's retained local transcript — Claude, Codex or DSH — through the same bounded local derivation the TUI uses. The verb never launches, retries or resumes a provider and writes nothing to the journal
-- [`brokkr seats`](#brokkr-seats): The seats of a run: the seats block `inspect` renders — every seat's model with the boundary its hands stood behind beside it (decision 0046 ruling 3) — from the same view. `--json` prints that view verbatim, the bytes `inspect --json` prints
+- [`brokkr seats`](#brokkr-seats): The seats of a run: the seats block `inspect` renders — every seat's model with the boundary its hands stood behind beside it — from the same view. `--json` prints that view verbatim, the bytes `inspect --json` prints
 - [`brokkr watch`](#brokkr-watch): Watch a run live: redraw the graph, seats, last ruling and seat activity whenever the journal head moves; exit when the run reaches a terminal status. Read-only, like every other readout
 - [`brokkr replay`](#brokkr-replay): Rebuild state from the journal twice and verify determinism
 - [`brokkr export`](#brokkr-export): Write the canonical NDJSON journal and pinned manifest
-- [`brokkr evidence`](#brokkr-evidence): List every historical evidence root, or retire one under the admission lock once its evidence is archived or discarded. The sealed retirement sits beside the historical record, which stays (decision 0105)
+- [`brokkr evidence`](#brokkr-evidence): List every historical evidence root, or retire one under the admission lock once its evidence is archived or discarded. The sealed retirement sits beside the historical record, which stays
 - [`brokkr evidence list`](#brokkr-evidence-list): List every historical evidence root: its path, whether it exists, its digest count and bytes, its retirement and its superseded history. A root whose own counts cannot be read still prints, with its problem, and makes the verb exit non-zero after every row
 - [`brokkr evidence retire`](#brokkr-evidence-retire): Retire one historical root, under the admission lock, after archiving its evidence or discarding it
 - [`brokkr backup`](#brokkr-backup): Back up a whole journal — one consistent snapshot taken while writers may run, plus the versioned inventory that declares its boundary and makes the backup complete
@@ -64,11 +64,11 @@ Every `brokkr` verb and argument with its default, and every exit code, as the b
 - [`brokkr verify-run`](#brokkr-verify-run): Verify an exported journal offline: chain, envelopes, fold
 - [`brokkr bridge`](#brokkr-bridge): Synchronize a Looper-bound run over the authenticated producer API. The API key is read from an environment variable and is never stored
 - [`brokkr runs`](#brokkr-runs): List runs in the workspace database: one clamped line per run, the fleet's sections in order and each by last activity, read a page at a time. `--json` emits the view model for scripts
-- [`brokkr realms`](#brokkr-realms): List the world (decision 0023): each realm with its path, default branch and current HEAD, and the journal the world writes. Read-only, like every other readout
+- [`brokkr realms`](#brokkr-realms): List the world: each realm with its path, default branch and current HEAD, and the journal the world writes. Read-only, like every other readout
 - [`brokkr analytics`](#brokkr-analytics): What the runs did across every hearth, for a range and an optional realm: shipped, start to end, waiting on you, rework, cost and served models. `--json` emits the view model
 - [`brokkr graph`](#brokkr-graph): One recipe's state machine and its traffic over a range. `--json` emits the view model
 - [`brokkr driver`](#brokkr-driver): Run a built-in forge-driver/v1 adapter (claude \| lanetally \| codex \| dsh \| exec). Bundles reference these as {brokkr} driver &lt;kind&gt; -- &lt;extra args&gt;
-- [`brokkr hands`](#brokkr-hands): The model's hands are one tool, and the tool runs in an empty root (decision 0043): serve the `workspace` tool over MCP on stdio, or run one command whole inside the same box
+- [`brokkr hands`](#brokkr-hands): The model's hands are one tool, and the tool runs in an empty root: serve the `workspace` tool over MCP on stdio, or run one command whole inside the same box
 - [`brokkr hands serve`](#brokkr-hands-serve): Serve the one `workspace` tool over MCP (newline-delimited JSON-RPC on stdio); every call runs `bash -lc <command>` inside the box
 - [`brokkr hands exec`](#brokkr-hands-exec): Run one command whole inside the box with stdio passed through — how a deterministic `exec` seat holds a gate. Exits with the command's own code
 - [`brokkr probe`](#brokkr-probe): Measure an agent CLI for its adapter's facts, spending its bound credentials: host only, never CI
@@ -135,7 +135,7 @@ Usage: brokkr anchor [OPTIONS] --run <RUN>
 
 ## brokkr keep-refs
 
-Keep-refs (decision 0028): the git objects a run's journal cites, held by refs/forge/keep/&lt;run&gt;/&lt;sha&gt; so a squash-merge, a branch delete and a gc cannot collect the evidence the journal names. Runs plant these themselves at conclusion; these verbs cover the runs that concluded before the mechanism existed, and the deliberate letting-go that is the operator's alone
+Keep-refs: the git objects a run's journal cites, held by refs/forge/keep/&lt;run&gt;/&lt;sha&gt; so a squash-merge, a branch delete and a gc cannot collect the evidence the journal names. Runs plant these themselves at conclusion; these verbs cover the runs that concluded before the mechanism existed, and the deliberate letting-go that is the operator's alone
 
 ```text
 Usage: brokkr keep-refs <COMMAND>
@@ -203,7 +203,7 @@ Usage: brokkr ui [OPTIONS]
 
 ## brokkr tui
 
-Explore runs interactively in the terminal: the fleet as a navigable table, one run's phase graph, seats and decision trail, and one seat's own checkpoint and session stream. Read-only like every other readout (decision 0014) — it issues no operator commands and writes nothing to the journal
+Explore runs interactively in the terminal: the fleet as a navigable table, one run's phase graph, seats and decision trail, and one seat's own checkpoint and session stream. Read-only like every other readout — it issues no operator commands and writes nothing to the journal
 
 ```text
 Usage: brokkr tui [OPTIONS]
@@ -228,7 +228,7 @@ Usage: brokkr doctor [OPTIONS]
 | `--bundle <BUNDLE>` |  |  | A bundle directory to compile and check as well (default the found .brokkr/ folder, compiled once for the whole report and its folder line) |
 | `--realms <REALMS>` |  |  | The world's map whose realm house declarations doctor checks (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
 | `--db <DB>` |  |  | The workspace journal whose database doctor opens. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
-| `--secrets-file <SECRETS_FILE>` |  |  | Operator-side secrets store, so doctor can say which declared credentials a route is taking from the ambient environment instead (decision 0036 ruling 5; default .brokkr/state/secrets.env, else .forge/secrets.env) |
+| `--secrets-file <SECRETS_FILE>` |  |  | Operator-side secrets store, so doctor can say which declared credentials a route is taking from the ambient environment instead (default .brokkr/state/secrets.env, else .forge/secrets.env) |
 
 ## brokkr compile
 
@@ -259,7 +259,7 @@ Usage: brokkr run [OPTIONS] --feature <FEATURE>
 | `--recipes-dir <RECIPES_DIR>` |  |  | The recipe library `--recipe` is resolved in (default the found .brokkr/recipes, else recipes) |
 | `--secrets-file <SECRETS_FILE>` |  |  | Operator-side secrets store for seats with declared bindings (default .brokkr/state/secrets.env, or &lt;workdir&gt;/.forge/secrets.env) |
 | `--feature <FEATURE>` |  |  | The feature the run delivers, as text: recorded when the run starts and handed to its seats |
-| `--realms <REALMS>` |  |  | The world's map: realms and the journal they share (decision 0023). Defaults to .brokkr/realms.json, else ./realms.json; a map named here and missing or malformed is a refusal, never a silent fallback |
+| `--realms <REALMS>` |  |  | The world's map: realms and the journal they share. Defaults to .brokkr/realms.json, else ./realms.json; a map named here and missing or malformed is a refusal, never a silent fallback |
 | `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
 | `--repo <REPO>` |  |  | The repository the run operates on: the bundle is compiled against its realm and the engine works in it. Without it, the workspace (the current directory) is compiled against, and the engine gets no repository override, so it works there too |
 | `--dispatch <DISPATCH>` |  |  | Canonical forge-dispatch/v2 JSON. When present the run id, Looper/grant correlation, recipe, repository, budget, and producer bounds are pinned into an immutable run-manifest/v2 |
@@ -356,7 +356,7 @@ Usage: brokkr recipes add [OPTIONS] --name <NAME> <SOURCE>
 
 ## brokkr recipes show
 
-Print one recipe's RESOLVED bundle and, when it extends another, the composition chain it was resolved from (decision 0017)
+Print one recipe's RESOLVED bundle and, when it extends another, the composition chain it was resolved from
 
 ```text
 Usage: brokkr recipes show [OPTIONS] <NAME>
@@ -369,7 +369,7 @@ Usage: brokkr recipes show [OPTIONS] <NAME>
 
 ## brokkr agents
 
-The agent library (decision 0016): one definition per agent — description, charter, an ordered chain of abstract model names, abstract tool/MCP configuration — that seats reference by name
+The agent library: one definition per agent — description, charter, an ordered chain of abstract model names, abstract tool/MCP configuration — that seats reference by name
 
 ```text
 Usage: brokkr agents <COMMAND>
@@ -403,7 +403,7 @@ Usage: brokkr agents show [OPTIONS] <NAME>
 
 ## brokkr muninn
 
-The standing overseer (decision 0020): read the fleet, propose to the operator, execute nothing. It opens the journal read-only, issues no operator command, starts no run, and records every proposal — with the run ids and sequence numbers it was derived from — in its own append-only file beside the journal
+The standing overseer: read the fleet, propose to the operator, execute nothing. It opens the journal read-only, issues no operator command, starts no run, and records every proposal — with the run ids and sequence numbers it was derived from — in its own append-only file beside the journal
 
 ```text
 Usage: brokkr muninn <COMMAND>
@@ -440,7 +440,7 @@ Usage: brokkr muninn list [OPTIONS]
 
 ## brokkr secrets
 
-Manage the operator-side secrets store (decision 0012): bundles and journals carry NAMES only; values live in this env-format file outside version control. There is no value-printing verb
+Manage the operator-side secrets store: bundles and journals carry NAMES only; values live in this env-format file outside version control. There is no value-printing verb
 
 ```text
 Usage: brokkr secrets <COMMAND>
@@ -500,7 +500,7 @@ Usage: brokkr sweep [OPTIONS]
 
 ## brokkr dispatch
 
-Start what admission admits from the journal's queue, each run handed to a driver of its own (decision 0110): one pass with `--once` under the journal's dispatch lock, the bound's command and the holder's readout
+Start what admission admits from the journal's queue, each run handed to a driver of its own: one pass with `--once` under the journal's dispatch lock, the bound's command and the holder's readout
 
 ```text
 Usage: brokkr dispatch [OPTIONS]
@@ -544,7 +544,7 @@ Usage: brokkr dispatch status [OPTIONS]
 
 ## brokkr conclude
 
-Close a stopped or parked run from its journal alone — no bundle, no recipe, no effect. `resume` compiles the exact pinned recipe and refuses on any drift, which is right for the branches that spend money but leaves a run from a moved engine with no lawful ending. This appends the operator stop conclusion and nothing else, so it needs no pinned recipe to be honest about what it wrote. It cannot retry: that re-enters the policy loop, and the policy loop needs the bundle by construction. For a run believed dead: every write is fenced, so a journal that moves beneath the conclusion — something still driving the run — refuses instead of being closed over (decision 0029). Check `brokkr runs` first
+Close a stopped or parked run from its journal alone — no bundle, no recipe, no effect. `resume` compiles the exact pinned recipe and refuses on any drift, which is right for the branches that spend money but leaves a run from a moved engine with no lawful ending. This appends the operator stop conclusion and nothing else, so it needs no pinned recipe to be honest about what it wrote. It cannot retry: that re-enters the policy loop, and the policy loop needs the bundle by construction. For a run believed dead: every write is fenced, so a journal that moves beneath the conclusion — something still driving the run — refuses instead of being closed over. Check `brokkr runs` first
 
 ```text
 Usage: brokkr conclude [OPTIONS] --run <RUN> --reason <REASON>
@@ -554,7 +554,7 @@ Usage: brokkr conclude [OPTIONS] --run <RUN> --reason <REASON>
 | --- | --- | --- | --- |
 | `--run <RUN>` |  | yes | Full run id, a unique run-id prefix, or `latest` |
 | `--reason <REASON>` |  |  | Why the run is closed, recorded with the stop conclusion |
-| `--cause <CAUSE>` |  |  | Required: how the run ended, one of superseded, infrastructure, delivered-elsewhere, withdrawn, exhausted or operator-stopped (decision 0064 ruling 4) |
+| `--cause <CAUSE>` |  |  | Required: how the run ended, one of superseded, infrastructure, delivered-elsewhere, withdrawn, exhausted or operator-stopped |
 | `--by-run <BY_RUN>` |  |  | With --cause superseded, required: the run that replaced this one, read as written |
 | `--by-realm <BY_REALM>` |  |  | With --cause superseded: the realm that run was read in. Omitted for the workspace journal, which is every one-hearth world |
 | `--by-ref <BY_REF>` |  |  | With --cause delivered-elsewhere, required: the commit or pull request the work landed by, recorded as written and not resolved |
@@ -578,9 +578,9 @@ Usage: brokkr operator [OPTIONS] --run <RUN> --reason <REASON> <COMMAND>
 | `--recipes-dir <RECIPES_DIR>` |  |  | The recipe library `--recipe` is resolved in (default the found .brokkr/recipes, else recipes) |
 | `--secrets-file <SECRETS_FILE>` |  |  | Operator-side secrets store for seats with declared bindings (default .brokkr/state/secrets.env, or &lt;workdir&gt;/.forge/secrets.env) |
 | `--run <RUN>` |  | yes | Full run id, a unique run-id prefix, or `latest` |
-| `<COMMAND>` |  |  | "retry" re-runs the current phase; "stop" ends the run, naming its cause; "release" attests that every process the run's ended attempts owned has ended, and frees the worktree their writer lease holds; "supersede" records that residual findings on a run that has already finished are closed by another run (decision 0047); "classify" names how a stopped run ended (decision 0064 ruling 5); "repair" names the late tail an event after a run's terminal one left, so the run folds again as it ended, the tail kept and never applied (decision 0108 ruling 4); "settle" records that a quarantined run's writers are proven ended, so its worktree is released (decision 0108 ruling 3); "acknowledge" lists a quarantined run under older until its journal moves (#511) |
+| `<COMMAND>` |  |  | "retry" re-runs the current phase; "stop" ends the run, naming its cause; "release" attests that every process the run's ended attempts owned has ended, and frees the worktree their writer lease holds; "supersede" records that residual findings on a run that has already finished are closed by another run; "classify" names how a stopped run ended; "repair" names the late tail an event after a run's terminal one left, so the run folds again as it ended, the tail kept and never applied; "settle" records that a quarantined run's writers are proven ended, so its worktree is released; "acknowledge" lists a quarantined run under older until its journal moves |
 | `--reason <REASON>` |  |  | Why the operator issued the command, recorded with it |
-| `--cause <CAUSE>` |  |  | stop and classify, and required there: how the run ended, one of superseded, infrastructure, delivered-elsewhere, withdrawn, exhausted or operator-stopped (decision 0064 ruling 4) |
+| `--cause <CAUSE>` |  |  | stop and classify, and required there: how the run ended, one of superseded, infrastructure, delivered-elsewhere, withdrawn, exhausted or operator-stopped |
 | `--findings <FINDINGS>...` |  |  | supersede only: the residual findings this closes, by the sequence number of the ruling each was read from. Repeatable, or one comma-separated list |
 | `--by-run <BY_RUN>` |  |  | supersede, stop or classify only: with supersede, the run that closed the findings; with stop or classify --cause superseded, the run that replaced this one. Read as written, never resolved through the selector |
 | `--by-seq <BY_SEQ>` |  |  | supersede only: the `transition/decided` in that run which closed them |
@@ -591,7 +591,7 @@ Usage: brokkr operator [OPTIONS] --run <RUN> --reason <REASON> <COMMAND>
 
 ## brokkr queue
 
-The dispatcher's queue (decision 0068): runs waiting to start, in the journal's own database. Add, list, judge, move, hold, release, re-pin and drop entries; each change is journaled with its reason
+The dispatcher's queue: runs waiting to start, in the journal's own database. Add, list, judge, move, hold, release, re-pin and drop entries; each change is journaled with its reason
 
 ```text
 Usage: brokkr queue <COMMAND>
@@ -612,7 +612,7 @@ Usage: brokkr queue add [OPTIONS] --feature <FEATURE> --reason <REASON>
 | `--recipes-dir <RECIPES_DIR>` |  |  | The recipe library `--recipe` is resolved in (default the found .brokkr/recipes, else recipes) |
 | `--secrets-file <SECRETS_FILE>` |  |  | Operator-side secrets store for seats with declared bindings (default .brokkr/state/secrets.env, or &lt;workdir&gt;/.forge/secrets.env) |
 | `--feature <FEATURE>` |  |  | The feature the run delivers, as text: recorded when the run starts and handed to its seats |
-| `--realms <REALMS>` |  |  | The world's map: realms and the journal they share (decision 0023). Defaults to .brokkr/realms.json, else ./realms.json; a map named here and missing or malformed is a refusal, never a silent fallback |
+| `--realms <REALMS>` |  |  | The world's map: realms and the journal they share. Defaults to .brokkr/realms.json, else ./realms.json; a map named here and missing or malformed is a refusal, never a silent fallback |
 | `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
 | `--repo <REPO>` |  |  | The repository the run operates on: the bundle is compiled against its realm and the engine works in it. Without it, the workspace (the current directory) is compiled against, and the engine gets no repository override, so it works there too |
 | `--dispatch <DISPATCH>` |  |  | Canonical forge-dispatch/v2 JSON. When present the run id, Looper/grant correlation, recipe, repository, budget, and producer bounds are pinned into an immutable run-manifest/v2 |
@@ -763,7 +763,7 @@ Usage: brokkr transcript [OPTIONS] --run <RUN> --seat <SEAT>
 
 ## brokkr seats
 
-The seats of a run: the seats block `inspect` renders — every seat's model with the boundary its hands stood behind beside it (decision 0046 ruling 3) — from the same view. `--json` prints that view verbatim, the bytes `inspect --json` prints
+The seats of a run: the seats block `inspect` renders — every seat's model with the boundary its hands stood behind beside it — from the same view. `--json` prints that view verbatim, the bytes `inspect --json` prints
 
 ```text
 Usage: brokkr seats [OPTIONS] --run <RUN>
@@ -825,7 +825,7 @@ Usage: brokkr export [OPTIONS] --run <RUN>
 
 ## brokkr evidence
 
-List every historical evidence root, or retire one under the admission lock once its evidence is archived or discarded. The sealed retirement sits beside the historical record, which stays (decision 0105)
+List every historical evidence root, or retire one under the admission lock once its evidence is archived or discarded. The sealed retirement sits beside the historical record, which stays
 
 ```text
 Usage: brokkr evidence <COMMAND>
@@ -952,7 +952,7 @@ Usage: brokkr runs [OPTIONS]
 
 ## brokkr realms
 
-List the world (decision 0023): each realm with its path, default branch and current HEAD, and the journal the world writes. Read-only, like every other readout
+List the world: each realm with its path, default branch and current HEAD, and the journal the world writes. Read-only, like every other readout
 
 ```text
 Usage: brokkr realms [OPTIONS]
@@ -1012,7 +1012,7 @@ Usage: brokkr driver <KIND> [ARGS]...
 
 ## brokkr hands
 
-The model's hands are one tool, and the tool runs in an empty root (decision 0043): serve the `workspace` tool over MCP on stdio, or run one command whole inside the same box
+The model's hands are one tool, and the tool runs in an empty root: serve the `workspace` tool over MCP on stdio, or run one command whole inside the same box
 
 ```text
 Usage: brokkr hands <COMMAND>
@@ -1071,7 +1071,7 @@ Usage: brokkr probe harness [OPTIONS] --adapter <ADAPTER>
 | `--adapter <ADAPTER>` |  |  | The adapter whose harness is probed: claude, codex or dsh |
 | `--cli <CLI>` |  |  | The CLI to launch (default: the adapter's binary, found on PATH) |
 | `--out <OUT>` |  |  | Write the report here. A report already here is read first, and every reading that moved since it is reported as drift |
-| `--credential <CREDENTIALS>...` |  |  | A credential every credentialed launch is given, bound by name from the secrets store (decision 0012). Repeatable |
+| `--credential <CREDENTIALS>...` |  |  | A credential every credentialed launch is given, bound by name from the secrets store. Repeatable |
 | `--credential-file <CREDENTIAL_FILES>...` |  |  | A file under HOME the CLI keeps its login in, such as .codex/auth.json, linked at the same place under the scratch HOME for every credentialed launch, so a login the CLI refreshes is written to this file. Its content is never read. Repeatable |
 | `--secrets-file <SECRETS_FILE>` |  |  | The secrets store each `--credential` is read from (default .brokkr/state/secrets.env, or a library's .forge/secrets.env) |
 | `--adapters-dir <ADAPTERS_DIR>` |  |  | The directory holding the adapter files `--adapter` names (default .brokkr/adapters, else adapters) |

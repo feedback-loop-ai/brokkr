@@ -152,7 +152,7 @@ pub(super) struct DoctorArgs {
     pub(super) db: Option<PathBuf>,
     /// Operator-side secrets store, so doctor can say which declared
     /// credentials a route is taking from the ambient environment
-    /// instead (decision 0036 ruling 5; default .brokkr/state/secrets.env, else .forge/secrets.env).
+    /// instead (default .brokkr/state/secrets.env, else .forge/secrets.env).
     #[arg(long)]
     pub(super) secrets_file: Option<PathBuf>,
 }
@@ -217,10 +217,9 @@ pub(super) struct LaunchArgs {
     /// starts and handed to its seats.
     #[arg(long)]
     pub(super) feature: String,
-    /// The world's map: realms and the journal they share (decision
-    /// 0023). Defaults to .brokkr/realms.json, else ./realms.json; a map
-    /// named here and missing or malformed is a refusal, never a
-    /// silent fallback.
+    /// The world's map: realms and the journal they share. Defaults to
+    /// .brokkr/realms.json, else ./realms.json; a map named here and
+    /// missing or malformed is a refusal, never a silent fallback.
     #[arg(long)]
     pub(super) realms: Option<PathBuf>,
     /// The workspace journal. Outranks the map's journal; without either, the found folder's
@@ -300,8 +299,7 @@ pub(super) struct ConcludeArgs {
     #[arg(long)]
     pub(super) reason: String,
     /// Required: how the run ended, one of superseded, infrastructure,
-    /// delivered-elsewhere, withdrawn, exhausted or operator-stopped
-    /// (decision 0064 ruling 4).
+    /// delivered-elsewhere, withdrawn, exhausted or operator-stopped.
     #[arg(long)]
     pub(super) cause: Option<String>,
     /// With --cause superseded, required: the run that replaced this one,
@@ -333,21 +331,20 @@ pub(super) struct OperatorArgs {
     /// attests that every process the run's ended attempts owned has ended,
     /// and frees the worktree their writer lease holds; "supersede" records
     /// that residual findings on a run that has already finished are closed
-    /// by another run (decision 0047); "classify" names how a stopped run
-    /// ended (decision 0064 ruling 5); "repair" names the late tail an
-    /// event after a run's terminal one left, so the run folds again as it
-    /// ended, the tail kept and never applied (decision 0108 ruling 4);
+    /// by another run; "classify" names how a stopped run ended; "repair"
+    /// names the late tail an event after a run's terminal one left, so
+    /// the run folds again as it ended, the tail kept and never applied;
     /// "settle" records that a quarantined run's writers are proven ended,
-    /// so its worktree is released (decision 0108 ruling 3);
-    /// "acknowledge" lists a quarantined
-    /// run under older until its journal moves (#511).
+    /// so its worktree is released; "acknowledge" lists a quarantined run
+    /// under older until its journal moves.
+    // Decisions 0047, 0064 and 0108 and #511 rule these commands.
     pub(super) command: String,
     /// Why the operator issued the command, recorded with it.
     #[arg(long)]
     pub(super) reason: String,
     /// stop and classify, and required there: how the run ended, one of
     /// superseded, infrastructure, delivered-elsewhere, withdrawn,
-    /// exhausted or operator-stopped (decision 0064 ruling 4).
+    /// exhausted or operator-stopped.
     #[arg(long)]
     pub(super) cause: Option<String>,
     /// supersede only: the residual findings this closes, by the
@@ -639,13 +636,13 @@ pub(super) struct FakeDriverArgs {
     pub(super) script: PathBuf,
     #[arg(long)]
     pub(super) state: PathBuf,
-    /// The concrete model an adapter pinned (decision 0016). Echoed
-    /// back as a checkpoint so a proof can assert the pin actually
-    /// reached the driver rather than trusting the composed argv.
+    /// The concrete model an adapter pinned. Echoed back as a
+    /// checkpoint so a proof can assert the pin actually reached the
+    /// driver rather than trusting the composed argv.
     #[arg(long)]
     pub(super) model: Option<String>,
-    /// The concrete effort an adapter pinned (decision 0035 ruling
-    /// 5), taken and echoed on exactly the terms `--model` is: the
+    /// The concrete effort an adapter pinned, taken and echoed on
+    /// exactly the terms `--model` is: the
     /// other half of the hire travels the same argv, so a fake seat
     /// that could not be told its effort would prove the pin
     /// reached the composed command and nothing further.
@@ -675,14 +672,14 @@ pub(super) enum GroupedCmd {
         #[command(subcommand)]
         command: super::RecipesCmd,
     },
-    /// The agent library (decision 0016): one definition per agent —
+    /// The agent library: one definition per agent —
     /// description, charter, an ordered chain of abstract model names,
     /// abstract tool/MCP configuration — that seats reference by name.
     Agents {
         #[command(subcommand)]
         command: super::AgentsCmd,
     },
-    /// The standing overseer (decision 0020): read the fleet, propose to
+    /// The standing overseer: read the fleet, propose to
     /// the operator, execute nothing. It opens the journal read-only,
     /// issues no operator command, starts no run, and records every
     /// proposal — with the run ids and sequence numbers it was derived
@@ -691,7 +688,7 @@ pub(super) enum GroupedCmd {
         #[command(subcommand)]
         command: super::MuninnCmd,
     },
-    /// Manage the operator-side secrets store (decision 0012): bundles
+    /// Manage the operator-side secrets store: bundles
     /// and journals carry NAMES only; values live in this env-format
     /// file outside version control. There is no value-printing verb.
     Secrets {
@@ -705,7 +702,7 @@ pub(super) enum GroupedCmd {
     /// writes nothing.
     Sweep(SweepArgs),
     /// Start what admission admits from the journal's queue, each run
-    /// handed to a driver of its own (decision 0110): one pass with
+    /// handed to a driver of its own: one pass with
     /// `--once` under the journal's dispatch lock, the bound's command and
     /// the holder's readout.
     Dispatch(DispatchArgs),
@@ -781,7 +778,7 @@ pub(super) struct ProbeHarnessArgs {
     #[arg(long)]
     pub(super) out: Option<PathBuf>,
     /// A credential every credentialed launch is given, bound by name
-    /// from the secrets store (decision 0012). Repeatable.
+    /// from the secrets store. Repeatable.
     #[arg(long = "credential")]
     pub(super) credentials: Vec<String>,
     /// A file under HOME the CLI keeps its login in, such as
