@@ -10,7 +10,7 @@ use serde_json::{json, Value};
 use std::ffi::OsString;
 
 use super::*;
-use crate::tui::glyphs::width_of;
+use crate::tui::width_of;
 use crate::verbs::analytics::{shown, CrossRunCmd};
 use crate::{Cli, Cmd, Exit};
 

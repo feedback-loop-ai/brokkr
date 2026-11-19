@@ -6,7 +6,7 @@
 use std::cmp::Reverse;
 
 use super::{push_line, tint, Safe, Style, BOLD};
-use crate::tui::glyphs::{clamp, width_of};
+use crate::tui::{clamp, width_of};
 
 /// How a column's cells sit in it: text to the left, numbers to the right.
 #[derive(Clone, Copy)]
