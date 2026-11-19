@@ -1,11 +1,11 @@
 name: setup-cargo-audit
 description: >-
-  Install cargo-audit from rustsec's own release, verified by digest, so
-  rustsec/audit-check finds it and never builds one from source.
+  Install cargo-audit from rustsec's own release, verified by digest, for
+  the plain `cargo audit` step that follows it.
 # cargo-audit is pinned by version AND digest and installed from rustsec's
-# own release, never built from source on the runner. Left to itself,
-# audit-check runs `cargo install cargo-audit` (latest, unlocked) whenever
-# the binary is absent — and on 2026-09-03 that pulled a freshly published
+# own release, never built from source on the runner. rustsec/audit-check,
+# which ran the audit until #1113, ran `cargo install cargo-audit` (latest,
+# unlocked) whenever the binary was absent — and on 2026-09-03 that pulled a freshly published
 # dependency that failed to compile, so the required check went red on main
 # with no advisory involved (#164, #166 merged past it by ruling). A
 # prebuilt binary whose digest is recorded here fails only when the pinned

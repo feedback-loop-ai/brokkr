@@ -335,15 +335,12 @@ const JOB_LINES: [(&str, &str); 13] = [
     timeout-minutes: 20
     permissions:
       contents: read
-      checks: write
-      issues: write
     steps:
 <checkout>
       - name: cargo-audit, pinned by digest
         uses: ./.github/actions/setup-cargo-audit
-      - uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2.0.0
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: RustSec advisory audit
+        run:
 "#,
     ),
     (

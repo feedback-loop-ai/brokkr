@@ -57,7 +57,7 @@ judges by, so inside this tree plain `cargo` is CI's compiler and CI's
 Clippy (`rustup toolchain install`, run inside the tree, installs it), and the `+1.89.0` and
 dated-nightly prefixes are how the other two get selected.
 
-You do **not** need `cargo-audit`; the RustSec check runs only in CI.
+You do **not** need `cargo-audit`; CI runs the RustSec check for you.
 Installing it locally is a convenience, not a requirement — see
 [the checks you cannot fully reproduce](#the-checks-you-cannot-fully-reproduce).
 
@@ -107,7 +107,7 @@ each local command is the job's own, and the sections below explain them:
 | 7 | `dependency licenses (cargo-deny)` | `license-compliance` | [`cargo deny check licenses bans sources`](#dependency-licences) |
 | 8 | `non-Rust lints` | `lint-non-rust` | [`bash scripts/lint-non-rust.sh`](#the-non-rust-lints), then [the diagram render and Renovate's validator](#the-non-rust-lints) |
 | 9 | `baseline ratchets` | `ratchets` | `quality/ratchet.sh files`, `quality/ratchet.sh clones`, `cargo shear --deny-warnings --locked`, `PR_BODY="<your pull request's body>" quality/ratchet.sh baselines origin/main` |
-| 10 | `RustSec dependency audit` | `dependency-audit` | — (CI-only; see below) |
+| 10 | `RustSec dependency audit` | `dependency-audit` | [`cargo audit`](#the-rustsec-advisory-audit), whose verdict moves with the advisory database |
 | 11 | `release binary artifact` | `release-binary` | [`cargo build --release --locked -p brokkr-cli`](#the-release-binary), then `bash scripts/binary-size.sh target/release/brokkr quality/binary-size.json`; the size budget holds only for CI's build, whose embedded paths yours do not share |
 | 12 | `mutants in the diff: brokkr-core` | `core-gate` (mutants.yml) | `bash scripts/mutants.sh gate origin/main brokkr-core` |
 
@@ -469,20 +469,23 @@ docker run --rm -v "$PWD":/usr/src/app -w /usr/src/app --entrypoint renovate-con
 
 ### The RustSec advisory audit
 
-CI runs `rustsec/audit-check` v2.0.0, pinned by commit, which fetches the RustSec advisory
-database and scans `Cargo.lock`. **It has no exact local
-equivalent** — the Action reports through the GitHub Checks API
-and reads its own copy of the database. The closest local approximation
-is `cargo install cargo-audit` and then:
+CI installs the cargo-audit release that
+[`setup-cargo-audit`](../../.github/actions/setup-cargo-audit/action.yml)
+pins by version and digest, and runs:
 
 ```
 cargo audit
 ```
 
-which loads the advisory database into `~/.cargo/advisory-db` and scans
-the same lockfile. A clean run reports the number of crate dependencies
-scanned and finds nothing; a hit prints the advisory id, the affected
-crate and version, and the versions that fix it.
+which fetches the RustSec advisory database into `~/.cargo/advisory-db`
+and scans `Cargo.lock`; its exit code is the check's verdict. Run the
+same with that release installed locally. A clean run reports the number
+of crate dependencies scanned and exits 0, printing any warning such as
+an unmaintained crate without failing; a vulnerability prints the
+advisory id, the affected crate and version, and the versions that fix
+it, and exits non-zero. Your verdict can still differ from CI's: the
+database is fetched fresh on each run, so an advisory published between
+the two runs changes it.
 
 The fix for an advisory is to move off the affected version: bump the
 dependency, or bump whatever pulls it in transitively, and commit the

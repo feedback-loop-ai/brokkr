@@ -18,8 +18,6 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: read
-      checks: write
-      issues: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -60,13 +58,13 @@ jobs:
           cargo run --locked -p brokkr-cli -- compile --bundle recipes/verify
           cargo test --locked -p brokkr-bridge
           cargo test --locked -p brokkr-cli --test driver_conformance
-      # The same digest-pinned cargo-audit CI installs; without it
-      # audit-check builds the latest one from source (issue #340).
+      # The same digest-pinned cargo-audit and the same audit CI runs: its
+      # own exit code is the verdict, with no check run written (#340,
+      # #1113).
       - name: cargo-audit, pinned by digest
         uses: ./.github/actions/setup-cargo-audit
-      - uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2.0.0
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: RustSec advisory audit
+        run: cargo audit
 
   coverage:
     name: exact release coverage

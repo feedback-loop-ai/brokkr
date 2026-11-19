@@ -676,23 +676,23 @@ jobs:
     timeout-minutes: 20
     permissions:
       contents: read
-      checks: write
-      issues: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
       # cargo-audit is pinned by version AND digest in the one composite
-      # step both this job and the release admission use; left to
-      # itself, audit-check builds the latest cargo-audit from source.
+      # step both this job and the release admission use.
       - name: cargo-audit, pinned by digest
         uses: ./.github/actions/setup-cargo-audit
       # This job stays apart from every other on purpose: its verdict
       # changes with the advisory database, by design, while every tool
-      # in it is pinned (issue #340).
-      - uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2.0.0
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+      # in it is pinned (issue #340). The verdict is the pinned
+      # cargo-audit's own exit code: a vulnerability fails the job, and a
+      # warning such as "unmaintained" is printed and does not. No check
+      # run of the audit's own is written: rustsec/audit-check's could
+      # fail to update one and so fail a clean audit (#1113).
+      - name: RustSec advisory audit
+        run: cargo audit
 
   # The bootstrap budgets, measured rather than promised. NOT in any
   # required status check or branch protection: whether a blown budget
