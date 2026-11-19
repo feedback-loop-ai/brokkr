@@ -294,11 +294,7 @@ pub(in crate::broker) const ATOMIC: usize = 512;
 /// shares (U6f1b), and decided apart from the poll ([`pieces::readiness`]):
 /// its end, its error or its closing count as ready, so the read or write
 /// it allows meets them; a wait a signal interrupted, as not.
-pub(in crate::broker) fn ready(
-    fd: impl AsFd,
-    wanted: PollFlags,
-    wait: Duration,
-) -> std::io::Result<bool> {
+pub(crate) fn ready(fd: impl AsFd, wanted: PollFlags, wait: Duration) -> std::io::Result<bool> {
     let mut polled = [PollFd::new(&fd, wanted)];
     let wait = Timespec::try_from(wait).unwrap_or(Timespec {
         tv_sec: i64::MAX,

@@ -34,7 +34,7 @@ pub use pass::{
     Stage, Started, Subject, SweepOutcome, SweepRefused,
 };
 pub use reconcile::{reconcile, Settled};
-pub use spawn::{driven, driver_log, workspace, Binary, DriverError};
+pub use spawn::{driven, driver_log, driver_log_path, workspace, Binary, DriverError};
 pub use standing::{stand, Exited, Reaped, Stand, Stopped, Tick};
 pub use start::{ClaimRefused, Spawn, SpawnFailed, Spawned};
 

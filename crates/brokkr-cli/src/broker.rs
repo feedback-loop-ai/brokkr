@@ -40,6 +40,10 @@ mod rpc;
 mod session;
 mod survey;
 
+/// The one poll a wait on a descriptor makes, which the standing
+/// dispatcher's sleep waits on too.
+pub(crate) use rpc::ready;
+
 use std::path::{Component, Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::{Mutex, PoisonError};

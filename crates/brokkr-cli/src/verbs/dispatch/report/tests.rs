@@ -114,14 +114,16 @@ fn a_pass_prints_one_safe_line_per_fact_and_its_counts_last() {
     let hold = Reason::OperatorHold.to_string();
     let escaped = safe("crossing: \u{1b}[2Jmoved");
     assert_ne!(escaped, "crossing: \u{1b}[2Jmoved", "the escape is painted");
+    // Each driver's log, beside the journal (decision 0110 ruling 5).
+    let logs = format!("{}.runs", db.display());
     let expected = [
         format!("reconciled: {under}, which no run carries, returned to its place"),
-        format!("started: run run-r under {under}, driver pid 41"),
+        format!("started: run run-r under {under}, driver pid 41, log {logs}/run-r.log"),
         "sweep: freed 0 bytes".to_string(),
         format!("bound unreadable: {busy}; nothing was claimed"),
         format!("admission refused: {unmeasured}; nothing more was claimed"),
         format!("unstarted: {hold}"),
-        format!("started: run run-s under {under}, driver pid 42"),
+        format!("started: run run-s under {under}, driver pid 42, log {logs}/run-s.log"),
         format!(
             "spawn failed: run run-f under {under} reads running with no driver (no \
              descriptor); resume it with: brokkr dispatch drive --entry={entry} --claim={seq} \
@@ -143,6 +145,16 @@ fn a_pass_prints_one_safe_line_per_fact_and_its_counts_last() {
     let said = passed(&every_fact(claim), &db);
     assert_eq!(said.lines().collect::<Vec<_>>(), expected);
     assert!(!said.contains('\u{1b}'), "{said}");
+
+    // A log path is painted as every path the report prints.
+    let journal = db.with_file_name("forge\u{1b}[2J.db");
+    let said = passed(&every_fact(claim), &journal);
+    let painted = safe(&format!("{}.runs/run-r.log", journal.display()));
+    assert!(
+        said.contains(&format!("driver pid 41, log {painted}\n")),
+        "{said:?}"
+    );
+    assert!(!said.contains('\u{1b}'), "{said:?}");
 }
 
 /// The spawn-failure line a whole pass prints, after the safe renderer,
@@ -272,7 +284,11 @@ fn an_ending_names_every_reconciled_run_its_driver_did_not_reach() {
     let expected = [
         pending(second, "run-b"),
         pending(third, "run-c"),
-        format!("started: run run-a under {}, driver pid 9", claimed(claim)),
+        format!(
+            "started: run run-a under {}, driver pid 9, log {}.runs/run-a.log",
+            claimed(claim),
+            db.display()
+        ),
         "queue: 0 waiting, 0 held".to_string(),
         format!("ended: {}", ended.ending),
     ];

@@ -13,6 +13,7 @@ use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::io::Write;
+use std::os::unix::net::UnixStream;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitCode, Stdio};
@@ -27,10 +28,12 @@ use brokkr_runtime::dispatch::{
 };
 use brokkr_runtime::{launch, Engine};
 use brokkr_store::{Attribution, Claim, EntryId, Store};
+use rustix::event::PollFlags;
 use signal_hook::consts::{SIGINT, SIGTERM};
 
 use super::delivery::operator_name;
 use super::queue::on_this_host;
+use crate::broker::ready;
 use crate::cli_args::{
     DispatchArgs, DispatchCmd, DriveArgs, JournalArgs, SetBoundArgs, StatusArgs,
 };
@@ -40,9 +43,6 @@ mod report;
 
 /// The signals that stop the standing loop (decision 0110 ruling 5).
 const STOPPING: [i32; 2] = [SIGINT, SIGTERM];
-
-/// The longest a sleep goes without looking at the stop.
-const BEAT: Duration = Duration::from_millis(50);
 
 /// Run one `brokkr dispatch` command.
 pub(crate) fn dispatch(
@@ -136,7 +136,7 @@ fn standing(workspace: &Path, args: DispatchArgs, out: &mut impl Write) -> Resul
         every,
         stands: &mut || binary.stands(),
         spawn: &mut spawn,
-        stopped: &|| stop.load(Ordering::SeqCst),
+        stopped: &|| stop.asked(),
         now: &mut Instant::now,
         sleep: &mut |rest| nap(&stop, rest),
         reap: &mut || reaped(&mut drivers.borrow_mut()),
@@ -159,29 +159,84 @@ fn standing(workspace: &Path, args: DispatchArgs, out: &mut impl Write) -> Resul
     Ok(exit.into())
 }
 
-/// The stop the first of [`STOPPING`]'s signals asks, its handler setting
-/// a flag and nothing else. A second while it is asked ends the process at
-/// once, exiting 128 plus the signal's number: a crash, which the next
-/// dispatcher's reconciliation settles (decision 0095 ruling 3).
-fn stopping() -> Result<Arc<AtomicBool>> {
-    let stop = Arc::new(AtomicBool::new(false));
+/// The stop [`STOPPING`]'s signals ask: the flag each one's handler sets,
+/// and the end of a socket pair each handler then writes a byte to, which
+/// a [`nap`] waits on.
+struct Stop {
+    asked: Arc<AtomicBool>,
+    woken: UnixStream,
+}
+
+impl Stop {
+    /// A stop not yet asked, and the end its handlers write to.
+    fn unasked() -> std::io::Result<(Stop, UnixStream)> {
+        let (woken, waker) = UnixStream::pair()?;
+        let asked = Arc::new(AtomicBool::new(false));
+        Ok((Stop { asked, woken }, waker))
+    }
+
+    /// Whether a signal has asked the stop.
+    fn asked(&self) -> bool {
+        self.asked.load(Ordering::SeqCst)
+    }
+}
+
+/// The stop the first of [`STOPPING`]'s signals asks, its handlers setting
+/// a flag, then writing a byte that wakes a [`nap`], and nothing else. A
+/// second while it is asked ends the process at once, exiting 128 plus the
+/// signal's number: a crash, which the next dispatcher's reconciliation
+/// settles (decision 0095 ruling 3).
+fn stopping() -> Result<Stop> {
+    let (stop, waker) = Stop::unasked()?;
     for signal in STOPPING {
-        signal_hook::flag::register_conditional_shutdown(signal, 128 + signal, Arc::clone(&stop))?;
-        signal_hook::flag::register(signal, Arc::clone(&stop))?;
+        let asked = || Arc::clone(&stop.asked);
+        signal_hook::flag::register_conditional_shutdown(signal, 128 + signal, asked())?;
+        signal_hook::flag::register(signal, asked())?;
+        signal_hook::low_level::pipe::register(signal, waker.try_clone()?)?;
     }
     Ok(stop)
 }
 
-/// Sleep `rest`, or less once `stop` is asked: the flag is read at least
-/// every [`BEAT`].
-fn nap(stop: &AtomicBool, rest: Duration) {
-    let until = Instant::now() + rest;
-    while !stop.load(Ordering::SeqCst) {
-        let left = until.saturating_duration_since(Instant::now());
-        if left.is_zero() {
+/// Sleep `rest`, or less once `stop` is asked: a wait on the byte its
+/// handlers write, so it wakes as the signal lands ([`nap_with`]).
+fn nap(stop: &Stop, rest: Duration) {
+    nap_with(
+        rest,
+        &|| stop.asked(),
+        &mut Instant::now,
+        &mut |left| ready(&stop.woken, PollFlags::IN, left),
+        &mut std::thread::sleep,
+    );
+}
+
+/// The longest a [`nap_with`] whose wait failed pauses before it looks at
+/// the stop again.
+const UNWAITABLE: Duration = Duration::from_secs(1);
+
+/// Sleep `rest` by `now`'s clock, or less once `asked`: `wait` for the
+/// time left, which says whether the stop's byte arrived. A wait that
+/// times out early or that a signal interrupted waits again for the time
+/// left, and one that finds the byte ends the sleep. One that fails
+/// `pause`s the time left, at most [`UNWAITABLE`], and looks again, so the
+/// loop keeps its pace and still sees the stop's flag.
+fn nap_with(
+    rest: Duration,
+    asked: &dyn Fn() -> bool,
+    now: &mut dyn FnMut() -> Instant,
+    wait: &mut dyn FnMut(Duration) -> std::io::Result<bool>,
+    pause: &mut dyn FnMut(Duration),
+) {
+    let until = now() + rest;
+    loop {
+        let left = until.saturating_duration_since(now());
+        if asked() || left.is_zero() {
             return;
         }
-        std::thread::sleep(left.min(BEAT));
+        match wait(left) {
+            Ok(true) => return,
+            Ok(false) => {}
+            Err(_) => pause(left.min(UNWAITABLE)),
+        }
     }
 }
 

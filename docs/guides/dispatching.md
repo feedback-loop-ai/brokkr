@@ -33,7 +33,8 @@ A pass that took longer than that is followed by the next at once.
 
 A driver is `brokkr dispatch drive`, run from the dispatcher's own binary
 in a session of its own. Its output goes to `<journal>.runs/<run>.log`,
-beside the journal. Brokkr never removes these logs.
+beside the journal. The pass's `started:` line names the run, the
+driver's pid and this log. Brokkr never removes these logs.
 
 `brokkr dispatch --once` runs a single pass and returns without waiting
 on the drivers it started. `--every` cannot be given with `--once`.
