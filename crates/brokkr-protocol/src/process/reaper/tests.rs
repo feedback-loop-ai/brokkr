@@ -139,8 +139,7 @@ fn a_released_unread_hold_leaves_an_orphan_that_reuses_its_pid_to_the_reaper() {
     let mut handled = serving();
     let (mut child, token) = handled.spawn(&mut sleeping(), closed, unread).unwrap();
     let pid = Pid::from_child(&child).as_raw_pid();
-    child.kill().unwrap();
-    child.wait().unwrap();
+    killed(&mut child);
     let reused = [row(pid, true)];
     assert_eq!(handled.doomed(Some(&reused)), Vec::<i32>::new());
     assert_eq!(handled.doomed(Some(&reused)), Vec::<i32>::new());
@@ -202,8 +201,7 @@ fn a_child_held_by_its_pidfd_is_released_by_its_own_reap() {
         })
     ));
     child.kill().unwrap();
-    let zombie = until(|| table::stat_of(pid).unwrap().filter(|row| row.zombie));
-    assert!(zombie.is_some(), "the child stands a zombie in time");
+    assert!(zombie(pid), "the child stands a zombie in time");
     handled.retire(waited, |_| Ok(None));
     assert!(handled.held.contains_key(&pid));
     assert_eq!(child.wait().unwrap().signal(), Some(9));
@@ -234,6 +232,7 @@ fn a_handle_kept_past_its_reap_holds_no_pid_an_orphan_reuses() {
     assert_eq!(held(), pids);
 
     first.kill().unwrap();
+    assert!(zombie(Pid::from_child(&first).as_raw_pid()));
     assert_eq!(first.wait().unwrap().signal(), Some(9));
     second.kill().unwrap();
     let status = until(|| second.try_wait().unwrap());
@@ -252,8 +251,7 @@ fn a_handle_kept_past_its_reap_holds_no_pid_an_orphan_reuses() {
 #[test]
 fn a_spawn_holds_its_child_before_its_lock_is_released() {
     let ended = |(mut child, _): (Child, Option<u64>)| {
-        child.kill().unwrap();
-        child.wait().unwrap();
+        killed(&mut child);
     };
     let closed = |_| Err(std::io::ErrorKind::Other.into());
     let unread = |_| Err(std::io::ErrorKind::Other.into());
@@ -326,9 +324,7 @@ fn only_the_first_serve_starts_a_reaper() {
         std::thread::Builder::new().spawn(|| ())
     });
     assert_eq!(threads, 1);
-    let mut child = child;
-    child.kill().unwrap();
-    child.wait().unwrap();
+    killed(&mut { child });
 }
 
 /// A child of the driver's own whose output another process holds open
@@ -475,6 +471,18 @@ impl Drop for Driver {
             _ => Some(()),
         });
     }
+}
+
+/// `child`'s status once killed, reaped within [`PATIENCE`].
+fn killed(child: &mut Child) -> std::process::ExitStatus {
+    child.kill().unwrap();
+    until(|| child.try_wait().unwrap()).expect("the killed child is reaped in time")
+}
+
+/// Whether `pid` stands a zombie within [`PATIENCE`], so a wait on it
+/// returns at once.
+fn zombie(pid: i32) -> bool {
+    until(|| table::stat_of(pid).unwrap().filter(|row| row.zombie)).is_some()
 }
 
 /// `probe`'s first answer within [`PATIENCE`].

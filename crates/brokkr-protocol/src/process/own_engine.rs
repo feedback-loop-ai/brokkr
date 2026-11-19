@@ -1,11 +1,19 @@
 //! One test played in an engine of its own (#403, #484).
 
+use std::process::{Command, ExitStatus, Stdio};
+use std::sync::mpsc;
+use std::time::{Duration, Instant};
+
 /// Set in the re-executed test binary: the one test it runs is already in
 /// an engine of its own.
 const OWN_ENGINE: &str = "BROKKR_TEST_OWN_ENGINE";
 
 /// How long a re-executed test may run before its parent fails it.
-const RERUN: std::time::Duration = std::time::Duration::from_secs(180);
+const RERUN: Duration = Duration::from_secs(180);
+
+/// How long a rerun killed at its deadline may take to be reaped, and its
+/// output's reader to answer, each.
+const GRACE: Duration = Duration::from_secs(5);
 
 /// Whether this test runs in an engine of its own. An in-process launch is
 /// one of the test binary's engine's attempts, and every test in the binary
@@ -16,29 +24,64 @@ const RERUN: std::time::Duration = std::time::Duration::from_secs(180);
 /// True in the re-executed child, which runs the body; false in the parent,
 /// once it has asserted that exactly one test passed there. The child's
 /// own output is shown when it did not. A child that has not ended within
-/// [`RERUN`] fails the test rather than hold it forever.
+/// [`RERUN`] fails the test rather than hold it forever ([`ended`]).
 pub fn in_its_own_engine(test: &str) -> bool {
     if std::env::var_os(OWN_ENGINE).is_some() {
         return true;
     }
-    let child = std::process::Command::new(std::env::current_exe().unwrap())
-        .args(["--exact", test])
-        .env(OWN_ENGINE, "1")
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .unwrap();
-    let (sent, ended) = std::sync::mpsc::channel();
-    std::thread::spawn(move || sent.send(child.wait_with_output()));
-    let output = ended.recv_timeout(RERUN).expect("the rerun ends in time");
-    let output = output.unwrap();
-    let shown = format!(
-        "{}{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
+    let mut rerun = Command::new(std::env::current_exe().unwrap());
+    rerun.args(["--exact", test]).env(OWN_ENGINE, "1");
+    let (status, shown) = ended(rerun, RERUN);
     let passed = shown.contains("test result: ok. 1 passed;");
-    assert_eq!((output.status.code(), passed), (Some(0), true), "{shown}");
+    assert_eq!((status.code(), passed), (Some(0), true), "{shown}");
     false
 }
+
+/// `command`'s status and what it printed, its standard input closed and
+/// its output and error one pipe, read by a thread of its own. One that has
+/// not ended within `bound` is killed, reaped and its reader answered, each
+/// within [`GRACE`], before the test fails: it leaves no child behind.
+fn ended(mut command: Command, bound: Duration) -> (ExitStatus, String) {
+    let (mut reader, writer) = std::io::pipe().unwrap();
+    command
+        .stdin(Stdio::null())
+        .stdout(writer.try_clone().unwrap())
+        .stderr(writer);
+    let mut child = command.spawn().unwrap();
+    // The command holds the pipe's write ends: dropped, the reader ends
+    // with the child's output.
+    drop(command);
+    let (sent, read) = mpsc::channel();
+    std::thread::spawn(move || {
+        let mut shown = Vec::new();
+        let _ = std::io::Read::read_to_end(&mut reader, &mut shown);
+        let _ = sent.send(String::from_utf8_lossy(&shown).into_owned());
+    });
+    let deadline = Instant::now() + bound;
+    let status = until(deadline, || child.try_wait().unwrap());
+    let status = status.unwrap_or_else(|| {
+        child.kill().unwrap();
+        let reaped = until(Instant::now() + GRACE, || child.try_wait().unwrap());
+        let shown = read.recv_timeout(GRACE).unwrap_or_default();
+        panic!("the rerun ends within {bound:?}; killed, reaped {reaped:?}, it printed:\n{shown}");
+    });
+    let left = deadline.saturating_duration_since(Instant::now()) + GRACE;
+    let shown = read
+        .recv_timeout(left)
+        .expect("the rerun's output ends in time");
+    (status, shown)
+}
+
+/// `probe`'s first answer before `deadline`, asked every 20 ms.
+fn until<T>(deadline: Instant, mut probe: impl FnMut() -> Option<T>) -> Option<T> {
+    loop {
+        let found = probe();
+        if found.is_some() || Instant::now() >= deadline {
+            return found;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+#[cfg(test)]
+mod tests;
