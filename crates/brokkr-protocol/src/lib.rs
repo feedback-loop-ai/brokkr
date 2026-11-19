@@ -570,3 +570,8 @@ pub struct CleanupEvidence {
 #[cfg(test)]
 #[path = "../../../tests/support/env_guard.rs"]
 mod env_guard;
+
+// The one bounded fixture for a reaped pid (#430).
+#[cfg(test)]
+#[path = "../../../tests/support/reaped.rs"]
+mod reaped;

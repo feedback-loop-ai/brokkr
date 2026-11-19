@@ -66,6 +66,9 @@ mod envelope_builder;
 #[path = "../../../tests/support/late.rs"]
 mod late;
 #[cfg(test)]
+#[path = "../../../tests/support/reaped.rs"]
+mod reaped;
+#[cfg(test)]
 #[path = "../../../tests/support/run_state.rs"]
 mod run_state;
 #[cfg(test)]

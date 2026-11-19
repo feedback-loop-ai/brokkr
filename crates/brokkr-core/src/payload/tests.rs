@@ -805,3 +805,44 @@ fn every_refusal_cause_reads_as_itself() {
         "words": "rate_limit", "seconds": 5, "max_seconds": 2});
     assert_eq!(refused(endless), RefusalCause::NoEnd);
 }
+
+/// The narrow reads a reader beside the fold takes (the sweep, #430): each
+/// gives only the fields it names, from a well-formed payload, and refuses
+/// one that does not read by the field's name, an array included.
+#[test]
+fn the_narrow_reads_give_their_fields_and_refuse_by_name() {
+    let refused = |field: &str| FoldError::BadPayload {
+        seq: 7,
+        field: field.into(),
+    };
+    let succeeded = event(
+        Type::EffectSucceeded,
+        json!({"effect_id": "e", "result": {}}),
+    );
+    assert_eq!(succeeded_effect(&succeeded), Ok("e"));
+    let unnamed = event(Type::EffectSucceeded, json!({"effect_id": 7, "result": {}}));
+    assert_eq!(succeeded_effect(&unnamed), Err(refused("effect_id")));
+
+    let commanded = event(
+        Type::OperatorCommanded,
+        json!({"command_id": "c1", "command": "stop", "operator": "o", "args": {}}),
+    );
+    assert_eq!(operator_command(&commanded), Ok(("c1", "stop")));
+    let numeric = event(
+        Type::OperatorCommanded,
+        json!({"command_id": 7, "command": "stop"}),
+    );
+    assert_eq!(operator_command(&numeric), Err(refused("command_id")));
+    let wordless = event(
+        Type::OperatorCommanded,
+        json!({"command_id": "c1", "command": 7}),
+    );
+    assert_eq!(operator_command(&wordless), Err(refused("command")));
+    let positional = event(Type::OperatorCommanded, json!(["c1", "stop"]));
+    assert_eq!(operator_command(&positional), Err(refused("command_id")));
+
+    let accepted = event(Type::OperatorAccepted, json!({"command_id": "c1"}));
+    assert_eq!(accepted_command(&accepted), Ok("c1"));
+    let numeric = event(Type::OperatorAccepted, json!({"command_id": 7}));
+    assert_eq!(accepted_command(&numeric), Err(refused("command_id")));
+}
