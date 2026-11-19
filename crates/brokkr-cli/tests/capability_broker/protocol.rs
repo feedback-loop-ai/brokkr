@@ -25,7 +25,7 @@ use super::ledger::{failed_with, sealed_ledger, Proved};
 use super::observer::within;
 use super::readiness::{boxed, Reads};
 use super::{ended, killed, refused, set, skip, unservable, Refusal, Sealed, SPEAKS};
-use super::{TALK_MAX, TOKEN};
+use super::{STARTUP, TALK_MAX, TOKEN};
 
 /// What begins each piece of a line the broker relays from its server's
 /// standard error, so that none reads as the broker's own (U6f2; operator
@@ -786,7 +786,7 @@ fn a_server_that_never_answers_ends_at_the_startup_deadline() {
     let (Some(looked), Some(gone)) = (acted.looked, acted.gone) else {
         panic!("no lookup, or a box that never went: {acted:?}");
     };
-    let bounded = (gone >= Duration::from_secs(30)) & (gone - looked < Duration::from_secs(30));
+    let bounded = (gone >= STARTUP) & (gone - looked < STARTUP);
     assert!(bounded, "{acted:?}");
     assert!(within(|| boxed(&sealed).is_empty()));
     assert_eq!(

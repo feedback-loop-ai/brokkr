@@ -18,9 +18,9 @@ use rustix::fs::inotify::{self, CreateFlags, WatchFlags};
 use serde_json::json;
 
 use super::ledger::{failed_with, sealed_ledger, Proved};
-use super::observer::{awaited, cancelled, exited, gone, processes, started_to, status, traced};
-use super::observer::{tracer, within, Starter, NO_TRACER, STARTUP};
-use super::{admitted, refused, skip, unservable, Refusal, Sealed};
+use super::observer::{cancelled, gone, guarded, processes, started_to, status, traced};
+use super::observer::{tracer, within, Starter, NO_TRACER};
+use super::{admitted, refused, skip, unservable, Refusal, Sealed, STARTUP};
 
 /// Every read of a file: of a fixture's store, its one binding's value now
 /// in it, where a lookup reads the store's bytes, which no path handle,
@@ -274,14 +274,14 @@ fn a_box_held_at_its_entry_refuses_at_the_absolute_deadline() {
     // Real-process proof of deadline refusal and cleanup. The shared
     // poller's controlled-clock tests prove the exact budget; this parent
     // includes process startup and its own scheduling in elapsed time.
-    let elapsed = awaited(held.chain[3]) - held.begun;
-    let finished = exited(held.chain[3]);
+    let (at, finished) = guarded(held.chain[3]);
+    let elapsed = at - held.begun;
     let (answer, settled, _, ledger) = held.ended();
-    assert_eq!(answer, refused(Refusal::Establishment));
     assert!(
         finished,
         "broker still running at the process wait's hang guard"
     );
+    assert_eq!(answer, refused(Refusal::Establishment));
     assert!(elapsed >= STARTUP, "early refusal: {elapsed:?}");
     assert!(settled);
     // Its ledger closed Failed with that cause, and no call.

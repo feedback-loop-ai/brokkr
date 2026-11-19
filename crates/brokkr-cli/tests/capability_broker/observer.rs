@@ -23,7 +23,7 @@ use serde_json::{json, Value};
 
 use super::cleanup::{identity, left_for_the_next_start};
 use super::{admitted, bootstrap, brokkr, chmod, euid, refused, setpriv, skip, unservable};
-use super::{Refusal, Sealed, Store, HARNESS};
+use super::{Refusal, Sealed, Store, HARNESS, STARTUP};
 
 /// A sequenced-packet pair, both ends closed on exec unless handed on.
 pub(super) fn pair() -> (OwnedFd, OwnedFd) {
@@ -917,16 +917,16 @@ fn blocked_to_the_deadline(kind: Kind) {
         // The controlled-clock proofs check the exact budget. Here the
         // deadline must refuse and settle the whole real process group;
         // the parent's elapsed time also includes startup and scheduling.
-        let elapsed = awaited(broker) - started;
-        let finished = exited(broker);
+        let (at, finished) = guarded(broker);
+        let elapsed = at - started;
         let ended = swept(pid);
         let code = super::bounded_apart(attempt, b"", &apart(&sealed))
             .status
             .code();
         let ended_at = Instant::now();
+        assert!(finished, "{kind:?}: broker still running at the hang guard");
         let answer = (code, broker_err(&sealed));
         assert_eq!((kind, answer), (kind, refused(Refusal::Identity)));
-        assert!(finished, "{kind:?}: broker still running at the hang guard");
         assert!(elapsed >= STARTUP, "{kind:?}: early refusal: {elapsed:?}");
         assert!(ended, "{kind:?}");
         // Nothing was looked up or started.
@@ -999,34 +999,37 @@ pub(super) fn cancelled(broker: i32) -> Duration {
     awaited(broker) - cancelled
 }
 
-/// MB3's absolute startup deadline, `STARTUP` in `src/broker/session.rs`,
-/// which a broker blocked in its startup meets before it refuses and ends.
-pub(super) const STARTUP: Duration = Duration::from_secs(30);
+#[test]
+fn the_suites_startup_is_the_brokers_own() {
+    let session = include_str!("../../src/broker/session.rs");
+    let startup = crate::engine::startup_seconds_in("src/broker/session.rs", session);
+    assert_eq!(STARTUP, Duration::from_secs(startup));
+}
 
-/// What a broker is given past [`STARTUP`] to end its box, reap it and
-/// report: 60 s, for an instrumented coverage build on a loaded hosted
-/// runner, where a fixed minute from the wait's start was outrun (#1008).
-const SETTLE: Duration = Duration::from_secs(60);
-
-/// The hang guard of [`awaited`]: the broker's own deadline and the settle
-/// allowance, so that load cannot outrun it while a broker that never
-/// ends still fails within it.
-const HANG_GUARD: Duration = STARTUP.saturating_add(SETTLE);
-
-/// When `pid` is gone, or only a zombie, waiting no longer than the
-/// [`HANG_GUARD`].
+/// When `pid` is gone, or only a zombie, waiting no longer than the hang
+/// guard, [`super::TALK_MAX`] from the wait's start.
 pub(super) fn awaited(pid: i32) -> Instant {
-    let until = Instant::now() + HANG_GUARD;
+    guarded(pid).0
+}
+
+/// [`awaited`], and whether `pid` ended by the hang guard. One still running
+/// there is killed, so that a hang fails at the guard and not at the next
+/// wait of its fixture's cleanup, which then finds it ended.
+pub(super) fn guarded(pid: i32) -> (Instant, bool) {
+    let until = Instant::now() + super::TALK_MAX;
     while !exited(pid) && Instant::now() < until {
         std::thread::sleep(Duration::from_millis(20));
     }
-    Instant::now()
+    let at = Instant::now();
+    let finished = exited(pid);
+    if !finished {
+        kill(pid);
+    }
+    (at, finished)
 }
 
-/// Whether the process is gone or a zombie, without another wait. A
-/// caller can distinguish the hang guard in `awaited` from an exit, then
-/// clean up its fixture before asserting the observation.
-pub(super) fn exited(pid: i32) -> bool {
+/// Whether the process is gone or a zombie, without another wait.
+fn exited(pid: i32) -> bool {
     status(pid).is_none_or(|(state, _, _)| state == 'Z')
 }
 
