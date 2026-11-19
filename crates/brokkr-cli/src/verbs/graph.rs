@@ -27,6 +27,8 @@ use super::analytics::{printed, range, read_hearths};
 use crate::folder::Layout;
 use crate::recipes::listed;
 use crate::recipes::personal::ShelfPath;
+use crate::render::table::{table, Column};
+use crate::render::{Safe, Style};
 use crate::{fleet_of, now_rfc3339, Invocation};
 
 #[derive(clap::Args)]
@@ -349,12 +351,73 @@ pub(crate) fn graph(workspace: &Path, args: GraphArgs) -> Result<ExitCode> {
         now: &now,
     };
     let view = derive(&hearths, &compiles, &shelf, &asked)?;
-    printed(&view, args.json, paint)
+    printed(&view, args.json, |view| paint(view, &Style::detect()))
 }
 
-/// One line per state and per rule, then the rest the view states,
+/// The states table's columns: the name, then its figures (#1167).
+const STATE_COLUMNS: [Column; 7] = [
+    Column::left("STATE"),
+    Column::right("ENTERED"),
+    Column::right("MEDIAN"),
+    Column::right("P90"),
+    Column::right("COST"),
+    Column::right("TOKENS"),
+    Column::right("CACHE"),
+];
+
+/// The rules table's columns: the rule, its firings and where it moves a
+/// run.
+const RULE_COLUMNS: [Column; 5] = [
+    Column::left("RULE"),
+    Column::right("COUNT"),
+    Column::left("FROM"),
+    Column::left("TO"),
+    Column::left("KIND"),
+];
+
+/// One row per state, in the view's order: tokens as the view reads them
+/// apart, total with ↑ in ↓ out, and the cache hit in its own column.
+fn states(view: &GraphView, style: &Style) -> String {
+    let rows: Vec<Vec<Safe>> = view
+        .states
+        .iter()
+        .map(|state| {
+            vec![
+                Safe::new(&state.name),
+                Safe::new(&state.entered.to_string()),
+                Safe::new(&state.median.text),
+                Safe::new(&state.p90.text),
+                Safe::new(&state.cost.text),
+                Safe::new(&state.tokens.arrows()),
+                Safe::new(&state.tokens.cache_hit.text),
+            ]
+        })
+        .collect();
+    table(&STATE_COLUMNS, &rows, 0, style)
+}
+
+/// One row per rule, in the view's order: a park goes `park`.
+fn rules(view: &GraphView, style: &Style) -> String {
+    let rows: Vec<Vec<Safe>> = view
+        .rules
+        .iter()
+        .map(|rule| {
+            vec![
+                Safe::new(&rule.id),
+                Safe::new(&rule.count.to_string()),
+                Safe::new(&rule.from),
+                Safe::new(rule.next.as_deref().unwrap_or("park")),
+                Safe::new(rule.kind.word()),
+            ]
+        })
+        .collect();
+    table(&RULE_COLUMNS, &rows, 0, style)
+}
+
+/// The header and the table's notes, the states and the rules as two
+/// tables a blank line apart, then the rest the view states as lines,
 /// painted from the view's own text.
-fn paint(view: &GraphView) -> String {
+fn paint(view: &GraphView, style: &Style) -> String {
     let mut out = format!(
         "{} / {} · {} → {} · {} runs\n",
         view.realm, view.recipe, view.from, view.to, view.runs
@@ -368,26 +431,9 @@ fn paint(view: &GraphView) -> String {
             bundle,
         } => out += &format!("{text}\n  {reason}\n  bundle {bundle}\n"),
     }
-    for state in &view.states {
-        out += &format!(
-            "state  {} · entered {} · median {} · p90 {} · {} · {}\n",
-            state.name,
-            state.entered,
-            state.median.text,
-            state.p90.text,
-            state.cost.text,
-            state.tokens.line()
-        );
-    }
-    for rule in &view.rules {
-        out += &format!(
-            "rule   {} · {} → {} · {}\n",
-            rule.text,
-            rule.from,
-            rule.next.as_deref().unwrap_or("park"),
-            rule.kind.word()
-        );
-    }
+    let tables = [states(view, style), rules(view, style)];
+    let drawn: Vec<String> = tables.into_iter().filter(|t| !t.is_empty()).collect();
+    out += &drawn.join("\n");
     for retired in &view.retired {
         let id = retired.rule_id.as_deref().unwrap_or_default();
         out += &format!("retired {id} · {}\n", retired.count);
