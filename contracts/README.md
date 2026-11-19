@@ -1192,6 +1192,14 @@ it as `reviewed_heads` from the journal, and a resumed engine decides on
 the same head with no HEAD read of its own. A protected result without
 one, or whose `covered` does not project it, is refused at decide.
 
+A checkpoint may carry `authored: "engine"`: the engine's own record of a
+sequence step's finish or a panel member's, written beside a verdict. It
+is engine-written. The engine refuses a driver's live checkpoint that
+carries it or names either marker's `step` word, and passes a live
+checkpoint's nested `result` through the same admission a successful
+result passes, so a reader admits a checkpoint as a verdict by
+`authored` alone, never by its `step` word.
+
 `covered`, `follow_ups`, `checked_head` and each finding's `site` are the engine's: the
 engine refuses a seat result that carries any of them before this
 contract is asked, and stamps them itself (rulings 1 and 3). In this

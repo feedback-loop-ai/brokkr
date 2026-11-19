@@ -436,7 +436,7 @@ fn a_panel_member_is_attributed_by_its_own_holding_never_its_siblings() {
     let finished = |member: &str, site: &str| {
         json!({"step": "panel-member-finished", "member": member, "outcome": "succeeded",
                "session_ref": "session", "inner_checkpoints": 1, "model": "not reported",
-               "boundary": "not applicable", "site_ref": site})
+               "boundary": "not applicable", "site_ref": site, "authored": "engine"})
     };
     let mut searcher = attributed(&native(SITE, INSTANCE, "codex", "item_1"));
     searcher["member"] = json!("searcher");

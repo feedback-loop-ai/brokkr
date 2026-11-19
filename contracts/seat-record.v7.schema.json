@@ -410,6 +410,10 @@
           "minLength": 1,
           "maxLength": 80
         },
+        "authored": {
+          "description": "The engine's authorship of a record it writes beside a verdict, a sequence step's finish or a panel member's (fix round 0109a1r4): engine-written, and a driver's live checkpoint that carries it, or names either marker's step, is refused, so a reader admits a checkpoint as a verdict by this field and never by its step word. No earlier version admits it, so no record a v6-era engine wrote carries it.",
+          "const": "engine"
+        },
         "result": {
           "description": "A sequence step's result, journaled with its checkpoint: the same closed result a successful result is, its findings, follow_ups, covered and checked_head included (decision 0034 ruling 6, fix round 0109a1r3).",
           "$ref": "#/$defs/result"

@@ -25,8 +25,8 @@ fn plant(db: &Path, run_id: &str, engine: &str, result: Value) {
 type Planted<'a> = (&'a str, &'a [(&'a str, &'a str)], Value);
 
 /// A run through each `(phase, members, result)` in turn, one effect per
-/// phase, whose seat is the phase and whose panel `members` each journal
-/// a checkpoint carrying its `(name, site)` stamp.
+/// phase, whose seat is the phase and whose panel `members` each have the
+/// engine's own finish marker carrying its `(name, site)` stamp.
 fn plant_phases(db: &Path, run_id: &str, engine: &str, phases: &[Planted<'_>]) {
     let manifest = json!({"engine": engine});
     let mut journal = vec![(
@@ -51,8 +51,10 @@ fn plant_phases(db: &Path, run_id: &str, engine: &str, phases: &[Planted<'_>]) {
         journal.push((EventType::EffectStarted, started));
         for (member, site) in members.iter() {
             let mut checkpoint = attempt.clone();
-            checkpoint["checkpoint"] = json!({"step": "turn", "member": member, "site_ref": site,
-                                              "instance_ref": site, "model": "m"});
+            checkpoint["checkpoint"] = json!({"step": "panel-member-finished",
+                                              "authored": "engine", "member": member,
+                                              "site_ref": site, "outcome": "succeeded",
+                                              "model": "m"});
             journal.push((EventType::EffectCheckpointed, checkpoint));
         }
         let mut succeeded = attempt;

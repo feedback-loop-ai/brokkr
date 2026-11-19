@@ -5,7 +5,7 @@
 
 use std::collections::BTreeMap;
 
-use brokkr_core::findings::{Covered, CoveredHead, Finding};
+use brokkr_core::findings::{Covered, CoveredHead, EngineMarker, Finding};
 use brokkr_core::fold::RunState;
 use brokkr_core::residual::{closings_of, residuals_of, Mark};
 use brokkr_core::summary::Stated;
@@ -93,35 +93,36 @@ pub fn gate_records(events: &[EventEnvelope]) -> Vec<GateRecord> {
         .collect()
 }
 
-/// The verdict `event` journals, if it journals one (fix round 0109a1r3,
-/// M3): a success's result, the effect's own, or a sequence step's result
-/// in its step's checkpoint, under the step's name.
+/// The verdict `event` journals, if it journals one, admitted only by
+/// provenance the engine established (fix round 0109a1r4, K1): a
+/// success's result, which only the engine appends, or a sequence step's
+/// result in the step's checkpoint the engine authored, under the step's
+/// name. A checkpoint that names the marker's word without the engine's
+/// `authored` is a driver's, and is no verdict.
 fn verdict_of(event: &EventEnvelope) -> Option<(&Value, Option<&str>)> {
     match event.event_type {
         EventType::EffectSucceeded => Some((&event.payload["result"], None)),
         EventType::EffectCheckpointed => {
             let checkpoint = &event.payload["checkpoint"];
-            let step = checkpoint.get("step").and_then(Value::as_str);
-            (step == Some(STEP_FINISHED))
+            (EngineMarker::authored(checkpoint) == Some(EngineMarker::StepFinished))
                 .then(|| (&checkpoint["result"], checkpoint["step_name"].as_str()))
         }
         _ => None,
     }
 }
 
-/// The engine's marker of a sequence step that finished before the last.
-const STEP_FINISHED: &str = "sequence-step-finished";
-
-/// The panel member each `(effect, site)` belongs to, as the engine's
-/// structural stamp on a member's records names it: its checkpoints, and
-/// the engine's own `panel-member-finished` marker, which carries the
-/// member's site whether or not the member journaled a checkpoint.
+/// The panel member each `(effect, site)` belongs to, as the engine's own
+/// `panel-member-finished` marker names it: the member's site beside its
+/// name, whether or not the member journaled a checkpoint, and never a
+/// driver's record.
 fn site_members(events: &[EventEnvelope]) -> BTreeMap<(&str, String), &str> {
     events
         .iter()
         .filter(|event| event.event_type == EventType::EffectCheckpointed)
         .filter_map(|event| {
             let checkpoint = &event.payload["checkpoint"];
+            let marker = EngineMarker::authored(checkpoint);
+            (marker == Some(EngineMarker::MemberFinished)).then_some(())?;
             let site = checkpoint.get("site_ref")?.as_str()?;
             let member = checkpoint.get("member")?.as_str()?;
             Some(((text(event, "effect_id"), site.to_string()), member))

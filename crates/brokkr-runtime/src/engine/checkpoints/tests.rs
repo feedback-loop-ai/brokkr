@@ -114,7 +114,7 @@ fn a_panel_member_cannot_journal_capability_call_attribution() {
     let marker = json!({
         "step": "panel-member-finished", "member": "ok", "outcome": "succeeded",
         "model": "m-1", "session_ref": "session", "inner_checkpoints": 2,
-        "boundary": "not applicable",
+        "boundary": "not applicable", "authored": "engine",
     });
     assert_eq!(stored(&engine), [live.clone(), live, marker]);
 }

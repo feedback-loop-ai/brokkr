@@ -21,6 +21,22 @@ const ATTEMPT: &str = "attempt-unknown-yet";
 /// must hold no `'`: its messages are the protocol's own, written with
 /// placeholder ids the script replaces with the pair its start names.
 pub(super) fn driver(result: &Value) -> Vec<String> {
+    checkpointing(&[], result)
+}
+
+/// [`driver`], forwarding each of `checkpoints` live before its result.
+pub(super) fn checkpointing(checkpoints: &[Value], result: &Value) -> Vec<String> {
+    let live: Vec<String> = (checkpoints.iter())
+        .map(|data| {
+            let body = Body::Checkpoint {
+                effect_id: EFFECT.into(),
+                attempt_id: ATTEMPT.into(),
+                data: data.clone(),
+            };
+            format!(" '{}'", wire(body))
+        })
+        .collect();
+    let live = live.concat();
     let answered = wire(Body::Result {
         refusal: None,
         effect_id: EFFECT.into(),
@@ -36,7 +52,7 @@ printf '%s\n' '{hello}'
 read -r start
 eid=${{start#*\"effect_id\":\"}}; eid=${{eid%%\"*}}
 aid=${{start#*\"attempt_id\":\"}}; aid=${{aid%%\"*}}
-printf '%s\n' '{started}' '{answered}' | sed "s/{EFFECT}/$eid/; s/{ATTEMPT}/$aid/"
+printf '%s\n' '{started}'{live} '{answered}' | sed "s/{EFFECT}/$eid/g; s/{ATTEMPT}/$aid/g"
 read -r done
 "#
     );

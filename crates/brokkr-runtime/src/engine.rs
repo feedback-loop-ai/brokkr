@@ -1606,7 +1606,7 @@ impl Engine {
                     Some(context) => context.stamp(checkpoint),
                     None => resume::unstamped(checkpoint),
                 };
-                sink.offer("", checkpoint, call);
+                sink.offer_live("", checkpoint, call, stamp.as_ref());
             },
         )?;
         let report = self.folded([effect_id, attempt_id, driver_seat], spawn, begun, report)?;

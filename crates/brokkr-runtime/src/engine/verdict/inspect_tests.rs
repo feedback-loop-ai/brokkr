@@ -109,7 +109,15 @@ fn every_gate_verdict_the_journal_records_reads_back_under_its_own_seat() {
         .filter(|checkpoint| checkpoint["step"] == "panel-member-finished")
         .collect();
     assert_eq!(markers.len(), 2);
+    // The engine's own records carry its authorship, which is what a
+    // reader admits a verdict by (fix round 0109a1r4, K1).
+    let judge = (events.iter())
+        .map(|event| &event.payload["checkpoint"])
+        .find(|checkpoint| checkpoint["step"] == "sequence-step-finished")
+        .unwrap();
+    assert_eq!(judge["authored"], "engine");
     for marker in markers {
+        assert_eq!(marker["authored"], "engine");
         assert!(
             marker["site_ref"]
                 .as_str()

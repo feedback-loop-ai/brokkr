@@ -7,6 +7,7 @@
 //! [`StepVerdict`] is that answer, matched at every stage.
 
 use brokkr_core::envelope::EventType;
+use brokkr_core::findings::EngineMarker;
 use brokkr_core::realms::Boundary;
 use brokkr_protocol::AttemptOutcome;
 use brokkr_store::StoreError;
@@ -671,12 +672,11 @@ impl Engine {
             .unwrap_or("not reported")
             .to_string();
         let marker = stamp_boundary(
-            json!({
-                "step": "sequence-step-finished",
+            EngineMarker::StepFinished.record(json!({
                 "step_name": at.step.name,
                 "model": model,
                 "result": result,
-            }),
+            })),
             boundary,
         );
         match self.append(

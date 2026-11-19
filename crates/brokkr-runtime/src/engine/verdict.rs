@@ -6,7 +6,7 @@
 //! (decision 0001). No word is refused here and no routing moves.
 
 use brokkr_core::envelope::EventType;
-use brokkr_core::findings::{CheckedHead, Covered, Finding, Reporter};
+use brokkr_core::findings::{CheckedHead, Covered, Finding};
 use brokkr_protocol::{AttemptOutcome, AttemptReport};
 use serde::Deserialize;
 use serde_json::{Map, Value};
@@ -14,7 +14,6 @@ use thiserror::Error;
 
 use super::resume::SiteContext;
 use super::Engine;
-use crate::bundle::SeatClass;
 
 /// Ruling 7's `dirty` is true unless the tree check proved the worktree
 /// clean at commission time. That check is slice 0109b's, so every
@@ -181,11 +180,7 @@ pub(super) fn admitted(mut report: AttemptReport, site: Option<&SiteContext>) ->
     let AttemptOutcome::Succeeded { result } = &mut report.outcome else {
         return unstamped(report);
     };
-    let reporter = site.map(|site| match site.class {
-        SeatClass::Gate => Reporter::Gate(&site.site_ref),
-        SeatClass::Work => Reporter::Work,
-    });
-    match brokkr_core::findings::admit(result, reporter) {
+    match brokkr_core::findings::admit(result, site.map(SiteContext::reporter)) {
         Ok(findings) => Admitted { report, findings },
         Err(refusal) => {
             report.refused = Some(AttemptOutcome::Failed {
@@ -223,6 +218,8 @@ impl Admitted {
 pub(super) mod covered_tests;
 #[cfg(test)]
 mod inspect_tests;
+#[cfg(test)]
+mod live_tests;
 #[cfg(test)]
 mod observation_tests;
 #[cfg(test)]

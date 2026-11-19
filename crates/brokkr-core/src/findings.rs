@@ -424,8 +424,10 @@ fn is_lower_hex(value: &str) -> bool {
 }
 
 mod covered;
+mod marker;
 
 pub use covered::{CheckedHead, Covered, CoveredHead};
+pub use marker::{admit_live, EngineMarker, LiveRefusal, AUTHORED};
 
 #[cfg(test)]
 mod tests;

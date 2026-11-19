@@ -509,7 +509,7 @@ fn wanted() -> Sites {
             json!({"step": "panel-member-finished", "boundary": "not applicable",
                          "inner_checkpoints": 6, "member": member, "model": OPUS,
                          "outcome": "succeeded", "session_ref": null,
-                         "site_ref": "site_ref"}),
+                         "site_ref": "site_ref", "authored": "engine"}),
         );
         site("panel", member, rows);
     }
@@ -521,7 +521,8 @@ fn wanted() -> Sites {
                         "transcript": {"home": "<root>/home/.claude/projects",
                                        "kind": "claude-session", "locator": "first-root-0"}});
     let finished = json!({"step": "sequence-step-finished", "step_name": "first",
-                          "boundary": "not applicable", "model": OPUS, "result": result});
+                          "boundary": "not applicable", "model": OPUS, "result": result,
+                          "authored": "engine"});
     site("sequence", "", vec![finished]);
     let mut resumed = session("", "resumed-root-0", "cold", true, false);
     resumed.extend(session("", "resumed-root-0", "resumed", true, true));

@@ -78,11 +78,13 @@ use std::sync::mpsc::{Receiver, RecvTimeoutError, SyncSender};
 use std::time::Duration;
 
 use brokkr_core::envelope::EventType;
+use brokkr_core::findings::{admit_live, LiveRefusal};
 use brokkr_protocol::{AttemptOutcome, AttemptReport};
 use brokkr_store::{Chain, Rows, SeatRecordError, Store, StoreError};
 use serde_json::{json, Value};
 
 use super::capability_calls::{self, BrokerCheckpoint, SettledEvent, Stamp};
+use super::resume::SiteContext;
 use super::EngineError;
 
 /// How many of the store's patiences an attempt's settlement gets — its
@@ -177,6 +179,11 @@ enum Refused {
     Fence(SeatRecordError),
     #[error(transparent)]
     Call(capability_calls::Refusal),
+    /// A driver's checkpoint claimed the engine's record, or its nested
+    /// result failed a standalone result's admission (fix round
+    /// 0109a1r4, K1).
+    #[error(transparent)]
+    Live(LiveRefusal),
 }
 
 /// The outcome of an attempt whose checkpoint the journal refused
@@ -406,6 +413,29 @@ impl<'a, B: FnMut(&mut Store)> Checkpoints<'a, B> {
             }
         }
         self.hold(owner, checkpoint);
+    }
+
+    /// Take one checkpoint a driver forwarded live, written at `site`:
+    /// first it passes the one admission every result passes (fix round
+    /// 0109a1r4, K1), so a driver's checkpoint that claims a record only
+    /// the engine authors, or whose nested result writes an engine-owned
+    /// field or a work site's findings, is refused as a refused call is
+    /// and fails the attempt, and a gate's nested findings are stamped
+    /// with its site. Then it is offered as any other.
+    pub(super) fn offer_live(
+        &mut self,
+        owner: &str,
+        mut checkpoint: Value,
+        call: Result<Option<Stamp>, capability_calls::Refusal>,
+        site: Option<&SiteContext>,
+    ) {
+        let reporter = site.map(SiteContext::reporter);
+        match admit_live(&mut checkpoint, reporter) {
+            Err(refusal) if self.failure.is_none() && self.refusal.is_none() => {
+                self.refusal = Some(Latched::new(owner, Refused::Live(refusal)));
+            }
+            _ => self.offer(owner, checkpoint, call),
+        }
     }
 
     /// Journal `checkpoint` behind what is held, in one transaction. When

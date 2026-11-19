@@ -12,6 +12,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use brokkr_core::envelope::EventType;
+use brokkr_core::findings::EngineMarker;
 use brokkr_core::realms::Boundary;
 use brokkr_protocol::{AttemptOutcome, AttemptReport, Cleanup};
 use brokkr_store::Store;
@@ -415,14 +416,13 @@ impl Engine {
             .unwrap_or_else(|| "not reported".to_string());
             // The engine's own marker names the member's model, so it
             // carries the member's boundary beside it (design DD19).
-            let mut marker = json!({
-                "step": "panel-member-finished",
+            let mut marker = EngineMarker::MemberFinished.record(json!({
                 "member": Tag::prefixed(tag_prefix, name),
                 "outcome": kind,
                 "model": model,
                 "session_ref": report.session_ref,
                 "inner_checkpoints": report.checkpoints.len(),
-            });
+            }));
             if let Some(site) = site {
                 marker["site_ref"] = Value::String(site.site_ref.clone());
             }
@@ -553,11 +553,12 @@ fn offer_member_checkpoint(
     let checkpoint = stamp_boundary(tag_member(checkpoint, member), boundary);
     // The member's own stamp, applied by the one journal
     // writer from the context its worker handed over.
-    let checkpoint = match owner.and_then(|run| run.context.as_ref()) {
+    let context = owner.and_then(|run| run.context.as_ref());
+    let checkpoint = match context {
         Some(context) => context.stamp(checkpoint),
         None => resume::unstamped(checkpoint),
     };
-    sink.offer(member, checkpoint, call);
+    sink.offer_live(member, checkpoint, call, context);
 }
 
 /// Join member reports into the attempt's single outcome: any
