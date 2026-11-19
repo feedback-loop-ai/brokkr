@@ -484,13 +484,16 @@ It is parsed once at the edge, with unknown fields refused (0071 ruling 3). An u
 conclusion word refuses by name. Whether the forge reports a workflow job's key, as the workflow
 file spells it, is unmeasured until 0111a's evidence; if it does, the observation carries it.
 
-**Every admitted execution is this pull request's.** HEAD's workflow keys its concurrency by
+**`ci-infrastructure` needs this pull request's run.** HEAD's workflow keys its concurrency by
 ref (`.github/workflows/ci.yml:19-27`) and reads pull-request-specific data, the body and the
 labels, into a required job (`:78-102`, where the `by-hand` label changes its outcome). So two
 pull requests that share a head can each produce a run on it, with different results, and a run
-keyed only by workflow path, event and head may be the other one's. **Recommended: (a) an
-Actions execution is admitted only when the forge positively associates it with this pull
-request.** The field is the workflow run's `pull_requests` array, each element naming a pull
+keyed only by workflow path, event and head may be the other one's. Under the frame, another
+pull request's run buys nothing a `green` buys; what it could buy is a park drawn from someone
+else's setup fault. So the association is a precision guard on that one class, and a
+withholding when unproven, never a refusal. **Recommended: (a) an Actions execution counts
+toward `ci-infrastructure` only when the forge positively associates it with this pull request,
+and with no other.** The field is the workflow run's `pull_requests` array, each element naming a pull
 request's `number` and its `head` and `base` with `ref` and `sha`
 (<https://docs.github.com/en/rest/actions/workflow-runs#get-a-workflow-run>); a check run
 carries the same array (<https://docs.github.com/en/rest/checks/runs#get-a-check-run>). The
@@ -502,12 +505,16 @@ request's. An execution is admitted only when:
 - its `pull_requests` names this pull request's number;
 - the element's `head.sha` equals the gated head, and its `base.sha` the base the observation
   names;
-- where the forge lists more than one open pull request for the head, the execution's
-  association names this one and no other.
+- **the array names this pull request and no other.** An association array that names more
+  than one pull request is ambiguous, whether or not the others are still open: a pull request
+  closed since the run cannot be told apart from the one that triggered it by the array alone
+  (fix round 1093r4's rule read only the open list, so an array naming A and a since-closed B
+  fitted A).
 
-Otherwise the entry has no admitted execution, and the observation refuses with
-`association-unproven`, naming the run, or, where two open pull requests share the head and an
-execution's association cannot tell them apart, `head-shared`. Refused alternatives: **(b)**
+Otherwise the execution is not admitted, and `association-unproven` withholds the class, naming
+the run, or `association-ambiguous`, naming every pull request the array names. A failure in
+an unadmitted execution is still a failure: it makes the observation `change` (ruling 4), and
+an all-success observation is still `green`. Refused alternatives: **(b)**
 matching by workflow path, event and head alone, which is fix round 1093r3's key and admits the
 other pull request's run; and **(c)** matching by the merge commit's parents, which cannot tell
 two pull requests with the same base and head apart.
@@ -647,7 +654,7 @@ a change review reads, and every landing path reaches review (ruling 6).
 - **(c) A per-entry definition list,** as fix round 1093r3 drafted. Refused: it missed HEAD's
   own helpers.
 
-**The tested revision is established, or the pass refuses.** HEAD's pull-request workflow tells
+**`ci-infrastructure` needs the revision the run tested, established.** HEAD's pull-request workflow tells
 three revisions apart: `delivered by brokkr` checks out the trusted base and the pull request's
 head by explicit ref (`.github/workflows/ci.yml:49-64`), and the ratchet job asserts that its
 checkout is the pull request's merge commit (`:663-671`). A checkout with no `ref`, as the audit
@@ -662,25 +669,60 @@ run on the head may check out the base (`:49-55`). So each required Actions entr
   closure parse, must check that SHA out in the job: an `actions/checkout` step whose `ref` is
   the head-SHA expression `${{ github.event.pull_request.head.sha }}`, as `:61-64` spells it.
   A `head` entry whose job checks out no such ref, or more than one ref it could run from,
-  refuses as `revision-unestablished`.
+  withholds the class as `revision-unestablished`.
 - `merge`: the job tested the forge's merge revision, `refs/pull/<number>/merge`. The pinned
   workflow's checkout in the job must take that ref, by default or by naming it. The
   observation must name the exact merge commit the run tested, as the run records it, and that
   commit's two parents. Its first parent must be the base the observation names, which must be
-  the pull request's current base, and its second the gated head.
+  the pull request's current base, and its second the gated head. The merge commit is a
+  distinct commit from the head, as a valid merge always is.
 
-**Disagreement refuses.** Where the run's `head_sha`, its association's `head.sha`, the merge
-commit's second parent and the gated head are not all one commit, or the association's
-`base.sha` is not the merge commit's first parent, the observation refuses with
-`revision-disagrees`, naming the values. It is never resolved by preferring one source.
+**The house's three shapes, each specified so a valid case reaches classification:**
+
+- **An aggregate with no checkout of its own.** HEAD's required `test (ubuntu-latest)` and
+  `test (macos-latest)` are job `engine`, whose one step reads `needs.engine-machines.result`
+  and checks nothing out (`.github/workflows/ci.yml:315-329`). Its tested revision is its pinned
+  dependencies' exact revisions: every expected instance of each job it `needs` (ruling 4's
+  matrix rule), each established by its own entry's rule above, and all one commit. A
+  dependency whose revision is unestablished, or that disagrees with a sibling's, withholds the
+  class for the aggregate. `engine-machines` checks out with no `ref` (`:228-231`), so it is
+  `merge`. Note that `needs.engine-machines.result` is the result over all nine instances, both
+  systems' (`:197-215`), so each system's `test (…)` verdict reads the other system's machines
+  too.
+- **A merge-mode run.** The merge commit and the head are compared separately, never as one
+  commit: the run's `head_sha` and the association's `head.sha` against the gated head; the
+  merge commit's second parent against the gated head; its first parent against the
+  association's `base.sha` and the observation's base; and the merge commit against the one the
+  run records.
+- **`delivered by brokkr`,** with its trusted-base verifier and its explicit pull-request head
+  (`:49-102`), is not in the entry set at all (ruling 6): its evidence is this landing's own
+  output.
+
+**Disagreement withholds.** Where any one of those comparisons fails, `revision-disagrees`
+withholds the class, naming the two values that differ. It is never resolved by preferring one
+source. (Fix round 1093r4's row demanded that the association, the run's head, the tested
+commit and the gated head all be one commit, which no valid merge is; that row is replaced.)
+
+**Which checkout a verdict-bearing step used.** A checkout the change's own code moves during a
+job, such as a test that checks out another commit, is the change under test, which review reads:
+it is not CI's machinery and this decision does not guard it. A checkout moved by machinery, a
+workflow step or a script outside the change classes, is ruling 3's: if the change touched that
+machinery, `machinery-touched` already withholds; if it did not, the base's machinery is what
+ran. What the forge would have to give, to prove beyond that which revision a verdict-bearing
+step used, is a field naming the commit the run checked out. The run's `head_sha` is the pull
+request's head, not the merge commit, and whether any field of the run or its jobs records the
+merge commit tested is **unmeasured** until 0111a. **Where the forge exposes no such field, the
+entry is `revision-unmeasured`, and no `ci-infrastructure` is drawn.** This decision claims no
+proof GitHub does not give.
 
 The declaration is the operator's statement about a pinned workflow, and `machinery-touched`
-withholds the class whenever that workflow moved from the base's bytes. Whether the forge's run payload names the merge commit
-it tested is **unmeasured**: the run's `head_sha` is the pull request's head, not the merge
-commit (unmeasured until 0111a). Until 0111a's evidence shows a forge field that records the
-tested merge commit, every `merge` entry refuses as `revision-unestablished`, and that fails
-closed. Every required entry in this house's list is `merge` (ruling 5), so until then this
-house's gate never passes on its own.
+withholds the class whenever that workflow moved from the base's bytes. Every required entry in
+this house's list is `merge` (ruling 5), so until 0111a's evidence shows a forge field that
+records the tested merge commit, this house's gate never draws `ci-infrastructure`, and the
+narrowed acceptance ([above](#what-1093s-acceptance-becomes)) waits on that evidence. If 0111a
+finds no such field, the decision is revised before acceptance, and the acceptance is not
+delivered on GitHub. That fails closed: `green` and `change` still behave as landing does
+today.
 
 **When `green` is drawn.** `green` grants nothing
 ([The gate grants nothing](#the-gate-grants-nothing)); the rule below says only when the gate
@@ -688,15 +730,17 @@ proceeds without either new outcome. The engine draws `green` only when all of t
 
 - the observation's repository, pull request and head equal the run's pinned repository, the
   pull request the gate names and the engine's own git head;
-- every entry of `required_checks` is matched by exactly one settled check from its bound
-  producer, in that producer's current execution, and that execution is admitted as this pull
-  request's;
-- each matched Actions entry's tested revision is established, and its sources agree, as above;
+- every entry of `required_checks` in the entry set (ruling 6) is matched by exactly one settled
+  check from its bound producer, in that producer's current execution;
 - each matched check's conclusion is `success`.
 
+The association and the tested revision are not in that rule: they are precision guards on
+`ci-infrastructure` alone, and an all-success observation whose association or revision is
+unproven proceeds as landing does without the gate.
+
 The **current execution** of an Actions entry is the workflow run with the highest run number
-among those the forge lists for its workflow path, its event, the head and this pull request's
-association, read at its highest attempt. Any other run for that key still queued or in
+among those the forge lists for its workflow path, its event and the head, read at its highest
+attempt. Any other run for that key still queued or in
 progress, or a run list the observer could not read whole, refuses as `execution-ambiguous`.
 
 Nothing short of that is `green`. **Every binding and completeness refusal comes before any
@@ -710,14 +754,10 @@ otherwise classifiable failure refuses as `missing-required`; it is never typed.
 | `head-unpublished` | the forge's head for the pull request is not the engine's git head: the head the run would gate is not the one pushed |
 | `empty` | the forge reports no check for the head |
 | `producer-mismatch` | a check carries a required entry's name from another app or workflow path; the refusal names it, so a substitute is never silently passed over |
-| `association-unproven` | a required entry's execution is not positively associated with this pull request, its head and its base; the refusal names the run |
-| `head-shared` | another open pull request shares the head and an execution's association cannot tell them apart |
 | `status-required` | the forge's required set names a commit status context, which is never admitted |
 | `missing-required` | a required entry matches no check from its bound producer; the refusal names the entry |
 | `ambiguous-required` | a required entry matches more than one check in its current execution |
 | `execution-ambiguous` | a required entry's current execution cannot be told, as above |
-| `revision-unestablished` | a required entry's tested revision is not established, as above |
-| `revision-disagrees` | the association, the run's head, the tested commit and the gated head are not one commit; the refusal names the values |
 | `not-settled` | a required check is still queued or in progress when the observer's own polling bound ends, short of the seat's deadline |
 | `required-set-disagrees` | the forge requires a check the pinned list lacks |
 
@@ -740,6 +780,11 @@ stops nothing landing would do. Each is a precision guard on the one class, and 
 | `range-unproven` | 0109's verified reader cannot establish the range's provenance and its complete, byte-exact path list |
 | `range-too-large` | the range's changed paths exceed the bound the classification record carries |
 | `basis-too-large` | the classifier's sealed basis would exceed its bound |
+| `association-unproven` | an execution is not positively associated with this pull request, its head and its base; it names the run |
+| `association-ambiguous` | an execution's association array names more than one pull request, open or closed; it names them |
+| `revision-unestablished` | an entry's pinned checkout does not establish its tested revision, as above |
+| `revision-disagrees` | one of the separate comparisons above fails; it names the two values |
+| `revision-unmeasured` | the forge exposes no field proving the revision the entry's run checked out |
 
 The gate's word is bound to the engine's class: `pass` is admitted only on `green`, and `fail`
 with a `green` class is refused. A refused word is never rewritten (the same binding 0109
@@ -1411,11 +1456,21 @@ slice that produces it, and each typed assertion is in the slice that builds its
    The producer, the association and the tested revision (ruling 3):
    `a_same_named_green_check_from_another_workflow_refuses_as_producer_mismatch`;
    `a_green_check_on_another_event_does_not_match_its_entry`;
-   `a_green_run_on_the_same_head_for_another_pull_request_refuses_as_association_unproven`;
-   `a_run_with_an_empty_association_refuses_as_association_unproven`;
-   `two_open_pull_requests_sharing_the_head_refuse_as_head_shared_unless_each_association_names_one`;
-   `an_association_and_a_checkout_that_disagree_refuse_as_revision_disagrees`;
-   `a_head_entry_whose_pinned_job_checks_out_another_ref_refuses_as_revision_unestablished`;
+   `a_red_setup_only_run_on_the_same_head_for_another_pull_request_is_change_as_association_unproven`;
+   `a_run_with_an_empty_association_withholds_as_association_unproven`;
+   `an_association_naming_a_and_a_closed_b_draws_no_ci_infrastructure`
+   (`association-ambiguous`, with B closed and the open list naming only A);
+   `an_all_success_observation_with_an_unproven_association_is_green`;
+   `an_association_and_a_checkout_that_disagree_withhold_as_revision_disagrees`;
+   `a_head_entry_whose_pinned_job_checks_out_another_ref_withholds_as_revision_unestablished`;
+   `the_full_two_entry_engine_matrix_with_a_distinct_valid_merge_commit_reaches_classification`
+   (both `test (…)` entries over all nine `engine-machines` instances, each with a merge commit
+   distinct from the head whose parents are the base and the head, and a declared port-bind
+   literal in one instance: `ci-infrastructure`, so no comparison demands merge and head be one);
+   `changing_the_checkout_revision_of_a_dependency_draws_no_ci_infrastructure`
+   (one `engine-machines` instance records another merge commit: `revision-disagrees` for the
+   aggregate);
+   `an_entry_whose_run_records_no_tested_commit_withholds_as_revision_unmeasured`;
    `a_status_entry_in_the_required_list_refuses_to_compile`;
    `a_status_context_in_the_forges_required_set_refuses_as_status_required`;
    the machinery, each asserting the exact class and withholding (ruling 3):
@@ -1435,8 +1490,8 @@ slice that produces it, and each typed assertion is in the slice that builds its
    `an_empty_change_class_list_refuses_to_compile`;
    `a_change_class_under_github_or_a_required_workflow_refuses_to_compile`;
    `the_closure_test_over_heads_own_base_records_its_answer`;
-   `an_ambiguous_tested_revision_refuses_as_revision_unestablished`;
-   `a_merge_revision_whose_parents_are_not_the_base_and_the_head_refuses`;
+   `an_ambiguous_tested_revision_withholds_as_revision_unestablished`;
+   `a_merge_revision_whose_parents_are_not_the_base_and_the_head_withholds`;
    `two_unsettled_runs_for_one_entry_refuse_as_execution_ambiguous`;
    `missing_required_beside_a_classifiable_failure_refuses_and_is_never_typed`. The pass's
    refusals, one test each, every one asserting the refusal's variant and that the class is not
