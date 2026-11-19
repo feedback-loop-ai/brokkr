@@ -36,8 +36,9 @@ pub enum EngineMarker {
 impl EngineMarker {
     const ALL: [EngineMarker; 2] = [EngineMarker::StepFinished, EngineMarker::MemberFinished];
 
-    /// The marker's `step` word.
-    pub const fn word(self) -> &'static str {
+    /// The marker's `step` word, read only in this module (fix round
+    /// 0109a1r5, V6).
+    const fn word(self) -> &'static str {
         match self {
             EngineMarker::StepFinished => "sequence-step-finished",
             EngineMarker::MemberFinished => "panel-member-finished",
