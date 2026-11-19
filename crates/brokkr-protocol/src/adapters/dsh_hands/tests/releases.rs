@@ -171,8 +171,31 @@ fn the_0_2_2_rc5_overlay_is_pinned() {
     );
     let rc5 = format!("{MEASURED_HEAD}read-only\n{pins}");
     assert_eq!(
+        route_overlay::hands(rc5.as_bytes(), Release::V0_2_2Rc5),
+        Ok(())
+    );
+    assert_eq!(
         route_overlay::hands(rc5.as_bytes(), Release::V0_2_2),
         Err(Refused(Overlay::HandsRow("tool-agent-team".into())))
+    );
+}
+
+/// A row neither rc.5's own delta nor 0.2.2-rc.1's set carries is refused
+/// in an rc.5 tree, naming 0.2.2-rc.5: 0.2.1's `tool-subagent-list-agents`,
+/// which 0.2.2 removed, is not inherited by the release that builds on it.
+#[cfg(unix)]
+#[test]
+fn a_row_no_0_2_2_release_measured_is_refused_in_an_rc5_tree() {
+    let (id, name) = REMOVED_0_2_2[0];
+    let mut dump = measured_dump_0_2_2_rc5();
+    dump.push_str(&format!("- id: {id}\n  name: '{name}'\n  disabled: true\n"));
+    assert_eq!(
+        judge(Release::V0_2_2Rc5, &rows(dump.as_bytes()).unwrap()).err(),
+        Some(Composition::Unmeasured {
+            id: id.into(),
+            name: name.into(),
+            release: "0.2.2-rc.5",
+        })
     );
 }
 
