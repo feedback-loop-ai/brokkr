@@ -750,7 +750,8 @@ machinery's closure, so the engine tests it before it trusts it, over the base r
 observation names (ruling 3), read through 0109's verified reader (below) and never from the
 change's tree:
 
-- Every required entry's workflow file is parsed at the base into a typed subset: each job's
+- Every workflow file of an entry in the entry set (ruling 6's one derivation) is parsed at the
+  base into a typed subset: each job's
   `needs`, its `strategy.matrix`, its steps' `uses`, `run` and `working-directory`, and the
   workflow's and the job's `defaults.run.working-directory`
   (<https://docs.github.com/en/actions/writing-workflows/workflow-syntax-for-github-actions#defaultsrunworking-directory>;
@@ -986,9 +987,9 @@ proceeds without either new outcome. The engine draws `green` only when all of t
 - every entry of `required_checks` in the entry set (ruling 6) is matched by exactly one settled
   check from its bound producer, in that producer's current execution;
 - each matched check's conclusion is `success`;
-- **no required failure is observed inadmissible** (below): no check that carries a required
-  entry's name from another producer, and no context the forge's own required set names, has
-  concluded red.
+- **no required failure is observed inadmissible** (below): no check that carries the name of
+  an entry in the entry set from another producer, and no context the forge's own required set
+  names, other than one an `"after": "ship"` entry declares, has concluded red.
 
 **Absent and inadmissible are told apart.** A required failure is **absent** when no observed
 check or status carries the entry's name, or the forge-required context, at all. It is
@@ -1263,8 +1264,9 @@ as an empty change. In order:
 1. Any binding or completeness refusal of ruling 3 holds, `missing-required` apart:
    **`refused`**, naming every one that holds. Nothing below runs, so no refusal is ever
    outranked by a classifiable failure.
-2. **An observed inadmissible failure** (ruling 3: a red check under a required entry's name
-   from another producer, or a red context the forge requires that the gate cannot admit):
+2. **An observed inadmissible failure** (ruling 3: a red check under an entry-set entry's name
+   from another producer, or a red context the forge requires that the gate cannot admit and no
+   after-ship entry declares):
    **`change`**, with the reason `inadmissible-failure`, naming the check and its withholding.
    It outranks `missing-required` and `green` below, because it is observed, not absent, and it
    is red.
@@ -1273,8 +1275,8 @@ as an empty change. In order:
    failed, timed-out, unstarted or cancelled required check is **`refused`** as `non-success`.
 5. **Any withholding of ruling 3 holds: `change`,** with the reason `withheld`, naming every
    withholding that holds. No pattern is read, so nothing below can draw `ci-infrastructure`.
-6. **The whole failure set is typed.** The failure set is every required job whose conclusion is
-   not `success`, each instance of a matrix job on its own. Every element gets one closed type,
+6. **The whole failure set is typed.** The failure set is every job of an entry in the entry
+   set (ruling 6) whose conclusion is not `success`, each instance of a matrix job on its own. Every element gets one closed type,
    matched without a wildcard:
    - **setup-pattern**: conclusion `failure`, and **every** failed step of the job a declared
      setup step whose sealed match names one of that step's literals, with the pattern's id.
@@ -1582,6 +1584,18 @@ declaration is the operator's: the compile cannot see what a check reads, and an
 undeclared costs one implement visit (the frame's table), never a pass. Refused alternative:
 **(b)** observing it and treating its failure as untyped, which is fix round 1093r4's behaviour
 and spends the implement visit on every first landing.
+
+**The entry set is derived once, and every reader but the inventory reads it.** One function
+over the pinned list gives the entry set: the entries with no `"after"`. The failure predicate
+(ruling 3's `green` rule and its observed inadmissible failures, and ruling 4's failure set),
+the closure parse, the producer, association and revision checks, and the setup steps' jobs all
+read that set and nothing wider, so an after-ship check, its producer's checkouts and its red
+are never a failure, an inadmissible failure, a closure root or a revision to prove. The full
+declared list is read only to reconcile the inventory: ruling 3's comparison with the forge's
+required set counts an after-ship entry as declared, so `required-set-disagrees` still finds an
+undeclared required context, and the sealed observation still lists every check unfiltered.
+A red `delivered by brokkr` beside every eligible entry green is therefore `green`, and beside a
+valid setup failure is `ci-infrastructure`.
 
 **The entry set is never empty.** A declared list whose every entry carries `"after": "ship"`
 filters to nothing, and an observation with no entry to match would draw `green` on whatever
@@ -2234,6 +2248,11 @@ slice that produces it, and each typed assertion is in the slice that builds its
    `a_fresh_published_pull_request_with_no_anchor_and_no_label_is_not_routed_to_implement_by_the_contribution_check`
    (`delivered by brokkr` red, every other entry green: `green`, never `change`);
    `an_after_ship_entry_is_never_observed_and_the_forge_set_comparison_counts_it_declared`;
+   `a_red_after_ship_check_beside_every_eligible_entry_green_is_green` (`green`, not `change`
+   with `inadmissible-failure`, though the forge requires the context);
+   `a_red_after_ship_check_beside_a_valid_setup_failure_draws_ci_infrastructure` (the class
+   names only the eligible setup fault);
+   `an_undeclared_forge_required_context_beside_an_after_ship_entry_withholds_as_required_set_disagrees`;
    `a_green_observation_passes_to_classify`;
    `a_change_failure_returns_to_implement_once`;
    `a_refusal_parks_ruled_and_never_passes`;
