@@ -24,6 +24,7 @@
 //! Unicode-width dependency — forbidden by the ruling — CJK and emoji
 //! columns will misalign. That is stated, not pretended away.
 
+use std::ffi::OsString;
 use std::io::IsTerminal;
 
 use brokkr_view::transcript::TranscriptRead;
@@ -108,13 +109,18 @@ pub(crate) struct Style {
 
 impl Style {
     pub(crate) fn detect() -> Style {
+        Style::detect_in(std::io::stdout().is_terminal(), std::env::var_os)
+    }
+
+    /// [`Style::detect`] over a given terminal and environment `var`.
+    pub(crate) fn detect_in(tty: bool, var: impl Fn(&'static str) -> Option<OsString>) -> Style {
         Style {
             color: color_enabled(
-                std::io::stdout().is_terminal(),
-                std::env::var_os("NO_COLOR").is_some(),
-                std::env::var_os("TERM") == Some(std::ffi::OsString::from("dumb")),
+                tty,
+                var("NO_COLOR").is_some(),
+                var("TERM") == Some("dumb".into()),
             ),
-            width: width_from(std::env::var("COLUMNS").ok().as_deref()),
+            width: width_from(var("COLUMNS").and_then(|v| v.into_string().ok()).as_deref()),
         }
     }
 
