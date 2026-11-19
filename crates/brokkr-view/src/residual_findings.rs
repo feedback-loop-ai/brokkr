@@ -220,16 +220,21 @@ fn verdicts_of<'a>(event: &'a EventEnvelope, settled: &BTreeSet<StepOf<'_>>) -> 
 /// no `authored`, which v6's closed checkpoint refuses and the live sink
 /// refuses from a driver, so none of its rows is marked.
 fn settled_marks<'a>(events: &[&'a EventEnvelope]) -> BTreeSet<StepOf<'a>> {
+    member_markers(events)
+        .filter(|(_, marker)| marker["outcome"] == "succeeded")
+        .filter_map(|(event, marker)| Some(step_of(event, marker["member"].as_str()?)))
+        .collect()
+}
+
+/// Each `panel-member-finished` checkpoint the engine authored in
+/// `events`, beside its event; never a driver's record.
+fn member_markers<'a, 'e>(
+    events: &'e [&'a EventEnvelope],
+) -> impl Iterator<Item = (&'a EventEnvelope, &'a Value)> + 'e {
     (events.iter().copied())
         .filter(|event| event.event_type == EventType::EffectCheckpointed)
-        .filter_map(|event| {
-            let checkpoint = &event.payload["checkpoint"];
-            let marker = EngineMarker::authored(checkpoint);
-            (marker == Some(EngineMarker::MemberFinished)).then_some(())?;
-            (checkpoint["outcome"] == "succeeded").then_some(())?;
-            Some(step_of(event, checkpoint["member"].as_str()?))
-        })
-        .collect()
+        .map(|event| (event, &event.payload["checkpoint"]))
+        .filter(|(_, marker)| EngineMarker::authored(marker) == Some(EngineMarker::MemberFinished))
 }
 
 /// Each `(effect, attempt, step)` whose success names the step that
@@ -263,14 +268,10 @@ fn read_at_its_success(event: &EventEnvelope, ended: &BTreeSet<StepOf<'_>>) -> b
 /// name, whether or not the member journaled a checkpoint, and never a
 /// driver's record.
 fn site_members<'a>(events: &[&'a EventEnvelope]) -> BTreeMap<(&'a str, String), &'a str> {
-    (events.iter().copied())
-        .filter(|event| event.event_type == EventType::EffectCheckpointed)
-        .filter_map(|event| {
-            let checkpoint = &event.payload["checkpoint"];
-            let marker = EngineMarker::authored(checkpoint);
-            (marker == Some(EngineMarker::MemberFinished)).then_some(())?;
-            let site = checkpoint.get("site_ref")?.as_str()?;
-            let member = checkpoint.get("member")?.as_str()?;
+    member_markers(events)
+        .filter_map(|(event, marker)| {
+            let site = marker.get("site_ref")?.as_str()?;
+            let member = marker.get("member")?.as_str()?;
             Some(((text(event, "effect_id"), site.to_string()), member))
         })
         .collect()
