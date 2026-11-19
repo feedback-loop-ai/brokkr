@@ -9,7 +9,7 @@ use clap::Parser;
 use serde_json::{json, Value};
 
 use super::*;
-use crate::tui::drawn_links;
+use crate::tui::{drawn_links, width_of};
 use crate::verbs::analytics::CrossRunCmd;
 use crate::{Cli, Cmd, Exit};
 use brokkr_view::RuleKind;
@@ -742,9 +742,7 @@ fn a_linear_recipe_is_drawn_on_one_rail_with_each_rules_runs_above_its_arrow() {
 /// with its count, never both and never neither: none is lost.
 fn drawn(view: &GraphView, width: usize) -> String {
     let (drawing, drawn) = drawn_links(view, width);
-    for line in drawing.lines() {
-        assert!(line.chars().count() <= width, "{line}\n{drawing}");
-    }
+    held(&drawing, width);
     let read = unbroken(&drawing);
     let taken = (view.links.iter().enumerate()).filter(|(_, link)| link.count > 0);
     for (at, link) in taken {
@@ -761,6 +759,14 @@ fn drawn(view: &GraphView, width: usize) -> String {
         );
     }
     drawing
+}
+
+/// Every line of `drawing` within `width` in display columns, as the
+/// drawing measures them: a double-width glyph counts two.
+fn held(drawing: &str, width: usize) {
+    for line in drawing.lines() {
+        assert!(width_of(line) <= width, "{width}: {line}\n{drawing}");
+    }
 }
 
 /// `drawing`'s lines read as one: a word continued `…` to `…` joined, and
@@ -1239,9 +1245,7 @@ fn a_narrow_terminal_is_fitted_one_state_to_a_rail_with_every_arc_still_drawn() 
     // whole.
     for width in 1..=12 {
         for view in views.iter().chain([&none]) {
-            let drawing = recipe_graph(view, width);
-            let widest = drawing.lines().map(|line| line.chars().count()).max();
-            assert!(widest <= Some(width), "{width}\n{drawing}");
+            held(&recipe_graph(view, width), width);
             if width >= 3 {
                 drawn(view, width);
             }
@@ -1274,6 +1278,26 @@ fn a_state_named_wider_than_the_terminal_is_clamped_on_its_rail() {
     insta::assert_snapshot!("graph_name_wider_30", drawing);
     arcs_drawn(&view, 30);
     assert!(drawing.contains("a-state-whose-name-runs…"), "{drawing}");
+}
+
+#[test]
+fn a_state_named_in_double_width_glyphs_is_held_to_the_width_in_display_columns() {
+    let dir = tempfile::tempdir().unwrap();
+    let wide = "界界界";
+    let view = returned(dir.path(), &[wide, "ship"], &[(1, 0)]);
+    // Review 2's C2: a piece took its first glyph whatever its room, so
+    // `界` drew 3 columns at 2, 4 at 3 and 5 at 4.
+    for width in 1..=12 {
+        held(&recipe_graph(&view, width), width);
+    }
+    // From the four columns a glyph and both its marks need, every taken
+    // link reads whole; at one column a glyph is written as `…`.
+    for width in 4..=6 {
+        drawn(&view, width);
+    }
+    let narrowest = recipe_graph(&view, 1);
+    assert!(!narrowest.contains('界'), "{narrowest}");
+    assert!(narrowest.starts_with("…\n…\n…\n"), "{narrowest}");
 }
 
 /// `json` with the stamps of this run's clock, and the stays it measured

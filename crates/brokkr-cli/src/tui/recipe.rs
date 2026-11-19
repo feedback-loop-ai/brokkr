@@ -615,23 +615,41 @@ struct Carry {
 
 /// `word` appended to `line`, broken where it passes the width: the piece
 /// that fits ends with the mark, and the rest carries on a new line from
-/// it, so a word is never cut, only continued.
+/// it, so a word is never cut, only continued. Each piece is held to its
+/// room in display columns: where a character is too wide for the room
+/// the line's blanks leave it, the blanks yield first and then the mark
+/// it carries on from. A character wider than the whole width (a
+/// two-column glyph at one column) is written as `…`, the mark [`clamp`]
+/// leaves for what it cut, so no line passes the width (review 2's C2).
 fn broken(line: &mut String, lines: &mut Vec<String>, word: &str, carry: &Carry) {
     let mut rest = word;
-    while !rest.is_empty() && width_of(line) + width_of(rest) > carry.width {
-        let room = (carry.width).saturating_sub(width_of(line) + width_of(carry.mark));
-        let mut cut = rest.chars().next().map_or(0, char::len_utf8);
-        for (at, character) in rest.char_indices().skip(1) {
-            if width_of(&rest[..at + character.len_utf8()]) > room {
-                break;
-            }
-            cut = at + character.len_utf8();
+    while width_of(line) + width_of(rest) > carry.width {
+        let first = rest.chars().next().map_or(0, char::len_utf8);
+        // The loop runs only on a fresh line, whose blanks and mark are
+        // all it holds: `fitted` starts a word on one when it would not
+        // fit after the words before it.
+        let needed = width_of(&rest[..first]) + width_of(carry.mark);
+        while !line.is_empty() && width_of(line) + needed > carry.width {
+            line.remove(0);
         }
-        line.push_str(&rest[..cut]);
+        if width_of(line) + width_of(rest) <= carry.width {
+            break;
+        }
+        let room = (carry.width).saturating_sub(width_of(line) + width_of(carry.mark));
+        let fits = (rest
+            .char_indices()
+            .map(|(at, character)| at + character.len_utf8()))
+        .take_while(|end| width_of(&rest[..*end]) <= room)
+        .last();
+        let cut = fits.unwrap_or(first);
+        line.push_str(fits.map_or("…", |cut| &rest[..cut]));
+        rest = &rest[cut..];
+        if rest.is_empty() {
+            return;
+        }
         line.push_str(carry.mark);
         let next = format!("{}{}", carry.carried, carry.mark);
         lines.push(std::mem::replace(line, next));
-        rest = &rest[cut..];
     }
     line.push_str(rest);
 }
@@ -731,5 +749,18 @@ mod tests {
         assert_eq!(fitted("  abcd ef", 4), [" ab…", " …cd", " ef"]);
         assert_eq!(fitted("  abcd", 3), ["ab…", "…cd"]);
         assert_eq!(fitted("  ab c", 1), ["a", "b", "c"]);
+        // A double-width glyph is held to its room: the blanks yield, then
+        // the mark it carries on from, and at one column it is `…`.
+        let wide = [
+            vec!["…", "…", "…"],
+            vec!["界", "界", "界"],
+            vec!["界…", "界…", "…界"],
+            vec![" 界…", "…界…", " …界"],
+            vec!["  界…", " …界…", "  …界"],
+            vec!["  界…", "  …界…", "   …界"],
+        ];
+        for (width, lines) in (1..).zip(wide) {
+            assert_eq!(fitted("  界界界", width), lines, "{width}");
+        }
     }
 }

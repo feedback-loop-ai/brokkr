@@ -71,16 +71,20 @@ The operator settled this decision's asks for #1145:
    link holds one lane, the same arc row on every rail it spans: the links
    the fold cut are dealt lanes the narrowest first, each the shallowest no
    link sharing a rail with it holds, and `nest` keeps a cut piece on its
-   lane. A reader follows a link from a rail's `›` to the `‹` on the same row
-   of the next, so two links one fold cut, nested or crossed, are never read
-   as each other. `plan` lays only whole arcs on the first row, so the run
+   lane. A rail keeps every arc row down to the deepest lane its links hold,
+   a blank one too, so a link passing under a rail where a shallower lane
+   holds nothing keeps its row. A reader follows a link from a rail's `›` to
+   the `‹` on the same row of the next, so two links one fold cut, nested or
+   crossed, are never read as each other. `plan` lays only whole arcs on the first row, so the run
    rail draws as before. Only a count that no stretch of its arc has room
    for leaves its link listed as `next ᐸ── from  ×n`, under the never-drop
    guard. Enforcement: the `graph_nested`, `graph_delivery`, `graph_wide_80`,
    `graph_nested_30` and `graph_crossed_30` snapshots (the last two must
    differ, and pair each link's halves by row), the TUI's snapshots standing
-   byte-identical, and every drawing test asserts each taken link is drawn
-   or listed with its count, never both and never neither.
+   byte-identical, every drawing test asserting each taken link is drawn
+   or listed with its count, never both and never neither, and
+   `a_link_passing_under_a_rail_keeps_its_row_where_a_shallower_one_has_ended`
+   pairing every fold's `›` rows with the next rail's `‹` rows.
 4. **Nodes and terminals.** Every state is a node labelled with its runs
    entered and its median stay. A terminal's name is marked `⊗`. A live run
    lights its state's node. The row's states are followed by the state that
@@ -107,12 +111,19 @@ The operator settled this decision's asks for #1145:
    line is continued: the piece that fits ends `…`, and the next line starts
    `…`. The indents yield to the width, keeping the three columns a
    continued piece (`…x…`) needs; under three columns a word is continued
-   with no marks. Nothing is drawn wider than the width. Enforcement: every
-   drawing test holds every line within its width, at 100, 80, 39, 30, 24,
-   12 and 8 columns (`graph_delivery_24`, `graph_delivery_12`,
-   `graph_name_wider_30`, `graph_no_runs_8`) and at every width from 1 to 12
-   (`graph_reforged_3`), and `drawing_width`'s test pins 39, 12 and 1 as
-   themselves and 0 as 100.
+   with no marks. Every width is counted in display columns, a double-width
+   glyph as two: where a glyph is too wide for a piece's room, the line's
+   blanks yield first and then the mark it carries on from. At one column a
+   two-column glyph cannot be drawn by any rule; it is written as `…`, the
+   mark a clamp leaves for what it cut, one to each glyph, so the line keeps
+   to its column and says a glyph stood there. Nothing is drawn wider than
+   the width. Enforcement: every drawing test holds every line within its
+   width in display columns, at 100, 80, 39, 30, 24, 12 and 8 columns
+   (`graph_delivery_24`, `graph_delivery_12`, `graph_name_wider_30`,
+   `graph_no_runs_8`) and at every width from 1 to 12 (`graph_reforged_3`,
+   and a state named `界界界`, whose pieces `fitted`'s test pins from 1 to 6
+   columns), and `drawing_width`'s test pins 39, 12 and 1 as themselves and
+   0 as 100.
 7. **What does not compile.** A recipe that does not compile and that no run
    carries has no state to draw. Its refusal is printed as before, with no
    drawing. A refused recipe whose runs carry states is drawn from those

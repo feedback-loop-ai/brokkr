@@ -198,6 +198,8 @@ use self::terminal::*;
 // What the rest of the crate reaches: the models the shell's refresh
 // source builds, the draw path the budget frame measures, and the entry.
 #[cfg(test)]
+pub(crate) use self::glyphs::width_of;
+#[cfg(test)]
 pub(crate) use self::keys::Step;
 pub(crate) use self::movement::{asked_window, keeps};
 pub(crate) use self::panes::draw;
