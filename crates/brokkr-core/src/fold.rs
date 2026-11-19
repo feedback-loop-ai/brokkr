@@ -232,6 +232,8 @@ pub struct RunState {
     /// The in-flight attempt's latest engine-authored gate step
     /// observation, which decide holds the attempt's result to (K2).
     pub step_checked: Option<StepObservation>,
+    /// The sequence step the latest success names as its producer (W1).
+    pub ending_step: Option<String>,
 }
 
 impl RunState {
@@ -524,6 +526,7 @@ pub fn fold(events: &[EventEnvelope]) -> Result<RunState, FoldError> {
         terminal_seq: None,
         tail_types: BTreeMap::new(),
         step_checked: None,
+        ending_step: None,
     };
     fold_onto(state, events)
 }
@@ -678,6 +681,7 @@ fn succeed(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError>
         the_open_effect(state, event, effect_id)
     })?;
     let (effect_id, result) = (succeeded.effect_id.to_string(), succeeded.result.clone());
+    state.ending_step = (event.payload.get("step").and_then(Value::as_str)).map(str::to_string);
     state.last_result = Some(result.clone());
     conclude(state, Cursor::Decide { effect_id, result });
     Ok(())

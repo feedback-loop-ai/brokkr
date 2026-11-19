@@ -40,11 +40,12 @@ fn flying() -> RunState {
     )
 }
 
-/// A step checkpoint of `attempt` whose result journals `head`, the
-/// engine's own when `authored`.
+/// A step checkpoint of `attempt` whose result journals `head` and its
+/// `covered`, the engine's own when `authored`.
 fn step(attempt: &str, head: &str, authored: bool) -> EventEnvelope {
     let mut checkpoint = json!({"step": "sequence-step-finished", "step_name": "judge",
-                                "result": {"result": "clean", "checked_head": head}});
+                                "result": {"result": "clean", "checked_head": head,
+                                           "covered": digest_of(head)}});
     if authored {
         checkpoint["authored"] = json!("engine");
     }
@@ -55,8 +56,45 @@ fn step(attempt: &str, head: &str, authored: bool) -> EventEnvelope {
 fn checked(head: &str) -> Option<StepObservation> {
     Some(StepObservation::Checked {
         head: head.to_string().try_into().unwrap(),
-        covered: None,
+        covered: serde_json::from_value(digest_of(head)).unwrap(),
+        step: Some("judge".into()),
     })
+}
+
+/// Fix round 0109a1r6, W1: an authored step record is whole or partial,
+/// never dropped; a work step's record, carrying neither field, is no
+/// observation; and the success names the step that produced it.
+#[test]
+fn a_partial_step_record_is_kept_as_partial_and_the_success_names_its_step() {
+    let mut state = flying();
+    apply(&mut state, &step("a1", A, true)).unwrap();
+    let mut work = step("a1", B, true);
+    let result = &mut work.payload["checkpoint"]["result"];
+    result
+        .as_object_mut()
+        .unwrap()
+        .retain(|field, _| field == "result");
+    apply(&mut state, &work).unwrap();
+    assert_eq!(state.step_checked, checked(A));
+    for dropped in ["checked_head", "covered"] {
+        let mut partial = step("a1", A, true);
+        let result = partial.payload["checkpoint"]["result"]
+            .as_object_mut()
+            .unwrap();
+        result.remove(dropped);
+        let mut state = flying();
+        apply(&mut state, &partial).unwrap();
+        assert_eq!(
+            state.step_checked,
+            Some(StepObservation::Partial),
+            "{dropped}"
+        );
+    }
+    let succeeded = json!({"effect_id": "e1", "attempt_id": "a1", "step": "judge",
+                           "result": {"result": "clean"}});
+    apply(&mut state, &event(EventType::EffectSucceeded, succeeded)).unwrap();
+    assert_eq!(state.ending_step.as_deref(), Some("judge"));
+    assert_eq!(state.step_checked, checked(A));
 }
 
 /// The protected phase's `covered` of `head`.
@@ -76,11 +114,7 @@ fn the_fold_keeps_a_records_covered_and_refuses_one_that_disagrees_with_its_head
     };
     let mut state = flying();
     apply(&mut state, &covered(A, digest_of(A))).unwrap();
-    let kept = StepObservation::Checked {
-        head: A.to_string().try_into().unwrap(),
-        covered: Some(serde_json::from_value(digest_of(A)).unwrap()),
-    };
-    assert_eq!(state.step_checked, Some(kept));
+    assert_eq!(state.step_checked, checked(A));
     apply(&mut state, &covered(A, digest_of(B))).unwrap();
     assert_eq!(state.step_checked, Some(StepObservation::Unreadable));
     apply(&mut state, &covered(B, json!({"kind": "head"}))).unwrap();

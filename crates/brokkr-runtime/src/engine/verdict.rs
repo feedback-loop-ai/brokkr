@@ -7,7 +7,7 @@
 
 use brokkr_core::envelope::EventType;
 use brokkr_core::findings::{CheckedHead, Covered, EngineWritten, Finding};
-use brokkr_core::fold::StepObservation;
+use brokkr_core::fold::{RunState, StepObservation};
 use brokkr_protocol::{AttemptOutcome, AttemptReport};
 use serde::Deserialize;
 use serde_json::{Map, Value};
@@ -15,6 +15,8 @@ use thiserror::Error;
 
 use super::resume::SiteContext;
 use super::Engine;
+use crate::bundle::Seat;
+use crate::bundle::{ExecutableBody, SeatClass};
 
 /// Ruling 7's `dirty` is true unless the tree check proved the worktree
 /// clean at commission time. That check is slice 0109b's, so every
@@ -146,6 +148,54 @@ pub(super) enum ObservationProblem {
          (decision 0109 ruling 7)"
     )]
     Disagrees,
+    #[error(
+        "the protected effect's gate step record is partial: it journals one of \
+         `checked_head` and `covered` without the other (decision 0109 ruling 7)"
+    )]
+    Partial,
+    #[error(
+        "the gate step that produced the protected result journaled no record of its own \
+         (decision 0109 ruling 7)"
+    )]
+    Unrecorded,
+}
+
+/// The step that produced a protected effect's terminal, read from the
+/// compiled body by the name its success journals (fix round 0109a1r6,
+/// W1), which says what the terminal is matched to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Producer<'a> {
+    /// No sequence step: a single body, whose terminal is its own
+    /// observation.
+    Effect,
+    /// A gate step, or a step the body does not name: the terminal is that
+    /// step's own record's result and equals it, presence included.
+    Gate(&'a str),
+    /// A work step: its span accepted no head and stamped no `covered`,
+    /// so its terminal carries none and its head is the latest gate
+    /// record's.
+    Work,
+}
+
+impl<'a> Producer<'a> {
+    /// The producer of `state`'s terminal in `seat`'s body.
+    pub(super) fn of(seat: &'a Seat, state: &'a RunState) -> Producer<'a> {
+        let Some(name) = state.ending_step.as_deref() else {
+            return Producer::Effect;
+        };
+        let steps = match seat.body.selected(state.strategy.as_deref()) {
+            Some((ExecutableBody::Sequence { steps }, _)) => steps,
+            Some((ExecutableBody::Invocation(_), _)) | None => &[],
+        };
+        match steps
+            .iter()
+            .find(|step| step.name == name)
+            .map(|step| step.class)
+        {
+            Some(SeatClass::Work) => Producer::Work,
+            Some(SeatClass::Gate) | None => Producer::Gate(name),
+        }
+    }
 }
 
 /// The head a protected `raw_result` was checked on, read from every
@@ -164,9 +214,17 @@ pub(super) enum ObservationProblem {
 /// final gate is that latest record, so it agrees by construction. An
 /// effect with no step record, a single body or a sequence of work steps
 /// only, has its terminal as its one observation.
+///
+/// The terminal is matched to the step that produced it (fix round
+/// 0109a1r6, W1): a gate step's terminal is its own record's result, so
+/// it equals that record field by field, presence included, and a gate
+/// step with no record of its own refuses; a work step's terminal carries
+/// no `covered`, and its head is pinned to the latest gate record. A
+/// partial record refuses whoever produced the terminal.
 pub(super) fn checked_head(
     raw_result: &Value,
     step: Option<&StepObservation>,
+    producer: Producer<'_>,
 ) -> Result<CheckedHead, ObservationProblem> {
     let head = raw_result
         .get(CHECKED_HEAD)
@@ -177,20 +235,36 @@ pub(super) fn checked_head(
         Some(Ok(covered)) if covered.projects(head.as_str()) => Some(covered),
         Some(_) => return Err(ObservationProblem::Disagrees),
     };
-    match step {
-        None => Ok(head),
-        Some(StepObservation::Checked {
-            head: seen,
-            covered: stamped,
-        }) if *seen == head
-            && covered
-                .as_ref()
-                .is_none_or(|covered| Some(covered) == stamped.as_ref()) =>
-        {
-            Ok(head)
+    let agrees = matched(producer, step, &head, covered.as_ref())?;
+    agrees.then_some(head).ok_or(ObservationProblem::Disagrees)
+}
+
+/// Whether the terminal's `head` and `covered` match the record of the
+/// step that produced it under `producer`, or why there is none to match.
+fn matched(
+    producer: Producer<'_>,
+    step: Option<&StepObservation>,
+    head: &CheckedHead,
+    covered: Option<&Covered>,
+) -> Result<bool, ObservationProblem> {
+    Ok(match (producer, step) {
+        (_, Some(StepObservation::Partial)) => return Err(ObservationProblem::Partial),
+        (_, Some(StepObservation::Unreadable)) => false,
+        (
+            Producer::Gate(name),
+            Some(StepObservation::Checked {
+                head: seen,
+                covered: stamped,
+                step,
+            }),
+        ) if step.as_deref() == Some(name) => seen == head && covered == Some(stamped),
+        (Producer::Gate(_), _) => return Err(ObservationProblem::Unrecorded),
+        (Producer::Effect, None) => true,
+        (Producer::Work, None) => covered.is_none(),
+        (Producer::Effect | Producer::Work, Some(StepObservation::Checked { head: seen, .. })) => {
+            seen == head && covered.is_none()
         }
-        Some(_) => Err(ObservationProblem::Disagrees),
-    }
+    })
 }
 
 /// `report` with its successful result admitted at `site`, the site whose

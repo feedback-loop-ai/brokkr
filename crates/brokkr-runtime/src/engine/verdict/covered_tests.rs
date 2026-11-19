@@ -10,8 +10,10 @@ use super::tests::{driven, driven_over, driver, ended, ended_in, reported};
 use crate::bundle::GateAssessment;
 use crate::engine::heads::{HeadReads, Observed};
 use crate::engine::tests::{bundle, git_commit, single_body, state};
-use crate::engine::verdict::checked_head;
-use crate::engine::verdict::ObservationProblem::{Disagrees, Missing, Unreadable};
+use crate::engine::verdict::ObservationProblem::{
+    Disagrees, Missing, Partial, Unreadable, Unrecorded,
+};
+use crate::engine::verdict::{checked_head, Producer};
 use crate::engine::{git_head, Engine};
 use brokkr_core::canonical::sha256_bytes;
 use brokkr_core::envelope::{EventEnvelope, EventType};
@@ -253,7 +255,7 @@ fn a_protected_result_without_one_consistent_checked_head_refuses_at_decide() {
         head: Some(other.into()),
     });
     for (raw, want) in &cases {
-        let read = checked_head(raw, None).map(|head| head.as_str().to_string());
+        let read = checked_head(raw, None, Producer::Effect).map(|head| head.as_str().to_string());
         assert_eq!(&read, want, "{raw}");
         let result = raw.clone();
         let effect_id = "review".to_string();
@@ -311,26 +313,41 @@ fn a_terminal_agrees_with_its_latest_gate_step_record_field_by_field_or_is_refus
     let head = "89abcdef0123456789abcdef0123456789abcdef".to_string();
     let other = "0123456789abcdef0123456789abcdef01234567";
     let covered = |head: &str| json!({"kind": "head", "head_digest": sha256_bytes(head.as_bytes()), "dirty": true});
-    let checked = |seen: &str, stamped: Option<&str>| StepObservation::Checked {
+    let checked = |seen: &str, step: &str| StepObservation::Checked {
         head: seen.to_string().try_into().unwrap(),
-        covered: stamped.map(|stamped| serde_json::from_value(covered(stamped)).unwrap()),
+        covered: serde_json::from_value(covered(seen)).unwrap(),
+        step: Some(step.to_string()),
     };
     let plain = json!({"result": "clean", "checked_head": head});
     let stamped = json!({"result": "clean", "checked_head": head, "covered": covered(&head)});
+    let (work, gate) = (Producer::Work, Producer::Gate("chief"));
     let steps = [
-        (&plain, checked(&head, None), Ok(head.clone())),
-        (&plain, checked(&head, Some(&head)), Ok(head.clone())),
-        (&plain, checked(other, Some(other)), Err(Disagrees)),
-        (&plain, StepObservation::Unreadable, Err(Disagrees)),
-        (&stamped, checked(&head, Some(&head)), Ok(head.clone())),
+        // A work step's terminal: no covered, its head the record's.
+        (&plain, work, checked(&head, "judge"), Ok(head.clone())),
+        (&plain, work, checked(other, "judge"), Err(Disagrees)),
+        (&plain, work, StepObservation::Unreadable, Err(Disagrees)),
+        (&plain, work, StepObservation::Partial, Err(Partial)),
         // The terminal's own covered pair never outweighs the record.
-        (&stamped, checked(other, Some(other)), Err(Disagrees)),
-        (&stamped, checked(&head, None), Err(Disagrees)),
+        (&stamped, work, checked(&head, "judge"), Err(Disagrees)),
+        (&stamped, work, checked(other, "judge"), Err(Disagrees)),
+        // A gate step's terminal is its own record's result, presence
+        // included (fix round 0109a1r6, W1).
+        (&stamped, gate, checked(&head, "chief"), Ok(head.clone())),
+        (&stamped, gate, checked(other, "chief"), Err(Disagrees)),
+        (&plain, gate, checked(&head, "chief"), Err(Disagrees)),
+        (&stamped, gate, checked(&head, "judge"), Err(Unrecorded)),
+        (&stamped, gate, StepObservation::Partial, Err(Partial)),
     ];
-    for (raw, step, want) in steps {
-        let read = checked_head(raw, Some(&step)).map(|head| head.as_str().to_string());
-        assert_eq!(read, want, "{raw} {step:?}");
+    for (raw, producer, step, want) in steps {
+        let read = checked_head(raw, Some(&step), producer).map(|head| head.as_str().to_string());
+        assert_eq!(read, want, "{raw} {producer:?} {step:?}");
     }
+    let alone =
+        |raw, producer| checked_head(raw, None, producer).map(|head| head.as_str().to_string());
+    assert_eq!(alone(&stamped, Producer::Effect), Ok(head.clone()));
+    assert_eq!(alone(&plain, work), Ok(head.clone()));
+    assert_eq!(alone(&stamped, work), Err(Disagrees));
+    assert_eq!(alone(&stamped, gate), Err(Unrecorded));
 }
 
 /// Ruling 1 through the real result path: a seat-supplied `covered` or

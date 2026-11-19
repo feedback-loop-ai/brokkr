@@ -31,6 +31,7 @@ pub(crate) fn run_state(run_id: &str, seq: u64, run: Run) -> RunState {
         terminal_seq: None,
         tail_types: BTreeMap::new(),
         step_checked: None,
+        ending_step: None,
     }
 }
 

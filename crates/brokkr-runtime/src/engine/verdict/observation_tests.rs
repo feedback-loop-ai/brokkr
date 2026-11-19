@@ -12,10 +12,12 @@ use super::tests::{begun, driven_over, driver, ended_in};
 use crate::bundle::{Bundle, GateAssessment, SeatBody, SeatClass, SequenceStep};
 use crate::engine::heads::HeadReads;
 use crate::engine::tests::{git_commit, single_body, step_body};
-use crate::engine::verdict::ObservationProblem::{self, Disagrees, Missing};
+use crate::engine::verdict::ObservationProblem::{self, Disagrees, Missing, Partial};
+use crate::engine::verdict::Producer;
 use crate::engine::Engine;
 use brokkr_core::canonical::sha256_bytes;
 use brokkr_core::envelope::{EventEnvelope, EventType};
+use brokkr_core::fold::Cursor;
 use brokkr_core::policy::Machine;
 use brokkr_store::Store;
 
@@ -402,6 +404,77 @@ fn a_terminals_own_covered_never_outweighs_its_latest_gate_step_record() {
     assert_eq!(judged["checked_head"], json!(stopped.moved));
     assert_eq!(judged["covered"], digest(&stopped.reviewed));
     refused_at_decide(&events, &Disagrees);
+}
+
+/// Fix round 0109a1r6, W1: an authored step record is whole or it
+/// refuses, and the terminal is matched to the step that produced it.
+/// - a gate step checked on A whose record keeps its `covered` for A but
+///   lost its `checked_head`, then a work step whose terminal names B:
+///   `Partial`, never the terminal alone;
+/// - a gate step that ends the sequence, whose terminal lost the `covered`
+///   its own record carries: `Disagrees`.
+///
+/// Each takes no transition.
+#[test]
+fn a_partial_step_record_or_a_terminal_unlike_its_own_gate_step_record_refuses() {
+    let review = |last: SeatClass| SeatBody::Sequence {
+        steps: vec![
+            clean_step("judge", SeatClass::Gate),
+            clean_step("tidy", last),
+        ],
+    };
+    let stopped = Stopped::after(review(SeatClass::Work), false);
+    let moved = stopped.moved.clone();
+    stopped.replanted_from("judge", |event| match event.event_type {
+        EventType::EffectSucceeded => event.payload["result"]["checked_head"] = json!(moved),
+        _ => drop(
+            event.payload["checkpoint"]["result"]
+                .as_object_mut()
+                .unwrap()
+                .remove("checked_head"),
+        ),
+    });
+    let events = stopped.resumed();
+    let judged = checkpointed(&events, "judge");
+    assert!(judged.get("checked_head").is_none(), "{judged}");
+    assert!(judged.get("covered").is_some(), "{judged}");
+    refused_at_decide(&events, &Partial);
+
+    let stopped = Stopped::after(review(SeatClass::Gate), false);
+    stopped.replanted(|result| drop(result.as_object_mut().unwrap().remove("covered")));
+    let events = stopped.resumed();
+    assert!(checkpointed(&events, "tidy").get("covered").is_some());
+    refused_at_decide(&events, &Disagrees);
+}
+
+/// Fix round 0109a1r6, W1: the producer is read from the compiled body by
+/// the step the success names. A success naming no step is the effect's
+/// own; a step the body does not name, or a body with no steps, is held to
+/// a gate's record, never read as work.
+#[test]
+fn the_terminals_producer_is_read_from_the_compiled_body() {
+    let dir = tempfile::tempdir().unwrap();
+    let steps = vec![
+        clean_step("judge", SeatClass::Gate),
+        clean_step("tidy", SeatClass::Work),
+    ];
+    let compiled = crate::engine::tests::bundle(dir.path(), SeatBody::Sequence { steps });
+    let (sequence, single) = (&compiled.seats["work"], &compiled.seats["review"]);
+    let ended = |step: Option<&str>| {
+        let mut state = crate::engine::tests::state(Some("review"), Cursor::RequestEffect);
+        state.ending_step = step.map(str::to_string);
+        state
+    };
+    let cases = [
+        (sequence, None, Producer::Effect),
+        (sequence, Some("tidy"), Producer::Work),
+        (sequence, Some("judge"), Producer::Gate("judge")),
+        (sequence, Some("other"), Producer::Gate("other")),
+        (single, Some("tidy"), Producer::Gate("tidy")),
+    ];
+    for (seat, step, want) in cases {
+        assert_eq!(Producer::of(seat, &ended(step)), want, "{step:?}");
+    }
 }
 
 /// Fix round 0109a1r5, V1: a legitimately newer final gate is the latest
