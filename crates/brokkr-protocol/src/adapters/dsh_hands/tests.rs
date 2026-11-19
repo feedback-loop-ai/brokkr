@@ -300,7 +300,7 @@ fn only_a_measured_release_is_served_the_hands_rows() {
         assert!(Release::named(version).is_some(), "{version}");
     }
     let tail = " is not a dsh release its hands rows were measured on (0.2.1-rc.2, \
-         0.2.1-rc.3, 0.2.2-rc.1), and a tool row nobody measured could stay enabled beside the \
+         0.2.1-rc.3, 0.2.2-rc.1, 0.2.2-rc.5), and a tool row nobody measured could stay enabled beside the \
          box, so the seat is not served its native tools (#896)";
     let other = measured(Some("0.2.1-rc.4".into())).unwrap_err();
     assert_eq!(
@@ -1661,10 +1661,16 @@ const SPARK_GLM_ROUTE: &str = "\
 #[cfg(unix)]
 fn measured_dump() -> String {
     use super::composition::MEASURED_COMPOSITION;
-    MEASURED_COMPOSITION
-        .iter()
+    dump_of(Release::V0_2_1, &MEASURED_COMPOSITION)
+}
+
+/// `rows` as `--dump-config` writes them, with every row `release`'s
+/// overlay pins marked disabled.
+#[cfg(unix)]
+fn dump_of(release: Release, rows: &[(&str, &str)]) -> String {
+    rows.iter()
         .map(|(id, name)| {
-            let disabled = super::disabled(Release::V0_2_1, id);
+            let disabled = super::disabled(release, id);
             format!(
                 "- id: {id}\n  name: '{name}'\n{}",
                 if disabled { "  disabled: true\n" } else { "" }
@@ -1684,15 +1690,7 @@ fn measured_dump_0_2_2() -> String {
         .filter(|row| !REMOVED_0_2_2.contains(row))
         .collect();
     rows.extend(ADDED_0_2_2);
-    rows.iter()
-        .map(|(id, name)| {
-            let disabled = super::disabled(Release::V0_2_2, id);
-            format!(
-                "- id: {id}\n  name: '{name}'\n{}",
-                if disabled { "  disabled: true\n" } else { "" }
-            )
-        })
-        .collect()
+    dump_of(Release::V0_2_2, &rows)
 }
 
 /// A provider shim that records the engine-only home, the working
