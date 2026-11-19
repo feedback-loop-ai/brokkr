@@ -415,26 +415,35 @@ fn every_selector_names_an_argument() {
 /// Every citation in `text` a code reader would make and an operator
 /// cannot use (#1170): `decision 0016`, `ruling 4`, `R5` or `#511`.
 fn citations(text: &str) -> Vec<String> {
-    // A lead word keeps its trailing punctuation, so `a ruling, 4` cites nothing.
-    let words: Vec<&str> = text
-        .split_whitespace()
-        .map(|word| word.trim_start_matches(|c: char| !c.is_ascii_alphanumeric() && c != '#'))
+    // A word is a run of letters, digits and `#`, so punctuation such as
+    // `selection—decision` or `issue(#511)` cannot hide a citation. Each word
+    // keeps the gap before it: a lead and its number are parted by spaces or
+    // a hyphen alone, so `a ruling, 4` cites nothing.
+    let words: Vec<(&str, &str)> = text
+        .split(|c: char| !c.is_alphanumeric() && c != '#')
+        .filter(|word| !word.is_empty())
+        .scan(0, |end, word| {
+            let start = word.as_ptr() as usize - text.as_ptr() as usize;
+            let gap = &text[*end..start];
+            *end = start + word.len();
+            Some((gap, word))
+        })
         .collect();
-    // A number: leading digits not run on into a letter, so `0064's` is one.
     let number = |word: &str| {
-        let rest = word.trim_start_matches(|c: char| c.is_ascii_digit());
-        let digits = &word[..word.len() - rest.len()];
-        let ends = !rest.starts_with(|c: char| c.is_ascii_alphanumeric());
-        (!digits.is_empty() && ends).then(|| digits.to_string())
+        (!word.is_empty() && word.bytes().all(|b| b.is_ascii_digit())).then(|| word.to_string())
     };
     let leads = ["decision", "decisions", "ruling", "rulings"];
-    let cites = |pair: &[&str]| {
-        let lead = leads.contains(&pair[0].to_ascii_lowercase().as_str());
-        number(pair[1])
-            .filter(|_| lead)
-            .map(|n| format!("{} {n}", pair[0]))
+    let cites = |pair: &[(&str, &str)]| {
+        let [(_, lead), (gap, n)] = pair else {
+            unreachable!("windows(2) yields pairs")
+        };
+        let parted = gap.chars().all(|c| c.is_whitespace() || c == '-');
+        let lead_word = leads.contains(&lead.to_ascii_lowercase().as_str());
+        number(n)
+            .filter(|_| parted && lead_word)
+            .map(|n| format!("{lead} {n}"))
     };
-    let alone = |word: &&str| {
+    let alone = |&(_, word): &(&str, &str)| {
         let (tag, rest) = word.split_at_checked(1)?;
         number(rest)
             .filter(|_| tag == "R" || tag == "#")
@@ -485,7 +494,12 @@ fn the_help_cites_no_decision_ruling_or_issue() {
         citations("(decision 0064 ruling 4), R5, #511 and decisions 0004 and 0005"),
         ["decision 0064", "ruling 4", "decisions 0004", "R5", "#511"]
     );
-    assert!(citations("a ruling, 4 Ruby lines and issue C#").is_empty());
+    // Punctuation glued to either side hides none of the four forms.
+    assert_eq!(
+        citations("selection—decision 0016/ruling 4 (see:R5) tracked in issue(#511)."),
+        ["decision 0016", "ruling 4", "R5", "#511"]
+    );
+    assert!(citations("a ruling, 4 Ruby lines, issue C#, C#5 and 0064's R2D2").is_empty());
     let cited: Vec<String> = help_texts(&Cli::command(), "")
         .into_iter()
         .filter(|text| !citations(text).is_empty())
