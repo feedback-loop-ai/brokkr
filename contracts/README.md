@@ -1210,8 +1210,15 @@ the head its span's stable-head check accepted; the `artifacts` arm and `follow_
 path until slices 0109c and 0109d, and every `dirty` is `true` until
 0109b's tree check proves a worktree clean.
 
+A checkpoint's nested `result` is an object, as v6 admits it, unless the
+checkpoint carries `authored`; then it is the same closed result a
+successful result is, and the fence reads its findings through the
+engine's typed reader. The scope is `authored` because only this
+contract's writer emits it and v6's closed checkpoint refuses it.
+
 The store dispatches the 0.14 engine line and later to v7, and the 0.12
 and 0.13 lines to v6, at append, export, import verification and offline
-verification alike. 0.14 is the development line on main after the 0.14.0
-tag when v7 landed; the tagged 0.14.0 engine wrote none of the four, so
-every row it wrote reads under v7 exactly as it did under v6.
+verification alike. The tagged 0.14.0 and 0.15.0 engines are v6-era
+writers in that line: they wrote none of the five fields, and every new
+refusal is scoped on `authored`, so every row they wrote reads under v7
+exactly as it did under v6.

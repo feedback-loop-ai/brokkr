@@ -222,8 +222,8 @@ fn v7_refuses_a_findings_line_exactly_where_the_reader_does() {
         let finding: Value = serde_json::from_str(&text).unwrap();
         let reader = brokkr_core::findings::Finding::deserialize(&finding).is_ok();
         let standalone = gate("findings", json!([finding]));
-        let stepped = json!({"step": "sequence-step-finished", "step_name": "judge",
-                             "model": "m", "result": standalone});
+        let stepped = json!({"step": "sequence-step-finished", "authored": "engine",
+                             "step_name": "judge", "model": "m", "result": standalone});
         for record in [&standalone, &stepped] {
             let fence = judged(record, SeatRecordVersion::V7).is_ok();
             assert_eq!((fence, reader), (admitted, admitted), "{line}: {record}");
@@ -364,8 +364,8 @@ fn the_zero_fourteen_line_writes_v7_and_the_thirteen_line_still_reads_v6() {
 #[test]
 fn a_step_checkpoints_result_is_closed_at_append_export_and_verify() {
     let stepped = |result: Value| {
-        let checkpoint = json!({"step": "sequence-step-finished", "step_name": "judge",
-                                "model": "m", "result": result});
+        let checkpoint = json!({"step": "sequence-step-finished", "authored": "engine",
+                                "step_name": "judge", "model": "m", "result": result});
         json!({"effect_id": "fx", "attempt_id": "attempt-1", "checkpoint": checkpoint})
     };
     let unlined = with(finding(), "", "line", json!(null));
@@ -406,4 +406,35 @@ fn a_step_checkpoints_result_is_closed_at_append_export_and_verify() {
     (store.append_next("sound", EventType::EffectCheckpointed, sound, None, None)).unwrap();
     let exported = store.export_ndjson("sound").unwrap();
     assert!(crate::verify_export(&exported).is_ok());
+}
+
+/// Fix round 0109a1r4, K5: a released engine's records stay admissible.
+/// The tagged 0.14.0 and 0.15.0 engines checked only a non-final step's
+/// word and journaled its whole result, so a v6-valid step checkpoint
+/// whose nested result carries an extra property is appended, exported
+/// and verified offline in a journal of either, exactly as under v6. The
+/// same checkpoint the engine authored is v7's closed result, and is
+/// refused, as M2 holds.
+#[test]
+fn a_released_engines_step_checkpoint_stays_admissible_under_v7() {
+    let result = json!({"result": "clean", "diagnostic": {"took_ms": 12}, "findings": "none"});
+    let released = json!({"step": "sequence-step-finished", "step_name": "judge",
+                          "model": "m", "result": result});
+    assert_eq!(judged(&released, SeatRecordVersion::V6), Ok(()));
+    let (_dir, mut store) = crate::tests::store();
+    for engine in ["0.14.0", "0.15.0"] {
+        assert_eq!(SeatRecordVersion::of_engine(engine), SeatRecordVersion::V7);
+        super::tests::started_run(&mut store, engine, engine);
+        let payload = json!({"effect_id": "fx", "attempt_id": "attempt-1",
+                             "checkpoint": released});
+        (store.append_next(engine, EventType::EffectCheckpointed, payload, None, None)).unwrap();
+        let exported = store.export_ndjson(engine).unwrap();
+        assert!(crate::verify_export(&exported).is_ok(), "{engine}");
+    }
+    let mut authored = released;
+    authored["authored"] = json!("engine");
+    assert_eq!(
+        judged(&authored, SeatRecordVersion::V7),
+        refused(CONTRACT_V7)
+    );
 }

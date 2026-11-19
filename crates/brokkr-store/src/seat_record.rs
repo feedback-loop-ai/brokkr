@@ -105,14 +105,21 @@ const V5_ENGINE: (u64, u64, u64) = (0, 10, 0);
 const V6_ENGINE: (u64, u64, u64) = (0, 12, 0);
 
 /// The engine line in which seat-record v7 landed (decision 0109 ruling
-/// 1, slice 0109a1). Drawn at the 0.14 line, the development line on main
-/// after the 0.14.0 tag, on the same argument as `V2_ENGINE`: `engine`
-/// carries no position within a line, and v7 adds only optional
-/// properties on the successful result — `findings`, `follow_ups`,
-/// `covered` and `checked_head` — and takes nothing away. So every record
-/// the tagged 0.14.0 engine already wrote validates under v7 exactly as
-/// it did under v6, and the 0.12 and 0.13 lines are dispatched to v6,
-/// where any of the four is refused.
+/// 1, slice 0109a1). Drawn at the 0.14 line, on the same argument as
+/// `V2_ENGINE`: `engine` carries no position within a line. The tagged
+/// 0.14.0 and 0.15.0 engines are v6-era writers in that line, and main's
+/// version still reads 0.15.0 after the tag, so the version cannot tell
+/// them from this contract's writer. v7 therefore adds only optional
+/// properties — `findings`, `follow_ups`, `covered` and `checked_head` on
+/// the successful result, and `authored` on a checkpoint — and its one
+/// new refusal, a checkpoint's nested `result` closed as a successful
+/// result is, is scoped on `authored`, as `V5_ENGINE`'s conditions are
+/// on `site_ref`: the within-row fact only this contract's writer emits,
+/// which v6's closed checkpoint refuses, so no v6-era row carries it
+/// (fix round 0109a1r4, K5). So every record the tagged 0.14.0 and 0.15.0
+/// engines wrote validates under v7 exactly as it did under v6, and the
+/// 0.12 and 0.13 lines are dispatched to v6, where any of the five is
+/// refused.
 const V7_ENGINE: (u64, u64, u64) = (0, 14, 0);
 
 /// Which seat-record contract a record is judged against.

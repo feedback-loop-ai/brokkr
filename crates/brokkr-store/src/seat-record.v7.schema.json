@@ -415,8 +415,8 @@
           "const": "engine"
         },
         "result": {
-          "description": "A sequence step's result, journaled with its checkpoint: the same closed result a successful result is, its findings, follow_ups, covered and checked_head included (decision 0034 ruling 6, fix round 0109a1r3).",
-          "$ref": "#/$defs/result"
+          "description": "A sequence step's result, journaled with its checkpoint. An object, as v6 admits it, on every row a v6-era engine wrote; on a row the engine authored (authored, below) it is the same closed result a successful result is, its findings, follow_ups, covered and checked_head included (decision 0034 ruling 6, fix rounds 0109a1r3 and r4).",
+          "type": "object"
         }
       },
       "dependencies": {
@@ -553,6 +553,21 @@
             "properties": {
               "launch": {
                 "const": "cold"
+              }
+            }
+          }
+        },
+        {
+          "description": "A row the engine authored beside a verdict carries its result closed. Scoped on authored, which only this contract's writer emits and v6's closed checkpoint refuses, so no row a v6-era engine wrote, the tagged 0.14.0 and 0.15.0 engines' included, is newly refused (fix round 0109a1r4).",
+          "if": {
+            "required": [
+              "authored"
+            ]
+          },
+          "then": {
+            "properties": {
+              "result": {
+                "$ref": "#/$defs/result"
               }
             }
           }

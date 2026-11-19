@@ -3,7 +3,7 @@
 //! table and dispatch; this module only applies it — at the append
 //! fence, and in the export and offline-verify sweeps.
 
-use brokkr_core::findings::Finding;
+use brokkr_core::findings::{Finding, AUTHORED};
 use brokkr_core::{EventEnvelope, EventType};
 use serde::Deserialize;
 use serde_json::Value;
@@ -67,14 +67,19 @@ pub fn validate_seat_record(
 /// what the reader refuses, by construction (fix round 0109a1r3, M1): a
 /// number the schema's `integer` admits that is not a `u64`, such as
 /// `1.0` or `2^64`, is refused here as the reader refuses it. The report
-/// is the result's own, or a step checkpoint's nested `result`. Earlier
-/// versions carry no gate report, so there is nothing to read.
+/// is the result's own, or the nested `result` of a checkpoint the engine
+/// authored, scoped on `authored` as v7's closed nested result is (fix
+/// round 0109a1r4, K5), so no v6-era row is read here. Earlier versions
+/// carry no gate report, so there is nothing to read.
 fn gate_report_reads(record: &Value, version: SeatRecordVersion) -> bool {
     if version != SeatRecordVersion::V7 {
         return true;
     }
-    let report = record.get("result").filter(|nested| nested.is_object());
-    let report = report.unwrap_or(record);
+    let report = match record.get(AUTHORED) {
+        Some(_) => record.get("result").unwrap_or(record),
+        None if record.get("result").is_some_and(Value::is_object) => return true,
+        None => record,
+    };
     ["findings", "follow_ups"].iter().all(|field| {
         report
             .get(field)
