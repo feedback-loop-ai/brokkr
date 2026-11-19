@@ -74,10 +74,10 @@ pub(super) struct Observed {
 /// its latest gate step's accepted head.
 #[derive(Debug, Default)]
 pub(super) struct Spans {
-    /// The head the armed effect span began on.
-    effect: Option<Option<String>>,
-    /// The head the armed sequence gate step's span began on.
-    step: Option<Option<String>>,
+    /// Where the effect span stands.
+    effect: SpanStart,
+    /// Where the sequence gate step's span stands.
+    step: SpanStart,
     /// The latest span's accepted end head.
     pub(super) observed: Option<Observed>,
     /// The effect's one observation source.
@@ -94,12 +94,32 @@ pub(super) enum Span {
     Step,
 }
 
+/// Where one span stands (fix round 0109a1r4, L1): not armed, armed
+/// where HEAD did not read as it began, or armed on the head it began on.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+enum SpanStart {
+    #[default]
+    Unarmed,
+    Unread,
+    On(String),
+}
+
+impl SpanStart {
+    /// A span armed on what its start read.
+    fn armed(head: Option<String>) -> SpanStart {
+        match head {
+            Some(head) => SpanStart::On(head),
+            None => SpanStart::Unread,
+        }
+    }
+}
+
 impl Spans {
     /// Abandon every armed span: an attempt that left through an `Err`
     /// appends no terminal event, so no start outlives it.
     pub(super) fn abandon(&mut self) {
-        self.effect = None;
-        self.step = None;
+        self.effect = SpanStart::Unarmed;
+        self.step = SpanStart::Unarmed;
     }
 }
 
@@ -116,7 +136,10 @@ impl Engine {
     /// whether its results journal the effect's observation.
     pub(super) fn begin_effect_span(&mut self, armed: bool, protected: bool) {
         self.spans = Spans {
-            effect: armed.then(|| self.heads.read(&self.repo)),
+            effect: match armed {
+                true => SpanStart::armed(self.heads.read(&self.repo)),
+                false => SpanStart::Unarmed,
+            },
             protected,
             ..Spans::default()
         };
@@ -127,7 +150,7 @@ impl Engine {
     pub(super) fn begin_step_span(&mut self, gate: bool) {
         self.spans.observed = None;
         if gate {
-            self.spans.step = Some(self.heads.read(&self.repo));
+            self.spans.step = SpanStart::armed(self.heads.read(&self.repo));
         }
     }
 
@@ -156,11 +179,13 @@ impl Engine {
         attempt_id: Option<String>,
     ) -> Result<Option<EventEnvelope>, EngineError> {
         let armed = match span {
-            Span::Effect => self.spans.effect.take(),
-            Span::Step => self.spans.step.take(),
+            Span::Effect => std::mem::take(&mut self.spans.effect),
+            Span::Step => std::mem::take(&mut self.spans.step),
         };
-        let Some(start) = armed else {
-            return Ok(None);
+        let start = match armed {
+            SpanStart::Unarmed => return Ok(None),
+            SpanStart::Unread => None,
+            SpanStart::On(head) => Some(head),
         };
         let end = self.heads.read(&self.repo);
         if start == end {
