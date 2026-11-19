@@ -57,7 +57,7 @@ gate's driver starts (`crates/brokkr-runtime/src/engine/dispatch.rs:147-165`), a
 that attempt executed. What the park saves is the model seat the adopter counted, the one that
 diagnoses; a person still re-runs. The engine draws the class
 `ci-infrastructure` (ruling 3), the table matches it as the flag `ci_infrastructure` (ruling 10),
-and the park is written `infrastructure` with `kind: ci-infrastructure` (ruling 7). These are one
+and the park is written `infrastructure` with `origin: ci` (ruling 7). These are one
 fact in three places, each in the spelling of the surface it lives on.
 
 What is not delivered, and why:
@@ -1545,26 +1545,55 @@ route or cause remains for it.
 
 ### 7. The park's cause
 
-**Recommended: (b) `infrastructure` with a closed `kind`, under `park-cause/v2`.**
+**Recommended: (b) `infrastructure` with a closed `origin`, a field of its own, under
+`park-cause/v2`.**
+
+**`kind` is taken.** `park-cause/v1` already discriminates its four causes by a mandatory
+`kind`: the infrastructure arm is `{"kind": "infrastructure", "retryable": …, "detail": …}`,
+with `additionalProperties: false` (`contracts/park-cause.v1.schema.json:45-58`), and HEAD
+serializes `ParkCause` with `#[serde(tag = "kind")]` (`crates/brokkr-core/src/park.rs:35-36`).
+So the subtype cannot also be `kind`, and fix round 1093r5's "a v1 cause with no `kind` reads
+`engine`" could never hold: every v1 cause has one. The subtype gets a distinct field.
 
 - **(a) A new `ci-infrastructure` cause.** A fifth written word. Every match over `ParkCause`
   gains an arm (`crates/brokkr-core/src/park.rs:234`, `:264`, `:276`), 0106 ruling 1's four-word
   table becomes five, and 0106d's "only an `infrastructure` park spends" leaves it out by
   construction. Cost: a wider change to an accepted ruling's table. It refuses nothing (b) admits.
-- **(b) `infrastructure` with `kind`.** Recommended. `kind` is one of:
-  - `engine`, every writer today;
-  - `ci-infrastructure`, with `faults`, each naming its workflow, job, step, kind and pattern id.
+- **(b) `infrastructure` with `origin`.** Recommended. The infrastructure arm gains one
+  optional field, `origin`, whose only written word is `ci`, carried with a required `faults`
+  array, each fault naming its workflow, job, step, fault type (`setup-pattern` or
+  `setup-via-needs`) and pattern id. **`engine` is the reader's word for an absent `origin`,
+  and is never written**, as 0106 ruling 1 makes `unknown` the reader's word for an absent
+  cause. Every infrastructure writer today writes no `origin`, so its bytes under v2 are its
+  bytes under v1, byte for byte, and mean the same thing. The cause stays four words, the
+  readouts already paint `infrastructure`, and 0106d's rule reads unchanged: it spends only where
+  `retryable` is true (ruling 8). Cost: one closed enum of one written word inside one variant,
+  matched without a wildcard.
+- **(c) An explicit nested discriminator,** `"origin": {"kind": "engine"}` or
+  `{"kind": "ci", "faults": […]}`, written on every infrastructure park. Unambiguous too, but
+  every engine writer's bytes change, so a v1 reader refuses every infrastructure park written
+  after v2, the engine's own included. Not recommended.
 
-  A v1 cause with no `kind` reads `engine`. The cause stays four words, the readouts already
-  paint `infrastructure`, and 0106d's rule reads unchanged: it spends only where `retryable` is
-  true (ruling 8). Cost: one closed enum inside one variant, matched without a wildcard.
+**The decode table, pinned.** Each object below is serialized and decoded in 0111d's tests, and
+the result is exact:
+
+| Object | v1 reader | v2 reader |
+|---|---|---|
+| `{"kind":"infrastructure","retryable":false,"detail":"d"}` | `Infrastructure { retryable: false }` | `Infrastructure { origin: Engine, retryable: false }` |
+| `{"kind":"infrastructure","origin":"ci","retryable":false,"detail":"d","faults":[…]}` | refused by name: unknown field `origin` | `Infrastructure { origin: Ci { faults }, retryable: false }` |
+| `{"kind":"infrastructure","origin":"engine",…}` | refused by name | refused by name: `engine` is never written |
+| `{"kind":"infrastructure","origin":"ci",…}` with no `faults`, or `faults` empty | refused by name | refused by name |
+| `{"kind":"infrastructure","retryable":false,"detail":"d","faults":[…]}` (no `origin`) | refused by name | refused by name: `faults` needs `origin: ci` |
+
+No object decodes under both readers to two different meanings: the only object both read is
+the v1 shape, and both read it as the engine's.
 
 **The typed park matches its own rule explicitly.** A park is not typed because its inputs
 happen to carry the class. The compile marks, in a table whose recipe declares a `ci` seat,
 exactly one rule as the CI-infrastructure park: the park rule `from` the `ci` phase whose `when`
 is exactly `{"ci_infrastructure": true}`. It refuses a table with none, or with more than one.
 The engine's park arm (`crates/brokkr-runtime/src/engine/cursor.rs:361-371`) gains one case. It
-writes `infrastructure { kind: ci-infrastructure, retryable: false }` instead of `ruled` only
+writes `infrastructure { origin: ci, retryable: false }`, with its faults, instead of `ruled` only
 when all three hold:
 
 - the park is a table park, `ParkReason::Stated` with a matched rule id (`:368`);
@@ -1578,7 +1607,7 @@ above the marked one, such as a park on `ci_infrastructure: true` with a counter
 0106 says a rule park's rule already lives.
 
 On acceptance, 0106's header and this one's gain the pointer pair for ruling 1's cause gaining
-`kind`, under the errata rule for back-pointers.
+`origin`, under the errata rule for back-pointers.
 
 ### 8. How a CI park reads in 0106d's budget
 
@@ -1598,7 +1627,7 @@ changes the forge's state, and the operator's retry after it re-observes.
 non-retryable infrastructure test, `a_non_retryable_infrastructure_park_spends_nothing`
 (`docs/decisions/0106-a-park-names-its-cause-a-held-wait-and-a-budget.md:1224`), is extended
 with one `ci-infrastructure` park, spending nothing. 0106d's
-`only_an_infrastructure_park_spends_the_budget` is unchanged: it reads `retryable`, not `kind`.
+`only_an_infrastructure_park_spends_the_budget` is unchanged: it reads `retryable`, not `origin`.
 
 ### 9. The readouts
 
@@ -1610,7 +1639,7 @@ needs to re-run: the workflow run's id and attempt and each failed job's id, fro
 (`crates/brokkr-core/src/park.rs:275`), which the TUI and `inspect` already paint
 (`crates/brokkr-cli/src/tui/columns.rs:375`, `crates/brokkr-cli/src/render/inspect.rs:36`; the
 fleet's row field is `crates/brokkr-view/src/fleet.rs:339`). It reads
-`infrastructure (ci-infrastructure, not retryable): …` with the faults' job and pattern ids.
+`infrastructure (ci, not retryable): …` with the faults' job and pattern ids.
 
 ### 10. How a table spells the class
 
@@ -2018,7 +2047,14 @@ slice that produces it, and each typed assertion is in the slice that builds its
    `a_runner_fault_parks_with_no_diagnosis_seat_attempt` (the typed park, asserted here with its
    writer: the `ci` gate's one exec attempt is journaled, and no `implement` or other model seat
    attempt follows it);
-   `a_v1_infrastructure_cause_reads_kind_engine`; `a_ci_infrastructure_park_is_never_retryable`;
+   the decode table (ruling 7), each object serialized and decoded by both readers with the
+   exact result: `a_v1_infrastructure_cause_decodes_identically_under_v1_and_v2_as_origin_engine`;
+   `a_v2_ci_cause_decodes_under_v2_and_is_refused_by_name_under_v1`;
+   `an_origin_engine_word_is_refused_by_name`;
+   `an_origin_ci_cause_without_faults_is_refused_by_name`;
+   `faults_without_origin_ci_are_refused_by_name`;
+   `every_engine_infrastructure_writer_serializes_v1_bytes_under_v2`;
+   `a_ci_infrastructure_park_is_never_retryable`;
    `a_runner_fault_park_writes_the_ci_infrastructure_cause_and_keeps_the_rule_in_the_decision`;
    `a_refusal_park_carrying_a_ci_class_stays_ruled`;
    `a_different_table_park_carrying_the_ci_infrastructure_class_stays_ruled`;
