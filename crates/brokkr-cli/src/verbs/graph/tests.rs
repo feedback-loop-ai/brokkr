@@ -777,6 +777,15 @@ fn unbroken(drawing: &str) -> String {
     read.split_whitespace().collect::<Vec<_>>().join(" ") + " "
 }
 
+/// `recipe`'s graph over one run through `steps` to completion, planted in
+/// `dir` and drawn from `machine`.
+fn one_run(dir: &Path, machine: &Machine, recipe: &str, steps: &[Step]) -> GraphView {
+    let mut events = walked(steps);
+    events.push((EventType::RunCompleted, json!({})));
+    Journal::at(dir).run(recipe, &json!({"bundle_name": recipe}), &events);
+    view_of(dir, machine, recipe)
+}
+
 /// The back links `view` took, each drawn as a return arc at `width`.
 fn arcs_drawn(view: &GraphView, width: usize) {
     let (drawing, drawn) = drawn_links(view, width);
@@ -987,7 +996,7 @@ fn at_80_columns_a_wide_recipe_folds_whole_states_and_draws_its_arcs_across_the_
     );
     let step =
         |at: usize, result, rule, next: usize| (states[at], result, rule, Some(states[next]));
-    let mut events = walked(&[
+    let steps = [
         step(0, "complete", "INTAKE-COMPLETE", 1),
         step(1, "complete", "PLANNING-COMPLETE", 2),
         step(2, "complete", "IMPLEMENTATION-COMPLETE", 3),
@@ -999,10 +1008,8 @@ fn at_80_columns_a_wide_recipe_folds_whole_states_and_draws_its_arcs_across_the_
         step(2, "complete", "IMPLEMENTATION-COMPLETE", 3),
         step(3, "clean", "REVIEW-CLEAN", 4),
         (states[4], "complete", "RELEASE-SHIPPED", Some("done")),
-    ]);
-    events.push((EventType::RunCompleted, json!({})));
-    Journal::at(dir.path()).run("wide", &json!({"bundle_name": "wide"}), &events);
-    let view = view_of(dir.path(), &machine, "wide");
+    ];
+    let view = one_run(dir.path(), &machine, "wide", &steps);
     let drawing = drawn(&view, 80);
     insta::assert_snapshot!("graph_wide_80", drawing);
     // No label is cut: every state's whole name is drawn, and nothing is
@@ -1106,15 +1113,13 @@ fn a_state_named_wider_than_the_terminal_is_clamped_on_its_rail() {
             ("SHIP-STOP", "ship", "blocked", Some("stop")),
         ],
     );
-    let mut events = walked(&[
+    let steps = [
         (wide, "complete", "WIDE-OK", Some("ship")),
         ("ship", "residual", "WIDE-AGAIN", Some(wide)),
         (wide, "complete", "WIDE-OK", Some("ship")),
         ("ship", "complete", "SHIP-OK", Some("done")),
-    ]);
-    events.push((EventType::RunCompleted, json!({})));
-    Journal::at(dir.path()).run("wide", &json!({"bundle_name": "wide"}), &events);
-    let view = view_of(dir.path(), &machine, "wide");
+    ];
+    let view = one_run(dir.path(), &machine, "named", &steps);
     let drawing = drawn(&view, 30);
     insta::assert_snapshot!("graph_name_wider_30", drawing);
     arcs_drawn(&view, 30);
