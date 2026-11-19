@@ -28,11 +28,12 @@ use std::io::IsTerminal;
 
 use brokkr_view::transcript::TranscriptRead;
 use brokkr_view::{
-    keeps_participant, keeps_phase, keeps_row, JournalRow, Lens, ModelAtBoundary, Participant,
-    Phase, RunRow, RunView, RunsView, ScopeError,
+    keeps_participant, keeps_row, JournalRow, Lens, ModelAtBoundary, Participant, RunRow, RunView,
+    RunsView, ScopeError,
 };
 
 pub(crate) mod ending;
+pub(crate) mod graph;
 mod inspect;
 
 const RESET: &str = "\x1b[0m";
@@ -170,7 +171,7 @@ fn status_code(status: &str) -> &'static str {
     }
 }
 
-fn tint(text: &str, code: &'static str, style: &Style) -> String {
+fn tint(text: &str, code: &str, style: &Style) -> String {
     if style.color {
         format!("{code}{text}{RESET}")
     } else {
@@ -580,76 +581,6 @@ fn trail_block(view: &RunView, lens: Option<&Lens>, style: &Style) -> String {
     out
 }
 
-/// The phase graph as a terminal tree: `⑂` precedes parallel members and
-/// `→` precedes a sequential step, both nested under their phase. The
-/// markers are content, not colour, and are therefore unconditional —
-/// the models already emit `Σ`, `↓`, `…` and `—` in pre-baked text, so
-/// an ASCII mode would need a second derivation of every one of them.
-/// Nodes read as name and state only: the served model is a seat's
-/// field, printed by the seats table and the seat block, never by the
-/// rail — the graph is the abstraction over order and shape.
-fn graph_block(view: &RunView, lens: Option<&Lens>) -> String {
-    let phases: Vec<&Phase> = view
-        .phases
-        .iter()
-        .filter(|phase| keeps_phase(lens, phase))
-        .collect();
-    if phases.is_empty() {
-        return String::new();
-    }
-    let mut out = String::from("graph\n");
-    for phase in phases {
-        let current = if phase.current { "  ←current" } else { "" };
-        push_line(
-            &mut out,
-            &format!(
-                "  {}{} ×{}{current}",
-                Safe::new(&phase.name).as_str(),
-                phase
-                    .strategy
-                    .as_ref()
-                    .map(|strategy| format!(" · {}", Safe::new(strategy).as_str()))
-                    .unwrap_or_default(),
-                phase.visits
-            ),
-        );
-        for column in &phase.columns {
-            if column.nodes.len() == 1 {
-                let node = &column.nodes[0];
-                let label = match &column.label {
-                    Some(label) => label.as_str(),
-                    None => node.label.as_str(),
-                };
-                push_line(
-                    &mut out,
-                    &format!(
-                        "    → {} · {}",
-                        Safe::new(label).as_str(),
-                        Safe::new(&node.state).as_str()
-                    ),
-                );
-            } else {
-                let label = match &column.label {
-                    Some(label) => format!(" {}", Safe::new(label).as_str()),
-                    None => String::new(),
-                };
-                push_line(&mut out, &format!("    ⑂{label}"));
-                for node in &column.nodes {
-                    push_line(
-                        &mut out,
-                        &format!(
-                            "      {} · {}",
-                            Safe::new(&node.label).as_str(),
-                            Safe::new(&node.state).as_str()
-                        ),
-                    );
-                }
-            }
-        }
-    }
-    out
-}
-
 /// The human readout: header, ruling, park reason, live seat activity,
 /// the seats table, the decision trail, and the phase tree. A `watch`
 /// frame is this without the trail.
@@ -704,7 +635,7 @@ pub(crate) fn inspect(
         } else {
             String::new()
         },
-        graph_block(view, lens),
+        graph::graph_block(view, lens, style),
     ] {
         if !block.is_empty() {
             out.push('\n');

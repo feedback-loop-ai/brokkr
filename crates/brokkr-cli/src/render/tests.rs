@@ -2,7 +2,7 @@ use super::*;
 use crate::tests::envelope_builder::EnvelopeBuilder;
 use crate::tests::run_state::{run_state, standing};
 use brokkr_core::{EventEnvelope, EventType, RunState, Status};
-use brokkr_view::{lens_for, Scope};
+use brokkr_view::{keeps_phase, lens_for, Scope};
 use serde_json::{json, Value};
 
 const T0: &str = "2026-01-01T00:00:00Z";
@@ -494,6 +494,91 @@ fn width_and_colour_come_from_the_environment_through_pure_rules() {
     assert!(!plain.contains('\x1b'));
 }
 
+/// #1168: the plain graph shows each node's still glyph — `·` unknown,
+/// `⏺` finished, `⊙` park, `⊗` failed, `∙` live — and, on a terminal that
+/// takes colour, paints it and the current phase's name in the console's
+/// colour. A `watch` frame is `inspect` without the trail, so the graph is
+/// proved there, in the frame's own style. With colour off (`NO_COLOR`)
+/// the glyphs stay and the bytes a piped frame writes hold no escape.
+#[test]
+fn the_plain_graph_shows_each_class_glyph_in_the_consoles_colour() {
+    let unknown = ("", "·", "\x1b[2m·\x1b[0m");
+    let finished = ("on-phosphor", "⏺", "\x1b[32m⏺\x1b[0m");
+    for (first, still, painted) in [unknown, finished] {
+        let mut view = view(None);
+        let classes = [first, "on-park", "on-halt", "in-active"];
+        let nodes = view
+            .phases
+            .iter_mut()
+            .flat_map(|phase| phase.columns.iter_mut())
+            .flat_map(|column| column.nodes.iter_mut());
+        for (node, class) in nodes.zip(classes) {
+            node.state_class = class.to_string();
+        }
+        let frame = |color| {
+            let style = Style { color, width: 80 };
+            inspect(&view, None, false, &crate::now_rfc3339(), &style)
+        };
+        let mut piped = Vec::new();
+        let no_color = frame(color_enabled(true, true, false));
+        crate::write_frame(&mut piped, &no_color, false, &mut || T0.to_string()).unwrap();
+        let piped = String::from_utf8(piped).unwrap();
+        assert!(!piped.contains('\x1b'), "{piped:?}");
+        let graph = format!(
+            "graph
+  intake ×1
+    → {still} intake · finished
+  design ×1  ←current
+    ⑂ positions
+      ⊙ simplicity · finished
+      ⊗ robustness · finished
+    → ∙ chief · active
+"
+        );
+        assert!(piped.ends_with(&graph), "{piped:?}");
+        let coloured = frame(true);
+        let graph = format!(
+            "graph
+  intake ×1
+    → {painted} intake · finished
+  \x1b[32mdesign\x1b[0m ×1  ←current
+    ⑂ positions
+      \x1b[33m⊙\x1b[0m simplicity · finished
+      \x1b[31m⊗\x1b[0m robustness · finished
+    → \x1b[35m\x1b[1m∙\x1b[0m chief · active
+"
+        );
+        assert!(coloured.ends_with(&graph), "{coloured:?}");
+    }
+}
+
+/// #1168: a phase without columns is the console's one rail node, so its
+/// heading leads with its phase class's still glyph — `⏺` visited, `∙`
+/// for the running current phase — in the console's colour, and with
+/// colour off the glyphs stay and no escape byte is written.
+#[test]
+fn a_phase_without_columns_shows_its_phase_class_glyph() {
+    let mut view = view(None);
+    for phase in &mut view.phases {
+        phase.columns.clear();
+    }
+    assert_eq!(
+        graph::graph_block(&view, None, &Style::plain(80)),
+        "graph\n  ⏺ intake ×1\n  ∙ design ×1  ←current\n"
+    );
+    let coloured = Style {
+        color: true,
+        width: 80,
+    };
+    assert_eq!(
+        graph::graph_block(&view, None, &coloured),
+        "graph
+  \x1b[35m\x1b[2m⏺\x1b[0m intake ×1
+  \x1b[32m∙\x1b[0m \x1b[32mdesign\x1b[0m ×1  ←current
+"
+    );
+}
+
 /// The phase predicate is one function, called by `graph_block` and by
 /// the TUI. Two copies of a scope rule is one copy too many.
 #[test]
@@ -735,12 +820,12 @@ trail
 
 graph
   intake ×1
-    → intake · finished
+    → ⏺ intake · finished
   design ×1  ←current
     ⑂ positions
-      simplicity · finished
-      robustness · finished
-    → chief · active
+      ⏺ simplicity · finished
+      ⏺ robustness · finished
+    → ∙ chief · active
 "
     );
 }
@@ -816,7 +901,7 @@ trail
 
 graph
   intake ×1
-    → intake · finished
+    → ⏺ intake · finished
 "
     );
 
@@ -1014,7 +1099,7 @@ fn a_phase_whose_only_traffic_is_its_entry_drops_the_seats_block() {
          \x20 2 phase/entered review\n\
          \n\
          graph\n\
-         \x20 review ×1  ←current\n"
+         \x20 · review ×1  ←current\n"
     );
 }
 
@@ -1098,7 +1183,7 @@ fn a_step_with_a_single_member_still_reads_as_the_step() {
     let at = crate::now_rfc3339();
     let out = inspect(&view, None, false, &at, &Style::plain(80));
     assert!(
-        out.contains("    → positions · finished\n"),
+        out.contains("    → ⏺ positions · finished\n"),
         "the column label wins over the lone node's own: {out}"
     );
 }
