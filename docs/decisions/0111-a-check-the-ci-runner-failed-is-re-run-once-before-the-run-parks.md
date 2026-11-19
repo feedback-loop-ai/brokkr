@@ -1294,7 +1294,8 @@ only against log bytes, never against a path. Each field admits only its own syn
 compile refuses a `*`, `?` or `[` in a path, so a glob cannot pass for one, while a literal's
 bytes are all literal.
 
-`required_checks` must be non-empty, every Actions entry must name all of its producer's parts
+`required_checks` must be non-empty and hold at least one entry with no `"after"` (ruling 6's
+entry set is never empty), every Actions entry must name all of its producer's parts
 and its `tested` word, and may carry `"after": "ship"` (ruling 6's entry set; the only word
 v1 admits, so the field is a closed enum of one), and `change_classes` must be non-empty and hold no path that is, or lies
 under, `.github/` or any required entry's workflow. The compile refuses a list that leaves any
@@ -1349,6 +1350,36 @@ its `phases` to add `ci`; `landing` overrides the same keys over `brokkr-fast`
 (`crates/brokkr-runtime/src/bundle/compose.rs:871-921`), and no rule of landing's or `fast`'s
 changes.
 
+**Where `ci` sits in the phase order.** The order is not cosmetic. HEAD orders every transition
+by phase position (`crates/brokkr-core/src/policy/direction.rs:10-19`), and the entry check
+refuses an entry from which a forward rule reaches a work seat
+(`crates/brokkr-runtime/src/bundle/entry.rs:166-170`, `:186-209`). Landing's order is
+`classify`, `implement`, `verify`, `review`, `ship`, `done`, `stop` (`recipes/landing/policy.json`).
+Prepended, as fix round 1093r5 had it, `ci` would make `CI-FAIL` (`ci` to `implement`) a forward
+path to a work seat, so `--enter ci` would refuse as `ForwardWork`. **Recommended: (a) the
+overlay's materialized order is `classify`, `implement`, `ci`, `verify`, `review`, `ship`,
+`done`, `stop`**: `ci` placed after `implement` and before `verify`, landing's own phases in
+their own order. Then:
+
+- `CI-FAIL` (`ci` to `implement`) and `CI-PASS` (`ci` to `classify`) are both returns, so the
+  forward walk from `ci` reaches nothing, and `ForwardWork` admits it;
+- the protected walk from `ci` reaches no terminal but `stop` around `review`
+  (`crates/brokkr-runtime/src/bundle/phases.rs:146-157` skips `stop`): every road from `ci` runs
+  through `classify` or `implement`, and landing's own rules reach `ship` only through `review`;
+- the visit check still finds `implement` reachable from `ci` without a visit-reading rule, by
+  `CI-FAIL`, so fast's `visits_implement_gte` groups are admitted, as from landing's `classify`;
+- no landing rule changes direction, because no rule joins `ci`'s neighbours across it: the
+  only pairs whose order moved involve `ci` itself.
+
+Costs, said plainly: the rail, which reads the recorded order (`crates/brokkr-view/src/rail.rs:9-12`),
+paints both `CI-` roads as roads back; and on an explicit `--enter ci`, HEAD's seat input gives
+`classify` a `returned_from` naming `ci` and its result word
+(`crates/brokkr-runtime/src/engine/input.rs:151-168`), which landing's classify script does not
+read (`recipes/landing/scripts/classify-seat.sh`). **(b)** `implement`, `ci`, `classify`, …: `CI-PASS` is forward, but landing's
+own order moves, and `implement` stops receiving `classify`'s result on its later visits. Not
+recommended. **(c)** an engine rule exempting `ci`'s edges from `ForwardWork`: no order needs
+it, so no engine change is proposed.
+
 **CI is the only way in.** A table's `initial` is not the only entry: an explicit `--enter`
 phase is admitted on its own, through the entry check, and `initial` is used only when no entry
 is named (`crates/brokkr-runtime/src/bundle/entry.rs:139-150`). The check refuses an absent,
@@ -1361,10 +1392,12 @@ a pass the gate grants; it is still designed out, so the overlay's typed outcome
 every run that names it. **Recommended: (a) `landing-ci`'s entry admission admits `ci` alone,
 through the existing entry check.** The check's chain of refusals gains one arm: in a bundle
 whose table declares a `ci` seat, every phase but that one refuses as a new `EntryRefusal`
-variant, `BeforeCi`, naming the `ci` phase, and `admitted()` lists `ci` alone. `--enter ci`,
-with or without `--continues`, stays admitted. The protected-phase arm is unchanged, so `review`
-stays unavoidable before `ship`: every path from `ci` runs through `classify` or `implement`, and
-landing's table already admits both only on roads through `review`. Refused alternatives: **(b)**
+variant, `BeforeCi`, naming the `ci` phase, and `admitted()` lists `ci` alone. The arm sits
+after the work-seat arm and before the protected arm, so `ci` itself still meets every existing
+check: protected, forward work, strategy, change and visits, which the materialized order above
+admits. `--enter ci`, with or without `--continues`, stays admitted, and the default start uses
+`initial`, `ci`, as HEAD's `first_phase` does (`entry.rs:139-150`). The protected-phase arm is
+unchanged, so `review` stays unavoidable before `ship`. Refused alternatives: **(b)**
 a table rule alone, which the explicit entry never reads; **(c)** removing `--enter` from the
 CLI for every recipe, which takes landing's documented continuation away from recipes that have
 no `ci` phase.
@@ -1385,6 +1418,11 @@ declaration is the operator's: the compile cannot see what a check reads, and an
 undeclared costs one implement visit (the frame's table), never a pass. Refused alternative:
 **(b)** observing it and treating its failure as untyped, which is fix round 1093r4's behaviour
 and spends the implement visit on every first landing.
+
+**The entry set is never empty.** A declared list whose every entry carries `"after": "ship"`
+filters to nothing, and an observation with no entry to match would draw `green` on whatever
+unrelated checks it saw. So the compile requires at least one entry-eligible check, one entry
+without `"after"`, and refuses the list otherwise (ruling 5).
 
 **Every route and cap, from the incoming edge.** First match wins, in the order listed. The
 `When` column names the class; ruling 10 gives its schema-legal spelling.
@@ -1917,10 +1955,19 @@ slice that produces it, and each typed assertion is in the slice that builds its
    ([The gate grants nothing](#the-gate-grants-nothing)),
    `after_ci_pass_the_composed_table_is_landings_own_rule_for_rule` and
    `nothing_in_the_recipes_or_seat_scripts_reads_the_ci_phases_result`;
-   the entry (ruling 6): `landing_ci_enter_review_refuses_as_before_ci`;
+   the entry (ruling 6), each over the overlay's materialized bundle, its composed table and
+   phase order, through HEAD's `first_phase` and `admitted()`:
+   `the_landing_ci_default_start_enters_ci`;
+   `landing_ci_admits_ci_alone_as_an_explicit_entry` (`--enter ci` passes every existing arm,
+   `ForwardWork` among them, and `admitted()` is exactly `["ci"]`);
+   `landing_ci_enter_ci_with_continues_is_admitted`;
+   `landing_ci_enter_review_refuses_as_before_ci`;
    `landing_ci_enter_classify_refuses_as_before_ci`;
-   `landing_ci_admits_ci_alone_as_an_explicit_entry`;
+   `ci_prepended_to_landings_order_refuses_enter_ci_as_forward_work` (the control: the r5
+   order, `ForwardWork` naming `implement` and `CI-FAIL`);
+   `the_landing_ci_order_is_landings_own_with_ci_after_implement`;
    `review_stays_unavoidable_before_ship_from_ci`;
+   `a_required_list_whose_every_entry_is_after_ship_refuses_to_compile`;
    `a_fresh_published_pull_request_with_no_anchor_and_no_label_is_not_routed_to_implement_by_the_contribution_check`
    (`delivered by brokkr` red, every other entry green: `green`, never `change`);
    `an_after_ship_entry_is_never_observed_and_the_forge_set_comparison_counts_it_declared`;
