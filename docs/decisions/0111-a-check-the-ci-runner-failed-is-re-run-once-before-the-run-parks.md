@@ -1119,6 +1119,7 @@ second job's failure is all-setup: `refused`, never `ci-infrastructure`.
 | `ambiguous-required` | a required entry matches more than one check in its current execution |
 | `execution-ambiguous` | a required entry's current execution cannot be told, as above |
 | `instance-duplicated` | one expected matrix instance's key is observed more than once in one run attempt; it names the key and the jobs |
+| `instances-too-large` | the instance table (ruling 3's basis) exceeds its bound, so `instance-duplicated` cannot be decided; it names the measured count |
 | `not-settled` | a required check is still queued or in progress when the observer's own polling bound ends, short of the seat's deadline |
 
 One more refusal follows the pass and precedes classification: `non-success`, when no required
@@ -1182,7 +1183,8 @@ bounded, typed data under `ci-classification/v1`:
   with the dependency each of its steps asserts and the `env` binding that ties the assertion to
   `needs.<dep>.result`; or `independent`, naming its first independent step; or the typed
   `kind-unmeasured`, naming the step the parse could not read;
-- **each matrix dependency's expected instance identities**, the base's pinned
+- **the instance table**, sealed apart from the closure's job map and inside its own bound
+  (below): **each matrix dependency's expected instance identities**, the base's pinned
   `strategy.matrix` expanded into its fixed list of instance keys, each the matrix values in
   their declared order, each with the revision its own entry rule established for it, so a
   verdict-only aggregate's derived revision replays, with the forge's name for it once 0111a
@@ -1206,12 +1208,24 @@ and must equal the recorded class. It reads no bundle, no manifest file, no chec
 range and no forge, so a replay after the bundle is recompiled, the worktree is gone and the
 forge's runs have expired still holds. The bounds: the compile admits at most 64 required
 entries, 64 setup steps and 64 patterns, so the list and the literals are at most 32 KiB; the
-closure's job map, its aggregate kinds and expected instances included, is at most 256 jobs
-**and 128 KiB** in its canonical JSON, each job at most 64 expected instances; the path list is
+closure's job map, its aggregate kinds included, is at most 256 jobs
+**and 128 KiB** in its canonical JSON; the instance table is at most 1,024 expected instances,
+each job at most 64, **and 64 KiB**; the path list is
 at most 4,096 paths and 256 KiB. The closure has a byte bound as well as its count, so 256 jobs
 with long step lists cannot carry an unbounded basis. A basis beyond its bound withholds the
 class as `basis-too-large`, and a range beyond its own as `range-too-large`, with ruling 3's
-withholdings; neither is ever truncated.
+withholdings; neither is ever truncated. An instance table beyond its bound refuses as
+`instances-too-large` (ruling 3), because without it `instance-duplicated` cannot be decided.
+
+**What an overflow keeps, and the precedence over it.** Every check ruling 3's order ranks above
+`basis-too-large` (its steps 1 to 3, and `green` and `non-success`) reads only the sealed
+observation, the pinned required list, the comparison values and the instance table, never the
+closure's job map. So a closure overflow replaces the job map alone with its witness (below);
+the instance table stays sealed whole beside it, inside its own bound. `instance-duplicated`
+therefore refuses ahead of `basis-too-large`, live and on replay alike: an observation over an
+over-128-KiB closure that holds an expected instance's key twice in one attempt is `refused`,
+`instance-duplicated`, routed `CI-REFUSED`, from the instance table the replay reads, and never
+`change` with `basis-too-large`.
 
 So a replay of a valid all-setup aggregate reads its kind, `verdict-only`, and its nine expected
 keys from the basis, finds all nine in the sealed observation, and re-draws
@@ -1223,21 +1237,24 @@ reads the workflow, the bundle or the forge.
 under the rule that forbids truncating it, so the basis seals, in its place, a bounded, typed
 **overflow witness**, never the list:
 
-- which bound it is: `paths` (the range's changed-path list) or `closure` (the closure's job
-  map, the one part of the basis the compile does not already bound);
-- the limit, as a count and in bytes (4,096 paths and 256 KiB; 256 jobs and 128 KiB);
+- which bound it is: `paths` (the range's changed-path list), `closure` (the closure's job
+  map) or `instances` (the instance table), the three parts of the basis the compile does not
+  already bound;
+- the limit, as a count and in bytes (4,096 paths and 256 KiB; 256 jobs and 128 KiB; 1,024
+  instances and 64 KiB);
 - the measurement, one of two closed forms:
   - `measured`: the full count and bytes, and the SHA-256 digest of the full list in its
     canonical form (for paths, the verified reader's sorted list with each path's bytes
-    NUL-terminated; for the closure, its canonical JSON);
+    NUL-terminated; for the closure and the instance table, its canonical JSON);
   - `overflowed-unmeasured`: the count and bytes read when the hard cap stopped the read, as a
     lower bound, and no digest.
 
 **How an overflow is measured without unbounded work.** The verified reader never holds an
 overflowing list. Past the sealing limit it keeps reading, streaming each path, or each closure
-job's canonical bytes, into a running count, byte total and SHA-256, and holds nothing else.
-That stream has its own hard read cap, a fixed multiple of the limit: 65,536 paths and 4 MiB
-for paths, 4,096 jobs and 2 MiB for the closure. A list that ends within the cap seals
+job's or expected instance's canonical bytes, into a running count, byte total and SHA-256, and
+holds nothing else. That stream has its own hard read cap, a fixed multiple of the limit: 65,536
+paths and 4 MiB for paths, 4,096 jobs and 2 MiB for the closure, 16,384 instances and 1 MiB for
+the instance table. A list that ends within the cap seals
 `measured`. A list that reaches the cap stops there and seals `overflowed-unmeasured`, so no
 rejected input costs more than the cap. The sorted order a `measured` path digest needs is the
 reader's own order: 0109b's `diff-tree` over verified trees walks paths in tree order, which is
@@ -1246,8 +1263,11 @@ without holding the list, the path witness is `overflowed-unmeasured` past the l
 fails closed the same way.
 
 Everything else the basis holds is sealed as usual. `classify` reads a witness as its
-withholding: a basis holding one draws `range-too-large` or `basis-too-large` from it alone, so
-the replay re-derives the class without the list, and a `measured` digest lets a person who
+withholding or refusal, at its own place in ruling 3's order: an `instances` witness is the
+step 1 refusal `instances-too-large`, and a `paths` or `closure` witness draws
+`range-too-large` or `basis-too-large` at step 5, after every check above it has read what the
+witness left whole. So the
+replay re-derives the class without the list, and a `measured` digest lets a person who
 still has the range confirm which list it was. A witness whose measured count and bytes, or
 whose lower bound, are both within its limit is malformed and refuses the replay, so a witness
 cannot stand in for a list that fit. The witness is at most a few hundred bytes. Fix round 1093r4 specified only the in-bound replay; with
@@ -2365,6 +2385,13 @@ slice that produces it, and each typed assertion is in the slice that builds its
    `CI-REFUSED`, never `ci-infrastructure`);
    `a_stale_same_producer_red_is_neither_a_match_nor_an_inadmissible_failure` (the stale check
    red instead: `refused`, `missing-required`, not `change` with `inadmissible-failure`);
+   `an_over_128_kib_closure_with_a_duplicated_expected_instance_refuses_as_instance_duplicated`
+   (a closure sealed as its overflow witness, and one expected instance's key observed twice in
+   one attempt: `refused`, `instance-duplicated` naming the key, `CI-REFUSED`, never `change`
+   with `basis-too-large`, live and from the journal alone, from the instance table sealed
+   beside the witness);
+   `an_instance_table_beyond_its_bound_refuses_as_instances_too_large` (live and from the
+   journal alone);
    `a_different_table_park_carrying_the_ci_infrastructure_class_stays_ruled`;
    `a_table_with_no_or_two_marked_ci_infrastructure_parks_refuses_to_compile`;
    `exactly_one_class_flag_is_true_for_each_class_but_change`;
