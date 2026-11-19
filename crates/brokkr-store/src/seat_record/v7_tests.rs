@@ -363,11 +363,6 @@ fn the_zero_fourteen_line_writes_v7_and_the_thirteen_line_still_reads_v6() {
 /// admitted by all three.
 #[test]
 fn a_step_checkpoints_result_is_closed_at_append_export_and_verify() {
-    let stepped = |result: Value| {
-        let checkpoint = json!({"step": "sequence-step-finished", "authored": "engine",
-                                "step_name": "judge", "model": "m", "result": result});
-        json!({"effect_id": "fx", "attempt_id": "attempt-1", "checkpoint": checkpoint})
-    };
     let unlined = with(finding(), "", "line", json!(null));
     let refused_cases = [
         gate("findings", json!([unlined])),
@@ -376,36 +371,77 @@ fn a_step_checkpoints_result_is_closed_at_append_export_and_verify() {
     let (_dir, mut store) = crate::tests::store();
     for (index, result) in refused_cases.into_iter().enumerate() {
         let run = format!("refused-{index}");
-        super::tests::started_run(&mut store, &run, "0.14.0");
-        let kind = EventType::EffectCheckpointed;
-        let crate::StoreError::SeatRecord(appended) = store
-            .append_next(&run, kind, stepped(result.clone()), None, None)
-            .unwrap_err()
-        else {
-            panic!("the fence refuses the step's result");
-        };
-        assert_eq!(appended.contract, CONTRACT_V7);
-        crate::tests::plant_unfenced(&mut store, &run, kind, stepped(result));
-        let crate::StoreError::SeatRecord(exported) = store.export_ndjson(&run).unwrap_err() else {
-            panic!("export refuses the step's result");
-        };
-        assert_eq!(
-            (exported.contract, exported.path.as_str()),
-            (CONTRACT_V7, "/")
-        );
-        let ndjson: String = (store.load(&run).unwrap().iter())
-            .map(|event| serde_json::to_string(event).unwrap() + "\n")
-            .collect();
-        let Err(crate::VerifyError::SeatRecord(verified)) = crate::verify_export(&ndjson) else {
-            panic!("offline verify refuses the step's result");
-        };
-        assert_eq!(verified, exported);
+        refused_at_append_export_and_verify(&mut store, &run, stepped(result), "/");
     }
     super::tests::started_run(&mut store, "sound", "0.14.0");
     let sound = stepped(gate("findings", json!([finding()])));
     (store.append_next("sound", EventType::EffectCheckpointed, sound, None, None)).unwrap();
     let exported = store.export_ndjson("sound").unwrap();
     assert!(crate::verify_export(&exported).is_ok());
+}
+
+/// The engine's step checkpoint payload around `result`.
+fn stepped(result: Value) -> Value {
+    let checkpoint = json!({"step": "sequence-step-finished", "authored": "engine",
+                            "step_name": "judge", "model": "m", "result": result});
+    json!({"effect_id": "fx", "attempt_id": "attempt-1", "checkpoint": checkpoint})
+}
+
+/// `payload`, a checkpoint in a new v7 run `run`, is refused at the append
+/// fence, by export and by offline verify alike, at `path`.
+fn refused_at_append_export_and_verify(
+    store: &mut crate::Store,
+    run: &str,
+    payload: Value,
+    path: &str,
+) {
+    super::tests::started_run(store, run, "0.14.0");
+    let kind = EventType::EffectCheckpointed;
+    let crate::StoreError::SeatRecord(appended) = store
+        .append_next(run, kind, payload.clone(), None, None)
+        .unwrap_err()
+    else {
+        panic!("the fence refuses the step's result");
+    };
+    assert_eq!(
+        (appended.contract, appended.path.as_str()),
+        (CONTRACT_V7, path)
+    );
+    crate::tests::plant_unfenced(store, run, kind, payload);
+    let crate::StoreError::SeatRecord(exported) = store.export_ndjson(run).unwrap_err() else {
+        panic!("export refuses the step's result");
+    };
+    assert_eq!(
+        (exported.contract, exported.path.as_str()),
+        (CONTRACT_V7, path)
+    );
+    let ndjson: String = (store.load(run).unwrap().iter())
+        .map(|event| serde_json::to_string(event).unwrap() + "\n")
+        .collect();
+    let Err(crate::VerifyError::SeatRecord(verified)) = crate::verify_export(&ndjson) else {
+        panic!("offline verify refuses the step's result");
+    };
+    assert_eq!(verified, exported);
+}
+
+/// Fix round 0109a1r5, V3: a result's subsets are checked wherever it
+/// sits. A valid word with `input_tokens: 1` and `cache_read_tokens: 2` is
+/// refused standalone at `/cache_read_tokens`, and in the engine's step
+/// checkpoint at `/result/cache_read_tokens`, at append, export and verify.
+#[test]
+fn a_nested_results_subsets_are_checked_as_a_standalone_results_are() {
+    let over = json!({"result": "clean", "input_tokens": 1, "cache_read_tokens": 2});
+    assert_eq!(
+        judged(&over, SeatRecordVersion::V7),
+        Err(SeatRecordError {
+            seq: 9,
+            path: "/cache_read_tokens".into(),
+            contract: CONTRACT_V7,
+        })
+    );
+    let (_dir, mut store) = crate::tests::store();
+    let path = "/result/cache_read_tokens";
+    refused_at_append_export_and_verify(&mut store, "nested", stepped(over), path);
 }
 
 /// Fix round 0109a1r4, K5: a released engine's records stay admissible.

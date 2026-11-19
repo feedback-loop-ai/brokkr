@@ -49,17 +49,33 @@ pub fn validate_seat_record(
         // and the offending value is never echoed.
         return Err(refuse("/"));
     }
-    for (subset, total) in SUBSETS {
-        if let (Some(part), Some(whole)) = (
-            record.get(subset).and_then(Value::as_u64),
-            record.get(total).and_then(Value::as_u64),
-        ) {
-            if part > whole {
-                return Err(refuse(&format!("/{subset}")));
+    for (at, result) in results_of(record, version) {
+        for (subset, total) in SUBSETS {
+            if let (Some(part), Some(whole)) = (
+                result.get(subset).and_then(Value::as_u64),
+                result.get(total).and_then(Value::as_u64),
+            ) {
+                if part > whole {
+                    return Err(refuse(&format!("{at}/{subset}")));
+                }
             }
         }
     }
     Ok(())
+}
+
+/// Every result `record` holds, with its JSON pointer: the record itself,
+/// and under v7 the nested `result` of a checkpoint the engine authored,
+/// so one validation applies to a result wherever it sits (fix round
+/// 0109a1r5, V3). The nested read is scoped on `authored`, as v7's closed
+/// nested result is (fix round 0109a1r4, K5), so every row a released
+/// engine wrote is judged exactly as before.
+fn results_of(record: &Value, version: SeatRecordVersion) -> Vec<(&'static str, &Value)> {
+    let nested = (version == SeatRecordVersion::V7 && record.get(AUTHORED).is_some())
+        .then(|| record.get("result"))
+        .flatten();
+    let nested = nested.map(|result| ("/result", result));
+    [("", record)].into_iter().chain(nested).collect()
 }
 
 /// Whether a v7 record's gate report reads through the engine's own typed
