@@ -752,7 +752,8 @@ change's tree:
 
 - Every workflow file of an entry in the entry set (ruling 6's one derivation) is parsed at the
   base into a typed subset: each job's
-  `needs`, its `strategy.matrix`, its steps' `uses`, `run` and `working-directory`, and the
+  `needs`, its `strategy.matrix`, its steps' `uses`, `run`, `working-directory` and `env`, the
+  workflow's and the job's `env`, and the
   workflow's and the job's `defaults.run.working-directory`
   (<https://docs.github.com/en/actions/writing-workflows/workflow-syntax-for-github-actions#defaultsrunworking-directory>;
   not read in this session). The closure starts from each required job and every job it
@@ -778,17 +779,56 @@ change's tree:
   `package.json` and `.npmrc`. A pinned table in `ci/closure.rs` names, for every command word
   and every remote action (`owner/repo`) the closure admits, its implicit inputs relative to the
   effective working directory, possibly none (`echo`, `test`, `printf`, `mkdir`), and, apart,
-  the inputs that are the change under test, which may lie in a change class (for `cargo`, the
+  its **product inputs**, the inputs that are the change under test (for `cargo`, the
   workspace members' manifests, build scripts and sources, and `Cargo.lock`; its own
   configuration, the root `Cargo.toml`, `.cargo/` and `rust-toolchain.toml`, is an implicit
-  input). A setup step that builds the change under test can still print a declared literal;
-  that is ruling 4's bounded cost, a person's park, and never a pass. Every implicit input
+  input). Every implicit input
   lies outside the change classes, or `machinery-escapes`
   withholds, naming the word, the input and the step. **A command word or a remote action the
   table does not name withholds as `machinery-unresolved`**: its inputs are not known, so they
   are not known to be machinery. The table is the engine's, one home, and a word it lacks fails
   closed; the closure verdict it gave is sealed in the basis, so a later table never moves a
   replay.
+- **Product inputs are admitted only where evidence cannot type setup.** A product input may
+  lie in a change class only for a step whose failure can never be setup evidence: a step that
+  is not a declared setup step (ruling 4) and that supplies nothing a declared setup step
+  consumes. A step supplies a declared setup step when it precedes it in the same job, or runs
+  in a job the setup step's job `needs`, transitively, since an earlier step's files, outputs
+  and environment, and a needed job's outputs and artifacts, are what a later step finds. So a
+  declared setup step, and every step that supplies one, holds its product inputs to the same
+  rule as its implicit inputs: each lies outside the change classes, or `machinery-escapes`
+  withholds, naming the word, the product input (the changed path, where the range holds one,
+  else the member's directory) and the step. A remote action that restores state another job
+  of the run may write (`actions/cache`, `actions/download-artifact`) in a step that supplies a
+  declared setup step withholds as `machinery-unresolved`: its writer is not bounded. A
+  `cargo build` declared setup at the workspace root therefore withholds, and a changed member
+  build script can no longer print the declared literal into a park. A `cargo test` after the
+  last declared setup step of its job, in a job no setup step's job needs, keeps the exception:
+  its failure is typed by its own step, which is not setup, so it is `untyped` and the change's.
+- **So do the files a command word's environment selects.** A program also reads files its
+  environment names: `make` reads every makefile `MAKEFILES` lists; `docker compose` reads the
+  files `COMPOSE_FILE` lists, split by `COMPOSE_PATH_SEPARATOR` (`:` on Linux and macOS), and
+  `COMPOSE_ENV_FILES`; `node` loads the `--require`, `-r` and `--import` operands of
+  `NODE_OPTIONS`; `bash` sources `BASH_ENV`. The same pinned table names, for every command word
+  it admits, every environment key that word reads as selecting a file, and the grammar of its
+  value; any other key is one the table states the word does not read for a file. The step's
+  **effective environment** is the workflow's `env`, then the job's, then the step's, each
+  overriding the last, then any `NAME=word` assignment prefix of the command, any literal
+  `export NAME=word` earlier in the same run line or reached script, and any literal
+  `NAME=word` line an earlier step of the job wrote to `$GITHUB_ENV`
+  (<https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/workflow-commands-for-github-actions#setting-an-environment-variable>;
+  not read in this session). Each file a table-named key selects, taken relative to the step's
+  effective working directory, is an implicit input: it lies outside the change classes, or
+  `machinery-escapes` withholds, naming the word, the key, the file and the step; and it is
+  scanned in turn as an implicit input is (below). A table-named key whose value is not a
+  literal word (a `${{ … }}` expression, a `$VAR`, a substitution), whose value the key's
+  grammar cannot split, or that an assignment form the grammar does not name sets (`env -S`,
+  `declare -x`, an `export` of a non-literal, a `$GITHUB_ENV` write that is not one literal
+  `NAME=word` line), withholds as `machinery-unresolved`, naming the key and the step. So does
+  a `$GITHUB_PATH` write before a reached step, since it moves which file a command word names,
+  unless it is a literal directory outside the change classes. `MAKEFLAGS` is table-named for
+  `make`, and any value but the empty word is unresolved, since it may carry `-f`, `-C` or
+  `-I`.
 - **So do each command word's data operands.** A program also reads files its operands name
   without executing them: `test -f crates/ci/ready` run from the workspace root reads the
   change's tree as surely as a `make` there does. The same table names, for every command word it
@@ -806,8 +846,9 @@ change's tree:
   format the table gives no grammar for, and a read or include form the grammar does not name
   (a `$(shell …)` or `$(wildcard …)` in a `Makefile`) each withhold as `machinery-unresolved`:
   what they read is not known, so it is not known to be machinery.
-- **Every file a required job executes, reads as an implicit input, a read operand or an
-  include, or runs from at the base
+- **Every file a required job executes, reads as an implicit input, a product input of a step
+  that supplies setup, an environment-selected file, a read operand or an include, or runs
+  from at the base
   lies outside the change classes,** or `machinery-escapes` withholds the class, naming the
   reference and the file that made it.
 - **A reference the test cannot resolve fails closed,** as `machinery-unresolved`: an operand or
@@ -870,7 +911,9 @@ class. A replaced-object view therefore never hides a machinery path: the path i
 What the classes do not cover, said plainly: the change's own code under test. A required job
 that runs `cargo test` builds and runs the change's crates, their manifests and their build
 scripts; that is what CI measures, not its machinery. A change that rigs its own test to pass is
-a change review reads, and every landing path reaches review (ruling 6).
+a change review reads, and every landing path reaches review (ruling 6). It never reaches a
+declared setup step's evidence: the product-input exception above holds only for a step whose
+failure cannot type setup.
 
 - **(b) A conservative machinery list,** `.github/`, `scripts/`, `quality/` and the toolchain
   files, as fix round 1093r4 drafted. Refused: it is open, so `deny.toml`, `_typos.toml` and any
@@ -1069,8 +1112,8 @@ stops nothing landing would do. Each is a precision guard on the one class, and 
 | Withholding | When |
 |---|---|
 | `machinery-touched` | a changed path lies outside every change class; it names the paths |
-| `machinery-escapes` | at the base, a file a required job executes, a command word's implicit input or read operand, a file an implicit input includes, or a reached step's effective working directory lies inside a change class |
-| `machinery-unresolved` | at the base, a reached file holds a reference, read operand or include the closure test cannot resolve, or a command word, remote action or implicit input format the pinned table does not name |
+| `machinery-escapes` | at the base, a file a required job executes, a command word's implicit input or read operand, a file its effective environment selects, a product input of a declared setup step or of a step that supplies one, a file an implicit input includes, or a reached step's effective working directory lies inside a change class |
+| `machinery-unresolved` | at the base, a reached file holds a reference, read operand or include the closure test cannot resolve, a file-selecting environment key or assignment the table cannot resolve, a state-restoring action supplies a setup step, or a command word, remote action or implicit input format the pinned table does not name |
 | `range-unproven` | 0109's verified reader cannot establish the range's provenance and its complete, byte-exact path list |
 | `range-too-large` | the range's changed paths exceed the bound the classification record carries |
 | `basis-too-large` | the classifier's sealed basis would exceed its bound |
@@ -1247,12 +1290,15 @@ rule, which reads every required check's own `success` and never reads a log.
   below). The issue's port-bind case is one:
   the step that boots the compose services, declared setup, with the literal
   `address already in use`. The adopter's step name and excerpt are unmeasured.
-  - **The bounded cost, said plainly:** a change that makes its own failure print a declared
-    literal in a declared setup step reaches a person's park, not a pass. Both an unchanged
-    setup step that runs repository code, such as a service bootstrap that starts the
-    repository's own compose file, and HEAD's checkout-local action
-    `uses: ./.github/actions/setup-cargo-audit` (`.github/workflows/ci.yml:681-689`) can print
-    it. The person reads the evidence and decides; nothing passes.
+  - **The bounded cost, said plainly:** ruling 3's closure keeps the change out of a declared
+    setup step's inputs, its product inputs, its environment and the steps that supply it
+    included, so a change reaches that step's evidence only where the pinned table is wrong
+    about what a program reads. Such a change, making its own failure print a declared literal
+    in a declared setup step, reaches a person's park, not a pass. A service bootstrap that
+    starts a compose file in a change class, or a `cargo build` declared setup, withholds
+    instead; HEAD's checkout-local action `uses: ./.github/actions/setup-cargo-audit`
+    (`.github/workflows/ci.yml:681-689`) is machinery, so a change to it is `machinery-touched`.
+    The person reads the evidence and decides; nothing passes.
 - **(b) Nothing types a park.** Every failure is the change's, as today. Cost: the narrowed
   acceptance is not delivered, and the port bind still costs a diagnosis seat attempt. It no longer
   depends on secret masking: no log byte is journaled under (a) either (ruling 3).
@@ -2017,7 +2063,9 @@ slice that produces it, and each typed assertion is in the slice that builds its
    `a_witness_within_its_limit_refuses_the_replay`. The evidence (ruling 4):
    `a_port_bind_literal_in_a_declared_setup_step_draws_ci_infrastructure`;
    `a_declared_literal_in_an_undeclared_step_is_the_changes`;
-   `a_literal_printed_by_the_change_in_a_declared_setup_step_draws_a_park_never_green`;
+   `a_literal_printed_by_the_change_where_the_table_is_wrong_draws_a_park_never_green` (a
+   stubbed table that omits a program's input: the bounded cost, `ci-infrastructure`, never
+   `green`);
    `no_class_a_failure_draws_is_green`; `a_startup_failure_or_timed_out_job_is_the_changes`;
    `several_literals_in_one_excerpt_match_the_first_declared`;
    `a_pattern_naming_an_undeclared_step_refuses_to_compile`;
@@ -2131,6 +2179,26 @@ slice that produces it, and each typed assertion is in the slice that builds its
    `a_non_literal_or_unsupported_include_or_read_withholds_as_machinery_unresolved` (a
    `Makefile` `include $(DIR)/setup.mk`, a `$(shell cat …)`, and a `test -f "$X"`: each `change`,
    `withheld`, `machinery-unresolved` naming the form);
+   `a_makefiles_environment_key_naming_a_change_class_file_draws_no_ci_infrastructure` (a
+   required setup step runs a bare `make` under a machinery `defaults.run.working-directory` of
+   `ops/ci`, the step's `env` sets `MAKEFILES: crates/ci/extra.mk`, and the change edits only
+   `crates/ci/extra.mk` so the step prints the declared port-bind literal: `change`,
+   `withheld`, with `machinery-escapes` naming `make`, `MAKEFILES`, `crates/ci/extra.mk` and the
+   step; and its siblings, the same file named by an inline `MAKEFILES=crates/ci/extra.mk make`
+   prefix and by a literal `$GITHUB_ENV` line an earlier step wrote, each the same);
+   `a_file_selecting_environment_key_the_table_cannot_resolve_withholds_as_machinery_unresolved`
+   (`MAKEFILES: ${{ vars.MK }}`, `COMPOSE_FILE: $X`, and a non-empty `MAKEFLAGS`: each
+   `change`, `withheld`, `machinery-unresolved` naming the key);
+   `a_changed_build_script_under_a_declared_setup_cargo_build_draws_no_ci_infrastructure` (a
+   declared setup step runs `cargo build` from the workspace root, and the change edits only
+   `crates/boot/build.rs` so the build prints the declared literal: `change`, `withheld`, with
+   `machinery-escapes` naming `cargo`, `crates/boot/build.rs` and the step);
+   `a_step_before_a_declared_setup_step_reading_a_product_input_withholds_as_machinery_escapes`
+   (the same build in an earlier step of the setup step's job, and again in a job it `needs`:
+   each the same);
+   `a_cargo_test_after_the_last_setup_step_keeps_the_product_input_exception` (the control: the
+   closure does not withhold, and a failing test step is `untyped`, the change's);
+   `a_state_restoring_action_supplying_a_setup_step_withholds_as_machinery_unresolved`;
    `a_step_whose_effective_working_directory_lies_in_a_change_class_withholds_as_machinery_escapes`;
    `a_cd_to_a_non_literal_directory_withholds_as_machinery_unresolved`;
    `a_command_word_the_pinned_table_does_not_name_withholds_as_machinery_unresolved`;
