@@ -1090,14 +1090,19 @@ pub(super) fn ended_by_the_guard(
     at
 }
 
-/// Kill `attempt` and every process below it, the broker, its starter and
-/// all they started ([`uprooted`]); then kill what `observed` names, those
-/// the proof saw that a broker already gone left reparented outside that
-/// tree; then reap `attempt`, so no zombie of it outlives the failure.
+/// [`felled_with`] of `attempt`; then reap it, so no zombie of it outlives
+/// the failure.
 fn torn_down(attempt: &mut Child, observed: impl FnOnce()) {
-    uprooted(i32::try_from(attempt.id()).unwrap());
-    observed();
+    felled_with(i32::try_from(attempt.id()).unwrap(), observed);
     attempt.wait().unwrap();
+}
+
+/// Kill `root` and every process below it, the broker, its starter and all
+/// they started ([`uprooted`]); then kill what `observed` names, those the
+/// proof saw that a broker already gone left reparented outside that tree.
+fn felled_with(root: i32, observed: impl FnOnce()) {
+    uprooted(root);
+    observed();
 }
 
 /// Kill every live one of `pids`, those already gone left alone.
@@ -1133,17 +1138,19 @@ fn a_torn_down_fixture_takes_what_was_observed_outside_its_tree() {
     let said = first_line_within(out).expect("the fixture never said its orphan");
     let orphan: i32 = said.trim().parse().unwrap();
     let root = i32::try_from(planted.attempt.id()).unwrap();
+    // A process other than the attempt, seen outside its tree and still a
+    // live member of its group, so that outside is no vacuous truth; one
+    // that is not fails here, `Planted` killing the group on the unwind.
     let outside = within(|| !descendants(root).contains(&orphan));
-    // Still live once seen outside, so that outside is no vacuous truth.
-    let live = !exited(orphan);
-    let late = torn_down_within(&mut planted, || felled_live(&[orphan]));
-    let left = (!gone(orphan), status(root));
-    // Every observation is taken before the group's fallback kill.
+    let member = members(root).contains(&orphan);
+    assert_eq!((orphan == root, outside, member), (false, true, true));
+    felled_with(root, || felled_live(&[orphan]));
+    // The teardown looked at within a while, never waited on, and every
+    // observation taken before `Planted`'s fallback kill.
+    let survived = !gone(orphan);
+    let signal = planted.ended_by();
     drop(planted);
-    assert_eq!(
-        (live, outside, late, left),
-        (true, true, false, (false, None))
-    );
+    assert_eq!((survived, signal), (false, Some(9)));
 }
 
 /// The first line `out` says within [`WHILE`], read on a thread of its own,
@@ -1161,30 +1168,8 @@ fn first_line_within(out: impl std::io::Read + Send + 'static) -> Option<String>
     heard.recv_timeout(WHILE).ok()
 }
 
-/// [`torn_down`] of `planted`'s attempt with what the proof `observed`,
-/// bounded: one that has not reaped the attempt within [`WHILE`] has the
-/// attempt's process group killed, which ends its wait; and whether it had
-/// to be.
-fn torn_down_within(planted: &mut Planted, observed: impl FnOnce()) -> bool {
-    use std::sync::mpsc::RecvTimeoutError;
-    let group = Pid::from_raw(i32::try_from(planted.attempt.id()).unwrap()).unwrap();
-    let (done, waited) = std::sync::mpsc::channel::<()>();
-    let bound = std::thread::spawn(move || {
-        let late = matches!(waited.recv_timeout(WHILE), Err(RecvTimeoutError::Timeout));
-        if late {
-            let signal = rustix::process::Signal::KILL;
-            rustix::process::kill_process_group(group, signal).ok();
-        }
-        late
-    });
-    torn_down(&mut planted.attempt, observed);
-    done.send(()).ok();
-    bound.join().unwrap()
-}
-
 #[test]
 fn a_hang_kills_the_whole_tree_of_its_attempt() {
-    use std::os::unix::process::ExitStatusExt;
     // A grandchild and its own child below the attempt, as the harness
     // shell and the broker stand below the adopter's strace: past a kill
     // of the attempt's children alone.
@@ -1205,12 +1190,9 @@ fn a_hang_kills_the_whole_tree_of_its_attempt() {
     }
     uprooted(root);
     let left: Vec<i32> = tree.iter().copied().filter(|pid| !gone(*pid)).collect();
-    // The root looked at within a while, never waited on: one left standing
-    // on its children fails here, not when its sleep ends.
-    let ended = within(|| exited(root)).then(|| planted.attempt.try_wait().unwrap());
+    let signal = planted.ended_by();
     // Its survivors are counted first, so this teardown hides none.
     drop(planted);
-    let signal = ended.flatten().and_then(|status| status.signal());
     assert_eq!((left, signal), (vec![], Some(9)));
 }
 
@@ -1221,6 +1203,18 @@ fn a_hang_kills_the_whole_tree_of_its_attempt() {
 /// fixture outlives the test.
 struct Planted {
     attempt: Child,
+}
+
+impl Planted {
+    /// The signal that ended the attempt, looked at within [`WHILE`] and
+    /// never waited on, so one left standing fails its proof then, not when
+    /// its sleep ends; none while it stands or when no signal ended it.
+    fn ended_by(&mut self) -> Option<i32> {
+        use std::os::unix::process::ExitStatusExt;
+        let root = i32::try_from(self.attempt.id()).unwrap();
+        let ended = within(|| exited(root)).then(|| self.attempt.try_wait().unwrap());
+        ended.flatten().and_then(|status| status.signal())
+    }
 }
 
 impl Drop for Planted {
