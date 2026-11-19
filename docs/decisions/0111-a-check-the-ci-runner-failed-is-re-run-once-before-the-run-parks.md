@@ -598,8 +598,9 @@ and a creator, and attests no revision: nothing in it says what its producer tes
 jobs: each of the twelve contexts `.github/branch-protection.json:7-20` records (observed
 2026-09-26, its `:3`) is a job's display name in `.github/workflows/ci.yml` or, for
 `mutants in the diff: brokkr-core`, in `.github/workflows/mutants.yml:42`. So `required_checks` admits no `status` entry: the compile refuses one,
-and where the forge's own required set names a status context, the observation refuses with
-`status-required`, for a person. Admitting statuses is a follow-up that needs a revision
+and where the forge's own required set names a status context, `status-required` withholds
+`ci-infrastructure`: the gate cannot read that requirement, so the failure set it sees is not
+known to be complete. Admitting statuses is a follow-up that needs a revision
 attestation the forge does not give a status.
 
 **The required set.** **Recommended: (a) a recipe-declared `required_checks` list, pinned by
@@ -619,8 +620,8 @@ the compiled bundle outside the change, each entry bound to its producer.**
   Where the observer can also read the forge's own required set for the base branch
   (branch protection, <https://docs.github.com/en/rest/branches/branch-protection>, or rulesets,
   <https://docs.github.com/en/rest/repos/rules>), every check the forge requires must be in the
-  declared list, or the observation refuses with `required-set-disagrees`. The forge's set can
-  only widen what a pass needs, never narrow it. The token scope that read needs is unmeasured;
+  declared list, or `required-set-disagrees` withholds `ci-infrastructure`, for the same reason.
+  The forge's set can only widen what the class needs, never narrow it. The token scope that read needs is unmeasured;
   where it is unread, the observation records `forge_required: unread`, and the pinned list
   alone governs. Cost: one more list for the operator to keep.
 - **(b) The forge's branch protection alone.** It is outside the change, but a repository
@@ -826,13 +827,10 @@ otherwise classifiable failure refuses as `missing-required`; it is never typed.
 | `unrelated` | the repository, the pull request or the head differs from the binding |
 | `head-unpublished` | the forge's head for the pull request is not the engine's git head: the head the run would gate is not the one pushed |
 | `empty` | the forge reports no check for the head |
-| `producer-mismatch` | a check carries a required entry's name from another app or workflow path; the refusal names it, so a substitute is never silently passed over |
-| `status-required` | the forge's required set names a commit status context, which is never admitted |
 | `missing-required` | a required entry matches no check from its bound producer; the refusal names the entry |
 | `ambiguous-required` | a required entry matches more than one check in its current execution |
 | `execution-ambiguous` | a required entry's current execution cannot be told, as above |
 | `not-settled` | a required check is still queued or in progress when the observer's own polling bound ends, short of the seat's deadline |
-| `required-set-disagrees` | the forge requires a check the pinned list lacks |
 
 One more refusal follows the pass and precedes classification: `non-success`, when no required
 check failed, and one concluded `neutral`, `skipped`, `stale` or `action_required`. It names the
@@ -858,6 +856,10 @@ stops nothing landing would do. Each is a precision guard on the one class, and 
 | `revision-unestablished` | an entry's pinned checkout does not establish its tested revision, as above |
 | `revision-disagrees` | one of the separate comparisons above fails; it names the two values |
 | `revision-unmeasured` | the forge exposes no field proving the revision the entry's run checked out |
+| `producer-mismatch` | a check carries a required entry's name from another app or workflow path; it names it, so a substitute is never silently passed over |
+| `status-required` | the forge's required set names a commit status context, which is never admitted |
+| `required-set-disagrees` | the forge requires a check the pinned list lacks |
+| `matrix-incomplete` | a verdict-only aggregate's dependency is missing an expected instance, from the base's pinned matrix (ruling 4), or its matrix cannot be expanded; it names the missing ones |
 
 The gate's word is bound to the engine's class: `pass` is admitted only on `green`, and `fail`
 with a `green` class is refused. A refused word is never rewritten (the same binding 0109
@@ -1010,8 +1012,9 @@ as an empty change. In order:
    matched without a wildcard:
    - **setup-pattern**: conclusion `failure`, its first failed step a declared setup step, and
      that step's sealed match naming one of that step's literals, with the pattern's id;
-   - **setup-via-needs**: a required aggregate (below) with conclusion `failure`, whose failed
-     dependencies are each, in turn, setup-pattern or setup-via-needs, and at least one failed;
+   - **setup-via-needs**: a pinned verdict-only aggregate (below) with conclusion `failure`,
+     whose dependencies' expected instances are all observed, every one that did not succeed is,
+     in turn, setup-pattern or setup-via-needs, and at least one failed;
    - **cancelled**: conclusion `cancelled`, the required job's own or a dependency's through an
      aggregate. Who cancelled is unmeasured, though on a pull request a newer push cancels the
      older run (`.github/workflows/ci.yml:25-27`);
@@ -1020,9 +1023,11 @@ as an empty change. In order:
      `action_required` beside a failure, so a skipped required check never rides along with a
      setup fault into a park.
 
-   A failure ruling 3 refuses to admit (an unproven association, a disagreeing revision, a
-   status) never reaches this step: step 1 has refused the whole observation for a person, so it
-   is never counted toward a `ci_infrastructure` park.
+   **Inadmissible evidence has one route, `change`.** A failure in an execution ruling 3 does
+   not admit (an unproven or ambiguous association, an unestablished, disagreeing or unmeasured
+   revision, a status the forge requires) never reaches this step: step 3 has withheld the class,
+   so the observation is `change`, exactly, never `refused`, never `green` and never
+   `ci-infrastructure`. (Fix round 1093r4 parked that case `ruled`; that route is removed.)
 5. **Only an all-setup failure set parks.** Every element setup-pattern or setup-via-needs, and
    the set non-empty: **`ci-infrastructure`**, naming each job, its step and its pattern id,
    with the workflow run's id and attempt a person needs to re-run it.
@@ -1030,19 +1035,37 @@ as an empty change. In order:
    the set's order: `cancelled`, or `untyped-failure`. One such element beside any number of
    setup faults makes the whole observation the change's.
 
-**A required aggregate is followed through its pinned `needs`.** HEAD's required `test (…)`
-jobs are an aggregate: job `engine` `needs: engine-machines`, runs `always()`, and its one step
-asserts `needs.engine-machines.result` is `success` (`.github/workflows/ci.yml:315-329`). A
-port bind during service boot in an `engine-machines` instance therefore fails `engine` in a
-step that prints no setup literal, and read alone it is `untyped`. So a failed required job
-whose job, in the base revision's pinned workflow, declares `needs` is typed through them: the
-classifier reads the `needs` that ruling 3's closure parse took from the base workflow, finds
-those jobs in the same workflow run and attempt, and types each that did not succeed by the
-same rules, recursively. A dependency the observation does not carry, or one in another run or
-attempt, is `untyped`. This is safe because the base workflow is the one the run used (ruling 3
-withholds the class on a changed one as `machinery-touched`), and because the type only parks: a
-mistyped aggregate costs a person's look, never a pass. The aggregate's own failed step is taken
-as the dependency's consequence, not read; that is the bounded cost.
+**An aggregate is followed only where it is verdict-only.** HEAD's required `test (…)` jobs are
+an aggregate: job `engine` `needs: engine-machines`, runs `always()`, and its one step asserts
+`needs.engine-machines.result` is `success` (`.github/workflows/ci.yml:315-329`). A port bind
+during service boot in an `engine-machines` instance therefore fails `engine` in a step that
+prints no setup literal, and read alone it is `untyped`. So such a job is typed through its
+`needs`, but only when, in the base revision's pinned workflow as ruling 3's closure parse took
+it, it is a **verdict-only aggregate**: it has no `uses` step and no checkout, and every one of
+its steps is a single assertion that a dependency's result is `success`, of the form
+`test "$NAME" = success` with `NAME` bound in that step's `env` to exactly
+`${{ needs.<dep>.result }}` for a `<dep>` in its `needs`, as HEAD's one-step `engine` job is.
+A job with any independent step is not one: its own first failed step is typed by the rules
+above, so an independent assertion that fails is `untyped` and makes the observation `change`
+whatever its dependencies did. Fix round 1093r4 followed any job with `needs` and discarded its
+own failed step; that is removed.
+
+The classifier then finds the aggregate's dependencies in the same workflow run and attempt,
+and types each instance that did not succeed by the same rules, recursively. **Every expected
+instance is accounted for.** A dependency's expected instances come from the base's pinned
+`strategy.matrix`: for HEAD's `engine-machines`, its nine `include` entries, five Linux and four
+macOS machines (`:192-215`). A matrix the parse cannot expand into a fixed list, because it is
+built by an expression or `fromJSON`, cannot be accounted for. An observation missing any
+expected instance, or holding one whose matrix values match no expected entry, withholds the
+class as `matrix-incomplete`, so a sparse observation cannot look all-setup. A cancelled sibling
+is observed, and is `cancelled`, which makes the observation `change`. How the forge names an
+instance, and so how an observed job is matched to its expected entry, is **unmeasured** until
+0111a; until it is measured every matrix dependency is `matrix-incomplete`, which fails closed.
+
+This is safe because the base workflow is the one the run used (ruling 3 withholds the class on
+a changed one as `machinery-touched`), and because the type only parks: a mistyped aggregate
+costs a person's look, never a pass. A verdict-only aggregate's own failed step is taken as its
+dependencies' consequence, not read, because it holds nothing else.
 
 A change that touches CI's machinery never reaches step 4: step 3 makes it the change's, as
 `machinery-touched`, and no pattern over its steps is read. It parks nothing for a person.
@@ -1557,16 +1580,25 @@ slice that produces it, and each typed assertion is in the slice that builds its
    `a_cancelled_required_job_beside_a_setup_failure_is_the_changes`;
    `an_unclassifiable_failure_beside_a_setup_failure_is_the_changes`;
    `a_skipped_required_check_beside_a_setup_failure_is_the_changes`;
-   `an_unadmitted_failure_beside_a_setup_failure_refuses_and_never_parks_typed`;
-   `a_port_bind_in_engine_machines_through_the_engine_aggregate_draws_ci_infrastructure`;
+   `an_unadmitted_failure_beside_a_setup_failure_is_exactly_change_never_refused_or_parked`
+   (the class is `change` with reason `withheld`, the routed rule is `CI-FAIL`, and no park is
+   written);
+   `a_valid_all_setup_verdict_only_aggregate_draws_ci_infrastructure` (a port bind in one
+   `engine-machines` instance, the other eight observed and successful);
+   `an_independent_assertion_failing_beside_a_setup_fault_in_a_dependency_is_change`
+   (an aggregate with a second step of its own that fails: `change`, `untyped-failure`);
+   `a_missing_matrix_sibling_draws_no_ci_infrastructure` (eight of nine instances observed:
+   `change`, `matrix-incomplete`);
+   `a_cancelled_matrix_sibling_draws_no_ci_infrastructure` (`change`, `cancelled`);
+   `a_matrix_built_by_an_expression_is_matrix_incomplete`;
    `an_aggregate_with_one_untyped_dependency_is_the_changes`;
    `an_aggregate_whose_dependency_is_in_another_attempt_is_the_changes`;
    `the_aggregate_reads_its_needs_from_the_base_workflow_never_the_head`;
-   `a_setup_step_in_a_job_no_required_aggregate_needs_refuses`;
+   `a_setup_step_in_a_job_no_required_aggregate_needs_withholds`;
    `a_stale_head_observation_does_not_read`; `a_pass_with_a_failed_job_is_refused`;
    `a_seat_cannot_write_the_classification`; `a_ci_list_on_a_model_seat_refuses_to_compile`.
    The producer, the association and the tested revision (ruling 3):
-   `a_same_named_green_check_from_another_workflow_refuses_as_producer_mismatch`;
+   `a_same_named_check_from_another_workflow_withholds_as_producer_mismatch`;
    `a_green_check_on_another_event_does_not_match_its_entry`;
    `a_red_setup_only_run_on_the_same_head_for_another_pull_request_is_change_as_association_unproven`;
    `a_run_with_an_empty_association_withholds_as_association_unproven`;
@@ -1584,7 +1616,7 @@ slice that produces it, and each typed assertion is in the slice that builds its
    aggregate);
    `an_entry_whose_run_records_no_tested_commit_withholds_as_revision_unmeasured`;
    `a_status_entry_in_the_required_list_refuses_to_compile`;
-   `a_status_context_in_the_forges_required_set_refuses_as_status_required`;
+   `a_status_context_in_the_forges_required_set_withholds_as_status_required`;
    the machinery, each asserting the exact class and withholding (ruling 3):
    `a_deny_toml_only_change_with_a_red_setup_only_observation_is_change_not_ci_infrastructure`;
    `a_typos_toml_only_change_with_a_red_setup_only_observation_is_change_not_ci_infrastructure`;
@@ -1605,7 +1637,8 @@ slice that produces it, and each typed assertion is in the slice that builds its
    `an_ambiguous_tested_revision_withholds_as_revision_unestablished`;
    `a_merge_revision_whose_parents_are_not_the_base_and_the_head_withholds`;
    `two_unsettled_runs_for_one_entry_refuse_as_execution_ambiguous`;
-   `missing_required_beside_a_classifiable_failure_refuses_and_is_never_typed`. The pass's
+   `missing_required_beside_a_classifiable_failure_refuses_and_is_never_typed`;
+   `a_forge_required_check_the_list_lacks_withholds_as_required_set_disagrees`. The
    refusals, one test each, every one asserting the refusal's variant and that the class is not
    `green`: `an_observation_with_no_check_refuses_as_empty`;
    `a_required_audit_missing_from_the_observation_refuses_as_missing_required`;
@@ -1613,7 +1646,7 @@ slice that produces it, and each typed assertion is in the slice that builds its
    `a_skipped_or_neutral_required_check_refuses_as_non_success`;
    `a_required_check_still_in_progress_refuses_as_not_settled`;
    `two_matches_for_one_required_check_refuse_as_ambiguous`;
-   `a_forge_required_check_the_list_lacks_refuses`; `an_empty_required_list_refuses_to_compile`.
+   `an_empty_required_list_refuses_to_compile`.
    The readout it produces: `inspect_names_the_class_the_refusals_and_the_faults`;
    `inspect_names_the_run_attempt_and_job_ids_a_person_re_runs`.
 3. **0111c — the trusted launch and a GitHub observer script.** Files: the launch in
