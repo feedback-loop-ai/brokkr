@@ -1077,39 +1077,33 @@ fn lanes_kept(drawing: &str) -> Vec<Vec<usize>> {
 #[test]
 fn a_link_passing_under_a_rail_keeps_its_row_where_a_shallower_one_has_ended() {
     let dir = tempfile::tempdir().unwrap();
-    let (five, ten) = (dir.path().join("five"), dir.path().join("ten"));
+    let kept = |name: &str, states: &[&str], links: &[(usize, usize)], width| {
+        let view = returned(&dir.path().join(name), states, links);
+        let drawing = drawn(&view, width);
+        (lanes_kept(&drawing), drawing, view)
+    };
+    let five_lanes = [vec![2, 3], vec![2, 3], vec![3], vec![3], vec![]];
     // Review 2's C1, correctness's shape: at 12 columns one state to a
     // rail, c ᐸ a ends on c's rail and e ᐸ a passes under d's on its own.
-    let view = returned(&five, &["a", "b", "c", "d", "e"], &[(2, 0), (4, 0)]);
-    let drawing = drawn(&view, 12);
+    let (lanes, drawing, view) = kept("five", &["a", "b", "c", "d", "e"], &[(2, 0), (4, 0)], 12);
     arcs_drawn(&view, 12);
-    assert_eq!(
-        lanes_kept(&drawing),
-        [vec![2, 3], vec![2, 3], vec![3], vec![3], vec![]],
-        "{drawing}"
-    );
+    assert_eq!(lanes, five_lanes, "{drawing}");
     // Adversarial's: at 30 columns two states to a rail, c ᐸ b and j ᐸ g
     // ride the first lane, h ᐸ a the second, alone under e and f's rail.
     let states = ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j"];
-    let view = returned(&ten, &states, &[(2, 1), (7, 0), (9, 6)]);
-    let drawing = drawn(&view, 30);
+    let (lanes, drawing, view) = kept("ten", &states, &[(2, 1), (7, 0), (9, 6)], 30);
     arcs_drawn(&view, 30);
     assert_eq!(
-        lanes_kept(&drawing),
+        lanes,
         [vec![2, 3], vec![3], vec![3], vec![2], vec![]],
         "{drawing}"
     );
     // A state whose name paints blank, narrow or wide, keeps its name row
     // under a rail a link passes, so e ᐸ a holds its row there too.
     for (at, blank) in [" ", "\u{2003}"].into_iter().enumerate() {
-        let shape = dir.path().join(format!("blank{at}"));
-        let view = returned(&shape, &["a", "b", "c", blank, "e"], &[(2, 0), (4, 0)]);
-        let drawing = drawn(&view, 12);
-        assert_eq!(
-            lanes_kept(&drawing),
-            [vec![2, 3], vec![2, 3], vec![3], vec![3], vec![]],
-            "{drawing}"
-        );
+        let shape = format!("blank{at}");
+        let (lanes, drawing, _) = kept(&shape, &["a", "b", "c", blank, "e"], &[(2, 0), (4, 0)], 12);
+        assert_eq!(lanes, five_lanes, "{drawing}");
     }
 }
 
