@@ -1808,6 +1808,28 @@ fn the_reaped_pid_fixture_fails_within_its_patience_on_a_child_that_never_exits(
     );
 }
 
+/// The reap after the stop is bounded too: a child the stop leaves alive
+/// fails the fixture within `REAP_GRACE`, not when the child ends itself.
+#[test]
+fn the_reaped_pid_fixture_fails_within_its_grace_on_a_child_its_stop_leaves_alive() {
+    let started = std::time::Instant::now();
+    let failed = std::panic::catch_unwind(|| {
+        crate::reaped::reaped_with(
+            Command::new("sleep").arg("4"),
+            std::time::Duration::from_millis(200),
+            |_| {},
+        )
+    })
+    .unwrap_err();
+
+    assert!(started.elapsed() < std::time::Duration::from_secs(3));
+    let words = failed.downcast_ref::<String>().unwrap();
+    assert!(
+        words.ends_with("did not exit within 200ms; it was stopped but not reaped within 1s"),
+        "{words}"
+    );
+}
+
 /// A safe renderer for the lines: the CLI's own strips controls and the
 /// bidi marks, and this pins the same visible result for a control byte.
 fn safe(text: &str) -> String {
