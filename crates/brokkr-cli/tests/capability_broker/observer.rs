@@ -12,9 +12,10 @@ use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
 use std::os::unix::fs::MetadataExt;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
+use rustix::io::Errno;
 use rustix::net::{AddressFamily, SendAncillaryBuffer, SendAncillaryMessage, SendFlags};
 use rustix::net::{RecvAncillaryBuffer, RecvAncillaryMessage, RecvFlags};
 use rustix::net::{SocketFlags, SocketType};
@@ -917,14 +918,13 @@ fn blocked_to_the_deadline(kind: Kind) {
         // The controlled-clock proofs check the exact budget. Here the
         // deadline must refuse and settle the whole real process group;
         // the parent's elapsed time also includes startup and scheduling.
-        let (at, finished) = guarded(broker);
+        let at = ended_by_the_guard(broker, &attempt, &format!("{kind:?}"));
         let elapsed = at - started;
         let ended = swept(pid);
         let code = super::bounded_apart(attempt, b"", &apart(&sealed))
             .status
             .code();
         let ended_at = Instant::now();
-        assert!(finished, "{kind:?}: broker still running at the hang guard");
         let answer = (code, broker_err(&sealed));
         assert_eq!((kind, answer), (kind, refused(Refusal::Identity)));
         assert!(elapsed >= STARTUP, "{kind:?}: early refusal: {elapsed:?}");
@@ -1012,20 +1012,39 @@ pub(super) fn awaited(pid: i32) -> Instant {
     guarded(pid).0
 }
 
-/// [`awaited`], and whether `pid` ended by the hang guard. One still running
-/// there is killed, so that a hang fails at the guard and not at the next
-/// wait of its fixture's cleanup, which then finds it ended.
-pub(super) fn guarded(pid: i32) -> (Instant, bool) {
+/// [`awaited`], and whether `pid` ended by the hang guard: seen ended at a
+/// time no later than the guard, so that one exiting past it, however late
+/// this wakes, did not. One still running there is killed; one gone and
+/// reaped since is no failure of the kill's.
+fn guarded(pid: i32) -> (Instant, bool) {
     let until = Instant::now() + super::TALK_MAX;
-    while !exited(pid) && Instant::now() < until {
+    loop {
+        // Its state first: an exit seen here came no later than `at`.
+        let ended = exited(pid);
+        let at = Instant::now();
+        if ended | (at >= until) {
+            if !ended {
+                let signal = rustix::process::Signal::KILL;
+                let gone = rustix::process::kill_process(Pid::from_raw(pid).unwrap(), signal);
+                assert!(matches!(gone, Ok(()) | Err(Errno::SRCH)), "{gone:?}");
+            }
+            return (at, ended & (at <= until));
+        }
         std::thread::sleep(Duration::from_millis(20));
     }
-    let at = Instant::now();
-    let finished = exited(pid);
+}
+
+/// When `broker`, started by `attempt`, ended, within the hang guard
+/// ([`guarded`]). One that did not fails `what` there and then, `attempt`'s
+/// tree killed with it, so that no cleanup wait of its fixture outlasts the
+/// guard first.
+pub(super) fn ended_by_the_guard(broker: i32, attempt: &Child, what: &str) -> Instant {
+    let (at, finished) = guarded(broker);
     if !finished {
-        kill(pid);
+        super::killed(attempt.id());
+        panic!("{what}: broker still running at the hang guard");
     }
-    (at, finished)
+    at
 }
 
 /// Whether the process is gone or a zombie, without another wait.

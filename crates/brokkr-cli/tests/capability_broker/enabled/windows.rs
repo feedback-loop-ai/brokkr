@@ -50,8 +50,10 @@ const TIMEOUT: u64 = 25;
 const TIMED_OUT: &str =
     "s deadline and was killed; its process tree is gone, and what it did is unknown";
 
-/// How long the engine's end of a timed or expired window is waited for.
-const PATIENCE: Duration = Duration::from_secs(90);
+/// How long the engine's end of a timed or expired window is waited for: an
+/// expired window ends only at the broker's own deadline, so the suite's wait
+/// for a broker, that deadline and its settle allowance (#1008).
+const PATIENCE: Duration = TALK_MAX;
 
 /// How long a window's broker, and then everything below it, is given to end
 /// once its end is due: seconds, on a hosted runner as on a quiet host.

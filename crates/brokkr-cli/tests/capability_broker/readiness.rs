@@ -18,7 +18,7 @@ use rustix::fs::inotify::{self, CreateFlags, WatchFlags};
 use serde_json::json;
 
 use super::ledger::{failed_with, sealed_ledger, Proved};
-use super::observer::{cancelled, gone, guarded, processes, started_to, status, traced};
+use super::observer::{cancelled, ended_by_the_guard, gone, processes, started_to, status, traced};
 use super::observer::{tracer, within, Starter, NO_TRACER};
 use super::{admitted, refused, skip, unservable, Refusal, Sealed, STARTUP};
 
@@ -274,13 +274,9 @@ fn a_box_held_at_its_entry_refuses_at_the_absolute_deadline() {
     // Real-process proof of deadline refusal and cleanup. The shared
     // poller's controlled-clock tests prove the exact budget; this parent
     // includes process startup and its own scheduling in elapsed time.
-    let (at, finished) = guarded(held.chain[3]);
+    let at = ended_by_the_guard(held.chain[3], &held.attempt, "the box held at its entry");
     let elapsed = at - held.begun;
     let (answer, settled, _, ledger) = held.ended();
-    assert!(
-        finished,
-        "broker still running at the process wait's hang guard"
-    );
     assert_eq!(answer, refused(Refusal::Establishment));
     assert!(elapsed >= STARTUP, "early refusal: {elapsed:?}");
     assert!(settled);
