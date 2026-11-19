@@ -347,7 +347,9 @@ pub fn ids() -> (u32, u32) {
 ///   namespace, and a `runner` name would not match the operator's uid;
 /// - `VOLTA_HOME`: the engine's own, or the operator's `~/.volta` where
 ///   that `PATH` reaches its shims ([`environment::volta_home`]), so a
-///   volta shim does not recurse under the private `HOME`;
+///   volta shim does not recurse under the private `HOME`; read, like
+///   every inherited name here, from `engine_env`'s UTF-8 strings, so a
+///   non-UTF-8 `PATH` or `VOLTA_HOME` never reaches this table;
 /// - `CARGO_HOME`, `RUSTUP_HOME`, `NPM_CONFIG_CACHE`: the operator's
 ///   `~/.cargo`, `~/.rustup`, `~/.npm` exactly when the spec's binds
 ///   declare that path, as the box sets them; a bind's `mask` is declared

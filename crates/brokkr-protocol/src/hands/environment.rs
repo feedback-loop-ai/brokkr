@@ -43,8 +43,11 @@ pub(crate) fn inherited_git_group_closed() -> (&'static str, &'static str) {
 /// The volta home a child under a private `HOME` must be told, the one
 /// home the unboxed dispatch and the probe's launches read: the engine's
 /// own `VOLTA_HOME` as it stands, else the operator's `~/.volta` exactly
-/// when `path` reaches that home's `bin`, else nothing. Each input is the
-/// engine's as the OS holds it, so a non-UTF-8 entry hides nothing; a
+/// when `path` reaches that home's `bin`, else nothing. It reads OS
+/// strings, and what of the engine's environment reaches it is the
+/// caller's: the probe's launch hands each entry as the OS holds it, so a
+/// non-UTF-8 entry hides nothing there, while the unboxed dispatch hands
+/// only what its UTF-8 table holds ([`super::unboxed_environment`]); a
 /// `home` that is not absolute (the empty one an unset `HOME` reads as)
 /// names no `~/.volta`, so no relative locator is inferred.
 ///
