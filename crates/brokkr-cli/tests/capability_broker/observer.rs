@@ -927,10 +927,7 @@ fn blocked_to_the_deadline(kind: Kind) {
         let answer = (code, broker_err(&sealed));
         assert_eq!((kind, answer), (kind, refused(Refusal::Identity)));
         assert!(finished, "{kind:?}: broker still running at the hang guard");
-        assert!(
-            elapsed >= Duration::from_secs(30),
-            "{kind:?}: early refusal: {elapsed:?}"
-        );
+        assert!(elapsed >= STARTUP, "{kind:?}: early refusal: {elapsed:?}");
         assert!(ended, "{kind:?}");
         // Nothing was looked up or started.
         assert_eq!((kind, store.lookups(ended_at)), (kind, 0));
@@ -1002,9 +999,24 @@ pub(super) fn cancelled(broker: i32) -> Duration {
     awaited(broker) - cancelled
 }
 
-/// When `pid` is gone, or only a zombie, waiting no longer than a minute.
+/// MB3's absolute startup deadline, `STARTUP` in `src/broker/session.rs`,
+/// which a broker blocked in its startup meets before it refuses and ends.
+pub(super) const STARTUP: Duration = Duration::from_secs(30);
+
+/// What a broker is given past [`STARTUP`] to end its box, reap it and
+/// report: 60 s, for an instrumented coverage build on a loaded hosted
+/// runner, where a fixed minute from the wait's start was outrun (#1008).
+const SETTLE: Duration = Duration::from_secs(60);
+
+/// The hang guard of [`awaited`]: the broker's own deadline and the settle
+/// allowance, so that load cannot outrun it while a broker that never
+/// ends still fails within it.
+const HANG_GUARD: Duration = STARTUP.saturating_add(SETTLE);
+
+/// When `pid` is gone, or only a zombie, waiting no longer than the
+/// [`HANG_GUARD`].
 pub(super) fn awaited(pid: i32) -> Instant {
-    let until = Instant::now() + Duration::from_secs(60);
+    let until = Instant::now() + HANG_GUARD;
     while !exited(pid) && Instant::now() < until {
         std::thread::sleep(Duration::from_millis(20));
     }

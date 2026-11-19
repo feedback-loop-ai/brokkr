@@ -19,7 +19,7 @@ use serde_json::json;
 
 use super::ledger::{failed_with, sealed_ledger, Proved};
 use super::observer::{awaited, cancelled, exited, gone, processes, started_to, status, traced};
-use super::observer::{tracer, within, Starter, NO_TRACER};
+use super::observer::{tracer, within, Starter, NO_TRACER, STARTUP};
 use super::{admitted, refused, skip, unservable, Refusal, Sealed};
 
 /// Every read of a file: of a fixture's store, its one binding's value now
@@ -282,10 +282,7 @@ fn a_box_held_at_its_entry_refuses_at_the_absolute_deadline() {
         finished,
         "broker still running at the process wait's hang guard"
     );
-    assert!(
-        elapsed >= Duration::from_secs(30),
-        "early refusal: {elapsed:?}"
-    );
+    assert!(elapsed >= STARTUP, "early refusal: {elapsed:?}");
     assert!(settled);
     // Its ledger closed Failed with that cause, and no call.
     assert_eq!(ledger, failed_with(Refusal::Establishment));
