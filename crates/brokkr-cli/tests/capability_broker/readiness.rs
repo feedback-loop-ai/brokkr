@@ -18,7 +18,8 @@ use rustix::fs::inotify::{self, CreateFlags, WatchFlags};
 use serde_json::json;
 
 use super::ledger::{failed_with, sealed_ledger, Proved};
-use super::observer::{cancelled, ended_by_the_guard, gone, processes, started_to, status, traced};
+use super::observer::{cancelled, ended_by_the_guard, felled_live, gone, processes, started_to};
+use super::observer::{status, traced};
 use super::observer::{tracer, within, Starter, NO_TRACER};
 use super::{admitted, refused, skip, unservable, Refusal, Sealed, STARTUP};
 
@@ -268,13 +269,21 @@ impl Held {
 
 #[test]
 fn a_box_held_at_its_entry_refuses_at_the_absolute_deadline() {
-    let Some(held) = Held::started_by(Starter::Harness, &HELD) else {
+    let Some(mut held) = Held::started_by(Starter::Harness, &HELD) else {
         return;
     };
     // Real-process proof of deadline refusal and cleanup. The shared
     // poller's controlled-clock tests prove the exact budget; this parent
     // includes process startup and its own scheduling in elapsed time.
-    let at = ended_by_the_guard(held.chain[3], &held.attempt, "the box held at its entry");
+    // A hang takes the box's chain with it, wherever it stands.
+    let (broker, chain) = (held.chain[3], held.chain);
+    let observed = || felled_live(&chain);
+    let at = ended_by_the_guard(
+        broker,
+        &mut held.attempt,
+        observed,
+        "the box held at its entry",
+    );
     let elapsed = at - held.begun;
     let (answer, settled, _, ledger) = held.ended();
     assert_eq!(answer, refused(Refusal::Establishment));

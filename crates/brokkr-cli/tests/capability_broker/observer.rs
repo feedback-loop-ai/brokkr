@@ -912,13 +912,15 @@ fn blocked_to_the_deadline(kind: Kind) {
         let store = Store::new(sealed.path("store/secrets.env"));
         let started = Instant::now();
         let mut command = adopted(&serving(&sealed, &digest, &block, Starter::Harness));
-        let attempt = command.stderr(Stdio::null()).spawn().unwrap();
+        let mut attempt = command.stderr(Stdio::null()).spawn().unwrap();
         let pid = blocked(&sealed.locator, &block);
         let (_, broker, _) = status(pid).unwrap();
         // The controlled-clock proofs check the exact budget. Here the
         // deadline must refuse and settle the whole real process group;
         // the parent's elapsed time also includes startup and scheduling.
-        let at = ended_by_the_guard(broker, &attempt, &format!("{kind:?}"));
+        // A hang takes the observer's group with it, wherever it stands.
+        let observed = || group_felled(pid);
+        let at = ended_by_the_guard(broker, &mut attempt, observed, &format!("{kind:?}"));
         let elapsed = at - started;
         let ended = swept(pid);
         let code = super::bounded_apart(attempt, b"", &apart(&sealed))
@@ -1073,15 +1075,67 @@ fn uprooted(root: i32) {
 }
 
 /// When `broker`, started by `attempt`, ended, within the hang guard
-/// ([`guarded`]). One that did not fails `what` there and then, `attempt`
-/// and every process below it, the broker, its starter and all they
-/// started, killed first ([`uprooted`]), so that no cleanup wait of its
-/// fixture outlasts the guard and nothing of it is left running.
-pub(super) fn ended_by_the_guard(broker: i32, attempt: &Child, what: &str) -> Instant {
-    let root = i32::try_from(attempt.id()).unwrap();
-    let (at, finished) = guarded(broker, || uprooted(root));
+/// ([`guarded`]). One that did not fails `what` there and then, its
+/// fixture torn down first ([`torn_down`]) with what the proof `observed`,
+/// so that no cleanup wait of its fixture outlasts the guard and nothing
+/// of it is left running.
+pub(super) fn ended_by_the_guard(
+    broker: i32,
+    attempt: &mut Child,
+    observed: impl FnOnce(),
+    what: &str,
+) -> Instant {
+    let (at, finished) = guarded(broker, || torn_down(attempt, observed));
     assert!(finished, "{what}: broker still running at the hang guard");
     at
+}
+
+/// Kill `attempt` and every process below it, the broker, its starter and
+/// all they started ([`uprooted`]); then kill what `observed` names, those
+/// the proof saw that a broker already gone left reparented outside that
+/// tree; then reap `attempt`, so no zombie of it outlives the failure.
+fn torn_down(attempt: &mut Child, observed: impl FnOnce()) {
+    uprooted(i32::try_from(attempt.id()).unwrap());
+    observed();
+    attempt.wait().unwrap();
+}
+
+/// Kill every live one of `pids`, those already gone left alone.
+pub(super) fn felled_live(pids: &[i32]) {
+    pids.iter()
+        .filter(|pid| !exited(**pid))
+        .for_each(|pid| felled(*pid));
+}
+
+/// Kill every member of the process group `group`; one already empty is no
+/// failure.
+fn group_felled(group: i32) {
+    let signal = rustix::process::Signal::KILL;
+    let gone = rustix::process::kill_process_group(Pid::from_raw(group).unwrap(), signal);
+    assert!(matches!(gone, Ok(()) | Err(Errno::SRCH)), "{gone:?}");
+}
+
+#[test]
+fn a_torn_down_fixture_takes_what_was_observed_outside_its_tree() {
+    // The inner shell ends at once, so its sleep is reparented out of the
+    // attempt's tree, as a broker gone late leaves what it started.
+    let script = "sh -c 'sleep 600 & echo $!'; exec sleep 600";
+    let mut command = Command::new("sh");
+    let mut attempt = command
+        .args(["-c", script])
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut said = String::new();
+    let out = attempt.stdout.take().unwrap();
+    std::io::BufRead::read_line(&mut std::io::BufReader::new(out), &mut said).unwrap();
+    let orphan: i32 = said.trim().parse().unwrap();
+    let root = i32::try_from(attempt.id()).unwrap();
+    let outside = within(|| !descendants(root).contains(&orphan));
+    torn_down(&mut attempt, || felled_live(&[orphan]));
+    let left = (!gone(orphan), status(root));
+    felled_live(&[orphan]);
+    assert_eq!((outside, left), (true, (false, None)));
 }
 
 #[test]
@@ -1091,52 +1145,43 @@ fn a_hang_kills_the_whole_tree_of_its_attempt() {
     // shell and the broker stand below the adopter's strace: past a kill
     // of the attempt's children alone.
     let script = "sh -c 'sleep 600 & wait' & wait";
-    let attempt = Command::new("sh").args(["-c", script]).spawn().unwrap();
-    let mut planted = Planted {
-        attempt,
-        tree: vec![],
-    };
+    let mut command = Command::new("sh");
+    let attempt = command
+        .args(["-c", script])
+        .process_group(0)
+        .spawn()
+        .unwrap();
+    let mut planted = Planted { attempt };
     let root = i32::try_from(planted.attempt.id()).unwrap();
     let stood = within(|| descendants(root).len() == 2);
-    planted.tree = descendants(root);
+    let tree = descendants(root);
     if !stood {
         drop(planted);
         panic!("the attempt's tree never stood");
     }
     uprooted(root);
-    let left: Vec<i32> = planted
-        .tree
-        .iter()
-        .copied()
-        .filter(|pid| !gone(*pid))
-        .collect();
+    let left: Vec<i32> = tree.iter().copied().filter(|pid| !gone(*pid)).collect();
     let status = planted.attempt.wait().unwrap();
     // Its survivors are counted first, so this teardown hides none.
     drop(planted);
     assert_eq!((left, status.signal()), (vec![], Some(9)));
 }
 
-/// A fixture's attempt and the tree found below it, all killed when it
-/// drops, a failed proof's unwind included: the attempt and its live
-/// descendants, found before any is killed, and every member of `tree`
-/// still live, orphans of a killed parent among them. The attempt is then
-/// reaped, so nothing of the fixture outlives the test.
+/// A fixture's attempt, started as the leader of a process group of its
+/// own, which all it starts joins: the whole group killed when it drops, a
+/// failed proof's unwind included, so a fork no scan of the tree has seen
+/// is killed with it; the attempt is then reaped, so nothing of the
+/// fixture outlives the test.
 struct Planted {
     attempt: Child,
-    tree: Vec<i32>,
 }
 
 impl Drop for Planted {
     fn drop(&mut self) {
-        // An attempt already reaped is no pid of its own any longer.
-        let standing = matches!(self.attempt.try_wait(), Ok(None));
-        let root = i32::try_from(self.attempt.id()).unwrap();
-        let rooted = standing.then(|| std::iter::once(root).chain(descendants(root)));
-        let live = self.tree.iter().copied().filter(|pid| !exited(*pid));
-        for pid in rooted.into_iter().flatten().chain(live) {
-            let signal = rustix::process::Signal::KILL;
-            rustix::process::kill_process(Pid::from_raw(pid).unwrap(), signal).ok();
-        }
+        // The group outlives its leader's reaping while a member stands.
+        let group = i32::try_from(self.attempt.id()).unwrap();
+        let signal = rustix::process::Signal::KILL;
+        rustix::process::kill_process_group(Pid::from_raw(group).unwrap(), signal).ok();
         self.attempt.wait().ok();
     }
 }
