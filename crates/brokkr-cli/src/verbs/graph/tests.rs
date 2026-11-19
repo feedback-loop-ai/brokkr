@@ -348,6 +348,8 @@ fn a_recipe_only_runs_carry_is_drawn_from_them_and_its_live_run_named() {
              this recipe's table was not found in world\n\
              STATE  ENTERED  MEDIAN  P90          COST  TOKENS  CACHE\n\
              work         1       —    —  not reported       —      —\n\
+             \n\
+             RULE  COUNT  FROM  TO  KIND\n\
              ends   0 done · 0 stop by a rule · 0 stopped by you · 1 open\n\
              ledger 0 of 0 shipped (—) · 0 excluded · 0 unclassified\n\
              live   Draw the graph · work\n",
@@ -660,25 +662,40 @@ fn the_states_and_rules_are_painted_as_two_aligned_tables() {
 
 #[test]
 fn a_narrow_terminal_clamps_the_name_column_and_keeps_the_numbers_whole() {
+    let tables = |view: &GraphView| {
+        let painted = paint(view, &Style::plain(40));
+        let lines: Vec<String> = painted
+            .lines()
+            .skip(2)
+            .take_while(|line| !line.starts_with("ends"))
+            .map(String::from)
+            .collect();
+        lines
+    };
+    // 40 columns that hold every cell at one-space gaps: the gaps give way
+    // and every name stays whole.
+    assert_eq!(
+        tables(&drawn("REVIEW-PARK"))[4..],
+        [
+            "RULE        COUNT FROM   TO     KIND",
+            "WORK-OK         1 work   review forward",
+            "REVIEW-PARK     1 review park   self",
+        ]
+    );
+    // 40 columns that do not: each table gives its overflow up from its
+    // name alone, down to the name's header.
     let mut view = drawn("REVIEW-PARKS-THE-RUN-FOR-THE-OPERATOR");
     view.states[1].name = "review-with-a-long-name".into();
-    // 40 columns: each table gives its overflow up from its name alone.
-    let painted = paint(&view, &Style::plain(40));
-    let tables: Vec<&str> = painted
-        .lines()
-        .skip(2)
-        .take_while(|line| !line.starts_with("ends"))
-        .collect();
     assert_eq!(
-        tables,
+        tables(&view),
         [
-            "STATE  ENTERED  MEDIAN  P90          COST  TOKENS  CACHE",
-            "work         2      0m   0m  not reported       —      —",
-            "revi…        1       —    —  not reported       —      —",
+            "STATE ENTERED MEDIAN P90         COST TOKENS CACHE",
+            "work        2     0m  0m not reported      —     —",
+            "revi…       1      —   — not reported      —     —",
             "",
-            "RULE      COUNT  FROM    TO      KIND",
-            "WORK-OK       1  work    review  forward",
-            "REVIEW-…      1  review  park    self",
+            "RULE         COUNT FROM   TO     KIND",
+            "WORK-OK          1 work   review forward",
+            "REVIEW-PARK…     1 review park   self",
         ]
     );
 }
@@ -695,11 +712,21 @@ fn json_prints_the_view_model_verbatim_and_never_the_tables() {
 #[test]
 fn no_color_paints_no_escape_byte_and_colour_bolds_only_the_header_rows() {
     // A journal-authored rule id that would clear the operator's screen.
-    let view = drawn("PARK\x1b[2J");
+    let mut view = drawn("PARK\x1b[2J");
+    // And journal text on the lines under the tables.
+    view.live
+        .retain(|live| live.state.as_deref() == Some("review"));
+    view.live[0].label = "Draw\x1b[2J".into();
+    view.live[0].state = Some("review\x1b[2J".into());
+    view.drift_text = Some("drifted\x1b[2J".into());
     let plain = paint(&view, &Style::plain(80));
     assert!(!plain.contains('\x1b'), "{plain:?}");
     assert!(
         plain.contains("\nPARK[2J      1  review  park    self\n"),
+        "{plain:?}"
+    );
+    assert!(
+        plain.ends_with("\ndrift  drifted[2J\nends   0 done · 0 stop by a rule · 0 stopped by you · 2 open\nledger 0 of 0 shipped (—) · 0 excluded · 0 unclassified\nlive   Draw[2J · review[2J\n"),
         "{plain:?}"
     );
     let coloured = paint(
