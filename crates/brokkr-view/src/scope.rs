@@ -210,6 +210,7 @@ impl GateRecord {
         (own || !findings.is_empty()).then(|| GateRecord {
             findings,
             unread: own && self.unread,
+            unverified: self.unverified.clone().filter(|_| own),
             ..self.clone()
         })
     }

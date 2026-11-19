@@ -49,6 +49,12 @@ pub struct GateRecord {
     /// which a surface says rather than printing them as absent (fix
     /// round 0109a1r3, M1).
     pub unread: bool,
+    /// The producer's label where this is a settled panel member's payload
+    /// that carried findings or a covered head without the engine's mark
+    /// for its attempt and member, as a released engine journaled it:
+    /// unverified legacy evidence, shown as that and never as a verdict, so
+    /// `findings` and `covered` stay empty (fix round 0109a1r5, V2).
+    pub unverified: Option<String>,
 }
 
 /// Every successful result in `events` that recorded findings or a
@@ -72,21 +78,22 @@ pub fn gate_records(events: &[EventEnvelope]) -> Vec<GateRecord> {
         effects,
         members: site_members(events),
     };
-    let ended = ending_steps(events);
+    let (ended, settled) = (ending_steps(events), settled_marks(events));
     (events.iter())
         .filter(|event| !read_at_its_success(event, &ended))
-        .flat_map(verdicts_of)
+        .flat_map(|event| verdicts_of(event, &settled))
         .filter_map(|verdict| reading.record(&verdict))
         .collect()
 }
 
-/// One verdict the journal records: its effect, its result, and the seat
+/// One verdict the journal records: its effect, its result, the seat
 /// within the effect that produced it, a sequence step's, or none for
-/// the effect's own body.
+/// the effect's own body, and whether the engine's provenance marks it.
 struct Verdict<'a> {
     effect_id: &'a str,
     result: &'a Value,
     seat: Option<&'a str>,
+    marked: bool,
 }
 
 /// What a verdict is read with: each effect's phase and seat, and the
@@ -112,6 +119,19 @@ impl Reading<'_> {
             .get("covered")
             .and_then(|covered| Covered::deserialize(covered).ok());
         let (phase, seat) = self.effects.get(effect_id).copied().unwrap_or(("-", "-"));
+        if !verdict.marked {
+            let carries = ["findings", "covered"]
+                .iter()
+                .any(|key| result.get(key).is_some());
+            return carries.then(|| GateRecord {
+                phase: phase.to_string(),
+                key: participant::key_of(effect_id, verdict.seat),
+                findings: Vec::new(),
+                covered: None,
+                unread: false,
+                unverified: Some(participant::label_of(seat, verdict.seat)),
+            });
+        }
         let producer = |finding: &Finding| {
             let site = finding.key().site().to_string();
             let member = self.members.get(&(effect_id, site)).copied();
@@ -129,6 +149,7 @@ impl Reading<'_> {
                 .collect(),
             covered: covered.as_ref().map(covered_text),
             unread,
+            unverified: None,
         })
     }
 }
@@ -144,25 +165,33 @@ struct Producer {
 /// the engine appends, under the sequence step it names (K6); a sequence
 /// step's result in the step's checkpoint the engine authored, under the
 /// step's name; and each settled member's result in a failed or
-/// indeterminate attempt's panel evidence, which only the engine writes,
-/// under that member (K7). A checkpoint that names the marker's word
-/// without the engine's `authored` is a driver's, and is no verdict.
-fn verdicts_of(event: &EventEnvelope) -> Vec<Verdict<'_>> {
+/// indeterminate attempt's panel evidence, under that member (K7). A
+/// checkpoint that names the marker's word without the engine's
+/// `authored` is a driver's, and is no verdict. The failure event says
+/// who appended the evidence, not who supplied what is inside it: a
+/// released engine copied a member's raw result there. So a settled
+/// member's payload is marked only where `settled` holds the engine's
+/// authored `panel-member-finished` marker of that attempt naming that
+/// member as succeeded (fix round 0109a1r5, V2).
+fn verdicts_of<'a>(event: &'a EventEnvelope, settled: &BTreeSet<StepOf<'_>>) -> Vec<Verdict<'a>> {
     let effect_id = text(event, "effect_id");
-    let verdict = |result, seat| Verdict {
+    let verdict = |result, seat, marked| Verdict {
         effect_id,
         result,
         seat,
+        marked,
     };
     let payload = &event.payload;
     match event.event_type {
-        EventType::EffectSucceeded => vec![verdict(&payload["result"], payload["step"].as_str())],
+        EventType::EffectSucceeded => {
+            vec![verdict(&payload["result"], payload["step"].as_str(), true)]
+        }
         EventType::EffectCheckpointed => {
             let checkpoint = &payload["checkpoint"];
             let step = EngineMarker::authored(checkpoint) == Some(EngineMarker::StepFinished);
             let seat = checkpoint["step_name"].as_str();
             (step
-                .then(|| verdict(&checkpoint["result"], seat))
+                .then(|| verdict(&checkpoint["result"], seat, true))
                 .into_iter())
             .collect()
         }
@@ -171,10 +200,31 @@ fn verdicts_of(event: &EventEnvelope) -> Vec<Verdict<'_>> {
             .and_then(Value::as_object)
             .into_iter()
             .flatten())
-        .map(|(member, result)| verdict(result, Some(member.as_str())))
+        .map(|(member, result)| {
+            let marked = settled.contains(&step_of(event, member));
+            verdict(result, Some(member.as_str()), marked)
+        })
         .collect(),
         _ => Vec::new(),
     }
+}
+
+/// Each `(effect, attempt, member)` the engine's own authored
+/// `panel-member-finished` marker names as succeeded: the engine's mark
+/// on that member's settled payload. A released engine's marker carries
+/// no `authored`, which v6's closed checkpoint refuses and the live sink
+/// refuses from a driver, so none of its rows is marked.
+fn settled_marks(events: &[EventEnvelope]) -> BTreeSet<StepOf<'_>> {
+    (events.iter())
+        .filter(|event| event.event_type == EventType::EffectCheckpointed)
+        .filter_map(|event| {
+            let checkpoint = &event.payload["checkpoint"];
+            let marker = EngineMarker::authored(checkpoint);
+            (marker == Some(EngineMarker::MemberFinished)).then_some(())?;
+            (checkpoint["outcome"] == "succeeded").then_some(())?;
+            Some(step_of(event, checkpoint["member"].as_str()?))
+        })
+        .collect()
 }
 
 /// Each `(effect, attempt, step)` whose success names the step that
@@ -188,7 +238,7 @@ fn ending_steps(events: &[EventEnvelope]) -> BTreeSet<StepOf<'_>> {
         .collect()
 }
 
-/// A step of one attempt of one effect.
+/// A step or member of one attempt of one effect.
 type StepOf<'a> = (&'a str, &'a str, &'a str);
 
 /// `step` of `event`'s effect and attempt.

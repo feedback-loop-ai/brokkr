@@ -161,6 +161,15 @@ pub(crate) fn gates(records: &[GateRecord]) -> String {
                 &format!("  {} · findings do not read", phase.as_str()),
             );
         }
+        if let Some(producer) = &record.unverified {
+            let producer = Safe::new(producer);
+            let line = format!(
+                "  {} · by {} · unverified legacy evidence, not a gate verdict",
+                phase.as_str(),
+                producer.as_str()
+            );
+            push_line(&mut out, &line);
+        }
     }
     match out.is_empty() {
         true => out,

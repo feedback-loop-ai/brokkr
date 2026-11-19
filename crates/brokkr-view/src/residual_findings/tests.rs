@@ -88,6 +88,7 @@ fn a_v7_gate_reads_back_its_findings_and_covered_and_a_v6_one_reads_nothing() {
                 findings: Vec::new(),
                 covered: Some(format!("head {} · dirty", "a".repeat(40))),
                 unread: false,
+                unverified: None,
             },
             GateRecord {
                 phase: "review".into(),
@@ -95,6 +96,7 @@ fn a_v7_gate_reads_back_its_findings_and_covered_and_a_v6_one_reads_nothing() {
                 findings: vec![one, two],
                 covered: Some(format!("head sha256 {digest} · dirty")),
                 unread: false,
+                unverified: None,
             },
             GateRecord {
                 phase: "review".into(),
@@ -102,6 +104,7 @@ fn a_v7_gate_reads_back_its_findings_and_covered_and_a_v6_one_reads_nothing() {
                 findings: Vec::new(),
                 covered: None,
                 unread: true,
+                unverified: None,
             },
         ]
     );

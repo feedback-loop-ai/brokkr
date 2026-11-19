@@ -134,9 +134,29 @@ fn findings_that_do_not_read_are_said_not_to_read() {
         findings: Vec::new(),
         covered: Some("head sha256 dd · dirty".into()),
         unread: true,
+        unverified: None,
     };
     assert_eq!(
         crate::render::inspect::gates(&[record]),
         "\nverdicts\n  review · covered head sha256 dd · dirty\n  review · findings do not read\n"
+    );
+}
+
+/// A released engine's settled member payload is said to be unverified
+/// legacy evidence, by its producer, never shown as a verdict (fix round
+/// 0109a1r5, V2).
+#[test]
+fn unverified_legacy_evidence_is_said_by_its_producer() {
+    let record = brokkr_view::GateRecord {
+        phase: "review".into(),
+        key: "e0:a".into(),
+        findings: Vec::new(),
+        covered: None,
+        unread: false,
+        unverified: Some("review:a".into()),
+    };
+    assert_eq!(
+        crate::render::inspect::gates(&[record]),
+        "\nverdicts\n  review · by review:a · unverified legacy evidence, not a gate verdict\n"
     );
 }

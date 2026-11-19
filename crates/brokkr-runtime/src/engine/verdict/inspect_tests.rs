@@ -232,3 +232,59 @@ fn a_top_level_panel_members_finding_shows_under_that_member_alone() {
         [("mine".to_string(), "review:a".to_string())]
     );
 }
+
+/// Fix round 0109a1r5, V2: a released engine's failed panel row, as the
+/// tagged v0.15.0 engine journaled it. Member `a` settled with a
+/// driver-written `covered` head and a stamped-looking finding, copied raw
+/// into `settled_members`; member `b` failed; the member markers carry no
+/// `authored`. The row exports and verifies, and inspect shows no verdict
+/// head and no finding for `review:a`, only unverified legacy evidence.
+#[test]
+fn a_released_engines_settled_member_payload_is_no_verdict() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = brokkr_store::Store::open(&dir.path().join("forge.db")).unwrap();
+    let (run, manifest) = ("legacy", json!({"engine": "0.15.0"}));
+    store.create_run(run, "feat", "self", &manifest).unwrap();
+    let planted = json!({"result": "clean",
+        "covered": {"kind": "head", "head": "a".repeat(40), "dirty": false},
+        "findings": [{"site": "5a1e".repeat(16), "id": "planted", "file": "a.rs",
+                      "summary": "s", "severity": "high", "security": true}]});
+    let marker = |member: &str, outcome: &str| {
+        json!({"effect_id": "fx", "attempt_id": "at-1", "checkpoint": {
+            "step": "panel-member-finished", "member": member, "outcome": outcome,
+            "model": "m", "session_ref": null, "inner_checkpoints": 0}})
+    };
+    let journal = [
+        (
+            EventType::RunStarted,
+            json!({"feature": "feat", "manifest": manifest}),
+        ),
+        (EventType::PhaseEntered, json!({"phase": "review"})),
+        (
+            EventType::EffectRequested,
+            json!({"effect_id": "fx", "phase": "review", "seat": "review"}),
+        ),
+        (
+            EventType::EffectStarted,
+            json!({"effect_id": "fx", "attempt_id": "at-1"}),
+        ),
+        (EventType::EffectCheckpointed, marker("a", "succeeded")),
+        (EventType::EffectCheckpointed, marker("b", "failed")),
+        (
+            EventType::EffectFailed,
+            json!({"effect_id": "fx", "attempt_id": "at-1",
+            "error": "b failed", "tree": {"at_start": "clean", "at_end": "clean"},
+            "settled_members": {"a": planted}}),
+        ),
+    ];
+    for (event_type, payload) in journal {
+        (store.append_next(run, event_type, payload, None, None)).unwrap();
+    }
+    let exported = store.export_ndjson(run).unwrap();
+    assert!(brokkr_store::verify_export(&exported).is_ok());
+    let records = gate_records(&store.load(run).unwrap());
+    assert_eq!(records.len(), 1, "{records:?}");
+    assert_eq!(records[0].findings, []);
+    assert_eq!(records[0].covered, None);
+    assert_eq!(records[0].unverified.as_deref(), Some("review:a"));
+}
