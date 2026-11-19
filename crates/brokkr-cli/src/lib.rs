@@ -220,7 +220,7 @@ enum Cmd {
     Realms(RealmsArgs),
     #[command(flatten)]
     CrossRun(verbs::analytics::CrossRunCmd),
-    /// Run a built-in forge-driver/v1 adapter (claude | lanetally | codex | dsh | exec).
+    /// Run a built-in forge-driver/v1 adapter (claude | lanetally | codex | dsh | qoder | exec).
     /// Bundles reference these as {brokkr} driver <kind> -- <extra args>.
     Driver(DriverArgs),
     /// The model's hands are one tool, and the tool runs in an empty root

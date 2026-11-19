@@ -227,9 +227,13 @@ fn grammar(kind: AdapterKind, adapter: &str) -> Result<Grammar, ProbeError> {
             reader: Harness::Dsh,
             transcripts: DSH_TRANSCRIPTS,
         }),
-        AdapterKind::Lanetally | AdapterKind::Exec => Err(ProbeError::NotAHarness {
-            adapter: adapter.to_string(),
-        }),
+        // Qoder's probe is out of level 1's scope (#1178): its record was
+        // measured by hand.
+        AdapterKind::Lanetally | AdapterKind::Qoder | AdapterKind::Exec => {
+            Err(ProbeError::NotAHarness {
+                adapter: adapter.to_string(),
+            })
+        }
     }
 }
 

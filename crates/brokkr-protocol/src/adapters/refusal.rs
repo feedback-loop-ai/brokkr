@@ -503,6 +503,7 @@ impl AdapterKind {
             AdapterKind::Lanetally => "lanetally",
             AdapterKind::Codex => "codex",
             AdapterKind::Dsh => "dsh",
+            AdapterKind::Qoder => "qoder",
             AdapterKind::Exec => "exec",
         }
     }
@@ -511,14 +512,14 @@ impl AdapterKind {
     /// ruling 4(a)). It is the `capabilities.probe` field, never a
     /// `supports` entry: the frozen v1 schema closes that list to
     /// `resume`, `checkpoint` and `cancel`. Exec has no model turn, so it
-    /// advertises nothing.
+    /// advertises nothing; Qoder's probe is outside level 1 (#1178).
     pub(super) fn advertises_probe(self) -> bool {
         match self {
             AdapterKind::Claude
             | AdapterKind::Lanetally
             | AdapterKind::Codex
             | AdapterKind::Dsh => true,
-            AdapterKind::Exec => false,
+            AdapterKind::Qoder | AdapterKind::Exec => false,
         }
     }
 }

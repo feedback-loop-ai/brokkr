@@ -833,6 +833,111 @@ fn a_model_written_twice_is_refused_rather_than_promoted_by_its_second_copy() {
     }
 }
 
+/// A workspace that loads Qoder's example adapter beside the fixture one,
+/// as the guide tells an operator to copy it in (#1178), with a
+/// `researcher` office hiring `qoder-fast` at `high` with two grants.
+fn qoder_workspace() -> Workspace {
+    let workspace = Workspace::new();
+    let example = shipped().join("docs/examples/adapters/qoder.json");
+    std::fs::copy(example, workspace.path("adapters/qoder.json")).unwrap();
+    let body = json!({
+        "description": "a fixture office", "charter": "charters/researcher.md",
+        "models": ["qoder-fast"], "efforts": {"qoder-fast": "high"},
+        "tools": {"allow": ["cargo", "git"]},
+    });
+    std::fs::write(
+        workspace.path("agents/charters/researcher.md"),
+        "# charter\n",
+    )
+    .unwrap();
+    std::fs::write(workspace.path("agents/researcher.json"), body.to_string()).unwrap();
+    workspace
+}
+
+#[test]
+fn a_qoder_seat_in_a_listed_office_launches_its_pin_effort_and_grants() {
+    let workspace = qoder_workspace();
+    let bundle = workspace
+        .compile(seat("researcher", "work"), &["researcher"])
+        .unwrap();
+    assert_eq!(chain(&bundle), ["qoder-fast"]);
+    let SeatBody::Invocation(Invocation::Single { candidates, .. }) = &bundle.seats["work"].body
+    else {
+        panic!("a single seat");
+    };
+    let argv = &candidates[0].argv;
+    assert_eq!(
+        argv[1..],
+        [
+            "driver",
+            "qoder",
+            "--",
+            "-m",
+            "Fast",
+            "--reasoning-effort",
+            "high",
+            "--allowed-tools",
+            "Bash(cargo:*),Bash(git:*)",
+        ]
+    );
+}
+
+#[test]
+fn a_qoder_seat_outside_the_listed_offices_or_at_a_gate_is_refused() {
+    let workspace = qoder_workspace();
+    let unlisted = workspace.refusal(seat("researcher", "work"), &["reviewer"]);
+    assert_eq!(
+        unlisted,
+        ProvisionalRefusal::Unlisted {
+            seat: "work".into(),
+            link: 1,
+            model: "qoder-fast".into(),
+            adapter: "qoder".into(),
+            office: Some("researcher".into()),
+        }
+    );
+    let gate = workspace.refusal(seat("researcher", "gate"), &["researcher"]);
+    assert_eq!(
+        gate,
+        ProvisionalRefusal::Gate {
+            seat: "work".into(),
+            link: 1,
+            model: "qoder-fast".into(),
+            adapter: "qoder".into(),
+        }
+    );
+}
+
+/// Qoder's example declares its five models provisional, none a judge,
+/// every sentence of its own, and loads as the guide copies it.
+#[test]
+fn the_qoder_example_declares_five_provisional_models_and_no_judge() {
+    let workspace = qoder_workspace();
+    let adapters = Adapters::load(&workspace.path("adapters")).unwrap();
+    let qoder = adapters.adapter("qoder").unwrap();
+    let models: Vec<(&str, &str)> = qoder
+        .models
+        .iter()
+        .map(|(alias, id)| (alias.as_str(), id.as_str()))
+        .collect();
+    assert_eq!(
+        models,
+        [
+            ("qoder-deepseek4-pro", "DeepSeek-V4-Pro"),
+            ("qoder-fast", "Fast"),
+            ("qoder-glm53", "GLM-5.3"),
+            ("qoder-kimi31-pro", "Kimi-K3.1-Pro"),
+            ("qoder-qwen4-max", "Qwen4-Max"),
+        ]
+    );
+    assert_eq!(
+        qoder.provisional.iter().collect::<Vec<_>>(),
+        qoder.models.keys().collect::<Vec<_>>()
+    );
+    assert_eq!(qoder.judges, Vec::<String>::new());
+    assert_eq!(qoder.hands, None);
+}
+
 /// The adapter fixture as every load refusal names it.
 fn adapter_file(workspace: &Workspace) -> String {
     let path = workspace.path("adapters/newcomer.json");

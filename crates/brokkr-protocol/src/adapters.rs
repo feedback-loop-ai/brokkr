@@ -32,6 +32,7 @@ mod exec;
 mod lost;
 mod mcp;
 mod probe;
+mod qoder;
 mod refusal;
 #[cfg(test)]
 mod round430_tests;
@@ -115,6 +116,9 @@ pub enum AdapterKind {
     Lanetally,
     Codex,
     Dsh,
+    /// Qoder CLI, a provisional harness at level 1 (#1178; decision 0075):
+    /// unboxed, never a gate, and never resumed.
+    Qoder,
     Exec,
 }
 
@@ -125,6 +129,7 @@ impl AdapterKind {
             "lanetally" => Some(AdapterKind::Lanetally),
             "codex" => Some(AdapterKind::Codex),
             "dsh" => Some(AdapterKind::Dsh),
+            "qoder" => Some(AdapterKind::Qoder),
             "exec" => Some(AdapterKind::Exec),
             _ => None,
         }
@@ -142,11 +147,13 @@ impl AdapterKind {
     /// All four model adapters declare receipt so that a claude or dsh
     /// retry can be told about its own session and answer honestly,
     /// which is issue #226's complaint. Exec declares none: it has no
-    /// model turn and no provider to hold a session. A driver that does
-    /// not declare receipt is never handed a handle, by any channel.
+    /// model turn and no provider to hold a session. Qoder declares none
+    /// either: its seat runs `--no-session-persistence`, so there is no
+    /// session to be told about (#1178). A driver that does not declare
+    /// receipt is never handed a handle, by any channel.
     fn supports(&self) -> Vec<String> {
         match self {
-            AdapterKind::Exec => Vec::new(),
+            AdapterKind::Exec | AdapterKind::Qoder => Vec::new(),
             _ => vec!["resume".to_string()],
         }
     }
@@ -160,6 +167,7 @@ impl AdapterKind {
             AdapterKind::Lanetally => "claude-lanetally".to_string(),
             AdapterKind::Codex => "codex".to_string(),
             AdapterKind::Dsh => "deepseek-harness".to_string(),
+            AdapterKind::Qoder => "qoder-cli".to_string(),
             // A name the reader refuses labels the driver `exec`, and
             // `run_seat` refuses every start on it by that name.
             AdapterKind::Exec => crate::overrides::read(Override::ExecName)
@@ -5542,6 +5550,9 @@ fn invoke_with_stager(
             }
         }
         AdapterKind::Dsh => invoke_dsh(pinned, prompt, input, session, bindings, &mut probe, emit),
+        AdapterKind::Qoder => qoder::launch(bin, &composed_launch("qoder", extra, input)?.extra)
+            .map_err(|error| error.to_string())
+            .and_then(|launch| qoder::invoke(&launch, prompt, input, bindings, emit)),
         AdapterKind::Exec => {
             exec::invoke_exec(extra, prompt, &workdir, input, bindings, emit, stage)
         }

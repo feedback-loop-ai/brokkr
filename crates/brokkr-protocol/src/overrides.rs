@@ -26,6 +26,9 @@ pub enum Override {
     LanetallyBin,
     CodexBin,
     DshBin,
+    /// The Qoder CLI a `qoder` seat runs (#1178). Born after decision
+    /// 0019, so it never had a retired spelling.
+    QoderBin,
     ExecName,
     BrowserBin,
     /// The program a linked-worktree DSH seat's scoped sandbox row runs.
@@ -61,6 +64,7 @@ impl Override {
             Override::LanetallyBin => "BROKKR_LANETALLY_BIN",
             Override::CodexBin => "BROKKR_CODEX_BIN",
             Override::DshBin => "BROKKR_DSH_BIN",
+            Override::QoderBin => "BROKKR_QODER_BIN",
             Override::ExecName => "BROKKR_EXEC_NAME",
             Override::BrowserBin => "BROKKR_BROWSER_BIN",
             Override::DshRunner => "BROKKR_DSH_RUNNER",
@@ -76,14 +80,15 @@ impl Override {
             Override::LanetallyBin => "claude-lanetally",
             Override::CodexBin => "codex",
             Override::DshBin => "dsh",
+            Override::QoderBin => "qodercli",
             Override::ExecName => "exec",
             Override::BrowserBin => "xdg-open",
             Override::DshRunner => "brokkr",
         }
     }
 
-    /// The same name under the retired prefix, or `None` for the runner,
-    /// which was only ever read by its current name.
+    /// The same name under the retired prefix, or `None` for the runner and
+    /// the Qoder CLI, which were only ever read by their current names.
     pub(crate) fn retired(self) -> Option<String> {
         match self {
             Override::ClaudeBin
@@ -95,7 +100,7 @@ impl Override {
                 "{RETIRED_PREFIX}{}",
                 &self.name()[CURRENT_PREFIX.len()..]
             )),
-            Override::DshRunner => None,
+            Override::QoderBin | Override::DshRunner => None,
         }
     }
 
@@ -107,6 +112,7 @@ impl Override {
             AdapterKind::Lanetally => Override::LanetallyBin,
             AdapterKind::Codex => Override::CodexBin,
             AdapterKind::Dsh => Override::DshBin,
+            AdapterKind::Qoder => Override::QoderBin,
             AdapterKind::Exec => Override::ExecName,
         }
     }

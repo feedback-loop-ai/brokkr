@@ -389,6 +389,91 @@ offices it may hold. Promotion is data only: remove `"tier":
 model before its first seat is LaneTally's unpriced audit, not this
 check.
 
+### Qoder CLI, a provisional harness
+
+Qoder CLI is the first provisional harness (#1178), onboarded under
+decision [0075](../decisions/0075-harness-onboarding-in-a-day.md) at
+level 1, the controller's ruling of 2026-11-20. Level 1 is an adapter
+and a driver, `brokkr driver qoder`, and nothing else. The
+seat is unboxed: the adapter declares no hands, so a site that boxes its
+hands refuses it. It is never a judge or a gate, and it is never
+resumed, because it runs `--no-session-persistence`. Every model it
+serves is provisional, so it holds only the offices `realms.json` lists
+under `provisional_offices`. Every figure behind it was measured by hand
+on Qoder CLI 1.1.92 ([the record](../evidence/adapters/qoder-cli-1-1.md)),
+because `brokkr probe harness` does not know Qoder.
+
+The adapter ships as an example, `docs/examples/adapters/qoder.json`.
+`brokkr init` does not write it. To use it, copy it into your world's
+adapters directory. Its provisional models tighten that world's inline
+model seats (above): each one must then pin an id its own adapter
+declares. It is not in the repository's `adapters/` directory, so its
+aliases are not in the catalogue above:
+
+| Alias | Qoder model |
+|---|---|
+| `qoder-fast` | `Fast` |
+| `qoder-qwen4-max` | `Qwen4-Max` |
+| `qoder-glm53` | `GLM-5.3` |
+| `qoder-deepseek4-pro` | `DeepSeek-V4-Pro` |
+| `qoder-kimi31-pro` | `Kimi-K3.1-Pro` |
+
+`Auto`, `Ultimate`, `Efficient`, `Sonus` and `Cantus` are left out,
+because the CLI does not say which model stands behind them. The model
+flag is `-m`. The efforts are `low`, `medium`, `high`, `xhigh` and `max`,
+on `--reasoning-effort`.
+
+**The launch.** The driver runs `qodercli -p --output-format stream-json
+--no-session-persistence --permission-mode accept_edits`, then the
+seat's pin, effort and tool grants, then `--tools Read Edit Write Glob
+Grep Bash --disallowed-tools mcp_call,mcp_get,mcp_list`. The prompt goes
+on stdin. Without `--tools`, Qoder keeps its 34-tool default, which
+includes `Agent`, `Workflow`, the cron tools and the web tools. Web
+tools are never offered at level 1. Tool grants are one `--allowed-tools`
+value of comma-separated `Bash(<command>:*)` patterns. Any other
+argument, a doubled one, or a seat with no `-m` pin is refused before
+the CLI starts.
+
+**The served model is the pinned one, or the seat is refused.** Qoder
+serves `Auto` in place of a model it cannot serve, and still exits 0.
+Its assistant rows name an internal code, such as `fast` or
+`qmodel_latest`, not the model. So the driver reads init's `model`. If
+init's model is not exactly the pin, the seat is refused, the refusal
+names both, and the CLI is stopped before its first turn. A seat with no
+init row is refused too. Qoder's own fallback line on stderr ("is not
+available right now; using") also refuses the seat.
+
+**Cost.** Qoder bills in credits. It reports `total_cost_usd` as 0 and
+every token count as 0, so the seat's cost and tokens read "not
+reported", never 0. The credits are not journaled: the session-finished
+step is a seat-record checkpoint, and that contract has no field for
+them. Pricing credits is LaneTally's job.
+
+**Refusals.** A signed-out CLI exits 1 with "Not logged in". The seat is
+refused, and the refusal says to run `qodercli login`, or to set
+`QODER_PERSONAL_ACCESS_TOKEN` under a private `QODER_CONFIG_DIR`. An
+option the CLI rejects, such as a bad effort, crashes it with "unexpected
+critical error", and the seat is refused with that line. ANSI colour is
+stripped from both, and the text is masked like any other refusal.
+
+**Sign in.** Run `qodercli login` once, which keeps the login in
+`~/.qoder`. Or give the seat a personal access token: bind
+`QODER_PERSONAL_ACCESS_TOKEN` and point `QODER_CONFIG_DIR` at a private,
+empty directory. The record names five token variables and exercised
+none of them, so a token-authenticated turn is unmeasured.
+
+**A denied tool call** is folded as every call is: as a `tool_use` row
+under its tool's name. The turn still ends `success`. The seat record
+has no field for the denial itself.
+
+**On Linux, a qoder seat does not compile yet.** The compile demands
+measured ambient MCP isolation for every shape a seat is served as
+(SI2, [below](#measured-mcp-isolation)), and Qoder's is unmeasured. Each
+seat is refused with "provider 'qoder' has no measured strict MCP
+configuration for 'cold'". This lifts when the cold and replacement
+shapes without hands are measured against planted sentinels and recorded
+in the adapter's `mcp`.
+
 ## Hands
 
 `hands` (decision 0043) is the adapter's answer to a site that boxes its
@@ -843,6 +928,7 @@ and what such a driver then does is its own.
 | `dsh` | `unmeasured` | `tool_permissions` being unsupported shows that Brokkr cannot narrow dsh's tools, and its `mcp` facts measure the engine's server channel and MCP isolation only ([measured MCP isolation](#measured-mcp-isolation)). Neither shows dsh has no native egress — `recipes/research-dsh/README.md` records that its headless profile ships web fetch ON — and no OFF control has been declared or measured. Nothing is granted through dsh and no denial is claimed. |
 | `lanetally` | `unmeasured` | The wrapper forwards argv to claude, and forwarding is not confinement. Claude's declarations and evidence are not inherited. |
 | `exec` | `unmeasured` | The engine cannot certify what an arbitrary child program reaches. Its hands, boundary and command authority are decisions 0043 and 0046's, unchanged. |
+| `qoder` (example, not shipped in `adapters/`) | `web-fetch` → `WebFetch`, `web-search` → `WebSearch`; ON is `unsupported`, OFF is the driver's default | The driver always passes `--tools Read Edit Write Glob Grep Bash`, and the record shows that `--tools` with names restricts the built-ins to those names. That the list leaves both web tools out is init's tool list, not a refused live call. Ambient MCP isolation is unmeasured. |
 
 Every "unmeasured" above is the controller's to measure, and
 `brokkr doctor` prints each beside the realm it matters to.
@@ -886,6 +972,7 @@ stands and nothing here is claimed. The evidence is
 | `dsh` | Cold without hands: 0.1.5-rc.1 (U0, U0c). Replacement without hands: 0.2.1-rc.2 (U0b D06, and pass 8 on the keyed routes). Cold and replacement with boxed hands: 0.2.1-rc.2 (#896). | The replacements' native-write, store and process axes, and the cold no-hands shape's native write (its store read is `unsupported`). A shape carries no route scope: its record names the routes it was measured on, and `spark` was never qualified (U0c). |
 | `lanetally` | Cold and replacement without hands, through the wrapper itself: launcher sha256 `b886c95ab275956bfef3ba0d9e6c617ec0878abdbddbd7369d2fe27903205dfb` running LaneTally's session-wrapper.sh at 4614bb7, sha256 `ecac09b98a39eeb618812e4d5838c35f0b9ed48482d345befed4f198fbc325d7`, over Claude Code 2.1.287 (cold) and 2.1.308 (replacement). | Process reads; store read is `unsupported`, and native write is `unsupported` cold and unmeasured on replacement. A different wrapper is a different measurement. |
 | `exec` | `inapplicable`: no model MCP surface. | — |
+| `qoder` (example) | None. Its `mcp` is `unsupported`. | Every shape. With `--strict-mcp-config --mcp-config '{"mcpServers":{}}'`, init listed no server, but no planted sentinel was tried. So on Linux every qoder seat is refused until its cold and replacement shapes without hands are measured. |
 
 A shape's `measured_on.version` is not compared with the version of
 the harness installed: a measurement stays applied after the binary
@@ -959,6 +1046,7 @@ accounting check still binding.
 | `claude` | `boxed-workspace` | `unmeasured` | Main does not perform this rejoin. The 2.1.266 interface is captured — `--resume`, `--permission-mode`, `--tools`, `--strict-mcp-config`, `--mcp-config`, `--no-session-persistence`. Controller captures and a September 10 same-root cold+warm probe record resumed behavior: root continuity, an expired Read grant renewed, the new Read grant operating, Write and MCP tools removed on the rejoin, init tool/server admission, raw message and tool ids, terminal totals and reconciled accounting. They are partial, not an admission proof: the measured binary is **2.1.266** while the installed CLI is **2.1.270**, and the complete filesystem boundary and flag precedence are not established for the installed version, so no shape is enabled. |
 | `dsh` | `headless-work` | `unmeasured` | Main does not perform this rejoin. The exact route is selected: official core **0.1.5-rc.1** (`@deepseek-ai/dsh@0.1.5-rc.1` at `183f08e9c6dde7e36cd2318eaee70b0da08fb35e`, or the release answer N1 resolves in its place) with the repository-owned six-file adaptation of `dsh-plugin-cli-session` **0.2.0** at `0f487e74c81ed102c6899440d9f5d65e8e9eabda` under `extensions/dsh/plugin-cli-session/`, composed only in worktree- or task-owned storage through DSH's documented extension and `agents.resume` APIs. An isolated live cold+warm qualification (2026-09-12, `.forge/tasks/dsh-pair-qualification-015rc1.json`) emitted successful result envelopes, continued one root, recalled the nonce and reported per-message usage with the global pin unchanged and the installed bytes matching the provenance block. The route still stays disabled because consumer-side exact-root and independent-root confirmation, current headless model/effort and restriction precedence, a multi-message/retry current-sequence accounting boundary, and the declared composite digest are unmeasured, and the Rust route is unimplemented. The documented `--session <id>` extension interface is distinct from the installed **0.1.2-rc.1** one-shot runner, whose fresh-root result remains bounded history for that entry only. The operator's 2026-09-10 ruling reversed the earlier **0.1.0-rc.6** pin and superseded `.forge/tasks/dsh-pair-qualification-010rc6.json`; both are dated history, never the selected route, and the removal of `agent.session.events` was a measured pair incompatibility fixed by the one-expression adaptation, never a global DSH or extension limitation. The separate hands/tools plugin deferral is unrelated. |
 | `lanetally` | `wrapper-work-site` | `unmeasured` | Main does not perform this rejoin. Identity explicitly **unknown**: a wrapper is qualified on its own wrapper, never on what it wraps. Claude's captured interface says nothing about what this wrapper forwards, and support by analogy is what the field refuses. |
+| `qoder` (example) | `print-work-site` | `unsupported` | The seat runs `--no-session-persistence`, which keeps no session on disk in print mode, so there is nothing to rejoin. The driver declares no `resume` receipt and is never offered a handle. |
 
 So today the three unmeasured shapes spawn cold **and say so**, with the
 reason in the record, while Codex's harness work seat rejoins main's

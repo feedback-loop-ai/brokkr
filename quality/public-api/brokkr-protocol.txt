@@ -26,6 +26,7 @@ pub brokkr_protocol::adapters::AdapterKind::Codex
 pub brokkr_protocol::adapters::AdapterKind::Dsh
 pub brokkr_protocol::adapters::AdapterKind::Exec
 pub brokkr_protocol::adapters::AdapterKind::Lanetally
+pub brokkr_protocol::adapters::AdapterKind::Qoder
 impl brokkr_protocol::adapters::AdapterKind
 pub fn brokkr_protocol::adapters::AdapterKind::parse(&str) -> core::option::Option<brokkr_protocol::adapters::AdapterKind>
 impl brokkr_protocol::adapters::AdapterKind
@@ -990,6 +991,7 @@ pub brokkr_protocol::overrides::Override::DshBin
 pub brokkr_protocol::overrides::Override::DshRunner
 pub brokkr_protocol::overrides::Override::ExecName
 pub brokkr_protocol::overrides::Override::LanetallyBin
+pub brokkr_protocol::overrides::Override::QoderBin
 pub enum brokkr_protocol::overrides::OverrideError
 pub brokkr_protocol::overrides::OverrideError::NotUnicode
 pub brokkr_protocol::overrides::OverrideError::NotUnicode::variable: &'static str
