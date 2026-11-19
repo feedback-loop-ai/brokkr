@@ -722,10 +722,14 @@ fn a_remainder_already_in_force_counts_toward_the_maximum_before_the_first_probe
     engine.cooldown.host = Some(host(dir.path(), 30, 100));
     let start = start_of(&now);
     let b = second_run(dir.path());
+    // Nothing waits b's end out (the run parks before any probe), so it lies
+    // `LONG_WAIT` past the clock's reading, in force however long the host
+    // stalls (#857); its remainder past the run's own 30s end still passes
+    // the 100s maximum.
     append_second_row(
         &dir.path().join("forge.db"),
         &b,
-        start + Duration::seconds(120),
+        start + LONG_WAIT + Duration::seconds(120),
     );
     engine.drive().unwrap();
     assert_eq!(
