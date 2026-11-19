@@ -142,7 +142,9 @@ fn node_glyph(state_class: &str, style: &Style) -> String {
 /// an ASCII mode would need a second derivation of every one of them.
 /// Nodes read as their class's still glyph, name and state, the glyph in
 /// the console's colour for that class, and the current phase's name in
-/// its phase class's colour, as the console paints it. The served model
+/// its phase class's colour, as the console paints it. A phase without
+/// columns is the console's one rail node, and its heading leads with
+/// its phase class's still glyph. The served model
 /// is a seat's field, printed by the seats table and the seat block,
 /// never by the rail — the graph is the abstraction over order and shape.
 pub(super) fn graph_block(view: &RunView, lens: Option<&Lens>, style: &Style) -> String {
@@ -160,18 +162,22 @@ pub(super) fn graph_block(view: &RunView, lens: Option<&Lens>, style: &Style) ->
         .map_or("", |summary| summary.status_word());
     let mut out = String::from("graph\n");
     for phase in phases {
+        let class = class_for_phase(phase.current, status);
         let name = Safe::new(&phase.name);
         let (name, current) = match phase.current {
-            true => (
-                painted(name.as_str(), class_for_phase(true, status), style),
-                "  ←current",
-            ),
+            true => (painted(name.as_str(), class, style), "  ←current"),
             false => (name.as_str().to_string(), ""),
+        };
+        // A phase without columns is one node on the console's rail, so
+        // it reads as its own class's still glyph here.
+        let node = match phase.columns.is_empty() {
+            true => format!("{} ", painted(mark(class).1[0], class, style)),
+            false => String::new(),
         };
         push_line(
             &mut out,
             &format!(
-                "  {name}{} ×{}{current}",
+                "  {node}{name}{} ×{}{current}",
                 phase
                     .strategy
                     .as_ref()

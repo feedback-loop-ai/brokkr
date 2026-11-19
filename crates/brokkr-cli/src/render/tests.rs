@@ -544,6 +544,33 @@ fn the_plain_graph_shows_each_class_glyph_in_the_consoles_colour() {
     );
 }
 
+/// #1168: a phase without columns is the console's one rail node, so its
+/// heading leads with its phase class's still glyph — `⏺` visited, `∙`
+/// for the running current phase — in the console's colour, and with
+/// colour off the glyphs stay and no escape byte is written.
+#[test]
+fn a_phase_without_columns_shows_its_phase_class_glyph() {
+    let mut view = view(None);
+    for phase in &mut view.phases {
+        phase.columns.clear();
+    }
+    assert_eq!(
+        graph::graph_block(&view, None, &Style::plain(80)),
+        "graph\n  ⏺ intake ×1\n  ∙ design ×1  ←current\n"
+    );
+    let coloured = Style {
+        color: true,
+        width: 80,
+    };
+    assert_eq!(
+        graph::graph_block(&view, None, &coloured),
+        "graph
+  \x1b[35m\x1b[2m⏺\x1b[0m intake ×1
+  \x1b[32m∙\x1b[0m \x1b[32mdesign\x1b[0m ×1  ←current
+"
+    );
+}
+
 /// The phase predicate is one function, called by `graph_block` and by
 /// the TUI. Two copies of a scope rule is one copy too many.
 #[test]
@@ -1064,7 +1091,7 @@ fn a_phase_whose_only_traffic_is_its_entry_drops_the_seats_block() {
          \x20 2 phase/entered review\n\
          \n\
          graph\n\
-         \x20 review ×1  ←current\n"
+         \x20 · review ×1  ←current\n"
     );
 }
 

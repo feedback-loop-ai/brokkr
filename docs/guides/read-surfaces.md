@@ -469,7 +469,7 @@ graph
     → ⏺ review · finished
   ship ×2
     → ⏺ ship · finished
-  done ×1  ←current
+  · done ×1  ←current
 ```
 
 The seats block is `seats`' own readout, shown whole below. The ship
@@ -579,11 +579,11 @@ lawfully stopped by its own third review):
 
 ```
 graph
-  intake ×1
-  implement ×3
-  verify ×3
-  review ×3
-  stop ×1  ←current
+  ⏺ intake ×1
+  ⏺ implement ×3
+  ⏺ verify ×3
+  ⏺ review ×3
+  · stop ×1  ←current
 ```
 
 In `brokkr tui` the same journal draws the return as a solid arc under
@@ -712,7 +712,7 @@ graph
     → ⏺ review · finished
   ship ×1
     → ⏺ ship · finished
-  done ×1  ←current
+  · done ×1  ←current
 ```
 
 ### `brokkr tui` — the readouts made explorable

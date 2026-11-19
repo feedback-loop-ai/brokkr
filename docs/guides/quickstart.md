@@ -528,7 +528,7 @@ graph
   intake ×1
     → ⏺ intake · finished
 …
-  done ×1  ←current
+  · done ×1  ←current
 ```
 
 That is Step 3's run, read back, with its seats and the middles of its
