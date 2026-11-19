@@ -28,7 +28,7 @@
 //! [`closure`] stays a `pub(crate)` forwarder to the closure so the unit
 //! tests read one seam without a second path into the module.
 
-use std::process::{Command, Stdio};
+use std::process::Command;
 
 use thiserror::Error;
 
@@ -142,17 +142,13 @@ pub(crate) struct Row {
 /// under, and feeds rows to judge, without spawning anything. The command
 /// itself is built by the one spawn builder, so the probe and the session
 /// share their working directory, environment, secret bindings and
-/// removals.
+/// removals; `run` sets its streams, as `spawned::output` does.
 pub(super) fn composed_with(
     mut command: Command,
     release: Release,
     mode: Mode,
     run: impl FnOnce(&mut Command) -> std::io::Result<std::process::Output>,
 ) -> Result<(), Composition> {
-    command
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
     let output = run(&mut command).map_err(|_| Composition::Unreadable)?;
     if !output.status.success() {
         return Err(Composition::DumpFailed {
