@@ -199,10 +199,16 @@ impl Root {
     }
 }
 
-/// How long a test waits for a broker it started, and for its output: past
-/// the startup's thirty seconds and the thirty-one one test idles for, with
-/// room on a loaded host.
-const TALK_MAX: Duration = Duration::from_secs(90);
+/// MB3's startup deadline, `src/broker/session.rs`'s private `STARTUP`,
+/// pinned by `observer::the_suites_startup_is_the_brokers_own`.
+const STARTUP: Duration = Duration::from_secs(30);
+
+/// Past [`STARTUP`], for an instrumented, loaded runner to reap (#1008).
+const SETTLE: Duration = Duration::from_secs(60);
+
+/// How long a test waits for a broker it started, and for its output: its
+/// deadline and [`SETTLE`], past the thirty-one seconds one test idles for.
+const TALK_MAX: Duration = STARTUP.saturating_add(SETTLE);
 
 /// One of a child's standard streams, read on a thread of its own from its
 /// start, so that it never fills: what it has said so far, and word of its

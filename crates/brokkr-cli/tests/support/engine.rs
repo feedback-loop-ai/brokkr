@@ -38,9 +38,13 @@ const RUNTIME_BROKER: &str = include_str!("../../../brokkr-runtime/src/engine/br
 /// A line naming `const STARTUP` in any other shape, no such line, two, or
 /// a source the lexer cannot read, fails the pin, never passes unread.
 fn startup_seconds(source: &str) -> u64 {
-    let code = crate::rust_source::code(source).unwrap_or_else(|unread| {
-        panic!("brokkr-runtime's engine/broker.rs cannot be read as Rust source: {unread}")
-    });
+    startup_seconds_in("brokkr-runtime's engine/broker.rs", source)
+}
+
+/// [`startup_seconds`] of `source`, each failure naming it `file`.
+pub(crate) fn startup_seconds_in(file: &str, source: &str) -> u64 {
+    let code = crate::rust_source::code(source)
+        .unwrap_or_else(|unread| panic!("{file} cannot be read as Rust source: {unread}"));
     let declared: Vec<&str> = code
         .lines()
         .filter(|line| {
@@ -53,8 +57,8 @@ fn startup_seconds(source: &str) -> u64 {
         .collect();
     let [line] = declared[..] else {
         panic!(
-            "brokkr-runtime's engine/broker.rs names `const STARTUP` on {} lines, where the \
-             pin reads exactly one: {declared:?}",
+            "{file} names `const STARTUP` on {} lines, where the pin reads exactly one: \
+             {declared:?}",
             declared.len()
         );
     };
@@ -64,8 +68,8 @@ fn startup_seconds(source: &str) -> u64 {
         .and_then(|digits| digits.parse().ok())
         .unwrap_or_else(|| {
             panic!(
-                "brokkr-runtime's engine/broker.rs declares `STARTUP` in a shape the pin does \
-                 not read, not `const STARTUP: Duration = Duration::from_secs(N);`: {line}"
+                "{file} declares `STARTUP` in a shape the pin does not read, not \
+                 `const STARTUP: Duration = Duration::from_secs(N);`: {line}"
             )
         })
 }

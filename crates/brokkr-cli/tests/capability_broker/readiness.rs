@@ -18,9 +18,10 @@ use rustix::fs::inotify::{self, CreateFlags, WatchFlags};
 use serde_json::json;
 
 use super::ledger::{failed_with, sealed_ledger, Proved};
-use super::observer::{awaited, cancelled, exited, gone, processes, started_to, status, traced};
+use super::observer::{cancelled, ended_by_the_guard, felled_live, gone, processes, started_to};
+use super::observer::{status, traced};
 use super::observer::{tracer, within, Starter, NO_TRACER};
-use super::{admitted, refused, skip, unservable, Refusal, Sealed};
+use super::{admitted, refused, skip, unservable, Refusal, Sealed, STARTUP};
 
 /// Every read of a file: of a fixture's store, its one binding's value now
 /// in it, where a lookup reads the store's bytes, which no path handle,
@@ -268,24 +269,25 @@ impl Held {
 
 #[test]
 fn a_box_held_at_its_entry_refuses_at_the_absolute_deadline() {
-    let Some(held) = Held::started_by(Starter::Harness, &HELD) else {
+    let Some(mut held) = Held::started_by(Starter::Harness, &HELD) else {
         return;
     };
     // Real-process proof of deadline refusal and cleanup. The shared
     // poller's controlled-clock tests prove the exact budget; this parent
     // includes process startup and its own scheduling in elapsed time.
-    let elapsed = awaited(held.chain[3]) - held.begun;
-    let finished = exited(held.chain[3]);
+    // A hang takes the box's chain with it, wherever it stands.
+    let (broker, chain) = (held.chain[3], held.chain);
+    let observed = || felled_live(&chain);
+    let at = ended_by_the_guard(
+        broker,
+        &mut held.attempt,
+        observed,
+        "the box held at its entry",
+    );
+    let elapsed = at - held.begun;
     let (answer, settled, _, ledger) = held.ended();
     assert_eq!(answer, refused(Refusal::Establishment));
-    assert!(
-        finished,
-        "broker still running at the process wait's hang guard"
-    );
-    assert!(
-        elapsed >= Duration::from_secs(30),
-        "early refusal: {elapsed:?}"
-    );
+    assert!(elapsed >= STARTUP, "early refusal: {elapsed:?}");
     assert!(settled);
     // Its ledger closed Failed with that cause, and no call.
     assert_eq!(ledger, failed_with(Refusal::Establishment));
