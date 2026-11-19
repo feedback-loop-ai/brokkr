@@ -31,7 +31,15 @@ pub(crate) fn visits(events: &[EventEnvelope]) -> Vec<Option<u64>> {
             EventType::EffectRequested if field(&event.payload, "effect_id").is_some() => {
                 out.push(phase.and_then(|name| entered.get(name).copied()));
             }
-            _ => {}
+            // A request that names no effect id is not an effect.
+            EventType::EffectRequested
+            | EventType::EffectStarted
+            | EventType::EffectCheckpointed
+            | EventType::EffectSucceeded
+            | EventType::EffectFailed
+            | EventType::EffectIndeterminate
+            | EventType::TransitionDecided
+            | run_and_operator!() => {}
         }
     }
     out

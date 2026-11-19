@@ -25,8 +25,27 @@
 
 #![forbid(unsafe_code)]
 
+/// The run's own lifecycle and the operator's dispositions, as one
+/// pattern: the events no participant, bucket, visit or rail fold reads.
+/// A pattern rather than a predicate, so each match it stands in stays
+/// exhaustive and a new `EventType` fails to compile there (decision 0071
+/// ruling 2; #950).
+macro_rules! run_and_operator {
+    () => {
+        EventType::RunStarted
+            | EventType::OperatorCommanded
+            | EventType::OperatorAccepted
+            | EventType::OperatorRejected
+            | EventType::RunParked
+            | EventType::RunCompleted
+            | EventType::RunStopped
+    };
+}
+
+mod buckets;
 mod entry;
 mod rail;
+use buckets::{bucket, Buckets};
 pub use entry::{entry_sentence, ContinuedView, EntryView};
 
 mod analytics;
@@ -629,13 +648,13 @@ fn type_tail(type_str: &str) -> &str {
 /// The three terminal effect events and the (status, badge class) pair
 /// each implies. Pairing them keeps the class total: a derived status
 /// always has a class, so no surface needs an unreachable fallback.
+/// Which events are terminal is [`Outcome::of`]'s one exhaustive reading.
 fn terminal_status(event_type: EventType) -> Option<(&'static str, &'static str)> {
-    match event_type {
-        EventType::EffectSucceeded => Some(SUCCEEDED),
-        EventType::EffectFailed => Some(FAILED),
-        EventType::EffectIndeterminate => Some(INDETERMINATE),
-        _ => None,
-    }
+    Outcome::of(event_type).map(|outcome| match outcome {
+        Outcome::Succeeded => SUCCEEDED,
+        Outcome::Failed => FAILED,
+        Outcome::Indeterminate => INDETERMINATE,
+    })
 }
 
 const WORKING: (&str, &str) = ("working", "running");
@@ -1167,7 +1186,11 @@ fn scan_participants(events: &[EventEnvelope]) -> Scan {
                     scan.parts[part].member_finished_at = Some(event.recorded_at.clone());
                 }
             }
-            _ => {}
+            // A request reaches here only when it named no effect id.
+            EventType::PhaseEntered
+            | EventType::EffectRequested
+            | EventType::TransitionDecided
+            | run_and_operator!() => {}
         }
     }
     for part in &mut scan.parts {
@@ -1872,67 +1895,6 @@ fn live_line(label: String, turn: Option<(String, String)>) -> LiveLine {
 }
 
 // ------------------------------------------------------- inner topology
-
-/// Events bucketed by effect once, so `watch` does not pay an
-/// O(phases × events) rescan on every redraw.
-struct Buckets<'a> {
-    /// Phase name -> the NEWEST effect requested in it, and its seat
-    /// (last write wins). The seat travels with the id because it is the
-    /// label a structureless phase draws, and reading it here keeps that
-    /// lookup total — a participant always exists for a requested effect,
-    /// so a "no participant" fallback would be an uncoverable branch.
-    newest: BTreeMap<&'a str, (&'a str, &'a str)>,
-    /// Effect id -> the sequence steps its checkpoints finished and the
-    /// member tags they carry, each once, in first order.
-    listed: BTreeMap<&'a str, (Vec<String>, Vec<String>)>,
-    /// Effect id -> every phase it was requested in (scope membership).
-    effect_phases: BTreeMap<&'a str, Vec<String>>,
-}
-
-/// A checkpoint's `payload` as its effect's lists read it: a finished
-/// step's name, or else the member it tags, each listed once.
-fn listed((finished, tags): &mut (Vec<String>, Vec<String>), payload: &Value) {
-    let checkpoint = payload.get("checkpoint").unwrap_or(&Value::Null);
-    let (list, name) = match field(checkpoint, "step") {
-        Some("sequence-step-finished") => (finished, field(checkpoint, "step_name")),
-        _ => (tags, field(checkpoint, "member")),
-    };
-    if let Some(name) = name.filter(|name| !list.iter().any(|known| known == name)) {
-        list.push(name.to_string());
-    }
-}
-
-fn bucket(events: &[EventEnvelope]) -> Buckets<'_> {
-    let mut buckets = Buckets {
-        newest: BTreeMap::new(),
-        listed: BTreeMap::new(),
-        effect_phases: BTreeMap::new(),
-    };
-    for event in events {
-        let payload = &event.payload;
-        match event.event_type {
-            EventType::EffectRequested => {
-                if let (Some(effect_id), Some(phase)) =
-                    (field(payload, "effect_id"), field(payload, "phase"))
-                {
-                    let seat = field(payload, "seat").unwrap_or("?");
-                    buckets.newest.insert(phase, (effect_id, seat));
-                    let names = buckets.effect_phases.entry(effect_id).or_default();
-                    if !names.iter().any(|name| name == phase) {
-                        names.push(phase.to_string());
-                    }
-                }
-            }
-            EventType::EffectCheckpointed => {
-                if let Some(effect_id) = field(payload, "effect_id") {
-                    listed(buckets.listed.entry(effect_id).or_default(), payload);
-                }
-            }
-            _ => {}
-        }
-    }
-    buckets
-}
 
 /// A participant's own `panel-member-finished` outcome rules first; a
 /// finished step is phosphor even though its participant inherits the
