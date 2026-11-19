@@ -1112,6 +1112,20 @@ fn a_narrow_terminal_is_fitted_one_state_to_a_rail_with_every_arc_still_drawn() 
     Journal::at(&dir.path().join("none"));
     let none = view_of(&dir.path().join("none"), &reforging(), "reforge");
     insta::assert_snapshot!("graph_no_runs_8", drawn(&none, 8));
+    // Down to one column, the indents yield and no line passes the width;
+    // from the three a continued piece needs, every taken link still reads
+    // whole.
+    for width in 1..=12 {
+        for view in views.iter().chain([&none]) {
+            let drawing = recipe_graph(view, width);
+            let widest = drawing.lines().map(|line| line.chars().count()).max();
+            assert!(widest <= Some(width), "{width}\n{drawing}");
+            if width >= 3 {
+                drawn(view, width);
+            }
+        }
+    }
+    insta::assert_snapshot!("graph_reforged_3", drawn(&views[1], 3));
 }
 
 #[test]

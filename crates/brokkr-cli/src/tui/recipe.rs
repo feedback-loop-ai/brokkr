@@ -547,13 +547,27 @@ fn spaced(body: &str) -> Vec<(&str, &str)> {
     }
 }
 
-/// `word` appended to `line`, broken where it passes `width`: the piece
-/// that fits ends `…`, and the rest carries on a new line from `…`, so a
-/// word is never cut, only continued.
-fn broken(line: &mut String, lines: &mut Vec<String>, word: &str, width: usize, carried: &str) {
+/// The columns a continued piece of a word needs: a letter between the
+/// `…` it carries on from and the `…` it carries on with. Narrower, a
+/// word is continued with no marks at all, a letter or two to a line,
+/// since a mark would leave no room for the word.
+const PIECE_LEAST: usize = 3;
+
+/// How a line too narrow for a word continues it: the blanks a further
+/// line starts with, and the mark either side of a break.
+struct Carry {
+    width: usize,
+    carried: String,
+    mark: &'static str,
+}
+
+/// `word` appended to `line`, broken where it passes the width: the piece
+/// that fits ends with the mark, and the rest carries on a new line from
+/// it, so a word is never cut, only continued.
+fn broken(line: &mut String, lines: &mut Vec<String>, word: &str, carry: &Carry) {
     let mut rest = word;
-    while !rest.is_empty() && width_of(line) + width_of(rest) > width {
-        let room = width.saturating_sub(width_of(line) + 1);
+    while !rest.is_empty() && width_of(line) + width_of(rest) > carry.width {
+        let room = (carry.width).saturating_sub(width_of(line) + width_of(carry.mark));
         let mut cut = rest.chars().next().map_or(0, char::len_utf8);
         for (at, character) in rest.char_indices().skip(1) {
             if width_of(&rest[..at + character.len_utf8()]) > room {
@@ -562,8 +576,9 @@ fn broken(line: &mut String, lines: &mut Vec<String>, word: &str, width: usize, 
             cut = at + character.len_utf8();
         }
         line.push_str(&rest[..cut]);
-        line.push('…');
-        lines.push(std::mem::replace(line, format!("{carried}…")));
+        line.push_str(carry.mark);
+        let next = format!("{}{}", carry.carried, carry.mark);
+        lines.push(std::mem::replace(line, next));
         rest = &rest[cut..];
     }
     line.push_str(rest);
@@ -572,23 +587,36 @@ fn broken(line: &mut String, lines: &mut Vec<String>, word: &str, width: usize, 
 /// The rule every line under the rails is held to: `line` broken before
 /// a word that would pass `width`, each further line indented three
 /// columns past the first, and a word wider than a line continued with
-/// `…` (see [`broken`]).
+/// `…` (see [`broken`]). The indents yield to the width, so a piece of a
+/// word always has its [`PIECE_LEAST`] columns, and a line never passes
+/// `width` however narrow it is.
 fn fitted(line: &str, width: usize) -> Vec<String> {
     let body = line.trim_start_matches(' ');
-    let indent = &line[..line.len() - body.len()];
-    let carried = format!("{indent}   ");
+    let indented = line.len() - body.len();
+    let (least, mark) = if width < PIECE_LEAST {
+        (1, "")
+    } else {
+        (PIECE_LEAST, "…")
+    };
+    let room = width.saturating_sub(least);
+    let indent = " ".repeat(indented.min(room));
+    let carry = Carry {
+        width,
+        carried: " ".repeat((indented + 3).min(room)),
+        mark,
+    };
     let mut lines = Vec::new();
-    let mut current = indent.to_string();
+    let mut current = indent;
     let mut fresh = true;
     for (gap, word) in spaced(body) {
         if !fresh && width_of(&current) + width_of(gap) + width_of(word) > width {
-            lines.push(std::mem::replace(&mut current, carried.clone()));
+            lines.push(std::mem::replace(&mut current, carry.carried.clone()));
             fresh = true;
         }
         if !fresh {
             current.push_str(gap);
         }
-        broken(&mut current, &mut lines, word, width, &carried);
+        broken(&mut current, &mut lines, word, &carry);
         fresh = false;
     }
     lines.push(current);
@@ -646,5 +674,10 @@ mod tests {
             ["  abcdefg…", "     …hij…", "     …klm…", "     …nop"]
         );
         assert_eq!(fitted("", 10), [""]);
+        // The indents yield to the width: a piece keeps its three columns,
+        // and under three a word goes on unmarked.
+        assert_eq!(fitted("  abcd ef", 4), [" ab…", " …cd", " ef"]);
+        assert_eq!(fitted("  abcd", 3), ["ab…", "…cd"]);
+        assert_eq!(fitted("  ab c", 1), ["a", "b", "c"]);
     }
 }
