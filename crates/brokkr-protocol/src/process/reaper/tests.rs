@@ -139,8 +139,7 @@ fn a_released_unread_hold_leaves_an_orphan_that_reuses_its_pid_to_the_reaper() {
     let mut handled = serving();
     let (mut child, token) = handled.spawn(&mut sleeping(), closed, unread).unwrap();
     let pid = Pid::from_child(&child).as_raw_pid();
-    child.kill().unwrap();
-    child.wait().unwrap();
+    killed(&mut child);
     let reused = [row(pid, true)];
     assert_eq!(handled.doomed(Some(&reused)), Vec::<i32>::new());
     assert_eq!(handled.doomed(Some(&reused)), Vec::<i32>::new());
@@ -202,8 +201,7 @@ fn a_child_held_by_its_pidfd_is_released_by_its_own_reap() {
         })
     ));
     child.kill().unwrap();
-    let zombie = until(|| table::stat_of(pid).unwrap().filter(|row| row.zombie));
-    assert!(zombie.is_some(), "the child stands a zombie in time");
+    assert!(zombie(pid), "the child stands a zombie in time");
     handled.retire(waited, |_| Ok(None));
     assert!(handled.held.contains_key(&pid));
     assert_eq!(child.wait().unwrap().signal(), Some(9));
@@ -234,6 +232,7 @@ fn a_handle_kept_past_its_reap_holds_no_pid_an_orphan_reuses() {
     assert_eq!(held(), pids);
 
     first.kill().unwrap();
+    assert!(zombie(Pid::from_child(&first).as_raw_pid()));
     assert_eq!(first.wait().unwrap().signal(), Some(9));
     second.kill().unwrap();
     let status = until(|| second.try_wait().unwrap());
@@ -246,14 +245,46 @@ fn a_handle_kept_past_its_reap_holds_no_pid_an_orphan_reuses() {
     drop((first, second));
 }
 
+/// A launched box's launcher is held as the door holds every child: a wait
+/// on it releases its hold at once, while the box is still kept. A shell
+/// stands for bubblewrap, the launch's flags its arguments.
+#[test]
+fn a_wait_on_the_launcher_of_a_launched_box_releases_its_hold() {
+    const TEST: &str =
+        "process::reaper::tests::a_wait_on_the_launcher_of_a_launched_box_releases_its_hold";
+    if !crate::process::in_its_own_engine(TEST) {
+        return;
+    }
+    // Serving with no reaper: no sweep runs to release the hold instead.
+    handled().serving = true;
+    let own = std::process::id();
+    let tree = std::env::temp_dir().join(format!("brokkr-reaper-{own}-launched"));
+    let argv = json!([{"text": "sh"}, {"text": "-c"}, {"text": "exit 4"}]);
+    let entry = json!({"argv": argv, "launcher": 0, "bootstrap": "/brokkr", "identity": tree});
+    let entry: crate::hands::ServerEntry = serde_json::from_value(entry).unwrap();
+    let sh = std::fs::File::open("/bin/sh").unwrap();
+    let never = || false;
+    let startup = (
+        Instant::now() + PATIENCE,
+        &never as &(dyn Fn() -> bool + Sync),
+    );
+    let launch = crate::hands::ServerBox::launch;
+    let mut launched = launch(&entry, &[sh.as_fd()], |_, _, _| Vec::new(), startup).unwrap();
+    let pid = Pid::from_child(&launched.child).as_raw_pid();
+    let held = || handled().held.keys().copied().collect::<Vec<_>>();
+    assert_eq!(held(), [pid]);
+    assert_eq!(launched.child.wait().unwrap().code(), Some(4));
+    assert_eq!(held(), Vec::<i32>::new());
+    drop(launched);
+}
+
 /// A serving driver holds a child in the spawn's own critical section, by
 /// its pidfd, else by its start as read then, else unread; a process that
 /// does not serve holds nothing, and a spawn that fails holds nothing.
 #[test]
 fn a_spawn_holds_its_child_before_its_lock_is_released() {
     let ended = |(mut child, _): (Child, Option<u64>)| {
-        child.kill().unwrap();
-        child.wait().unwrap();
+        killed(&mut child);
     };
     let closed = |_| Err(std::io::ErrorKind::Other.into());
     let unread = |_| Err(std::io::ErrorKind::Other.into());
@@ -326,9 +357,7 @@ fn only_the_first_serve_starts_a_reaper() {
         std::thread::Builder::new().spawn(|| ())
     });
     assert_eq!(threads, 1);
-    let mut child = child;
-    child.kill().unwrap();
-    child.wait().unwrap();
+    killed(&mut { child });
 }
 
 /// A child of the driver's own whose output another process holds open
@@ -477,6 +506,18 @@ impl Drop for Driver {
     }
 }
 
+/// `child`'s status once killed, reaped within [`PATIENCE`].
+fn killed(child: &mut Child) -> std::process::ExitStatus {
+    child.kill().unwrap();
+    until(|| child.try_wait().unwrap()).expect("the killed child is reaped in time")
+}
+
+/// Whether `pid` stands a zombie within [`PATIENCE`], so a wait on it
+/// returns at once.
+fn zombie(pid: i32) -> bool {
+    until(|| table::stat_of(pid).unwrap().filter(|row| row.zombie)).is_some()
+}
+
 /// `probe`'s first answer within [`PATIENCE`].
 fn until<T>(mut probe: impl FnMut() -> Option<T>) -> Option<T> {
     let deadline = Instant::now() + PATIENCE;
@@ -501,9 +542,11 @@ fn orphaning(orphans: &str) -> String {
 /// While the harness runs, every orphan the driver adopted from its tree
 /// is reaped; the harness's own exit is reported as before. Each orphan
 /// writes its pid to `orphans`, and its subshell has exited before the
-/// harness writes its own: all `count` are the driver's by then. Orphans
-/// that are `living` still then are each seen among the driver's children.
-fn adopted_orphans_are_reaped(test: &str, orphans: &str, count: usize, living: bool) {
+/// harness writes its own: all `count` are the driver's by then. Each is
+/// first seen among the driver's children, running or a zombie, so no
+/// orphan the driver never adopted passes for one it reaped; `adopted`
+/// appears once it is.
+fn adopted_orphans_are_reaped(test: &str, orphans: &str, count: usize) {
     if elsewhere(test) {
         return;
     }
@@ -513,16 +556,20 @@ fn adopted_orphans_are_reaped(test: &str, orphans: &str, count: usize, living: b
     let recorded = std::fs::read_to_string(driver.dir.path().join("orphans")).unwrap();
     let recorded: BTreeSet<i32> = recorded.lines().map(|pid| pid.parse().unwrap()).collect();
     assert_eq!(recorded.len(), count, "{recorded:?}");
-    if living {
+    let children = || {
         let rows = table::children_of(driver.pid()).unwrap();
-        let children: BTreeSet<i32> = rows.iter().map(|row| row.id.pid).collect();
-        let strays: Vec<_> = recorded.difference(&children).collect();
-        assert_eq!(
-            strays,
-            Vec::<&i32>::new(),
-            "orphans the driver did not adopt"
-        );
-    }
+        rows.iter().map(|row| row.id.pid).collect::<BTreeSet<i32>>()
+    };
+    let adopted = until(|| children().is_superset(&recorded).then_some(()));
+    let strays = || {
+        recorded
+            .difference(&children())
+            .copied()
+            .collect::<Vec<_>>()
+    };
+    let unadopted = "orphans the driver did not adopt";
+    assert_eq!(adopted, Some(()), "{unadopted}: {:?}", strays());
+    std::fs::write(driver.dir.path().join("adopted"), "").unwrap();
     let cleared = until(|| driver.adopted(harness).filter(|&(adopted, _)| adopted == 0));
     assert_eq!(
         cleared,
@@ -535,13 +582,15 @@ fn adopted_orphans_are_reaped(test: &str, orphans: &str, count: usize, living: b
     driver.finish();
 }
 
+/// The orphan runs until it is seen adopted, for [`PATIENCE`] at most, so
+/// no stall of the test's reads lets the reaper clear it first.
 #[test]
 fn a_driver_reaps_the_orphan_its_harness_leaves_while_the_harness_runs() {
     adopted_orphans_are_reaped(
         "process::reaper::tests::a_driver_reaps_the_orphan_its_harness_leaves_while_the_harness_runs",
-        "(sleep 0.2 & echo $! >> orphans)",
+        "(i=0; while [ ! -e adopted ] && [ $i -lt 600 ]; do sleep 0.05; i=$((i+1)); done \
+         </dev/null >/dev/null 2>&1 & echo $! >> orphans)",
         1,
-        false,
     );
 }
 
@@ -554,7 +603,6 @@ fn a_driver_reaps_every_one_of_many_adopted_orphans() {
         "i=0; while [ $i -lt 200 ]; do \
          (sleep 15 </dev/null >/dev/null 2>&1 & echo $! >> orphans); i=$((i+1)); done",
         200,
-        true,
     );
 }
 

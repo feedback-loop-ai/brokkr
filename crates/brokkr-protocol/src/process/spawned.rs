@@ -9,9 +9,11 @@ use std::ops::{Deref, DerefMut};
 use std::process::{Child, Command, ExitStatus, Output, Stdio};
 
 /// A child spawned through the door: its handle, and on Linux the claim
-/// that releases the reaper's hold on it when the handle goes.
+/// that releases the reaper's hold on it when the handle goes. Public, and
+/// its waits, only as a launched box's launcher (`hands::Launched`), whose
+/// holder in another crate waits through them.
 #[derive(Debug)]
-pub(crate) struct Spawned {
+pub struct Spawned {
     child: Child,
     #[cfg(target_os = "linux")]
     _release: super::reaper::Release,
@@ -39,12 +41,12 @@ impl Spawned {
 
     /// [`Child::wait`], the hold released once it returns the status: a
     /// handle kept past its reap holds no pid an orphan may reuse.
-    pub(crate) fn wait(&mut self) -> Result<ExitStatus> {
+    pub fn wait(&mut self) -> Result<ExitStatus> {
         self.child.wait().inspect(|_| self.reaped())
     }
 
     /// [`Child::try_wait`], the hold released once it returns a status.
-    pub(crate) fn try_wait(&mut self) -> Result<Option<ExitStatus>> {
+    pub fn try_wait(&mut self) -> Result<Option<ExitStatus>> {
         self.child.try_wait().inspect(|status| {
             if status.is_some() {
                 self.reaped();
@@ -56,13 +58,6 @@ impl Spawned {
     fn reaped(&mut self) {
         #[cfg(target_os = "linux")]
         self._release.release();
-    }
-
-    /// The handle and its claim, for a holder that keeps the two apart and
-    /// must drop the claim after the handle's last wait.
-    #[cfg(target_os = "linux")]
-    pub(crate) fn into_parts(self) -> (Child, super::reaper::Release) {
-        (self.child, self._release)
     }
 }
 
