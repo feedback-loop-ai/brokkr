@@ -1,11 +1,12 @@
 //! A rerun's deadline: one that ends is read whole; one that never does
 //! fails the test, killed and reaped first.
 
+use std::sync::mpsc::{channel, RecvTimeoutError};
+
 use rustix::io::Errno;
 use rustix::process::{kill_process, test_kill_process, Pid, Signal};
 
 use super::*;
-use crate::process::table::stat_of;
 
 /// How long any wait here may take before the test fails.
 const PATIENCE: Duration = Duration::from_secs(30);
@@ -33,26 +34,68 @@ fn written(path: &std::path::Path) -> Pid {
     Pid::from_raw(pid.trim().parse().unwrap()).unwrap()
 }
 
-/// `stuck` run by [`ended`] to a 2 s bound: the panic it fails with,
-/// within [`PATIENCE`].
-fn overrun(stuck: Command) -> String {
-    let begun = Instant::now();
-    let rerun = std::panic::AssertUnwindSafe(|| ended(stuck, Duration::from_secs(2)));
-    let failed = std::panic::catch_unwind(rerun).unwrap_err();
-    assert!(begun.elapsed() < PATIENCE, "{:?}", begun.elapsed());
-    *failed.downcast::<String>().unwrap()
+/// `stuck` run by [`ended`] to `bound` on a thread of its own: the panic
+/// it fails with, which must come within [`PATIENCE`] however [`ended`]
+/// behaves.
+fn overrun(stuck: Command, bound: Duration) -> String {
+    let (done, finished) = channel::<()>();
+    let rerun = std::thread::spawn(move || {
+        let _done = done;
+        ended(stuck, bound)
+    });
+    let waited = finished.recv_timeout(PATIENCE);
+    assert_eq!(waited, Err(RecvTimeoutError::Disconnected));
+    *rerun.join().unwrap_err().downcast::<String>().unwrap()
 }
 
-/// How a stuck rerun that printed `stuck` fails.
-const KILLED: &str = "the rerun ends within 2s; killed, reaped by signal 9, it printed:\nstuck\n";
+/// How a stuck rerun fails, before what it printed.
+const KILLED: &str = "the rerun ends within 2s; killed, reaped by signal 9, it printed:\n";
 
 #[test]
 fn a_rerun_whose_child_never_exits_fails_within_patience_and_leaves_no_child() {
     let dir = tempfile::tempdir().unwrap();
     let pid = dir.path().join("pid");
-    let failed = overrun(shell(&pid, "echo stuck; exec sleep 600"));
-    assert_eq!(failed, KILLED);
+    let stuck = shell(&pid, "echo stuck; exec sleep 600");
+    let failed = overrun(stuck, Duration::from_secs(2));
+    assert_eq!(failed, format!("{KILLED}stuck\n"));
     assert_eq!(test_kill_process(written(&pid)), Err(Errno::SRCH));
+}
+
+/// A rerun that writes without pause still fails at its deadline, showing
+/// only the tail of what it wrote.
+#[test]
+fn a_rerun_that_never_stops_writing_fails_within_patience_keeping_its_tail() {
+    let dir = tempfile::tempdir().unwrap();
+    let pid = dir.path().join("pid");
+    let failed = overrun(shell(&pid, "exec yes"), Duration::from_secs(2));
+    let tail = failed.strip_prefix(KILLED).unwrap();
+    assert_eq!(tail.len(), KEPT);
+    assert!(tail.bytes().all(|byte| b"y\n".contains(&byte)));
+    assert_eq!(test_kill_process(written(&pid)), Err(Errno::SRCH));
+}
+
+/// Whether the killed `pid` is dead. On Linux an orphan's reaper is
+/// whichever subreaper above the rerun adopted it, so dead is gone or that
+/// reaper's zombie.
+#[cfg(target_os = "linux")]
+fn dead(pid: Pid) -> bool {
+    let row = crate::process::table::stat_of(pid.as_raw_pid()).unwrap();
+    row.is_none_or(|row| row.zombie)
+}
+
+/// Whether the killed `pid` is dead: on macOS, `launchd` reaps an orphan,
+/// so dead is gone.
+#[cfg(not(target_os = "linux"))]
+fn dead(pid: Pid) -> bool {
+    test_kill_process(pid) == Err(Errno::SRCH)
+}
+
+/// Kill the descendant whose pid a shell wrote to `held`, and see it dead.
+fn kill_holder(held: &std::path::Path) {
+    let holder = written(held);
+    kill_process(holder, Signal::KILL).unwrap();
+    let ended = until(Instant::now() + PATIENCE, || dead(holder).then_some(()));
+    assert_eq!(ended, Some(()));
 }
 
 /// A descendant the kill does not reach keeps the output's pipe open: the
@@ -64,17 +107,26 @@ fn a_rerun_whose_descendant_holds_its_output_fails_within_patience_showing_it() 
     let held = dir.path().join("held");
     let mut stuck = shell(&pid, "echo stuck; sleep 600 & echo $! > \"$1\"; wait");
     stuck.arg(&held);
-    let failed = overrun(stuck);
-    let holder = written(&held);
-    kill_process(holder, Signal::KILL).unwrap();
-    assert_eq!(failed, KILLED);
+    let failed = overrun(stuck, Duration::from_secs(2));
+    kill_holder(&held);
+    assert_eq!(failed, format!("{KILLED}stuck\n"));
     assert_eq!(test_kill_process(written(&pid)), Err(Errno::SRCH));
-    // The orphan's reaper is whichever subreaper above the rerun adopted
-    // it: dead, it is gone or that reaper's zombie.
-    let holder = holder.as_raw_pid();
-    let dead = || stat_of(holder).unwrap().is_none_or(|row| row.zombie);
-    assert_eq!(
-        until(Instant::now() + PATIENCE, || dead().then_some(())),
-        Some(())
+}
+
+/// A rerun that ends long before its bound while a descendant holds its
+/// output fails [`GRACE`] after its end, not its bound, showing what it
+/// printed.
+#[test]
+fn a_rerun_that_ends_with_its_output_held_fails_within_grace_showing_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let held = dir.path().join("held");
+    let mut early = shell(
+        &dir.path().join("pid"),
+        "echo early; sleep 600 & echo $! > \"$1\"",
     );
+    early.arg(&held);
+    let failed = overrun(early, PATIENCE);
+    kill_holder(&held);
+    let shown = "the rerun's output ends within 5s of its end; it printed:\nearly\n";
+    assert_eq!(failed, shown);
 }

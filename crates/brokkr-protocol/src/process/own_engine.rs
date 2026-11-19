@@ -13,8 +13,15 @@ const OWN_ENGINE: &str = "BROKKR_TEST_OWN_ENGINE";
 const RERUN: Duration = Duration::from_secs(180);
 
 /// How long a rerun killed at its deadline may take to be reaped, and one
-/// that ended may take to close its output.
+/// that ended may take, from its end, to close its output.
 const GRACE: Duration = Duration::from_secs(5);
+
+/// The most of a rerun's output read in one poll: the pipe's capacity, so
+/// a rerun that writes without pause cannot hold the poll past its deadline.
+const CHUNK: usize = 64 * 1024;
+
+/// The most of a rerun's output kept: its tail, where libtest's summary is.
+const KEPT: usize = 1024 * 1024;
 
 /// Whether this test runs in an engine of its own. An in-process launch is
 /// one of the test binary's engine's attempts, and every test in the binary
@@ -39,10 +46,13 @@ pub fn in_its_own_engine(test: &str) -> bool {
 }
 
 /// `command`'s status and what it printed, its standard input closed and
-/// its output and error one pipe, read without blocking as it waits. One
-/// that has not ended within `bound` is killed and reaped within [`GRACE`]
-/// before the test fails, showing what it printed so far: it leaves no
-/// child behind, and no reader that a descendant holding the pipe blocks.
+/// its output and error one pipe, read without blocking as it waits, a
+/// [`CHUNK`] a poll and its last [`KEPT`] bytes kept. One that has not
+/// ended within `bound` is killed and reaped within [`GRACE`] before the
+/// test fails, showing what it printed so far: it leaves no child behind,
+/// and no reader that a descendant holding the pipe blocks. One whose
+/// output is still open [`GRACE`] after it ended fails the test the same
+/// way.
 fn ended(mut command: Command, bound: Duration) -> (ExitStatus, String) {
     let (mut reader, writer) = std::io::pipe().unwrap();
     rustix::io::ioctl_fionbio(&reader, true).unwrap();
@@ -71,29 +81,30 @@ fn ended(mut command: Command, bound: Duration) -> (ExitStatus, String) {
         let shown = String::from_utf8_lossy(&shown);
         panic!("the rerun ends within {bound:?}; killed, reaped {reaped}, it printed:\n{shown}");
     };
-    let left = deadline.max(Instant::now()) + GRACE;
-    let read = until(left, || drain(&mut reader, &mut shown));
-    read.expect("the rerun's output ends in time");
-    (status, String::from_utf8_lossy(&shown).into_owned())
+    let read = until(Instant::now() + GRACE, || drain(&mut reader, &mut shown));
+    let shown = String::from_utf8_lossy(&shown).into_owned();
+    let Some(()) = read else {
+        panic!("the rerun's output ends within {GRACE:?} of its end; it printed:\n{shown}");
+    };
+    (status, shown)
 }
 
-/// Read what `reader` holds now into `shown`: `Some` once its writers are
-/// all gone, `None` while it would block.
+/// Read at most a [`CHUNK`] of what `reader` holds now into `shown`, which
+/// keeps its last [`KEPT`] bytes: `Some` once its writers are all gone,
+/// `None` while they are not.
 fn drain(reader: &mut PipeReader, shown: &mut Vec<u8>) -> Option<()> {
-    let mut chunk = [0; 8192];
-    loop {
-        let read = reader.read(&mut chunk);
-        if read
-            .as_ref()
-            .is_err_and(|error| error.kind() == ErrorKind::WouldBlock)
-        {
-            return None;
-        }
-        match read.expect("the rerun's output reads") {
-            0 => return Some(()),
-            read => shown.extend_from_slice(&chunk[..read]),
-        }
+    let mut chunk = vec![0; CHUNK];
+    let read = reader.read(&mut chunk);
+    if read
+        .as_ref()
+        .is_err_and(|error| error.kind() == ErrorKind::WouldBlock)
+    {
+        return None;
     }
+    let read = read.expect("the rerun's output reads");
+    shown.extend_from_slice(&chunk[..read]);
+    shown.drain(..shown.len().saturating_sub(KEPT));
+    (read == 0).then_some(())
 }
 
 /// `probe`'s first answer before `deadline`, asked every 20 ms.
