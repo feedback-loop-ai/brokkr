@@ -902,6 +902,29 @@ closure's job map is at most 256 jobs; the path list is at most 4,096 paths and 
 basis beyond its bound withholds the class as `basis-too-large`, and a range beyond its own as
 `range-too-large`, with ruling 3's withholdings; neither is ever truncated.
 
+**A size withholding replays from the journal too.** A list over its bound cannot be sealed whole
+under the rule that forbids truncating it, so the basis seals, in its place, a bounded, typed
+**overflow witness**, never the list:
+
+- which bound it is: `paths` (the range's changed-path list) or `closure` (the closure's job
+  map, the one part of the basis the compile does not already bound);
+- the limit, as a count and in bytes (4,096 paths and 256 KiB; 256 jobs);
+- the measured count and bytes;
+- the SHA-256 digest of the full list in its canonical form (for paths, the verified reader's
+  sorted list with each path's bytes NUL-terminated; for the closure, its canonical JSON).
+
+Everything else the basis holds is sealed as usual. `classify` reads a witness as its
+withholding: a basis holding one draws `range-too-large` or `basis-too-large` from it alone, so
+the replay re-derives the class without the list, and the digest lets a person who still has the
+range confirm which list it was. A witness whose measured count and bytes are both within its
+limit is malformed and refuses the replay, so a witness cannot stand in for a list that fit. The
+witness is at most a few hundred bytes. Fix round 1093r4 specified only the in-bound replay; with
+the witness, every class replays from the journal alone, both size withholdings included.
+
+The two launch refusals of ruling 2, `launch-untrusted` and `launch-unboxed-peer`, are not
+`classify`'s: they hold before any observation exists. Each is the engine's pre-spawn fact,
+journaled as the park's reason with the condition that failed, and a replay reads it there.
+
 - **(b) A new `ci/classified` event.** Moves the event envelope, every manifest and every fold
   arm for a fact an input can carry. Refused, as 0106 ruling 1 refused `run/park-caused`.
 - **(c) The excerpt kept outside the journal by digest.** Refused: the journal would point at
@@ -1561,8 +1584,14 @@ slice that produces it, and each typed assertion is in the slice that builds its
    `a_replay_reads_the_carried_path_list_not_git`;
    `the_basis_carries_the_required_list_the_literals_the_closure_and_the_comparison_values`;
    `the_live_class_and_the_replayed_class_take_one_function_over_one_basis`;
-   `a_basis_beyond_its_bound_refuses_as_basis_too_large`;
-   `a_range_beyond_the_path_bound_refuses_as_range_too_large`. The evidence (ruling 4):
+   `a_closure_beyond_its_bound_withholds_as_basis_too_large`;
+   `a_range_of_4097_short_paths_withholds_as_range_too_large`;
+   `a_range_too_large_class_replays_from_the_journal_alone` and
+   `a_basis_too_large_class_replays_from_the_journal_alone` (each: the journal exported, then
+   the bundle, the worktree and the forge stub removed; the replay re-derives `change` with its
+   withholding from the witness);
+   `the_overflow_witness_carries_the_bound_the_limit_the_measured_size_and_a_digest_never_the_list`;
+   `a_witness_within_its_limit_refuses_the_replay`. The evidence (ruling 4):
    `a_port_bind_literal_in_a_declared_setup_step_draws_ci_infrastructure`;
    `a_declared_literal_in_an_undeclared_step_is_the_changes`;
    `a_literal_printed_by_the_change_in_a_declared_setup_step_draws_a_park_never_green`;
