@@ -921,7 +921,23 @@ proceeds without either new outcome. The engine draws `green` only when all of t
   pull request the gate names and the engine's own git head;
 - every entry of `required_checks` in the entry set (ruling 6) is matched by exactly one settled
   check from its bound producer, in that producer's current execution;
-- each matched check's conclusion is `success`.
+- each matched check's conclusion is `success`;
+- **no required failure is observed inadmissible** (below): no check that carries a required
+  entry's name from another producer, and no context the forge's own required set names, has
+  concluded red.
+
+**Absent and inadmissible are told apart.** A required failure is **absent** when no observed
+check or status carries the entry's name, or the forge-required context, at all. It is
+**observed but inadmissible** when one does, and the gate cannot admit it: a check under the
+entry's name from another app, workflow path or event (`producer-mismatch`); a commit status
+the forge requires (`status-required`); a context the forge requires that the pinned list lacks
+(`required-set-disagrees`). An inadmissible check whose conclusion is red, `failure`,
+`cancelled`, `timed_out` or `startup_failure`, is an **observed inadmissible failure**, and it
+outranks both `green` and `missing-required`: the observation is `change`, never `green` and
+never refused for absence. So a red commit status in the forge's required set beside every
+pinned entry green is `change`; and a sole red check under a required entry's name from another
+workflow is `change` with `producer-mismatch`, never `missing-required`. An inadmissible check
+that succeeded changes nothing: the entry is still matched or absent on its own.
 
 The association and the tested revision are not in that rule: they are precision guards on
 `ci-infrastructure` alone, and an all-success observation whose association or revision is
@@ -935,16 +951,19 @@ progress, or a run list the observer could not read whole, refuses as `execution
 Nothing short of that is `green`. **Every binding and completeness refusal comes before any
 classification.** The engine checks each row below in order, records every one that holds, and
 classifies a failure only when none does. So a required check that is missing beside an
-otherwise classifiable failure refuses as `missing-required`; it is never typed.
+otherwise classifiable failure refuses as `missing-required`; it is never typed. The one
+exception is the precedence above: an observed inadmissible failure is `change`, ahead of
+`missing-required`, because it is not missing.
 
 | Refusal | When |
 |---|---|
 | `unrelated` | the repository, the pull request or the head differs from the binding |
 | `head-unpublished` | the forge's head for the pull request is not the engine's git head: the head the run would gate is not the one pushed |
 | `empty` | the forge reports no check for the head |
-| `missing-required` | a required entry matches no check from its bound producer; the refusal names the entry |
+| `missing-required` | a required entry is absent: no observed check carries its name from any producer; the refusal names the entry |
 | `ambiguous-required` | a required entry matches more than one check in its current execution |
 | `execution-ambiguous` | a required entry's current execution cannot be told, as above |
+| `instance-duplicated` | one expected matrix instance's key is observed more than once in one run attempt; it names the key and the jobs |
 | `not-settled` | a required check is still queued or in progress when the observer's own polling bound ends, short of the seat's deadline |
 
 One more refusal follows the pass and precedes classification: `non-success`, when no required
@@ -1047,10 +1066,11 @@ condition that failed, and a replay reads it there.
   (below).
 
 **No raw log byte enters the journal.** The journal records only what matched. An excerpt is
-read only for the first failed step of a failed required job, or of a failed dependency of a
-required aggregate (ruling 4), and only when that step is one ruling 4's list declares as
-setup. It lives only in the engine's memory, between the observer's stdout (ruling 2) and the
-edge parse:
+read only for a failed step of a failed required job, or of a failed dependency of a required
+aggregate (ruling 4), and only when that step is one ruling 4's list declares as setup; a
+failed step that is not declared setup is typed `untyped` by its declaration alone, and no log
+of it is read. It lives only in the engine's memory, between the observer's stdout (ruling 2)
+and the edge parse:
 
 - the observer reads each excerpt from the step log's tail, at most 8 KiB, and at most four of
   them, so 32 KiB in total; a fifth candidate refuses the observation rather than dropping one
@@ -1091,8 +1111,8 @@ rule, which reads every required check's own `success` and never reads a log.
 
 - **(a) Recommended: declared literals over declared setup steps.** The list declares setup
   steps, each by workflow, job and step name, and the literals each may match. A failed required
-  job, or a failed dependency of a required aggregate, is typed setup only when its first failed
-  step is a declared setup step and that step's bounded excerpt holds one of that step's
+  job, or a failed dependency of a required aggregate, is typed setup only when every one of its
+  failed steps is a declared setup step whose bounded excerpt holds one of that step's
   literals, and the observation parks only when its whole failure set is setup (the classifier,
   below). The issue's port-bind case is one:
   the step that boots the compose services, declared setup, with the literal
@@ -1139,17 +1159,28 @@ before the reader sees them. A range the reader cannot take (a base it does not 
 base, an object that does not verify) withholds the class as `range-unproven`. It is never read
 as an empty change. In order:
 
-1. Any binding or completeness refusal of ruling 3 holds: **`refused`**, naming every one that
-   holds. Nothing below runs, so no refusal is ever outranked by a classifiable failure.
-2. The observation passes ruling 3's rule for `green`: **`green`**. One that cannot and holds no
+1. Any binding or completeness refusal of ruling 3 holds, `missing-required` apart:
+   **`refused`**, naming every one that holds. Nothing below runs, so no refusal is ever
+   outranked by a classifiable failure.
+2. **An observed inadmissible failure** (ruling 3: a red check under a required entry's name
+   from another producer, or a red context the forge requires that the gate cannot admit):
+   **`change`**, with the reason `inadmissible-failure`, naming the check and its withholding.
+   It outranks `missing-required` and `green` below, because it is observed, not absent, and it
+   is red.
+3. A required entry is absent: **`refused`** as `missing-required`.
+4. The observation passes ruling 3's rule for `green`: **`green`**. One that cannot and holds no
    failed, timed-out, unstarted or cancelled required check is **`refused`** as `non-success`.
-3. **Any withholding of ruling 3 holds: `change`,** with the reason `withheld`, naming every
+5. **Any withholding of ruling 3 holds: `change`,** with the reason `withheld`, naming every
    withholding that holds. No pattern is read, so nothing below can draw `ci-infrastructure`.
-4. **The whole failure set is typed.** The failure set is every required job whose conclusion is
+6. **The whole failure set is typed.** The failure set is every required job whose conclusion is
    not `success`, each instance of a matrix job on its own. Every element gets one closed type,
    matched without a wildcard:
-   - **setup-pattern**: conclusion `failure`, its first failed step a declared setup step, and
-     that step's sealed match naming one of that step's literals, with the pattern's id;
+   - **setup-pattern**: conclusion `failure`, and **every** failed step of the job a declared
+     setup step whose sealed match names one of that step's literals, with the pattern's id.
+     That includes a later step that runs after the first failure under `if: always()` or
+     `if: failure()`, as HEAD's mutants artifact upload does
+     (`.github/workflows/mutants.yml:64-68`): if it fails and is not a matched setup step, the
+     job is `untyped`;
    - **setup-via-needs**: a pinned verdict-only aggregate (below) with conclusion `failure`,
      whose dependencies' expected instances are all observed, every one that did not succeed is,
      in turn, setup-pattern or setup-via-needs, and at least one failed;
@@ -1161,15 +1192,16 @@ as an empty change. In order:
      `action_required` beside a failure, so a skipped required check never rides along with a
      setup fault into a park.
 
-   **Inadmissible evidence has one route, `change`.** A failure in an execution ruling 3 does
-   not admit (an unproven or ambiguous association, an unestablished, disagreeing or unmeasured
-   revision, a status the forge requires) never reaches this step: step 3 has withheld the class,
-   so the observation is `change`, exactly, never `refused`, never `green` and never
-   `ci-infrastructure`. (Fix round 1093r4 parked that case `ruled`; that route is removed.)
-5. **Only an all-setup failure set parks.** Every element setup-pattern or setup-via-needs, and
-   the set non-empty: **`ci-infrastructure`**, naming each job, its step and its pattern id,
+   **Inadmissible evidence has one route, `change`.** A red check ruling 3 cannot admit under a
+   required name is step 2's; a failure in an execution ruling 3 does not admit (an unproven or
+   ambiguous association, an unestablished, disagreeing or unmeasured revision) is step 5's.
+   Neither reaches this step, and either way the observation is `change`, exactly, never
+   `refused`, never `green` and never `ci-infrastructure`. (Fix round 1093r4 parked that case
+   `ruled`; that route is removed.)
+7. **Only an all-setup failure set parks.** Every element setup-pattern or setup-via-needs, and
+   the set non-empty: **`ci-infrastructure`**, naming each job, its steps and their pattern ids,
    with the workflow run's id and attempt a person needs to re-run it.
-6. Otherwise **`change`**, with a closed reason naming the first element that is not setup, in
+8. Otherwise **`change`**, with a closed reason naming the first element that is not setup, in
    the set's order: `cancelled`, or `untyped-failure`. One such element beside any number of
    setup faults makes the whole observation the change's.
 
@@ -1183,7 +1215,7 @@ it, it is a **verdict-only aggregate**: it has no `uses` step and no checkout, a
 its steps is a single assertion that a dependency's result is `success`, of the form
 `test "$NAME" = success` with `NAME` bound in that step's `env` to exactly
 `${{ needs.<dep>.result }}` for a `<dep>` in its `needs`, as HEAD's one-step `engine` job is.
-A job with any independent step is not one: its own first failed step is typed by the rules
+A job with any independent step is not one: each of its own failed steps is typed by the rules
 above, so an independent assertion that fails is `untyped` and makes the observation `change`
 whatever its dependencies did. Fix round 1093r4 followed any job with `needs` and discarded its
 own failed step; that is removed.
@@ -1195,7 +1227,10 @@ instance is accounted for.** A dependency's expected instances come from the bas
 macOS machines (`:192-215`). A matrix the parse cannot expand into a fixed list, because it is
 built by an expression or `fromJSON`, cannot be accounted for. An observation missing any
 expected instance, or holding one whose matrix values match no expected entry, withholds the
-class as `matrix-incomplete`, so a sparse observation cannot look all-setup. A cancelled sibling
+class as `matrix-incomplete`, so a sparse observation cannot look all-setup. **The binding is
+one-to-one**: an expected instance's key observed more than once in one run attempt refuses the
+observation as `instance-duplicated` (ruling 3), so a contradictory duplicate cannot stand
+beside its sibling, whichever one the classifier would have read. A cancelled sibling
 is observed, and is `cancelled`, which makes the observation `change`. How the forge names an
 instance, and so how an observed job is matched to its expected entry, is **unmeasured** until
 0111a; until it is measured every matrix dependency is `matrix-incomplete`, which fails closed.
@@ -1205,7 +1240,7 @@ a changed one as `machinery-touched`), and because the type only parks: a mistyp
 costs a person's look, never a pass. A verdict-only aggregate's own failed step is taken as its
 dependencies' consequence, not read, because it holds nothing else.
 
-A change that touches CI's machinery never reaches step 4: step 3 makes it the change's, as
+A change that touches CI's machinery never reaches step 6: step 5 makes it the change's, as
 `machinery-touched`, and no pattern over its steps is read. It parks nothing for a person.
 
 A failure the classifier cannot type is the change's, as today.
@@ -1772,6 +1807,22 @@ slice that produces it, and each typed assertion is in the slice that builds its
    `engine-machines` instance, the other eight observed and successful);
    `an_independent_assertion_failing_beside_a_setup_fault_in_a_dependency_is_change`
    (an aggregate with a second step of its own that fails: `change`, `untyped-failure`);
+   every failure typed, each asserting the exact class and reason:
+   `a_later_always_step_failing_after_a_matched_setup_step_is_change` (one job: a declared setup
+   step fails with its literal, then an independent `if: always()` step fails: `change`,
+   `untyped-failure`, naming the second step);
+   `two_failed_setup_steps_each_matching_their_literals_draw_ci_infrastructure` (the control:
+   every failed step a matched setup step: `ci-infrastructure`, naming both pattern ids);
+   `an_all_setup_failure_set_draws_ci_infrastructure` (the all-setup control across jobs);
+   `a_duplicated_matrix_instance_key_in_one_attempt_refuses_as_instance_duplicated` (all nine
+   expected keys, plus a second job for one key, contradicting it: `refused`,
+   `instance-duplicated`, never `ci-infrastructure`);
+   `a_red_required_status_beside_every_pinned_entry_green_is_change_not_green` (`change`,
+   `inadmissible-failure`, naming the context and `status-required`);
+   `a_sole_red_producer_mismatch_is_change_not_missing_required` (`change`,
+   `inadmissible-failure`, naming the check and `producer-mismatch`);
+   `a_green_producer_mismatch_beside_an_absent_entry_refuses_as_missing_required` (the absent
+   control);
    `a_missing_matrix_sibling_draws_no_ci_infrastructure` (eight of nine instances observed:
    `change`, `matrix-incomplete`);
    `a_cancelled_matrix_sibling_draws_no_ci_infrastructure` (`change`, `cancelled`);
