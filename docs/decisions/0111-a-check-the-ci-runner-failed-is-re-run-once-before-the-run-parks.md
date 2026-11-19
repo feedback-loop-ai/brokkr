@@ -881,6 +881,28 @@ merge commit tested is **unmeasured** until 0111a. **Where the forge exposes no 
 entry is `revision-unmeasured`, and no `ci-infrastructure` is drawn.** This decision claims no
 proof GitHub does not give.
 
+**One proven checkout, and every relevant step inside it.** A proven checkout proves the
+revision of one directory, not of the step. A runner may hold other checkouts already: a
+self-hosted runner's earlier workspace, or another `actions/checkout` into a `path` of its own,
+as HEAD's `delivered by brokkr` checks out the base and the head into two directories
+(`.github/workflows/ci.yml:49-64`). A step whose `working-directory` points at one of those ran
+on its revision, and every comparison above can still pass. So, at the base, by ruling 3's
+closure parse:
+
+- each job an entry or its aggregate is drawn through has exactly one `actions/checkout` step,
+  and its `path` (the workspace root when it names none) is **the proven checkout**; a job with
+  two, or with a `path` built by an expression, is unproven;
+- every reached step of that job, the matched setup step and every step before it among them,
+  has an effective working directory (ruling 3's rule: its own, else the job's default, else
+  the workflow's, moved by any literal `cd`) that is, or lies under, the proven checkout. An
+  absolute directory, a `..` component, or one built by an expression (`${{ runner.temp }}`,
+  `$HOME`) is not;
+- an operand naming a file outside the proven checkout is not resolved by the closure at all,
+  and withholds there.
+
+Otherwise the entry is `revision-unmeasured`, naming the step and its directory, and no
+`ci-infrastructure` is drawn.
+
 The declaration is the operator's statement about a pinned workflow, and `machinery-touched`
 withholds the class whenever that workflow moved from the base's bytes. Every required entry in
 this house's list is `merge` (ruling 5), so until 0111a's evidence shows a forge field that
@@ -948,7 +970,7 @@ stops nothing landing would do. Each is a precision guard on the one class, and 
 | `association-ambiguous` | an execution's association array names more than one pull request, open or closed; it names them |
 | `revision-unestablished` | an entry's pinned checkout does not establish its tested revision, as above |
 | `revision-disagrees` | one of the separate comparisons above fails; it names the two values |
-| `revision-unmeasured` | the forge exposes no field proving the revision the entry's run checked out |
+| `revision-unmeasured` | the forge exposes no field proving the revision the entry's run checked out, or a relevant step's effective working directory is not inside the job's one proven checkout; it names the step |
 | `producer-mismatch` | a check carries a required entry's name from another app or workflow path; it names it, so a substitute is never silently passed over |
 | `status-required` | the forge's required set names a commit status context, which is never admitted |
 | `required-set-disagrees` | the forge requires a check the pinned list lacks |
@@ -1742,6 +1764,13 @@ slice that produces it, and each typed assertion is in the slice that builds its
    (one `engine-machines` instance records another merge commit: `revision-disagrees` for the
    aggregate);
    `an_entry_whose_run_records_no_tested_commit_withholds_as_revision_unmeasured`;
+   `a_setup_step_whose_working_directory_points_at_another_provisioned_checkout_draws_no_ci_infrastructure`
+   (unchanged machinery, one checkout of the correct merge commit into `candidate/`, every
+   comparison passing, and the declared setup step's `working-directory` another directory
+   already on the runner, printing the declared literal: `change`, `withheld`, with
+   `revision-unmeasured` naming the step);
+   `a_job_with_two_checkouts_withholds_as_revision_unmeasured`;
+   `a_step_working_directory_built_by_an_expression_withholds_as_revision_unmeasured`;
    `a_status_entry_in_the_required_list_refuses_to_compile`;
    `a_status_context_in_the_forges_required_set_withholds_as_status_required`;
    the machinery, each asserting the exact class and withholding (ruling 3):
