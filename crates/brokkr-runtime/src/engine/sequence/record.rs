@@ -6,7 +6,7 @@
 use brokkr_core::envelope::EventType;
 use brokkr_core::findings::EngineMarker;
 use brokkr_core::realms::Boundary;
-use brokkr_store::StoreError;
+use brokkr_store::{SeatRecordError, StoreError};
 use serde_json::{json, Value};
 
 use super::super::{stamp_boundary, Engine, EngineError};
@@ -19,13 +19,14 @@ impl Engine {
     /// the last does, so the observation its span accepted is on the
     /// record and decide never infers it from the terminal. A work step
     /// that ends it journals none: it took no observation. `Err` is the
-    /// seat record's refusal of the record.
+    /// seat record's refusal of the record, kept typed until the caller
+    /// builds the failure's journal text (fix round 0109a1r6, W5).
     pub(super) fn record_ending_gate_step(
         &mut self,
         run: &SequenceRun,
         at: &StepAt,
         result: &Value,
-    ) -> Result<Result<(), String>, EngineError> {
+    ) -> Result<Result<(), SeatRecordError>, EngineError> {
         if at.step.class != SeatClass::Gate {
             return Ok(Ok(()));
         }
@@ -42,7 +43,7 @@ impl Engine {
         at: &StepAt,
         result: &Value,
         boundary: Option<Boundary>,
-    ) -> Result<Result<(), String>, EngineError> {
+    ) -> Result<Result<(), SeatRecordError>, EngineError> {
         let model = result
             .get("model")
             .and_then(Value::as_str)
@@ -65,9 +66,7 @@ impl Engine {
         let attempt_id = Some(run.attempt_id.to_string());
         match self.append(EventType::EffectCheckpointed, payload, attempt_id) {
             Ok(_) => Ok(Ok(())),
-            Err(EngineError::Store(StoreError::SeatRecord(refusal))) => {
-                Ok(Err(refusal.to_string()))
-            }
+            Err(EngineError::Store(StoreError::SeatRecord(refusal))) => Ok(Err(refusal)),
             Err(error) => Err(error),
         }
     }

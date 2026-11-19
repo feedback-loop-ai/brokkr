@@ -653,7 +653,7 @@ impl Engine {
         let (effect_id, attempt_id) = (run.effect_id, run.attempt_id);
         let refused = match self.record_ending_gate_step(run, at, &result)? {
             Ok(()) => refused,
-            Err(refusal) => return self.end_failed(run, refused(refusal)),
+            Err(refusal) => return self.end_failed(run, refused(refusal.to_string())),
         };
         let payload = json!({"effect_id": effect_id, "attempt_id": attempt_id, "result": result,
                              "step": at.step.name});
@@ -675,7 +675,7 @@ impl Engine {
     ) -> Result<StepVerdict<()>, EngineError> {
         let result = self.stamp_step_covered(run.effect_id, result);
         if let Err(refusal) = self.journal_step_record(run, at, &result, boundary)? {
-            return self.end_failed(run, refused(refusal));
+            return self.end_failed(run, refused(refusal.to_string()));
         }
         carried.prior_results.insert(at.step.name.clone(), result);
         Ok(StepVerdict::Goes(()))
@@ -698,7 +698,8 @@ impl Engine {
         if let StepVerdict::Ended = self.refuse_contradiction(run, at, result, carried)? {
             return Ok(StepVerdict::Ended);
         }
-        if let Err(mut refusal) = self.record_ending_gate_step(run, at, result)? {
+        if let Err(refusal) = self.record_ending_gate_step(run, at, result)? {
+            let mut refusal = refusal.to_string();
             run.bound.deadline.name_words(&mut refusal);
             return self.end_failed(run, run.failed_payload(at, &refusal, start_failures));
         }
