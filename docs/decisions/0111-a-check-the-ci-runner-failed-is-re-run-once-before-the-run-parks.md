@@ -1019,8 +1019,18 @@ bounded, typed data under `ci-classification/v1`:
 - **the declared literal set**: each setup step (workflow, job, step name) and each pattern (id,
   steps, literal bytes);
 - **the change classes** and what ruling 3's closure test took at the base: its verdict,
-  and, for each required job and each job it needs, transitively, its `needs` and its checkout
-  ref;
+  and, for each required job and each job it needs, transitively, its `needs`, its checkout
+  ref, its proven checkout's path and each reached step's effective working directory;
+- **each such job's aggregate kind**, as ruling 4's pinned parse derived it: `verdict-only`,
+  with the dependency each of its steps asserts and the `env` binding that ties the assertion to
+  `needs.<dep>.result`; or `independent`, naming its first independent step; or the typed
+  `kind-unmeasured`, naming the step the parse could not read;
+- **each matrix dependency's expected instance identities**, the base's pinned
+  `strategy.matrix` expanded into its fixed list of instance keys, each the matrix values in
+  their declared order, with the forge's name for it once 0111a measures how the forge names an
+  instance; or the typed `matrix-unexpandable`, naming the expression or `fromJSON` that built
+  it; or `instance-naming-unmeasured` while 0111a has not measured the naming. Each of the
+  latter two is ruling 4's `matrix-incomplete`, drawn by a replay from the outcome alone;
 - **the comparison values** the binding read: the repository's numeric id, the pull request's
   number, the base commit, the merge base, the gated head, the engine's git head and the forge's
   head for the pull request;
@@ -1032,9 +1042,18 @@ and must equal the recorded class. It reads no bundle, no manifest file, no chec
 range and no forge, so a replay after the bundle is recompiled, the worktree is gone and the
 forge's runs have expired still holds. The bounds: the compile admits at most 64 required
 entries, 64 setup steps and 64 patterns, so the list and the literals are at most 32 KiB; the
-closure's job map is at most 256 jobs; the path list is at most 4,096 paths and 256 KiB. A
-basis beyond its bound withholds the class as `basis-too-large`, and a range beyond its own as
-`range-too-large`, with ruling 3's withholdings; neither is ever truncated.
+closure's job map, its aggregate kinds and expected instances included, is at most 256 jobs
+**and 128 KiB** in its canonical JSON, each job at most 64 expected instances; the path list is
+at most 4,096 paths and 256 KiB. The closure has a byte bound as well as its count, so 256 jobs
+with long step lists cannot carry an unbounded basis. A basis beyond its bound withholds the
+class as `basis-too-large`, and a range beyond its own as `range-too-large`, with ruling 3's
+withholdings; neither is ever truncated.
+
+So a replay of a valid all-setup aggregate reads its kind, `verdict-only`, and its nine expected
+keys from the basis, finds all nine in the sealed observation, and re-draws
+`ci-infrastructure`; and a replay of the same observation less one instance finds eight of the
+nine sealed keys and re-draws `change` with `matrix-incomplete`, naming the missing key. Neither
+reads the workflow, the bundle or the forge.
 
 **A size withholding replays from the journal too.** A list over its bound cannot be sealed whole
 under the rule that forbids truncating it, so the basis seals, in its place, a bounded, typed
@@ -1042,17 +1061,32 @@ under the rule that forbids truncating it, so the basis seals, in its place, a b
 
 - which bound it is: `paths` (the range's changed-path list) or `closure` (the closure's job
   map, the one part of the basis the compile does not already bound);
-- the limit, as a count and in bytes (4,096 paths and 256 KiB; 256 jobs);
-- the measured count and bytes;
-- the SHA-256 digest of the full list in its canonical form (for paths, the verified reader's
-  sorted list with each path's bytes NUL-terminated; for the closure, its canonical JSON).
+- the limit, as a count and in bytes (4,096 paths and 256 KiB; 256 jobs and 128 KiB);
+- the measurement, one of two closed forms:
+  - `measured`: the full count and bytes, and the SHA-256 digest of the full list in its
+    canonical form (for paths, the verified reader's sorted list with each path's bytes
+    NUL-terminated; for the closure, its canonical JSON);
+  - `overflowed-unmeasured`: the count and bytes read when the hard cap stopped the read, as a
+    lower bound, and no digest.
+
+**How an overflow is measured without unbounded work.** The verified reader never holds an
+overflowing list. Past the sealing limit it keeps reading, streaming each path, or each closure
+job's canonical bytes, into a running count, byte total and SHA-256, and holds nothing else.
+That stream has its own hard read cap, a fixed multiple of the limit: 65,536 paths and 4 MiB
+for paths, 4,096 jobs and 2 MiB for the closure. A list that ends within the cap seals
+`measured`. A list that reaches the cap stops there and seals `overflowed-unmeasured`, so no
+rejected input costs more than the cap. The sorted order a `measured` path digest needs is the
+reader's own order: 0109b's `diff-tree` over verified trees walks paths in tree order, which is
+sorted (unmeasured until 0109b's tests pin it); where the reader cannot give sorted output
+without holding the list, the path witness is `overflowed-unmeasured` past the limit, and that
+fails closed the same way.
 
 Everything else the basis holds is sealed as usual. `classify` reads a witness as its
 withholding: a basis holding one draws `range-too-large` or `basis-too-large` from it alone, so
-the replay re-derives the class without the list, and the digest lets a person who still has the
-range confirm which list it was. A witness whose measured count and bytes are both within its
-limit is malformed and refuses the replay, so a witness cannot stand in for a list that fit. The
-witness is at most a few hundred bytes. Fix round 1093r4 specified only the in-bound replay; with
+the replay re-derives the class without the list, and a `measured` digest lets a person who
+still has the range confirm which list it was. A witness whose measured count and bytes, or
+whose lower bound, are both within its limit is malformed and refuses the replay, so a witness
+cannot stand in for a list that fit. The witness is at most a few hundred bytes. Fix round 1093r4 specified only the in-bound replay; with
 the witness, every class replays from the journal alone, both size withholdings included.
 
 Ruling 2's launch refusal, `launch-untrusted`, is not `classify`'s: it holds before any
@@ -1782,6 +1816,14 @@ slice that produces it, and each typed assertion is in the slice that builds its
    the bundle, the worktree and the forge stub removed; the replay re-derives `change` with its
    withholding from the witness);
    `the_overflow_witness_carries_the_bound_the_limit_the_measured_size_and_a_digest_never_the_list`;
+   `a_list_past_the_hard_read_cap_seals_overflowed_unmeasured_with_its_lower_bound_and_no_digest`;
+   `a_closure_over_128_kib_withholds_as_basis_too_large`;
+   `a_valid_all_setup_aggregate_replays_from_the_journal_alone` (the journal exported, then the
+   bundle, the worktree, the workflow and the forge stub removed: `ci-infrastructure`, from the
+   sealed `verdict-only` kind and nine expected keys);
+   `a_missing_sibling_replays_from_the_journal_alone_as_matrix_incomplete` (the same, one
+   instance short: `change`, `withheld`, `matrix-incomplete` naming the missing key);
+   `a_sealed_matrix_unexpandable_outcome_replays_as_matrix_incomplete`;
    `a_witness_within_its_limit_refuses_the_replay`. The evidence (ruling 4):
    `a_port_bind_literal_in_a_declared_setup_step_draws_ci_infrastructure`;
    `a_declared_literal_in_an_undeclared_step_is_the_changes`;
