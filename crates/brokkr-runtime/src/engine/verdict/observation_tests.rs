@@ -12,7 +12,7 @@ use super::tests::{begun, driven_over, driver, ended_in};
 use crate::bundle::{Bundle, GateAssessment, SeatBody, SeatClass, SequenceStep};
 use crate::engine::heads::HeadReads;
 use crate::engine::tests::{git_commit, single_body, step_body};
-use crate::engine::verdict::ObservationProblem::{Disagrees, Missing};
+use crate::engine::verdict::ObservationProblem::{self, Disagrees, Missing};
 use crate::engine::Engine;
 use brokkr_core::canonical::sha256_bytes;
 use brokkr_core::envelope::{EventEnvelope, EventType};
@@ -265,16 +265,22 @@ fn a_missing_or_inconsistent_journaled_observation_refuses_at_decide() {
             Missing => drop(result.as_object_mut().unwrap().remove("checked_head")),
             _ => result["covered"] = covered,
         });
-        let events = stopped.resumed();
-        let decided = decided_from(&events, "review");
-        assert_eq!(decided["result"], "__schema-invalid__", "{decided}");
-        let text = format!("result failed schema validation: {problem}");
-        assert_eq!(decided["problem"], text);
-        assert!(decided["inputs"].get("reviewed_heads").is_none());
-        assert!(!events.iter().any(|event| {
-            event.event_type == EventType::EffectRequested && event.payload["phase"] == "ship"
-        }));
+        refused_at_decide(&stopped.resumed(), &problem);
     }
+}
+
+/// Review's decision in `events` refused `problem`: schema-invalid with
+/// its text, no next phase, no reviewed head, and ship never requested.
+fn refused_at_decide(events: &[EventEnvelope], problem: &ObservationProblem) {
+    let decided = decided_from(events, "review");
+    assert_eq!(decided["result"], "__schema-invalid__", "{decided}");
+    assert_eq!(decided["next"], Value::Null);
+    let text = format!("result failed schema validation: {problem}");
+    assert_eq!(decided["problem"], text);
+    assert!(decided["inputs"].get("reviewed_heads").is_none());
+    assert!(!events.iter().any(|event| {
+        event.event_type == EventType::EffectRequested && event.payload["phase"] == "ship"
+    }));
 }
 
 /// Fix round 0109a1r4, K2: a protected sequence whose gate step was
@@ -312,15 +318,7 @@ fn decide_refuses_while_two_durable_observations_of_its_attempt_disagree() {
         checkpointed(&events, "judge")["checked_head"],
         json!(stopped.reviewed)
     );
-    let decided = decided_from(&events, "review");
-    assert_eq!(decided["result"], "__schema-invalid__", "{decided}");
-    assert_eq!(decided["next"], Value::Null);
-    let text = format!("result failed schema validation: {Disagrees}");
-    assert_eq!(decided["problem"], text);
-    assert!(decided["inputs"].get("reviewed_heads").is_none());
-    assert!(!events.iter().any(|event| {
-        event.event_type == EventType::EffectRequested && event.payload["phase"] == "ship"
-    }));
+    refused_at_decide(&events, &Disagrees);
 }
 
 /// A run reviewed twice, on A and then on B: the later review's decision

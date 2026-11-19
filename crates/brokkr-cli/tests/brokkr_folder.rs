@@ -270,6 +270,22 @@ pub(crate) fn clean_repository() -> tempfile::TempDir {
     dir
 }
 
+/// A [`clean_repository`] laid out for an inline `work` seat under
+/// `policy`: its bundle's roles, agent charters, adapters and state
+/// directories, the policy, and the work seat's role and charter, which an
+/// inline seat's file map pins inside its own bundle (decision 0066
+/// ruling 5).
+pub(crate) fn inline_work_seat(policy: &str) -> tempfile::TempDir {
+    let dir = clean_repository();
+    for sub in ["bundle/roles", "agents/charters", "adapters", "state"] {
+        std::fs::create_dir_all(dir.path().join(sub)).unwrap();
+    }
+    std::fs::write(dir.path().join("bundle/policy.json"), policy).unwrap();
+    std::fs::write(dir.path().join("bundle/roles/work.md"), "# work\n").unwrap();
+    std::fs::write(dir.path().join("agents/charters/work.md"), "# work\n").unwrap();
+    dir
+}
+
 /// `dir`, created when needed, made a git repository with a clean head as
 /// [`clean_repository`] makes one: the fixture a run operates in place.
 pub(crate) fn clean_head(dir: &Path) {

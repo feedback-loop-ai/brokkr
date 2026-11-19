@@ -62,14 +62,8 @@ fn reviewed_by_a_chief(compiled: &mut Bundle, chief: Vec<String>) {
 
 /// The ids of the findings `scope` keeps of the run's verdicts, in order.
 fn kept(events: &[EventEnvelope], scope: Scope) -> Vec<String> {
-    let state = brokkr_core::fold::fold(events).unwrap();
-    let view = brokkr_view::run_view(events, Some(&state));
-    let lens = lens_for(&view, Some(&scope)).unwrap();
-    gate_records(events)
-        .iter()
-        .filter_map(|record| record.kept_by(lens.as_ref()))
-        .flat_map(|record: GateRecord| record.findings)
-        .map(|finding| finding.id)
+    (producers(events, scope).into_iter())
+        .map(|(id, _)| id)
         .collect()
 }
 

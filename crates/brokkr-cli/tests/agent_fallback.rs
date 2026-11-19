@@ -61,16 +61,8 @@ struct Workspace {
 impl Workspace {
     fn new() -> Workspace {
         let ws = Workspace {
-            dir: crate::brokkr_folder::clean_repository(),
+            dir: crate::brokkr_folder::inline_work_seat(POLICY),
         };
-        for sub in ["bundle/roles", "agents/charters", "adapters", "state"] {
-            std::fs::create_dir_all(ws.path().join(sub)).unwrap();
-        }
-        std::fs::write(ws.path().join("bundle/policy.json"), POLICY).unwrap();
-        // An inline seat's role stands inside its own bundle, where the
-        // file map pins it (decision 0066 ruling 5).
-        std::fs::write(ws.path().join("bundle/roles/work.md"), "# work\n").unwrap();
-        std::fs::write(ws.path().join("agents/charters/work.md"), "# work\n").unwrap();
         // A provider whose binary does not exist: every attempt on it
         // fails to spawn, which satisfies the structural predicate
         // trivially — nothing accepted, nothing checkpointed.

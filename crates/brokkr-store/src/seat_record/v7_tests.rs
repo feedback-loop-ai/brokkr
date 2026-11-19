@@ -221,13 +221,19 @@ fn v7_refuses_a_findings_line_exactly_where_the_reader_does() {
         );
         let finding: Value = serde_json::from_str(&text).unwrap();
         let reader = brokkr_core::findings::Finding::deserialize(&finding).is_ok();
-        let standalone = gate("findings", json!([finding]));
-        let stepped = json!({"step": "sequence-step-finished", "authored": "engine",
-                             "step_name": "judge", "model": "m", "result": standalone});
-        for record in [&standalone, &stepped] {
-            let fence = judged(record, SeatRecordVersion::V7).is_ok();
-            assert_eq!((fence, reader), (admitted, admitted), "{line}: {record}");
-        }
+        fenced_as_read(gate("findings", json!([finding])), reader, admitted);
+    }
+}
+
+/// `standalone`, a result, judged under v7 alone and as the nested result
+/// of the engine's own step checkpoint: the fence and the reader, which
+/// said `reader`, each say `admitted`.
+fn fenced_as_read(standalone: Value, reader: bool, admitted: bool) {
+    let stepped = json!({"step": "sequence-step-finished", "authored": "engine",
+                         "step_name": "judge", "model": "m", "result": standalone});
+    for record in [&standalone, &stepped] {
+        let fence = judged(record, SeatRecordVersion::V7).is_ok();
+        assert_eq!((fence, reader), (admitted, admitted), "{record}");
     }
 }
 
@@ -259,13 +265,7 @@ fn v7_refuses_a_covered_null_exactly_where_the_reader_does() {
         for (fields, admitted) in cases.chain([own_null]) {
             let covered: Value = serde_json::from_str(&format!("{{{fields}}}")).unwrap();
             let reader = brokkr_core::findings::Covered::deserialize(&covered).is_ok();
-            let standalone = gate("covered", covered);
-            let stepped = json!({"step": "sequence-step-finished", "authored": "engine",
-                                 "step_name": "judge", "model": "m", "result": standalone});
-            for record in [&standalone, &stepped] {
-                let fence = judged(record, SeatRecordVersion::V7).is_ok();
-                assert_eq!((fence, reader), (admitted, admitted), "{fields}: {record}");
-            }
+            fenced_as_read(gate("covered", covered), reader, admitted);
         }
     }
 }
