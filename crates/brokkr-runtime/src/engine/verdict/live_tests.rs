@@ -87,3 +87,40 @@ fn a_live_checkpoints_nested_result_passes_the_standalone_admission() {
         assert_eq!(gate_records(&events), []);
     }
 }
+
+/// Every finding object anywhere in `value` that carries a `site`.
+fn keyed(value: &Value) -> usize {
+    match value {
+        Value::Object(fields) => {
+            let own = fields.get("findings").and_then(Value::as_array);
+            let sited = own.map_or(0, |all| {
+                all.iter().filter(|f| f.get("site").is_some()).count()
+            });
+            sited + fields.values().map(keyed).sum::<usize>()
+        }
+        Value::Array(items) => items.iter().map(keyed).sum(),
+        _ => 0,
+    }
+}
+
+/// Fix round 0109a1r5, V4: a gate driver forwards an ordinary live
+/// seat-turn checkpoint whose nested result reports one finding, then
+/// succeeds with none. Findings belong only to verdicts, so the
+/// checkpoint is refused in its own words, journaled as each attempt's
+/// failure, and no keyed finding is left in the journal outside a verdict.
+#[test]
+fn a_gate_drivers_live_finding_is_refused_and_no_keyed_finding_is_journaled() {
+    let turn = json!({"step": "seat-turn", "turn": 1,
+                      "result": {"result": "clean", "findings": [reported("telemetry", 1)]}});
+    let (events, errors) = refused(turn, true);
+    assert_eq!(errors.len(), 2);
+    for error in &errors {
+        let want = "a driver's checkpoint carries a finding: findings belong only to the \
+                    seat's result, its verdict (decision 0109 ruling 1)";
+        assert!(error.starts_with(want), "{error}");
+    }
+    assert!(!journaled_steps(&events).contains(&&json!("seat-turn")));
+    let keyed: usize = events.iter().map(|event| keyed(&event.payload)).sum();
+    assert_eq!(keyed, 0);
+    assert_eq!(gate_records(&events), []);
+}

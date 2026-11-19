@@ -9,7 +9,8 @@
 //! verdict by, never the marker's word. A driver's live checkpoint that
 //! claims either, or whose nested `result` writes what only the engine
 //! writes, is refused by [`admit_live`], the same admission a standalone
-//! result passes.
+//! result passes; so is one whose nested result reports a finding, which
+//! belongs only to a verdict (fix round 0109a1r5, V4).
 
 use serde_json::Value;
 use thiserror::Error;
@@ -75,12 +76,19 @@ pub enum LiveRefusal {
     EngineAuthored,
     #[error("a driver's checkpoint result was refused: {0}")]
     Result(#[from] AdmissionRefusal),
+    #[error(
+        "a driver's checkpoint carries a finding: findings belong only to the seat's result, \
+         its verdict (decision 0109 ruling 1)"
+    )]
+    Finding,
 }
 
 /// Admit a driver's live `checkpoint` written at `reporter`: one that
 /// carries `authored` or names an engine marker's word is refused, and a
-/// nested `result` passes [`admit`] as a standalone result does, its
-/// findings stamped in place.
+/// nested `result` passes [`admit`] as a standalone result does. A live
+/// checkpoint is telemetry, never a verdict, so a nested result that
+/// reports a finding is refused rather than stamped: no keyed finding
+/// enters the journal outside a verdict (fix round 0109a1r5, V4).
 pub fn admit_live(
     checkpoint: &mut Value,
     reporter: Option<Reporter<'_>>,
@@ -93,10 +101,15 @@ pub fn admit_live(
     let Some(result) = checkpoint.get_mut("result") else {
         return Ok(());
     };
-    if let Some(findings) = admit(result, reporter)? {
-        journal(result, &findings);
+    match admit(result, reporter)? {
+        Some(findings) if !findings.is_empty() => Err(LiveRefusal::Finding),
+        // An empty set reports nothing, and is journaled as it was sent.
+        Some(none) => {
+            journal(result, &none);
+            Ok(())
+        }
+        None => Ok(()),
     }
-    Ok(())
 }
 
 #[cfg(test)]

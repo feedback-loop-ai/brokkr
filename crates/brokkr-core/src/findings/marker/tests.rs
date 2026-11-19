@@ -84,12 +84,26 @@ fn a_live_checkpoints_result_passes_the_standalone_admission() {
     );
 }
 
+/// Fix round 0109a1r5, V4: findings belong only to verdicts, so a gate
+/// driver's live checkpoint that reports one is refused, never stamped;
+/// an empty set and a checkpoint with no result pass as they were sent.
 #[test]
-fn a_gate_drivers_live_findings_are_stamped_with_its_site_and_the_rest_passes() {
+fn a_gate_drivers_live_finding_is_refused_and_the_rest_passes() {
     let mut gate = json!({"step": "seat-turn", "result":
         {"result": "pass", "findings": [finding()]}});
-    assert_eq!(admit_live(&mut gate, Some(Reporter::Gate(SITE))), Ok(()));
-    assert_eq!(gate["result"]["findings"][0]["site"], SITE);
+    assert_eq!(
+        admit_live(&mut gate, Some(Reporter::Gate(SITE))),
+        Err(LiveRefusal::Finding)
+    );
+    assert_eq!(
+        LiveRefusal::Finding.to_string(),
+        "a driver's checkpoint carries a finding: findings belong only to the seat's result, \
+         its verdict (decision 0109 ruling 1)"
+    );
+    let empty = json!({"step": "seat-turn", "result": {"result": "pass", "findings": []}});
+    let mut sent = empty.clone();
+    assert_eq!(admit_live(&mut sent, Some(Reporter::Gate(SITE))), Ok(()));
+    assert_eq!(sent, empty);
     let mut plain = json!({"step": "seat-turn", "turn": 1});
     assert_eq!(admit_live(&mut plain, Some(Reporter::Work)), Ok(()));
     assert_eq!(plain, json!({"step": "seat-turn", "turn": 1}));

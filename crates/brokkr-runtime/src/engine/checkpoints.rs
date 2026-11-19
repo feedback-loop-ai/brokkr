@@ -420,8 +420,9 @@ impl<'a, B: FnMut(&mut Store)> Checkpoints<'a, B> {
     /// 0109a1r4, K1), so a driver's checkpoint that claims a record only
     /// the engine authors, or whose nested result writes an engine-owned
     /// field or a work site's findings, is refused as a refused call is
-    /// and fails the attempt, and a gate's nested findings are stamped
-    /// with its site. Then it is offered as any other.
+    /// and fails the attempt, and so is one whose nested result reports a
+    /// finding at all, since findings belong only to verdicts (fix round
+    /// 0109a1r5, V4). Then it is offered as any other.
     pub(super) fn offer_live(
         &mut self,
         owner: &str,
