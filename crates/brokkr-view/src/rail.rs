@@ -16,6 +16,33 @@ fn is_return(order: Option<&[String]>, visits: &[(String, u64)], from: &str, nex
     }
 }
 
+/// One more taking of the road back from `from` to `next`, under `rule`
+/// when the ruling names one: the road is added on its first taking, and
+/// its rules stay deduped with the latest last.
+fn take_road(returns: &mut Vec<(String, Road)>, from: &str, next: &str, rule: Option<&str>) {
+    let at = match returns
+        .iter()
+        .position(|(to, road)| to == next && road.from == from)
+    {
+        Some(at) => at,
+        None => {
+            let road = Road {
+                from: from.to_string(),
+                taken: 0,
+                rules: Vec::new(),
+            };
+            returns.push((next.to_string(), road));
+            returns.len() - 1
+        }
+    };
+    let road = &mut returns[at].1;
+    road.taken += 1;
+    if let Some(rule) = rule {
+        road.rules.retain(|known| known != rule);
+        road.rules.push(rule.to_string());
+    }
+}
+
 pub(super) fn phase_rail(
     events: &[EventEnvelope],
     scan: &Scan,
@@ -58,29 +85,21 @@ pub(super) fn phase_rail(
                 if !backward {
                     continue;
                 }
-                let at = match returns
-                    .iter()
-                    .position(|(to, road)| to == next && road.from == from)
-                {
-                    Some(at) => at,
-                    None => {
-                        let road = Road {
-                            from: from.to_string(),
-                            taken: 0,
-                            rules: Vec::new(),
-                        };
-                        returns.push((next.to_string(), road));
-                        returns.len() - 1
-                    }
-                };
-                let road = &mut returns[at].1;
-                road.taken += 1;
-                if let Some(rule) = field(&event.payload, "rule_id") {
-                    road.rules.retain(|known| known != rule);
-                    road.rules.push(rule.to_string());
-                }
+                take_road(&mut returns, from, next, field(&event.payload, "rule_id"));
             }
-            _ => continue,
+            EventType::EffectRequested
+            | EventType::EffectStarted
+            | EventType::EffectCheckpointed
+            | EventType::EffectSucceeded
+            | EventType::EffectFailed
+            | EventType::EffectIndeterminate
+            | EventType::RunStarted
+            | EventType::OperatorCommanded
+            | EventType::OperatorAccepted
+            | EventType::OperatorRejected
+            | EventType::RunParked
+            | EventType::RunCompleted
+            | EventType::RunStopped => continue,
         }
     }
     let current = match state.and_then(|state| state.phase.as_deref()) {

@@ -97,7 +97,7 @@ pub enum Outcome {
 }
 
 impl Outcome {
-    fn of(event_type: EventType) -> Option<Outcome> {
+    pub(crate) fn of(event_type: EventType) -> Option<Outcome> {
         match event_type {
             EventType::EffectSucceeded => Some(Outcome::Succeeded),
             EventType::EffectFailed => Some(Outcome::Failed),

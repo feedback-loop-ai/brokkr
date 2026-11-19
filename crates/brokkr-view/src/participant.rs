@@ -31,7 +31,23 @@ pub(crate) fn visits(events: &[EventEnvelope]) -> Vec<Option<u64>> {
             EventType::EffectRequested if field(&event.payload, "effect_id").is_some() => {
                 out.push(phase.and_then(|name| entered.get(name).copied()));
             }
-            _ => {}
+            // A request that names no effect id is not an effect; the
+            // run's lifecycle and the operator's dispositions carry no
+            // visit; and the rest of an effect's life is not its request.
+            EventType::EffectRequested
+            | EventType::RunStarted
+            | EventType::OperatorCommanded
+            | EventType::OperatorAccepted
+            | EventType::OperatorRejected
+            | EventType::RunParked
+            | EventType::RunCompleted
+            | EventType::RunStopped
+            | EventType::EffectStarted
+            | EventType::EffectCheckpointed
+            | EventType::EffectSucceeded
+            | EventType::EffectFailed
+            | EventType::EffectIndeterminate
+            | EventType::TransitionDecided => {}
         }
     }
     out
