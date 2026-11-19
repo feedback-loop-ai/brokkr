@@ -60,7 +60,12 @@ impl fmt::Display for Overdue {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let (pid, patience) = (self.pid, self.patience);
         let end = match &self.outcome {
-            OverdueOutcome::Stopped(status) => format!("it was stopped, and ended {status}"),
+            OverdueOutcome::Stopped(status) if signalled(status) => {
+                format!("it was stopped, and ended {status}")
+            }
+            OverdueOutcome::Stopped(status) => {
+                format!("it was sent its stop, but ended by itself: {status}")
+            }
             OverdueOutcome::Unreaped(_) => "it was stopped but not reaped within it".to_owned(),
         };
         write!(
@@ -79,7 +84,9 @@ impl Overdue {
         let words = self.to_string();
         if let OverdueOutcome::Unreaped(mut child) = self.outcome {
             let _ = child.kill();
-            std::thread::spawn(move || child.wait());
+            // A thread the OS refuses leaves the child unreaped, never the
+            // words below unsaid: the builder's spawn fails without panicking.
+            let _ = std::thread::Builder::new().spawn(move || child.wait());
         }
         panic!("{words}")
     }
@@ -114,16 +121,27 @@ pub(crate) fn reaped_with(
     })
 }
 
-/// The child's status if a poll reaps it by `deadline`. What a poll saw is
-/// reported as it was, and the clock only rules whether to poll again: no
-/// sleep runs past the deadline, and a poll does not block.
+/// The child's status if a poll begun before `deadline` reaps it. The clock
+/// is read before each poll, so a status first collected after the deadline
+/// is never reported as within it: the reap a poll observed and the timing
+/// the clock rules stay apart. No sleep runs past the deadline, and a poll
+/// does not block.
 pub(crate) fn exited_before(child: &mut Child, deadline: Instant) -> Option<ExitStatus> {
     loop {
-        let status = child.try_wait().unwrap();
         let now = Instant::now();
-        if status.is_some() || now >= deadline {
-            return status;
+        if now >= deadline {
+            return None;
+        }
+        if let Some(status) = child.try_wait().unwrap() {
+            return Some(status);
         }
         std::thread::sleep(POLL.min(deadline - now));
     }
+}
+
+/// Did a signal end the child? A stop that is a kill ends it so; a child
+/// that exited by itself, before or despite its stop, has an exit code.
+fn signalled(status: &ExitStatus) -> bool {
+    use std::os::unix::process::ExitStatusExt;
+    status.signal().is_some()
 }

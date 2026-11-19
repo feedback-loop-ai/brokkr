@@ -1869,7 +1869,15 @@ fn the_reaped_pid_fixture_fails_within_its_patience_on_a_child_its_stop_leaves_a
         panic!("a child the stop left alive was given back reaped")
     };
     child.kill().unwrap();
-    child.wait().unwrap();
+    let killed = child.id();
+    let reaped = crate::reaped::exited_before(
+        &mut child,
+        std::time::Instant::now() + crate::reaped::PATIENCE,
+    );
+    assert!(
+        reaped.is_some(),
+        "the given-back child {killed} was not reaped within PATIENCE of its kill"
+    );
     let (words, pid, failed_after) = entry_failed_after(|_| {});
     let gone = gone_before(pid, std::time::Instant::now() + REAP_GRACE);
 
@@ -1883,6 +1891,69 @@ fn the_reaped_pid_fixture_fails_within_its_patience_on_a_child_its_stop_leaves_a
         )
     );
     assert!(gone, "the fixture's child {pid} was left unreaped");
+}
+
+/// A child its stop lets end by itself is given back stopped, and the
+/// fixture says it ended by itself rather than that the stop ended it: here
+/// the stop closes the stdin the child reads, so it exits with a code.
+#[test]
+fn the_reaped_pid_fixture_says_a_child_ended_by_itself_when_no_signal_ended_it() {
+    use crate::reaped::OverdueOutcome;
+    let mut reads = Command::new("sh");
+    reads.args(["-c", "read -r line"]);
+    reads.stdin(std::process::Stdio::piped());
+    let overdue = crate::reaped::reaped_with(&mut reads, FIXTURE_PATIENCE, |child| {
+        drop(child.stdin.take())
+    })
+    .err()
+    .unwrap();
+    let OverdueOutcome::Stopped(status) = overdue.outcome else {
+        panic!("{overdue}")
+    };
+
+    assert_eq!(status.signal(), None, "{status}");
+    assert_eq!(
+        overdue.to_string(),
+        format!(
+            "the fixture's child {} did not exit within 1s; it was sent its stop, but ended by itself: {status}",
+            overdue.pid
+        )
+    );
+}
+
+/// A status is the fixture's only when a poll begun before the deadline
+/// collected it: a child that has ended, still unreaped, is not reported as
+/// reaped by a deadline already past, and the next bounded poll reaps it.
+#[test]
+fn the_reaped_pid_fixture_reports_no_reap_that_a_poll_after_its_deadline_collected() {
+    let mut child = Command::new("true").spawn().unwrap();
+    let pid = rustix::process::Pid::from_raw(i32::try_from(child.id()).unwrap()).unwrap();
+    assert!(
+        ended_unreaped_before(pid, std::time::Instant::now() + crate::reaped::PATIENCE),
+        "the fixture's child {pid:?} did not end within PATIENCE"
+    );
+
+    let past = std::time::Instant::now();
+    assert_eq!(crate::reaped::exited_before(&mut child, past), None);
+    let reaped = crate::reaped::exited_before(
+        &mut child,
+        std::time::Instant::now() + crate::reaped::PATIENCE,
+    );
+    assert!(reaped.is_some_and(|status| status.success()), "{reaped:?}");
+}
+
+/// Has `pid`, a child of this process, ended by `deadline`? Observed with
+/// `WNOWAIT`, so it stays unreaped for the caller.
+fn ended_unreaped_before(pid: rustix::process::Pid, deadline: std::time::Instant) -> bool {
+    use rustix::process::{waitid, WaitId, WaitIdOptions};
+    let options = WaitIdOptions::EXITED | WaitIdOptions::NOHANG | WaitIdOptions::NOWAIT;
+    loop {
+        let ended = matches!(waitid(WaitId::Pid(pid), options), Ok(Some(_)));
+        if ended || std::time::Instant::now() >= deadline {
+            return ended;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
 }
 
 /// Is `pid` gone, reaped and no zombie, by `deadline`?
