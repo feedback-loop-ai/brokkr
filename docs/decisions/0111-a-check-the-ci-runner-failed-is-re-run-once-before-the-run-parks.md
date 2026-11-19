@@ -819,14 +819,25 @@ is the unresolved category above. So the closure from `engine` through `engine-m
 house's gate never draws `ci-infrastructure`** while it stands: a red house observation is
 `change`, and an all-success one `green`. This decision does not claim the house parks.
 
-- **House typed parking is deferred** until that dispatch is written so the closure resolves:
-  each shard's command word and the files it executes spelled as literal words, or as variables
-  the same file assigns only from literal words. That rewrite is a follow-up issue under
-  #1094, outside this decision and outside its slices.
+It is not the only blocker. The required `mutants in the diff: brokkr-core`
+(`.github/workflows/mutants.yml:42`) runs `bash scripts/mutants.sh gate "$BASE" brokkr-core`
+(`:63`), and that script's line 31 is `cd "$(git rev-parse --show-toplevel)"`: a `cd` whose
+operand is a command substitution, so its effective working directory, and every relative
+reference after it, is unresolved. That closure withholds as `machinery-unresolved` too, naming
+`scripts/mutants.sh:31`.
+
+- **House typed parking is deferred** until both are written so the house's whole eligible
+  closure resolves: each shard's command word and the files it executes in
+  `scripts/test-shards.sh` spelled as literal words, or as variables the same file assigns only
+  from literal words; and `scripts/mutants.sh`'s working directory set by a literal (the job's
+  checkout root) rather than a substitution. Those rewrites are one follow-up issue under
+  #1094, outside this decision and outside its slices, and it names every closure the house's
+  integration case still finds unresolved when it is opened, not only these two.
 - The synthetic matrix test (0111b) stays the classifier's positive case for a verdict-only
-  aggregate over nine instances, over a workflow whose closure resolves; it does not stand for
-  the house.
-- 0111b's house integration case asserts the exact withholding over HEAD's base.
+  aggregate over nine instances, over a workflow whose closure resolves, until the house's whole
+  eligible closure resolves; it does not stand for the house.
+- 0111b's house integration cases assert the exact withholding over HEAD's base, one per
+  blocker.
 
 The narrowed acceptance ([above](#what-1093s-acceptance-becomes)) is therefore delivered for an
 adopter whose closure resolves, and for this house only after the follow-up.
@@ -2044,6 +2055,10 @@ slice that produces it, and each typed assertion is in the slice that builds its
    exactly `change`, `withheld`, and its withholdings hold `machinery-unresolved` naming
    `scripts/test-shards.sh` and its array command word; until the follow-up rewrite, when this
    test is replaced by the house's positive case);
+   `the_houses_mutants_closure_withholds_as_machinery_unresolved_at_mutants_sh` (HEAD's base and
+   a red setup-only observation of `mutants in the diff: brokkr-core`: exactly `change`,
+   `withheld`, `machinery-unresolved` naming `scripts/mutants.sh:31` and its substituted `cd`;
+   replaced with the other at the follow-up);
    `an_ambiguous_tested_revision_withholds_as_revision_unestablished`;
    `a_merge_revision_whose_parents_are_not_the_base_and_the_head_withholds`;
    `two_unsettled_runs_for_one_entry_refuse_as_execution_ambiguous`;
