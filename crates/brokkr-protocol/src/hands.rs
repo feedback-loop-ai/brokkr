@@ -380,11 +380,9 @@ pub fn unboxed_environment(
             set(key, value.clone());
         }
     }
-    let (named, path) = (engine_env.get("VOLTA_HOME"), engine_env.get("PATH"));
-    if let Some((key, value)) =
-        environment::volta_home(named.map(String::as_str), path.map(String::as_str), home)
-    {
-        set(key, value);
+    let os = |key: &str| engine_env.get(key).map(std::ffi::OsStr::new);
+    if let Some((key, value)) = environment::volta_home(os("VOLTA_HOME"), os("PATH"), home) {
+        set(key, value.to_string_lossy().into_owned());
     }
     for (key, value) in [
         ("LANG", "C.UTF-8"),

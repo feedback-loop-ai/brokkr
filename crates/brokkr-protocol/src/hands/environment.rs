@@ -2,7 +2,8 @@
 //! 0065 slice two, U8a, to make room for the evidence protection beside
 //! the box's argv builder (operator ruling of 2026-10-09).
 
-use std::path::Path;
+use std::ffi::OsStr;
+use std::path::{Path, PathBuf};
 
 use super::{expand_home, namespace_join, namespace_path, HandsSpec, SANDBOX_HOME};
 
@@ -42,7 +43,10 @@ pub(crate) fn inherited_git_group_closed() -> (&'static str, &'static str) {
 /// The volta home a child under a private `HOME` must be told, the one
 /// home the unboxed dispatch and the probe's launches read: the engine's
 /// own `VOLTA_HOME` as it stands, else the operator's `~/.volta` exactly
-/// when `path` reaches that home's `bin`, else nothing.
+/// when `path` reaches that home's `bin`, else nothing. Each input is the
+/// engine's as the OS holds it, so a non-UTF-8 entry hides nothing; a
+/// `home` that is not absolute (the empty one an unset `HOME` reads as)
+/// names no `~/.volta`, so no relative locator is inferred.
 ///
 /// A volta shim finds its home as `$VOLTA_HOME`, else `$HOME/.volta`.
 /// Under a private `HOME` the second is an empty directory: the shim finds
@@ -54,18 +58,17 @@ pub(crate) fn inherited_git_group_closed() -> (&'static str, &'static str) {
 /// would read, as the toolchain homes are set only where a bind declares
 /// them.
 pub(crate) fn volta_home(
-    named: Option<&str>,
-    path: Option<&str>,
+    named: Option<&OsStr>,
+    path: Option<&OsStr>,
     home: &Path,
-) -> Option<(&'static str, String)> {
+) -> Option<(&'static str, PathBuf)> {
     if let Some(named) = named {
-        return Some(("VOLTA_HOME", named.to_string()));
+        return Some(("VOLTA_HOME", PathBuf::from(named)));
     }
     let default = home.join(".volta");
     let shims = default.join("bin");
-    std::env::split_paths(path?)
-        .any(|dir| dir == shims)
-        .then(|| ("VOLTA_HOME", default.to_string_lossy().into_owned()))
+    (home.is_absolute() && std::env::split_paths(path?).any(|dir| dir == shims))
+        .then_some(("VOLTA_HOME", default))
 }
 
 /// The workspace box's environment, in the order it is set: the fixed
