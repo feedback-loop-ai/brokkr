@@ -622,6 +622,8 @@ fn drawn(parked: &str) -> GraphView {
 #[test]
 fn the_states_and_rules_are_painted_as_two_aligned_tables() {
     let mut view = drawn("REVIEW-PARK");
+    // The two runs' read order is not the painter's to pin: fix it by id.
+    view.live.sort_by(|a, b| a.run_id.cmp(&b.run_id));
     // The first state as a reported one reads: its cost and tokens.
     let work = &mut view.states[0];
     work.entered = 33;
