@@ -513,17 +513,20 @@ fn wanted() -> Sites {
         );
         site("panel", member, rows);
     }
-    site("sequence", "first", whole("first", "first-root-0"));
-    site("sequence", "then", whole("then", "agent-root-3"));
     let result = json!({"result": "complete", "notes": "done", "model": OPUS,
                         "effort": "not reported", "boundary": "not applicable",
                         "input_tokens": 13, "output_tokens": 2, "num_turns": 2,
                         "transcript": {"home": "<root>/home/.claude/projects",
                                        "kind": "claude-session", "locator": "first-root-0"}});
+    // The step's finish marker is its step's own record (fix round
+    // 0109a1r4, K6), journaled after the step's live rows.
     let finished = json!({"step": "sequence-step-finished", "step_name": "first",
-                          "boundary": "not applicable", "model": OPUS, "result": result,
-                          "authored": "engine"});
-    site("sequence", "", vec![finished]);
+                          "member": "first", "boundary": "not applicable", "model": OPUS,
+                          "result": result, "authored": "engine"});
+    let mut first = whole("first", "first-root-0");
+    first.push(finished);
+    site("sequence", "first", first);
+    site("sequence", "then", whole("then", "agent-root-3"));
     let mut resumed = session("", "resumed-root-0", "cold", true, false);
     resumed.extend(session("", "resumed-root-0", "resumed", true, true));
     site("resumed", "", resumed);
