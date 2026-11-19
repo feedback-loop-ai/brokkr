@@ -25,7 +25,7 @@ pub(crate) fn exited_pid() -> u32 {
     reaped_with(&mut Command::new("true"), PATIENCE, |child| {
         child.kill().unwrap()
     })
-    .unwrap_or_else(Overdue::fail)
+    .unwrap_or_else(|mut overdue| overdue.fail())
 }
 
 /// A fixture's child that did not end within its patience.
@@ -62,8 +62,9 @@ impl fmt::Display for Overdue {
 impl Overdue {
     /// Fail saying how the child was overdue, taking no time past the
     /// patience already spent: an unreaped child is sent SIGKILL and not
-    /// waited for.
-    pub(crate) fn fail(mut self) -> u32 {
+    /// waited for. The child stays the overdue's own, for a caller that
+    /// catches the failure to reap it.
+    pub(crate) fn fail(&mut self) -> ! {
         if let OverdueOutcome::Unreaped(child) = &mut self.outcome {
             let _ = child.kill();
         }

@@ -1794,10 +1794,10 @@ fn hands_tree(tmp: &Path, pid: u32, label: &str) -> PathBuf {
 const FIXTURE_PATIENCE: std::time::Duration = std::time::Duration::from_secs(1);
 
 /// What the fixture gave back for a child that never exits, stopped by
-/// `stop`, and how long it took.
+/// `stop`, and when the fixture was entered.
 fn overdue_after(
     stop: impl FnOnce(&mut std::process::Child),
-) -> (std::time::Duration, crate::reaped::Overdue) {
+) -> (std::time::Instant, crate::reaped::Overdue) {
     let mut never_exits = Command::new("sleep");
     never_exits.arg("600").stdout(std::process::Stdio::null());
     never_exits.stderr(std::process::Stdio::null());
@@ -1805,11 +1805,11 @@ fn overdue_after(
     let overdue = crate::reaped::reaped_with(&mut never_exits, FIXTURE_PATIENCE, stop)
         .err()
         .unwrap();
-    (started.elapsed(), overdue)
+    (started, overdue)
 }
 
 /// The words the fixture's entry point fails with on `overdue`.
-fn failed_with(overdue: crate::reaped::Overdue) -> String {
+fn failed_with(overdue: &mut crate::reaped::Overdue) -> String {
     let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| overdue.fail()));
     *panicked.err().unwrap().downcast::<String>().unwrap()
 }
@@ -1821,7 +1821,8 @@ fn failed_with(overdue: crate::reaped::Overdue) -> String {
 #[test]
 fn the_reaped_pid_fixture_fails_within_its_patience_on_a_child_that_never_exits() {
     use crate::reaped::OverdueOutcome;
-    let (elapsed, overdue) = overdue_after(|child| child.kill().unwrap());
+    let (started, mut overdue) = overdue_after(|child| child.kill().unwrap());
+    let elapsed = started.elapsed();
 
     assert!(elapsed < FIXTURE_PATIENCE, "{elapsed:?}");
     let status = match &overdue.outcome {
@@ -1831,25 +1832,26 @@ fn the_reaped_pid_fixture_fails_within_its_patience_on_a_child_that_never_exits(
     assert_eq!(status.signal(), Some(SIGKILL));
     let pid = overdue.pid;
     assert_eq!(
-        failed_with(overdue),
+        failed_with(&mut overdue),
         format!(
             "the fixture's child {pid} did not exit within 1s; it was killed, and ended {status}"
         )
     );
 }
 
-/// The reap after the stop shares that patience: a child the stop leaves
-/// alive is given back unreaped by the patience's end, not a fresh grace
-/// after it, still the caller's to kill and reap.
+/// The reap after the stop shares that patience, and so does the entry
+/// point's failure: a child the stop leaves alive is given back unreaped by
+/// the patience's end, and failing on it sends it SIGKILL and says so with
+/// no fresh grace, leaving it the caller's to reap.
 #[test]
 fn the_reaped_pid_fixture_fails_within_its_patience_on_a_child_its_stop_leaves_alive() {
     use crate::reaped::{exited_before, OverdueOutcome, REAP_GRACE};
-    let (elapsed, mut overdue) = overdue_after(|_| {});
-    let words = overdue.to_string();
+    let (started, mut overdue) = overdue_after(|_| {});
+    let words = failed_with(&mut overdue);
+    let elapsed = started.elapsed();
     let OverdueOutcome::Unreaped(child) = &mut overdue.outcome else {
         panic!("{words}")
     };
-    child.kill().unwrap();
     let status = exited_before(child, std::time::Instant::now() + REAP_GRACE);
 
     let slack = std::time::Duration::from_millis(100);
