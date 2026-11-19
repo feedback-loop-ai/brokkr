@@ -762,8 +762,13 @@ change's tree:
   `perl` or `ruby`, and any command word that is itself a repository path. Every reached file is
   scanned for references in turn.
 - **A reached step's effective working directory lies in the machinery.** It is the step's own
-  `working-directory`, else the job's default, else the workflow's, else the checkout's root,
-  moved by any `cd` the step runs; a `cd` whose operand is not a literal is unresolved. A
+  `working-directory`, else the job's default, else the workflow's, else the workspace root,
+  `GITHUB_WORKSPACE`, moved by any `cd` the step runs. The workspace root is the checkout's
+  root only when the checkout names no `path`: a checkout into `candidate/` leaves an ordinary
+  step that names no directory in `GITHUB_WORKSPACE`, outside it. HEAD's `delivered by brokkr`
+  checks out into `base-verifier` and `pr`, and its steps name those directories in their
+  operands, never by default (`.github/workflows/ci.yml:49-77`). A `cd` whose operand is not a
+  literal is unresolved. A
   directory that is, or lies under, a change class withholds as `machinery-escapes`, naming the
   directory and the step. A program run there reads what it finds there.
 - **So do each command word's implicit inputs.** A program reads files no operand names: `make`
@@ -946,9 +951,10 @@ closure parse:
   two, or with a `path` built by an expression, is unproven;
 - every reached step of that job, the matched setup step and every step before it among them,
   has an effective working directory (ruling 3's rule: its own, else the job's default, else
-  the workflow's, moved by any literal `cd`) that is, or lies under, the proven checkout. An
-  absolute directory, a `..` component, or one built by an expression (`${{ runner.temp }}`,
-  `$HOME`) is not;
+  the workflow's, else the workspace root, moved by any literal `cd`) that is, or lies under,
+  the proven checkout. An absolute directory, a `..` component, or one built by an expression
+  (`${{ runner.temp }}`, `$HOME`) is not; nor is the workspace root, reached by default, when the
+  proven checkout has a `path` of its own;
 - an operand naming a file outside the proven checkout is not resolved by the closure at all,
   and withholds there.
 
@@ -2010,6 +2016,13 @@ slice that produces it, and each typed assertion is in the slice that builds its
    comparison passing, and the declared setup step's `working-directory` another directory
    already on the runner, printing the declared literal: `change`, `withheld`, with
    `revision-unmeasured` naming the step);
+   `a_step_naming_no_directory_beside_a_checkout_into_candidate_withholds_as_revision_unmeasured`
+   (the job's one checkout of the correct merge commit has `path: candidate`, and the declared
+   setup step names no `working-directory`, so it runs in `GITHUB_WORKSPACE`: `change`,
+   `withheld`, `revision-unmeasured` naming the step and the workspace root);
+   `a_step_whose_working_directory_is_the_candidate_checkout_reaches_classification` (the
+   positive control: the same job, the step's `working-directory: candidate`, a declared
+   port-bind literal: `ci-infrastructure`);
    `a_job_with_two_checkouts_withholds_as_revision_unmeasured`;
    `a_step_working_directory_built_by_an_expression_withholds_as_revision_unmeasured`;
    `a_status_entry_in_the_required_list_refuses_to_compile`;
