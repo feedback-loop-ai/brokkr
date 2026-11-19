@@ -113,8 +113,11 @@ The operator settled this decision's asks for #1145:
    continued piece (`…x…`) needs; under three columns a word is continued
    with no marks. Every width is counted in display columns, a double-width
    glyph as two: where a glyph is too wide for a piece's room, the line's
-   blanks yield first and then the mark it carries on from. At one column a
-   two-column glyph cannot be drawn by any rule; it is written as `…`, the
+   blanks yield first and then the mark it carries on from; a glyph that
+   fits the width only without the mark it carries on with stands alone on
+   its line, that mark yielding too, and the last glyph of a word reserves
+   no mark after it. Only a glyph wider than the whole width cannot be drawn
+   by any rule (a two-column glyph at one column); it is written as `…`, the
    mark a clamp leaves for what it cut, one to each glyph, so the line keeps
    to its column and says a glyph stood there. Nothing is drawn wider than
    the width. Enforcement: every drawing test holds every line within its

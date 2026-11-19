@@ -621,17 +621,20 @@ struct Carry {
 /// it, so a word is never cut, only continued. Each piece is held to its
 /// room in display columns: where a character is too wide for the room
 /// the line's blanks leave it, the blanks yield first and then the mark
-/// it carries on from. A character wider than the whole width (a
+/// it carries on from, and one that fits the width only without the mark
+/// it carries on with stands alone. A character wider than the whole width (a
 /// two-column glyph at one column) is written as `…`, the mark [`clamp`]
 /// leaves for what it cut, so no line passes the width (review 2's C2).
 fn broken(line: &mut String, lines: &mut Vec<String>, word: &str, carry: &Carry) {
     let mut rest = word;
     while width_of(line) + width_of(rest) > carry.width {
         let first = rest.chars().next().map_or(0, char::len_utf8);
+        let glyph = &rest[..first];
         // The loop runs only on a fresh line, whose blanks and mark are
         // all it holds: `fitted` starts a word on one when it would not
-        // fit after the words before it.
-        let needed = width_of(&rest[..first]) + width_of(carry.mark);
+        // fit after the words before it. A last glyph carries no mark on.
+        let trailing = if rest.len() > first { carry.mark } else { "" };
+        let needed = width_of(glyph) + width_of(trailing);
         while !line.is_empty() && width_of(line) + needed > carry.width {
             line.remove(0);
         }
@@ -645,12 +648,22 @@ fn broken(line: &mut String, lines: &mut Vec<String>, word: &str, carry: &Carry)
         .take_while(|end| width_of(&rest[..*end]) <= room)
         .last();
         let cut = fits.unwrap_or(first);
-        line.push_str(fits.map_or("…", |cut| &rest[..cut]));
+        // A glyph that fits the width but not beside the mark stands alone
+        // on its line, the mark yielding; only one wider than the width is
+        // `…` (review 3's F1).
+        let lone = if width_of(glyph) <= carry.width {
+            glyph
+        } else {
+            "…"
+        };
+        line.push_str(fits.map_or(lone, |cut| &rest[..cut]));
         rest = &rest[cut..];
         if rest.is_empty() {
             return;
         }
-        line.push_str(carry.mark);
+        if width_of(line) + width_of(carry.mark) <= carry.width {
+            line.push_str(carry.mark);
+        }
         let next = format!("{}{}", carry.carried, carry.mark);
         lines.push(std::mem::replace(line, next));
     }
@@ -765,5 +778,9 @@ mod tests {
         for (width, lines) in (1..).zip(wide) {
             assert_eq!(fitted("  界界界", width), lines, "{width}");
         }
+        // A three-column glyph as wide as the line stands alone on it, the
+        // mark it would carry on with yielding; a column more, it returns.
+        assert_eq!(fitted("  ៘៘៘", 3), ["៘", "៘", "៘"]);
+        assert_eq!(fitted("  ៘៘៘", 4), ["៘…", "៘…", "…៘"]);
     }
 }
