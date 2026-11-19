@@ -460,15 +460,15 @@ trail
 
 graph
   intake ×1
-    → intake · finished
+    → ⏺ intake · finished
   implement ×1
-    → implement · finished
+    → ⏺ implement · finished
   verify ×1
-    → verify · finished
+    → ⏺ verify · finished
   review ×1
-    → review · finished
+    → ⏺ review · finished
   ship ×2
-    → ship · finished
+    → ⏺ ship · finished
   done ×1  ←current
 ```
 
@@ -703,15 +703,15 @@ seats
 
 graph
   intake ×1
-    → intake · finished
+    → ⏺ intake · finished
   implement ×1
-    → implement · finished
+    → ⏺ implement · finished
   verify ×1
-    → verify · finished
+    → ⏺ verify · finished
   review ×1
-    → review · finished
+    → ⏺ review · finished
   ship ×1
-    → ship · finished
+    → ⏺ ship · finished
   done ×1  ←current
 ```
 

@@ -325,3 +325,49 @@ fn a_watched_journal_ends_when_its_run_stops_running() {
     assert_eq!(ended, [false, false, true, false, true, true, true]);
     assert!(!has_ended(&Watched::Console, &views));
 }
+
+/// #1168: `brokkr watch` off a terminal paints each graph class in the
+/// colour the console paints it, because both read one class table and
+/// one colour vocabulary. Each class's ANSI code is pinned, and the
+/// console's ratatui style, read back as ANSI here, is the same code.
+#[test]
+fn the_plain_frame_paints_every_graph_class_in_the_consoles_colour() {
+    use crate::render::graph::{ansi, mark};
+    let ansi_of = |style: Style| {
+        let hue = match style.fg {
+            Some(Color::Magenta) => "\x1b[35m",
+            Some(Color::Green) => "\x1b[32m",
+            Some(Color::Yellow) => "\x1b[33m",
+            Some(Color::Red) => "\x1b[31m",
+            None => "",
+            other => panic!("a graph colour outside the vocabulary: {other:?}"),
+        };
+        let weight = match (
+            style.add_modifier.contains(Modifier::DIM),
+            style.add_modifier.contains(Modifier::BOLD),
+        ) {
+            (true, _) => "\x1b[2m",
+            (false, true) => "\x1b[1m",
+            (false, false) => "",
+        };
+        format!("{hue}{weight}")
+    };
+    for (class, code, still) in [
+        (Class::Visited, "\x1b[35m\x1b[2m", "⏺"),
+        (Class::Current, "\x1b[32m", "∙"),
+        (Class::Park, "\x1b[33m", "⊙"),
+        (Class::Failed, "\x1b[31m", "⊗"),
+        (Class::Finished, "\x1b[32m", "⏺"),
+        (Class::Active, "\x1b[35m\x1b[1m", "∙"),
+        (Class::Unknown, "\x1b[2m", "·"),
+    ] {
+        let (paint, ramp) = mark(class);
+        assert_eq!(ansi(paint), code, "{class:?}'s plain-frame colour");
+        assert_eq!(ansi_of(look(class).0), code, "{class:?}'s console colour");
+        assert_eq!(
+            (look(class).1, ramp[0]),
+            (ramp, still),
+            "{class:?}'s glyphs"
+        );
+    }
+}

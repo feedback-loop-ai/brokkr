@@ -526,7 +526,7 @@ trail
 
 graph
   intake ×1
-    → intake · finished
+    → ⏺ intake · finished
 …
   done ×1  ←current
 ```
