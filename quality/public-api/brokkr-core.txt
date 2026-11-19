@@ -298,12 +298,24 @@ pub brokkr_core::findings::AdmissionRefusal::WorkSite
 pub enum brokkr_core::findings::CoveredHead
 pub brokkr_core::findings::CoveredHead::Commit(alloc::string::String)
 pub brokkr_core::findings::CoveredHead::Digest(alloc::string::String)
+pub enum brokkr_core::findings::EngineMarker
+pub brokkr_core::findings::EngineMarker::MemberFinished
+pub brokkr_core::findings::EngineMarker::StepFinished
+impl brokkr_core::findings::EngineMarker
+pub fn brokkr_core::findings::EngineMarker::authored(&serde_json::value::Value) -> core::option::Option<brokkr_core::findings::EngineMarker>
+pub fn brokkr_core::findings::EngineMarker::record(self, serde_json::value::Value) -> serde_json::value::Value
 pub enum brokkr_core::findings::EngineWritten
 pub brokkr_core::findings::EngineWritten::CheckedHead
 pub brokkr_core::findings::EngineWritten::Covered
 pub brokkr_core::findings::EngineWritten::FollowUps
+impl brokkr_core::findings::EngineWritten
+pub const fn brokkr_core::findings::EngineWritten::field(self) -> &'static str
 impl core::fmt::Display for brokkr_core::findings::EngineWritten
 pub fn brokkr_core::findings::EngineWritten::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub enum brokkr_core::findings::LiveRefusal
+pub brokkr_core::findings::LiveRefusal::EngineAuthored
+pub brokkr_core::findings::LiveRefusal::Finding
+pub brokkr_core::findings::LiveRefusal::Result(brokkr_core::findings::AdmissionRefusal)
 pub enum brokkr_core::findings::Reporter<'a>
 pub brokkr_core::findings::Reporter::Gate(&'a str)
 pub brokkr_core::findings::Reporter::Work
@@ -371,7 +383,9 @@ pub type brokkr_core::findings::Summary::Error = brokkr_core::findings::WordErro
 pub fn brokkr_core::findings::Summary::try_from(alloc::string::String) -> core::result::Result<brokkr_core::findings::Summary, brokkr_core::findings::WordError>
 impl core::fmt::Display for brokkr_core::findings::Summary
 pub fn brokkr_core::findings::Summary::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub const brokkr_core::findings::AUTHORED: &str
 pub fn brokkr_core::findings::admit(&mut serde_json::value::Value, core::option::Option<brokkr_core::findings::Reporter<'_>>) -> core::result::Result<core::option::Option<alloc::vec::Vec<brokkr_core::findings::Finding>>, brokkr_core::findings::AdmissionRefusal>
+pub fn brokkr_core::findings::admit_live(&mut serde_json::value::Value, core::option::Option<brokkr_core::findings::Reporter<'_>>) -> core::result::Result<(), brokkr_core::findings::LiveRefusal>
 pub fn brokkr_core::findings::journal(&mut serde_json::value::Value, &[brokkr_core::findings::Finding])
 pub mod brokkr_core::fold
 pub enum brokkr_core::fold::Cursor
@@ -477,6 +491,11 @@ pub brokkr_core::fold::Status::Stopped
 impl brokkr_core::fold::Status
 pub const fn brokkr_core::fold::Status::as_str(self) -> &'static str
 pub fn brokkr_core::fold::Status::named(&str) -> core::option::Option<brokkr_core::fold::Status>
+pub enum brokkr_core::fold::StepObservation
+pub brokkr_core::fold::StepObservation::Checked
+pub brokkr_core::fold::StepObservation::Checked::covered: core::option::Option<brokkr_core::findings::Covered>
+pub brokkr_core::fold::StepObservation::Checked::head: brokkr_core::findings::CheckedHead
+pub brokkr_core::fold::StepObservation::Unreadable
 pub struct brokkr_core::fold::LateTail
 pub brokkr_core::fold::LateTail::event_types: alloc::vec::Vec<brokkr_core::envelope::EventType>
 pub brokkr_core::fold::LateTail::first_seq: u64
@@ -501,6 +520,7 @@ pub brokkr_core::fold::RunState::reviewed_heads: core::option::Option<brokkr_cor
 pub brokkr_core::fold::RunState::run: brokkr_core::fold::Run
 pub brokkr_core::fold::RunState::run_id: alloc::string::String
 pub brokkr_core::fold::RunState::seq: u64
+pub brokkr_core::fold::RunState::step_checked: core::option::Option<brokkr_core::fold::StepObservation>
 pub brokkr_core::fold::RunState::stop_accepted_seq: core::option::Option<u64>
 pub brokkr_core::fold::RunState::strategy: core::option::Option<alloc::string::String>
 pub brokkr_core::fold::RunState::tail_types: alloc::collections::btree::map::BTreeMap<u64, brokkr_core::envelope::EventType>
@@ -1707,6 +1727,7 @@ pub brokkr_core::RunState::reviewed_heads: core::option::Option<brokkr_core::dec
 pub brokkr_core::RunState::run: brokkr_core::fold::Run
 pub brokkr_core::RunState::run_id: alloc::string::String
 pub brokkr_core::RunState::seq: u64
+pub brokkr_core::RunState::step_checked: core::option::Option<brokkr_core::fold::StepObservation>
 pub brokkr_core::RunState::stop_accepted_seq: core::option::Option<u64>
 pub brokkr_core::RunState::strategy: core::option::Option<alloc::string::String>
 pub brokkr_core::RunState::tail_types: alloc::collections::btree::map::BTreeMap<u64, brokkr_core::envelope::EventType>
