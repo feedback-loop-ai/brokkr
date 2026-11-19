@@ -231,6 +231,45 @@ fn v7_refuses_a_findings_line_exactly_where_the_reader_does() {
     }
 }
 
+/// The fence and the reader agree on `covered` by construction (fix round
+/// 0109a1r4, K4): in each `head` field set, the other set's field absent
+/// is admitted by both, and present as `null` or as a value is refused
+/// by both, as the set's own field `null` is, standalone and in the
+/// engine's step checkpoint alike.
+#[test]
+fn v7_refuses_a_covered_null_exactly_where_the_reader_does() {
+    let forms = [
+        ("head", HEAD, "head_digest", DIGEST),
+        ("head_digest", DIGEST, "head", HEAD),
+    ];
+    for (own, value, other, other_value) in forms {
+        let cases = [
+            (String::new(), true),
+            (format!(r#", "{other}": null"#), false),
+            (format!(r#", "{other}": "{other_value}""#), false),
+        ];
+        let own_null = (
+            format!(r#""kind": "head", "{own}": null, "dirty": true"#),
+            false,
+        );
+        let cases = cases.into_iter().map(|(extra, admitted)| {
+            let fields = format!(r#""kind": "head", "{own}": "{value}", "dirty": true{extra}"#);
+            (fields, admitted)
+        });
+        for (fields, admitted) in cases.chain([own_null]) {
+            let covered: Value = serde_json::from_str(&format!("{{{fields}}}")).unwrap();
+            let reader = brokkr_core::findings::Covered::deserialize(&covered).is_ok();
+            let standalone = gate("covered", covered);
+            let stepped = json!({"step": "sequence-step-finished", "authored": "engine",
+                                 "step_name": "judge", "model": "m", "result": standalone});
+            for record in [&standalone, &stepped] {
+                let fence = judged(record, SeatRecordVersion::V7).is_ok();
+                assert_eq!((fence, reader), (admitted, admitted), "{fields}: {record}");
+            }
+        }
+    }
+}
+
 /// Ruling 1: only v7 admits the three gate fields. A v6 record carrying
 /// any of them is refused under v6, and the v6 record without them is
 /// still admitted, so v6's bytes govern exactly what they always did.

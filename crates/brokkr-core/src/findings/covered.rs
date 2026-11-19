@@ -6,7 +6,7 @@
 //! present, beside `dirty`, and no `base` is recorded. The `artifacts`
 //! arm v7 admits has no writer until slice 0109c, so it has no type here.
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use thiserror::Error;
 
 use super::{is_lower_hex, is_sha256};
@@ -44,16 +44,32 @@ enum Kind {
     Head,
 }
 
-/// The record as v7 writes it.
+/// The record as v7 writes it. An absent `head` or `head_digest` is the
+/// other field set's; a present one is a string, so an explicit `null`
+/// is refused, as v7's closed field sets refuse it (fix round 0109a1r4,
+/// K4).
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Record {
     kind: Kind,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "present",
+        skip_serializing_if = "Option::is_none"
+    )]
     head: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "present",
+        skip_serializing_if = "Option::is_none"
+    )]
     head_digest: Option<String>,
     dirty: bool,
+}
+
+/// A field that is present is a string: `null` does not read as absent.
+fn present<'de, D: Deserializer<'de>>(field: D) -> Result<Option<String>, D::Error> {
+    String::deserialize(field).map(Some)
 }
 
 impl TryFrom<Record> for Covered {

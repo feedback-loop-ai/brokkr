@@ -40,8 +40,10 @@ fn both_head_field_sets_write_their_own_record_and_read_back() {
 #[test]
 fn a_record_names_exactly_one_head_and_no_base() {
     let digest = sha256_bytes(HEAD.as_bytes());
-    let refused: [Value; 8] = [
+    let refused: [Value; 10] = [
         json!({"kind": "head", "head": HEAD, "head_digest": digest, "dirty": true}),
+        json!({"kind": "head", "head": null, "head_digest": digest, "dirty": true}),
+        json!({"kind": "head", "head": HEAD, "head_digest": null, "dirty": true}),
         json!({"kind": "head", "dirty": true}),
         json!({"kind": "head", "head": HEAD, "base": HEAD, "dirty": true}),
         json!({"kind": "head", "head": HEAD}),
