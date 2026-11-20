@@ -661,12 +661,19 @@ Actions are included:
 **The reads are bounded, and an overflow is a witness, never a truncation.** Each list is paged
 by the forge, and the observation carries, for each, whether it was read to its last page. Each
 has a bound the contract fixes: 1,024 checks and 1,024 statuses for the head, 256 runs per
-workflow key, 1,024 jobs per run attempt and 64 associated pull requests. A list that reaches its
+workflow key, 1,024 jobs per run attempt, 64 open pull requests on the head and 256 contexts in
+the forge's required set. A list that reaches its
 bound is not truncated into a complete-looking one: the observation seals, in its place, a
 bounded **overflow witness**, the list, the limit, the count and pages read when the observer
 stopped (a lower bound), and no entries past the bound. A witness, like an unread page, leaves
-the list incomplete, so the observation parks as `inventory-incomplete`, naming it. The whole
-observation is also bounded at 1 MiB on the observer's stdout (ruling 2).
+the list incomplete. **Every list the observer reads has its own completeness row**, because
+P2 needs every one of them, not only those another predicate reads: the check runs for the head
+(`checks-incomplete`), the commit statuses for the head (`statuses-incomplete`), each workflow
+key's runs (`runs-incomplete`), each current run attempt's jobs (`jobs-incomplete`), the open
+pull requests on the head (`pulls-incomplete`) and, where it is read, the forge's required set
+(`required-set-incomplete`). A list whose overflow witness or unread page the observation
+carries makes its row true, whether or not any other row reads that list. The whole observation
+is also bounded at 1 MiB on the observer's stdout (ruling 2).
 
 **The observer reads no job log.** No condition of `green` reads a step's log, so no log byte is
 read, sealed or journaled, and the person reads the log itself on the forge, from the run,
@@ -739,7 +746,8 @@ the compiled bundle outside the change, each entry bound to its producer.**
   declared list, or the observation parks as `required-set-disagrees`, for the same reason. The
   forge's set can only widen what `green` needs, never narrow it. The token scope that read needs
   is unmeasured; where it is unread, the observation records `forge_required: unread`, and the
-  pinned list alone governs. Cost: one more list for the operator to keep.
+  pinned list alone governs. A read that began and stopped short is not `unread`: it is
+  `required-set-incomplete`. Cost: one more list for the operator to keep.
 - **(b) The forge's branch protection alone.** It is outside the change, but a repository
   administrator can change it at any time, the read needs an administration scope (unmeasured),
   and an unprotected branch yields an empty set, which must refuse. So an adopter without
@@ -812,7 +820,10 @@ predicates are `green`'s own conditions, stated once here and nowhere else:
   engine's own git head; and the forge's `head.sha` for the pull request is that head, so the
   head is published.
 - **P2, complete inventories.** Every list the observer reads was read to its last page, inside
-  its bound, with no page unread. Each list's completeness is its own sealed fact, scoped to the
+  its bound, with no page unread: the check runs, the statuses, each key's runs, each current
+  attempt's jobs, the open pull requests on the head, and the forge's required set where it is
+  read ([the bounded reads](#3-the-observation-the-judgment-and-where-the-journal-keeps-them)).
+  Each list's completeness is its own sealed fact, scoped to the
   exact list it names: a job list's to its run id and attempt, so a complete check list never
   stands for a complete job list, nor one attempt's for another's.
 - **P3, every required entry matched once, currently.** Every entry of `required_checks` in the
@@ -845,7 +856,12 @@ default, and each paged list carries whether it was read to its last page.
 |---|---|---|---|---|
 | `unrelated` | the observation's repository, pull request and gated head; the run's pinned repository, the gate's pull request and the engine's git head | P1 | any of the three differs, or is unread | `an_observation_of_another_head_repository_or_pull_request_parks_as_unrelated` |
 | `head-unpublished` | the forge's `head.sha` for the pull request; the engine's git head | P1 | they differ, or either is unread | `an_unpushed_head_parks_as_head_unpublished` |
-| `inventory-incomplete` | each list's last-page fact and overflow witness | P2 | a list was not read to its last page, or overflowed its bound; it names the list (and, for a job list, its run id and attempt), the pages read and the witness | `a_check_list_short_of_its_last_page_parks_as_inventory_incomplete` |
+| `checks-incomplete` | the check-run list's last-page fact and overflow witness | P2 | the list was not read to its last page, or overflowed its bound; it names the pages read and the witness | `the_check_run_list_unread_or_overflowed_parks_as_checks_incomplete_live_and_on_replay` |
+| `statuses-incomplete` | the status list's last-page fact and overflow witness | P2 | as `checks-incomplete`, for the commit statuses | `the_status_list_unread_or_overflowed_parks_as_statuses_incomplete_live_and_on_replay` |
+| `runs-incomplete` | each workflow key's run list, its last-page fact and overflow witness | P2 | as `checks-incomplete`, for one key's runs; it names the key | `a_run_list_unread_or_overflowed_parks_as_runs_incomplete_live_and_on_replay` |
+| `jobs-incomplete` | each current run attempt's job list, its last-page fact and overflow witness | P2 | as `checks-incomplete`, for one attempt's jobs; it names the run id and attempt | `a_job_list_unread_or_overflowed_parks_as_jobs_incomplete_naming_the_run_and_attempt_live_and_on_replay` |
+| `pulls-incomplete` | the open-pull-request list for the head, its last-page fact and overflow witness | P2 | as `checks-incomplete`, for the open pull requests on the head | `the_open_pull_request_list_unread_or_overflowed_parks_as_pulls_incomplete_live_and_on_replay` |
+| `required-set-incomplete` | the forge's required set, where read, its last-page fact and overflow witness | P2 | the read began and did not reach its last page, or overflowed; a set never read is `unread`, and the pinned list alone governs | `a_partly_read_forge_required_set_parks_as_required_set_incomplete_live_and_on_replay` |
 | `empty` | the complete check list for the head | P3 | the forge reports no check for the head | `an_observation_with_no_check_parks_as_empty` |
 | `missing-required` | each entry's matches | P3 | an entry has no eligible current match; a stale check never makes it present | `a_required_audit_missing_from_the_observation_parks_as_missing_required` |
 | `ambiguous-required` | each entry's matches over the complete check and job lists | P3 | an entry matches more than one check, or more than one job of its current run attempt; it names every match | `two_matches_for_one_required_check_park_as_ambiguous_required` |
@@ -868,7 +884,7 @@ default, and each paged list carries whether it was read to its last page.
 to, so no precedence among the rows is needed: the engine names every row that is true, in the
 table's order, and parks. A fact several rows read leaves each of them true, and each is named:
 an unread engine head names both `unrelated` and `head-unpublished`; a check list short of its
-last page names `inventory-incomplete` and every `missing-required` it leaves. The set is exact
+last page names `checks-incomplete` and every `missing-required` it leaves. The set is exact
 and deterministic. Live and on replay the judgment takes the one function over the one sealed
 observation and the one pinned list ([What a replay reads](#3-the-observation-the-judgment-and-where-the-journal-keeps-them)),
 so the rows a replay names are the rows named live.
@@ -1223,7 +1239,7 @@ observation's digest.**
   (ruling 9).
 - **(b) `infrastructure` with `origin: ci`, under a `park-cause/v2`.** Not taken. It claims a
   class, a runner fault, that the gate no longer draws: the gate parks a port bind and a red test
-  alike on `not-success`, and an unread page on `inventory-incomplete`, and tells no runner fault
+  alike on `not-success`, and an unread page on its list's row, such as `jobs-incomplete`, and tells no runner fault
   apart. Typing a park as the runner's waits on
   the deferred classifier ([Deferred to a later decision](#deferred-to-a-later-decision)).
 
@@ -1449,7 +1465,8 @@ versions are proposed: `ci-observation/v1` and `ci-checks/v1`.
    requests: the check runs and the commit statuses for a head, every page of each; the workflow
    runs that produced them, with path, event, number, attempt, head, association and whatever
    the forge says of the revision each tested; the jobs of each current run attempt, every page;
-   and the base branch's required set. No job log is captured: no condition of `green` reads one.
+   the open pull requests on the head, every page; and the base branch's required set, every
+   page. No job log is captured: no condition of `green` reads one.
    Files: the captured payloads, redacted, as test data under `crates/brokkr-core/src/ci/evidence/`
    with a note of how each was taken; one test that pins their digests, so no later slice
    regenerates them. About 40 test lines and the data. No contract and no production code. It
@@ -1576,15 +1593,11 @@ versions are proposed: `ci-observation/v1` and `ci-checks/v1`.
      `an_observation_of_another_head_repository_or_pull_request_parks_as_unrelated`;
      `an_unpushed_head_parks_as_head_unpublished`;
      `an_observation_with_no_check_parks_as_empty`;
-     `a_check_list_short_of_its_last_page_parks_as_inventory_incomplete`;
-     `a_run_list_short_of_its_last_page_parks_as_inventory_incomplete`;
-     `a_current_attempts_job_list_short_of_its_last_page_parks_as_inventory_incomplete_naming_the_run_and_attempt`;
-     `a_list_sealed_as_its_overflow_witness_parks_as_inventory_incomplete`;
      `a_required_audit_missing_from_the_observation_parks_as_missing_required`;
      `two_matches_for_one_required_check_park_as_ambiguous_required`;
      `a_duplicate_job_for_a_required_entry_on_the_last_page_parks_as_ambiguous_required` (the r8
      case: every expected job observed once on the first pages, a second job with the entry's
-     name on the last; and its control, the last page unread: `inventory-incomplete`, never
+     name on the last; and its control, the last page unread: `jobs-incomplete`, never
      `green`);
      `two_unsettled_runs_for_one_entry_park_as_execution_ambiguous`;
      `a_required_check_still_in_progress_parks_as_not_settled`;
@@ -1599,9 +1612,23 @@ versions are proposed: `ci-observation/v1` and `ci-checks/v1`.
      `a_status_context_in_the_forges_required_set_parks_as_status_required`;
      `a_forge_required_check_the_list_lacks_parks_as_required_set_disagrees`;
      `an_untrusted_launch_parks_ruled_as_launch_untrusted_and_observes_nothing`;
+   - the inventories, one test per list the observer reads, each with two cases, the last page
+     unread and the list sealed as its overflow witness, every other list complete and every
+     other row false, each expecting `CI-PARK` naming that list's row, and each run twice:
+     live, a stub `gh` serving the pages to 0111b's observer through its test-only launch and
+     decide judging its stdout; and on replay, a fold rebuilt from that journal re-deriving the
+     same rows:
+     `the_check_run_list_unread_or_overflowed_parks_as_checks_incomplete_live_and_on_replay`;
+     `the_status_list_unread_or_overflowed_parks_as_statuses_incomplete_live_and_on_replay`;
+     `a_run_list_unread_or_overflowed_parks_as_runs_incomplete_live_and_on_replay`;
+     `a_job_list_unread_or_overflowed_parks_as_jobs_incomplete_naming_the_run_and_attempt_live_and_on_replay`;
+     `the_open_pull_request_list_unread_or_overflowed_parks_as_pulls_incomplete_live_and_on_replay`
+     (the chief's r9 case: every required job complete and successful, its run uniquely
+     associated, and only this list overflowed);
+     `a_partly_read_forge_required_set_parks_as_required_set_incomplete_live_and_on_replay`;
    - the shared-fact cases, each naming every word the one fact leaves unmet:
      `an_unread_engine_head_names_unrelated_and_head_unpublished`;
-     `a_short_check_list_beside_an_absent_audit_names_inventory_incomplete_and_missing_required`;
+     `a_short_check_list_beside_an_absent_audit_names_checks_incomplete_and_missing_required`;
    - the stale checks:
      `a_stale_same_producer_success_beside_an_ordinary_failure_names_missing_required_and_not_success`
      (a required audit with no check in its current run, an older same-producer `success` on
