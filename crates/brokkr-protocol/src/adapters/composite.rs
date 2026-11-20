@@ -34,6 +34,7 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 use crate::overrides::{Override, OverrideError};
+use pnpm_refusal::{PackageKeyRefusal, ResolutionRefusal};
 
 /// The plugin's committed six-file set, in bytewise path order.
 const PLUGIN_FILES: [&str; 6] = [
@@ -1227,9 +1228,9 @@ fn split_flow_fields(inner: &str) -> Vec<&str> {
 /// words: the reason names the field and the cause, so a refusal can
 /// tell missing separation from unsupported syntax from a scalar of the
 /// wrong kind (security hold 2026-09-20, finding 3).
-fn pnpm_flow_map(inner: &str) -> Result<Vec<(&str, &str)>, String> {
+fn pnpm_flow_map(inner: &str) -> Result<Vec<(&str, &str)>, ResolutionRefusal<'_>> {
     if inner.contains('{') || inner.contains('}') {
-        return Err("a malformed resolution flow map".to_string());
+        return Err(ResolutionRefusal::Nested);
     }
     let mut fields = Vec::new();
     for field in split_flow_fields(inner) {
@@ -1238,13 +1239,13 @@ fn pnpm_flow_map(inner: &str) -> Result<Vec<(&str, &str)>, String> {
         // separator: in YAML it is one plain scalar, and the inherited
         // `split_once(':')` repaired it into a separated field.
         let Some((key, rest)) = field.split_once(':') else {
-            return Err("a malformed resolution flow map".to_string());
+            return Err(ResolutionRefusal::Unkeyed { field });
         };
         // The flow map's own padding — spaces after `{`, around commas
         // and before `}` — is ASCII, and that is all that is consumed.
         let key = key.trim_matches(' ');
         if !PNPM_RESOLUTION_KEYS.contains(&key) {
-            return Err("a malformed resolution flow map".to_string());
+            return Err(ResolutionRefusal::UnknownKey { key });
         }
         let value = match pnpm_separated(rest) {
             Ok(Separated::Inline(value)) => value,
@@ -1252,10 +1253,8 @@ fn pnpm_flow_map(inner: &str) -> Result<Vec<(&str, &str)>, String> {
             // scalar, refused below by the malformed-map reason.
             Ok(Separated::Block) => "",
             Err(_) => {
-                return Err(format!(
-                    "the resolution field '{key}' lacks ': ' separation: '{}'",
-                    field.trim_matches(' ')
-                ))
+                let field = field.trim_matches(' ');
+                return Err(ResolutionRefusal::Unseparated { key, field });
             }
         };
         // A plain scalar inside a flow collection may not carry the
@@ -1268,18 +1267,13 @@ fn pnpm_flow_map(inner: &str) -> Result<Vec<(&str, &str)>, String> {
         // separator consumed does not change what the colon was followed
         // by (review 2026-09-20, R3).
         let scalar = flow_scalar(value).map_err(|fault| match fault {
-            FlowFault::Malformed => "a malformed resolution flow map".to_string(),
-            FlowFault::Punctuation => {
-                format!("the resolution field '{key}' carries unsupported flow syntax: '{value}'")
-            }
+            FlowFault::Malformed => ResolutionRefusal::Value { key },
+            FlowFault::Punctuation => ResolutionRefusal::Punctuation { key, value },
         })?;
         if let Scalar::Plain(text) = scalar {
             if key == "integrity" {
                 if let Some(kind) = typed_plain_scalar(text) {
-                    return Err(format!(
-                        "the resolution field '{key}' is the plain scalar '{text}', \
-                         which is {kind} and not a string"
-                    ));
+                    return Err(ResolutionRefusal::Typed { key, text, kind });
                 }
             }
         }
@@ -1297,14 +1291,14 @@ fn pnpm_flow_map(inner: &str) -> Result<Vec<(&str, &str)>, String> {
 /// version carrying NUL or a control byte entered the hashed stream
 /// unchecked. The whole key crosses `scalar_reason` first, which is what
 /// separates the two spellings above (council return 2026-09-19).
-fn pnpm_package(key: &str) -> Result<(&str, &str), String> {
+fn pnpm_package(key: &str) -> Result<(&str, &str), PackageKeyRefusal<'_>> {
     if let Some(reason) = scalar_reason(key) {
-        return Err(format!("'{key}': the key {reason}"));
+        return Err(PackageKeyRefusal::Scalar { key, reason });
     }
-    let at = scoped_at(key).ok_or_else(|| format!("'{key}': no '@' after the first character"))?;
+    let at = scoped_at(key).ok_or(PackageKeyRefusal::NoAt { key })?;
     let (name, version) = (&key[..at], &key[at + 1..]);
     if version.is_empty() {
-        return Err(format!("'{key}': empty version"));
+        return Err(PackageKeyRefusal::NoVersion { key });
     }
     let named = match name.strip_prefix('@') {
         Some(scoped) => match scoped.split_once('/') {
@@ -1314,7 +1308,7 @@ fn pnpm_package(key: &str) -> Result<(&str, &str), String> {
         None => valid_component(name),
     };
     if !named {
-        return Err(format!("'{key}': '{name}' is not a package name"));
+        return Err(PackageKeyRefusal::NotAName { key, name });
     }
     Ok((name, version))
 }
@@ -1567,7 +1561,8 @@ fn pnpm_dependencies(lock: &str, local: &[&str]) -> Result<Vec<String>, Composit
             if plain_opens_a_mapping(key) {
                 return Err(bad("a package key that is itself a mapping"));
             }
-            let (name, version) = pnpm_package(key).map_err(CompositeError::PnpmLock)?;
+            let (name, version) =
+                pnpm_package(key).map_err(|why| CompositeError::PnpmLock(why.to_string()))?;
             // A mapping key is a SINGLETON, checked on the DECODED key
             // before this record is excluded or its triple normalized.
             // The triple set below deduplicates equal complete values
@@ -1631,7 +1626,7 @@ fn pnpm_dependencies(lock: &str, local: &[&str]) -> Result<Vec<String>, Composit
                 .strip_prefix('{')
                 .and_then(|text| text.strip_suffix('}'))
                 .ok_or_else(|| bad("a block-form or malformed resolution"))?;
-            let fields = pnpm_flow_map(inner).map_err(|why| bad(&why))?;
+            let fields = pnpm_flow_map(inner).map_err(|why| bad(&why.to_string()))?;
             let mut integrity = None;
             let mut seen_fields = BTreeSet::new();
             for (key, value) in fields {
@@ -4652,6 +4647,7 @@ fn dsh_composite_observing(
 #[cfg(unix)]
 mod glibc;
 mod image;
+mod pnpm_refusal;
 
 #[cfg(test)]
 mod tests;
