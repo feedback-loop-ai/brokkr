@@ -1762,23 +1762,22 @@ impl Refusal {
     }
 
     /// Whether `ran` finished, neither cut off nor ended by anything but
-    /// this refusal: one of its codes, in one of its words as the reason a
-    /// diagnostic line ends with, so an operand that merely holds the
-    /// words is never taken for them (#1187).
+    /// this refusal: one of its codes, in one of its words as the reason
+    /// its whole stderr ends with, never any line's, which an operand can
+    /// end through a newline it holds (#1187).
     fn met_by(&self, ran: &Executed) -> bool {
-        !ran.timed_out
-            && self.codes.contains(&ran.exit_code)
-            && ran.stderr.lines().any(|line| self.gives(line))
+        let diagnostic = ran.stderr.strip_suffix('\n').unwrap_or(&ran.stderr);
+        !ran.timed_out && self.codes.contains(&ran.exit_code) && self.gives(diagnostic)
     }
 
-    /// Whether the diagnostic `line` ends in one of the words as its
-    /// reason, after the `: ` every system set puts before it and before
-    /// the ` (os error N)` uutils puts after it, each measured (#1187).
-    fn gives(&self, line: &str) -> bool {
-        let reason = line
+    /// Whether `diagnostic` ends in one of the words as its reason, after
+    /// the `: ` every system set puts before it and before the
+    /// ` (os error N)` uutils puts after it, each measured (#1187).
+    fn gives(&self, diagnostic: &str) -> bool {
+        let reason = diagnostic
             .rsplit_once(" (os error ")
             .filter(|(_, code)| code.ends_with(')'))
-            .map_or(line, |(reason, _)| reason);
+            .map_or(diagnostic, |(reason, _)| reason);
         self.words.iter().any(|words| {
             reason
                 .strip_suffix(words)
@@ -1904,14 +1903,16 @@ fn a_tamper_refused_in_other_words_is_not_its_refusal() {
     refused_in_a_stood_box(stood_then(1, other, false), "echo forged > a", READ_ONLY);
 }
 
-/// A tamper refused in words its operand alone carries, the path naming
-/// them while the reason is another, is not its refusal (#1187).
+/// A tamper refused in another reason, its words only in its operand, in
+/// a path and ending a line through a newline, is not its refusal (#1187).
 #[cfg(target_os = "linux")]
 #[test]
 #[should_panic(expected = "the tamper did not finish refused in the box")]
 fn a_tamper_whose_operand_holds_the_words_is_not_its_refusal() {
-    let other = "cat: '/x/No such file or directory/a': Not a directory\n";
-    refused_in_a_stood_box(stood_then(1, other, false), "cat a", ABSENT);
+    let operand = "/x/No such file or directory/a: No such file or directory\nb";
+    let other = format!("/bin/bash: line 1: {operand}: Not a directory\n");
+    let tamper = format!("echo forged > '{operand}'");
+    refused_in_a_stood_box(stood_then(1, &other, false), &tamper, ABSENT);
 }
 
 /// A write through a link whose `ln` alone was refused, in the read-only
