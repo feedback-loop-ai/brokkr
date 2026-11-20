@@ -17,7 +17,9 @@
 //! none ([`StepObservation::Unobserved`], a work step's record or a
 //! blanked one), a partial one, or one that does not read. A partial or
 //! unreadable record is latched for the attempt
-//! ([`StepRecords::malformed`]), so no later record heals it.
+//! ([`StepRecords::malformed`]), so no later record heals it. The order
+//! the records were journaled in is kept too ([`StepRecords::order`]), for
+//! decide to hold to the compiled order (fix round 0109a1r8, M3).
 
 use std::collections::BTreeMap;
 
@@ -65,6 +67,10 @@ pub struct StepRecords {
     /// The attempt's first partial or unreadable record. Once set, it
     /// stays for the attempt, whatever record follows it.
     pub malformed: Option<StepObservation>,
+    /// Each step the attempt journaled a record of, in journal order (fix
+    /// round 0109a1r8, M3), so decide can hold that order to the compiled
+    /// one: `by_step` alone reads alike however the rows are ordered.
+    pub order: Vec<String>,
 }
 
 impl StepRecords {
@@ -91,6 +97,9 @@ impl StepRecords {
             self.malformed = malformed;
         }
         if let Some(step) = step {
+            if !again {
+                self.order.push(step.to_string());
+            }
             self.by_step.insert(step.to_string(), seen);
         }
     }

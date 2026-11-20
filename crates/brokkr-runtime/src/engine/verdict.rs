@@ -187,6 +187,11 @@ pub(super) enum ObservationProblem {
          dispatch armed (decision 0109 ruling 7)"
     )]
     Uncovered,
+    #[error(
+        "the protected effect's step records are journaled out of their compiled order \
+         (decision 0109 ruling 7)"
+    )]
+    Reordered,
 }
 
 /// The step that produced a protected effect's terminal, read from the
@@ -400,16 +405,18 @@ fn gates<'a>(steps: &[(&'a str, SeatClass)]) -> Vec<&'a str> {
 /// Every record of the attempt against the sequence ended at `at` (fix
 /// round 0109a1r8, M1): each names a step the compiled body runs before
 /// `at`, or `at` itself when it is a gate step, which journals its own
-/// record; a work step's record journals no observation.
+/// record; a work step's record journals no observation. The records were
+/// journaled in the compiled order of their steps (fix round 0109a1r8,
+/// M3), as a sequence runs its steps one after another.
 fn reconciled(
     steps: &[(&str, SeatClass)],
     at: usize,
     records: &StepRecords,
 ) -> Result<(), ObservationProblem> {
+    let position = |name: &str| steps.iter().position(|(step, _)| *step == name);
     for (name, seen) in &records.by_step {
-        let index = steps.iter().position(|(step, _)| step == name);
         let gate = steps[at].1 == SeatClass::Gate;
-        let ran = index.filter(|index| *index < at || (*index == at && gate));
+        let ran = position(name).filter(|index| *index < at || (*index == at && gate));
         let Some(index) = ran else {
             let step = name.clone();
             return Err(ObservationProblem::Beyond { step });
@@ -418,7 +425,11 @@ fn reconciled(
             return Err(ObservationProblem::Disagrees);
         }
     }
-    Ok(())
+    let journaled: Vec<Option<usize>> = (records.order.iter()).map(|name| position(name)).collect();
+    match journaled.windows(2).all(|pair| pair[0] < pair[1]) {
+        true => Ok(()),
+        false => Err(ObservationProblem::Reordered),
+    }
 }
 
 /// `report` with its successful result admitted at `site`, the site whose

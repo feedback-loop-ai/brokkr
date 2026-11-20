@@ -13,8 +13,8 @@ use crate::bundle::{Bundle, GateAssessment, SeatBody, SeatClass, SequenceStep};
 use crate::engine::heads::HeadReads;
 use crate::engine::tests::{git_commit, single_body, step_body};
 use crate::engine::verdict::ObservationProblem::{
-    self, Beyond, Disagrees, Missing, Partial, Unattributed, Uncovered, Unlawful, Unrecorded,
-    Unselected,
+    self, Beyond, Disagrees, Missing, Partial, Reordered, Unattributed, Uncovered, Unlawful,
+    Unrecorded, Unselected,
 };
 use crate::engine::verdict::Producer;
 use crate::engine::Engine;
@@ -773,6 +773,54 @@ fn a_final_gate_step_checked_after_a_moving_work_step_decides_its_own_head() {
     let decided = decided_from(&events, "review");
     assert_eq!(decided["rule_id"], "REVIEW", "{decided}");
     assert_eq!(decided["inputs"]["reviewed_heads"], json!({"repo": moved}));
+}
+
+/// Fix round 0109a1r8, M3: a record's journal order agrees with the
+/// compiled order of its step. A protected review of three gate steps,
+/// judge, aide and chief, each checked on A, stopped once its success is
+/// durable. Judge's and aide's whole records swapped by direct SQL, the
+/// final chief's record and success left valid: the fold reads the same
+/// records by step, and decide refuses `Reordered`, taking no transition.
+/// The genuinely newer final gate above still decides its own head.
+#[test]
+fn gate_records_journaled_out_of_their_compiled_order_refuse() {
+    let steps = ["judge", "aide", "chief"].map(|name| clean_step(name, SeatClass::Gate));
+    let review = SeatBody::Sequence {
+        steps: steps.to_vec(),
+    };
+    let stopped = Stopped::after(review, false);
+    let record = |event: &EventEnvelope, step: &str| {
+        event.event_type == EventType::EffectCheckpointed
+            && event.payload["checkpoint"]["step"] == "sequence-step-finished"
+            && event.payload["checkpoint"]["step_name"] == step
+    };
+    let mut judge = None;
+    stopped.respliced(
+        |event| record(event, "judge"),
+        |event| {
+            if record(&event, "judge") {
+                judge = Some(event);
+                return vec![];
+            }
+            if record(&event, "aide") {
+                return vec![event, judge.take().unwrap()];
+            }
+            vec![event]
+        },
+    );
+    let events = stopped.resumed();
+    let order: Vec<&str> = (events.iter())
+        .filter(|event| record(event, "judge") || record(event, "aide") || record(event, "chief"))
+        .map(|event| event.payload["checkpoint"]["step_name"].as_str().unwrap())
+        .collect();
+    assert_eq!(order, ["aide", "judge", "chief"]);
+    for step in ["judge", "aide", "chief"] {
+        assert_eq!(
+            checkpointed(&events, step)["checked_head"],
+            json!(stopped.reviewed)
+        );
+    }
+    refused_at_decide(&events, &Reordered);
 }
 
 /// A run reviewed twice, on A and then on B: the later review's decision

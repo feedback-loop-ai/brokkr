@@ -143,11 +143,16 @@ fn the_fold_carries_the_attempts_authored_step_records_by_step() {
     apply(&mut state, &named("chief", "a1", B, true)).unwrap();
     assert_eq!(judged(&state, "judge"), Some(&checked(A)));
     assert_eq!(judged(&state, "chief"), Some(&checked(B)));
+    // Each step is kept in the order its record was journaled (fix round
+    // 0109a1r8, M3), whatever the map's own order.
+    apply(&mut state, &named("aide", "a1", B, true)).unwrap();
+    assert_eq!(state.step_records.order, ["judge", "chief", "aide"]);
     // A driver's record, and another attempt's, are no record.
     apply(&mut state, &named("chief", "a1", A, false)).unwrap();
     apply(&mut state, &named("chief", "a0", A, true)).unwrap();
     assert_eq!(judged(&state, "chief"), Some(&checked(B)));
     assert_eq!(state.step_records.malformed, None);
+    assert_eq!(state.step_records.order, ["judge", "chief", "aide"]);
     // The success carries them to decide.
     let succeeded = json!({"effect_id": "e1", "attempt_id": "a1", "result": {"result": "clean"}});
     apply(&mut state, &event(EventType::EffectSucceeded, succeeded)).unwrap();
@@ -165,6 +170,7 @@ fn a_second_record_of_one_step_in_an_attempt_is_latched() {
     assert_eq!(judged(&state, "judge"), Some(&checked(B)));
     let unreadable = Some(StepObservation::Unreadable);
     assert_eq!(state.step_records.malformed, unreadable);
+    assert_eq!(state.step_records.order, ["judge"]);
 }
 
 /// Fix round 0109a1r7, X1: a partial or unreadable record is latched for

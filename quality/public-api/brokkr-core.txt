@@ -543,6 +543,7 @@ pub brokkr_core::fold::SkippedAnnotation::word: &'static str
 pub struct brokkr_core::fold::StepRecords
 pub brokkr_core::fold::StepRecords::by_step: alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_core::fold::StepObservation>
 pub brokkr_core::fold::StepRecords::malformed: core::option::Option<brokkr_core::fold::StepObservation>
+pub brokkr_core::fold::StepRecords::order: alloc::vec::Vec<alloc::string::String>
 pub const brokkr_core::fold::FAILURE_RESULTS: [&str; 2]
 pub const brokkr_core::fold::REPAIR: &str
 pub const brokkr_core::fold::SETTLE: &str

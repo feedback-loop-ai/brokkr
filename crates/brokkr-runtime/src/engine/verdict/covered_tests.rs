@@ -11,7 +11,8 @@ use crate::bundle::{GateAssessment, SeatClass};
 use crate::engine::heads::{HeadReads, Observed};
 use crate::engine::tests::{bundle, git_commit, single_body, state};
 use crate::engine::verdict::ObservationProblem::{
-    Beyond, Disagrees, Missing, Partial, Uncovered, Unlawful, Unreadable, Unrecorded, Unselected,
+    Beyond, Disagrees, Missing, Partial, Reordered, Uncovered, Unlawful, Unreadable, Unrecorded,
+    Unselected,
 };
 use crate::engine::verdict::{checked_head, Producer};
 use crate::engine::{git_head, Engine};
@@ -425,10 +426,15 @@ fn a_terminal_agrees_with_its_latest_gate_step_record_field_by_field_or_is_refus
     assert_eq!(checked_head(&stamped, &beside, &single), Err(Disagrees));
 }
 
-/// The texts of fix round 0109a1r8's refusals (M1 and M2), pinned once.
+/// The texts of fix round 0109a1r8's refusals (M1 to M3), pinned once.
 #[test]
 fn the_compiled_position_and_digest_refusals_say_why() {
     let texts = [
+        (
+            Reordered,
+            "the protected effect's step records are journaled out of their compiled order \
+             (decision 0109 ruling 7)",
+        ),
         (
             Uncovered,
             "the protected gate's result carries no `covered` head digest, the form its \
