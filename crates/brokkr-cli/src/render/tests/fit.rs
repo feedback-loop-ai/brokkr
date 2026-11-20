@@ -292,19 +292,21 @@ fn pty(columns: u16) -> (std::os::fd::OwnedFd, std::os::fd::OwnedFd) {
     grantpt(&controller).unwrap();
     unlockpt(&controller).unwrap();
     let name = ptsname(&controller, Vec::new()).unwrap();
-    let size = rustix::termios::Winsize {
-        ws_row: 24,
-        ws_col: columns,
-        ws_xpixel: 0,
-        ws_ypixel: 0,
-    };
-    rustix::termios::tcsetwinsize(&controller, size).unwrap();
     let terminal = open(
         name.as_c_str(),
         OFlags::RDWR | OFlags::NOCTTY,
         Mode::empty(),
     )
     .unwrap();
+    // Set on the terminal's side: macOS refuses a window size set through
+    // the controller (ENOTTY), and Linux takes it from either side.
+    let size = rustix::termios::Winsize {
+        ws_row: 24,
+        ws_col: columns,
+        ws_xpixel: 0,
+        ws_ypixel: 0,
+    };
+    rustix::termios::tcsetwinsize(&terminal, size).unwrap();
     (controller, terminal)
 }
 
