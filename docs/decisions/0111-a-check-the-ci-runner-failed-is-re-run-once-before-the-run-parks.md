@@ -843,15 +843,28 @@ the duplicate is an unexpected instance, which draws `change` with `matrix-incom
   `COMPOSE_ENV_FILES`; `node` loads the `--require`, `-r` and `--import` operands of
   `NODE_OPTIONS`; `bash` sources `BASH_ENV`. The same pinned table names, for every command word
   it admits, every environment key that word reads as selecting a file, and the grammar of its
-  value; any other key is one the table states the word does not read for a file. The step's
-  **effective environment** is the workflow's `env`, then the job's, then the step's, each
-  overriding the last, then any `NAME=word` assignment prefix of the command, any literal
-  `export NAME=word` earlier in the same run line or reached script, and any literal
-  `NAME=word` line an earlier step of the job wrote to `$GITHUB_ENV`
-  (<https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/workflow-commands-for-github-actions#setting-an-environment-variable>;
-  not read in this session). Each file a table-named key selects, taken relative to the step's
-  effective working directory, is an implicit input: it lies outside the change classes, or
-  `machinery-escapes` withholds, naming the word, the key, the file and the step; and it is
+  value; any other key is one the table states the word does not read for a file. A command's
+  **effective environment** takes each key from the strongest source that sets it. The order,
+  stated once, strongest first:
+  1. the command's own `NAME=word` assignment prefix, which binds that command alone;
+  2. the step's `env:`;
+  3. the job's `env:`;
+  4. the workflow's `env:`;
+  5. a literal `NAME=word` line an earlier step of the job wrote to `$GITHUB_ENV`, which reaches
+     later steps only, never the step that wrote it
+     (<https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/workflow-commands-for-github-actions#setting-an-environment-variable>;
+     not read in this session, so GitHub's order among 2 to 5 is unmeasured until 0111b's
+     fixtures pin it from a recorded run).
+
+  A literal `export NAME=word` earlier in the same shell, the run line's or a script it sources,
+  overrides 2 to 5 for every later command in that shell, and never 1: a command-local
+  assignment outranks every export, for its own command. (The chief's shell probe in run
+  `fix-round-1093r7-for-issue-1093--c1fa7d61` confirmed the local assignment wins; this seat's
+  shell held no grant to repeat it.) An export in a script run as a child reaches only that
+  script's own later commands. Each file a table-named key selects, normalized against the
+  command's effective working directory into a repository-relative path, is an implicit input:
+  it lies outside the change classes, or `machinery-escapes` withholds, naming the word, the
+  key, the normalized file and the step; and it is
   scanned in turn as an implicit input is (below). A table-named key whose value is not a
   literal word (a `${{ … }}` expression, a `$VAR`, a substitution), whose value the key's
   grammar cannot split, or that an assignment form the grammar does not name sets (`env -S`,
@@ -2355,11 +2368,19 @@ slice that produces it, and each typed assertion is in the slice that builds its
    `withheld`, `machinery-unresolved` naming the form);
    `a_makefiles_environment_key_naming_a_change_class_file_draws_no_ci_infrastructure` (a
    required setup step runs a bare `make` under a machinery `defaults.run.working-directory` of
-   `ops/ci`, the step's `env` sets `MAKEFILES: crates/ci/extra.mk`, and the change edits only
-   `crates/ci/extra.mk` so the step prints the declared port-bind literal: `change`,
-   `withheld`, with `machinery-escapes` naming `make`, `MAKEFILES`, `crates/ci/extra.mk` and the
-   step; and its siblings, the same file named by an inline `MAKEFILES=crates/ci/extra.mk make`
-   prefix and by a literal `$GITHUB_ENV` line an earlier step wrote, each the same);
+   `ops/ci`, the step's `env` sets `MAKEFILES: ../../crates/ci/extra.mk`, and the change edits
+   only `crates/ci/extra.mk` so the step prints the declared port-bind literal: `change`,
+   `withheld`, with `machinery-escapes` naming `make`, `MAKEFILES`, the normalized
+   `crates/ci/extra.mk` and the step; and its siblings, the same file named by an inline
+   `MAKEFILES=../../crates/ci/extra.mk make` prefix and by a literal `$GITHUB_ENV` line an
+   earlier step wrote, each the same);
+   `a_command_local_makefiles_outranks_a_safe_earlier_value` (the collision: under the same
+   `ops/ci` directory, the job's `env`, an earlier step's `$GITHUB_ENV` line and an earlier
+   `export` in the run line each set `MAKEFILES` to the machinery `safe.mk`, and the command is
+   `MAKEFILES=../../crates/ci/extra.mk make`, the change editing only `crates/ci/extra.mk`:
+   `change`, `withheld`, `machinery-escapes` naming the normalized `crates/ci/extra.mk`, never
+   `safe.mk`; and its control, the inline prefix removed, reads `safe.mk` and reaches
+   classification);
    `a_file_selecting_environment_key_the_table_cannot_resolve_withholds_as_machinery_unresolved`
    (`MAKEFILES: ${{ vars.MK }}`, `COMPOSE_FILE: $X`, and a non-empty `MAKEFLAGS`: each
    `change`, `withheld`, `machinery-unresolved` naming the key);
