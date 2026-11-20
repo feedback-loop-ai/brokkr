@@ -956,6 +956,13 @@ default, and each paged list carries whether it was read to its last page.
 | Id | Reads | Negates | True when | Bound by (0111c unless named) |
 |---|---|---|---|---|
 | `pull-request-unbound` | the run's `run/started` `pull_request` member | P1 | it is absent or unreadable; read before the launch, so no observer is spawned | `a_ci_run_started_without_a_pull_request_parks_as_pull_request_unbound_and_spawns_nothing` |
+| `launch-untrusted` | the attempt's outcome, `launch-refused` | P7 | a rule of ruling 2 failed before the spawn; it names the rule | `a_launch_refusal_parks_once_as_launch_untrusted_and_spawns_nothing` |
+| `observer-deadline` | the attempt's outcome, `deadline` | P7 | the observer had not exited when the seat's deadline ended | `an_observer_past_its_deadline_is_killed_and_parks_once_as_observer_deadline` |
+| `observer-exited` | the attempt's outcome, `exited` | P7 | the observer exited non-zero or on a signal; it names the status | `an_observer_that_exits_non_zero_parks_once_as_observer_exited_with_no_second_attempt` |
+| `observation-absent` | the attempt's outcome, `absent` | P7 | the observer exited 0 and wrote no stdout byte | `an_observer_with_no_stdout_parks_once_as_observation_absent` |
+| `observation-too-large` | the attempt's outcome, `too-large` | P7 | stdout passed its 1 MiB bound | `an_observer_over_the_stdout_bound_parks_once_as_observation_too_large_naming_the_witness_digest` |
+| `observation-unreadable` | the attempt's outcome, `unreadable` | P7 | stdout is not UTF-8, or holds an unknown field or word, or lacks a field | `an_unreadable_observation_parks_once_as_observation_unreadable_naming_its_digest` |
+| `result-file-present` | the run-local results directory, for the `ci` attempt's id | | a result file exists for the attempt; it is never read | `a_result_file_for_the_ci_attempt_is_never_read_and_parks_as_result_file_present` |
 | `unrelated` | the observation's repository, pull request and gated head; the run's pinned repository, the launch-bound pull request and the engine's git head | P1 | any of the three differs, or is unread | `an_observation_of_another_head_repository_or_pull_request_parks_as_unrelated` and `a_run_launched_for_one_pull_request_parks_when_the_observation_names_another` |
 | `head-unpublished` | the forge's `head.sha` for the pull request; the engine's git head | P1 | they differ, or either is unread | `an_unpushed_head_parks_as_head_unpublished` |
 | `checks-incomplete` | the check-run list's last-page fact and overflow witness | P2 | the list was not read to its last page, or overflowed its bound; it names the pages read and the witness | `the_check_run_list_unread_or_overflowed_parks_as_checks_incomplete_live_and_on_replay` |
@@ -965,9 +972,9 @@ default, and each paged list carries whether it was read to its last page.
 | `pulls-incomplete` | the open-pull-request list for the head, its last-page fact and overflow witness | P2 | as `checks-incomplete`, for the open pull requests on the head | `the_open_pull_request_list_unread_or_overflowed_parks_as_pulls_incomplete_live_and_on_replay` |
 | `required-set-incomplete` | the forge's required set, where read, its last-page fact and overflow witness | P2 | the read began and did not reach its last page, or overflowed; a set never read is `unread`, and the pinned list alone governs | `a_partly_read_forge_required_set_parks_as_required_set_incomplete_live_and_on_replay` |
 | `response-too-large` | each response witness | P2 | one forge response reached its 8 MiB byte bound while being read; it names the list, the page and the bytes read | `an_oversized_first_page_through_the_real_reader_parks_as_response_too_large` |
-| `empty` | the complete check list for the head | P3 | the forge reports no check for the head | `an_observation_with_no_check_parks_as_empty` |
+| `empty` | the complete check list for the head | P3 | the forge reports no check for the head | `an_observation_with_no_check_names_empty_then_missing_required_for_every_entry` |
 | `missing-required` | each entry's matches | P3 | an entry has no eligible current match; a stale check never makes it present | `a_required_audit_missing_from_the_observation_parks_as_missing_required` |
-| `ambiguous-required` | each entry's matches over the complete check and job lists | P3 | an entry matches more than one check, or more than one job of its current run attempt; it names every match | `two_matches_for_one_required_check_park_as_ambiguous_required` |
+| `ambiguous-required` | each entry's matches over the check and job lists | P3 | an entry matches more than one check, or more than one job of its current run attempt; or it is seen exactly once over a list whose `-incomplete` row is true, where a second may sit on the unread page; it names every match | `two_matches_for_one_required_check_park_as_ambiguous_required` |
 | `execution-ambiguous` | each key's complete run list | P3 | an entry's current execution cannot be told, as below | `two_unsettled_runs_for_one_entry_park_as_execution_ambiguous` |
 | `not-settled` | each match's status | P4 | a match is still queued or in progress when the observer's polling bound ends | `a_required_check_still_in_progress_parks_as_not_settled` |
 | `not-success` | each match's conclusion | P4 | a match concluded anything but `success`; it names the check and the word | `a_failed_cancelled_timed_out_skipped_or_neutral_required_check_parks_as_not_success` |
@@ -975,24 +982,53 @@ default, and each paged list carries whether it was read to its last page.
 | `association-ambiguous` | each current execution's `pull_requests` | P5 | it names more than one pull request, open or closed; it names every one | `an_association_naming_a_and_a_closed_b_parks_as_association_ambiguous` |
 | `revision-unproven` | each current execution's tested-commit record, in either checkout mode | P6 | the record is absent or unread, in `head` mode as in `merge` mode | `a_head_entry_whose_run_records_no_tested_commit_parks_as_revision_unproven` and `a_merge_entry_whose_run_records_no_tested_commit_parks_as_revision_unproven` |
 | `revision-disagrees` | each current execution's tested-commit record and its mode's separate comparisons | P6 | one comparison fails; it names the two values | `a_head_entry_whose_tested_commit_differs_from_the_gated_head_parks_as_revision_disagrees` and `an_association_and_a_merge_commit_that_disagree_park_as_revision_disagrees` |
-| `producer-mismatch` | every check under an entry-set entry's name | | a check under that name from another producer concluded red | `a_sole_red_producer_mismatch_parks_as_producer_mismatch` |
+| `producer-mismatch` | every check under an entry-set entry's name | | a check under that name from another producer concluded red | `a_sole_red_from_another_producer_names_missing_required_for_its_entry_then_producer_mismatch` |
 | `status-required` | the forge's required set, where read | | it names a commit status context | `a_status_context_in_the_forges_required_set_parks_as_status_required` |
 | `required-set-disagrees` | the forge's required set, where read; the declared list | | the forge requires a context the declared list lacks | `a_forge_required_check_the_list_lacks_parks_as_required_set_disagrees` |
-| `launch-untrusted` | the attempt's outcome, `launch-refused` | P7 | a rule of ruling 2 failed before the spawn; it names the rule | `a_launch_refusal_parks_once_as_launch_untrusted_and_spawns_nothing` |
-| `observer-deadline` | the attempt's outcome, `deadline` | P7 | the observer had not exited when the seat's deadline ended | `an_observer_past_its_deadline_is_killed_and_parks_once_as_observer_deadline` |
-| `observer-exited` | the attempt's outcome, `exited` | P7 | the observer exited non-zero or on a signal; it names the status | `an_observer_that_exits_non_zero_parks_once_as_observer_exited_with_no_second_attempt` |
-| `observation-absent` | the attempt's outcome, `absent` | P7 | the observer exited 0 and wrote no stdout byte | `an_observer_with_no_stdout_parks_once_as_observation_absent` |
-| `observation-too-large` | the attempt's outcome, `too-large` | P7 | stdout passed its 1 MiB bound | `an_observer_over_the_stdout_bound_parks_once_as_observation_too_large_naming_the_witness_digest` |
-| `observation-unreadable` | the attempt's outcome, `unreadable` | P7 | stdout is not UTF-8, or holds an unknown field or word, or lacks a field | `an_unreadable_observation_parks_once_as_observation_unreadable_naming_its_digest` |
-| `result-file-present` | the run-local results directory, for the `ci` attempt's id | | a result file exists for the attempt; it is never read | `a_result_file_for_the_ci_attempt_is_never_read_and_parks_as_result_file_present` |
 | `word-unbound` | the gate's result word and `ci_green`, read by the table, not the judge | | the word is `pass` while `ci_green` is false; decide derives the word from the judgment (ruling 2's outcomes), so it is reached only at `CI-PASS-UNBOUND` if that derivation were lifted | 0111d: `the_whole_composed_landing_ci_overlay_compiles_against_heads_totality_gate` |
 
-**Every true row parks, and none is weaker than another.** There is no weaker outcome to fall
-to, so no precedence among the rows is needed: the engine names every row that is true, in the
-table's order, and parks. A fact several rows read leaves each of them true, and each is named:
-an unread engine head names both `unrelated` and `head-unpublished`; a check list short of its
-last page names `checks-incomplete` and every `missing-required` it leaves. The set is exact
-and deterministic. Live and on replay the judgment takes the one function over the one sealed
+**Every true row parks, and the park records every one, in the table's order.** There is no
+weaker outcome to fall to, so no precedence among the rows is needed and no row suppresses
+another: the judge returns every true row of the [park table](#the-park-table), in its order; a
+per-entry row once per entry,
+in `required_checks` order, and a per-list row once per list. That ordered list is the judge's
+output, re-derived from the sealed record live and on replay; the park's reason holds its prefix
+inside 256 bytes with a count of the rest (ruling 7), and `inspect` paints it whole (ruling 9).
+
+**The dependency rule: what a row does when its subject does not exist.** A row reads one
+subject: the attempt (the rows from `pull-request-unbound` to `result-file-present`), the
+observation (every row from `unrelated` to `required-set-disagrees`), and, within it, one entry's matches
+(the rows from `missing-required` to `revision-disagrees`, evaluated per entry). Where a
+subject does not exist, a row that says so is itself true, and a row that reads the absent
+subject is not evaluated, so it is never read as false in place of a park:
+
+- **No observation.** On any outcome but `observed`, that outcome's row is true, and no row
+  that reads the observation is evaluated. `result-file-present` reads the attempt, and is
+  evaluated on every outcome.
+- **No match for an entry.** `missing-required` is true for that entry, and the rows that read a
+  match (`not-settled`, `not-success`, `association-unproven`, `association-ambiguous`,
+  `revision-unproven`, `revision-disagrees`) have nothing to read for it and are false for it.
+- **No current execution for an entry.** `execution-ambiguous` is true, and the entry has no
+  eligible current match, so `missing-required` is true for it as well.
+- **More than one match.** `ambiguous-required` is true, and the match rows read every match.
+- **An incomplete list.** Its row is true, and the rows that read it are evaluated over what was
+  read: a fact the unread pages could change is not established, so an entry seen with no match
+  is `missing-required` and one seen once is `ambiguous-required`.
+
+So every entry that is not exactly one settled, successful, singly associated, revision-proven
+match makes at least one row true, and no subject's absence lets green through. Worked, in the
+table's order:
+
+- a complete, empty check list with a non-empty required set: `empty`, then `missing-required`
+  for every entry;
+- a sole red under an entry's name from another producer, the entry otherwise unmatched:
+  `missing-required` for that entry, then `producer-mismatch`;
+- an unread engine head: `unrelated` and `head-unpublished`;
+- a check list short of its last page beside an absent audit: `checks-incomplete`, then
+  `missing-required` for the audit and every other entry seen with no match, and
+  `ambiguous-required` for each entry seen once.
+
+The set is exact and deterministic. Live and on replay the judgment takes the one function over the one sealed
 observation and the one pinned list ([What a replay reads](#3-the-observation-the-judgment-and-where-the-journal-keeps-them)),
 so the rows a replay names are the rows named live.
 
@@ -1712,8 +1748,15 @@ member, `pull_request`, built in 0111b.
    produces, `crates/brokkr-view/src/` (the CI view model: the judgment, every true row, and the
    run, attempt and job ids a person needs) with `crates/brokkr-cli/src/render/inspect.rs`. About
    300 production and 700 test lines, over test-built tables and observations built by a shared
-   builder from 0111a's evidence; no recipe yet. No contract change. Tests, each asserting the
-   exact set of unmet words, so deleting any one word from the expected set fails it:
+   builder from 0111a's evidence; no recipe yet. No contract change. **Every judgment test
+   asserts the exact ordered list of true rows** the [park table](#the-park-table)'s order and
+   its dependency rule give its fixture, its own row and every row that rule makes true with it,
+   and nothing else; so deleting any row from the expected list, or adding one, fails it. **Each
+   row's test binds its predicate in production:** a compiling mutation of `ci/judge.rs` that
+   makes that row's predicate always false leaves the row out of the fixture's list and fails
+   that row's `Bound by` test, and 0111c records each such mutation with the test it failed
+   (0071 ruling 9); `scripts/mutants.sh` over `ci/judge.rs` leaves no surviving mutant of a row
+   predicate. Tests:
    - the park table ([its one home](#the-park-table)):
      `every_park_statement_in_0111_cites_a_row_of_its_park_table` and
      `every_park_row_is_bound_by_a_test_the_slices_name`, two doc tests in a new
@@ -1726,10 +1769,13 @@ member, `pull_request`, built in 0111b.
      `test (…)` entries, each run's merge commit distinct from the head, its parents the base and
      the head);
      `an_inadmissible_check_that_succeeded_changes_nothing`;
-   - one test per word, the word's condition unmet and every other established:
+   - one test per row, its fixture making that row true and every fact no dependent row reads
+     established, its expected list exact:
      `an_observation_of_another_head_repository_or_pull_request_parks_as_unrelated`;
      `an_unpushed_head_parks_as_head_unpublished`;
-     `an_observation_with_no_check_parks_as_empty`;
+     `an_observation_with_no_check_names_empty_then_missing_required_for_every_entry` (a complete,
+     empty check list and a non-empty required set: `empty`, then `missing-required` once per
+     entry, in `required_checks` order);
      `a_required_audit_missing_from_the_observation_parks_as_missing_required`;
      `two_matches_for_one_required_check_park_as_ambiguous_required`;
      `a_duplicate_job_for_a_required_entry_on_the_last_page_parks_as_ambiguous_required` (the r8
@@ -1750,7 +1796,7 @@ member, `pull_request`, built in 0111b.
      `a_merge_entry_whose_run_records_no_tested_commit_parks_as_revision_unproven`;
      `an_association_and_a_merge_commit_that_disagree_park_as_revision_disagrees`;
      `a_merge_revision_whose_parents_are_not_the_base_and_the_head_parks_as_revision_disagrees`;
-     `a_sole_red_producer_mismatch_parks_as_producer_mismatch`;
+     `a_sole_red_from_another_producer_names_missing_required_for_its_entry_then_producer_mismatch`;
      `a_status_context_in_the_forges_required_set_parks_as_status_required`;
      `a_forge_required_check_the_list_lacks_parks_as_required_set_disagrees`;
    - the inventories, one test per list the observer reads, each with two cases, the last page
@@ -1772,9 +1818,17 @@ member, `pull_request`, built in 0111b.
      the first page of the check-run list is past 8 MiB, served by a stub `gh` to 0111b's real
      observer script and its pinned `head`; `CI-PARK` names `response-too-large` and
      `checks-incomplete`, and no byte of that page is parsed);
-   - the shared-fact cases, each naming every word the one fact leaves unmet:
+   - the shared facts and the dependency rule, each its worked case in the
+     [park table](#the-park-table):
      `an_unread_engine_head_names_unrelated_and_head_unpublished`;
-     `a_short_check_list_beside_an_absent_audit_names_checks_incomplete_and_missing_required`;
+     `a_short_check_list_beside_an_absent_audit_names_checks_incomplete_and_missing_required`
+     (and `ambiguous-required` for each entry seen once);
+     `an_entry_seen_once_on_an_incomplete_job_list_names_ambiguous_required`;
+     `an_entry_with_no_match_is_false_on_every_match_row_and_true_on_missing_required`;
+     `an_entry_with_no_current_execution_names_execution_ambiguous_then_missing_required`;
+     `no_observation_row_is_evaluated_on_an_attempt_with_no_observation` (each outcome but
+     `observed`: its own row alone, and `result-file-present` where a file exists);
+     `the_true_rows_are_recorded_in_the_tables_order_entries_in_required_checks_order`;
    - the stale checks:
      `a_stale_same_producer_success_beside_an_ordinary_failure_names_missing_required_and_not_success`
      (a required audit with no check in its current run, an older same-producer `success` on
