@@ -35,7 +35,7 @@ pub use run::{ParkReason, Run};
 mod inputs;
 pub use inputs::computed_inputs;
 mod observation;
-pub use observation::StepObservation;
+pub use observation::{StepObservation, StepRecords};
 
 /// Results that universally count toward the consecutive-failure counter,
 /// matching the production table's retry/hard-stop rules. A strategy-local
@@ -229,9 +229,9 @@ pub struct RunState {
     /// [`fold_onto`] so a repair read from the rest of the journal checks
     /// exactly the types the whole fold checks.
     pub tail_types: BTreeMap<u64, EventType>,
-    /// The in-flight attempt's latest engine-authored gate step
-    /// observation, which decide holds the attempt's result to (K2).
-    pub step_checked: Option<StepObservation>,
+    /// The in-flight attempt's engine-authored step records, which decide
+    /// holds the attempt's result to, against what its body owes (X1).
+    pub step_records: StepRecords,
     /// The sequence step the latest success names as its producer (W1).
     pub ending_step: Option<String>,
 }
@@ -525,7 +525,7 @@ pub fn fold(events: &[EventEnvelope]) -> Result<RunState, FoldError> {
         late_tail: None,
         terminal_seq: None,
         tail_types: BTreeMap::new(),
-        step_checked: None,
+        step_records: StepRecords::default(),
         ending_step: None,
     };
     fold_onto(state, events)
@@ -633,7 +633,7 @@ fn start(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> {
             seat,
             failed_attempts,
         }) if *open == started.effect_id => {
-            state.step_checked = None;
+            state.step_records = StepRecords::default();
             state.run = Run::Running(Cursor::EffectInFlight {
                 effect_id: started.effect_id.to_string(),
                 attempt_id: started.attempt_id.to_string(),
@@ -662,15 +662,14 @@ fn the_open_effect(
 }
 
 /// At `EffectInFlight`, for the effect it holds; the in-flight attempt's
-/// gate step observation is kept.
+/// engine-authored step records are kept.
 fn checkpoint(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> {
     let checkpointed = payload::EffectCheckpointed::read(event)?;
     the_open_effect(state, event, checkpointed.effect_id)?;
     let flying = matches!(state.run.cursor(), Some(Cursor::EffectInFlight { attempt_id, .. })
         if event.payload["attempt_id"] == attempt_id.as_str());
-    let seen = observation::of_checkpoint(&event.payload["checkpoint"]);
-    if let (true, Some(seen)) = (flying, seen) {
-        state.step_checked = Some(seen);
+    if flying {
+        state.step_records.record(&event.payload["checkpoint"]);
     }
     Ok(())
 }

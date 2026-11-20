@@ -498,8 +498,8 @@ pub enum brokkr_core::fold::StepObservation
 pub brokkr_core::fold::StepObservation::Checked
 pub brokkr_core::fold::StepObservation::Checked::covered: brokkr_core::findings::Covered
 pub brokkr_core::fold::StepObservation::Checked::head: brokkr_core::findings::CheckedHead
-pub brokkr_core::fold::StepObservation::Checked::step: core::option::Option<alloc::string::String>
 pub brokkr_core::fold::StepObservation::Partial
+pub brokkr_core::fold::StepObservation::Unobserved
 pub brokkr_core::fold::StepObservation::Unreadable
 pub struct brokkr_core::fold::LateTail
 pub brokkr_core::fold::LateTail::event_types: alloc::vec::Vec<brokkr_core::envelope::EventType>
@@ -526,7 +526,7 @@ pub brokkr_core::fold::RunState::reviewed_heads: core::option::Option<brokkr_cor
 pub brokkr_core::fold::RunState::run: brokkr_core::fold::Run
 pub brokkr_core::fold::RunState::run_id: alloc::string::String
 pub brokkr_core::fold::RunState::seq: u64
-pub brokkr_core::fold::RunState::step_checked: core::option::Option<brokkr_core::fold::StepObservation>
+pub brokkr_core::fold::RunState::step_records: brokkr_core::fold::StepRecords
 pub brokkr_core::fold::RunState::stop_accepted_seq: core::option::Option<u64>
 pub brokkr_core::fold::RunState::strategy: core::option::Option<alloc::string::String>
 pub brokkr_core::fold::RunState::tail_types: alloc::collections::btree::map::BTreeMap<u64, brokkr_core::envelope::EventType>
@@ -540,6 +540,9 @@ pub struct brokkr_core::fold::SkippedAnnotation
 pub brokkr_core::fold::SkippedAnnotation::event_type: brokkr_core::envelope::EventType
 pub brokkr_core::fold::SkippedAnnotation::seq: u64
 pub brokkr_core::fold::SkippedAnnotation::word: &'static str
+pub struct brokkr_core::fold::StepRecords
+pub brokkr_core::fold::StepRecords::by_step: alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_core::fold::StepObservation>
+pub brokkr_core::fold::StepRecords::malformed: core::option::Option<brokkr_core::fold::StepObservation>
 pub const brokkr_core::fold::FAILURE_RESULTS: [&str; 2]
 pub const brokkr_core::fold::REPAIR: &str
 pub const brokkr_core::fold::SETTLE: &str
@@ -1734,7 +1737,7 @@ pub brokkr_core::RunState::reviewed_heads: core::option::Option<brokkr_core::dec
 pub brokkr_core::RunState::run: brokkr_core::fold::Run
 pub brokkr_core::RunState::run_id: alloc::string::String
 pub brokkr_core::RunState::seq: u64
-pub brokkr_core::RunState::step_checked: core::option::Option<brokkr_core::fold::StepObservation>
+pub brokkr_core::RunState::step_records: brokkr_core::fold::StepRecords
 pub brokkr_core::RunState::stop_accepted_seq: core::option::Option<u64>
 pub brokkr_core::RunState::strategy: core::option::Option<alloc::string::String>
 pub brokkr_core::RunState::tail_types: alloc::collections::btree::map::BTreeMap<u64, brokkr_core::envelope::EventType>

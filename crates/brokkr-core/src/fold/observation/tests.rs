@@ -1,10 +1,11 @@
 //! Fix round 0109a1r4, K2, bound: the fold carries the in-flight attempt's
-//! latest engine-authored gate step observation, and nothing else; V1
-//! (r5): with the record's `covered`, which must agree with its head.
+//! engine-authored step records, and nothing else; V1 (r5): with each
+//! record's `covered`, which must agree with its head; X1 (r7): every
+//! record by its step, and the first malformed one latched.
 
 use serde_json::{json, Value};
 
-use super::StepObservation;
+use super::{StepObservation, StepRecords};
 use crate::canonical::sha256_bytes;
 use crate::envelope::{EventEnvelope, EventType};
 use crate::envelope_builder::EnvelopeBuilder;
@@ -40,10 +41,10 @@ fn flying() -> RunState {
     )
 }
 
-/// A step checkpoint of `attempt` whose result journals `head` and its
-/// `covered`, the engine's own when `authored`.
-fn step(attempt: &str, head: &str, authored: bool) -> EventEnvelope {
-    let mut checkpoint = json!({"step": "sequence-step-finished", "step_name": "judge",
+/// Step `name`'s checkpoint of `attempt` whose result journals `head` and
+/// its `covered`, the engine's own when `authored`.
+fn named(name: &str, attempt: &str, head: &str, authored: bool) -> EventEnvelope {
+    let mut checkpoint = json!({"step": "sequence-step-finished", "step_name": name,
                                 "result": {"result": "clean", "checked_head": head,
                                            "covered": digest_of(head)}});
     if authored {
@@ -53,29 +54,41 @@ fn step(attempt: &str, head: &str, authored: bool) -> EventEnvelope {
     event(EventType::EffectCheckpointed, payload)
 }
 
-fn checked(head: &str) -> Option<StepObservation> {
-    Some(StepObservation::Checked {
+/// `judge`'s checkpoint, as [`named`].
+fn step(attempt: &str, head: &str, authored: bool) -> EventEnvelope {
+    named("judge", attempt, head, authored)
+}
+
+fn checked(head: &str) -> StepObservation {
+    StepObservation::Checked {
         head: head.to_string().try_into().unwrap(),
         covered: serde_json::from_value(digest_of(head)).unwrap(),
-        step: Some("judge".into()),
-    })
+    }
+}
+
+/// `step`'s record in `state`.
+fn judged<'s>(state: &'s RunState, step: &str) -> Option<&'s StepObservation> {
+    state.step_records.by_step.get(step)
 }
 
 /// Fix round 0109a1r6, W1: an authored step record is whole or partial,
-/// never dropped; a work step's record, carrying neither field, is no
-/// observation; and the success names the step that produced it.
+/// never dropped; a work step's record, carrying neither field, is
+/// unobserved (X1: kept by its step, never read as no record); and the
+/// success names the step that produced it.
 #[test]
 fn a_partial_step_record_is_kept_as_partial_and_the_success_names_its_step() {
     let mut state = flying();
     apply(&mut state, &step("a1", A, true)).unwrap();
-    let mut work = step("a1", B, true);
+    let mut work = named("tidy", "a1", B, true);
     let result = &mut work.payload["checkpoint"]["result"];
     result
         .as_object_mut()
         .unwrap()
         .retain(|field, _| field == "result");
     apply(&mut state, &work).unwrap();
-    assert_eq!(state.step_checked, checked(A));
+    assert_eq!(judged(&state, "judge"), Some(&checked(A)));
+    assert_eq!(judged(&state, "tidy"), Some(&StepObservation::Unobserved));
+    assert_eq!(state.step_records.malformed, None);
     for dropped in ["checked_head", "covered"] {
         let mut partial = step("a1", A, true);
         let result = partial.payload["checkpoint"]["result"]
@@ -84,17 +97,15 @@ fn a_partial_step_record_is_kept_as_partial_and_the_success_names_its_step() {
         result.remove(dropped);
         let mut state = flying();
         apply(&mut state, &partial).unwrap();
-        assert_eq!(
-            state.step_checked,
-            Some(StepObservation::Partial),
-            "{dropped}"
-        );
+        let partial = Some(StepObservation::Partial);
+        assert_eq!(judged(&state, "judge"), partial.as_ref(), "{dropped}");
+        assert_eq!(state.step_records.malformed, partial, "{dropped}");
     }
     let succeeded = json!({"effect_id": "e1", "attempt_id": "a1", "step": "judge",
                            "result": {"result": "clean"}});
     apply(&mut state, &event(EventType::EffectSucceeded, succeeded)).unwrap();
     assert_eq!(state.ending_step.as_deref(), Some("judge"));
-    assert_eq!(state.step_checked, checked(A));
+    assert_eq!(judged(&state, "judge"), Some(&checked(A)));
 }
 
 /// The protected phase's `covered` of `head`.
@@ -114,40 +125,89 @@ fn the_fold_keeps_a_records_covered_and_refuses_one_that_disagrees_with_its_head
     };
     let mut state = flying();
     apply(&mut state, &covered(A, digest_of(A))).unwrap();
-    assert_eq!(state.step_checked, checked(A));
-    apply(&mut state, &covered(A, digest_of(B))).unwrap();
-    assert_eq!(state.step_checked, Some(StepObservation::Unreadable));
-    apply(&mut state, &covered(B, json!({"kind": "head"}))).unwrap();
-    assert_eq!(state.step_checked, Some(StepObservation::Unreadable));
+    assert_eq!(judged(&state, "judge"), Some(&checked(A)));
+    for (head, covered_by) in [(A, digest_of(B)), (B, json!({"kind": "head"}))] {
+        let mut state = flying();
+        apply(&mut state, &covered(head, covered_by)).unwrap();
+        let unreadable = Some(StepObservation::Unreadable);
+        assert_eq!(judged(&state, "judge"), unreadable.as_ref());
+        assert_eq!(state.step_records.malformed, unreadable);
+    }
 }
 
 #[test]
-fn the_fold_carries_the_attempts_latest_authored_gate_step_observation() {
+fn the_fold_carries_the_attempts_authored_step_records_by_step() {
     let mut state = flying();
     apply(&mut state, &step("a1", A, true)).unwrap();
-    assert_eq!(state.step_checked, checked(A));
-    apply(&mut state, &step("a1", B, true)).unwrap();
-    assert_eq!(state.step_checked, checked(B));
-    // A driver's record, and another attempt's, are no observation.
-    apply(&mut state, &step("a1", A, false)).unwrap();
-    apply(&mut state, &step("a0", A, true)).unwrap();
-    assert_eq!(state.step_checked, checked(B));
-    apply(&mut state, &step("a1", "HEAD", true)).unwrap();
-    assert_eq!(state.step_checked, Some(StepObservation::Unreadable));
-    // The success carries it to decide.
+    assert_eq!(judged(&state, "judge"), Some(&checked(A)));
+    apply(&mut state, &named("chief", "a1", B, true)).unwrap();
+    assert_eq!(judged(&state, "judge"), Some(&checked(A)));
+    assert_eq!(judged(&state, "chief"), Some(&checked(B)));
+    // A driver's record, and another attempt's, are no record.
+    apply(&mut state, &named("chief", "a1", A, false)).unwrap();
+    apply(&mut state, &named("chief", "a0", A, true)).unwrap();
+    assert_eq!(judged(&state, "chief"), Some(&checked(B)));
+    assert_eq!(state.step_records.malformed, None);
+    // The success carries them to decide.
     let succeeded = json!({"effect_id": "e1", "attempt_id": "a1", "result": {"result": "clean"}});
     apply(&mut state, &event(EventType::EffectSucceeded, succeeded)).unwrap();
     assert!(matches!(state.run.cursor(), Some(Cursor::Decide { .. })));
-    assert_eq!(state.step_checked, Some(StepObservation::Unreadable));
+    assert_eq!(judged(&state, "chief"), Some(&checked(B)));
+}
+
+/// Fix round 0109a1r7, X1: a step runs once in an attempt, so a second
+/// whole record of it, a copy or a replacement, is latched as unreadable.
+#[test]
+fn a_second_record_of_one_step_in_an_attempt_is_latched() {
+    let mut state = flying();
+    apply(&mut state, &step("a1", A, true)).unwrap();
+    apply(&mut state, &step("a1", B, true)).unwrap();
+    assert_eq!(judged(&state, "judge"), Some(&checked(B)));
+    let unreadable = Some(StepObservation::Unreadable);
+    assert_eq!(state.step_records.malformed, unreadable);
+}
+
+/// Fix round 0109a1r7, X1: a partial or unreadable record is latched for
+/// the attempt, so a later complete record of the same step heals
+/// nothing; an authored record naming no step, or carrying no result, is
+/// unreadable and latched too.
+#[test]
+fn a_malformed_step_record_stays_latched_whatever_record_follows_it() {
+    let mut state = flying();
+    let mut partial = step("a1", A, true);
+    let result = partial.payload["checkpoint"]["result"]
+        .as_object_mut()
+        .unwrap();
+    result.remove("covered");
+    apply(&mut state, &partial).unwrap();
+    apply(&mut state, &step("a1", A, true)).unwrap();
+    assert_eq!(judged(&state, "judge"), Some(&checked(A)));
+    let latched = Some(StepObservation::Partial);
+    assert_eq!(state.step_records.malformed, latched);
+    apply(&mut state, &step("a1", "HEAD", true)).unwrap();
+    assert_eq!(state.step_records.malformed, latched, "the first is kept");
+
+    for strip in ["step_name", "result"] {
+        let mut unnamed = step("a1", A, true);
+        let checkpoint = unnamed.payload["checkpoint"].as_object_mut().unwrap();
+        checkpoint.remove(strip);
+        let mut state = flying();
+        apply(&mut state, &unnamed).unwrap();
+        let unreadable = Some(StepObservation::Unreadable);
+        assert_eq!(state.step_records.malformed, unreadable, "{strip}");
+    }
 }
 
 #[test]
-fn a_new_attempt_starts_with_no_step_observation() {
+fn a_new_attempt_starts_with_no_step_records() {
     let mut state = flying();
-    apply(&mut state, &step("a1", A, true)).unwrap();
+    let mut partial = step("a1", A, true);
+    partial.payload["checkpoint"]["result"]["covered"] = json!(null);
+    apply(&mut state, &partial).unwrap();
+    assert!(state.step_records.malformed.is_some());
     let failed = json!({"effect_id": "e1", "attempt_id": "a1", "error": "lost"});
     apply(&mut state, &event(EventType::EffectFailed, failed)).unwrap();
     let started = json!({"effect_id": "e1", "attempt_id": "a2"});
     apply(&mut state, &event(EventType::EffectStarted, started)).unwrap();
-    assert_eq!(state.step_checked, None);
+    assert_eq!(state.step_records, StepRecords::default());
 }

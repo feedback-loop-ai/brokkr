@@ -12,7 +12,9 @@ use super::tests::{begun, driven_over, driver, ended_in};
 use crate::bundle::{Bundle, GateAssessment, SeatBody, SeatClass, SequenceStep};
 use crate::engine::heads::HeadReads;
 use crate::engine::tests::{git_commit, single_body, step_body};
-use crate::engine::verdict::ObservationProblem::{self, Disagrees, Missing, Partial};
+use crate::engine::verdict::ObservationProblem::{
+    self, Disagrees, Missing, Partial, Unattributed, Unrecorded,
+};
 use crate::engine::verdict::Producer;
 use crate::engine::Engine;
 use brokkr_core::canonical::sha256_bytes;
@@ -28,6 +30,16 @@ fn clean_step(name: &str, class: SeatClass) -> SequenceStep {
         class,
         results: vec!["clean".into()],
         body: step_body(driver(&json!({"result": "clean"}))),
+    }
+}
+
+/// A sequence of the gate step `judge`, then a step `tidy` of `last`.
+fn judge_then(last: SeatClass) -> SeatBody {
+    SeatBody::Sequence {
+        steps: vec![
+            clean_step("judge", SeatClass::Gate),
+            clean_step("tidy", last),
+        ],
     }
 }
 
@@ -213,12 +225,36 @@ impl Stopped {
         );
     }
 
+    /// Review's step record `judge` with its result `edited`, and the
+    /// terminal's `checked_head` replaced by the moved head, by direct SQL.
+    fn judged_then_moved(&self, mut edited: impl FnMut(&mut Value)) {
+        let moved = self.moved.clone();
+        self.replanted_from("judge", |event| match event.event_type {
+            EventType::EffectSucceeded => event.payload["result"]["checked_head"] = json!(moved),
+            _ => edited(&mut event.payload["checkpoint"]["result"]),
+        });
+    }
+
     /// The journal's tail from the last event `from` picks deleted by
     /// direct SQL and re-appended in order, each with `edit` applied.
     fn rewritten(
         &self,
         from: impl Fn(&EventEnvelope) -> bool,
         mut edit: impl FnMut(&mut EventEnvelope),
+    ) {
+        self.respliced(from, |mut event| {
+            edit(&mut event);
+            vec![event]
+        });
+    }
+
+    /// The journal's tail from the last event `from` picks deleted by
+    /// direct SQL and re-appended in order, each replaced by what `splice`
+    /// makes of it.
+    fn respliced(
+        &self,
+        from: impl Fn(&EventEnvelope) -> bool,
+        mut splice: impl FnMut(EventEnvelope) -> Vec<EventEnvelope>,
     ) {
         let db = self.dir.path().join("forge.db");
         let mut store = Store::open(&db).unwrap();
@@ -238,8 +274,7 @@ impl Stopped {
             assert_eq!(deleted, tail.len(), "{table}");
         }
         drop(raw);
-        for mut event in tail {
-            edit(&mut event);
+        for event in tail.into_iter().flat_map(&mut splice) {
             let (cause, attempt) = (event.causation_id, event.attempt_id);
             store
                 .append_next(
@@ -417,22 +452,10 @@ fn a_terminals_own_covered_never_outweighs_its_latest_gate_step_record() {
 /// Each takes no transition.
 #[test]
 fn a_partial_step_record_or_a_terminal_unlike_its_own_gate_step_record_refuses() {
-    let review = |last: SeatClass| SeatBody::Sequence {
-        steps: vec![
-            clean_step("judge", SeatClass::Gate),
-            clean_step("tidy", last),
-        ],
-    };
+    let review = judge_then;
     let stopped = Stopped::after(review(SeatClass::Work), false);
-    let moved = stopped.moved.clone();
-    stopped.replanted_from("judge", |event| match event.event_type {
-        EventType::EffectSucceeded => event.payload["result"]["checked_head"] = json!(moved),
-        _ => drop(
-            event.payload["checkpoint"]["result"]
-                .as_object_mut()
-                .unwrap()
-                .remove("checked_head"),
-        ),
+    stopped.judged_then_moved(|result| {
+        drop(result.as_object_mut().unwrap().remove("checked_head"));
     });
     let events = stopped.resumed();
     let judged = checkpointed(&events, "judge");
@@ -447,16 +470,20 @@ fn a_partial_step_record_or_a_terminal_unlike_its_own_gate_step_record_refuses()
     refused_at_decide(&events, &Disagrees);
 }
 
-/// Fix round 0109a1r6, W1: the producer is read from the compiled body by
-/// the step the success names. A success naming no step is the effect's
-/// own; a step the body does not name, or a body with no steps, is held to
-/// a gate's record, never read as work.
+/// Fix rounds 0109a1r6, W1, and 0109a1r7, X1: the producer is read from
+/// the compiled body by the step the success names, with every gate step
+/// at or before it owed, the producer last when it is a gate. Only a
+/// single body's success names no step; a sequence's success naming none,
+/// a step the body does not hold, or a single body's success naming a
+/// step, has no producer.
 #[test]
 fn the_terminals_producer_is_read_from_the_compiled_body() {
     let dir = tempfile::tempdir().unwrap();
     let steps = vec![
+        clean_step("draft", SeatClass::Work),
         clean_step("judge", SeatClass::Gate),
         clean_step("tidy", SeatClass::Work),
+        clean_step("chief", SeatClass::Gate),
     ];
     let compiled = crate::engine::tests::bundle(dir.path(), SeatBody::Sequence { steps });
     let (sequence, single) = (&compiled.seats["work"], &compiled.seats["review"]);
@@ -465,16 +492,118 @@ fn the_terminals_producer_is_read_from_the_compiled_body() {
         state.ending_step = step.map(str::to_string);
         state
     };
+    let step = |name, class, owed| Ok(Producer::Step { name, class, owed });
     let cases = [
-        (sequence, None, Producer::Effect),
-        (sequence, Some("tidy"), Producer::Work),
-        (sequence, Some("judge"), Producer::Gate("judge")),
-        (sequence, Some("other"), Producer::Gate("other")),
-        (single, Some("tidy"), Producer::Gate("tidy")),
+        (single, None, Ok(Producer::Effect)),
+        (
+            sequence,
+            Some("draft"),
+            step("draft", SeatClass::Work, vec![]),
+        ),
+        (
+            sequence,
+            Some("judge"),
+            step("judge", SeatClass::Gate, vec!["judge"]),
+        ),
+        (
+            sequence,
+            Some("tidy"),
+            step("tidy", SeatClass::Work, vec!["judge"]),
+        ),
+        (
+            sequence,
+            Some("chief"),
+            step("chief", SeatClass::Gate, vec!["judge", "chief"]),
+        ),
+        (sequence, None, Err(Unattributed)),
+        (sequence, Some("other"), Err(Unattributed)),
+        (single, Some("tidy"), Err(Unattributed)),
     ];
     for (seat, step, want) in cases {
         assert_eq!(Producer::of(seat, &ended(step)), want, "{step:?}");
     }
+}
+
+/// Fix round 0109a1r7, X1: what a protected attempt owes is read from its
+/// compiled body, so a record removed or damaged in the journal never
+/// removes the obligation. A gate step checked on A, then a work step,
+/// stopped once the success is durable, then resumed on a clean B:
+/// - the gate step's record with both `checked_head` and `covered`
+///   blanked, the terminal's `checked_head` B: `Unrecorded` for judge;
+/// - the gate step's record re-tagged as another step: `Unrecorded`;
+/// - a partial copy of the gate step's record journaled before the
+///   complete one: `Partial`, latched.
+///
+/// A final gate step's success with its step tag and `covered` removed
+/// has no producer: `Unattributed`. Each takes no transition.
+#[test]
+fn an_owed_gate_record_absent_or_malformed_or_an_untagged_success_refuses() {
+    let review = judge_then;
+    let judge = Unrecorded {
+        step: "judge".into(),
+    };
+    let blank = |result: &mut Value| {
+        let result = result.as_object_mut().unwrap();
+        result.retain(|field, _| field != "checked_head" && field != "covered");
+    };
+    let stopped = Stopped::after(review(SeatClass::Work), false);
+    stopped.judged_then_moved(blank);
+    let events = stopped.resumed();
+    assert!(checkpointed(&events, "judge").get("checked_head").is_none());
+    refused_at_decide(&events, &judge);
+
+    let stopped = Stopped::after(review(SeatClass::Work), false);
+    stopped.replanted_from("judge", |event| {
+        if event.event_type == EventType::EffectCheckpointed {
+            event.payload["checkpoint"]["step_name"] = json!("tidy");
+        }
+    });
+    refused_at_decide(&stopped.resumed(), &judge);
+
+    let stopped = Stopped::after(review(SeatClass::Work), false);
+    let judged = |event: &EventEnvelope| {
+        event.event_type == EventType::EffectCheckpointed
+            && event.payload["checkpoint"]["step_name"] == "judge"
+    };
+    stopped.respliced(judged, |event| {
+        if !judged(&event) {
+            return vec![event];
+        }
+        let mut partial = event.clone();
+        let result = &mut partial.payload["checkpoint"]["result"];
+        drop(result.as_object_mut().unwrap().remove("covered"));
+        vec![partial, event]
+    });
+    let events = stopped.resumed();
+    let records = (events.iter()).filter(|event| judged(event));
+    let covered: Vec<bool> = records
+        .map(|event| {
+            event.payload["checkpoint"]["result"]
+                .get("covered")
+                .is_some()
+        })
+        .collect();
+    assert_eq!(
+        covered,
+        [false, true],
+        "the partial copy, then the whole one"
+    );
+    refused_at_decide(&events, &Partial);
+
+    let stopped = Stopped::after(review(SeatClass::Gate), false);
+    let succeeded = |event: &EventEnvelope| event.event_type == EventType::EffectSucceeded;
+    stopped.rewritten(succeeded, |event| {
+        if succeeded(event) {
+            drop(event.payload.as_object_mut().unwrap().remove("step"));
+            drop(
+                event.payload["result"]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("covered"),
+            );
+        }
+    });
+    refused_at_decide(&stopped.resumed(), &Unattributed);
 }
 
 /// Fix round 0109a1r5, V1: a legitimately newer final gate is the latest

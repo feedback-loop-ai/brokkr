@@ -7,7 +7,7 @@
 
 use brokkr_core::envelope::EventType;
 use brokkr_core::findings::{CheckedHead, Covered, EngineWritten, Finding};
-use brokkr_core::fold::{RunState, StepObservation};
+use brokkr_core::fold::{RunState, StepObservation, StepRecords};
 use brokkr_protocol::{AttemptOutcome, AttemptReport};
 use serde::Deserialize;
 use serde_json::{Map, Value};
@@ -16,7 +16,7 @@ use thiserror::Error;
 use super::resume::SiteContext;
 use super::Engine;
 use crate::bundle::Seat;
-use crate::bundle::{ExecutableBody, SeatClass};
+use crate::bundle::{ExecutableBody, SeatClass, SequenceStep};
 
 /// Ruling 7's `dirty` is true unless the tree check proved the worktree
 /// clean at commission time. That check is slice 0109b's, so every
@@ -158,47 +158,69 @@ pub(super) enum ObservationProblem {
     )]
     Partial,
     #[error(
-        "the gate step that produced the protected result journaled no record of its own \
+        "the gate step '{step}' the compiled body holds journaled no whole record of its own \
+         in this attempt (decision 0109 ruling 7)"
+    )]
+    Unrecorded { step: String },
+    #[error(
+        "the protected result names no step its compiled body holds as its producer \
          (decision 0109 ruling 7)"
     )]
-    Unrecorded,
+    Unattributed,
 }
 
 /// The step that produced a protected effect's terminal, read from the
-/// compiled body by the name its success journals (fix round 0109a1r6,
-/// W1), which says what the terminal is matched to.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// compiled body by the name its success journals (fix rounds 0109a1r6,
+/// W1, and 0109a1r7, X1), and the records the attempt owes for it.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum Producer<'a> {
-    /// No sequence step: a single body, whose terminal is its own
-    /// observation.
+    /// A single body, whose success names no step: its terminal is its
+    /// own observation, and it owes no step record.
     Effect,
-    /// A gate step, or a step the body does not name: the terminal is that
-    /// step's own record's result and equals it, presence included.
-    Gate(&'a str),
-    /// A work step: its span accepted no head and stamped no `covered`,
-    /// so its terminal carries none and its head is the latest gate
-    /// record's.
-    Work,
+    /// A sequence step the compiled body holds, of `class`, and `owed`:
+    /// every gate step at or before it in compiled order, which ran in
+    /// this attempt and each journaled one whole record of its own. A
+    /// gate step's terminal is its own record's result and equals it,
+    /// presence included; a work step's carries no `covered`, and its
+    /// head is the last owed record's.
+    Step {
+        name: &'a str,
+        class: SeatClass,
+        owed: Vec<&'a str>,
+    },
 }
 
 impl<'a> Producer<'a> {
-    /// The producer of `state`'s terminal in `seat`'s body.
-    pub(super) fn of(seat: &'a Seat, state: &'a RunState) -> Producer<'a> {
-        let Some(name) = state.ending_step.as_deref() else {
-            return Producer::Effect;
-        };
+    /// The producer of `state`'s terminal in `seat`'s body. The identity
+    /// is bound (X1): a sequence's success must name one of its steps,
+    /// and a single body's must name none, or no producer stands.
+    pub(super) fn of(seat: &'a Seat, state: &RunState) -> Result<Producer<'a>, ObservationProblem> {
         let steps = match seat.body.selected(state.strategy.as_deref()) {
-            Some((ExecutableBody::Sequence { steps }, _)) => steps,
-            Some((ExecutableBody::Invocation(_), _)) | None => &[],
+            Some((ExecutableBody::Sequence { steps }, _)) => Some(steps),
+            Some((ExecutableBody::Invocation(_), _)) | None => None,
         };
-        match steps
-            .iter()
-            .find(|step| step.name == name)
-            .map(|step| step.class)
-        {
-            Some(SeatClass::Work) => Producer::Work,
-            Some(SeatClass::Gate) | None => Producer::Gate(name),
+        match (steps, state.ending_step.as_deref()) {
+            (None, None) => Ok(Producer::Effect),
+            (Some(steps), Some(name)) => Producer::step(steps, name),
+            (None, Some(_)) | (Some(_), None) => Err(ObservationProblem::Unattributed),
         }
+    }
+
+    /// `name`, one of `steps`, with the gate steps it owes.
+    fn step(steps: &'a [SequenceStep], name: &str) -> Result<Producer<'a>, ObservationProblem> {
+        let index = (steps.iter().position(|step| step.name == name))
+            .ok_or(ObservationProblem::Unattributed)?;
+        let owed = steps[..=index]
+            .iter()
+            .filter(|step| step.class == SeatClass::Gate)
+            .map(|step| step.name.as_str())
+            .collect();
+        let step = &steps[index];
+        Ok(Producer::Step {
+            name: &step.name,
+            class: step.class,
+            owed,
+        })
     }
 }
 
@@ -221,14 +243,20 @@ impl<'a> Producer<'a> {
 ///
 /// The terminal is matched to the step that produced it (fix round
 /// 0109a1r6, W1): a gate step's terminal is its own record's result, so
-/// it equals that record field by field, presence included, and a gate
-/// step with no record of its own refuses; a work step's terminal carries
-/// no `covered`, and its head is pinned to the latest gate record. A
-/// partial record refuses whoever produced the terminal.
+/// it equals that record field by field, presence included; a work
+/// step's terminal carries no `covered`, and its head is pinned to the
+/// last owed gate record.
+///
+/// What the attempt owes is the compiled body's, never the journal's
+/// (fix round 0109a1r7, X1): one whole record for each gate step at or
+/// before the producer, so a record removed, blanked or re-tagged in the
+/// journal refuses rather than removing its obligation. A malformed
+/// record latched in the attempt refuses whatever record followed it, and
+/// a single body owes none, so any step record beside it refuses.
 pub(super) fn checked_head(
     raw_result: &Value,
-    step: Option<&StepObservation>,
-    producer: Producer<'_>,
+    records: &StepRecords,
+    producer: &Producer<'_>,
 ) -> Result<CheckedHead, ObservationProblem> {
     let head = raw_result
         .get(CHECKED_HEAD)
@@ -239,35 +267,45 @@ pub(super) fn checked_head(
         Some(Ok(covered)) if covered.projects(head.as_str()) => Some(covered),
         Some(_) => return Err(ObservationProblem::Disagrees),
     };
-    let agrees = matched(producer, step, &head, covered.as_ref())?;
+    match &records.malformed {
+        Some(StepObservation::Partial) => return Err(ObservationProblem::Partial),
+        Some(_) => return Err(ObservationProblem::Disagrees),
+        None => {}
+    }
+    let agrees = matched(producer, records, &head, covered.as_ref())?;
     agrees.then_some(head).ok_or(ObservationProblem::Disagrees)
 }
 
 /// Whether the terminal's `head` and `covered` match the record of the
-/// step that produced it under `producer`, or why there is none to match.
+/// step that produced it under `producer`, or why there is none to match:
+/// an owed gate record absent, or journaling no whole observation.
 fn matched(
-    producer: Producer<'_>,
-    step: Option<&StepObservation>,
+    producer: &Producer<'_>,
+    records: &StepRecords,
     head: &CheckedHead,
     covered: Option<&Covered>,
 ) -> Result<bool, ObservationProblem> {
-    Ok(match (producer, step) {
-        (_, Some(StepObservation::Partial)) => return Err(ObservationProblem::Partial),
-        (_, Some(StepObservation::Unreadable)) => false,
-        (
-            Producer::Gate(name),
-            Some(StepObservation::Checked {
-                head: seen,
-                covered: stamped,
-                step,
-            }),
-        ) if step.as_deref() == Some(name) => seen == head && covered == Some(stamped),
-        (Producer::Gate(_), _) => return Err(ObservationProblem::Unrecorded),
-        (Producer::Effect, None) => true,
-        (Producer::Work, None) => covered.is_none(),
-        (Producer::Effect | Producer::Work, Some(StepObservation::Checked { head: seen, .. })) => {
-            seen == head && covered.is_none()
+    let (class, owed) = match producer {
+        Producer::Effect => return Ok(records.by_step.is_empty()),
+        Producer::Step { class, owed, .. } => (*class, owed),
+    };
+    let mut last = None;
+    for gate in owed {
+        match records.by_step.get(*gate) {
+            Some(StepObservation::Checked { head, covered }) => last = Some((head, covered)),
+            _ => {
+                let step = gate.to_string();
+                return Err(ObservationProblem::Unrecorded { step });
+            }
         }
+    }
+    // A gate producer is the last step it owes (`Producer::step`, bound
+    // by the_terminals_producer_is_read_from_the_compiled_body), so `last`
+    // is its own record; with no owed record the producer is work.
+    Ok(match (class, last) {
+        (SeatClass::Gate, Some((seen, stamped))) => seen == head && covered == Some(stamped),
+        (SeatClass::Work, Some((seen, _))) => seen == head && covered.is_none(),
+        (_, None) => covered.is_none(),
     })
 }
 

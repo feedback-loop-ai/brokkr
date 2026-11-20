@@ -7,7 +7,7 @@ use std::process::Command;
 use serde_json::{json, Value};
 
 use super::tests::{driven, driven_over, driver, ended, ended_in, reported};
-use crate::bundle::GateAssessment;
+use crate::bundle::{GateAssessment, SeatClass};
 use crate::engine::heads::{HeadReads, Observed};
 use crate::engine::tests::{bundle, git_commit, single_body, state};
 use crate::engine::verdict::ObservationProblem::{
@@ -17,7 +17,7 @@ use crate::engine::verdict::{checked_head, Producer};
 use crate::engine::{git_head, Engine};
 use brokkr_core::canonical::sha256_bytes;
 use brokkr_core::envelope::{EventEnvelope, EventType};
-use brokkr_core::fold::{Cursor, RunState, StepObservation};
+use brokkr_core::fold::{Cursor, RunState, StepObservation, StepRecords};
 use brokkr_core::policy::Machine;
 use brokkr_store::Store;
 
@@ -255,7 +255,9 @@ fn a_protected_result_without_one_consistent_checked_head_refuses_at_decide() {
         head: Some(other.into()),
     });
     for (raw, want) in &cases {
-        let read = checked_head(raw, None, Producer::Effect).map(|head| head.as_str().to_string());
+        let none = StepRecords::default();
+        let read =
+            checked_head(raw, &none, &Producer::Effect).map(|head| head.as_str().to_string());
         assert_eq!(&read, want, "{raw}");
         let result = raw.clone();
         let effect_id = "review".to_string();
@@ -313,41 +315,106 @@ fn a_terminal_agrees_with_its_latest_gate_step_record_field_by_field_or_is_refus
     let head = "89abcdef0123456789abcdef0123456789abcdef".to_string();
     let other = "0123456789abcdef0123456789abcdef01234567";
     let covered = |head: &str| json!({"kind": "head", "head_digest": sha256_bytes(head.as_bytes()), "dirty": true});
-    let checked = |seen: &str, step: &str| StepObservation::Checked {
+    let checked = |seen: &str| StepObservation::Checked {
         head: seen.to_string().try_into().unwrap(),
         covered: serde_json::from_value(covered(seen)).unwrap(),
-        step: Some(step.to_string()),
     };
     let plain = json!({"result": "clean", "checked_head": head});
     let stamped = json!({"result": "clean", "checked_head": head, "covered": covered(&head)});
-    let (work, gate) = (Producer::Work, Producer::Gate("chief"));
+    // judge (gate), then tidy (work) or chief (gate): what each owes.
+    let work = Producer::Step {
+        name: "tidy",
+        class: SeatClass::Work,
+        owed: vec!["judge"],
+    };
+    let gate = Producer::Step {
+        name: "chief",
+        class: SeatClass::Gate,
+        owed: vec!["judge", "chief"],
+    };
+    let records = |judge: StepObservation, chief: Option<StepObservation>| {
+        let mut records = StepRecords::default();
+        let named = [("judge", Some(judge)), ("chief", chief)];
+        for (step, seen) in named {
+            if let Some(seen) = seen {
+                records.by_step.insert(step.to_string(), seen);
+            }
+        }
+        records
+    };
+    let unrecorded = |step: &str| Err(Unrecorded { step: step.into() });
+    let (on, off) = (|| checked(&head), || checked(other));
     let steps = [
-        // A work step's terminal: no covered, its head the record's.
-        (&plain, work, checked(&head, "judge"), Ok(head.clone())),
-        (&plain, work, checked(other, "judge"), Err(Disagrees)),
-        (&plain, work, StepObservation::Unreadable, Err(Disagrees)),
-        (&plain, work, StepObservation::Partial, Err(Partial)),
+        // A work step's terminal: no covered, its head the last owed record's.
+        (&plain, &work, records(on(), None), Ok(head.clone())),
+        (&plain, &work, records(off(), None), Err(Disagrees)),
+        (
+            &plain,
+            &work,
+            records(StepObservation::Unobserved, None),
+            unrecorded("judge"),
+        ),
+        (
+            &plain,
+            &work,
+            records(StepObservation::Unreadable, None),
+            unrecorded("judge"),
+        ),
         // The terminal's own covered pair never outweighs the record.
-        (&stamped, work, checked(&head, "judge"), Err(Disagrees)),
-        (&stamped, work, checked(other, "judge"), Err(Disagrees)),
+        (&stamped, &work, records(on(), None), Err(Disagrees)),
+        (&stamped, &work, records(off(), None), Err(Disagrees)),
         // A gate step's terminal is its own record's result, presence
-        // included (fix round 0109a1r6, W1).
-        (&stamped, gate, checked(&head, "chief"), Ok(head.clone())),
-        (&stamped, gate, checked(other, "chief"), Err(Disagrees)),
-        (&plain, gate, checked(&head, "chief"), Err(Disagrees)),
-        (&stamped, gate, checked(&head, "judge"), Err(Unrecorded)),
-        (&stamped, gate, StepObservation::Partial, Err(Partial)),
+        // included (fix round 0109a1r6, W1), and every earlier owed gate
+        // record is whole (X1).
+        (
+            &stamped,
+            &gate,
+            records(off(), Some(on())),
+            Ok(head.clone()),
+        ),
+        (&stamped, &gate, records(on(), Some(off())), Err(Disagrees)),
+        (&plain, &gate, records(on(), Some(on())), Err(Disagrees)),
+        (&stamped, &gate, records(on(), None), unrecorded("chief")),
+        (
+            &stamped,
+            &gate,
+            records(StepObservation::Unobserved, Some(on())),
+            unrecorded("judge"),
+        ),
     ];
-    for (raw, producer, step, want) in steps {
-        let read = checked_head(raw, Some(&step), producer).map(|head| head.as_str().to_string());
-        assert_eq!(read, want, "{raw} {producer:?} {step:?}");
+    for (raw, producer, records, want) in steps {
+        let read = checked_head(raw, &records, producer).map(|head| head.as_str().to_string());
+        assert_eq!(read, want, "{raw} {producer:?} {records:?}");
     }
-    let alone =
-        |raw, producer| checked_head(raw, None, producer).map(|head| head.as_str().to_string());
-    assert_eq!(alone(&stamped, Producer::Effect), Ok(head.clone()));
-    assert_eq!(alone(&plain, work), Ok(head.clone()));
-    assert_eq!(alone(&stamped, work), Err(Disagrees));
-    assert_eq!(alone(&stamped, gate), Err(Unrecorded));
+    // A latched malformed record refuses whatever followed it (X1).
+    for (malformed, want) in [
+        (StepObservation::Partial, Partial),
+        (StepObservation::Unreadable, Disagrees),
+    ] {
+        let mut latched = records(on(), Some(on()));
+        latched.malformed = Some(malformed);
+        assert_eq!(checked_head(&stamped, &latched, &gate), Err(want));
+    }
+    let alone = |raw, producer: &Producer<'_>| {
+        let records = StepRecords::default();
+        checked_head(raw, &records, producer).map(|head| head.as_str().to_string())
+    };
+    assert_eq!(alone(&stamped, &Producer::Effect), Ok(head.clone()));
+    let only_work = Producer::Step {
+        name: "tidy",
+        class: SeatClass::Work,
+        owed: vec![],
+    };
+    assert_eq!(alone(&plain, &only_work), Ok(head.clone()));
+    assert_eq!(alone(&stamped, &only_work), Err(Disagrees));
+    assert_eq!(alone(&plain, &work), unrecorded("judge"));
+    assert_eq!(alone(&stamped, &gate), unrecorded("judge"));
+    // A single body owes no step record, so one beside it refuses.
+    let beside = records(on(), None);
+    assert_eq!(
+        checked_head(&stamped, &beside, &Producer::Effect),
+        Err(Disagrees)
+    );
 }
 
 /// Ruling 1 through the real result path: a seat-supplied `covered` or

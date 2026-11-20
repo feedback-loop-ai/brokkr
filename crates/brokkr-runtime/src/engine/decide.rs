@@ -34,9 +34,11 @@ impl Engine {
         // evidence attached — never repaired, coerced, or handed to a
         // model to fix.
         let protected = phase == self.bundle.protected_phase;
-        let step = state.step_checked.as_ref();
-        let producer = super::verdict::Producer::of(seat, state);
-        let checked = protected.then(|| super::verdict::checked_head(&raw_result, step, producer));
+        let checked = protected.then(|| {
+            super::verdict::Producer::of(seat, state).and_then(|producer| {
+                super::verdict::checked_head(&raw_result, &state.step_records, &producer)
+            })
+        });
         let observation = checked.as_ref().and_then(|checked| checked.as_ref().err());
         let problem =
             schema_problem(seat, &raw_result).or_else(|| observation.map(ToString::to_string));
