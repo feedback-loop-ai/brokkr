@@ -638,6 +638,42 @@ The observation names its binding:
   be the engine's own git head, or the head is unpublished (ruling 6);
 - the gated head's full commit id.
 
+**The intended pull request is bound at launch, before the observer runs.** The observation
+names a pull request, and the association rule below compares each run against one; but the
+number it is compared against must not be the observation's own. Two open pull requests can
+share a head, and the highest run on it can name the other one, uniquely: compared against
+itself, that observation would agree. The compiled `ci-checks.json` pins the repository and
+the observer, never a per-run pull request (ruling 5). **Recommended: (a) the operator selects
+the pull request at launch, and the run journals it before any effect.**
+
+- **The selection.** `brokkr run` gains `--pull-request <number>`, a positive integer. It is
+  read only for a bundle that declares a `ci` seat; for any other bundle the launch refuses the
+  flag before the journal opens, beside HEAD's entry checks (`crates/brokkr-runtime/src/launch.rs:301-306`),
+  so it has no consumer it does not reach (0071 ruling 6).
+- **The record.** The number is an optional `run/started` member, `pull_request: {number}`,
+  added under the contracts README's additive rule for `run/started` members, as proposed
+  decision 0094 added `entry` (`contracts/README.md:246-256`). Its object denies unknown
+  members, and the core fold never reads it. HEAD writes `run/started` in the store's one start
+  transaction, before the run's first effect (`crates/brokkr-runtime/src/engine/start.rs:88-117`),
+  so the number is journaled before the observer is launched. Its extension schema waits for
+  the operator's acceptance (0082), as 0094's does.
+- **The use.** At the `ci` phase the engine reads the number from the run's own `run/started`,
+  hands it to the observer in its argv beside `--repo`, and compares against it alone: it is
+  the only source of the pull request P1 and P5 read. A continuation imports none: `--continues` is attribution only
+  (`launch.rs:453`), and the new run names its own. The operator's retry of a park reads the
+  same run's record.
+- **Its rows.** A `run/started` that holds no number, whether the flag was not given, the run
+  was started by a build before 0111b, or the run came from a dispatch that carries none, makes
+  `pull-request-unbound` true; the engine reads that before the launch, so the observer is never
+  spawned for an unbound run. An observation that names another number makes `unrelated` true,
+  and a current run associated with another pull request, uniquely or not, makes
+  `association-unproven` or `association-ambiguous` true.
+
+Refused alternatives: **(b)** finding the pull request from the branch through the forge at
+`ci`, which reads it from the same source the observation is compared against, and on a shared
+head finds two; and **(c)** a pin in `ci-checks.json`, which is compiled once per recipe and
+cannot name a per-run fact.
+
 It then lists every check the forge reports for that head, with no filtering. Checks outside
 Actions are included:
 
@@ -819,9 +855,9 @@ proceeds instead of handing the observation to a person.
 **`green` holds only when every row is false and every pass predicate holds.** The pass
 predicates are `green`'s own conditions, stated once here and nowhere else:
 
-- **P1, the binding.** The observation's repository (owner, name and id), pull request and
-  gated head equal the run's pinned repository, the pull request the gate names and the
-  engine's own git head; and the forge's `head.sha` for the pull request is that head, so the
+- **P1, the binding.** The run's `run/started` holds a launch-bound pull request, and the
+  observation's repository (owner, name and id), pull request and gated head equal the run's
+  pinned repository, that launch-bound pull request and the engine's own git head; and the forge's `head.sha` for the pull request is that head, so the
   head is published.
 - **P2, complete inventories.** Every list the observer reads was read to its last page, inside
   its bound, with no page unread: the check runs, the statuses, each key's runs, each current
@@ -859,7 +895,8 @@ default, and each paged list carries whether it was read to its last page.
 
 | Id | Reads | Negates | True when | Bound by (0111c unless named) |
 |---|---|---|---|---|
-| `unrelated` | the observation's repository, pull request and gated head; the run's pinned repository, the gate's pull request and the engine's git head | P1 | any of the three differs, or is unread | `an_observation_of_another_head_repository_or_pull_request_parks_as_unrelated` |
+| `pull-request-unbound` | the run's `run/started` `pull_request` member | P1 | it is absent or unreadable; read before the launch, so no observer is spawned | `a_ci_run_started_without_a_pull_request_parks_as_pull_request_unbound_and_spawns_nothing` |
+| `unrelated` | the observation's repository, pull request and gated head; the run's pinned repository, the launch-bound pull request and the engine's git head | P1 | any of the three differs, or is unread | `an_observation_of_another_head_repository_or_pull_request_parks_as_unrelated` and `a_run_launched_for_one_pull_request_parks_when_the_observation_names_another` |
 | `head-unpublished` | the forge's `head.sha` for the pull request; the engine's git head | P1 | they differ, or either is unread | `an_unpushed_head_parks_as_head_unpublished` |
 | `checks-incomplete` | the check-run list's last-page fact and overflow witness | P2 | the list was not read to its last page, or overflowed its bound; it names the pages read and the witness | `the_check_run_list_unread_or_overflowed_parks_as_checks_incomplete_live_and_on_replay` |
 | `statuses-incomplete` | the status list's last-page fact and overflow witness | P2 | as `checks-incomplete`, for the commit statuses | `the_status_list_unread_or_overflowed_parks_as_statuses_incomplete_live_and_on_replay` |
@@ -935,12 +972,13 @@ observation's digest and its true rows (ruling 7).
 **What a replay reads.** `judge(observation, pinned)` lives in `brokkr-core`, reads no clock,
 environment or network (0071 ruling 1), and is total; live and replay take the one function. Its
 inputs are the sealed observation and the pinned `ci-checks.json` with the run's comparison
-values (the pinned repository, the gate's pull request and the engine's git head). HEAD's manifest
+values (the pinned repository, the launch-bound pull request from `run/started`, and the
+engine's git head). HEAD's manifest
 records each bundle file as a digest, never its bytes
 (`crates/brokkr-runtime/src/bundle.rs:4214-4239`), so a replay reads the list from the compiled
 bundle and refuses when its digest is not the manifest's, and reads the comparison values from
-the run's own journal; which row holds the gated head is settled by 0111c's replay test, and is
-unmeasured here. Where the bundle is gone, the park's
+the run's own journal: the pull request from its `run/started`, and which record holds the
+gated head is settled by 0111c's replay test, and is unmeasured here. Where the bundle is gone, the park's
 reason still names the observation's digest and its true rows from the journal alone, which is
 what a person needs. Fix rounds 1093r4 to 1093r8 sealed a basis under `ci-classification/v1` so
 a typed class could be re-derived from the journal alone; with no class to re-derive, that
@@ -1453,7 +1491,9 @@ recipe with no list behaves exactly as now. The cost is an exec observer per rec
 it, one read-only token, a list an operator keeps, and a person's look at every red, a runner's
 fault and the change's alike, until the deferred classifier is ruled. Two contract versions are
 proposed: `ci-observation/v1` and `ci-checks/v1`. Each is minted only when 0111b lands under
-this decision's acceptance (0082), and only after 0111a's evidence. This decision proposes no
+this decision's acceptance (0082), and only after 0111a's evidence. One additive `run/started`
+member, `pull_request`, is proposed under the contracts README's rule for such members, its
+extension schema waiting on the same acceptance (ruling 3). This decision proposes no
 table contract: the gate is `landing`'s entry, over a published head, and it waits on 0109's v3
 and ruling 10's ask.
 
@@ -1463,7 +1503,8 @@ Smallest first; each lands on its own. Evidence comes before any contract, becau
 fixing a minted version in place: a shape the evidence would change is changed in this decision,
 while it is proposed, never in a minted file. Each piece of lifecycle and readout work is in the
 slice that produces it, and each assertion is in the slice that builds its writer. Two contract
-versions are proposed: `ci-observation/v1` and `ci-checks/v1`.
+versions are proposed: `ci-observation/v1` and `ci-checks/v1`; and one additive `run/started`
+member, `pull_request`, built in 0111b.
 
 1. **0111a — the forge's evidence, before any contract.** The operator captures, by hand, outside
    any run, and with a read-only token, representative payloads for this repository's own pull
@@ -1502,7 +1543,11 @@ versions are proposed: `ci-observation/v1` and `ci-checks/v1`.
    (a working directory the site names, and the raw stdout channel);
    `crates/brokkr-protocol/src/process.rs` (execution of an opened descriptor on Linux, and the
    root-owned chain check on both systems); run start's refusal of a `ci` seat whose bundle layer
-   is inside the worktree, over 1091a's descriptor-held walk, so 0111b lands after 1091a; and a
+   is inside the worktree, over 1091a's descriptor-held walk, so 0111b lands after 1091a; the
+   launch-bound pull request (ruling 3): `crates/brokkr-cli/src/cli_args.rs` (`--pull-request`),
+   `crates/brokkr-runtime/src/launch.rs` (carried into the start, and refused on a bundle with no
+   `ci` seat) and `crates/brokkr-runtime/src/engine/start.rs` (the `run/started` member, and its
+   reading at `ci`, which hands the number to the observer's argv); and a
    house observer script, with its polling bound inside the seat's deadline, every list read to
    its last page or sealed with its overflow witness, and its shellcheck clean. Its compile
    refuses every live `ci` declaration until 0111d (ruling 2):
@@ -1570,6 +1615,11 @@ versions are proposed: `ci-observation/v1` and `ci-checks/v1`.
      `the_observer_lists_every_check_for_the_head_unfiltered` (a stub `gh` given by absolute
      path, its output held to `ci-observation/v1` and to 0111a's evidence);
      `the_observer_holds_no_write_binding`;
+   - the launch-bound pull request, through `launch.rs`'s start over a test-only bundle:
+     `the_launch_bound_pull_request_is_journaled_in_run_started_before_the_first_effect`;
+     `the_observer_receives_the_journaled_pull_request_in_its_argv`;
+     `a_pull_request_flag_on_a_bundle_with_no_ci_seat_refuses_before_the_journal_opens`;
+     `a_continued_run_imports_no_pull_request_from_its_predecessor`;
    - the seal: `a_recorded_observation_over_stdout_is_sealed_as_the_seat_record`.
 3. **0111c — the judgment, the park rule and its readout.** Files: `crates/brokkr-core/src/ci/judge.rs`
    (`judge(observation, pinned)`, total, matching every conclusion and status word without a
@@ -1647,6 +1697,16 @@ versions are proposed: `ci-observation/v1` and `ci-checks/v1`.
      (a required audit with no check in its current run, an older same-producer `success` on
      the same head, and a second required job with a failed test);
      `a_stale_same_producer_red_never_counts`;
+   - the launch-bound pull request, each driven through `launch.rs`'s start, 0111b's stub `gh`
+     and decide over a test-only bundle (ruling 3):
+     `a_ci_run_started_without_a_pull_request_parks_as_pull_request_unbound_and_spawns_nothing`
+     (no `--pull-request`: the run starts, `CI-PARK` names `pull-request-unbound`, and the stub
+     `gh` records no call);
+     `a_run_launched_for_one_pull_request_parks_when_the_observation_names_another`;
+     `a_run_launched_for_pull_request_a_parks_when_the_only_current_run_is_associated_with_b`
+     (the chief's r9 case: two open pull requests on one head, and the highest run uniquely
+     associated with B, which a comparison against the observation's own number would admit:
+     `association-unproven`);
    - the word binding and the table: `a_pass_word_off_green_is_refused_and_never_reaches_ci_pass_unbound`;
      `a_fail_word_on_green_is_refused`; `ci_green_is_true_exactly_on_green`;
      `every_non_green_observation_parks_at_ci_park_with_no_seat_attempt_after_the_gates`
