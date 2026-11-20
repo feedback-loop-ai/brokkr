@@ -164,13 +164,44 @@ pub(super) fn selection_box(cells: &mut Cells, seg: &Seg, plan: &Plan) {
 /// wears a head, matching the rail's own asymmetry: `ᐳ` marks arrival,
 /// never departure. The head sits inside the landing corner, pointing
 /// into it.
+///
+/// An arc [`nest`] dealt a deeper row rides `level` rows under `row`, and
+/// its ends rise to `row` through the rows between ([`stem`]). An arc a
+/// fold cut ends at the fold's own marks, `›` and `‹` (#1145).
 pub(super) fn arc(cells: &mut Cells, arc: &Arc, row: usize) {
+    let at = row + arc.level;
     for x in arc.to..=arc.from {
-        put(cells, x, row, "─", plain());
+        put(cells, x, at, "─", plain());
     }
-    put(cells, arc.to, row, "╰", plain());
-    put(cells, arc.from, row, "╯", plain());
-    put(cells, arc.to + 1, row, "ᐸ", plain());
+    let (left, right, head) = match arc.reach {
+        Reach::Whole => ("╰", "╯", true),
+        Reach::FromLater => ("╰", "›", true),
+        Reach::ToEarlier => ("‹", "╯", false),
+        Reach::Through => ("‹", "›", false),
+        Reach::Down => ("╰", "─", false),
+    };
+    put(cells, arc.to, at, left, plain());
+    put(cells, arc.from, at, right, plain());
+    if head {
+        put(cells, arc.to + 1, at, "ᐸ", plain());
+    }
+    for x in arc.stems() {
+        for above in row..at {
+            stem(cells, x, above);
+        }
+    }
+}
+
+/// A deeper arc's end passing a shallower row: a junction where it meets
+/// a road already drawn there, so both read through it, else `│`.
+fn stem(cells: &mut Cells, x: usize, row: usize) {
+    let glyph = match under(cells, x, row).as_str() {
+        "─" | "┼" => "┼",
+        "╰" | "├" => "├",
+        "╯" | "┤" => "┤",
+        _ => "│",
+    };
+    put(cells, x, row, glyph, plain());
 }
 
 /// A fork and its rejoin. **The rejoin is drawn always** — it is the
@@ -268,6 +299,14 @@ fn paint_seg(cells: &mut Cells, seg: &Seg, plan: &Plan, tick: usize, animate: bo
 /// table and the trail; current is the filled, coloured rail glyph.
 /// Different attribute, different cell, different axis.
 pub(super) fn paint(plan: &Plan, tick: usize, animate: bool) -> Vec<Line<'static>> {
+    let cells = paint_cells(plan, tick, animate);
+    cells.iter().map(|row| row_line(row)).collect()
+}
+
+/// The plan painted into cells, before they become lines: the run rail's
+/// frame, and the grid `brokkr graph` writes a recipe's counts over
+/// (#1145), so the one painter draws both.
+pub(super) fn paint_cells(plan: &Plan, tick: usize, animate: bool) -> Cells {
     let blank = Some((" ".to_string(), plain()));
     let mut cells: Cells = vec![vec![blank; plan.width]; plan.rows];
     // One rail, from the first segment's first node to the last one's.
@@ -297,9 +336,12 @@ pub(super) fn paint(plan: &Plan, tick: usize, animate: bool) -> Vec<Line<'static
     }
     // The roads back run on their own reserved row, under the names and
     // under the box's lower edge: nothing else is drawn there, so the
-    // arcs overwrite nothing and are overwritten by nothing.
+    // arcs overwrite nothing and are overwritten by nothing. The shallow
+    // rows first, so a deeper arc's ends find the roads they pass.
     if let Some(row) = plan.arc_row {
-        for road in &plan.arcs {
+        let mut roads: Vec<&Arc> = plan.arcs.iter().collect();
+        roads.sort_by_key(|road| road.level);
+        for road in roads {
             arc(&mut cells, road, row);
         }
     }
@@ -310,7 +352,7 @@ pub(super) fn paint(plan: &Plan, tick: usize, animate: bool) -> Vec<Line<'static
         let x = plan.width.saturating_sub(1);
         put(&mut cells, x, plan.rail_row, "›", plain());
     }
-    cells.iter().map(|row| row_line(row)).collect()
+    cells
 }
 
 /// Where the rail's cursor stands on a graph: the selected phase, and

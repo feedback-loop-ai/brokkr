@@ -43,6 +43,118 @@ pub(super) struct Arc {
     pub(super) to: usize,
     /// The departing column, beneath the source phase's.
     pub(super) from: usize,
+    /// The arc rows below the plan's `arc_row` this arc rides: 0 for
+    /// every arc [`plan`] lays, deeper only where [`nest`] deals it a row
+    /// of its own.
+    pub(super) level: usize,
+    pub(super) reach: Reach,
+}
+
+impl Arc {
+    /// A road back with both ends on the rail, on the plan's arc row.
+    pub(super) fn whole(to: usize, from: usize) -> Arc {
+        Arc {
+            to,
+            from,
+            level: 0,
+            reach: Reach::Whole,
+        }
+    }
+
+    /// The columns a deeper arc's ends rise through to reach the arc row:
+    /// those under a phase's node, never a fold's edge.
+    pub(super) fn stems(&self) -> Vec<usize> {
+        match self.reach {
+            Reach::Whole => vec![self.to, self.from],
+            Reach::FromLater | Reach::Down => vec![self.to],
+            Reach::ToEarlier => vec![self.from],
+            Reach::Through => Vec::new(),
+        }
+    }
+
+    /// True for a piece of an arc a fold cut: its row is its caller's,
+    /// who holds it on one lane on every rail the arc spans, so a reader
+    /// follows it from `›` to the `‹` on the same row of the next rail.
+    fn cut(&self) -> bool {
+        match self.reach {
+            Reach::FromLater | Reach::ToEarlier | Reach::Through => true,
+            Reach::Whole | Reach::Down => false,
+        }
+    }
+}
+
+/// Which of an arc's ends stand on this rail (#1145). The run rail's arcs
+/// are all whole; a recipe folded onto several rails draws the rest.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(super) enum Reach {
+    /// Both ends: `╰ᐸ──╯`.
+    Whole,
+    /// It lands at `to` from a later rail of the fold, and leaves past
+    /// the right edge at `from`: `╰ᐸ──›`.
+    FromLater,
+    /// It leaves at `from` for an earlier rail of the fold, past the left
+    /// edge at `to`: `‹──╯`.
+    ToEarlier,
+    /// It passes under this rail between an earlier rail and a later
+    /// one, from the left edge at `to` to the right edge at `from`:
+    /// `‹──›`.
+    Through,
+    /// A road down from the node over `to` to a terminal beneath the row,
+    /// running right to `from`, where its caller writes the terminal:
+    /// `╰──`.
+    Down,
+}
+
+/// Deal `plan`'s arcs onto as many arc rows as they need (#1145): the
+/// narrowest first, each on the shallowest row where it keeps a blank
+/// column from every arc already there, so a nested or crossing arc
+/// never merges into another. A deeper arc's ends rise through the rows
+/// above it to the arc row ([`Arc::stems`]). The roads down
+/// ([`Reach::Down`]) ride under every road back, the rightmost first, so
+/// no end rising from a deeper row passes through a road down's text.
+/// The pieces of an arc a fold cut keep the level their caller gave them
+/// ([`Arc::cut`]), and are dealt before the rest. The rows are added
+/// under the plan's; a plan with arcs and no arc row (one whose own
+/// phases recorded no return) gains one. A plan whose arcs share no
+/// column keeps them all on its one arc row, as [`plan`] laid them.
+pub(super) fn nest(plan: &mut Plan) {
+    if plan.arcs.is_empty() {
+        return;
+    }
+    let row = *plan.arc_row.get_or_insert(plan.rows);
+    let down = |arc: &Arc| match arc.reach {
+        Reach::Down => Some(usize::MAX - arc.to),
+        Reach::Whole | Reach::FromLater | Reach::ToEarlier | Reach::Through => None,
+    };
+    let (mut dealt, mut order): (Vec<usize>, Vec<usize>) =
+        (0..plan.arcs.len()).partition(|at| plan.arcs[*at].cut());
+    order.sort_by_key(|at| {
+        let arc = &plan.arcs[*at];
+        (down(arc), arc.from - arc.to)
+    });
+    let mut floor: Option<usize> = None;
+    for at in order {
+        let arcs = &plan.arcs;
+        let arc = &arcs[at];
+        let least = match down(arc) {
+            Some(_) => *floor.get_or_insert_with(|| {
+                (dealt.iter())
+                    .map(|other| arcs[*other].level + 1)
+                    .max()
+                    .unwrap_or(0)
+            }),
+            None => 0,
+        };
+        let apart = |other: &Arc| arc.from + 1 < other.to || other.from + 1 < arc.to;
+        let free = |level: &usize| {
+            (dealt.iter()).all(|other| arcs[*other].level != *level || apart(&arcs[*other]))
+        };
+        let level = (least..).find(free).unwrap_or(least);
+        plan.arcs[at].level = level;
+        dealt.push(at);
+    }
+    let deepest = (plan.arcs.iter()).map(|arc| arc.level).max().unwrap_or(0);
+    plan.rows = plan.rows.max(row + 1 + deepest);
 }
 
 /// One phase: a span of the rail, the marks and forks on it, and the
@@ -553,9 +665,11 @@ pub(super) fn plan(
         Some(_) => pairs
             .iter()
             .filter(|(to, from)| *to >= start && *from < end)
-            .map(|(to, from)| Arc {
-                to: centre_of(&segments[to - start]),
-                from: centre_of(&segments[from - start]),
+            .map(|(to, from)| {
+                Arc::whole(
+                    centre_of(&segments[to - start]),
+                    centre_of(&segments[from - start]),
+                )
             })
             .collect(),
     };

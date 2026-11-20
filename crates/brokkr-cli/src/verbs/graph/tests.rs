@@ -2,14 +2,17 @@
 //! where a recipe's table resolves, the journal it hands over, the lines it
 //! paints, and its refusals. The journals are synthetic, written here.
 
+use brokkr_core::policy::Machine;
 use brokkr_core::EventType;
 use brokkr_store::Store;
 use clap::Parser;
 use serde_json::{json, Value};
 
 use super::*;
+use crate::tui::{drawn_links, width_of};
 use crate::verbs::analytics::CrossRunCmd;
 use crate::{Cli, Cmd, Exit};
+use brokkr_view::RuleKind;
 
 /// The repository root: its `recipes/` holds `self`, which composes
 /// `panel-review` over its base.
@@ -420,6 +423,9 @@ fn a_recipe_that_does_not_compile_is_drawn_with_its_refusal_and_named_among_the_
         )
     );
     assert_eq!((view.runs, view.states.len()), (0, 0));
+    // No run carries it, so there is no state to draw: the refusal is
+    // printed as it was, with no drawing above it.
+    assert_eq!(shown(&view, PIPED_WIDTH), paint(&view));
     assert_eq!(
         paint(&view),
         format!(
@@ -594,4 +600,734 @@ fn with_no_recipe_named_the_busiest_is_drawn_else_the_first_known() {
         none.to_string(),
         "no recipe in brokkr: none is installed and no run in the range names one"
     );
+}
+
+// ------------------------------------------------------------- the drawing
+
+/// A table whose rows are `states` in order, ending in `done` and beneath
+/// it `stop`, ruled by `rules` of `(id, from, result, next)`; a rule with
+/// no next parks.
+fn table(states: &[&str], rules: &[(&str, &str, &str, Option<&str>)]) -> Machine {
+    let rules: Vec<Value> = (rules.iter())
+        .map(|(id, from, result, next)| {
+            let mut rule = json!({"id": id, "from": from, "result": result, "reason": id});
+            match next {
+                Some(next) => rule["next"] = json!(next),
+                None => rule["park"] = json!(true),
+            }
+            rule
+        })
+        .collect();
+    let mut phases: Vec<&str> = states.to_vec();
+    phases.extend(["done", "stop"]);
+    Machine::from_table(&json!({
+        "schema": brokkr_core::policy::TABLE_SCHEMA_V2,
+        "phases": phases,
+        "initial": states[0],
+        "terminal": ["done", "stop"],
+        "rules": rules,
+    }))
+    .unwrap()
+}
+
+/// The reforge loop's table: implement, review and ship, review sending
+/// the work back, holding it, or stopping it, and ship retrying itself.
+fn reforging() -> Machine {
+    table(
+        &["implement", "review", "ship"],
+        &[
+            ("IMPL-OK", "implement", "complete", Some("review")),
+            ("REVIEW-CLEAN", "review", "clean", Some("ship")),
+            ("REVIEW-REFORGE", "review", "residual", Some("implement")),
+            ("REVIEW-HOLD", "review", "hold", None),
+            ("REVIEW-STOP", "review", "blocked", Some("stop")),
+            ("SHIP-RETRY", "ship", "retry", Some("ship")),
+            ("SHIP-OK", "ship", "complete", Some("done")),
+        ],
+    )
+}
+
+/// One step of a run: the state it is in, its seat's result, and the rule
+/// that moves it on, or parks it when there is no next.
+type Step<'a> = (&'a str, &'a str, &'a str, Option<&'a str>);
+
+/// The events of a run through `steps`: it enters each state, its seat
+/// says the result, and the rule moves it.
+fn walked(steps: &[Step]) -> Vec<(EventType, Value)> {
+    let mut events = vec![entered(steps[0].0)];
+    for (state, result, rule, next) in steps {
+        events.extend(seat(state, result));
+        events.push(ruled(rule, state, *next));
+        events.extend(next.map(entered));
+    }
+    events
+}
+
+/// `recipe`'s graph over the journal in `dir`, drawn from `machine`.
+fn view_of(dir: &Path, machine: &Machine, recipe: &str) -> GraphView {
+    let manifest = json!({"bundle_name": recipe});
+    let now = now_rfc3339();
+    let view = read_hearths(&hearth(dir), |grouped| {
+        brokkr_view::graph(&GraphQuery {
+            hearths: grouped,
+            recipe,
+            realm: UNMAPPED,
+            table: GraphResolution::Compiled(GraphTable {
+                machine,
+                manifest: &manifest,
+            }),
+            shelved: &[],
+            does_not_compile: &[],
+            range: Range::Day,
+            now: &now,
+        })
+    });
+    view.unwrap()
+}
+
+/// The reforge table's journal: one run reforged twice and shipped on a
+/// retry, one reforged once and shipped.
+fn reforged(dir: &Path) -> GraphView {
+    let manifest = json!({"bundle_name": "reforge"});
+    let reforge = ("review", "residual", "REVIEW-REFORGE", Some("implement"));
+    let implement = ("implement", "complete", "IMPL-OK", Some("review"));
+    let clean = ("review", "clean", "REVIEW-CLEAN", Some("ship"));
+    let ship = ("ship", "complete", "SHIP-OK", Some("done"));
+    let retry = ("ship", "retry", "SHIP-RETRY", Some("ship"));
+    let mut journal = Journal::at(dir);
+    let mut twice = walked(&[
+        implement, reforge, implement, reforge, implement, clean, retry, ship,
+    ]);
+    twice.push((EventType::RunCompleted, json!({})));
+    journal.run("twice", &manifest, &twice);
+    let mut once = walked(&[implement, reforge, implement, clean, ship]);
+    once.push((EventType::RunCompleted, json!({})));
+    journal.run("once", &manifest, &once);
+    view_of(dir, &reforging(), "reforge")
+}
+
+#[test]
+fn a_linear_recipe_is_drawn_on_one_rail_with_each_rules_runs_above_its_arrow() {
+    let dir = tempfile::tempdir().unwrap();
+    let machine = table(
+        &["plan", "build", "ship"],
+        &[
+            ("PLAN-OK", "plan", "complete", Some("build")),
+            ("BUILD-OK", "build", "complete", Some("ship")),
+            ("BUILD-FAIL", "build", "fail", Some("stop")),
+            ("SHIP-OK", "ship", "complete", Some("done")),
+        ],
+    );
+    let manifest = json!({"bundle_name": "linear"});
+    let mut journal = Journal::at(dir.path());
+    for run_id in ["first", "second"] {
+        let mut events = walked(&[
+            ("plan", "complete", "PLAN-OK", Some("build")),
+            ("build", "complete", "BUILD-OK", Some("ship")),
+            ("ship", "complete", "SHIP-OK", Some("done")),
+        ]);
+        events.push((EventType::RunCompleted, json!({})));
+        journal.run(run_id, &manifest, &events);
+    }
+    let view = view_of(dir.path(), &machine, "linear");
+    let drawing = drawn(&view, PIPED_WIDTH);
+    insta::assert_snapshot!("graph_linear", drawing);
+    // The drawing comes first, and today's lines follow it unchanged.
+    let shown = shown(&view, PIPED_WIDTH);
+    assert_eq!(shown.strip_prefix(&drawing), Some(paint(&view).as_str()));
+}
+
+/// `view` drawn at `width`, every line of it held within `width`, and
+/// every link the range took either drawn by a rail or listed under it
+/// with its count, never both and never neither: none is lost.
+fn drawn(view: &GraphView, width: usize) -> String {
+    let (drawing, drawn) = drawn_links(view, width);
+    held(&drawing, width);
+    let read = unbroken(&drawing);
+    let taken = (view.links.iter().enumerate()).filter(|(_, link)| link.count > 0);
+    for (at, link) in taken {
+        let (from, next, count) = (&link.from, &link.next, link.count);
+        let listed = match link.kind {
+            RuleKind::Back => format!(" {next} ᐸ── {from} ×{count} "),
+            RuleKind::Terminal => format!(" {from} ──ᐳ ⊗ {next} {count} "),
+            RuleKind::Forward | RuleKind::SelfLoop => format!(" {from} ──ᐳ {next} {count} "),
+        };
+        assert_ne!(
+            drawn.contains(&at),
+            read.contains(&listed),
+            "{listed}\n{drawing}"
+        );
+    }
+    drawing
+}
+
+/// Every line of `drawing` within `width` in display columns, as the
+/// drawing measures them: a double-width glyph counts two.
+fn held(drawing: &str, width: usize) {
+    for line in drawing.lines() {
+        assert!(width_of(line) <= width, "{width}: {line}\n{drawing}");
+    }
+}
+
+/// `drawing`'s lines read as one: a word continued `…` to `…` joined, and
+/// every run of blanks one blank.
+fn unbroken(drawing: &str) -> String {
+    let mut read = String::new();
+    for line in drawing.lines() {
+        let line = line.trim_start();
+        match (read.strip_suffix('…'), line.strip_prefix('…')) {
+            (Some(kept), Some(rest)) => read = format!("{kept}{rest}"),
+            _ => read = format!("{read} {line}"),
+        }
+    }
+    read.split_whitespace().collect::<Vec<_>>().join(" ") + " "
+}
+
+/// `recipe`'s graph over one run through `steps` to completion, planted in
+/// `dir` and drawn from `machine`.
+fn one_run(dir: &Path, machine: &Machine, recipe: &str, steps: &[Step]) -> GraphView {
+    let mut events = walked(steps);
+    events.push((EventType::RunCompleted, json!({})));
+    Journal::at(dir).run(recipe, &json!({"bundle_name": recipe}), &events);
+    view_of(dir, machine, recipe)
+}
+
+/// The back links `view` took, each drawn as a return arc at `width`.
+fn arcs_drawn(view: &GraphView, width: usize) {
+    let (drawing, drawn) = drawn_links(view, width);
+    for (at, link) in view.links.iter().enumerate() {
+        if link.kind == RuleKind::Back && link.count > 0 {
+            assert!(drawn.contains(&at), "{link:?}\n{drawing}");
+        }
+    }
+}
+
+#[test]
+fn a_reforge_loop_taken_more_than_once_is_a_return_arc_with_its_count() {
+    let dir = tempfile::tempdir().unwrap();
+    let view = reforged(dir.path());
+    insta::assert_snapshot!("graph_reforged", drawn(&view, PIPED_WIDTH));
+}
+
+/// The row `a` to `d` over one run that `c` sends back to `c_back` once
+/// and `d` to `d_back` once, each walked forward again from there.
+fn sent_back(dir: &Path, c_back: &'static str, d_back: &'static str) -> GraphView {
+    let machine = table(
+        &["a", "b", "c", "d"],
+        &[
+            ("A-OK", "a", "complete", Some("b")),
+            ("B-OK", "b", "complete", Some("c")),
+            ("C-OK", "c", "complete", Some("d")),
+            ("C-BACK", "c", "residual", Some(c_back)),
+            ("D-BACK", "d", "residual", Some(d_back)),
+            ("D-OK", "d", "complete", Some("done")),
+            ("D-STOP", "d", "blocked", Some("stop")),
+        ],
+    );
+    let on: [Step; 3] = [
+        ("a", "complete", "A-OK", Some("b")),
+        ("b", "complete", "B-OK", Some("c")),
+        ("c", "complete", "C-OK", Some("d")),
+    ];
+    let back = |at: &str| (on.iter()).position(|step| step.0 == at).unwrap();
+    let mut steps = on[..2].to_vec();
+    steps.push(("c", "residual", "C-BACK", Some(c_back)));
+    steps.extend(&on[back(c_back)..]);
+    steps.push(("d", "residual", "D-BACK", Some(d_back)));
+    steps.extend(&on[back(d_back)..]);
+    steps.push(("d", "complete", "D-OK", Some("done")));
+    one_run(dir, &machine, "sent", &steps)
+}
+
+#[test]
+fn a_return_arc_nested_in_another_rides_a_row_of_its_own_with_its_count() {
+    let dir = tempfile::tempdir().unwrap();
+    let view = sent_back(dir.path(), "b", "a");
+    // b ᐸ c rides the arc row, and a ᐸ d, whose span holds it, the row
+    // under it, rising past it to its states: both arcs, both counts.
+    let drawing = drawn(&view, PIPED_WIDTH);
+    insta::assert_snapshot!("graph_nested", drawing);
+    arcs_drawn(&view, PIPED_WIDTH);
+    assert_eq!(drawing.matches(" ×1 ").count(), 2, "{drawing}");
+}
+
+/// The delivery recipe's shape: implement, verify, review and ship, verify
+/// sending the work back three times and review once, both to implement.
+fn delivered(dir: &Path) -> GraphView {
+    let states = ["implement", "verify", "review", "ship"];
+    let machine = table(
+        &states,
+        &[
+            ("IMPL-OK", "implement", "complete", Some("verify")),
+            ("VERIFY-OK", "verify", "pass", Some("review")),
+            ("VERIFY-FAIL", "verify", "fail", Some("implement")),
+            ("REVIEW-CLEAN", "review", "clean", Some("ship")),
+            ("REVIEW-REFORGE", "review", "residual", Some("implement")),
+            ("REVIEW-STOP", "review", "blocked", Some("stop")),
+            ("SHIP-OK", "ship", "complete", Some("done")),
+        ],
+    );
+    let implement = ("implement", "complete", "IMPL-OK", Some("verify"));
+    let pass = ("verify", "pass", "VERIFY-OK", Some("review"));
+    let fail = ("verify", "fail", "VERIFY-FAIL", Some("implement"));
+    let reforge = ("review", "residual", "REVIEW-REFORGE", Some("implement"));
+    let clean = ("review", "clean", "REVIEW-CLEAN", Some("ship"));
+    let ship = ("ship", "complete", "SHIP-OK", Some("done"));
+    let manifest = json!({"bundle_name": "delivery"});
+    let mut journal = Journal::at(dir);
+    let runs = [
+        vec![implement, fail, implement, pass, reforge, implement, pass],
+        vec![implement, fail, implement, fail, implement, pass],
+    ];
+    for (index, mut steps) in runs.into_iter().enumerate() {
+        steps.extend([clean, ship]);
+        let mut events = walked(&steps);
+        events.push((EventType::RunCompleted, json!({})));
+        journal.run(&format!("run-{index}"), &manifest, &events);
+    }
+    view_of(dir, &machine, "delivery")
+}
+
+#[test]
+fn the_delivery_shape_draws_its_two_reforges_as_nested_return_arcs() {
+    let dir = tempfile::tempdir().unwrap();
+    let view = delivered(dir.path());
+    let drawing = drawn(&view, PIPED_WIDTH);
+    insta::assert_snapshot!("graph_delivery", drawing);
+    arcs_drawn(&view, PIPED_WIDTH);
+    // verify ᐸ implement ×3 rides the arc row, review's ×1 the row under.
+    let rows: Vec<&str> = drawing.lines().filter(|line| line.contains('ᐸ')).collect();
+    assert_eq!(rows.len(), 2, "{drawing}");
+    assert!(
+        rows[0].contains(" ×3 ") && rows[1].contains(" ×1 "),
+        "{drawing}"
+    );
+}
+
+#[test]
+fn a_self_loops_count_and_a_forward_links_count_never_share_a_column() {
+    let dir = tempfile::tempdir().unwrap();
+    let machine = table(
+        &["a", "b"],
+        &[
+            ("A-AGAIN", "a", "retry", Some("a")),
+            ("A-OK", "a", "complete", Some("b")),
+            ("B-OK", "b", "complete", Some("done")),
+            ("B-STOP", "b", "blocked", Some("stop")),
+        ],
+    );
+    let mut events = walked(&[
+        ("a", "retry", "A-AGAIN", Some("a")),
+        ("a", "complete", "A-OK", Some("b")),
+        ("b", "complete", "B-OK", Some("done")),
+    ]);
+    events.push((EventType::RunCompleted, json!({})));
+    Journal::at(dir.path()).run("loud", &json!({"bundle_name": "loud"}), &events);
+    let mut view = view_of(dir.path(), &machine, "loud");
+    // Review 2's case: entered `1 · 0m`, ten thousand runs to itself and
+    // ten thousand on: the two counts would share a column on one row.
+    let leaving = |view: &mut GraphView, count| {
+        for link in view.links.iter_mut().filter(|link| link.from == "a") {
+            link.count = count;
+        }
+    };
+    leaving(&mut view, 10_000);
+    let drawing = drawn(&view, PIPED_WIDTH);
+    insta::assert_snapshot!("graph_counts_apart", drawing);
+    let words: Vec<&str> = drawing.split_whitespace().collect();
+    assert!(
+        words.contains(&"↻10000") && words.contains(&"10000"),
+        "{drawing}"
+    );
+    // Where the count is wider than the room before its arrow, the link
+    // is listed whole.
+    leaving(&mut view, 1_000_000_000_000);
+    let drawing = drawn(&view, 24);
+    assert!(drawing.contains("  a ──ᐳ b  1000000000000\n"), "{drawing}");
+}
+
+#[test]
+fn a_parked_run_is_live_on_its_state_and_a_stopped_one_takes_the_road_down_to_stop() {
+    let dir = tempfile::tempdir().unwrap();
+    let manifest = json!({"bundle_name": "reforge"});
+    let implement = ("implement", "complete", "IMPL-OK", Some("review"));
+    let mut journal = Journal::at(dir.path());
+    let held = walked(&[implement, ("review", "hold", "REVIEW-HOLD", None)]);
+    journal.run("held", &manifest, &held);
+    let blocked = ("review", "blocked", "REVIEW-STOP", Some("stop"));
+    let mut stopped = walked(&[implement, blocked]);
+    stopped.push((EventType::RunStopped, json!({})));
+    journal.run("stopped", &manifest, &stopped);
+    let view = view_of(dir.path(), &reforging(), "reforge");
+    let drawing = drawn(&view, PIPED_WIDTH);
+    insta::assert_snapshot!("graph_parked", drawing);
+    assert!(drawing.contains("╰─ 1 ─ᐳ ⊗ stop"), "{drawing}");
+    // At 12 columns the road has no room for its head and a letter past
+    // its state: the rule is listed whole instead (`drawn` checks it).
+    let narrow = drawn(&view, 12);
+    assert!(!narrow.contains("╰─ 1 ─ᐳ"), "{narrow}");
+}
+
+#[test]
+fn two_return_arcs_that_cross_ride_two_rows_one_passing_through_the_other() {
+    let dir = tempfile::tempdir().unwrap();
+    // a ᐸ c and b ᐸ d: each holds one end of the other.
+    let view = sent_back(dir.path(), "a", "b");
+    let drawing = drawn(&view, PIPED_WIDTH);
+    insta::assert_snapshot!("graph_crossed", drawing);
+    arcs_drawn(&view, PIPED_WIDTH);
+    assert!(drawing.contains('┼'), "{drawing}");
+}
+
+#[test]
+fn arcs_a_fold_cuts_keep_one_row_each_across_it_so_nested_and_crossed_read_apart() {
+    let dir = tempfile::tempdir().unwrap();
+    let (nested, crossed) = (dir.path().join("nested"), dir.path().join("crossed"));
+    // At 30 columns a and b stand on the first rail, c and d on the next:
+    // c ᐸ b and d ᐸ a nest across the fold, a ᐸ c and b ᐸ d cross it.
+    let nested = drawn(&sent_back(&nested, "b", "a"), 30);
+    let crossed = drawn(&sent_back(&crossed, "a", "b"), 30);
+    assert_ne!(nested, crossed);
+    // Each link lands on the first rail on the row its departing half
+    // rides on the next: the rows under the names pair the states it joins.
+    for (drawing, pairs) in [
+        (&nested, [('a', 'd'), ('b', 'c')]),
+        (&crossed, [('a', 'c'), ('b', 'd')]),
+    ] {
+        let lines: Vec<&str> = drawing.lines().collect();
+        let row = |name: char, corner: char| {
+            let named = |line: &&str| line.split_whitespace().any(|word| word == name.to_string());
+            let names = lines.iter().position(named).unwrap();
+            let column = lines[names].chars().position(|glyph| glyph == name);
+            (1..lines.len() - names)
+                .find(|below| lines[names + below].chars().nth(column.unwrap()) == Some(corner))
+        };
+        for (to, from) in pairs {
+            assert_eq!(row(to, '╰'), row(from, '╯'), "{to} ᐸ {from}\n{drawing}");
+            assert!(row(to, '╰').is_some(), "{drawing}");
+        }
+    }
+    insta::assert_snapshot!("graph_nested_30", nested);
+    insta::assert_snapshot!("graph_crossed_30", crossed);
+}
+
+/// The row `states` over one run that walks it and is sent back once by
+/// each of `backs`, `(from, to)` by place in the row and in the order
+/// walked, then walks on to `done`.
+fn returned(dir: &Path, states: &[&str], backs: &[(usize, usize)]) -> GraphView {
+    let ids: Vec<[String; 2]> = (states.iter())
+        .map(|state| [format!("{state}-OK"), format!("{state}-BACK")].map(|id| id.to_uppercase()))
+        .collect();
+    let last = states.len() - 1;
+    let next = |at: usize| states.get(at + 1).copied().unwrap_or("done");
+    let on = |at: usize| (states[at], "complete", ids[at][0].as_str(), Some(next(at)));
+    fn ruled((state, result, id, next): Step<'_>) -> (&str, &str, &str, Option<&str>) {
+        (id, state, result, next)
+    }
+    let mut rules: Vec<_> = (0..=last).map(on).map(ruled).collect();
+    rules.push(("STOP", states[last], "blocked", Some("stop")));
+    let mut steps: Vec<Step> = Vec::new();
+    let mut at = 0;
+    for (from, to) in backs {
+        let back = (
+            states[*from],
+            "residual",
+            ids[*from][1].as_str(),
+            Some(states[*to]),
+        );
+        rules.push(ruled(back));
+        steps.extend((at..*from).map(on));
+        steps.push(back);
+        at = *to;
+    }
+    steps.extend((at..=last).map(on));
+    one_run(dir, &table(states, &rules), "returned", &steps)
+}
+
+/// Each fold of `drawing` (its rails each have a `⏺`, every state having
+/// been entered) leaves its rail by the same arc rows, counted from the
+/// rail, as the next rail is entered by: a link's `›` and its `‹` stand
+/// on one row. The rows that pass the fold, in their order.
+fn lanes_kept(drawing: &str) -> Vec<Vec<usize>> {
+    let lines: Vec<&str> = drawing.lines().collect();
+    let mut rails: Vec<usize> = (0..lines.len())
+        .filter(|at| lines[*at].contains('⏺'))
+        .collect();
+    rails.push(lines.len());
+    let rows = |rail: usize, end: usize, mark: fn(&str) -> bool| -> Vec<usize> {
+        (rail + 1..end)
+            .filter(|at| mark(lines[*at]))
+            .map(|at| at - rail)
+            .collect()
+    };
+    let mut passed = Vec::new();
+    for rail in rails.windows(3) {
+        let leaving = rows(rail[0], rail[1], |line| line.ends_with('›'));
+        let entering = rows(rail[1], rail[2], |line| line.starts_with('‹'));
+        assert_eq!(
+            leaving, entering,
+            "the fold under line {}\n{drawing}",
+            rail[0]
+        );
+        passed.push(leaving);
+    }
+    passed
+}
+
+#[test]
+fn a_link_passing_under_a_rail_keeps_its_row_where_a_shallower_one_has_ended() {
+    let dir = tempfile::tempdir().unwrap();
+    let kept = |name: &str, states: &[&str], links: &[(usize, usize)], width| {
+        let view = returned(&dir.path().join(name), states, links);
+        let drawing = drawn(&view, width);
+        (lanes_kept(&drawing), drawing, view)
+    };
+    let five_lanes = [vec![2, 3], vec![2, 3], vec![3], vec![3], vec![]];
+    // Review 2's C1, correctness's shape: at 12 columns one state to a
+    // rail, c ᐸ a ends on c's rail and e ᐸ a passes under d's on its own.
+    let (lanes, drawing, view) = kept("five", &["a", "b", "c", "d", "e"], &[(2, 0), (4, 0)], 12);
+    arcs_drawn(&view, 12);
+    assert_eq!(lanes, five_lanes, "{drawing}");
+    // Adversarial's: at 30 columns two states to a rail, c ᐸ b and j ᐸ g
+    // ride the first lane, h ᐸ a the second, alone under e and f's rail.
+    let states = ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j"];
+    let (lanes, drawing, view) = kept("ten", &states, &[(2, 1), (7, 0), (9, 6)], 30);
+    arcs_drawn(&view, 30);
+    assert_eq!(
+        lanes,
+        [vec![2, 3], vec![3], vec![3], vec![2], vec![]],
+        "{drawing}"
+    );
+    // A state whose name paints blank, narrow or wide, keeps its name row
+    // under a rail a link passes, so e ᐸ a holds its row there too.
+    for (at, blank) in [" ", "\u{2003}"].into_iter().enumerate() {
+        let shape = format!("blank{at}");
+        let (lanes, drawing, _) = kept(&shape, &["a", "b", "c", blank, "e"], &[(2, 0), (4, 0)], 12);
+        assert_eq!(lanes, five_lanes, "{drawing}");
+    }
+}
+
+#[test]
+fn a_range_with_no_runs_draws_the_table_with_no_traffic() {
+    let dir = tempfile::tempdir().unwrap();
+    Journal::at(dir.path());
+    let view = view_of(dir.path(), &reforging(), "reforge");
+    assert_eq!(view.runs, 0);
+    insta::assert_snapshot!("graph_no_runs", drawn(&view, PIPED_WIDTH));
+}
+
+#[test]
+fn at_80_columns_a_wide_recipe_folds_whole_states_and_draws_its_arcs_across_the_fold() {
+    let dir = tempfile::tempdir().unwrap();
+    let states = [
+        "specification-intake",
+        "implementation-planning",
+        "implementation",
+        "verification-and-review",
+        "release-shipping",
+    ];
+    let rule = |id, at: usize, result, next: usize| (id, states[at], result, Some(states[next]));
+    let machine = table(
+        &states,
+        &[
+            rule("INTAKE-COMPLETE", 0, "complete", 1),
+            rule("PLANNING-COMPLETE", 1, "complete", 2),
+            rule("IMPLEMENTATION-COMPLETE", 2, "complete", 3),
+            rule("REVIEW-CLEAN", 3, "clean", 4),
+            rule("REVIEW-RESIDUAL", 3, "residual", 2),
+            rule("REVIEW-RESPECIFY", 3, "unclear", 0),
+            ("REVIEW-BLOCKED", states[3], "blocked", Some("stop")),
+            ("PLANNING-ABANDONED", states[1], "abandoned", Some("stop")),
+            ("RELEASE-SHIPPED", states[4], "complete", Some("done")),
+            ("RELEASE-WITHDRAWN", states[4], "withdrawn", Some("stop")),
+        ],
+    );
+    let step =
+        |at: usize, result, rule, next: usize| (states[at], result, rule, Some(states[next]));
+    let steps = [
+        step(0, "complete", "INTAKE-COMPLETE", 1),
+        step(1, "complete", "PLANNING-COMPLETE", 2),
+        step(2, "complete", "IMPLEMENTATION-COMPLETE", 3),
+        step(3, "residual", "REVIEW-RESIDUAL", 2),
+        step(2, "complete", "IMPLEMENTATION-COMPLETE", 3),
+        step(3, "unclear", "REVIEW-RESPECIFY", 0),
+        step(0, "complete", "INTAKE-COMPLETE", 1),
+        step(1, "complete", "PLANNING-COMPLETE", 2),
+        step(2, "complete", "IMPLEMENTATION-COMPLETE", 3),
+        step(3, "clean", "REVIEW-CLEAN", 4),
+        (states[4], "complete", "RELEASE-SHIPPED", Some("done")),
+    ];
+    let view = one_run(dir.path(), &machine, "wide", &steps);
+    let drawing = drawn(&view, 80);
+    insta::assert_snapshot!("graph_wide_80", drawing);
+    // No label is cut: every state's whole name is drawn, and nothing is
+    // clamped.
+    for state in states {
+        assert!(drawing.contains(state), "{state}\n{drawing}");
+    }
+    assert!(!drawing.contains('…'), "{drawing}");
+    // Both back links leave the second rail for the first: each is drawn
+    // as its landing half out to `›` and its departing half in from `‹`.
+    arcs_drawn(&view, 80);
+    let lines = || drawing.lines().filter(|line| !line.contains('⏺'));
+    let landing = lines().filter(|line| line.contains('ᐸ') && line.ends_with('›'));
+    let leaving = lines().filter(|line| line.starts_with('‹'));
+    assert_eq!((landing.count(), leaving.count()), (2, 2), "{drawing}");
+}
+
+#[test]
+fn at_80_columns_a_long_link_across_the_fold_wraps_and_a_long_id_continues() {
+    let dir = tempfile::tempdir().unwrap();
+    let (first, second) = (
+        "the-specification-intake-and-its-triage",
+        "the-implementation-planning-and-staffing",
+    );
+    // The longest id a table admits: 64 columns.
+    let long = "A-RULE-WHOSE-ID-RUNS-AS-WIDE-AS-THE-TABLE-ADMITS-AND-STILL-HOLDS";
+    let machine = table(
+        &[first, second],
+        &[
+            ("INTAKE-OK", first, "complete", Some(second)),
+            ("PLANNING-OK", second, "complete", Some("done")),
+            (long, second, "abandoned", Some("stop")),
+        ],
+    );
+    let mut events = walked(&[
+        (first, "complete", "INTAKE-OK", Some(second)),
+        (second, "complete", "PLANNING-OK", Some("done")),
+    ]);
+    events.push((EventType::RunCompleted, json!({})));
+    Journal::at(dir.path()).run("long", &json!({"bundle_name": "long"}), &events);
+    let view = view_of(dir.path(), &machine, "long");
+    let drawing = drawn(&view, 80);
+    insta::assert_snapshot!("graph_long_80", drawing);
+    // The link the fold split runs out to `›` and in from `‹`.
+    assert!(drawing.contains("‹──────────────────ᐳ⏺"), "{drawing}");
+    // At the narrowest width the id is wider than a line: it is continued,
+    // `…` to `…`, and reads whole with its breaks taken out.
+    let narrowest = drawn(&view, 40);
+    assert!(!narrowest.contains(long), "{narrowest}");
+    assert!(
+        narrowest.replace("…\n   …", "").contains(long),
+        "{narrowest}"
+    );
+}
+
+#[test]
+fn the_terminals_width_is_the_drawings_and_a_pipe_draws_at_the_stated_width() {
+    assert_eq!(drawing_width(Some(Ok((80, 24)))), 80);
+    let unread = Some(Err(std::io::Error::other("no size")));
+    assert_eq!((drawing_width(unread), drawing_width(None)), (100, 100));
+    // A known positive width is fitted, however narrow; a pty with no size
+    // set answers 0 columns, and is drawn as a pipe is.
+    let narrow = [39, 12, 1].map(|columns| drawing_width(Some(Ok((columns, 24)))));
+    assert_eq!(
+        (narrow, drawing_width(Some(Ok((0, 24))))),
+        ([39, 12, 1], 100)
+    );
+}
+
+#[test]
+fn a_narrow_terminal_is_fitted_one_state_to_a_rail_with_every_arc_still_drawn() {
+    let dir = tempfile::tempdir().unwrap();
+    let (delivery, reforge) = (dir.path().join("delivery"), dir.path().join("reforge"));
+    let views = [delivered(&delivery), reforged(&reforge)];
+    for width in [39, 24, 12] {
+        for view in &views {
+            // `drawn` holds every line, the legend's too, within the width.
+            drawn(view, width);
+            arcs_drawn(view, width);
+        }
+    }
+    insta::assert_snapshot!("graph_delivery_24", drawn(&views[0], 24));
+    insta::assert_snapshot!("graph_delivery_12", drawn(&views[0], 12));
+    // Under the twelve columns a node and a clamped label need, the states
+    // are written as lines, held to the width like the lines under them.
+    Journal::at(&dir.path().join("none"));
+    let none = view_of(&dir.path().join("none"), &reforging(), "reforge");
+    insta::assert_snapshot!("graph_no_runs_8", drawn(&none, 8));
+    // Down to one column, the indents yield and no line passes the width;
+    // from the three a continued piece needs, every taken link still reads
+    // whole.
+    for width in 1..=12 {
+        for view in views.iter().chain([&none]) {
+            held(&recipe_graph(view, width), width);
+            if width >= 3 {
+                drawn(view, width);
+            }
+        }
+    }
+    insta::assert_snapshot!("graph_reforged_3", drawn(&views[1], 3));
+}
+
+#[test]
+fn a_state_named_wider_than_the_terminal_is_clamped_on_its_rail() {
+    let dir = tempfile::tempdir().unwrap();
+    let wide = "a-state-whose-name-runs-wider-than-the-terminal";
+    let machine = table(
+        &[wide, "ship"],
+        &[
+            ("WIDE-OK", wide, "complete", Some("ship")),
+            ("WIDE-AGAIN", "ship", "residual", Some(wide)),
+            ("SHIP-OK", "ship", "complete", Some("done")),
+            ("SHIP-STOP", "ship", "blocked", Some("stop")),
+        ],
+    );
+    let steps = [
+        (wide, "complete", "WIDE-OK", Some("ship")),
+        ("ship", "residual", "WIDE-AGAIN", Some(wide)),
+        (wide, "complete", "WIDE-OK", Some("ship")),
+        ("ship", "complete", "SHIP-OK", Some("done")),
+    ];
+    let view = one_run(dir.path(), &machine, "named", &steps);
+    let drawing = drawn(&view, 30);
+    insta::assert_snapshot!("graph_name_wider_30", drawing);
+    arcs_drawn(&view, 30);
+    assert!(drawing.contains("a-state-whose-name-runs…"), "{drawing}");
+}
+
+#[test]
+fn a_state_named_in_double_width_glyphs_is_held_to_the_width_in_display_columns() {
+    let dir = tempfile::tempdir().unwrap();
+    let wide = "界界界";
+    let view = returned(dir.path(), &[wide, "ship"], &[(1, 0)]);
+    // Review 2's C2: a piece took its first glyph whatever its room, so
+    // `界` drew 3 columns at 2, 4 at 3 and 5 at 4.
+    for width in 1..=12 {
+        held(&recipe_graph(&view, width), width);
+    }
+    // From the four columns a glyph and both its marks need, every taken
+    // link reads whole; at one column a glyph is written as `…`.
+    for width in 4..=6 {
+        drawn(&view, width);
+    }
+    let narrowest = recipe_graph(&view, 1);
+    assert!(!narrowest.contains('界'), "{narrowest}");
+    assert!(narrowest.starts_with("…\n…\n…\n"), "{narrowest}");
+}
+
+/// `json` with the stamps of this run's clock, and the stays it measured
+/// to the millisecond, put in words: the rest is the wire's own bytes.
+fn steadied(view: &GraphView, json: &str) -> String {
+    let mut json = json.to_string();
+    let stamps = (view.rules.iter()).flat_map(|rule| rule.latest.iter().map(|run| &run.at));
+    for stamp in stamps.chain([&view.from, &view.to]) {
+        json = json.replace(stamp.as_str(), "<stamp>");
+    }
+    let lines = json.lines().map(|line| {
+        let millis = line.trim_start().strip_prefix("\"millis\": ");
+        match millis.filter(|millis| !millis.starts_with("null")) {
+            Some(_) => format!("{}\"millis\": <millis>,", &line[..line.find('"').unwrap()]),
+            None => line.to_string(),
+        }
+    });
+    lines.collect::<Vec<String>>().join("\n")
+}
+
+#[test]
+fn the_json_is_the_view_model_verbatim_as_before_the_drawing() {
+    let dir = tempfile::tempdir().unwrap();
+    let view = reforged(dir.path());
+    let json = serde_json::to_string_pretty(&view).unwrap();
+    insta::assert_snapshot!("graph_json", steadied(&view, &json));
 }

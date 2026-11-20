@@ -1,0 +1,14 @@
+---
+source: crates/brokkr-cli/src/verbs/graph/tests.rs
+expression: "drawn(&view, PIPED_WIDTH)"
+---
+    · 0 · —    · 0 · —    · 0 · —    · 0 · —
+   implement   review      ship      ⊗ done
+   · 0 · —
+   ⊗ stop
+never fired 7 of 7  IMPL-OK  REVIEW-CLEAN  REVIEW-REFORGE  REVIEW-HOLD  REVIEW-STOP  SHIP-RETRY
+   SHIP-OK
+nodes: runs entered · median stay · ∙ a live run · · never entered
+arrows: runs moved · ↻ to itself · ×n back · none where no run moved
+⊗ a terminal · ╰─ n ─ᐳ ⊗ the road down to one beneath the row
+› ‹ a rail the next continues, with its arrows and arcs

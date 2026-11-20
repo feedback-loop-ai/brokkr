@@ -1,0 +1,16 @@
+---
+source: crates/brokkr-cli/src/verbs/graph/tests.rs
+expression: drawing
+---
+            2          3          2          1
+   ⏺ 1 · 0m──ᐳ⏺ 1 · 0m──ᐳ⏺ 1 · 0m──ᐳ⏺ 1 · 0m──ᐳ⏺ 1 · 0m
+      a          b          c          d       ⊗ done
+      │          ╰ᐸ─ ×1 ────╯          │
+      ╰ᐸ──────────── ×1 ───────────────╯
+   · 0 · —
+   ⊗ stop
+never fired 1 of 7  D-STOP
+nodes: runs entered · median stay · ∙ a live run · · never entered
+arrows: runs moved · ↻ to itself · ×n back · none where no run moved
+⊗ a terminal · ╰─ n ─ᐳ ⊗ the road down to one beneath the row
+› ‹ a rail the next continues, with its arrows and arcs
