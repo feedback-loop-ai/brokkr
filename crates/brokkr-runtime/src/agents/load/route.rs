@@ -163,50 +163,123 @@ fn overlay_declaration(
         |path| std::fs::metadata(path),
         |path| std::fs::read(path),
     )
+    .map_err(|fault| match fault {
+        OverlayFault::Library(error) => error,
+        OverlayFault::Refused(refusal) => LibraryError::Invalid(refusal.to_string()),
+    })
+}
+
+/// The text the canonicalize failure and the not-a-file check share.
+const NOT_REGULAR: &str =
+    "does not resolve to a regular file inside the adapter file's own directory";
+/// The text the metadata fault and the read fault share.
+const UNREADABLE: &str =
+    "does not resolve to a readable regular file inside the adapter file's own directory";
+/// The text the metadata bound and the read bound share.
+const OVER_BOUND: &str = "is past the route overlay's byte bound";
+
+/// Why one overlay declaration was refused: one variant per check, in the
+/// order the checks run, so a test can tell which fired even where two
+/// share their words. Each names the adapter, the route and the field,
+/// never the value or a path. It becomes text only in
+/// [`overlay_declaration`].
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+enum OverlayRefusal<'a> {
+    #[error(
+        "{what} 'routes.{route}.overlay.file' must be relative to the adapter file's own directory"
+    )]
+    Absolute { what: &'a str, route: &'a str },
+    #[error(
+        "{what} 'routes.{route}.overlay.file' must not traverse out of the adapter file's own \
+         directory"
+    )]
+    Traverses { what: &'a str, route: &'a str },
+    #[error("{what} 'routes.{route}.overlay.file' {text}", text = NOT_REGULAR)]
+    Unresolved { what: &'a str, route: &'a str },
+    #[error(
+        "{what} 'routes.{route}.overlay.file' resolves outside the adapter file's own directory"
+    )]
+    Outside { what: &'a str, route: &'a str },
+    #[error("{what} 'routes.{route}.overlay.file' {text}", text = UNREADABLE)]
+    MetadataUnreadable { what: &'a str, route: &'a str },
+    #[error("{what} 'routes.{route}.overlay.file' {text}", text = NOT_REGULAR)]
+    NotRegular { what: &'a str, route: &'a str },
+    #[error("{what} 'routes.{route}.overlay.file' {text}", text = OVER_BOUND)]
+    MetadataOverBound { what: &'a str, route: &'a str },
+    #[error(
+        "{what} 'routes.{route}.overlay.sha256' must be a 64-character lowercase hexadecimal \
+         digest"
+    )]
+    Malformed { what: &'a str, route: &'a str },
+    #[error("{what} 'routes.{route}.overlay.file' {text}", text = UNREADABLE)]
+    ReadUnreadable { what: &'a str, route: &'a str },
+    #[error("{what} 'routes.{route}.overlay.file' {text}", text = OVER_BOUND)]
+    ReadOverBound { what: &'a str, route: &'a str },
+    #[error(
+        "{what} 'routes.{route}.overlay.sha256' does not equal the digest of the file this \
+         route declares"
+    )]
+    Mismatch { what: &'a str, route: &'a str },
+}
+
+/// What [`overlay_declaration_with`] refuses with: the shared readers'
+/// own [`LibraryError`], carried unchanged, or this file's typed refusal.
+#[derive(Debug)]
+enum OverlayFault<'a> {
+    Library(LibraryError),
+    Refused(OverlayRefusal<'a>),
+}
+
+impl From<LibraryError> for OverlayFault<'_> {
+    fn from(error: LibraryError) -> Self {
+        Self::Library(error)
+    }
+}
+
+impl<'a> From<OverlayRefusal<'a>> for OverlayFault<'a> {
+    fn from(refusal: OverlayRefusal<'a>) -> Self {
+        Self::Refused(refusal)
+    }
 }
 
 /// [`overlay_declaration`] over an injected metadata read and file read,
 /// the closure seams the fault tests use. Production's one path is the
 /// call above with `std::fs::metadata` and `std::fs::read`.
-fn overlay_declaration_with<M, R>(
+fn overlay_declaration_with<'a, M, R>(
     raw: &Value,
-    what: &str,
-    route: &str,
+    what: &'a str,
+    route: &'a str,
     directory: &Path,
     metadata: M,
     read: R,
-) -> Result<DeclaredRouteOverlay, LibraryError>
+) -> Result<DeclaredRouteOverlay, OverlayFault<'a>>
 where
     M: FnOnce(&Path) -> std::io::Result<std::fs::Metadata>,
     R: FnOnce(&Path) -> std::io::Result<Vec<u8>>,
 {
-    let prefix = format!("{what} 'routes.{route}.overlay");
-    let at = format!("{prefix}'");
+    let at = format!("{what} 'routes.{route}.overlay'");
     let declared = object(raw, &at)?;
     only_keys(declared, &OVERLAY_KEYS, &at)?;
     let file = string(declared, "file", &at)?;
-    let resolved = overlay_path(&file, &prefix, directory)?;
-    let meta = metadata(&resolved).map_err(|_| unreadable(&prefix))?;
+    let resolved = overlay_path(&file, what, route, directory)?;
+    let meta =
+        metadata(&resolved).map_err(|_| OverlayRefusal::MetadataUnreadable { what, route })?;
     if !meta.is_file() {
-        return invalid(not_regular(&prefix));
+        return Err(OverlayRefusal::NotRegular { what, route }.into());
     }
     if meta.len() > MAX_BYTES {
-        return invalid(over_bound(&prefix));
+        return Err(OverlayRefusal::MetadataOverBound { what, route }.into());
     }
     let sha256 = string(declared, "sha256", &at)?;
     if !is_sha256_hex(&sha256) {
-        return invalid(format!(
-            "{prefix}.sha256' must be a 64-character lowercase hexadecimal digest"
-        ));
+        return Err(OverlayRefusal::Malformed { what, route }.into());
     }
-    let bytes = read(&resolved).map_err(|_| unreadable(&prefix))?;
+    let bytes = read(&resolved).map_err(|_| OverlayRefusal::ReadUnreadable { what, route })?;
     if bytes.len() as u64 > MAX_BYTES {
-        return invalid(over_bound(&prefix));
+        return Err(OverlayRefusal::ReadOverBound { what, route }.into());
     }
     if sha256_bytes(&bytes) != sha256 {
-        return invalid(format!(
-            "{prefix}.sha256' does not equal the digest of the file this route declares"
-        ));
+        return Err(OverlayRefusal::Mismatch { what, route }.into());
     }
     Ok(DeclaredRouteOverlay {
         file,
@@ -219,56 +292,30 @@ where
 /// directory through symlinks. The two lexical refusals come first, so an
 /// absolute path or a `..` component is named as itself rather than as an
 /// escape.
-fn overlay_path(file: &str, prefix: &str, directory: &Path) -> Result<PathBuf, LibraryError> {
+fn overlay_path<'a>(
+    file: &str,
+    what: &'a str,
+    route: &'a str,
+    directory: &Path,
+) -> Result<PathBuf, OverlayRefusal<'a>> {
     let relative = Path::new(file);
     if relative.is_absolute() {
-        return invalid(format!(
-            "{prefix}.file' must be relative to the adapter file's own directory"
-        ));
+        return Err(OverlayRefusal::Absolute { what, route });
     }
     if relative
         .components()
         .any(|component| matches!(component, Component::ParentDir))
     {
-        return invalid(format!(
-            "{prefix}.file' must not traverse out of the adapter file's own directory"
-        ));
+        return Err(OverlayRefusal::Traverses { what, route });
     }
-    let resolved = directory.join(relative).canonicalize().map_err(|_| {
-        LibraryError::Invalid(format!(
-            "{prefix}.file' does not resolve to a regular file inside the adapter file's \
-             own directory"
-        ))
-    })?;
+    let resolved = directory
+        .join(relative)
+        .canonicalize()
+        .map_err(|_| OverlayRefusal::Unresolved { what, route })?;
     if !resolved.starts_with(directory) {
-        return invalid(format!(
-            "{prefix}.file' resolves outside the adapter file's own directory"
-        ));
+        return Err(OverlayRefusal::Outside { what, route });
     }
     Ok(resolved)
-}
-
-/// The one not-a-regular-file refusal the metadata check and the canonical
-/// containment check share.
-fn not_regular(prefix: &str) -> String {
-    format!(
-        "{prefix}.file' does not resolve to a regular file inside the adapter file's \
-         own directory"
-    )
-}
-
-/// The one unreadable-file refusal the metadata read and the file read
-/// share, naming the field and never the value.
-fn unreadable(prefix: &str) -> LibraryError {
-    LibraryError::Invalid(format!(
-        "{prefix}.file' does not resolve to a readable regular file inside the adapter \
-         file's own directory"
-    ))
-}
-
-/// The one over-bound refusal the metadata and post-read checks share.
-fn over_bound(prefix: &str) -> String {
-    format!("{prefix}.file' is past the route overlay's byte bound")
 }
 
 #[cfg(test)]
