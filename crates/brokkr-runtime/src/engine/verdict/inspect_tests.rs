@@ -269,28 +269,28 @@ fn carried(events: &[EventEnvelope]) -> Vec<Vec<String>> {
 /// retry of `b` and `c` carries `a` and runs `b` and `c` only.
 #[test]
 fn one_refused_settled_member_keeps_every_admitted_sibling() {
-    let over = json!({"result": "clean", "input_tokens": 1, "cache_read_tokens": 2});
-    let members = vec![
-        member("a", residual("mine", 5)),
-        member("b", driver(&over)),
-        member("c", failing()),
-    ];
-    let (_dir, events) = retried(members, &["b", "c"], |events| {
-        assert_eq!(kept(events, Scope::Seat("review:a".into())), ["mine"]);
-        assert_eq!(kept(events, Scope::Phase("review".into())), ["mine"]);
+    let (_dir, events) = retried(three_members("b"), &["b", "c"], |events| {
+        settled_beside(events, "b");
         assert!(kept(events, Scope::Seat("review:b".into())).is_empty());
-        let failed = (events.iter())
-            .find(|event| event.event_type == EventType::EffectFailed)
-            .unwrap();
-        let settled = failed.payload["settled_members"].as_object().unwrap();
-        assert_eq!(settled.keys().collect::<Vec<_>>(), ["a"]);
-        let error = failed.payload["error"].as_str().unwrap();
-        let named = "; settled member 'b' was refused: seat record at journal seq";
-        assert!(error.contains(named), "{error}");
-        assert!(error.ends_with("at /settled_members/b/cache_read_tokens"));
     });
+    a_is_carried_and_b_and_c_run_again(&events);
+}
+
+/// X4's three members: `a` reporting the finding `mine`, `refused`
+/// answering over-subset accounting, and `c`, whose driver fails.
+fn three_members(refused: &str) -> Vec<PanelMember> {
+    vec![
+        member("a", residual("mine", 5)),
+        member(refused, driver(&over_subset())),
+        member("c", failing()),
+    ]
+}
+
+/// `events`' retry of `b` and `c` after X4's park carried `a` and ran `b`
+/// and `c` only.
+fn a_is_carried_and_b_and_c_run_again(events: &[EventEnvelope]) {
     // work's start, review's first attempt, and the retry.
-    assert_eq!(carried(&events), [vec![], vec![], vec!["a".to_string()]]);
+    assert_eq!(carried(events), [vec![], vec![], vec!["a".to_string()]]);
     let retry = (events.iter())
         .rfind(|event| event.event_type == EventType::EffectStarted)
         .unwrap();
@@ -315,13 +315,8 @@ fn a_member_name_holding_a_slash_is_refused_by_that_name_and_the_drive_ends() {
     for refused in ["a/b", "b/x"] {
         let (sent, ended) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
-            let members = vec![
-                member("a", residual("mine", 5)),
-                member(refused, driver(&over_subset())),
-                member("c", failing()),
-            ];
             let review = review_shaped(SeatBody::Invocation(Invocation::Panel {
-                members,
+                members: three_members(refused),
                 aggregate: Aggregate::ReviewPanel,
             }));
             let work = single_body(driver(&json!({"result": "complete"})));
@@ -345,28 +340,13 @@ fn a_member_name_holding_a_slash_is_refused_by_that_name_and_the_drive_ends() {
 /// carries `a` and runs `b` and `c` only.
 #[test]
 fn a_held_terminal_lands_each_settled_member_by_the_same_path() {
-    let members = vec![
-        member("a", residual("mine", 5)),
-        member("b", driver(&over_subset())),
-        member("c", failing()),
-    ];
+    let members = three_members("b");
     let (_dir, events) = retried_after(members, &["b", "c"], held_back, |events| {
         settled_beside(events, "b");
         let failed = (events.iter()).filter(|event| event.event_type == EventType::EffectFailed);
         assert_eq!(failed.count(), 1, "the held terminal landed once");
     });
-    assert_eq!(carried(&events), [vec![], vec![], vec!["a".to_string()]]);
-    let retry = (events.iter())
-        .rfind(|event| event.event_type == EventType::EffectStarted)
-        .unwrap();
-    let ran = |member: &str| {
-        events.iter().any(|event| {
-            event.event_type == EventType::EffectCheckpointed
-                && event.payload["attempt_id"] == retry.payload["attempt_id"]
-                && event.payload["checkpoint"]["member"] == member
-        })
-    };
-    assert_eq!((ran("a"), ran("b"), ran("c")), (false, true, true));
+    a_is_carried_and_b_and_c_run_again(&events);
 }
 
 /// `engine`'s parked run in `dir` with its failed terminal held back: the
