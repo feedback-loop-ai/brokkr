@@ -125,10 +125,13 @@ claim to close it.
 
 **Enforcement binding (0111e):**
 `after_ci_pass_the_composed_table_is_landings_own_rule_for_rule` (the composed `landing-ci`
-table, less its four `CI-` rules, its `initial` and its `ci` phase, equals `landing`'s composed
-table rule for rule); and `nothing_in_the_recipes_or_seat_scripts_reads_the_ci_phases_result`
-(a search of every recipe's bundle, policy and scripts, and of `scripts/`, for `ci_class`, the
-three class flags and a `from: ci` decision finds only the four `CI-` rules). A text search
+table, less every rule whose `from` is `ci`, its `initial` and its `ci` phase, equals
+`landing`'s composed table rule for rule); and
+`nothing_in_the_recipes_or_seat_scripts_reads_the_ci_phases_result` (a search of every recipe's
+bundle, policy and scripts, and of `scripts/`, for `ci_class`, the three class flags and a
+`from: ci` decision finds only the rules whose `from` is `ci`). Both derive the `ci` rows from
+the composed table itself, never from a count, so they agree with ruling 6's table, five rows
+today, whatever it holds. A text search
 cannot prove what a seat reads, because a seat reads its built input, not the tree; so the
 consumer input is tested too, over the engine's own input builder, by ruling 6's projection
 tests.
@@ -1127,9 +1130,12 @@ required name: a check under the
 entry's name from another app, workflow path or event (`producer-mismatch`); a commit status
 the forge requires (`status-required`); a context the forge requires that the pinned list lacks
 (`required-set-disagrees`). An inadmissible check whose conclusion is red, `failure`,
-`cancelled`, `timed_out` or `startup_failure`, is an **observed inadmissible failure**, and it
-outranks both `green` and `missing-required`: the observation is `change`, never `green` and
-never refused for absence. So a red commit status in the forge's required set beside every
+`cancelled`, `timed_out` or `startup_failure`, is an **observed inadmissible failure**. It
+outranks `green`, and the entry under whose name it is reported is not missing:
+`missing-required`'s own predicate is false for that entry
+([No refusal weakens](#no-refusal-weakens)), so the observation is `change`, never `green` and
+never refused for that entry's absence. It outranks no other refusal: another entry absent
+beside it still refuses. So a red commit status in the forge's required set beside every
 pinned entry green is `change`; and a sole red check under a required entry's name from another
 workflow is `change` with `producer-mismatch`, never `missing-required`. An inadmissible check
 that succeeded changes nothing: the entry is still matched or absent on its own.
@@ -1856,11 +1862,8 @@ and spends the implement visit on every first landing.
 over the pinned list gives the entry set: the entries with no `"after"`. The failure predicate
 (ruling 3's `green` rule and its observed inadmissible failures, and ruling 4's failure set),
 the closure parse, the producer, association and revision checks, and the setup steps' jobs all
-read that set and nothing wider, so an after-ship check, its producer's checkouts and its red
-are never a failure, an inadmissible failure, a closure root or a revision to prove. The full
-declared list is read only to reconcile the inventory: ruling 3's comparison with the forge's
-required set counts an after-ship entry as declared, so `required-set-disagrees` still finds an
-undeclared required context, and the sealed observation still lists every check unfiltered.
+read that set and nothing wider. The full declared list is read only to reconcile the
+inventory, as the after-ship invariant above states once.
 A red `delivered by brokkr` beside every eligible entry green is therefore `green`, and beside a
 valid setup failure is `ci-infrastructure`.
 
