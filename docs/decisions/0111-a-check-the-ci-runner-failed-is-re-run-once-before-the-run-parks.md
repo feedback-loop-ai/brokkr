@@ -777,14 +777,21 @@ source it names, and true.
    head equal the run's pinned repository, the pull request the gate names and the engine's own
    git head; and the forge's `head.sha` for the pull request is that head, so the head is
    published.
-2. **A complete inventory.** The forge's check list for the head and each key's run list
-   (below) were each read to their last page, inside the observation's bounds, with no page
-   unread; and the forge reports at least one check for the head.
+2. **A complete inventory.** The forge's check list for the head, each key's run list (below)
+   and **the job list of each current run attempt** were each read to their last page, inside
+   the observation's bounds, with no page unread; and the forge reports at least one check for
+   the head. Each list's completeness is its own sealed fact, scoped to the exact list it names:
+   the job list's to its run id and attempt, so a complete check list never stands for a
+   complete job list, nor one attempt's for another's.
 3. **Every required entry matched once, currently.** Every entry of `required_checks` in the
    entry set (ruling 6) has exactly one **eligible current match**: a check from its bound
    producer (its app, workflow path, job and event) in that producer's current execution, the
    one run attempt defined below. A check from the same producer in another run, or in another
-   attempt of the current run, is **stale**, whatever it concluded, and never counts.
+   attempt of the current run, is **stale**, whatever it concluded, and never counts. "Exactly
+   one" is read over the complete check list and the complete job list of that attempt (2), so
+   a second job reporting the entry's name on a page the observer did not read can never leave
+   the entry looking matched once: either every page was read and the duplicate is seen, or a
+   page is unread and condition 2 is unmet.
 4. **Settled success.** Each match's status is `completed` and its conclusion `success`.
 5. **This pull request's single association.** Each current execution's `pull_requests` names
    this pull request and no other, with `head.sha` the gated head and `base.sha` the base the
@@ -806,10 +813,10 @@ unestablished, in one closed word each, and parks. The words, each naming what i
 |---|---|
 | `unrelated` | the repository, the pull request or the head differs from the binding (1) |
 | `head-unpublished` | the forge's head for the pull request is not the engine's git head (1) |
-| `inventory-incomplete` | a check or run list was not read to its last page, or overflowed its bound; it names the list, the pages read and the overflow witness (2) |
+| `inventory-incomplete` | a check list, a run list or a current attempt's job list was not read to its last page, or overflowed its bound; it names the list (and, for a job list, its run id and attempt), the pages read and the overflow witness (2) |
 | `empty` | the forge reports no check for the head (2) |
 | `missing-required` | an entry has no eligible current match; a stale check never makes it present (3) |
-| `ambiguous-required` | an entry matches more than one check in its current run attempt (3) |
+| `ambiguous-required` | an entry matches more than one check, or more than one job of its current run attempt, over the complete lists (3); it names every match |
 | `execution-ambiguous` | an entry's current execution cannot be told, as below (3) |
 | `not-settled` | a match is still queued or in progress when the observer's polling bound ends (4) |
 | `not-success` | a match concluded anything but `success`; it names the check and the word, so a red, a cancelled and a skipped check are each named (4) |
@@ -826,9 +833,13 @@ unestablished, in one closed word each, and parks. The words, each naming what i
 A fact a condition reads that is absent, overflowed, unproven, ambiguous or parsed from another
 source is not established, so its condition is unmet; the observation's contract carries each
 such fact as a value or as the typed `unread` with the observer's reason, never a default, and
-each paged list carries whether it was read to its last page. A replay of the judgment, live or
-from the journal, takes the one function over the one observation, so the words it names are
-the words named live.
+each paged list carries whether it was read to its last page. A fact several conditions read
+leaves each of them unmet, and each is named: an unread engine head names both `unrelated` and
+`head-unpublished`; a check list short of its last page names `inventory-incomplete` and every
+`missing-required` it leaves. The words are a set, so the park's list is exact and needs no
+order to be decided. Live and on replay the judgment takes the one function over the one sealed
+observation and the one pinned list ([What a replay reads](#3-the-observation-the-judgment-and-where-the-journal-keeps-them)),
+so the words a replay names are the words named live.
 
 The **current execution** of an Actions entry is the workflow run with the highest run number
 among those the forge lists for its workflow path, its event and the head, read at its highest
