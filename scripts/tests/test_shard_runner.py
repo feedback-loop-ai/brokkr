@@ -460,6 +460,7 @@ class ShardRunner(unittest.TestCase):
 
     def test_help_names_both_judged_layouts(self):
         shown = subprocess.run([sys.executable, str(SCRIPT), "--help"],
+                               env=dict(os.environ, COLUMNS="200"),
                                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                timeout=40, text=True)
         self.assertEqual(shown.returncode, 0, shown.stderr)
