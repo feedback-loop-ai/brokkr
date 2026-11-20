@@ -3230,18 +3230,20 @@ pub(crate) fn serving_command(
             command.push(prompt.to_string());
             Ok(command)
         }
+        ServingShape::Qoder => Err("a qoder command, which no modelled grammar reads back"),
     }
 }
 
 /// The serving command shapes the built-in drivers spawn, one per builder
-/// [`serving_command`] calls. LaneTally wraps Claude's harness and is served
-/// Claude's shape. `exec` and an opaque driver have none, as they have no
-/// modelled grammar ([`crate::native_controls::grammar::grammar`]).
+/// [`serving_command`] calls and Qoder's, composed whole in its fragment's one
+/// home (#1178). LaneTally is served Claude's. `exec` and an opaque driver have
+/// none ([`crate::native_controls::grammar::grammar`] models no grammar of theirs).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ServingShape {
     Claude,
     Codex,
     Dsh,
+    Qoder,
 }
 
 impl ServingShape {
@@ -3250,6 +3252,7 @@ impl ServingShape {
             "claude" | "lanetally" => Some(ServingShape::Claude),
             "codex" => Some(ServingShape::Codex),
             "dsh" => Some(ServingShape::Dsh),
+            "qoder" => Some(ServingShape::Qoder),
             _ => None,
         }
     }
@@ -5550,8 +5553,9 @@ fn invoke_with_stager(
             }
         }
         AdapterKind::Dsh => invoke_dsh(pinned, prompt, input, session, bindings, &mut probe, emit),
-        AdapterKind::Qoder => composed_launch("qoder", extra, input)
-            .and_then(|composed| qoder::drive(bin, &composed.extra, prompt, input, bindings, emit)),
+        AdapterKind::Qoder => {
+            qoder::drive(bin, extra, session.is_some(), prompt, input, bindings, emit)
+        }
         AdapterKind::Exec => {
             exec::invoke_exec(extra, prompt, &workdir, input, bindings, emit, stage)
         }

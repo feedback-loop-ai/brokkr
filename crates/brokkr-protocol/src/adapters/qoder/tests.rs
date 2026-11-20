@@ -787,3 +787,212 @@ fn a_qoder_driver_declares_no_resume_and_no_probe() {
         &json!({"type": "assistant"})
     ));
 }
+
+/// The launch's typed errors render once: the admission's refusal as every
+/// driver states it, and an MCP file that could not be written with the
+/// I/O error's words.
+#[test]
+fn a_launch_whose_set_is_refused_or_unwritten_states_why() {
+    let refused = LaunchError::from(McpRefusal::Unreadable);
+    assert_eq!(refused, LaunchError::Mcp(McpRefusal::Unreadable));
+    assert_eq!(refused.to_string(), McpRefusal::Unreadable.at_launch());
+    let missing = Path::new("/nonexistent-brokkr-qoder-root");
+    let unwritten = staged(&json!({"mcpServers": {}}), missing).unwrap_err();
+    // The directory's name is random, so the words are read up to it.
+    let cause = "No such file or directory (os error 2) at path \
+                 \"/nonexistent-brokkr-qoder-root/brokkr-qoder-mcp-";
+    let LaunchError::Unstaged(words) = &unwritten else {
+        panic!("{unwritten:?}");
+    };
+    assert!(words.starts_with(cause), "{words}");
+    let stated = unwritten.to_string();
+    let prefix = "refusing to invoke the agent CLI: the engine's MCP file for the qoder seat was \
+                  not written: ";
+    assert_eq!(stated, format!("{prefix}{words}"));
+}
+
+/// Serving inputs sealing `servers` beside the default hands spec under
+/// `stands`, their cold assessment `cold`, the replacement measured, under
+/// `fence`.
+fn sealed(
+    stands: crate::native_controls::SealedBoundary,
+    servers: &str,
+    cold: Value,
+    fence: &str,
+) -> Value {
+    let dialect = crate::native_controls::SealedDialect {
+        stands: Some(stands),
+        ..Default::default()
+    };
+    let spec = Some(crate::hands::HandsSpec::default());
+    let mut serving = super::super::mcp::tests::dispatched(dialect, Vec::new(), spec);
+    serving["isolation"] = json!({
+        "servers": servers, "cold": cold, "replacement": "measured", "resume": {}, "fence": fence,
+    });
+    serving
+}
+
+/// The error a seat run on `serving` failed with before its fake
+/// `qodercli` started, which it records on start.
+#[cfg(unix)]
+fn refused_before_spawn(serving: Value) -> Option<String> {
+    let dir = tempfile::tempdir().unwrap();
+    let bin = fake_qoder(dir.path(), TOOL_LESS, "", None, 0);
+    let messages = run_sealed(dir.path(), &bin, &["-m", "Fast"], Some(serving));
+    assert!(!dir.path().join("argv").exists(), "{messages:?}");
+    messages.iter().find_map(|body| match body {
+        crate::Body::Result {
+            status: crate::ResultStatus::Failed,
+            error,
+            ..
+        } => error.clone(),
+        _ => None,
+    })
+}
+
+/// SI2 before spawn (T1): past the lifted fence an unmeasured or
+/// unsupported cold shape refuses, and a sealed empty intent beside boxed
+/// hands refuses whichever way the fence stands; the harness never starts.
+#[cfg(unix)]
+#[test]
+fn a_launch_the_admission_refuses_never_starts_its_harness() {
+    use crate::native_controls::SealedBoundary::{Namespace, Open};
+    let lifted = |cold: Value| sealed(Open, "empty", cold, "lifted");
+    assert_eq!(
+        refused_before_spawn(lifted(json!("unmeasured"))).as_deref(),
+        Some(
+            "refusing to invoke the agent CLI: provider 'qoder' has no measured strict MCP \
+             configuration for 'cold'"
+        )
+    );
+    assert_eq!(
+        refused_before_spawn(lifted(json!({"unsupported": "a reason"}))).as_deref(),
+        Some(
+            "refusing to invoke the agent CLI: provider 'qoder' cannot exclude ambient MCP \
+             configuration (a reason)"
+        )
+    );
+    for fence in ["lifted", "standing"] {
+        let mismatched = sealed(Namespace, "empty", json!("measured"), fence);
+        assert_eq!(
+            refused_before_spawn(mismatched).as_deref(),
+            Some(
+                "refusing to invoke the agent CLI: provider 'qoder' final MCP configuration is \
+                 not the engine's sealed server set"
+            ),
+            "{fence}"
+        );
+    }
+}
+
+/// A hands set the standing fence serves unmeasured is served the empty
+/// set: the engine's file is the empty document and the meta-tools are
+/// denied, so no hands and no ambient server start.
+#[cfg(unix)]
+#[test]
+fn an_unadmitted_hands_set_under_the_standing_fence_is_served_the_empty_set() {
+    use crate::native_controls::SealedBoundary::Namespace;
+    let dir = tempfile::tempdir().unwrap();
+    let bin = fake_qoder(dir.path(), TOOL_LESS, "", None, 0);
+    let serving = sealed(Namespace, "hands", json!("unmeasured"), "standing");
+    run_sealed(dir.path(), &bin, &["-m", "Fast"], Some(serving));
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("mcp")).unwrap(),
+        r#"{"mcpServers":{}}"#
+    );
+    let argv = std::fs::read_to_string(dir.path().join("argv")).unwrap();
+    let argv: Vec<&str> = argv.lines().collect();
+    assert_eq!(
+        argv[argv.len() - 2..],
+        ["--disallowed-tools", "mcp_call,mcp_get,mcp_list"]
+    );
+}
+
+/// A short secret bound to the seat, and Qoder's stderr lines carrying it,
+/// each coloured as Qoder colours its refusals.
+const SECRET: &str = "tok9z";
+const FALLBACK_SECRET: &str =
+    "\u{1b}[33mModel \"tok9z\" is not available right now; using \"auto\" instead.\u{1b}[0m\n";
+const SIGNED_OUT_SECRET: &str = "\u{1b}[31mNot logged in · token tok9z expired\u{1b}[0m\n";
+const CRASHED_SECRET: &str = "An unexpected critical error occurred:Error: bad token tok9z\n";
+
+/// One turn of a fake `qodercli` pinned to `Fast` that prints `stdout` and
+/// `stderr`, writes its result where `delivered`, and exits `code`, run by
+/// [`invoke`] with [`SECRET`] bound; beside it, the secret as masked.
+#[cfg(unix)]
+fn invoked(
+    stdout: &str,
+    stderr: &str,
+    delivered: bool,
+    code: i32,
+) -> (Result<Invocation, String>, String) {
+    let dir = tempfile::tempdir().unwrap();
+    let result = dir.path().join("result.json");
+    let written = delivered.then_some(result.as_path());
+    let bin = fake_qoder(dir.path(), stdout, stderr, written, code);
+    let launch = Launch {
+        command: vec![bin.to_string_lossy().into_owned()],
+        pin: "Fast".into(),
+    };
+    let input = json!({"workdir": dir.path(), "result_path": result});
+    // A short name, so the refusal's words keep their whole sign-in advice.
+    let bindings = [super::super::tests::binding("QT", SECRET)];
+    let masked = secret::mask_text(SECRET.as_bytes(), &bindings);
+    assert_ne!(masked, SECRET);
+    let turn = invoke(&launch, "prompt", &input, &bindings, &mut |_| {});
+    (turn, masked)
+}
+
+/// T2: the late path's error, which `lost::invocation_failed` prints as it
+/// is, never carries the secret in clear, after a folded turn and after a
+/// delivered result.
+#[cfg(unix)]
+#[test]
+fn a_secret_in_the_fallback_line_never_reaches_the_late_error_in_clear() {
+    for (stdout, delivered) in [(TOOL_LESS, false), ("", true)] {
+        let (late, masked) = invoked(stdout, FALLBACK_SECRET, delivered, 0);
+        assert_eq!(
+            late.map(drop),
+            Err(format!(
+                "model_substituted: the seat pinned \"Fast\" and Qoder served another: Model \
+                 \"{masked}\" is not available right now; using \"auto\" instead."
+            )),
+            "{delivered}"
+        );
+    }
+}
+
+/// T2: the fallback, signed-out and crash lines' secret never reaches the
+/// pre-session refusal's words or the invocation's stderr in clear.
+#[cfg(unix)]
+#[test]
+fn a_secret_in_a_refusing_line_never_reaches_the_refusal_or_the_stderr_in_clear() {
+    let cases = [
+        (
+            FALLBACK_SECRET,
+            0,
+            "model_substituted: the seat pinned \"Fast\" and Qoder served another: Model \
+             \"<masked>\" is not available right now; using \"auto\" instead.",
+        ),
+        (
+            SIGNED_OUT_SECRET,
+            1,
+            "not_logged_in: Qoder CLI is signed out (Not logged in · token <masked> expired): \
+             run `qodercli login`, or set QODER_PERSONAL_ACCESS_TOKEN under a private \
+             QODER_CONFIG_DIR",
+        ),
+        (
+            CRASHED_SECRET,
+            1,
+            "launch_refused: An unexpected critical error occurred:Error: bad token <masked>",
+        ),
+    ];
+    for (stderr, code, words) in cases {
+        let (invocation, masked) = invoked("", stderr, false, code);
+        let invocation = invocation.unwrap();
+        let refused = invocation.refusal.as_ref().map(PreSessionRefusal::words);
+        let words = words.replace("<masked>", &masked);
+        assert_eq!(refused.map(str::to_string), Some(words), "{stderr}");
+        assert!(!invocation.stderr.contains(SECRET), "{}", invocation.stderr);
+    }
+}

@@ -577,7 +577,8 @@ fn declared(sealed: &SealedServing) -> bool {
 /// starts, and so does a set its builder cannot name. A command that
 /// cannot be read whole is the final check's own refusal. Codex builds no
 /// isolated configuration, its hands' bindings being the final check's,
-/// and dsh carries its set in its engine-only home, not its argv.
+/// and dsh carries its set in its engine-only home, not its argv. Qoder's
+/// argv is composed whole by its fragment's one home, which its goldens pin.
 fn final_set(
     provider: &'static str,
     command: &[String],

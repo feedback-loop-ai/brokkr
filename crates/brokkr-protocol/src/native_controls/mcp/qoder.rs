@@ -21,8 +21,8 @@ use std::collections::BTreeMap;
 
 use serde_json::Value;
 
+use super::super::listed::hands_grant;
 use super::{document, Transport};
-use crate::hands::{SERVER_NAME, TOOL_NAME};
 
 /// The isolation every qoder launch carries, with `file` the engine's MCP
 /// document: the strict flag, the file and the empty setting sources, all
@@ -66,7 +66,7 @@ pub(crate) fn served(hands: Option<Transport<'_>>) -> Option<Served> {
     hands.expand(&[])?;
     Some(Served {
         document: hands.document(),
-        grants: vec![format!("mcp__{SERVER_NAME}__{TOOL_NAME}")],
+        grants: vec![hands_grant()],
     })
 }
 

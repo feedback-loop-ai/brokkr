@@ -23,11 +23,13 @@
 //! row it does not read.
 
 use std::io::BufRead;
+use std::path::Path;
 
 use serde_json::{Map, Value};
 use thiserror::Error;
 
 use super::claude_fold::ClaudeFold;
+use super::mcp::{self, McpRefusal};
 use super::refusal::refusal_reason;
 use super::{fold_stream_event, io_context, lost, secret, spawn_fed, Invocation, LaunchTerminal};
 use crate::native_controls::mcp::qoder::isolation;
@@ -107,6 +109,15 @@ pub(super) enum LaunchError {
          that is not UTF-8, so no argument names it exactly (#1178)"
     )]
     Unnamed,
+    /// The engine's MCP file could not be written; the I/O error's words.
+    #[error(
+        "refusing to invoke the agent CLI: the engine's MCP file for the qoder seat was not \
+         written: {0}"
+    )]
+    Unstaged(String),
+    /// The launch's one MCP admission refused it ([`McpRefusal::at_launch`]).
+    #[error("refusing to invoke the agent CLI: {0}")]
+    Mcp(#[from] McpRefusal),
 }
 
 /// One qoder launch: the command spawned and the id it pins.
@@ -175,45 +186,65 @@ fn granted(extra: &[String], grants: &[String]) -> Vec<String> {
     seat
 }
 
-/// One qoder seat, start to end: the engine's set read from `input`
-/// ([`super::mcp::qoder_set`]), its document written to a private file the
-/// launch names, the launch, and its turn. The file lives until the turn
-/// ends.
+/// One qoder seat, start to end: its composed arguments, the launch
+/// [`prepared`] from them, and its turn. `offered` is whether the engine
+/// offered a rejoin, which it never does for a seat that declares no
+/// resume, so the seat is admitted cold. The launch's errors are rendered
+/// here, once.
 pub(super) fn drive(
     bin: &str,
     extra: &[String],
+    offered: bool,
     prompt: &str,
     input: &Value,
     bindings: &[secret::BoundSecret],
     emit: &mut impl FnMut(&Value),
 ) -> Result<Invocation, String> {
+    let composed = super::composed_launch("qoder", extra, input)?;
+    let prepared = prepared(bin, &composed.extra, offered, input, &std::env::temp_dir());
+    // The file lives until the turn ends.
+    let (_staged, launch) = prepared.map_err(|error| error.to_string())?;
+    invoke(&launch, prompt, input, bindings, emit)
+}
+
+/// The launch of `extra` before any provider work: SI2's one admission
+/// ([`mcp::isolated`]), as every built-in harness is admitted, then the
+/// engine's set read from the intent it checked ([`mcp::qoder_set`]), its
+/// document written to a private file under `root` that the launch names,
+/// and the launch.
+fn prepared(
+    bin: &str,
+    extra: &[String],
+    offered: bool,
+    input: &Value,
+    root: &Path,
+) -> Result<(tempfile::TempDir, Launch), LaunchError> {
+    let edge = mcp::Edge::new(input);
+    let isolated = mcp::isolated("qoder", &edge, extra, offered)?;
     let workdir = input.get("workdir").and_then(Value::as_str).unwrap_or("");
-    let served = super::mcp::qoder_set(input, workdir).map_err(|refusal| refusal.at_launch())?;
-    let staged = io_context(staged(&served.document), STAGING)?;
+    let served = mcp::qoder_set(&edge, &isolated, workdir)?;
+    let staged = staged(&served.document, root)?;
     let file = staged.path().join(MCP_FILE);
     let engine = Engine {
-        file: file.to_str().ok_or(LaunchError::Unnamed.to_string())?,
+        file: file.to_str().ok_or(LaunchError::Unnamed)?,
         grants: &served.grants,
     };
-    let launch = launch(bin, extra, engine).map_err(|error| error.to_string())?;
-    invoke(&launch, prompt, input, bindings, emit)
+    let launch = launch(bin, &isolated.argv, engine)?;
+    Ok((staged, launch))
 }
 
 /// The name of the engine's MCP document in its private directory.
 const MCP_FILE: &str = "mcp.json";
 
-/// What a launch whose MCP file could not be written states.
-const STAGING: &str = "refusing to invoke the agent CLI: the engine's MCP file for the qoder seat \
-                       was not written";
-
-/// `document` written as [`MCP_FILE`] in a private directory of its own,
-/// which goes with the value.
-fn staged(document: &Value) -> std::io::Result<tempfile::TempDir> {
-    let dir = tempfile::Builder::new()
-        .prefix("brokkr-qoder-mcp-")
-        .tempdir()?;
-    std::fs::write(dir.path().join(MCP_FILE), document.to_string())?;
-    Ok(dir)
+/// `document` written as [`MCP_FILE`] in a private directory of its own
+/// under `root`, which goes with the value.
+fn staged(document: &Value, root: &Path) -> Result<tempfile::TempDir, LaunchError> {
+    let written = (tempfile::Builder::new().prefix("brokkr-qoder-mcp-"))
+        .tempdir_in(root)
+        .and_then(|dir| {
+            std::fs::write(dir.path().join(MCP_FILE), document.to_string()).map(|()| dir)
+        });
+    written.map_err(|error| LaunchError::Unstaged(error.to_string()))
 }
 
 /// Qoder's rows read for the model they served, before the Claude fold
@@ -282,8 +313,8 @@ impl QoderFold {
     /// The refusal of the model a finished turn was served by, where the
     /// stream left one to state: Qoder's fallback line on `stderr`, which
     /// refuses the seat whatever init said and with no init at all, or a
-    /// clean exit no init row confirmed. `stderr` is the raw capture
-    /// without its ANSI escapes; the refusal path masks the words it keeps.
+    /// clean exit no init row confirmed. `stderr` is the capture masked
+    /// through the seat's bindings, then without its ANSI escapes.
     pub(super) fn identity(&self, stderr: &str, exit_code: i32) -> Option<PreSessionRefusal> {
         if let Some(line) = stderr.lines().find(|line| line.contains(FALLBACK)) {
             return Some(substituted(&self.pin, line.trim()));
@@ -402,7 +433,9 @@ fn invoke(
         Some(_) => STOPPED_AT_REFUSAL,
         None => lost::exit_code(status),
     };
-    let text = without_ansi(&String::from_utf8_lossy(captured.bytes()));
+    // Masked through the seat's bindings before anything reads it (decision
+    // 0012): every refusal, error and late message below reads this one text.
+    let text = without_ansi(&secret::mask_text(captured.bytes(), bindings));
     let identity = match stopped {
         Some(_) => None,
         None => fold.identity(&text, exit_code),

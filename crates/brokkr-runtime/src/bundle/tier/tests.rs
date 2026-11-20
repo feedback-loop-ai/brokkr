@@ -940,6 +940,7 @@ fn the_qoder_example_declares_five_provisional_models_and_no_judge() {
 
 /// `workspace`'s copy of Qoder's example with its `mcp` shapes kept where
 /// `keep` holds of a shape's invocation.
+#[cfg(target_os = "linux")]
 fn qoder_shapes(workspace: &Workspace, keep: impl Fn(&str) -> bool) -> &Workspace {
     let file = workspace.path("adapters/qoder.json");
     let mut adapter: Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
@@ -950,32 +951,40 @@ fn qoder_shapes(workspace: &Workspace, keep: impl Fn(&str) -> bool) -> &Workspac
 }
 
 /// The `researcher` work seat of `workspace` compiled beside an exec gate,
-/// which serves no model, past the lifted fence: its error's words.
-fn si2(workspace: &Workspace) -> Result<Bundle, String> {
+/// which serves no model, past the lifted fence.
+fn si2(workspace: &Workspace) -> Result<Bundle, CompileError> {
     let exec = shipped().join("adapters/exec.json");
     std::fs::copy(exec, workspace.path("adapters/exec.json")).unwrap();
     let command = json!(["{brokkr}", "driver", "exec", "--", "true"]);
     let review = json!({"results": ["clean"], "driver": {"command": command}});
     let _lift = crate::capabilities::McpFence::lift();
-    let compiled = workspace.compile_beside(seat("researcher", "work"), review, &["researcher"]);
-    compiled.map_err(|error| error.to_string())
+    workspace.compile_beside(seat("researcher", "work"), review, &["researcher"])
 }
 
-/// SI2 past the lifted fence (#1178): the example's measured cold and
-/// replacement shapes without hands admit a work seat, and each is needed;
-/// the same office boxing its hands is refused.
+/// [`si2`]'s refusal, which must be a capability refusal: its words.
+fn si2_refusal(workspace: &Workspace) -> String {
+    match si2(workspace) {
+        Err(refused @ CompileError::Capability(_)) => refused.to_string(),
+        other => panic!("not a capability refusal: {:?}", other.map(drop)),
+    }
+}
+
+/// SI2 past the lifted fence on Linux (#1178), the one host the record
+/// measured: the example's measured cold and replacement shapes without
+/// hands admit a work seat, and each is needed; the same office boxing its
+/// hands is refused.
+#[cfg(target_os = "linux")]
 #[test]
 fn si2_admits_a_qoder_seat_without_hands_and_refuses_it_boxed() {
     assert_eq!(chain(&si2(&qoder_workspace()).unwrap()), ["qoder-fast"]);
     for missing in ["cold", "replacement"] {
         let workspace = qoder_workspace();
-        let compiled = si2(qoder_shapes(&workspace, |shape| shape != missing));
         assert_eq!(
-            compiled.map(drop),
-            Err(format!(
+            si2_refusal(qoder_shapes(&workspace, |shape| shape != missing)),
+            format!(
                 "bundle: seat 'work' (office 'researcher') in realm '<unmapped>': provider \
                  'qoder' has no measured strict MCP configuration for '{missing}'"
-            ))
+            )
         );
     }
     let boxed = qoder_workspace();
@@ -983,19 +992,32 @@ fn si2_admits_a_qoder_seat_without_hands_and_refuses_it_boxed() {
     let mut body: Value = serde_json::from_slice(&std::fs::read(&office).unwrap()).unwrap();
     body["hands"] = json!("workspace");
     std::fs::write(office, body.to_string()).unwrap();
+    let Err(refused @ CompileError::Invalid(_)) = si2(&boxed) else {
+        panic!("a boxed qoder seat compiled or was refused otherwise");
+    };
     assert_eq!(
-        si2(&boxed).map(drop),
-        Err(
-            "bundle: seat 'work': agent 'researcher' cannot be served by provider 'qoder' on \
-             model 'qoder-fast': the provider declares hands unsupported (level 1 is unboxed \
-             (#1178, decision 0075): a boxed Qoder turn, its egress and its process reach are \
-             not measured (docs/evidence/adapters/qoder-cli-1-1.md, Not measured), so a site \
-             that boxes its hands refuses this seat), so the agent's hands cannot be put in the \
-             box and the agent would run with the harness's own tools. A capability the \
-             provider cannot express fails compilation here rather than degrading silently at \
-             run time"
-                .to_string()
-        )
+        refused.to_string(),
+        "bundle: seat 'work': agent 'researcher' cannot be served by provider 'qoder' on \
+         model 'qoder-fast': the provider declares hands unsupported (level 1 is unboxed \
+         (#1178, decision 0075): a boxed Qoder turn, its egress and its process reach are \
+         not measured (docs/evidence/adapters/qoder-cli-1-1.md, Not measured), so a site \
+         that boxes its hands refuses this seat), so the agent's hands cannot be put in the \
+         box and the agent would run with the harness's own tools. A capability the \
+         provider cannot express fails compilation here rather than degrading silently at \
+         run time"
+    );
+}
+
+/// SI2 past the lifted fence on macOS (#1178; decision 0063): the record
+/// measured Linux only, so the same seat's cold shape is absent there, as
+/// a Linux shape removed is above, and it is a capability refusal.
+#[cfg(target_os = "macos")]
+#[test]
+fn si2_refuses_a_qoder_seat_on_macos_where_nothing_is_measured() {
+    assert_eq!(
+        si2_refusal(&qoder_workspace()),
+        "bundle: seat 'work' (office 'researcher') in realm '<unmapped>': provider 'qoder' has \
+         no measured strict MCP configuration for 'cold'"
     );
 }
 
