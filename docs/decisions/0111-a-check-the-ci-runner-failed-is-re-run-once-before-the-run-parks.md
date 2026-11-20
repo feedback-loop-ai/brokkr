@@ -93,30 +93,30 @@ Why that holds at HEAD:
   `review` decision (`scripts/delivered-by-brokkr.sh:197-200`, `:265-267`), never a gate's
   inputs, so a `ci` decision in a shipped run's journal moves no tier.
 
-**The outcomes beyond ordinary landing, stated once.** The gate adds three, and only three:
+**The outcomes, stated once.** Nothing leaves `ci` but two roads:
 
-- **one bounded return to `implement`**, on `change`;
-- **a typed park** for a person, `infrastructure` with `origin: ci`, on `ci-infrastructure`;
-- **a `ruled` park** for a person: on `refused`, an observation that cannot be read as this pull
-  request's settled checks (ruling 3), and on `launch-untrusted`, a launch the engine refuses
-  before the spawn (ruling 2).
+- **`green`**, the gate's `pass`, which proceeds to `classify` exactly as landing's own entry
+  does (ruling 3 says when it is drawn);
+- **a `ruled` park for a person**, on everything else: a red, missing, unsettled, inadmissible,
+  incomplete, overflowed or unreadable observation, and a launch the engine refuses before the
+  spawn (ruling 2). The park names the gate's rule and carries the observation's digest
+  (ruling 7). The person reads the observation and re-runs or rules.
 
-So `green` is not a verdict. It is the absence of those three. Every other part of this
-decision points here rather than restating them. Every proof the gate takes below is a
-precision guard on the `ci-infrastructure` class, and each fails closed to "not
-infrastructure" (ruling 3); a refusal fails closed to a person's look.
+There is no outcome weaker than that park, so the rule that an unestablished fact must not
+weaken a refusal is one sentence here: **whatever is not established `green` parks.** So
+`green` is not a verdict: it is the one observation the gate does not hand to a person. Every
+other part of this decision points here rather than restating the outcomes.
 
 **Every outcome of a wrong or forged observation is bounded:**
 
 | A wrong … | Costs |
 |---|---|
 | `green` | landing as it is today: review, ship, and the forge's required checks at merge |
-| `ci-infrastructure` | a typed park a person reads before re-running |
-| `change` | one implement visit, under `fast`'s existing implement bound (ruling 6) |
-| `refused` | a `ruled` park a person reads |
+| park | a person's look |
 
-No row reaches a seat's input as authority either: later seats receive no projection of the
-observation (ruling 6's projection).
+The gate grants nothing, then: a wrong `green` reaches only what landing without the gate
+reaches, and a wrong park reaches only a person. No row reaches a seat's input as authority
+either: later seats receive no projection of the observation (ruling 6's projection).
 
 **What this is not.** A change that weakens CI's own verdict, such as `deny.toml` widened to
 admit a licence, is green on the forge as well. That is landing's existing exposure, and review
@@ -128,10 +128,10 @@ claim to close it.
 table, less every rule whose `from` is `ci`, its `initial` and its `ci` phase, equals
 `landing`'s composed table rule for rule); and
 `nothing_in_the_recipes_or_seat_scripts_reads_the_ci_phases_result` (a search of every recipe's
-bundle, policy and scripts, and of `scripts/`, for `ci_class`, the three class flags and a
+bundle, policy and scripts, and of `scripts/`, for `ci_observation`, `ci_green` and a
 `from: ci` decision finds only the rules whose `from` is `ci`). Both derive the `ci` rows from
-the composed table itself, never from a count, so they agree with ruling 6's table, five rows
-today, whatever it holds. A text search
+the composed table itself, never from a count, so they agree with ruling 6's table, whatever it
+holds. A text search
 cannot prove what a seat reads, because a seat reads its built input, not the tree; so the
 consumer input is tested too, over the engine's own input builder, by ruling 6's projection
 tests.
@@ -629,17 +629,14 @@ It is parsed once at the edge, with unknown fields refused (0071 ruling 3). An u
 conclusion word refuses by name. Whether the forge reports a workflow job's key, as the workflow
 file spells it, is unmeasured until 0111a's evidence; if it does, the observation carries it.
 
-**`ci-infrastructure` needs this pull request's run.** HEAD's workflow keys its concurrency by
-ref (`.github/workflows/ci.yml:19-27`) and reads pull-request-specific data, the body and the
+**`green` needs this pull request's run.** HEAD's workflow keys its concurrency by ref
+(`.github/workflows/ci.yml:19-27`) and reads pull-request-specific data, the body and the
 labels, into a required job (`:78-102`, where the `by-hand` label changes its outcome). So two
 pull requests that share a head can each produce a run on it, with different results, and a run
-keyed only by workflow path, event and head may be the other one's. Under the frame, another
-pull request's run buys nothing a `green` buys; what it could buy is a park drawn from someone
-else's setup fault. So the association is a precision guard on that one class, and a
-withholding when unproven, never a refusal. **Recommended: (a) an Actions execution counts
-toward `ci-infrastructure` only when the forge positively associates it with this pull request,
-and with no other.** The field is the workflow run's `pull_requests` array, each element naming a pull
-request's `number` and its `head` and `base` with `ref` and `sha`
+keyed only by workflow path, event and head may be the other one's. **Recommended: (a) an
+Actions execution counts toward `green` only when the forge positively associates it with this
+pull request, and with no other.** The field is the workflow run's `pull_requests` array, each
+element naming a pull request's `number` and its `head` and `base` with `ref` and `sha`
 (<https://docs.github.com/en/rest/actions/workflow-runs#get-a-workflow-run>); a check run
 carries the same array (<https://docs.github.com/en/rest/checks/runs#get-a-check-run>). The
 field is named from that documentation; this seat read neither page, so its live contents are
@@ -656,24 +653,22 @@ request's. An execution is admitted only when:
   (fix round 1093r4's rule read only the open list, so an array naming A and a since-closed B
   fitted A).
 
-Otherwise the execution is not admitted, and `association-unproven` withholds the class, naming
-the run, or `association-ambiguous`, naming every pull request the array names. A failure in
-an unadmitted execution is still a failure: it makes the observation `change` (ruling 4), and
-an all-success observation is still `green`. Refused alternatives: **(b)**
-matching by workflow path, event and head alone, which is fix round 1093r3's key and admits the
-other pull request's run; and **(c)** matching by the merge commit's parents, which cannot tell
-two pull requests with the same base and head apart.
+Otherwise the execution is not admitted, and the observation parks, naming
+`association-unproven` and the run, or `association-ambiguous` and every pull request the array
+names. Refused alternatives: **(b)** matching by workflow path, event and head alone, which is
+fix round 1093r3's key and admits the other pull request's run; and **(c)** matching by the
+merge commit's parents, which cannot tell two pull requests with the same base and head apart.
 
 **Commit statuses are not admitted as required evidence.** A status names a context, a state
 and a creator, and attests no revision: nothing in it says what its producer tested
 (<https://docs.github.com/en/rest/commits/statuses>). HEAD's required checks are all Actions
 jobs: each of the twelve contexts `.github/branch-protection.json:7-20` records (observed
 2026-09-26, its `:3`) is a job's display name in `.github/workflows/ci.yml` or, for
-`mutants in the diff: brokkr-core`, in `.github/workflows/mutants.yml:42`. So `required_checks` admits no `status` entry: the compile refuses one,
-and where the forge's own required set names a status context, `status-required` withholds
-`ci-infrastructure`: the gate cannot read that requirement, so the failure set it sees is not
-known to be complete. Admitting statuses is a follow-up that needs a revision
-attestation the forge does not give a status.
+`mutants in the diff: brokkr-core`, in `.github/workflows/mutants.yml:42`. So `required_checks`
+admits no `status` entry: the compile refuses one, and where the forge's own required set names a
+status context, the observation parks as `status-required`: the gate cannot read that
+requirement, so it cannot establish that every required check succeeded. Admitting statuses is a
+follow-up that needs a revision attestation the forge does not give a status.
 
 **The required set.** **Recommended: (a) a recipe-declared `required_checks` list, pinned by
 the compiled bundle outside the change, each entry bound to its producer.**
@@ -692,10 +687,10 @@ the compiled bundle outside the change, each entry bound to its producer.**
   Where the observer can also read the forge's own required set for the base branch
   (branch protection, <https://docs.github.com/en/rest/branches/branch-protection>, or rulesets,
   <https://docs.github.com/en/rest/repos/rules>), every check the forge requires must be in the
-  declared list, or `required-set-disagrees` withholds `ci-infrastructure`, for the same reason.
-  The forge's set can only widen what the class needs, never narrow it. The token scope that read needs is unmeasured;
-  where it is unread, the observation records `forge_required: unread`, and the pinned list
-  alone governs. Cost: one more list for the operator to keep.
+  declared list, or the observation parks as `required-set-disagrees`, for the same reason. The
+  forge's set can only widen what `green` needs, never narrow it. The token scope that read needs
+  is unmeasured; where it is unread, the observation records `forge_required: unread`, and the
+  pinned list alone governs. Cost: one more list for the operator to keep.
 - **(b) The forge's branch protection alone.** It is outside the change, but a repository
   administrator can change it at any time, the read needs an administration scope (unmeasured),
   and an unprotected branch yields an empty set, which must refuse. So an adopter without
@@ -1103,139 +1098,81 @@ finds no such field, the decision is revised before acceptance, and the acceptan
 delivered on GitHub. That fails closed: every such observation is a person's `ruled` park,
 never a weaker class.
 
-**When `green` is drawn.** `green` grants nothing
+**When `green` is drawn, and everything else parks.** `green` grants nothing
 ([The gate grants nothing](#the-gate-grants-nothing)); the rule below says only when the gate
-proceeds without either new outcome. The engine draws `green` only when all of these hold:
+proceeds instead of handing the observation to a person. This is its one home. The engine
+draws `green` only when every one of these is **established**: read, inside its bound, from the
+source it names, and true.
 
-- the observation's repository, pull request and head equal the run's pinned repository, the
-  pull request the gate names and the engine's own git head;
-- every entry of `required_checks` in the entry set (ruling 6) is matched by exactly one settled
-  check from its bound producer, in that producer's current execution;
-- each matched check's conclusion is `success`;
-- **no required failure is observed inadmissible** (below): no check that carries the name of
-  an entry in the entry set from another producer, and no context the forge's own required set
-  names, other than one an `"after": "ship"` entry declares, has concluded red.
+1. **The binding.** The observation's repository (owner, name and id), pull request and gated
+   head equal the run's pinned repository, the pull request the gate names and the engine's own
+   git head; and the forge's `head.sha` for the pull request is that head, so the head is
+   published.
+2. **A complete inventory.** The forge's check list for the head and each key's run list
+   (below) were each read to their last page, inside the observation's bounds, with no page
+   unread; and the forge reports at least one check for the head.
+3. **Every required entry matched once, currently.** Every entry of `required_checks` in the
+   entry set (ruling 6) has exactly one **eligible current match**: a check from its bound
+   producer (its app, workflow path, job and event) in that producer's current execution, the
+   one run attempt defined below. A check from the same producer in another run, or in another
+   attempt of the current run, is **stale**, whatever it concluded, and never counts.
+4. **Settled success.** Each match's status is `completed` and its conclusion `success`.
+5. **This pull request's single association.** Each current execution's `pull_requests` names
+   this pull request and no other, with `head.sha` the gated head and `base.sha` the base the
+   observation names.
+6. **The revision proven tested.** Each current execution's tested revision is established as
+   its entry's `tested` word requires (below).
+7. **No red the gate cannot read.** No check under an entry-set entry's name from another
+   producer has concluded red; the forge's own required set, where it was read, names no commit
+   status and no context the pinned list lacks, other than one an `"after": "ship"` entry
+   declares.
+8. **A readable observation from a trusted launch.** The launch passed ruling 2's rules, and
+   the observation parsed under its contract, inside its bound.
 
-**Present, absent and inadmissible are told apart.** A required entry is **present** only by an
-**eligible current match**: a check from its bound producer (its app, workflow path, job and
-event) in that producer's current execution, the one run attempt defined below. Nothing else
-makes it present. A check from the same producer in another run, or in another attempt of the
-current run, is **stale**, whatever it concluded: a stale `success` never satisfies the entry,
-and a stale red is never an observed inadmissible failure (below), so neither moves the entry
-from absent. A required entry with no eligible current match is **absent**, whatever else
-carries its name, and so is a forge-required context no current observation reports. A
-required failure is
-**observed but inadmissible** when a check or status the gate cannot admit carries the
-required name: a check under the
-entry's name from another app, workflow path or event (`producer-mismatch`); a commit status
-the forge requires (`status-required`); a context the forge requires that the pinned list lacks
-(`required-set-disagrees`). An inadmissible check whose conclusion is red, `failure`,
-`cancelled`, `timed_out` or `startup_failure`, is an **observed inadmissible failure**. It
-outranks `green`, and the entry under whose name it is reported is not missing:
-`missing-required`'s own predicate is false for that entry
-([No refusal weakens](#no-refusal-weakens)), so the observation is `change`, never `green` and
-never refused for that entry's absence. It outranks no other refusal: another entry absent
-beside it still refuses. So a red commit status in the forge's required set beside every
-pinned entry green is `change`; and a sole red check under a required entry's name from another
-workflow is `change` with `producer-mismatch`, never `missing-required`. An inadmissible check
-that succeeded changes nothing: the entry is still matched or absent on its own.
+**Whatever is not established `green` parks.** There is no weaker outcome to fall to, so no
+precedence among the unmet conditions is needed: the engine names every one that is unmet, or
+unestablished, in one closed word each, and parks. The words, each naming what it reads:
 
-The association and the tested revision's comparisons are not in that rule: they are precision
-guards on `ci-infrastructure` alone, and an all-success observation whose association is
-unproven, or whose revisions disagree, proceeds as landing does without the gate. The two sources
-are not guards: an observation whose event workflow or closure tree is not established refuses
-as `source-unestablished` ([No refusal weakens](#no-refusal-weakens)).
+| Word | Unmet, or not established |
+|---|---|
+| `unrelated` | the repository, the pull request or the head differs from the binding (1) |
+| `head-unpublished` | the forge's head for the pull request is not the engine's git head (1) |
+| `inventory-incomplete` | a check or run list was not read to its last page, or overflowed its bound; it names the list, the pages read and the overflow witness (2) |
+| `empty` | the forge reports no check for the head (2) |
+| `missing-required` | an entry has no eligible current match; a stale check never makes it present (3) |
+| `ambiguous-required` | an entry matches more than one check in its current run attempt (3) |
+| `execution-ambiguous` | an entry's current execution cannot be told, as below (3) |
+| `not-settled` | a match is still queued or in progress when the observer's polling bound ends (4) |
+| `not-success` | a match concluded anything but `success`; it names the check and the word, so a red, a cancelled and a skipped check are each named (4) |
+| `association-unproven` | a current execution's association does not name this pull request, its head and its base, or is empty (5) |
+| `association-ambiguous` | an association names more than one pull request, open or closed (5) |
+| `revision-unproven` | a current execution's tested revision is not established (6) |
+| `revision-disagrees` | one of the tested revision's separate comparisons fails; it names the two values (6) |
+| `producer-mismatch` | a check under an entry's name from another producer concluded red (7) |
+| `status-required` | the forge's required set names a commit status context (7) |
+| `required-set-disagrees` | the forge requires a context the pinned list lacks (7) |
+| `observation-too-large`, `observation-unreadable` | the observation's edge refused it: over its bound, not UTF-8, an unknown field or word, or a missing field (8) |
+| `launch-untrusted` | the launch failed a rule of ruling 2 before the spawn, naming the rule (8) |
+
+A fact a condition reads that is absent, overflowed, unproven, ambiguous or parsed from another
+source is not established, so its condition is unmet; the observation's contract carries each
+such fact as a value or as the typed `unread` with the observer's reason, never a default, and
+each paged list carries whether it was read to its last page. A replay of the judgment, live or
+from the journal, takes the one function over the one observation, so the words it names are
+the words named live.
 
 The **current execution** of an Actions entry is the workflow run with the highest run number
 among those the forge lists for its workflow path, its event and the head, read at its highest
-attempt. Any other run for that key still queued or in
-progress, or a run list the observer could not read whole, refuses as `execution-ambiguous`.
-The sealed observation holds each check's run id and attempt and each key's whole run list, so
-a replay re-derives which match is current, and which is stale, from the journal alone.
+attempt. Any other run for that key still queued or in progress, or a run list the observer
+could not read whole, is `execution-ambiguous`. The sealed observation holds each check's run id
+and attempt and each key's whole run list, so which match is current, and which stale, is
+re-derived from the journal alone.
 
-Nothing short of that is `green`.
-
-#### No refusal weakens
-
-This is the one home of the rule; every refusal below, and every step of ruling 4, cites it.
-Fix rounds 1093r6 and 1093r7 each found a case where a fact a refusal should read was lost or
-read from the wrong source (a stale green, then the head's matrix in place of the event
-workflow's), so the run fell through to a weaker class and a person's ruled park became an
-implement visit. Fixing each case alone leaves the next open, so the class is designed out once.
-**Recommended: (a) refusals first, and an unestablished fact refuses.**
-
-- **The refusal predicates are evaluated first,** every row of the table below, in its order,
-  over facts sealed inside their bounds (the observation, and the basis's required list,
-  comparison values and instance table). Every row that holds is named.
-- **A fact a refusal predicate reads that is absent, overflowed, unproven, ambiguous, or parsed
-  from a source other than the established one makes that predicate hold.** The run refuses,
-  routed `CI-REFUSED`, with the row's word and a typed `unestablished` qualifier naming the fact
-  and its state, one of `absent`, `overflowed`, `unproven`, `ambiguous` or `wrong-source`. It
-  never falls through to a weaker class.
-- **A weaker class, `change`, `ci-infrastructure` or `green`, is drawn only when every refusal
-  predicate is established false:** every fact its row names is sealed, inside its bound, from
-  the source its row names, and the predicate evaluates false over them.
-
-So the observation's contract carries each fact a row reads as a value, or as the typed `unread`
-with the observer's reason, never a default; a paged list carries whether it was read to its last
-page; and each parsed fact carries the identity of the source it was parsed from, so a replay
-checks the source as well as the value. An observation that lacks a field its contract requires
-never reaches the table: the edge refuses it (ruling 3's parse), and the engine draws `refused`
-with the edge's word, `observation-too-large`, or `observation-unreadable` naming the field, the
-unknown word or the fifth excerpt. Those are journaled as the gate's refusal, as
-`launch-untrusted` is, and a replay reads them there.
-
-The withholdings are not refusals, and this rule does not reach them: an unestablished fact a
-withholding reads already withholds, and fails closed to "not infrastructure". What this rule
-guards is the one direction the frame does not: a refusal turned into `change`, which buys an
-implement visit where a person's park was owed.
-
-Cost, said plainly: an observation refuses wherever a fact is unknown, `green` included. Until
-0111a measures how the forge names a matrix instance, and which fields record the revision a
-run's workflow was read from and the commit a job checked out, every observation whose entry set
-reaches a matrix job, or a `merge` entry, refuses; no live compile admits a `ci` seat before
-0111e, which follows 0111a, and if 0111a finds either unmeasurable the decision is revised before
-acceptance. An adopter whose
-matrix is built by an expression cannot use the gate. **(b)** keeping each case's own fix, as fix rounds
-1093r6 and 1093r7 did, is not taken: it leaves the next case open.
-
-**The order, stated once.** `classify` takes these in this order, live and on replay alike, over
-the one sealed observation and basis; ruling 4's numbered steps are this order and no other:
-
-1. **every refusal predicate** of the table below, `missing-required` and `non-success`
-   included: **`refused`**, naming every one that holds, each observed or `unestablished`;
-2. **the explicit exception**, an observed inadmissible failure: **`change`**, with
-   `inadmissible-failure`, because it is observed and red. It outranks no refusal:
-   `missing-required`'s own predicate is false for an entry under whose name it is reported,
-   and `non-success`'s is false wherever a red is observed;
-3. then the classes: `green`, the withholdings, and the failure set.
-
-So a required check that is missing beside an otherwise classifiable failure refuses as
-`missing-required`; it is never typed. A required audit with no check in its current run, an
-older same-producer `success` on the same head, and a second, eligible required job with an
-ordinary failed test is `refused`, `missing-required`, routed `CI-REFUSED`: the stale success
-never makes the audit present, and the test failure is never reached. The same holds when the
-second job's failure is all-setup: `refused`, never `ci-infrastructure`.
-
-The refusal predicates, each with the facts it reads, where each is sealed, and its unestablished
-outcome. *Observation* is the sealed `ci_observation`; *basis* is the `ci_class` record's basis.
-
-| Refusal | Holds when | Facts it reads, and where each is sealed | Unestablished |
-|---|---|---|---|
-| `unrelated` | the repository, the pull request or the head differs from the binding | the repository's owner, name and id, the pull request's number and the gated head (observation); the run's pinned repository, the gate's pull request and the engine's git head (basis, comparison values) | `unrelated`, naming the fact |
-| `head-unpublished` | the forge's head for the pull request is not the engine's git head: the head the run would gate is not the one pushed | the forge's `head.sha` (observation); the engine's git head (basis) | `head-unpublished`, naming the fact |
-| `empty` | the forge reports no check for the head | the check list, and whether it was read to its last page (observation) | `empty`, `absent`, when no check was read and the list was not read whole |
-| `missing-required` | a required entry has no eligible current match, a check from its bound producer in its current run attempt, and no observed inadmissible failure is reported under its name; a stale same-producer check of any conclusion never counts; it names the entry | the pinned required list (basis); the check list, read whole, each check's producer, run id and attempt, and each key's whole run list (observation) | `missing-required`, naming the entry and the fact |
-| `ambiguous-required` | a required entry matches more than one check in its current execution | the same facts as `missing-required` | `ambiguous-required`, naming the entry and the fact |
-| `execution-ambiguous` | a required entry's current execution cannot be told, as above | each key's whole run list, with each run's status and attempt (observation) | `execution-ambiguous`, naming the key |
-| `source-unestablished` | a source the classifier parses or resolves against is not established as the one GitHub ran (ruling 3's two sources): a current run's event workflow, or a judged job's closure tree | each current run's reported workflow revision, its workflow path and that file's blob id, and each judged job's one proven checkout and its commit (observation; sealed again in the basis's instance table) | `source-unestablished`, naming the run or the job and which source |
-| `instance-duplicated` | one expected matrix instance's key is observed more than once in one run attempt; it names the key and the jobs | each matrix dependency's expected instance keys, parsed from the event workflow, with that source's identity, and the forge's instance naming (basis, instance table); each observed job's name, run id and attempt (observation) | `instance-duplicated`, naming the dependency and the fact: an unexpandable matrix, unmeasured naming, or an instance table parsed from another source |
-| `instances-too-large` | the instance table exceeds its bound, so `instance-duplicated` cannot be decided; it names the measured count | the instance table's overflow witness (basis) | this row is the `overflowed` state of `instance-duplicated`'s fact, and holds whenever the witness does |
-| `not-settled` | a required check is still queued or in progress when the observer's own polling bound ends, short of the seat's deadline | each matched check's status (observation) | `not-settled`, naming the check |
-| `non-success` | no check in the failure set and no observed inadmissible failure is red, and a matched required check concluded `neutral`, `skipped`, `stale` or `action_required`; it names the check and the word | each matched check's conclusion, and every red the observation holds (observation) | `non-success`, naming the check |
-
-A refusal never passes. It is the frame's `ruled` park
-([stated once](#the-gate-grants-nothing)), with the rule's id and the refusals' words.
+So a required audit with no check in its current run, an older same-producer `success` on the
+same head, and a second required job with an ordinary failed test parks, naming
+`missing-required` for the audit and `not-success` for the test: the stale success never makes
+the audit present. Fix rounds 1093r6 to 1093r8 each found a case where such a fact fell through
+to a weaker class; with none below the park, there is nowhere for it to fall.
 
 **What withholds `ci-infrastructure`.** A withholding is not a refusal: it parks nothing and
 stops nothing landing would do. Each is a precision guard on the one class, and fails closed to
@@ -1721,47 +1658,39 @@ that edits `ci-checks.json` changes the next run's list, by the operator's compi
 
 ### 6. Each outcome, and every route
 
-**Recommended: (a) a pass proceeds; a runner fault parks typed for a person; anything else is
-the change's, under the shared implement bound.**
+**Recommended: (a) a pass proceeds; everything else parks for a person.**
 
-The class a table sees is closed: `green`, `ci-infrastructure`, `change` or `refused`. A seat
-cannot write any of them.
+The judgment a table sees is closed: `green`, or not. A seat cannot write it.
 
 - **`green`**: the gate's `pass`; the run proceeds to `classify`, exactly as landing's own entry
   does, and nothing later reads it ([The gate grants nothing](#the-gate-grants-nothing)).
-- **`ci-infrastructure`**: the run parks, typed (ruling 7), with the faults as its evidence, and
-  no diagnosis seat attempt is spent beyond the `ci` gate's own exec attempt. A person reads
-  the evidence and re-runs.
-- **`change`**: routed exactly as a red gate is today, to `implement`.
-- **`refused`** (ruling 3): parks `ruled`.
+- **Everything else**: the run parks `ruled` for a person (ruling 7), naming every unmet
+  condition (ruling 3), with no seat attempt beyond the `ci` gate's own exec attempt. The person
+  reads the observation and re-runs or rules.
 
-These are the frame's three outcomes beyond ordinary landing
-([stated once](#the-gate-grants-nothing)), and `green`.
+These are the frame's two roads ([stated once](#the-gate-grants-nothing)).
 
 **The `ci` result's projection.** A rule is not the only reader of a phase's result: a seat
 reads its built input. HEAD hands every seat but triage its run context: `last_decision`, the
 decision that brought it here; `results`, the result and inputs of every phase earlier in the
 table's order; and, on a return, `returned_from` (`crates/brokkr-runtime/src/engine/input.rs:110-168`).
 A phase result carries its decision's inputs (`crates/brokkr-core/src/decision.rs:113-126`).
-Unchanged, that would hand `ci_observation`, `ci_class` and its flags to `classify` (its
-`last_decision` after `CI-PASS`) and to `verify`, `review` and `ship` (`results.ci`, because
-`ci` precedes them in the order above), where a model reviewer could weigh a `pass` as CI's
-verdict. **Recommended: (a) the projection is fixed, in the one input builder:**
+Unchanged, that would hand `ci_observation` and `ci_green` to `classify` (its `last_decision`
+after `CI-PASS`) and to `verify`, `review` and `ship` (`results.ci`, because `ci` precedes them
+in the order), where a model reviewer could weigh a `pass` as CI's verdict. **Recommended: (a)
+the projection is fixed, in the one input builder:**
 
 - `results` never holds `ci`, for any seat;
 - a `last_decision` or `returned_from` whose phase is `ci` carries its rule id and result word,
   and no `ci_*` input;
-- with one exception: `implement`, entered by `CI-FAIL`, receives `ci_class` alone, the class
-  `change`, its closed reason, and the workflow run's id and attempt and each failed job's id, so
-  it knows what to read on the forge. That is a reason to work, not a verdict to rely on, and it
-  is typed and bounded;
-- no seat ever receives `ci_observation`. The review seat receives nothing of `ci` on any road.
+- no seat ever receives `ci_observation` or `ci_green`. The review seat receives nothing of `ci`
+  on any road.
 
-So the `ci` result has exactly one projection, the class to `implement` after `CI-FAIL`, and
-nothing a later seat reads can stand for CI's verdict. **(b)** projecting it unchanged: a model
-seat would read the observation and a `green` it could take as authority. Not recommended.
-**(c)** projecting nothing, `implement` included: the implementer would diagnose a red CI
-without the job ids a person would give it. Not recommended.
+So the `ci` result has no projection, and nothing a later seat reads can stand for CI's
+verdict. No seat needs one: the only road out of `ci` to a seat is `CI-PASS`, and a park's
+evidence is for a person, who reads it through `inspect` (ruling 9). **(b)** projecting it
+unchanged: a model seat would read the observation and a `green` it could take as authority.
+Not recommended.
 
 **A deterministic match.** Under ruling 4 (a), where several of a step's literals matched, the
 classifier takes the first matched pattern in the list's declaration order. The fault carries
@@ -1941,87 +1870,29 @@ route or cause remains for it.
 
 ### 7. The park's cause
 
-**Recommended: (b) `infrastructure` with a closed `origin`, a field of its own, under
-`park-cause/v2`.**
+**Recommended: (a) 0106's existing `ruled`, naming the gate's rule and carrying the
+observation's digest.**
 
-**`kind` is taken.** `park-cause/v1` already discriminates its four causes by a mandatory
-`kind`: the infrastructure arm is `{"kind": "infrastructure", "retryable": …, "detail": …}`,
-with `additionalProperties: false` (`contracts/park-cause.v1.schema.json:45-58`), and HEAD
-serializes `ParkCause` with `#[serde(tag = "kind")]` (`crates/brokkr-core/src/park.rs:35-36`).
-So the subtype cannot also be `kind`, and fix round 1093r5's "a v1 cause with no `kind` reads
-`engine`" could never hold: every v1 cause has one. The subtype gets a distinct field.
+- **(a) `ruled`.** HEAD's park arm already writes a table park as `ruled` with the matched
+  rule's id (`crates/brokkr-runtime/src/engine/cursor.rs:369`; the variant is
+  `crates/brokkr-core/src/park.rs:40-45`, a `rule_id` and a `detail`). The gate's park is a table
+  park, so its cause is `ruled` with the id of the gate's park rule (ruling 6), and its `detail`,
+  the park's reason, names the sealed observation's SHA-256 and the unmet words (ruling 3), the
+  first words that fit inside the reason's bound of 256 bytes
+  (`crates/brokkr-core/src/summary.rs:53`), with a count of the rest. The cause's shape is
+  `park-cause/v1`'s, unchanged, so no contract moves and every reader of a cause reads it as it
+  reads every rule park. It is what the park is: a person's ruling is owed, and the rule that
+  owed it is named. The full list of unmet words is `inspect`'s, from the sealed observation
+  (ruling 9).
+- **(b) `infrastructure` with `origin: ci`, under a `park-cause/v2`.** Not taken. It claims a
+  class, a runner fault, that the gate no longer draws: the gate parks a port bind, a red test
+  and an unread page alike, and tells none of them apart. Typing a park as the runner's waits on
+  the deferred classifier ([Deferred to a later decision](#deferred-to-a-later-decision)).
 
-- **(a) A new `ci-infrastructure` cause.** A fifth written word. Every match over `ParkCause`
-  gains an arm (`crates/brokkr-core/src/park.rs:234`, `:264`, `:276`), 0106 ruling 1's four-word
-  table becomes five, and 0106d's "only an `infrastructure` park spends" leaves it out by
-  construction. Cost: a wider change to an accepted ruling's table. It refuses nothing (b) admits.
-- **(b) `infrastructure` with `origin`.** Recommended. The infrastructure arm gains one
-  optional field, `origin`, whose only written word is `ci`, carried with a required `faults`
-  array, each fault naming its workflow, job, step, fault type (`setup-pattern` or
-  `setup-via-needs`) and pattern id. **`engine` is the reader's word for an absent `origin`,
-  and is never written**, as 0106 ruling 1 makes `unknown` the reader's word for an absent
-  cause. Every infrastructure writer today writes no `origin`, so its bytes under v2 are its
-  bytes under v1, byte for byte, and mean the same thing. The cause stays four words, the
-  readouts already paint `infrastructure`, and 0106d's rule reads unchanged: it spends only where
-  `retryable` is true (ruling 8). Cost: one closed enum of one written word inside one variant,
-  matched without a wildcard.
-- **(c) An explicit nested discriminator,** `"origin": {"kind": "engine"}` or
-  `{"kind": "ci", "faults": […]}`, written on every infrastructure park. Unambiguous too, but
-  every engine writer's bytes change, so a v1 reader refuses every infrastructure park written
-  after v2, the engine's own included. Not recommended.
-
-**The decode table, pinned.** Each object below is serialized and decoded in 0111d's tests, and
-the result is exact. The v1 reader is HEAD's frozen one. It reads the infrastructure arm with
-`retryable` and `detail` allowed, and refuses the **first** other key it meets as
-`ParkCauseError::Forbidden { kind: "infrastructure", field }`
-(`crates/brokkr-core/src/park/parse.rs:24-37`, `:137-142`), whose text is "the park cause does
-not read: a infrastructure cause forbids `<field>`" (`crates/brokkr-core/src/park/error.rs:24-26`).
-The keys come in the map's sorted order: the workspace's `serde_json` has no `preserve_order`
-feature (`Cargo.lock:2401-2411` lists no `indexmap` among its dependencies), so its `Map` is a
-`BTreeMap`, and `faults` sorts before `origin`. So an object holding both is refused for
-`faults`, never for `origin`; the origin-only extension is the control that names `origin`.
-
-| Object | v1 reader | v2 reader |
-|---|---|---|
-| `{"kind":"infrastructure","retryable":false,"detail":"d"}` | `Infrastructure { retryable: false }` | `Infrastructure { origin: Engine, retryable: false }` |
-| `{"kind":"infrastructure","origin":"ci","retryable":false,"detail":"d","faults":[…]}` | `Forbidden { kind: "infrastructure", field: "faults" }` | `Infrastructure { origin: Ci { faults }, retryable: false }` |
-| `{"kind":"infrastructure","origin":"ci","retryable":false,"detail":"d"}` (origin only) | `Forbidden { kind: "infrastructure", field: "origin" }` | refused by name: `origin: ci` requires `faults` |
-| `{"kind":"infrastructure","origin":"ci","retryable":false,"detail":"d","faults":[]}` | `Forbidden { kind: "infrastructure", field: "faults" }` | refused by name: `faults` is empty |
-| `{"kind":"infrastructure","origin":"engine","retryable":false,"detail":"d"}` | `Forbidden { kind: "infrastructure", field: "origin" }` | refused by name: `engine` is never written |
-| `{"kind":"infrastructure","retryable":false,"detail":"d","faults":[…]}` (no `origin`) | `Forbidden { kind: "infrastructure", field: "faults" }` | refused by name: `faults` needs `origin: ci` |
-| `{"kind":"infrastructure","origin":"ci","retryable":true,"detail":"d","faults":[…]}` (valid faults) | `Forbidden { kind: "infrastructure", field: "faults" }` | refused: `a ci infrastructure park cause is never retryable` |
-| `{"kind":"infrastructure","retryable":true,"detail":"d"}` (legacy, no `origin`) | `Infrastructure { retryable: true }` | `Infrastructure { origin: Engine, retryable: true }` |
-
-**A CI cause is never retryable, at the schema and at decode.** HEAD's parser accepts either
-boolean for an engine infrastructure cause, and that stays. Under `origin: ci`,
-`park-cause/v2`'s schema holds `retryable` to `{"const": false}`, and v2's decode refuses
-`true` with the typed error whose text the row above pins, before any reader sees the cause.
-The writer this decision specifies already emits `false` (ruling 8); the refusal keeps a
-hand-written or tampered cause from spending 0106d's budget.
-
-No object decodes under both readers to two different meanings: the only object both read is
-the v1 shape, and both read it as the engine's.
-
-**The typed park matches its own rule explicitly.** A park is not typed because its inputs
-happen to carry the class. The compile marks, in a table whose recipe declares a `ci` seat,
-exactly one rule as the CI-infrastructure park: the park rule `from` the `ci` phase whose `when`
-is exactly `{"ci_infrastructure": true}`. It refuses a table with none, or with more than one.
-The engine's park arm (`crates/brokkr-runtime/src/engine/cursor.rs:361-371`) gains one case. It
-writes `infrastructure { origin: ci, retryable: false }`, with its faults, instead of `ruled` only
-when all three hold:
-
-- the park is a table park, `ParkReason::Stated` with a matched rule id (`:368`);
-- the matched rule is the one the compile marked;
-- the deciding inputs' `ci_class` is `ci-infrastructure`.
-
-A different table park that carries the same class does not write it. An operator's rule placed
-above the marked one, such as a park on `ci_infrastructure: true` with a counter beside it, stays
-`ruled`, and so does every refusal. A closed indeterminate end keeps HEAD's `infrastructure` arm
-(`:364-366`). The rule id stays in the decision beside the cause, where
-0106 says a rule park's rule already lives.
-
-On acceptance, 0106's header and this one's gain the pointer pair for ruling 1's cause gaining
-`origin`, under the errata rule for back-pointers.
+A `ruled` park is never retryable under 0106, and spends nothing of 0106d's budget, which is
+spent only on an `infrastructure` park with `retryable` true
+(`docs/decisions/0106-a-park-names-its-cause-a-held-wait-and-a-budget.md:250-252`, `:667-683`). So
+no reading of this park in that budget needs a ruling of its own.
 
 ### 8. How a CI park reads in 0106d's budget
 
