@@ -8,7 +8,7 @@
 use serde_json::{Map, Value};
 
 use super::{
-    bounded_reason, invalid, named, object, only_keys, resume_evidence, resume_identity, string,
+    bounded_reason, named, object, only_keys, resume_evidence, resume_identity, string,
     string_array, LibraryError, ResumeEvidence, ResumeIdentity, ResumeShape, ResumeStatus,
 };
 
@@ -29,7 +29,7 @@ pub(super) fn shape(value: &Value, what: &str) -> Result<ResumeShape, LibraryErr
         ],
         what,
     )?;
-    let status = status(raw, what)?;
+    let status = status(raw, what).map_err(refused)?;
     let identity = resume_identity(raw, what)?;
     let classes = string_array(raw, "classes", what)?;
     named(&classes, "classes", what)?;
@@ -38,7 +38,7 @@ pub(super) fn shape(value: &Value, what: &str) -> Result<ResumeShape, LibraryErr
     let evidence = resume_evidence(raw, what)?;
     let limitations = limitations(raw, what)?;
     let reason = reason(raw, what)?;
-    enablement(status, &identity, &evidence, reason.as_deref(), what)?;
+    enablement(status, &identity, &evidence, reason.as_deref(), what).map_err(refused)?;
     Ok(ResumeShape {
         status,
         identity,
@@ -51,19 +51,45 @@ pub(super) fn shape(value: &Value, what: &str) -> Result<ResumeShape, LibraryErr
     })
 }
 
+/// Why a shape's status, or one of its two enablement rules, refused it:
+/// one variant per check, so a test can tell which one fired. Its text is
+/// the operator's, and `shape` turns it into `LibraryError::Invalid`.
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+enum ResumeRefusal<'a> {
+    #[error("{what} needs 'status': one of unmeasured, unsupported, supported")]
+    Status { what: &'a str },
+    #[error(
+        "{what} is 'supported' with an unknown identity; only a MEASURED identity \
+         can support enablement, because the per-invocation version check needs a \
+         pinned version to compare the observed one against"
+    )]
+    UnknownIdentity { what: &'a str },
+    #[error(
+        "{what} is 'supported' and must name all four evidence references — \
+         interface, restrictions, root, accounting; one of them does not imply \
+         the others"
+    )]
+    IncompleteEvidence { what: &'a str },
+    #[error(
+        "{what} is 'unsupported' and needs its measured 'reason'; \"we looked and it \
+         cannot\" is a different statement from \"nobody looked\""
+    )]
+    NoReason { what: &'a str },
+}
+
+/// The one place a refusal becomes the library's text.
+fn refused(refusal: ResumeRefusal<'_>) -> LibraryError {
+    LibraryError::Invalid(refusal.to_string())
+}
+
 /// One of the three tokens, and nothing else.
-fn status(raw: &Map<String, Value>, what: &str) -> Result<ResumeStatus, LibraryError> {
-    let status = match raw.get("status").and_then(Value::as_str) {
-        Some("unmeasured") => ResumeStatus::Unmeasured,
-        Some("unsupported") => ResumeStatus::Unsupported,
-        Some("supported") => ResumeStatus::Supported,
-        _ => {
-            return invalid(format!(
-                "{what} needs 'status': one of unmeasured, unsupported, supported"
-            ))
-        }
-    };
-    Ok(status)
+fn status<'a>(raw: &Map<String, Value>, what: &'a str) -> Result<ResumeStatus, ResumeRefusal<'a>> {
+    match raw.get("status").and_then(Value::as_str) {
+        Some("unmeasured") => Ok(ResumeStatus::Unmeasured),
+        Some("unsupported") => Ok(ResumeStatus::Unsupported),
+        Some("supported") => Ok(ResumeStatus::Supported),
+        _ => Err(ResumeRefusal::Status { what }),
+    }
 }
 
 /// The measured limitations, each a bounded line; absent is none.
@@ -92,34 +118,26 @@ fn reason(raw: &Map<String, Value>, what: &str) -> Result<Option<String>, Librar
 }
 
 /// The two rules that keep a declaration from enabling itself.
-fn enablement(
+fn enablement<'a>(
     status: ResumeStatus,
     identity: &ResumeIdentity,
     evidence: &ResumeEvidence,
     reason: Option<&str>,
-    what: &str,
-) -> Result<(), LibraryError> {
+    what: &'a str,
+) -> Result<(), ResumeRefusal<'a>> {
     if status == ResumeStatus::Supported {
         if !identity.is_measured() {
-            return invalid(format!(
-                "{what} is 'supported' with an unknown identity; only a MEASURED identity \
-                 can support enablement, because the per-invocation version check needs a \
-                 pinned version to compare the observed one against"
-            ));
+            return Err(ResumeRefusal::UnknownIdentity { what });
         }
         if !evidence.complete() {
-            return invalid(format!(
-                "{what} is 'supported' and must name all four evidence references — \
-                 interface, restrictions, root, accounting; one of them does not imply \
-                 the others"
-            ));
+            return Err(ResumeRefusal::IncompleteEvidence { what });
         }
     }
     if status == ResumeStatus::Unsupported && reason.is_none() {
-        return invalid(format!(
-            "{what} is 'unsupported' and needs its measured 'reason'; \"we looked and it \
-             cannot\" is a different statement from \"nobody looked\""
-        ));
+        return Err(ResumeRefusal::NoReason { what });
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests;
