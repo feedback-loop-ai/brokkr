@@ -175,21 +175,123 @@ fn inspect_with(
     let lens = brokkr_view::lens_for(&view, scope.as_ref())
         .map_err(|error| anyhow::Error::msg(render::scope_refusal(&error)))?;
     let frame = render::inspect(&view, lens.as_ref(), true, &now, &render::Style::detect());
-    // The verdicts block reads every gate verdict the journal records, a
+    // The verdicts block reads the gate verdicts the journal records, a
     // sequence step's checkpoint and a panel member's marker among them,
-    // each under its own seat, so it reads the journal whole while the
-    // frame keeps its own read (fix round 0109a1r3, M3), through the
-    // run's fold, so a repaired run's late tail records no verdict, as the
-    // frame shows none (fix round 0109a1r5, V5), and only as far as the
-    // frame's own head, `state.seq`, so a verdict appended between the
-    // frame's read and this one shows on no frame that predates it (fix
-    // round 0109a1r7, X6).
-    let gates = brokkr_view::gate_records(&store.load(&run)?, Some(&state));
+    // each under its own seat (fix round 0109a1r3, M3), through the run's
+    // fold, so a repaired run's late tail records no verdict, as the frame
+    // shows none (fix round 0109a1r5, V5), and only as far as the frame's
+    // own head, `state.seq`, so a verdict appended between the frame's
+    // read and this one shows on no frame that predates it (fix round
+    // 0109a1r7, X6). Unscoped, it reads within the frame's budget
+    // ([`verdict_rows`]); a scope reads the journal whole.
+    let read = match scope {
+        Some(_) => VerdictRows::whole(store.load(&run)?),
+        None => verdict_rows(&store, &run, state.seq)?,
+    };
+    let gates = brokkr_view::gate_records(&read.events, Some(&state));
     let gates: Vec<_> = (gates.iter())
         .filter_map(|record| record.kept_by(lens.as_ref()))
         .collect();
-    write!(out, "{frame}{}", render::inspect::gates(&gates))?;
+    let block = render::inspect::gates(&gates);
+    write!(out, "{frame}{}", read.with_its_cut(block, state.seq))?;
     Ok(Exit::Completed.into())
+}
+
+/// The journal rows plain `inspect`'s verdicts block reads at most, ending
+/// at its frame's head (decision 0089 ruling 9, #1212): the frame reads
+/// the run's trail and no checkpoint, so the verdicts its checkpoints
+/// hold are read from this many of the newest rows alone.
+const VERDICT_ROWS: u64 = 1_000;
+
+/// The rows a verdicts block reads, and how many of the run's rows up to
+/// the frame's head it left unread for verdicts.
+#[derive(Debug)]
+struct VerdictRows {
+    events: Vec<brokkr_core::EventEnvelope>,
+    unread: u64,
+}
+
+impl VerdictRows {
+    /// Every row of `events`, none left unread.
+    fn whole(events: Vec<brokkr_core::EventEnvelope>) -> Self {
+        VerdictRows { events, unread: 0 }
+    }
+
+    /// The verdicts `block` paints, and where rows were left unread, the
+    /// one line that says how many of the `head` rows and which verbs
+    /// read them all, so a cut is never silent.
+    fn with_its_cut(&self, block: String, head: u64) -> String {
+        if self.unread == 0 {
+            return block;
+        }
+        let line = format!(
+            "  … verdicts in {} of the run's {head} journal rows not read; \
+             `inspect --phase <phase>` or `--seat <seat>` reads them all\n",
+            self.unread
+        );
+        match block.is_empty() {
+            true => format!("\nverdicts\n{line}"),
+            false => format!("{block}{line}"),
+        }
+    }
+}
+
+/// The rows of `run` plain `inspect`'s verdicts block reads, through
+/// `head` and never past it: every row where the run holds at most
+/// [`VERDICT_ROWS`]; else the newest [`VERDICT_ROWS`] and, from the trail
+/// before them, each effect's request, so a verdict keeps its phase and
+/// seat. A verdict is read only from an attempt that started inside the
+/// window, so every marker it is read beside is read too, and the rows of
+/// an attempt begun before it are counted unread. A journal whose event
+/// index is not read is read whole, as the frame reads it (decision 0089
+/// ruling 8). Each row is read by its key after the frame's opening
+/// verified the chain (ruling 5).
+fn verdict_rows(store: &Store, run: &str, head: u64) -> Result<VerdictRows, StoreError> {
+    let cut = head.saturating_sub(VERDICT_ROWS);
+    let window: Vec<u64> = (cut + 1..=head).collect();
+    if cut == 0 {
+        return Ok(VerdictRows::whole(store.envelopes_at(run, &window)?));
+    }
+    if !store.reads_index()? {
+        return Ok(VerdictRows::whole(store.load(run)?));
+    }
+    let before: Vec<u64> = (store.index_trail(run)?.into_iter())
+        .filter(|seq| *seq <= cut)
+        .collect();
+    let requests = (store.envelopes_at(run, &before)?.into_iter())
+        .filter(|event| event.event_type == brokkr_core::EventType::EffectRequested);
+    Ok(begun_inside(
+        requests.collect(),
+        store.envelopes_at(run, &window)?,
+        cut,
+    ))
+}
+
+/// `requests` and the rows of `window` that name no attempt or one that
+/// started inside it; every other row, and every row through `cut`,
+/// counted unread.
+fn begun_inside(
+    mut events: Vec<brokkr_core::EventEnvelope>,
+    window: Vec<brokkr_core::EventEnvelope>,
+    cut: u64,
+) -> VerdictRows {
+    let attempt = |event: &brokkr_core::EventEnvelope| {
+        let named = |key| event.payload[key].as_str().map(str::to_string);
+        Some((named("effect_id")?, named("attempt_id")?))
+    };
+    let begun: std::collections::BTreeSet<_> = (window.iter())
+        .filter(|event| event.event_type == brokkr_core::EventType::EffectStarted)
+        .filter_map(attempt)
+        .collect();
+    let (read, requests) = (window.len(), events.len());
+    events.extend(
+        (window.into_iter()).filter(|event| attempt(event).is_none_or(|it| begun.contains(&it))),
+    );
+    let set_aside = read - (events.len() - requests);
+    VerdictRows {
+        unread: cut + set_aside as u64,
+        events,
+    }
 }
 
 /// Why `inspect --capability-call` opens no call of the selected run's

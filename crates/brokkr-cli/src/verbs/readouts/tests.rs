@@ -402,24 +402,25 @@ fn inspect_shows_a_cooling_run_s_wait_with_the_aggregate_s_later_end() {
 /// An engine-authored step record of attempt `a0` of effect `e0`, step
 /// `judge`, whose verdict reports one finding `id`.
 fn judged(id: &str) -> serde_json::Value {
+    judged_in("e0", "a0", id)
+}
+
+/// [`judged`], of attempt `attempt` of effect `effect`.
+fn judged_in(effect: &str, attempt: &str, id: &str) -> serde_json::Value {
     let site = "5a1e00000000beef000000000000000000000000000000000000000000000000";
     let finding = json!({"site": site, "id": id, "file": "a.rs", "summary": "s",
                          "severity": "low", "security": false});
-    json!({"effect_id": "e0", "attempt_id": "a0",
+    json!({"effect_id": effect, "attempt_id": attempt,
            "checkpoint": {"step": "sequence-step-finished", "authored": "engine",
                           "step_name": "judge", "member": "judge", "model": "m",
                           "result": {"result": "residual", "findings": [finding]}}})
 }
 
-/// Fix round 0109a1r7, X6: inspect's verdict block reads no row past its
-/// frame's head. A run in review whose judge step journaled `early` before
-/// the frame's read, and `late` after it, appended through the read seam
-/// between the frame's read and the verdict block's: the block shows
-/// `early` and not `late`.
-#[test]
-fn inspects_verdict_block_reads_no_row_past_its_frames_head() {
-    let dir = tempfile::tempdir().unwrap();
-    let db = dir.path().join("forge.db");
+/// Run `r1` of a journal in `dir`, in review, its effect `e0` requested
+/// and started as attempt `a0`, then `journal` appended: the journal's
+/// path.
+fn in_review(dir: &Path, journal: Vec<(EventType, serde_json::Value)>) -> PathBuf {
+    let db = dir.join("forge.db");
     let mut store = Store::open(&db).unwrap();
     let manifest = json!({"files": {}, "engine": "0.14.0"});
     store
@@ -427,7 +428,7 @@ fn inspects_verdict_block_reads_no_row_past_its_frames_head() {
         .unwrap();
     let attempt = json!({"effect_id": "e0", "attempt_id": "a0"});
     let asked = json!({"effect_id": "e0", "seat": "review", "phase": "review"});
-    let journal = [
+    let opening = [
         (
             EventType::RunStarted,
             json!({"feature": "feature", "manifest": manifest}),
@@ -435,12 +436,81 @@ fn inspects_verdict_block_reads_no_row_past_its_frames_head() {
         (EventType::PhaseEntered, json!({"phase": "review"})),
         (EventType::EffectRequested, asked),
         (EventType::EffectStarted, attempt),
-        (EventType::EffectCheckpointed, judged("early")),
     ];
-    for (kind, payload) in journal {
+    for (kind, payload) in opening.into_iter().chain(journal) {
         store.append_next("r1", kind, payload, None, None).unwrap();
     }
-    drop(store);
+    db
+}
+
+/// What plain `inspect` prints of run `r1` in `db` after its verdicts
+/// header, its run read by `read`.
+fn inspected_verdicts(dir: &Path, db: &Path, read: super::Reads<'_>) -> String {
+    let mut out = Vec::new();
+    let args = inspect_args(db, "r1", false, None);
+    super::inspect_with(dir, args, &mut out, read).unwrap();
+    let printed = String::from_utf8(out).unwrap();
+    let verdicts = printed.split("\nverdicts\n").nth(1);
+    verdicts.unwrap_or_default().to_string()
+}
+
+/// The verdict line `inspect` prints of [`judged_in`]'s finding `id`.
+fn judged_line(id: &str) -> String {
+    format!("  review · finding {id} · by review:judge · site 5a1e00000000 · low · a.rs · s\n")
+}
+
+/// #1212, L2: plain `inspect` reads its verdicts within the frame's
+/// budget. A run of `VERDICT_ROWS` and seven rows: `outside`, judged in
+/// attempt `a0` at seq 5, and `a0`'s turns and failure, which run into
+/// the window, are left unread; `inside`, judged in the retry `a1`,
+/// started inside the window, shows in its phase, read from `e0`'s
+/// request before the window; and one line says how many rows were not
+/// read.
+#[test]
+fn plain_inspect_reads_its_verdicts_within_the_frames_budget() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut journal = vec![(EventType::EffectCheckpointed, judged("outside"))];
+    let turn = |turn| {
+        let checkpoint = json!({"step": "seat-turn", "turn": turn});
+        json!({"effect_id": "e0", "attempt_id": "a0", "checkpoint": checkpoint})
+    };
+    let turns = (1..super::VERDICT_ROWS).map(|n| (EventType::EffectCheckpointed, turn(n)));
+    journal.extend(turns);
+    let retry = [
+        (
+            EventType::EffectFailed,
+            json!({"effect_id": "e0", "attempt_id": "a0", "error": "e"}),
+        ),
+        (
+            EventType::EffectStarted,
+            json!({"effect_id": "e0", "attempt_id": "a1"}),
+        ),
+        (
+            EventType::EffectCheckpointed,
+            judged_in("e0", "a1", "inside"),
+        ),
+    ];
+    journal.extend(retry);
+    let db = in_review(dir.path(), journal);
+    let verdicts = inspected_verdicts(dir.path(), &db, &viewed);
+    let unread = "  … verdicts in 1005 of the run's 1007 journal rows not read; \
+                  `inspect --phase <phase>` or `--seat <seat>` reads them all\n";
+    assert_eq!(verdicts, format!("{}{unread}", judged_line("inside")));
+}
+
+/// Fix round 0109a1r7, X6: inspect's verdict block reads no row past its
+/// frame's head. A run in review whose judge step journaled `early` before
+/// the frame's read, and `late` after it, appended through the read seam
+/// between the frame's read and the verdict block's: the block shows
+/// `early` and not `late`, and a run within the budget shows every verdict
+/// it holds with no line of rows unread (#1212, L2).
+#[test]
+fn inspects_verdict_block_reads_no_row_past_its_frames_head() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = in_review(
+        dir.path(),
+        vec![(EventType::EffectCheckpointed, judged("early"))],
+    );
     let late = |store: &Store, run: &str, shows, now: &str| {
         let read = viewed(store, run, shows, now);
         let mut writer = Store::open(&db).unwrap();
@@ -448,13 +518,8 @@ fn inspects_verdict_block_reads_no_row_past_its_frames_head() {
         writer.append_next(run, kind, payload, None, None).unwrap();
         read
     };
-    let mut out = Vec::new();
-    let args = inspect_args(&db, "r1", false, None);
-    super::inspect_with(dir.path(), args, &mut out, &late).unwrap();
-    let printed = String::from_utf8(out).unwrap();
-    let verdicts = printed.split("\nverdicts\n").nth(1).unwrap_or_default();
-    assert!(verdicts.contains("finding early"), "{printed}");
-    assert!(!verdicts.contains("finding late"), "{printed}");
+    let verdicts = inspected_verdicts(dir.path(), &db, &late);
+    assert_eq!(verdicts, judged_line("early"));
     let journaled = Store::open(&db).unwrap().load("r1").unwrap();
     assert_eq!(journaled.last().unwrap().payload, judged("late"));
 }
