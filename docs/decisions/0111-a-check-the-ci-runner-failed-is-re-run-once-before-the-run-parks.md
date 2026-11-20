@@ -8,8 +8,8 @@ Built: unbuilt (#1093)
 ## Context
 
 Issue #1093, under the adopter-findings epic #1094 (delivery cost and recovery), carries an
-adopter's figures, and they are theirs: on brokkr 0.12.0 with GitHub-hosted runners, three parks
-in one week, each on a runner fault. In one, a compose service could not bind its host port
+adopter's figures, and they are theirs: on brokkr 0.12.0 with GitHub-hosted runners, three parked
+runs in one week, each on a runner fault. In one, a compose service could not bind its host port
 (`address already in use`), so the job's tests never ran. In another, a timing-sensitive test
 failed once and passed on re-run. Each, they report, cost a seat attempt to diagnose, plus the
 wall clock until a person re-ran the jobs. Their exact failing steps, those steps' names and
@@ -28,10 +28,11 @@ retry budget, spent only on an `infrastructure` park with that evidence
 This decision writes only the `ruled` cause v1 already has, and weakens neither.
 
 **The heading names the issue's ask; this decision rules narrower.** The heading keeps the
-issue's ask, a runner fault re-run once before the run parks, because a decision's heading is
-never edited. What this decision rules is that Brokkr re-runs nothing and types nothing: it
+issue's ask, a runner fault re-run once before the run is parked, because a decision's heading
+is never edited. What this decision rules is that Brokkr re-runs nothing and types nothing: it
 observes a pull request's CI at landing's entry, lets a `green` observation proceed as landing
-does, and parks every other observation for a person.
+does, and parks every other observation for a person, on a row of one
+[park table](#the-park-table).
 
 **No re-run.** A re-run is a forge write, and the forge cannot confine one. GitHub's two re-run
 verbs, `POST /repos/{owner}/{repo}/actions/jobs/{job_id}/rerun` and
@@ -43,7 +44,8 @@ jobs". So no request can be confined, at the moment it is sent, to the attempt a
 the engine observed. The controller read that page on 2026-11-18; this seat holds no web
 capability and did not, and the forge's live behavior is **unmeasured**. Fix round 1093r2's
 review held as a security risk a design that sent the request anyway, and on 2026-11-18 the
-operator ruled ruling 1 (a): Brokkr observes, classifies and parks, and a person re-runs.
+operator ruled ruling 1 (a): Brokkr observes, classifies and parks, and a person re-runs (the
+park is now the [park table](#the-park-table)'s, with no classification).
 
 **No classification.** The first draft and fix rounds 1093r2 to 1093r8 drafted a classifier
 that typed a red
@@ -70,7 +72,8 @@ Linux and macOS only.
 
 Narrowed by ruling 1 (a) and the narrowing of 2026-11-20, the issue's acceptance is this: **in a
 landing run with the gate, a non-green CI observation parks for a person before any seat attempt
-beyond the `ci` gate's own exec attempt.** The person reads the observation and re-runs or rules.
+beyond the `ci` gate's own exec attempt.** A non-green observation is one on which a row of the
+[park table](#the-park-table) is true. The person reads the observation and re-runs or rules.
 The observation is itself an exec attempt: the engine journals `effect/started` with an attempt
 id before the `ci` gate's driver starts (`crates/brokkr-runtime/src/engine/dispatch.rs:147-165`).
 What the park saves is the model seat the adopter counted, the one that diagnoses: a red CI no
@@ -82,15 +85,15 @@ What #1093 does not get now, and why:
 - **The re-run once.** No forge write is sent, because none can be confined to the authorized
   attempt and closure when it is sent (<https://docs.github.com/en/rest/actions/workflow-runs>).
   A person re-runs.
-- **The typed port-bind park.** A port bind during service boot parks like every other
-  non-green observation: for a person, as `ruled`, with no word that says "the runner's". Typing
+- **The typed port-bind park.** A port bind during service boot parks like every other red, on
+  row `not-success`: for a person, as `ruled`, with no word that says "the runner's". Typing
   it as a runner fault is deferred with the classifier
   ([Deferred to a later decision](#deferred-to-a-later-decision)). The person tells a port bind
   from a red test by reading the observation, and re-runs.
 - **The wall clock.** The wait until a person looks remains. What is gone is the diagnosing
   seat attempt the issue counts.
-- **The timing-sensitive test.** It parks for a person too, as every red does; nothing tells it
-  apart. Flaky-test handling is a follow-up of its own.
+- **The timing-sensitive test.** It parks for a person too, on row `not-success` as every red
+  does; nothing tells it apart. Flaky-test handling is a follow-up of its own.
 ### The gate grants nothing
 
 This is the frame every ruling below is read in, and this is its one home.
@@ -117,14 +120,14 @@ Why that holds at HEAD:
 **The outcomes, stated once.** Nothing leaves `ci` but two roads:
 
 - **`green`**, the gate's `pass`, which proceeds to `classify` exactly as landing's own entry
-  does (ruling 3 says when it is drawn);
-- **a `ruled` park for a person**, on everything else: a red, missing, unsettled, inadmissible,
-  incomplete, overflowed or unreadable observation, and a launch the engine refuses before the
-  spawn (ruling 2). The park names the gate's rule and carries the observation's digest
-  (ruling 7). The person reads the observation and re-runs or rules.
+  does: the complement of the [park table](#the-park-table);
+- **a `ruled` park for a person**, on every true row of the [park table](#the-park-table),
+  which is the one home of what parks. The park names the gate's rule and carries the
+  observation's digest (ruling 7). The person reads the observation and re-runs or rules.
 
 There is no outcome weaker than that park, so the rule that an unestablished fact must not
-weaken a refusal is one sentence here: **whatever is not established `green` parks.** So
+weaken a refusal is one sentence here: **whatever is not established `green` parks**, because a
+fact a row reads that is not established makes that row true ([the park table](#the-park-table)). So
 `green` is not a verdict: it is the one observation the gate does not hand to a person. Every
 other part of this decision points here rather than restating the outcomes.
 
@@ -791,79 +794,97 @@ the runner's; it leaves with it ([Deferred to a later decision](#deferred-to-a-l
 (`:49-102`), is not in the entry set at all (ruling 6): its evidence is this landing's own
 output.
 
-**When `green` is drawn, and everything else parks.** `green` grants nothing
-([The gate grants nothing](#the-gate-grants-nothing)); the rule below says only when the gate
-proceeds instead of handing the observation to a person. This is its one home. The engine
-draws `green` only when every one of these is **established**: read, inside its bound, from the
-source it names, and true.
+#### The park table
 
-1. **The binding.** The observation's repository (owner, name and id), pull request and gated
-   head equal the run's pinned repository, the pull request the gate names and the engine's own
-   git head; and the forge's `head.sha` for the pull request is that head, so the head is
-   published.
-2. **A complete inventory.** The forge's check list for the head, each key's run list (below)
-   and **the job list of each current run attempt** were each read to their last page, inside
-   the observation's bounds, with no page unread; and the forge reports at least one check for
-   the head. Each list's completeness is its own sealed fact, scoped to the exact list it names:
-   the job list's to its run id and attempt, so a complete check list never stands for a
-   complete job list, nor one attempt's for another's.
-3. **Every required entry matched once, currently.** Every entry of `required_checks` in the
-   entry set (ruling 6) has exactly one **eligible current match**: a check from its bound
-   producer (its app, workflow path, job and event) in that producer's current execution, the
-   one run attempt defined below. A check from the same producer in another run, or in another
-   attempt of the current run, is **stale**, whatever it concluded, and never counts. "Exactly
-   one" is read over the complete check list and the complete job list of that attempt (2), so
-   a second job reporting the entry's name on a page the observer did not read can never leave
-   the entry looking matched once: either every page was read and the duplicate is seen, or a
-   page is unread and condition 2 is unmet.
-4. **Settled success.** Each match's status is `completed` and its conclusion `success`.
-5. **This pull request's single association.** Each current execution's `pull_requests` names
-   this pull request and no other, with `head.sha` the gated head and `base.sha` the base the
-   observation names.
-6. **The revision proven tested.** Each current execution's tested revision is established as
-   its entry's `tested` word requires (below).
-7. **No red the gate cannot read.** No check under an entry-set entry's name from another
-   producer has concluded red; the forge's own required set, where it was read, names no commit
-   status and no context the pinned list lacks, other than one an `"after": "ship"` entry
-   declares.
-8. **A readable observation from a trusted launch.** The launch passed ruling 2's rules, and
-   the observation parsed under its contract, inside its bound.
+This, the [park table](#the-park-table), is the one home of every condition under which the
+`ci` gate parks. **Every row is a
+condition that parks; `green` is the complement of the table, never a list beside it.** Every
+other passage of this decision that says the gate parks cites the row it means by its id, or,
+when it speaks of every row, links this table, and restates no condition. `green` grants nothing
+([The gate grants nothing](#the-gate-grants-nothing)); the table says only when the gate
+proceeds instead of handing the observation to a person.
 
-**Whatever is not established `green` parks.** There is no weaker outcome to fall to, so no
-precedence among the unmet conditions is needed: the engine names every one that is unmet, or
-unestablished, in one closed word each, and parks. The words, each naming what it reads:
+**`green` holds only when every row is false and every pass predicate holds.** The pass
+predicates are `green`'s own conditions, stated once here and nowhere else:
 
-| Word | Unmet, or not established |
-|---|---|
-| `unrelated` | the repository, the pull request or the head differs from the binding (1) |
-| `head-unpublished` | the forge's head for the pull request is not the engine's git head (1) |
-| `inventory-incomplete` | a check list, a run list or a current attempt's job list was not read to its last page, or overflowed its bound; it names the list (and, for a job list, its run id and attempt), the pages read and the overflow witness (2) |
-| `empty` | the forge reports no check for the head (2) |
-| `missing-required` | an entry has no eligible current match; a stale check never makes it present (3) |
-| `ambiguous-required` | an entry matches more than one check, or more than one job of its current run attempt, over the complete lists (3); it names every match |
-| `execution-ambiguous` | an entry's current execution cannot be told, as below (3) |
-| `not-settled` | a match is still queued or in progress when the observer's polling bound ends (4) |
-| `not-success` | a match concluded anything but `success`; it names the check and the word, so a red, a cancelled and a skipped check are each named (4) |
-| `association-unproven` | a current execution's association does not name this pull request, its head and its base, or is empty (5) |
-| `association-ambiguous` | an association names more than one pull request, open or closed (5) |
-| `revision-unproven` | a current execution's tested revision is not established (6) |
-| `revision-disagrees` | one of the tested revision's separate comparisons fails; it names the two values (6) |
-| `producer-mismatch` | a check under an entry's name from another producer concluded red (7) |
-| `status-required` | the forge's required set names a commit status context (7) |
-| `required-set-disagrees` | the forge requires a context the pinned list lacks (7) |
-| `observation-too-large`, `observation-unreadable` | the observation's edge refused it: over its bound, not UTF-8, an unknown field or word, or a missing field (8) |
-| `launch-untrusted` | the launch failed a rule of ruling 2 before the spawn, naming the rule (8) |
+- **P1, the binding.** The observation's repository (owner, name and id), pull request and
+  gated head equal the run's pinned repository, the pull request the gate names and the
+  engine's own git head; and the forge's `head.sha` for the pull request is that head, so the
+  head is published.
+- **P2, complete inventories.** Every list the observer reads was read to its last page, inside
+  its bound, with no page unread. Each list's completeness is its own sealed fact, scoped to the
+  exact list it names: a job list's to its run id and attempt, so a complete check list never
+  stands for a complete job list, nor one attempt's for another's.
+- **P3, every required entry matched once, currently.** Every entry of `required_checks` in the
+  entry set (ruling 6) has exactly one **eligible current match**: a check from its bound
+  producer (its app, workflow path, job and event) in that producer's current execution, the
+  one run attempt defined below. A check from the same producer in another run, or in another
+  attempt of the current run, is **stale**, whatever it concluded, and never counts. "Exactly
+  one" is read over the complete check list and the complete job list of that attempt (P2), so
+  a second job reporting the entry's name on a page the observer did not read can never leave
+  the entry looking matched once.
+- **P4, settled success.** Each match's status is `completed` and its conclusion `success`.
+- **P5, this pull request's single association.** Each current execution's `pull_requests`
+  names this pull request and no other, with `head.sha` the gated head and `base.sha` the base
+  the observation names.
+- **P6, the revision proven tested.** Each current execution's tested revision is established
+  as its entry's `tested` word requires (below).
+- **P7, a readable observation from a trusted launch.** The launch passed ruling 2's rules, and
+  the observation parsed under its contract, inside its bound.
 
-A fact a condition reads that is absent, overflowed, unproven, ambiguous or parsed from another
-source is not established, so its condition is unmet; the observation's contract carries each
-such fact as a value or as the typed `unread` with the observer's reason, never a default, and
-each paged list carries whether it was read to its last page. A fact several conditions read
-leaves each of them unmet, and each is named: an unread engine head names both `unrelated` and
-`head-unpublished`; a check list short of its last page names `inventory-incomplete` and every
-`missing-required` it leaves. The words are a set, written in the table's order, so the park's
-list is exact and deterministic, and needs no precedence to be decided. Live and on replay the judgment takes the one function over the one sealed
+Each pass predicate is the negation of the rows that name it in the `Negates` column, so no
+predicate holds while one of its rows is true, and each predicate is named by at least one row.
+A row whose `Negates` cell is empty, such as `producer-mismatch`, parks on a fact outside
+`green`'s own conditions. **A fact
+a row reads that is not established makes that row true:** a fact absent, unread, overflowed,
+unparsed, ambiguous or read from another source than the row names. The observation's contract
+carries each fact as a value or as the typed `unread` with the observer's reason, never a
+default, and each paged list carries whether it was read to its last page.
+
+| Id | Reads | Negates | True when | Bound by (0111c unless named) |
+|---|---|---|---|---|
+| `unrelated` | the observation's repository, pull request and gated head; the run's pinned repository, the gate's pull request and the engine's git head | P1 | any of the three differs, or is unread | `an_observation_of_another_head_repository_or_pull_request_parks_as_unrelated` |
+| `head-unpublished` | the forge's `head.sha` for the pull request; the engine's git head | P1 | they differ, or either is unread | `an_unpushed_head_parks_as_head_unpublished` |
+| `inventory-incomplete` | each list's last-page fact and overflow witness | P2 | a list was not read to its last page, or overflowed its bound; it names the list (and, for a job list, its run id and attempt), the pages read and the witness | `a_check_list_short_of_its_last_page_parks_as_inventory_incomplete` |
+| `empty` | the complete check list for the head | P3 | the forge reports no check for the head | `an_observation_with_no_check_parks_as_empty` |
+| `missing-required` | each entry's matches | P3 | an entry has no eligible current match; a stale check never makes it present | `a_required_audit_missing_from_the_observation_parks_as_missing_required` |
+| `ambiguous-required` | each entry's matches over the complete check and job lists | P3 | an entry matches more than one check, or more than one job of its current run attempt; it names every match | `two_matches_for_one_required_check_park_as_ambiguous_required` |
+| `execution-ambiguous` | each key's complete run list | P3 | an entry's current execution cannot be told, as below | `two_unsettled_runs_for_one_entry_park_as_execution_ambiguous` |
+| `not-settled` | each match's status | P4 | a match is still queued or in progress when the observer's polling bound ends | `a_required_check_still_in_progress_parks_as_not_settled` |
+| `not-success` | each match's conclusion | P4 | a match concluded anything but `success`; it names the check and the word | `a_failed_cancelled_timed_out_skipped_or_neutral_required_check_parks_as_not_success` |
+| `association-unproven` | each current execution's `pull_requests` | P5 | it does not name this pull request, its head and its base, or is empty | `a_run_with_an_empty_association_parks_as_association_unproven` |
+| `association-ambiguous` | each current execution's `pull_requests` | P5 | it names more than one pull request, open or closed; it names every one | `an_association_naming_a_and_a_closed_b_parks_as_association_ambiguous` |
+| `revision-unproven` | each current execution's tested-commit record | P6 | the tested revision is not established | `a_merge_entry_whose_run_records_no_tested_commit_parks_as_revision_unproven` |
+| `revision-disagrees` | each current execution's tested-commit record and its separate comparisons | P6 | one comparison fails; it names the two values | `an_association_and_a_merge_commit_that_disagree_park_as_revision_disagrees` |
+| `producer-mismatch` | every check under an entry-set entry's name | | a check under that name from another producer concluded red | `a_sole_red_producer_mismatch_parks_as_producer_mismatch` |
+| `status-required` | the forge's required set, where read | | it names a commit status context | `a_status_context_in_the_forges_required_set_parks_as_status_required` |
+| `required-set-disagrees` | the forge's required set, where read; the declared list | | the forge requires a context the declared list lacks | `a_forge_required_check_the_list_lacks_parks_as_required_set_disagrees` |
+| `observation-too-large` | the observer's stdout length | P7 | it is over its bound | 0111b: `an_observation_over_the_stdout_bound_refuses_as_observation_too_large` |
+| `observation-unreadable` | the observer's stdout bytes | P7 | they are not UTF-8, or hold an unknown field or word, or lack a field | 0111b: `an_observation_with_an_unknown_field_refuses_whole` |
+| `launch-untrusted` | the launcher's pre-spawn checks | P7 | a rule of ruling 2 failed before the spawn; it names the rule | `an_untrusted_launch_parks_ruled_as_launch_untrusted_and_observes_nothing` |
+| `word-unbound` | the gate's result word and `ci_green`, read by the table, not the judge | | the word is `pass` while `ci_green` is false, which the word binding refuses (below), so it is reached only at `CI-PASS-UNBOUND` if that binding were lifted | 0111d: `the_whole_composed_landing_ci_overlay_compiles_against_heads_totality_gate` |
+
+**Every true row parks, and none is weaker than another.** There is no weaker outcome to fall
+to, so no precedence among the rows is needed: the engine names every row that is true, in the
+table's order, and parks. A fact several rows read leaves each of them true, and each is named:
+an unread engine head names both `unrelated` and `head-unpublished`; a check list short of its
+last page names `inventory-incomplete` and every `missing-required` it leaves. The set is exact
+and deterministic. Live and on replay the judgment takes the one function over the one sealed
 observation and the one pinned list ([What a replay reads](#3-the-observation-the-judgment-and-where-the-journal-keeps-them)),
-so the words a replay names are the words named live.
+so the rows a replay names are the rows named live.
+
+**The table binds the text.** 0111c's doc test,
+`every_park_statement_in_0111_cites_a_row_of_its_park_table`, reads this decision: every
+paragraph, list item or table row that says the gate parks, spelled `parks` in prose (a test
+name in a code span is not a statement) or `CI-PARK`, outside the heading,
+[What main holds at HEAD](#what-main-holds-at-head),
+[Deferred to a later decision](#deferred-to-a-later-decision) and [Evidence](#evidence), names
+a row id of this table in backticks, such as `unrelated`, or links this table; and every row
+has an id, a `Reads` fact and a `Bound by` test.
+Its companion, `every_park_row_is_bound_by_a_test_the_slices_name`, checks that every row's
+`Bound by` cell names a test that one of [The slices](#the-slices) lists, and 0111c's
+`the_judges_park_rows_are_the_decisions_park_table_in_order` holds the judge's closed row enum
+to this table's ids in this order, so the code and the decision cannot drift apart.
 
 The **current execution** of an Actions entry is the workflow run with the highest run number
 among those the forge lists for its workflow path, its event and the head, read at its highest
@@ -888,7 +909,7 @@ overwrite it, as the engine-owned strategy is held (`:87-95`). Both inputs ride 
 `inputs` (`crates/brokkr-core/src/decision.rs:86`). So the journal holds three things, in the
 order they happened, with no new event: the observation the seat sealed, the judgment the engine
 drew from it, and the rule that routed on it; and, on a park, the park's reason naming the
-observation's digest and its unmet words (ruling 7).
+observation's digest and its true rows (ruling 7).
 
 **What a replay reads.** `judge(observation, pinned)` lives in `brokkr-core`, reads no clock,
 environment or network (0071 ruling 1), and is total; live and replay take the one function. Its
@@ -899,7 +920,7 @@ records each bundle file as a digest, never its bytes
 bundle and refuses when its digest is not the manifest's, and reads the comparison values from
 the run's own journal; which row holds the gated head is settled by 0111c's replay test, and is
 unmeasured here. Where the bundle is gone, the park's
-reason still names the observation's digest and its unmet words from the journal alone, which is
+reason still names the observation's digest and its true rows from the journal alone, which is
 what a person needs. Fix rounds 1093r4 to 1093r8 sealed a basis under `ci-classification/v1` so
 a typed class could be re-derived from the journal alone; with no class to re-derive, that
 record leaves with the classifier.
@@ -971,14 +992,15 @@ that edits `ci-checks.json` changes the next run's list, by the operator's compi
 
 ### 6. Each outcome, and every route
 
-**Recommended: (a) a pass proceeds; everything else parks for a person.**
+**Recommended: (a) a pass proceeds; everything else parks for a person, on the
+[park table](#the-park-table).**
 
 The judgment a table sees is closed: `green`, or not. A seat cannot write it.
 
 - **`green`**: the gate's `pass`; the run proceeds to `classify`, exactly as landing's own entry
   does, and nothing later reads it ([The gate grants nothing](#the-gate-grants-nothing)).
-- **Everything else**: the run parks `ruled` for a person (ruling 7), naming every unmet
-  condition (ruling 3), with no seat attempt beyond the `ci` gate's own exec attempt. The person
+- **Everything else**: the run parks `ruled` for a person (ruling 7), naming every true row of
+  the [park table](#the-park-table), with no seat attempt beyond the `ci` gate's own exec attempt. The person
   reads the observation and re-runs or rules.
 
 These are the frame's two roads ([stated once](#the-gate-grants-nothing)).
@@ -1093,7 +1115,7 @@ no `ci` phase.
 shipped evidence: with no `by-hand` label, a body with no `Brokkr-Run:` line fails, and a named
 run must have ruled `shipped` (`scripts/delivered-by-brokkr.sh:189-204`), which only this landing's
 ship produces (decision 0051 ruling 2). At entry it fails on every first landing without the
-label, and would park every such landing for a person. **Recommended: (a) the entry set excludes
+label, and as an entry it would make `not-success` true on every such landing. **Recommended: (a) the entry set excludes
 every required check whose evidence is this landing's own output.** The recipe data says which:
 a `required_checks` entry may carry `"after": "ship"`, a closed one-word field. **An after-ship
 check is in the observed inventory and excluded from the judgment**, stated here once: the
@@ -1104,7 +1126,7 @@ The rule for the recipe data: an entry whose producer reads anything this run's 
 `delivered by brokkr`, and only it. The forge's requirement stays at merge, unchanged. The
 declaration is the operator's: the compile cannot see what a check reads, and an entry left
 undeclared costs a person's park (the frame's table), never a pass. Refused alternative:
-**(b)** observing it as any other entry, which parks every first landing.
+**(b)** observing it as any other entry, which parks every first landing on `not-success`.
 
 **The entry set is derived once, and every reader but the inventory reads it.** One function
 over the pinned list gives the entry set: the entries with no `"after"`. Every condition of
@@ -1124,12 +1146,13 @@ column names the judgment; ruling 10 gives its schema-legal spelling.
 |---|---|---|---|---|
 | (entry) | | | `initial: ci`; an explicit entry admits `ci` alone | `ci` |
 | `CI-PASS` | `ci` | `pass` | `green` | `classify` |
-| `CI-PASS-UNBOUND` | `ci` | `pass` | | park, `ruled`, naming the word binding |
-| `CI-PARK` | `ci` | `fail` | | park, `ruled`, naming the observation's digest and its unmet words (ruling 7) |
+| `CI-PASS-UNBOUND` | `ci` | `pass` | | park, `ruled`, on row `word-unbound` |
+| `CI-PARK` | `ci` | `fail` | | park, `ruled`, naming the observation's digest and every true row of the [park table](#the-park-table) (ruling 7) |
 
-`CI-PARK` is the one park rule: every observation not established `green` reaches it, and so
-does `launch-untrusted`, whose attempt ends in the gate's `fail` before any observation exists
-(ruling 2). It needs no `when`: the word binding admits `fail` only off `green` (ruling 3).
+`CI-PARK` is the one park rule for an observation: every true row of the
+[park table](#the-park-table) but `word-unbound` reaches it, `launch-untrusted` among them,
+whose attempt ends in the gate's `fail` before any observation exists (ruling 2). It needs no
+`when`: the word binding admits `fail` only off `green` (ruling 3).
 
 **The table is total.** HEAD's compile refuses a table with an unruled valuation:
 `seated_and_ruled` calls `refuse_unruled` (`crates/brokkr-runtime/src/bundle/phases.rs:118-130`),
@@ -1139,10 +1162,10 @@ and refuses the first no rule rules (`crates/brokkr-core/src/policy/audit.rs:187
 `CI-PASS` the sole `(ci, pass)` row, the valuation `ci_green = false` is unruled and the
 composed overlay would not compile. HEAD's boolean sweep therefore still needs
 **`CI-PASS-UNBOUND`**, recommended as (a): the unconditional `(ci, pass)` rule after `CI-PASS`,
-parking `ruled` for a person and naming the word binding. It is never reached while the binding
+parking `ruled` for a person on row `word-unbound`. It is never reached while the binding
 holds: ruling 3 refuses `pass` off `green` before the table reads it. It is the table's answer if
 the binding were ever lifted, and a park, never a route. The `(ci, fail)` group is total:
-`CI-PARK` is unconditional. **(b) Proving the valuation impossible** is not taken: the audit
+`CI-PARK` is unconditional ([park table](#the-park-table)). **(b) Proving the valuation impossible** is not taken: the audit
 sweeps each flag on its own, and HEAD gives it no way to read a cross-input invariant such as the
 word binding, so the proof would need an engine change for one row.
 
@@ -1151,7 +1174,8 @@ Then landing's own two rules, `CLASSIFY-DOCS` to `review` and `CLASSIFY-CODE` to
 
 **No loop runs through `ci`.** `ci` is entered only as the run's `initial`, and again only by
 the operator's retry of its own park; the compile refuses any rule whose `next` is `ci`. Nothing
-leaves `ci` but `CI-PASS` and the two parks, so the gate buys no seat attempt beyond its own
+leaves `ci` but `CI-PASS` and the two parks on the [park table](#the-park-table)'s rows, so the
+gate buys no seat attempt beyond its own
 exec attempt, and `fast`'s implement bound, `visits_implement_gte: 3`
 (`recipes/fast/policy.json:76-94`), counts only the visits landing's own rules buy, as today.
 
@@ -1190,16 +1214,17 @@ observation's digest.**
   rule's id (`crates/brokkr-runtime/src/engine/cursor.rs:369`; the variant is
   `crates/brokkr-core/src/park.rs:40-45`, a `rule_id` and a `detail`). The gate's park is a table
   park, so its cause is `ruled` with the id of the gate's park rule (ruling 6), and its `detail`,
-  the park's reason, names the sealed observation's SHA-256 and the unmet words (ruling 3), the
-  first words that fit inside the reason's bound of 256 bytes
+  the park's reason, names the sealed observation's SHA-256 and the true rows of the
+  [park table](#the-park-table), the first row ids that fit inside the reason's bound of 256 bytes
   (`crates/brokkr-core/src/summary.rs:53`), with a count of the rest. The cause's shape is
   `park-cause/v1`'s, unchanged, so no contract moves and every reader of a cause reads it as it
   reads every rule park. It is what the park is: a person's ruling is owed, and the rule that
-  owed it is named. The full list of unmet words is `inspect`'s, from the sealed observation
+  owed it is named. The full list of true rows is `inspect`'s, from the sealed observation
   (ruling 9).
 - **(b) `infrastructure` with `origin: ci`, under a `park-cause/v2`.** Not taken. It claims a
-  class, a runner fault, that the gate no longer draws: the gate parks a port bind, a red test
-  and an unread page alike, and tells none of them apart. Typing a park as the runner's waits on
+  class, a runner fault, that the gate no longer draws: the gate parks a port bind and a red test
+  alike on `not-success`, and an unread page on `inventory-incomplete`, and tells no runner fault
+  apart. Typing a park as the runner's waits on
   the deferred classifier ([Deferred to a later decision](#deferred-to-a-later-decision)).
 
 A `ruled` park is never retryable under 0106, and spends nothing of 0106d's budget, which is
@@ -1211,14 +1236,15 @@ no reading of this park in that budget needs a ruling of its own.
 
 **Recommended: (a) one derivation in `brokkr-view`, painted by `inspect` and the fleet.**
 
-`inspect` names each observation's judgment, every unmet word (ruling 3), and the evidence a
+`inspect` names each observation's judgment, every true row of the
+[park table](#the-park-table), and the evidence a
 person needs to look and re-run: the workflow run's id and attempt and each required job's id
 and conclusion, from one view model (0071 ruling 7). The fleet paints the park's cause through
 `ParkCause::line` (`crates/brokkr-core/src/park.rs:275-280`), which the TUI and `inspect`
 already paint (`crates/brokkr-cli/src/tui/columns.rs:375`,
 `crates/brokkr-cli/src/render/inspect.rs:36`; the fleet's row field is
 `crates/brokkr-view/src/fleet.rs:339`). It reads `ruled <rule id>: <detail>`, the detail naming
-the observation's digest and its first unmet words (ruling 7).
+the observation's digest and its first true rows (ruling 7).
 
 ### 10. How a table spells the judgment
 
@@ -1240,7 +1266,7 @@ judgment `green` or not, one flag spells it whole, and the rest leave with their
   reads `ci_green: true`, and nothing else reads it. It is the table's reading of the engine's
   judgment rather than of the seat's word: the word binding (ruling 3) makes `pass` and
   `ci_green` agree, and if that binding were ever lifted, `CI-PASS-UNBOUND` parks a `pass`
-  without `green` rather than proceeding. No second flag is needed: the park rule is
+  without `green` on row `word-unbound` rather than proceeding. No second flag is needed: the park rule is
   unconditional on `fail`, and a flag for "not green" would be the same fact twice (0071 ruling
   5). It mints no contract.
 - **(b) No flag: route on the result word alone.** `(ci, pass)` to `classify` and `(ci, fail)`
@@ -1263,7 +1289,8 @@ fix round 1093r2 put on one row. **Each row of ruling 6's landing table, checked
   no `requires_artifacts`, as v2's park admits (`:53-57`). Legal, and not made unreachable by
   `CI-PASS`, which is conditional.
 - `CI-PARK`: one result, `fail`; no `when`; `park: true`, as above. Legal, and the only rule of
-  its `(from, result)` group, so no rule above it makes it unreachable (`:28`).
+  its `(from, result)` group, so no rule above it makes it unreachable (`:28`). The rows it parks
+  on are the [park table](#the-park-table)'s, which the table's `when` never reads.
 - The overlay's `initial: ci` and its `phases`, which add `ci` to landing's seven, are one
   string and a list of strings (`:16-20`). Legal.
 
@@ -1374,12 +1401,12 @@ saved, so the later decision is ruled on measured cases.
 - No model decides: the gate is an exec seat, and the judgment is a core function.
 - No required check is skipped, marked passed or written.
 - No refusal is weakened: nothing is weaker than the gate's park, and whatever is not
-  established `green` parks ([The gate grants nothing](#the-gate-grants-nothing)); `retryable`'s
+  established `green` parks ([the park table](#the-park-table)); `retryable`'s
   positive-evidence rule stands as 0106 wrote it, and this decision writes no `infrastructure`
   cause.
 - No Windows code (0063).
 - #1113's own fix. Its "Not Found" is a failed step of `RustSec dependency audit`
-  (`.github/workflows/ci.yml:673-695`), so under the gate it parks for a person, who re-runs, as
+  (`.github/workflows/ci.yml:673-695`), so under the gate it parks for a person on `not-success`, who re-runs, as
   today outside any run.
 - The dispatcher's retry budget: a `ruled` park spends none of it (ruling 7).
 - The automatic classification of a red observation, and every route it would take, the typed
@@ -1397,7 +1424,7 @@ saved, so the later decision is ruled on measured cases.
 
 A red CI no longer costs a model diagnosis attempt at landing's entry: every observation not
 established `green` parks for a person, with a cause a script can read and the observation's
-digest and unmet words a person can act on, and the person re-runs or rules. Brokkr sends the
+digest and every true row of the [park table](#the-park-table) a person can act on, and the person re-runs or rules. Brokkr sends the
 forge nothing and types no failure. Nothing leaves `ci` but `green`, which proceeds as landing
 does, and the park, so the gate is not a CI authority: the forge's required checks at merge stay
 the only one. A wrong `green` costs landing as it is today, and a wrong park a person's look. A
@@ -1525,14 +1552,21 @@ versions are proposed: `ci-observation/v1` and `ci-checks/v1`.
    wildcard, 0071 ruling 2); `crates/brokkr-core/src/policy/inputs.rs` (the engine-owned
    `ci_green` flag); `crates/brokkr-runtime/src/engine/decide.rs` (judge at decide, bind the
    word, and write `ci_green`); the park's reason for a `ci` park, naming the gate's rule, the
-   observation's digest and its unmet words inside 256 bytes, in the engine's park path
+   observation's digest and its true rows inside 256 bytes, in the engine's park path
    (`crates/brokkr-runtime/src/engine/cursor.rs:369` keeps writing `ruled`);
    `crates/brokkr-runtime/src/bundle/` (the refusals of ruling 6's routes); and the readout it
-   produces, `crates/brokkr-view/src/` (the CI view model: the judgment, every unmet word, and the
+   produces, `crates/brokkr-view/src/` (the CI view model: the judgment, every true row, and the
    run, attempt and job ids a person needs) with `crates/brokkr-cli/src/render/inspect.rs`. About
    300 production and 700 test lines, over test-built tables and observations built by a shared
    builder from 0111a's evidence; no recipe yet. No contract change. Tests, each asserting the
    exact set of unmet words, so deleting any one word from the expected set fails it:
+   - the park table ([its one home](#the-park-table)):
+     `every_park_statement_in_0111_cites_a_row_of_its_park_table` and
+     `every_park_row_is_bound_by_a_test_the_slices_name`, two doc tests in a new
+     `crates/brokkr-cli/tests/ci_park_table.rs`, a module of `tests/it.rs` beside
+     `decisions_index` (`it.rs:48`), reading this decision's text; and
+     `the_judges_park_rows_are_the_decisions_park_table_in_order`, which parses the table's `Id`
+     column and asserts it equals the judge's closed row enum, in order;
    - `green`: `a_complete_settled_successful_current_observation_is_green`;
      `the_full_two_entry_engine_matrix_with_a_distinct_valid_merge_commit_is_green` (both
      `test (…)` entries, each run's merge commit distinct from the head, its parents the base and
@@ -1590,7 +1624,7 @@ versions are proposed: `ci-observation/v1` and `ci-checks/v1`.
      recorded observation through a test-built bundle; the sealed seat record holds it, the
      decision's inputs hold `ci_green`, a fold rebuilt from the journal re-derives the same
      judgment, and `inspect` paints it);
-   - the readout: `inspect_names_the_judgment_and_every_unmet_word`;
+   - the readout: `inspect_names_the_judgment_and_every_true_row`;
      `inspect_names_the_run_attempt_and_job_ids_a_person_re_runs`;
      `the_fleet_paints_the_ci_park_as_ruled_ci_park_with_its_digest`.
 4. **0111d — the gate on `landing`, over a published head.** The first slice with a live
@@ -1604,7 +1638,7 @@ versions are proposed: `ci-observation/v1` and `ci-checks/v1`.
    compile tests. About 100 data, 80 production and 450 test lines. No contract of this
    decision's own. **Live read-only telemetry starts here**: from the first landing the operator
    drives under this overlay on a real pull request, each observation, judgment and park is
-   journaled, and a sweep can count parks against the diagnosis seat attempts they saved. The
+   journaled, and a sweep can count parked runs against the diagnosis seat attempts they saved. The
    park's lifecycle is this slice's too: a person looks and re-runs, then the operator retries
    the parked `ci` phase, which observes again. Tests:
    - the frame's two ([The gate grants nothing](#the-gate-grants-nothing)):
