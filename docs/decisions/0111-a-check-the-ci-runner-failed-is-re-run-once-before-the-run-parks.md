@@ -359,7 +359,7 @@ ends as the outcome `launch-refused` naming the condition that failed, which par
 `launch-untrusted` (the outcome table below), and observes nothing:
 
 - **A pinned executable identity outside the change, executed as the bytes it verified.** The
-  `ci` seat's interpreter and each tool it calls (`gh`, `jq`) are declared in ruling 5's file by
+  `ci` seat's interpreter and each tool it calls (`gh`, `jq`, `head`) are declared in ruling 5's file by
   absolute path and SHA-256 digest. The argv's first word is the pinned interpreter, never a
   bare name, and it runs as `bash --noprofile --norc` over the pinned script. The tools reach the
   script as absolute paths in its argv, never through `PATH`. Hashing a path and then executing
@@ -758,6 +758,19 @@ pull requests on the head (`pulls-incomplete`) and, where it is read, the forge'
 carries makes its row true, whether or not any other row reads that list. The whole observation
 is also bounded at 1 MiB on the observer's stdout (ruling 2).
 
+**One response is bounded in bytes while it is read, before it is buffered or parsed.** The
+item counts above bound a list, and the stdout cap bounds what the observer writes; neither
+bounds one forge response, and a single page can be large. So every response has a byte bound
+the contract fixes, 8 MiB, and the observer enforces it on the stream: it fetches one page per
+`gh api` call, never `--paginate`, and reads that call's body through the pinned `head -c`
+with a limit of the bound plus one byte, into a buffer of that size. When the limit is reached
+it stops reading, ends the call, parses no byte of that response, and seals a **response
+witness** in the list's place: the list, the page, the bound, and the bytes read as a lower
+bound. A response witness makes `response-too-large` true, and leaves its list incomplete, so
+that list's own row is true too. Whether `gh api` itself streams a body or holds it whole
+before writing it is **unmeasured**; 0111a measures it, and if `gh` holds a body whole, the
+decision is revised before acceptance to a reader that bounds the transfer itself.
+
 **The observer reads no job log.** No condition of `green` reads a step's log, so no log byte is
 read, sealed or journaled, and the person reads the log itself on the forge, from the run,
 attempt and job ids the park names. Whether the forge masks every secret is therefore not a
@@ -951,6 +964,7 @@ default, and each paged list carries whether it was read to its last page.
 | `jobs-incomplete` | each current run attempt's job list, its last-page fact and overflow witness | P2 | as `checks-incomplete`, for one attempt's jobs; it names the run id and attempt | `a_job_list_unread_or_overflowed_parks_as_jobs_incomplete_naming_the_run_and_attempt_live_and_on_replay` |
 | `pulls-incomplete` | the open-pull-request list for the head, its last-page fact and overflow witness | P2 | as `checks-incomplete`, for the open pull requests on the head | `the_open_pull_request_list_unread_or_overflowed_parks_as_pulls_incomplete_live_and_on_replay` |
 | `required-set-incomplete` | the forge's required set, where read, its last-page fact and overflow witness | P2 | the read began and did not reach its last page, or overflowed; a set never read is `unread`, and the pinned list alone governs | `a_partly_read_forge_required_set_parks_as_required_set_incomplete_live_and_on_replay` |
+| `response-too-large` | each response witness | P2 | one forge response reached its 8 MiB byte bound while being read; it names the list, the page and the bytes read | `an_oversized_first_page_through_the_real_reader_parks_as_response_too_large` |
 | `empty` | the complete check list for the head | P3 | the forge reports no check for the head | `an_observation_with_no_check_parks_as_empty` |
 | `missing-required` | each entry's matches | P3 | an entry has no eligible current match; a stale check never makes it present | `a_required_audit_missing_from_the_observation_parks_as_missing_required` |
 | `ambiguous-required` | each entry's matches over the complete check and job lists | P3 | an entry matches more than one check, or more than one job of its current run attempt; it names every match | `two_matches_for_one_required_check_park_as_ambiguous_required` |
@@ -1067,7 +1081,8 @@ classifier ([Deferred to a later decision](#deferred-to-a-later-decision)). What
   "observer": {
     "interpreter": {"path": "/usr/bin/bash", "sha256": "<64 hex>"},
     "tools": {"gh": {"path": "/usr/bin/gh", "sha256": "<64 hex>"},
-              "jq": {"path": "/usr/bin/jq", "sha256": "<64 hex>"}},
+              "jq": {"path": "/usr/bin/jq", "sha256": "<64 hex>"},
+              "head": {"path": "/usr/bin/head", "sha256": "<64 hex>"}},
     "credential": {"binding": "GH_TOKEN", "access": "read"}
   },
   "required_checks": [
@@ -1582,6 +1597,8 @@ member, `pull_request`, built in 0111b.
      empty, a fork's pull request among them (ruling 3);
    - whether the forge reports a job's key, and the app's numeric id (ruling 3);
    - how each list pages, and how the observer tells the last page (ruling 3's bounded reads);
+   - the largest page each list returned, against the 8 MiB response bound, and whether
+     `gh api` streams a response body or holds it whole before writing it (ruling 3);
    - the closed list of conclusion and status words.
 
    Where a fact differs from what this decision assumes, the decision is revised before it is
@@ -1624,6 +1641,9 @@ member, `pull_request`, built in 0111b.
    - the bounded reads: `a_list_past_its_bound_seals_an_overflow_witness_never_a_truncated_list`;
      `each_paged_list_carries_whether_it_was_read_to_its_last_page`;
      `the_observer_reads_every_page_of_each_current_attempts_job_list`;
+     `the_observer_reads_each_response_through_its_byte_bound_and_parses_none_of_an_oversized_one`
+     (a stub `gh` writes a body past 8 MiB: the pinned `head` stops at the bound plus one byte,
+     `jq` is never handed the body, and a response witness is sealed);
      `no_job_log_is_read_or_sealed`;
    - the launch:
      `one_admitted_launch_resolves_the_sealed_binding_into_the_cleared_environment_captures_stdout_and_parses_the_result`
@@ -1748,6 +1768,10 @@ member, `pull_request`, built in 0111b.
      (the chief's r9 case: every required job complete and successful, its run uniquely
      associated, and only this list overflowed);
      `a_partly_read_forge_required_set_parks_as_required_set_incomplete_live_and_on_replay`;
+     `an_oversized_first_page_through_the_real_reader_parks_as_response_too_large` (live only:
+     the first page of the check-run list is past 8 MiB, served by a stub `gh` to 0111b's real
+     observer script and its pinned `head`; `CI-PARK` names `response-too-large` and
+     `checks-incomplete`, and no byte of that page is parsed);
    - the shared-fact cases, each naming every word the one fact leaves unmet:
      `an_unread_engine_head_names_unrelated_and_head_unpublished`;
      `a_short_check_list_beside_an_absent_audit_names_checks_incomplete_and_missing_required`;
