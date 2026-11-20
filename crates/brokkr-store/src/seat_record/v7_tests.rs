@@ -480,6 +480,31 @@ fn a_marked_settled_members_payload_is_validated_as_a_standalone_result() {
     }
 }
 
+/// Fix round 0109a1r7, X4: a settled member's refusal names that member,
+/// read back from the pointer the fence writes, and no other refusal
+/// names one.
+#[test]
+fn a_settled_members_refusal_names_its_member() {
+    let named = |path: &str| {
+        let refusal = SeatRecordError {
+            seq: 1,
+            path: path.into(),
+            contract: CONTRACT_V7,
+        };
+        refusal.settled_member().map(str::to_string)
+    };
+    assert_eq!(
+        named("/settled_members/a/cache_read_tokens").as_deref(),
+        Some("a")
+    );
+    assert_eq!(
+        named("/settled_members/positions:b").as_deref(),
+        Some("positions:b")
+    );
+    assert_eq!(named("/result/cache_read_tokens"), None);
+    assert_eq!(named("/"), None);
+}
+
 /// A failed panel row settling member `a` with `payload`: beside the
 /// engine's authored marker it is refused at `path` at append, export and
 /// verify; beside a released engine's unauthored marker it is admitted.

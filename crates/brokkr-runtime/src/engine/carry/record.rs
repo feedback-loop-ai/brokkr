@@ -7,7 +7,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
 
 use brokkr_core::envelope::{EventEnvelope, EventType};
-use brokkr_store::StoreError;
+use brokkr_store::{SeatRecordError, StoreError};
 
 use super::super::panel::Stamped;
 use super::super::worktree::{read_tree, TreeReading};
@@ -187,39 +187,57 @@ pub(crate) fn settled_members(
 impl Engine {
     /// `payload` appended under the seat-record fence. A panel's failed or
     /// indeterminate terminal whose marked settled member's payload the
-    /// fence refuses (fix round 0109a1r6, W3) carries no settled verdict:
-    /// it is journaled again without `settled_members`, the refusal named
-    /// in its own words, as a refused success is journaled as a failure.
-    /// That member is then unsettled, so a retry runs it fresh.
+    /// fence refuses (fix round 0109a1r6, W3) carries no settled verdict
+    /// for that member: it is journaled again without that member alone,
+    /// the refusal named in its own words, as a refused success is
+    /// journaled as a failure, and every sibling the fence admits keeps its
+    /// payload, verdict and retry eligibility (fix round 0109a1r7, X4). The
+    /// refused member is then unsettled, so a retry runs it fresh.
     pub(in crate::engine) fn append_settled(
         &mut self,
         event_type: EventType,
-        payload: Value,
+        mut payload: Value,
         attempt_id: Option<String>,
     ) -> Result<EventEnvelope, EngineError> {
-        let settled = payload.get("settled_members").is_some();
-        let again = settled.then(|| payload.clone());
-        match (
-            self.append_raw(event_type, payload, attempt_id.clone()),
-            again,
-        ) {
-            (Err(EngineError::Store(StoreError::SeatRecord(refusal))), Some(mut payload)) => {
-                let fields = payload
-                    .as_object_mut()
-                    .expect("a terminal payload is an object");
-                fields.remove("settled_members");
-                let said = ["error", "reason"]
-                    .into_iter()
-                    .find(|field| fields.contains_key(*field));
-                let said = said.expect("a failed or indeterminate terminal says why");
-                let why = fields[said].as_str().unwrap_or_default();
-                fields[said] =
-                    Value::from(format!("{why}; a settled member was refused: {refusal}"));
-                self.append_raw(event_type, payload, attempt_id)
-            }
-            (appended, _) => appended,
+        // The fence names only a member `payload` itself settles (it judges
+        // the payload's own `settled_members`, as
+        // a_marked_settled_members_payload_is_validated_as_a_standalone_result
+        // binds), so each turn removes one and the loop ends.
+        loop {
+            let appended = self.append_raw(event_type, payload.clone(), attempt_id.clone());
+            let refused = match &appended {
+                Err(EngineError::Store(StoreError::SeatRecord(refusal))) => refusal,
+                _ => return appended,
+            };
+            let Some(tag) = refused.settled_member() else {
+                return appended;
+            };
+            unsettle(&mut payload, tag, refused);
         }
     }
+}
+
+/// `payload` with the settled member `tag` the fence refused removed, and
+/// the refusal named by member in the terminal's own words, `error` or
+/// `reason`.
+fn unsettle(payload: &mut Value, tag: &str, refusal: &SeatRecordError) {
+    let fields = payload
+        .as_object_mut()
+        .expect("a terminal payload is an object");
+    let settled = (fields["settled_members"].as_object_mut())
+        .expect("a refused settled member's terminal settles members");
+    settled.remove(tag);
+    if settled.is_empty() {
+        fields.remove("settled_members");
+    }
+    let said = ["error", "reason"]
+        .into_iter()
+        .find(|field| fields.contains_key(*field));
+    let said = said.expect("a failed or indeterminate terminal says why");
+    let why = fields[said].as_str().unwrap_or_default();
+    fields[said] = Value::from(format!(
+        "{why}; settled member '{tag}' was refused: {refusal}"
+    ));
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -179,13 +179,27 @@ pub(crate) fn validate_settled(
         validated_by(result_branch(version), result, seq, version).map_err(|mut refusal| {
             let inner = refusal.path.strip_prefix('/').unwrap_or_default();
             refusal.path = match inner {
-                "" => format!("/settled_members/{tag}"),
-                inner => format!("/settled_members/{tag}/{inner}"),
+                "" => format!("{SETTLED_MEMBERS}{tag}"),
+                inner => format!("{SETTLED_MEMBERS}{tag}/{inner}"),
             };
             refusal
         })?;
     }
     Ok(())
+}
+
+/// Where a settled member's refusal points: `/settled_members/<tag>`, then
+/// the result's own pointer.
+const SETTLED_MEMBERS: &str = "/settled_members/";
+
+impl SeatRecordError {
+    /// The settled member whose marked payload the fence refused, by its
+    /// tag, read back from the pointer [`validate_settled`] writes, the
+    /// one place that writes it (fix round 0109a1r7, X4). `None` for any
+    /// other refusal.
+    pub fn settled_member(&self) -> Option<&str> {
+        self.path.strip_prefix(SETTLED_MEMBERS)?.split('/').next()
+    }
 }
 
 /// The seat record an event carries, if its type carries one: a

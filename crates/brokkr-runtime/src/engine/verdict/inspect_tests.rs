@@ -6,11 +6,14 @@
 use serde_json::{json, Value};
 
 use super::covered_tests::drift_refusing;
-use super::tests::{driven_with, driver, failing, reported};
+use super::tests::{begun, driven_with, driver, failing, reported};
 use crate::bundle::{
-    Aggregate, Bundle, GateAssessment, Invocation, SeatBody, SeatClass, SequenceStep, StepBody,
+    Aggregate, Bundle, GateAssessment, Invocation, PanelMember, SeatBody, SeatClass, SequenceStep,
+    StepBody,
 };
+use crate::engine::heads::HeadReads;
 use crate::engine::tests::{member, single_body, step_body};
+use crate::engine::{Engine, FencedCommandOutcome, MemberRetryOutcome};
 use brokkr_core::envelope::{EventEnvelope, EventType};
 use brokkr_view::{gate_records, lens_for, GateRecord, Scope};
 
@@ -182,15 +185,111 @@ fn panel_of(a: Vec<String>, b: Vec<String>) -> (tempfile::TempDir, Vec<EventEnve
 fn reviewed_as(review: SeatBody) -> (tempfile::TempDir, Vec<EventEnvelope>) {
     driven_with(
         single_body(driver(&json!({"result": "complete"}))),
-        |compiled| {
-            compiled.machine = drift_refusing();
-            let seat = compiled.seats.get_mut("review").unwrap();
-            seat.body = review;
-            seat.gate = GateAssessment::AllGate;
-            let ship = compiled.seats.get_mut("ship").unwrap();
-            ship.body = single_body(driver(&json!({"result": "shipped"})));
-        },
+        review_shaped(review),
     )
+}
+
+/// The bundle whose review is the all-gate body `review`, and whose ship
+/// answers `shipped`.
+fn review_shaped(review: SeatBody) -> impl FnOnce(&mut Bundle) {
+    move |compiled: &mut Bundle| {
+        compiled.machine = drift_refusing();
+        let seat = compiled.seats.get_mut("review").unwrap();
+        seat.body = review;
+        seat.gate = GateAssessment::AllGate;
+        let ship = compiled.seats.get_mut("ship").unwrap();
+        ship.body = single_body(driver(&json!({"result": "shipped"})));
+    }
+}
+
+/// A run whose review is a top-level gate panel of `members`, driven until
+/// it parks, then retried for `names` through the operator's command,
+/// which the engine accepts, and driven again: its journal as it parked,
+/// checked by `parked` before the retry, and as it ends.
+fn retried(
+    members: Vec<PanelMember>,
+    names: &[&str],
+    parked: impl FnOnce(&[EventEnvelope]),
+) -> (tempfile::TempDir, Vec<EventEnvelope>) {
+    let review = SeatBody::Invocation(Invocation::Panel {
+        members,
+        aggregate: Aggregate::ReviewPanel,
+    });
+    let work = single_body(driver(&json!({"result": "complete"})));
+    let (dir, mut engine) = begun(work, review_shaped(review), |_| HeadReads::default());
+    engine.drive().unwrap();
+    parked(&engine.store.load(&engine.run_id).unwrap());
+    let read = Engine::read_member_retry(&mut engine.store, &engine.run_id)
+        .unwrap()
+        .unwrap();
+    let names: Vec<String> = names.iter().map(|name| name.to_string()).collect();
+    let outcome = engine.retry_members(read, &names, "test", "again").unwrap();
+    assert!(
+        matches!(
+            outcome,
+            MemberRetryOutcome::Disposed(FencedCommandOutcome::Accepted { .. })
+        ),
+        "{outcome:?}"
+    );
+    engine.drive().unwrap();
+    let events = engine.store.load(&engine.run_id).unwrap();
+    (dir, events)
+}
+
+/// The members each start of `events` carried, in order.
+fn carried(events: &[EventEnvelope]) -> Vec<Vec<String>> {
+    (events.iter())
+        .filter(|event| event.event_type == EventType::EffectStarted)
+        .map(|event| {
+            let carried = event.payload["carried"].as_array().cloned();
+            (carried.unwrap_or_default().iter())
+                .map(|entry| entry["member"].as_str().unwrap().to_string())
+                .collect()
+        })
+        .collect()
+}
+
+/// Fix round 0109a1r7, X4: in a three-member top-level gate panel, `a`
+/// returns a valid finding, `b` over-subset accounting and `c`'s driver
+/// fails. The fence refuses `b`'s marked payload by name, journaled in the
+/// failure's own words, and `a` keeps its payload, its verdict and its
+/// retry eligibility: its finding shows under `a` and in the phase, and a
+/// retry of `b` and `c` carries `a` and runs `b` and `c` only.
+#[test]
+fn one_refused_settled_member_keeps_every_admitted_sibling() {
+    let over = json!({"result": "clean", "input_tokens": 1, "cache_read_tokens": 2});
+    let members = vec![
+        member("a", residual("mine", 5)),
+        member("b", driver(&over)),
+        member("c", failing()),
+    ];
+    let (_dir, events) = retried(members, &["b", "c"], |events| {
+        assert_eq!(kept(events, Scope::Seat("review:a".into())), ["mine"]);
+        assert_eq!(kept(events, Scope::Phase("review".into())), ["mine"]);
+        assert!(kept(events, Scope::Seat("review:b".into())).is_empty());
+        let failed = (events.iter())
+            .find(|event| event.event_type == EventType::EffectFailed)
+            .unwrap();
+        let settled = failed.payload["settled_members"].as_object().unwrap();
+        assert_eq!(settled.keys().collect::<Vec<_>>(), ["a"]);
+        let error = failed.payload["error"].as_str().unwrap();
+        let named = "; settled member 'b' was refused: seat record at journal seq";
+        assert!(error.contains(named), "{error}");
+        assert!(error.ends_with("at /settled_members/b/cache_read_tokens"));
+    });
+    // work's start, review's first attempt, and the retry.
+    assert_eq!(carried(&events), [vec![], vec![], vec!["a".to_string()]]);
+    let retry = (events.iter())
+        .rfind(|event| event.event_type == EventType::EffectStarted)
+        .unwrap();
+    let ran = |member: &str| {
+        events.iter().any(|event| {
+            event.event_type == EventType::EffectCheckpointed
+                && event.payload["attempt_id"] == retry.payload["attempt_id"]
+                && event.payload["checkpoint"]["member"] == member
+        })
+    };
+    assert_eq!((ran("a"), ran("b"), ran("c")), (false, true, true));
 }
 
 /// Fix round 0109a1r4, K7: in a top-level gate panel whose member `b`
@@ -243,7 +342,7 @@ fn a_marked_settled_member_the_fence_refuses_is_no_settled_verdict() {
         error.ends_with("at /settled_members/a/cache_read_tokens"),
         "{error}"
     );
-    assert!(error.contains("; a settled member was refused: seat record at journal seq"));
+    assert!(error.contains("; settled member 'a' was refused: seat record at journal seq"));
     assert!(gate_records(&events, None).is_empty());
 }
 
