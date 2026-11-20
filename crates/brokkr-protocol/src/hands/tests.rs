@@ -186,31 +186,51 @@ fn can_create_namespace() -> bool {
         .is_ok_and(|status| status.success())
 }
 
-/// The command [`stood`] reads: the box's own HOME, which no host process
-/// holds.
+/// What a refused command prints first, in the same launch: the box's own
+/// HOME, which no host process holds.
 #[cfg(target_os = "linux")]
 const STOOD: &str = "printf '%s\\n' \"$HOME\"";
 
-/// That the box [`STOOD`] ran in was established, so a refusal read in it
-/// next is the box's: a stand-in bubblewrap that runs nothing, or a box
-/// that never stood, fails the test here by those words rather than as a
-/// command that succeeded (#1187).
+/// That `tamper`, run by `launch` after [`STOOD`] in one launch, ran in a
+/// box that was established and was refused there. A stand-in bubblewrap
+/// that runs nothing, or a box that fails to stand, never prints the box's
+/// HOME, so it fails the test by those words rather than as a command that
+/// succeeded, or as a refusal no box made (#1187).
 #[cfg(target_os = "linux")]
-fn stood(ran: &Executed) {
+fn refused_in_a_stood_box(launch: impl Fn(&str) -> Executed, tamper: &str) {
+    let ran = launch(&format!("{STOOD}; {tamper}"));
     let home = format!("{SANDBOX_HOME}\n");
     assert!(
-        (ran.exit_code, ran.stdout.as_str()) == (0, home.as_str()),
-        "the box was not established, so no refusal can be read in it: {}",
+        ran.stdout.starts_with(&home),
+        "the box was not established, so no refusal can be read in it: {tamper}: {}",
         ran.render()
     );
+    assert_ne!(ran.exit_code, 0, "{tamper}: {}", ran.render());
 }
 
 /// A box no bubblewrap built, the stand-in `/bin/true` a concurrent test
-/// once put first on the shared `PATH`, fails as not established (#1187).
+/// once put first on the shared `PATH`, fails as not established, not as a
+/// command that succeeded (#1187).
 #[cfg(target_os = "linux")]
 #[test]
 #[should_panic(expected = "the box was not established")]
 fn a_box_that_never_stood_fails_as_not_established() {
+    refused_through("/bin/true");
+}
+
+/// A bubblewrap that exits non-zero without building the box, as one
+/// refused a namespace under load does, is no refusal (#1187).
+#[cfg(target_os = "linux")]
+#[test]
+#[should_panic(expected = "the box was not established")]
+fn a_box_that_failed_to_stand_is_no_refusal() {
+    refused_through("/bin/false");
+}
+
+/// A refusal read through the stand-in bubblewrap `bwrap`, which builds no
+/// box.
+#[cfg(target_os = "linux")]
+fn refused_through(bwrap: &str) {
     let (_dir, root, work) = fixture();
     let spec = HandsSpec::default();
     let (artifacts, reach) = (
@@ -218,19 +238,22 @@ fn a_box_that_never_stood_fails_as_not_established() {
         sealed(&spec, &work, &root.join("home")),
     );
     let (scratch, session) = (root.join("scratch"), root.join("session"));
-    let ran = execute_in(
-        Path::new("/bin/true"),
-        &spec,
-        &work,
-        &artifacts,
-        &reach,
-        &scratch,
-        &session,
-        &[],
-        STOOD,
-        Duration::from_secs(30),
-    );
-    stood(&ran.unwrap());
+    let launch = |command: &str| {
+        let ran = execute_in(
+            Path::new(bwrap),
+            &spec,
+            &work,
+            &artifacts,
+            &reach,
+            &scratch,
+            &session,
+            &[],
+            command,
+            Duration::from_secs(30),
+        );
+        ran.unwrap()
+    };
+    refused_in_a_stood_box(launch, "false");
 }
 
 /// Each further user namespace a boxed command tries to make, and what it
