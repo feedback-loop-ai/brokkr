@@ -1234,7 +1234,9 @@ A refusal never passes. It is the frame's `ruled` park
 **What withholds `ci-infrastructure`.** A withholding is not a refusal: it parks nothing and
 stops nothing landing would do. Each is a precision guard on the one class, and fails closed to
 "not infrastructure": where one holds, a red observation is `change` and an all-success one is
-`green`. The engine checks every row and records each that holds in the class's sealed reason.
+`green`. The engine checks every row and records each that holds in the class's sealed reason,
+with the named values the basis's reason table seals (below), so every reason replays; a reason
+whose values an overflow hid is recorded `unavailable`, by the same rule live and on replay.
 
 | Withholding | When |
 |---|---|
@@ -1302,6 +1304,15 @@ bounded, typed data under `ci-classification/v1`:
 - **the comparison values** the binding read: the repository's numeric id, the pull request's
   number, the base commit, the merge base, the gated head, the engine's git head and the forge's
   head for the pull request;
+- **the reason table**, sealed apart from the path list and the closure's job map and inside its
+  own bound (below): the facts every named withholding needs, so an overflow of either list
+  never takes a reason's names with it. Its rows: **the machinery paths**, every changed path
+  outside every change class, which the verified reader collects as it streams the range, so
+  `machinery-touched` names its paths even when the full list overflows; and **the closure's
+  findings**, one row per `machinery-escapes`, `machinery-unresolved` or `revision-unmeasured`
+  the closure test found, each with the word, key, file, link, directory and step it names. A
+  `revision-disagrees` needs no row: its values are the observation's and the instance table's
+  (ruling 3's two sources);
 - the range's two commit ids, and **the range read's outcome**, one of three closed forms:
   `verified`, with the changed-path list 0109's verified reader gave for that range, possibly
   empty; `overflowed`, with the overflow witness below; or `unproven`, naming the reader's end
@@ -1317,8 +1328,8 @@ forge's runs have expired still holds. The bounds: the compile admits at most 64
 entries, 64 setup steps and 64 patterns, so the list and the literals are at most 32 KiB; the
 closure's job map, its aggregate kinds included, is at most 256 jobs
 **and 128 KiB** in its canonical JSON; the instance table is at most 1,024 expected instances,
-each job at most 64, **and 64 KiB**; the path list is
-at most 4,096 paths and 256 KiB. The closure has a byte bound as well as its count, so 256 jobs
+each job at most 64, **and 64 KiB**; the reason table is at most 1,024 rows **and 64 KiB**;
+the path list is at most 4,096 paths and 256 KiB. The closure has a byte bound as well as its count, so 256 jobs
 with long step lists cannot carry an unbounded basis. A basis beyond its bound withholds the
 class as `basis-too-large`, and a range beyond its own as `range-too-large`, with ruling 3's
 withholdings; neither is ever truncated. An instance table beyond its bound refuses as
@@ -1334,6 +1345,28 @@ over-128-KiB closure that holds an expected instance's key twice in one attempt 
 `instance-duplicated`, routed `CI-REFUSED`, from the instance table the replay reads, and never
 `change` with `basis-too-large`.
 
+**Every withholding reason replays, overflow included.** A withholding is never a refusal, so
+none outranks another: where any holds, the class is `change`, `withheld`, and the reason lists
+every one, size withholdings included, each in one of two closed forms:
+
+- `holds`, with its named values, read from the reason table, the observation or the instance
+  table, never from a list an overflow replaced;
+- `unavailable`, naming the witness that hid its values and, where the stream found any before
+  it stopped, the values it found, marked a lower bound. That happens only when the reason table
+  itself overflows (its witness is `reasons`), or when the range read reached its hard cap, so
+  the machinery paths past the cap were never read.
+
+Live and replay take the one function over the one basis, so a reason the replay cannot name was
+not named live either. So a 4,097-path range that includes `deny.toml`, beside a red all-setup
+observation, is `change`, `withheld`, with `range-too-large` (the `paths` witness, `measured`)
+and `machinery-touched` `holds` naming `deny.toml`, from the reason table, live and from the
+journal alone. And a closure over 128 KiB beside one dependency instance whose closure tree is
+another commit is `change`, `withheld`, with `basis-too-large` (the `closure` witness) and
+`revision-disagrees` `holds` naming both instances and both commits, from the instance table.
+Under ruling 3's refusal rule none of this reaches a refusal: every fact a refusal reads is in
+the observation, the required list, the comparison values or the instance table, and an
+`instances` witness refuses.
+
 So a replay of a valid all-setup aggregate reads its kind, `verdict-only`, and its nine expected
 keys from the basis, finds all nine in the sealed observation, and re-draws
 `ci-infrastructure`; and a replay of the same observation less one instance finds eight of the
@@ -1345,10 +1378,10 @@ under the rule that forbids truncating it, so the basis seals, in its place, a b
 **overflow witness**, never the list:
 
 - which bound it is: `paths` (the range's changed-path list), `closure` (the closure's job
-  map) or `instances` (the instance table), the three parts of the basis the compile does not
-  already bound;
+  map), `instances` (the instance table) or `reasons` (the reason table), the four parts of the
+  basis the compile does not already bound;
 - the limit, as a count and in bytes (4,096 paths and 256 KiB; 256 jobs and 128 KiB; 1,024
-  instances and 64 KiB);
+  instances and 64 KiB; 1,024 rows and 64 KiB);
 - the measurement, one of two closed forms:
   - `measured`: the full count and bytes, and the SHA-256 digest of the full list in its
     canonical form (for paths, the verified reader's sorted list with each path's bytes
@@ -1361,7 +1394,7 @@ overflowing list. Past the sealing limit it keeps reading, streaming each path, 
 job's or expected instance's canonical bytes, into a running count, byte total and SHA-256, and
 holds nothing else. That stream has its own hard read cap, a fixed multiple of the limit: 65,536
 paths and 4 MiB for paths, 4,096 jobs and 2 MiB for the closure, 16,384 instances and 1 MiB for
-the instance table. A list that ends within the cap seals
+the instance table, 16,384 rows and 1 MiB for the reason table. A list that ends within the cap seals
 `measured`. A list that reaches the cap stops there and seals `overflowed-unmeasured`, so no
 rejected input costs more than the cap. The sorted order a `measured` path digest needs is the
 reader's own order: 0109b's `diff-tree` over verified trees walks paths in tree order, which is
@@ -1371,9 +1404,10 @@ fails closed the same way.
 
 Everything else the basis holds is sealed as usual. `classify` reads a witness as its
 withholding or refusal, at its own place in ruling 3's order: an `instances` witness is the
-step 1 refusal `instances-too-large`, and a `paths` or `closure` witness draws
+step 1 refusal `instances-too-large`, a `paths` or `closure` witness draws
 `range-too-large` or `basis-too-large` at step 4, after every check above it has read what the
-witness left whole. So the
+witness left whole, and a `reasons` witness draws `basis-too-large` at step 4 with each reason
+it hid `unavailable`. So the
 replay re-derives the class without the list, and a `measured` digest lets a person who
 still has the range confirm which list it was. A witness whose measured count and bytes, or
 whose lower bound, are both within its limit is malformed and refuses the replay, so a witness
@@ -2234,6 +2268,16 @@ slice that produces it, and each typed assertion is in the slice that builds its
    `the_overflow_witness_carries_the_bound_the_limit_the_measured_size_and_a_digest_never_the_list`;
    `a_list_past_the_hard_read_cap_seals_overflowed_unmeasured_with_its_lower_bound_and_no_digest`;
    `a_closure_over_128_kib_withholds_as_basis_too_large`;
+   every reason replays (ruling 3), each asserting the exact class and the exact reason list,
+   live and from the journal alone:
+   `a_4097_path_range_including_deny_toml_names_range_too_large_and_machinery_touched_deny_toml`
+   (a red all-setup observation: `change`, `withheld`, exactly `range-too-large` with its
+   `measured` witness and `machinery-touched` `holds` naming `deny.toml`);
+   `a_closure_overflow_beside_a_revision_disagreement_names_both`
+   (`change`, `withheld`, exactly `basis-too-large` with its `closure` witness and
+   `revision-disagrees` `holds` naming both instances and both commits);
+   `a_reason_table_beyond_its_bound_records_each_hidden_reason_unavailable`;
+   `a_range_past_its_hard_cap_records_machinery_touched_unavailable_with_its_lower_bound`;
    `a_valid_all_setup_aggregate_replays_from_the_journal_alone` (the journal exported, then the
    bundle, the worktree, the workflow and the forge stub removed: `ci-infrastructure`, from the
    sealed `verdict-only` kind, nine expected keys and their nine established revisions, all one
