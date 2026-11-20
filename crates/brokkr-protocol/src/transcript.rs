@@ -45,7 +45,7 @@ pub(crate) struct Transcript {
 
 impl Transcript {
     /// Resolve the home through the same environment the child inherits.
-    pub(crate) fn resolve(kind: Kind) -> Result<Self, String> {
+    pub(crate) fn resolve(kind: Kind) -> Result<Self, TranscriptRefusal> {
         let operator_home = std::env::var_os("HOME");
         resolved(
             kind,
@@ -96,14 +96,12 @@ impl Transcript {
     /// A path locator is relative to its separately recorded harness home.
     /// This keeps the address complete even when the operator's absolute
     /// home is longer than the locator clamp.
-    pub(crate) fn locator_under_home(&self, path: &Path) -> Result<String, String> {
+    pub(crate) fn locator_under_home(&self, path: &Path) -> Result<String, TranscriptRefusal> {
         path.strip_prefix(&self.home)
             .map(|relative| relative.to_string_lossy().replace('\\', "/"))
-            .map_err(|_| {
-                format!(
-                    "transcript path {:?} is not under harness home {:?}",
-                    path, self.home
-                )
+            .map_err(|_| TranscriptRefusal::OutsideHome {
+                path: path.to_path_buf(),
+                home: self.home.clone(),
             })
     }
 
@@ -140,13 +138,25 @@ impl Transcript {
     }
 }
 
-fn resolved(kind: Kind, home: Option<PathBuf>) -> Result<Transcript, String> {
+/// Why a transcript has no address. The text is the operator's.
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+pub(crate) enum TranscriptRefusal {
+    #[error("no harness home for transcript kind {}", .kind.label())]
+    NoHome { kind: Kind },
+    #[error("transcript path {path:?} is not under harness home {home:?}")]
+    OutsideHome { path: PathBuf, home: PathBuf },
+}
+
+impl From<TranscriptRefusal> for String {
+    fn from(error: TranscriptRefusal) -> String {
+        error.to_string()
+    }
+}
+
+fn resolved(kind: Kind, home: Option<PathBuf>) -> Result<Transcript, TranscriptRefusal> {
     match home {
         Some(home) => Ok(Transcript::at(kind, home)),
-        None => Err(format!(
-            "no harness home for transcript kind {}",
-            kind.label()
-        )),
+        None => Err(TranscriptRefusal::NoHome { kind }),
     }
 }
 
@@ -369,10 +379,12 @@ mod tests {
             resolved(Kind::None, Some(PathBuf::new())).unwrap().home(),
             Path::new("")
         );
-        assert!(resolved(Kind::ClaudeSession, None)
-            .err()
-            .unwrap()
-            .contains("no harness home for transcript kind claude-session"));
+        assert_eq!(
+            resolved(Kind::ClaudeSession, None).err(),
+            Some(TranscriptRefusal::NoHome {
+                kind: Kind::ClaudeSession
+            })
+        );
     }
 
     #[test]
@@ -401,10 +413,36 @@ mod tests {
                 .unwrap(),
             "sessions/brokkr/seat-1"
         );
-        assert!(transcript
-            .locator_under_home(Path::new("/somewhere/else"))
-            .unwrap_err()
-            .contains("not under harness home"));
+        assert_eq!(
+            transcript.locator_under_home(Path::new("/somewhere/else")),
+            Err(TranscriptRefusal::OutsideHome {
+                path: PathBuf::from("/somewhere/else"),
+                home: PathBuf::from("/h/.dsh"),
+            })
+        );
+    }
+
+    /// Each refusal's text is pinned here, once, through the `String` bridge
+    /// the adapters' `?` sites take it by.
+    #[test]
+    fn every_transcript_refusal_reads_as_it_always_has() {
+        for (error, text) in [
+            (
+                TranscriptRefusal::NoHome {
+                    kind: Kind::CodexThread,
+                },
+                "no harness home for transcript kind codex-thread",
+            ),
+            (
+                TranscriptRefusal::OutsideHome {
+                    path: PathBuf::from("/somewhere/else"),
+                    home: PathBuf::from("/h/.dsh"),
+                },
+                "transcript path \"/somewhere/else\" is not under harness home \"/h/.dsh\"",
+            ),
+        ] {
+            assert_eq!(String::from(error), text);
+        }
     }
 
     #[test]
