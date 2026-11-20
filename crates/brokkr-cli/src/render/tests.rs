@@ -603,7 +603,7 @@ const OVERLAPPED: &str = "\u{2D4F}\u{2D7F}\u{2D3E}\u{2D7F}\u{2D4F}";
 #[test]
 fn a_cut_where_joins_overlap_fits_its_column() {
     let text = format!("abcd{OVERLAPPED}efXYZ");
-    assert_eq!(fitted(&text, 8), ("abcd…".to_string(), 5));
+    assert_eq!(fitted(&text, 8), ("abcd\u{2D4F}\u{2D7F}…".to_string(), 7));
     for max in 1..width_of(&text) {
         let (printed, cells) = fitted(&text, max);
         let measured = (cells, cells <= max);
@@ -618,7 +618,7 @@ fn a_cut_where_joins_overlap_fits_its_column() {
         vec![Safe::new(&text), Safe::new("2")],
     ];
     let drawn = table::table(&columns, &rows, &Style::plain(16));
-    let want = "STATE    ENTERED\nabcdefg…       1\nabcd…          2\n";
+    let want = "STATE    ENTERED\nabcdefg…       1\nabcd\u{2D4F}\u{2D7F}…        2\n";
     assert_eq!(drawn, want);
 }
 
@@ -631,17 +631,41 @@ fn a_cut_where_joins_overlap_is_made_in_linear_work() {
     let text = format!("ab{}XYZ", "\u{2D4F}\u{2D7F}".repeat(200));
     let measured = std::cell::Cell::new(0);
     let cut = table::fit_by(&text, 8, &mut counting(&measured));
-    let kept = format!("ab{}…", "\u{2D4F}\u{2D7F}".repeat(4));
+    let kept = format!("ab{}…", "\u{2D4F}\u{2D7F}".repeat(2));
     assert_eq!(
         (width_of(&text), cut.text, cut.cells),
-        (205, kept.into(), 7)
+        (205, kept.into(), 5)
     );
-    // Of 405 scalars: the whole text (405); the walk keeps all 205
-    // graphemes, each beside the one before (4 × 200 + 9) and alone
-    // (405); the kept text whole, then 102, 51, 25, 12 and 6 graphemes
-    // (405 + 202 + 100 + 48 + 22 + 10); the ellipsis (1).
-    let work = 405 + (809 + 405) + (405 + 202 + 100 + 48 + 22 + 10) + 1;
+    // Of 405 scalars in 1205 bytes: the whole text (405); the walk keeps
+    // all 205 graphemes, each beside the one before (4 × 200 + 9) and
+    // alone (405); the kept text whole, then `ab` and the joins within
+    // 602, 301, 148, 73, 34 and 16 bytes, 100, 49, 24, 11, 5 and 2 joins
+    // (405 + 202 + 100 + 50 + 24 + 12 + 6); the ellipsis (1).
+    let work = 405 + (809 + 405) + (405 + 202 + 100 + 50 + 24 + 12 + 6) + 1;
     assert_eq!(measured.get(), work);
+}
+
+/// A long grapheme kept before the joins is measured in only the tries
+/// whose bytes it fits within: halving the kept bytes, not the kept
+/// graphemes, drops it once half the text is shorter, so its marks are
+/// never measured once per try and the work stays linear (#1167).
+#[test]
+fn a_cut_after_a_long_grapheme_where_joins_overlap_is_made_in_linear_work() {
+    let marks = "\u{301}".repeat(1000);
+    let joins = "\u{2D4F}\u{2D7F}".repeat(1000);
+    let text = format!("a{marks}b{joins}XYZ");
+    let measured = std::cell::Cell::new(0);
+    let cut = table::fit_by(&text, 8, &mut counting(&measured));
+    // Of 3005 scalars in 8005 bytes: the whole text (3005); the walk
+    // keeps every grapheme, `a` and its marks beside nothing and alone
+    // (2002), `b` (1003), the first join (5), the other 999 (6 each),
+    // `XYZ` (10); the kept text whole (3005), then within 4002 bytes `a`,
+    // its marks, `b` and 333 joins (1668), then within 2000 bytes none,
+    // as `a` and its marks take 2001: the marks are measured in two
+    // tries, not in one per halving; the ellipsis (1).
+    let walk = 2002 + 1003 + 5 + 999 * 6 + 10;
+    assert_eq!(measured.get(), 3005 + walk + (3005 + 1668) + 1);
+    assert_eq!((cut.text, cut.cells), ("…".into(), 1));
 }
 
 /// A whole table is measured once per cell to size it, and once more to

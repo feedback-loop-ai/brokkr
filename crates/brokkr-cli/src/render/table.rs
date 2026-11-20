@@ -183,27 +183,29 @@ pub(super) fn fit_by<'a>(
     Fitted { text, cells }
 }
 
-/// The longest of the walk's kept graphemes, then half of them, then a
-/// quarter, down to none, whose measured width is within `budget`, and
-/// that width. The walk's pairwise sum falls short where joins overlap
-/// (in `ⵏ⵿ⴾ⵿ⵏ` each pair's fall is counted, but the run falls less), so
-/// its cut is measured before it is kept. Each try measures at most half
-/// the text the one before did, so the work stays within twice the kept
-/// text, and none, which measures nothing, always fits (#1167).
+/// The walk's kept text, else its longest prefix of whole graphemes
+/// within half its bytes, then within half of those, down to none, whose
+/// measured width is within `budget`, and that width. The walk's pairwise
+/// sum falls short where joins overlap (in `ⵏ⵿ⴾ⵿ⵏ` each pair's fall is
+/// counted, but the run falls less), so its cut is measured before it is
+/// kept. Each try measures at most half the bytes the one before did,
+/// however long a grapheme it keeps, so the work stays within twice the
+/// kept text, and none, which measures nothing, always fits (#1167).
 fn fitting<'a>(
     text: &'a str,
     ends: &[usize],
     budget: usize,
     measure: &mut impl FnMut(&str) -> usize,
 ) -> (&'a str, usize) {
-    let mut count = ends.len() - 1;
+    let mut end = ends[ends.len() - 1];
     loop {
-        let kept = &text[..ends[count]];
+        let kept = &text[..end];
         let cells = measure(kept);
         if cells <= budget {
             return (kept, cells);
         }
-        count /= 2;
+        let half = end / 2;
+        end = ends[ends.partition_point(|&each| each <= half) - 1];
     }
 }
 
