@@ -463,11 +463,29 @@ fn a_nested_results_subsets_are_checked_as_a_standalone_results_are() {
 /// `/settled_members/a/cache_read_tokens` at append, export and verify. The
 /// same row beside a released engine's unauthored marker keeps its
 /// admission.
+///
+/// Fix round 0109a1r7, X3: the marked payload is a result, so a
+/// checkpoint-shaped one with no result word, `{"step": "seat-turn"}`, is
+/// refused at `/settled_members/a` at all three fences, by the contract's
+/// closed result branch; unmarked, it keeps its admission.
 #[test]
 fn a_marked_settled_members_payload_is_validated_as_a_standalone_result() {
     let over = json!({"result": "clean", "input_tokens": 1, "cache_read_tokens": 2});
+    let checkpoint_shaped = json!({"step": "seat-turn"});
+    for (run, payload, path) in [
+        ("over", over, "/settled_members/a/cache_read_tokens"),
+        ("wordless", checkpoint_shaped, "/settled_members/a"),
+    ] {
+        settled_refused_only_beside_the_mark(run, payload, path);
+    }
+}
+
+/// A failed panel row settling member `a` with `payload`: beside the
+/// engine's authored marker it is refused at `path` at append, export and
+/// verify; beside a released engine's unauthored marker it is admitted.
+fn settled_refused_only_beside_the_mark(run: &str, payload: Value, path: &str) {
     let failed = json!({"effect_id": "fx", "attempt_id": "attempt-1", "error": "b failed",
-                        "tree": {}, "settled_members": {"a": over}});
+                        "tree": {}, "settled_members": {"a": payload}});
     let marker = |authored: bool| {
         let mut marker = json!({"step": "panel-member-finished", "member": "a",
                                 "outcome": "succeeded", "model": "m"});
@@ -483,14 +501,13 @@ fn a_marked_settled_members_payload_is_validated_as_a_standalone_result() {
         ]
     };
     let (_dir, mut store) = crate::tests::store();
-    let path = "/settled_members/a/cache_read_tokens";
-    refused_after(&mut store, "marked", &rows(true), path);
+    refused_after(&mut store, run, &rows(true), path);
     super::tests::started_run(&mut store, "released", "0.14.0");
     for (kind, payload) in rows(false) {
         (store.append_next("released", kind, payload, None, None)).unwrap();
     }
     let exported = store.export_ndjson("released").unwrap();
-    assert!(crate::verify_export(&exported).is_ok());
+    assert!(crate::verify_export(&exported).is_ok(), "{run}");
 }
 
 /// Fix round 0109a1r4, K5: a released engine's records stay admissible.

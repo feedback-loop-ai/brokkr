@@ -4,6 +4,7 @@
 //! fence, and in the export and offline-verify sweeps.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::OnceLock;
 
 use brokkr_core::findings::{EngineMarker, Finding, AUTHORED};
 use brokkr_core::{EventEnvelope, EventType};
@@ -20,6 +21,31 @@ fn compile(version: SeatRecordVersion) -> jsonschema::Validator {
 
 fn validator(version: SeatRecordVersion) -> &'static jsonschema::Validator {
     version.compiled().get_or_init(|| compile(version))
+}
+
+/// Each contract's result branch alone, compiled once, by version.
+static RESULT_BRANCH: [OnceLock<jsonschema::Validator>; 7] = [const { OnceLock::new() }; 7];
+
+/// `version`'s contract with its top-level `oneOf` narrowed to the result
+/// branch (fix round 0109a1r7, X3): every published seat-record contract
+/// is a `oneOf` of a checkpoint and a result, so a record that must be a
+/// result is judged by the result's own closed definition, and a
+/// checkpoint-shaped record is refused.
+fn result_branch(version: SeatRecordVersion) -> &'static jsonschema::Validator {
+    RESULT_BRANCH[version as usize].get_or_init(|| {
+        let mut schema: Value = serde_json::from_str(version.source())
+            .expect("the embedded seat-record schema is JSON");
+        let result = (schema["oneOf"].as_array().into_iter().flatten())
+            .find(|arm| {
+                arm["$ref"]
+                    .as_str()
+                    .is_some_and(|at| at.ends_with("/result"))
+            })
+            .cloned()
+            .expect("every seat-record contract has a result branch");
+        schema["oneOf"] = Value::Array(vec![result]);
+        jsonschema::draft7::new(&schema).expect("a seat-record result branch is valid draft-07")
+    })
 }
 
 /// The subset relationships the schema itself cannot state: a reported
@@ -40,12 +66,23 @@ pub fn validate_seat_record(
     seq: u64,
     version: SeatRecordVersion,
 ) -> Result<(), SeatRecordError> {
+    validated_by(validator(version), record, seq, version)
+}
+
+/// [`validate_seat_record`] with `schema`, the whole contract or one of
+/// its branches, in place of the contract's own validator.
+fn validated_by(
+    schema: &jsonschema::Validator,
+    record: &Value,
+    seq: u64,
+    version: SeatRecordVersion,
+) -> Result<(), SeatRecordError> {
     let refuse = |path: &str| SeatRecordError {
         seq,
         path: path.to_string(),
         contract: version.contract(),
     };
-    if validator(version).validate(record).is_err() || !gate_report_reads(record, version) {
+    if schema.validate(record).is_err() || !gate_report_reads(record, version) {
         // The contract's top level is a `oneOf`, so a violation is always
         // reported against the record as a whole: the pointer is the root
         // and the offending value is never echoed.
@@ -127,8 +164,10 @@ pub(crate) fn settled_of(
 /// attempt, as a standalone result is validated (fix round 0109a1r6, W3):
 /// the marked payload reads as a verdict, so it gets every fence one does,
 /// and a refusal names `/settled_members/<tag>` before the result's own
-/// pointer. An unmarked payload, a released engine's raw copy, keeps its
-/// admission.
+/// pointer. The marked payload is a result, so it is judged by the
+/// contract's closed result branch alone, never the checkpoint's (fix
+/// round 0109a1r7, X3). An unmarked payload, a released engine's raw copy,
+/// keeps its admission.
 pub(crate) fn validate_settled(
     (event_type, payload): (EventType, &Value),
     marked: &BTreeSet<String>,
@@ -137,7 +176,7 @@ pub(crate) fn validate_settled(
 ) -> Result<(), SeatRecordError> {
     let marked = settled_of(event_type, payload).filter(|(tag, _)| marked.contains(*tag));
     for (tag, result) in marked {
-        validate_seat_record(result, seq, version).map_err(|mut refusal| {
+        validated_by(result_branch(version), result, seq, version).map_err(|mut refusal| {
             let inner = refusal.path.strip_prefix('/').unwrap_or_default();
             refusal.path = match inner {
                 "" => format!("/settled_members/{tag}"),
