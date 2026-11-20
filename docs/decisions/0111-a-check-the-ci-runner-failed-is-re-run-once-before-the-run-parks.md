@@ -1090,18 +1090,60 @@ progress, or a run list the observer could not read whole, refuses as `execution
 The sealed observation holds each check's run id and attempt and each key's whole run list, so
 a replay re-derives which match is current, and which is stale, from the journal alone.
 
-Nothing short of that is `green`. **The order, stated once.** `classify` takes these in this
-order, live and on replay alike, over the one sealed observation and basis; ruling 4's numbered
-steps are this order and no other:
+Nothing short of that is `green`.
 
-1. the binding refusals other than absence (every row below but `missing-required`):
-   **`refused`**, naming every one that holds;
+#### No refusal weakens
+
+This is the one home of the rule; every refusal below, and every step of ruling 4, cites it.
+Fix rounds 1093r6 and 1093r7 each found a case where a fact a refusal should read was lost or
+read from the wrong source (a stale green, then the head's matrix in place of the event
+workflow's), so the run fell through to a weaker class and a person's ruled park became an
+implement visit. Fixing each case alone leaves the next open, so the class is designed out once.
+**Recommended: (a) refusals first, and an unestablished fact refuses.**
+
+- **The refusal predicates are evaluated first,** every row of the table below, in its order,
+  over facts sealed inside their bounds (the observation, and the basis's required list,
+  comparison values and instance table). Every row that holds is named.
+- **A fact a refusal predicate reads that is absent, overflowed, unproven, ambiguous, or parsed
+  from a source other than the established one makes that predicate hold.** The run refuses,
+  routed `CI-REFUSED`, with the row's word and a typed `unestablished` qualifier naming the fact
+  and its state, one of `absent`, `overflowed`, `unproven`, `ambiguous` or `wrong-source`. It
+  never falls through to a weaker class.
+- **A weaker class, `change`, `ci-infrastructure` or `green`, is drawn only when every refusal
+  predicate is established false:** every fact its row names is sealed, inside its bound, from
+  the source its row names, and the predicate evaluates false over them.
+
+So the observation's contract carries each fact a row reads as a value, or as the typed `unread`
+with the observer's reason, never a default; a paged list carries whether it was read to its last
+page; and each parsed fact carries the identity of the source it was parsed from, so a replay
+checks the source as well as the value. An observation that lacks a field its contract requires
+never reaches the table: the edge refuses it (ruling 3's parse), and the engine draws `refused`
+with the edge's word, `observation-too-large`, or `observation-unreadable` naming the field, the
+unknown word or the fifth excerpt. Those are journaled as the gate's refusal, as
+`launch-untrusted` is, and a replay reads them there.
+
+The withholdings are not refusals, and this rule does not reach them: an unestablished fact a
+withholding reads already withholds, and fails closed to "not infrastructure". What this rule
+guards is the one direction the frame does not: a refusal turned into `change`, which buys an
+implement visit where a person's park was owed.
+
+Cost, said plainly: an observation refuses wherever a fact is unknown, `green` included. Until
+0111a measures how the forge names a matrix instance, every observation whose entry set reaches a
+matrix job refuses; no live compile admits a `ci` seat before 0111e, which follows 0111a, and if
+0111a finds the naming unmeasurable the decision is revised before acceptance. An adopter whose
+matrix is built by an expression cannot use the gate. **(b)** keeping each case's own fix, as fix rounds
+1093r6 and 1093r7 did, is not taken: it leaves the next case open.
+
+**The order, stated once.** `classify` takes these in this order, live and on replay alike, over
+the one sealed observation and basis; ruling 4's numbered steps are this order and no other:
+
+1. **every refusal predicate** of the table below, `missing-required` and `non-success`
+   included: **`refused`**, naming every one that holds, each observed or `unestablished`;
 2. **the explicit exception**, an observed inadmissible failure: **`change`**, with
-   `inadmissible-failure`, because it is observed and red, not missing;
-3. **completeness, by eligible current match**: a required entry with none refuses as
-   `missing-required`, beside any failure the classes could type, and whatever stale or
-   other-producer check carries its name;
-4. then the classes: `green` or `non-success`, the withholdings, and the failure set.
+   `inadmissible-failure`, because it is observed and red. It outranks no refusal:
+   `missing-required`'s own predicate is false for an entry under whose name it is reported,
+   and `non-success`'s is false wherever a red is observed;
+3. then the classes: `green`, the withholdings, and the failure set.
 
 So a required check that is missing beside an otherwise classifiable failure refuses as
 `missing-required`; it is never typed. A required audit with no check in its current run, an
@@ -1110,21 +1152,21 @@ ordinary failed test is `refused`, `missing-required`, routed `CI-REFUSED`: the 
 never makes the audit present, and the test failure is never reached. The same holds when the
 second job's failure is all-setup: `refused`, never `ci-infrastructure`.
 
-| Refusal | When |
-|---|---|
-| `unrelated` | the repository, the pull request or the head differs from the binding |
-| `head-unpublished` | the forge's head for the pull request is not the engine's git head: the head the run would gate is not the one pushed |
-| `empty` | the forge reports no check for the head |
-| `missing-required` | a required entry is absent: it has no eligible current match, a check from its bound producer in its current run attempt; a stale same-producer check of any conclusion, and a check under its name from another producer, never count; the refusal names the entry |
-| `ambiguous-required` | a required entry matches more than one check in its current execution |
-| `execution-ambiguous` | a required entry's current execution cannot be told, as above |
-| `instance-duplicated` | one expected matrix instance's key is observed more than once in one run attempt; it names the key and the jobs |
-| `instances-too-large` | the instance table (ruling 3's basis) exceeds its bound, so `instance-duplicated` cannot be decided; it names the measured count |
-| `not-settled` | a required check is still queued or in progress when the observer's own polling bound ends, short of the seat's deadline |
+The refusal predicates, each with the facts it reads, where each is sealed, and its unestablished
+outcome. *Observation* is the sealed `ci_observation`; *basis* is the `ci_class` record's basis.
 
-One more refusal follows the pass and precedes classification: `non-success`, when no required
-check failed, and one concluded `neutral`, `skipped`, `stale` or `action_required`. It names the
-check and the word.
+| Refusal | Holds when | Facts it reads, and where each is sealed | Unestablished |
+|---|---|---|---|
+| `unrelated` | the repository, the pull request or the head differs from the binding | the repository's owner, name and id, the pull request's number and the gated head (observation); the run's pinned repository, the gate's pull request and the engine's git head (basis, comparison values) | `unrelated`, naming the fact |
+| `head-unpublished` | the forge's head for the pull request is not the engine's git head: the head the run would gate is not the one pushed | the forge's `head.sha` (observation); the engine's git head (basis) | `head-unpublished`, naming the fact |
+| `empty` | the forge reports no check for the head | the check list, and whether it was read to its last page (observation) | `empty`, `absent`, when no check was read and the list was not read whole |
+| `missing-required` | a required entry has no eligible current match, a check from its bound producer in its current run attempt, and no observed inadmissible failure is reported under its name; a stale same-producer check of any conclusion never counts; it names the entry | the pinned required list (basis); the check list, read whole, each check's producer, run id and attempt, and each key's whole run list (observation) | `missing-required`, naming the entry and the fact |
+| `ambiguous-required` | a required entry matches more than one check in its current execution | the same facts as `missing-required` | `ambiguous-required`, naming the entry and the fact |
+| `execution-ambiguous` | a required entry's current execution cannot be told, as above | each key's whole run list, with each run's status and attempt (observation) | `execution-ambiguous`, naming the key |
+| `instance-duplicated` | one expected matrix instance's key is observed more than once in one run attempt; it names the key and the jobs | each matrix dependency's expected instance keys, parsed from the pinned workflow, with that source's identity, and the forge's instance naming (basis, instance table); each observed job's name, run id and attempt (observation) | `instance-duplicated`, naming the dependency and the fact: an unexpandable matrix, unmeasured naming, or an instance table parsed from another source |
+| `instances-too-large` | the instance table exceeds its bound, so `instance-duplicated` cannot be decided; it names the measured count | the instance table's overflow witness (basis) | this row is the `overflowed` state of `instance-duplicated`'s fact, and holds whenever the witness does |
+| `not-settled` | a required check is still queued or in progress when the observer's own polling bound ends, short of the seat's deadline | each matched check's status (observation) | `not-settled`, naming the check |
+| `non-success` | no check in the failure set and no observed inadmissible failure is red, and a matched required check concluded `neutral`, `skipped`, `stale` or `action_required`; it names the check and the word | each matched check's conclusion, and every red the observation holds (observation) | `non-success`, naming the check |
 
 A refusal never passes. It is the frame's `ruled` park
 ([stated once](#the-gate-grants-nothing)), with the rule's id and the refusals' words.
@@ -1150,7 +1192,7 @@ stops nothing landing would do. Each is a precision guard on the one class, and 
 | `producer-mismatch` | a check carries a required entry's name from another app or workflow path; it names it, so a substitute is never silently passed over |
 | `status-required` | the forge's required set names a commit status context, which is never admitted |
 | `required-set-disagrees` | the forge requires a check the pinned list lacks |
-| `matrix-incomplete` | a verdict-only aggregate's dependency is missing an expected instance, from the base's pinned matrix (ruling 4), or its matrix cannot be expanded; it names the missing ones |
+| `matrix-incomplete` | a verdict-only aggregate's dependency is missing an expected instance, from the base's pinned matrix (ruling 4), or holds one whose values match no expected entry; it names them. A matrix that cannot be expanded, or whose instances cannot be named, is not this row's: it leaves `instance-duplicated` unestablished, and refuses ([No refusal weakens](#no-refusal-weakens)) |
 
 The gate's word is bound to the engine's class: `pass` is admitted only on `green`, and `fail`
 with a `green` class is refused. A refused word is never rewritten (the same binding 0109
@@ -1191,7 +1233,9 @@ bounded, typed data under `ci-classification/v1`:
   measures how the forge names an
   instance; or the typed `matrix-unexpandable`, naming the expression or `fromJSON` that built
   it; or `instance-naming-unmeasured` while 0111a has not measured the naming. Each of the
-  latter two is ruling 4's `matrix-incomplete`, drawn by a replay from the outcome alone;
+  latter two leaves `instance-duplicated` unestablished, so a replay draws `refused`,
+  `instance-duplicated`, `unestablished`, from the outcome alone
+  ([No refusal weakens](#no-refusal-weakens));
 - **the comparison values** the binding read: the repository's numeric id, the pull request's
   number, the base commit, the merge base, the gated head, the engine's git head and the forge's
   head for the pull request;
@@ -1218,7 +1262,7 @@ withholdings; neither is ever truncated. An instance table beyond its bound refu
 `instances-too-large` (ruling 3), because without it `instance-duplicated` cannot be decided.
 
 **What an overflow keeps, and the precedence over it.** Every check ruling 3's order ranks above
-`basis-too-large` (its steps 1 to 3, and `green` and `non-success`) reads only the sealed
+`basis-too-large` (every refusal predicate, the explicit exception and `green`) reads only the sealed
 observation, the pinned required list, the comparison values and the instance table, never the
 closure's job map. So a closure overflow replaces the job map alone with its witness (below);
 the instance table stays sealed whole beside it, inside its own bound. `instance-duplicated`
@@ -1265,7 +1309,7 @@ fails closed the same way.
 Everything else the basis holds is sealed as usual. `classify` reads a witness as its
 withholding or refusal, at its own place in ruling 3's order: an `instances` witness is the
 step 1 refusal `instances-too-large`, and a `paths` or `closure` witness draws
-`range-too-large` or `basis-too-large` at step 5, after every check above it has read what the
+`range-too-large` or `basis-too-large` at step 4, after every check above it has read what the
 witness left whole. So the
 replay re-derives the class without the list, and a `measured` digest lets a person who
 still has the range confirm which list it was. A witness whose measured count and bytes, or
@@ -1380,22 +1424,20 @@ before the reader sees them. A range the reader cannot take (a base it does not 
 base, an object that does not verify) withholds the class as `range-unproven`. It is never read
 as an empty change. In ruling 3's one order:
 
-1. Any binding refusal of ruling 3 holds, `missing-required` apart:
+1. Any refusal predicate of ruling 3's table holds, observed or unestablished
+   ([No refusal weakens](#no-refusal-weakens)), `missing-required` and `non-success` among them:
    **`refused`**, naming every one that holds. Nothing below runs, so no refusal is ever
-   outranked by a classifiable failure.
+   outranked by a classifiable failure. A stale success never satisfies `missing-required`.
 2. **An observed inadmissible failure** (ruling 3: a red check under an entry-set entry's name
    from another producer, or a red context the forge requires that the gate cannot admit and no
    after-ship entry declares; never a stale check of the entry's own producer):
    **`change`**, with the reason `inadmissible-failure`, naming the check and its withholding.
-   It outranks `missing-required` and `green` below, because it is observed, not absent, and it
-   is red.
-3. A required entry has no eligible current match (ruling 3): **`refused`** as
-   `missing-required`. A stale success never satisfies it, so nothing below runs.
-4. The observation passes ruling 3's rule for `green`: **`green`**. One that cannot and holds no
-   failed, timed-out, unstarted or cancelled required check is **`refused`** as `non-success`.
-5. **Any withholding of ruling 3 holds: `change`,** with the reason `withheld`, naming every
+   It outranks `green` below, because it is observed and red. It outranks no refusal: step 1
+   established each false.
+3. The observation passes ruling 3's rule for `green`: **`green`**.
+4. **Any withholding of ruling 3 holds: `change`,** with the reason `withheld`, naming every
    withholding that holds. No pattern is read, so nothing below can draw `ci-infrastructure`.
-6. **The whole failure set is typed.** The failure set is every job of an entry in the entry
+5. **The whole failure set is typed.** The failure set is every job of an entry in the entry
    set (ruling 6) whose conclusion is not `success`, each instance of a matrix job on its own. Every element gets one closed type,
    matched without a wildcard:
    - **setup-pattern**: conclusion `failure`, **at least one** failed step reported, and
@@ -1420,14 +1462,14 @@ as an empty change. In ruling 3's one order:
 
    **Inadmissible evidence has one route, `change`.** A red check ruling 3 cannot admit under a
    required name is step 2's; a failure in an execution ruling 3 does not admit (an unproven or
-   ambiguous association, an unestablished, disagreeing or unmeasured revision) is step 5's.
+   ambiguous association, an unestablished, disagreeing or unmeasured revision) is step 4's.
    Neither reaches this step, and either way the observation is `change`, exactly, never
    `refused`, never `green` and never `ci-infrastructure`. (Fix round 1093r4 parked that case
    `ruled`; that route is removed.)
-7. **Only an all-setup failure set parks.** Every element setup-pattern or setup-via-needs, and
+6. **Only an all-setup failure set parks.** Every element setup-pattern or setup-via-needs, and
    the set non-empty: **`ci-infrastructure`**, naming each job, its steps and their pattern ids,
    with the workflow run's id and attempt a person needs to re-run it.
-8. Otherwise **`change`**, with a closed reason naming the first element that is not setup, in
+7. Otherwise **`change`**, with a closed reason naming the first element that is not setup, in
    the set's order: `cancelled`, or `untyped-failure`. One such element beside any number of
    setup faults makes the whole observation the change's.
 
@@ -1450,23 +1492,25 @@ The classifier then finds the aggregate's dependencies in the same workflow run 
 and types each instance that did not succeed by the same rules, recursively. **Every expected
 instance is accounted for.** A dependency's expected instances come from the base's pinned
 `strategy.matrix`: for HEAD's `engine-machines`, its nine `include` entries, five Linux and four
-macOS machines (`:192-215`). A matrix the parse cannot expand into a fixed list, because it is
-built by an expression or `fromJSON`, cannot be accounted for. An observation missing any
+macOS machines (`:192-215`). An observation missing any
 expected instance, or holding one whose matrix values match no expected entry, withholds the
 class as `matrix-incomplete`, so a sparse observation cannot look all-setup. **The binding is
 one-to-one**: an expected instance's key observed more than once in one run attempt refuses the
 observation as `instance-duplicated` (ruling 3), so a contradictory duplicate cannot stand
 beside its sibling, whichever one the classifier would have read. A cancelled sibling
-is observed, and is `cancelled`, which makes the observation `change`. How the forge names an
-instance, and so how an observed job is matched to its expected entry, is **unmeasured** until
-0111a; until it is measured every matrix dependency is `matrix-incomplete`, which fails closed.
+is observed, and is `cancelled`, which makes the observation `change`. A matrix the parse cannot
+expand into a fixed list, because it is built by an expression or `fromJSON`, leaves the expected
+keys unknown, so `instance-duplicated` cannot be established false and the observation refuses
+([No refusal weakens](#no-refusal-weakens)). How the forge names an instance, and so how an
+observed job is matched to its expected entry, is **unmeasured** until 0111a; until it is
+measured every observation that reaches a matrix dependency refuses the same way.
 
 This is safe because the base workflow is the one the run used (ruling 3 withholds the class on
 a changed one as `machinery-touched`), and because the type only parks: a mistyped aggregate
 costs a person's look, never a pass. A verdict-only aggregate's own failed step is taken as its
 dependencies' consequence, not read, because it holds nothing else.
 
-A change that touches CI's machinery never reaches step 6: step 5 makes it the change's, as
+A change that touches CI's machinery never reaches step 5: step 4 makes it the change's, as
 `machinery-touched`, and no pattern over its steps is read. It parks nothing for a person.
 
 A failure the classifier cannot type is the change's, as today.
@@ -2006,7 +2050,9 @@ non-`change` class.
 - Any forge write: ruling 1. No re-run is requested, and no seat holds a write credential.
 - No model decides: the gate is an exec seat, the classifier is core.
 - No required check is skipped, marked passed or written.
-- No refusal is weakened; `retryable`'s positive-evidence rule stands as 0106 wrote it.
+- No refusal is weakened: refusals are evaluated first, and a fact one reads that is not
+  established refuses ([No refusal weakens](#no-refusal-weakens)); `retryable`'s
+  positive-evidence rule stands as 0106 wrote it.
 - No Windows code (0063).
 - #1113's own fix.
 - The dispatcher's retry budget, beyond ruling 8.
@@ -2136,7 +2182,7 @@ slice that produces it, and each typed assertion is in the slice that builds its
    another commit: `change`, `withheld`, `revision-disagrees` naming both instances);
    `a_missing_sibling_replays_from_the_journal_alone_as_matrix_incomplete` (the same, one
    instance short: `change`, `withheld`, `matrix-incomplete` naming the missing key);
-   `a_sealed_matrix_unexpandable_outcome_replays_as_matrix_incomplete`;
+   `a_sealed_matrix_unexpandable_outcome_replays_as_refused_instance_duplicated_unestablished`;
    `a_witness_within_its_limit_refuses_the_replay`. The evidence (ruling 4):
    `a_port_bind_literal_in_a_declared_setup_step_draws_ci_infrastructure`;
    `a_declared_literal_in_an_undeclared_step_is_the_changes`;
@@ -2186,7 +2232,7 @@ slice that produces it, and each typed assertion is in the slice that builds its
    `a_missing_matrix_sibling_draws_no_ci_infrastructure` (eight of nine instances observed:
    `change`, `matrix-incomplete`);
    `a_cancelled_matrix_sibling_draws_no_ci_infrastructure` (`change`, `cancelled`);
-   `a_matrix_built_by_an_expression_is_matrix_incomplete`;
+   `a_matrix_built_by_an_expression_refuses_as_instance_duplicated_unestablished`;
    `an_aggregate_with_one_untyped_dependency_is_the_changes`;
    `an_aggregate_whose_dependency_is_in_another_attempt_is_the_changes`;
    `the_aggregate_reads_its_needs_from_the_base_workflow_never_the_head`;
@@ -2430,6 +2476,29 @@ slice that produces it, and each typed assertion is in the slice that builds its
    beside the witness);
    `an_instance_table_beyond_its_bound_refuses_as_instances_too_large` (live and from the
    journal alone);
+   no refusal weakens (ruling 3's one home), one test per row of the refusal table, the row's
+   fact unestablished and every other fact established so the row's own predicate decides, each
+   asserting exactly `refused`, the row's word with `unestablished` naming the fact and its
+   state, and `CI-REFUSED`, never `CI-FAIL`, `CI-INFRASTRUCTURE` or `CI-PASS`, live and from the
+   journal alone:
+   `an_unread_engine_head_refuses_as_unrelated_unestablished`;
+   `a_forge_head_reported_unread_refuses_as_head_unpublished_unestablished`;
+   `a_check_list_read_short_of_its_last_page_with_no_check_refuses_as_empty_unestablished`;
+   `a_check_list_read_short_of_its_last_page_beside_an_ordinary_failure_refuses_as_missing_required_unestablished`
+   (the required audit is not on the pages read; another entry's ordinary failure is);
+   `a_check_list_read_short_of_its_last_page_beside_one_match_refuses_as_ambiguous_required_unestablished`;
+   `a_run_list_read_short_of_its_last_page_refuses_as_execution_ambiguous_unestablished`;
+   `an_unexpandable_matrix_beside_an_all_setup_failure_refuses_as_instance_duplicated_unestablished`;
+   `unmeasured_instance_naming_beside_an_all_success_observation_refuses_as_instance_duplicated_unestablished`;
+   `an_instance_table_whose_source_is_not_the_established_one_refuses_as_instance_duplicated_wrong_source`;
+   `a_required_check_with_an_unread_status_refuses_as_not_settled_unestablished`;
+   `a_required_check_with_an_unread_conclusion_refuses_as_non_success_unestablished`;
+   `an_observation_missing_a_required_field_refuses_at_the_edge_as_observation_unreadable`;
+   and `every_row_of_the_refusal_table_has_an_unestablished_case`, which enumerates the refusal
+   enum without a wildcard and fails when a row has no case above. Every 0111b test over a
+   matrix dependency builds its instance naming from 0111a's evidence; where 0111a leaves it
+   unmeasured, those tests assert this refusal instead, and the decision is revised before
+   acceptance (ruling 3's cost);
    `a_different_table_park_carrying_the_ci_infrastructure_class_stays_ruled`;
    `a_table_with_no_or_two_marked_ci_infrastructure_parks_refuses_to_compile`;
    `exactly_one_class_flag_is_true_for_each_class_but_change`;
