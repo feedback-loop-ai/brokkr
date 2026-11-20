@@ -1,9 +1,10 @@
 //! The one table writer the terminal readouts share (decision 0071 ruling
 //! 5): columns sized to their widest cell, the header's included. The
 //! seats block sizes its columns here; `brokkr graph` draws its states and
-//! rules as whole tables here (#1167), measured in the terminal's cells
-//! a grapheme at a time, as ratatui's buffer draws them.
+//! rules as whole tables here (#1167), each cell sized, cut and padded
+//! in the terminal's cells by one walk, [`fit_by`].
 
+use std::borrow::Cow;
 use std::cmp::Reverse;
 
 use ratatui::style::Style as Plain;
@@ -68,7 +69,11 @@ fn gap(widths: &[usize], width: usize) -> &'static str {
 
 /// Each of the `heads`' columns as wide as its widest cell in `rows` by
 /// `measure`, the header's included.
-fn sized<R: AsRef<[Safe]>>(heads: &[&str], rows: &[R], measure: fn(&str) -> usize) -> Vec<usize> {
+fn sized<R: AsRef<[Safe]>>(
+    heads: &[&str],
+    rows: &[R],
+    measure: &mut impl FnMut(&str) -> usize,
+) -> Vec<usize> {
     let mut widths: Vec<usize> = heads.iter().map(|head| measure(head)).collect();
     for row in rows {
         for (width, cell) in widths.iter_mut().zip(row.as_ref()) {
@@ -82,7 +87,7 @@ fn sized<R: AsRef<[Safe]>>(heads: &[&str], rows: &[R], measure: fn(&str) -> usiz
 /// header's included, in `char`s by the one measure the seats block pads
 /// with. A row may carry cells past the last sized column.
 pub(crate) fn widths<R: AsRef<[Safe]>>(heads: &[&str], rows: &[R]) -> Vec<usize> {
-    sized(heads, rows, scalars)
+    sized(heads, rows, &mut scalars)
 }
 
 /// `over` cells given up from the text columns, one at a time from the
@@ -107,76 +112,113 @@ fn give_way(columns: &[Column], widths: &mut [usize], over: usize) {
 /// from its text columns, widest first, each down to [`FLOOR`] cells, so
 /// every number stays whole.
 pub(crate) fn table(columns: &[Column], rows: &[Vec<Safe>], style: &Style) -> String {
+    table_by(columns, rows, style, &mut width_of)
+}
+
+/// [`table`] with `measure` for [`width_of`]: every cell is sized, cut
+/// and padded by one [`fit_by`] walk, so a test can count what a whole
+/// table measures (#1167).
+pub(super) fn table_by(
+    columns: &[Column],
+    rows: &[Vec<Safe>],
+    style: &Style,
+    measure: &mut impl FnMut(&str) -> usize,
+) -> String {
     let heads: Vec<&str> = columns.iter().map(|column| column.head).collect();
-    let mut widths = sized(&heads, rows, drawn);
+    let mut widths = sized(&heads, rows, &mut |text| {
+        fit_by(text, usize::MAX, measure).cells
+    });
     let gap = gap(&widths, style.width);
     let used = widths.iter().sum::<usize>() + gap.len() * (widths.len() - 1);
     give_way(columns, &mut widths, used.saturating_sub(style.width));
     let heads: Vec<Safe> = heads.iter().map(|head| Safe::new(head)).collect();
+    let set = Set {
+        columns,
+        widths: &widths,
+        gap,
+    };
     let mut out = String::new();
-    let header = line(&heads, columns, &widths, gap);
+    let header = line(&heads, &set, measure);
     push_line(&mut out, &tint(&header, BOLD, style));
     for row in rows {
-        push_line(&mut out, &line(row, columns, &widths, gap));
+        push_line(&mut out, &line(row, &set, measure));
     }
     out
 }
 
-/// A cell's width in the terminal's cells, as ratatui's buffer draws it:
-/// one grapheme at a time, each by [`width_of`], the TUI's one measure.
-/// A grapheme's width can hang on its whole sequence (`♥` then U+FE0F
-/// draws two cells, each alone one), so a cell is never measured a
-/// scalar at a time (#1167).
-fn drawn(text: &str) -> usize {
-    let span = Span::raw(text);
-    span.styled_graphemes(Plain::new())
-        .map(|grapheme| width_of(grapheme.symbol))
-        .sum()
+/// What a cell keeps of its text in its column, and the terminal cells
+/// that takes, its ellipsis included: the padding reads `cells`, so the
+/// kept text is never walked again (#1167).
+pub(super) struct Fitted<'a> {
+    pub(super) text: Cow<'a, str>,
+    pub(super) cells: usize,
 }
 
-/// `text` cut to `max` terminal cells by [`drawn`]'s measure, the cut
-/// marked with `…`. The TUI's clamp also bounds `char`s, as its buffer
-/// spends a cell on each; a printed row spends only the cells the
-/// terminal draws, so a decomposed accent costs nothing here (#1167).
-/// `max` is at least one, a header's width.
-fn fit(text: &str, max: usize) -> String {
-    fit_by(text, max, width_of)
-}
-
-/// [`fit`] by `measure`, in one walk that measures each grapheme once:
-/// it keeps what fits the budget less the ellipsis, and cuts there the
-/// moment the text passes `max`, so no prefix is measured again (#1167).
-pub(super) fn fit_by(text: &str, max: usize, mut measure: impl FnMut(&str) -> usize) -> String {
+/// `text` cut to `max` terminal cells, the cut marked with `…`, in one
+/// walk of its graphemes. Each grapheme costs what [`width_of`] (by
+/// `measure`) adds when it follows the one before, `measure(previous +
+/// grapheme) - measure(previous)`: a width can hang on its whole
+/// sequence (`♥` then U+FE0F draws two cells) or on its neighbour (a
+/// Lisu tone letter after another draws none), and the TUI's measure
+/// reads both, so the walk sums to the whole text's width wherever a
+/// width hangs on no more than the grapheme before, and no prefix is
+/// measured again. It keeps what fits the budget less the
+/// ellipsis, and cuts there the moment the text passes `max`.
+/// The TUI's clamp also bounds `char`s, as its buffer spends a cell on
+/// each; a printed row spends only the cells the terminal draws, so a
+/// decomposed accent costs nothing here. `max` is at least one, a
+/// header's width, and `usize::MAX` measures without a cut.
+pub(super) fn fit_by<'a>(
+    text: &'a str,
+    max: usize,
+    measure: &mut impl FnMut(&str) -> usize,
+) -> Fitted<'a> {
     let budget = max.saturating_sub(1);
-    let mut spent = 0;
-    let mut kept = String::new();
+    let (mut spent, mut kept, mut kept_cells) = (0, String::new(), 0);
+    let (mut previous, mut alone, mut pair) = ("", 0, String::new());
     let span = Span::raw(text);
     for grapheme in span.styled_graphemes(Plain::new()) {
-        spent += measure(grapheme.symbol);
+        pair.clear();
+        pair.push_str(previous);
+        pair.push_str(grapheme.symbol);
+        spent += measure(&pair).saturating_sub(alone);
         if spent > max {
-            return kept + "…";
+            let cells = kept_cells + measure("…");
+            let text = Cow::Owned(kept + "…");
+            return Fitted { text, cells };
         }
         if spent <= budget {
             kept.push_str(grapheme.symbol);
+            kept_cells = spent;
         }
+        (previous, alone) = (grapheme.symbol, measure(grapheme.symbol));
     }
-    text.to_string()
+    let text = Cow::Borrowed(text);
+    Fitted { text, cells: spent }
+}
+
+/// How a table sets each row: its columns, their widths and the gap
+/// between them.
+struct Set<'a> {
+    columns: &'a [Column],
+    widths: &'a [usize],
+    gap: &'a str,
 }
 
 /// One row's cells, each clamped to its column's width in cells and set
 /// in it, with no trailing space for a bold header to carry.
-fn line(cells: &[Safe], columns: &[Column], widths: &[usize], gap: &str) -> String {
+fn line(cells: &[Safe], set: &Set<'_>, measure: &mut impl FnMut(&str) -> usize) -> String {
     let pieces: Vec<String> = cells
         .iter()
-        .zip(columns.iter().zip(widths))
+        .zip(set.columns.iter().zip(set.widths))
         .map(|(cell, (column, &width))| {
-            let text = fit(cell.as_str(), width);
-            let pad = " ".repeat(width.saturating_sub(drawn(&text)));
+            let Fitted { text, cells } = fit_by(cell.as_str(), width, measure);
+            let (text, pad) = (text.into_owned(), " ".repeat(width.saturating_sub(cells)));
             match column.align {
                 Align::Left => text + &pad,
                 Align::Right => pad + &text,
             }
         })
         .collect();
-    pieces.join(gap).trim_end().to_string()
+    pieces.join(set.gap).trim_end().to_string()
 }

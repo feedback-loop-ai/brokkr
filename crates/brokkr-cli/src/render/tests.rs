@@ -489,25 +489,76 @@ fn a_descriptor_that_is_no_terminal_measures_no_columns() {
     assert!((20..=1000).contains(&detected), "{detected}");
 }
 
+/// `text` cut to `max` cells by [`width_of`]: what it keeps and the cells
+/// that takes.
+fn fitted(text: &str, max: usize) -> (String, usize) {
+    let table::Fitted { text, cells } = table::fit_by(text, max, &mut width_of);
+    (text.into_owned(), cells)
+}
+
+/// A counting [`width_of`]: what it measured, in scalars, is added to
+/// `measured`.
+fn counting(measured: &std::cell::Cell<usize>) -> impl FnMut(&str) -> usize + '_ {
+    |text: &str| {
+        measured.set(measured.get() + text.chars().count());
+        width_of(text)
+    }
+}
+
 /// A long run of combining marks before a suffix that must be cut costs
-/// no cell, and the cut is made in one walk: every scalar is measured
-/// once after the whole, never a prefix again (#1167).
+/// no cell, and the cut is made in one walk: each grapheme is measured
+/// alone and beside the one before it, never a prefix again (#1167).
 #[test]
 fn a_cell_is_cut_in_one_walk_however_many_marks_it_carries() {
     let marks = "\u{301}".repeat(1000);
     let text = format!("a{marks}bcdefgh");
     assert_eq!(width_of(&text), 8);
-    assert_eq!(table::fit_by(&text, 4, width_of), format!("a{marks}bc…"));
+    assert_eq!(fitted(&text, 4), (format!("a{marks}bc…"), 4));
     let measured = std::cell::Cell::new(0);
-    let counting = |text: &str| {
-        measured.set(measured.get() + text.chars().count());
-        width_of(text)
-    };
-    assert_eq!(table::fit_by(&text, 4, counting), format!("a{marks}bc…"));
-    // `a` and its marks, then `b`, `c`, `d` and the `e` that passes 4:
-    // each scalar up to the cut measured once, nothing after it.
-    assert_eq!(measured.get(), 1001 + 4);
-    assert_eq!(table::fit_by("abc", 3, width_of), "abc", "it fits");
+    let cut = table::fit_by(&text, 4, &mut counting(&measured));
+    assert_eq!(cut.text, format!("a{marks}bc…"));
+    // `a` and its marks as the first pair and alone (2002), `b` beside
+    // them and alone (1003), `c` and `d` likewise (3 each), the `de`
+    // that passes 4 and the ellipsis (3): nothing after the cut.
+    assert_eq!(measured.get(), 2002 + 1003 + 3 + 3 + 3);
+    assert_eq!(fitted("abc", 3), ("abc".to_string(), 3), "it fits");
+}
+
+/// A width that hangs on the grapheme before (a Lisu tone letter after
+/// another draws no cell of its own) is read as the TUI's measure reads
+/// the whole name: eight cells fit an eight-cell column whole, and the
+/// number after it stays aligned (#1167).
+#[test]
+fn a_width_that_hangs_on_its_neighbour_is_read_as_the_whole_name_reads() {
+    let name = "abcdefg\u{A4F9}\u{A4FC}";
+    assert_eq!((width_of(name), width_of("\u{A4FC}")), (8, 1));
+    assert_eq!(fitted(name, 8), (name.to_string(), 8));
+    let columns = [table::Column::left("STATE"), table::Column::right("N")];
+    let rows = vec![
+        vec![Safe::new(name), Safe::new("1")],
+        vec![Safe::new("ab"), Safe::new("22")],
+    ];
+    let drawn = table::table(&columns, &rows, &Style::plain(12));
+    let want = format!("STATE      N\n{name}   1\nab        22\n");
+    assert_eq!(drawn, want);
+}
+
+/// A whole table is measured in one walk per cell to size it and one to
+/// cut and pad it: the padding reads the cells the cut walk returned, so
+/// the kept text is never walked again (#1167).
+#[test]
+fn a_row_is_padded_by_the_cells_its_cut_returned() {
+    let columns = [table::Column::left("NAME"), table::Column::right("N")];
+    let rows = vec![vec![Safe::new(&"x".repeat(100)), Safe::new("1")]];
+    let measured = std::cell::Cell::new(0);
+    let style = Style::plain(20);
+    let drawn = table::table_by(&columns, &rows, &style, &mut counting(&measured));
+    let kept = "x".repeat(17);
+    assert_eq!(drawn, format!("NAME               N\n{kept}… 1\n"));
+    // Sizing: `NAME` 11, `N` 2, the hundred `x`s 299, `1` 2. Setting:
+    // `NAME` 11, `N` 2, nineteen `x`s to the cut and the ellipsis 56,
+    // `1` 2.
+    assert_eq!(measured.get(), (11 + 2 + 299 + 2) + (11 + 2 + 56 + 2));
 }
 
 /// A grapheme whose width hangs on its sequence is measured whole: `♥`
@@ -518,8 +569,8 @@ fn a_cell_is_cut_and_padded_by_its_graphemes_widths() {
     let heart = "♥\u{FE0F}";
     assert_eq!((width_of("♥"), width_of(heart)), (1, 2));
     let text = format!("abcdef{heart}XYZ");
-    assert_eq!(table::fit_by(&text, 8, width_of), "abcdef…");
-    assert_eq!(table::fit_by(&text, 9, width_of), format!("abcdef{heart}…"));
+    assert_eq!(fitted(&text, 8), ("abcdef…".to_string(), 7));
+    assert_eq!(fitted(&text, 9), (format!("abcdef{heart}…"), 9));
     let columns = [table::Column::left("NAME"), table::Column::right("N")];
     let rows = vec![vec![Safe::new(&text), Safe::new("1")]];
     let drawn = table::table(&columns, &rows, &Style::plain(10));
