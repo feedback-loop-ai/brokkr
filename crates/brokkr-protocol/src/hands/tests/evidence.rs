@@ -504,10 +504,7 @@ fn a_box_cannot_change_the_evidence_it_reads() {
         (format!("mv {a} moved"), READ_ONLY),
         (format!("ln {a} alias"), cross),
         (format!("ln -sf /etc/hosts {a}"), replaced),
-        (
-            format!("ln -s {a} through && echo forged > through"),
-            READ_ONLY,
-        ),
+        (through_a_link(&a), READ_ONLY),
         (format!("chmod 666 {a}"), READ_ONLY),
         (
             "touch .forge/artifacts/sha256/planted".to_string(),
@@ -520,8 +517,8 @@ fn a_box_cannot_change_the_evidence_it_reads() {
         refused_in_a_stood_box(run, &tamper, refusal);
     }
     let read = run(&format!(
-        "cat {a} && echo made > made && echo r > .forge/result && echo p > {}/p",
-        pad.display()
+        "cat {a} && echo made > made && echo r > .forge/result && echo p > {}",
+        shell_quoted(&pad.join("p"))
     ))
     .unwrap();
     assert_eq!(
@@ -1765,12 +1762,36 @@ impl Refusal {
     }
 
     /// Whether `ran` finished, neither cut off nor ended by anything but
-    /// this refusal: one of its codes, in one of its words.
+    /// this refusal: one of its codes, in one of its words as the reason a
+    /// diagnostic line ends with, so an operand that merely holds the
+    /// words is never taken for them (#1187).
     fn met_by(&self, ran: &Executed) -> bool {
         !ran.timed_out
             && self.codes.contains(&ran.exit_code)
-            && self.words.iter().any(|words| ran.stderr.contains(words))
+            && ran.stderr.lines().any(|line| self.gives(line))
     }
+
+    /// Whether the diagnostic `line` ends in one of the words as its
+    /// reason, after the `: ` every system set puts before it and before
+    /// the ` (os error N)` uutils puts after it, each measured (#1187).
+    fn gives(&self, line: &str) -> bool {
+        let reason = line
+            .rsplit_once(" (os error ")
+            .filter(|(_, code)| code.ends_with(')'))
+            .map_or(line, |(reason, _)| reason);
+        self.words.iter().any(|words| {
+            reason
+                .strip_suffix(words)
+                .is_some_and(|head| head.ends_with(": "))
+        })
+    }
+}
+
+/// A write through a symlink the tamper first makes, which must stand: a
+/// link refused alone exits 3, which no refusal expects (#1187).
+#[cfg(target_os = "linux")]
+fn through_a_link(target: &str) -> String {
+    format!("ln -s {target} through || exit 3; echo forged > through")
 }
 
 /// A write, removal or permission change the read-only artifact bind
@@ -1881,6 +1902,44 @@ fn a_tamper_killed_by_a_signal_is_no_refusal() {
 fn a_tamper_refused_in_other_words_is_not_its_refusal() {
     let other = "/bin/bash: line 1: a: Permission denied\n";
     refused_in_a_stood_box(stood_then(1, other, false), "echo forged > a", READ_ONLY);
+}
+
+/// A tamper refused in words its operand alone carries, the path naming
+/// them while the reason is another, is not its refusal (#1187).
+#[cfg(target_os = "linux")]
+#[test]
+#[should_panic(expected = "the tamper did not finish refused in the box")]
+fn a_tamper_whose_operand_holds_the_words_is_not_its_refusal() {
+    let other = "cat: '/x/No such file or directory/a': Not a directory\n";
+    refused_in_a_stood_box(stood_then(1, other, false), "cat a", ABSENT);
+}
+
+/// A write through a link whose `ln` alone was refused, in the read-only
+/// words and code, is no refusal: the write was never tried (#1187).
+#[cfg(target_os = "linux")]
+#[test]
+#[should_panic(expected = "the tamper did not finish refused in the box")]
+fn a_write_through_a_link_never_made_is_no_refusal() {
+    let dir = tempfile::tempdir().unwrap();
+    let refused_link = "ln() { echo \"ln: failed to create symbolic link 'through': \
+                        Read-only file system\" >&2; return 1; }";
+    let launch = |command: &str| {
+        let ran = std::process::Command::new("/bin/sh")
+            .current_dir(dir.path())
+            .env_clear()
+            .env("PATH", "/usr/bin:/bin")
+            .env("HOME", SANDBOX_HOME)
+            .arg("-c")
+            .arg(format!("{refused_link}; {command}"))
+            .output()?;
+        Ok::<_, std::io::Error>(Executed {
+            stdout: String::from_utf8_lossy(&ran.stdout).into_owned(),
+            stderr: String::from_utf8_lossy(&ran.stderr).into_owned(),
+            exit_code: ran.status.code().unwrap_or(-1),
+            timed_out: false,
+        })
+    };
+    refused_in_a_stood_box(launch, &through_a_link("a"), READ_ONLY);
 }
 
 /// A launch that errs before any box is built, here a bubblewrap that
