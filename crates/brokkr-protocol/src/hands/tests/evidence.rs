@@ -47,6 +47,34 @@ fn publish(artifacts: &Path, bytes: &str) -> PathBuf {
     artifact
 }
 
+/// `path` as one shell word that names it exactly: single-quoted, each
+/// quote it holds closed, escaped and reopened, so a `$`, a space or a
+/// quote a temporary directory carries never moves a tamper's target.
+fn shell_quoted(path: &Path) -> String {
+    format!("'{}'", path.display().to_string().replace('\'', r"'\''"))
+}
+
+/// A path whose name a shell would expand, split or unquote reaches the
+/// one file it names once quoted, read by the shell the box runs with the
+/// environment it gets, so a tamper is refused on its own target (#1187).
+#[test]
+fn a_quoted_path_names_its_own_file_to_the_box_shell() {
+    let dir = tempfile::tempdir().unwrap();
+    let odd = made(dir.path(), "$BROKKR_1187_UNSET it's");
+    let artifact = publish(&odd, "evidence\n");
+    let read = std::process::Command::new("/bin/bash")
+        .env_clear()
+        .env("PATH", "/usr/bin:/bin")
+        .arg("-lc")
+        .arg(format!("cat {}", shell_quoted(&artifact)))
+        .output()
+        .unwrap();
+    assert_eq!(
+        (read.status.code(), read.stdout),
+        (Some(0), b"evidence\n".to_vec())
+    );
+}
+
 /// The workspace box over `work` handed `artifacts`, its private tree and
 /// session under `dir`, built from the reach sealed for it there.
 fn boxed(
@@ -557,7 +585,10 @@ fn a_box_cannot_reach_a_root_outside_every_bind() {
     let owner = Session::create_under(dir.path(), "test").unwrap();
     let (spec, long) = (HandsSpec::default(), Duration::from_secs(30));
     let reach = sealed(&spec, &work, &root.join("home"));
-    let a = artifact.display();
+    // Each target quoted, so a tamper is refused on the path it names, not
+    // on one a shell made of it (#1187).
+    let (a, listing) = (shell_quoted(&artifact), shell_quoted(&artifacts));
+    let planted = shell_quoted(&artifacts.join("sha256/planted"));
     let launch = |command: &str| {
         execute(
             &spec,
@@ -577,13 +608,10 @@ fn a_box_cannot_reach_a_root_outside_every_bind() {
     };
     for (tamper, refusal) in [
         (format!("cat {a}"), ABSENT),
-        (format!("ls {}", artifacts.display()), listed),
+        (format!("ls {listing}"), listed),
         (format!("echo forged > {a}"), ABSENT),
         (format!("rm {a}"), ABSENT),
-        (
-            format!("touch {}/sha256/planted", artifacts.display()),
-            ABSENT,
-        ),
+        (format!("touch {planted}"), ABSENT),
     ] {
         refused_in_a_stood_box(launch, &tamper, refusal);
     }
