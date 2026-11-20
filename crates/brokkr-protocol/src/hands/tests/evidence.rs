@@ -460,15 +460,22 @@ fn a_box_cannot_change_the_evidence_it_reads() {
     let held = [&artifact, &artifacts, &work.join(".forge")];
     let before: Vec<(u64, u64)> = held.iter().map(|path| identity(path)).collect();
     let a = format!(".forge/artifacts/sha256/{HEX}");
-    let words = |words| Refusal { code: 1, words };
-    let busy = words("Device or resource busy");
+    let busy = Refusal::one(&[1], &["Device or resource busy"]);
+    let cross = Refusal::one(&[1], &["Invalid cross-device link"]);
+    // A replaced symlink over the artifact, refused in uutils 0.2.2's,
+    // GNU coreutils' and BusyBox's words, each measured on the read-only
+    // bind (#1187).
+    let replaced = Refusal {
+        words: &["Already exists", "Read-only file system", "File exists"],
+        ..READ_ONLY
+    };
     for (tamper, refusal) in [
         (format!("echo forged > {a}"), READ_ONLY),
         (format!(": > {a}"), READ_ONLY),
         (format!("rm -f {a}"), READ_ONLY),
         (format!("mv {a} moved"), READ_ONLY),
-        (format!("ln {a} alias"), words("Invalid cross-device link")),
-        (format!("ln -sf /etc/hosts {a}"), words("Already exists")),
+        (format!("ln {a} alias"), cross),
+        (format!("ln -sf /etc/hosts {a}"), replaced),
         (
             format!("ln -s {a} through && echo forged > through"),
             READ_ONLY,
@@ -562,7 +569,12 @@ fn a_box_cannot_reach_a_root_outside_every_bind() {
             long,
         )
     };
-    let listed = Refusal { code: 2, ..ABSENT };
+    // A missing directory listed: 2 from uutils and GNU coreutils, 1 from
+    // BusyBox, each measured (#1187).
+    let listed = Refusal {
+        codes: &[2, 1],
+        ..ABSENT
+    };
     for (tamper, refusal) in [
         (format!("cat {a}"), ABSENT),
         (format!("ls {}", artifacts.display()), listed),
@@ -1706,29 +1718,41 @@ fn the_box_confirms_its_observation_as_its_argv_is_final() {
 #[cfg(target_os = "linux")]
 const STOOD: &str = "printf '%s\\n' \"$HOME\"";
 
-/// The refusal a tamper expects: the exit code its command finishes with
-/// and the words the box's file system refuses it in.
+/// The refusal a tamper expects: the exit codes its command may finish
+/// with and the words the box's file system may refuse it in, one of each
+/// for every system set that words the same refusal its own way (uutils,
+/// GNU coreutils, BusyBox).
 #[cfg(target_os = "linux")]
 #[derive(Clone, Copy, Debug)]
 struct Refusal {
-    code: i32,
-    words: &'static str,
+    codes: &'static [i32],
+    words: &'static [&'static str],
+}
+
+#[cfg(target_os = "linux")]
+impl Refusal {
+    /// A refusal exactly one code and one wording name.
+    const fn one(code: &'static [i32; 1], words: &'static [&'static str; 1]) -> Self {
+        Self { codes: code, words }
+    }
+
+    /// Whether `ran` finished, neither cut off nor ended by anything but
+    /// this refusal: one of its codes, in one of its words.
+    fn met_by(&self, ran: &Executed) -> bool {
+        !ran.timed_out
+            && self.codes.contains(&ran.exit_code)
+            && self.words.iter().any(|words| ran.stderr.contains(words))
+    }
 }
 
 /// A write, removal or permission change the read-only artifact bind
 /// refuses.
 #[cfg(target_os = "linux")]
-const READ_ONLY: Refusal = Refusal {
-    code: 1,
-    words: "Read-only file system",
-};
+const READ_ONLY: Refusal = Refusal::one(&[1], &["Read-only file system"]);
 
 /// A path no bind brings into the box.
 #[cfg(target_os = "linux")]
-const ABSENT: Refusal = Refusal {
-    code: 1,
-    words: "No such file or directory",
-};
+const ABSENT: Refusal = Refusal::one(&[1], &["No such file or directory"]);
 
 /// That `tamper`, run by `launch` after [`STOOD`] in one launch, finished
 /// in a box that was established with exactly the `refusal` it expects. A
@@ -1736,8 +1760,9 @@ const ABSENT: Refusal = Refusal {
 /// nothing, or a box that fails to stand never prints the box's HOME, so
 /// it fails the test by those words rather than as a command that
 /// succeeded, or as a refusal no box made (#1187). After the box stood,
-/// a tamper cut off at its deadline, or one whose exit code or stderr is
-/// not the expected refusal's, fails as one that did not finish refused.
+/// a tamper cut off at its deadline, or one whose exit code is none of
+/// the expected refusal's or whose stderr carries none of its words,
+/// fails as one that did not finish refused.
 #[cfg(target_os = "linux")]
 fn refused_in_a_stood_box<E: std::fmt::Display>(
     launch: impl Fn(&str) -> Result<Executed, E>,
@@ -1754,7 +1779,7 @@ fn refused_in_a_stood_box<E: std::fmt::Display>(
         ran.render()
     );
     assert!(
-        !ran.timed_out && ran.exit_code == refusal.code && ran.stderr.contains(refusal.words),
+        refusal.met_by(&ran),
         "the tamper did not finish refused in the box as {refusal:?}: {tamper}: {}",
         ran.render()
     );
@@ -1779,32 +1804,41 @@ fn stood_then(
     }
 }
 
+/// What a tamper refused by the read-only bind prints before it goes on.
+#[cfg(target_os = "linux")]
+const REFUSED_FIRST: &str = "/bin/sh: 1: cannot create a: Read-only file system\n";
+
 /// A tamper killed at its deadline after the box stood is no refusal,
-/// though it exits non-zero (#1187).
+/// though it exits with the refusal's code in its words (#1187).
 #[cfg(target_os = "linux")]
 #[test]
 #[should_panic(expected = "the tamper did not finish refused in the box")]
 fn a_tamper_cut_off_at_its_deadline_is_no_refusal() {
-    refused_in_a_stood_box(stood_then(124, "", true), "sleep 600", READ_ONLY);
+    let launch = stood_then(1, REFUSED_FIRST, true);
+    refused_in_a_stood_box(launch, "echo forged > a; sleep 600", READ_ONLY);
 }
 
 /// A tamper whose command never ran, exit 127 as a missing tool gives,
-/// is no refusal, though the box stood (#1187).
+/// is no refusal, though the box stood and an earlier step was refused
+/// in the refusal's words (#1187).
 #[cfg(target_os = "linux")]
 #[test]
 #[should_panic(expected = "the tamper did not finish refused in the box")]
 fn a_tamper_that_never_ran_is_no_refusal() {
-    let missing = "/bin/bash: line 1: chmod: command not found\n";
-    refused_in_a_stood_box(stood_then(127, missing, false), "chmod 666 a", READ_ONLY);
+    let missing = format!("{REFUSED_FIRST}/bin/sh: 1: chmod: not found\n");
+    let launch = stood_then(127, &missing, false);
+    refused_in_a_stood_box(launch, "echo forged > a; chmod 666 a", READ_ONLY);
 }
 
 /// A tamper killed by a signal, 128 plus SIGKILL as bubblewrap reports
-/// it, with no deadline passed, is no refusal (#1187).
+/// it, with no deadline passed, is no refusal, though an earlier step was
+/// refused in the refusal's words (#1187).
 #[cfg(target_os = "linux")]
 #[test]
 #[should_panic(expected = "the tamper did not finish refused in the box")]
 fn a_tamper_killed_by_a_signal_is_no_refusal() {
-    refused_in_a_stood_box(stood_then(137, "", false), "rm -f a", READ_ONLY);
+    let launch = stood_then(137, REFUSED_FIRST, false);
+    refused_in_a_stood_box(launch, "echo forged > a; sleep 600", READ_ONLY);
 }
 
 /// A tamper that exits with the expected code in words other than its
@@ -1813,8 +1847,8 @@ fn a_tamper_killed_by_a_signal_is_no_refusal() {
 #[cfg(target_os = "linux")]
 #[test]
 #[should_panic(
-    expected = "the tamper did not finish refused in the box as Refusal { code: 1, \
-                           words: \"Read-only file system\" }"
+    expected = "the tamper did not finish refused in the box as Refusal { codes: [1], \
+                           words: [\"Read-only file system\"] }"
 )]
 fn a_tamper_refused_in_other_words_is_not_its_refusal() {
     let other = "/bin/bash: line 1: a: Permission denied\n";
