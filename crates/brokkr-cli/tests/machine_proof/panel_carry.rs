@@ -175,6 +175,17 @@ fn one_member_runs_and_the_aggregate_and_readouts_keep_the_settled_verdict() {
         .unwrap()
         .payload["attempt_id"]
         .clone();
+    let site = before
+        .iter()
+        .find(|event| {
+            event.payload["attempt_id"] == original
+                && event.payload["checkpoint"]["step"] == "panel-member-finished"
+                && event.payload["checkpoint"]["member"] == "correctness"
+        })
+        .unwrap()
+        .payload["checkpoint"]["site_ref"]
+        .clone();
+    assert!(site.is_string(), "{site}");
     recover(&ws, &run);
     let events = journal(&ws, &run);
     let start = events
@@ -183,7 +194,7 @@ fn one_member_runs_and_the_aggregate_and_readouts_keep_the_settled_verdict() {
         .unwrap();
     assert_eq!(
         start.payload["carried"],
-        json!([{"member":"correctness", "attempt_id":original}])
+        json!([{"member":"correctness", "attempt_id":original, "site_ref":site}])
     );
     let markers: Vec<_> = events
         .iter()
