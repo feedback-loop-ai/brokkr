@@ -728,6 +728,15 @@ fn a_system_entry_the_bound_set_does_not_hold_is_bound_as_its_one_file() {
     }
 }
 
+/// The host's HOME, read under the guard a sibling holds while it points
+/// HOME at a temporary one, so a proof that hides it is of the real home
+/// (#1187).
+#[cfg(target_os = "linux")]
+fn host_home() -> String {
+    let _env = crate::env_guard::EnvGuard::lock();
+    std::env::var("HOME").unwrap_or_default()
+}
+
 #[cfg(target_os = "linux")]
 #[test]
 fn a_server_box_stands_without_the_seats_or_the_hosts_private_paths() {
@@ -742,7 +751,7 @@ fn a_server_box_stands_without_the_seats_or_the_hosts_private_paths() {
     let host = Host::new();
     let work = host.path("work");
     std::fs::create_dir_all(&work).unwrap();
-    let home = std::env::var("HOME").unwrap_or_default();
+    let home = host_home();
     let private = Path::new("/etc/ssl/private");
     let certs = match Path::new("/etc/ssl/certs").is_dir() {
         true => "[ -d /etc/ssl/certs ] || exit 17;",

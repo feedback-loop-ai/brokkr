@@ -447,7 +447,7 @@ fn a_box_cannot_change_the_evidence_it_reads() {
     let long = Duration::from_secs(30);
     let reach = sealed(&spec, &work, &root.join("home"));
     let run = |command: &str| {
-        let ran = execute(
+        execute(
             &spec,
             &work,
             &artifacts,
@@ -455,8 +455,7 @@ fn a_box_cannot_change_the_evidence_it_reads() {
             owner.path(),
             command,
             long,
-        );
-        ran.unwrap()
+        )
     };
     let held = [&artifact, &artifacts, &work.join(".forge")];
     let before: Vec<(u64, u64)> = held.iter().map(|path| identity(path)).collect();
@@ -480,7 +479,8 @@ fn a_box_cannot_change_the_evidence_it_reads() {
     let read = run(&format!(
         "cat {a} && echo made > made && echo r > .forge/result && echo p > {}/p",
         pad.display()
-    ));
+    ))
+    .unwrap();
     assert_eq!(
         (read.exit_code, read.stdout.as_str()),
         (0, "evidence\n"),
@@ -544,7 +544,7 @@ fn a_box_cannot_reach_a_root_outside_every_bind() {
     let reach = sealed(&spec, &work, &root.join("home"));
     let a = artifact.display();
     let launch = |command: &str| {
-        let ran = execute(
+        execute(
             &spec,
             &work,
             &artifacts,
@@ -552,8 +552,7 @@ fn a_box_cannot_reach_a_root_outside_every_bind() {
             owner.path(),
             command,
             long,
-        );
-        ran.unwrap()
+        )
     };
     for tamper in [
         format!("cat {a}"),
@@ -1688,4 +1687,107 @@ fn the_box_confirms_its_observation_as_its_argv_is_final() {
     super::super::evidence::CONFIRMING.set(Some(Box::new(step)));
     let built = boxed(&spec, &work, &artifacts, dir.path());
     assert_eq!(refused(built), Unprotected::Changed(artifacts));
+}
+
+/// What a refused command prints first, in the same launch: the box's own
+/// HOME, which no host process holds.
+#[cfg(target_os = "linux")]
+const STOOD: &str = "printf '%s\\n' \"$HOME\"";
+
+/// That `tamper`, run by `launch` after [`STOOD`] in one launch, ran in a
+/// box that was established and was refused there. A launch that errs
+/// before the box, a stand-in bubblewrap that runs nothing, or a box that
+/// fails to stand never prints the box's HOME, so it fails the test by
+/// those words rather than as a command that succeeded, or as a refusal no
+/// box made (#1187). A tamper killed at its deadline, or by a signal, did
+/// not finish, so it is no refusal either.
+#[cfg(target_os = "linux")]
+fn refused_in_a_stood_box(launch: impl Fn(&str) -> Result<Executed, String>, tamper: &str) {
+    let ran = launch(&format!("{STOOD}; {tamper}")).unwrap_or_else(|error| {
+        panic!("the box was not established, so no refusal can be read in it: {tamper}: {error}")
+    });
+    let home = format!("{SANDBOX_HOME}\n");
+    assert!(
+        ran.stdout.starts_with(&home),
+        "the box was not established, so no refusal can be read in it: {tamper}: {}",
+        ran.render()
+    );
+    assert!(
+        !ran.timed_out && ran.exit_code > 0,
+        "the tamper did not finish refused in the box: {tamper}: {}",
+        ran.render()
+    );
+}
+
+/// A tamper killed at its deadline after the box stood is no refusal,
+/// though it exits non-zero (#1187).
+#[cfg(target_os = "linux")]
+#[test]
+#[should_panic(expected = "the tamper did not finish refused in the box")]
+fn a_tamper_cut_off_at_its_deadline_is_no_refusal() {
+    let launch = |_: &str| {
+        Ok(Executed {
+            stdout: format!("{SANDBOX_HOME}\n"),
+            stderr: String::new(),
+            exit_code: 124,
+            timed_out: true,
+        })
+    };
+    refused_in_a_stood_box(launch, "sleep 600");
+}
+
+/// A launch that errs before any box is built, here a bubblewrap that
+/// cannot be spawned, fails as not established (#1187).
+#[cfg(target_os = "linux")]
+#[test]
+#[should_panic(expected = "the box was not established")]
+fn a_launch_that_errs_before_the_box_fails_as_not_established() {
+    refused_through("/nonexistent/bwrap");
+}
+
+/// A box no bubblewrap built, the stand-in `/bin/true` a concurrent test
+/// once put first on the shared `PATH`, fails as not established, not as a
+/// command that succeeded (#1187).
+#[cfg(target_os = "linux")]
+#[test]
+#[should_panic(expected = "the box was not established")]
+fn a_box_that_never_stood_fails_as_not_established() {
+    refused_through("/bin/true");
+}
+
+/// A bubblewrap that exits non-zero without building the box, as one
+/// refused a namespace under load does, is no refusal (#1187).
+#[cfg(target_os = "linux")]
+#[test]
+#[should_panic(expected = "the box was not established")]
+fn a_box_that_failed_to_stand_is_no_refusal() {
+    refused_through("/bin/false");
+}
+
+/// A refusal read through the stand-in bubblewrap `bwrap`, which builds no
+/// box.
+#[cfg(target_os = "linux")]
+fn refused_through(bwrap: &str) {
+    let (_dir, root, work) = fixture();
+    let spec = HandsSpec::default();
+    let (artifacts, reach) = (
+        artifact_root(&root),
+        sealed(&spec, &work, &root.join("home")),
+    );
+    let (scratch, session) = (root.join("scratch"), root.join("session"));
+    let launch = |command: &str| {
+        execute_in(
+            Path::new(bwrap),
+            &spec,
+            &work,
+            &artifacts,
+            &reach,
+            &scratch,
+            &session,
+            &[],
+            command,
+            Duration::from_secs(30),
+        )
+    };
+    refused_in_a_stood_box(launch, "false");
 }
