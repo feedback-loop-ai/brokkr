@@ -1151,7 +1151,9 @@ A single seat carries its six measures — `peak_memory_bytes` and
 `peak_load_millicores` (the busiest one-second window) and
 `mean_load_millicores` (CPU time over wall time), `cpu_ms` (exited
 descendants included) and `wall_ms`; a panel carries `members`, one entry
-per member a tick measured. An attempt no tick read carries none, and
+per member a tick measured, and a sequence carries `members` too, one
+entry per step driver a tick measured, keyed `<step>` or
+`<step>:<member>` as its checkpoints are. An attempt no tick read carries none, and
 its ending keeps its v1 bytes. Every field is a non-negative integer. The
 field is legal at `event_schema: 1` under the amended rule above; `fold`
 reads none of it, `RunState` gains nothing, and nothing that settles,

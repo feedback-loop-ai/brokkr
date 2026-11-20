@@ -66,7 +66,7 @@ impl Engine {
     ) -> Result<EventEnvelope, EngineError> {
         // An ending of the attempt concluding carries its usage (decision
         // 0112 ruling 3), so a held outcome holds it too.
-        let payload = self.usage.stamp(event_type, payload);
+        let payload = self.usage.stamp(event_type, attempt_id.as_deref(), payload);
         let terminal = matches!(
             event_type,
             EventType::EffectSucceeded | EventType::EffectFailed | EventType::EffectIndeterminate

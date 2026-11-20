@@ -93,7 +93,11 @@ What main measures today (f7d231597):
   when no tick read the tree. The engine stamps it on the attempt's ending
   as `usage`: the measures themselves for a single seat, and
   `{"members": {"<member>": …}}` for a panel, one entry per member that a
-  tick measured. Every field is a non-negative integer — bytes, thousandths
+  tick measured. A sequence attempt runs a driver per step, so it carries
+  the same `members` object, one entry per step driver a tick measured,
+  keyed by the tag its checkpoints already ride under: `<step>` for a
+  single or dialect step, `<step>:<member>` for a panel step's member.
+  Every field is a non-negative integer — bytes, thousandths
   of a core and milliseconds — so no seat-controlled text reaches the
   journal through it.
 - **The read.** `brokkr recipes usage [NAME]` reads the journal it is
@@ -118,6 +122,7 @@ What main measures today (f7d231597):
   without changing a field's meaning.
 - Nothing that settles, kills, retries or admits an attempt reads usage,
   so a measurement that fails can only leave the record without it.
-- Sequence steps are not stamped in slice 1; their attempts' endings read
-  as unmeasured until a later slice stamps them.
+- A sequence's step drivers are measured one driver each in the same way,
+  on every ending of the attempt, a step that ends it early included; the
+  read counts each as one measured driver of the phase.
 - #1193's later slices give admission a reader of the per-recipe figures.

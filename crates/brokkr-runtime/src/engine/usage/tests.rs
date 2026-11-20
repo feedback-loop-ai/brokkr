@@ -110,7 +110,7 @@ fn a_panel_carries_one_entry_per_measured_member_on_its_own_ending_only() {
         ],
     );
     let ending = json!({"effect_id": "e", "attempt_id": "a1", "error": "x"});
-    let stamped = pending.stamp(EventType::EffectFailed, ending.clone());
+    let stamped = pending.stamp(EventType::EffectFailed, Some("a1"), ending.clone());
     let mut right = measured_json();
     right["cpu_ms"] = json!(1);
     assert_eq!(
@@ -118,17 +118,97 @@ fn a_panel_carries_one_entry_per_measured_member_on_its_own_ending_only() {
         json!({"members": {"left": measured_json(), "right": right}})
     );
     let other = json!({"effect_id": "e", "attempt_id": "a2", "error": "x"});
-    assert_eq!(pending.stamp(EventType::EffectFailed, other.clone()), other);
+    let failed_type = EventType::EffectFailed;
+    assert_eq!(pending.stamp(failed_type, Some("a2"), other.clone()), other);
+    assert_eq!(pending.stamp(failed_type, None, ending.clone()), ending);
+    assert_eq!(
+        pending.stamp(failed_type, Some("a1"), Value::Null),
+        Value::Null
+    );
     let checkpoint = json!({"effect_id": "e", "attempt_id": "a1", "checkpoint": {}});
     assert_eq!(
-        pending.stamp(EventType::EffectCheckpointed, checkpoint.clone()),
+        pending.stamp(
+            EventType::EffectCheckpointed,
+            Some("a1"),
+            checkpoint.clone()
+        ),
         checkpoint
     );
     pending.panel("a1", &[("unticked".into(), failed(None))]);
     assert_eq!(
-        pending.stamp(EventType::EffectFailed, ending.clone()),
+        pending.stamp(failed_type, Some("a1"), ending.clone()),
         ending
     );
+}
+
+/// A sequence's steps add up under the attempt they ran in, each keyed by
+/// its tag; a step of the next attempt starts afresh, and a panel or a
+/// seat replaces what was held.
+#[test]
+fn a_sequence_s_steps_add_up_by_tag_within_their_attempt() {
+    let failed = |usage| report(AttemptOutcome::Failed { error: "x".into() }, usage);
+    let ran = |usage| DriverRun::Ran(failed(usage));
+    let ending = json!({"effect_id": "e", "attempt_id": "a1", "error": "x"});
+    let usage_of = |pending: &Pending, attempt: &str| {
+        let stamped = pending.stamp(EventType::EffectFailed, Some(attempt), ending.clone());
+        stamped.get("usage").cloned()
+    };
+    let mut pending = Pending::default();
+    pending.step("a1", "draft", &ran(Some(MEASURED)));
+    pending.step("a1", "lost", &DriverRun::SpawnFailed("gone".into()));
+    let members = [
+        ("left".into(), failed(Some(MEASURED))),
+        ("right".into(), failed(Some(MEASURED))),
+    ];
+    pending.panel_step("a1", "finish:", &members);
+    let measured = measured_json();
+    assert_eq!(
+        usage_of(&pending, "a1"),
+        Some(
+            json!({"members": {"draft": measured, "finish:left": measured,
+                                "finish:right": measured}})
+        )
+    );
+    pending.step("a2", "draft", &ran(None));
+    assert_eq!(usage_of(&pending, "a1"), None);
+    assert_eq!(usage_of(&pending, "a2"), None);
+    pending.step("a2", "draft", &ran(Some(MEASURED)));
+    pending.seat("a2", &ran(Some(MEASURED)));
+    assert_eq!(usage_of(&pending, "a2"), Some(measured_json()));
+}
+
+/// The engine stamps a sequence's ending with every step driver a tick
+/// measured: the single step's under its name, the panel step's members
+/// under `<step>:<member>`.
+#[test]
+fn a_sequence_attempt_s_ending_carries_each_step_driver_s_usage() {
+    use crate::engine::tests::{
+        draft_then_finish, driver_command, member, run_vocabulary, vocabulary_input,
+    };
+    // Each driver lives past several of the tracker's 100 ms ticks.
+    let slow = |outcome| {
+        let mut command = driver_command("vocabulary-effect", "vocabulary-attempt", outcome);
+        command[2] = format!("sleep 0.6; {}", command[2]);
+        command
+    };
+    let drafted = json!({"result": "drafted"});
+    let failed = || AttemptOutcome::Failed { error: "no".into() };
+    let left = member("left", slow(failed()));
+    let right = member("right", slow(failed()));
+    let draft = slow(AttemptOutcome::Succeeded { result: drafted });
+    let steps = draft_then_finish("role.md", draft, &["drafted"], vec![left, right]);
+    let body = crate::bundle::SeatBody::Sequence {
+        steps: steps.clone(),
+    };
+    let (_dir, mut engine) = engine(body);
+    let input = vocabulary_input(&engine);
+    run_vocabulary(&mut engine, &steps, &input).unwrap();
+    let journal = engine.store.load(&engine.run_id).unwrap();
+    let ending = journal.last().unwrap();
+    assert_eq!(ending.event_type, EventType::EffectFailed, "{journal:#?}");
+    let members = ending.payload["usage"]["members"].as_object().unwrap();
+    let tags: Vec<&str> = members.keys().map(String::as_str).collect();
+    assert_eq!(tags, ["draft", "finish:left", "finish:right"]);
 }
 
 /// The fold reads none of it: the journal the engine wrote, with usage on

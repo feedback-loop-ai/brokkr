@@ -928,14 +928,14 @@ pub(super) fn run_sequence(
 }
 
 /// The `work` seat's requested-time input for the `vocabulary-effect` tests.
-fn vocabulary_input(engine: &Engine) -> Value {
+pub(super) fn vocabulary_input(engine: &Engine) -> Value {
     let current = state(Some("work"), Cursor::RequestEffect);
     engine
         .seat_input(&current, "work", "vocabulary-effect")
         .unwrap()
 }
 
-fn run_vocabulary(
+pub(super) fn run_vocabulary(
     engine: &mut Engine,
     steps: &[SequenceStep],
     input: &Value,

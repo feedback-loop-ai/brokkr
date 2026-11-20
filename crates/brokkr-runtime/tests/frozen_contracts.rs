@@ -228,10 +228,12 @@ const FROZEN: [(&str, &str); 39] = [
         "f31f194fef4cbe1973207ee1dc171b8045a671c120b13def89ba14a2734574ec",
     ),
     // Decision 0112 ruling 3 mints `effect-usage/v1` as an additive
-    // extension at event_schema 1; its bytes are pinned from birth.
+    // extension at event_schema 1; its bytes are pinned from birth. Fix
+    // round 1193a-r1 re-pins the unreleased file after its `members`
+    // description names a sequence's step drivers.
     (
         "contracts/effect-usage.v1.schema.json",
-        "66165759ff5435bbe752d5f8a13f5d774944231f5f2fa5cf4cf33fa84bb9e36e",
+        "a585411f40c8b3546c6cdb6ed5faf3acbbcdabc6b3e5335ec9230d6cd329ea1b",
     ),
 ];
 

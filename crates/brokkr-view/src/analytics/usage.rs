@@ -2,7 +2,7 @@
 //! the minimum, average and maximum of each measure the engine recorded
 //! on an attempt's ending under `effect-usage/v1`, means and peaks alike,
 //! over every driver it measured — a seat's one, a panel's each measured
-//! member. An ending without `usage`, every attempt journaled before the
+//! member, a sequence's each measured step driver. An ending without `usage`, every attempt journaled before the
 //! extension among them, is counted apart as unmeasured, never as zero. A
 //! `usage` that does not read is counted the same way: no figure is
 //! guessed from it. `brokkr recipes usage --json` emits these rows, and
@@ -54,7 +54,7 @@ struct Measures {
     wall_ms: u64,
 }
 
-/// A panel's measures, by member.
+/// Several drivers' measures: a panel's by member, a sequence's by step tag.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Members {

@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://feedback-loop.ai/forge/contracts/effect-usage.v1.json",
   "title": "Forge effect usage v1",
-  "description": "Decision 0112 ruling 3: the optional, absent-by-default `usage` object on `effect/succeeded`, `effect/failed` and `effect/indeterminate`, published as a numbered extension at event_schema 1 under the amended rule in contracts/README.md. What the attempt's process tree used, as the engine measured it on its tracker's 100 ms tick from spawn to settlement (ruling 1): a single seat's measures, or a panel's, one entry per member a tick measured. An attempt no tick read carries none. Every field is a non-negative integer, so no seat-controlled text reaches the journal through it. `fold` reads none of it, RunState gains nothing, and nothing that settles, kills, retries or admits an attempt reads it (ruling 6).",
+  "description": "Decision 0112 ruling 3: the optional, absent-by-default `usage` object on `effect/succeeded`, `effect/failed` and `effect/indeterminate`, published as a numbered extension at event_schema 1 under the amended rule in contracts/README.md. What the attempt's process tree used, as the engine measured it on its tracker's 100 ms tick from spawn to settlement (ruling 1): a single seat's measures, or several drivers' under `members`: a panel's, one entry per member a tick measured, or a sequence's, one entry per step driver a tick measured. An attempt no tick read carries none. Every field is a non-negative integer, so no seat-controlled text reaches the journal through it. `fold` reads none of it, RunState gains nothing, and nothing that settles, kills, retries or admits an attempt reads it (ruling 6).",
   "type": "object",
   "properties": {
     "usage": {
@@ -15,7 +15,7 @@
           "properties": {
             "members": {
               "type": "object",
-              "description": "A panel's measures, keyed by the member's name; a member no tick measured is absent.",
+              "description": "Each driver's measures: a panel's keyed by the member's name, a sequence's by the tag its checkpoints ride under, `<step>` or `<step>:<member>`; a driver no tick measured is absent.",
               "minProperties": 1,
               "additionalProperties": { "$ref": "#/definitions/measures" }
             }

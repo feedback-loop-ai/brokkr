@@ -201,6 +201,7 @@ fn an_exited_child_s_cpu_arrives_through_its_parent_s_cutime() {
     assert_eq!(meter.usage(ms(300)).unwrap().cpu_ms, 90 * 1000 / hz);
 }
 
+#[cfg(target_os = "linux")]
 fn report(script: &str) -> crate::AttemptReport {
     crate::process::DriverProcess::spawn(
         &crate::process::tests::command(script),
