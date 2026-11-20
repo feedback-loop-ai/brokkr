@@ -2,7 +2,7 @@
 //! 5): columns sized to their widest cell, the header's included. The
 //! seats block sizes its columns here; `brokkr graph` draws its states and
 //! rules as whole tables here (#1167), each cell sized, cut and padded
-//! in the terminal's cells by one walk, [`fit_by`].
+//! in the terminal's cells by [`fit_by`].
 
 use std::borrow::Cow;
 use std::cmp::Reverse;
@@ -116,8 +116,8 @@ pub(crate) fn table(columns: &[Column], rows: &[Vec<Safe>], style: &Style) -> St
 }
 
 /// [`table`] with `measure` for [`width_of`]: every cell is sized, cut
-/// and padded by one [`fit_by`] walk, so a test can count what a whole
-/// table measures (#1167).
+/// and padded by [`fit_by`], so a test can count what a whole table
+/// measures (#1167).
 pub(super) fn table_by(
     columns: &[Column],
     rows: &[Vec<Safe>],
@@ -147,54 +147,67 @@ pub(super) fn table_by(
 }
 
 /// What a cell keeps of its text in its column, and the terminal cells
-/// that takes, its ellipsis included: the padding reads `cells`, so the
-/// kept text is never walked again (#1167).
+/// that takes, its ellipsis included, as [`width_of`] (by `measure`)
+/// reads the text it returns: the padding reads `cells`, so the kept text
+/// is never walked again (#1167).
 pub(super) struct Fitted<'a> {
     pub(super) text: Cow<'a, str>,
     pub(super) cells: usize,
 }
 
-/// `text` cut to `max` terminal cells, the cut marked with `…`, in one
-/// walk of its graphemes. Each grapheme costs what [`width_of`] (by
-/// `measure`) adds when it follows the one before, `measure(previous +
-/// grapheme) - measure(previous)`: a width can hang on its whole
-/// sequence (`♥` then U+FE0F draws two cells) or on its neighbour (a
-/// Lisu tone letter after another draws none), and the TUI's measure
-/// reads both, so the walk sums to the whole text's width wherever a
-/// width hangs on no more than the grapheme before, and no prefix is
-/// measured again. It keeps what fits the budget less the
-/// ellipsis, and cuts there the moment the text passes `max`.
-/// The TUI's clamp also bounds `char`s, as its buffer spends a cell on
-/// each; a printed row spends only the cells the terminal draws, so a
-/// decomposed accent costs nothing here. `max` is at least one, a
-/// header's width, and `usize::MAX` measures without a cut.
+/// `text` cut to `max` terminal cells, the cut marked with `…`. A text
+/// whose whole width, measured once, is at most `max` comes back whole
+/// at that width, so a cell that fits is never cut; else [`kept_by`]
+/// chooses the cut in one walk, and the cells reported are the kept text
+/// and the ellipsis measured once each, never the walk's sum, so the
+/// padding matches what is printed (#1167). The TUI's clamp also bounds
+/// `char`s, as its buffer spends a cell on each; a printed row spends
+/// only the cells the terminal draws, so a decomposed accent costs
+/// nothing here. `max` is at least one, a header's width, and
+/// `usize::MAX` measures without a cut.
 pub(super) fn fit_by<'a>(
     text: &'a str,
     max: usize,
     measure: &mut impl FnMut(&str) -> usize,
 ) -> Fitted<'a> {
-    let budget = max.saturating_sub(1);
-    let (mut spent, mut kept, mut kept_cells) = (0, String::new(), 0);
+    let whole = measure(text);
+    if whole <= max {
+        let text = Cow::Borrowed(text);
+        return Fitted { text, cells: whole };
+    }
+    let kept = kept_by(text, max - 1, measure);
+    let cells = measure(kept) + measure("…");
+    let text = Cow::Owned(format!("{kept}…"));
+    Fitted { text, cells }
+}
+
+/// The graphemes of `text` kept before the first that takes it past
+/// `budget` cells, in one walk. Each grapheme costs what [`width_of`]
+/// (by `measure`) adds when it follows the one before,
+/// `measure(previous + grapheme) - measure(previous)`, signed: a width
+/// can hang on its whole sequence (`♥` then U+FE0F draws two cells), on its neighbour (a
+/// Lisu tone letter after another draws none), or fall where a joiner
+/// joins a pair (Tifinagh `ⵏ⵿` draws two cells, `ⵏ⵿ⴾ` one), and the
+/// TUI's measure reads them all, so the walk sums to the whole text's
+/// width wherever a width hangs on no more than the grapheme before, and
+/// no prefix is measured again.
+fn kept_by<'a>(text: &'a str, budget: usize, measure: &mut impl FnMut(&str) -> usize) -> &'a str {
+    let budget = budget as isize;
+    let (mut spent, mut end) = (0, 0);
     let (mut previous, mut alone, mut pair) = ("", 0, String::new());
     let span = Span::raw(text);
     for grapheme in span.styled_graphemes(Plain::new()) {
         pair.clear();
         pair.push_str(previous);
         pair.push_str(grapheme.symbol);
-        spent += measure(&pair).saturating_sub(alone);
-        if spent > max {
-            let cells = kept_cells + measure("…");
-            let text = Cow::Owned(kept + "…");
-            return Fitted { text, cells };
+        spent += measure(&pair) as isize - alone;
+        if spent > budget {
+            break;
         }
-        if spent <= budget {
-            kept.push_str(grapheme.symbol);
-            kept_cells = spent;
-        }
-        (previous, alone) = (grapheme.symbol, measure(grapheme.symbol));
+        end += grapheme.symbol.len();
+        (previous, alone) = (grapheme.symbol, measure(grapheme.symbol) as isize);
     }
-    let text = Cow::Borrowed(text);
-    Fitted { text, cells: spent }
+    &text[..end]
 }
 
 /// How a table sets each row: its columns, their widths and the gap
