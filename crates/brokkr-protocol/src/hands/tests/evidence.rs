@@ -460,6 +460,7 @@ fn a_box_cannot_change_the_evidence_it_reads() {
     };
     let held = [&artifact, &artifacts, &work.join(".forge")];
     let before: Vec<(u64, u64)> = held.iter().map(|path| identity(path)).collect();
+    stood(&run(STOOD));
     let a = format!(".forge/artifacts/sha256/{HEX}");
     for tamper in [
         format!("echo forged > {a}"),
@@ -544,6 +545,8 @@ fn a_box_cannot_reach_a_root_outside_every_bind() {
     let (spec, long) = (HandsSpec::default(), Duration::from_secs(30));
     let reach = sealed(&spec, &work, &root.join("home"));
     let a = artifact.display();
+    let ran = execute(&spec, &work, &artifacts, &reach, owner.path(), STOOD, long);
+    stood(&ran.unwrap());
     for tamper in [
         format!("cat {a}"),
         format!("ls {}", artifacts.display()),

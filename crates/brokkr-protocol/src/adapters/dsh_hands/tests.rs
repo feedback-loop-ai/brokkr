@@ -1422,11 +1422,19 @@ fn review_a_dsh_probe_answer_must_not_erase_its_startup_refusal() {
 /// shipped and the stream-json launch (#896 round 4). Hands stay selected
 /// only by [`Selection::Hands`], so neither the composition probe nor the
 /// startup gate runs for it. A stand-in bwrap whose one probe succeeds
-/// keeps the test off this box's unusable bubblewrap branch.
+/// keeps the test off this box's unusable bubblewrap branch. It runs in
+/// its own engine: the stand-in leads its `PATH`, which every box test
+/// beside it finds bubblewrap on, and a `/bin/true` there stands no box
+/// at all (#1187).
 #[cfg(target_os = "linux")]
 #[test]
 fn a_linked_worktree_runner_is_not_a_hands_launch() {
     use super::super::tests::{dsh_enabled_input, real_linked_worktree, synthetic_dsh_composite};
+    if !crate::process::in_its_own_engine(
+        "adapters::dsh_hands::tests::a_linked_worktree_runner_is_not_a_hands_launch",
+    ) {
+        return;
+    }
     let mut env = EnvGuard::lock();
     let (dir, worktree, _facts) = real_linked_worktree();
     std::os::unix::fs::symlink("/bin/true", dir.path().join("bwrap")).unwrap();

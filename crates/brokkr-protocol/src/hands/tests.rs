@@ -186,6 +186,53 @@ fn can_create_namespace() -> bool {
         .is_ok_and(|status| status.success())
 }
 
+/// The command [`stood`] reads: the box's own HOME, which no host process
+/// holds.
+#[cfg(target_os = "linux")]
+const STOOD: &str = "printf '%s\\n' \"$HOME\"";
+
+/// That the box [`STOOD`] ran in was established, so a refusal read in it
+/// next is the box's: a stand-in bubblewrap that runs nothing, or a box
+/// that never stood, fails the test here by those words rather than as a
+/// command that succeeded (#1187).
+#[cfg(target_os = "linux")]
+fn stood(ran: &Executed) {
+    let home = format!("{SANDBOX_HOME}\n");
+    assert!(
+        (ran.exit_code, ran.stdout.as_str()) == (0, home.as_str()),
+        "the box was not established, so no refusal can be read in it: {}",
+        ran.render()
+    );
+}
+
+/// A box no bubblewrap built, the stand-in `/bin/true` a concurrent test
+/// once put first on the shared `PATH`, fails as not established (#1187).
+#[cfg(target_os = "linux")]
+#[test]
+#[should_panic(expected = "the box was not established")]
+fn a_box_that_never_stood_fails_as_not_established() {
+    let (_dir, root, work) = fixture();
+    let spec = HandsSpec::default();
+    let (artifacts, reach) = (
+        artifact_root(&root),
+        sealed(&spec, &work, &root.join("home")),
+    );
+    let (scratch, session) = (root.join("scratch"), root.join("session"));
+    let ran = execute_in(
+        Path::new("/bin/true"),
+        &spec,
+        &work,
+        &artifacts,
+        &reach,
+        &scratch,
+        &session,
+        &[],
+        STOOD,
+        Duration::from_secs(30),
+    );
+    stood(&ran.unwrap());
+}
+
 /// Each further user namespace a boxed command tries to make, and what it
 /// says failing (U8j): the box's own limit, ENOSPC, in util-linux's words
 /// and bubblewrap's, where a host restricting them itself says EPERM.
