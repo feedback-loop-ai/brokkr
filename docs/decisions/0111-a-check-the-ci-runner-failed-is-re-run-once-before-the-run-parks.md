@@ -2018,5 +2018,31 @@ outside `docs/decisions/` is the base's):
   needed a grant this seat did not hold, so the chief's notes were read only as the positions and
   the commission quote them.
 
+Round 1093r10, read at the story's base `e667a04c2` (the tracked tree outside `docs/decisions/`
+is the base's):
+
+- `crates/brokkr-core/src/fold.rs:640-700` (`succeed` to `Decide`, `fail` back to
+  `ExecuteEffect` with one more failed attempt, `close` never retried) and
+  `crates/brokkr-runtime/src/engine/cursor.rs:100-140` (`park_on_record`: the cap first);
+- `crates/brokkr-protocol/src/adapters.rs:6740-6810` (a non-zero exit is `ResultStatus::Failed`;
+  a result file is read, masked and sent as `Succeeded`);
+- `crates/brokkr-runtime/src/bundle/entry.rs:135-175` (`first_phase`, and `refusal`'s order:
+  `Absent`, `Terminal`, `Unprintable`, `Work`, then the protected and later arms);
+- `crates/brokkr-runtime/src/launch.rs:290-312`, `:445-495` (`EntryRequest::admit` before the
+  journal opens; `continued_entry`'s lineage checks) and `:38-50`, `:148-160`;
+- `crates/brokkr-core/src/entry.rs:1-80` (the `run/started` entry record, unknown members
+  denied) and `crates/brokkr-runtime/src/engine/start.rs:85-120` (`run/started` in the one start
+  transaction); `contracts/README.md:236-260` (0094's additive `run/started` members);
+- `crates/brokkr-cli/src/cli_args.rs:215-230` and `crates/brokkr-cli/tests/it.rs:48`;
+- `recipes/fast/bundle.json` and `recipes/landing/bundle.json` seat classes, and
+  `recipes/fast/policy.json`'s `terminal`, by `jq`;
+- the chief's notes and both review positions of run
+  `narrowing-round-1093r9-for-issue-3b8d3010`, in
+  `.forge/results/aefeb40e-561f-4146-b483-c34539fb2bc2-{chief,positions-adversarial,positions-correctness}.json`.
+
+The park table's binding of the text was checked by hand in this round, by a scratch reading of
+this file: every paragraph that says the gate parks, outside the exempt sections, cites a row id
+or links the table, and every row's test is listed in a slice. 0111c's doc tests make that a gate.
+
 The entry check's verdicts over the narrowed order (ruling 6) are read from HEAD's code, not run:
 **unmeasured** until 0111d's entry tests.
