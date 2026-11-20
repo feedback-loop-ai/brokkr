@@ -34,8 +34,9 @@ impl Engine {
         // evidence attached — never repaired, coerced, or handed to a
         // model to fix.
         let protected = phase == self.bundle.protected_phase;
+        let word = raw_result.get("result").and_then(Value::as_str);
         let checked = protected.then(|| {
-            super::verdict::Producer::of(seat, state).and_then(|producer| {
+            super::verdict::Producer::of(seat, state, word).and_then(|producer| {
                 super::verdict::checked_head(&raw_result, &state.step_records, &producer)
             })
         });

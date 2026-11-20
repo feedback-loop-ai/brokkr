@@ -167,60 +167,83 @@ pub(super) enum ObservationProblem {
          (decision 0109 ruling 7)"
     )]
     Unattributed,
+    #[error(
+        "the protected result names the step '{step}' as its producer, and its compiled body \
+         does not end on that step with that result (decision 0109 ruling 7)"
+    )]
+    Unlawful { step: String },
+    #[error(
+        "the protected effect's attempt journaled a record of the step '{step}', which its \
+         compiled body does not run before its result's producer (decision 0109 ruling 7)"
+    )]
+    Beyond { step: String },
+    #[error(
+        "the protected seat's compiled body resolves no case under the run's strategy \
+         (decision 0109 ruling 7)"
+    )]
+    Unselected,
 }
 
 /// The step that produced a protected effect's terminal, read from the
 /// compiled body by the name its success journals (fix rounds 0109a1r6,
-/// W1, and 0109a1r7, X1), and the records the attempt owes for it.
+/// W1, and 0109a1r7, X1), at a position the body may end on (fix round
+/// 0109a1r8, M1).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum Producer<'a> {
     /// A single body, whose success names no step: its terminal is its
     /// own observation, and it owes no step record.
     Effect,
-    /// A sequence step the compiled body holds, of `class`, and `owed`:
-    /// every gate step at or before it in compiled order, which ran in
-    /// this attempt and each journaled one whole record of its own. A
-    /// gate step's terminal is its own record's result and equals it,
-    /// presence included; a work step's carries no `covered`, and its
-    /// head is the last owed record's.
+    /// A sequence the compiled body holds, every step of it by name and
+    /// class in compiled order, ended at `at`: its last step, or a step
+    /// whose compiled `ends_on` holds the terminal's word. The tag names
+    /// the step; whether the body may end there, what it owes and what it
+    /// decides on are the compiled body's (M1).
     Step {
-        name: &'a str,
-        class: SeatClass,
-        owed: Vec<&'a str>,
+        steps: Vec<(&'a str, SeatClass)>,
+        at: usize,
     },
 }
 
 impl<'a> Producer<'a> {
-    /// The producer of `state`'s terminal in `seat`'s body. The identity
-    /// is bound (X1): a sequence's success must name one of its steps,
-    /// and a single body's must name none, or no producer stands.
-    pub(super) fn of(seat: &'a Seat, state: &RunState) -> Result<Producer<'a>, ObservationProblem> {
-        let steps = match seat.body.selected(state.strategy.as_deref()) {
-            Some((ExecutableBody::Sequence { steps }, _)) => Some(steps),
-            Some((ExecutableBody::Invocation(_), _)) | None => None,
-        };
-        match (steps, state.ending_step.as_deref()) {
-            (None, None) => Ok(Producer::Effect),
-            (Some(steps), Some(name)) => Producer::step(steps, name),
-            (None, Some(_)) | (Some(_), None) => Err(ObservationProblem::Unattributed),
+    /// The producer of `state`'s terminal `word` in `seat`'s body. The
+    /// identity is bound (X1): a sequence's success must name one of its
+    /// steps, at a position its compiled endings allow (M1), and a single
+    /// body's must name none, or no producer stands. A body that resolves
+    /// no case has none either (M1).
+    pub(super) fn of(
+        seat: &'a Seat,
+        state: &RunState,
+        word: Option<&str>,
+    ) -> Result<Producer<'a>, ObservationProblem> {
+        let (body, _) = (seat.body.selected(state.strategy.as_deref()))
+            .ok_or(ObservationProblem::Unselected)?;
+        match (body, state.ending_step.as_deref()) {
+            (ExecutableBody::Invocation(_), None) => Ok(Producer::Effect),
+            (ExecutableBody::Sequence { steps }, Some(name)) => Producer::step(steps, name, word),
+            (ExecutableBody::Invocation(_), Some(_)) | (ExecutableBody::Sequence { .. }, None) => {
+                Err(ObservationProblem::Unattributed)
+            }
         }
     }
 
-    /// `name`, one of `steps`, with the gate steps it owes.
-    fn step(steps: &'a [SequenceStep], name: &str) -> Result<Producer<'a>, ObservationProblem> {
-        let index = (steps.iter().position(|step| step.name == name))
+    /// `name`, one of `steps`, where the body may end with `word`: the
+    /// last step, or one whose compiled `ends_on` holds it.
+    fn step(
+        steps: &'a [SequenceStep],
+        name: &str,
+        word: Option<&str>,
+    ) -> Result<Producer<'a>, ObservationProblem> {
+        let at = (steps.iter().position(|step| step.name == name))
             .ok_or(ObservationProblem::Unattributed)?;
-        let owed = steps[..=index]
-            .iter()
-            .filter(|step| step.class == SeatClass::Gate)
-            .map(|step| step.name.as_str())
+        let ends_on = |word: &str| steps[at].ends_on.iter().any(|ending| ending == word);
+        if at + 1 != steps.len() && !word.is_some_and(ends_on) {
+            let step = name.to_string();
+            return Err(ObservationProblem::Unlawful { step });
+        }
+        let steps = (steps.iter())
+            .map(|step| (step.name.as_str(), step.class))
             .collect();
-        let step = &steps[index];
-        Ok(Producer::Step {
-            name: &step.name,
-            class: step.class,
-            owed,
-        })
+        Ok(Producer::Step { steps, at })
     }
 }
 
@@ -253,6 +276,14 @@ impl<'a> Producer<'a> {
 /// journal refuses rather than removing its obligation. A malformed
 /// record latched in the attempt refuses whatever record followed it, and
 /// a single body owes none, so any step record beside it refuses.
+///
+/// No row's tag sets the obligation (fix round 0109a1r8, M1): the
+/// producer stands only at a position the compiled body may end on, every
+/// record of the attempt is reconciled against that position, a record
+/// past it included, and a body that holds a gate step decides on its
+/// latest whole gate record's head, which the terminal's own is compared
+/// to and never replaces. A work-only body has no gate record, so its
+/// terminal is its one observation (fix round 0109a1r4, K3).
 pub(super) fn checked_head(
     raw_result: &Value,
     records: &StepRecords,
@@ -272,26 +303,32 @@ pub(super) fn checked_head(
         Some(_) => return Err(ObservationProblem::Disagrees),
         None => {}
     }
-    let agrees = matched(producer, records, &head, covered.as_ref())?;
-    agrees.then_some(head).ok_or(ObservationProblem::Disagrees)
+    let decided = match producer {
+        Producer::Effect => records.by_step.is_empty().then_some(head),
+        Producer::Step { steps, at } => {
+            reconciled(steps, *at, records)?;
+            step_head(steps, *at, records, head, covered.as_ref())?
+        }
+    };
+    decided.ok_or(ObservationProblem::Disagrees)
 }
 
-/// Whether the terminal's `head` and `covered` match the record of the
-/// step that produced it under `producer`, or why there is none to match:
-/// an owed gate record absent, or journaling no whole observation.
-fn matched(
-    producer: &Producer<'_>,
+/// The head a sequence ended at `at` decides on, if its terminal `head`
+/// and `covered` match the record of the step that produced it: the
+/// latest whole gate record's head where the body holds a gate step, or
+/// the terminal's own in a work-only body. Its error is why there is no
+/// gate record to decide on: one owed absent or journaling no whole
+/// observation.
+fn step_head(
+    steps: &[(&str, SeatClass)],
+    at: usize,
     records: &StepRecords,
-    head: &CheckedHead,
+    head: CheckedHead,
     covered: Option<&Covered>,
-) -> Result<bool, ObservationProblem> {
-    let (class, owed) = match producer {
-        Producer::Effect => return Ok(records.by_step.is_empty()),
-        Producer::Step { class, owed, .. } => (*class, owed),
-    };
+) -> Result<Option<CheckedHead>, ObservationProblem> {
     let mut last = None;
-    for gate in owed {
-        match records.by_step.get(*gate) {
+    for gate in gates(&steps[..=at]) {
+        match records.by_step.get(gate) {
             Some(StepObservation::Checked { head, covered }) => last = Some((head, covered)),
             _ => {
                 let step = gate.to_string();
@@ -299,14 +336,54 @@ fn matched(
             }
         }
     }
-    // A gate producer is the last step it owes (`Producer::step`, bound
-    // by the_terminals_producer_is_read_from_the_compiled_body), so `last`
-    // is its own record; with no owed record the producer is work.
-    Ok(match (class, last) {
-        (SeatClass::Gate, Some((seen, stamped))) => seen == head && covered == Some(stamped),
-        (SeatClass::Work, Some((seen, _))) => seen == head && covered.is_none(),
-        (_, None) => covered.is_none(),
+    // A gate producer is the last gate step at or before `at`, so `last`
+    // is its own record; with none, the producer is a work step before
+    // every gate the body holds, or the body holds none.
+    Ok(match (steps[at].1, last, gates(steps).first()) {
+        (SeatClass::Gate, Some((seen, stamped)), _) => {
+            (*seen == head && covered == Some(stamped)).then(|| seen.clone())
+        }
+        (SeatClass::Work, Some((seen, _)), _) => {
+            (*seen == head && covered.is_none()).then(|| seen.clone())
+        }
+        (_, None, Some(first)) => {
+            let step = first.to_string();
+            return Err(ObservationProblem::Unrecorded { step });
+        }
+        (_, None, None) => covered.is_none().then_some(head),
     })
+}
+
+/// The gate steps of `steps`, in compiled order.
+fn gates<'a>(steps: &[(&'a str, SeatClass)]) -> Vec<&'a str> {
+    (steps.iter())
+        .filter(|(_, class)| *class == SeatClass::Gate)
+        .map(|(name, _)| *name)
+        .collect()
+}
+
+/// Every record of the attempt against the sequence ended at `at` (fix
+/// round 0109a1r8, M1): each names a step the compiled body runs before
+/// `at`, or `at` itself when it is a gate step, which journals its own
+/// record; a work step's record journals no observation.
+fn reconciled(
+    steps: &[(&str, SeatClass)],
+    at: usize,
+    records: &StepRecords,
+) -> Result<(), ObservationProblem> {
+    for (name, seen) in &records.by_step {
+        let index = steps.iter().position(|(step, _)| step == name);
+        let gate = steps[at].1 == SeatClass::Gate;
+        let ran = index.filter(|index| *index < at || (*index == at && gate));
+        let Some(index) = ran else {
+            let step = name.clone();
+            return Err(ObservationProblem::Beyond { step });
+        };
+        if steps[index].1 == SeatClass::Work && *seen != StepObservation::Unobserved {
+            return Err(ObservationProblem::Disagrees);
+        }
+    }
+    Ok(())
 }
 
 /// `report` with its successful result admitted at `site`, the site whose

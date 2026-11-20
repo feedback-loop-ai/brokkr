@@ -13,7 +13,7 @@ use crate::bundle::{Bundle, GateAssessment, SeatBody, SeatClass, SequenceStep};
 use crate::engine::heads::HeadReads;
 use crate::engine::tests::{git_commit, single_body, step_body};
 use crate::engine::verdict::ObservationProblem::{
-    self, Disagrees, Missing, Partial, Unattributed, Unrecorded,
+    self, Beyond, Disagrees, Missing, Partial, Unattributed, Unlawful, Unrecorded, Unselected,
 };
 use crate::engine::verdict::Producer;
 use crate::engine::Engine;
@@ -470,57 +470,166 @@ fn a_partial_step_record_or_a_terminal_unlike_its_own_gate_step_record_refuses()
     refused_at_decide(&events, &Disagrees);
 }
 
-/// Fix rounds 0109a1r6, W1, and 0109a1r7, X1: the producer is read from
-/// the compiled body by the step the success names, with every gate step
-/// at or before it owed, the producer last when it is a gate. Only a
-/// single body's success names no step; a sequence's success naming none,
-/// a step the body does not hold, or a single body's success naming a
-/// step, has no producer.
-#[test]
-fn the_terminals_producer_is_read_from_the_compiled_body() {
-    let dir = tempfile::tempdir().unwrap();
-    let steps = vec![
-        clean_step("draft", SeatClass::Work),
+/// The four-step body: draft (work), judge (gate), tidy (work), chief
+/// (gate), draft ending early on `draft_ends`.
+fn four_steps(draft_ends: &[&str]) -> Vec<SequenceStep> {
+    let mut draft = clean_step("draft", SeatClass::Work);
+    draft.ends_on = draft_ends.iter().map(|word| word.to_string()).collect();
+    vec![
+        draft,
         clean_step("judge", SeatClass::Gate),
         clean_step("tidy", SeatClass::Work),
         clean_step("chief", SeatClass::Gate),
-    ];
-    let compiled = crate::engine::tests::bundle(dir.path(), SeatBody::Sequence { steps });
+    ]
+}
+
+/// Fix rounds 0109a1r6, W1, 0109a1r7, X1, and 0109a1r8, M1: the producer
+/// is read from the compiled body by the step the success names, at a
+/// position the body may end on with the terminal's word: its last step,
+/// or one whose compiled `ends_on` holds it. Only a single body's success
+/// names no step; a sequence's success naming none, a step the body does
+/// not hold, a single body's success naming a step, a step the body does
+/// not end on with that word, or a body that resolves no case, has no
+/// producer.
+#[test]
+fn the_terminals_producer_is_read_from_the_compiled_body() {
+    let dir = tempfile::tempdir().unwrap();
+    let body = |draft_ends| SeatBody::Sequence {
+        steps: four_steps(draft_ends),
+    };
+    let compiled = crate::engine::tests::bundle(dir.path(), body(&[]));
     let (sequence, single) = (&compiled.seats["work"], &compiled.seats["review"]);
+    let mut early = sequence.clone();
+    early.body = body(&["blocked"]);
+    let mut unselected = single.clone();
+    unselected.body = SeatBody::Select {
+        cases: [("other".to_string(), body(&[]))].into(),
+        default: None,
+    };
     let ended = |step: Option<&str>| {
         let mut state = crate::engine::tests::state(Some("review"), Cursor::RequestEffect);
         state.ending_step = step.map(str::to_string);
         state
     };
-    let step = |name, class, owed| Ok(Producer::Step { name, class, owed });
-    let cases = [
-        (single, None, Ok(Producer::Effect)),
-        (
-            sequence,
-            Some("draft"),
-            step("draft", SeatClass::Work, vec![]),
-        ),
-        (
-            sequence,
-            Some("judge"),
-            step("judge", SeatClass::Gate, vec!["judge"]),
-        ),
-        (
-            sequence,
-            Some("tidy"),
-            step("tidy", SeatClass::Work, vec!["judge"]),
-        ),
-        (
-            sequence,
-            Some("chief"),
-            step("chief", SeatClass::Gate, vec!["judge", "chief"]),
-        ),
-        (sequence, None, Err(Unattributed)),
-        (sequence, Some("other"), Err(Unattributed)),
-        (single, Some("tidy"), Err(Unattributed)),
+    let steps = vec![
+        ("draft", SeatClass::Work),
+        ("judge", SeatClass::Gate),
+        ("tidy", SeatClass::Work),
+        ("chief", SeatClass::Gate),
     ];
-    for (seat, step, want) in cases {
-        assert_eq!(Producer::of(seat, &ended(step)), want, "{step:?}");
+    let at = |at| {
+        Ok(Producer::Step {
+            steps: steps.clone(),
+            at,
+        })
+    };
+    let unlawful = |step: &str| Err(Unlawful { step: step.into() });
+    let cases = [
+        (single, None, "clean", Ok(Producer::Effect)),
+        (sequence, Some("chief"), "clean", at(3)),
+        (sequence, Some("draft"), "clean", unlawful("draft")),
+        (sequence, Some("judge"), "clean", unlawful("judge")),
+        (sequence, Some("tidy"), "clean", unlawful("tidy")),
+        (&early, Some("draft"), "blocked", at(0)),
+        (&early, Some("draft"), "clean", unlawful("draft")),
+        (sequence, None, "clean", Err(Unattributed)),
+        (sequence, Some("other"), "clean", Err(Unattributed)),
+        (single, Some("tidy"), "clean", Err(Unattributed)),
+        (&unselected, None, "clean", Err(Unselected)),
+    ];
+    for (seat, step, word, want) in cases {
+        let producer = Producer::of(seat, &ended(step), Some(word));
+        assert_eq!(producer, want, "{step:?} {word}");
+    }
+}
+
+/// Fix round 0109a1r8, M1: no row's tag sets what a protected attempt
+/// owes. A protected body whose work step precedes its gate step reaches
+/// a durable success on A, judge's whole record on A. The success is
+/// re-tagged from judge to draft, its `covered` removed and its
+/// `checked_head` set to B, by direct SQL, and the run resumed on B:
+/// - in the two-step body [draft, judge] and the four-step body [draft,
+///   judge, tidy, chief], draft is no position the body ends on with
+///   `clean`: `Unlawful`, never B;
+/// - where the body resumed on may end early at draft on `clean`, as a
+///   lawful early ending journals no record of draft, judge's whole
+///   record lies past draft: `Beyond`;
+/// - with judge's record removed too, the body holds a gate and the
+///   attempt journaled no whole gate record to decide on: `Unrecorded`.
+///
+/// Each refuses, rather than deciding on judge's A, because the terminal
+/// itself says it is not judge's result: a re-tagged terminal is no
+/// record the compiled body produces, so no head of it is decided on.
+#[test]
+fn a_terminal_retagged_to_a_work_step_before_the_gate_refuses() {
+    let two = |draft_ends: &[&str]| {
+        let mut steps = four_steps(draft_ends);
+        steps.truncate(2);
+        SeatBody::Sequence { steps }
+    };
+    let four = || SeatBody::Sequence {
+        steps: four_steps(&[]),
+    };
+    let unlawful = || Unlawful {
+        step: "draft".into(),
+    };
+    let named = |problem: fn(String) -> ObservationProblem| problem("judge".into());
+    let all: &[&str] = &["draft", "judge", "tidy", "chief"];
+    for (ran, resumed_on, kept, problem) in [
+        (two(&[]), two(&[]), all, unlawful()),
+        (four(), four(), all, unlawful()),
+        (
+            two(&[]),
+            two(&["clean"]),
+            &["judge"][..],
+            named(|step| Beyond { step }),
+        ),
+        (
+            two(&[]),
+            two(&["clean"]),
+            &[][..],
+            named(|step| Unrecorded { step }),
+        ),
+    ] {
+        let mut stopped = Stopped::after(ran, false);
+        stopped.drafted(kept);
+        stopped.bundle.seats.get_mut("review").unwrap().body = resumed_on;
+        let events = stopped.resumed();
+        let succeeded = ended_in(&events, "review", EventType::EffectSucceeded);
+        assert_eq!(succeeded[0]["step"], "draft");
+        assert_eq!(succeeded[0]["result"]["checked_head"], json!(stopped.moved));
+        refused_at_decide(&events, &problem);
+    }
+}
+
+impl Stopped {
+    /// Review's success re-tagged to `draft`, its `covered` removed and its
+    /// `checked_head` the moved head, and only the step records `kept`
+    /// left of the attempt's, by direct SQL. Every other step record loses
+    /// its engine mark, so it is no record of the engine's, and the tail
+    /// keeps its length, as the summary row's head needs.
+    fn drafted(&self, kept: &[&str]) {
+        let moved = self.moved.clone();
+        let record = |event: &EventEnvelope| {
+            event.event_type == EventType::EffectCheckpointed
+                && event.payload["checkpoint"]["step"] == "sequence-step-finished"
+        };
+        let drafts = |event: &EventEnvelope| {
+            record(event) && event.payload["checkpoint"]["step_name"] == "draft"
+        };
+        self.rewritten(drafts, |event| {
+            let step = event.payload["checkpoint"]["step_name"].as_str();
+            if record(event) && !step.is_some_and(|step| kept.contains(&step)) {
+                let checkpoint = event.payload["checkpoint"].as_object_mut().unwrap();
+                drop(checkpoint.remove(brokkr_core::findings::AUTHORED));
+            }
+            if event.event_type == EventType::EffectSucceeded {
+                event.payload["step"] = json!("draft");
+                let result = &mut event.payload["result"];
+                drop(result.as_object_mut().unwrap().remove("covered"));
+                result["checked_head"] = json!(moved);
+            }
+        });
     }
 }
 
@@ -530,7 +639,9 @@ fn the_terminals_producer_is_read_from_the_compiled_body() {
 /// stopped once the success is durable, then resumed on a clean B:
 /// - the gate step's record with both `checked_head` and `covered`
 ///   blanked, the terminal's `checked_head` B: `Unrecorded` for judge;
-/// - the gate step's record re-tagged as another step: `Unrecorded`;
+/// - the gate step's record re-tagged as the final work step, which
+///   journals no record of its own: `Beyond` for it (fix round 0109a1r8,
+///   M1, reconciles every record before what is owed);
 /// - a partial copy of the gate step's record journaled before the
 ///   complete one: `Partial`, latched.
 ///
@@ -558,7 +669,10 @@ fn an_owed_gate_record_absent_or_malformed_or_an_untagged_success_refuses() {
             event.payload["checkpoint"]["step_name"] = json!("tidy");
         }
     });
-    refused_at_decide(&stopped.resumed(), &judge);
+    let tidy = Beyond {
+        step: "tidy".into(),
+    };
+    refused_at_decide(&stopped.resumed(), &tidy);
 
     let stopped = Stopped::after(review(SeatClass::Work), false);
     let judged = |event: &EventEnvelope| {

@@ -322,15 +322,14 @@ fn a_terminal_agrees_with_its_latest_gate_step_record_field_by_field_or_is_refus
     let plain = json!({"result": "clean", "checked_head": head});
     let stamped = json!({"result": "clean", "checked_head": head, "covered": covered(&head)});
     // judge (gate), then tidy (work) or chief (gate): what each owes.
+    let (judge, tidy) = (("judge", SeatClass::Gate), ("tidy", SeatClass::Work));
     let work = Producer::Step {
-        name: "tidy",
-        class: SeatClass::Work,
-        owed: vec!["judge"],
+        steps: vec![judge, tidy],
+        at: 1,
     };
     let gate = Producer::Step {
-        name: "chief",
-        class: SeatClass::Gate,
-        owed: vec!["judge", "chief"],
+        steps: vec![judge, ("chief", SeatClass::Gate)],
+        at: 1,
     };
     let records = |judge: StepObservation, chief: Option<StepObservation>| {
         let mut records = StepRecords::default();
@@ -401,9 +400,8 @@ fn a_terminal_agrees_with_its_latest_gate_step_record_field_by_field_or_is_refus
     };
     assert_eq!(alone(&stamped, &Producer::Effect), Ok(head.clone()));
     let only_work = Producer::Step {
-        name: "tidy",
-        class: SeatClass::Work,
-        owed: vec![],
+        steps: vec![("draft", SeatClass::Work), tidy],
+        at: 1,
     };
     assert_eq!(alone(&plain, &only_work), Ok(head.clone()));
     assert_eq!(alone(&stamped, &only_work), Err(Disagrees));
@@ -415,6 +413,39 @@ fn a_terminal_agrees_with_its_latest_gate_step_record_field_by_field_or_is_refus
         checked_head(&stamped, &beside, &Producer::Effect),
         Err(Disagrees)
     );
+}
+
+/// Fix round 0109a1r8, M1: a work step's record journals no observation,
+/// so one that carries a head is no record the body produces. Draft
+/// (work), judge (gate), tidy (work) ended at tidy, judge's record whole.
+#[test]
+fn a_work_steps_record_carrying_a_head_refuses() {
+    let head = "89abcdef0123456789abcdef0123456789abcdef";
+    let digest =
+        json!({"kind": "head", "head_digest": sha256_bytes(head.as_bytes()), "dirty": true});
+    let checked = StepObservation::Checked {
+        head: head.to_string().try_into().unwrap(),
+        covered: serde_json::from_value(digest).unwrap(),
+    };
+    let plain = json!({"result": "clean", "checked_head": head});
+    let tidy = Producer::Step {
+        steps: vec![
+            ("draft", SeatClass::Work),
+            ("judge", SeatClass::Gate),
+            ("tidy", SeatClass::Work),
+        ],
+        at: 2,
+    };
+    for (draft, want) in [
+        (checked.clone(), Err(Disagrees)),
+        (StepObservation::Unobserved, Ok(head.to_string())),
+    ] {
+        let mut records = StepRecords::default();
+        records.by_step.insert("judge".into(), checked.clone());
+        records.by_step.insert("draft".into(), draft);
+        let read = checked_head(&plain, &records, &tidy).map(|head| head.as_str().to_string());
+        assert_eq!(read, want);
+    }
 }
 
 /// Ruling 1 through the real result path: a seat-supplied `covered` or
