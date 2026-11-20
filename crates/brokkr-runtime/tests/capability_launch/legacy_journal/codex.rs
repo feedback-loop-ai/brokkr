@@ -395,7 +395,10 @@ fn an_unheld_or_unattributable_native_call_fails_its_attempt_through_the_shipped
             .iter()
             .rfind(|event| event.event_type == EventType::EffectFailed)
             .unwrap();
-        assert_eq!(failed.payload["error"], format!("{cause}; stderr tail: "));
+        assert_eq!(
+            failed.payload["error"],
+            format!("{cause}; driver stderr: empty")
+        );
         settles(&engine, &events, Status::AwaitingOperator);
     }
 }

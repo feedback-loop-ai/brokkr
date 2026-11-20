@@ -4,7 +4,7 @@
     "recipes/fast": "cb10b6d5515a41cfa52ce2202a99780caacf3aef1d657c093178c4d82bac68e1",
     "recipes/gpt-flash": "78d6fdc7cf682a5e153053a129e563a255da3635c5d4ac7665d8b51bdc907ac1",
     "recipes/landing": "f265d1837e49648dd949476e6041200c8e960493c88858d0b65a0bf4cc3130a0",
-    "recipes/night-shift": "411148db61b3bd919598097bcce1d0931ab445d2ca21ace86718cd1b7366dd50",
+    "recipes/night-shift": "5d2aaa4c27289d4c32126139bbece7c464614c095b78e1017d0181f0480d8d6d",
     "recipes/node": "67d4e687834a7992ee34638ca5d5c36e626dedffef50908ef099694b07982768",
     "recipes/panel-review": "9fe48f1c50593dfd7cb3240f317b77b52469be664ee22493f85199c51efae65b",
     "recipes/preflight": "a2ddfd6b64ffb4d9ea80f4d9049d6d1f3f03f974faa84488a1232d1c855867a9",
@@ -17,7 +17,7 @@
     "recipes/triage": "2f9af747e9b87dcb1bcc6268be7f30699526e368c61f2122ae8a6cc2177a9c53",
     "recipes/verify": "4a787436ef596904550582ff663478e9938f1ba51ef59e7ed0e3f25a81a1ccbe",
     "recipes/wager-harness": "f0958d7b305bce4403624940e40508b43a7ed1230daa54e6d269e1b50b988e8b",
-    "recipes/wager-harness-dsh": "6b775bf5b61677732aec0a7a9b97aeec4dc519a4412fcf03a837c25a33f9f723",
+    "recipes/wager-harness-dsh": "ce33fa7a715e74de4919baffb4338e2c8d6dc2d709a5d324e3054e9f81c9a2c5",
     "recipes/wager-harness-muse": "516adddde26edbe63e337806418282cd2fa5a2cdef327d92c50a6e091173c586"
   },
   "tables": {
