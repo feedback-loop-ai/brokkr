@@ -50,26 +50,29 @@ Linux and macOS only.
 
 ### What #1093's acceptance becomes
 
-Narrowed by ruling 1 (a), the issue's acceptance is this: **a port-bind failure during service
-boot parks with cause `ci_infrastructure` and no diagnosis seat attempt.** The observation is
-itself an exec attempt: the engine journals `effect/started` with an attempt id before the `ci`
-gate's driver starts (`crates/brokkr-runtime/src/engine/dispatch.rs:147-165`), and ruling 8 says
-that attempt executed. What the park saves is the model seat the adopter counted, the one that
-diagnoses; a person still re-runs. The engine draws the class
-`ci-infrastructure` (ruling 3), the table matches it as the flag `ci_infrastructure` (ruling 10),
-and the park is written `infrastructure` with `origin: ci` (ruling 7). These are one
-fact in three places, each in the spelling of the surface it lives on.
+Narrowed by ruling 1 (a) and the narrowing of 2026-11-20, the issue's acceptance is this: **in a
+landing run with the gate, a non-green CI observation parks for a person before any seat attempt
+beyond the `ci` gate's own exec attempt.** The person reads the observation and re-runs or rules.
+The observation is itself an exec attempt: the engine journals `effect/started` with an attempt
+id before the `ci` gate's driver starts (`crates/brokkr-runtime/src/engine/dispatch.rs:147-165`).
+What the park saves is the model seat the adopter counted, the one that diagnoses: a red CI no
+longer reaches an implement visit, or any other seat, through this gate. The park is `ruled`,
+names the gate's rule, and carries the observation's digest (ruling 7).
 
-What is not delivered, and why:
+What #1093 does not get now, and why:
 
 - **The re-run once.** No forge write is sent, because none can be confined to the authorized
   attempt and closure when it is sent (<https://docs.github.com/en/rest/actions/workflow-runs>).
   A person re-runs.
-- **The wall clock.** The wait until a person re-runs remains. What is gone is the diagnosing
+- **The typed port-bind park.** A port bind during service boot parks like every other
+  non-green observation: for a person, as `ruled`, with no word that says "the runner's". Typing
+  it as a runner fault is deferred with the classifier
+  ([Deferred to a later decision](#deferred-to-a-later-decision)). The person tells a port bind
+  from a red test by reading the observation, and re-runs.
+- **The wall clock.** The wait until a person looks remains. What is gone is the diagnosing
   seat attempt the issue counts.
-- **The timing-sensitive test.** It stays the change's, as today. Flaky-test handling is a
-  follow-up (ruling 4).
-
+- **The timing-sensitive test.** It parks for a person too, as every red does; nothing tells it
+  apart. Flaky-test handling is a follow-up of its own.
 ### The gate grants nothing
 
 This is the frame every ruling below is read in, and this is its one home.
@@ -123,7 +126,7 @@ admit a licence, is green on the forge as well. That is landing's existing expos
 and the forge hold it, unchanged. It is not a residual of this gate, and this decision does not
 claim to close it.
 
-**Enforcement binding (0111e):**
+**Enforcement binding (0111d):**
 `after_ci_pass_the_composed_table_is_landings_own_rule_for_rule` (the composed `landing-ci`
 table, less every rule whose `from` is `ci`, its `initial` and its `ci` phase, equals
 `landing`'s composed table rule for rule); and
@@ -280,7 +283,7 @@ held only because a write was sent:
 - the re-run routes, and the classes and park kinds only they drew;
 - the rule that let an audit job be re-run.
 
-**Enforcement binding:** 0111d's overlay test refuses any seat in the CI overlay that declares a
+**Enforcement binding:** 0111c's compile test refuses any seat in the CI overlay that declares a
 write binding, and 0111b's compile refuses an observer credential declared with any `access`
 but `read` (ruling 2).
 
@@ -320,7 +323,7 @@ must not be anything the gated change can edit:
   change's own tree; in this house `recipes/fast/` is repository code. This decision therefore
   requires that the observer's layer lie outside the gated worktree: run start refuses a `ci`
   seat whose bundle layer is inside it. Whether run start can see both paths today is
-  unmeasured; slice 0111c's test settles it.
+  unmeasured; slice 0111b's test settles it.
 - **Its launch.** Checking where `gh` resolves from inside the script proves nothing about the
   process that runs the script. An inherited `BASH_ENV` naming a worktree file runs before the
   script's first line, and `bash` itself resolves through `PATH`, which 0049 ruling 3 leaves
@@ -374,7 +377,7 @@ file, execute that file; and no path anyone but root can change.**
   spawn names its program to `Command::new` (`crates/brokkr-protocol/src/process.rs:295-296`).
   It already runs `pre_exec` hooks (`crates/brokkr-protocol/src/process/attempts.rs:129`) and
   hands descriptors into a namespace (`crates/brokkr-protocol/src/hands/namespace/workspace.rs:240`),
-  but no site executes a descriptor, so 0111c builds that.
+  but no site executes a descriptor, so 0111b builds that.
 - **The script never passes through a file.** The engine reads the pinned script from the
   compiled bundle once, checks its digest against the manifest's, and hands those bytes to the
   interpreter over a pipe it owns, as `bash --noprofile --norc /dev/fd/3`. No boxed seat can
@@ -453,7 +456,7 @@ which HEAD's box confines with `--unshare-pid` among its isolation flags
 (`crates/brokkr-protocol/src/hands/namespace.rs:161`) and a cleared environment (`:154`). So a
 boxed seat's `/proc` lists only its own PID namespace's processes, and the engine's and the
 observer's `/proc/<pid>/fd` entries are not in it. That is read from HEAD's argv and was not
-exercised in this session: **unmeasured** until 0111c's test, and if that test can open the
+exercised in this session: **unmeasured** until 0111b's test, and if that test can open the
 observer's endpoint from inside the box, the launch refuses under a boxed boundary until it
 cannot. Rule by rule:
 
@@ -467,7 +470,7 @@ cannot. Rule by rule:
 
 The directories: the observer's `HOME`, `XDG_CONFIG_HOME`, `GH_CONFIG_DIR` and working directory
 are made by the same anchored, no-follow, one-descriptor-per-component 0700 walk 1091a builds
-(#1091; in fix round at the story's base, so 0111c lands after it), and are held by descriptor
+(#1091; in fix round at the story's base, so 0111b lands after it), and are held by descriptor
 through use: the working directory is set by `fchdir` before the exec, and each configuration
 directory reaches the observer as an inherited descriptor named `/dev/fd/<n>`, so no path is
 resolved again after the walk. Whether `gh` accepts a `/dev/fd` directory for its
@@ -512,18 +515,18 @@ never read. The observer writes nothing to stderr but its own diagnostics, and t
 journals stderr's length and digest only.
 
 **Live admission is refused until the first live producer lands, and this is the one statement
-of the order.** 0111b builds the classifier and the compile's `ci` declaration, but its compile
-refuses every bundle that declares a `ci` seat, a `ci_observation` input or a `ci-checks.json`, a
-custom exec recipe's included, with the reason that the gate is unbuilt. 0111c lands the
-launcher and 0111d the typed park, each tested through builders and test-only bundles the live
-compile never admits. **0111e lifts the refusal**, for `landing-ci` and a custom exec recipe
-alike, in the same change that lands the first live producer, so no live compile admits a `ci`
-seat before the launcher, the typed park and a composed table that validates whole all exist.
-Refused alternative: lifting it in 0111c, which would admit a live `ci` seat whose
-`ci-infrastructure` class has no typed park to write (0111d) and whose table validates under no
-published schema (ruling 10).
+of the order.** 0111b builds the observer, its trusted launch and the compile's `ci`
+declaration, but its compile refuses every bundle that declares a `ci` seat, a `ci_observation`
+input or a `ci-checks.json`, a custom exec recipe's included, with the reason that the gate is
+unbuilt. 0111c lands the judgment and the park rule, tested through builders and test-only
+bundles the live compile never admits. **0111d lifts the refusal**, for `landing-ci` and a
+custom exec recipe alike, in the same change that lands the first live producer, so no live
+compile admits a `ci` seat before the launcher, the judgment and a composed table that validates
+whole all exist. Refused alternative: lifting it in 0111b, which would admit a live `ci` seat
+whose observation no judgment reads and whose table validates under no published schema
+(ruling 10).
 
-What HEAD lacks for this form, each built by slice 0111c:
+What HEAD lacks for this form, each built by slice 0111b:
 
 - **A cleared environment for a site without hands.** Such a site spawns in the engine's own
   environment: `SiteSpawn::inherit` sets `SpawnEnv::Inherit`
@@ -1383,537 +1386,236 @@ and it waits on 0109's v3 and ruling 10's ask.
 Smallest first; each lands on its own. Evidence comes before any contract, because 0082 forbids
 fixing a minted version in place: a shape the evidence would change is changed in this decision,
 while it is proposed, never in a minted file. Each piece of lifecycle and readout work is in the
-slice that produces it, and each typed assertion is in the slice that builds its writer.
+slice that produces it, and each assertion is in the slice that builds its writer. Two contract
+versions are proposed: `ci-observation/v1` and `ci-checks/v1`.
 
 1. **0111a — the forge's evidence, before any contract.** The operator captures, by hand, outside
    any run, and with a read-only token, representative payloads for this repository's own pull
-   requests: the check runs and the commit statuses for a head; the workflow runs that produced
-   them, with path, event, number, attempt, head and whatever the forge says of the revision it
-   tested; their jobs with steps; one step log's bounded tail, cut to what 0111b's matcher reads;
-   and the base branch's required set. A failed setup step is added if one recurs. The log sample
-   is reviewed by the operator before it is committed, as any test data is. It needs no claim
-   that the forge masked a secret, because under ruling 3 no log byte reaches a journal; the
-   sample is a matcher's test input, not a journal row. Files: the captured payloads, redacted, as test data under
-   `crates/brokkr-core/src/ci/evidence/` with a note of how each was taken; one test that pins
-   their digests, so no later slice regenerates them. About 40 test lines and the data. No
-   contract and no production code. It settles, or marks still unmeasured:
-   - whether the forge reports a job's key, and the app's numeric id (ruling 3);
-   - whether a run names the merge commit it tested, which decides whether any `merge` entry can
-     pass (ruling 3);
+   requests: the check runs and the commit statuses for a head, every page of each; the workflow
+   runs that produced them, with path, event, number, attempt, head, association and whatever
+   the forge says of the revision each tested; the jobs of each current run attempt, every page;
+   and the base branch's required set. No job log is captured: no condition of `green` reads one.
+   Files: the captured payloads, redacted, as test data under `crates/brokkr-core/src/ci/evidence/`
+   with a note of how each was taken; one test that pins their digests, so no later slice
+   regenerates them. About 40 test lines and the data. No contract and no production code. It
+   settles, or marks still unmeasured:
+   - whether a run names the commit it tested, the merge commit for a `pull_request` run, as a
+     field distinct from its `head_sha`; this decides whether any `merge` entry can be `green`
+     (ruling 3);
    - what a run's and a check run's `pull_requests` association holds, and in which cases it is
      empty, a fork's pull request among them (ruling 3);
-   - how a matrix job's name is spelled;
-   - the closed list of conclusion words, and how a job log is cut into steps.
-
-   Secret masking is no longer among them: ruling 4's pattern arm does not depend on it.
+   - whether the forge reports a job's key, and the app's numeric id (ruling 3);
+   - how each list pages, and how the observer tells the last page (ruling 3's bounded reads);
+   - the closed list of conclusion and status words.
 
    Where a fact differs from what this decision assumes, the decision is revised before it is
-   accepted, or before 0111b mints. Test: `the_ci_evidence_files_are_pinned_by_digest`. With
-   this slice the classifier's first consumer exists: 0111b's tests read it, so the next sweep
-   can count, offline, what a typed park would have saved.
-2. **0111b — the classifier, its record and its readout, over 0111a's evidence.** Files: a new
-   `crates/brokkr-core/src/ci.rs` with `ci/observation.rs`, `ci/checks.rs`, `ci/classify.rs`,
-   `ci/closure.rs` (ruling 3's machinery closure over typed workflow data) and
-   `ci/tests.rs`; `crates/brokkr-core/src/lib.rs`; each closure tree's workflow parse into that typed
-   subset at the runtime's edge, with its YAML reader added to the workspace; `crates/brokkr-core/src/policy/inputs.rs` (the
-   seat-owned `ci_observation` record; the engine-owned `ci_class` record and ruling 10's three
-   flags); `crates/brokkr-runtime/src/bundle.rs` (load and pin `ci-checks.json`, refuse it on a
-   non-exec seat); `crates/brokkr-runtime/src/engine/decide.rs` (take the bounded range through
-   0109b's verified reader, classify at decide, and record the class with its sealed basis); and
-   the readout it produces,
-   `crates/brokkr-view/src/` (the CI view model: class, refusals, faults, and the run's id and
-   attempt and each failed job's id a person needs) with `crates/brokkr-cli/src/render/inspect.rs`.
-   About 600 production and 900 test lines; it may split at triage into the observation and its
-   pass (with the wire test) and the classifier. Contracts, minted here and only after 0111a:
-   `ci-observation/v1`, `ci-checks/v1` and `ci-classification/v1`. No live producer yet: its
-   observations are 0111a's evidence and builders over it, and its compile refuses every live
-   `ci` declaration until 0111e (ruling 2):
-   `a_bundle_declaring_a_ci_seat_refuses_to_compile_until_the_first_live_producer_lands`, a custom
-   exec recipe's declaration included. Tests: one per arm and reason of
-   ruling 4, over observations built by a shared builder from 0111a's evidence. The wire, end to
-   end, over 0111a's evidence in `ci-observation/v1`'s shape:
-   `a_recorded_observation_is_sealed_classified_replayed_and_inspected`. That test hands decide a
-   recorded observation through a test-built bundle the live compile never admits, and 0111c
-   repeats it over the observer's stdout. It asserts that the sealed seat record holds
-   it; that the decision's inputs hold `ci_class` and its one true flag; that a fold rebuilt from
-   the journal re-derives the same class; and that `inspect` paints it. The ownership tests:
-   `a_seat_declaring_ci_class_or_a_class_flag_fails_the_compile`;
-   `a_seat_payload_carrying_ci_class_is_stripped_before_the_table`;
-   `an_observation_with_an_unknown_field_refuses_whole`. The range and the list's syntax:
-   `the_change_range_is_the_merge_base_to_the_gated_head_not_the_phase_entry`;
-   `a_range_the_verified_reader_cannot_take_withholds_as_range_unproven`;
-   `a_replaced_object_view_whose_diff_omits_a_machinery_path_still_finds_it_or_withholds`
-   (a replace ref planted in the operated repository shortens its own `diff-tree`; the verified
-   read lists the machinery path, or the range withholds as `range-unproven`, never `ci-infrastructure`);
-   `a_glob_character_in_a_change_class_path_refuses_to_compile`;
-   `a_directory_path_matches_only_under_its_slash`. The replay (ruling 3):
-   `a_replay_with_the_bundle_the_checkout_and_the_forge_all_gone_re_derives_the_class`
-   (the journal exported, then the bundle, the worktree and the forge stub removed);
-   `a_replay_reads_the_carried_path_list_not_git`;
-   `a_failed_range_read_and_a_verified_empty_range_replay_with_distinct_reasons` (one all-setup
-   observation, the same two commit ids: the failed read seals `unproven` and replays `change`,
-   `withheld`, `range-unproven`; the verified empty range seals `verified` with no path and
-   replays `ci-infrastructure`);
-   `the_basis_carries_the_required_list_the_literals_the_closure_and_the_comparison_values`;
-   `the_live_class_and_the_replayed_class_take_one_function_over_one_basis`;
-   `a_closure_beyond_its_bound_withholds_as_basis_too_large`;
-   `a_range_of_4097_short_paths_withholds_as_range_too_large`;
-   `a_range_too_large_class_replays_from_the_journal_alone` and
-   `a_basis_too_large_class_replays_from_the_journal_alone` (each: the journal exported, then
-   the bundle, the worktree and the forge stub removed; the replay re-derives `change` with its
-   withholding from the witness);
-   `the_overflow_witness_carries_the_bound_the_limit_the_measured_size_and_a_digest_never_the_list`;
-   `a_list_past_the_hard_read_cap_seals_overflowed_unmeasured_with_its_lower_bound_and_no_digest`;
-   `a_closure_over_128_kib_withholds_as_basis_too_large`;
-   every reason replays (ruling 3), each asserting the exact class and the exact reason list,
-   live and from the journal alone:
-   `a_4097_path_range_including_deny_toml_names_range_too_large_and_machinery_touched_deny_toml`
-   (a red all-setup observation: `change`, `withheld`, exactly `range-too-large` with its
-   `measured` witness and `machinery-touched` `holds` naming `deny.toml`);
-   `a_closure_overflow_beside_a_revision_disagreement_names_both`
-   (`change`, `withheld`, exactly `basis-too-large` with its `closure` witness and
-   `revision-disagrees` `holds` naming both instances and both commits);
-   `a_reason_table_beyond_its_bound_records_each_hidden_reason_unavailable`;
-   `a_range_past_its_hard_cap_records_machinery_touched_unavailable_with_its_lower_bound`;
-   `a_valid_all_setup_aggregate_replays_from_the_journal_alone` (the journal exported, then the
-   bundle, the worktree, the workflow and the forge stub removed: `ci-infrastructure`, from the
-   sealed `verdict-only` kind, nine expected keys and their nine established revisions, all one
-   merge commit, with the checkout-less aggregate passing the revision check through them);
-   `a_checkout_less_verdict_only_aggregate_is_not_judged_by_the_one_checkout_rule` (the
-   aggregate is not `revision-unmeasured` for having no checkout; an aggregate with an
-   independent step and no checkout is);
-   `an_all_setup_aggregate_with_one_disagreeing_dependency_instance_replays_as_revision_disagrees`
-   (the negative control, live and from the journal alone: one instance's established revision
-   another commit: `change`, `withheld`, `revision-disagrees` naming both instances);
-   `a_missing_sibling_replays_from_the_journal_alone_as_matrix_incomplete` (the same, one
-   instance short: `change`, `withheld`, `matrix-incomplete` naming the missing key);
-   `a_sealed_matrix_unexpandable_outcome_replays_as_refused_instance_duplicated_unestablished`;
-   `a_witness_within_its_limit_refuses_the_replay`. The evidence (ruling 4):
-   `a_port_bind_literal_in_a_declared_setup_step_draws_ci_infrastructure`;
-   `a_declared_literal_in_an_undeclared_step_is_the_changes`;
-   `a_literal_printed_by_the_change_where_the_table_is_wrong_draws_a_park_never_green` (a
-   stubbed table that omits a program's input: the bounded cost, `ci-infrastructure`, never
-   `green`);
-   `no_class_a_failure_draws_is_green`; `a_startup_failure_or_timed_out_job_is_the_changes`;
-   `several_literals_in_one_excerpt_match_the_first_declared`;
-   `a_pattern_naming_an_undeclared_step_refuses_to_compile`;
-   `a_setup_step_outside_every_required_workflow_refuses_to_compile`;
-   `a_fifth_excerpt_refuses_the_observation`; the journal's bytes (ruling 3):
-   `no_log_byte_reaches_the_sealed_observation_or_the_basis`;
-   `a_sealed_observation_names_only_the_matched_literal_ids_and_the_job_step_and_attempt`;
-   `an_unmasked_secret_in_an_excerpt_never_reaches_the_journal`;
-   `a_timing_sensitive_test_failure_is_the_changes`; `a_cancelled_job_is_the_changes`;
-   `one_untyped_job_makes_the_whole_change`; `an_unknown_conclusion_refuses_by_name`;
-   the whole failure set (ruling 4):
-   `a_cancelled_required_job_beside_a_setup_failure_is_the_changes`;
-   `an_unclassifiable_failure_beside_a_setup_failure_is_the_changes`;
-   `a_skipped_required_check_beside_a_setup_failure_is_the_changes`;
-   `an_unadmitted_failure_beside_a_setup_failure_is_exactly_change_never_refused_or_parked`
-   (the class is `change` with reason `withheld`, the routed rule is `CI-FAIL`, and no park is
-   written);
-   `a_valid_all_setup_verdict_only_aggregate_draws_ci_infrastructure` (a port bind in one
-   `engine-machines` instance, the other eight observed and successful);
-   `an_independent_assertion_failing_beside_a_setup_fault_in_a_dependency_is_change`
-   (an aggregate with a second step of its own that fails: `change`, `untyped-failure`);
-   every failure typed, each asserting the exact class and reason:
-   `a_later_always_step_failing_after_a_matched_setup_step_is_change` (one job: a declared setup
-   step fails with its literal, then an independent `if: always()` step fails: `change`,
-   `untyped-failure`, naming the second step);
-   `two_failed_setup_steps_each_matching_their_literals_draw_ci_infrastructure` (the control:
-   every failed step a matched setup step: `ci-infrastructure`, naming both pattern ids);
-   `an_all_setup_failure_set_draws_ci_infrastructure` (the all-setup control across jobs);
-   `a_failed_job_with_no_failed_step_beside_a_matched_fault_is_change` (one independent job
-   concludes `failure` and reports zero failed steps, another holds a matched setup fault:
-   `change`, `untyped-failure`, naming the stepless job);
-   `a_duplicated_matrix_instance_key_in_one_attempt_refuses_as_instance_duplicated` (all nine
-   expected keys, plus a second job for one key, contradicting it: `refused`,
-   `instance-duplicated`, never `ci-infrastructure`);
-   `a_red_required_status_beside_every_pinned_entry_green_is_change_not_green` (`change`,
-   `inadmissible-failure`, naming the context and `status-required`);
-   `a_sole_red_producer_mismatch_is_change_not_missing_required` (`change`,
-   `inadmissible-failure`, naming the check and `producer-mismatch`);
-   `a_green_producer_mismatch_beside_an_absent_entry_refuses_as_missing_required` (the absent
-   control);
-   `a_missing_matrix_sibling_draws_no_ci_infrastructure` (eight of nine instances observed:
-   `change`, `matrix-incomplete`);
-   `a_cancelled_matrix_sibling_draws_no_ci_infrastructure` (`change`, `cancelled`);
-   `a_matrix_built_by_an_expression_refuses_as_instance_duplicated_unestablished`;
-   `an_aggregate_with_one_untyped_dependency_is_the_changes`;
-   `an_aggregate_whose_dependency_is_in_another_attempt_is_the_changes`;
-   `the_aggregate_reads_its_needs_and_matrix_from_the_event_workflow_never_the_checkout`
-   (the event workflow and the checked-out head's copy name different `needs`: the event's are
-   followed);
-   `an_event_workflow_dependency_key_absent_from_the_checkout_observed_twice_refuses_as_instance_duplicated`
-   (the chief's case: established instance naming; the event workflow adds a dependency key
-   under a required aggregate that the checked-out head's copy lacks, and the forge reports that
-   key twice in one attempt beside a single failed required aggregate: `refused`,
-   `instance-duplicated` naming the key, `CI-REFUSED`, never `change` with `matrix-incomplete`
-   or `CI-FAIL`, live and from the journal alone);
-   `a_setup_command_that_differs_between_the_event_workflow_and_the_checkout_is_judged_by_the_event_workflow`
-   (the event workflow's declared setup step runs `test -f crates/ci/ready`, the checked-out
-   head's copy of the same step runs `echo`, and the change removes only that file: `change`,
-   `withheld`, `machinery-escapes` naming the event workflow's command, and its control with
-   the two commands swapped reaches classification);
-   `a_run_whose_event_workflow_revision_is_unreported_refuses_as_source_unestablished` (live
-   and from the journal alone);
-   `a_local_helper_is_resolved_in_the_executed_checkout_never_the_event_revision` (a `head`
-   entry whose helper differs between the merge commit and the head: the head's is followed);
-   `a_setup_step_in_a_job_no_required_aggregate_needs_withholds`;
-   `a_stale_head_observation_does_not_read`; `a_pass_with_a_failed_job_is_refused`;
-   `a_seat_cannot_write_the_classification`; `a_ci_list_on_a_model_seat_refuses_to_compile`.
-   The producer, the association and the tested revision (ruling 3):
-   `a_same_named_check_from_another_workflow_withholds_as_producer_mismatch`;
-   `a_green_check_on_another_event_does_not_match_its_entry`;
-   `a_red_setup_only_run_on_the_same_head_for_another_pull_request_is_change_as_association_unproven`;
-   `a_run_with_an_empty_association_withholds_as_association_unproven`;
-   `an_association_naming_a_and_a_closed_b_draws_no_ci_infrastructure`
-   (`association-ambiguous`, with B closed and the open list naming only A);
-   `an_all_success_observation_with_an_unproven_association_is_green`;
-   `an_association_and_a_checkout_that_disagree_withhold_as_revision_disagrees`;
-   `a_head_entry_whose_event_workflow_job_checks_out_another_ref_refuses_as_source_unestablished`;
-   `the_full_two_entry_engine_matrix_with_a_distinct_valid_merge_commit_reaches_classification`
-   (a synthetic workflow of the house's shape, whose closure resolves: both `test (…)` entries
-   over all nine `engine-machines` instances, each with a merge commit distinct from the head
-   whose parents are the base and the head, and a declared port-bind literal in one instance:
-   `ci-infrastructure`, so no comparison demands merge and head be one. It is the classifier's
-   positive case, not the house's);
-   `changing_the_checkout_revision_of_a_dependency_draws_no_ci_infrastructure`
-   (one `engine-machines` instance records another merge commit: `revision-disagrees` for the
-   aggregate);
-   `an_entry_whose_run_records_no_tested_commit_refuses_as_source_unestablished`;
-   `a_setup_step_whose_working_directory_points_at_another_provisioned_checkout_draws_no_ci_infrastructure`
-   (unchanged machinery, one checkout of the correct merge commit into `candidate/`, every
-   comparison passing, and the declared setup step's `working-directory` another directory
-   already on the runner, printing the declared literal: `change`, `withheld`, with
-   `revision-unmeasured` naming the step);
-   `a_step_naming_no_directory_beside_a_checkout_into_candidate_withholds_as_revision_unmeasured`
-   (the job's one checkout of the correct merge commit has `path: candidate`, and the declared
-   setup step names no `working-directory`, so it runs in `GITHUB_WORKSPACE`: `change`,
-   `withheld`, `revision-unmeasured` naming the step and the workspace root);
-   `a_step_whose_working_directory_is_the_candidate_checkout_reaches_classification` (the
-   positive control: the same job, the step's `working-directory: candidate`, a declared
-   port-bind literal: `ci-infrastructure`);
-   `a_job_with_two_checkouts_refuses_as_source_unestablished`;
-   `a_step_working_directory_built_by_an_expression_withholds_as_revision_unmeasured`;
-   `a_status_entry_in_the_required_list_refuses_to_compile`;
-   `a_status_context_in_the_forges_required_set_withholds_as_status_required`;
-   the machinery, each asserting the exact class and withholding (ruling 3):
-   `a_deny_toml_only_change_with_a_red_setup_only_observation_is_change_not_ci_infrastructure`;
-   `a_typos_toml_only_change_with_a_red_setup_only_observation_is_change_not_ci_infrastructure`;
-   `a_change_to_ci_yml_with_a_red_setup_only_observation_is_change_as_machinery_touched`;
-   `a_change_to_the_local_action_a_required_job_runs_is_change_as_machinery_touched`;
-   `a_helper_only_change_to_test_summary_sh_with_a_red_setup_only_observation_is_change`;
-   `a_helper_only_change_to_shard_runner_py_with_a_red_setup_only_observation_is_change`;
-   `a_machinery_change_with_an_all_success_observation_is_green_and_parks_nothing`;
-   `a_new_root_file_no_change_class_names_is_machinery`;
-   `a_change_class_only_change_with_a_red_setup_only_observation_draws_ci_infrastructure`;
-   `a_base_file_a_required_job_executes_inside_a_change_class_withholds_as_machinery_escapes`;
-   `a_reference_built_by_expansion_withholds_as_machinery_unresolved`;
-   `a_makefile_only_change_under_a_pinned_working_directory_draws_no_ci_infrastructure` (a
-   required setup step runs a bare `make` under a base `defaults.run.working-directory` of
-   `crates/ci`, and the change edits only `crates/ci/Makefile` so the step prints the declared
-   port-bind literal: `change`, `withheld`, with `machinery-escapes` naming the directory and the
-   `Makefile`);
-   `a_read_operand_in_a_change_class_draws_no_ci_infrastructure` (a required setup step runs
-   `test -f crates/ci/ready` from the workspace root, and the change only removes that file:
-   `change`, `withheld`, with `machinery-escapes` naming `test`, the operand and the step);
-   `a_change_to_an_unchanged_symlinks_target_only_draws_no_ci_infrastructure` (a tracked
-   symlink `ops/ci/ready`, unchanged, targets `../../crates/ci/ready`; a required setup step
-   runs `test -f ops/ci/ready` from the workspace root, and the change edits only
-   `crates/ci/ready`: `change`, `withheld`, with `machinery-escapes` naming `test`, the spelled
-   `ops/ci/ready`, the link and the resolved `crates/ci/ready`; and its siblings, a symlinked
-   working directory into `crates/` the same, and a link with an absolute target, one that
-   leaves the tree and a loop past 40 links, each `machinery-unresolved` naming where the walk
-   stopped);
-   `a_machinery_makefile_including_a_change_class_file_draws_no_ci_infrastructure` (a bare
-   `make` under a machinery directory whose `Makefile` includes `crates/ci/setup.mk`, the
-   change editing only `setup.mk`: `change`, `withheld`, with `machinery-escapes` naming the
-   `Makefile` and the include);
-   `a_non_literal_or_unsupported_include_or_read_withholds_as_machinery_unresolved` (a
-   `Makefile` `include $(DIR)/setup.mk`, a `$(shell cat …)`, and a `test -f "$X"`: each `change`,
-   `withheld`, `machinery-unresolved` naming the form);
-   `a_makefiles_environment_key_naming_a_change_class_file_draws_no_ci_infrastructure` (a
-   required setup step runs a bare `make` under a machinery `defaults.run.working-directory` of
-   `ops/ci`, the step's `env` sets `MAKEFILES: ../../crates/ci/extra.mk`, and the change edits
-   only `crates/ci/extra.mk` so the step prints the declared port-bind literal: `change`,
-   `withheld`, with `machinery-escapes` naming `make`, `MAKEFILES`, the normalized
-   `crates/ci/extra.mk` and the step; and its siblings, the same file named by an inline
-   `MAKEFILES=../../crates/ci/extra.mk make` prefix and by a literal `$GITHUB_ENV` line an
-   earlier step wrote, each the same);
-   `a_command_local_makefiles_outranks_a_safe_earlier_value` (the collision: under the same
-   `ops/ci` directory, the job's `env`, an earlier step's `$GITHUB_ENV` line and an earlier
-   `export` in the run line each set `MAKEFILES` to the machinery `safe.mk`, and the command is
-   `MAKEFILES=../../crates/ci/extra.mk make`, the change editing only `crates/ci/extra.mk`:
-   `change`, `withheld`, `machinery-escapes` naming the normalized `crates/ci/extra.mk`, never
-   `safe.mk`; and its control, the inline prefix removed, reads `safe.mk` and reaches
-   classification);
-   `a_file_selecting_environment_key_the_table_cannot_resolve_withholds_as_machinery_unresolved`
-   (`MAKEFILES: ${{ vars.MK }}`, `COMPOSE_FILE: $X`, and a non-empty `MAKEFLAGS`: each
-   `change`, `withheld`, `machinery-unresolved` naming the key);
-   `a_changed_build_script_under_a_declared_setup_cargo_build_draws_no_ci_infrastructure` (a
-   declared setup step runs `cargo build` from the workspace root, and the change edits only
-   `crates/boot/build.rs` so the build prints the declared literal: `change`, `withheld`, with
-   `machinery-escapes` naming `cargo`, `crates/boot/build.rs` and the step);
-   `a_step_before_a_declared_setup_step_reading_a_product_input_withholds_as_machinery_escapes`
-   (the same build in an earlier step of the setup step's job, and again in a job it `needs`:
-   each the same);
-   `a_cargo_test_after_the_last_setup_step_keeps_the_product_input_exception` (the control: the
-   closure does not withhold, and a failing test step is `untyped`, the change's);
-   `a_state_restoring_action_supplying_a_setup_step_withholds_as_machinery_unresolved`;
-   `a_step_whose_effective_working_directory_lies_in_a_change_class_withholds_as_machinery_escapes`;
-   `a_cd_to_a_non_literal_directory_withholds_as_machinery_unresolved`;
-   `a_command_word_the_pinned_table_does_not_name_withholds_as_machinery_unresolved`;
-   `a_remote_action_the_pinned_table_does_not_name_withholds_as_machinery_unresolved`;
-   `a_docker_compose_step_whose_compose_file_lies_in_a_change_class_withholds_as_machinery_escapes`;
-   `the_closure_follows_needs_uses_and_sourced_helpers_transitively`;
-   `the_closure_reads_each_jobs_executed_tree_through_the_verified_reader_never_the_worktree`;
-   `a_setup_helper_the_advanced_base_replaced_but_the_tested_head_still_runs_draws_no_ci_infrastructure`
-   (a `head` entry, its workflow revision recorded; the pull request opened on A, the base
-   advanced to B, where the setup helper no longer reads `crates/ci/ready`, and the change
-   editing only that file so A's helper, still in the head, prints the declared literal:
-   `change`, `withheld`, with `machinery-escapes` naming A's helper and the read, though a scan
-   of B closes);
-   `a_job_whose_closure_tree_is_not_established_refuses_as_source_unestablished`;
-   `a_setup_step_listed_before_the_checkout_withholds_as_revision_unmeasured` (the declared
-   setup step precedes the job's one `actions/checkout`, and its literal `working-directory` is
-   inside the checkout's `path`: `change`, `withheld`, `revision-unmeasured` naming the step and
-   the checkout step; and its sibling, the checkout listed first but not reported `success`,
-   the same);
-   `an_empty_change_class_list_refuses_to_compile`;
-   `a_change_class_under_github_or_a_required_workflow_refuses_to_compile`;
-   `the_houses_own_closure_withholds_as_machinery_unresolved_at_test_shards_sh` (HEAD's base,
-   the house's required list and a red setup-only observation of `engine-machines`: the class is
-   exactly `change`, `withheld`, and its withholdings hold `machinery-unresolved` naming
-   `scripts/test-shards.sh` and its array command word; until the follow-up rewrite, when this
-   test is replaced by the house's positive case);
-   `the_houses_mutants_closure_withholds_as_machinery_unresolved_at_mutants_sh` (HEAD's base and
-   a red setup-only observation of `mutants in the diff: brokkr-core`: exactly `change`,
-   `withheld`, `machinery-unresolved` naming `scripts/mutants.sh:31` and its substituted `cd`;
-   replaced with the other at the follow-up);
-   `an_ambiguous_tested_revision_refuses_as_source_unestablished`;
-   `a_merge_revision_whose_parents_are_not_the_base_and_the_head_withholds`;
-   `two_unsettled_runs_for_one_entry_refuse_as_execution_ambiguous`;
-   `missing_required_beside_a_classifiable_failure_refuses_and_is_never_typed`;
-   `a_forge_required_check_the_list_lacks_withholds_as_required_set_disagrees`. The
-   refusals, one test each, every one asserting the refusal's variant and that the class is not
-   `green`: `an_observation_with_no_check_refuses_as_empty`;
-   `a_required_audit_missing_from_the_observation_refuses_as_missing_required`;
-   `an_observation_of_another_head_repository_or_pull_request_refuses_as_unrelated`;
-   `a_skipped_or_neutral_required_check_refuses_as_non_success`;
-   `a_required_check_still_in_progress_refuses_as_not_settled`;
-   `two_matches_for_one_required_check_refuse_as_ambiguous`;
-   `an_empty_required_list_refuses_to_compile`.
-   The readout it produces: `inspect_names_the_class_the_refusals_and_the_faults`;
-   `inspect_names_the_run_attempt_and_job_ids_a_person_re_runs`.
-3. **0111c — the trusted launch and a GitHub observer script.** Files: the launch in
-   `crates/brokkr-runtime/src/engine.rs` (a `ci` site's cleared `SpawnEnv::Exactly` table, its
-   own working directory, created before the spawn and removed after, its digest-checked
-   executables, the script fed over the engine's pipe, and the observation captured from
-   stdout, bounded) and `crates/brokkr-protocol/src/adapters/exec.rs` (a working directory the
-   site names, and the raw stdout channel); `crates/brokkr-protocol/src/process.rs` (execution
-   of an opened descriptor on Linux, and the root-owned chain check on both systems);
-   `crates/brokkr-runtime/src/bundle.rs` (the pinned interpreter and tools, the allow-list, and
-   the observer credential's `access: read` declaration); run start's refusal of a `ci` seat
-   whose bundle layer is inside the worktree, over 1091a's descriptor-held walk, so 0111c lands
-   after 1091a; a house observer script, with its polling bound inside the seat's deadline, and
-   its shellcheck clean. 0111b's live-admission refusal stands through this slice; 0111e lifts
-   it (ruling 2). About 400 production, 150 script and 650 test lines. No contract change.
-   Tests, the launch driven through a test-only bundle the live compile does not admit:
-   `one_admitted_launch_resolves_the_sealed_binding_into_the_cleared_environment_captures_stdout_and_parses_the_result`
-   (the real credential arrangement: a sealed binding in the operator-side store, resolved by
-   the runner into `GH_TOKEN`, the one allow-listed token variable of a cleared
-   `SpawnEnv::Exactly`, no other key present, and `GH_CONFIG_DIR` an empty directory; a stub
-   `gh` by absolute path asserts it read the token from `GH_TOKEN`, nothing from argv and no
-   stored login from its configuration directory; its stdout is captured over the engine's pipe and parsed into
-   `ci-observation/v1`; run once under `harness` and once beside a boxed seat under
-   `namespace`, both admitted);
-   `an_observer_credential_declared_write_scoped_refuses_to_compile` (`"access"` of any word but
-   `read`, and a second secret binding on the `ci` seat, each refused by name);
-   `an_observer_credential_bound_under_any_name_but_gh_token_refuses_to_compile`;
-   `on_macos_the_interpreter_runs_by_path_only_under_a_root_owned_chain`. The boundary
-   (Linux, under a real box, as 0043's boundary tests are):
-   `inside_the_box_opening_the_observers_pipe_endpoint_through_proc_fails`
-   (a boxed seat walks its `/proc` for the observer's and the engine's pids and their `fd`
-   entries; its control, the same walk from an unboxed same-UID sibling, opens the endpoint,
-   which the trust root accepts);
-   `a_configuration_directory_replaced_by_a_boxed_seat_before_gh_opens_it_refuses`
-   (a boxed seat whose binds reach the directory's parent swaps it by name between the walk
-   and the spawn: the held descriptor is the one `gh` reads, or the launch refuses);
-   `the_observers_working_directory_is_set_from_the_held_descriptor`;
-   `an_interpreter_replaced_after_verification_never_runs` (Linux: the hashed descriptor runs;
-   both systems: a path whose chain the run's account can write refuses before the spawn);
-   `a_tool_whose_directory_the_runs_account_can_write_refuses_before_the_spawn`;
-   `a_pinned_path_that_is_a_link_into_the_worktree_refuses_before_the_spawn`;
-   `a_pinned_path_whose_ancestor_is_a_link_refuses_before_the_spawn`;
-   `the_script_reaches_the_interpreter_over_the_engines_pipe_as_the_bytes_the_manifest_digests`;
-   `a_replaced_result_file_under_forge_results_is_ignored_and_the_stdout_observation_is_read`;
-   `an_observation_over_the_stdout_bound_refuses_as_observation_too_large`;
-   `a_non_utf8_observation_refuses_and_is_never_decoded_lossily`;
-   `the_ci_site_journals_no_stderr_bytes`;
-   `a_recorded_observation_over_stdout_is_sealed_classified_replayed_and_inspected`;
-   `a_ci_seat_whose_layer_is_inside_the_worktree_refuses_at_start`;
-   `an_inherited_bash_env_never_reaches_the_observer`;
-   `an_observer_interpreter_whose_digest_moved_refuses_before_the_spawn`;
-   `an_observer_tool_under_the_worktree_refuses_before_the_spawn`;
-   `a_bare_interpreter_name_refuses_to_compile`;
-   `the_observer_runs_from_a_directory_outside_the_worktree`;
-   `the_launch_directory_is_removed_after_the_observer_ends`;
-   `an_environment_key_outside_the_allow_list_refuses_to_compile`;
-   `an_untrusted_launch_parks_ruled_as_launch_untrusted_and_observes_nothing`;
-   `the_observer_reads_no_gh_configuration_from_the_worktree_or_home`;
-   `the_observer_names_the_repository_and_never_reads_the_worktrees_remotes`;
-   `the_observer_lists_every_check_for_the_head_unfiltered` (a stub `gh` given by absolute
-   path, its output held to `ci-observation/v1` and to 0111a's evidence);
-   `the_observer_refuses_as_not_settled_when_its_polling_bound_ends`;
-   `the_observer_holds_no_write_binding`.
-4. **0111d — the typed park and its marked rule.** Files: `crates/brokkr-core/src/park.rs` and
-   its `parse` and `forms` modules; `crates/brokkr-runtime/src/engine/cursor.rs` (the marked
-   rule's typed park); `crates/brokkr-runtime/src/bundle/` (the compile's marking of that rule,
-   and the refusals of ruling 6's routes); and the readout it produces, the fleet's and
-   `inspect`'s paint of the cause. About 150 production and 400 test lines, over test-built
-   tables; no recipe yet. Contract: `park-cause/v2`. Tests:
-   `a_runner_fault_parks_with_no_diagnosis_seat_attempt` (the typed park, asserted here with its
-   writer: the `ci` gate's one exec attempt is journaled, and no `implement` or other model seat
-   attempt follows it);
-   the decode table (ruling 7), each object serialized and decoded by both readers with the
-   exact result: `a_v1_infrastructure_cause_decodes_identically_under_v1_and_v2_as_origin_engine`;
-   `a_full_v2_ci_cause_decodes_under_v2_and_the_frozen_v1_reader_refuses_it_as_forbidden_faults`
-   (v1: exactly `ParkCauseError::Forbidden { kind: "infrastructure", field: "faults" }`, and
-   its pinned text);
-   `an_origin_only_extension_is_refused_by_the_frozen_v1_reader_as_forbidden_origin` (the
-   origin-specific v1 control: `Forbidden { kind: "infrastructure", field: "origin" }`; v2
-   refuses it for its missing `faults`);
-   `an_origin_engine_word_is_refused_by_name`;
-   `an_origin_ci_cause_with_empty_faults_is_refused_by_name`;
-   `faults_without_origin_ci_are_refused_by_name`;
-   `an_origin_ci_cause_with_retryable_true_is_refused_at_schema_and_decode` (valid faults: the
-   schema rejects it, v2's decode returns the exact never-retryable error, and the frozen v1
-   reader returns `Forbidden { kind: "infrastructure", field: "faults" }`);
-   `a_legacy_retryable_engine_cause_still_decodes_retryable_under_v1_and_v2` (the control beside
-   it);
-   `every_engine_infrastructure_writer_serializes_v1_bytes_under_v2`;
-   `a_ci_infrastructure_park_is_never_retryable`;
-   `a_runner_fault_park_writes_the_ci_infrastructure_cause_and_keeps_the_rule_in_the_decision`;
-   `a_refusal_park_carrying_a_ci_class_stays_ruled`;
-   the eligible current match (ruling 3's one order), each over a test-built table holding ruling
-   6's rows and asserting the class, the reason and the routed rule, live and again from the
-   journal alone (exported, then the bundle, the worktree and the forge stub removed):
-   `a_stale_same_producer_success_beside_an_ordinary_failure_refuses_as_missing_required`
-   (a required audit with no check in its current run, an older same-producer `success` on the
-   same head, and a second, eligible required job with an ordinary failed test: `refused`,
-   `missing-required` naming the audit, `CI-REFUSED`, a `ruled` park, never `CI-FAIL`);
-   `a_stale_same_producer_success_beside_an_all_setup_failure_refuses_as_missing_required` (the
-   sibling: the second job's failure all-setup: the same `refused`, `missing-required`,
-   `CI-REFUSED`, never `ci-infrastructure`);
-   `a_stale_same_producer_red_is_neither_a_match_nor_an_inadmissible_failure` (the stale check
-   red instead: `refused`, `missing-required`, not `change` with `inadmissible-failure`);
-   `an_over_128_kib_closure_with_a_duplicated_expected_instance_refuses_as_instance_duplicated`
-   (a closure sealed as its overflow witness, and one expected instance's key observed twice in
-   one attempt: `refused`, `instance-duplicated` naming the key, `CI-REFUSED`, never `change`
-   with `basis-too-large`, live and from the journal alone, from the instance table sealed
-   beside the witness);
-   `an_instance_table_beyond_its_bound_refuses_as_instances_too_large` (live and from the
-   journal alone);
-   no refusal weakens (ruling 3's one home), one test per row of the refusal table, the row's
-   fact unestablished and every other fact established so the row's own predicate decides, each
-   asserting exactly `refused`, the row's word with `unestablished` naming the fact and its
-   state, and `CI-REFUSED`, never `CI-FAIL`, `CI-INFRASTRUCTURE` or `CI-PASS`, live and from the
-   journal alone:
-   `an_unread_engine_head_refuses_as_unrelated_unestablished`;
-   `a_forge_head_reported_unread_refuses_as_head_unpublished_unestablished`;
-   `a_check_list_read_short_of_its_last_page_with_no_check_refuses_as_empty_unestablished`;
-   `a_check_list_read_short_of_its_last_page_beside_an_ordinary_failure_refuses_as_missing_required_unestablished`
-   (the required audit is not on the pages read; another entry's ordinary failure is);
-   `a_check_list_read_short_of_its_last_page_beside_one_match_refuses_as_ambiguous_required_unestablished`;
-   `a_run_list_read_short_of_its_last_page_refuses_as_execution_ambiguous_unestablished`;
-   `an_unreported_event_workflow_revision_beside_an_all_setup_failure_refuses_as_source_unestablished`
-   and its sibling, a judged job whose closure tree no run field records;
-   `an_unexpandable_matrix_beside_an_all_setup_failure_refuses_as_instance_duplicated_unestablished`;
-   `unmeasured_instance_naming_beside_an_all_success_observation_refuses_as_instance_duplicated_unestablished`;
-   `an_instance_table_whose_source_is_not_the_established_one_refuses_as_instance_duplicated_wrong_source`;
-   `a_required_check_with_an_unread_status_refuses_as_not_settled_unestablished`;
-   `a_required_check_with_an_unread_conclusion_refuses_as_non_success_unestablished`;
-   `an_observation_missing_a_required_field_refuses_at_the_edge_as_observation_unreadable`;
-   and `every_row_of_the_refusal_table_has_an_unestablished_case`, which enumerates the refusal
-   enum without a wildcard and fails when a row has no case above. Every 0111b test over a
-   matrix dependency builds its instance naming from 0111a's evidence; where 0111a leaves it
-   unmeasured, those tests assert this refusal instead, and the decision is revised before
-   acceptance (ruling 3's cost);
-   `a_different_table_park_carrying_the_ci_infrastructure_class_stays_ruled`;
-   `a_table_with_no_or_two_marked_ci_infrastructure_parks_refuses_to_compile`;
-   `exactly_one_class_flag_is_true_for_each_class_but_change`;
-   `a_rule_naming_two_class_flags_refuses_to_compile`;
-   `a_rule_whose_next_is_ci_refuses_to_compile`;
-   `a_rule_into_classify_but_ci_pass_refuses_to_compile`;
-   `no_rule_routes_to_a_rerun`; `a_ci_overlay_seat_declaring_a_write_binding_refuses_to_compile`;
-   `the_fleet_paints_the_ci_infrastructure_cause`; and, when 0106d lands, its
-   `a_non_retryable_infrastructure_park_spends_nothing` (0106:1224) extended with a
-   `ci-infrastructure` park (ruling 8).
-5. **0111e — the gate on `landing`, over a published head.** The first slice with a live
+   accepted, or before 0111b mints. Test: `the_ci_evidence_files_are_pinned_by_digest`.
+2. **0111b — the observer and its trusted launch.** Files: a new `crates/brokkr-core/src/ci.rs`
+   with `ci/observation.rs` and `ci/checks.rs` (the two contracts' types, parsed once with
+   unknown fields refused) and `ci/tests.rs`; `crates/brokkr-core/src/lib.rs`;
+   `crates/brokkr-core/src/policy/inputs.rs` (the seat-owned `ci_observation` record);
+   `crates/brokkr-runtime/src/bundle.rs` (load and pin `ci-checks.json`, refuse it on a non-exec
+   seat, the pinned interpreter and tools, the allow-list, and the observer credential's
+   `access: read` declaration); the launch in `crates/brokkr-runtime/src/engine.rs` (a `ci` site's
+   cleared `SpawnEnv::Exactly` table, its own working directory, created before the spawn and
+   removed after, its digest-checked executables, the script fed over the engine's pipe, and the
+   observation captured from stdout, bounded) and `crates/brokkr-protocol/src/adapters/exec.rs`
+   (a working directory the site names, and the raw stdout channel);
+   `crates/brokkr-protocol/src/process.rs` (execution of an opened descriptor on Linux, and the
+   root-owned chain check on both systems); run start's refusal of a `ci` seat whose bundle layer
+   is inside the worktree, over 1091a's descriptor-held walk, so 0111b lands after 1091a; and a
+   house observer script, with its polling bound inside the seat's deadline, every list read to
+   its last page or sealed with its overflow witness, and its shellcheck clean. Its compile
+   refuses every live `ci` declaration until 0111d (ruling 2):
+   `a_bundle_declaring_a_ci_seat_refuses_to_compile_until_the_first_live_producer_lands`, a
+   custom exec recipe's declaration included. About 450 production, 150 script and 700 test
+   lines; it may split at triage into the contracts and the launch. Contracts, minted here and
+   only after 0111a: `ci-observation/v1` and `ci-checks/v1`. Tests, the launch driven through a
+   test-only bundle the live compile does not admit:
+   - the contracts: `an_observation_with_an_unknown_field_refuses_whole`;
+     `an_unknown_conclusion_word_is_observation_unreadable`;
+     `a_ci_checks_file_with_change_classes_setup_steps_or_patterns_refuses_to_compile`;
+     `a_status_entry_in_the_required_list_refuses_to_compile`;
+     `an_empty_required_list_refuses_to_compile`;
+     `a_ci_list_on_a_model_seat_refuses_to_compile`;
+     `a_seat_declaring_ci_green_fails_the_compile`;
+     `a_seat_payload_carrying_ci_green_is_stripped_before_the_table`;
+   - the bounded reads: `a_list_past_its_bound_seals_an_overflow_witness_never_a_truncated_list`;
+     `each_paged_list_carries_whether_it_was_read_to_its_last_page`;
+     `the_observer_reads_every_page_of_each_current_attempts_job_list`;
+     `no_job_log_is_read_or_sealed`;
+   - the launch:
+     `one_admitted_launch_resolves_the_sealed_binding_into_the_cleared_environment_captures_stdout_and_parses_the_result`
+     (the real credential arrangement: a sealed binding in the operator-side store, resolved by
+     the runner into `GH_TOKEN`, the one allow-listed token variable of a cleared
+     `SpawnEnv::Exactly`, no other key present, and `GH_CONFIG_DIR` an empty directory; a stub
+     `gh` by absolute path asserts it read the token from `GH_TOKEN`, nothing from argv and no
+     stored login from its configuration directory; its stdout is captured over the engine's
+     pipe and parsed into `ci-observation/v1`; run once under `harness` and once beside a boxed
+     seat under `namespace`, both admitted);
+     `an_observer_credential_declared_write_scoped_refuses_to_compile` (`"access"` of any word
+     but `read`, and a second secret binding on the `ci` seat, each refused by name);
+     `an_observer_credential_bound_under_any_name_but_gh_token_refuses_to_compile`;
+     `on_macos_the_interpreter_runs_by_path_only_under_a_root_owned_chain`;
+   - the boundary (Linux, under a real box, as 0043's boundary tests are):
+     `inside_the_box_opening_the_observers_pipe_endpoint_through_proc_fails` (a boxed seat walks
+     its `/proc` for the observer's and the engine's pids and their `fd` entries; its control,
+     the same walk from an unboxed same-UID sibling, opens the endpoint, which the trust root
+     accepts);
+     `a_configuration_directory_replaced_by_a_boxed_seat_before_gh_opens_it_refuses` (a boxed
+     seat whose binds reach the directory's parent swaps it by name between the walk and the
+     spawn: the held descriptor is the one `gh` reads, or the launch refuses);
+     `the_observers_working_directory_is_set_from_the_held_descriptor`;
+   - the verified bytes: `an_interpreter_replaced_after_verification_never_runs` (Linux: the
+     hashed descriptor runs; both systems: a path whose chain the run's account can write
+     refuses before the spawn);
+     `a_tool_whose_directory_the_runs_account_can_write_refuses_before_the_spawn`;
+     `a_pinned_path_that_is_a_link_into_the_worktree_refuses_before_the_spawn`;
+     `a_pinned_path_whose_ancestor_is_a_link_refuses_before_the_spawn`;
+     `the_script_reaches_the_interpreter_over_the_engines_pipe_as_the_bytes_the_manifest_digests`;
+     `an_observer_interpreter_whose_digest_moved_refuses_before_the_spawn`;
+     `an_observer_tool_under_the_worktree_refuses_before_the_spawn`;
+     `a_bare_interpreter_name_refuses_to_compile`;
+   - the result channel and environment:
+     `a_replaced_result_file_under_forge_results_is_ignored_and_the_stdout_observation_is_read`;
+     `an_observation_over_the_stdout_bound_refuses_as_observation_too_large`;
+     `a_non_utf8_observation_refuses_and_is_never_decoded_lossily`;
+     `the_ci_site_journals_no_stderr_bytes`;
+     `a_ci_seat_whose_layer_is_inside_the_worktree_refuses_at_start`;
+     `an_inherited_bash_env_never_reaches_the_observer`;
+     `the_observer_runs_from_a_directory_outside_the_worktree`;
+     `the_launch_directory_is_removed_after_the_observer_ends`;
+     `an_environment_key_outside_the_allow_list_refuses_to_compile`;
+     `the_observer_reads_no_gh_configuration_from_the_worktree_or_home`;
+     `the_observer_names_the_repository_and_never_reads_the_worktrees_remotes`;
+     `the_observer_lists_every_check_for_the_head_unfiltered` (a stub `gh` given by absolute
+     path, its output held to `ci-observation/v1` and to 0111a's evidence);
+     `the_observer_holds_no_write_binding`;
+   - the seal: `a_recorded_observation_over_stdout_is_sealed_as_the_seat_record`.
+3. **0111c — the judgment, the park rule and its readout.** Files: `crates/brokkr-core/src/ci/judge.rs`
+   (`judge(observation, pinned)`, total, matching every conclusion and status word without a
+   wildcard, 0071 ruling 2); `crates/brokkr-core/src/policy/inputs.rs` (the engine-owned
+   `ci_green` flag); `crates/brokkr-runtime/src/engine/decide.rs` (judge at decide, bind the
+   word, and write `ci_green`); the park's reason for a `ci` park, naming the gate's rule, the
+   observation's digest and its unmet words inside 256 bytes, in the engine's park path
+   (`crates/brokkr-runtime/src/engine/cursor.rs:369` keeps writing `ruled`);
+   `crates/brokkr-runtime/src/bundle/` (the refusals of ruling 6's routes); and the readout it
+   produces, `crates/brokkr-view/src/` (the CI view model: the judgment, every unmet word, and the
+   run, attempt and job ids a person needs) with `crates/brokkr-cli/src/render/inspect.rs`. About
+   300 production and 700 test lines, over test-built tables and observations built by a shared
+   builder from 0111a's evidence; no recipe yet. No contract change. Tests, each asserting the
+   exact set of unmet words, so deleting any one word from the expected set fails it:
+   - `green`: `a_complete_settled_successful_current_observation_is_green`;
+     `the_full_two_entry_engine_matrix_with_a_distinct_valid_merge_commit_is_green` (both
+     `test (…)` entries, each run's merge commit distinct from the head, its parents the base and
+     the head);
+     `an_inadmissible_check_that_succeeded_changes_nothing`;
+   - one test per word, the word's condition unmet and every other established:
+     `an_observation_of_another_head_repository_or_pull_request_parks_as_unrelated`;
+     `an_unpushed_head_parks_as_head_unpublished`;
+     `an_observation_with_no_check_parks_as_empty`;
+     `a_check_list_short_of_its_last_page_parks_as_inventory_incomplete`;
+     `a_run_list_short_of_its_last_page_parks_as_inventory_incomplete`;
+     `a_current_attempts_job_list_short_of_its_last_page_parks_as_inventory_incomplete_naming_the_run_and_attempt`;
+     `a_list_sealed_as_its_overflow_witness_parks_as_inventory_incomplete`;
+     `a_required_audit_missing_from_the_observation_parks_as_missing_required`;
+     `two_matches_for_one_required_check_park_as_ambiguous_required`;
+     `a_duplicate_job_for_a_required_entry_on_the_last_page_parks_as_ambiguous_required` (the r8
+     case: every expected job observed once on the first pages, a second job with the entry's
+     name on the last; and its control, the last page unread: `inventory-incomplete`, never
+     `green`);
+     `two_unsettled_runs_for_one_entry_park_as_execution_ambiguous`;
+     `a_required_check_still_in_progress_parks_as_not_settled`;
+     `a_failed_cancelled_timed_out_skipped_or_neutral_required_check_parks_as_not_success`;
+     `a_run_with_an_empty_association_parks_as_association_unproven`;
+     `a_red_setup_only_run_on_the_same_head_for_another_pull_request_parks_as_association_unproven`;
+     `an_association_naming_a_and_a_closed_b_parks_as_association_ambiguous`;
+     `a_merge_entry_whose_run_records_no_tested_commit_parks_as_revision_unproven`;
+     `an_association_and_a_merge_commit_that_disagree_park_as_revision_disagrees`;
+     `a_merge_revision_whose_parents_are_not_the_base_and_the_head_parks_as_revision_disagrees`;
+     `a_sole_red_producer_mismatch_parks_as_producer_mismatch`;
+     `a_status_context_in_the_forges_required_set_parks_as_status_required`;
+     `a_forge_required_check_the_list_lacks_parks_as_required_set_disagrees`;
+     `an_untrusted_launch_parks_ruled_as_launch_untrusted_and_observes_nothing`;
+   - the shared-fact cases, each naming every word the one fact leaves unmet:
+     `an_unread_engine_head_names_unrelated_and_head_unpublished`;
+     `a_short_check_list_beside_an_absent_audit_names_inventory_incomplete_and_missing_required`;
+   - the stale checks:
+     `a_stale_same_producer_success_beside_an_ordinary_failure_names_missing_required_and_not_success`
+     (a required audit with no check in its current run, an older same-producer `success` on
+     the same head, and a second required job with a failed test);
+     `a_stale_same_producer_red_never_counts`;
+   - the word binding and the table: `a_pass_word_off_green_is_refused_and_never_reaches_ci_pass_unbound`;
+     `a_fail_word_on_green_is_refused`; `ci_green_is_true_exactly_on_green`;
+     `every_non_green_observation_parks_at_ci_park_with_no_seat_attempt_after_the_gates`
+     (the gate's one exec attempt is journaled, and no `implement` or other model seat attempt
+     follows it);
+     `a_ci_park_is_ruled_naming_ci_park_with_the_observations_digest_in_its_reason`;
+     `a_ci_park_reason_longer_than_its_bound_names_the_first_words_and_a_count`;
+     `a_rule_whose_next_is_ci_refuses_to_compile`;
+     `a_rule_from_ci_whose_next_is_not_classify_refuses_to_compile`;
+     `a_rule_into_classify_but_ci_pass_refuses_to_compile`;
+     `no_rule_routes_to_a_rerun`; `a_ci_overlay_seat_declaring_a_write_binding_refuses_to_compile`;
+   - the replay: `the_live_and_the_replayed_judgment_take_one_function_over_one_observation_and_one_list`;
+     `a_replay_whose_bundle_digest_is_not_the_manifests_refuses`;
+     `a_recorded_observation_is_sealed_judged_replayed_and_inspected` (decide is handed a
+     recorded observation through a test-built bundle; the sealed seat record holds it, the
+     decision's inputs hold `ci_green`, a fold rebuilt from the journal re-derives the same
+     judgment, and `inspect` paints it);
+   - the readout: `inspect_names_the_judgment_and_every_unmet_word`;
+     `inspect_names_the_run_attempt_and_job_ids_a_person_re_runs`;
+     `the_fleet_paints_the_ci_park_as_ruled_ci_park_with_its_digest`.
+4. **0111d — the gate on `landing`, over a published head.** The first slice with a live
    producer. Lands only after 0109c moves `fast` to v3, and only if the operator grants ruling
    10's ask (or rules its option (b)). Files: `recipes/landing-ci/`, the overlay declaring ruling
-   6's table and the house's `ci-checks.json` with `delivered by brokkr` as `"after": "ship"`;
-   `crates/brokkr-runtime/src/bundle/entry.rs` (the `BeforeCi` arm);
+   6's order and table and the house's `ci-checks.json` with `delivered by brokkr` as
+   `"after": "ship"`; `crates/brokkr-runtime/src/bundle/entry.rs` (the `BeforeCi` arm);
    `crates/brokkr-runtime/src/bundle.rs` (the lift of 0111b's live-admission refusal, ruling 2:
-   `a_bundle_declaring_a_ci_seat_compiles_once_the_launcher_the_park_and_the_table_exist`);
-   `crates/brokkr-runtime/src/engine/input.rs` (ruling 6's projection of the `ci` result); and
-   its compile tests.
-   About 100 data, 80 production and 500 test lines. No contract of this
+   `a_bundle_declaring_a_ci_seat_compiles_once_the_launcher_the_judgment_and_the_table_exist`);
+   `crates/brokkr-runtime/src/engine/input.rs` (ruling 6's projection of the `ci` result); and its
+   compile tests. About 100 data, 80 production and 450 test lines. No contract of this
    decision's own. **Live read-only telemetry starts here**: from the first landing the operator
-   drives under this overlay on a real pull request, each observation, class and park is
-   journaled, and a sweep can count typed parks against diagnosis seat attempts. The park's
-   lifecycle is this slice's too: a person re-runs, then the operator retries the parked `ci`
-   phase, which observes again. Tests: the frame's two
-   ([The gate grants nothing](#the-gate-grants-nothing)),
-   `after_ci_pass_the_composed_table_is_landings_own_rule_for_rule` and
-   `nothing_in_the_recipes_or_seat_scripts_reads_the_ci_phases_result`; the consumer input
-   (ruling 6's projection), each built by the engine's own input builder over a journal holding
-   the `ci` decision and asserting the exact keys:
-   `after_ci_pass_no_later_seat_input_holds_the_ci_observation_or_class` (`classify`, `verify`,
-   `review` and `ship`: no `results.ci`, and no `ci_*` key anywhere in the input);
-   `after_ci_fail_implement_receives_the_class_and_never_the_observation` (exactly `ci_class`'s
-   class, reason and ids under `last_decision`);
-   `the_review_seat_input_holds_no_ci_key_on_any_road` (after `CLASSIFY-DOCS`, after
-   `VERIFY-PASS`, and after an implement visit `CI-FAIL` bought);
-   the entry (ruling 6), each over the overlay's materialized bundle, its composed table and
-   phase order, through HEAD's `first_phase` and `admitted()`:
-   `the_landing_ci_default_start_enters_ci`;
-   `landing_ci_admits_ci_alone_as_an_explicit_entry` (`--enter ci` passes every existing arm,
-   `ForwardWork` among them, and `admitted()` is exactly `["ci"]`);
-   `landing_ci_enter_ci_with_continues_is_admitted`;
-   `landing_ci_enter_review_refuses_as_before_ci`;
-   `landing_ci_enter_classify_refuses_as_before_ci`;
-   `ci_prepended_to_landings_order_refuses_enter_ci_as_forward_work` (the control: the r5
-   order, `ForwardWork` naming `implement` and `CI-FAIL`);
-   `the_landing_ci_order_is_landings_own_with_ci_after_implement`;
-   `review_stays_unavoidable_before_ship_from_ci`;
-   `a_required_list_whose_every_entry_is_after_ship_refuses_to_compile`;
-   `a_fresh_published_pull_request_with_no_anchor_and_no_label_is_not_routed_to_implement_by_the_contribution_check`
-   (`delivered by brokkr` red, every other entry green: `green`, never `change`);
-   `an_after_ship_check_is_in_the_observed_inventory_and_excluded_from_entry_classification`
-   (the sealed observation lists `delivered by brokkr`; no failure, closure root, revision or
-   completeness test reads it; and the forge-set comparison counts it declared);
-   `a_red_after_ship_check_beside_every_eligible_entry_green_is_green` (`green`, not `change`
-   with `inadmissible-failure`, though the forge requires the context);
-   `a_red_after_ship_check_beside_a_valid_setup_failure_draws_ci_infrastructure` (the class
-   names only the eligible setup fault);
-   `an_undeclared_forge_required_context_beside_an_after_ship_entry_withholds_as_required_set_disagrees`;
-   `a_green_observation_passes_to_classify`;
-   `a_change_failure_returns_to_implement_once`;
-   `a_refusal_parks_ruled_and_never_passes`;
-   `a_ci_infrastructure_class_never_routes_to_implement`;
-   `an_unpushed_head_refuses_as_head_unpublished`;
-   `a_pushed_head_after_a_head_unpublished_park_observes_again_on_retry`;
-   `a_head_the_run_made_is_never_gated_by_ci`;
-   `the_environment_park_survives_the_ci_overlay`;
-   `an_operator_retry_after_a_person_re_runs_observes_again`;
-   `the_composed_landing_ci_table_validates_whole_against_phase_machine_v3`;
-   `the_whole_composed_landing_ci_overlay_compiles_against_heads_totality_gate` (the
-   materialized bundle through `seated_and_ruled` and `refuse_unruled`: it compiles; and its
-   control, the same overlay less `CI-PASS-UNBOUND`, refuses with
-   `Refusal::Totality` naming `ci`, `pass` and `ci_green = false`);
-   `a_pass_word_on_a_non_green_class_never_reaches_ci_pass_unbound` (the word binding refuses it
-   first).
+   drives under this overlay on a real pull request, each observation, judgment and park is
+   journaled, and a sweep can count parks against the diagnosis seat attempts they saved. The
+   park's lifecycle is this slice's too: a person looks and re-runs, then the operator retries
+   the parked `ci` phase, which observes again. Tests:
+   - the frame's two ([The gate grants nothing](#the-gate-grants-nothing)):
+     `after_ci_pass_the_composed_table_is_landings_own_rule_for_rule` and
+     `nothing_in_the_recipes_or_seat_scripts_reads_the_ci_phases_result`;
+   - the consumer input (ruling 6's projection), each built by the engine's own input builder
+     over a journal holding the `ci` decision and asserting the exact keys:
+     `after_ci_pass_no_later_seat_input_holds_the_ci_observation_or_judgment` (`classify`,
+     `verify`, `review` and `ship`: no `results.ci`, and no `ci_*` key anywhere in the input);
+     `the_review_seat_input_holds_no_ci_key_on_any_road` (after `CLASSIFY-DOCS`, and after
+     `VERIFY-PASS`);
+   - the entry (ruling 6), each over the overlay's materialized bundle, its composed table and
+     phase order, through HEAD's `first_phase` and `admitted()`:
+     `the_landing_ci_default_start_enters_ci`;
+     `landing_ci_admits_ci_alone_as_an_explicit_entry` (`--enter ci` passes every existing arm,
+     `ForwardWork` among them, and `admitted()` is exactly `["ci"]`);
+     `landing_ci_enter_ci_with_continues_is_admitted`;
+     `landing_ci_enter_review_refuses_as_before_ci`;
+     `landing_ci_enter_classify_refuses_as_before_ci`, with and without `--continues`;
+     `the_landing_ci_order_is_ci_then_landings_own`;
+     `ci_after_implement_admits_every_start_but_paints_ci_pass_backward` (the control: fix round
+     1093r6's order, option (b));
+     `review_stays_unavoidable_before_ship_from_ci`;
+   - the entry set: `a_required_list_whose_every_entry_is_after_ship_refuses_to_compile`;
+     `a_fresh_published_pull_request_with_no_anchor_and_no_label_is_green_not_parked_by_the_contribution_check`
+     (`delivered by brokkr` red, every other entry green);
+     `an_after_ship_check_is_in_the_observed_inventory_and_excluded_from_the_judgment`;
+     `an_undeclared_forge_required_context_beside_an_after_ship_entry_parks_as_required_set_disagrees`;
+   - the roads: `a_green_observation_passes_to_classify`;
+     `a_red_observation_parks_for_a_person_and_never_reaches_implement`;
+     `a_pushed_head_after_a_head_unpublished_park_observes_again_on_retry`;
+     `an_operator_retry_after_a_person_re_runs_observes_again`;
+     `a_head_the_run_made_is_never_gated_by_ci`;
+     `the_environment_park_survives_the_ci_overlay`;
+   - the table: `the_composed_landing_ci_table_validates_whole_against_phase_machine_v3`;
+     `the_whole_composed_landing_ci_overlay_compiles_against_heads_totality_gate` (the
+     materialized bundle through `seated_and_ruled` and `refuse_unruled`: it compiles; and its
+     control, the same overlay less `CI-PASS-UNBOUND`, refuses with `Refusal::Totality` naming
+     `ci`, `pass` and `ci_green = false`).
 
 ## Evidence
 
