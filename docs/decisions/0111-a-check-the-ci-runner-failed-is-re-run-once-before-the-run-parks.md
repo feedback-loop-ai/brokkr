@@ -227,30 +227,38 @@ fact, so any step role below is recipe data.
 ## The rulings
 
 Each ruling gives its options, what each costs, refuses and changes, and one recommended option.
-Ruling 1 is the operator's, ruled on 2026-11-18. For every other ruling the operator may answer
-"accept all" or pick.
+Ruling 1 is the operator's, ruled on 2026-11-18 and narrowed on 2026-11-20. For every other
+ruling the operator may answer "accept all" or pick. Rulings 4 (the classifier) and 8 (how its
+park read in 0106d's budget), as fix rounds 1093r2 to 1093r8 drafted them, are not this
+decision's ([Deferred to a later decision](#deferred-to-a-later-decision)); the rest keep their
+numbers, so the review record's citations still resolve.
 
 ### 1. Brokkr makes no forge write
 
 **Ruled by the operator on 2026-11-18: (a).** The operator answered this choice in chat with
-"a for 1093". Accepting the rest of this decision is still the operator's.
+"a for 1093".
 
-- **(a) Ruled by the operator: observe, classify and park.** The engine and the recipes observe
-  CI, classify what they observed, and park a runner fault with typed evidence and no
-  diagnosis seat attempt. They send no re-run request and hold no write credential. A typed
-  `ci_infrastructure` park carries the evidence, and a person reads it and re-runs.
+**Narrowed by the operator on 2026-11-20.** The operator ruled in chat "narrow 0111 as
+recommended": keep the CI reading, the trust-root model and the security bounds; park every
+non-green CI result for a person; defer the automatic classification and the implement route
+to a later decision. That amends (a) below by deferring "classify". No forge write stays, and a
+person still re-runs. Accepting the rest of this decision is still the operator's.
+
+- **(a) Ruled by the operator: observe, classify and park; narrowed to observe and park.** The
+  engine and the recipes observe CI, and park every observation that is not established green,
+  with no diagnosis seat attempt. They send no re-run request and hold no write credential. A
+  person reads the observation and re-runs or rules.
   - Cost: the issue's "re-run once" is not built. The wall-clock wait for a person remains, but
     the diagnosing seat attempt the issue counts is gone.
-  - It refuses every forge write. A mistyped failure costs a person's look, never a pass or a
-    re-run (ruling 4).
+  - It refuses every forge write. A park costs a person's look, never a pass or a re-run.
 - **(b) An automated re-run on GitHub, as the forge offers it.** The engine would send one of
   the two verbs above. The residual, stated plainly:
   - **No attempt precondition.** A request names a job or a run, never the attempt the engine
-    classified. A re-run another actor starts between the engine's read and its write is re-run
+    observed. A re-run another actor starts between the engine's read and its write is re-run
     or widened again, and the forge cannot be asked to refuse it.
   - **Dependents re-run, an audit among them.** Each verb re-runs "and its dependent jobs". A
     dependent that passed, or an audit job, re-runs with the target, and its new result replaces
-    the one the engine classified.
+    the one the engine observed.
   - **A concurrent person's re-run cannot be told apart.** A new attempt carries no mark of which
     request made it, so the engine cannot attribute a new attempt to its own request.
   - **A lost receipt is indeterminate.** A request the forge accepted while the effect died before
@@ -273,20 +281,20 @@ held only because a write was sent:
 - the rule that let an audit job be re-run.
 
 **Enforcement binding:** 0111d's overlay test refuses any seat in the CI overlay that declares a
-write binding, and 0111c's compile refuses an observer credential declared with any `access`
+write binding, and 0111b's compile refuses an observer credential declared with any `access`
 but `read` (ruling 2).
 
 ### 2. What reads the checks
 
-**Recommended: (a) a recipe-declared exec gate observes, and the engine classifies.**
+**Recommended: (a) a recipe-declared exec gate observes, and the engine judges.**
 
-- **(a) An exec gate, `ci`, observes; core classifies; the table routes.** The gate runs
+- **(a) An exec gate, `ci`, observes; core judges; the table routes.** The gate runs
   `brokkr driver exec` over a script, as `fast`'s verifier does, with no model. It waits for the
   gated head's checks to settle and writes what the forge said as a typed observation (ruling 3).
-  The engine classifies that observation with a pure core function (ruling 4) and the table
-  routes on the engine-owned result. Observing and deciding stay apart (0071 ruling 10). Cost: one
-  script, one core module, one engine input. It refuses forge-specific network code in the
-  engine. It serves an adopter's exec gate and a future house one through the same contract.
+  The engine judges that observation green or not with a pure core function (ruling 3) and the
+  table routes on the engine-owned result. Observing and deciding stay apart (0071 ruling 10).
+  Cost: one script, one core module, one engine input. It refuses forge-specific network code in
+  the engine. It serves an adopter's exec gate and a future house one through the same contract.
 - **(b) A built-in engine effect that calls the forge.** One reader for every recipe, and no
   child process whose launch must be proven. But the engine holds no forge client at HEAD: its
   one HTTP client, `ureq`, is in `brokkr-bridge`, which speaks to Looper, not to a forge
@@ -426,8 +434,8 @@ Fencing is the wrong frame, for three reasons:
 
 **What bounds the account's reach through the observer:**
 
-- **The frame.** A forged or tampered observation costs at most a person's park or one bounded
-  implement visit, never a merge ([The gate grants nothing](#the-gate-grants-nothing)); and no
+- **The frame.** A forged or tampered observation costs at most a person's park, or landing as
+  it is today, never a merge ([The gate grants nothing](#the-gate-grants-nothing)); and no
   later seat's input carries the observation (ruling 6's projection), so a forged one reaches no
   model as text.
 - **The credential.** It is read-only, scoped to the one repository's checks and Actions runs,
@@ -472,7 +480,7 @@ no hands, so 0046's hands law, which judges only a site that declares hands, doe
 (`crates/brokkr-runtime/src/bundle.rs:2436-2443`). What macOS offers is the bytes rule's own
 statement above: no `execveat` and an unmeasured `fexecve`, so the interpreter is executed by
 its path under the root-owned chain, and the script over the pipe; where the chain does not
-hold, the launch refuses. The offline classification (0111b) runs on both systems (0063).
+hold, the launch refuses. The offline judgment (0111c) runs on both systems (0063).
 
 - **(b) An account-wide fence: refuse while any unboxed site of any run shares the UID.** Not
   taken. It needs a host registry of runs and sites that Brokkr does not keep, and it still
@@ -549,8 +557,9 @@ The other forms:
 
 **The observer's credential is read-only.** A forged observation reaches no further than the
 bounded table in [The gate grants nothing](#the-gate-grants-nothing): a forged `green` is landing
-as it is today. What the launch rules guard is the precision of `ci-infrastructure` against the
-change's tree and boxed seats; what bounds the account is the trust root
+as it is today, and a forged park a person's look. What the launch rules guard is that the
+observation is the forge's, against the change's tree and boxed seats, so a person reads what
+the forge said and `green` is the forge's word; what bounds the account is the trust root
 ([above](#the-account-is-the-trust-root)). The
 credential is a sealed secret binding (0012), resolved by the runner into the one allow-listed
 variable and never into argv; `gh` reads a token from its environment, an env-only consumer
@@ -575,22 +584,23 @@ misconfiguration, and the observer never sends a write whatever its token holds.
   compares the head to its own git head and the repository to the pinned one. It never takes
   them from the observer.
 
-### 3. The observation, the classification, and where the journal keeps them
+### 3. The observation, the judgment, and where the journal keeps them
 
-**Recommended: (a) two inputs, owned apart.**
+**Recommended: (a) the observation is the seat's, and the judgment is the engine's alone.**
 
 - **The observation is the seat's.** It is a seat-owned typed record input,
   `ci_observation`, under `ci-observation/v1`, which the `ci` seat declares in its `inputs`.
-- **The classification is the engine's alone.** It is an engine-owned record input,
-  `ci_class`, under `ci-classification/v1`, written on the gate's `transition/decided`.
+- **The judgment is the engine's alone.** It is drawn by one pure core function over the
+  sealed observation and the pinned list, and reaches the table as one engine-owned flag
+  (ruling 10), written on the gate's `transition/decided`.
 
-They must be two inputs. The first draft made one `ci` input engine-owned and had the seat
+They must be owned apart. The first draft made one `ci` input engine-owned and had the seat
 write it, which HEAD refuses twice over. A seat that declares an engine-owned input fails the
 compile (`crates/brokkr-runtime/src/bundle/assemble.rs:327-332`). And a seat's payload loses
 every engine-owned key, and every undeclared one, before the table sees it
 (`crates/brokkr-runtime/src/engine/decide.rs:73-82`). So the observation must be seat-owned to
-reach the engine at all, and the classification engine-owned so no seat can reach it. A
-seat-owned **record** input is new: every record input in the registry today is engine-owned
+reach the engine at all, and the judgment engine-owned so no seat can reach it. A seat-owned
+**record** input is new: every record input in the registry today is engine-owned
 (`crates/brokkr-core/src/policy/inputs.rs:116-118`). Slice 0111b adds the first, parsed at
 decide under its contract and refused whole on any unknown field.
 
@@ -611,23 +621,38 @@ Actions are included:
   status and its conclusion
   (<https://docs.github.com/en/rest/checks/runs#list-check-runs-for-a-git-reference>);
 - a check from Actions also carries its producer: its workflow run's id, number and attempt, its
-  workflow file's path, its triggering event, the revision the run tested, and its job's id,
-  name and steps (<https://docs.github.com/en/rest/actions/workflow-runs>,
+  workflow file's path, its triggering event, the revision the run tested, and its job's id and
+  name (<https://docs.github.com/en/rest/actions/workflow-runs>,
   <https://docs.github.com/en/rest/actions/workflow-jobs>);
 - every workflow run the forge lists for the head, with its path, event, number, attempt,
   status, `head_sha` and its pull-request association (below), so the engine can tell which
-  run is current and whose it is, and every job of each current run with its steps, so a
-  required aggregate's dependencies are seen (ruling 4);
+  run is current and whose it is, and every job of each current run attempt;
 - every open pull request the forge lists for the head commit
   (<https://docs.github.com/en/rest/commits/commits#list-pull-requests-associated-with-a-commit>),
   so a head two pull requests share is seen;
 - a commit status carries its context, its state and its creator's login and numeric id
   (<https://docs.github.com/en/rest/commits/statuses#get-the-combined-status-for-a-specific-reference>),
-  so it can be refused by name; it is never admitted as required evidence (below).
+  so it can be named; it is never admitted as required evidence (below).
+
+**The reads are bounded, and an overflow is a witness, never a truncation.** Each list is paged
+by the forge, and the observation carries, for each, whether it was read to its last page. Each
+has a bound the contract fixes: 1,024 checks and 1,024 statuses for the head, 256 runs per
+workflow key, 1,024 jobs per run attempt and 64 associated pull requests. A list that reaches its
+bound is not truncated into a complete-looking one: the observation seals, in its place, a
+bounded **overflow witness**, the list, the limit, the count and pages read when the observer
+stopped (a lower bound), and no entries past the bound. A witness, like an unread page, leaves
+the list incomplete, so the observation parks as `inventory-incomplete`, naming it. The whole
+observation is also bounded at 1 MiB on the observer's stdout (ruling 2).
+
+**The observer reads no job log.** No condition of `green` reads a step's log, so no log byte is
+read, sealed or journaled, and the person reads the log itself on the forge, from the run,
+attempt and job ids the park names. Whether the forge masks every secret is therefore not a
+question this decision depends on.
 
 It is parsed once at the edge, with unknown fields refused (0071 ruling 3). An unknown
-conclusion word refuses by name. Whether the forge reports a workflow job's key, as the workflow
-file spells it, is unmeasured until 0111a's evidence; if it does, the observation carries it.
+conclusion word is `observation-unreadable`, naming it. Whether the forge reports a workflow
+job's key, as the workflow file spells it, is unmeasured until 0111a's evidence; if it does, the
+observation carries it.
 
 **`green` needs this pull request's run.** HEAD's workflow keys its concurrency by ref
 (`.github/workflows/ci.yml:19-27`) and reads pull-request-specific data, the body and the
@@ -698,405 +723,49 @@ the compiled bundle outside the change, each entry bound to its producer.**
 - **(c) Whatever checks the forge reports for the head.** Refused: a missing check is invisible
   to it, so an absent audit would pass. That is the fault this ruling closes.
 
-**A change that touches CI's machinery draws no `ci-infrastructure`.** A change to CI can keep a
-required check's name while substituting what produces its result, and it need not touch the
-workflow to do it. HEAD's required `test (…)` verdicts are an aggregate: job `engine` runs one
-assertion over `needs.engine-machines.result` (`.github/workflows/ci.yml:315-329`), and
-`engine-machines` runs `scripts/test-shards.sh` (`:255`). That script sources
-`scripts/test-summary.sh` (`scripts/test-shards.sh:444-445`), and runs `scripts/parallel-heaps.py`
-and `scripts/shard-runner.py`, consuming their status (`:553-602`). And a verdict need not be
-executed to be moved: the required `dependency licenses (cargo-deny)` job
-(`.github/branch-protection.json:14`) applies `deny.toml`'s policy (`deny.toml:1-5`;
-`.github/workflows/ci.yml:559-573`), and `non-Rust lints` runs `typos`, which reads
-`_typos.toml` (`scripts/lint-non-rust.sh:17-24`). Under the frame such a change buys nothing a
-`green` buys ([The gate grants nothing](#the-gate-grants-nothing)); what it could buy is a
-failure of its own dressed as a setup fault. So the guard is a precision guard on that one class.
-
-**Fix round 1093r4's machinery park is revised.** r4 refused every machinery change as
-`machinery-changed` and parked it `ruled` for a person. That park is removed, and with it r4's
-stated cost, "every change to `scripts/` or `quality/` now gets a person's pass": no person's
-pass is spent on a machinery change. **A change touching the machinery never draws
-`ci-infrastructure`: a red observation is `change`, and an all-success one is `green`, which
-proceeds** as the frame says. The withholding is named `machinery-touched`, with the paths, in
-the class's sealed reason (ruling 4).
-
-**Recommended: (a) the set fails closed: `ci-checks.json` declares the change classes, and
-every other path is machinery.** `change_classes` (ruling 5) lists the repository paths whose
-change is the change under test. Every other changed path is machinery, `deny.toml`,
-`_typos.toml` and any root configuration among them, a new one the change adds included. For
-this house, from `git ls-tree --name-only e667a04c2`, the story's base (39 entries: nineteen
-change classes and twenty machinery paths):
-
-- **change classes:** `crates/`, `docs/` and `Cargo.lock`; and `adapters/`, `agents/`,
-  `capabilities/`, `contracts/`, `dialects/`, `extensions/`, `fixtures/`, `openspec/`, `policy/`,
-  `recipes/`, `reference/`, `specs/`, `realms.json`, `README.md`, `ARCHITECTURE.md` and
-  `CONTRIBUTING.md`: the product's code, data and prose, which the required jobs build, compile,
-  read or test (`.github/workflows/ci.yml:157-160`, `:305-308`), and which review reads;
-- **machinery, everything else:** `.cargo/`, `.github/`, `.gitattributes`, `.gitignore`,
-  `Cargo.toml` (its workspace lint tables are what clippy enforces, `Cargo.toml:25-41`),
-  `_typos.toml`, `clippy.toml`, `deny.toml`, `cargo-llvm-cov-version.txt`, `rust-toolchain.toml`,
-  `rust-nightly-version.txt`, `flake.nix`, `LICENSE-APACHE`, `LICENSE-MIT`, `assets/`, `ops/`,
-  `packaging/`, `quality/`, `scripts/` and `tests/`.
-
-A path the list does not name is machinery, so a path added at the root is machinery until the
-operator's compile names it. Cost, said plainly: a change to `Cargo.toml`, a dependency bump among
-them, can never park as `ci-infrastructure`; a setup fault beside it costs one implement visit,
-as today.
-
-**The closure reads two sources, each the one GitHub ran.** The change classes are only as
-good as the machinery's closure, so the engine tests it before it trusts it, over what the job
-actually ran, read through 0109's verified reader (below) and never from the worktree. What ran
-has two parts, and each has exactly one source:
-
-- **The schedule comes from the event workflow.** Every step, `uses`, `run`, `env`,
-  `working-directory`, `needs` and `strategy.matrix` the closure, the aggregate parse and the
-  instance table read is parsed only from the **event workflow**: the workflow file at the
-  revision GitHub ran for that run, as the run reports it. For `pull_request` the forge
-  documents that revision as the merge revision
-  (<https://docs.github.com/en/actions/writing-workflows/choosing-when-your-workflow-runs/events-that-trigger-workflows#pull_request>;
-  unmeasured until 0111a), so for this house it is the merge commit, whichever tree a job then
-  checks out. Its identity is the run's reported revision, the workflow's path, and the blob id
-  0109's verified reader finds at that path in that revision. The checked-out tree's copy of the
-  workflow is never parsed: it is a file the job may hold, not the schedule GitHub ran.
-- **Local files come from the executed checkout.** Every script, local action (`uses: ./…` and
-  its `action.yml`), implicit input, environment-selected file, read operand and include the
-  closure follows is resolved in the job's **closure tree**, the commit its one proven checkout
-  (below) holds: for a `merge` entry, the merge commit the run records, whose first parent is
-  the base the observation names; for a `head` entry, the gated head.
-
-Both identities are sealed, the event workflow's per run and the closure tree per judged job, in
-the basis's instance table (below), so a replay reads which schedule and which tree were judged.
-**When either cannot be established, the observation refuses as `source-unestablished`**,
-naming the run or the job and which source ([No refusal weakens](#no-refusal-weakens)): the
-expected instances `instance-duplicated` reads come from the event workflow, so an unknown
-schedule leaves that refusal undecided. Where this decision reads the closure, the aggregate
-parse or a matrix "at the base", it reads the schedule from the event workflow and the files
-from that job's closure tree.
-
-Why it matters: let the event workflow add a dependency job key, under a required aggregate,
-that the checked-out head's copy of the workflow lacks, and let the forge report that key twice
-in one attempt, beside a single failed required aggregate. The event workflow expects the key,
-so `instance-duplicated` holds and the run refuses, `CI-REFUSED`. Parsed from the head instead,
-the duplicate is an unexpected instance, which draws `change` with `matrix-incomplete` and routes
-`CI-FAIL`: a person's ruled park would have become an implement visit.
-
-- Every workflow file of an entry in the entry set (ruling 6's one derivation) is parsed, as its
-  event workflow, into a typed subset: each job's
-  `needs`, its `strategy.matrix`, its steps' `uses`, `run`, `working-directory` and `env`, the
-  workflow's and the job's `env`, and the
-  workflow's and the job's `defaults.run.working-directory`
-  (<https://docs.github.com/en/actions/writing-workflows/workflow-syntax-for-github-actions#defaultsrunworking-directory>;
-  not read in this session). The closure starts from each required job and every job it
-  `needs`, transitively.
-- A **reference** is a local file a reached step or file executes: a `uses: ./…` (and that
-  action's `action.yml`, whose `runs` are read the same way); in a `run:` line, or in a reached
-  script, the operand of `bash`, `sh`, `source`, `.`, `exec`, `python3`, `python`, `node`,
-  `perl` or `ruby`, and any command word that is itself a repository path. Every reached file is
-  scanned for references in turn.
-- **A reached step's effective working directory lies in the machinery.** It is the step's own
-  `working-directory`, else the job's default, else the workflow's, else the workspace root,
-  `GITHUB_WORKSPACE`, moved by any `cd` the step runs. The workspace root is the checkout's
-  root only when the checkout names no `path`: a checkout into `candidate/` leaves an ordinary
-  step that names no directory in `GITHUB_WORKSPACE`, outside it. HEAD's `delivered by brokkr`
-  checks out into `base-verifier` and `pr`, and its steps name those directories in their
-  operands, never by default (`.github/workflows/ci.yml:49-77`). A `cd` whose operand is not a
-  literal is unresolved. A
-  directory that is, or lies under, a change class withholds as `machinery-escapes`, naming the
-  directory and the step. A program run there reads what it finds there.
-- **So do each command word's implicit inputs.** A program reads files no operand names: `make`
-  reads `GNUmakefile`, `makefile` or `Makefile` in its working directory; `docker compose` reads
-  `compose.yaml`, `compose.yml`, `docker-compose.yaml` or `docker-compose.yml`; `npm` reads
-  `package.json` and `.npmrc`. A pinned table in `ci/closure.rs` names, for every command word
-  and every remote action (`owner/repo`) the closure admits, its implicit inputs relative to the
-  effective working directory, possibly none (`echo`, `test`, `printf`, `mkdir`), and, apart,
-  its **product inputs**, the inputs that are the change under test (for `cargo`, the
-  workspace members' manifests, build scripts and sources, and `Cargo.lock`; its own
-  configuration, the root `Cargo.toml`, `.cargo/` and `rust-toolchain.toml`, is an implicit
-  input). Every implicit input
-  lies outside the change classes, or `machinery-escapes`
-  withholds, naming the word, the input and the step. **A command word or a remote action the
-  table does not name withholds as `machinery-unresolved`**: its inputs are not known, so they
-  are not known to be machinery. The table is the engine's, one home, and a word it lacks fails
-  closed; the closure verdict it gave is sealed in the basis, so a later table never moves a
-  replay.
-- **Product inputs are admitted only where evidence cannot type setup.** A product input may
-  lie in a change class only for a step whose failure can never be setup evidence: a step that
-  is not a declared setup step (ruling 4) and that supplies nothing a declared setup step
-  consumes. A step supplies a declared setup step when it precedes it in the same job, or runs
-  in a job the setup step's job `needs`, transitively, since an earlier step's files, outputs
-  and environment, and a needed job's outputs and artifacts, are what a later step finds. So a
-  declared setup step, and every step that supplies one, holds its product inputs to the same
-  rule as its implicit inputs: each lies outside the change classes, or `machinery-escapes`
-  withholds, naming the word, the product input (the changed path, where the range holds one,
-  else the member's directory) and the step. A remote action that restores state another job
-  of the run may write (`actions/cache`, `actions/download-artifact`) in a step that supplies a
-  declared setup step withholds as `machinery-unresolved`: its writer is not bounded. A
-  `cargo build` declared setup at the workspace root therefore withholds, and a changed member
-  build script can no longer print the declared literal into a park. A `cargo test` after the
-  last declared setup step of its job, in a job no setup step's job needs, keeps the exception:
-  its failure is typed by its own step, which is not setup, so it is `untyped` and the change's.
-- **So do the files a command word's environment selects.** A program also reads files its
-  environment names: `make` reads every makefile `MAKEFILES` lists; `docker compose` reads the
-  files `COMPOSE_FILE` lists, split by `COMPOSE_PATH_SEPARATOR` (`:` on Linux and macOS), and
-  `COMPOSE_ENV_FILES`; `node` loads the `--require`, `-r` and `--import` operands of
-  `NODE_OPTIONS`; `bash` sources `BASH_ENV`. The same pinned table names, for every command word
-  it admits, every environment key that word reads as selecting a file, and the grammar of its
-  value; any other key is one the table states the word does not read for a file. A command's
-  **effective environment** takes each key from the strongest source that sets it. The order,
-  stated once, strongest first:
-  1. the command's own `NAME=word` assignment prefix, which binds that command alone;
-  2. the step's `env:`;
-  3. the job's `env:`;
-  4. the workflow's `env:`;
-  5. a literal `NAME=word` line an earlier step of the job wrote to `$GITHUB_ENV`, which reaches
-     later steps only, never the step that wrote it
-     (<https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/workflow-commands-for-github-actions#setting-an-environment-variable>;
-     not read in this session, so GitHub's order among 2 to 5 is unmeasured until 0111b's
-     fixtures pin it from a recorded run).
-
-  A literal `export NAME=word` earlier in the same shell, the run line's or a script it sources,
-  overrides 2 to 5 for every later command in that shell, and never 1: a command-local
-  assignment outranks every export, for its own command. (The chief's shell probe in run
-  `fix-round-1093r7-for-issue-1093--c1fa7d61` confirmed the local assignment wins; this seat's
-  shell held no grant to repeat it.) An export in a script run as a child reaches only that
-  script's own later commands. Each file a table-named key selects, normalized against the
-  command's effective working directory into a repository-relative path, is an implicit input:
-  it lies outside the change classes, or `machinery-escapes` withholds, naming the word, the
-  key, the normalized file and the step; and it is
-  scanned in turn as an implicit input is (below). A table-named key whose value is not a
-  literal word (a `${{ … }}` expression, a `$VAR`, a substitution), whose value the key's
-  grammar cannot split, or that an assignment form the grammar does not name sets (`env -S`,
-  `declare -x`, an `export` of a non-literal, a `$GITHUB_ENV` write that is not one literal
-  `NAME=word` line), withholds as `machinery-unresolved`, naming the key and the step. So does
-  a `$GITHUB_PATH` write before a reached step, since it moves which file a command word names,
-  unless it is a literal directory outside the change classes. `MAKEFLAGS` is table-named for
-  `make`, and any value but the empty word is unresolved, since it may carry `-f`, `-C` or
-  `-I`.
-- **So do each command word's data operands.** A program also reads files its operands name
-  without executing them: `test -f crates/ci/ready` run from the workspace root reads the
-  change's tree as surely as a `make` there does. The same table names, for every command word it
-  admits, which operand positions are paths it reads (for `test`, the operand of `-f`, `-e`,
-  `-d`, `-s` and `-r`; for `cat`, `cmp` and `diff`, every operand; for `echo` and `printf`,
-  none). Each such operand, taken relative to the effective working directory and resolved
-  through verified tree entries (below), lies outside the change classes, or `machinery-escapes` withholds, naming the word, the operand and the step;
-  one that is not a literal word is `machinery-unresolved`.
-- **And so does everything an implicit input includes.** An implicit input is a reached file:
-  it is scanned in turn, by the table's grammar for its format, for what it pulls in. A
-  `Makefile`'s `include`, `-include` and `sinclude` operands, and each recipe line as a `run:`
-  line; a compose file's `include`, `extends.file` and `env_file`. So a machinery `Makefile`
-  that includes `crates/ci/setup.mk` escapes, as `machinery-escapes` naming the `Makefile`, the
-  include and the step. An included path that is not a literal word, an implicit input whose
-  format the table gives no grammar for, and a read or include form the grammar does not name
-  (a `$(shell …)` or `$(wildcard …)` in a `Makefile`) each withhold as `machinery-unresolved`:
-  what they read is not known, so it is not known to be machinery.
-- **Every file a required job executes, reads as an implicit input, a product input of a step
-  that supplies setup, an environment-selected file, a read operand or an include, or runs
-  from, in its closure tree,
-  lies outside the change classes,** or `machinery-escapes` withholds the class, naming the
-  reference and the file that made it.
-- **Every path resolves through verified tree entries, symlinks included.** A path's spelling
-  is not what a program opens: `test -f ops/ci/ready` follows an unchanged tracked symlink
-  `ops/ci/ready` to `../../crates/ci/ready`, so a change to the target alone reaches the step
-  while every spelling, directory and machinery check passes. So each path the closure classes
-  (an effective working directory, a reference, an implicit or product input, an
-  environment-selected file, a read operand, an include) is resolved component by component in
-  the job's closure tree through 0109's verified reader, never by the spelling and never on a
-  filesystem: a tree entry of mode `120000` is a symlink, whose blob is its target, substituted
-  relative to the entry's directory before the next component. Every path the walk visits, the
-  spelled path, each link and each target, is classed: one that is, or lies under, a change
-  class withholds as `machinery-escapes`, naming the spelled path, each link and the resolved
-  target. A walk that leaves the closure tree, meets an absolute target, a gitlink (mode
-  `160000`) or a component the tree does not hold (a file a step creates at run time), or
-  follows more than 40 links, withholds as `machinery-unresolved`, naming the path and where
-  the walk stopped. Cost, said plainly: a step that reads a directory or file an earlier step
-  created, outside the tree, is unresolved, so it never types setup.
-- **A reference the test cannot resolve fails closed,** as `machinery-unresolved`: an operand or
-  command word built by an expansion, a command substitution, `eval`, or a glob, unless it is a
-  variable the same file assigns only from literal words.
-
-**The house's own closure does not resolve, so the house does not park today.** HEAD's required
-`test (…)` aggregate needs `engine-machines`, which runs `scripts/test-shards.sh`
-(`.github/workflows/ci.yml:255`). That script builds each shard's argv at run time, from
-non-literal words (`"$bound"`, `"$work/$index.bound"`, `"${prefix[1]#+}"`), prepends a runner to
-an argv another function filled, and executes the array itself as its command word:
-`{ "${argv[@]}" >"$work/$index.log" 2>&1; }` (`scripts/test-shards.sh:558-575`). Each of those
-is the unresolved category above. So the closure from `engine` through `engine-machines` to
-`scripts/test-shards.sh` withholds as `machinery-unresolved`, naming that line, and **this
-house's gate never draws `ci-infrastructure`** while it stands: a red house observation is
-`change`, and an all-success one `green`. This decision does not claim the house parks.
-
-It is not the only blocker. The required `mutants in the diff: brokkr-core`
-(`.github/workflows/mutants.yml:42`) runs `bash scripts/mutants.sh gate "$BASE" brokkr-core`
-(`:63`), and that script's line 31 is `cd "$(git rev-parse --show-toplevel)"`: a `cd` whose
-operand is a command substitution, so its effective working directory, and every relative
-reference after it, is unresolved. That closure withholds as `machinery-unresolved` too, naming
-`scripts/mutants.sh:31`.
-
-- **House typed parking is deferred** until both are written so the house's whole eligible
-  closure resolves: each shard's command word and the files it executes in
-  `scripts/test-shards.sh` spelled as literal words, or as variables the same file assigns only
-  from literal words; and `scripts/mutants.sh`'s working directory set by a literal (the job's
-  checkout root) rather than a substitution. Those rewrites are one follow-up issue under
-  #1094, outside this decision and outside its slices, and it names every closure the house's
-  integration case still finds unresolved when it is opened, not only these two.
-- The synthetic matrix test (0111b) stays the classifier's positive case for a verdict-only
-  aggregate over nine instances, over a workflow whose closure resolves, until the house's whole
-  eligible closure resolves; it does not stand for the house.
-- 0111b's house integration cases assert the exact withholding over HEAD's base, one per
-  blocker.
-
-The narrowed acceptance ([above](#what-1093s-acceptance-becomes)) is therefore delivered for an
-adopter whose closure resolves, and for this house only after the follow-up.
-
-Why the executed tree, and not the current base: the base moves. Start a pull request on A,
-advance its base to B, where a setup helper is replaced with one whose reads close, and let the
-pull request change only a product file A's helper reads. `merge-base..head` holds no machinery
-edit, so `machinery-touched` is silent; a `head` entry's job checks out the head, which still
-holds A's helper, and runs it. A scan of B passes while the executed helper reads the changed
-file. Scanned on the head's tree, the closure finds A's helper and its read, and withholds as
-`machinery-escapes`. A `merge` entry's tree has the base as its first parent, so with the
-machinery untouched its machinery is the base's byte for byte, and the scan agrees with it.
-Any change that could add a reference from the machinery into a change class must edit a
-machinery file, which already withholds. The parse needs a YAML reader the
-workspace does not hold at HEAD (`Cargo.lock` names no `yaml` crate); 0111b adds one at the
-runtime's edge, into a typed subset, under the house's licence and audit jobs.
-
-**The change set is read through 0109's verified object and range reader,** never by git in the
-operated repository. HEAD's `changed_paths` runs `diff-tree` with the operated repository as its
-working directory (`crates/brokkr-runtime/src/anchor.rs:62-65`, `:156-175`), so its replace refs
-are honored. Decision 0109 observed a replace ref planted there shorten the repository's own
-`diff-tree` to one path, while a scratch over the same objects listed both
-(`docs/decisions/0109-a-gate-s-re-visit-reads-what-changed.md:986-994`). So the range is read by
-0109b's `git_query` in an engine-made source scratch, every object hashed and no ref of the
-operated repository resolved (0109 `:975-994`), over the two commit ids the binding names. Where
-that read cannot establish equivalent provenance and a complete, byte-exact path list (a
-`read_failed` or `delta_incomplete` end, or 0109b unbuilt), `range-unproven` withholds the
-class. A replaced-object view therefore never hides a machinery path: the path is found, or no
-`ci-infrastructure` is drawn.
-
-What the classes do not cover, said plainly: the change's own code under test. A required job
-that runs `cargo test` builds and runs the change's crates, their manifests and their build
-scripts; that is what CI measures, not its machinery. A change that rigs its own test to pass is
-a change review reads, and every landing path reaches review (ruling 6). It never reaches a
-declared setup step's evidence: the product-input exception above holds only for a step whose
-failure cannot type setup.
-
-- **(b) A conservative machinery list,** `.github/`, `scripts/`, `quality/` and the toolchain
-  files, as fix round 1093r4 drafted. Refused: it is open, so `deny.toml`, `_typos.toml` and any
-  root configuration it did not name were the change's.
-- **(c) A per-entry definition list,** as fix round 1093r3 drafted. Refused: it missed HEAD's
-  own helpers.
-
-**`ci-infrastructure` needs the revision the run tested, established.** HEAD's pull-request workflow tells
+**`green` needs the revision the run tested, established.** HEAD's pull-request workflow tells
 three revisions apart: `delivered by brokkr` checks out the trusted base and the pull request's
 head by explicit ref (`.github/workflows/ci.yml:49-64`), and the ratchet job asserts that its
 checkout is the pull request's merge commit (`:663-671`). A checkout with no `ref`, as the audit
 job's (`:681-683`), tests the forge's generated merge revision on a `pull_request` event
 (<https://docs.github.com/en/actions/writing-workflows/choosing-when-your-workflow-runs/events-that-trigger-workflows#pull_request>;
-unmeasured here). And a run's association SHA is not proof of what it checked out: a job in a
-run on the head may check out the base (`:49-55`). So each required Actions entry declares
-`tested`, one of two words, and the tested revision must be the exact one:
+unmeasured here). And a run's association SHA is not proof of what it tested. So each required
+Actions entry declares `tested`, one of two words, and the current execution's tested revision
+must be established as the exact one, from what the forge records of the run:
 
-- `head`: the job tested the gated head itself. The run's `head_sha` and its association's
-  `head.sha` must equal the gated head, and the event workflow, read by ruling 3's closure
-  parse, must check that SHA out in the job: an `actions/checkout` step whose `ref` is
-  the head-SHA expression `${{ github.event.pull_request.head.sha }}`, as `:61-64` spells it.
-  A `head` entry whose job checks out no such ref, or more than one ref it could run from, has
-  no established closure tree, and refuses as `source-unestablished`.
-- `merge`: the job tested the forge's merge revision, `refs/pull/<number>/merge`. The event
-  workflow's checkout in the job must take that ref, by default or by naming it. The
+- `head`: the run tested the gated head itself. The run's `head_sha` and its association's
+  `head.sha` must equal the gated head.
+- `merge`: the run tested the forge's merge revision, `refs/pull/<number>/merge`. The
   observation must name the exact merge commit the run tested, as the run records it, and that
   commit's two parents. Its first parent must be the base the observation names, which must be
   the pull request's current base, and its second the gated head. The merge commit is a
-  distinct commit from the head, as a valid merge always is.
-
-**The house's three shapes, each specified so a valid case reaches classification:**
-
-- **An aggregate with no checkout of its own.** HEAD's required `test (ubuntu-latest)` and
-  `test (macos-latest)` are job `engine`, whose one step reads `needs.engine-machines.result`
-  and checks nothing out (`.github/workflows/ci.yml:315-329`). Its tested revision is its pinned
-  dependencies' exact revisions: every expected instance of each job it `needs` (ruling 4's
-  matrix rule), each established by its own entry's rule above, and all one commit. A
-  dependency whose revision is unestablished, or that disagrees with a sibling's, withholds the
-  class for the aggregate. `engine-machines` checks out with no `ref` (`:228-231`), so it is
-  `merge`. Note that `needs.engine-machines.result` is the result over all nine instances, both
-  systems' (`:197-215`), so each system's `test (…)` verdict reads the other system's machines
-  too.
-- **A merge-mode run.** The merge commit and the head are compared separately, never as one
-  commit: the run's `head_sha` and the association's `head.sha` against the gated head; the
+  distinct commit from the head, as a valid merge always is, so the comparisons are separate,
+  never one: the run's `head_sha` and the association's `head.sha` against the gated head; the
   merge commit's second parent against the gated head; its first parent against the
   association's `base.sha` and the observation's base; and the merge commit against the one the
   run records.
-- **`delivered by brokkr`,** with its trusted-base verifier and its explicit pull-request head
-  (`:49-102`), is not in the entry set at all (ruling 6): its evidence is this landing's own
-  output.
 
-**Disagreement withholds.** Where any one of those comparisons fails, `revision-disagrees`
-withholds the class, naming the two values that differ. It is never resolved by preferring one
-source. (Fix round 1093r4's row demanded that the association, the run's head, the tested
-commit and the gated head all be one commit, which no valid merge is; that row is replaced.)
+A comparison that fails parks as `revision-disagrees`, naming the two values that differ; it is
+never resolved by preferring one source. (Fix round 1093r4's row demanded that the association,
+the run's head, the tested commit and the gated head all be one commit, which no valid merge is;
+that row is replaced.) Where the forge records no field naming the commit a run tested, the
+revision is not established and the observation parks as `revision-unproven`. The run's
+`head_sha` is the pull request's head, not the merge commit, and whether any field of the run
+records the merge commit tested is **unmeasured** until 0111a. Every required entry in this
+house's list is `merge` (ruling 5), so until 0111a's evidence shows such a field, every
+observation over a `merge` entry parks, for this house or an adopter. That fails closed: it is a
+person's look, never a pass. If 0111a finds no such field, the decision is revised before
+acceptance.
 
-**Which checkout a verdict-bearing step used.** A checkout the change's own code moves during a
-job, such as a test that checks out another commit, is the change under test, which review reads:
-it is not CI's machinery and this decision does not guard it. A checkout moved by machinery, a
-workflow step or a script outside the change classes, is ruling 3's: if the change touched that
-machinery, `machinery-touched` already withholds; if it did not, the event workflow's schedule
-over the closure tree's files is what ran, and ruling 3's closure judges exactly those. What the forge would have to give, to prove beyond that which revision a verdict-bearing
-step used, is a field naming the commit the run checked out. The run's `head_sha` is the pull
-request's head, not the merge commit, and whether any field of the run or its jobs records the
-merge commit tested is **unmeasured** until 0111a. **Where the forge exposes no such field, the
-job's closure tree is not established, and the observation refuses as `source-unestablished`**
-(ruling 3's two sources). This decision claims no proof GitHub does not give.
-
-**One proven checkout, and every relevant step inside it.** A proven checkout proves the
-revision of one directory, not of the step. A runner may hold other checkouts already: a
-self-hosted runner's earlier workspace, or another `actions/checkout` into a `path` of its own,
-as HEAD's `delivered by brokkr` checks out the base and the head into two directories
-(`.github/workflows/ci.yml:49-64`). A step whose `working-directory` points at one of those ran
-on its revision, and every comparison above can still pass. So, in the event workflow, by
-ruling 3's closure parse:
-
-- the rule judges a job that executes checkout contents: every job an entry or its aggregate is
-  drawn through, **except a verdict-only aggregate** (ruling 4), which by its definition has no
-  checkout and no `uses` step, and executes nothing but an assertion over `needs`. Its revision
-  is not its own: it is derived recursively from every expected instance of every job it
-  `needs`, each judged by this rule (or, if itself verdict-only, derived in turn), and all of
-  them must be one commit, or `revision-disagrees` withholds, naming the two instances;
-- each job the rule judges has exactly one `actions/checkout` step,
-  and its `path` (the workspace root when it names none) is **the proven checkout**; a job with
-  two, or with a `path` built by an expression, has no one closure tree, and refuses as
-  `source-unestablished`;
-- **the checkout completed before any step claimed to run in it.** The checkout step precedes,
-  in the job's step list, every reached step the rule judges inside it, and the sealed
-  observation reports that step concluded `success` in the same job attempt, its number and
-  conclusion sealed with the job. A literal working directory inside the checkout's `path`
-  proves no order: a step listed before the checkout ran in whatever that directory held, a
-  runner's earlier workspace among them. A step listed before it, or a checkout step the
-  observation does not report as succeeded, is unproven;
-- every reached step of that job, the matched setup step and every step before it among them,
-  has an effective working directory (ruling 3's rule: its own, else the job's default, else
-  the workflow's, else the workspace root, moved by any literal `cd`, and resolved through
-  verified tree entries, a symlinked directory as its target, by ruling 3's path rule) that is,
-  or lies under, the proven checkout. An absolute directory, a `..` component, or one built by an expression
-  (`${{ runner.temp }}`, `$HOME`) is not; nor is the workspace root, reached by default, when the
-  proven checkout has a `path` of its own;
-- an operand naming a file outside the proven checkout is not resolved by the closure at all,
-  and withholds there.
-
-Otherwise, where the job's one closure tree is established but a step is not proven inside it,
-the entry is `revision-unmeasured`, naming the step and its directory, and no
-`ci-infrastructure` is drawn.
-
-The declaration is the operator's statement about a pinned workflow, and `machinery-touched`
-withholds the class whenever that workflow moved from the base's bytes. Every required entry in
-this house's list is `merge` (ruling 5), so until 0111a's evidence shows a forge field that
-records the tested merge commit, and the revision a run's workflow was read from, every
-observation over a `merge` entry refuses as `source-unestablished`, for this house or an
-adopter, and the narrowed acceptance ([above](#what-1093s-acceptance-becomes)) waits on that
-evidence; this house waits on the closure follow-up as well (above). If 0111a
-finds no such field, the decision is revised before acceptance, and the acceptance is not
-delivered on GitHub. That fails closed: every such observation is a person's `ruled` park,
-never a weaker class.
+The revision is the run's, not a step's. Which commit a particular step of a job ran on, after a
+checkout the workflow or a script moves, is CI's own machinery: a change that moves it is green
+on the forge as well, which is landing's existing exposure ([The gate grants
+nothing](#the-gate-grants-nothing)), and a wrong `green` from it costs landing as it is today.
+Proving a step's revision was the deferred classifier's need, so that a park could be typed as
+the runner's; it leaves with it ([Deferred to a later decision](#deferred-to-a-later-decision)).
+`delivered by brokkr`, with its trusted-base verifier and its explicit pull-request head
+(`:49-102`), is not in the entry set at all (ruling 6): its evidence is this landing's own
+output.
 
 **When `green` is drawn, and everything else parks.** `green` grants nothing
 ([The gate grants nothing](#the-gate-grants-nothing)); the rule below says only when the gate
@@ -1174,409 +843,52 @@ same head, and a second required job with an ordinary failed test parks, naming
 the audit present. Fix rounds 1093r6 to 1093r8 each found a case where such a fact fell through
 to a weaker class; with none below the park, there is nowhere for it to fall.
 
-**What withholds `ci-infrastructure`.** A withholding is not a refusal: it parks nothing and
-stops nothing landing would do. Each is a precision guard on the one class, and fails closed to
-"not infrastructure": where one holds, a red observation is `change` and an all-success one is
-`green`. The engine checks every row and records each that holds in the class's sealed reason,
-with the named values the basis's reason table seals (below), so every reason replays; a reason
-whose values an overflow hid is recorded `unavailable`, by the same rule live and on replay.
+The gate's word is bound to the engine's judgment: `pass` is admitted only on `green`, and
+`fail` on `green` is refused. A refused word is never rewritten (the same binding 0109 ruling 2
+gives a verdict).
 
-| Withholding | When |
-|---|---|
-| `machinery-touched` | a changed path lies outside every change class; it names the paths |
-| `machinery-escapes` | in a job's closure tree, under its event workflow's schedule, a file a required job executes, a command word's implicit input or read operand, a file its effective environment selects, a product input of a declared setup step or of a step that supplies one, a file an implicit input includes, or a reached step's effective working directory lies inside a change class, on any path its tree-entry walk visits, a symlink's target included |
-| `machinery-unresolved` | in a job's closure tree, under its event workflow's schedule, a reached file holds a reference, read operand or include the closure test cannot resolve, a file-selecting environment key or assignment the table cannot resolve, a state-restoring action supplies a setup step, a path's tree-entry walk cannot complete, or a command word, remote action or implicit input format the pinned table does not name |
-| `range-unproven` | 0109's verified reader cannot establish the range's provenance and its complete, byte-exact path list |
-| `range-too-large` | the range's changed paths exceed the bound the classification record carries |
-| `basis-too-large` | the classifier's sealed basis would exceed its bound |
-| `association-unproven` | an execution is not positively associated with this pull request, its head and its base; it names the run |
-| `association-ambiguous` | an execution's association array names more than one pull request, open or closed; it names them |
-| `revision-disagrees` | one of the separate comparisons above fails; it names the two values |
-| `revision-unmeasured` | a relevant step's effective working directory is not inside the job's one proven checkout, or the step precedes that checkout's observed success; it names the step. A closure tree or event workflow that is not established is not this row's: it refuses as `source-unestablished` |
-| `producer-mismatch` | a check carries a required entry's name from another app or workflow path; it names it, so a substitute is never silently passed over |
-| `status-required` | the forge's required set names a commit status context, which is never admitted |
-| `required-set-disagrees` | the forge requires a check the pinned list lacks |
-| `matrix-incomplete` | a verdict-only aggregate's dependency is missing an expected instance, from its event workflow's matrix (ruling 4), or holds one whose values match no expected entry; it names them. A matrix that cannot be expanded, or whose instances cannot be named, is not this row's: it leaves `instance-duplicated` unestablished, and refuses ([No refusal weakens](#no-refusal-weakens)) |
+The judgment is engine-written: an `Owner::Engine` flag, as `reviewed_heads` is an engine-owned
+input (`crates/brokkr-core/src/policy/inputs.rs:116`), so a seat may neither declare nor
+overwrite it, as the engine-owned strategy is held (`:87-95`). Both inputs ride in the decision's
+`inputs` (`crates/brokkr-core/src/decision.rs:86`). So the journal holds three things, in the
+order they happened, with no new event: the observation the seat sealed, the judgment the engine
+drew from it, and the rule that routed on it; and, on a park, the park's reason naming the
+observation's digest and its unmet words (ruling 7).
 
-The gate's word is bound to the engine's class: `pass` is admitted only on `green`, and `fail`
-with a `green` class is refused. A refused word is never rewritten (the same binding 0109
-ruling 2 gives a verdict).
+**What a replay reads.** `judge(observation, pinned)` lives in `brokkr-core`, reads no clock,
+environment or network (0071 ruling 1), and is total; live and replay take the one function. Its
+inputs are the sealed observation and the pinned `ci-checks.json` with the run's comparison
+values (the pinned repository, the gate's pull request and the engine's git head). HEAD's manifest
+records each bundle file as a digest, never its bytes
+(`crates/brokkr-runtime/src/bundle.rs:4214-4239`), so a replay reads the list from the compiled
+bundle and refuses when its digest is not the manifest's. Where the bundle is gone, the park's
+reason still names the observation's digest and its unmet words from the journal alone, which is
+what a person needs. Fix rounds 1093r4 to 1093r8 sealed a basis under `ci-classification/v1` so
+a typed class could be re-derived from the journal alone; with no class to re-derive, that
+record leaves with the classifier.
 
-The classification is engine-written: an `Owner::Engine` record input, as `reviewed_heads` is
-(`crates/brokkr-core/src/policy/inputs.rs:116`), so a seat may neither declare nor overwrite it,
-as the engine-owned strategy is held (`:87-95`). Both inputs ride in the decision's `inputs`
-(`crates/brokkr-core/src/decision.rs:86`). So the journal holds three things, in the order they
-happened, with no new event: the observation the seat sealed, the class the engine drew from it,
-and the rule that routed on it.
+Ruling 2's launch refusal, `launch-untrusted`, holds before any observation exists. It is the
+engine's pre-spawn fact, journaled as the park's reason with the condition that failed, and a
+replay reads it there.
 
-**The classification replays from what the journal seals, and nothing else.** A replay cannot
-read the pinned list out of the run's manifest: HEAD's manifest records each bundle file as a
-digest string, never its bytes (`crates/brokkr-runtime/src/bundle.rs:4214-4239`), so a digest
-can confirm a list but cannot rebuild one. So the engine's `ci_class` record carries a
-**basis**: every input the class was drawn from that the sealed observation does not hold, as
-bounded, typed data under `ci-classification/v1`:
+- **(b) A new `ci/judged` event.** Moves the event envelope, every manifest and every fold arm
+  for a fact an input can carry. Refused, as 0106 ruling 1 refused `run/park-caused`.
 
-- the digest of the sealed observation it read;
-- **the pinned required list**, every `required_checks` entry as the compiled `ci-checks.json`
-  declares it, with that file's digest beside it;
-- **the declared literal set**: each setup step (workflow, job, step name) and each pattern (id,
-  steps, literal bytes);
-- **the change classes** and what ruling 3's closure test took at each closure tree: its verdict,
-  and, for each required job and each job it needs, transitively, its `needs`, its checkout
-  ref, its closure tree's commit, its proven checkout's path and step number, and each reached
-  step's effective working directory;
-- **each such job's aggregate kind**, as ruling 4's pinned parse derived it: `verdict-only`,
-  with the dependency each of its steps asserts and the `env` binding that ties the assertion to
-  `needs.<dep>.result`; or `independent`, naming its first independent step; or the typed
-  `kind-unmeasured`, naming the step the parse could not read;
-- **the instance table**, sealed apart from the closure's job map and inside its own bound
-  (below): **the two sources** (ruling 3), each current run's event workflow identity (its
-  reported revision, path and blob id) and each judged job's closure-tree commit, or the typed
-  `unestablished` naming which, so `source-unestablished` replays; and **each matrix
-  dependency's expected instance identities**, the event workflow's
-  `strategy.matrix` expanded into its fixed list of instance keys, with the event workflow
-  identity it was parsed from, each the matrix values in
-  their declared order, each with the revision its own entry rule established for it, so a
-  verdict-only aggregate's derived revision replays, with the forge's name for it once 0111a
-  measures how the forge names an
-  instance; or the typed `matrix-unexpandable`, naming the expression or `fromJSON` that built
-  it; or `instance-naming-unmeasured` while 0111a has not measured the naming. Each of the
-  latter two leaves `instance-duplicated` unestablished, so a replay draws `refused`,
-  `instance-duplicated`, `unestablished`, from the outcome alone
-  ([No refusal weakens](#no-refusal-weakens));
-- **the comparison values** the binding read: the repository's numeric id, the pull request's
-  number, the base commit, the merge base, the gated head, the engine's git head and the forge's
-  head for the pull request;
-- **the reason table**, sealed apart from the path list and the closure's job map and inside its
-  own bound (below): the facts every named withholding needs, so an overflow of either list
-  never takes a reason's names with it. Its rows: **the machinery paths**, every changed path
-  outside every change class, which the verified reader collects as it streams the range, so
-  `machinery-touched` names its paths even when the full list overflows; and **the closure's
-  findings**, one row per `machinery-escapes`, `machinery-unresolved` or `revision-unmeasured`
-  the closure test found, each with the word, key, file, link, directory and step it names. A
-  `revision-disagrees` needs no row: its values are the observation's and the instance table's
-  (ruling 3's two sources);
-- the range's two commit ids, and **the range read's outcome**, one of three closed forms:
-  `verified`, with the changed-path list 0109's verified reader gave for that range, possibly
-  empty; `overflowed`, with the overflow witness below; or `unproven`, naming the reader's end
-  (`read-failed`, `delta-incomplete`, or `reader-unbuilt` while 0109b is not built) and no path
-  list. So an unreadable range and a verified empty one, over the same two commit ids, seal
-  different bases: the first replays `range-unproven`, and the second replays as a change that
-  touched no path, never the other.
-
-A replay is `classify(observation, basis)` over the sealed observation and that record alone,
-and must equal the recorded class. It reads no bundle, no manifest file, no checkout, no Git
-range and no forge, so a replay after the bundle is recompiled, the worktree is gone and the
-forge's runs have expired still holds. The bounds: the compile admits at most 64 required
-entries, 64 setup steps and 64 patterns, so the list and the literals are at most 32 KiB; the
-closure's job map, its aggregate kinds included, is at most 256 jobs
-**and 128 KiB** in its canonical JSON; the instance table is at most 1,024 expected instances,
-each job at most 64, **and 64 KiB**; the reason table is at most 1,024 rows **and 64 KiB**;
-the path list is at most 4,096 paths and 256 KiB. The closure has a byte bound as well as its count, so 256 jobs
-with long step lists cannot carry an unbounded basis. A basis beyond its bound withholds the
-class as `basis-too-large`, and a range beyond its own as `range-too-large`, with ruling 3's
-withholdings; neither is ever truncated. An instance table beyond its bound refuses as
-`instances-too-large` (ruling 3), because without it `instance-duplicated` cannot be decided.
-
-**What an overflow keeps, and the precedence over it.** Every check ruling 3's order ranks above
-`basis-too-large` (every refusal predicate, the explicit exception and `green`) reads only the sealed
-observation, the pinned required list, the comparison values and the instance table, never the
-closure's job map. So a closure overflow replaces the job map alone with its witness (below);
-the instance table stays sealed whole beside it, inside its own bound. `instance-duplicated`
-therefore refuses ahead of `basis-too-large`, live and on replay alike: an observation over an
-over-128-KiB closure that holds an expected instance's key twice in one attempt is `refused`,
-`instance-duplicated`, routed `CI-REFUSED`, from the instance table the replay reads, and never
-`change` with `basis-too-large`.
-
-**Every withholding reason replays, overflow included.** A withholding is never a refusal, so
-none outranks another: where any holds, the class is `change`, `withheld`, and the reason lists
-every one, size withholdings included, each in one of two closed forms:
-
-- `holds`, with its named values, read from the reason table, the observation or the instance
-  table, never from a list an overflow replaced;
-- `unavailable`, naming the witness that hid its values and, where the stream found any before
-  it stopped, the values it found, marked a lower bound. That happens only when the reason table
-  itself overflows (its witness is `reasons`), or when the range read reached its hard cap, so
-  the machinery paths past the cap were never read.
-
-Live and replay take the one function over the one basis, so a reason the replay cannot name was
-not named live either. So a 4,097-path range that includes `deny.toml`, beside a red all-setup
-observation, is `change`, `withheld`, with `range-too-large` (the `paths` witness, `measured`)
-and `machinery-touched` `holds` naming `deny.toml`, from the reason table, live and from the
-journal alone. And a closure over 128 KiB beside one dependency instance whose closure tree is
-another commit is `change`, `withheld`, with `basis-too-large` (the `closure` witness) and
-`revision-disagrees` `holds` naming both instances and both commits, from the instance table.
-Under ruling 3's refusal rule none of this reaches a refusal: every fact a refusal reads is in
-the observation, the required list, the comparison values or the instance table, and an
-`instances` witness refuses.
-
-So a replay of a valid all-setup aggregate reads its kind, `verdict-only`, and its nine expected
-keys from the basis, finds all nine in the sealed observation, and re-draws
-`ci-infrastructure`; and a replay of the same observation less one instance finds eight of the
-nine sealed keys and re-draws `change` with `matrix-incomplete`, naming the missing key. Neither
-reads the workflow, the bundle or the forge.
-
-**A size withholding replays from the journal too.** A list over its bound cannot be sealed whole
-under the rule that forbids truncating it, so the basis seals, in its place, a bounded, typed
-**overflow witness**, never the list:
-
-- which bound it is: `paths` (the range's changed-path list), `closure` (the closure's job
-  map), `instances` (the instance table) or `reasons` (the reason table), the four parts of the
-  basis the compile does not already bound;
-- the limit, as a count and in bytes (4,096 paths and 256 KiB; 256 jobs and 128 KiB; 1,024
-  instances and 64 KiB; 1,024 rows and 64 KiB);
-- the measurement, one of two closed forms:
-  - `measured`: the full count and bytes, and the SHA-256 digest of the full list in its
-    canonical form (for paths, the verified reader's sorted list with each path's bytes
-    NUL-terminated; for the closure and the instance table, its canonical JSON);
-  - `overflowed-unmeasured`: the count and bytes read when the hard cap stopped the read, as a
-    lower bound, and no digest.
-
-**How an overflow is measured without unbounded work.** The verified reader never holds an
-overflowing list. Past the sealing limit it keeps reading, streaming each path, or each closure
-job's or expected instance's canonical bytes, into a running count, byte total and SHA-256, and
-holds nothing else. That stream has its own hard read cap, a fixed multiple of the limit: 65,536
-paths and 4 MiB for paths, 4,096 jobs and 2 MiB for the closure, 16,384 instances and 1 MiB for
-the instance table, 16,384 rows and 1 MiB for the reason table. A list that ends within the cap seals
-`measured`. A list that reaches the cap stops there and seals `overflowed-unmeasured`, so no
-rejected input costs more than the cap. The sorted order a `measured` path digest needs is the
-reader's own order: 0109b's `diff-tree` over verified trees walks paths in tree order, which is
-sorted (unmeasured until 0109b's tests pin it); where the reader cannot give sorted output
-without holding the list, the path witness is `overflowed-unmeasured` past the limit, and that
-fails closed the same way.
-
-Everything else the basis holds is sealed as usual. `classify` reads a witness as its
-withholding or refusal, at its own place in ruling 3's order: an `instances` witness is the
-step 1 refusal `instances-too-large`, a `paths` or `closure` witness draws
-`range-too-large` or `basis-too-large` at step 4, after every check above it has read what the
-witness left whole, and a `reasons` witness draws `basis-too-large` at step 4 with each reason
-it hid `unavailable`. So the
-replay re-derives the class without the list, and a `measured` digest lets a person who
-still has the range confirm which list it was. A witness whose measured count and bytes, or
-whose lower bound, are both within its limit is malformed and refuses the replay, so a witness
-cannot stand in for a list that fit. The witness is at most a few hundred bytes. Fix round 1093r4 specified only the in-bound replay; with
-the witness, every class replays from the journal alone, both size withholdings included.
-
-Ruling 2's launch refusal, `launch-untrusted`, is not `classify`'s: it holds before any
-observation exists. It is the engine's pre-spawn fact, journaled as the park's reason with the
-condition that failed, and a replay reads it there.
-
-- **(b) A new `ci/classified` event.** Moves the event envelope, every manifest and every fold
-  arm for a fact an input can carry. Refused, as 0106 ruling 1 refused `run/park-caused`.
-- **(c) The excerpt kept outside the journal by digest.** Refused: the journal would point at
-  log bytes kept somewhere else, and a replay would need them. No log byte is kept at all
-  (below).
-
-**No raw log byte enters the journal.** The journal records only what matched. An excerpt is
-read only for a failed step of a failed required job, or of a failed dependency of a required
-aggregate (ruling 4), and only when that step is one ruling 4's list declares as setup; a
-failed step that is not declared setup is typed `untyped` by its declaration alone, and no log
-of it is read. It lives only in the engine's memory, between the observer's stdout (ruling 2)
-and the edge parse:
-
-- the observer reads each excerpt from the step log's tail, at most 8 KiB, and at most four of
-  them, so 32 KiB in total; a fifth candidate refuses the observation rather than dropping one
-  silently;
-- at the edge, before anything is sealed, a pure core function matches each excerpt against
-  that step's declared literals and replaces it with the set of literal ids that occur in it;
-- the excerpt's bytes are then dropped. The sealed observation holds, for each such step, the
-  job's id, the step's number and name, the run's id and attempt, and the matched literal ids,
-  possibly none. The `ci_class` basis holds the literal bytes the ids name, from the pinned
-  list (above), never from a log;
-- no excerpt reaches a seat, a model, a notes field or the stderr tail (ruling 2's `ci` site
-  journals stderr's length and digest only).
-
-So a replay re-derives the class from the matched ids, which is all the classifier reads, and
-the person reads the log itself on the forge, from the run, attempt and job ids the park names.
-Because no log byte is durable, the forge's secret masking
-(<https://docs.github.com/en/actions/security-for-github-actions/security-guides/using-secrets-in-github-actions>)
-is no longer a precondition of ruling 4's pattern arm, as fix round 1093r3 made it; whether the
-forge masks every secret stays **unmeasured**, and nothing here relies on it. What is durable is
-bounded by the compile: a literal id is kebab-case and at most 64 bytes, and a matched set holds
-at most the step's declared literals.
-
-### 4. What evidence types a park, and the classifier
-
-**Recommended: (a) recipe-declared literals over declared setup steps type a person's park, and
-nothing a failure draws reaches a pass or a re-run.**
-
-**A classification of a failure chooses between two outcomes, and neither is a pass.** Under
-ruling 1 no write is sent, so a failed observation can only be:
-
-- **the change's**: a diagnosis seat attempt, as today; or
-- **a person's `ci_infrastructure` park**, with the evidence and no diagnosis seat attempt.
-
-A mistyped code failure therefore costs a person's look, not a laundered pass. That is why
-evidence a change can produce is admissible here, where fix round 1093r2 refused it: there, a
-literal could buy a re-run, and a re-run could buy a pass. A pass is drawn only by ruling 3's
-rule, which reads every required check's own `success` and never reads a log.
-
-- **(a) Recommended: declared literals over declared setup steps.** The list declares setup
-  steps, each by workflow, job and step name, and the literals each may match. A failed required
-  job, or a failed dependency of a required aggregate, is typed setup only when every one of its
-  failed steps is a declared setup step whose bounded excerpt holds one of that step's
-  literals, and the observation parks only when its whole failure set is setup (the classifier,
-  below). The issue's port-bind case is one:
-  the step that boots the compose services, declared setup, with the literal
-  `address already in use`. The adopter's step name and excerpt are unmeasured.
-  - **The bounded cost, said plainly:** ruling 3's closure keeps the change out of a declared
-    setup step's inputs, its product inputs, its environment and the steps that supply it
-    included, so a change reaches that step's evidence only where the pinned table is wrong
-    about what a program reads. Such a change, making its own failure print a declared literal
-    in a declared setup step, reaches a person's park, not a pass. A service bootstrap that
-    starts a compose file in a change class, or a `cargo build` declared setup, withholds
-    instead; HEAD's checkout-local action `uses: ./.github/actions/setup-cargo-audit`
-    (`.github/workflows/ci.yml:681-689`) is machinery, so a change to it is `machinery-touched`.
-    The person reads the evidence and decides; nothing passes.
-- **(b) Nothing types a park.** Every failure is the change's, as today. Cost: the narrowed
-  acceptance is not delivered, and the port bind still costs a diagnosis seat attempt. It no longer
-  depends on secret masking: no log byte is journaled under (a) either (ruling 3).
-- **(c) A forge-proven non-execution set as a precondition**, as fix round 1093r2 recommended.
-  Removed. One observed payload establishes a reported value, not its semantics, and not that
-  the change could not cause it. The set is left **unmeasured and empty**; no classifier arm
-  reads it, so a job-level `startup_failure` or `timed_out` is untyped, and the change's.
-- **(d) Any class drawn from a pattern that reaches a pass or a re-run.** Refused by ruling 1
-  and by ruling 3's pass rule.
-
-**Timing-sensitive tests stay the change's.** A flaky test fails in the step that runs the tests,
-and a test step is not a setup step. The compile cannot tell a test step from a setup step, so
-that is the operator's declaration; a literal declared over a test step costs the same bounded
-person's park and never a pass. Flaky-test handling is out of scope; it is a follow-up for a
-decision of its own.
-
-**The classifier.** One pure function over the observation and its basis (ruling 3: the
-declared list, the literals, the closure, the comparison values and the change's paths), with a
-closed result, failing closed.
-
-`classify(observation, basis) -> Classification` lives in `brokkr-core`, reads no clock,
-environment or network (0071 ruling 1), and is total. The engine builds the basis before it
-calls it, and seals the same basis it called it with, so live and replay take one path.
-
-The changed paths are the engine's, read through 0109b's verified reader (ruling 3), not
-through HEAD's `crate::anchor::changed_paths` (`crates/brokkr-runtime/src/anchor.rs:171`), which
-diffs in the operated repository and which 0039's docs-only flag reads
-(`crates/brokkr-runtime/src/engine.rs:3158-3173`). Nor is the range the docs flag's. The docs
-flag diffs the latest phase entry's head against the phase's end, so it sees only that phase's
-own commits. The CI gate needs the whole change, so its range is pinned: from the merge base of
-the pull request's base commit, as the observation names it, to the gated head, the merge base
-taken by 0109's ancestry walk over verified commits. Both ends are checked as full commit ids
-before the reader sees them. A range the reader cannot take (a base it does not have, no merge
-base, an object that does not verify) withholds the class as `range-unproven`. It is never read
-as an empty change. In ruling 3's one order:
-
-1. Any refusal predicate of ruling 3's table holds, observed or unestablished
-   ([No refusal weakens](#no-refusal-weakens)), `missing-required` and `non-success` among them:
-   **`refused`**, naming every one that holds. Nothing below runs, so no refusal is ever
-   outranked by a classifiable failure. A stale success never satisfies `missing-required`.
-2. **An observed inadmissible failure** (ruling 3: a red check under an entry-set entry's name
-   from another producer, or a red context the forge requires that the gate cannot admit and no
-   after-ship entry declares; never a stale check of the entry's own producer):
-   **`change`**, with the reason `inadmissible-failure`, naming the check and its withholding.
-   It outranks `green` below, because it is observed and red. It outranks no refusal: step 1
-   established each false.
-3. The observation passes ruling 3's rule for `green`: **`green`**.
-4. **Any withholding of ruling 3 holds: `change`,** with the reason `withheld`, naming every
-   withholding that holds. No pattern is read, so nothing below can draw `ci-infrastructure`.
-5. **The whole failure set is typed.** The failure set is every job of an entry in the entry
-   set (ruling 6) whose conclusion is not `success`, each instance of a matrix job on its own. Every element gets one closed type,
-   matched without a wildcard:
-   - **setup-pattern**: conclusion `failure`, **at least one** failed step reported, and
-     **every** failed step of the job a declared setup step whose sealed match names one of that
-     step's literals, with the pattern's id. A failed job that reports no failed step satisfies
-     no setup predicate vacuously: it is `untyped`, and beside a matched fault in another job it
-     makes the observation `change`, `untyped-failure`.
-     That includes a later step that runs after the first failure under `if: always()` or
-     `if: failure()`, as HEAD's mutants artifact upload does
-     (`.github/workflows/mutants.yml:64-68`): if it fails and is not a matched setup step, the
-     job is `untyped`;
-   - **setup-via-needs**: a pinned verdict-only aggregate (below) with conclusion `failure`,
-     whose dependencies' expected instances are all observed, every one that did not succeed is,
-     in turn, setup-pattern or setup-via-needs, and at least one failed;
-   - **cancelled**: conclusion `cancelled`, the required job's own or a dependency's through an
-     aggregate. Who cancelled is unmeasured, though on a pull request a newer push cancels the
-     older run (`.github/workflows/ci.yml:25-27`);
-   - **untyped**: anything else: a `failure` no declared literal matches, `startup_failure` and
-     `timed_out` (a hang may be the change's), and `neutral`, `skipped`, `stale` or
-     `action_required` beside a failure, so a skipped required check never rides along with a
-     setup fault into a park.
-
-   **Inadmissible evidence has one route, `change`.** A red check ruling 3 cannot admit under a
-   required name is step 2's; a failure in an execution ruling 3 does not admit (an unproven or
-   ambiguous association, an unestablished, disagreeing or unmeasured revision) is step 4's.
-   Neither reaches this step, and either way the observation is `change`, exactly, never
-   `refused`, never `green` and never `ci-infrastructure`. (Fix round 1093r4 parked that case
-   `ruled`; that route is removed.)
-6. **Only an all-setup failure set parks.** Every element setup-pattern or setup-via-needs, and
-   the set non-empty: **`ci-infrastructure`**, naming each job, its steps and their pattern ids,
-   with the workflow run's id and attempt a person needs to re-run it.
-7. Otherwise **`change`**, with a closed reason naming the first element that is not setup, in
-   the set's order: `cancelled`, or `untyped-failure`. One such element beside any number of
-   setup faults makes the whole observation the change's.
-
-**An aggregate is followed only where it is verdict-only.** HEAD's required `test (…)` jobs are
-an aggregate: job `engine` `needs: engine-machines`, runs `always()`, and its one step asserts
-`needs.engine-machines.result` is `success` (`.github/workflows/ci.yml:315-329`). A port bind
-during service boot in an `engine-machines` instance therefore fails `engine` in a step that
-prints no setup literal, and read alone it is `untyped`. So such a job is typed through its
-`needs`, but only when, in its event workflow as ruling 3's closure parse took
-it, it is a **verdict-only aggregate**: it has no `uses` step and no checkout, and every one of
-its steps is a single assertion that a dependency's result is `success`, of the form
-`test "$NAME" = success` with `NAME` bound in that step's `env` to exactly
-`${{ needs.<dep>.result }}` for a `<dep>` in its `needs`, as HEAD's one-step `engine` job is.
-A job with any independent step is not one: each of its own failed steps is typed by the rules
-above, so an independent assertion that fails is `untyped` and makes the observation `change`
-whatever its dependencies did. Fix round 1093r4 followed any job with `needs` and discarded its
-own failed step; that is removed.
-
-The classifier then finds the aggregate's dependencies in the same workflow run and attempt,
-and types each instance that did not succeed by the same rules, recursively. **Every expected
-instance is accounted for.** A dependency's expected instances come from its event workflow's
-`strategy.matrix` (ruling 3's two sources), never from a checked-out copy: for HEAD's `engine-machines`, its nine `include` entries, five Linux and four
-macOS machines (`:192-215`). An observation missing any
-expected instance, or holding one whose matrix values match no expected entry, withholds the
-class as `matrix-incomplete`, so a sparse observation cannot look all-setup. **The binding is
-one-to-one**: an expected instance's key observed more than once in one run attempt refuses the
-observation as `instance-duplicated` (ruling 3), so a contradictory duplicate cannot stand
-beside its sibling, whichever one the classifier would have read. A cancelled sibling
-is observed, and is `cancelled`, which makes the observation `change`. A matrix the parse cannot
-expand into a fixed list, because it is built by an expression or `fromJSON`, leaves the expected
-keys unknown, so `instance-duplicated` cannot be established false and the observation refuses
-([No refusal weakens](#no-refusal-weakens)). How the forge names an instance, and so how an
-observed job is matched to its expected entry, is **unmeasured** until 0111a; until it is
-measured every observation that reaches a matrix dependency refuses the same way.
-
-This is safe because the event workflow is the one GitHub ran, by its sealed identity (ruling 3
-refuses where it is not established, and withholds the class on a changed one as
-`machinery-touched`), and because the type only parks: a mistyped aggregate
-costs a person's look, never a pass. A verdict-only aggregate's own failed step is taken as its
-dependencies' consequence, not read, because it holds nothing else.
-
-A change that touches CI's machinery never reaches step 5: step 4 makes it the change's, as
-`machinery-touched`, and no pattern over its steps is read. It parks nothing for a person.
-
-A failure the classifier cannot type is the change's, as today.
-
-**Audit jobs need no rule of their own.** Fix round 1093r2 kept an audit job out of any re-run
-unless the forge proved its steps never ran, so a re-run could not launder an advisory. With no
-write, no class reaches a pass but `green`, `green` grants nothing, and the forge still requires
-the audit's own `success` at merge ([The gate grants nothing](#the-gate-grants-nothing)). An audit
-failure is typed like any other: the change's, or a person's park. #1113's "Not
-Found" is a failed step inside the `RustSec dependency audit` job
-(`.github/workflows/ci.yml:673-695`), in the step that runs the audit and reports it
-(`:693-695`), which is not a setup step. This decision declares nothing for it and designs no
-fix for it; it stays the change's, as today.
-
-Also refused, under every option: a step's role alone, with no pattern, since a setup step that
-installs the change's dependencies fails for the change's reasons too; and failing open on an
-unread conclusion or a missing excerpt (0004).
-
-**Enforcement binding:** a table test over recorded observations, one per arm and reason; and
-`classify` matches the conclusion enum without a wildcard (0071 ruling 2).
-
-### 5. The runner-fault list: its home and who declares it
+### 5. The list: its home and who declares it
 
 **Recommended: (a) recipe data, `ci-checks.json` beside the policy, under `ci-checks/v1`,
 compiled into the bundle and pinned with it.**
+
+**`green` still needs a recipe-declared set, re-derived.** Ruling 3's condition 3 matches every
+required entry by its producer, so the set must come from somewhere the change cannot edit.
+The forge's branch protection alone can be changed by an administrator at any time, needs an
+administration scope to read (unmeasured), and yields an empty set on an unprotected branch;
+and "whatever checks the forge reports" cannot see an absent audit (ruling 3's (b) and (c)). So
+the declared list stays, and with it its file. What the file loses is every key that existed
+only to type a failure: the change classes, the setup steps and the patterns leave with the
+classifier ([Deferred to a later decision](#deferred-to-a-later-decision)). What it keeps beside
+`required_checks` are the pins the kept bounds read: the repository the binding checks
+(ruling 3), and the observer's executables and credential (ruling 2).
 
 ```json
 {
@@ -1588,7 +900,6 @@ compiled into the bundle and pinned with it.**
               "jq": {"path": "/usr/bin/jq", "sha256": "<64 hex>"}},
     "credential": {"binding": "GH_TOKEN", "access": "read"}
   },
-  "change_classes": ["crates/", "docs/", "Cargo.lock", "recipes/", "README.md"],
   "required_checks": [
     {"actions_job": {
       "app": "github-actions", "workflow": ".github/workflows/ci.yml",
@@ -1602,58 +913,23 @@ compiled into the bundle and pinned with it.**
 }
 ```
 
-The lists are cut short: the house's full `change_classes` is the nineteen paths ruling 3
-lists, and its full `required_checks` the twelve required contexts above. The app's
-numeric id is pinned beside its slug once 0111a's evidence shows it. The compile refuses a
-`status` entry.
-
-Under ruling 4 (a), two more keys declare the evidence that types a park:
-
-```json
-{
-  "setup_steps": [
-    {"id": "compose-up", "workflow": ".github/workflows/ci.yml", "job": "engine-machines", "step": "start services"}
-  ],
-  "patterns": [
-    {"id": "port-in-use", "steps": ["compose-up"], "literal": "address already in use"}
-  ]
-}
-```
-
-The job is HEAD's: `engine-machines`, which the required `test (…)` aggregate needs
-(`.github/workflows/ci.yml:315-329`). The step is illustrative: HEAD's `engine-machines` boots no
-compose service, and the adopter's step name and excerpt are unmeasured. A setup step's job must
-be a required entry's job, or a job a required aggregate needs in its event workflow, transitively; the
-check runs with ruling 3's closure parse, and a setup step outside both withholds the class as
-`machinery-unresolved`. Under ruling 4 (b) the compile refuses either key. A pattern is a
-literal: 1 to 200 printable ASCII bytes, matched as an exact, case-sensitive byte substring. No
-regex, glob or wildcard is admitted, so matching is linear and the same on every host. Each `id`
-is kebab-case and unique; every step a pattern names must be in `setup_steps`, and every setup
-step's workflow must be the workflow of a required entry, so `machinery-touched` withholds the
-class whenever it moved from the base's bytes.
-
-The list has two syntaxes, and they never mix. A **path** in `change_classes` is a
-repository-relative path. It matches a changed path that equals it, or, when it ends in `/`,
-any changed path under that directory. It is not a glob, and not the docs class's regular
-expressions (`crates/brokkr-runtime/src/engine.rs:3217`). A **literal** in `patterns` is matched
-only against log bytes, never against a path. Each field admits only its own syntax: the
-compile refuses a `*`, `?` or `[` in a path, so a glob cannot pass for one, while a literal's
-bytes are all literal.
+The list is cut short: the house's full `required_checks` is the twelve required contexts
+ruling 3 names. The app's numeric id is pinned beside its slug once 0111a's evidence shows it.
+The compile refuses a `status` entry.
 
 `required_checks` must be non-empty and hold at least one entry with no `"after"` (ruling 6's
-entry set is never empty), every Actions entry must name all of its producer's parts
-and its `tested` word, and may carry `"after": "ship"` (ruling 6's entry set; the only word
-v1 admits, so the field is a closed enum of one), and `change_classes` must be non-empty and hold no path that is, or lies
-under, `.github/` or any required entry's workflow. The compile refuses a list that leaves any
-of them to a default. A path `change_classes` does not name is machinery; there is no machinery
-list to keep. `repository` pins the binding ruling 3 checks.
+entry set is never empty); every Actions entry must name all of its producer's parts and its
+`tested` word, and may carry `"after": "ship"` (ruling 6's entry set; the only word v1 admits,
+so the field is a closed enum of one). The compile refuses a list that leaves any of them to a
+default, and refuses any key v1 does not name, `change_classes`, `setup_steps` and `patterns`
+among them. `repository` pins the binding ruling 3 checks.
 
 The operator declares it, as any recipe or `extends` overlay (0017). No seat writes it: the
 run reads the list its compiled bundle pinned at start, never the change's tree, so a branch
 that edits `ci-checks.json` changes the next run's list, by the operator's compile, not its own.
 
-- **(b) Host data under `forge.host`.** One list for every recipe; but runner faults are a
-  property of a workflow, not a machine. Refused.
+- **(b) Host data under `forge.host`.** One list for every recipe; but which checks a pull
+  request needs is a property of a repository's workflows, not a machine. Refused.
 - **(c) Engine defaults.** A second home for a fact the recipe owns (0071 ruling 5). Refused.
 
 ### 6. Each outcome, and every route
@@ -1691,10 +967,6 @@ verdict. No seat needs one: the only road out of `ci` to a seat is `CI-PASS`, an
 evidence is for a person, who reads it through `inspect` (ruling 9). **(b)** projecting it
 unchanged: a model seat would read the observation and a `green` it could take as authority.
 Not recommended.
-
-**A deterministic match.** Under ruling 4 (a), where several of a step's literals matched, the
-classifier takes the first matched pattern in the list's declaration order. The fault carries
-that pattern's id, so one step yields one fault.
 
 **Where the gate sits: where the head is already published.** Fix round 1093r3 put an
 exact-head CI gate before review in `fast` and `verify`. But `fast`'s implement completes with
@@ -1773,28 +1045,24 @@ no `ci` phase.
 shipped evidence: with no `by-hand` label, a body with no `Brokkr-Run:` line fails, and a named
 run must have ruled `shipped` (`scripts/delivered-by-brokkr.sh:189-204`), which only this landing's
 ship produces (decision 0051 ruling 2). At entry it fails on every first landing without the
-label, and would send a sound change to `implement`. **Recommended: (a) the entry set excludes
+label, and would park every such landing for a person. **Recommended: (a) the entry set excludes
 every required check whose evidence is this landing's own output.** The recipe data says which:
 a `required_checks` entry may carry `"after": "ship"`, a closed one-word field. **An after-ship
-check is in the observed inventory and excluded from entry classification**, stated here once:
-the observer lists it with every other check, unfiltered, and the sealed observation holds it;
-no failure predicate, closure, revision check or completeness test reads it; and the forge's
-required-set comparison counts it as declared. The rule for the recipe data: an entry whose producer reads anything this run's ship
-seat writes (its anchor, its journal, its ledger) carries `"after": "ship"`. For the house that
-is `delivered by brokkr`, and only it. The forge's requirement stays at merge, unchanged. The
+check is in the observed inventory and excluded from the judgment**, stated here once: the
+observer lists it with every other check, unfiltered, and the sealed observation holds it; no
+condition of `green` reads it; and the forge's required-set comparison counts it as declared.
+The rule for the recipe data: an entry whose producer reads anything this run's ship seat writes
+(its anchor, its journal, its ledger) carries `"after": "ship"`. For the house that is
+`delivered by brokkr`, and only it. The forge's requirement stays at merge, unchanged. The
 declaration is the operator's: the compile cannot see what a check reads, and an entry left
-undeclared costs one implement visit (the frame's table), never a pass. Refused alternative:
-**(b)** observing it and treating its failure as untyped, which is fix round 1093r4's behaviour
-and spends the implement visit on every first landing.
+undeclared costs a person's park (the frame's table), never a pass. Refused alternative:
+**(b)** observing it as any other entry, which parks every first landing.
 
 **The entry set is derived once, and every reader but the inventory reads it.** One function
-over the pinned list gives the entry set: the entries with no `"after"`. The failure predicate
-(ruling 3's `green` rule and its observed inadmissible failures, and ruling 4's failure set),
-the closure parse, the producer, association and revision checks, and the setup steps' jobs all
-read that set and nothing wider. The full declared list is read only to reconcile the
-inventory, as the after-ship invariant above states once.
-A red `delivered by brokkr` beside every eligible entry green is therefore `green`, and beside a
-valid setup failure is `ci-infrastructure`.
+over the pinned list gives the entry set: the entries with no `"after"`. Every condition of
+ruling 3's `green` rule reads that set and nothing wider. The full declared list is read only to
+reconcile the inventory, as the after-ship invariant above states once. A red
+`delivered by brokkr` beside every eligible entry green is therefore `green`.
 
 **The entry set is never empty.** A declared list whose every entry carries `"after": "ship"`
 filters to nothing, and an observation with no entry to match would draw `green` on whatever
@@ -1853,8 +1121,6 @@ head or write to the forge:
 - any rule whose `next` is `ci`: it would gate a head the run made, which is unpublished;
 - any rule into `classify` but `CI-PASS`, and any explicit entry but `ci`: either would skip
   the gate;
-- `ci-infrastructure` routed to `implement`: a diagnosis seat attempt is what the class exists
-  to save;
 - a refusal routed to `implement`; a refusal parks;
 - `CI-PASS` on any class but `green`; the word binding refuses it (ruling 3).
 
@@ -1862,10 +1128,7 @@ Each is refused by the overlay test, over the complete composed table (ruling 10
 scope-widened reconciliation park fix round 1093r2 promised went with the write (ruling 1); no
 route or cause remains for it.
 
-- **(b) A runner fault routed to `implement`, with the class in the commission.** It spends the
-  diagnosis seat attempt the issue counts, to tell a model what the engine already typed. Not
-  recommended.
-- **(c) The pre-review gate in `fast` and `verify`, as fix round 1093r3 drafted.** Refused for
+- **(b) The pre-review gate in `fast` and `verify`, as fix round 1093r3 drafted.** Refused for
   now: its head is unpublished by construction. It returns with the follow-up handoff above.
 
 ### 7. The park's cause
@@ -1894,37 +1157,18 @@ spent only on an `infrastructure` park with `retryable` true
 (`docs/decisions/0106-a-park-names-its-cause-a-held-wait-and-a-budget.md:250-252`, `:667-683`). So
 no reading of this park in that budget needs a ruling of its own.
 
-### 8. How a CI park reads in 0106d's budget
-
-**Recommended: (a) a `ci-infrastructure` park is `retryable: false`, and spends nothing.**
-
-0106 ruling 4 asks for positive evidence that the last attempt never executed. Here the last
-attempt is the `ci` gate's, and it executed: it read the forge and returned a typed result. The
-forge's statement about the change's checks is a fact about CI, not about the attempt, and a
-pattern match is evidence that a step ran. So the rule, read literally, gives `false`. And a
-budget retry, as 0106d builds it, re-enters the parked phase as a new effect: it would observe
-the same settled runs and park again, spending the budget for nothing. A person's re-run is what
-changes the forge's state, and the operator's retry after it re-observes.
-
-- **(b) `retryable: true`.** Spends a retry that cannot help, as above. Refused.
-
-**Enforcement binding:** `a_ci_infrastructure_park_is_never_retryable` (0111d). 0106d's
-non-retryable infrastructure test, `a_non_retryable_infrastructure_park_spends_nothing`
-(`docs/decisions/0106-a-park-names-its-cause-a-held-wait-and-a-budget.md:1224`), is extended
-with one `ci-infrastructure` park, spending nothing. 0106d's
-`only_an_infrastructure_park_spends_the_budget` is unchanged: it reads `retryable`, not `origin`.
-
 ### 9. The readouts
 
 **Recommended: (a) one derivation in `brokkr-view`, painted by `inspect` and the fleet.**
 
-`inspect` names each observation's class, its refusal or its faults, and the evidence a person
-needs to re-run: the workflow run's id and attempt and each failed job's id, from one view model
-(0071 ruling 7). The fleet paints the park's cause through `ParkCause::line`
-(`crates/brokkr-core/src/park.rs:275`), which the TUI and `inspect` already paint
-(`crates/brokkr-cli/src/tui/columns.rs:375`, `crates/brokkr-cli/src/render/inspect.rs:36`; the
-fleet's row field is `crates/brokkr-view/src/fleet.rs:339`). It reads
-`infrastructure (ci, not retryable): …` with the faults' job and pattern ids.
+`inspect` names each observation's judgment, every unmet word (ruling 3), and the evidence a
+person needs to look and re-run: the workflow run's id and attempt and each required job's id
+and conclusion, from one view model (0071 ruling 7). The fleet paints the park's cause through
+`ParkCause::line` (`crates/brokkr-core/src/park.rs:275-280`), which the TUI and `inspect`
+already paint (`crates/brokkr-cli/src/tui/columns.rs:375`,
+`crates/brokkr-cli/src/render/inspect.rs:36`; the fleet's row field is
+`crates/brokkr-view/src/fleet.rs:339`). It reads `ruled <rule id>: <detail>`, the detail naming
+the observation's digest and its first unmet words (ruling 7).
 
 ### 10. How a table spells the class
 
@@ -2017,6 +1261,60 @@ the shape HEAD's runtime already reads (`conditions.rs:43-75`). `fast`'s `blocke
 not the overlay's file, against v3. A test asserts that exactly one flag is true for each
 non-`change` class.
 
+## Deferred to a later decision
+
+The automatic classification of a red observation, and every route it would take, are not this
+decision's. On 2026-11-20 the operator narrowed it ("narrow 0111 as recommended"): keep the CI
+reading, the trust-root model and the security bounds; park every non-green CI result for a
+person; defer the automatic classification and the implement route to a later decision. This
+section is the one place that classifier is named.
+
+**What that decision would rule.** Whether, and from which typed facts, a red observation may be
+typed as the runner's (a park that names a runner fault, so a person re-runs without looking
+further) or as the change's (a return to `implement`, so a model diagnoses it); the evidence
+that would type each; its home in recipe data; how such a park reads in 0106d's budget; and the
+cause it would write.
+
+**The facts it waits on, which are 0111a's measurements and beyond.** Each of these was an input
+the classifier drafted in fix rounds 1093r2 to 1093r8 needed, and each is unmeasured:
+
+- which revision a step ran on, beyond the run's tested commit: whether any forge field records
+  a job's checkout;
+- the revision of the workflow file GitHub ran for a run, and whether the forge reports it;
+- how the forge names a matrix instance, so an observed job binds to its expected instance;
+- GitHub's precedence among workflow, job and step `env:` and `GITHUB_ENV` writes, from a
+  recorded run or the runner's source;
+- how a job log is cut into steps, and what a step's bounded tail holds.
+
+**What was learned here that it must meet.** Name the refusal-weakening class first: **a fact a
+refusal needs is lost or misread, so a case owed a person's ruling falls through to a weaker
+outcome, an implement visit.** For three rounds each security hold was that class, and each
+round's fix added surface in which the next round found a new case:
+
+- fix round 1093r6's landing review: a stale same-producer `success` satisfied the absence test,
+  so a missing required audit beside an ordinary test failure reached `implement`;
+- fix round 1093r7: the expected matrix keys were parsed from the checked-out head rather than
+  the workflow GitHub ran, so a duplicated instance read as an unexpected one and reached
+  `implement`;
+- fix round 1093r8: two passages still routed an unestablished tested revision to `change`
+  after the refusal-first rule moved it to a refusal; and a duplicated instance on an unread page
+  of the job list could not be seen, so the guard owed a person's park could be established
+  false over a partial inventory.
+
+A later classifier must have no outcome weaker than a person's park for any case whose facts it
+cannot establish, by construction and in one home, before it adds a class beneath it. It must
+also meet the precision guards the drafts found it needed: a change kept out of every input of a
+step that types the runner's evidence (its working directory, its implicit and
+environment-selected inputs, the files it includes, symlink targets and the steps that supply
+it), read on the tree the job executed; and the house's own closure, which does not resolve at
+HEAD (`scripts/test-shards.sh:558-575` builds its argv at run time, and `scripts/mutants.sh:31`
+sets its directory by a command substitution).
+
+**Its follow-up issue.** The controller opens it under #1094; this decision names it as that
+issue and designs nothing for it. The issue's own first slice, a classifier over 0111a's
+recorded payloads with no route, would let a sweep count, offline, what a typed park would have
+saved, so the later decision is ruled on measured cases.
+
 ## What stays out
 
 - Any forge write: ruling 1. No re-run is requested, and no seat holds a write credential.
@@ -2027,16 +1325,14 @@ non-`change` class.
   positive-evidence rule stands as 0106 wrote it.
 - No Windows code (0063).
 - #1113's own fix.
-- The dispatcher's retry budget, beyond ruling 8.
-- Flaky-test handling of any kind, quarantine included: a follow-up (ruling 4).
+- The dispatcher's retry budget: a `ruled` park spends none of it (ruling 7).
+- The automatic classification of a red observation, and every route it would take: the
+  follow-up decision [Deferred to a later decision](#deferred-to-a-later-decision) names.
+- Flaky-test handling of any kind, quarantine included: a follow-up of its own.
 - `fast`'s `blocked_by_in` array outside v2's published schema: a follow-up (ruling 10).
 - A CI gate on a head the run itself made, before review in `fast` or `verify`: a follow-up
   that needs a publish-and-resume handoff (ruling 6).
 - Commit statuses as required evidence: a follow-up that needs a revision attestation (ruling 3).
-- This house's own typed parking: deferred to ruling 3's one follow-up issue under #1094, which
-  resolves the house's whole eligible closure, `scripts/test-shards.sh`'s computed dispatch and
-  `scripts/mutants.sh`'s substituted `cd` among it, and names every closure still unresolved
-  (ruling 3).
 - A forge other than GitHub: `forge` is a closed enum of one word in v1.
 - An automated re-run: the follow-up decision ruling 1 (c) names.
 
