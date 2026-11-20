@@ -493,13 +493,13 @@ impl Engine {
         // names none and carries none.
         let boundary = self.site_boundary(&at.label);
         let start_failures = ran.start_failures.clone();
+        let record = ran.record.clone();
         let StepVerdict::Goes(result) = self.step_result(run, at, ran, boundary)? else {
             return Ok(StepVerdict::Ended);
         };
         if !run.is_last(at) {
-            let StepVerdict::Goes(()) =
-                self.between_steps(run, at, &result, carried, &start_failures)?
-            else {
+            let ran = (start_failures.as_slice(), record.as_ref());
+            let StepVerdict::Goes(()) = self.between_steps(run, at, &result, carried, ran)? else {
                 return Ok(StepVerdict::Ended);
             };
         }
@@ -569,18 +569,27 @@ impl Engine {
 
     /// The checks a step before the last answers: a result in its own
     /// vocabulary, which may end the sequence, and which a deterministic
-    /// dialect check's failure is remembered by.
+    /// dialect check's failure is remembered by. `ran` is what the step's
+    /// run left beside its result: the sites that failed to start, and a
+    /// panel step's evidence. A result outside the vocabulary fails the
+    /// attempt with that evidence, as a panel step's own failure does, so
+    /// a poisoned aggregate's settled members keep their admitted findings
+    /// as verdict evidence under each member (fix round 0109a1r7, X5).
     fn between_steps(
         &mut self,
         run: &SequenceRun,
         at: &StepAt,
         result: &Value,
         carried: &mut Carried,
-        start_failures: &[Site],
+        (start_failures, record): (&[Site], Option<&PanelRecord>),
     ) -> Result<StepVerdict<()>, EngineError> {
         if let Some(mut problem) = vocabulary_problem(at.step, result) {
             run.bound.deadline.name_words(&mut problem);
-            return self.end_failed(run, run.failed_payload(at, &problem, &[]));
+            let mut payload = run.failed_payload(at, &problem, &[]);
+            if let Some(record) = record {
+                record.stamp(&mut payload);
+            }
+            return self.end_failed(run, payload);
         }
         // A deterministic dialect check's failure is recorded before any
         // ending is decided, so an early ending passes the same

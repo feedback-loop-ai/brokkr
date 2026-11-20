@@ -292,6 +292,56 @@ fn one_refused_settled_member_keeps_every_admitted_sibling() {
     assert_eq!((ran("a"), ran("b"), ran("c")), (false, true, true));
 }
 
+/// Fix round 0109a1r7, X5: W4's two members inside a non-final gate panel
+/// step, `a` reporting a finding and `b`'s JSON carrying no result word.
+/// The poisoned aggregate still refuses the step, failing the attempt, and
+/// the failure keeps the step's panel evidence, so `a`'s admitted finding
+/// shows under review:positions:a and in the phase; `b`'s wordless payload
+/// is refused by name (X3, X4) and shows nowhere.
+#[test]
+fn a_poisoned_non_final_panel_steps_admitted_finding_stays_visible() {
+    let positions = StepBody::Invocation(Invocation::Panel {
+        members: vec![
+            member("a", residual("mine", 5)),
+            member("b", driver(&json!({"notes": "no word"}))),
+        ],
+        aggregate: Aggregate::ReviewPanel,
+    });
+    let words = ["clean", "residual"];
+    let steps = vec![
+        gate_step("positions", &words, positions),
+        gate_step(
+            "chief",
+            &["clean"],
+            step_body(driver(&json!({"result": "clean"}))),
+        ),
+    ];
+    let (_dir, events) = reviewed_as(SeatBody::Sequence { steps });
+    assert_eq!(
+        kept(&events, Scope::Seat("review:positions:a".into())),
+        ["mine"]
+    );
+    let failed = (events.iter())
+        .find(|event| event.event_type == EventType::EffectFailed)
+        .unwrap();
+    let error = failed.payload["error"].as_str().unwrap();
+    let refused = "sequence step 'positions': reported '__member-schema-invalid__'";
+    assert!(error.starts_with(refused), "{error}");
+    assert!(
+        error.contains("; settled member 'positions:b' was refused"),
+        "{error}"
+    );
+    let settled = failed.payload["settled_members"].as_object().unwrap();
+    assert_eq!(settled.keys().collect::<Vec<_>>(), ["positions:a"]);
+    assert!(!events
+        .iter()
+        .any(|event| event.event_type == EventType::EffectSucceeded
+            && event.payload["effect_id"] == failed.payload["effect_id"]));
+    assert!(kept(&events, Scope::Seat("review:positions:b".into())).is_empty());
+    let by_a = vec![("mine".to_string(), "review:positions:a".to_string())];
+    assert_eq!(producers(&events, Scope::Phase("review".into())), by_a);
+}
+
 /// A driver that fails its first attempt and answers `then` after it,
 /// `flag` recording that it has failed once.
 fn failing_once(flag: &std::path::Path, then: &Value) -> Vec<String> {
