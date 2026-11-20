@@ -122,8 +122,8 @@ Why that holds at HEAD:
 - **`green`**, the gate's `pass`, which proceeds to `classify` exactly as landing's own entry
   does: the complement of the [park table](#the-park-table);
 - **a `ruled` park for a person**, on every true row of the [park table](#the-park-table),
-  which is the one home of what parks. The park names the gate's rule and carries the
-  observation's digest (ruling 7). The person reads the observation and re-runs or rules.
+  which is the one home of what parks. The park names the gate's rule and carries the digest
+  ruling 2's outcome table gives the attempt, or says no observation exists (ruling 7). The person reads the observation and re-runs or rules.
 
 There is no outcome weaker than that park, so the rule that an unestablished fact must not
 weaken a refusal is one sentence here: **whatever is not established `green` parks**, because a
@@ -354,8 +354,9 @@ must not be anything the gated change can edit:
 
 **The observer's launch is trusted, or the observation refuses.** **Recommended: (a) an
 engine-built launch, proven before the spawn.** The process that observes CI, read-only as it
-is, is launched with all four of these, or the engine refuses before the spawn, parks `ruled`
-with the reason `launch-untrusted` naming the condition that failed, and observes nothing:
+is, is launched with all four of these, or the engine refuses before the spawn: the attempt
+ends as the outcome `launch-refused` naming the condition that failed, which parks on
+`launch-untrusted` (the outcome table below), and observes nothing:
 
 - **A pinned executable identity outside the change, executed as the bytes it verified.** The
   `ci` seat's interpreter and each tool it calls (`gh`, `jq`) are declared in ruling 5's file by
@@ -527,13 +528,59 @@ which is the folder's state or, by default, `<workdir>/.forge`
 (`crates/brokkr-runtime/src/engine.rs:1047-1050`, `crates/brokkr-runtime/src/places.rs:687-690`).
 In the default form that is under the worktree, where the change and every other seat can write.
 So a `ci` seat's observation is never read from a file. The engine captures the observer's
-stdout through its own pipe, bounded at 1 MiB, and an observer that writes more refuses as
-`observation-too-large`. HEAD's exec adapter already captures stdout into its invocation
+stdout through its own pipe, bounded at 1 MiB; an observer that writes more makes
+`observation-too-large` true. HEAD's exec adapter already captures stdout into its invocation
 (`crates/brokkr-protocol/src/adapters/exec.rs:42`, `:50`, `:71`), but decodes it lossily; the
-`ci` path parses the raw bytes, and refuses bytes that are not UTF-8. A file under `.forge/results`
-for a `ci` seat is ignored, and its presence is journaled as a refusal word, `result-file-ignored`,
-never read. The observer writes nothing to stderr but its own diagnostics, and the `ci` site
+`ci` path parses the raw bytes, and bytes that are not UTF-8 make `observation-unreadable` true.
+A file under `.forge/results` for a `ci` attempt is never read, and its presence makes
+`result-file-present` true: no writer of the engine's makes one, so it is evidence a person
+looks at. The observer writes nothing to stderr but its own diagnostics, and the `ci` site
 journals stderr's length and digest only.
+
+**Every admitted attempt ends in one typed outcome, and none is an effect failure.** At HEAD a
+determinate effect failure returns the effect to `ExecuteEffect` with one more failed attempt
+(`crates/brokkr-core/src/fold.rs:669-693`), and the engine then retries it, or ends it at
+the seat's attempt cap with an `attempt-cap` park (`crates/brokkr-runtime/src/engine/cursor.rs:105-128`);
+the exec driver reports a non-zero exit as `Failed`
+(`crates/brokkr-protocol/src/adapters.rs:6754-6762`). A `ci` attempt on that road would buy a
+second observer attempt, or park with no row. **Recommended: (a) the `ci` site's driver reports
+every attempt it ran to an end as `effect/succeeded`, carrying an engine-built outcome,** so the
+fold takes it to `Decide` (`fold.rs:658-667`) and the table routes it, once. The outcome is a
+closed enum, `CiAttempt`, the envelope `ci-observation/v1` defines around the observation; the
+observer writes only stdout, and the driver builds the envelope, so no observer byte can name
+its own outcome:
+
+| Outcome | When | Spawned | Row it makes true | The park's digest covers |
+|---|---|---|---|---|
+| `observed` | the observer exited 0 before its deadline, and its stdout, inside its bound, is UTF-8 and parses | yes | none of its own; the observation's rows judge it | the captured stdout bytes, all of them |
+| `unbound` | the run's `run/started` holds no pull request (ruling 3) | no | `pull-request-unbound` | nothing: no observation exists |
+| `launch-refused` | a launch rule of ruling 2 failed before the spawn; it names the rule | no | `launch-untrusted` | nothing: no observation exists |
+| `deadline` | the observer had not exited when the seat's deadline ended; the driver kills its process group | yes | `observer-deadline` | the stdout bytes captured before the kill |
+| `exited` | the observer exited non-zero, or on a signal; it names the status | yes | `observer-exited` | the captured stdout bytes |
+| `absent` | the observer exited 0 with no stdout byte | yes | `observation-absent` | nothing: no byte was written |
+| `too-large` | stdout passed 1 MiB; the driver stops reading at the bound plus one byte | yes | `observation-too-large` | the first 1 MiB, the bounded witness, with the count read as a lower bound; no byte past it is read |
+| `unreadable` | stdout is not UTF-8, or does not parse under the contract; it names the reason | yes | `observation-unreadable` | the captured stdout bytes |
+
+The digest is SHA-256 over exactly the bytes the seat record seals for that attempt, after
+0012's masking, so a person checks it against the journal; where the table says nothing, the
+park names no digest, says `no observation`, and names the attempt id. Only `observed` carries
+an observation, so the observation's rows are evaluated only on it (the dependency rule in the
+[park table](#the-park-table)).
+
+**The word is the engine's.** The driver writes no result word for a `ci` attempt, and decide
+derives it before the table reads it: `pass` exactly when the judgment is `green`, and `fail`
+otherwise. So the word never disagrees with the judgment, and no word is refused on a road the
+fold would retry; `word-unbound` stays the table's totality row (ruling 6).
+
+**Pre-admission errors are not outcomes.** They end before a run exists, so they journal
+nothing and need no row: every compile refusal of rulings 2, 5, 6 and 10; and run start's
+refusals before the journal opens (`crates/brokkr-runtime/src/launch.rs:301-306`, HEAD's
+`door` in `engine/start.rs`), which are the entry check's, `BeforeCi` among them (ruling 6), a
+`ci` seat whose bundle layer is inside the worktree (above), and `--pull-request` on a bundle
+with no `ci` seat (ruling 3). Each is a typed `LaunchError` or compile refusal the operator
+reads at the prompt. One end is neither: a driver that dies before it reports leaves an
+indeterminate effect, which HEAD already holds for operator judgment and never retries
+(`fold.rs:694-699`); it is HEAD's own, unchanged, not a `ci` rule.
 
 **Live admission is refused until the first live producer lands, and this is the one statement
 of the order.** 0111b builds the observer, its trusted launch and the compile's `ci`
@@ -917,10 +964,14 @@ default, and each paged list carries whether it was read to its last page.
 | `producer-mismatch` | every check under an entry-set entry's name | | a check under that name from another producer concluded red | `a_sole_red_producer_mismatch_parks_as_producer_mismatch` |
 | `status-required` | the forge's required set, where read | | it names a commit status context | `a_status_context_in_the_forges_required_set_parks_as_status_required` |
 | `required-set-disagrees` | the forge's required set, where read; the declared list | | the forge requires a context the declared list lacks | `a_forge_required_check_the_list_lacks_parks_as_required_set_disagrees` |
-| `observation-too-large` | the observer's stdout length | P7 | it is over its bound | 0111b: `an_observation_over_the_stdout_bound_refuses_as_observation_too_large` |
-| `observation-unreadable` | the observer's stdout bytes | P7 | they are not UTF-8, or hold an unknown field or word, or lack a field | 0111b: `an_observation_with_an_unknown_field_refuses_whole` |
-| `launch-untrusted` | the launcher's pre-spawn checks | P7 | a rule of ruling 2 failed before the spawn; it names the rule | `an_untrusted_launch_parks_ruled_as_launch_untrusted_and_observes_nothing` |
-| `word-unbound` | the gate's result word and `ci_green`, read by the table, not the judge | | the word is `pass` while `ci_green` is false, which the word binding refuses (below), so it is reached only at `CI-PASS-UNBOUND` if that binding were lifted | 0111d: `the_whole_composed_landing_ci_overlay_compiles_against_heads_totality_gate` |
+| `launch-untrusted` | the attempt's outcome, `launch-refused` | P7 | a rule of ruling 2 failed before the spawn; it names the rule | `a_launch_refusal_parks_once_as_launch_untrusted_and_spawns_nothing` |
+| `observer-deadline` | the attempt's outcome, `deadline` | P7 | the observer had not exited when the seat's deadline ended | `an_observer_past_its_deadline_is_killed_and_parks_once_as_observer_deadline` |
+| `observer-exited` | the attempt's outcome, `exited` | P7 | the observer exited non-zero or on a signal; it names the status | `an_observer_that_exits_non_zero_parks_once_as_observer_exited_with_no_second_attempt` |
+| `observation-absent` | the attempt's outcome, `absent` | P7 | the observer exited 0 and wrote no stdout byte | `an_observer_with_no_stdout_parks_once_as_observation_absent` |
+| `observation-too-large` | the attempt's outcome, `too-large` | P7 | stdout passed its 1 MiB bound | `an_observer_over_the_stdout_bound_parks_once_as_observation_too_large_naming_the_witness_digest` |
+| `observation-unreadable` | the attempt's outcome, `unreadable` | P7 | stdout is not UTF-8, or holds an unknown field or word, or lacks a field | `an_unreadable_observation_parks_once_as_observation_unreadable_naming_its_digest` |
+| `result-file-present` | the run-local results directory, for the `ci` attempt's id | | a result file exists for the attempt; it is never read | `a_result_file_for_the_ci_attempt_is_never_read_and_parks_as_result_file_present` |
+| `word-unbound` | the gate's result word and `ci_green`, read by the table, not the judge | | the word is `pass` while `ci_green` is false; decide derives the word from the judgment (ruling 2's outcomes), so it is reached only at `CI-PASS-UNBOUND` if that derivation were lifted | 0111d: `the_whole_composed_landing_ci_overlay_compiles_against_heads_totality_gate` |
 
 **Every true row parks, and none is weaker than another.** There is no weaker outcome to fall
 to, so no precedence among the rows is needed: the engine names every row that is true, in the
@@ -957,9 +1008,10 @@ same head, and a second required job with an ordinary failed test parks, naming
 the audit present. Fix rounds 1093r6 to 1093r8 each found a case where such a fact fell through
 to a weaker class; with none below the park, there is nowhere for it to fall.
 
-The gate's word is bound to the engine's judgment: `pass` is admitted only on `green`, and
-`fail` on `green` is refused. A refused word is never rewritten (the same binding 0109 ruling 2
-gives a verdict).
+The gate's word is bound to the engine's judgment by construction: decide derives it, `pass`
+exactly on `green` and `fail` otherwise, and no seat writes it
+([every attempt's outcome](#2-what-reads-the-checks)). So there is no refused word to rewrite,
+and no word on a road the fold would retry.
 
 The judgment is engine-written: an `Owner::Engine` flag, as `reviewed_heads` is an engine-owned
 input (`crates/brokkr-core/src/policy/inputs.rs:116`), so a seat may neither declare nor
@@ -984,9 +1036,10 @@ what a person needs. Fix rounds 1093r4 to 1093r8 sealed a basis under `ci-classi
 a typed class could be re-derived from the journal alone; with no class to re-derive, that
 record leaves with the classifier.
 
-Ruling 2's launch refusal, `launch-untrusted`, holds before any observation exists. It is the
-engine's pre-spawn fact, journaled as the park's reason with the condition that failed, and a
-replay reads it there.
+An attempt with no observation, `launch-refused` or `unbound` among them, is still a sealed
+record: its `CiAttempt` outcome is the seat record of its `effect/succeeded`, naming the
+condition that failed, so a replay reads the same row from the journal (ruling 2's outcome
+table).
 
 - **(b) A new `ci/judged` event.** Moves the event envelope, every manifest and every fold arm
   for a fact an input can carry. Refused, as 0106 ruling 1 refused `run/park-caused`.
@@ -1210,8 +1263,9 @@ column names the judgment; ruling 10 gives its schema-legal spelling.
 
 `CI-PARK` is the one park rule for an observation: every true row of the
 [park table](#the-park-table) but `word-unbound` reaches it, `launch-untrusted` among them,
-whose attempt ends in the gate's `fail` before any observation exists (ruling 2). It needs no
-`when`: the word binding admits `fail` only off `green` (ruling 3).
+whose attempt ends as the outcome `launch-refused`, reported as `effect/succeeded`, with decide
+deriving `fail` before any observation exists (ruling 2). It needs no `when`: decide derives
+`fail` only off `green` (ruling 3).
 
 **The table is total.** HEAD's compile refuses a table with an unruled valuation:
 `seated_and_ruled` calls `refuse_unruled` (`crates/brokkr-runtime/src/bundle/phases.rs:118-130`),
@@ -1222,8 +1276,8 @@ and refuses the first no rule rules (`crates/brokkr-core/src/policy/audit.rs:187
 composed overlay would not compile. HEAD's boolean sweep therefore still needs
 **`CI-PASS-UNBOUND`**, recommended as (a): the unconditional `(ci, pass)` rule after `CI-PASS`,
 parking `ruled` for a person on row `word-unbound`. It is never reached while the binding
-holds: ruling 3 refuses `pass` off `green` before the table reads it. It is the table's answer if
-the binding were ever lifted, and a park, never a route. The `(ci, fail)` group is total:
+holds: decide derives `pass` only on `green` before the table reads it (ruling 2's outcomes). It
+is the table's answer if that derivation were ever lifted, and a park, never a route. The `(ci, fail)` group is total:
 `CI-PARK` is unconditional ([park table](#the-park-table)). **(b) Proving the valuation impossible** is not taken: the audit
 sweeps each flag on its own, and HEAD gives it no way to read a cross-input invariant such as the
 word binding, so the proof would need an engine change for one row.
@@ -1255,7 +1309,7 @@ head or write to the forge:
 - any rule whose `next` is `ci`: it would gate a head the run made, which is unpublished;
 - any rule into `classify` but `CI-PASS`, and any explicit entry but `ci`: either would skip
   the gate;
-- `CI-PASS` off `green`; the word binding refuses it (ruling 3).
+- `CI-PASS` off `green`; decide never derives `pass` off `green` (ruling 2's outcomes).
 
 Each is refused by the overlay test, over the complete composed table (ruling 10). The
 scope-widened reconciliation park fix round 1093r2 promised went with the write (ruling 1); no
@@ -1273,7 +1327,9 @@ observation's digest.**
   rule's id (`crates/brokkr-runtime/src/engine/cursor.rs:369`; the variant is
   `crates/brokkr-core/src/park.rs:40-45`, a `rule_id` and a `detail`). The gate's park is a table
   park, so its cause is `ruled` with the id of the gate's park rule (ruling 6), and its `detail`,
-  the park's reason, names the sealed observation's SHA-256 and the true rows of the
+  the park's reason, names the digest ruling 2's outcome table gives the attempt (the SHA-256
+  of the stdout bytes the seat record seals, the first 1 MiB of an oversized stdout, or
+  `no observation` where no byte exists) and the true rows of the
   [park table](#the-park-table), the first row ids that fit inside the reason's bound of 256 bytes
   (`crates/brokkr-core/src/summary.rs:53`), with a count of the rest. The cause's shape is
   `park-cause/v1`'s, unchanged, so no contract moves and every reader of a cause reads it as it
@@ -1323,15 +1379,15 @@ judgment `green` or not, one flag spells it whole, and the rest leave with their
 - **(a) `ci_green` alone.** An `Owner::Engine` `Flag`, true exactly when the judgment is
   `green`. A boolean input by name is what v2's `when` admits (`:73`). Ruling 6's `CI-PASS`
   reads `ci_green: true`, and nothing else reads it. It is the table's reading of the engine's
-  judgment rather than of the seat's word: the word binding (ruling 3) makes `pass` and
-  `ci_green` agree, and if that binding were ever lifted, `CI-PASS-UNBOUND` parks a `pass`
+  judgment rather than of the result word: decide derives the word from the same judgment
+  (ruling 2's outcomes), so `pass` and `ci_green` agree, and if that derivation were ever lifted, `CI-PASS-UNBOUND` parks a `pass`
   without `green` on row `word-unbound` rather than proceeding. No second flag is needed: the park rule is
   unconditional on `fail`, and a flag for "not green" would be the same fact twice (0071 ruling
   5). It mints no contract.
 - **(b) No flag: route on the result word alone.** `(ci, pass)` to `classify` and `(ci, fail)`
   to the park, with no `when`. It is one input fewer, but the table would then admit a pass on
-  the seat's word, and the engine's judgment would guard it only through the binding. Not
-  recommended.
+  the word alone, and the engine's judgment would guard it only through decide's derivation of
+  the word. Not recommended.
 - **(c) A table contract of this decision's own, admitting a `<choice>_in` array.** Refused.
   Phase-machine v3 is decision 0109's, which is accepted, and its v3 is proposed in its slice
   0109c (`docs/decisions/0109-a-gate-s-re-visit-reads-what-changed.md:1500-1520`, `:1830`). This
@@ -1532,7 +1588,8 @@ member, `pull_request`, built in 0111b.
    accepted, or before 0111b mints. Test: `the_ci_evidence_files_are_pinned_by_digest`.
 2. **0111b — the observer and its trusted launch.** Files: a new `crates/brokkr-core/src/ci.rs`
    with `ci/observation.rs` and `ci/checks.rs` (the two contracts' types, parsed once with
-   unknown fields refused) and `ci/tests.rs`; `crates/brokkr-core/src/lib.rs`;
+   unknown fields refused; `ci/observation.rs` holds the closed `CiAttempt` outcome around the
+   observation, ruling 2) and `ci/tests.rs`; `crates/brokkr-core/src/lib.rs`;
    `crates/brokkr-core/src/policy/inputs.rs` (the seat-owned `ci_observation` record);
    `crates/brokkr-runtime/src/bundle.rs` (load and pin `ci-checks.json`, refuse it on a non-exec
    seat, the pinned interpreter and tools, the allow-list, and the observer credential's
@@ -1601,8 +1658,11 @@ member, `pull_request`, built in 0111b.
      `an_observer_tool_under_the_worktree_refuses_before_the_spawn`;
      `a_bare_interpreter_name_refuses_to_compile`;
    - the result channel and environment:
-     `a_replaced_result_file_under_forge_results_is_ignored_and_the_stdout_observation_is_read`;
-     `an_observation_over_the_stdout_bound_refuses_as_observation_too_large`;
+     `a_replaced_result_file_under_forge_results_is_never_read_and_the_observation_comes_from_stdout`;
+     `the_driver_stops_reading_stdout_at_the_bound_plus_one_byte`;
+     `every_ci_attempt_outcome_is_reported_as_effect_succeeded_never_failed` (each row of ruling
+     2's outcome table, through the driver: the `CiAttempt` it reports, and no
+     `ResultStatus::Failed` on any);
      `a_non_utf8_observation_refuses_and_is_never_decoded_lossily`;
      `the_ci_site_journals_no_stderr_bytes`;
      `a_ci_seat_whose_layer_is_inside_the_worktree_refuses_at_start`;
@@ -1624,8 +1684,8 @@ member, `pull_request`, built in 0111b.
 3. **0111c — the judgment, the park rule and its readout.** Files: `crates/brokkr-core/src/ci/judge.rs`
    (`judge(observation, pinned)`, total, matching every conclusion and status word without a
    wildcard, 0071 ruling 2); `crates/brokkr-core/src/policy/inputs.rs` (the engine-owned
-   `ci_green` flag); `crates/brokkr-runtime/src/engine/decide.rs` (judge at decide, bind the
-   word, and write `ci_green`); the park's reason for a `ci` park, naming the gate's rule, the
+   `ci_green` flag); `crates/brokkr-runtime/src/engine/decide.rs` (judge at decide over the
+   `CiAttempt` outcome, derive the word, and write `ci_green`); the park's reason for a `ci` park, naming the gate's rule, the
    observation's digest and its true rows inside 256 bytes, in the engine's park path
    (`crates/brokkr-runtime/src/engine/cursor.rs:369` keeps writing `ruled`);
    `crates/brokkr-runtime/src/bundle/` (the refusals of ruling 6's routes); and the readout it
@@ -1673,7 +1733,6 @@ member, `pull_request`, built in 0111b.
      `a_sole_red_producer_mismatch_parks_as_producer_mismatch`;
      `a_status_context_in_the_forges_required_set_parks_as_status_required`;
      `a_forge_required_check_the_list_lacks_parks_as_required_set_disagrees`;
-     `an_untrusted_launch_parks_ruled_as_launch_untrusted_and_observes_nothing`;
    - the inventories, one test per list the observer reads, each with two cases, the last page
      unread and the list sealed as its overflow witness, every other list complete and every
      other row false, each expecting `CI-PARK` naming that list's row (`checks-incomplete` to
@@ -1707,8 +1766,23 @@ member, `pull_request`, built in 0111b.
      (the chief's r9 case: two open pull requests on one head, and the highest run uniquely
      associated with B, which a comparison against the observation's own number would admit:
      `association-unproven`);
-   - the word binding and the table: `a_pass_word_off_green_is_refused_and_never_reaches_ci_pass_unbound`;
-     `a_fail_word_on_green_is_refused`; `ci_green_is_true_exactly_on_green`;
+   - every attempt's outcome (ruling 2's outcome table), each driven through dispatch and the
+     fold over a test-only bundle, each asserting one `effect/started`, one `effect/succeeded`,
+     one `ci` decision, one `ruled` park at `CI-PARK` naming its row (`launch-untrusted` to
+     `result-file-present`) and the digest the outcome
+     table names, no `effect/failed`, no second attempt and no attempt-cap park:
+     `a_launch_refusal_parks_once_as_launch_untrusted_and_spawns_nothing` (the stub interpreter
+     records no exec);
+     `an_observer_past_its_deadline_is_killed_and_parks_once_as_observer_deadline`;
+     `an_observer_that_exits_non_zero_parks_once_as_observer_exited_with_no_second_attempt`;
+     `an_observer_with_no_stdout_parks_once_as_observation_absent`;
+     `an_observer_over_the_stdout_bound_parks_once_as_observation_too_large_naming_the_witness_digest`
+     (the digest is of the first 1 MiB);
+     `an_unreadable_observation_parks_once_as_observation_unreadable_naming_its_digest`;
+     `a_result_file_for_the_ci_attempt_is_never_read_and_parks_as_result_file_present`;
+     `the_park_digest_is_the_sha256_of_the_bytes_the_seat_record_seals`;
+   - the word and the table: `decide_derives_pass_exactly_on_green_and_fail_otherwise`;
+     `a_ci_attempt_carries_no_result_word_of_the_observers`; `ci_green_is_true_exactly_on_green`;
      `every_non_green_observation_parks_at_ci_park_with_no_seat_attempt_after_the_gates`
      (the gate's one exec attempt is journaled, and no `implement` or other model seat attempt
      follows it);
