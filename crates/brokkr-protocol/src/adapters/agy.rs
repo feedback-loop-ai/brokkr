@@ -63,9 +63,12 @@ const SETTINGS: &str = "--settings";
 /// without a word (`settings-unparsable-rule`), so no other is written.
 const RULE_FORMS: [&str; 2] = ["command(", "mcp("];
 
-/// The one name of the child's environment the engine owns for an agy
-/// seat: its HOME, which no seat binds (J1).
+/// The names of the child's environment the engine owns for an agy seat,
+/// which no seat binds: its HOME (J1), and its `PWD`, the resolved working
+/// directory agy walks up from (L2).
 const HOME: &str = "HOME";
+const PWD: &str = "PWD";
+const OWNED: [&str; 2] = [HOME, PWD];
 
 /// Why a seat is not launched. Each names what was written, never a value
 /// (AS3).
@@ -78,13 +81,14 @@ pub(super) enum LaunchError {
          declares no resume (#1200)"
     )]
     Resumed,
-    /// A seat binding the name would start agy under its own HOME, with
-    /// the operator's servers, plugins and hooks (J1).
+    /// A seat binding one of [`OWNED`] would start agy under its own HOME,
+    /// with the operator's servers, plugins and hooks (J1), or walking up
+    /// another `PWD` than the one the workspace check read (L2).
     #[error(
-        "refusing to invoke the agent CLI: the seat binds a secret named {HOME}, which the \
-         engine owns for an agy seat (#1200)"
+        "refusing to invoke the agent CLI: the seat binds a secret named {0}, which the engine \
+         owns for an agy seat (#1200)"
     )]
-    HomeBound,
+    Owned(&'static str),
     /// An option the driver does not admit, by its name up to its first
     /// `=` and never what follows (J6).
     #[error(
@@ -130,14 +134,13 @@ pub(super) enum LaunchError {
          resolved: {1}"
     )]
     Unrooted(String, #[source] std::io::Error),
-    /// A `.git` entry where git could name no top level: where agy's walk
-    /// ends is unknown (K4). Nothing of git's own text is quoted.
+    /// A resolved working directory the child's `PWD` cannot name, named
+    /// escaped (L2).
     #[error(
-        "refusing to invoke the agent CLI: the agy seat's workspace has a .git entry in {}, and \
-         git could not name its top level, so where agy's walk ends is unknown (#1200)",
-        .0.display()
+        "refusing to invoke the agent CLI: the agy seat's working directory resolves to {0}, \
+         which is not UTF-8, so the child's PWD cannot name it (#1200)"
     )]
-    Rootless(PathBuf),
+    Untexted(String),
     /// A workspace that carries agy's own configuration (G6).
     #[error(
         "refusing to invoke the agent CLI: the agy seat's workspace carries {}, which agy would \
@@ -153,12 +156,6 @@ pub(super) enum LaunchError {
         .1
     )]
     Unread(PathBuf, #[source] std::io::Error),
-    /// Git, asked once where the walk ends, could not be run.
-    #[error(
-        "refusing to invoke the agent CLI: git could not be asked for the agy seat's \
-         repository root: {0} (#1200)"
-    )]
-    Unasked(#[source] std::io::Error),
     #[error(
         "refusing to invoke the agent CLI: Antigravity CLI is signed out: run `agy` once and \
          sign in; the login is ~/.gemini/antigravity-cli/antigravity-oauth-token (#1200)"
@@ -357,8 +354,8 @@ pub(super) fn drive(
 
 /// The seat's composed arguments, the launch [`prepared`] from them under
 /// the driver's own temporary root, HOME and executable, and its turn,
-/// before the one mask. A seat that binds [`HOME`] is refused by the
-/// name, before anything else. Every launch is admitted cold.
+/// before the one mask. A seat that binds a name of [`OWNED`] is refused
+/// by the name, before anything else. Every launch is admitted cold.
 fn turn(
     pinned: super::Pinned<'_>,
     prompt: &str,
@@ -366,8 +363,9 @@ fn turn(
     bindings: &[secret::BoundSecret],
     emit: &mut impl FnMut(&Value),
 ) -> Result<Invocation, Ended> {
-    if bindings.iter().any(|binding| binding.name() == HOME) {
-        return Err(LaunchError::HomeBound.into());
+    let bound = |name: &&str| bindings.iter().any(|binding| binding.name() == *name);
+    if let Some(name) = OWNED.into_iter().find(bound) {
+        return Err(LaunchError::Owned(name).into());
     }
     let composed = super::composed_launch("agy", pinned.extra, input)?;
     let (temp, operator) = (std::env::temp_dir(), std::env::var_os("HOME"));
@@ -376,10 +374,18 @@ fn turn(
         operator: operator.as_deref().map(Path::new),
     };
     let brokkr = mcp::engine_executable();
-    let prepared = prepared(pinned.binary, &composed.extra, input, homes, &brokkr);
     // The HOME lives until the turn ends.
-    let (home, launch) = prepared?;
-    invoke((&launch, &home), input, prompt, bindings, emit)
+    let prepared = prepared(pinned.binary, &composed.extra, input, homes, &brokkr)?;
+    invoke(&prepared, input, prompt, bindings, emit)
+}
+
+/// What one launch runs with: the engine's HOME, the launch, and the
+/// resolved working directory the workspace check read, which the child
+/// runs in and its `PWD` names (L2).
+struct Prepared {
+    home: Home,
+    launch: Launch,
+    workdir: String,
 }
 
 /// The launch of `extra` before any provider work: SI2's one admission
@@ -394,19 +400,24 @@ fn prepared(
     input: &Value,
     homes: Homes<'_>,
     brokkr: &Path,
-) -> Result<(Home, Launch), LaunchError> {
+) -> Result<Prepared, LaunchError> {
     let edge = mcp::Edge::new(input);
     let isolated = mcp::isolated("agy", &edge, extra, false)?;
     let workdir = input.get("workdir").and_then(Value::as_str).unwrap_or("");
     let served = mcp::agy_set(&edge, &isolated, workdir)?;
     let launch = launch(bin, &isolated.argv, &served.rules)?;
-    home::unconfigured(workdir)?;
+    let workdir = home::unconfigured(workdir)?;
     let hooks = gate::hooks(brokkr, !served.rules.is_empty())?;
     let written = Written {
         mcp: &served.document,
         hooks: &hooks,
     };
-    Ok((home::made(homes, written)?, launch))
+    let home = home::made(homes, written)?;
+    Ok(Prepared {
+        home,
+        launch,
+        workdir,
+    })
 }
 
 /// Run one agy turn under `home`: the prompt on stdin, every line of its
@@ -420,17 +431,22 @@ fn prepared(
 /// own and with its words alone, as qoder's late path does: they pass the
 /// bindings in [`drive`], and carry no stderr (K8).
 fn invoke(
-    (launch, home): (&Launch, &Home),
+    prepared: &Prepared,
     input: &Value,
     prompt: &str,
     bindings: &[secret::BoundSecret],
     emit: &mut impl FnMut(&Value),
 ) -> Result<Invocation, Ended> {
+    let Prepared {
+        home,
+        launch,
+        workdir,
+    } = prepared;
     let mut fold = AgyFold::new(&launch.pin, bindings);
-    let workdir = input.get("workdir").and_then(Value::as_str).unwrap_or("");
     let mut transcript = Transcript::resolve(TranscriptKind::None)?;
-    // The engine's HOME, set on the child last, after the bindings (J1).
-    let owned = [(HOME, home.path())];
+    // The engine's HOME and PWD, set on the child last, after the bindings
+    // (J1, L2); the child runs in the directory its PWD names.
+    let owned = [(HOME, home.path()), (PWD, workdir.as_str())];
     let line = stdin_line(prompt);
     let fed = spawn_fed_in(&launch.command, &line, (workdir, &owned), bindings)?;
     let mut session_meta = Map::new();
@@ -441,11 +457,26 @@ fn invoke(
         }
     })?;
     transcript.finish(&mut session_meta, &mut *emit);
+    concluded(fold, ended, session_meta, input, bindings)
+}
+
+/// The invocation of a turn read to `ended`, judged by `fold`: a stdout
+/// that could not be read to its end is the turn's fault (L3), and the
+/// verdict is read once.
+fn concluded(
+    mut fold: AgyFold<'_>,
+    ended: Turn,
+    session_meta: Map<String, Value>,
+    input: &Value,
+    bindings: &[secret::BoundSecret],
+) -> Result<Invocation, Ended> {
     let Turn {
         exit_code,
         captured,
+        unread,
         ..
     } = ended;
+    fold.unreadable(unread);
     // Read unmasked so no binding erases the marker, and only matched (J4).
     let signed_out = fold.signed_out() || Observed::of(captured.bytes()).said(fold::SIGNED_OUT);
     let verdict = fold.verdict(exit_code, signed_out);

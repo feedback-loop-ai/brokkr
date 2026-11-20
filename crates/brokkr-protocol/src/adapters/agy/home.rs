@@ -18,16 +18,12 @@
 //!
 //! The workspace's own servers cannot be shut out: the CLI reads
 //! `.agents/mcp_config.json` and `.agents/plugins/` from the working
-//! directory and each directory above it up to its git root, and nothing
-//! above that root or above a directory in no repository (`iso-02`,
-//! `iso-05`, `iso-06`); a workspace hook ran in a workspace nobody trusted
-//! and approved its own command (`ambient-workspace-hook`). The walk ends
-//! at a `.git` file, whatever it says (`git-root-junk-dot-git-file`), or at
-//! the root git names, and not at a `.git` directory git does not take for a
-//! repository (`git-root-linked-worktree`, `git-root-nested-repository`,
-//! `git-root-empty-dot-git-dir`). Where git names no root and a `.git`
-//! entry stands above, where agy's walk ends is unknown, and the launch is
-//! refused (K4). So a workspace that carries any of them is refused before
+//! directory and directories above it (`iso-02`, `iso-05`, `iso-06`); a
+//! workspace hook ran in a workspace nobody trusted and approved its own
+//! command (`ambient-workspace-hook`). Where that walk ends is agy's, and
+//! the record measures it (`git-root-*`); no code here mirrors it. Every
+//! directory above the working directory is checked instead (L1), so a
+//! workspace that carries any of them anywhere above it is refused before
 //! the HOME is made.
 //!
 //! The session tree holds the engine's records, its owner's name and its
@@ -35,10 +31,9 @@
 //! operator's shares a directory with them (K7).
 
 use std::ffi::OsString;
-use std::os::unix::ffi::OsStringExt;
+use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use serde_json::Value;
 
@@ -72,8 +67,9 @@ const CONFIG: &str = ".gemini/config";
 /// agy's own state and configuration, and the user's agent configuration.
 const UNLINKED: [&str; 2] = [".gemini", ".agents"];
 
-/// What a workspace may not carry, from the working directory up to where
-/// agy's walk ends: the configuration agy starts or runs from a workspace.
+/// What a workspace may not carry, in the working directory or any
+/// directory above it: the configuration agy starts or runs from a
+/// workspace.
 const WORKSPACE_CONFIGURATION: [&str; 3] = [
     ".agents/mcp_config.json",
     ".agents/plugins",
@@ -194,64 +190,32 @@ fn furnished(
 
 /// Refuse a launch in `workdir` whose workspace carries agy's own
 /// configuration: an entry at any of [`WORKSPACE_CONFIGURATION`], of any
-/// type, in the working directory or a directory above it up to where
-/// agy's walk ends, inclusive, or in the working directory alone where
-/// nothing ends it (`iso-06`). The first path found is named, and a path
-/// that cannot be read refuses, naming it. This check has one home.
-pub(super) fn unconfigured(workdir: &str) -> Result<(), LaunchError> {
-    unconfigured_with("git", workdir)
-}
-
-/// [`unconfigured`] asking `git` for the working directory's top level.
-pub(super) fn unconfigured_with(git: &str, workdir: &str) -> Result<(), LaunchError> {
+/// type, in the resolved working directory or any directory above it, to
+/// the filesystem root (L1). Wherever agy's walk ends, the directories it
+/// reads are among these, so the check keeps no notion of where it ends and
+/// asks git nothing. The first path found is named, and a path that cannot
+/// be read refuses, naming it. This check has one home.
+///
+/// What it admits is the resolved path, the one the child runs in and its
+/// `PWD` names (L2): agy walks up `PWD` (`pwd-logical`, `pwd-physical`),
+/// so the walk checked here is the one it takes.
+pub(super) fn unconfigured(workdir: &str) -> Result<String, LaunchError> {
     let given = if workdir.is_empty() { "." } else { workdir };
-    let workdir = std::fs::canonicalize(given)
+    let resolved = std::fs::canonicalize(given)
         .map_err(|error| LaunchError::Unrooted(given.to_string(), error))?;
-    let ancestors: Vec<&Path> = workdir.ancestors().collect();
-    let end = walk_end(git, &ancestors)?;
-    for dir in &ancestors[..=end] {
+    for dir in resolved.ancestors() {
         if let Some(path) = configured(dir)? {
             return Err(LaunchError::Configured(path));
         }
     }
-    Ok(())
+    texted(resolved)
 }
 
-/// Where agy's walk up `ancestors` ends, as an index into them (K4): at the
-/// first `.git` file, or at the top level git names, asked once. Where git
-/// names none, a `.git` entry of any other type below the first `.git` file
-/// refuses, naming its directory: agy's walk ends somewhere git could not
-/// say. With neither, the working directory is read alone (`iso-06`).
-fn walk_end(git: &str, ancestors: &[&Path]) -> Result<usize, LaunchError> {
-    let top = top_level(git, ancestors[0])?;
-    for (at, dir) in ancestors.iter().enumerate() {
-        let dot_git = entry(&dir.join(".git"))?;
-        let found = (dot_git.as_ref()).map(std::fs::Metadata::is_file);
-        if Some(*dir) == top.as_deref() || found == Some(true) {
-            return Ok(at);
-        }
-        if top.is_none() && found.is_some() {
-            return Err(LaunchError::Rootless(dir.to_path_buf()));
-        }
-    }
-    Ok(0)
-}
-
-/// The top level git names for `workdir`, asked once, or none where git
-/// names none, for whatever reason it gives; nothing of git's text is kept
-/// but the path it names. A git that cannot be run refuses (J8): the walk
-/// would not know where agy's ends.
-fn top_level(git: &str, workdir: &Path) -> Result<Option<PathBuf>, LaunchError> {
-    let mut asked = Command::new(git);
-    asked
-        .args(["rev-parse", "--show-toplevel"])
-        .current_dir(workdir);
-    let out = crate::process::spawned::output(&mut asked).map_err(LaunchError::Unasked)?;
-    // One path and its newline: the path may end in a space.
-    let mut named = out.stdout;
-    named.pop();
-    Ok((out.status.success() && !named.is_empty())
-        .then(|| PathBuf::from(OsString::from_vec(named))))
+/// `resolved` as the text the shared spawn and the child's `PWD` take, or
+/// refused naming it escaped where it is not UTF-8.
+fn texted(resolved: PathBuf) -> Result<String, LaunchError> {
+    let escaped = |raw: OsString| raw.as_bytes().escape_ascii().to_string();
+    (resolved.into_os_string().into_string()).map_err(|raw| LaunchError::Untexted(escaped(raw)))
 }
 
 /// The first of [`WORKSPACE_CONFIGURATION`] present in `dir`, whatever it

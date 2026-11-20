@@ -265,9 +265,27 @@ fn an_engine_run_of_a_signed_out_agy_journals_no_piece_of_the_sign_in_url() {
         return;
     }
     let (_home, root) = root();
+    // The recorded sign-in line, its link built from pieces no journal
+    // holds otherwise: its host, each path segment and each query value.
+    let host = "qz7signin.brokkr-host.test";
+    let segments = ["o7kpath", "zq4auth"];
+    let values = ["xq7offline", "qv81client", "wz3challenge", "kq5state"];
+    let query = ["access_type", "client_id", "code_challenge", "state"]
+        .iter()
+        .zip(values)
+        .map(|(key, value)| format!("{key}={value}"))
+        .collect::<Vec<_>>()
+        .join("&");
+    let built = format!("https://{host}/{}?{query}", segments.join("/"));
+    let recorded = SIGNED_OUT_STDERR
+        .lines()
+        .find(|line| line.contains("https://"));
+    let link = recorded.unwrap().trim();
+    let stderr = SIGNED_OUT_STDERR.replace(link, &built);
+    assert!(stderr.contains(&built) && !stderr.contains(link));
     let ending = Ending {
         stdout: SIGNED_OUT,
-        stderr: SIGNED_OUT_STDERR,
+        stderr: &stderr,
         code: 1,
     };
     let journal = serde_json::to_string(&engine_run_ending(&root, &ending)).unwrap();
@@ -276,22 +294,16 @@ fn an_engine_run_of_a_signed_out_agy_journals_no_piece_of_the_sign_in_url() {
         "the driver's printed stderr is journaled: {journal}"
     );
     assert!(
-        journal.contains("not_logged_in: Antigravity CLI is signed out"),
+        journal.contains(
+            "not_logged_in: agy's result had status ERROR; Antigravity CLI is signed out"
+        ),
         "{journal}"
     );
-    // The sign-in line's own words, its client, challenge and state among
-    // them: none is journaled.
-    let (_, link) = SIGNED_OUT_STDERR.split_once("https://").unwrap();
-    let link = link.lines().next().unwrap();
-    let words: Vec<&str> = (link.split(|c: char| !c.is_ascii_alphanumeric()))
-        .filter(|word| word.len() > 8)
-        .collect();
-    assert!(words.len() > 5, "{words:?}");
-    let journaled: Vec<&&str> = words
-        .iter()
-        .filter(|word| journal.contains(**word))
-        .collect();
-    assert_eq!(journaled, Vec::<&&str>::new());
+    let scheme_and_host = format!("https://{host}");
+    let pieces = [host, scheme_and_host.as_str()].into_iter();
+    let pieces = pieces.chain(segments).chain(values);
+    let journaled: Vec<&str> = pieces.filter(|piece| journal.contains(piece)).collect();
+    assert_eq!(journaled, Vec::<&str>::new());
 }
 
 /// A print timeout behind work, end to end: the attempt ends with no
@@ -312,8 +324,8 @@ fn an_engine_run_of_an_agy_print_timeout_journals_its_words() {
     };
     let events = engine_run_ending(&root, &ending);
     let journal = serde_json::to_string(&events).unwrap();
-    let words = "print_timeout: agy exited 3 at its own print timeout, which this launch never \
-                 asks for; agy's result had status ERROR";
+    let words = "print_timeout: agy's result had status ERROR; agy exited 3 at its own print \
+                 timeout, which this launch never asks for";
     assert!(journal.contains(words), "{journal}");
     let succeeded = (events.iter()).any(|event| event["type"] == "effect/succeeded");
     assert!(!succeeded, "{journal}");

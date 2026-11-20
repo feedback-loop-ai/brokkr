@@ -19,7 +19,9 @@
 //!   `state` is not reliable (`ERROR` in `denied-command-default`, `DONE`
 //!   in `denied-command-accept-edits`), so it is never read for one.
 //! - The verdict is read in one order ([`AgyFold::verdict`], K2), and every
-//!   failure and refusal that follows a typed result names its status (K5).
+//!   failure and refusal that follows a typed result names the first
+//!   result's status before its own words, a fault or none before it (K5,
+//!   L5).
 //! - Every word of agy's the driver's words name is masked whole through
 //!   the seat's bindings first, and only then escaped and bounded (K3).
 //! - The answer is a `SUCCESS` result's non-empty `response`, carried in
@@ -254,8 +256,9 @@ pub(super) enum Failure {
     Denied(Vec<String>),
     #[error("agy's turn ended SUCCESS with an empty response, which is not an answer (#1200)")]
     Empty,
-    #[error("agy's turn ended with status {0}, which is not an answer (#1200)")]
-    Status(String),
+    /// A status that is not `SUCCESS`, which the failure's [`Seen`] names.
+    #[error("agy's turn ended with a status that is not SUCCESS, which is not an answer (#1200)")]
+    Unsuccessful,
     #[error("agy's turn ended with no result, so it gave no answer (#1200)")]
     Unended,
     #[error("agy exited {0}, so the turn gave no answer (#1200)")]
@@ -268,33 +271,39 @@ pub(super) enum Failure {
     Unread(Event),
     #[error("agy wrote a line that is not UTF-8, so the turn gave no answer (#1200)")]
     NotText,
+    /// A stdout that failed to read before its end (L3).
+    #[error("agy's stdout could not be read to its end, so the turn gave no answer (#1200)")]
+    Unreadable,
 }
 
 /// What the turn's result and exit add to the words of a verdict that is
-/// no answer: the result's status where one came (K5), and the print
-/// timeout where a fault outranked it (K2).
+/// no answer: the first result's status where one came, named before the
+/// verdict's own words (K5, L5), and the print timeout where a fault agy
+/// ended its turn behind outranked it, named after them (K2, L4).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(super) struct Seen {
     pub(super) status: Option<String>,
     pub(super) timed_out: bool,
 }
 
-impl fmt::Display for Seen {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl Seen {
+    /// `words` with what was seen around them: the status first, so no
+    /// bound applied behind it cuts it, and the timeout last.
+    fn around(&self, words: impl fmt::Display) -> String {
         let status = (self.status.as_ref())
-            .map(|status| format!("; agy's result had status {status}"))
+            .map(|status| format!("agy's result had status {status}; "))
             .unwrap_or_default();
         let timed_out = match self.timed_out {
             true => "; agy then exited 3 at its own print timeout",
             false => "",
         };
-        write!(formatter, "{status}{timed_out}")
+        format!("{status}{words}{timed_out}")
     }
 }
 
 /// A failure, with what the turn's result and exit add to its words.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
-#[error("{failure}{seen}")]
+#[error("{}", .seen.around(&self.failure))]
 pub(super) struct Failed {
     pub(super) failure: Failure,
     pub(super) seen: Seen,
@@ -337,8 +346,10 @@ pub(super) struct AgyFold<'a> {
     turns: u64,
     /// Whether any known row arrived.
     rows: bool,
-    /// Whether a result's error said agy is signed out.
+    /// Whether the first typed result's error said agy is signed out.
     signed_out: bool,
+    /// The first typed result's status, [`named`], fault or none (L5).
+    status: Option<String>,
     ending: Option<Ending>,
     fault: Option<Fault>,
 }
@@ -352,6 +363,7 @@ impl<'a> AgyFold<'a> {
             turns: 0,
             rows: false,
             signed_out: false,
+            status: None,
             ending: None,
             fault: None,
         }
@@ -381,8 +393,8 @@ impl<'a> AgyFold<'a> {
     /// which stops the harness: init named another model than the pin, or a
     /// step arrived before init named one. A line that is not UTF-8, a
     /// known row out of its turn's order and one that does not type are the
-    /// turn's fault; once one is seen, rows are only read for the
-    /// signed-out words.
+    /// turn's fault; once one is seen, the first typed result still gives
+    /// its status and its signed-out words, and nothing else is read.
     pub(super) fn read(
         &mut self,
         line: &[u8],
@@ -406,8 +418,9 @@ impl<'a> AgyFold<'a> {
                 .get_or_insert(Fault::Failed(Failure::Unread(event)));
             return Ok(());
         };
-        if let Row::Result(result) = &row {
-            self.signed_out |= result.signed_out();
+        if let (Row::Result(result), None) = (&row, &self.status) {
+            self.signed_out = result.signed_out();
+            self.status = Some(self.named(result.status.word()));
         }
         match (&self.fault, &self.ending) {
             (Some(_), _) => Ok(()),
@@ -490,13 +503,22 @@ impl<'a> AgyFold<'a> {
         self.ending = Some(result);
     }
 
+    /// A stdout read to its end where `unread` is false; otherwise the
+    /// turn's fault, behind any seen earlier (L3).
+    pub(super) fn unreadable(&mut self, unread: bool) {
+        if unread {
+            self.fault.get_or_insert(Fault::Failed(Failure::Unreadable));
+        }
+    }
+
     /// The turn's verdict once agy exited `exit_code`, `signed_out_on_stderr`
     /// where its stderr held the signed-out words: the first that applies
     /// (K2). A fault; agy signed out; its print timeout; any other non-zero
     /// exit; a status that is not `SUCCESS`; no result; a pin no init
-    /// confirmed; an empty response; and only then the answer.
+    /// confirmed; an empty response; and only then the answer. A refusal
+    /// the driver stopped agy at reads no exit of agy's (L4).
     pub(super) fn verdict(&self, exit_code: i32, signed_out_on_stderr: bool) -> Verdict {
-        let status = (self.ending.as_ref()).map(|ending| self.named(ending.status.word()));
+        let status = self.status.clone();
         if let Some(fault) = &self.fault {
             let timed_out = exit_code == 3;
             return match fault {
@@ -520,7 +542,7 @@ impl<'a> AgyFold<'a> {
             return self.unended();
         };
         match &ending.status {
-            Status::Other(status) => failed(Failure::Status(self.named(status)), Seen::default()),
+            Status::Other(_) => failed(Failure::Unsuccessful, seen),
             Status::Success if !self.pinned() => Verdict::Refused(unconfirmed(&self.pin, &seen)),
             Status::Success if ending.response.trim().is_empty() => {
                 failed(Failure::Empty, Seen::default())
@@ -595,9 +617,10 @@ fn substituted(pin: &str, served: &str) -> PreSessionRefusal {
     refusal_reason("model_substituted", None, Some(&words))
 }
 
-/// A refusal under `token` in `words`, with what the turn's result added.
+/// A refusal under `token` in `words`, with what the turn's result added,
+/// its status first, so the bound on a refusal's words never cuts it (L5).
 fn refused(token: &str, words: &str, seen: &Seen) -> PreSessionRefusal {
-    refusal_reason(token, None, Some(&format!("{words}{seen}")))
+    refusal_reason(token, None, Some(&seen.around(words)))
 }
 
 /// The refusal of a seat no init row confirmed the model of.

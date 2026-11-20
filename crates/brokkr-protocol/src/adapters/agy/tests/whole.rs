@@ -3,8 +3,6 @@
 //! words are masked before they are cut, and a root git cannot name refuses
 //! the launch.
 
-use std::os::unix::fs::PermissionsExt;
-
 use super::judged::{bound, bound_input, driven, driven_with, sent, stream, strings, Driven};
 use super::*;
 use fold::Event;
@@ -46,7 +44,7 @@ fn a_line_that_is_not_utf8_fails_the_turn_and_the_reading_goes_on() {
     .join(&b'\n');
     assert_eq!(
         read(&lone, FLASH).fold.verdict(0, false),
-        failed(Failure::NotText, None, false)
+        failed(Failure::NotText, Some("SUCCESS"), false)
     );
     let denial = r#"{"event":"result","result":{"status":"SUCCESS","denied_actions":[{"action":"command"}]}}"#;
     let behind = [
@@ -111,7 +109,7 @@ fn a_known_row_that_repeats_a_key_the_fold_reads_fails() {
     for (rows, event) in cases {
         assert_eq!(
             read(stream(&rows), FLASH).fold.verdict(0, false),
-            failed(Failure::Unread(event), None, false),
+            failed(Failure::Unread(event), Some("SUCCESS"), false),
             "{rows:?}"
         );
     }
@@ -159,8 +157,8 @@ fn the_verdict_is_the_first_rank_that_applies() {
     };
     let signed = r#","error":"authentication failed or timed out""#;
     let denied = r#","denied_actions":[{"action":"command"}]"#;
-    let denial = "agy stopped the turn at a denial of command: a turn agy stopped at a denial \
-                  is not an answer (#1200); agy's result had status SUCCESS";
+    let denial = "agy's result had status SUCCESS; agy stopped the turn at a denial of command: \
+                  a turn agy stopped at a denial is not an answer (#1200)";
     let both = format!("{denied}{signed}");
     let cases: [(&str, Vec<String>, i32, bool, String); 9] = [
         (
@@ -189,14 +187,14 @@ fn the_verdict_is_the_first_rank_that_applies() {
             vec![row("ERROR", "", "")],
             3,
             false,
-            format!("{PRINT_TIMEOUT_WORDS}; agy's result had status ERROR"),
+            status_first(PRINT_TIMEOUT_WORDS, "ERROR"),
         ),
         (
             "4 over 5",
             vec![row("WAITING", "x", "")],
             5,
             false,
-            "agy exited 5, so the turn gave no answer (#1200); agy's result had status WAITING"
+            "agy's result had status WAITING; agy exited 5, so the turn gave no answer (#1200)"
                 .into(),
         ),
         (
@@ -204,7 +202,7 @@ fn the_verdict_is_the_first_rank_that_applies() {
             vec![row("WAITING", "", "")],
             0,
             false,
-            "agy's turn ended with status WAITING, which is not an answer (#1200)".into(),
+            WAITING_WORDS.into(),
         ),
         (
             "6",
@@ -292,6 +290,10 @@ fn a_bound_value_agy_echoed_whole_is_masked_before_any_word_is_cut() {
     }
 }
 
+/// The failure of a turn that ended `WAITING` and exited 0.
+const WAITING_WORDS: &str = "agy's result had status WAITING; agy's turn ended with a status \
+                             that is not SUCCESS, which is not an answer (#1200)";
+
 /// A result's status is named at any exit, through the driver (K5).
 #[test]
 fn a_result_names_its_status_at_any_exit() {
@@ -300,17 +302,13 @@ fn a_result_names_its_status_at_any_exit() {
         (
             "ERROR",
             1,
-            "agy exited 1, so the turn gave no answer (#1200); agy's result had status ERROR",
+            "agy's result had status ERROR; agy exited 1, so the turn gave no answer (#1200)",
         ),
-        (
-            "WAITING",
-            0,
-            "agy's turn ended with status WAITING, which is not an answer (#1200)",
-        ),
+        ("WAITING", 0, WAITING_WORDS),
         (
             "WAITING",
             5,
-            "agy exited 5, so the turn gave no answer (#1200); agy's result had status WAITING",
+            "agy's result had status WAITING; agy exited 5, so the turn gave no answer (#1200)",
         ),
     ];
     for (status, code, words) in cases {
@@ -334,84 +332,6 @@ fn a_passed_over_line_before_a_bad_flag_exit_leaves_the_bad_flag_refusal() {
         turn.refusal.map(|r| r.words().to_string()),
         Some(bad_flag.into())
     );
-}
-
-/// A fake `git` under `dir` that prints nothing and exits `code`.
-fn fake_git(dir: &Path, code: i32) -> std::path::PathBuf {
-    let bin = dir.join(format!("bin-{code}"));
-    std::fs::create_dir_all(&bin).unwrap();
-    super::super::super::tests::executable(&bin, "git", &format!("#!/bin/sh\nexit {code}\n"))
-}
-
-/// Where git names no top level and a `.git` entry stands at or above the
-/// working directory, the launch is refused naming that directory, and
-/// quoting nothing of git's: a real git that cannot read `.git/config`, a
-/// git that exits 128, and one that exits 0 naming nothing (K4).
-#[test]
-fn a_git_that_names_no_top_level_below_a_dot_git_refuses_naming_its_directory() {
-    let root = tempfile::tempdir().unwrap();
-    let canonical = root.path().canonicalize().unwrap();
-    let repo = repository(&canonical.join("repo"));
-    let workdir = sub(&repo.join("crates"));
-    let config = repo.join(".git/config");
-    std::fs::set_permissions(&config, std::fs::Permissions::from_mode(0o000)).unwrap();
-    let unread = home::unconfigured(workdir.to_str().unwrap());
-    std::fs::set_permissions(&config, std::fs::Permissions::from_mode(0o600)).unwrap();
-    assert!(
-        matches!(&unread, Err(LaunchError::Rootless(dir)) if *dir == repo),
-        "{unread:?}"
-    );
-    let said = unread.unwrap_err().to_string();
-    for git_words in ["fatal", "config", "Permission", "denied"] {
-        assert!(!said.contains(git_words), "{said}");
-    }
-    let lone = sub(&canonical.join("lone"));
-    std::fs::create_dir(lone.parent().unwrap().join(".git")).unwrap();
-    for code in [128, 0] {
-        let git = fake_git(&canonical, code);
-        let refused = home::unconfigured_with(git.to_str().unwrap(), lone.to_str().unwrap());
-        let above = lone.parent().unwrap();
-        assert!(
-            matches!(&refused, Err(LaunchError::Rootless(dir)) if dir == above),
-            "{code}: {refused:?}"
-        );
-    }
-    std::os::unix::fs::symlink("nowhere", lone.join(".git")).unwrap();
-    let git = fake_git(&canonical, 128);
-    let at_workdir = home::unconfigured_with(git.to_str().unwrap(), lone.to_str().unwrap());
-    assert!(
-        matches!(&at_workdir, Err(LaunchError::Rootless(dir)) if *dir == lone),
-        "{at_workdir:?}"
-    );
-}
-
-/// Where git names no top level and no `.git` entry stands above, the
-/// working directory is read alone (`iso-06`, K4).
-#[test]
-fn a_git_that_names_no_top_level_with_no_dot_git_reads_the_working_directory_alone() {
-    let config = ".agents/mcp_config.json";
-    for refuses in [true, false] {
-        let root = tempfile::tempdir().unwrap();
-        let canonical = root.path().canonicalize().unwrap();
-        let workdir = sub(&canonical.join("lone"));
-        let planted = plant(
-            if refuses {
-                &workdir
-            } else {
-                workdir.parent().unwrap()
-            },
-            config,
-        );
-        let git = fake_git(&canonical, 128);
-        let checked = home::unconfigured_with(git.to_str().unwrap(), workdir.to_str().unwrap());
-        match refuses {
-            true => assert!(
-                matches!(&checked, Err(LaunchError::Configured(path)) if *path == planted),
-                "{checked:?}"
-            ),
-            false => assert!(checked.is_ok(), "{checked:?}"),
-        }
-    }
 }
 
 /// An operator HOME that holds `.owner.lock` at its top is linked like any
@@ -448,15 +368,15 @@ fn an_operator_home_holding_an_owner_lock_is_linked_and_the_launch_runs() {
     assert!(world.homes_gone());
 }
 
-/// Each of agy's workspace files, at the working directory and at its git
-/// root, refuses through the no-spawn route: the fake, which records its
-/// start, never runs (K9).
+/// Each of agy's workspace files, at the working directory and in the
+/// directory above it, refuses through the no-spawn route: the fake, which
+/// records its start, never runs (K9).
 #[test]
-fn each_workspace_configuration_at_the_workdir_or_the_root_never_starts_agy() {
+fn each_workspace_configuration_at_the_workdir_or_above_never_starts_agy() {
     for relative in CONFIGURATION {
         for at_root in [false, true] {
             let mut world = World::new();
-            let repo = repository(&world.seat().canonicalize().unwrap());
+            let repo = world.seat().canonicalize().unwrap();
             let workdir = sub(&repo);
             let bin = fake_agy(&world.seat(), TOOL_LESS, "", true, 0);
             let planted = plant(if at_root { &repo } else { &workdir }, relative);

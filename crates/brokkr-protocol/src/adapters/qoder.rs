@@ -449,6 +449,7 @@ fn invoke(
         exit_code,
         stopped,
         captured,
+        ..
     } = turn;
     // Read unmasked so no binding erases a marker (U2), and only matched:
     // no refusal, error or late message below carries a byte of it.

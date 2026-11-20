@@ -572,27 +572,26 @@ and its git identity. An entry whose name is not UTF-8 is skipped.
 **A workspace that carries agy's configuration is refused.** Agy starts
 the servers and plugins of a workspace's `.agents/` and runs its hooks in
 a workspace nobody trusted, and a workspace hook approved its own
-command. So from the working directory upward, an entry of any type at
-`<dir>/.agents/mcp_config.json`, `<dir>/.agents/plugins` or
-`<dir>/.agents/hooks.json` refuses the launch before the CLI starts,
-naming the path. The walk ends where agy's ends, inclusive:
+command. So an entry of any type at `<dir>/.agents/mcp_config.json`,
+`<dir>/.agents/plugins` or `<dir>/.agents/hooks.json`, where `<dir>` is
+the resolved working directory or any directory above it up to the
+filesystem root, refuses the launch before the CLI starts, naming the
+path. Agy's own walk up stops sooner, at a repository root the record
+measures (`git-root-*`), but the directories it reads are always among
+these, so the driver asks git nothing. The cost is a refusal for a path
+agy would not have read; it names the path, and removing it admits the
+seat.
 
-- at the first directory that holds a `.git` file, whatever it says
-  (`git-root-junk-dot-git-file`);
-- otherwise at the top level git names, asked once (`git rev-parse
-  --show-toplevel`). A `.git` directory git does not take for a repository
-  does not end it (`git-root-linked-worktree`, `git-root-nested-repository`,
-  `git-root-empty-dot-git-dir`);
-- where git names no top level, for any reason it gives, and the working
-  directory or a directory above it holds a `.git` entry of any type, the
-  launch is refused, naming that directory and saying git could not name
-  its top level. None of git's own text is quoted;
-- where git names none and no `.git` entry stands above, the working
-  directory is checked alone (`iso-06`).
+The child runs in the resolved working directory, and its `PWD` is that
+path, set after the seat's secret bindings as HOME is. Agy walks up from
+`PWD`, not from the directory it runs in (`pwd-logical`, `pwd-physical`),
+so the walk the driver checked is the one agy takes. A seat that binds a
+secret named `PWD` is refused before the CLI starts, as one that binds
+`HOME` is.
 
-A path the walk cannot read refuses, naming it, and so does a git that
-cannot be run. A working directory that cannot be resolved refuses, named
-as the seat gave it.
+A path the check cannot read refuses, naming it. A working directory that
+cannot be resolved refuses, named as the seat gave it, and one that
+resolves to a path that is not UTF-8 refuses, naming it escaped.
 
 **The gate.** Agy's native web search runs with no rule, and no rule
 stops it. One `PreToolUse` hook in the engine's HOME does, on every tool,
@@ -628,23 +627,33 @@ line that is not JSON, is passed over and changes nothing.
 **The verdict.** The first of these that applies is the turn's verdict:
 
 1. a fault: a row out of order, a known row that does not type, a line
-   that is not UTF-8, a substituted model, or a denial. Behind exit 3 its
-   words also say agy timed out;
-2. the signed-out words, in a result or on stderr, whatever else the
-   result says;
-3. exit 3, agy's print timeout;
+   that is not UTF-8, a stdout that could not be read to its end, a
+   substituted model, or a denial. Where agy ended the turn itself behind
+   a failure and exited 3, its words also say agy timed out. A turn the
+   driver stopped at a refusing row has no exit of agy's: whatever agy
+   exits with afterwards is the driver's doing, so the refusal stands as
+   written and says nothing of a timeout;
+2. the signed-out words, in the first result or on stderr, whatever else
+   the result says;
+3. exit 3, agy's print timeout, which the launch never asks for. Behind a
+   turn already folded it ends the seat with no result, as every late
+   refusal does;
 4. any other non-zero exit. Before a confirmed init, exit 1 is a launch
-   refusal and exit 2 with no known row a refused option; otherwise it
-   fails naming the exit code;
-5. a result whose status is not `SUCCESS`, failing naming it;
+   refusal, such as an unknown model or an effort the model lacks, and
+   exit 2 with no known row a refused option agy does not define;
+   otherwise it fails naming the exit code;
+5. a result whose status is not `SUCCESS`, such as `ERROR`, `CANCELED`,
+   `INTERRUPTED`, `INVALID`, `WAITING` or `RUNNING`;
 6. no result;
 7. a `SUCCESS` no init confirmed, or an empty response;
 8. the answer.
 
-Every failure and refusal that follows a result names its status. A word
-of agy's the driver names, a status, a denied action or the served model,
-is masked through the seat's secrets whole first, and only then escaped
-and cut to 40 characters.
+Every failure and refusal names the status of the turn's first result,
+whether or not a fault came before it, and names it before its own words,
+so no bound on a refusal's words cuts it; a later result changes nothing.
+A word of agy's the driver names, a status, a denied action or the served
+model, is masked through the seat's secrets whole first, and only then
+escaped and cut to 40 characters.
 
 **The served model is the pinned one, or the seat is refused.** Init's
 `model` must be exactly the pin, or the seat is refused before any row
@@ -656,14 +665,7 @@ input count includes it, output, thinking as reasoning output, and the
 cache read. Agy reports no price and no cache-write count, so both read
 "not reported", never 0.
 
-**Refusals.** An `ERROR` result with exit 1 before any turn, an unknown
-model or an effort the model lacks, is a launch refusal. Exit 2 with no
-known row is a launch refusal on an option agy does not define. Exit
-3 is agy's own print timeout, which the launch never asks for, whatever
-rows came before it; behind a turn already folded it ends the seat with
-no result, as every late refusal does. A result whose status is not
-`SUCCESS`, such as `ERROR`, `CANCELED`, `INTERRUPTED`, `INVALID`,
-`WAITING` or `RUNNING`, fails naming it, up to 40 characters. No
+**What leaves.** No
 refusal, error or late message quotes agy's stderr or its `error` text.
 A failure, and a refusal behind work, leave with their words alone.
 Agy's stderr is still recorded as evidence, its escape sequences
@@ -1183,7 +1185,7 @@ stands and nothing here is claimed. The evidence is
 | `lanetally` | Cold and replacement without hands, through the wrapper itself: launcher sha256 `b886c95ab275956bfef3ba0d9e6c617ec0878abdbddbd7369d2fe27903205dfb` running LaneTally's session-wrapper.sh at 4614bb7, sha256 `ecac09b98a39eeb618812e4d5838c35f0b9ed48482d345befed4f198fbc325d7`, over Claude Code 2.1.287 (cold) and 2.1.308 (replacement). | Process reads; store read is `unsupported`, and native write is `unsupported` cold and unmeasured on replacement. A different wrapper is a different measurement. |
 | `exec` | `inapplicable`: no model MCP surface. | — |
 | `qoder` (example) | Cold and replacement without hands: Qoder CLI 1.1.92, against planted user, local, project and plugin sentinels (Q07, Q10, Q11, Q14, Q15 in [`qoder-cli-1-1.md`](../evidence/adapters/qoder-cli-1-1.md#mcp-isolation-si2)). Every launch carries `--strict-mcp-config --mcp-config <the engine's file> --setting-sources ""`: either flag alone still started a planted server. | Native write, store read and process read: Qoder's permission check refused the attempts, and that check is not an isolation mechanism. No boxed shape, so a site that boxes its hands refuses the seat. A managed or enterprise MCP configuration. |
-| `agy` (example) | Cold and replacement without hands: Antigravity CLI 1.5.13, against planted user, plugin, workspace, parent, workspace-plugin and added-directory sentinels (`iso-01` to `iso-06` in [`agy-cli-1-5.md`](../evidence/adapters/agy-cli-1-5.md#mcp-isolation-si2)). Every launch runs under an engine HOME of its own, which started none of the user's servers, and a workspace carrying `<dir>/.agents/mcp_config.json`, `<dir>/.agents/plugins` or `<dir>/.agents/hooks.json` up to its git root is refused before spawn, because agy starts those in a workspace nobody trusted (`iso-02`). | Native write, store read and process read: the record's host has no terminal sandbox. No boxed shape, so a site that boxes its hands refuses the seat. macOS. |
+| `agy` (example) | Cold and replacement without hands: Antigravity CLI 1.5.13, against planted user, plugin, workspace, parent, workspace-plugin and added-directory sentinels (`iso-01` to `iso-06` in [`agy-cli-1-5.md`](../evidence/adapters/agy-cli-1-5.md#mcp-isolation-si2)). Every launch runs under an engine HOME of its own, which started none of the user's servers, and a workspace carrying `<dir>/.agents/mcp_config.json`, `<dir>/.agents/plugins` or `<dir>/.agents/hooks.json` in the working directory or any directory above it is refused before spawn, because agy starts those in a workspace nobody trusted (`iso-02`). | Native write, store read and process read: the record's host has no terminal sandbox. No boxed shape, so a site that boxes its hands refuses the seat. macOS. |
 
 A shape's `measured_on.version` is not compared with the version of
 the harness installed: a measurement stays applied after the binary

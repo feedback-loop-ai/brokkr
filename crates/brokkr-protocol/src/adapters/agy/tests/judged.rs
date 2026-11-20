@@ -66,35 +66,45 @@ pub(super) fn driven_with(
     }
 }
 
-/// A seat that binds `HOME` is refused by the name before spawn; with the
-/// refusal passed by, the child's HOME is still the engine's (J1).
+/// A seat that binds `HOME` or `PWD` is refused by the name before spawn,
+/// and before any HOME is made, with no operator HOME to make one from;
+/// with the refusal passed by, the child's HOME and `PWD` are still the
+/// engine's (J1, L2).
 #[test]
-fn a_seat_that_binds_home_is_refused_and_its_child_home_is_the_engines() {
-    let value = "/srv/the-operators-own-home";
-    let bindings = [bound("HOME", value)];
-    let refused = driven((TOOL_LESS, "", 0), FLASH, &bindings);
-    let words = refused.turn.map(drop).unwrap_err();
-    assert_eq!(words, LaunchError::HomeBound.to_string());
-    assert!(
-        words.contains("HOME") && !words.contains("operators-own"),
-        "{words}"
-    );
-    assert!(!refused.started);
-    let mut world = World::new();
-    let bin = fake_agy(&world.seat(), TOOL_LESS, "", false, 0);
-    world.set(&bin);
-    let input = world.input(None);
-    let temp = std::env::temp_dir();
-    let operator = world.path("operator");
-    let homes = Homes {
-        temp: &temp,
-        operator: Some(&operator),
-    };
-    let (binary, extra) = (bin.to_string_lossy(), argv(&["--model", FLASH]));
-    let (home, launch) = prepared(&binary, &extra, &input, homes, Path::new("/b")).unwrap();
-    let invoked = invoke((&launch, &home), &input, "prompt", &bindings, &mut |_| {});
-    assert!(invoked.is_ok(), "{:?}", invoked.map(drop));
-    assert_eq!(world.recorded("home"), home.path());
+fn a_seat_that_binds_home_or_pwd_is_refused_and_its_child_keeps_the_engines() {
+    for name in ["HOME", "PWD"] {
+        let value = "/srv/the-operators-own-home";
+        let bindings = [bound(name, value)];
+        let refused = driven((TOOL_LESS, "", 0), FLASH, &bindings);
+        let words = refused.turn.map(drop).unwrap_err();
+        assert_eq!(words, LaunchError::Owned(name).to_string());
+        assert!(
+            words.contains(name) && !words.contains("operators-own"),
+            "{words}"
+        );
+        assert!(!refused.started);
+        let mut world = World::new();
+        let bin = fake_agy(&world.seat(), TOOL_LESS, "", false, 0);
+        world.set(&bin);
+        let input = world.input(None);
+        // A seat that got past the check would be refused signed out.
+        world.env.remove("HOME");
+        let start = drive_on(&bin, &input, &bindings);
+        assert_eq!(start, Err(LaunchError::Owned(name).to_string()));
+        let (binary, extra) = (bin.to_string_lossy(), argv(&["--model", FLASH]));
+        let temp = std::env::temp_dir();
+        let operator = world.path("operator");
+        let homes = Homes {
+            temp: &temp,
+            operator: Some(&operator),
+        };
+        let prepared = prepared(&binary, &extra, &input, homes, Path::new("/b")).unwrap();
+        let invoked = invoke(&prepared, &input, "prompt", &bindings, &mut |_| {});
+        assert!(invoked.is_ok(), "{:?}", invoked.map(drop));
+        assert_eq!(world.recorded("home"), prepared.home.path());
+        let resolved = world.seat().canonicalize().unwrap();
+        assert_eq!(Path::new(&world.recorded("pwd")), resolved);
+    }
 }
 
 /// Every string value of `value`, keys aside.
@@ -240,14 +250,19 @@ fn a_success_behind_a_denial_fails_naming_the_denial() {
     let mut world = World::new();
     let bin = fake_agy(&world.seat(), &behind, "", true, 0);
     world.set(&bin);
-    let input = world.input(None);
+    let turn = drive_on(&bin, &world.input(None), &bindings);
+    assert_eq!(turn, Err(denial.to_string()));
+}
+
+/// One seat of `bin` pinned to [`FLASH`], run by [`drive`] on `input`
+/// under `bindings`.
+fn drive_on(bin: &Path, input: &Value, bindings: &[secret::BoundSecret]) -> Result<(), String> {
     let (binary, extra) = (bin.to_string_lossy(), argv(&["--model", FLASH]));
     let pinned = super::super::super::Pinned {
         binary: &binary,
         extra: &extra,
     };
-    let turn = drive(pinned, false, "p", &input, &bindings, &mut |_| {}).map(drop);
-    assert_eq!(turn, Err(denial.to_string()));
+    drive(pinned, false, "p", input, bindings, &mut |_| {}).map(drop)
 }
 
 /// One launch is one turn, and a known row that does not type fails it; an
@@ -258,10 +273,11 @@ fn a_turn_out_of_its_order_or_a_known_row_that_does_not_type_fails() {
     let lines: Vec<&str> = TOOL_LESS.lines().collect();
     let (init, step, result) = (lines[0], lines[1], lines[lines.len() - 1]);
     let verdict = |rows: &[&str]| read(stream(rows), FLASH).fold.verdict(0, false);
-    // Each failure, and the status of a result folded before it.
+    // Each failure, and the status of the first typed result, before the
+    // fault or behind it (L5).
     let ok = Some("SUCCESS");
     let cases: [(&[&str], Failure, Option<&str>); 8] = [
-        (&[init, init, step, result], Failure::Reinitialized, None),
+        (&[init, init, step, result], Failure::Reinitialized, ok),
         (&[TOOL_LESS, step], Failure::Behind(Event::StepUpdate), ok),
         (&[TOOL_LESS, result], Failure::Behind(Event::Result), ok),
         (&[result, init], Failure::Behind(Event::Init), ok),
@@ -284,12 +300,12 @@ fn a_turn_out_of_its_order_or_a_known_row_that_does_not_type_fails() {
         (
             &[r#"{"event":"init","init":5}"#, TOOL_LESS],
             Failure::Unread(Event::Init),
-            None,
+            ok,
         ),
         (
             &[init, r#"{"event":"step_update"}"#, step, result],
             Failure::Unread(Event::StepUpdate),
-            None,
+            ok,
         ),
     ];
     for (rows, failure, status) in cases {
@@ -359,7 +375,7 @@ fn a_print_timeout_ends_as_its_refusal_whatever_rows_came_before() {
     let after_answer = refusal_of(TOOL_LESS, 3);
     assert_eq!(
         after_answer.words(),
-        format!("{PRINT_TIMEOUT_WORDS}; agy's result had status SUCCESS")
+        status_first(PRINT_TIMEOUT_WORDS, "SUCCESS")
     );
     let timed_out = driven((PRINT_TIMEOUT, PRINT_TIMEOUT_STDERR, 3), FLASH, &[]);
     assert_eq!(timed_out.turn.map(drop), Err(timeout.words().to_string()));
@@ -394,7 +410,7 @@ fn a_status_that_is_not_success_is_named_by_it() {
             .verdict(0, false);
         assert_eq!(
             verdict,
-            failed(Failure::Status(name.into()), None, false),
+            failed(Failure::Unsuccessful, Some(name), false),
             "{status}"
         );
     }

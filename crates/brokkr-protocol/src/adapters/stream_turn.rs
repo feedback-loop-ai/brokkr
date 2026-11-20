@@ -22,11 +22,21 @@ use crate::PreSessionRefusal;
 pub(super) const STOPPED_AT_REFUSAL: i32 = 1;
 
 /// How a stream turn ended: its exit, the refusal the driver stopped it
-/// at, and its stderr, as captured and not yet read.
+/// at, whether its stdout failed to read before its end, and its stderr,
+/// as captured and not yet read.
 pub(super) struct Turn {
     pub(super) exit_code: i32,
     pub(super) stopped: Option<PreSessionRefusal>,
+    pub(super) unread: bool,
     pub(super) captured: CapturedStderr,
+}
+
+/// How the reading of a stdout ended: the refusal it stopped at, and
+/// whether a read failed before end of file.
+#[derive(Debug, PartialEq)]
+pub(super) struct Read {
+    pub(super) stopped: Option<PreSessionRefusal>,
+    pub(super) unread: bool,
 }
 
 /// What a driver makes of one line of its harness's stdout.
@@ -41,31 +51,18 @@ pub(super) enum Line {
 
 /// The turn of the harness `fed`, each line of its stdout handed to `line`
 /// as its bytes, without its line ending, to the end of the stream or a
-/// stdout that can no longer be read. A line `line` stops at stops the
-/// harness there, and the turn reads [`STOPPED_AT_REFUSAL`].
+/// stdout that can no longer be read, which the turn reports. A line
+/// `line` stops at stops the harness there, and the turn reads
+/// [`STOPPED_AT_REFUSAL`].
 pub(super) fn streamed_lines(
     fed: (Spawned, StderrCapture),
-    mut line: impl FnMut(&[u8]) -> Line,
+    line: impl FnMut(&[u8]) -> Line,
 ) -> Result<Turn, String> {
     let (mut child, stderr) = fed;
     let stdout = child.stdout.take().expect("piped");
-    let mut stopped = None;
     // The reader is dropped before the wait, so a harness still writing
     // meets a closed pipe rather than a full one.
-    {
-        let mut reader = std::io::BufReader::new(stdout);
-        let mut bytes = Vec::new();
-        while reader.read_until(b'\n', &mut bytes).unwrap_or(0) > 0 {
-            match line(ended(&bytes)) {
-                Line::Read => bytes.clear(),
-                Line::Ended => break,
-                Line::Stopped(refused) => {
-                    stopped = Some(refused);
-                    break;
-                }
-            }
-        }
-    }
+    let Read { stopped, unread } = read_lines(std::io::BufReader::new(stdout), line);
     let status = match stopped {
         Some(_) => conclude_harness(&mut child)?,
         None => io_context(child.wait(), "agent CLI did not conclude")?,
@@ -78,8 +75,42 @@ pub(super) fn streamed_lines(
     Ok(Turn {
         exit_code,
         stopped,
+        unread,
         captured,
     })
+}
+
+/// Each line of `reader` handed to `line`, as [`streamed_lines`] reads a
+/// stdout: to its end, a line `line` ends or stops at, or a read that
+/// fails, which ends the reading and is reported (L3).
+pub(super) fn read_lines(mut reader: impl BufRead, mut line: impl FnMut(&[u8]) -> Line) -> Read {
+    let mut bytes = Vec::new();
+    loop {
+        match reader.read_until(b'\n', &mut bytes) {
+            Ok(0) => break,
+            Ok(_) => {}
+            Err(_) => {
+                return Read {
+                    stopped: None,
+                    unread: true,
+                }
+            }
+        }
+        match line(ended(&bytes)) {
+            Line::Read => bytes.clear(),
+            Line::Ended => break,
+            Line::Stopped(refused) => {
+                return Read {
+                    stopped: Some(refused),
+                    unread: false,
+                }
+            }
+        }
+    }
+    Read {
+        stopped: None,
+        unread: false,
+    }
 }
 
 /// `bytes` without the `\n` that ends it and a `\r` before that, as
@@ -95,9 +126,17 @@ fn ended(bytes: &[u8]) -> &[u8] {
 /// and the turn reads [`STOPPED_AT_REFUSAL`].
 pub(super) fn streamed(
     fed: (Spawned, StderrCapture),
-    mut row: impl FnMut(Value) -> Result<(), PreSessionRefusal>,
+    row: impl FnMut(Value) -> Result<(), PreSessionRefusal>,
 ) -> Result<Turn, String> {
-    streamed_lines(fed, |bytes| {
+    streamed_lines(fed, json_rows(row))
+}
+
+/// [`streamed`]'s reading of one line: a JSON row handed to `row`, a line
+/// that is not JSON passed over, and one that is not UTF-8 ending it.
+pub(super) fn json_rows(
+    mut row: impl FnMut(Value) -> Result<(), PreSessionRefusal>,
+) -> impl FnMut(&[u8]) -> Line {
+    move |bytes| {
         let Ok(text) = std::str::from_utf8(bytes) else {
             return Line::Ended;
         };
@@ -108,5 +147,5 @@ pub(super) fn streamed(
             Ok(()) => Line::Read,
             Err(refused) => Line::Stopped(refused),
         }
-    })
+    }
 }
