@@ -209,7 +209,8 @@ fn inspect_and_seats_print_the_pages_by_their_own_entry_points() {
     };
     let seats = |run, json| {
         let mut out = Vec::new();
-        super::seats_with(dir.path(), seats_args(&db, run, json), &mut out, &look).unwrap();
+        let args = seats_args(&db, run, json);
+        super::seats_with(dir.path(), args, &mut out, &look, render::Style::detect_for).unwrap();
         printed(out)
     };
     for run in ["r1", "r2"] {
@@ -253,6 +254,40 @@ fn inspect_and_seats_print_the_pages_by_their_own_entry_points() {
         let expected = (inspect(run, json, None).unwrap(), seats(run, json));
         assert_eq!(printed, expected, "{run} {json}");
     }
+}
+
+/// `brokkr seats` keeps the width it had before the graph's tables
+/// (#1167): `COLUMNS` where it is set, else 80, and never the width the
+/// terminal measures, here 60 cells, which would cut its activity where
+/// main 5c0386f13 printed it whole.
+#[test]
+fn seats_is_sized_by_columns_else_eighty_and_never_by_the_terminal() {
+    let (dir, db, _store) = keyed_journal();
+    let seats = |columns: Option<&str>| {
+        let env = |name: &str| match name {
+            "COLUMNS" => columns.map(std::ffi::OsString::from),
+            "NO_COLOR" => Some("1".into()),
+            _ => None,
+        };
+        let style = |width| render::Style::detect_in(true, env, width, || Some(60));
+        let mut out = Vec::new();
+        let args = seats_args(&db, "r2", false);
+        super::seats_with(dir.path(), args, &mut out, &viewed, style).unwrap();
+        String::from_utf8(out).unwrap()
+    };
+    let block = |activity: &str| {
+        let head =
+            "  participant status  attempts turns cost tokens model boundary effort activity";
+        let row = "  s           working 1        1     —    —      —     —        —";
+        let note = "  model is the provider's claim, not proof · effort is configuration";
+        format!("seats\n{note}\n{head}\n{row}{activity}\n    transcript  —\n")
+    };
+    assert_eq!(
+        seats(None),
+        block("      WebSearch"),
+        "80, not the terminal's 60"
+    );
+    assert_eq!(seats(Some("60")), block(""), "COLUMNS where it is set");
 }
 
 /// Off a terminal, a response is written exactly, a byte that is not

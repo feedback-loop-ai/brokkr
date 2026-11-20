@@ -826,29 +826,45 @@ fn a_decomposed_accent_costs_no_cell_and_never_clamps_the_name_it_marks() {
     );
 }
 
+/// What the verb prints of a run in `dir` that entered `work` under a
+/// recipe gone from the shelf, on a terminal whose stdout measures
+/// `stdout` columns, under `NO_COLOR` as `no_color` gives it.
+fn verb_drawn(dir: &Path, no_color: Option<&str>, stdout: u16) -> String {
+    let args = GraphArgs {
+        recipe: Some("gone".into()),
+        realm: None,
+        range: Range::Week,
+        realms: None,
+        db: Some(dir.join("forge.db")),
+        json: false,
+    };
+    let env = |name: &str| match name {
+        "NO_COLOR" => no_color.map(OsString::from),
+        _ => None,
+    };
+    let style = |width| Style::detect_in(true, env, width, || Some(stdout));
+    graph_with(dir, args, style).unwrap()
+}
+
 #[test]
 fn no_color_turns_off_the_colour_a_terminal_would_otherwise_take() {
     let dir = tempfile::tempdir().unwrap();
     Journal::at(dir.path()).run("live", &json!({"bundle_name": "gone"}), &[entered("work")]);
-    let drawn = |no_color: Option<&str>| {
-        let args = GraphArgs {
-            recipe: Some("gone".into()),
-            realm: None,
-            range: Range::Week,
-            realms: None,
-            db: Some(dir.path().join("forge.db")),
-            json: false,
-        };
-        let env = |name: &str| match name {
-            "NO_COLOR" => no_color.map(OsString::from),
-            _ => None,
-        };
-        let style = || Style::detect_in(true, env, || Ok((120, 40)));
-        graph_with(dir.path(), args, style).unwrap()
-    };
+    let drawn = |no_color: Option<&str>| verb_drawn(dir.path(), no_color, 120);
     let plain = drawn(Some("1"));
     assert!(!plain.contains('\x1b'), "{plain:?}");
     let coloured = drawn(None);
     let header = "\x1b[1mSTATE  ENTERED  MEDIAN  P90          COST  TOKENS  CACHE\x1b[0m\n";
     assert!(coloured.contains(header), "{coloured:?}");
+}
+
+/// The verb sizes its tables by the stdout it writes to (#1167): with no
+/// `COLUMNS`, a 40-cell stdout narrows the gaps the default 80 keeps.
+#[test]
+fn the_verb_sizes_its_tables_by_the_stdout_it_writes_to() {
+    let dir = tempfile::tempdir().unwrap();
+    Journal::at(dir.path()).run("live", &json!({"bundle_name": "gone"}), &[entered("work")]);
+    let narrow = verb_drawn(dir.path(), Some("1"), 40);
+    let header = "\nSTATE ENTERED MEDIAN P90         COST TOKENS CACHE\n";
+    assert!(narrow.contains(header), "{narrow}");
 }

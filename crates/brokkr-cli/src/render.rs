@@ -19,8 +19,8 @@
 //! is the terminal twin of the console's fixed class allowlists, and it
 //! serves all three surfaces (decision 0014's TUI included).
 //!
-//! **Width.** `COLUMNS`, else the terminal's own columns, with a sane
-//! default, all column arithmetic
+//! **Width.** `COLUMNS` with a sane default (`brokkr graph` alone also
+//! measures the stdout it writes to), all column arithmetic
 //! saturating, all truncation on `char` boundaries. Without a
 //! Unicode-width dependency — forbidden by the ruling — CJK and emoji
 //! columns will misalign. That is stated, not pretended away.
@@ -37,9 +37,9 @@ mod inspect;
 mod style;
 pub(crate) mod table;
 
-pub(crate) use style::Style;
 #[cfg(test)]
-use style::{color_enabled, width_from};
+use style::{color_enabled, width_from, window_columns};
+pub(crate) use style::{Style, Width};
 
 const RESET: &str = "\x1b[0m";
 const DIM: &str = "\x1b[2m";
@@ -73,6 +73,13 @@ fn reorders(character: char) -> bool {
         | '\u{FEFF}')
 }
 
+/// A cell's width in `char`s, as the readouts that predate the graph's
+/// tables size and pad it: [`Safe::width`] and the seats block's column
+/// sizing both read it here, so the two cannot disagree (#1167).
+fn scalars(text: &str) -> usize {
+    text.chars().count()
+}
+
 impl Safe {
     pub(crate) fn new(text: &str) -> Safe {
         Safe(
@@ -89,7 +96,7 @@ impl Safe {
     /// Display width in `char`s — computed on the sanitized text, so a
     /// stripped escape sequence cannot claim invisible columns.
     pub(crate) fn width(&self) -> usize {
-        self.0.chars().count()
+        scalars(&self.0)
     }
 
     pub(crate) fn padded(&self, width: usize) -> String {

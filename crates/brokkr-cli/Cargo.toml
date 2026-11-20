@@ -78,8 +78,10 @@ ratatui = { workspace = true }
 # driver's no_new_privs. `signal-hook` (U9b1e) lets `broker serve` count the
 # SIGINT or SIGTERM its harness ends it by, so it closes its ledger: a direct
 # edge to the version brokkr-protocol already holds; no registry version moves.
+# `termios` (#1167) reads the window size of the stdout `brokkr graph` writes
+# to; crossterm already builds rustix with it, so no crate is added.
 [target.'cfg(unix)'.dependencies]
-rustix = { version = "1.1.4", default-features = false, features = ["event", "fs", "net", "process", "std", "thread"] }
+rustix = { version = "1.1.4", default-features = false, features = ["event", "fs", "net", "process", "std", "termios", "thread"] }
 signal-hook = "0.3.18"
 
 [dev-dependencies]

@@ -28,7 +28,7 @@ use crate::folder::Layout;
 use crate::recipes::listed;
 use crate::recipes::personal::ShelfPath;
 use crate::render::table::{table, Column};
-use crate::render::{Safe, Style};
+use crate::render::{Safe, Style, Width};
 use crate::{fleet_of, now_rfc3339, Exit, Invocation};
 
 #[derive(clap::Args)]
@@ -336,13 +336,18 @@ fn chosen(
 /// `brokkr graph`: the recipe's graph for the range ending now, in the
 /// style the terminal asks for.
 pub(crate) fn graph(workspace: &Path, args: GraphArgs) -> Result<ExitCode> {
-    print!("{}", graph_with(workspace, args, Style::detect)?);
+    print!("{}", graph_with(workspace, args, Style::detect_for)?);
     Ok(Exit::Completed.into())
 }
 
 /// The text `brokkr graph` prints, painted in the style `style` reads
-/// (#1167): the one seam its colour and width come through.
-fn graph_with(workspace: &Path, args: GraphArgs, style: impl FnOnce() -> Style) -> Result<String> {
+/// for [`Width::Stdout`] (#1167): the one seam its colour and width come
+/// through, and the one readout sized by the stdout it writes to.
+fn graph_with(
+    workspace: &Path,
+    args: GraphArgs,
+    style: impl FnOnce(Width) -> Style,
+) -> Result<String> {
     let (world, hearths) = fleet_of(workspace, args.realms, args.db, Invocation::resolve)?;
     let (realm, folder) = place(world.as_ref(), args.realm.as_deref(), workspace)?;
     let shelf = shelf(&folder)?;
@@ -359,7 +364,7 @@ fn graph_with(workspace: &Path, args: GraphArgs, style: impl FnOnce() -> Style) 
         now: &now,
     };
     let view = derive(&hearths, &compiles, &shelf, &asked)?;
-    shown(&view, args.json, |view| paint(view, &style()))
+    shown(&view, args.json, |view| paint(view, &style(Width::Stdout)))
 }
 
 /// The states table's columns: the name, then its figures (#1167).

@@ -6,6 +6,8 @@ use brokkr_view::{keeps_phase, lens_for, Scope};
 use serde_json::{json, Value};
 use std::ffi::OsString;
 
+use crate::tui::width_of;
+
 const T0: &str = "2026-01-01T00:00:00Z";
 const T1: &str = "2026-01-01T00:00:05Z";
 const T2: &str = "2026-01-01T00:02:03Z";
@@ -436,30 +438,75 @@ fn a_hostile_feature_and_result_token_render_as_inert_text() {
 
 // ------------------------------------------------------------- AC-23
 
-/// The width a terminal that is `tty` draws, under `columns`, when the
-/// terminal measures 60 by 24, or will not say.
-fn detected_width(tty: bool, columns: Option<&str>, measures: bool) -> usize {
+/// The width `width` sizes to, under `columns`, where stdout is a
+/// terminal as `tty` says and measures `stdout` columns.
+fn detected_width(width: Width, tty: bool, columns: Option<&str>, stdout: Option<u16>) -> usize {
     let env = |name: &str| match name {
         "COLUMNS" => columns.map(OsString::from),
         _ => None,
     };
-    let size: fn() -> std::io::Result<(u16, u16)> = match measures {
-        true => || Ok((60, 24)),
-        false => || Err(std::io::Error::other("no terminal")),
-    };
-    Style::detect_in(tty, env, size).width
+    Style::detect_in(tty, env, width, || stdout).width
 }
 
+/// `brokkr graph`'s width (#1167): a whole, nonzero `COLUMNS`, else the
+/// columns of the stdout it writes to, else 80. An 80-cell controlling
+/// terminal never reaches the seam: a 60-cell stdout sizes to 60.
 #[test]
-fn the_width_is_columns_else_the_terminals_own_else_the_default() {
-    assert_eq!(detected_width(true, Some("120"), true), 120, "COLUMNS wins");
-    assert_eq!(detected_width(true, None, true), 60, "the terminal's own");
-    assert_eq!(detected_width(true, None, false), 80, "it will not say");
-    assert_eq!(
-        detected_width(false, None, true),
-        80,
-        "stdout is no terminal"
-    );
+fn the_stdout_width_is_columns_else_stdouts_own_else_the_default() {
+    let stdout = |columns, measured| detected_width(Width::Stdout, true, columns, measured);
+    assert_eq!(stdout(Some("120"), Some(60)), 120, "COLUMNS wins");
+    assert_eq!(stdout(None, Some(60)), 60, "stdout's own, not the tty's");
+    for ignored in ["abc", "", "0", "-3", "1.5"] {
+        assert_eq!(stdout(Some(ignored), Some(60)), 60, "{ignored:?}");
+        assert_eq!(stdout(Some(ignored), None), 80, "{ignored:?}");
+    }
+    assert_eq!(stdout(None, Some(5)), 20, "clamped up");
+    assert_eq!(stdout(Some("100000"), Some(60)), 1000, "clamped down");
+    assert_eq!(stdout(None, Some(0)), 80, "a window of no columns");
+    assert_eq!(stdout(None, None), 80, "it will not say");
+    let off = detected_width(Width::Stdout, false, None, Some(60));
+    assert_eq!(off, 80, "stdout is no terminal");
+}
+
+/// Every other readout keeps main's width: `COLUMNS` where it is set,
+/// 0 clamped up as before, else 80, whatever stdout measures.
+#[test]
+fn the_columns_width_never_reads_the_terminal() {
+    let columns = |set| detected_width(Width::Columns, true, set, Some(60));
+    assert_eq!(columns(None), 80);
+    assert_eq!(columns(Some("abc")), 80);
+    assert_eq!(columns(Some("0")), 20);
+    assert_eq!(columns(Some("120")), 120);
+}
+
+/// A redirected stdout is measured by its own descriptor, which says
+/// nothing, whatever terminal controls the process: never /dev/tty.
+#[test]
+fn a_descriptor_that_is_no_terminal_measures_no_columns() {
+    let file = tempfile::tempfile().unwrap();
+    assert_eq!(window_columns(&file), None);
+    let detected = Style::detect_for(Width::Stdout).width;
+    assert!((20..=1000).contains(&detected), "{detected}");
+}
+
+/// A long run of combining marks before a suffix that must be cut costs
+/// no cell, and the cut is made in one walk: every scalar is measured
+/// once after the whole, never a prefix again (#1167).
+#[test]
+fn a_cell_is_cut_in_one_walk_however_many_marks_it_carries() {
+    let marks = "\u{301}".repeat(1000);
+    let text = format!("a{marks}bcdefgh");
+    assert_eq!(width_of(&text), 8);
+    assert_eq!(table::fit_by(&text, 4, width_of), format!("a{marks}bc…"));
+    let measured = std::cell::Cell::new(0);
+    let counting = |text: &str| {
+        measured.set(measured.get() + text.chars().count());
+        width_of(text)
+    };
+    assert_eq!(table::fit_by(&text, 4, counting), format!("a{marks}bc…"));
+    let kept = 1 + 1000 + 2;
+    assert_eq!(measured.get(), text.chars().count() + kept + 1);
+    assert_eq!(table::fit_by("abc", 3, width_of), "abc", "it fits");
 }
 
 #[test]

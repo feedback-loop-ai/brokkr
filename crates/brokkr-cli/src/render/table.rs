@@ -5,7 +5,7 @@
 
 use std::cmp::Reverse;
 
-use super::{push_line, tint, Safe, Style, BOLD};
+use super::{push_line, scalars, tint, Safe, Style, BOLD};
 use crate::tui::width_of;
 
 /// How a column's cells sit in it: text to the left, numbers to the right.
@@ -75,10 +75,10 @@ fn sized<R: AsRef<[Safe]>>(heads: &[&str], rows: &[R], measure: fn(&str) -> usiz
 }
 
 /// Each of the `heads`' columns as wide as its widest cell in `rows`, the
-/// header's included, in `char`s as the seats block pads them. A row may
-/// carry cells past the last sized column.
+/// header's included, in `char`s by the one measure the seats block pads
+/// with. A row may carry cells past the last sized column.
 pub(crate) fn widths<R: AsRef<[Safe]>>(heads: &[&str], rows: &[R]) -> Vec<usize> {
-    sized(heads, rows, |text| text.chars().count())
+    sized(heads, rows, scalars)
 }
 
 /// `over` cells given up from the text columns, one at a time from the
@@ -124,16 +124,26 @@ pub(crate) fn table(columns: &[Column], rows: &[Vec<Safe>], style: &Style) -> St
 /// decomposed accent costs nothing here (#1167). `max` is at least one,
 /// a header's width.
 fn fit(text: &str, max: usize) -> String {
-    if width_of(text) <= max {
+    fit_by(text, max, width_of)
+}
+
+/// [`fit`] by `measure`: the whole text measured once, then each scalar
+/// once, in one walk that stops where the next would pass the budget
+/// less the ellipsis, so no prefix is measured again (#1167).
+pub(super) fn fit_by(text: &str, max: usize, mut measure: impl FnMut(&str) -> usize) -> String {
+    if measure(text) <= max {
         return text.to_string();
     }
-    let kept: String = text
-        .chars()
-        .scan(String::new(), |seen, character| {
-            seen.push(character);
-            (width_of(seen) < max).then_some(character)
-        })
-        .collect();
+    let budget = max.saturating_sub(1);
+    let mut spent = 0;
+    let mut kept = String::new();
+    for character in text.chars() {
+        spent += measure(character.encode_utf8(&mut [0; 4]));
+        if spent > budget {
+            break;
+        }
+        kept.push(character);
+    }
     kept + "…"
 }
 
