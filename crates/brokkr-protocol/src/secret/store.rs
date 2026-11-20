@@ -39,6 +39,40 @@ pub(super) enum StoreError {
     MissingName { name: String, path: PathBuf },
 }
 
+/// Why the store was not written. Like `StoreError`, a cause names a path
+/// and an I/O error, never a binding's value or any byte of the store.
+#[derive(Debug, thiserror::Error)]
+pub(super) enum WriteRefusal {
+    #[error("cannot create {}: {source}", .parent.display())]
+    Create {
+        parent: PathBuf,
+        source: std::io::Error,
+    },
+    #[error("cannot stage secrets store {}: {source}", .path.display())]
+    Stage {
+        path: PathBuf,
+        source: std::io::Error,
+    },
+    #[error("cannot set secrets store mode: {source}")]
+    Mode { source: std::io::Error },
+    #[error("cannot write secrets store {}: {source}", .path.display())]
+    Write {
+        path: PathBuf,
+        source: std::io::Error,
+    },
+    /// tempfile's `PersistError` reads "failed to persist temporary file:
+    /// {error}"; only its I/O error is held, so the staged file it carries
+    /// is dropped, and removed, where the refusal is built.
+    #[error(
+        "cannot replace secrets store {}: failed to persist temporary file: {source}",
+        .path.display()
+    )]
+    Replace {
+        path: PathBuf,
+        source: std::io::Error,
+    },
+}
+
 /// Read the store behind `file`, which `path` only names in a cause.
 /// Refuses a store whose permissions are broader than 0600 — ssh's
 /// posture; a silent read of a world-readable file would make the

@@ -275,50 +275,51 @@ fn store_write_remove_and_empty_resolve_cover_refusal_boundaries() {
         store_parent(Path::new("/tmp/secrets.env")),
         Path::new("/tmp")
     );
-    assert_eq!(store_io::<()>(Ok(()), "ok".into()), Ok(()));
-    assert!(
-        store_io::<()>(Err(std::io::Error::other("no")), "context".into())
-            .unwrap_err()
-            .contains("context: no")
-    );
+    use store::WriteRefusal;
     let dir = tempfile::tempdir().unwrap();
     let injectable = dir.path().join("injectable.env");
     let entries: [(String, Secret); 1] = [("TOKEN".into(), Secret::new(b"long-enough".to_vec()))];
-    #[cfg(unix)]
-    assert!(write_store_with(
-        &injectable,
-        &entries,
-        |_, _| Err(std::io::Error::other("mode")),
-        write_store_entry,
-    )
-    .unwrap_err()
-    .contains("cannot set secrets store mode"));
-    #[cfg(unix)]
-    assert!(
+    let write = |path: &Path| write_store_with(path, &entries, set_store_mode, write_store_entry);
+    assert!(matches!(
+        write_store_with(
+            &injectable,
+            &entries,
+            |_, _| Err(std::io::Error::other("mode")),
+            write_store_entry,
+        ),
+        Err(WriteRefusal::Mode { .. })
+    ));
+    assert!(matches!(
         write_store_with(&injectable, &entries, set_store_mode, |_, _, _| Err(
             std::io::Error::other("write")
-        ),)
-        .unwrap_err()
-        .contains("cannot write secrets store")
-    );
+        )),
+        Err(WriteRefusal::Write { path, .. }) if path == injectable
+    ));
     let parent_file = dir.path().join("parent-file");
     std::fs::write(&parent_file, "not a directory").unwrap();
+    assert!(matches!(
+        write(&parent_file.join("secrets.env")),
+        Err(WriteRefusal::Create { parent, .. }) if parent == parent_file
+    ));
     assert!(store_set(&parent_file.join("secrets.env"), "TOKEN", "long-enough").is_err());
 
     let destination_directory = dir.path().join("destination-directory");
     std::fs::create_dir(&destination_directory).unwrap();
-    assert!(write_store(
-        &destination_directory,
-        &[("TOKEN".into(), Secret::new(b"long-enough".to_vec()))]
-    )
-    .is_err());
-    assert!(write_store(Path::new(""), &[]).is_err());
-    #[cfg(unix)]
-    assert!(write_store(
-        Path::new("/proc/forge-secrets.env"),
-        &[("TOKEN".into(), Secret::new(b"long-enough".to_vec()))]
-    )
-    .is_err());
+    assert!(matches!(
+        write(&destination_directory),
+        Err(WriteRefusal::Replace { path, .. }) if path == destination_directory
+    ));
+    assert!(matches!(
+        write_store_with(Path::new(""), &[], set_store_mode, write_store_entry),
+        Err(WriteRefusal::Replace { path, .. }) if path.as_os_str().is_empty()
+    ));
+    assert!(write_store(&destination_directory, &entries).is_err());
+    // Stage on Linux; on macOS `create_dir_all("/proc")` refuses first.
+    #[cfg(target_os = "linux")]
+    assert!(matches!(
+        write(Path::new("/proc/forge-secrets.env")),
+        Err(WriteRefusal::Stage { path, .. }) if path == Path::new("/proc/forge-secrets.env")
+    ));
 
     let directory = dir.path().join("read-as-directory");
     std::fs::create_dir(&directory).unwrap();
@@ -332,6 +333,52 @@ fn store_write_remove_and_empty_resolve_cover_refusal_boundaries() {
     let missing = dir.path().join("absent.env");
     assert!(!store_remove(&missing, "TOKEN").unwrap());
     assert!(resolve_bindings(&missing, &[]).unwrap().is_empty());
+}
+
+/// Each write refusal reads as the `format!` that built it did, tempfile's
+/// "failed to persist temporary file: " included in Replace.
+#[test]
+fn every_store_write_refusal_reads_as_it_always_has() {
+    use store::WriteRefusal;
+    let io = || std::io::Error::other("denied");
+    let path = || std::path::PathBuf::from("/store/secrets.env");
+    for (error, text) in [
+        (
+            WriteRefusal::Create {
+                parent: "/store".into(),
+                source: io(),
+            },
+            "cannot create /store: denied",
+        ),
+        (
+            WriteRefusal::Stage {
+                path: path(),
+                source: io(),
+            },
+            "cannot stage secrets store /store/secrets.env: denied",
+        ),
+        (
+            WriteRefusal::Mode { source: io() },
+            "cannot set secrets store mode: denied",
+        ),
+        (
+            WriteRefusal::Write {
+                path: path(),
+                source: io(),
+            },
+            "cannot write secrets store /store/secrets.env: denied",
+        ),
+        (
+            WriteRefusal::Replace {
+                path: path(),
+                source: io(),
+            },
+            "cannot replace secrets store /store/secrets.env: \
+             failed to persist temporary file: denied",
+        ),
+    ] {
+        assert_eq!(error.to_string(), text);
+    }
 }
 
 #[test]

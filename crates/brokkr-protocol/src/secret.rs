@@ -262,13 +262,6 @@ pub fn scan_secret_refs(text: &str) -> Result<Vec<String>, String> {
 // version control. Names ride bundles and digests; values live here.
 // ---------------------------------------------------------------------
 
-fn store_io<T>(result: std::io::Result<T>, context: String) -> Result<T, String> {
-    match result {
-        Ok(value) => Ok(value),
-        Err(error) => Err(format!("{context}: {error}")),
-    }
-}
-
 /// Parse the store at `path` through the one handle the typed reader
 /// checks and reads. The typed cause becomes text only here.
 fn read_store(path: &Path) -> Result<Vec<(String, Secret)>, String> {
@@ -310,20 +303,20 @@ fn write_store_with(
     entries: &[(String, Secret)],
     #[cfg(unix)] set_mode: impl Fn(&Path, u32) -> std::io::Result<()>,
     mut write_entry: impl FnMut(&mut std::fs::File, &str, &Secret) -> std::io::Result<()>,
-) -> Result<(), String> {
+) -> Result<(), store::WriteRefusal> {
+    use store::WriteRefusal;
     let parent = store_parent(path);
-    store_io(
-        std::fs::create_dir_all(&parent),
-        format!("cannot create {}", parent.display()),
-    )?;
+    let at = || path.to_path_buf();
+    let create = |source| WriteRefusal::Create {
+        parent: parent.clone(),
+        source,
+    };
+    std::fs::create_dir_all(&parent).map_err(create)?;
 
     let staged = tempfile::Builder::new()
         .prefix(".secrets.env.")
         .tempfile_in(&parent);
-    let mut tmp = store_io(
-        staged,
-        format!("cannot stage secrets store {}", path.display()),
-    )?;
+    let mut tmp = staged.map_err(|source| WriteRefusal::Stage { path: at(), source })?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -332,19 +325,18 @@ fn write_store_with(
         let mode = std::fs::metadata(path)
             .map(|m| m.permissions().mode() & 0o600)
             .unwrap_or(0o600);
-        store_io(
-            set_mode(tmp.path(), mode),
-            "cannot set secrets store mode".into(),
-        )?;
+        set_mode(tmp.path(), mode).map_err(|source| WriteRefusal::Mode { source })?;
     }
     for (name, secret) in entries {
-        store_io(
-            write_entry(tmp.as_file_mut(), name, secret),
-            format!("cannot write secrets store {}", path.display()),
-        )?;
+        write_entry(tmp.as_file_mut(), name, secret)
+            .map_err(|source| WriteRefusal::Write { path: at(), source })?;
     }
-    tmp.persist(path)
-        .map_err(|e| format!("cannot replace secrets store {}: {e}", path.display()))?;
+    // Only the I/O error is kept: the staged file drops here, as it did.
+    let replace = |e: tempfile::PersistError| WriteRefusal::Replace {
+        path: at(),
+        source: e.error,
+    };
+    tmp.persist(path).map_err(replace)?;
     Ok(())
 }
 
@@ -355,6 +347,8 @@ fn store_parent(path: &Path) -> std::path::PathBuf {
     }
 }
 
+/// Write `entries` to the store at `path`. The typed cause becomes text
+/// only here.
 fn write_store(path: &Path, entries: &[(String, Secret)]) -> Result<(), String> {
     write_store_with(
         path,
@@ -363,6 +357,7 @@ fn write_store(path: &Path, entries: &[(String, Secret)]) -> Result<(), String> 
         set_store_mode,
         write_store_entry,
     )
+    .map_err(|error| error.to_string())
 }
 
 /// `brokkr secrets set`: validate, then read-modify-write atomically.
