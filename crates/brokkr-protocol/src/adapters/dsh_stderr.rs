@@ -29,9 +29,9 @@ pub(super) fn before_reasoning(stderr: &str) -> &str {
 /// dsh 0.1.2-rc.1's headless profile streams the model's reasoning to
 /// stderr under a `dsh: reasoning:` line (measured 2026-09-04: one
 /// header, then the raw thinking text, until the harness's next `dsh: `
-/// line or the end of the stream). The driver's stderr tail is what a
-/// parked seat quotes into the journal, and a journal admits no
-/// reasoning text (decisions 0032 and 0034). So a reasoning block is
+/// line or the end of the stream). The driver's stderr tail is what the
+/// engine tells its own log of a failed seat (the journal names it by
+/// evidence alone, #1199), and admits no reasoning text (0032, 0034). So a reasoning block is
 /// replaced by one line that says it was there, and every harness line
 /// survives, because those are what a park needs to be read.
 pub(super) fn redact_dsh_reasoning(stderr: &str) -> String {

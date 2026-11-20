@@ -814,7 +814,7 @@ fn wrong_words_name_what_the_driver_did_and_its_deadline() {
     let failed = std::panic::catch_unwind(|| assert_eq!(error, "other words")).unwrap_err();
     let message = failed.downcast_ref::<String>().unwrap();
     for line in [
-        "\n  left: \"driver failed; stderr tail: \"\njournal:",
+        "\n  left: \"driver failed; driver stderr: empty\"\njournal:",
         "\nshims:\n  failed-driver.sh: [\"",
         " start\", \"",
         " accepted\", \"",

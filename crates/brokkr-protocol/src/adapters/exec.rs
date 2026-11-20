@@ -43,9 +43,9 @@ pub(super) fn invoke_exec(
     // Known-plaintext masking choke point (decision 0012, layer
     // 5), on RAW captured bytes before any string conversion.
     // stdout is captured-and-dropped today; stderr is re-emitted
-    // by run_seat and journaled as the stderr tail on failure —
-    // the path that fires exactly when a credentialed command
-    // prints the offending header.
+    // by run_seat and its tail told to the engine's own log on
+    // failure (the journal names it by evidence alone, #1199) —
+    // the path that fires when a credentialed command prints it.
     let stderr = secret::mask_bytes(&out.stderr, bindings);
     let stdout = secret::mask_bytes(&out.stdout, bindings);
     let state = input

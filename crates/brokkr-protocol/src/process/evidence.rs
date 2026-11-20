@@ -47,6 +47,54 @@ impl fmt::Display for Evidence {
     }
 }
 
+/// How many characters of a driver's stderr the engine tells its own
+/// stderr when an attempt fails or is indeterminate.
+const TOLD_CHARS: usize = 2000;
+
+/// A driver's retained stderr (`AttemptReport::stderr`). The journal
+/// names it only as [`Evidence`], never by a byte of its content
+/// (decision 0012, addendum of 2026-11-20, #1199): a harness can print a
+/// credential the seat does not bind, which no driver masks. Its masked
+/// tail goes to the engine's own stderr, which is never journaled.
+#[derive(Debug, Clone, Copy)]
+pub struct DriverStderr<'s>(&'s str);
+
+impl<'s> DriverStderr<'s> {
+    pub fn of(stderr: &'s str) -> Self {
+        DriverStderr(stderr)
+    }
+
+    /// `reason` as the journal carries it, this stderr named beside it
+    /// by evidence: "{reason}; driver stderr: …". Its tail is told to the
+    /// engine's own stderr under `attempt_id` as the reason is made.
+    pub fn named(&self, attempt_id: &str, reason: &str) -> String {
+        self.tell(attempt_id, &mut std::io::stderr().lock());
+        format!("{reason}; {self}")
+    }
+
+    /// The last [`TOLD_CHARS`] characters, as the driver masked them, each
+    /// line prefixed by `attempt_id`. Nothing where the driver said
+    /// nothing. A write the engine's stderr refuses is not the attempt's
+    /// failure, so it is dropped.
+    fn tell(&self, attempt_id: &str, out: &mut impl std::io::Write) {
+        let skip = self.0.chars().count().saturating_sub(TOLD_CHARS);
+        let tail: String = self.0.chars().skip(skip).collect();
+        for line in tail.lines() {
+            drop(writeln!(out, "{attempt_id}: driver stderr: {line}"));
+        }
+    }
+}
+
+impl fmt::Display for DriverStderr<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.0.is_empty() {
+            f.write_str("driver stderr: empty")
+        } else {
+            write!(f, "driver stderr: {}", Evidence::of(self.0.as_bytes()))
+        }
+    }
+}
+
 /// The class of the first refused byte.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FirstByte {

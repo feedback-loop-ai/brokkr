@@ -353,7 +353,7 @@ fn a_sequences_raised_deadline_names_the_floor_on_its_ending_step() {
         reason,
         "sequence step 'step': the seat's 10-second deadline: the shared-local floor host.json \
          declares for dsh/spark-glm; the seat's own limit is 5 seconds; its process tree is gone, \
-         and what it did is unknown; stderr tail: "
+         and what it did is unknown; driver stderr: empty"
     );
 }
 
@@ -537,7 +537,7 @@ fn a_sequence_with_the_seat_limit_governing_keeps_todays_words() {
     assert_eq!(
         reason,
         "sequence step 'step': attempt exceeded its 10s deadline and was killed; its process tree \
-         is gone, and what it did is unknown; stderr tail: "
+         is gone, and what it did is unknown; driver stderr: empty"
     );
 }
 

@@ -131,3 +131,40 @@ fn a_mismatched_field_is_named_by_its_evidence_beside_the_wanted_value() {
          (first byte: letter; sha256: 3c48773b404d8500), want 'v1'"
     );
 }
+
+/// A driver's stderr is named in a reason by its evidence and no byte of
+/// its content, an empty one in fixed words (#1199).
+#[test]
+fn a_reason_names_the_driver_stderr_by_evidence_alone() {
+    let stderr = DriverStderr::of("bad UNBOUND-SENTINEL-1199\n");
+    assert_eq!(
+        stderr.named("attempt-1", "agent CLI exited 3"),
+        "agent CLI exited 3; driver stderr: 26 bytes \
+         (first byte: letter; sha256: 64fce7ef828f2eb8)"
+    );
+    assert_eq!(
+        DriverStderr::of("").named("attempt-1", "agent CLI exited 3"),
+        "agent CLI exited 3; driver stderr: empty"
+    );
+}
+
+/// The tail the engine's stderr is told: its last 2000 characters, each
+/// line under the attempt id, cut on a character, nothing for nothing.
+#[test]
+fn the_told_tail_is_the_last_characters_each_line_under_the_attempt() {
+    let told = |stderr: &str| {
+        let mut out = Vec::new();
+        DriverStderr::of(stderr).tell("attempt-1", &mut out);
+        String::from_utf8(out).unwrap()
+    };
+    assert_eq!(
+        told("one\ntwo\n"),
+        "attempt-1: driver stderr: one\nattempt-1: driver stderr: two\n"
+    );
+    let long = ["dropped\n", &"é".repeat(2000)].concat();
+    assert_eq!(
+        told(&long),
+        ["attempt-1: driver stderr: ", &"é".repeat(2000), "\n"].concat()
+    );
+    assert_eq!(told(""), "", "nothing is told of nothing");
+}

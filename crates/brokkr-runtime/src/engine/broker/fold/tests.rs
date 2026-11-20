@@ -1073,7 +1073,7 @@ fn a_dispatched_driver_is_settled_by_its_broker_calls_before_its_result_is_admit
         assert_eq!(rows.len(), attributed + 1, "{ended:?}: the telemetry row");
         if ended == EventType::EffectFailed {
             let error = last.payload["error"].as_str().unwrap();
-            let cause = format!("{}; stderr tail: ", Refusal::Exec);
+            let cause = format!("{}; driver stderr: empty", Refusal::Exec);
             assert!(error.starts_with(&cause), "{error}");
         }
     }

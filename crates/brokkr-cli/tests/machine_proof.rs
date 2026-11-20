@@ -2908,12 +2908,13 @@ mod journal_invariant {
     use super::*;
 
     const SECRET_VALUE: &str = "tok3n+v4lue!R7x";
+    const SENTINEL: &str = "UNBOUND-SENTINEL-1199";
 
     /// A child that leaks the bound value through every listed channel:
     /// every needle encoding on stdout AND stderr (from needles.txt in
-    /// the workdir), plus the raw env value and its literal argv in the
-    /// result notes. `exit_code` distinguishes the succeeding proof from
-    /// the failing one (which exercises the stderr-tail journal path).
+    /// the workdir) and an unbound sentinel on stderr, plus the raw env
+    /// value and its literal argv in the result notes. `exit_code` tells
+    /// the succeeding proof from the failing one (the stderr path).
     fn leaky_script(exit_code: i32) -> String {
         format!(
             "#!/bin/sh\n\
@@ -2921,6 +2922,7 @@ mod journal_invariant {
              target=$(printf '%s\\n' \"$prompt\" | sed -n 's/^    \\(.*\\.json\\)$/\\1/p' | head -1)\n\
              cat needles.txt\n\
              cat needles.txt 1>&2\n\
+             echo {SENTINEL} 1>&2\n\
              printf '{{\"result\": \"complete\", \"notes\": \"argv=%s env=%s leaks=%s\"}}' \\\n\
                \"$1\" \"$API_TOKEN\" \"$(tr '\\n' ' ' < needles.txt)\" > \"$target\"\n\
              exit {exit_code}\n"
@@ -3076,21 +3078,22 @@ mod journal_invariant {
         );
     }
 
+    /// #1199: the journal names the child's stderr by evidence alone; the engine's stderr has its masked tail.
     #[test]
-    fn failing_leaky_child_keeps_the_stderr_tail_sealed() {
+    fn failing_leaky_child_keeps_its_stderr_out_of_the_journal() {
         let (ws, store, _) = stage(3);
         let (code, summary, stderr) = run_with_secrets(&ws, &store);
         assert_eq!(code, Some(2), "stderr: {stderr}");
         assert_eq!(summary["status"], "awaiting_operator");
         let reason = summary["park_reason"].as_str().unwrap();
-        assert!(reason.contains("exited 3"), "park reason: {reason}");
-        // The stderr tail rode the failure into the journal — masked.
-        assert!(
-            reason.contains("[secret:API_TOKEN]"),
-            "the masked stderr tail is the evidence: {reason}"
-        );
-        let run_id = Workspace::run_id(&stderr);
-        assert_journal_sealed(&ws, &run_id);
+        assert!(reason.contains("exited 3; driver stderr: "), "{reason}");
+        assert!(!reason.contains("[secret:API_TOKEN]"), "{reason}");
+        let told =
+            |said: &str| (stderr.lines()).any(|l| l.contains(&format!(": driver stderr: {said}")));
+        assert!(told(SENTINEL) && told("[secret:API_TOKEN]"), "{stderr}");
+        assert!(!stderr.contains(SECRET_VALUE), "{stderr}");
+        let journal = assert_journal_sealed(&ws, &Workspace::run_id(&stderr));
+        assert!(!contains(&journal, SENTINEL.as_bytes()), "{stderr}");
     }
 }
 

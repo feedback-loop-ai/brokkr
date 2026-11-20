@@ -119,7 +119,7 @@ fn the_witness_names_the_journal_the_shims_and_the_deadlines() {
     engine.drive().unwrap();
     let seen = witness(&engine, dir.path());
     for line in [
-        "\n  5 effect/failed\n    error: \"provider refused; stderr tail: \"\n    waits: [{",
+        "\n  5 effect/failed\n    error: \"provider refused; driver stderr: empty\"\n    waits: [{",
         "\n  6 effect/started\n  7 effect/succeeded\n",
         "\nshims:\n  all: [\"work:attempt:refuse\", \"work:probe\", \"work:attempt:succeed\"]\n  \
          work: [\"attempt:refuse\", \"probe\", \"attempt:succeed\"]\n",

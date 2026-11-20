@@ -1096,6 +1096,12 @@ pub fn brokkr_protocol::process::DriverProcess::probing(self) -> Self
 pub fn brokkr_protocol::process::DriverProcess::run_attempt(self, &str, &str, &str, &str, serde_json::value::Value, impl core::ops::function::FnMut(&serde_json::value::Value)) -> brokkr_protocol::AttemptReport
 pub fn brokkr_protocol::process::DriverProcess::run_attempt_resuming(self, &str, &str, &str, &str, serde_json::value::Value, core::option::Option<alloc::string::String>, impl core::ops::function::FnMut(&serde_json::value::Value)) -> brokkr_protocol::AttemptReport
 pub fn brokkr_protocol::process::DriverProcess::spawn(&[alloc::string::String], &std::path::Path, core::option::Option<core::time::Duration>, &brokkr_protocol::process::SpawnEnv) -> core::result::Result<Self, brokkr_protocol::process::SpawnError>
+pub struct brokkr_protocol::process::DriverStderr<'s>(_)
+impl<'s> brokkr_protocol::process::DriverStderr<'s>
+pub fn brokkr_protocol::process::DriverStderr<'s>::named(&self, &str, &str) -> alloc::string::String
+pub fn brokkr_protocol::process::DriverStderr<'s>::of(&'s str) -> Self
+impl core::fmt::Display for brokkr_protocol::process::DriverStderr<'_>
+pub fn brokkr_protocol::process::DriverStderr<'_>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub mod brokkr_protocol::secret
 pub struct brokkr_protocol::secret::BoundSecret
 impl brokkr_protocol::secret::BoundSecret

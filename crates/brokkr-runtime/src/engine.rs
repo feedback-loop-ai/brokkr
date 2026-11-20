@@ -1454,8 +1454,9 @@ impl Engine {
     }
 
     /// Conclude a single-driver attempt with its terminal effect event.
-    /// The stderr tail rides on failed/indeterminate outcomes; a spawn
-    /// failure has no stderr and carries none.
+    /// A failed or indeterminate outcome names the driver's stderr by
+    /// content-free evidence, its masked tail told to the engine's own
+    /// stderr (#1199); a spawn failure has no stderr and names none.
     fn conclude_single(
         &mut self,
         effect_id: &str,
@@ -1485,7 +1486,7 @@ impl Engine {
             DriverRun::Ran(report) => report,
         };
         let start_failure = failed_to_start(&report);
-        let stderr_tail = stderr_tail(&report.stderr);
+        let stderr = brokkr_protocol::process::DriverStderr::of(&report.stderr);
         let unproven = Unproven::seat(&report);
         match report.settled_outcome() {
             AttemptOutcome::Succeeded { result } => {
@@ -1494,7 +1495,7 @@ impl Engine {
                     json!({
                         "effect_id": effect_id,
                         "attempt_id": attempt_id,
-                        "error": format!("{refusal}; stderr tail: {stderr_tail}"),
+                        "error": stderr.named(attempt_id, &refusal),
                     })
                 })?;
             }
@@ -1502,7 +1503,7 @@ impl Engine {
                 let mut payload = json!({
                     "effect_id": effect_id,
                     "attempt_id": attempt_id,
-                    "error": format!("{error}; stderr tail: {stderr_tail}"),
+                    "error": stderr.named(attempt_id, &error),
                 });
                 if start_failure {
                     start_failure_fields(&mut payload, selection, vec![None]);
@@ -1525,7 +1526,7 @@ impl Engine {
                     json!(Indeterminate {
                         effect_id,
                         attempt_id,
-                        reason: format!("{reason}; stderr tail: {stderr_tail}"),
+                        reason: stderr.named(attempt_id, &reason),
                         unproven,
                     }),
                     Some(attempt_id.to_string()),
@@ -1640,7 +1641,7 @@ impl Engine {
     /// refuses that result under the seat-record fence (decision 0034,
     /// ruling 6), the failure the refusal is. The failed payload is the
     /// caller's to build, because each seat shape carries its own facts
-    /// on a failed attempt (a stderr tail, the sites that failed to
+    /// on a failed attempt (its stderr's evidence, the sites that failed to
     /// start); the closure receives the refusal's text and nothing else.
     fn append_succeeded(
         &mut self,
@@ -1666,7 +1667,7 @@ pub const OPERATOR_STOP_RULE: &str = "OPERATOR-STOP";
 
 /// A driver invocation that got as far as running, or one that never
 /// spawned. Spawn failures carry no stderr, and their terminal error
-/// grows no stderr tail — the distinction keeps event payloads exactly
+/// names no stderr evidence — the distinction keeps event payloads exactly
 /// as they were before this enum existed.
 enum DriverRun {
     SpawnFailed(String),
@@ -2956,17 +2957,6 @@ fn tag_member(checkpoint: Value, member: &str) -> Value {
         }
         other => json!({"member": member, "value": other}),
     }
-}
-
-fn stderr_tail(stderr: &str) -> String {
-    stderr
-        .chars()
-        .rev()
-        .take(2000)
-        .collect::<String>()
-        .chars()
-        .rev()
-        .collect()
 }
 
 /// The first abstract definition or tool dialect a compiled `capabilities`

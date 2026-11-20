@@ -1,4 +1,5 @@
 mod attempt_correlation;
+mod driver_stderr;
 mod early_ending;
 mod entry;
 mod park_cause;
@@ -2036,8 +2037,6 @@ fn panel_sequence_and_aggregation_cover_all_terminal_shapes() {
         &json!({"secrets":["TOKEN"], "secrets_file":"path"}),
     );
     assert_eq!(secret_input["secrets"], json!(["TOKEN"]));
-    let long = format!("start{}", "x".repeat(2200));
-    assert_eq!(stderr_tail(&long).chars().count(), 2000);
 }
 
 #[test]
@@ -2234,7 +2233,7 @@ fn sequence_execution_covers_spawn_failure_and_indeterminate_terminal_shapes() {
     assert!(event.payload["reason"]
         .as_str()
         .unwrap()
-        .contains("stderr tail"));
+        .ends_with("; driver stderr: empty"));
 }
 
 /// Give an operated repository the operator's abstract definitions. A
@@ -5854,7 +5853,10 @@ fn a_refused_result_ends_a_single_seat_as_a_failed_attempt() {
     let error = failed_error(&driven);
     assert!(refusal_text(&error), "{error}");
     assert!(!error.contains("see the branch"));
-    assert!(error.contains("stderr tail: the driver's last words"));
+    assert!(
+        error.ends_with("; driver stderr: 23 bytes (first byte: letter; sha256: 2c503ed766b4a99a)")
+    );
+    assert!(!error.contains("last words"), "{error}");
 
     // The failed ending itself cannot be written: the storage error
     // propagates, as every other one does.

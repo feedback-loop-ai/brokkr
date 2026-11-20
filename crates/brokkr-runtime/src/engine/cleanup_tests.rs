@@ -50,7 +50,7 @@ fn a_seat_not_proven_over_parks_with_its_received_result() {
             "effect_id": "effect",
             "attempt_id": "attempt",
             "reason": "the driver reported success; the attempt is not proven over: \
-                       its descendants 41, 42 were still running after the kill; stderr tail: ",
+                       its descendants 41, 42 were still running after the kill; driver stderr: empty",
             "received": {"status": "succeeded", "result": result},
             "cleanup": {
                 "state": "unresolved",
@@ -113,7 +113,7 @@ fn a_refused_checkpoint_keeps_the_received_result_beside_an_unresolved_cleanup()
             "effect_id": "effect",
             "attempt_id": "attempt",
             "reason": format!(
-                "{refusal}; the attempt is not proven over: {group}; stderr tail: "
+                "{refusal}; the attempt is not proven over: {group}; driver stderr: empty"
             ),
             "received": {"status": "succeeded", "result": result},
             "cleanup": {"state": "unresolved", "reason": group},
@@ -222,7 +222,7 @@ fn a_restarted_engine_keeps_an_attempt_not_proven_over_parked_and_replays_nothin
     let mut resumed = Engine::resume(store, bundle, &run_id, work).unwrap();
     let reason = format!(
         "effect {effect} indeterminate: the driver reported success; the attempt is not \
-         proven over: its process group 7 still had members after the kill; stderr tail: "
+         proven over: its process group 7 still had members after the kill; driver stderr: empty"
     );
     let parked = Run::AwaitingOperator {
         reason: brokkr_core::fold::ParkReason::Stated(reason),

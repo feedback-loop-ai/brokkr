@@ -410,7 +410,7 @@ impl Engine {
                     start_failures,
                     refused,
                     unproven: Unproven::seat(&report),
-                    outcome: tailed_outcome(&report),
+                    outcome: tailed_outcome(&report, run.attempt_id),
                 }
             }
         })

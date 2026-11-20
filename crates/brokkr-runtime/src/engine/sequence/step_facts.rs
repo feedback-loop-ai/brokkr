@@ -1,28 +1,33 @@
 //! The pure step facts a sequence's settling reads: its driver's outcome
-//! with its stderr tail, the step's own result vocabulary, the change a
+//! with its stderr's evidence, the step's own result vocabulary, the change a
 //! dialect step expands, and a dialect step's outcome. Moved out of
 //! `sequence.rs` mechanically so that file stays within ruling 4's 800-line
 //! ceiling (decision 0103 slice 4c2b); no behaviour changed.
 
+use brokkr_protocol::process::DriverStderr;
 use brokkr_protocol::AttemptOutcome;
 use serde_json::Value;
 
-use super::super::{stderr_tail, DriverRun, Unproven};
+use super::super::{DriverRun, Unproven};
 use crate::bundle::{DialectExecution, SequenceStep};
 
-/// A step driver's outcome, its failure or indeterminate reason with the
-/// driver's stderr tail beside it: the tail rides on the attempt's
-/// terminal event, as a single seat's does. It reads the settled outcome
-/// (#403): a step whose tree is not proven over is indeterminate.
-pub(super) fn tailed_outcome(report: &brokkr_protocol::AttemptReport) -> AttemptOutcome {
-    let tail = stderr_tail(&report.stderr);
+/// A step driver's outcome, its failure or indeterminate reason naming
+/// the driver's stderr by evidence, as a single seat's does, the masked
+/// tail told to the engine's stderr under `attempt_id` (#1199). It reads
+/// the settled outcome (#403): a step whose tree is not proven over is
+/// indeterminate.
+pub(super) fn tailed_outcome(
+    report: &brokkr_protocol::AttemptReport,
+    attempt_id: &str,
+) -> AttemptOutcome {
+    let stderr = DriverStderr::of(&report.stderr);
     match report.settled_outcome() {
         AttemptOutcome::Succeeded { result } => AttemptOutcome::Succeeded { result },
         AttemptOutcome::Failed { error } => AttemptOutcome::Failed {
-            error: format!("{error}; stderr tail: {tail}"),
+            error: stderr.named(attempt_id, &error),
         },
         AttemptOutcome::Indeterminate { reason } => AttemptOutcome::Indeterminate {
-            reason: format!("{reason}; stderr tail: {tail}"),
+            reason: stderr.named(attempt_id, &reason),
         },
     }
 }

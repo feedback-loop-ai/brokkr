@@ -83,3 +83,30 @@ actively adversarial child binary is the confinement boundary's problem
   property of layer 4 is enforceable by grep in CI.
 - Future relaxations of telemetry (journaling Bash activity classes,
   transcript deep-links) build on this floor and get their own decisions.
+
+## Addendum — 2026-11-20, operator ruled: the journal names a driver's stderr only by content-free evidence
+
+Status: accepted (operator, 2026-11-20, #1199 "(a)")
+
+Until this addendum a failed or indeterminate attempt's journaled error
+or reason carried the last 2000 characters of its driver's stderr as a
+"stderr tail". A built-in driver masks that stderr by the seat's own
+bindings only, so a credential a harness printed that the seat does not
+bind reached the append-only journal, where it can never be scrubbed.
+
+The rule: **the journal names a driver's stderr only by content-free
+evidence.** A failed or indeterminate attempt's error or reason ends
+`; driver stderr: <evidence>`, the evidence being the retained stderr's
+length, the class of its first byte and a prefix of its SHA-256, as a
+refused driver message is named (#433); an empty stderr reads
+`; driver stderr: empty`. One type, `brokkr_protocol::process::DriverStderr`,
+derives it. A spawn failure has no stderr and names none, as before.
+
+The masked tail the reason used to carry goes to the engine's own
+stderr, each line prefixed by the attempt id, and is never journaled:
+the driver log under `brokkr dispatch`, the terminal under `brokkr run`
+and `resume`.
+
+The journal is append-only, so events written before this addendum keep
+their tails and every reader still reads them. Nothing migrates, and no
+contract or event schema changes: `error` and `reason` stay strings.
