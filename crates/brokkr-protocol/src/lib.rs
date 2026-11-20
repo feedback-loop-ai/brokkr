@@ -522,6 +522,27 @@ pub struct AttemptReport {
     /// the fail-to-start side of the boundary, since the engine ended it
     /// and no provider refused it.
     pub deadline_killed: bool,
+    /// What the attempt's process tree used, as the engine measured it
+    /// (decision 0112): `None` when no tick read it. Measurement only:
+    /// nothing that settles, kills or retries an attempt reads it. Boxed,
+    /// as `refusal` is, to keep the report small.
+    pub usage: Option<Box<AttemptUsage>>,
+}
+
+/// The CPU and memory an attempt's process tree used (decision 0112
+/// ruling 2), measured on the tracker's 100 ms tick from spawn to
+/// settlement. Memory is the tree's summed resident set, an upper
+/// estimate, since a shared page counts once per process; load is in
+/// thousandths of a core: the peak over any one-second window, and the
+/// mean, CPU time over wall time. CPU time counts exited descendants.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct AttemptUsage {
+    pub peak_memory_bytes: u64,
+    pub mean_memory_bytes: u64,
+    pub peak_load_millicores: u64,
+    pub mean_load_millicores: u64,
+    pub cpu_ms: u64,
+    pub wall_ms: u64,
 }
 
 impl AttemptReport {

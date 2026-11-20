@@ -35,6 +35,7 @@ fn row(pid: i32, zombie: bool) -> Entry {
         pgid: 1,
         zombie,
         exiting: false,
+        usage: None,
     }
 }
 

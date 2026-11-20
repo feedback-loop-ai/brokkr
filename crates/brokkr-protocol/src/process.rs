@@ -52,6 +52,7 @@ mod refusal;
 pub(crate) mod spawned;
 mod table;
 mod tree;
+mod usage;
 
 use attempts::{Attempt, Unspawned};
 pub(crate) use launched::Launched;
@@ -504,6 +505,7 @@ impl DriverProcess {
             // Read after the watchdog is joined and the tree ended, so
             // the bit is the one that decided this attempt's end.
             deadline_killed: self.timed_out.load(Ordering::SeqCst),
+            usage: self.attempt.usage().map(Box::new),
         }
     }
 

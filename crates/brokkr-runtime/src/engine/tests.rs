@@ -902,6 +902,7 @@ pub(super) fn report(outcome: AttemptOutcome, stderr: &str) -> AttemptReport {
         stderr: stderr.into(),
         accepted: true,
         deadline_killed: false,
+        usage: None,
     }
 }
 

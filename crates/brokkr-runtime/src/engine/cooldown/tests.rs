@@ -1701,6 +1701,7 @@ fn report(
         stderr: String::new(),
         accepted: true,
         deadline_killed: false,
+        usage: None,
     }
 }
 

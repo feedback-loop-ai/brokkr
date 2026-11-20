@@ -509,6 +509,7 @@ fn unspawned(error: &str) -> AttemptReport {
         accepted: false,
         // No process existed for a watchdog to kill.
         deadline_killed: false,
+        usage: None,
     }
 }
 

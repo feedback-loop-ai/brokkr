@@ -1235,9 +1235,17 @@ pub brokkr_protocol::AttemptReport::refusal: core::option::Option<alloc::boxed::
 pub brokkr_protocol::AttemptReport::refused: core::option::Option<brokkr_protocol::AttemptOutcome>
 pub brokkr_protocol::AttemptReport::session_ref: core::option::Option<alloc::string::String>
 pub brokkr_protocol::AttemptReport::stderr: alloc::string::String
+pub brokkr_protocol::AttemptReport::usage: core::option::Option<alloc::boxed::Box<brokkr_protocol::AttemptUsage>>
 impl brokkr_protocol::AttemptReport
 pub fn brokkr_protocol::AttemptReport::cleanup_evidence(&self) -> core::option::Option<brokkr_protocol::CleanupEvidence>
 pub fn brokkr_protocol::AttemptReport::settled_outcome(&self) -> brokkr_protocol::AttemptOutcome
+pub struct brokkr_protocol::AttemptUsage
+pub brokkr_protocol::AttemptUsage::cpu_ms: u64
+pub brokkr_protocol::AttemptUsage::mean_load_millicores: u64
+pub brokkr_protocol::AttemptUsage::mean_memory_bytes: u64
+pub brokkr_protocol::AttemptUsage::peak_load_millicores: u64
+pub brokkr_protocol::AttemptUsage::peak_memory_bytes: u64
+pub brokkr_protocol::AttemptUsage::wall_ms: u64
 pub struct brokkr_protocol::CleanupEvidence
 pub struct brokkr_protocol::DshRefusal(_)
 pub struct brokkr_protocol::Message

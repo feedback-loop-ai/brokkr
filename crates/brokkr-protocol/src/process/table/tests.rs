@@ -133,6 +133,7 @@ fn a_stat_line_is_read_from_its_last_parenthesis() {
             pgid: 7,
             zombie: false,
             exiting: false,
+            usage: Some(Sample::default()),
         })
     );
     assert_eq!(parse_stat(7, "7 (cut short) Z 1"), None);
@@ -500,6 +501,7 @@ fn a_ps_row_keeps_its_start_time_whole() {
             pgid: 7,
             zombie: true,
             exiting: false,
+            usage: None,
         })
     );
     assert_eq!(parse_ps("7 1"), None);
