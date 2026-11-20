@@ -7,7 +7,10 @@
 //! and the credentials bound by name (decision 0012). A CLI that keeps its
 //! login in a file is given that file alone, linked into the scratch HOME
 //! for each credentialed launch. Whatever the CLI needs beyond those is
-//! what config isolation (#467) measures.
+//! what config isolation (#467) measures. The one exception is
+//! `VOLTA_HOME`, which names where a volta-installed CLI is, not how it is
+//! configured: without it a volta shim on `PATH` recurses under the
+//! scratch `HOME` ([`crate::hands::environment::volta_home`]).
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsStr;
@@ -22,6 +25,7 @@ use sha2::{Digest, Sha256};
 
 use super::plan::{Step, Transcripts, UserConfig, PROMPT};
 use super::ProbeError;
+use crate::hands::environment::volta_home;
 use crate::hands::{git_facts, mcp_config, seal, serve_args, HandsSpec, Sealed};
 use crate::process::Launched;
 use crate::secret::bind_environment;
@@ -409,13 +413,17 @@ impl Runner<'_> {
                 .into_iter()
                 .map(|(path, bytes)| (path, Seen::of(&bytes)))
                 .collect();
+        let (named, path) = (std::env::var_os("VOLTA_HOME"), std::env::var_os("PATH"));
+        let home = std::env::var_os("HOME").unwrap_or_default();
+        let volta = volta_home(named.as_deref(), path.as_deref(), Path::new(&home));
         let mut command = Command::new(&argv[0]);
         command
             .args(&argv[1..])
             .current_dir(&self.scratch.repo)
             .env_clear()
-            .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+            .env("PATH", path.unwrap_or_default())
             .env("HOME", &self.scratch.home)
+            .envs(volta)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());

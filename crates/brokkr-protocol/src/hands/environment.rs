@@ -2,7 +2,8 @@
 //! 0065 slice two, U8a, to make room for the evidence protection beside
 //! the box's argv builder (operator ruling of 2026-10-09).
 
-use std::path::Path;
+use std::ffi::OsStr;
+use std::path::{Path, PathBuf};
 
 use super::{expand_home, namespace_join, namespace_path, HandsSpec, SANDBOX_HOME};
 
@@ -37,6 +38,40 @@ pub(crate) fn seat_git_environment() -> (&'static str, &'static str) {
 /// setting ([`seat_git_environment`]).
 pub(crate) fn inherited_git_group_closed() -> (&'static str, &'static str) {
     ("GIT_CONFIG_COUNT", "0")
+}
+
+/// The volta home a child under a private `HOME` must be told, the one
+/// home the unboxed dispatch and the probe's launches read: the engine's
+/// own `VOLTA_HOME` as it stands, else the operator's `~/.volta` exactly
+/// when `path` reaches that home's `bin`, else nothing. It reads OS
+/// strings, and what of the engine's environment reaches it is the
+/// caller's: the probe's launch hands each entry as the OS holds it, so a
+/// non-UTF-8 entry hides nothing there, while the unboxed dispatch hands
+/// only what its UTF-8 table holds ([`super::unboxed_environment`]); a
+/// `home` that is not absolute (the empty one an unset `HOME` reads as)
+/// names no `~/.volta`, so no relative locator is inferred.
+///
+/// A volta shim finds its home as `$VOLTA_HOME`, else `$HOME/.volta`.
+/// Under a private `HOME` the second is an empty directory: the shim finds
+/// no tool there, "delegates to system", takes only that empty home's
+/// `bin` out of `PATH`, finds the operator's shim (itself) next, and
+/// recurses until fork fails. A seat on the ripper that ran `dsh
+/// --version` so on 2026-11-17 left about 180,000 processes and a load
+/// average over 130,000. No locator is synthesized that no shim on `path`
+/// would read, as the toolchain homes are set only where a bind declares
+/// them.
+pub(crate) fn volta_home(
+    named: Option<&OsStr>,
+    path: Option<&OsStr>,
+    home: &Path,
+) -> Option<(&'static str, PathBuf)> {
+    if let Some(named) = named {
+        return Some(("VOLTA_HOME", PathBuf::from(named)));
+    }
+    let default = home.join(".volta");
+    let shims = default.join("bin");
+    (home.is_absolute() && std::env::split_paths(path?).any(|dir| dir == shims))
+        .then_some(("VOLTA_HOME", default))
 }
 
 /// The workspace box's environment, in the order it is set: the fixed
