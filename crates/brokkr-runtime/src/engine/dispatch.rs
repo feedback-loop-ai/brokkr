@@ -27,7 +27,7 @@ use super::{
     EngineError, Selection, SiteSpawn, RESULTS,
 };
 use crate::bundle::{
-    layer_drift, site_charter_text, Bundle, ExecutableBody, Invocation, SeatClass,
+    layer_drift, site_charter_text, Bundle, ExecutableBody, Invocation, Seat, SeatClass,
 };
 
 pub(super) mod deadline;
@@ -162,22 +162,7 @@ impl Engine {
         // started is durable BEFORE the driver spawns: a crash in between
         // recovers as indeterminate, never as a silent double-execution.
         let protected = phase == self.bundle.protected_phase;
-        let gate_effect = arms_effect_gate_head(&body, &seat, state.strategy.as_deref());
-        // Every protected effect has exactly one observation source
-        // (decision 0109 ruling 7, fix round 0109a1r3): a sequence with a
-        // gate step observes through its gate steps' own spans, and any
-        // other protected effect, a sequence of work steps included, is a
-        // checked span of its own, whatever its class. Only a gate
-        // records `covered`: a sequence's gate steps from their own
-        // spans, an all-gate body from the effect's. Covering is armed
-        // only for an effect with a gate body or a gate step (fix round
-        // 0109a1r4, K3), so a work-only protected effect journals its
-        // `checked_head` and no `covered`.
-        let gate_steps = matches!(body, ExecutableBody::Sequence { steps }
-            if steps.iter().any(|step| step.class == SeatClass::Gate));
-        self.begin_effect_span(gate_effect || (protected && !gate_steps), protected);
-        self.covering =
-            (gate_effect || gate_steps).then(|| super::verdict::Covering::of(protected));
+        self.arm_observation(&body, &seat, state.strategy.as_deref(), protected);
         self.append(EventType::EffectStarted, started, Some(attempt_id.clone()))?;
         std::fs::create_dir_all(self.run_local().join(RESULTS)).ok();
         let deadline = deadline::Deadline::of(
@@ -200,6 +185,31 @@ impl Engine {
         let timed = (began, deadline);
         let ran = self.provisioned_body(&at, input, timed, observed, selection, provision);
         self.settle(&attempt_id, ran)
+    }
+
+    /// Arm the effect's one observation source, and its covering when it
+    /// has a gate. Every protected effect has exactly one observation
+    /// source (decision 0109 ruling 7, fix round 0109a1r3): a sequence with
+    /// a gate step observes through its gate steps' own spans, and any
+    /// other protected effect, a sequence of work steps included, is a
+    /// checked span of its own, whatever its class. Only a gate records
+    /// `covered`: a sequence's gate steps from their own spans, an all-gate
+    /// body from the effect's. Covering is armed only for an effect with a
+    /// gate body or a gate step (fix round 0109a1r4, K3), so a work-only
+    /// protected effect journals its `checked_head` and no `covered`.
+    fn arm_observation(
+        &mut self,
+        body: &ExecutableBody<'_>,
+        seat: &Seat,
+        strategy: Option<&str>,
+        protected: bool,
+    ) {
+        let gate_effect = arms_effect_gate_head(body, seat, strategy);
+        let gate_steps = matches!(body, ExecutableBody::Sequence { steps }
+            if steps.iter().any(|step| step.class == SeatClass::Gate));
+        self.begin_effect_span(gate_effect || (protected && !gate_steps), protected);
+        self.covering =
+            (gate_effect || gate_steps).then(|| super::verdict::Covering::of(protected));
     }
 
     /// The admitted attempt's plans provisioned by `provision` on the host
