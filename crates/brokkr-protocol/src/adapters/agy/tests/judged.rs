@@ -69,7 +69,9 @@ pub(super) fn driven_with(
 /// A seat that binds `HOME` or `PWD` is refused by the name before spawn,
 /// and before any HOME is made, with no operator HOME to make one from;
 /// with the refusal passed by, the child's HOME and `PWD` are still the
-/// engine's (J1, L2).
+/// engine's (J1, L2). The competing `PWD`, the binding's and the driver's
+/// own, is a link to the child's directory, which `/bin/sh` keeps as its
+/// `PWD` where it wins, so only the engine's yields the resolved path (M5).
 #[test]
 fn a_seat_that_binds_home_or_pwd_is_refused_and_its_child_keeps_the_engines() {
     for name in ["HOME", "PWD"] {
@@ -86,6 +88,10 @@ fn a_seat_that_binds_home_or_pwd_is_refused_and_its_child_keeps_the_engines() {
         let mut world = World::new();
         let bin = fake_agy(&world.seat(), TOOL_LESS, "", false, 0);
         world.set(&bin);
+        let alias = world.path("alias");
+        std::os::unix::fs::symlink(world.seat(), &alias).unwrap();
+        world.env.set("PWD", &alias);
+        let bindings = [bound(name, alias.to_str().unwrap())];
         let input = world.input(None);
         // A seat that got past the check would be refused signed out.
         world.env.remove("HOME");

@@ -1,5 +1,5 @@
 //! The engine's HOME for one agy launch (#1200, G5), and the workspace
-//! check that runs before it is made (G6).
+//! check that runs once it is made, last before agy starts (G6, M1).
 //!
 //! HOME is the only measured way to move agy's state, and the only thing
 //! that shuts out the operator's own MCP servers, plugins and hooks: three
@@ -23,8 +23,8 @@
 //! command (`ambient-workspace-hook`). Where that walk ends is agy's, and
 //! the record measures it (`git-root-*`); no code here mirrors it. Every
 //! directory above the working directory is checked instead (L1), so a
-//! workspace that carries any of them anywhere above it is refused before
-//! the HOME is made.
+//! workspace that carries any of them anywhere above it is refused. The
+//! check runs after the HOME is made, directly before agy starts (M1).
 //!
 //! The session tree holds the engine's records, its owner's name and its
 //! lock, and one directory, `home`, that is the child's HOME: nothing of the
@@ -188,27 +188,33 @@ fn furnished(
     Ok(())
 }
 
-/// Refuse a launch in `workdir` whose workspace carries agy's own
-/// configuration: an entry at any of [`WORKSPACE_CONFIGURATION`], of any
-/// type, in the resolved working directory or any directory above it, to
-/// the filesystem root (L1). Wherever agy's walk ends, the directories it
-/// reads are among these, so the check keeps no notion of where it ends and
-/// asks git nothing. The first path found is named, and a path that cannot
-/// be read refuses, naming it. This check has one home.
-///
-/// What it admits is the resolved path, the one the child runs in and its
-/// `PWD` names (L2): agy walks up `PWD` (`pwd-logical`, `pwd-physical`),
-/// so the walk checked here is the one it takes.
-pub(super) fn unconfigured(workdir: &str) -> Result<String, LaunchError> {
+/// The seat's `workdir` resolved, before anything is made: the path the
+/// child runs in, its `PWD` names (L2) and [`unconfigured`] checks. A
+/// directory that cannot be resolved, named as the seat gave it, and a
+/// resolved path that is not UTF-8 refuse.
+pub(super) fn resolved(workdir: &str) -> Result<String, LaunchError> {
     let given = if workdir.is_empty() { "." } else { workdir };
     let resolved = std::fs::canonicalize(given)
         .map_err(|error| LaunchError::Unrooted(given.to_string(), error))?;
-    for dir in resolved.ancestors() {
+    texted(resolved)
+}
+
+/// Refuse a launch in `resolved` whose workspace carries agy's own
+/// configuration: an entry at any of [`WORKSPACE_CONFIGURATION`], of any
+/// type, in the resolved working directory or any directory above it, to
+/// the filesystem root (L1). agy reads no directory but these, wherever its
+/// walk ends, so the check keeps no notion of where it ends and asks git
+/// nothing. The first path found is named, and a path that cannot be read
+/// refuses, naming it. This check has one home, and runs once, last before
+/// agy starts (M1): agy walks up `PWD` (`pwd-logical`, `pwd-physical`), and
+/// its `PWD` is `resolved`.
+pub(super) fn unconfigured(resolved: &str) -> Result<(), LaunchError> {
+    for dir in Path::new(resolved).ancestors() {
         if let Some(path) = configured(dir)? {
             return Err(LaunchError::Configured(path));
         }
     }
-    texted(resolved)
+    Ok(())
 }
 
 /// `resolved` as the text the shared spawn and the child's `PWD` take, or

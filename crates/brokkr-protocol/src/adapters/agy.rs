@@ -141,10 +141,12 @@ pub(super) enum LaunchError {
          which is not UTF-8, so the child's PWD cannot name it (#1200)"
     )]
     Untexted(String),
-    /// A workspace that carries agy's own configuration (G6).
+    /// A workspace that carries agy's own configuration (G6), in the
+    /// working directory or a directory above it (L1, M6).
     #[error(
-        "refusing to invoke the agent CLI: the agy seat's workspace carries {}, which agy would \
-         start or run in a turn nobody trusted; remove it, or run the seat elsewhere (#1200)",
+        "refusing to invoke the agent CLI: {} stands in the agy seat's working directory or a \
+         directory above it, and brokkr driver agy refuses a seat there; remove it, or run the \
+         seat elsewhere (#1200)",
         .0.display()
     )]
     Configured(PathBuf),
@@ -380,8 +382,8 @@ fn turn(
 }
 
 /// What one launch runs with: the engine's HOME, the launch, and the
-/// resolved working directory the workspace check read, which the child
-/// runs in and its `PWD` names (L2).
+/// resolved working directory, which the child runs in, its `PWD` names
+/// (L2) and the workspace check reads directly before the spawn (M1).
 struct Prepared {
     home: Home,
     launch: Launch,
@@ -390,10 +392,10 @@ struct Prepared {
 
 /// The launch of `extra` before any provider work: SI2's one admission
 /// ([`mcp::isolated`]), the engine's set read from the intent it checked
-/// ([`mcp::agy_set`]), the launch, the workspace check, and the engine's
-/// HOME made under `homes` with the set's document and the gate run by
-/// `brokkr`. No launch is offered a rejoin, so the cold assessment is the
-/// one admitted.
+/// ([`mcp::agy_set`]), the launch, the working directory resolved, and the
+/// engine's HOME made under `homes` with the set's document and the gate
+/// run by `brokkr`. No launch is offered a rejoin, so the cold assessment
+/// is the one admitted.
 fn prepared(
     bin: &str,
     extra: &[String],
@@ -401,18 +403,29 @@ fn prepared(
     homes: Homes<'_>,
     brokkr: &Path,
 ) -> Result<Prepared, LaunchError> {
+    prepared_with(bin, extra, input, (homes, brokkr), home::made)
+}
+
+/// [`prepared`], the engine's HOME made by `made`.
+fn prepared_with(
+    bin: &str,
+    extra: &[String],
+    input: &Value,
+    (homes, brokkr): (Homes<'_>, &Path),
+    made: impl FnOnce(Homes<'_>, Written<'_>) -> Result<Home, LaunchError>,
+) -> Result<Prepared, LaunchError> {
     let edge = mcp::Edge::new(input);
     let isolated = mcp::isolated("agy", &edge, extra, false)?;
     let workdir = input.get("workdir").and_then(Value::as_str).unwrap_or("");
     let served = mcp::agy_set(&edge, &isolated, workdir)?;
     let launch = launch(bin, &isolated.argv, &served.rules)?;
-    let workdir = home::unconfigured(workdir)?;
+    let workdir = home::resolved(workdir)?;
     let hooks = gate::hooks(brokkr, !served.rules.is_empty())?;
     let written = Written {
         mcp: &served.document,
         hooks: &hooks,
     };
-    let home = home::made(homes, written)?;
+    let home = made(homes, written)?;
     Ok(Prepared {
         home,
         launch,
@@ -420,7 +433,8 @@ fn prepared(
     })
 }
 
-/// Run one agy turn under `home`: the prompt on stdin, every line of its
+/// Run one agy turn under `home`: the workspace checked directly before
+/// agy starts ([`home::unconfigured`]), the prompt on stdin, every line of its
 /// stdout through [`AgyFold`] as agy wrote its bytes, to its end, agy
 /// stopped at a refusing row, and the turn's verdict read at its end in
 /// one order (K2). Each value is masked once (K10): the shared driver masks
@@ -448,6 +462,10 @@ fn invoke(
     // (J1, L2); the child runs in the directory its PWD names.
     let owned = [(HOME, home.path()), (PWD, workdir.as_str())];
     let line = stdin_line(prompt);
+    // The workspace check, once, last before agy starts (M1): it narrows
+    // the time a writer has to plant agy's configuration, and does not close
+    // it (#1217).
+    home::unconfigured(workdir)?;
     let fed = spawn_fed_in(&launch.command, &line, (workdir, &owned), bindings)?;
     let mut session_meta = Map::new();
     let ended = streamed_lines(fed, |line| {

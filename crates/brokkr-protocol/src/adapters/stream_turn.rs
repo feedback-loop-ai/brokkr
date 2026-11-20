@@ -60,9 +60,20 @@ pub(super) fn streamed_lines(
 ) -> Result<Turn, String> {
     let (mut child, stderr) = fed;
     let stdout = child.stdout.take().expect("piped");
+    turn_read((child, stderr), std::io::BufReader::new(stdout), line)
+}
+
+/// The turn of the harness `fed`, its stdout read from `reader` by
+/// [`read_lines`]: the one place a [`Turn`] is built, whatever the reader.
+pub(super) fn turn_read(
+    fed: (Spawned, StderrCapture),
+    reader: impl BufRead,
+    line: impl FnMut(&[u8]) -> Line,
+) -> Result<Turn, String> {
+    let (mut child, stderr) = fed;
     // The reader is dropped before the wait, so a harness still writing
     // meets a closed pipe rather than a full one.
-    let Read { stopped, unread } = read_lines(std::io::BufReader::new(stdout), line);
+    let Read { stopped, unread } = read_lines(reader, line);
     let status = match stopped {
         Some(_) => conclude_harness(&mut child)?,
         None => io_context(child.wait(), "agent CLI did not conclude")?,

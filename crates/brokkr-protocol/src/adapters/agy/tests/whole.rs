@@ -216,8 +216,7 @@ fn the_verdict_is_the_first_rank_that_applies() {
             vec![row("SUCCESS", " ", "")],
             0,
             false,
-            "agy's turn ended SUCCESS with an empty response, which is not an answer (#1200)"
-                .into(),
+            EMPTY_WORDS.into(),
         ),
         (
             "8",

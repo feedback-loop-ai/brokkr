@@ -575,17 +575,20 @@ a workspace nobody trusted, and a workspace hook approved its own
 command. So an entry of any type at `<dir>/.agents/mcp_config.json`,
 `<dir>/.agents/plugins` or `<dir>/.agents/hooks.json`, where `<dir>` is
 the resolved working directory or any directory above it up to the
-filesystem root, refuses the launch before the CLI starts, naming the
-path. Agy's own walk up stops sooner, at a repository root the record
-measures (`git-root-*`), but the directories it reads are always among
-these, so the driver asks git nothing. The cost is a refusal for a path
-agy would not have read; it names the path, and removing it admits the
-seat.
+filesystem root, refuses the launch, naming the path. The driver checks
+every directory to the root, and agy reads no more than those: its own
+walk up stops sooner, at a repository root the record measures
+(`git-root-*`), so the driver asks git nothing. The cost is a refusal for
+a path agy would not have read; it names the path, and removing it admits
+the seat. The check runs once, after the engine's HOME is made and
+directly before the CLI starts, and a seat it refuses leaves no HOME
+behind. A writer that plants a path after the check and before agy reads
+it is not refused; that window is narrowed, not closed (#1217).
 
 The child runs in the resolved working directory, and its `PWD` is that
 path, set after the seat's secret bindings as HOME is. Agy walks up from
 `PWD`, not from the directory it runs in (`pwd-logical`, `pwd-physical`),
-so the walk the driver checked is the one agy takes. A seat that binds a
+so it walks up from the path the driver checked. A seat that binds a
 secret named `PWD` is refused before the CLI starts, as one that binds
 `HOME` is.
 

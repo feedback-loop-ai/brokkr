@@ -254,7 +254,9 @@ pub(super) enum Failure {
         .0.join(", ")
     )]
     Denied(Vec<String>),
-    #[error("agy's turn ended SUCCESS with an empty response, which is not an answer (#1200)")]
+    /// A `SUCCESS` with an empty response, which the failure's [`Seen`]
+    /// names (M4).
+    #[error("agy's response was empty, which is not an answer (#1200)")]
     Empty,
     /// A status that is not `SUCCESS`, which the failure's [`Seen`] names.
     #[error("agy's turn ended with a status that is not SUCCESS, which is not an answer (#1200)")]
@@ -544,9 +546,7 @@ impl<'a> AgyFold<'a> {
         match &ending.status {
             Status::Other(_) => failed(Failure::Unsuccessful, seen),
             Status::Success if !self.pinned() => Verdict::Refused(unconfirmed(&self.pin, &seen)),
-            Status::Success if ending.response.trim().is_empty() => {
-                failed(Failure::Empty, Seen::default())
-            }
+            Status::Success if ending.response.trim().is_empty() => failed(Failure::Empty, seen),
             Status::Success => Verdict::Answer(ending.response.clone()),
         }
     }
@@ -623,13 +623,15 @@ fn refused(token: &str, words: &str, seen: &Seen) -> PreSessionRefusal {
     refusal_reason(token, None, Some(&seen.around(words)))
 }
 
-/// The refusal of a seat no init row confirmed the model of.
-fn unconfirmed(pin: &str, seen: &Seen) -> PreSessionRefusal {
+/// The refusal of a seat no init row confirmed the model of. This and the
+/// three builders below are each a refusal built on what the result showed,
+/// and the driver's tests call each with a long status (M5).
+pub(super) fn unconfirmed(pin: &str, seen: &Seen) -> PreSessionRefusal {
     let words = format!("the seat pinned {pin:?} and no init row named the model agy served");
     refused("model_unconfirmed", &words, seen)
 }
 
-fn signed_out(seen: &Seen) -> PreSessionRefusal {
+pub(super) fn signed_out(seen: &Seen) -> PreSessionRefusal {
     refused(
         "not_logged_in",
         "Antigravity CLI is signed out: run `agy` once and sign in; the login is \
@@ -638,11 +640,11 @@ fn signed_out(seen: &Seen) -> PreSessionRefusal {
     )
 }
 
-fn launch_refused(words: &str, seen: &Seen) -> PreSessionRefusal {
+pub(super) fn launch_refused(words: &str, seen: &Seen) -> PreSessionRefusal {
     refused("launch_refused", words, seen)
 }
 
-fn print_timeout(seen: &Seen) -> PreSessionRefusal {
+pub(super) fn print_timeout(seen: &Seen) -> PreSessionRefusal {
     refused(
         "print_timeout",
         "agy exited 3 at its own print timeout, which this launch never asks for",

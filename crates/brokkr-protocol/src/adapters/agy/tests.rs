@@ -328,6 +328,11 @@ fn signed_out_words(status: &str) -> String {
     status_first(SIGNED_OUT_WORDS, status)
 }
 
+/// The failure of a pinned `SUCCESS` whose response is empty or blank: the
+/// status first, through [`fold::Seen`], and then the empty response (M4).
+const EMPTY_WORDS: &str = "agy's result had status SUCCESS; agy's response was empty, which is \
+                           not an answer (#1200)";
+
 /// The print-timeout refusal's fixed words.
 const PRINT_TIMEOUT_WORDS: &str =
     "print_timeout: agy exited 3 at its own print timeout, which this launch never asks for";
@@ -342,10 +347,15 @@ fn a_clean_exit_with_no_answer_fails_in_the_drivers_words() {
             .fold
             .verdict(0, false)
     };
-    assert_eq!(
-        ended(r#"{"event":"result","result":{"status":"SUCCESS","response":" \n"}}"#),
-        failed(Failure::Empty, None, false)
-    );
+    // An empty response, and one of blanks only, name the status first (M4).
+    for response in ["", "   ", " \n"] {
+        let row = json!({"event": "result", "result": {"status": "SUCCESS", "response": response}});
+        assert_eq!(
+            ended(&row.to_string()),
+            failed(Failure::Empty, Some("SUCCESS"), false),
+            "{response:?}"
+        );
+    }
     assert_eq!(
         ended(r#"{"event":"result","result":{"status":"NOT OK"}}"#),
         failed(Failure::Unsuccessful, Some("NOT OK"), false)
@@ -548,7 +558,7 @@ fn each_launch_refusal_states_what_was_written_and_never_a_value() {
         (LaunchError::Unnamed, "the engine's HOME or executable for the agy seat has a path that is not UTF-8, so nothing names it exactly (#1200)"),
         (LaunchError::Unrooted("w/sub".into(), io()), "the agy seat's working directory w/sub cannot be resolved: entity not found"),
         (LaunchError::Untexted("/w/\\xff".into()), "the agy seat's working directory resolves to /w/\\xff, which is not UTF-8, so the child's PWD cannot name it (#1200)"),
-        (LaunchError::Configured("/w/.agents/plugins".into()), "the agy seat's workspace carries /w/.agents/plugins, which agy would start or run in a turn nobody trusted; remove it, or run the seat elsewhere (#1200)"),
+        (LaunchError::Configured("/w/.agents/plugins".into()), "/w/.agents/plugins stands in the agy seat's working directory or a directory above it, and brokkr driver agy refuses a seat there; remove it, or run the seat elsewhere (#1200)"),
         (LaunchError::SignedOut, "Antigravity CLI is signed out: run `agy` once and sign in; the login is ~/.gemini/antigravity-cli/antigravity-oauth-token (#1200)"),
         (LaunchError::Unhomed(io()), "the engine's HOME for the agy seat was not made: entity not found"),
     ];
@@ -570,7 +580,7 @@ fn each_failure_states_the_drivers_words_and_names_only_plain_words() {
     use fold::Event;
     let stated = [
         (Failure::Denied(argv(&["command", "mcp"])), "agy stopped the turn at a denial of command, mcp: a turn agy stopped at a denial is not an answer (#1200)"),
-        (Failure::Empty, "agy's turn ended SUCCESS with an empty response, which is not an answer (#1200)"),
+        (Failure::Empty, "agy's response was empty, which is not an answer (#1200)"),
         (Failure::Unsuccessful, "agy's turn ended with a status that is not SUCCESS, which is not an answer (#1200)"),
         (Failure::Unreadable, "agy's stdout could not be read to its end, so the turn gave no answer (#1200)"),
         (Failure::Unended, "agy's turn ended with no result, so it gave no answer (#1200)"),
@@ -927,11 +937,10 @@ const CONFIGURATION: [&str; 3] = [
 /// What the workspace check says of `workdir`: refused naming the planted
 /// path, or admitted as its resolved path.
 fn checked(workdir: &Path) -> Option<std::path::PathBuf> {
-    match home::unconfigured(workdir.to_str().unwrap()) {
-        Ok(resolved) => {
-            assert_eq!(Path::new(&resolved), workdir.canonicalize().unwrap());
-            None
-        }
+    let resolved = home::resolved(workdir.to_str().unwrap()).unwrap();
+    assert_eq!(Path::new(&resolved), workdir.canonicalize().unwrap());
+    match home::unconfigured(&resolved) {
+        Ok(()) => None,
         Err(LaunchError::Configured(path)) => Some(path),
         Err(other) => panic!("{workdir:?}: {other:?}"),
     }
@@ -1001,7 +1010,7 @@ fn a_workspace_path_that_cannot_be_read_refuses_naming_it() {
     let agents = lone.join(".agents");
     std::fs::create_dir(&agents).unwrap();
     std::fs::set_permissions(&agents, std::fs::Permissions::from_mode(0o000)).unwrap();
-    let unread = home::unconfigured(lone.to_str().unwrap());
+    let unread = home::unconfigured(lone.to_str().unwrap()).map(drop);
     std::fs::set_permissions(&agents, std::fs::Permissions::from_mode(0o700)).unwrap();
     let named = agents.join("mcp_config.json");
     assert!(
@@ -1014,7 +1023,7 @@ fn a_workspace_path_that_cannot_be_read_refuses_naming_it() {
     // Given as text, through a link, it resolves to a path that is none.
     let link = lone.join("link");
     std::os::unix::fs::symlink(&lossy, &link).unwrap();
-    let untexted = home::unconfigured(link.to_str().unwrap()).unwrap_err();
+    let untexted = home::resolved(link.to_str().unwrap()).unwrap_err();
     let escaped = format!("{}/t\\xfe", lone.display());
     assert!(
         matches!(&untexted, LaunchError::Untexted(named) if *named == escaped),
@@ -1022,7 +1031,7 @@ fn a_workspace_path_that_cannot_be_read_refuses_naming_it() {
     );
     // Named as the seat gave it (K4).
     let given = "/nonexistent-brokkr-agy-workdir/sub";
-    let missing = home::unconfigured(given);
+    let missing = home::resolved(given);
     assert!(
         matches!(&missing, Err(LaunchError::Unrooted(named, _)) if named == given),
         "{missing:?}"
@@ -1520,5 +1529,6 @@ fn a_bound_secret_in_agys_stderr_or_error_text_reaches_no_word() {
 }
 
 mod judged;
+mod last;
 mod resolved;
 mod whole;
