@@ -761,36 +761,40 @@ head by explicit ref (`.github/workflows/ci.yml:49-64`), and the ratchet job ass
 checkout is the pull request's merge commit (`:663-671`). A checkout with no `ref`, as the audit
 job's (`:681-683`), tests the forge's generated merge revision on a `pull_request` event
 (<https://docs.github.com/en/actions/writing-workflows/choosing-when-your-workflow-runs/events-that-trigger-workflows#pull_request>;
-unmeasured here). And a run's association SHA is not proof of what it tested. So each required
-Actions entry declares `tested`, one of two words, and the current execution's tested revision
-must be established as the exact one, from what the forge records of the run:
+unmeasured here). And a run's association SHA is not proof of what it tested, nor is its
+`head_sha`: both name the pull request's head whatever the job checked out. So each required
+Actions entry declares `tested`, one of two words, and **in every checkout mode the current
+execution's tested revision is proven on its own**, from the run's own record of the commit it
+tested (its **tested-commit record**), never inferred from the head or the association:
 
-- `head`: the run tested the gated head itself. The run's `head_sha` and its association's
-  `head.sha` must equal the gated head.
+- **In both modes, first:** the observation names the tested-commit record as the run records
+  it. Where the forge records no such field, or the observation carries it as `unread`, the
+  revision is not established, in `head` mode as in `merge` mode: row `revision-unproven`.
+- `head`: the run tested the gated head itself. Three separate comparisons, never one: the
+  tested-commit record against the gated head; the run's `head_sha` against the gated head; and
+  the association's `head.sha` against the gated head. Matching heads with no tested-commit
+  record never stand in for it.
 - `merge`: the run tested the forge's merge revision, `refs/pull/<number>/merge`. The
-  observation must name the exact merge commit the run tested, as the run records it, and that
-  commit's two parents. Its first parent must be the base the observation names, which must be
-  the pull request's current base, and its second the gated head. The merge commit is a
-  distinct commit from the head, as a valid merge always is, so the comparisons are separate,
-  never one: the run's `head_sha` and the association's `head.sha` against the gated head; the
-  merge commit's second parent against the gated head; its first parent against the
-  association's `base.sha` and the observation's base; and the merge commit against the one the
-  run records.
+  tested-commit record names the exact merge commit, and the observation names that commit's two
+  parents. Its first parent must be the base the observation names, which must be the pull
+  request's current base, and its second the gated head. The merge commit is a distinct commit
+  from the head, as a valid merge always is, so the comparisons are separate, never one: the
+  run's `head_sha` and the association's `head.sha` against the gated head; the merge commit's
+  second parent against the gated head; its first parent against the association's `base.sha`
+  and the observation's base; and the merge commit against the tested-commit record.
 
 The `tested` word is the operator's statement about a pinned workflow, in the compiled list; a
 wrong one costs at most a wrong `green`, which is landing as it is today.
 
-A comparison that fails parks as `revision-disagrees`, naming the two values that differ; it is
-never resolved by preferring one source. (Fix round 1093r4's row demanded that the association,
-the run's head, the tested commit and the gated head all be one commit, which no valid merge is;
-that row is replaced.) Where the forge records no field naming the commit a run tested, the
-revision is not established and the observation parks as `revision-unproven`. The run's
-`head_sha` is the pull request's head, not the merge commit, and whether any field of the run
-records the merge commit tested is **unmeasured** until 0111a. Every required entry in this
-house's list is `merge` (ruling 5), so until 0111a's evidence shows such a field, every
-observation over a `merge` entry parks, for this house or an adopter. That fails closed: it is a
-person's look, never a pass. If 0111a finds no such field, the decision is revised before
-acceptance.
+Any one of those comparisons that fails is row `revision-disagrees`, naming the two values that
+differ; it is never resolved by preferring one source. (Fix round 1093r4's row demanded that
+the association, the run's head, the tested commit and the gated head all be one commit, which
+no valid merge is; that row is replaced.) Whether any field of a run records the commit it
+tested, in either mode, is **unmeasured** until 0111a, which measures the tested-run identity
+for a `head` checkout and a `merge` checkout alike. Until 0111a's evidence shows such a field,
+every observation over any required entry makes `revision-unproven` true, for this house or an
+adopter. That fails closed: it is a person's look, never a pass. If 0111a finds no such field
+for a mode, the decision is revised before acceptance.
 
 The revision is the run's, not a step's. Which commit a particular step of a job ran on, after a
 checkout the workflow or a script moves, is CI's own machinery: a change that moves it is green
@@ -839,7 +843,8 @@ predicates are `green`'s own conditions, stated once here and nowhere else:
   names this pull request and no other, with `head.sha` the gated head and `base.sha` the base
   the observation names.
 - **P6, the revision proven tested.** Each current execution's tested revision is established
-  as its entry's `tested` word requires (below).
+  from its tested-commit record, in every checkout mode, as its entry's `tested` word requires
+  (above).
 - **P7, a readable observation from a trusted launch.** The launch passed ruling 2's rules, and
   the observation parsed under its contract, inside its bound.
 
@@ -870,8 +875,8 @@ default, and each paged list carries whether it was read to its last page.
 | `not-success` | each match's conclusion | P4 | a match concluded anything but `success`; it names the check and the word | `a_failed_cancelled_timed_out_skipped_or_neutral_required_check_parks_as_not_success` |
 | `association-unproven` | each current execution's `pull_requests` | P5 | it does not name this pull request, its head and its base, or is empty | `a_run_with_an_empty_association_parks_as_association_unproven` |
 | `association-ambiguous` | each current execution's `pull_requests` | P5 | it names more than one pull request, open or closed; it names every one | `an_association_naming_a_and_a_closed_b_parks_as_association_ambiguous` |
-| `revision-unproven` | each current execution's tested-commit record | P6 | the tested revision is not established | `a_merge_entry_whose_run_records_no_tested_commit_parks_as_revision_unproven` |
-| `revision-disagrees` | each current execution's tested-commit record and its separate comparisons | P6 | one comparison fails; it names the two values | `an_association_and_a_merge_commit_that_disagree_park_as_revision_disagrees` |
+| `revision-unproven` | each current execution's tested-commit record, in either checkout mode | P6 | the record is absent or unread, in `head` mode as in `merge` mode | `a_head_entry_whose_run_records_no_tested_commit_parks_as_revision_unproven` and `a_merge_entry_whose_run_records_no_tested_commit_parks_as_revision_unproven` |
+| `revision-disagrees` | each current execution's tested-commit record and its mode's separate comparisons | P6 | one comparison fails; it names the two values | `a_head_entry_whose_tested_commit_differs_from_the_gated_head_parks_as_revision_disagrees` and `an_association_and_a_merge_commit_that_disagree_park_as_revision_disagrees` |
 | `producer-mismatch` | every check under an entry-set entry's name | | a check under that name from another producer concluded red | `a_sole_red_producer_mismatch_parks_as_producer_mismatch` |
 | `status-required` | the forge's required set, where read | | it names a commit status context | `a_status_context_in_the_forges_required_set_parks_as_status_required` |
 | `required-set-disagrees` | the forge's required set, where read; the declared list | | the forge requires a context the declared list lacks | `a_forge_required_check_the_list_lacks_parks_as_required_set_disagrees` |
@@ -1471,9 +1476,11 @@ versions are proposed: `ci-observation/v1` and `ci-checks/v1`.
    with a note of how each was taken; one test that pins their digests, so no later slice
    regenerates them. About 40 test lines and the data. No contract and no production code. It
    settles, or marks still unmeasured:
-   - whether a run names the commit it tested, the merge commit for a `pull_request` run, as a
-     field distinct from its `head_sha`; this decides whether any `merge` entry can be `green`
-     (ruling 3);
+   - the tested-run identity in both checkout modes: whether a run names the commit it tested,
+     as a field distinct from its `head_sha`, for a job that checks out the pull request's head
+     by explicit ref (`.github/workflows/ci.yml:49-64`) and for one that checks out the forge's
+     merge revision (`:663-683`); this decides whether any `head` or `merge` entry can be
+     `green` (ruling 3);
    - what a run's and a check run's `pull_requests` association holds, and in which cases it is
      empty, a fork's pull request among them (ruling 3);
    - whether the forge reports a job's key, and the app's numeric id (ruling 3);
@@ -1605,6 +1612,11 @@ versions are proposed: `ci-observation/v1` and `ci-checks/v1`.
      `a_run_with_an_empty_association_parks_as_association_unproven`;
      `a_red_setup_only_run_on_the_same_head_for_another_pull_request_parks_as_association_unproven`;
      `an_association_naming_a_and_a_closed_b_parks_as_association_ambiguous`;
+     `a_head_entry_whose_run_records_no_tested_commit_parks_as_revision_unproven` (the chief's
+     r9 case: the run's `head_sha` and the association's `head.sha` both the gated head, every
+     required check a settled success, and no tested-commit record);
+     `a_head_entry_whose_tested_commit_differs_from_the_gated_head_parks_as_revision_disagrees`
+     (both heads match; the record names another commit);
      `a_merge_entry_whose_run_records_no_tested_commit_parks_as_revision_unproven`;
      `an_association_and_a_merge_commit_that_disagree_park_as_revision_disagrees`;
      `a_merge_revision_whose_parents_are_not_the_base_and_the_head_parks_as_revision_disagrees`;
@@ -1614,7 +1626,8 @@ versions are proposed: `ci-observation/v1` and `ci-checks/v1`.
      `an_untrusted_launch_parks_ruled_as_launch_untrusted_and_observes_nothing`;
    - the inventories, one test per list the observer reads, each with two cases, the last page
      unread and the list sealed as its overflow witness, every other list complete and every
-     other row false, each expecting `CI-PARK` naming that list's row, and each run twice:
+     other row false, each expecting `CI-PARK` naming that list's row (`checks-incomplete` to
+     `required-set-incomplete`), and each run twice:
      live, a stub `gh` serving the pages to 0111b's observer through its test-only launch and
      decide judging its stdout; and on replay, a fold rebuilt from that journal re-deriving the
      same rows:
