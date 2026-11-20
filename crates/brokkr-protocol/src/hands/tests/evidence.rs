@@ -1738,8 +1738,7 @@ fn the_box_confirms_its_observation_as_its_argv_is_final() {
     assert_eq!(refused(built), Unprotected::Changed(artifacts));
 }
 
-/// What a refused command prints first, in the same launch: the box's own
-/// HOME, which no host process holds.
+/// What a refused command prints first: the box's own HOME, no host's.
 #[cfg(target_os = "linux")]
 const STOOD: &str = "printf '%s\\n' \"$HOME\"";
 
@@ -1761,22 +1760,22 @@ impl Refusal {
         Self { codes: code, words }
     }
 
-    /// Whether `ran` finished, neither cut off nor ended by anything but
-    /// this refusal: one of its codes, in one of its words as the reason
-    /// its whole stderr ends with, never any line's, which an operand can
-    /// end through a newline it holds (#1187).
+    /// Whether `ran` finished uncut with one of this refusal's codes, in one
+    /// of its words as the final reason its whole stderr ends with, never a
+    /// line's, which an operand or a later line can end (#1187).
     fn met_by(&self, ran: &Executed) -> bool {
         let diagnostic = ran.stderr.strip_suffix('\n').unwrap_or(&ran.stderr);
         !ran.timed_out && self.codes.contains(&ran.exit_code) && self.gives(diagnostic)
     }
 
-    /// Whether `diagnostic` ends in one of the words as its reason, after
-    /// the `: ` every system set puts before it and before the
-    /// ` (os error N)` uutils puts after it, each measured (#1187).
+    /// Whether `diagnostic` ends in one of the words as its reason, after the
+    /// `: ` every system set puts before it, before the ` (os error N)`, N
+    /// only digits, uutils puts after it, each measured (#1187).
     fn gives(&self, diagnostic: &str) -> bool {
+        let numbered = |code: &str| !code.is_empty() && code.bytes().all(|b| b.is_ascii_digit());
         let reason = diagnostic
             .rsplit_once(" (os error ")
-            .filter(|(_, code)| code.ends_with(')'))
+            .filter(|(_, code)| code.strip_suffix(')').is_some_and(numbered))
             .map_or(diagnostic, |(reason, _)| reason);
         self.words.iter().any(|words| {
             reason
@@ -1803,14 +1802,12 @@ const READ_ONLY: Refusal = Refusal::one(&[1], &["Read-only file system"]);
 const ABSENT: Refusal = Refusal::one(&[1], &["No such file or directory"]);
 
 /// That `tamper`, run by `launch` after [`STOOD`] in one launch, finished
-/// in a box that was established with exactly the `refusal` it expects. A
-/// launch that errs before the box, a stand-in bubblewrap that runs
-/// nothing, or a box that fails to stand never prints the box's HOME, so
-/// it fails the test by those words rather than as a command that
-/// succeeded, or as a refusal no box made (#1187). After the box stood,
-/// a tamper cut off at its deadline, or one whose exit code is none of
-/// the expected refusal's or whose stderr carries none of its words,
-/// fails as one that did not finish refused.
+/// in a box that stood with exactly the `refusal` it expects. A launch
+/// that errs, a stand-in bubblewrap or a box that failed to stand prints
+/// no box HOME and fails as not established (#1187). After it, a tamper
+/// cut off at its deadline, or whose exit code is none of the refusal's,
+/// or whose whole stderr's final reason is none of its words, fails as one
+/// that did not finish refused.
 #[cfg(target_os = "linux")]
 fn refused_in_a_stood_box<E: std::fmt::Display>(
     launch: impl Fn(&str) -> Result<Executed, E>,
@@ -1833,8 +1830,7 @@ fn refused_in_a_stood_box<E: std::fmt::Display>(
     );
 }
 
-/// A launch whose box stood, printing its HOME, and whose tamper then
-/// ended with `exit_code`, `stderr` and `timed_out`.
+/// A launch whose box stood, printing its HOME, then whose tamper ended so.
 #[cfg(target_os = "linux")]
 fn stood_then(
     exit_code: i32,
@@ -1862,31 +1858,35 @@ const REFUSED_FIRST: &str = "/bin/sh: 1: cannot create a: Read-only file system\
 #[test]
 #[should_panic(expected = "the tamper did not finish refused in the box")]
 fn a_tamper_cut_off_at_its_deadline_is_no_refusal() {
-    let launch = stood_then(1, REFUSED_FIRST, true);
-    refused_in_a_stood_box(launch, "echo forged > a; sleep 600", READ_ONLY);
+    refused_in_a_stood_box(stood_then(1, REFUSED_FIRST, true), "sleep 600", READ_ONLY);
 }
 
 /// A tamper whose command never ran, exit 127 as a missing tool gives,
-/// is no refusal, though the box stood and an earlier step was refused
-/// in the refusal's words (#1187).
+/// is no refusal, though its stderr ends in the refusal's words (#1187).
 #[cfg(target_os = "linux")]
 #[test]
 #[should_panic(expected = "the tamper did not finish refused in the box")]
 fn a_tamper_that_never_ran_is_no_refusal() {
-    let missing = format!("{REFUSED_FIRST}/bin/sh: 1: chmod: not found\n");
-    let launch = stood_then(127, &missing, false);
-    refused_in_a_stood_box(launch, "echo forged > a; chmod 666 a", READ_ONLY);
+    refused_in_a_stood_box(stood_then(127, REFUSED_FIRST, false), "chmod a", READ_ONLY);
 }
 
 /// A tamper killed by a signal, 128 plus SIGKILL as bubblewrap reports
-/// it, with no deadline passed, is no refusal, though an earlier step was
-/// refused in the refusal's words (#1187).
+/// it, with no deadline passed, is no refusal, though its stderr ends in
+/// the refusal's words (#1187).
 #[cfg(target_os = "linux")]
 #[test]
 #[should_panic(expected = "the tamper did not finish refused in the box")]
 fn a_tamper_killed_by_a_signal_is_no_refusal() {
-    let launch = stood_then(137, REFUSED_FIRST, false);
-    refused_in_a_stood_box(launch, "echo forged > a; sleep 600", READ_ONLY);
+    refused_in_a_stood_box(stood_then(137, REFUSED_FIRST, false), "sleep 9", READ_ONLY);
+}
+
+/// A refusal's words and OS error a later line follows are no refusal (#1187).
+#[cfg(target_os = "linux")]
+#[test]
+#[should_panic(expected = "the tamper did not finish refused in the box")]
+fn a_refusal_a_later_line_follows_is_not_its_refusal() {
+    let later = "t: a: Read-only file system (os error 30)\nt: later failure (unrelated)\n";
+    refused_in_a_stood_box(stood_then(1, later, false), "echo forged > a", READ_ONLY);
 }
 
 /// A tamper that exits with the expected code in words other than its
