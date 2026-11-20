@@ -13,7 +13,8 @@ use crate::bundle::{Bundle, GateAssessment, SeatBody, SeatClass, SequenceStep};
 use crate::engine::heads::HeadReads;
 use crate::engine::tests::{git_commit, single_body, step_body};
 use crate::engine::verdict::ObservationProblem::{
-    self, Beyond, Disagrees, Missing, Partial, Unattributed, Unlawful, Unrecorded, Unselected,
+    self, Beyond, Disagrees, Missing, Partial, Unattributed, Uncovered, Unlawful, Unrecorded,
+    Unselected,
 };
 use crate::engine::verdict::Producer;
 use crate::engine::Engine;
@@ -338,6 +339,25 @@ fn a_missing_or_inconsistent_journaled_observation_refuses_at_decide() {
     }
 }
 
+/// Fix round 0109a1r8, M2: a protected single gate decides only with the
+/// `covered` digest its dispatch armed. Stopped after its durable success
+/// on A, its `covered` removed by direct SQL and the run resumed on B, it
+/// refuses with `Uncovered` and takes no transition, though its
+/// `checked_head` still reads A.
+#[test]
+fn a_protected_single_gate_without_its_covered_digest_refuses() {
+    let stopped = Stopped::after_review(true);
+    stopped.replanted(|result| drop(result.as_object_mut().unwrap().remove("covered")));
+    let events = stopped.resumed();
+    let succeeded = ended_in(&events, "review", EventType::EffectSucceeded);
+    assert_eq!(
+        succeeded[0]["result"]["checked_head"],
+        json!(stopped.reviewed)
+    );
+    assert!(succeeded[0]["result"].get("covered").is_none());
+    refused_at_decide(&events, &Uncovered);
+}
+
 /// Review's decision in `events` refused `problem`: schema-invalid with
 /// its text, no next phase, no reviewed head, and ship never requested.
 fn refused_at_decide(events: &[EventEnvelope], problem: &ObservationProblem) {
@@ -499,6 +519,8 @@ fn the_terminals_producer_is_read_from_the_compiled_body() {
     };
     let compiled = crate::engine::tests::bundle(dir.path(), body(&[]));
     let (sequence, single) = (&compiled.seats["work"], &compiled.seats["review"]);
+    let mut gated = single.clone();
+    gated.gate = GateAssessment::AllGate;
     let mut early = sequence.clone();
     early.body = body(&["blocked"]);
     let mut unselected = single.clone();
@@ -525,7 +547,8 @@ fn the_terminals_producer_is_read_from_the_compiled_body() {
     };
     let unlawful = |step: &str| Err(Unlawful { step: step.into() });
     let cases = [
-        (single, None, "clean", Ok(Producer::Effect)),
+        (single, None, "clean", Ok(Producer::Effect { gate: false })),
+        (&gated, None, "clean", Ok(Producer::Effect { gate: true })),
         (sequence, Some("chief"), "clean", at(3)),
         (sequence, Some("draft"), "clean", unlawful("draft")),
         (sequence, Some("judge"), "clean", unlawful("judge")),

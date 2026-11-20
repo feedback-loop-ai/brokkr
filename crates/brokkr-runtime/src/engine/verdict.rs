@@ -6,7 +6,7 @@
 //! (decision 0001). No word is refused here and no routing moves.
 
 use brokkr_core::envelope::EventType;
-use brokkr_core::findings::{CheckedHead, Covered, EngineWritten, Finding};
+use brokkr_core::findings::{CheckedHead, Covered, CoveredHead, EngineWritten, Finding};
 use brokkr_core::fold::{RunState, StepObservation, StepRecords};
 use brokkr_protocol::{AttemptOutcome, AttemptReport};
 use serde::Deserialize;
@@ -182,6 +182,11 @@ pub(super) enum ObservationProblem {
          (decision 0109 ruling 7)"
     )]
     Unselected,
+    #[error(
+        "the protected gate's result carries no `covered` head digest, the form its \
+         dispatch armed (decision 0109 ruling 7)"
+    )]
+    Uncovered,
 }
 
 /// The step that produced a protected effect's terminal, read from the
@@ -191,8 +196,11 @@ pub(super) enum ObservationProblem {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum Producer<'a> {
     /// A single body, whose success names no step: its terminal is its
-    /// own observation, and it owes no step record.
-    Effect,
+    /// own observation, and it owes no step record. `gate` is its compiled
+    /// class as dispatch reads it to arm covering (fix round 0109a1r8,
+    /// M2): a gate body owes the `covered` digest its dispatch armed, and
+    /// a work body carries none (fix round 0109a1r4, K3).
+    Effect { gate: bool },
     /// A sequence the compiled body holds, every step of it by name and
     /// class in compiled order, ended at `at`: its last step, or a step
     /// whose compiled `ends_on` holds the terminal's word. The tag names
@@ -215,10 +223,12 @@ impl<'a> Producer<'a> {
         state: &RunState,
         word: Option<&str>,
     ) -> Result<Producer<'a>, ObservationProblem> {
-        let (body, _) = (seat.body.selected(state.strategy.as_deref()))
-            .ok_or(ObservationProblem::Unselected)?;
+        let strategy = state.strategy.as_deref();
+        let (body, _) = (seat.body.selected(strategy)).ok_or(ObservationProblem::Unselected)?;
         match (body, state.ending_step.as_deref()) {
-            (ExecutableBody::Invocation(_), None) => Ok(Producer::Effect),
+            (ExecutableBody::Invocation(_), None) => Ok(Producer::Effect {
+                gate: super::arms_effect_gate_head(&body, seat, strategy),
+            }),
             (ExecutableBody::Sequence { steps }, Some(name)) => Producer::step(steps, name, word),
             (ExecutableBody::Invocation(_), Some(_)) | (ExecutableBody::Sequence { .. }, None) => {
                 Err(ObservationProblem::Unattributed)
@@ -304,13 +314,31 @@ pub(super) fn checked_head(
         None => {}
     }
     let decided = match producer {
-        Producer::Effect => records.by_step.is_empty().then_some(head),
+        Producer::Effect { gate } => effect_head(*gate, records, head, covered.as_ref())?,
         Producer::Step { steps, at } => {
             reconciled(steps, *at, records)?;
             step_head(steps, *at, records, head, covered.as_ref())?
         }
     };
     decided.ok_or(ObservationProblem::Disagrees)
+}
+
+/// The head a single body decides on, its terminal's own, if no step
+/// record stands beside it and its `covered` is the form its dispatch
+/// armed (fix round 0109a1r8, M2): a gate body's digest, which an absent
+/// or commit-form record is not, and none for a work body.
+fn effect_head(
+    gate: bool,
+    records: &StepRecords,
+    head: CheckedHead,
+    covered: Option<&Covered>,
+) -> Result<Option<CheckedHead>, ObservationProblem> {
+    let digest = covered.map(|covered| matches!(covered.head(), CoveredHead::Digest(_)));
+    match (gate, digest) {
+        (true, Some(true)) | (false, None) => Ok(records.by_step.is_empty().then_some(head)),
+        (true, Some(false) | None) => Err(ObservationProblem::Uncovered),
+        (false, Some(_)) => Ok(None),
+    }
 }
 
 /// The head a sequence ended at `at` decides on, if its terminal `head`
@@ -329,6 +357,13 @@ fn step_head(
     let mut last = None;
     for gate in gates(&steps[..=at]) {
         match records.by_step.get(gate) {
+            // Dispatch arms a protected gate step's covering in the digest
+            // form, so a whole record owes it (fix round 0109a1r8, M2).
+            Some(StepObservation::Checked { covered, .. })
+                if !matches!(covered.head(), CoveredHead::Digest(_)) =>
+            {
+                return Err(ObservationProblem::Uncovered);
+            }
             Some(StepObservation::Checked { head, covered }) => last = Some((head, covered)),
             _ => {
                 let step = gate.to_string();
