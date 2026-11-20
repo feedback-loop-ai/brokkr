@@ -246,8 +246,8 @@ impl Drop for EngineHome {
 /// Why no dsh home is served. The text is the operator's.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum DshHomeError {
-    #[error("no harness home for transcript kind dsh-session")]
-    Unresolved,
+    #[error(transparent)]
+    Unresolved(TranscriptRefusal),
     #[error("no HOME to stage the engine-only dsh home under")]
     Homeless,
     /// The secret injector sets a declared name over the launch's own
@@ -284,7 +284,9 @@ impl DshHome {
     pub(crate) fn operator() -> Result<DshHome, DshHomeError> {
         dsh_home()
             .map(DshHome::Operator)
-            .ok_or(DshHomeError::Unresolved)
+            .ok_or(DshHomeError::Unresolved(TranscriptRefusal::NoHome {
+                kind: Kind::DshSession,
+            }))
     }
 
     /// A fresh engine-only home under [`ENGINE_HOMES`], in the `HOME` the
@@ -656,7 +658,9 @@ mod tests {
         }
         for (error, text) in [
             (
-                DshHomeError::Unresolved,
+                DshHomeError::Unresolved(TranscriptRefusal::NoHome {
+                    kind: Kind::DshSession,
+                }),
                 "no harness home for transcript kind dsh-session",
             ),
             (
@@ -698,7 +702,12 @@ mod tests {
         );
         env.remove("DSH_HOME");
         env.remove("HOME");
-        assert!(matches!(DshHome::operator(), Err(DshHomeError::Unresolved)));
+        assert!(matches!(
+            DshHome::operator(),
+            Err(DshHomeError::Unresolved(TranscriptRefusal::NoHome {
+                kind: Kind::DshSession
+            }))
+        ));
     }
 
     #[test]
