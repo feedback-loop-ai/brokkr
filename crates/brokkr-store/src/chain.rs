@@ -45,6 +45,12 @@ pub(crate) fn fence(
     Ok(seat_record::validate_seat_record(record, seq, version))
 }
 
+/// The one insert every append seals its row with, prepared through the
+/// connection's statement cache (#1156): prepared afresh, the statement
+/// and every trigger it fires cost each row of a large append again.
+const INSERT_EVENT: &str = "INSERT OR IGNORE INTO events (run_id, seq, event_hash, envelope)
+         VALUES (?1, ?2, ?3, ?4)";
+
 /// Seal `payload` as the run's next event after `head`, its seq and hash,
 /// and insert it inside `tx`; a seq a peer already took is
 /// [`StoreError::AppendConflict`], and a non-annotation after the run's
@@ -76,11 +82,9 @@ pub(crate) fn seal_and_insert(
     }
     .sealed();
     let serialized = serde_json::to_string(&envelope)?;
-    let inserted = tx.execute(
-        "INSERT OR IGNORE INTO events (run_id, seq, event_hash, envelope)
-         VALUES (?1, ?2, ?3, ?4)",
-        params![run_id, envelope.seq as i64, envelope.event_hash, serialized],
-    )?;
+    let mut insert = tx.prepare_cached(INSERT_EVENT)?;
+    let row = params![run_id, envelope.seq as i64, envelope.event_hash, serialized];
+    let inserted = insert.execute(row)?;
     if inserted == 0 {
         return Err(StoreError::AppendConflict { seq: envelope.seq });
     }

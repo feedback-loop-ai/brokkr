@@ -11,14 +11,14 @@
 
 use std::collections::HashMap;
 
-use brokkr_core::envelope::{EventEnvelope, EventType, EVENT_SCHEMA_VERSION};
+use brokkr_core::envelope::{EventEnvelope, EventType};
 use rusqlite::types::Value;
-use rusqlite::{params, Connection, TransactionBehavior};
+use rusqlite::{Connection, TransactionBehavior};
 use serde_json::{json, Value as Json};
 
-use crate::chain::fence;
+use crate::chain::{fence, seal_and_insert};
 use crate::test_support::{every_run_reads_as_its_fold, plant_older_writer};
-use crate::{head_of, now_rfc3339, summary, terminal, Store};
+use crate::{head_of, summary, Store, StoreError};
 
 /// `events` appended to `run_id` after its head in one transaction: each
 /// fenced and sealed with no cause and no attempt, chained onto the one
@@ -56,51 +56,21 @@ pub(crate) fn plant_older_at_once(store: &Store, run_id: &str, events: &[EventEn
 }
 
 /// `payload` sealed as `run_id`'s next event after `head` and inserted
-/// inside `tx`, as `chain::seal_and_insert` seals and inserts an append,
-/// with no cause and no attempt, but through the connection's statement
-/// cache: `seal_and_insert` prepares its insert, and with it every
-/// trigger the insert fires, once per row, which costs a 20,000-event
-/// plant three times its time. Held to the writer's rows by
-/// [`assert_same_rows`].
+/// inside `tx` by `chain::seal_and_insert`, with no cause and no attempt;
+/// a seq already taken is a panic naming it, for a plant appends after
+/// the head it read.
 fn sealed_into(
     tx: &Connection,
     run_id: &str,
-    (last_seq, previous_hash): &(u64, String),
+    head: &(u64, String),
     event_type: EventType,
     payload: Json,
 ) -> EventEnvelope {
-    terminal::refuse(tx, run_id, event_type, *last_seq).unwrap();
-    let envelope = EventEnvelope {
-        run_id: run_id.to_string(),
-        seq: last_seq + 1,
-        event_id: uuid::Uuid::new_v4().to_string(),
-        event_schema_version: EVENT_SCHEMA_VERSION,
-        event_type,
-        payload,
-        causation_id: None,
-        correlation_id: run_id.to_string(),
-        attempt_id: None,
-        recorded_at: now_rfc3339(),
-        previous_hash: previous_hash.clone(),
-        event_hash: String::new(),
+    match seal_and_insert(tx, run_id, head.clone(), event_type, payload, None, None) {
+        Ok(envelope) => envelope,
+        Err(StoreError::AppendConflict { seq }) => panic!("seq {seq} is the run's next"),
+        Err(error) => panic!("seq {} seals: {error}", head.0 + 1),
     }
-    .sealed();
-    let serialized = serde_json::to_string(&envelope).unwrap();
-    let inserted = tx
-        .prepare_cached(
-            "INSERT OR IGNORE INTO events (run_id, seq, event_hash, envelope)
-             VALUES (?1, ?2, ?3, ?4)",
-        )
-        .unwrap()
-        .execute(params![
-            run_id,
-            envelope.seq as i64,
-            envelope.event_hash,
-            serialized
-        ])
-        .unwrap();
-    assert_eq!(inserted, 1, "seq {} is the run's next", envelope.seq);
-    envelope
 }
 
 /// The columns two journals of the same events may differ in past their
