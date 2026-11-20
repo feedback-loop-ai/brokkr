@@ -203,3 +203,57 @@ fn a_checkpoint_after_a_conclusion_ends_concluded_beneath_and_writes_nothing() {
     );
     assert_eq!(after.last().unwrap().event_type, EventType::RunStopped);
 }
+
+/// Fix round 0109a1r5, V4's latch: a live checkpoint the admission
+/// refuses latches only when nothing else has. A second site's refused
+/// checkpoint is counted behind the first refusal and never latched in
+/// its place, and one offered after a storage failure latches nothing:
+/// the failure is what the attempt settles on.
+#[test]
+fn a_refused_live_checkpoint_behind_a_latch_never_takes_its_place() {
+    use crate::engine::operator::conclude_as;
+    use crate::engine::tests::in_flight_store;
+
+    let claimed = || json!({"step": "seat-turn", "authored": "engine"});
+    let attempt = |run_id| super::Attempt {
+        run_id,
+        effect_id: "effect",
+        attempt_id: "attempt",
+    };
+    let dir = tempfile::tempdir().unwrap();
+
+    let mut store = in_flight_store(&dir.path().join("latched.db"), "latched");
+    let mut cause = None;
+    let mut sink = super::Checkpoints::new(&mut store, &mut cause, attempt("latched"));
+    sink.offer_live("a", claimed(), Ok(None), None);
+    sink.offer_live("b", claimed(), Ok(None), None);
+    let settled = sink.settle().unwrap();
+    let latched = settled.refusal.as_ref().expect("the first refusal latched");
+    assert_eq!(latched.owner, "a");
+    assert_eq!(
+        latched.dropped,
+        std::collections::BTreeMap::from([("b".to_string(), 1)])
+    );
+    assert!(matches!(
+        settled.outcome(
+            "b",
+            AttemptOutcome::Succeeded {
+                result: json!({"result": "pass"})
+            }
+        ),
+        AttemptOutcome::Indeterminate { .. }
+    ));
+
+    let mut store = in_flight_store(&dir.path().join("failed.db"), "failed");
+    conclude_as(&mut store, "failed", "operator", "believed dead").unwrap();
+    let mut cause = None;
+    let mut sink = super::Checkpoints::new(&mut store, &mut cause, attempt("failed"));
+    sink.offer("", json!({"step": "seat-turn", "turn": 1}), Ok(None));
+    assert!(sink.failure.is_some(), "the conclusion failed the append");
+    sink.offer_live("", claimed(), Ok(None), None);
+    assert!(sink.refusal.is_none(), "nothing latches behind a failure");
+    assert!(matches!(
+        sink.settle(),
+        Err(crate::engine::EngineError::ConcludedBeneath { .. })
+    ));
+}

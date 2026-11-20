@@ -330,6 +330,30 @@ fn a_member_name_holding_a_slash_is_refused_by_that_name_and_the_drive_ends() {
     }
 }
 
+/// Fix round 0109a1r8, M4's bound: a refusal that names no settled member
+/// is the terminal's own, so the per-member path hands it up as it came,
+/// removes no member, and appends nothing. A success's own result is
+/// judged before any member it carries.
+#[test]
+fn a_refusal_that_names_no_member_is_handed_up_as_it_came() {
+    let work = single_body(driver(&json!({"result": "complete"})));
+    let (_dir, mut engine) = begun(work, |_| {}, |_| HeadReads::default());
+    let before = engine.store.load(&engine.run_id).unwrap().len();
+    let payload = json!({"effect_id": "effect", "attempt_id": "attempt",
+                         "result": over_subset(),
+                         "settled_members": {"a": {"result": "clean"}}});
+    let appended =
+        engine.append_settled(EventType::EffectSucceeded, payload, Some("attempt".into()));
+    match appended {
+        Err(crate::engine::EngineError::Store(brokkr_store::StoreError::SeatRecord(refusal))) => {
+            assert_eq!(refusal.settled_member, None, "{refusal}");
+            assert_eq!(refusal.path, "/cache_read_tokens", "{refusal}");
+        }
+        other => panic!("the success's own result is refused: {other:?}"),
+    }
+    assert_eq!(engine.store.load(&engine.run_id).unwrap().len(), before);
+}
+
 /// Fix round 0109a1r8, M5: every settled payload takes one per-member
 /// path, whatever the store's contention. X4's three-member panel is
 /// driven until it parks; its failed row and what follows are then

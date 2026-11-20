@@ -253,3 +253,28 @@ fn a_panels_member_findings_each_carry_their_members_site() {
     let lines: Vec<&Value> = findings.iter().map(|finding| &finding["line"]).collect();
     assert_eq!(lines, [&json!(3), &json!(4)]);
 }
+
+/// A stamp rides only inside an object result of a named effect: a step
+/// result that is not an object, and a success with no effect id or no
+/// object result, pass with no `covered` and no `checked_head`, the
+/// success still marked as the engine's (fix round 0109a1r6, W6).
+#[test]
+fn a_result_with_nowhere_to_carry_a_stamp_passes_unstamped() {
+    let work = single_body(driver(&json!({"result": "complete"})));
+    let (_dir, mut engine) = begun(work, |_| {}, |_| HeadReads::default());
+    assert_eq!(
+        engine.stamp_step_covered("effect", json!("bare")),
+        json!("bare")
+    );
+    for payload in [
+        json!({"result": {"result": "pass"}}),
+        json!({"effect_id": "effect", "result": "bare"}),
+    ] {
+        let mut marked = payload.clone();
+        brokkr_core::findings::stamp_authored(&mut marked);
+        assert_eq!(
+            engine.stamp_covered(EventType::EffectSucceeded, payload),
+            marked
+        );
+    }
+}

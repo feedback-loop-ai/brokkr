@@ -5979,6 +5979,45 @@ fn dialect_step(
     }
 }
 
+/// A last step that is a gate journals its result as its step record
+/// first (fix round 0109a1r5, V1), so the fence's refusal of that record
+/// fails the attempt at the step, and no success is written.
+#[test]
+fn a_last_gate_steps_refused_record_fails_the_attempt_at_that_step() {
+    let judge = SequenceStep {
+        class: SeatClass::Gate,
+        ..step(
+            "judge",
+            driver_command(
+                "effect",
+                "attempt",
+                AttemptOutcome::Succeeded {
+                    result: json!({"result":"complete", "model":"a configured guess"}),
+                },
+            ),
+        )
+    };
+    let (_dir, mut driven) = engine(single_body(vec!["driver".into()]));
+    run_sequence(
+        &mut driven,
+        &SequenceAt::new("effect", "attempt", "work"),
+        &[judge],
+        &step_input(),
+        2,
+        &Selection::new(),
+    )
+    .unwrap();
+    let error = failed_error(&driven);
+    assert!(error.starts_with("sequence step 'judge': "), "{error}");
+    assert!(refusal_text(&error), "{error}");
+    let events = driven.store.load(&driven.run_id).unwrap();
+    assert!(
+        !(events.iter()).any(|event| event.event_type == EventType::EffectSucceeded
+            || event.payload["checkpoint"]["step"] == "sequence-step-finished"),
+        "the step record is what the fence refused, and no success follows it"
+    );
+}
+
 #[test]
 fn a_sequence_steps_refused_result_fails_the_attempt_at_that_step() {
     // The last step's result carries a field the contract does not admit.
