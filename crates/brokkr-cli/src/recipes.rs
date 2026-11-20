@@ -26,6 +26,7 @@ use brokkr_runtime::{Bundle, Invocation, SeatBody};
 mod agents;
 pub(crate) mod personal;
 mod sources;
+pub(crate) mod verb;
 use personal::{Onto, Origin, ShelfPath};
 
 /// The run/resume bundle from the at-most-one-of `--bundle` / `--recipe`

@@ -27,6 +27,8 @@ use signal_hook::iterator::Signals;
 
 use super::table::{self, Entry, Identity, TableError};
 use super::tree::{self, Bounds, GroupRefusal, Host, Unsettled};
+use super::usage::Meter;
+use crate::AttemptUsage;
 
 /// How often every live attempt's tree is walked: the engine's own subtree
 /// on Linux, the full table on macOS. On Linux the walk only says whether
@@ -54,6 +56,10 @@ struct Live {
     /// attempt running showed; `None` while something of it runs. An
     /// orphan born later is not its.
     ended: Option<u64>,
+    /// What the tick measured of its tree, and when it was spawned
+    /// (`usage`): read by nothing but the attempt's report.
+    meter: Meter,
+    spawned: Instant,
 }
 
 type Table = fn() -> Result<Vec<Entry>, TableError>;
@@ -69,8 +75,11 @@ struct Registry {
     latest: Option<Read>,
     /// The last tick's walk, compared by identity and state. It is the
     /// tick's own memory, never an attribution: nothing here reaches
-    /// `observe`, `record`, `recorded`, `doubted` or a kill. `None` means
-    /// there is no previous walk, so the next tick must read the table.
+    /// `observe`, `record`, `recorded`, `doubted` or a kill. Nor does what
+    /// the meter reads of the same rows (`Registry::meter`): usage reaches
+    /// no attribution, kill or cleanup, only the attempt's report. `None`
+    /// means there is no previous walk, so the next tick must read the
+    /// table.
     #[cfg(target_os = "linux")]
     walk: Option<table::Sighted>,
     /// A changed walk that the full snapshot did not answer still owes
@@ -161,6 +170,15 @@ impl Attempt {
     pub(super) fn doubts(&self, missing: Option<Unsettled>) -> Result<(), Unsettled> {
         live().attempts[&self.key].doubts(missing)
     }
+
+    /// What the tick measured of the attempt's tree, from its spawn to
+    /// now, its settlement (decision 0112 ruling 2); `None` when no tick
+    /// read it.
+    pub(super) fn usage(&self) -> Option<AttemptUsage> {
+        let live = live();
+        let this = &live.attempts[&self.key];
+        this.meter.usage(this.spawned.elapsed())
+    }
 }
 
 impl Drop for Attempt {
@@ -209,6 +227,8 @@ impl Registry {
             before: before.into_iter().map(|entry| entry.id).collect(),
             doubted: BTreeSet::new(),
             ended: None,
+            meter: Meter::new(),
+            spawned: Instant::now(),
         };
         self.attempts.insert(key, attempt);
         Ok((child, key))
@@ -259,6 +279,7 @@ impl Registry {
         {
             match (host.tick)() {
                 Ok(sighting) => {
+                    self.meter(sighting.entries());
                     let sighted = sighting.sighted();
                     // A snapshot the walk owes stays owed until a full
                     // read succeeds: a change is never remembered as
@@ -280,7 +301,23 @@ impl Registry {
             }
         }
         #[cfg(not(target_os = "linux"))]
-        drop(self.read(host.tick));
+        {
+            let read = self.read(host.tick);
+            read.iter().for_each(|entries| self.meter(entries));
+        }
+    }
+
+    /// The meter's own read of a tick's rows (decision 0112 ruling 1):
+    /// each open attempt's tree under its leader, summed into its meter.
+    /// It writes nothing but the meters, so no attribution, kill or
+    /// cleanup reads what it found. A closed attempt's leader is about to
+    /// be reaped, and its pid may be reused: it is measured no further.
+    fn meter(&mut self, entries: &[Entry]) {
+        let now = Instant::now();
+        for live in self.attempts.values_mut().filter(|live| live.open) {
+            let at = now.saturating_duration_since(live.spawned);
+            live.meter.tick(at, entries, live.group.as_raw_pid());
+        }
     }
 
     /// Answer a walk with the full snapshot it asks for. A quiet walk is

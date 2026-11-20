@@ -214,6 +214,7 @@ fn the_fail_to_start_predicate_reads_only_structure() {
         stderr: "provider says: unknown model".into(),
         accepted,
         deadline_killed: false,
+        usage: None,
     };
     assert!(failed_to_start(&failed(false, Vec::new())));
     // Accepted: the session opened, so this is 0006's territory.
@@ -226,6 +227,7 @@ fn the_fail_to_start_predicate_reads_only_structure() {
     // turn must not walk the chain down every link on the same vendor.
     assert!(!failed_to_start(&AttemptReport {
         deadline_killed: true,
+        usage: None,
         ..failed(false, Vec::new())
     }));
     // A tree not proven over (#403): whatever the driver said, something
@@ -253,6 +255,7 @@ fn the_fail_to_start_predicate_reads_only_structure() {
             stderr: String::new(),
             accepted: false,
             deadline_killed: false,
+            usage: None,
         }));
     }
 }
@@ -292,6 +295,7 @@ fn start_failure_sites_names_the_members_that_never_started() {
         stderr: String::new(),
         accepted,
         deadline_killed: false,
+        usage: None,
     };
     let reports = vec![("a".to_string(), report(false)), ("b".into(), report(true))];
     assert_eq!(start_failure_sites(&reports, ""), vec![Some("a".into())]);
@@ -432,6 +436,7 @@ fn a_pre_session_refusal_advances_the_chain_and_keeps_its_reason() {
                 stderr: String::new(),
                 accepted: false,
                 deadline_killed: false,
+                usage: None,
             }),
             &selection,
             None,

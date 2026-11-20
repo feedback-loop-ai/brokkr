@@ -358,6 +358,7 @@ fn killed(reason: &str) -> AttemptReport {
         stderr: String::new(),
         accepted: true,
         deadline_killed: true,
+        usage: None,
     }
 }
 
@@ -421,6 +422,7 @@ fn an_attempt_the_seat_or_another_end_ended_is_not_renamed() {
     // failure, read exactly as before.
     let mut finished = DriverRun::Ran(AttemptReport {
         deadline_killed: false,
+        usage: None,
         ..killed("driver exited before accepting the attempt")
     });
     raised.name(&mut finished);

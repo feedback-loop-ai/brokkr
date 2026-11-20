@@ -28,6 +28,7 @@ fn row(pid: i32, ppid: i32, pgid: i32) -> Entry {
         pgid,
         zombie: false,
         exiting: false,
+        usage: None,
     }
 }
 
@@ -60,6 +61,8 @@ fn closed(group: i32, recorded: &[Entry], before: &[Entry]) -> Live {
         before: ids(before),
         doubted: BTreeSet::new(),
         ended: None,
+        meter: Meter::new(),
+        spawned: Instant::now(),
     }
 }
 
@@ -501,6 +504,7 @@ fn a_pid_reused_between_the_walk_and_the_snapshot_is_not_attributed() {
                 pgid: RECORDED,
                 zombie: false,
                 exiting: false,
+                usage: None,
             },
             row(STRANGER, RECORDED, STRANGER),
         ]))

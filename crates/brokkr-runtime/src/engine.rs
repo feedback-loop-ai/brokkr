@@ -82,6 +82,7 @@ mod seat_tree;
 pub(crate) mod sequence;
 pub(in crate::engine) use seat_tree::AttemptIds;
 mod start;
+mod usage;
 use operator::operator_stop_reason;
 #[cfg(test)]
 use panel::panel_outcome;
@@ -112,11 +113,10 @@ use operator::{
     operator_supersede_racing, riding_attempt, stop_as, stop_racing_as, FENCE_ATTEMPTS,
 };
 
-/// What an `effect/indeterminate` carries of an attempt not proven over
-/// (#403), the fields `contracts/effect-cleanup.v1.schema.json` publishes:
-/// nothing once proven over, so the event keeps its v1 bytes; a seat's own
-/// evidence; or a panel's, by member. The member's own marker is a closed
-/// seat record and carries none.
+/// What an `effect/indeterminate` carries of an attempt not proven over (#403), the fields
+/// `contracts/effect-cleanup.v1.schema.json` publishes: nothing once proven over, so the event
+/// keeps its v1 bytes; a seat's own evidence; or a panel's, by member. The member's own marker
+/// is a closed seat record and carries none.
 #[derive(Debug, Default, Serialize)]
 #[serde(untagged)]
 enum Unproven {
@@ -473,21 +473,18 @@ pub struct Engine {
     /// The operated repository, resolved once by `operated_repo`: the
     /// tree seats work in and every git fact reads.
     pub repo: PathBuf,
-    /// The world this run was invoked into (decision 0023), when a map
-    /// was in effect. It is pinned into the run manifest at start, so
-    /// this field is the run's *live* copy of a fact the journal already
-    /// answers for; the facts a decision records are keyed by the realm
-    /// the repository is, when the map names one.
+    /// The world this run was invoked into (decision 0023), when a map was in effect. It is
+    /// pinned into the run manifest at start, so this field is the run's *live* copy of a fact
+    /// the journal already answers for; the facts a decision records are keyed by the realm the
+    /// repository is, when the map names one.
     pub world: Option<crate::realms::World>,
-    /// The event_id every append chains to as `causation_id` — refreshed
-    /// to the journal head each drive iteration, then to each event this
-    /// iteration appends, so causal links mirror the engine's actual
-    /// decision order (rendered by the UI timeline).
+    /// The event_id every append chains to as `causation_id` — refreshed to the journal head each
+    /// drive iteration, then to each event this iteration appends, so causal links mirror the
+    /// engine's actual decision order (rendered by the UI timeline).
     current_cause: Option<String>,
-    /// Operator-side secrets store override (decision 0012). Defaults to
-    /// `secrets.env` in the run-local directory. The engine only ever threads this
-    /// PATH (plus declared names) into the driver start input — values
-    /// are resolved by the exec driver at spawn time; no store read
+    /// Operator-side secrets store override (decision 0012). Defaults to `secrets.env` in the
+    /// run-local directory. The engine only ever threads this PATH (plus declared names) into the
+    /// driver start input — values are resolved by the exec driver at spawn time; no store read
     /// exists anywhere in brokkr-runtime.
     pub secrets_file: Option<PathBuf>,
     /// The store's place, resolved from its configured spelling once and
@@ -524,6 +521,7 @@ pub struct Engine {
     /// The attempt's terminal event a peer's lock kept out, carried to
     /// the lawful end (#394). Never journaled as such.
     held_outcome: Option<checkpoints::HeldOutcome>,
+    usage: usage::Pending,
     /// The head the next append must still find, as [`fence::tip_of`]
     /// took it (decision 0029); `None` while an attempt is in flight.
     fence: Option<(u64, String)>,
@@ -611,6 +609,7 @@ fn shell(store: Store, bundle: Bundle, run_id: String, feature: String, repo: Pa
         network_prefix: None,
         replay: Default::default(),
         held_outcome: None,
+        usage: Default::default(),
         fence: None,
         held: None,
         run_lock: None,
@@ -1464,6 +1463,7 @@ impl Engine {
         selection: &Selection,
         boundary: Option<Boundary>,
     ) -> Result<(), EngineError> {
+        self.usage.seat(attempt_id, &run);
         let report = match run {
             DriverRun::SpawnFailed(error) => {
                 // A driver binary that is absent satisfies the structural

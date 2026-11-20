@@ -353,53 +353,7 @@ enum KeepRefsCmd {
     },
 }
 
-#[derive(Subcommand)]
-enum RecipesCmd {
-    /// List recipes under --dir, then those on the personal shelf, each
-    /// with its origin, project or personal; broken ones print a warning
-    /// line, never abort the listing.
-    List {
-        /// The recipe library directory (default the found .brokkr/recipes,
-        /// listing nothing while it is absent, else recipes).
-        #[arg(long)]
-        dir: Option<PathBuf>,
-    },
-    /// Install a recipe from a local path or a git URL into the shelf at
-    /// the repository's root, .brokkr/recipes/<name> where the folder is,
-    /// else recipes/<name>, with the agents and charters it names that
-    /// the agent library lacks.
-    Add {
-        /// A local bundle directory or a git URL.
-        source: String,
-        /// The name the recipe is installed under.
-        #[arg(long)]
-        name: String,
-        /// With a git URL, the bundle's directory inside the clone, a
-        /// relative path of plain names (`recipes/fast`), walked without
-        /// following a link; without it, the clone's root or its one
-        /// subdirectory holding a bundle.json. The bases its recipe
-        /// extends come from beside it.
-        #[arg(long)]
-        path: Option<String>,
-        /// Install onto the personal shelf instead,
-        /// $XDG_CONFIG_HOME/brokkr/recipes/<name>, else
-        /// $HOME/.config/brokkr/recipes/<name>, beside host.json and in no
-        /// repository; it copies no agent or charter.
-        #[arg(long)]
-        personal: bool,
-    },
-    /// Print one recipe's RESOLVED bundle and, when it extends another,
-    /// the composition chain it was resolved from.
-    Show {
-        /// The recipe's name, resolved to <dir>/<name>, else to the
-        /// personal shelf's; a name on both refuses.
-        name: String,
-        /// The recipe library directory (default the found .brokkr/recipes,
-        /// else recipes).
-        #[arg(long)]
-        dir: Option<PathBuf>,
-    },
-}
+use recipes::verb::RecipesCmd;
 
 /// Every crossing the WORLD draws, per realm: what each realm publishes,
 /// with the path it was read from and the digest of the bytes that were

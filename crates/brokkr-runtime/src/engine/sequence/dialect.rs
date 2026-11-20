@@ -76,6 +76,7 @@ impl Engine {
             None,
         )?;
         run.bound.deadline.name(&mut driven);
+        self.usage.step(run.attempt_id, &at.step.name, &driven);
         let mut unproven = Unproven::Proven;
         Ok(StepVerdict::Goes(StepRun {
             record: None,

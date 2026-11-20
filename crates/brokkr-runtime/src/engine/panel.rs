@@ -92,6 +92,7 @@ impl Engine {
             gate,
         );
         let reports = self.run_panel(effect_id, attempt_id, &runs, bound.remaining, "")?;
+        self.usage.panel(attempt_id, &reports);
         self.journal_panel_members(effect_id, attempt_id, &reports, &runs, "")?;
         span.close(&self.repo);
         let record = PanelRecord {
@@ -509,6 +510,7 @@ fn unspawned(error: &str) -> AttemptReport {
         accepted: false,
         // No process existed for a watchdog to kill.
         deadline_killed: false,
+        usage: None,
     }
 }
 

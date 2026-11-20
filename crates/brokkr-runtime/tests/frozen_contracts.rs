@@ -24,7 +24,7 @@ fn digest(relative: &str) -> String {
 /// Recorded from this tree before the agent library existed, plus the
 /// realms map v1 — pinned when decision 0026 landed `forge.realms/v2`
 /// beside it, so "beside, never inside" is machine-checked.
-const FROZEN: [(&str, &str); 38] = [
+const FROZEN: [(&str, &str); 39] = [
     // Decision 0103 (accepted) mints the driver-refusal extension beside
     // the frozen v1 family; its bytes are pinned from here. Fix round
     // 430s4a6 L2 re-pins the unreleased file after the shared route form
@@ -227,6 +227,14 @@ const FROZEN: [(&str, &str); 38] = [
         "contracts/park-cause.v1.schema.json",
         "f31f194fef4cbe1973207ee1dc171b8045a671c120b13def89ba14a2734574ec",
     ),
+    // Decision 0112 ruling 3 mints `effect-usage/v1` as an additive
+    // extension at event_schema 1; its bytes are pinned from birth. Fix
+    // round 1193a-r1 re-pins the unreleased file after its `members`
+    // description names a sequence's step drivers.
+    (
+        "contracts/effect-usage.v1.schema.json",
+        "a585411f40c8b3546c6cdb6ed5faf3acbbcdabc6b3e5335ec9230d6cd329ea1b",
+    ),
 ];
 
 #[test]
@@ -283,6 +291,10 @@ fn the_new_contracts_exist_beside_the_frozen_ones() {
             "Forge provider wait v1",
         ),
         ("contracts/park-cause.v1.schema.json", "Forge park cause v1"),
+        (
+            "contracts/effect-usage.v1.schema.json",
+            "Forge effect usage v1",
+        ),
         (
             "contracts/panel-carry.v1.schema.json",
             "Forge panel carry v1",

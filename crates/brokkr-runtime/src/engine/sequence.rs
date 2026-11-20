@@ -387,6 +387,7 @@ impl Engine {
             run.selection.plan(&site),
         )?;
         run.bound.deadline.name(&mut driven);
+        self.usage.step(run.attempt_id, &at.step.name, &driven);
         Ok(match driven {
             DriverRun::SpawnFailed(error) => StepRun {
                 record: None,
@@ -445,6 +446,7 @@ impl Engine {
         // multi-line call's `?` edge as its own region.
         let remaining = run.bound.remaining;
         let reports = self.run_panel(effect_id, attempt_id, &runs, remaining, &tag_prefix)?;
+        self.usage.panel_step(attempt_id, &tag_prefix, &reports);
         self.journal_panel_members(effect_id, attempt_id, &reports, &runs, &tag_prefix)?;
         span.close(&self.repo);
         let record = PanelRecord {
