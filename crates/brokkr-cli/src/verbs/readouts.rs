@@ -335,10 +335,18 @@ fn print_retired(
 
 /// `brokkr seats`: the seats block of `inspect`'s readout, on `out`.
 pub(crate) fn seats(workspace: &Path, args: SeatsArgs, out: &mut dyn Write) -> Result<ExitCode> {
-    seats_with(workspace, args, out, &run_pages::viewed)
+    seats_with(
+        workspace,
+        args,
+        out,
+        &run_pages::viewed,
+        render::Style::detect_for,
+    )
 }
 
-/// [`seats`], its run read by `read`.
+/// [`seats`], its run read by `read` and painted in the style `style`
+/// reads for [`render::Width::Columns`]: `COLUMNS` where it is set, else
+/// the default, never the terminal's own width (#1167).
 fn seats_with(
     workspace: &Path,
     SeatsArgs {
@@ -349,6 +357,7 @@ fn seats_with(
     }: SeatsArgs,
     out: &mut dyn Write,
     read: Reads<'_>,
+    style: impl FnOnce(render::Width) -> render::Style,
 ) -> Result<ExitCode> {
     // A thin verb (design DD11): the journal `inspect` would
     // open, the view `inspect` would derive, and either the
@@ -367,7 +376,8 @@ fn seats_with(
     if json {
         return print_served(view, out);
     }
-    write!(out, "{}", render::seats(&view, &render::Style::detect()))?;
+    let style = style(render::Width::Columns);
+    write!(out, "{}", render::seats(&view, &style))?;
     Ok(Exit::Completed.into())
 }
 

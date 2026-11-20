@@ -173,6 +173,8 @@ mod terminal;
 
 use self::columns::*;
 use self::footer::*;
+/// The cell width `brokkr graph`'s tables measure with (#1167).
+pub(crate) use self::glyphs::width_of;
 use self::glyphs::*;
 use self::keys::*;
 use self::layout::*;

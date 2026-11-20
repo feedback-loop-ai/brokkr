@@ -78,8 +78,10 @@ ratatui = { workspace = true }
 # driver's no_new_privs. `signal-hook` (U9b1e) lets `broker serve` count the
 # SIGINT or SIGTERM its harness ends it by, so it closes its ledger: a direct
 # edge to the version brokkr-protocol already holds; no registry version moves.
+# `termios` (#1167) reads the window size of the stdout `brokkr graph` writes
+# to; crossterm already builds rustix with it, so no crate is added.
 [target.'cfg(unix)'.dependencies]
-rustix = { version = "1.1.4", default-features = false, features = ["event", "fs", "net", "process", "std", "thread"] }
+rustix = { version = "1.1.4", default-features = false, features = ["event", "fs", "net", "process", "std", "termios", "thread"] }
 signal-hook = "0.3.18"
 
 [dev-dependencies]
@@ -113,6 +115,13 @@ gungraun = "=0.19.4"
 # binary because dhat allows one profiler per process. Here rather than in
 # brokkr-view, whose dependency set is closed (decision 0071 ruling 1).
 dhat = "=0.3.3"
+
+# `pty` (#1167): the render tests hand a child a 60-cell stdout under an
+# 80-cell controlling terminal, so `brokkr graph`'s width is proved to
+# read the former. A feature of the rustix the CLI already links; no
+# crate is added, and it reaches no binary.
+[target.'cfg(unix)'.dev-dependencies]
+rustix = { version = "1.1.4", default-features = false, features = ["pty"] }
 
 # The integration tests link as one binary (#423): `tests/it.rs` holds every
 # file under tests/ as a module, so a test runs as `<file>::<name>`. A file

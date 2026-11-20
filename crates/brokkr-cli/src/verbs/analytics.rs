@@ -93,11 +93,21 @@ pub(crate) fn printed<T: serde::Serialize>(
     json: bool,
     paint: impl FnOnce(&T) -> String,
 ) -> Result<ExitCode> {
-    match json {
-        true => println!("{}", serde_json::to_string_pretty(view)?),
-        false => print!("{}", paint(view)),
-    }
+    print!("{}", shown(view, json, paint)?);
     Ok(Exit::Completed.into())
+}
+
+/// The text [`printed`] writes: the view verbatim, a line of pretty JSON,
+/// or as the verb paints it.
+pub(crate) fn shown<T: serde::Serialize>(
+    view: &T,
+    json: bool,
+    paint: impl FnOnce(&T) -> String,
+) -> Result<String> {
+    Ok(match json {
+        true => format!("{}\n", serde_json::to_string_pretty(view)?),
+        false => paint(view),
+    })
 }
 
 /// Every hearth read, quarantining what does not load, and the view

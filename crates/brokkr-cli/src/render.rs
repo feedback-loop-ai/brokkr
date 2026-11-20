@@ -19,12 +19,14 @@
 //! is the terminal twin of the console's fixed class allowlists, and it
 //! serves all three surfaces (decision 0014's TUI included).
 //!
-//! **Width.** `COLUMNS` with a sane default, all column arithmetic
-//! saturating, all truncation on `char` boundaries. Without a
-//! Unicode-width dependency — forbidden by the ruling — CJK and emoji
-//! columns will misalign. That is stated, not pretended away.
-
-use std::io::IsTerminal;
+//! **Width.** `COLUMNS` with a sane default (`brokkr graph` alone also
+//! measures the stdout it writes to), all column arithmetic
+//! saturating, all truncation on `char` boundaries. The readouts that
+//! measure in `char`s ([`Safe::width`], the seats block) take no
+//! Unicode-width dependency of their own, so their CJK and emoji columns
+//! will misalign; that is stated, not pretended away. `brokkr graph`'s
+//! tables alone measure the terminal's cells, by the TUI's ratatui
+//! widths (#1167).
 
 use brokkr_view::transcript::TranscriptRead;
 use brokkr_view::{
@@ -35,6 +37,12 @@ use brokkr_view::{
 pub(crate) mod ending;
 pub(crate) mod graph;
 mod inspect;
+mod style;
+pub(crate) mod table;
+
+#[cfg(test)]
+use style::{color_enabled, width_from, window_columns};
+pub(crate) use style::{Style, Width};
 
 const RESET: &str = "\x1b[0m";
 const DIM: &str = "\x1b[2m";
@@ -42,9 +50,6 @@ const BOLD: &str = "\x1b[1m";
 const RED: &str = "\x1b[31m";
 const GREEN: &str = "\x1b[32m";
 
-const DEFAULT_WIDTH: usize = 80;
-const MIN_WIDTH: usize = 20;
-const MAX_WIDTH: usize = 1000;
 /// Below this many remaining columns the feature is omitted rather than
 /// mangled into two characters and an ellipsis.
 const FEATURE_FLOOR: usize = 8;
@@ -71,6 +76,13 @@ fn reorders(character: char) -> bool {
         | '\u{FEFF}')
 }
 
+/// A cell's width in `char`s, as the readouts that predate the graph's
+/// tables size and pad it: [`Safe::width`] and the seats block's column
+/// sizing both read it here, so the two cannot disagree (#1167).
+fn scalars(text: &str) -> usize {
+    text.chars().count()
+}
+
 impl Safe {
     pub(crate) fn new(text: &str) -> Safe {
         Safe(
@@ -87,7 +99,7 @@ impl Safe {
     /// Display width in `char`s — computed on the sanitized text, so a
     /// stripped escape sequence cannot claim invisible columns.
     pub(crate) fn width(&self) -> usize {
-        self.0.chars().count()
+        scalars(&self.0)
     }
 
     pub(crate) fn padded(&self, width: usize) -> String {
@@ -96,47 +108,6 @@ impl Safe {
             out.push(' ');
         }
         out
-    }
-}
-
-/// How the terminal wants to be written to. Both facts come from the
-/// environment; the rules that read them are pure.
-pub(crate) struct Style {
-    pub color: bool,
-    pub width: usize,
-}
-
-impl Style {
-    pub(crate) fn detect() -> Style {
-        Style {
-            color: color_enabled(
-                std::io::stdout().is_terminal(),
-                std::env::var_os("NO_COLOR").is_some(),
-                std::env::var_os("TERM") == Some(std::ffi::OsString::from("dumb")),
-            ),
-            width: width_from(std::env::var("COLUMNS").ok().as_deref()),
-        }
-    }
-
-    /// The shape every golden runs in: colour is a post-processing wrap,
-    /// so the goldens prove content and exactly one test proves colour.
-    #[cfg(test)]
-    pub(crate) fn plain(width: usize) -> Style {
-        Style {
-            color: false,
-            width,
-        }
-    }
-}
-
-fn color_enabled(is_terminal: bool, no_color: bool, term_is_dumb: bool) -> bool {
-    is_terminal && !no_color && !term_is_dumb
-}
-
-fn width_from(value: Option<&str>) -> usize {
-    match value.and_then(|text| text.parse::<usize>().ok()) {
-        Some(width) => width.clamp(MIN_WIDTH, MAX_WIDTH),
-        None => DEFAULT_WIDTH,
     }
 }
 
@@ -459,15 +430,7 @@ fn seats_block(view: &RunView, lens: Option<&Lens>, style: &Style) -> String {
             Safe::new(&part.activity.text),
         ]);
     }
-    let mut widths = [0usize; 9];
-    for (index, name) in header.iter().enumerate() {
-        widths[index] = name.chars().count();
-    }
-    for row in &rows {
-        for (index, width) in widths.iter_mut().enumerate() {
-            *width = (*width).max(row[index].width());
-        }
-    }
+    let widths = table::widths(&header, &rows);
     let used = widths.iter().sum::<usize>() + widths.len() + 2;
     let remaining = style.width.saturating_sub(used);
     let mut out = String::from("seats\n");
