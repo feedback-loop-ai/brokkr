@@ -237,7 +237,10 @@ fn a_turn_before_any_init_is_refused_and_a_row_that_is_no_object_passes() {
 #[test]
 fn a_fallback_line_refuses_the_seat_even_with_no_init() {
     let folded = fold("", "NoSuchModel");
-    let refused = folded.fold.identity(UNKNOWN_MODEL_STDERR, 0).unwrap();
+    let refused = folded
+        .fold
+        .identity(&seen(UNKNOWN_MODEL_STDERR), 0)
+        .unwrap();
     assert_eq!(
         refused.words(),
         "model_substituted: the seat pinned \"NoSuchModel\" and Qoder reported on stderr that \
@@ -246,7 +249,10 @@ fn a_fallback_line_refuses_the_seat_even_with_no_init() {
     // Whatever init said, and whatever the CLI exited with.
     let confirmed = fold(TOOL_LESS, "Fast").fold;
     assert_eq!(
-        confirmed.identity(UNKNOWN_MODEL_STDERR, 1).unwrap().words(),
+        confirmed
+            .identity(&seen(UNKNOWN_MODEL_STDERR), 1)
+            .unwrap()
+            .words(),
         "model_substituted: the seat pinned \"Fast\" and Qoder reported on stderr that it fell \
          back to another model"
     );
@@ -256,20 +262,57 @@ fn a_fallback_line_refuses_the_seat_even_with_no_init() {
 fn a_clean_exit_with_no_init_is_refused_and_one_with_init_is_not() {
     let empty = fold("", "Fast");
     assert_eq!(
-        empty.fold.identity("", 0).unwrap().words(),
-        "model_unconfirmed: the seat pinned \"Fast\" and no init row named the model Qoder served"
+        empty.fold.identity(&seen(""), 0).unwrap().words(),
+        UNCONFIRMED
     );
-    assert_eq!(fold(TOOL_LESS, "Fast").fold.identity("", 0), None);
-    assert_eq!(empty.fold.identity("", 2), None);
-    assert_eq!(QoderFold::failed("something else\n", 2), None);
-    assert_eq!(QoderFold::failed(SIGNED_OUT_STDERR, 0), None);
+    assert_eq!(fold(TOOL_LESS, "Fast").fold.identity(&seen(""), 0), None);
+    assert_eq!(empty.fold.identity(&seen(""), 2), None);
+    assert_eq!(QoderFold::failed(&seen("something else\n"), 2), None);
+    assert_eq!(QoderFold::failed(&seen(SIGNED_OUT_STDERR), 0), None);
+}
+
+/// The unconfirmed refusal's words for a seat pinned to `Fast`.
+const UNCONFIRMED: &str =
+    "model_unconfirmed: the seat pinned \"Fast\" and no init row named the model Qoder served";
+
+/// `stderr` as the checks observe it.
+fn seen(stderr: &str) -> Observed {
+    Observed::of(stderr.as_bytes())
+}
+
+/// Init's row of the tool-less turn with its `model` taken off.
+fn nameless_init() -> String {
+    let mut init: Value = serde_json::from_str(TOOL_LESS.lines().next().unwrap()).unwrap();
+    assert_eq!(init["subtype"], "init");
+    init.as_object_mut().unwrap().remove("model").unwrap();
+    format!("{init}\n")
+}
+
+/// V5: an init that names no model names nothing. Folded, it is no
+/// refusal; a fallback notice then gives the "reported on stderr" words,
+/// and with none a clean exit is unconfirmed, as when no init arrived.
+#[test]
+fn an_init_naming_no_model_leaves_the_served_model_unset() {
+    let folded = fold(&nameless_init(), "Fast");
+    assert_eq!(folded.outcome, Ok(None));
+    assert_eq!(
+        folded
+            .fold
+            .identity(&seen(UNKNOWN_MODEL_STDERR), 0)
+            .unwrap()
+            .words(),
+        FELL_BACK
+    );
+    assert_eq!(
+        folded.fold.identity(&seen(""), 0).unwrap().words(),
+        UNCONFIRMED
+    );
 }
 
 #[test]
 fn signed_out_is_a_refusal_naming_the_sign_in_with_no_ansi_byte() {
     assert!(SIGNED_OUT_STDERR.contains('\u{1b}'));
-    let stderr = without_ansi(SIGNED_OUT_STDERR);
-    let refused = QoderFold::failed(&stderr, 1).unwrap();
+    let refused = QoderFold::failed(&seen(SIGNED_OUT_STDERR), 1).unwrap();
     assert_eq!(refused.words(), SIGNED_OUT_WORDS);
     assert!(!refused.words().contains('\u{1b}'));
     assert!(!refused.words().contains("[31m"));
@@ -281,19 +324,68 @@ const SIGNED_OUT_WORDS: &str = "not_logged_in: Qoder CLI is signed out: run `qod
 
 #[test]
 fn a_bad_effort_is_a_launch_refusal() {
-    let stderr = without_ansi(BAD_EFFORT_STDERR);
-    let refused = QoderFold::failed(&stderr, 2).unwrap();
+    let refused = QoderFold::failed(&seen(BAD_EFFORT_STDERR), 2).unwrap();
     assert_eq!(
         refused.words(),
         "launch_refused: Qoder exited 2 on an option it refuses"
     );
 }
 
+/// V2: an escape ends where ECMA-48 ends it, and the text after it is
+/// intact. A lone `ESC` goes and the byte after it stays (V2 moves this
+/// golden: round four's stripper dropped that byte too).
 #[test]
-fn ansi_is_stripped_whole_and_a_lone_escape_goes_too() {
+fn escapes_are_stripped_as_ecma_48_ends_them() {
     assert_eq!(without_ansi("\u{1b}[1;31mred\u{1b}[0m."), "red.");
-    assert_eq!(without_ansi("a\u{1b}b"), "a");
     assert_eq!(without_ansi("plain"), "plain");
+    assert_eq!(without_ansi("a\u{1b}b"), "ab");
+    assert_eq!(without_ansi("a\u{1b}"), "a");
+    // A CSI's parameter and intermediate bytes, then each kind of final
+    // byte, the final consumed and nothing after it.
+    for last in ['m', '@', '`', '~'] {
+        let text = format!("\u{1b}[12;3? !{last}using it");
+        assert_eq!(without_ansi(&text), "using it", "{last}");
+    }
+    // A malformed CSI ends at a byte outside its ranges, which is kept: a
+    // newline, a non-ASCII letter, or the escape of the next sequence.
+    assert_eq!(without_ansi("\u{1b}[1;\nusing"), "\nusing");
+    assert_eq!(without_ansi("\u{1b}[1é"), "é");
+    assert_eq!(without_ansi("\u{1b}[1\u{1b}[0musing"), "using");
+    // An OSC runs to BEL or to ST, an ESC inside it that is no ST
+    // included, and to the text's end when it has neither.
+    assert_eq!(without_ansi("\u{1b}]0;title\u{7}using"), "using");
+    assert_eq!(without_ansi("\u{1b}]8;;x\u{1b}y\u{1b}\\using"), "using");
+    assert_eq!(without_ansi("a\u{1b}]0;title"), "a");
+    // Any other ESC before a byte from 0x40 to 0x5F is two bytes.
+    assert_eq!(without_ansi("\u{1b}Musing \u{1b}_x"), "using x");
+}
+
+/// V3: a marker is said where the raw text or the stripped text holds it,
+/// whichever the escapes left whole.
+#[test]
+fn a_marker_is_caught_in_the_raw_or_the_stripped_text() {
+    // Split by a colour sequence: whole only once stripped.
+    let split = seen("\u{1b}[31mNot \u{1b}[1mlogged in\u{1b}[0m\n");
+    assert_eq!(
+        QoderFold::failed(&split, 1).unwrap().words(),
+        SIGNED_OUT_WORDS
+    );
+    // An ESC the stripping reads as a two-byte sequence breaks the marker
+    // it leads: whole only raw.
+    assert_eq!(without_ansi("\u{1b}Not logged in"), &SIGNED_OUT[1..]);
+    let broken = seen("\u{1b}Not logged in\n");
+    assert_eq!(
+        QoderFold::failed(&broken, 1).unwrap().words(),
+        SIGNED_OUT_WORDS
+    );
+    // A CSI left open before the fallback line ends at its `i`.
+    let line = "Model x \u{1b}[1is not available right now; using auto\n";
+    assert!(!without_ansi(line).contains(FALLBACK));
+    let confirmed = fold(TOOL_LESS, "Fast").fold;
+    assert_eq!(
+        confirmed.identity(&seen(line), 0).unwrap().words(),
+        FELL_BACK
+    );
 }
 
 fn argv(parts: &[&str]) -> Vec<String> {
@@ -544,15 +636,52 @@ fn run_offered(
     serving: Option<Value>,
     session: Option<&str>,
 ) -> Vec<crate::Body> {
-    let mut env = crate::env_guard::EnvGuard::lock();
-    env.set("BROKKR_QODER_BIN", bin);
-    let result = dir.join("result.json");
-    let mut input = json!({
-        "role_path": "/dev/null", "phase": "work", "feature": "f",
-        "allowed_results": ["complete"], "result_path": result, "workdir": dir,
-    });
+    let mut input = seat_input(dir);
     if let Some(serving) = serving {
         input[crate::native_controls::SERVING_INPUTS] = serving;
+    }
+    run_input(extra, input, session, &[("BROKKR_QODER_BIN", bin)])
+}
+
+/// A qoder seat's input in `dir`, its result at `result.json`.
+#[cfg(unix)]
+fn seat_input(dir: &std::path::Path) -> Value {
+    json!({
+        "role_path": "/dev/null", "phase": "work", "feature": "f",
+        "allowed_results": ["complete"], "result_path": dir.join("result.json"), "workdir": dir,
+    })
+}
+
+/// [`run`] with [`SECRET`] bound to the seat from a store under `dir`, and
+/// `vars` set beside the binary.
+#[cfg(unix)]
+fn run_bound(
+    dir: &std::path::Path,
+    bin: &std::path::Path,
+    extra: &[&str],
+    vars: &[(&str, &std::path::Path)],
+) -> Vec<crate::Body> {
+    let store = dir.join("secrets.env");
+    secret::store_set(&store, "QT", SECRET).unwrap();
+    let mut input = seat_input(dir);
+    input["secrets"] = json!(["QT"]);
+    input["secrets_file"] = json!(store);
+    let vars = [&[("BROKKR_QODER_BIN", bin)], vars].concat();
+    run_input(extra, input, None, &vars)
+}
+
+/// One qoder seat on `input` run through the driver's own `run_seat`, with
+/// `vars` set while it runs.
+#[cfg(unix)]
+fn run_input(
+    extra: &[&str],
+    input: Value,
+    session: Option<&str>,
+    vars: &[(&str, &std::path::Path)],
+) -> Vec<crate::Body> {
+    let mut env = crate::env_guard::EnvGuard::lock();
+    for (key, value) in vars {
+        env.set(key, value);
     }
     let start = json!({"attempt_id": "attempt", "effect_id": "effect", "input": input});
     let mut messages = Vec::new();
@@ -940,7 +1069,7 @@ const FELL_BACK: &str = "model_substituted: the seat pinned \"Fast\" and Qoder r
 
 /// One turn of a fake `qodercli` pinned to `Fast` that prints `stdout` and
 /// `stderr`, writes its result where `delivered`, and exits `code`, run by
-/// [`invoke`] with `bound` bound; beside it, `bound` as masked.
+/// [`drive`] with `bound` bound; beside it, `bound` as masked.
 #[cfg(unix)]
 fn invoked(
     stdout: &str,
@@ -953,16 +1082,135 @@ fn invoked(
     let result = dir.path().join("result.json");
     let written = delivered.then_some(result.as_path());
     let bin = fake_qoder(dir.path(), stdout, stderr, written, code);
-    let launch = Launch {
-        command: vec![bin.to_string_lossy().into_owned()],
-        pin: "Fast".into(),
-    };
     let input = json!({"workdir": dir.path(), "result_path": result});
+    let (bindings, masked) = bound_as(bound);
+    let bin = bin.to_string_lossy();
+    let extra = argv(&["-m", "Fast"]);
+    let turn = drive(
+        &bin,
+        &extra,
+        false,
+        "prompt",
+        &input,
+        &bindings,
+        &mut |_| {},
+    );
+    (turn, masked)
+}
+
+/// `bound` bound to the seat, and as its mask writes it.
+fn bound_as(bound: &str) -> ([secret::BoundSecret; 1], String) {
     let bindings = [super::super::tests::binding("QT", bound)];
     let masked = secret::mask_text(bound.as_bytes(), &bindings);
     assert_ne!(masked, bound);
-    let turn = invoke(&launch, "prompt", &input, &bindings, &mut |_| {});
-    (turn, masked)
+    (bindings, masked)
+}
+
+/// Round four's counterexample (V2): a CSI ending in `@` just before
+/// `using`. Init names the pin and the CLI exits 0 having delivered its
+/// result, and the seat is still refused as substituted: late, behind a
+/// folded turn, and before the session, behind init alone. Its evidence
+/// keeps `using` whole.
+#[cfg(unix)]
+#[test]
+fn a_fallback_line_with_a_csi_ending_in_an_at_sign_is_refused() {
+    let stderr = "Model \"x\" is not available right now; \u{1b}[@using \"auto\" instead.\n";
+    let (late, _) = invoked(TOOL_LESS, stderr, true, 0, SECRET);
+    assert_eq!(late.map(drop), Err(FELL_BACK.to_string()));
+    let init = format!("{}\n", TOOL_LESS.lines().next().unwrap());
+    let (invocation, _) = invoked(&init, stderr, false, 0, SECRET);
+    let invocation = invocation.unwrap();
+    let refused = invocation.refusal.as_ref().map(PreSessionRefusal::words);
+    assert_eq!(refused, Some(FELL_BACK));
+    assert_eq!(
+        invocation.stderr,
+        "Model \"x\" is not available right now; using \"auto\" instead.\n"
+    );
+}
+
+/// V4: a bound value in an option the seat may not write is masked in
+/// `drive`'s error, which keeps the rest of its words, and in the error
+/// `lost::invocation_failed` sends for it, since nothing was spawned.
+#[cfg(unix)]
+#[test]
+fn a_bound_value_in_an_unadmitted_option_is_masked() {
+    let dir = tempfile::tempdir().unwrap();
+    let input = json!({"workdir": dir.path(), "result_path": dir.path().join("r.json")});
+    let (bindings, masked) = bound_as(SECRET);
+    let extra = argv(&["-m", "Fast", "--tok9z"]);
+    let driven = drive(
+        "qodercli",
+        &extra,
+        false,
+        "p",
+        &input,
+        &bindings,
+        &mut |_| {},
+    );
+    let unadmitted = LaunchError::Unadmitted(format!("--{masked}")).to_string();
+    assert_eq!(driven.map(drop), Err(unadmitted.clone()));
+    let bin = fake_qoder(dir.path(), TOOL_LESS, "", None, 0);
+    let messages = run_bound(dir.path(), &bin, &["-m", "Fast", "--tok9z"], &[]);
+    let sent = (&crate::ResultStatus::Failed, Some(unadmitted));
+    assert_eq!(error_of(&messages), Some(sent));
+    assert!(!dir.path().join("argv").exists());
+}
+
+/// Set in the child [`what_a_seat_prints_or_sends_carries_no_bound_value`]
+/// runs itself in, so the child's environment is its own.
+const PRINTED_CASE: &str = "BROKKR_QODER_PRINTED_CASE";
+
+/// V4, captured: run in a child of its own, a seat pinned to a bound value
+/// whose Qoder delivered a result behind a fallback line naming it ends
+/// lost, and what `lost::invocation_failed` prints is the masked late
+/// error; and a seat whose temporary directory names the value is sent the
+/// staging error masked. The parent reads the child's stderr.
+#[cfg(unix)]
+#[test]
+fn what_a_seat_prints_or_sends_carries_no_bound_value() {
+    let (_, masked) = bound_as(SECRET);
+    if std::env::var_os(PRINTED_CASE).is_some() {
+        let dir = tempfile::tempdir().unwrap();
+        let result = dir.path().join("result.json");
+        let stderr = format!("Model \"{SECRET}\" is not available right now; using auto.\n");
+        let bin = fake_qoder(dir.path(), "", &stderr, Some(&result), 0);
+        let lost = run_bound(dir.path(), &bin, &["-m", SECRET], &[]);
+        assert_eq!(error_of(&lost), None, "{lost:?}");
+        let unstaged = Path::new("/nonexistent").join(SECRET);
+        let vars = [("TMPDIR", unstaged.as_path())];
+        let messages = run_bound(dir.path(), &bin, &["-m", "Fast"], &vars);
+        let (status, error) = error_of(&messages).unwrap();
+        assert_eq!(status, &crate::ResultStatus::Failed);
+        let words = format!(
+            "refusing to invoke the agent CLI: the engine's MCP file for the qoder seat was not \
+             written: No such file or directory (os error 2) at path \"/nonexistent/{masked}/\
+             brokkr-qoder-mcp-"
+        );
+        let error = error.unwrap();
+        assert!(error.starts_with(&words), "{error}");
+        assert!(!error.contains(SECRET), "{error}");
+        return;
+    }
+    let mut child = std::process::Command::new(std::env::current_exe().unwrap());
+    child
+        .args([
+            "adapters::qoder::tests::what_a_seat_prints_or_sends_carries_no_bound_value",
+            "--exact",
+            "--nocapture",
+            "--test-threads=1",
+        ])
+        .env(PRINTED_CASE, "1");
+    let output = child.output().unwrap();
+    let printed = String::from_utf8_lossy(&output.stderr).into_owned();
+    let said = String::from_utf8_lossy(&output.stdout).into_owned() + &printed;
+    // A filter that matches nothing exits zero and asserts nothing.
+    assert!(said.contains("1 passed"), "{said}");
+    let late = format!(
+        "{}; the command was spawned, so no result is sent\n",
+        FELL_BACK.replace("\"Fast\"", &format!("\"{masked}\""))
+    );
+    assert!(printed.contains(&late), "{printed}");
+    assert!(!said.contains(SECRET), "{said}");
 }
 
 /// U1 and U3: a bound value an escape or a tab splits in the fallback line

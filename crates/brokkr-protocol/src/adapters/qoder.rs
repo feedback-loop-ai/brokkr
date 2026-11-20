@@ -198,7 +198,9 @@ fn granted(extra: &[String], grants: &[String]) -> Vec<String> {
 /// [`prepared`] from them, and its turn. `offered` is whether the start
 /// offered a rejoin: the qoder adapter declares no resume, so an offer is
 /// refused before any provider work, and every launch is admitted cold.
-/// The launch's errors are rendered here, once.
+/// The launch's errors are rendered here, once, and every error the seat
+/// ends with, launch, staging, admission, composition, the resume refusal
+/// and the turn's own alike, passes the seat's bindings once, last (V4).
 pub(super) fn drive(
     bin: &str,
     extra: &[String],
@@ -208,14 +210,18 @@ pub(super) fn drive(
     bindings: &[secret::BoundSecret],
     emit: &mut impl FnMut(&Value),
 ) -> Result<Invocation, String> {
-    if offered {
-        return Err(LaunchError::Resumed.to_string());
-    }
-    let composed = super::composed_launch("qoder", extra, input)?;
-    let prepared = prepared(bin, &composed.extra, input, &std::env::temp_dir());
-    // The file lives until the turn ends.
-    let (_staged, launch) = prepared.map_err(|error| error.to_string())?;
-    invoke(&launch, prompt, input, bindings, emit)
+    // The seat before its one mask: its errors rendered, not masked.
+    let mut driven = || {
+        if offered {
+            return Err(LaunchError::Resumed.to_string());
+        }
+        let composed = super::composed_launch("qoder", extra, input)?;
+        let prepared = prepared(bin, &composed.extra, input, &std::env::temp_dir());
+        // The file lives until the turn ends.
+        let (_staged, launch) = prepared.map_err(|error| error.to_string())?;
+        invoke(&launch, prompt, input, bindings, emit)
+    };
+    driven().map_err(|error| secret::mask_text(error.as_bytes(), bindings))
 }
 
 /// The launch of `extra` before any provider work: SI2's one admission
@@ -262,7 +268,8 @@ fn staged(document: &Value, root: &Path) -> Result<tempfile::TempDir, LaunchErro
 /// reads them for everything else.
 pub(super) struct QoderFold {
     pin: String,
-    /// What init named, once it has: by then it equals the pin.
+    /// What init named, once it has: by then it equals the pin. An init
+    /// that names no model leaves it unset (V5).
     served: Option<String>,
     claude: ClaudeFold,
 }
@@ -294,11 +301,12 @@ impl QoderFold {
         let kind = event.get("type").and_then(Value::as_str);
         let assistant = kind == Some("assistant");
         if kind == Some("system") && event["subtype"] == "init" {
-            let served = event.get("model").and_then(Value::as_str).unwrap_or("");
-            if served != self.pin {
-                return Err(substituted(&self.pin, Some(served)));
+            match event.get("model").and_then(Value::as_str) {
+                Some(served) if served == self.pin => self.served = Some(served.to_string()),
+                Some(served) => return Err(substituted(&self.pin, Some(served))),
+                // An init that names nothing names nothing (V5).
+                None => {}
             }
-            self.served = Some(served.to_string());
         } else if self.served.is_none() && matches!(kind, Some("assistant" | "user" | "result")) {
             return Err(unconfirmed(&self.pin));
         }
@@ -326,11 +334,15 @@ impl QoderFold {
     /// refuses the seat whatever init said and with no init at all, or a
     /// clean exit no init row confirmed.
     ///
-    /// `observed` is Qoder's stderr without its ANSI escapes and NOT masked,
-    /// so no binding can erase a marker it overlaps (U2). It is therefore
-    /// only matched here: no byte of it enters the refusal's words.
-    pub(super) fn identity(&self, observed: &str, exit_code: i32) -> Option<PreSessionRefusal> {
-        if observed.contains(FALLBACK) {
+    /// `observed` is Qoder's stderr NOT masked, so no binding can erase a
+    /// marker it overlaps (U2). It is only matched here: no byte of it
+    /// enters the refusal's words.
+    pub(super) fn identity(
+        &self,
+        observed: &Observed,
+        exit_code: i32,
+    ) -> Option<PreSessionRefusal> {
+        if observed.said(FALLBACK) {
             return Some(substituted(&self.pin, None));
         }
         (exit_code == 0 && self.served.is_none()).then(|| unconfirmed(&self.pin))
@@ -339,8 +351,8 @@ impl QoderFold {
     /// The refusal a CLI that exited non-zero states on stderr: signed out,
     /// or crashed on an option it refuses. `observed` is read as in
     /// [`QoderFold::identity`], and only matched: the words are fixed.
-    pub(super) fn failed(observed: &str, exit_code: i32) -> Option<PreSessionRefusal> {
-        let said = |marker: &str| observed.contains(marker);
+    pub(super) fn failed(observed: &Observed, exit_code: i32) -> Option<PreSessionRefusal> {
+        let said = |marker: &str| observed.said(marker);
         match (exit_code, said(SIGNED_OUT), said(CRASHED)) {
             (0, _, _) => None,
             (_, true, _) => Some(refusal_reason(
@@ -387,21 +399,79 @@ fn unconfirmed(pin: &str) -> PreSessionRefusal {
     )
 }
 
-/// `text` without its ANSI escape sequences: an escape byte, then a CSI's
-/// parameters up to its final letter. Qoder colours its refusals.
+/// Qoder's stderr as its checks read it: the raw text, lossy UTF-8, and
+/// the same text [`without_ansi`], neither masked. A marker found in either
+/// is said (V3): a false refusal costs a refused seat, a missed one accepts
+/// a model nobody pinned. Both stay here and are only matched (U2): neither
+/// is returned, emitted, logged or put in any error, so it has no `Debug`.
+pub(super) struct Observed {
+    raw: String,
+    stripped: String,
+}
+
+impl Observed {
+    pub(super) fn of(bytes: &[u8]) -> Observed {
+        let raw = String::from_utf8_lossy(bytes).into_owned();
+        let stripped = without_ansi(&raw);
+        Observed { raw, stripped }
+    }
+
+    fn said(&self, marker: &str) -> bool {
+        self.raw.contains(marker) || self.stripped.contains(marker)
+    }
+}
+
+const ESC: char = '\u{1b}';
+const BEL: char = '\u{7}';
+
+/// The characters an escape sequence is read from.
+type Chars<'a> = std::iter::Peekable<std::str::Chars<'a>>;
+
+/// `text` without its escape sequences, each ended where ECMA-48 ends it
+/// (V2): a CSI (`ESC [`) at its final byte, an OSC (`ESC ]`) at BEL or ST
+/// (`ESC \`), and any other `ESC` followed by a byte 0x40 to 0x5F as a
+/// two-byte sequence. An `ESC` before any other byte goes alone, and that
+/// byte is kept. Qoder colours its refusals. This is the one stripper of
+/// the checks and of the evidence.
 fn without_ansi(text: &str) -> String {
     let mut kept = String::with_capacity(text.len());
-    let mut chars = text.chars();
+    let mut chars = text.chars().peekable();
     while let Some(c) = chars.next() {
-        if c != '\u{1b}' {
+        if c != ESC {
             kept.push(c);
             continue;
         }
-        if chars.next() == Some('[') {
-            chars.by_ref().find(char::is_ascii_alphabetic);
+        match chars.next_if(|next| ('\u{40}'..='\u{5f}').contains(next)) {
+            Some('[') => control_sequence(&mut chars),
+            Some(']') => operating_system_command(&mut chars),
+            Some(_) | None => {}
         }
     }
     kept
+}
+
+/// A CSI after its `ESC [`: parameter bytes 0x30 to 0x3F, intermediate
+/// bytes 0x20 to 0x2F, then one final byte 0x40 to 0x7E, consumed. Any
+/// other byte ends a malformed sequence and is not consumed.
+fn control_sequence(chars: &mut Chars<'_>) {
+    while chars
+        .next_if(|c| ('\u{30}'..='\u{3f}').contains(c))
+        .is_some()
+    {}
+    while chars
+        .next_if(|c| ('\u{20}'..='\u{2f}').contains(c))
+        .is_some()
+    {}
+    chars.next_if(|c| ('\u{40}'..='\u{7e}').contains(c));
+}
+
+/// An OSC after its `ESC ]`: everything up to BEL or ST, consumed with it.
+fn operating_system_command(chars: &mut Chars<'_>) {
+    while let Some(c) = chars.next() {
+        if c == BEL || (c == ESC && chars.next_if_eq(&'\\').is_some()) {
+            return;
+        }
+    }
 }
 
 /// The exit a refused seat reads when the driver stopped its harness at
@@ -457,7 +527,7 @@ fn invoke(
     };
     // Read unmasked so no binding erases a marker (U2), and only matched:
     // no refusal, error or late message below carries a byte of it.
-    let observed = without_ansi(&String::from_utf8_lossy(captured.bytes()));
+    let observed = Observed::of(captured.bytes());
     let identity = match stopped {
         Some(_) => None,
         None => fold.identity(&observed, exit_code),
@@ -465,10 +535,10 @@ fn invoke(
     // A model refused behind a turn already folded, or a result already
     // written, is no refusal to start, and the answer of a model nobody
     // confirmed is never accepted: the turn ends with no result of its own.
-    // Its words pass the seat's bindings last, as a refusal's do (U1).
+    // Its words pass the seat's bindings in `drive`, once and last (V4).
     let delivered = exit_code == 0 && std::path::Path::new(result_path).exists();
     if let Some(late) = identity.as_ref().filter(|_| fold.worked() || delivered) {
-        return Err(secret::mask_text(late.words().as_bytes(), bindings));
+        return Err(late.words().to_string());
     }
     let refusal =
         (stopped.or(identity).or(refusal)).or_else(|| QoderFold::failed(&observed, exit_code));
@@ -477,7 +547,9 @@ fn invoke(
         session_meta,
         stdout: String::new(),
         // Stripped first, so a value an escape split is whole when the mask
-        // reads it (U3).
+        // reads it (U3). It is evidence, no word of the driver's: the shared
+        // driver's stderr tail carries it into the journal as it carries
+        // every adapter's, and #1199 closes that path for all of them (V1).
         stderr: captured.evidence(|raw| {
             let stripped = without_ansi(&String::from_utf8_lossy(raw));
             secret::mask_text(stripped.as_bytes(), bindings)

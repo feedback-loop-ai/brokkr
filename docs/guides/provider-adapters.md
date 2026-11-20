@@ -458,8 +458,11 @@ them. Pricing credits is LaneTally's job.
 refused, and the refusal says to run `qodercli login`, or to set
 `QODER_PERSONAL_ACCESS_TOKEN` under a private `QODER_CONFIG_DIR`. An
 option the CLI rejects, such as a bad effort, crashes it with "unexpected
-critical error", and the seat is refused with that line. ANSI colour is
-stripped from both, and the text is masked like any other refusal.
+critical error", and the seat is refused in fixed words: "Qoder exited
+<code> on an option it refuses". No refusal or error of the driver's
+quotes Qoder's stderr. The driver matches each line in the raw stderr
+and with its escape sequences stripped, neither one masked. Qoder's stderr
+is still recorded as evidence, stripped and then masked.
 
 **Sign in.** Run `qodercli login` once, which keeps the login in
 `~/.qoder`. Or give the seat a personal access token: bind
@@ -933,7 +936,7 @@ and what such a driver then does is its own.
 | `dsh` | `unmeasured` | `tool_permissions` being unsupported shows that Brokkr cannot narrow dsh's tools, and its `mcp` facts measure the engine's server channel and MCP isolation only ([measured MCP isolation](#measured-mcp-isolation)). Neither shows dsh has no native egress — `recipes/research-dsh/README.md` records that its headless profile ships web fetch ON — and no OFF control has been declared or measured. Nothing is granted through dsh and no denial is claimed. |
 | `lanetally` | `unmeasured` | The wrapper forwards argv to claude, and forwarding is not confinement. Claude's declarations and evidence are not inherited. |
 | `exec` | `unmeasured` | The engine cannot certify what an arbitrary child program reaches. Its hands, boundary and command authority are decisions 0043 and 0046's, unchanged. |
-| `qoder` (example, not shipped in `adapters/`) | `web-fetch` → `WebFetch`, `web-search` → `WebSearch`; ON is `unsupported`, OFF is the driver's default | The driver always passes `--tools Read Edit Write Glob Grep Bash`, and the record shows that `--tools` with names restricts the built-ins to those names. That the list leaves both web tools out is init's tool list, not a refused live call. Ambient MCP isolation is unmeasured. |
+| `qoder` (example, not shipped in `adapters/`) | `web-fetch` → `WebFetch`, `web-search` → `WebSearch`; ON is `unsupported`, OFF is the driver's default | The driver always passes `--tools Read Edit Write Glob Grep Bash`, and the record shows that `--tools` with names restricts the built-ins to those names. That the list leaves both web tools out is init's tool list, not a refused live call. Ambient MCP isolation is measured for the cold and replacement shapes without hands ([below](#measured-mcp-isolation)); a boxed shape is not. |
 
 Every "unmeasured" above is the controller's to measure, and
 `brokkr doctor` prints each beside the realm it matters to.
