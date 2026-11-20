@@ -109,7 +109,8 @@ fn a_live_checkpoints_result_passes_the_standalone_admission() {
 
 /// Fix round 0109a1r5, V4: findings belong only to verdicts, so a gate
 /// driver's live checkpoint that reports one is refused, never stamped;
-/// an empty set and a checkpoint with no result pass as they were sent.
+/// an empty set, a result that reports none, and a checkpoint with no
+/// result pass as they were sent.
 #[test]
 fn a_gate_drivers_live_finding_is_refused_and_the_rest_passes() {
     let mut gate = json!({"step": "seat-turn", "result":
@@ -127,6 +128,10 @@ fn a_gate_drivers_live_finding_is_refused_and_the_rest_passes() {
     let mut sent = empty.clone();
     assert_eq!(admit_live(&mut sent, Some(Reporter::Gate(SITE))), Ok(()));
     assert_eq!(sent, empty);
+    let silent = json!({"step": "seat-turn", "result": {"result": "pass"}});
+    let mut unreported = silent.clone();
+    assert_eq!(admit_live(&mut unreported, Some(Reporter::Work)), Ok(()));
+    assert_eq!(unreported, silent);
     let mut plain = json!({"step": "seat-turn", "turn": 1});
     assert_eq!(admit_live(&mut plain, Some(Reporter::Work)), Ok(()));
     assert_eq!(plain, json!({"step": "seat-turn", "turn": 1}));
