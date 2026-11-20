@@ -398,3 +398,63 @@ fn inspect_shows_a_cooling_run_s_wait_with_the_aggregate_s_later_end() {
     let printed = String::from_utf8(out).unwrap();
     assert_painted(&printed);
 }
+
+/// An engine-authored step record of attempt `a0` of effect `e0`, step
+/// `judge`, whose verdict reports one finding `id`.
+fn judged(id: &str) -> serde_json::Value {
+    let site = "5a1e00000000beef000000000000000000000000000000000000000000000000";
+    let finding = json!({"site": site, "id": id, "file": "a.rs", "summary": "s",
+                         "severity": "low", "security": false});
+    json!({"effect_id": "e0", "attempt_id": "a0",
+           "checkpoint": {"step": "sequence-step-finished", "authored": "engine",
+                          "step_name": "judge", "member": "judge", "model": "m",
+                          "result": {"result": "residual", "findings": [finding]}}})
+}
+
+/// Fix round 0109a1r7, X6: inspect's verdict block reads no row past its
+/// frame's head. A run in review whose judge step journaled `early` before
+/// the frame's read, and `late` after it, appended through the read seam
+/// between the frame's read and the verdict block's: the block shows
+/// `early` and not `late`.
+#[test]
+fn inspects_verdict_block_reads_no_row_past_its_frames_head() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    let mut store = Store::open(&db).unwrap();
+    let manifest = json!({"files": {}, "engine": "0.14.0"});
+    store
+        .create_run("r1", "feature", "test", &manifest)
+        .unwrap();
+    let attempt = json!({"effect_id": "e0", "attempt_id": "a0"});
+    let asked = json!({"effect_id": "e0", "seat": "review", "phase": "review"});
+    let journal = [
+        (
+            EventType::RunStarted,
+            json!({"feature": "feature", "manifest": manifest}),
+        ),
+        (EventType::PhaseEntered, json!({"phase": "review"})),
+        (EventType::EffectRequested, asked),
+        (EventType::EffectStarted, attempt),
+        (EventType::EffectCheckpointed, judged("early")),
+    ];
+    for (kind, payload) in journal {
+        store.append_next("r1", kind, payload, None, None).unwrap();
+    }
+    drop(store);
+    let late = |store: &Store, run: &str, shows, now: &str| {
+        let read = viewed(store, run, shows, now);
+        let mut writer = Store::open(&db).unwrap();
+        let (kind, payload) = (EventType::EffectCheckpointed, judged("late"));
+        writer.append_next(run, kind, payload, None, None).unwrap();
+        read
+    };
+    let mut out = Vec::new();
+    let args = inspect_args(&db, "r1", false, None);
+    super::inspect_with(dir.path(), args, &mut out, &late).unwrap();
+    let printed = String::from_utf8(out).unwrap();
+    let verdicts = printed.split("\nverdicts\n").nth(1).unwrap_or_default();
+    assert!(verdicts.contains("finding early"), "{printed}");
+    assert!(!verdicts.contains("finding late"), "{printed}");
+    let journaled = Store::open(&db).unwrap().load("r1").unwrap();
+    assert_eq!(journaled.last().unwrap().payload, judged("late"));
+}

@@ -180,7 +180,10 @@ fn inspect_with(
     // each under its own seat, so it reads the journal whole while the
     // frame keeps its own read (fix round 0109a1r3, M3), through the
     // run's fold, so a repaired run's late tail records no verdict, as the
-    // frame shows none (fix round 0109a1r5, V5).
+    // frame shows none (fix round 0109a1r5, V5), and only as far as the
+    // frame's own head, `state.seq`, so a verdict appended between the
+    // frame's read and this one shows on no frame that predates it (fix
+    // round 0109a1r7, X6).
     let gates = brokkr_view::gate_records(&store.load(&run)?, Some(&state));
     let gates: Vec<_> = (gates.iter())
         .filter_map(|record| record.kept_by(lens.as_ref()))

@@ -65,9 +65,14 @@ pub struct GateRecord {
 /// shown as none. Read with `state`, the run's fold, so a repaired run's
 /// late tail records no verdict, through the same `RunState::applies`
 /// range the frame and [`residual_findings_at`] read (decision 0108
-/// ruling 4, fix round 0109a1r5, V5). A caller with no fold passes `None`.
+/// ruling 4, fix round 0109a1r5, V5), and no further than the fold's own
+/// head, `state.seq`, so a verdict appended after the fold was read shows
+/// on no frame that predates it (fix round 0109a1r7, X6). A caller with no
+/// fold passes `None`.
 pub fn gate_records(events: &[EventEnvelope], state: Option<&RunState>) -> Vec<GateRecord> {
-    let kept = |event: &&EventEnvelope| state.is_none_or(|state| state.applies(event.seq));
+    let kept = |event: &&EventEnvelope| {
+        state.is_none_or(|state| event.seq <= state.seq && state.applies(event.seq))
+    };
     let events: Vec<&EventEnvelope> = events.iter().filter(kept).collect();
     let events = events.as_slice();
     let effects: BTreeMap<&str, (&str, &str)> = (events.iter().copied())
