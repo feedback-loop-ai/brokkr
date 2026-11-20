@@ -339,6 +339,43 @@ Each scratch HOME's link to the login file was still a link after every turn.
 Whether the CLI, when it refreshes the login, writes through such a link or
 replaces it is not measured.
 
+## Third measurement, for round four (2026-11-20)
+
+Round three's review found three more cases in the driver's copy of git's
+answer to "where does this repository end". Before ruling, the controller
+measured the one thing every such copy assumed: which directory agy walks up
+from. Same host, binary and account; both turns ran under the operator's own
+HOME, which holds no MCP document.
+
+### The walk starts at `$PWD`, not at the directory the process is in
+
+The layout, under one lab directory:
+
+- `real/repo`, a git repository, and `real/repo/sub` inside it. Neither holds
+  an `.agents`.
+- `logical/sub`, a symbolic link to `real/repo/sub`.
+- `logical/.git`, a file holding one line that names no git directory, and
+  `logical/.agents/mcp_config.json`, naming a sentinel.
+
+| Turn | Process directory | `PWD` | `init.cwd` | Started |
+| --- | --- | --- | --- | --- |
+| `pwd-logical` | `real/repo/sub` | `logical/sub` | `logical/sub` | the sentinel at `logical` |
+| `pwd-physical` | `real/repo/sub` | `real/repo/sub` | `real/repo/sub` | none |
+
+- **agy takes its working directory from `PWD` where `PWD` names the directory
+  the process is in**, and walks up that path's own parents. A parent the
+  process directory's resolved path never passes through was read
+  (`pwd-logical`, `pwd-logical.starts`).
+- With `PWD` set to the resolved path, the same process directory read nothing
+  (`pwd-physical`).
+- A `PWD` that names some other directory was not measured.
+
+### What this means for a check of the working directory's ancestors
+
+A check that reads the ancestors of the resolved path covers what agy reads
+only where the child's `PWD` is that resolved path. Every earlier turn of this
+record held: the lab entered each directory by its resolved path.
+
 ## Not measured
 
 - macOS.
