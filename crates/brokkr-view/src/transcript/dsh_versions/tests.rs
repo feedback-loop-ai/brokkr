@@ -378,3 +378,106 @@ fn a_remapped_reference_log_projects_as_today() {
         );
     }
 }
+
+/// The record kinds the controller observed across 589 real DSH
+/// 0.2.1-rc.2 session.v4 transcripts on 2026-11-19 (#1176). A later
+/// release's catalogue lands as its own list beside this one.
+const DSH_0_2_1_RC_2_CATALOGUE_2026_11_19: &[&str] = &[
+    "agent/inbox/spliced",
+    "approval/asked",
+    "approval/decided",
+    "approval/policy",
+    "assistant/attempt",
+    "assistant/message",
+    "compaction/end",
+    "compaction/prune",
+    "compaction/start",
+    "compaction/summary",
+    "job/registered",
+    "job/settled",
+    "llm/retry",
+    "llm/retry-started",
+    "permission/preset",
+    "request/context",
+    "request/header",
+    "sandbox/mode",
+    "session-log-deepseek/delivery-accepted",
+    "session/end-seed",
+    "session/title",
+    "session/title-llm-request",
+    "step/end",
+    "step/start",
+    "subagent/catalog",
+    "subagent/descriptor",
+    "system/message",
+    "todo/write",
+    "tool/call",
+    "tool/result",
+    "turn/end",
+    "turn/start",
+    "user/message",
+    "working-directory/change",
+];
+
+/// Every kind of a measured release's observed catalogue is placed under
+/// version four, as content, quiet or a counted omission: none refuses
+/// the read. A catalogue that adds a kind fails here until the reader
+/// decides it.
+#[test]
+fn every_observed_0_2_1_rc_2_kind_is_placed_under_version_four() {
+    assert_eq!(DSH_0_2_1_RC_2_CATALOGUE_2026_11_19.len(), 34);
+    for kind in DSH_0_2_1_RC_2_CATALOGUE_2026_11_19 {
+        assert_eq!(four(&[bare(kind, 0)]).unavailable, None, "{kind}");
+    }
+}
+
+/// The failing seat's shape (#1176): a tool call run as a background job,
+/// its `job/registered` and `job/settled` bookkeeping, its result, and a
+/// changed working directory read as their turns with nothing counted.
+#[test]
+fn a_session_that_ran_a_background_job_reads_its_turns() {
+    let tool_call = json!({"callId": "call-1", "rootCallId": "call-1"});
+    let rows = [
+        user(0, json!({"kind": "cli"}), "run the tests"),
+        row(
+            json!({"type": "assistant/message", "seq": 1, "time": 1001, "data": {"turn": 1, "step": 1,
+            "message": {"content": [{"type": "text", "text": "running"}]}}}),
+        ),
+        row(
+            json!({"type": "tool/call", "seq": 2, "time": 1002, "data": {"turn": 1, "step": 1,
+            "callId": "call-1", "name": "bash", "arguments": {"command": "make test"}}}),
+        ),
+        row(
+            json!({"type": "job/registered", "seq": 3, "time": 1003, "data": {"jobId": "j-1",
+            "owner": "s", "kind": "bash", "label": "make test", "startedAt": 1003,
+            "toolCall": tool_call}}),
+        ),
+        row(
+            json!({"type": "job/settled", "seq": 4, "time": 1004, "data": {"jobId": "j-1",
+            "owner": "s", "kind": "bash", "label": "make test", "startedAt": 1003,
+            "toolCall": tool_call, "finishedAt": 1004, "status": "succeeded",
+            "cause": null, "producerReported": true, "detail": null}}),
+        ),
+        tool_role(5, "call-1", json!([{"type": "text", "text": "ok"}])),
+        row(
+            json!({"type": "working-directory/change", "seq": 6, "time": 1006,
+            "data": {"from": "/w", "to": "/w/sub"}}),
+        ),
+    ];
+    assert_eq!(
+        four(&rows),
+        Projection {
+            turns: vec![
+                turn("user", "1000", Block::text("run the tests")),
+                turn("assistant", "1001", Block::text("running")),
+                turn(
+                    "assistant",
+                    "1002",
+                    Block::tool("bash {\"command\":\"make test\"} [call-1]")
+                ),
+                turn("tool", "1005", Block::tool_result("ok [call-1]")),
+            ],
+            ..Projection::default()
+        }
+    );
+}

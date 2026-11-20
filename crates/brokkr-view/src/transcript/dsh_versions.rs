@@ -41,10 +41,22 @@ impl DshVersion {
 }
 
 /// The names version four adds to version three's quiet vocabulary
-/// (design D4): `developer/message`, native to version four, whose
-/// tool-addition and tool-removal blocks are the writer's notices of a
-/// changed tool set, not a turn anyone spoke.
-const QUIET_FOUR_ADDS: &[&str] = &["developer/message"];
+/// (design D4; #1176 for the job and directory names):
+/// - `developer/message`, native to version four: its tool-addition and
+///   tool-removal blocks are the writer's notices of a changed tool set,
+///   not a turn anyone spoke.
+/// - `job/registered`: a background job's bookkeeping when it starts; the
+///   job's output reaches the transcript through `tool/result`.
+/// - `job/settled`: the same job's bookkeeping when it ends; its status
+///   and cause are not a turn, and its output is the `tool/result`'s.
+/// - `working-directory/change`: the writer's notice that the session's
+///   directory moved, not a turn anyone spoke.
+const QUIET_FOUR_ADDS: &[&str] = &[
+    "developer/message",
+    "job/registered",
+    "job/settled",
+    "working-directory/change",
+];
 
 /// Version four's quiet vocabulary: version three's, which the edge
 /// carries over unrenamed, and the names it adds.
