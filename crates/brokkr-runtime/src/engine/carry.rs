@@ -96,6 +96,9 @@ enum Contribution {
         result: Value,
         findings: MemberFindings,
         source: String,
+        /// The site the engine's own marker named for the member in its
+        /// source attempt, where it marked one (fix round 0109a1r7, X2).
+        site: Option<String>,
     },
 }
 
@@ -160,9 +163,12 @@ impl CarryPlan {
         self.entries
             .iter()
             .filter_map(|entry| match entry {
-                Contribution::Carried { tag, source, .. } => Some(CarriedEntry {
+                Contribution::Carried {
+                    tag, source, site, ..
+                } => Some(CarriedEntry {
                     member: tag.clone(),
                     attempt_id: source.clone(),
+                    site_ref: site.clone(),
                 }),
                 Contribution::Fresh(_) => None,
             })
@@ -431,7 +437,8 @@ fn contributions<'a>(
                 // findings and `covered` stay in it as unverified legacy
                 // evidence, never the new aggregate's keyed findings.
                 let mut result = result.clone();
-                let findings = match source.marked.contains(tag) {
+                let mark = source.marked.get(tag);
+                let findings = match mark.is_some() {
                     true => MemberFindings::taken_from(&mut result),
                     false => MemberFindings::Read(Vec::new()),
                 };
@@ -440,6 +447,7 @@ fn contributions<'a>(
                     result,
                     findings,
                     source: source.id.clone(),
+                    site: mark.cloned().flatten(),
                 });
                 if !sources.iter().any(|at: &&PanelAttempt| at.id == source.id) {
                     sources.push(source);

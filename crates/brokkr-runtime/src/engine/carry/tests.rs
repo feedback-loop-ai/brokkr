@@ -736,6 +736,7 @@ fn narrow_reaches_the_first_step_or_the_selected_case_and_leaves_other_bodies_wh
                 result: json!({"result":"clean"}),
                 findings: MemberFindings::Read(Vec::new()),
                 source: "settled".into(),
+                site: None,
             },
         ],
         None,

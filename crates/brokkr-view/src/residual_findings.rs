@@ -272,12 +272,21 @@ fn read_at_its_success(event: &EventEnvelope, ended: &BTreeSet<StepOf<'_>>) -> b
 /// The panel member each `(effect, site)` belongs to, as the engine's own
 /// `panel-member-finished` marker names it: the member's site beside its
 /// name, whether or not the member journaled a checkpoint, and never a
-/// driver's record.
+/// driver's record. A partial retry runs no carried member, so its start's
+/// own carry record names each carried member's site under the retry's
+/// effect (fix round 0109a1r7, X2).
 fn site_members<'a>(events: &[&'a EventEnvelope]) -> BTreeMap<(&'a str, String), &'a str> {
-    member_markers(events)
-        .filter_map(|(event, marker)| {
-            let site = marker.get("site_ref")?.as_str()?;
-            let member = marker.get("member")?.as_str()?;
+    let carried = (events.iter().copied())
+        .filter(|event| event.event_type == EventType::EffectStarted)
+        .flat_map(|event| {
+            let entries = event.payload["carried"].as_array();
+            (entries.into_iter().flatten()).map(move |entry| (event, entry))
+        });
+    let named = member_markers(events).chain(carried);
+    named
+        .filter_map(|(event, named)| {
+            let site = named.get("site_ref")?.as_str()?;
+            let member = named.get("member")?.as_str()?;
             Some(((text(event, "effect_id"), site.to_string()), member))
         })
         .collect()

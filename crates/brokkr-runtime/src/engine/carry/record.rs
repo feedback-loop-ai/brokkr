@@ -245,6 +245,12 @@ fn unsettle(payload: &mut Value, tag: &str, refusal: &SeatRecordError) {
 pub(crate) struct CarriedEntry {
     pub(crate) member: Tag,
     pub(crate) attempt_id: String,
+    /// The carried member's site, from the engine's own marker in its
+    /// source attempt, so a reader files the member's findings under it in
+    /// the retry's effect too, never from the payload (fix round 0109a1r7,
+    /// X2). Absent where no marker named one, as in every earlier journal.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) site_ref: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

@@ -35,8 +35,10 @@ pub(crate) struct PanelAttempt {
     pub(crate) carried: Vec<CarriedEntry>,
     pub(crate) steps: Vec<String>,
     /// The members the engine's own marker settled in this attempt: the
-    /// mark a settled payload is carried as a verdict by (W2).
-    pub(crate) marked: BTreeSet<Tag>,
+    /// mark a settled payload is carried as a verdict by (W2), each with
+    /// the site that marker names, which a retry carrying the member
+    /// journals as its own (X2).
+    pub(crate) marked: BTreeMap<Tag, Option<String>>,
     pub(crate) park_reason: Option<String>,
     pub(crate) input_holds: bool,
     ended_at: Option<u64>,
@@ -146,7 +148,7 @@ fn record_start(
         record: None,
         carried,
         steps: Vec::new(),
-        marked: BTreeSet::new(),
+        marked: BTreeMap::new(),
         park_reason: None,
         input_holds: false,
         ended_at: None,
@@ -189,7 +191,8 @@ fn record_step(attempts: &mut [PanelAttempt], payload: &Value) {
     };
     let checkpoint = &payload["checkpoint"];
     if let Some(member) = EngineMarker::settled_member(checkpoint) {
-        at.marked.insert(Tag(member.to_owned()));
+        let site = checkpoint["site_ref"].as_str().map(str::to_owned);
+        at.marked.insert(Tag(member.to_owned()), site);
     }
     if checkpoint["step"] != "sequence-step-finished" {
         return;

@@ -292,6 +292,46 @@ fn one_refused_settled_member_keeps_every_admitted_sibling() {
     assert_eq!((ran("a"), ran("b"), ran("c")), (false, true, true));
 }
 
+/// A driver that fails its first attempt and answers `then` after it,
+/// `flag` recording that it has failed once.
+fn failing_once(flag: &std::path::Path, then: &Value) -> Vec<String> {
+    let (fail, answer) = (failing().remove(2), driver(then).remove(2));
+    let flag = flag.display();
+    let script = format!("if [ -e '{flag}' ]; then\n{answer}\nelse\ntouch '{flag}'\n{fail}\nfi\n");
+    vec!["sh".into(), "-c".into(), script]
+}
+
+/// Fix round 0109a1r7, X2: a partial retry mints a new effect and runs no
+/// carried member, so the carried member's site is journaled from the
+/// engine's own carry record. Member `a` reports `mine` and `b` fails, so
+/// the run parks; a retry of `b` carries `a`, `b` answers clean, and the
+/// retry's aggregate holds `mine`. Every `mine`, the failed attempt's and
+/// the retry's, reads under review:a, in its seat and in the phase.
+#[test]
+fn a_carried_members_finding_keeps_its_members_name_in_the_retry() {
+    let flag = tempfile::tempdir().unwrap();
+    let members = vec![
+        member("a", residual("mine", 5)),
+        member(
+            "b",
+            failing_once(&flag.path().join("failed"), &json!({"result": "clean"})),
+        ),
+    ];
+    let (_dir, events) = retried(members, &["b"], |events| {
+        assert_eq!(kept(events, Scope::Seat("review:a".into())), ["mine"]);
+    });
+    assert_eq!(carried(&events).last().unwrap(), &["a"]);
+    let aggregate = (events.iter())
+        .rfind(|event| event.event_type == EventType::EffectSucceeded)
+        .unwrap();
+    assert_eq!(aggregate.payload["result"]["findings"][0]["id"], "mine");
+    let mine = vec!["mine".to_string(); 2];
+    assert_eq!(kept(&events, Scope::Seat("review:a".into())), mine);
+    let by_a = vec![("mine".to_string(), "review:a".to_string()); 2];
+    assert_eq!(producers(&events, Scope::Phase("review".into())), by_a);
+    assert!(kept(&events, Scope::Seat("review:b".into())).is_empty());
+}
+
 /// Fix round 0109a1r4, K7: in a top-level gate panel whose member `b`
 /// fails through its last retry, member `a`'s finding is durable in each
 /// failed attempt's settled members, and shows under `a` and in the
