@@ -39,7 +39,8 @@ const LISTED: [&str; 5] = [
 /// where the engine's document names a server.
 const MCP_TOOL: &str = "call_mcp_tool";
 
-/// How long agy waits on the hook, in seconds.
+/// How long agy waits on the hook, in seconds (the record: "`timeout` is
+/// seconds").
 const TIMEOUT_SECONDS: u64 = 10;
 
 /// The names a gate run of `kind` was handed after [`GATE`], or `None` where
@@ -104,10 +105,13 @@ pub(in crate::adapters) fn gate(
     output.write_all(format!("{line}\n").as_bytes())
 }
 
-/// `hooks.json` as agy reads it from `<HOME>/.gemini/config/`.
+/// `hooks.json` as agy reads it from `<HOME>/.gemini/config/`: a name of
+/// the author's choosing mapped to that hook's events (the record's "The
+/// documents the hook and MCP turns used", `documents/gate.hooks.json`).
 #[derive(Serialize)]
 struct Hooks {
-    hooks: Events,
+    #[serde(rename = "brokkr-gate")]
+    gate: Events,
 }
 
 #[derive(Serialize)]
@@ -133,23 +137,22 @@ struct Hook {
 /// The engine HOME's `hooks.json` for a launch run by `brokkr`: one
 /// `PreToolUse` hook on every tool, its command the gate mode handed the
 /// list, with [`MCP_TOOL`] where `served` is that the document names a
-/// server. A `brokkr` whose path is not UTF-8 names no command.
+/// server. agy runs the command with a shell (the record), so every word
+/// of it is quoted for one. A `brokkr` whose path is not UTF-8 names no
+/// command.
 pub(super) fn hooks(brokkr: &Path, served: bool) -> Result<String, LaunchError> {
     let program = brokkr.to_str().ok_or(LaunchError::Unnamed)?;
-    let mut words = vec![
-        quoted(program),
-        "driver agy --".to_string(),
-        GATE.to_string(),
-    ];
-    words.extend(LISTED.iter().map(|name| name.to_string()));
-    words.extend(served.then_some(MCP_TOOL.to_string()));
+    let mut words = vec![program, "driver", "agy", "--", GATE];
+    words.extend(LISTED);
+    words.extend(served.then_some(MCP_TOOL));
+    let quoted: Vec<String> = words.into_iter().map(quoted).collect();
     let hook = Hook {
         kind: "command",
-        command: words.join(" "),
+        command: quoted.join(" "),
         timeout: TIMEOUT_SECONDS,
     };
     let hooks = Hooks {
-        hooks: Events {
+        gate: Events {
             pre_tool_use: [Matcher {
                 matcher: "",
                 hooks: [hook],

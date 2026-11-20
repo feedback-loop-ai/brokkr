@@ -155,9 +155,10 @@ fn an_engine_run_of_an_agy_seat_answers_on_its_pin_under_an_engine_home() {
     // The engine's HOME held the empty set and the gate, and is gone.
     assert_eq!(logged(&root, "mcp.log"), r#"{"mcpServers":{}}"#);
     let hooks: Value = serde_json::from_str(&logged(&root, "hooks.log")).unwrap();
-    let hook = &hooks["hooks"]["PreToolUse"][0]["hooks"][0];
+    let hook = &hooks["brokkr-gate"]["PreToolUse"][0]["hooks"][0];
     let gate = format!(
-        "'{}' driver agy -- --gate read_file write_file edit_file run_command manage_task",
+        "'{}' 'driver' 'agy' '--' '--gate' 'read_file' 'write_file' 'edit_file' 'run_command' \
+         'manage_task'",
         env!("CARGO_BIN_EXE_brokkr")
     );
     assert_eq!(hook["command"], gate);

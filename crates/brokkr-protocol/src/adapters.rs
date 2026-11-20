@@ -543,7 +543,8 @@ struct Invocation {
     refusal: Option<PreSessionRefusal>,
     /// A probe's first answer, and the only one this invocation admits
     /// (decision 0103 ruling 4(a)). `None` on every ordinary attempt and
-    /// on a probe that ended without one.
+    /// on a probe that ended without one, but an agy seat's, which carries
+    /// the response its fold accepted, masked, and is not read (#1200 J7).
     answer: Option<Value>,
     /// How this invocation ended against the session it was launched for
     /// (proposed decision 0056 ruling 7, design D7). `run_seat` refuses

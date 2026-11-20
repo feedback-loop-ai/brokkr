@@ -76,9 +76,8 @@ fn read(stdout: &str, pin: &str) -> Read {
     let (mut rows, mut record, mut stopped) = (Vec::new(), Map::new(), None);
     for line in stdout.lines() {
         let event: Value = serde_json::from_str(line).unwrap();
-        fold.observe(&event);
         let mut emitted = |row: &Value| rows.push(row.clone());
-        if let Err(refused) = fold.read(event, &mut record, &mut emitted) {
+        if let Err(refused) = fold.read(&event, &mut record, &mut emitted) {
             stopped = Some(refused);
             break;
         }
@@ -96,12 +95,21 @@ fn turn_row(turn: u64, pin: &str) -> Value {
     json!({"step": "seat-turn", "turn": turn, "model": pin, "effort": "not reported"})
 }
 
-/// The `response` of the last row of `stdout`.
+/// The answer a fold's verdict accepted.
+fn answer(verdict: Verdict) -> String {
+    match verdict {
+        Verdict::Answer(response) => response,
+        other => panic!("no answer: {other:?}"),
+    }
+}
+
+/// The `response` of the last row of `stdout`, as the record holds it.
 fn response(stdout: &str) -> Value {
     let last: Value = serde_json::from_str(stdout.lines().last().unwrap()).unwrap();
     last["result"]["response"].clone()
 }
 
+/// Each answer is the one the fold's verdict carries (J7).
 #[test]
 fn the_tool_less_stdin_and_named_model_turns_answer_ready_on_their_pins() {
     let turns = [
@@ -115,10 +123,9 @@ fn the_tool_less_stdin_and_named_model_turns_answer_ready_on_their_pins() {
     for (stdout, pin) in turns {
         let read = read(stdout, pin);
         assert_eq!(read.stopped, None, "{pin}");
-        assert_eq!(read.fold.verdict(0), Verdict::Answer, "{pin}");
+        assert_eq!(answer(read.fold.verdict(0)), "READY\n", "{pin}");
         assert_eq!(read.rows, [turn_row(1, pin)], "{pin}");
         assert_eq!(read.record["model"], pin);
-        assert_eq!(response(stdout), "READY\n");
     }
 }
 
@@ -126,17 +133,16 @@ fn the_tool_less_stdin_and_named_model_turns_answer_ready_on_their_pins() {
 /// command and refused search were tool errors the turn went on past.
 #[test]
 fn the_tools_and_gate_turns_answer_past_the_calls_the_gate_refused() {
-    for (stdout, turns) in [(TOOLS_TURN, 2), (GATE_PRIOR, 5)] {
+    let answers = [
+        (TOOLS_TURN, 2, "DONE\n"),
+        (GATE_PRIOR, 5, "(1) REFUSED\n(2) OK\n(3) OK\n(4) REFUSED\n"),
+    ];
+    for (stdout, turns, answered) in answers {
         let read = read(stdout, FLASH);
-        assert_eq!(read.fold.verdict(0), Verdict::Answer);
+        assert_eq!(answer(read.fold.verdict(0)), answered);
         let rows: Vec<Value> = (1..=turns).map(|turn| turn_row(turn, FLASH)).collect();
         assert_eq!(read.rows, rows);
     }
-    assert_eq!(response(TOOLS_TURN), "DONE\n");
-    assert_eq!(
-        response(GATE_PRIOR),
-        "(1) REFUSED\n(2) OK\n(3) OK\n(4) REFUSED\n"
-    );
     for refused in ["run_command", "search_web"] {
         let step =
             format!("\"state\":\"ERROR\",\"step_type\":\"tool\",\"tool_name\":\"{refused}\"");
@@ -150,12 +156,7 @@ fn the_tools_and_gate_turns_answer_past_the_calls_the_gate_refused() {
 /// whatever the CLI exited with.
 #[test]
 fn a_turn_stopped_at_a_denial_is_a_failure_naming_each_action() {
-    let failure = |action: &str| {
-        Verdict::Failed(format!(
-            "agy stopped the turn at a denial of {action}: a turn agy stopped at a denial is not \
-             an answer (#1200)"
-        ))
-    };
+    let failure = |actions: &[&str]| Verdict::Failed(Failure::Denied(argv(actions)));
     for (stdout, action) in [
         (DENIED_DEFAULT, "command"),
         (DENIED_ACCEPT, "command"),
@@ -163,8 +164,12 @@ fn a_turn_stopped_at_a_denial_is_a_failure_naming_each_action() {
     ] {
         let read = read(stdout, FLASH);
         assert_eq!(read.stopped, None);
-        for exit in [0, 1] {
-            assert_eq!(read.fold.verdict(exit), failure(action), "{action} {exit}");
+        for exit in [0, 1, 3] {
+            assert_eq!(
+                read.fold.verdict(exit),
+                failure(&[action]),
+                "{action} {exit}"
+            );
         }
         assert_eq!(response(stdout), "");
     }
@@ -178,7 +183,7 @@ fn a_turn_stopped_at_a_denial_is_a_failure_naming_each_action() {
         &format!("{}\n{odd}", TOOL_LESS.lines().next().unwrap()),
         FLASH,
     );
-    assert_eq!(read.fold.verdict(0), failure("<unnamed>, command"));
+    assert_eq!(read.fold.verdict(0), failure(&["<unnamed>", "command"]));
 }
 
 #[test]
@@ -304,23 +309,16 @@ const SIGNED_OUT_WORDS: &str = "not_logged_in: Antigravity CLI is signed out: ru
 fn a_clean_exit_with_no_answer_fails_in_the_drivers_words() {
     let init = TOOL_LESS.lines().next().unwrap();
     let ended = |result: &str| read(&format!("{init}\n{result}"), FLASH).fold.verdict(0);
-    let failed = |words: &str| Verdict::Failed(words.to_string());
+    let failed = Verdict::Failed;
     assert_eq!(
         ended(r#"{"event":"result","result":{"status":"SUCCESS","response":" \n"}}"#),
-        failed("agy's turn ended SUCCESS with an empty response, which is not an answer (#1200)")
-    );
-    assert_eq!(
-        ended(r#"{"event":"result","result":{"status":"CANCELLED","error":"why"}}"#),
-        failed("agy's turn ended with status CANCELLED, which is not an answer (#1200)")
+        failed(Failure::Empty)
     );
     assert_eq!(
         ended(r#"{"event":"result","result":{"status":"NOT OK"}}"#),
-        failed("agy's turn ended with status <unnamed>, which is not an answer (#1200)")
+        failed(Failure::Status("<unnamed>".into()))
     );
-    assert_eq!(
-        read(init, FLASH).fold.verdict(0),
-        failed("agy's turn ended with no result, so it gave no answer (#1200)")
-    );
+    assert_eq!(read(init, FLASH).fold.verdict(0), failed(Failure::Unended));
     // A non-zero exit says it all, and a status with no turn at exit 1 is a
     // launch refusal only before any init.
     let error = r#"{"event":"result","result":{"status":"ERROR"}}"#;
@@ -479,18 +477,12 @@ fn a_seat_writes_only_its_three_controls_once_each_with_a_value_a_pin_and_rules(
         refused(&["--effort", "low"]),
         LaunchError::Unpinned
     ));
-    for rule in [
-        "command uname",
-        "write_file(/w)",
-        "command()",
-        "mcp(x",
-        "command(git),",
-    ] {
+    for rule in ["command uname", "write_file(/w)", "mcp(x", "command(git),"] {
         let error = refused(&["--model", "gemini-4-neon", "--allow", rule]);
         assert!(matches!(error, LaunchError::Unruled), "{rule}");
     }
-    let unruled = launch("agy", &argv(&["--model", "m"]), &["mcp()".to_string()]);
-    assert!(matches!(unruled, Err(LaunchError::Unruled)));
+    let untargeted = launch("agy", &argv(&["--model", "m"]), &["mcp()".to_string()]);
+    assert!(matches!(untargeted, Err(LaunchError::Untargeted)));
 }
 
 /// Each launch refusal's words, pinned once.
@@ -499,6 +491,12 @@ fn each_launch_refusal_states_what_was_written_and_never_a_value() {
     let io = || std::io::Error::from(std::io::ErrorKind::NotFound);
     let stated = [
         (LaunchError::Resumed, "the start offers a resume, and the agy adapter declares no resume (#1200)"),
+        (LaunchError::HomeBound, "the seat binds a secret named HOME, which the engine owns for an agy seat (#1200)"),
+        (LaunchError::Untargeted, "the seat's --allow carries a rule whose target is blank, has a blank at an end, or holds a control character or a parenthesis (#1200)"),
+        (LaunchError::Unread("/w/.agents/plugins".into(), io()), "the agy seat's workspace path /w/.agents/plugins cannot be read, so whether it carries agy's configuration is unknown: entity not found (#1200)"),
+        (LaunchError::Unasked(io()), "git could not be asked for the agy seat's repository root: entity not found (#1200)"),
+        (LaunchError::Unsessioned(crate::hands::SessionError::Io(io())), "the engine's HOME for the agy seat was not made: hands session: entity not found"),
+        (LaunchError::Unowned("/t/brokkr-agy-homes-7".into()), "/t/brokkr-agy-homes-7 is not a directory of this user's that nobody else may enter, so it holds no engine HOME for the agy seat (#1200)"),
         (LaunchError::Unadmitted("--sandbox".into()), "the seat's arguments carry '--sandbox', which brokkr driver agy does not admit; an agy seat's arguments are --model, --effort and --allow, each once (#1200)"),
         (LaunchError::Positional, "the seat's arguments carry a value with no option before it, which brokkr driver agy does not admit (#1200)"),
         (LaunchError::Doubled("--model"), "the seat's arguments carry '--model' more than once"),
@@ -519,6 +517,43 @@ fn each_launch_refusal_states_what_was_written_and_never_a_value() {
     }
     let admission = LaunchError::from(McpRefusal::Unreadable);
     assert_eq!(admission.to_string(), McpRefusal::Unreadable.at_launch());
+}
+
+/// Each failure's words, pinned once, and the words a seat ends with on
+/// each path out: the launch's, the failure's, a late refusal's and the
+/// shared driver's own.
+#[test]
+fn each_failure_states_the_drivers_words_and_names_only_plain_words() {
+    use fold::Event;
+    let stated = [
+        (Failure::Denied(argv(&["command", "mcp"])), "agy stopped the turn at a denial of command, mcp: a turn agy stopped at a denial is not an answer (#1200)"),
+        (Failure::Empty, "agy's turn ended SUCCESS with an empty response, which is not an answer (#1200)"),
+        (Failure::Status("CANCELED".into()), "agy's turn ended with status CANCELED, which is not an answer (#1200)"),
+        (Failure::Unended, "agy's turn ended with no result, so it gave no answer (#1200)"),
+        (Failure::Reinitialized, "agy wrote a second init row, and one launch is one turn (#1200)"),
+        (Failure::Behind(Event::StepUpdate), "agy wrote a step_update row behind the turn's result, and one launch is one turn (#1200)"),
+        (Failure::Behind(Event::Result), "agy wrote a result row behind the turn's result, and one launch is one turn (#1200)"),
+        (Failure::Unread(Event::Init), "agy wrote an init row the driver cannot read, so the turn gave no answer (#1200)"),
+    ];
+    for (failure, words) in stated {
+        assert_eq!(failure.to_string(), words);
+    }
+    let late = refusal_of(PRINT_TIMEOUT, 3);
+    let ended = [
+        (
+            Ended::Launch(LaunchError::Unpinned),
+            LaunchError::Unpinned.to_string(),
+        ),
+        (Ended::Failed(Failure::Empty), Failure::Empty.to_string()),
+        (Ended::Late(late.clone()), late.words().to_string()),
+        (
+            Ended::from("could not".to_string()),
+            "could not".to_string(),
+        ),
+    ];
+    for (ended, words) in ended {
+        assert_eq!(ended.to_string(), words);
+    }
 }
 
 /// The prompt is one stream-json user line, serialized whole.
@@ -580,10 +615,28 @@ fn operator_home(root: &Path) -> std::path::PathBuf {
     home
 }
 
-const WRITTEN: Written<'static> = Written {
-    mcp: r#"{"mcpServers":{}}"#,
-    hooks: r#"{"hooks":{}}"#,
-};
+/// The engine's set when it serves nothing.
+fn empty_set() -> Value {
+    json!({"mcpServers": {}})
+}
+
+/// What a test HOME is furnished with: `mcp` and a hooks document.
+fn written(mcp: &Value) -> Written<'_> {
+    Written {
+        mcp,
+        hooks: r#"{"brokkr-gate":{}}"#,
+    }
+}
+
+/// A root holding a signed-in operator HOME and an empty temporary root:
+/// the root, the operator's HOME and the temporary root.
+fn home_root() -> (tempfile::TempDir, std::path::PathBuf, std::path::PathBuf) {
+    let root = tempfile::tempdir().unwrap();
+    let operator = operator_home(root.path());
+    let temp = root.path().join("temp");
+    std::fs::create_dir(&temp).unwrap();
+    (root, operator, temp)
+}
 
 /// The engine's HOME: mode 0700, a link to the login, the engine's own
 /// configuration, and every other operator entry with a UTF-8 name linked,
@@ -591,27 +644,30 @@ const WRITTEN: Written<'static> = Written {
 #[test]
 fn the_engine_home_links_the_login_and_the_operators_entries_but_not_its_agent_state() {
     use std::os::unix::fs::PermissionsExt;
-    let root = tempfile::tempdir().unwrap();
-    let operator = operator_home(root.path());
-    let temp = root.path().join("temp");
-    std::fs::create_dir(&temp).unwrap();
+    let (_root, operator, temp) = home_root();
     let homes = Homes {
         temp: &temp,
         operator: Some(&operator),
     };
-    let home = home::made(homes, WRITTEN).unwrap();
+    let set = empty_set();
+    let home = home::made(homes, written(&set)).unwrap();
     let path = Path::new(home.path());
-    assert!(path.starts_with(&temp), "{path:?}");
-    let mode = std::fs::metadata(path).unwrap().permissions().mode();
-    assert_eq!(mode & 0o777, 0o700);
+    // A session of its own under agy's one parent, which is owner-only.
+    assert_eq!(path.parent(), Some(home::parent(&temp).as_path()));
+    let name = path.file_name().unwrap().to_str().unwrap();
+    assert!(name.starts_with("brokkr-hands-agy-"), "{name}");
+    for dir in [path, &home::parent(&temp)] {
+        let mode = std::fs::metadata(dir).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o700, "{dir:?}");
+    }
     let login = ".gemini/antigravity-cli/antigravity-oauth-token";
     assert_eq!(
         std::fs::read_link(path.join(login)).unwrap(),
         operator.join(login)
     );
     let config = |name: &str| std::fs::read_to_string(path.join(".gemini/config").join(name));
-    assert_eq!(config("mcp_config.json").unwrap(), WRITTEN.mcp);
-    assert_eq!(config("hooks.json").unwrap(), WRITTEN.hooks);
+    assert_eq!(config("mcp_config.json").unwrap(), set.to_string());
+    assert_eq!(config("hooks.json").unwrap(), written(&set).hooks);
     for linked in [".cargo", ".gitconfig"] {
         assert_eq!(
             std::fs::read_link(path.join(linked)).unwrap(),
@@ -623,7 +679,7 @@ fn the_engine_home_links_the_login_and_the_operators_entries_but_not_its_agent_s
         .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
         .collect();
     entries.sort();
-    assert_eq!(entries, [".cargo", ".gemini", ".gitconfig"]);
+    assert_eq!(entries, [".cargo", ".gemini", ".gitconfig", ".owner.lock"]);
     assert!(!path
         .join(".gemini")
         .symlink_metadata()
@@ -658,48 +714,135 @@ fn a_launch_with_no_login_or_no_room_for_its_home_refuses_and_leaves_nothing() {
             operator,
         };
         assert!(matches!(
-            home::made(homes, WRITTEN),
+            home::made(homes, written(&empty_set())),
             Err(LaunchError::SignedOut)
         ));
     }
+    assert!(!home::parent(&temp).exists());
     let operator = operator_home(root.path());
     let missing = root.path().join("missing");
     let homes = |temp| Homes {
         temp,
         operator: Some(&operator),
     };
-    let unmade = home::made(homes(&missing), WRITTEN).map(drop).unwrap_err();
+    let set = empty_set();
+    let unmade = home::made(homes(&missing), written(&set))
+        .map(drop)
+        .unwrap_err();
     assert!(
         matches!(&unmade, LaunchError::Unhomed(cause) if cause.kind() == std::io::ErrorKind::NotFound)
     );
     let lossy = root.path().join(std::ffi::OsStr::from_bytes(b"t\xfe"));
     std::fs::create_dir(&lossy).unwrap();
     assert!(matches!(
-        home::made(homes(&lossy), WRITTEN),
+        home::made(homes(&lossy), written(&set)),
         Err(LaunchError::Unnamed)
     ));
     // Listable by nobody, yet its login still reachable.
     std::fs::set_permissions(&operator, std::fs::Permissions::from_mode(0o100)).unwrap();
-    let unlisted = home::made(homes(&temp), WRITTEN).map(drop);
+    let unlisted = home::made(homes(&temp), written(&set)).map(drop);
     std::fs::set_permissions(&operator, std::fs::Permissions::from_mode(0o700)).unwrap();
     assert!(
         matches!(unlisted, Err(LaunchError::Unhomed(_))),
         "{unlisted:?}"
     );
+    // A parent nobody may write in holds no session.
+    let parent = home::parent(&temp);
+    std::fs::set_permissions(&parent, std::fs::Permissions::from_mode(0o500)).unwrap();
+    let unsessioned = home::made(homes(&temp), written(&set)).map(drop);
+    std::fs::set_permissions(&parent, std::fs::Permissions::from_mode(0o700)).unwrap();
+    assert!(
+        matches!(unsessioned, Err(LaunchError::Unsessioned(_))),
+        "{unsessioned:?}"
+    );
     for made in [&temp, &lossy] {
-        assert_eq!(std::fs::read_dir(made).unwrap().count(), 0, "{made:?}");
+        let left = std::fs::read_dir(home::parent(made)).unwrap().count();
+        assert_eq!(left, 0, "{made:?}");
+    }
+    // A parent others may enter, or one that is no directory, is not this
+    // user's alone.
+    std::fs::set_permissions(&parent, std::fs::Permissions::from_mode(0o750)).unwrap();
+    let shared = home::made(homes(&temp), written(&set)).map(drop);
+    assert!(
+        matches!(&shared, Err(LaunchError::Unowned(at)) if *at == parent),
+        "{shared:?}"
+    );
+    let linked = root.path().join("linked");
+    std::fs::create_dir(&linked).unwrap();
+    std::os::unix::fs::symlink(&parent, home::parent(&linked)).unwrap();
+    let followed = home::made(homes(&linked), written(&set)).map(drop);
+    assert!(
+        matches!(followed, Err(LaunchError::Unowned(_))),
+        "{followed:?}"
+    );
+}
+
+/// A pid no process holds: a child's, reaped.
+fn dead_pid() -> u32 {
+    let mut child = std::process::Command::new("true").spawn().unwrap();
+    child.wait().unwrap();
+    child.id()
+}
+
+/// A HOME a dead owner left is reaped by the next launch; one a live owner
+/// holds, and one that cannot be judged, are left alone (J5).
+#[test]
+fn the_next_launch_reaps_a_home_whose_owner_is_dead_and_leaves_the_rest() {
+    let (_root, operator, temp) = home_root();
+    let homes = Homes {
+        temp: &temp,
+        operator: Some(&operator),
+    };
+    let set = empty_set();
+    let live = home::made(homes, written(&set)).unwrap();
+    let parent = home::parent(&temp);
+    let named = |pid: u32| parent.join(format!("brokkr-hands-agy-{pid}-{}", uuid::Uuid::new_v4()));
+    let (dead, unjudged) = (named(dead_pid()), named(dead_pid()));
+    for tree in [&dead, &unjudged] {
+        std::fs::create_dir_all(tree.join(".gemini/config")).unwrap();
+    }
+    std::fs::write(dead.join(".owner.lock"), "").unwrap();
+    std::os::unix::fs::symlink(&operator, dead.join(".cargo")).unwrap();
+    let next = home::made(homes, written(&set)).unwrap();
+    assert!(!dead.exists());
+    assert!(operator.join(".cargo/bin").is_dir());
+    for left in [Path::new(live.path()), &unjudged, Path::new(next.path())] {
+        assert!(left.is_dir(), "{left:?}");
     }
 }
 
-/// A repository under `root` with a working directory two levels below its
-/// git root, and the directory above that root.
-fn repository(root: &Path) -> (std::path::PathBuf, std::path::PathBuf) {
-    let above = root.join("above");
-    let repo = above.join("repo");
-    std::fs::create_dir_all(repo.join(".git")).unwrap();
-    let workdir = repo.join("crates/sub");
-    std::fs::create_dir_all(&workdir).unwrap();
-    (above, workdir)
+/// `args` run by git in `dir`, which must succeed.
+fn git(dir: &Path, args: &[&str]) {
+    let identity = [
+        "-c",
+        "user.name=brokkr",
+        "-c",
+        "user.email=brokkr@example.invalid",
+        "-c",
+        "commit.gpgsign=false",
+    ];
+    let out = std::process::Command::new("git")
+        .args(identity)
+        .args(args)
+        .current_dir(dir)
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{args:?}: {out:?}");
+}
+
+/// A real repository made by git at `dir`, with one commit.
+fn repository(dir: &Path) -> std::path::PathBuf {
+    std::fs::create_dir_all(dir).unwrap();
+    git(dir, &["init", "-q"]);
+    git(dir, &["commit", "-q", "--allow-empty", "-m", "root"]);
+    dir.to_path_buf()
+}
+
+/// `dir/sub`, made: each layout's working directory.
+fn sub(dir: &Path) -> std::path::PathBuf {
+    let sub = dir.join("sub");
+    std::fs::create_dir_all(&sub).unwrap();
+    sub
 }
 
 /// `relative` made under `dir`, a directory where it names `plugins`.
@@ -719,48 +862,130 @@ const CONFIGURATION: [&str; 3] = [
     ".agents/hooks.json",
 ];
 
-/// Each of agy's workspace files, in the working directory or at the git
-/// root above it, refuses, naming it; above the root nothing is read, and
-/// a directory in no repository is read alone (`iso-02`, `iso-05`,
-/// `iso-06`).
+/// What the workspace check says of `workdir`: refused naming the planted
+/// path, or admitted.
+fn checked(workdir: &Path) -> Option<std::path::PathBuf> {
+    match home::unconfigured(workdir.to_str().unwrap()) {
+        Ok(()) => None,
+        Err(LaunchError::Configured(path)) => Some(path),
+        Err(other) => panic!("{workdir:?}: {other:?}"),
+    }
+}
+
+/// Each of agy's workspace files, in the working directory or at the root
+/// git names above it, refuses, naming it, whatever its type; above the
+/// root nothing is read.
 #[test]
 fn a_workspace_carrying_agys_configuration_up_to_its_git_root_is_refused() {
     for relative in CONFIGURATION {
-        for at in ["workdir", "root"] {
+        for at in ["workdir", "root", "above"] {
             let root = tempfile::tempdir().unwrap();
-            let (_, workdir) = repository(root.path());
-            let workdir = workdir.canonicalize().unwrap();
-            let dir = match at {
-                "workdir" => workdir.clone(),
-                _ => workdir.parent().unwrap().parent().unwrap().to_path_buf(),
-            };
-            let planted = plant(&dir, relative);
-            let refused = home::unconfigured(workdir.to_str().unwrap());
-            assert!(
-                matches!(&refused, Err(LaunchError::Configured(path)) if *path == planted),
-                "{relative} at {at}: {refused:?}"
+            let above = root.path().canonicalize().unwrap();
+            let repo = repository(&above.join("repo"));
+            let workdir = sub(&repo.join("crates"));
+            let dir = [("workdir", &workdir), ("root", &repo), ("above", &above)];
+            let planted = plant(
+                dir.iter().find(|(name, _)| *name == at).unwrap().1,
+                relative,
+            );
+            let expected = (at != "above").then_some(planted);
+            assert_eq!(checked(&workdir), expected, "{relative} at {at}");
+        }
+    }
+    // An entry of any type: a directory, a file, a dangling link.
+    let root = tempfile::tempdir().unwrap();
+    let repo = repository(&root.path().canonicalize().unwrap().join("repo"));
+    std::fs::create_dir_all(repo.join(".agents/hooks.json")).unwrap();
+    assert_eq!(checked(&repo), Some(repo.join(".agents/hooks.json")));
+    std::fs::remove_dir(repo.join(".agents/hooks.json")).unwrap();
+    std::fs::write(repo.join(".agents/plugins"), "").unwrap();
+    assert_eq!(checked(&repo), Some(repo.join(".agents/plugins")));
+    let dangling = repo.join(".agents/mcp_config.json");
+    std::os::unix::fs::symlink(repo.join("nowhere"), &dangling).unwrap();
+    assert_eq!(checked(&repo), Some(dangling));
+}
+
+/// The walk ends where agy's ends (the record's "What ends the walk up
+/// from the working directory"): at a linked worktree's root, at an inner
+/// repository's, at a `.git` file whatever it says, and not at an empty
+/// `.git` directory; a directory in no repository is read alone (`iso-06`).
+#[test]
+fn the_workspace_walk_ends_where_agys_walk_ends() {
+    let config = ".agents/mcp_config.json";
+    // Each layout: its working directory, where a plant refuses, and where
+    // one does not.
+    type Layout = fn(&Path) -> (std::path::PathBuf, std::path::PathBuf, std::path::PathBuf);
+    let layouts: [(&str, Layout); 5] = [
+        ("git-root-linked-worktree", |root| {
+            let main = repository(&root.join("main"));
+            git(&main, &["worktree", "add", "-q", "../wt"]);
+            let wt = root.join("wt");
+            (sub(&wt), wt, root.to_path_buf())
+        }),
+        ("git-root-nested-repository", |root| {
+            let outer = repository(&root.join("outer"));
+            let inner = repository(&outer.join("inner"));
+            (sub(&inner), inner, outer)
+        }),
+        ("git-root-empty-dot-git-dir", |root| {
+            let repo = repository(&root.join("repo"));
+            std::fs::create_dir_all(repo.join("mid/.git")).unwrap();
+            (sub(&repo.join("mid")), repo, root.to_path_buf())
+        }),
+        ("git-root-junk-dot-git-file", |root| {
+            let repo = repository(&root.join("repo"));
+            std::fs::create_dir_all(repo.join("mid")).unwrap();
+            std::fs::write(repo.join("mid/.git"), "nothing a git reads\n").unwrap();
+            (sub(&repo.join("mid")), repo.join("mid"), repo)
+        }),
+        ("iso-06", |root| {
+            (
+                sub(&root.join("lone")),
+                root.join("lone/sub"),
+                root.join("lone"),
+            )
+        }),
+    ];
+    for (turn, layout) in layouts {
+        for refuses in [true, false] {
+            let root = tempfile::tempdir().unwrap();
+            let (workdir, inside, outside) = layout(&root.path().canonicalize().unwrap());
+            let planted = plant(if refuses { &inside } else { &outside }, config);
+            assert_eq!(
+                checked(&workdir),
+                refuses.then_some(planted),
+                "{turn} {refuses}"
             );
         }
-        let root = tempfile::tempdir().unwrap();
-        let (above, workdir) = repository(root.path());
-        plant(&above, relative);
-        assert!(
-            home::unconfigured(workdir.to_str().unwrap()).is_ok(),
-            "{relative}"
-        );
-        let lone = root.path().join("lone/work");
-        std::fs::create_dir_all(&lone).unwrap();
-        plant(&root.path().join("lone"), relative);
-        assert!(
-            home::unconfigured(lone.to_str().unwrap()).is_ok(),
-            "{relative}"
-        );
-        plant(&lone, relative);
-        assert!(matches!(
-            home::unconfigured(lone.to_str().unwrap()),
-            Err(LaunchError::Configured(_))
-        ));
     }
+}
+
+/// What the walk cannot read refuses, naming it: an unreadable path, a
+/// git that cannot be run and a working directory that is not there. An
+/// `.agents` that is a file holds none of the three paths.
+#[test]
+fn a_workspace_path_that_cannot_be_read_refuses_naming_it() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = tempfile::tempdir().unwrap();
+    let lone = sub(&root.path().canonicalize().unwrap());
+    std::fs::write(lone.join(".agents"), "").unwrap();
+    assert_eq!(checked(&lone), None);
+    std::fs::remove_file(lone.join(".agents")).unwrap();
+    let agents = lone.join(".agents");
+    std::fs::create_dir(&agents).unwrap();
+    std::fs::set_permissions(&agents, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let unread = home::unconfigured(lone.to_str().unwrap());
+    std::fs::set_permissions(&agents, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let named = agents.join("mcp_config.json");
+    assert!(
+        matches!(&unread, Err(LaunchError::Unread(path, _)) if *path == named),
+        "{unread:?}"
+    );
+    let unasked = home::unconfigured_with("/nonexistent/brokkr-agy-git", lone.to_str().unwrap());
+    assert!(
+        matches!(unasked, Err(LaunchError::Unasked(_))),
+        "{unasked:?}"
+    );
     let missing = home::unconfigured("/nonexistent-brokkr-agy-workdir");
     assert!(matches!(missing, Err(LaunchError::Unrooted(_))));
 }
@@ -808,12 +1033,11 @@ struct World {
     before: Vec<std::ffi::OsString>,
 }
 
-/// Each engine HOME standing under the temporary root.
+/// Each engine HOME standing under the temporary root's agy parent.
 fn engine_homes() -> Vec<std::ffi::OsString> {
-    let entries = std::fs::read_dir(std::env::temp_dir()).unwrap().flatten();
-    let names = entries.map(|entry| entry.file_name());
-    let homes = names.filter(|name| name.to_string_lossy().starts_with(home::HOME_PREFIX));
-    homes.collect()
+    let entries = std::fs::read_dir(home::parent(&std::env::temp_dir()));
+    let names = entries.into_iter().flatten().flatten();
+    names.map(|entry| entry.file_name()).collect()
 }
 
 impl World {
@@ -967,16 +1191,18 @@ fn an_agy_seat_runs_the_overridden_binary_under_the_engine_home_and_answers_on_i
     assert_eq!(world.recorded("mcp"), r#"{"mcpServers":{}}"#);
     let hooks = world.recorded("hooks");
     assert!(
-        hooks.contains("--gate read_file write_file edit_file run_command manage_task\""),
+        hooks.contains(
+            "'--gate' 'read_file' 'write_file' 'edit_file' 'run_command' 'manage_task'\""
+        ),
         "{hooks}"
     );
     assert!(!hooks.contains("call_mcp_tool"), "{hooks}");
     let home = world.recorded("home");
     let named = Path::new(&home).file_name().unwrap().to_string_lossy();
-    assert!(named.starts_with(home::HOME_PREFIX), "{home}");
+    assert!(named.starts_with("brokkr-hands-agy-"), "{home}");
     assert_eq!(
         Path::new(&home).parent(),
-        Some(std::env::temp_dir().as_path())
+        Some(home::parent(&std::env::temp_dir()).as_path())
     );
     assert!(!Path::new(&home).exists(), "{home}");
     let login = world.path("operator/.gemini/antigravity-cli/antigravity-oauth-token");
@@ -1157,11 +1383,10 @@ fn an_engine_server_rides_the_home_the_settings_and_the_gate() {
         temp: root.path(),
         operator: Some(&operator),
     };
-    let mcp = served.document.to_string();
     let home = home::made(
         homes,
         Written {
-            mcp: &mcp,
+            mcp: &served.document,
             hooks: &hooks,
         },
     )
@@ -1171,7 +1396,7 @@ fn an_engine_server_rides_the_home_the_settings_and_the_gate() {
         serde_json::from_slice(&std::fs::read(config.join("mcp_config.json")).unwrap()).unwrap();
     assert_eq!(document, served.document);
     let hook = std::fs::read_to_string(config.join("hooks.json")).unwrap();
-    assert!(hook.contains("manage_task call_mcp_tool\""), "{hook}");
+    assert!(hook.contains("'manage_task' 'call_mcp_tool'\""), "{hook}");
 }
 
 /// A short secret bound to the seat, and agy's stderr and `error` text
@@ -1214,8 +1439,11 @@ fn a_bound_secret_in_agys_stderr_or_error_text_reaches_no_word() {
         refused.refusal.as_ref().map(PreSessionRefusal::words),
         Some(SIGNED_OUT_WORDS)
     );
+    assert_eq!(refused.stderr, SIGN_IN_WITHHELD);
+    // A turn that fails another way keeps its stderr, stripped and masked.
+    let (exited, _) = bound_turn(&errored, false, 1);
     assert_eq!(
-        refused.stderr,
+        exited.unwrap().stderr,
         format!("error: token {masked} expired at https://x/{masked}\n")
     );
     let (failed, _) = bound_turn(&errored, false, 0);
@@ -1241,3 +1469,5 @@ fn a_bound_secret_in_agys_stderr_or_error_text_reaches_no_word() {
     assert!(!answered.stderr.contains(SECRET), "{}", answered.stderr);
     assert!(answered.stderr.contains(&masked));
 }
+
+mod judged;

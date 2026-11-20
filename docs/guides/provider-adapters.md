@@ -530,7 +530,7 @@ no `-p`: it would put the prompt in argv, and it takes the next argument
 as its value. A seat's arguments are `--model`, `--effort` and `--allow`,
 each once with one value. Any other argument, a doubled one, or a seat
 with no `--model` pin is refused before the CLI starts, by name and never
-by value.
+by value: an option written as `--name=value` is named up to its `=`.
 
 **Grants ride one `--settings` value.** The adapter's tool permissions
 flag is the driver's own word, `--allow`, with names mapped to agy's
@@ -539,14 +539,25 @@ view)`. The driver turns that one value into `--settings
 '{"permissions":{"allow":[...]}}'`, and writes it in every launch, also
 when the seat holds no grant. A rule that is not `command(…)` or
 `mcp(…)` is refused, because agy ignores a rule it cannot parse without
-a word.
+a word. So is a rule whose target is blank, has a blank at either end, or
+holds a control character or a parenthesis, naming `--allow` and never
+the rule. A target of several words matches a command's first words, one
+by one: `command(git status)` runs `git status --short` and not `git log`
+(`rule-multi-word-prefix`).
 
 **The engine's HOME.** HOME is the only measured way to move agy's state,
 and the only thing that shuts out the operator's own MCP servers,
 plugins and hooks. Every launch runs with HOME set, for the `agy` child
-alone, to a directory the driver makes for that launch under the
-engine's temporary root, mode 0700, and removes when the turn ends,
-however it ends. It holds a link to the operator's login,
+alone and after the seat's secret bindings, so no binding replaces it, to
+a directory the driver makes for that launch, mode 0700, and removes
+when the turn ends. A seat that binds a secret named `HOME` is refused
+before the CLI starts. Each HOME is a hands session, its owner's pid in
+its name and its lock held while the driver lives, under one parent of
+agy's own, `brokkr-agy-homes-<uid>` under the engine's temporary root,
+mode 0700 and refused when it is anyone else's. A driver killed at the
+engine's deadline cannot remove its HOME, so each launch first removes
+every HOME there whose owner is dead and holds no lock, and leaves a live
+owner's, and one it cannot judge, alone. It holds a link to the operator's login,
 `~/.gemini/antigravity-cli/antigravity-oauth-token`, whose content the
 driver never reads; the engine's MCP document as
 `<HOME>/.gemini/config/mcp_config.json`, `{"mcpServers":{}}` with no
@@ -559,17 +570,25 @@ and its git identity. An entry whose name is not UTF-8 is skipped.
 **A workspace that carries agy's configuration is refused.** Agy starts
 the servers and plugins of a workspace's `.agents/` and runs its hooks in
 a workspace nobody trusted, and a workspace hook approved its own
-command. So from the working directory up to its git root, any of
+command. So from the working directory upward, an entry of any type at
 `<dir>/.agents/mcp_config.json`, `<dir>/.agents/plugins` or
 `<dir>/.agents/hooks.json` refuses the launch before the CLI starts,
-naming the path. Nothing above
-the git root is read, and a directory in no repository is checked by
-itself alone.
+naming the path. The walk ends where agy's ends, inclusive: at the first
+directory that holds a `.git` file, whatever it says, or that git names
+as the working directory's top level (`git rev-parse --show-toplevel`,
+asked once). A `.git` directory git does not take for a repository does
+not end it (`git-root-linked-worktree`, `git-root-nested-repository`,
+`git-root-empty-dot-git-dir`, `git-root-junk-dot-git-file`). Where
+neither is found, the working directory is checked by itself alone
+(`iso-06`). A path the walk cannot read refuses, naming it, and so does a
+git that cannot be run.
 
 **The gate.** Agy's native web search runs with no rule, and no rule
 stops it. One `PreToolUse` hook in the engine's HOME does, on every tool,
-with a timeout of 10 seconds: its command is `brokkr driver agy --
---gate read_file write_file edit_file run_command manage_task`, a mode of
+with a timeout of 10 seconds, under the name `brokkr-gate` in the shape
+the record's `documents/gate.hooks.json` holds: its command is `brokkr
+driver agy -- --gate read_file write_file edit_file run_command
+manage_task`, every word quoted for the shell agy runs it with, a mode of
 the driver that reads the hook's call and prints the decision. A tool on
 the list is answered `deny_unless_prior_grant`, so what no rule or the
 mode grants becomes a tool error the model sees, and the turn goes on.
@@ -584,7 +603,15 @@ empty response. The only sign is the result's `denied_actions`. A result
 that carries them fails the invocation, naming each denied action, and
 leaves no result. A denied step's own `state` is never read: the record
 shows it `ERROR` once and `DONE` the other times. The answer is the
-`response` of a `SUCCESS` result, and an empty one is no answer.
+`response` of a `SUCCESS` result, and an empty one is no answer. Each
+row is judged as agy wrote it, before the seat's secrets are masked out
+of what the driver passes on. One launch is one turn: a second `init`, a
+second `result`, a known row behind the `result`, or an `init`,
+`step_update` or `result` row that does not read, such as a `result`
+with no `status` or a `denied_actions` that is no list, fails the
+invocation; once a denial or a failure is seen, no later row changes
+it. A row of another `event`, and a line that is no JSON object naming
+one, is passed over.
 
 **The served model is the pinned one, or the seat is refused.** Init's
 `model` must be exactly the pin, or the seat is refused before any row
@@ -599,10 +626,16 @@ cache read. Agy reports no price and no cache-write count, so both read
 **Refusals.** An `ERROR` result with exit 1 before any turn, an unknown
 model or an effort the model lacks, is a launch refusal. Exit 2 with an
 empty stdout is a launch refusal on an option agy does not define. Exit
-3 is agy's own print timeout, which the launch never asks for. No
-refusal, error or late message quotes agy's stderr or its `error` text:
-the signed-out stderr holds a sign-in URL. Agy's stderr is still
-recorded as evidence, its escape sequences stripped and then masked.
+3 is agy's own print timeout, which the launch never asks for, whatever
+rows came before it; behind a turn already folded it ends the seat with
+no result, as every late refusal does. A result whose status is not
+`SUCCESS`, such as `ERROR`, `CANCELED`, `INTERRUPTED`, `INVALID`,
+`WAITING` or `RUNNING`, fails naming it, up to 40 characters. No
+refusal, error or late message quotes agy's stderr or its `error` text.
+Agy's stderr is still recorded as evidence, its escape sequences
+stripped and then masked, except a signed-out CLI's: that is a sign-in
+request holding a link made for one attempt, so the driver's own words
+stand in its place.
 
 **Sign in.** Run `agy` once and sign in through the browser. The login
 is one file, `~/.gemini/antigravity-cli/antigravity-oauth-token`. With

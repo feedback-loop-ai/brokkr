@@ -259,9 +259,7 @@ const MCP_FILE: &str = "mcp.json";
 fn staged(document: &Value, root: &Path) -> Result<tempfile::TempDir, LaunchError> {
     let written = (tempfile::Builder::new().prefix("brokkr-qoder-mcp-"))
         .tempdir_in(root)
-        .and_then(|dir| {
-            std::fs::write(dir.path().join(MCP_FILE), document.to_string()).map(|()| dir)
-        });
+        .and_then(|dir| mcp::written(&dir.path().join(MCP_FILE), document).map(|()| dir));
     written.map_err(LaunchError::Unstaged)
 }
 

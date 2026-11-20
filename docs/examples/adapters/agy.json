@@ -81,7 +81,7 @@
           "host": "linux"
         },
         "ambient": {
-          "measured": "iso-01, the positive control: all six sentinels started; iso-02, iso-05 and iso-06: a scratch HOME started none of the user's, and none at all beside no .agents configuration up to the git root; iso-02's workspace servers started, so the driver refuses a workspace carrying .agents configuration (docs/evidence/adapters/agy-cli-1-5.md, MCP isolation (SI2))"
+          "measured": "iso-01, the positive control: all six sentinels started; iso-02, iso-05 and iso-06: a scratch HOME started none of the user's, and none at all beside no .agents configuration up to the git root; iso-02's workspace servers started, so the driver refuses .agents configuration up to where agy's walk ends (git-root-linked-worktree) (docs/evidence/adapters/agy-cli-1-5.md, MCP isolation (SI2))"
         },
         "native_write": {
           "unmeasured": "native writes under the terminal sandbox are not measured: the record's host has none, and --sandbox restricted nothing in sandbox-skip-permissions (docs/evidence/adapters/agy-cli-1-5.md, Facts and Not measured)"
@@ -103,7 +103,7 @@
           "host": "linux"
         },
         "ambient": {
-          "measured": "iso-01, the positive control: all six sentinels started; a replacement is a cold launch again under a fresh engine HOME, and iso-05 and iso-06 started no sentinel beside no .agents configuration up to the git root; iso-02's workspace servers started, so the driver refuses such a workspace (docs/evidence/adapters/agy-cli-1-5.md, MCP isolation (SI2))"
+          "measured": "iso-01, the positive control: all six sentinels started; a replacement is a cold launch again under a fresh engine HOME, and iso-05 and iso-06 started no sentinel beside no .agents configuration up to the git root; iso-02's workspace servers started, so the driver refuses one up to where agy's walk ends (git-root-linked-worktree) (docs/evidence/adapters/agy-cli-1-5.md, MCP isolation (SI2))"
         },
         "native_write": {
           "unmeasured": "native writes under the terminal sandbox are not measured: the record's host has none, and --sandbox restricted nothing in sandbox-skip-permissions (docs/evidence/adapters/agy-cli-1-5.md, Facts and Not measured)"

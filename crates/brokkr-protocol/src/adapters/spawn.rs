@@ -2,7 +2,7 @@
 //! `adapters.rs` stays inside its measured ceiling.
 
 use std::io::Write;
-use std::process::Stdio;
+use std::process::{Command, Stdio};
 
 use super::stderr::{drain_stderr, StderrCapture};
 use super::{harness_command, io_context, lost};
@@ -21,7 +21,12 @@ pub(super) fn spawn_harness(
     env: &[(&str, &str)],
     bindings: &[secret::BoundSecret],
 ) -> Result<Spawned, String> {
-    let mut builder = harness_command(command, workdir, env, bindings)?;
+    let builder = harness_command(command, workdir, env, bindings)?;
+    spawned(builder, stdin, stdout)
+}
+
+/// `builder` given its stdio and spawned: [`spawn_harness`]'s own end.
+fn spawned(mut builder: Command, stdin: Stdio, stdout: Stdio) -> Result<Spawned, String> {
     builder.stdin(stdin).stdout(stdout).stderr(Stdio::piped());
     let child = crate::process::spawned::spawn(&mut builder);
     let child = io_context(child, "could not invoke the agent CLI")?;
@@ -42,15 +47,19 @@ pub(super) fn spawn_fed(
 }
 
 /// [`spawn_fed`] with `env` set for the child alone, beside its `workdir`:
-/// the agy driver's engine HOME (#1200).
+/// the agy driver's engine HOME (#1200). It is set last, after the seat's
+/// bindings and the attempt's removals, so no binding can replace it (J1);
+/// with no `env`, as every other driver spawns, the child is the same.
 pub(super) fn spawn_fed_in(
     command: &[String],
     prompt: &str,
     (workdir, env): (&str, &[(&str, &str)]),
     bindings: &[secret::BoundSecret],
 ) -> Result<(Spawned, StderrCapture), String> {
+    let mut builder = harness_command(command, workdir, &[], bindings)?;
+    builder.envs(env.iter().copied());
     let piped = Stdio::piped;
-    let mut child = spawn_harness(command, workdir, piped(), piped(), env, bindings)?;
+    let mut child = spawned(builder, piped(), piped())?;
     let mut stdin = child.stdin.take().expect("piped");
     io_context(
         stdin.write_all(prompt.as_bytes()),
