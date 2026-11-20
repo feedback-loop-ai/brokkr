@@ -482,6 +482,140 @@ started the user-scope server, and `--setting-sources ""` alone still
 started the project-scope server, so the driver always passes both. A
 site that boxes its hands still refuses the seat.
 
+### Antigravity CLI, a provisional harness
+
+Antigravity CLI (`agy`) is the second provisional harness (#1200),
+onboarded under decision
+[0075](../decisions/0075-harness-onboarding-in-a-day.md) at level 1, the
+controller's ruling of 2026-11-20. Level 1 is an adapter and a driver,
+`brokkr driver agy`, and nothing else. The seat is unboxed: the adapter
+declares no hands, so a site that boxes its hands refuses it. It is never
+a judge or a gate, and it is never resumed, because the HOME it runs
+under is the engine's for one turn. Every model it serves is
+provisional, so it holds only the offices `realms.json` lists under
+`provisional_offices`. Its route is class `contracted`, the operator's
+ruling recorded in decision
+[0036](../decisions/0036-egress-is-a-property-of-the-route.md); its trust
+tier is `untrusted`. Every figure behind it was measured by hand on
+Antigravity CLI 1.5.13 on Linux
+([the record](../evidence/adapters/agy-cli-1-5.md)).
+
+The adapter ships as an example, `docs/examples/adapters/agy.json`, for
+the reason Qoder's does: `brokkr init` does not write it, and a world
+copies it into its adapters directory. It maps the four Gemini 4 models
+to their base slugs:
+
+| Alias | Agy model | Efforts |
+|---|---|---|
+| `agy-neon` | `gemini-4-neon` | `low`, `medium`, `high`, `xhigh` |
+| `agy-carbon` | `gemini-4-carbon` | `low`, `medium`, `high` |
+| `agy-hydrogen` | `gemini-4-hydrogen` | `low`, `medium`, `high`, `xhigh` |
+| `agy-argon` | `gemini-4-argon` | `low`, `medium`, `high` |
+
+The model flag is `--model` and the effort flag `--effort`. The adapter
+declares `low`, `medium`, `high` and `xhigh`, because an adapter's
+efforts are one list for all its models. Carbon and Argon have no
+`xhigh`: the CLI refuses it with exit 1, and the seat is refused as a
+launch refusal. A slug that already names an effort, such as
+`gemini-4-neon-high`, beside a different `--effort`, is refused by the CLI
+too, so the aliases name the base slugs. The Claude, GPT-OSS and
+orchestrator slugs agy also serves are not mapped.
+
+**The launch.** The driver runs `agy --input-format stream-json
+--output-format stream-json --mode accept-edits`, then `--model`, the
+seat's `--effort` where it names one, and one `--settings` value. The
+prompt goes on stdin as one line, `{"event":"user","message":{"content":
+"<prompt>"}}`, and stdin is then closed, which ends the session. There is
+no `-p`: it would put the prompt in argv, and it takes the next argument
+as its value. A seat's arguments are `--model`, `--effort` and `--allow`,
+each once with one value. Any other argument, a doubled one, or a seat
+with no `--model` pin is refused before the CLI starts, by name and never
+by value.
+
+**Grants ride one `--settings` value.** The adapter's tool permissions
+flag is the driver's own word, `--allow`, with names mapped to agy's
+rules, such as `git` to `command(git)` and `gh-pr-view` to `command(gh pr
+view)`. The driver turns that one value into `--settings
+'{"permissions":{"allow":[...]}}'`, and writes it in every launch, also
+when the seat holds no grant. A rule that is not `command(…)` or
+`mcp(…)` is refused, because agy ignores a rule it cannot parse without
+a word.
+
+**The engine's HOME.** HOME is the only measured way to move agy's state,
+and the only thing that shuts out the operator's own MCP servers,
+plugins and hooks. Every launch runs with HOME set, for the `agy` child
+alone, to a directory the driver makes for that launch under the
+engine's temporary root, mode 0700, and removes when the turn ends,
+however it ends. It holds a link to the operator's login,
+`~/.gemini/antigravity-cli/antigravity-oauth-token`, whose content the
+driver never reads; the engine's MCP document as
+`<HOME>/.gemini/config/mcp_config.json`, `{"mcpServers":{}}` with no
+server; and the gate as `<HOME>/.gemini/config/hooks.json`. Every other
+top-level entry
+of the operator's HOME is linked in by name, except `.gemini` and
+`.agents`, so a command the seat runs still finds `~/.cargo`, `~/.rustup`
+and its git identity. An entry whose name is not UTF-8 is skipped.
+
+**A workspace that carries agy's configuration is refused.** Agy starts
+the servers and plugins of a workspace's `.agents/` and runs its hooks in
+a workspace nobody trusted, and a workspace hook approved its own
+command. So from the working directory up to its git root, any of
+`<dir>/.agents/mcp_config.json`, `<dir>/.agents/plugins` or
+`<dir>/.agents/hooks.json` refuses the launch before the CLI starts,
+naming the path. Nothing above
+the git root is read, and a directory in no repository is checked by
+itself alone.
+
+**The gate.** Agy's native web search runs with no rule, and no rule
+stops it. One `PreToolUse` hook in the engine's HOME does, on every tool,
+with a timeout of 10 seconds: its command is `brokkr driver agy --
+--gate read_file write_file edit_file run_command manage_task`, a mode of
+the driver that reads the hook's call and prints the decision. A tool on
+the list is answered `deny_unless_prior_grant`, so what no rule or the
+mode grants becomes a tool error the model sees, and the turn goes on.
+Any other tool, and a call the gate cannot read, is denied, naming the
+tool. `call_mcp_tool` joins the list only when the engine's document
+names a server, whose tools are granted as `mcp(<server>/<tool>)` in the
+one `--settings` value. Web tools are never offered at level 1.
+
+**A turn agy stopped at a denial is not an answer.** When agy cannot ask
+for an approval, it stops the turn, exits 0 with status `SUCCESS` and an
+empty response. The only sign is the result's `denied_actions`. A result
+that carries them fails the invocation, naming each denied action, and
+leaves no result. A denied step's own `state` is never read: the record
+shows it `ERROR` once and `DONE` the other times. The answer is the
+`response` of a `SUCCESS` result, and an empty one is no answer.
+
+**The served model is the pinned one, or the seat is refused.** Init's
+`model` must be exactly the pin, or the seat is refused before any row
+counts, naming both. A seat with no init row gives no answer.
+
+**Tokens.** The result's `usage` is the invocation's own, in tokens. The
+seat records input, with the cache read added back as the journal's
+input count includes it, output, thinking as reasoning output, and the
+cache read. Agy reports no price and no cache-write count, so both read
+"not reported", never 0.
+
+**Refusals.** An `ERROR` result with exit 1 before any turn, an unknown
+model or an effort the model lacks, is a launch refusal. Exit 2 with an
+empty stdout is a launch refusal on an option agy does not define. Exit
+3 is agy's own print timeout, which the launch never asks for. No
+refusal, error or late message quotes agy's stderr or its `error` text:
+the signed-out stderr holds a sign-in URL. Agy's stderr is still
+recorded as evidence, its escape sequences stripped and then masked.
+
+**Sign in.** Run `agy` once and sign in through the browser. The login
+is one file, `~/.gemini/antigravity-cli/antigravity-oauth-token`. With
+no such file, the launch is refused before the CLI starts and says so.
+A signed-out CLI waits 60 seconds and then fails "authentication failed
+or timed out", which refuses the seat with the same instruction. The record
+names six environment variables in the binary and exercised none.
+
+**MCP isolation.** Agy's cold and replacement shapes without hands are
+measured on Linux ([below](#measured-mcp-isolation)), so an agy seat
+compiles there. A site that boxes its hands still refuses it, and on
+macOS nothing is measured.
+
 ## Hands
 
 `hands` (decision 0043) is the adapter's answer to a site that boxes its
@@ -937,6 +1071,7 @@ and what such a driver then does is its own.
 | `lanetally` | `unmeasured` | The wrapper forwards argv to claude, and forwarding is not confinement. Claude's declarations and evidence are not inherited. |
 | `exec` | `unmeasured` | The engine cannot certify what an arbitrary child program reaches. Its hands, boundary and command authority are decisions 0043 and 0046's, unchanged. |
 | `qoder` (example, not shipped in `adapters/`) | `web-fetch` → `WebFetch`, `web-search` → `WebSearch`; ON is `unsupported`, OFF is the driver's default | The driver always passes `--tools Read Edit Write Glob Grep Bash`, and the record shows that `--tools` with names restricts the built-ins to those names. That the list leaves both web tools out is init's tool list, not a refused live call. Ambient MCP isolation is measured for the cold and replacement shapes without hands ([below](#measured-mcp-isolation)); a boxed shape is not. |
+| `agy` (example, not shipped in `adapters/`) | `web-fetch` → `read_url_content`, `web-search` → `search_web`; ON is `unsupported`, OFF is the driver's default | The engine HOME's one `PreToolUse` hook denies by name every tool outside `read_file`, `write_file`, `edit_file`, `run_command` and `manage_task`. `search_web` runs with no rule and under deny rules (`web-search-default`, `web-search-deny-rules`), and the gate denied it by name while the turn went on (`gate-prior-grant`). `read_url_content` was never seen running, so its denial is the gate's rule by name, not a refused live call. Whether a hook sees a subagent's calls is not measured. |
 
 Every "unmeasured" above is the controller's to measure, and
 `brokkr doctor` prints each beside the realm it matters to.
@@ -981,6 +1116,7 @@ stands and nothing here is claimed. The evidence is
 | `lanetally` | Cold and replacement without hands, through the wrapper itself: launcher sha256 `b886c95ab275956bfef3ba0d9e6c617ec0878abdbddbd7369d2fe27903205dfb` running LaneTally's session-wrapper.sh at 4614bb7, sha256 `ecac09b98a39eeb618812e4d5838c35f0b9ed48482d345befed4f198fbc325d7`, over Claude Code 2.1.287 (cold) and 2.1.308 (replacement). | Process reads; store read is `unsupported`, and native write is `unsupported` cold and unmeasured on replacement. A different wrapper is a different measurement. |
 | `exec` | `inapplicable`: no model MCP surface. | — |
 | `qoder` (example) | Cold and replacement without hands: Qoder CLI 1.1.92, against planted user, local, project and plugin sentinels (Q07, Q10, Q11, Q14, Q15 in [`qoder-cli-1-1.md`](../evidence/adapters/qoder-cli-1-1.md#mcp-isolation-si2)). Every launch carries `--strict-mcp-config --mcp-config <the engine's file> --setting-sources ""`: either flag alone still started a planted server. | Native write, store read and process read: Qoder's permission check refused the attempts, and that check is not an isolation mechanism. No boxed shape, so a site that boxes its hands refuses the seat. A managed or enterprise MCP configuration. |
+| `agy` (example) | Cold and replacement without hands: Antigravity CLI 1.5.13, against planted user, plugin, workspace, parent, workspace-plugin and added-directory sentinels (`iso-01` to `iso-06` in [`agy-cli-1-5.md`](../evidence/adapters/agy-cli-1-5.md#mcp-isolation-si2)). Every launch runs under an engine HOME of its own, which started none of the user's servers, and a workspace carrying `<dir>/.agents/mcp_config.json`, `<dir>/.agents/plugins` or `<dir>/.agents/hooks.json` up to its git root is refused before spawn, because agy starts those in a workspace nobody trusted (`iso-02`). | Native write, store read and process read: the record's host has no terminal sandbox. No boxed shape, so a site that boxes its hands refuses the seat. macOS. |
 
 A shape's `measured_on.version` is not compared with the version of
 the harness installed: a measurement stays applied after the binary
@@ -1055,6 +1191,7 @@ accounting check still binding.
 | `dsh` | `headless-work` | `unmeasured` | Main does not perform this rejoin. The exact route is selected: official core **0.1.5-rc.1** (`@deepseek-ai/dsh@0.1.5-rc.1` at `183f08e9c6dde7e36cd2318eaee70b0da08fb35e`, or the release answer N1 resolves in its place) with the repository-owned six-file adaptation of `dsh-plugin-cli-session` **0.2.0** at `0f487e74c81ed102c6899440d9f5d65e8e9eabda` under `extensions/dsh/plugin-cli-session/`, composed only in worktree- or task-owned storage through DSH's documented extension and `agents.resume` APIs. An isolated live cold+warm qualification (2026-09-12, `.forge/tasks/dsh-pair-qualification-015rc1.json`) emitted successful result envelopes, continued one root, recalled the nonce and reported per-message usage with the global pin unchanged and the installed bytes matching the provenance block. The route still stays disabled because consumer-side exact-root and independent-root confirmation, current headless model/effort and restriction precedence, a multi-message/retry current-sequence accounting boundary, and the declared composite digest are unmeasured, and the Rust route is unimplemented. The documented `--session <id>` extension interface is distinct from the installed **0.1.2-rc.1** one-shot runner, whose fresh-root result remains bounded history for that entry only. The operator's 2026-09-10 ruling reversed the earlier **0.1.0-rc.6** pin and superseded `.forge/tasks/dsh-pair-qualification-010rc6.json`; both are dated history, never the selected route, and the removal of `agent.session.events` was a measured pair incompatibility fixed by the one-expression adaptation, never a global DSH or extension limitation. The separate hands/tools plugin deferral is unrelated. |
 | `lanetally` | `wrapper-work-site` | `unmeasured` | Main does not perform this rejoin. Identity explicitly **unknown**: a wrapper is qualified on its own wrapper, never on what it wraps. Claude's captured interface says nothing about what this wrapper forwards, and support by analogy is what the field refuses. |
 | `qoder` (example) | `print-work-site` | `unsupported` | The seat runs `--no-session-persistence`, which keeps no session on disk in print mode, so there is nothing to rejoin. The driver declares no `resume` receipt and is never offered a handle. |
+| `agy` (example) | `stream-work-site` | `unsupported` | Agy keeps each conversation under HOME, and the driver removes the engine's HOME when the turn ends, so there is nothing to rejoin. The driver declares no `resume` receipt, and a start offered one is refused before it starts. |
 
 So today the three unmeasured shapes spawn cold **and say so**, with the
 reason in the record, while Codex's harness work seat rejoins main's

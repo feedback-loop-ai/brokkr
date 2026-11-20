@@ -282,7 +282,7 @@ pub(crate) fn secrets(workspace: &Path, command: SecretsCmd) -> Result<ExitCode>
 pub(crate) fn driver(DriverArgs { kind, args }: DriverArgs) -> Result<ExitCode> {
     let kind = brokkr_protocol::adapters::AdapterKind::parse(&kind).ok_or_else(|| {
         anyhow::anyhow!(
-            "unknown driver '{kind}'; known: claude, lanetally, codex, dsh, qoder, exec"
+            "unknown driver '{kind}'; known: claude, lanetally, codex, dsh, qoder, agy, exec"
         )
     })?;
     let extra = driver_payload(kind, args);

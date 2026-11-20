@@ -1,5 +1,5 @@
 //! Built-in driver adapters:
-//! `brokkr driver <claude|lanetally|codex|dsh|exec>`.
+//! `brokkr driver <claude|lanetally|codex|dsh|qoder|agy|exec>`.
 //!
 //! The Rust port of the retired Python adapters (decision 0009) — same
 //! protocol behavior, same prompt composition, same result-file
@@ -19,6 +19,7 @@ use std::process::{Command, Stdio};
 
 use serde_json::{json, Map, Value};
 
+mod agy;
 pub mod capability_calls;
 mod claude_fold;
 mod codex;
@@ -28,6 +29,7 @@ mod dsh_effort;
 mod dsh_hands;
 mod dsh_launch;
 mod dsh_stderr;
+mod escapes;
 mod exec;
 mod lost;
 mod mcp;
@@ -38,9 +40,11 @@ mod refusal;
 mod round430_tests;
 mod route_overlay;
 mod served_route;
+mod serving_shape;
 mod spawn;
 mod start;
 mod stderr;
+mod stream_turn;
 // Design D6 (b) seals the producer: the seams, the structured
 // observation, its error and the one entry point. Every parser, hasher,
 // serializer and injected helper stays private to `composite`, so no
@@ -53,6 +57,7 @@ pub use dsh_hands::ACCESS;
 pub use mcp::{harness_auth, HarnessAuthError, StrictCause};
 pub(crate) use served_route::route_form;
 pub use served_route::split_route;
+pub(crate) use serving_shape::ServingShape;
 
 use crate::dsh_sandbox;
 use crate::hands::GitFacts;
@@ -72,7 +77,7 @@ use refusal::{
     bounded_wire_line, claude_refusal, codex_refusal, codex_thread_refusal, dsh_refusal,
     epoch_now_nanos, find_codex_thread, thread_header, Now, REFUSAL_TOKEN_LIMIT,
 };
-use spawn::{spawn_harness, Spawned};
+use spawn::{spawn_fed, spawn_harness, Spawned};
 #[cfg(test)]
 use start::serve_io;
 use start::{start_prompt, Confine};
@@ -119,6 +124,9 @@ pub enum AdapterKind {
     /// Qoder CLI, a provisional harness at level 1 (#1178; decision 0075):
     /// unboxed, never a gate, and never resumed.
     Qoder,
+    /// Antigravity CLI, a provisional harness at level 1 (#1200; decision
+    /// 0075): unboxed, never a gate, never resumed, under the engine's HOME.
+    Agy,
     Exec,
 }
 
@@ -130,6 +138,7 @@ impl AdapterKind {
             "codex" => Some(AdapterKind::Codex),
             "dsh" => Some(AdapterKind::Dsh),
             "qoder" => Some(AdapterKind::Qoder),
+            "agy" => Some(AdapterKind::Agy),
             "exec" => Some(AdapterKind::Exec),
             _ => None,
         }
@@ -149,11 +158,12 @@ impl AdapterKind {
     /// which is issue #226's complaint. Exec declares none: it has no
     /// model turn and no provider to hold a session. Qoder declares none
     /// either: its seat runs `--no-session-persistence`, so there is no
-    /// session to be told about (#1178). A driver that does not declare
-    /// receipt is never handed a handle, by any channel.
+    /// session to be told about (#1178). Agy declares none: its HOME is the
+    /// engine's for one turn, so no conversation outlives it (#1200). A
+    /// driver that does not declare receipt is never handed a handle.
     fn supports(&self) -> Vec<String> {
         match self {
-            AdapterKind::Exec | AdapterKind::Qoder => Vec::new(),
+            AdapterKind::Exec | AdapterKind::Qoder | AdapterKind::Agy => Vec::new(),
             _ => vec!["resume".to_string()],
         }
     }
@@ -168,6 +178,7 @@ impl AdapterKind {
             AdapterKind::Codex => "codex".to_string(),
             AdapterKind::Dsh => "deepseek-harness".to_string(),
             AdapterKind::Qoder => "qoder-cli".to_string(),
+            AdapterKind::Agy => "agy-cli".to_string(),
             // A name the reader refuses labels the driver `exec`, and
             // `run_seat` refuses every start on it by that name.
             AdapterKind::Exec => crate::overrides::read(Override::ExecName)
@@ -788,26 +799,6 @@ fn spawn_piped(
 ) -> Result<Spawned, String> {
     let piped = Stdio::piped;
     spawn_harness(command, workdir, piped(), piped(), &[], bindings)
-}
-
-/// Spawn a harness with `prompt` on its stdin, its stdin closed, and its
-/// stderr drained on its own thread. The two stream folds share this
-/// prologue so neither can differ from the other in how it feeds a child.
-fn spawn_fed(
-    command: &[String],
-    prompt: &str,
-    workdir: &str,
-    bindings: &[secret::BoundSecret],
-) -> Result<(Spawned, StderrCapture), String> {
-    let mut child = spawn_piped(command, workdir, bindings)?;
-    let mut stdin = child.stdin.take().expect("piped");
-    io_context(
-        stdin.write_all(prompt.as_bytes()),
-        "could not write the prompt",
-    )?;
-    drop(stdin);
-    let stderr = drain_stderr(&mut child);
-    Ok((child, stderr))
 }
 
 /// End a probe's harness at its first answer and reap it. A harness that
@@ -3231,30 +3222,7 @@ pub(crate) fn serving_command(
             Ok(command)
         }
         ServingShape::Qoder => Err("a qoder command, which no modelled grammar reads back"),
-    }
-}
-
-/// The serving command shapes the built-in drivers spawn, one per builder
-/// [`serving_command`] calls and Qoder's, composed whole in its fragment's one
-/// home (#1178). LaneTally is served Claude's. `exec` and an opaque driver have
-/// none ([`crate::native_controls::grammar::grammar`] models no grammar of theirs).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ServingShape {
-    Claude,
-    Codex,
-    Dsh,
-    Qoder,
-}
-
-impl ServingShape {
-    pub(crate) fn of(harness: &str) -> Option<ServingShape> {
-        match harness {
-            "claude" | "lanetally" => Some(ServingShape::Claude),
-            "codex" => Some(ServingShape::Codex),
-            "dsh" => Some(ServingShape::Dsh),
-            "qoder" => Some(ServingShape::Qoder),
-            _ => None,
-        }
+        ServingShape::Agy => Err("an agy command, which no modelled grammar reads back"),
     }
 }
 
@@ -5556,6 +5524,7 @@ fn invoke_with_stager(
         AdapterKind::Qoder => {
             qoder::drive(bin, extra, session.is_some(), prompt, input, bindings, emit)
         }
+        AdapterKind::Agy => agy::drive(pinned, session.is_some(), prompt, input, bindings, emit),
         AdapterKind::Exec => {
             exec::invoke_exec(extra, prompt, &workdir, input, bindings, emit, stage)
         }
@@ -6935,6 +6904,10 @@ fn serve_with(
 /// The adapter main loop over the process's stdio. On Linux the driver is its
 /// harness tree's subreaper, and its reaper starts first (#1133).
 pub fn serve(kind: AdapterKind, extra: Vec<String>, confine: Confine) -> std::io::Result<()> {
+    // The agy driver's gate mode answers one hook call and serves nothing.
+    if let Some(listed) = agy::gate_listed(kind, &extra) {
+        return agy::gate(listed, std::io::stdin().lock(), std::io::stdout());
+    }
     #[cfg(target_os = "linux")]
     crate::process::reaper::start();
     let input = std::io::stdin().lock();

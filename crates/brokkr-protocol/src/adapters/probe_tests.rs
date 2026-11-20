@@ -92,7 +92,7 @@ printf '%s\n' '{"type":"item.completed","item":{"type":"agent_message","text":"a
             .to_string()
         }
         AdapterKind::Dsh => dsh_probe_answer_script(),
-        AdapterKind::Lanetally | AdapterKind::Qoder | AdapterKind::Exec => {
+        AdapterKind::Lanetally | AdapterKind::Qoder | AdapterKind::Agy | AdapterKind::Exec => {
             unreachable!("the probe answers on claude, codex and dsh")
         }
     };
@@ -165,7 +165,7 @@ fn a_probe_that_answers_then_hangs_reports_its_answer() {
                 env.set("DSH_HOME", dir.path());
                 Vec::new()
             }
-            AdapterKind::Lanetally | AdapterKind::Qoder | AdapterKind::Exec => {
+            AdapterKind::Lanetally | AdapterKind::Qoder | AdapterKind::Agy | AdapterKind::Exec => {
                 unreachable!("the probe answers on claude, codex and dsh")
             }
         };
@@ -222,7 +222,11 @@ printf '%s\n' '{"type":"item.completed","item":{"type":"agent_message","text":"a
         match kind {
             AdapterKind::Claude => env.set("BROKKR_CLAUDE_BIN", &shim),
             AdapterKind::Codex => env.set("BROKKR_CODEX_BIN", &shim),
-            AdapterKind::Lanetally | AdapterKind::Dsh | AdapterKind::Qoder | AdapterKind::Exec => {
+            AdapterKind::Lanetally
+            | AdapterKind::Dsh
+            | AdapterKind::Qoder
+            | AdapterKind::Agy
+            | AdapterKind::Exec => {
                 unreachable!("the stop's stderr is proven on claude and codex")
             }
         }

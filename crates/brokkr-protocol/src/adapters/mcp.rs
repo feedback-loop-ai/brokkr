@@ -44,7 +44,9 @@ use crate::served_home::{dsh_served, DshCause, DshRefusal, DshServed, RouteRefus
 use crate::transcript::{DshHome, DshHomeError};
 
 mod admit;
+mod agy;
 mod qoder;
+pub(super) use agy::agy_set;
 pub(super) use qoder::qoder_set;
 
 /// The MCP document of the empty server set, exactly as U0 measured it
@@ -158,8 +160,9 @@ pub(super) fn unbind(builder: &mut std::process::Command) {
 }
 
 /// The engine's own executable, which a harness spawns as `brokkr hands
-/// serve`: the one place a launch reads it.
-fn engine_executable() -> PathBuf {
+/// serve`, and an agy launch's gate hook as `brokkr driver agy`: the one
+/// place a launch reads it.
+pub(super) fn engine_executable() -> PathBuf {
     std::env::current_exe().unwrap_or_default()
 }
 

@@ -14,6 +14,7 @@ use super::grammar::{self, Command, Effect, ListKind};
 use super::State;
 use crate::hands::SERVER_NAME;
 
+pub(crate) mod agy;
 pub(crate) mod qoder;
 
 /// One value as the body of a TOML basic string (rebuild unit 13-fix-c,

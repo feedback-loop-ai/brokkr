@@ -15,7 +15,7 @@ use brokkr_store::Store;
 use serde_json::{json, Value};
 
 #[path = "../../../tests/support/env_guard.rs"]
-mod env_guard;
+pub(super) mod env_guard;
 use env_guard::EnvGuard;
 
 const TOOL_LESS: &str =
@@ -24,7 +24,7 @@ const UNKNOWN_MODEL: &str =
     include_str!("../../../docs/evidence/adapters/qoder-cli-1-1/unknown-model-fallback.ndjson");
 
 /// `body` at `path`, its directories made, under `mode`.
-fn write_mode(path: &Path, body: &[u8], mode: u32) {
+pub(super) fn write_mode(path: &Path, body: &[u8], mode: u32) {
     use std::io::Write;
     use std::os::unix::fs::OpenOptionsExt;
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -33,7 +33,7 @@ fn write_mode(path: &Path, body: &[u8], mode: u32) {
     file.and_then(|mut file| file.write_all(body)).unwrap();
 }
 
-fn write(path: &Path, body: &[u8]) {
+pub(super) fn write(path: &Path, body: &[u8]) {
     write_mode(path, body, 0o644);
 }
 
@@ -116,7 +116,7 @@ fn tree(root: &Path) -> PathBuf {
 
 /// Every composed `{brokkr}`, which the compiler expanded to this test's
 /// executable, pointed at the built binary.
-fn patch(bundle: &mut Bundle) {
+pub(super) fn patch(bundle: &mut Bundle) {
     let from = std::env::current_exe().unwrap();
     let from = from.to_string_lossy();
     let retarget = |words: &mut [String]| {
@@ -187,7 +187,7 @@ fn run(root: &Path, stdout: &str) -> Vec<Value> {
 }
 
 /// The checkpoints among `events`.
-fn checkpoints(events: &[Value]) -> Vec<&Value> {
+pub(super) fn checkpoints(events: &[Value]) -> Vec<&Value> {
     events
         .iter()
         .filter_map(|event| event["payload"].get("checkpoint"))
@@ -195,7 +195,7 @@ fn checkpoints(events: &[Value]) -> Vec<&Value> {
 }
 
 /// A canonical, owner-only temporary root for one run.
-fn root() -> (tempfile::TempDir, PathBuf) {
+pub(super) fn root() -> (tempfile::TempDir, PathBuf) {
     let home = tempfile::tempdir().unwrap();
     let root = home.path().canonicalize().unwrap();
     rustix::fs::chmod(&root, rustix::fs::Mode::RWXU).unwrap();

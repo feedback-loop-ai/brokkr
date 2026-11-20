@@ -21,6 +21,7 @@ pub brokkr_protocol::adapters::capability_calls::Observation::format: brokkr_pro
 pub brokkr_protocol::adapters::capability_calls::Observation::tool: brokkr_protocol::adapters::capability_calls::Tool
 pub const brokkr_protocol::adapters::capability_calls::OBSERVATION_KEY: &str
 pub enum brokkr_protocol::adapters::AdapterKind
+pub brokkr_protocol::adapters::AdapterKind::Agy
 pub brokkr_protocol::adapters::AdapterKind::Claude
 pub brokkr_protocol::adapters::AdapterKind::Codex
 pub brokkr_protocol::adapters::AdapterKind::Dsh
@@ -984,6 +985,7 @@ pub brokkr_protocol::oneshot::OneShot::Refused::reason: alloc::string::String
 pub fn brokkr_protocol::oneshot::run_once(&[alloc::string::String], &str, core::time::Duration, impl core::ops::function::FnOnce(&std::path::Path) -> serde_json::value::Value) -> brokkr_protocol::oneshot::OneShot
 pub mod brokkr_protocol::overrides
 pub enum brokkr_protocol::overrides::Override
+pub brokkr_protocol::overrides::Override::AgyBin
 pub brokkr_protocol::overrides::Override::BrowserBin
 pub brokkr_protocol::overrides::Override::ClaudeBin
 pub brokkr_protocol::overrides::Override::CodexBin

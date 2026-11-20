@@ -80,7 +80,7 @@ pub(super) fn is_answer(kind: AdapterKind, event: &Value) -> bool {
                     == Some("agent_message")
         }
         AdapterKind::Dsh => event.get("type").and_then(Value::as_str) == Some("assistant/message"),
-        AdapterKind::Qoder | AdapterKind::Exec => false,
+        AdapterKind::Qoder | AdapterKind::Agy | AdapterKind::Exec => false,
     }
 }
 

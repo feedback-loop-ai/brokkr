@@ -1021,6 +1021,156 @@ fn si2_refuses_a_qoder_seat_on_macos_where_nothing_is_measured() {
     );
 }
 
+/// A workspace that loads Agy's example adapter as the guide tells an
+/// operator to copy it in (#1200), with a `researcher` office hiring
+/// `agy-neon` at `xhigh` with two grants.
+fn agy_workspace() -> Workspace {
+    let workspace = Workspace::new();
+    let adapter = "adapters/agy.json";
+    let example = shipped().join("docs/examples").join(adapter);
+    std::fs::copy(example, workspace.path(adapter)).unwrap();
+    let charter = workspace.path("agents/charters/researcher.md");
+    std::fs::write(charter, "# an agy charter\n").unwrap();
+    let office = json!({
+        "description": "an agy office", "charter": "charters/researcher.md",
+        "models": ["agy-neon"], "efforts": {"agy-neon": "xhigh"},
+        "tools": {"allow": ["git", "gh-pr-view"]},
+    });
+    let path = workspace.path("agents/researcher.json");
+    std::fs::write(path, office.to_string()).unwrap();
+    workspace
+}
+
+#[test]
+fn an_agy_seat_in_a_listed_office_launches_its_pin_effort_and_rules() {
+    let workspace = agy_workspace();
+    let compiled = workspace.compile(seat("researcher", "work"), &["researcher"]);
+    let bundle = compiled.unwrap();
+    assert_eq!(chain(&bundle), ["agy-neon"]);
+    let SeatBody::Invocation(Invocation::Single { candidates, .. }) = &bundle.seats["work"].body
+    else {
+        panic!("one agy seat");
+    };
+    let expected = [
+        "driver",
+        "agy",
+        "--",
+        "--model",
+        "gemini-4-neon",
+        "--effort",
+        "xhigh",
+        "--allow",
+        "command(git),command(gh pr view)",
+    ];
+    assert_eq!(candidates[0].argv[1..], expected);
+}
+
+#[test]
+fn an_agy_seat_outside_the_listed_offices_or_at_a_gate_is_refused() {
+    let workspace = agy_workspace();
+    let (seat_name, model, adapter) = ("work".to_string(), "agy-neon".to_string(), "agy");
+    assert_eq!(
+        workspace.refusal(seat("researcher", "work"), &["implementer"]),
+        ProvisionalRefusal::Unlisted {
+            seat: seat_name.clone(),
+            link: 1,
+            model: model.clone(),
+            adapter: adapter.into(),
+            office: Some("researcher".into()),
+        }
+    );
+    assert_eq!(
+        workspace.refusal(seat("researcher", "gate"), &["researcher"]),
+        ProvisionalRefusal::Gate {
+            seat: seat_name,
+            link: 1,
+            model,
+            adapter: adapter.into(),
+        }
+    );
+}
+
+/// Agy's example maps its four Gemini 4 models to their base slugs, each
+/// provisional, none a judge, and declares no hands.
+#[test]
+fn the_agy_example_declares_four_provisional_models_and_no_judge() {
+    let workspace = agy_workspace();
+    let loaded = Adapters::load(&workspace.path("adapters")).unwrap();
+    let agy = loaded.adapter("agy").unwrap();
+    let slugs: Vec<(&str, &str)> = (agy.models.iter())
+        .map(|(alias, slug)| (alias.as_str(), slug.as_str()))
+        .collect();
+    let expected = [
+        ("agy-argon", "gemini-4-argon"),
+        ("agy-carbon", "gemini-4-carbon"),
+        ("agy-hydrogen", "gemini-4-hydrogen"),
+        ("agy-neon", "gemini-4-neon"),
+    ];
+    assert_eq!(slugs, expected);
+    let provisional: Vec<&String> = agy.provisional.iter().collect();
+    assert_eq!(provisional, agy.models.keys().collect::<Vec<_>>());
+    assert!(agy.judges.is_empty(), "{:?}", agy.judges);
+    assert!(agy.hands.is_none());
+}
+
+/// `workspace`'s copy of Agy's example with the `mcp` shape for `missing`
+/// taken out.
+#[cfg(target_os = "linux")]
+fn agy_without_shape<'w>(workspace: &'w Workspace, missing: &str) -> &'w Workspace {
+    let path = workspace.path("adapters/agy.json");
+    let mut example: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    let declared = example["mcp"]["shapes"].as_array_mut().unwrap();
+    declared.retain(|declared| declared["invocation"] != missing);
+    std::fs::write(path, example.to_string()).unwrap();
+    workspace
+}
+
+/// SI2 past the lifted fence on Linux (#1200), the one host the record
+/// measured: the example's cold and replacement shapes without hands admit
+/// a work seat, each is needed, and the office boxing its hands is refused
+/// because the adapter declares none.
+#[cfg(target_os = "linux")]
+#[test]
+fn si2_admits_an_agy_seat_without_hands_and_refuses_it_boxed() {
+    assert_eq!(chain(&si2(&agy_workspace()).unwrap()), ["agy-neon"]);
+    for missing in ["cold", "replacement"] {
+        let workspace = agy_workspace();
+        let refused = si2_refusal(agy_without_shape(&workspace, missing));
+        let words = format!(
+            "bundle: seat 'work' (office 'researcher') in realm '<unmapped>': provider 'agy' has \
+             no measured strict MCP configuration for '{missing}'"
+        );
+        assert_eq!(refused, words);
+    }
+    let boxed = agy_workspace();
+    let office = boxed.path("agents/researcher.json");
+    let mut hired: Value = serde_json::from_slice(&std::fs::read(&office).unwrap()).unwrap();
+    hired["hands"] = json!("workspace");
+    std::fs::write(office, hired.to_string()).unwrap();
+    let refused = si2(&boxed).map(drop).unwrap_err();
+    assert!(matches!(refused, CompileError::Invalid(_)), "{refused:?}");
+    let words = refused.to_string();
+    let cause = "cannot be served by provider 'agy' on model 'agy-neon': the provider declares \
+                 hands unsupported (level 1 is unboxed (#1200, decision 0075)";
+    assert!(words.contains(cause), "{words}");
+}
+
+/// SI2 past the lifted fence on macOS (#1200; decision 0063): the record
+/// measured Linux only, so the seat's cold shape is unmeasured there, and
+/// it is a capability refusal.
+#[cfg(target_os = "macos")]
+#[test]
+fn si2_refuses_an_agy_seat_on_macos_where_nothing_is_measured() {
+    let refused = si2(&agy_workspace()).map(drop).unwrap_err();
+    let CompileError::Capability(words) = &refused else {
+        panic!("not a capability refusal: {refused:?}");
+    };
+    assert!(
+        words.ends_with("provider 'agy' has no measured strict MCP configuration for 'cold'"),
+        "{words}"
+    );
+}
+
 /// The adapter fixture as every load refusal names it.
 fn adapter_file(workspace: &Workspace) -> String {
     let path = workspace.path("adapters/newcomer.json");

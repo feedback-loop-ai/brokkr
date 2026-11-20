@@ -67,7 +67,7 @@ Every `brokkr` verb and argument with its default, and every exit code, as the b
 - [`brokkr realms`](#brokkr-realms): List the world (decision 0023): each realm with its path, default branch and current HEAD, and the journal the world writes. Read-only, like every other readout
 - [`brokkr analytics`](#brokkr-analytics): What the runs did across every hearth, for a range and an optional realm: shipped, start to end, waiting on you, rework, cost and served models. `--json` emits the view model
 - [`brokkr graph`](#brokkr-graph): One recipe's state machine and its traffic over a range. `--json` emits the view model
-- [`brokkr driver`](#brokkr-driver): Run a built-in forge-driver/v1 adapter (claude \| lanetally \| codex \| dsh \| qoder \| exec). Bundles reference these as {brokkr} driver &lt;kind&gt; -- &lt;extra args&gt;
+- [`brokkr driver`](#brokkr-driver): Run a built-in forge-driver/v1 adapter (claude \| lanetally \| codex \| dsh \| qoder \| agy \| exec). Bundles reference these as {brokkr} driver &lt;kind&gt; -- &lt;extra args&gt;
 - [`brokkr hands`](#brokkr-hands): The model's hands are one tool, and the tool runs in an empty root (decision 0043): serve the `workspace` tool over MCP on stdio, or run one command whole inside the same box
 - [`brokkr hands serve`](#brokkr-hands-serve): Serve the one `workspace` tool over MCP (newline-delimited JSON-RPC on stdio); every call runs `bash -lc <command>` inside the box
 - [`brokkr hands exec`](#brokkr-hands-exec): Run one command whole inside the box with stdio passed through — how a deterministic `exec` seat holds a gate. Exits with the command's own code
@@ -999,7 +999,7 @@ Usage: brokkr graph [OPTIONS]
 
 ## brokkr driver
 
-Run a built-in forge-driver/v1 adapter (claude | lanetally | codex | dsh | qoder | exec). Bundles reference these as {brokkr} driver &lt;kind&gt; -- &lt;extra args&gt;
+Run a built-in forge-driver/v1 adapter (claude | lanetally | codex | dsh | qoder | agy | exec). Bundles reference these as {brokkr} driver &lt;kind&gt; -- &lt;extra args&gt;
 
 ```text
 Usage: brokkr driver <KIND> [ARGS]...
@@ -1007,8 +1007,8 @@ Usage: brokkr driver <KIND> [ARGS]...
 
 | Argument | Default | Selector | Description |
 | --- | --- | --- | --- |
-| `<KIND>` |  |  | The adapter to run: claude, lanetally, codex, dsh, qoder or exec |
-| `<ARGS>...` |  |  | Arguments after -- pass to the agent CLI (claude/lanetally/codex/dsh/qoder) or form the command template (exec) |
+| `<KIND>` |  |  | The adapter to run: claude, lanetally, codex, dsh, qoder, agy or exec |
+| `<ARGS>...` |  |  | Arguments after -- pass to the agent CLI (claude/lanetally/codex/dsh/qoder/agy) or form the command template (exec) |
 
 ## brokkr hands
 
