@@ -158,8 +158,9 @@ pub(super) struct Fitted<'a> {
 /// `text` cut to `max` terminal cells, the cut marked with `…`. A text
 /// whose whole width, measured once, is at most `max` comes back whole
 /// at that width, so a cell that fits is never cut; else [`kept_by`]
-/// chooses the cut in one walk, and the cells reported are the kept text
-/// and the ellipsis measured once each, never the walk's sum, so the
+/// chooses the cut in one walk and [`fitting`] measures what it keeps,
+/// so the cells reported are the kept text and the ellipsis measured
+/// once each, never the walk's sum, the cut never passes `max`, and the
 /// padding matches what is printed (#1167). The TUI's clamp also bounds
 /// `char`s, as its buffer spends a cell on each; a printed row spends
 /// only the cells the terminal draws, so a decomposed accent costs
@@ -175,25 +176,51 @@ pub(super) fn fit_by<'a>(
         let text = Cow::Borrowed(text);
         return Fitted { text, cells: whole };
     }
-    let kept = kept_by(text, max - 1, measure);
-    let cells = measure(kept) + measure("…");
+    let ends = kept_by(text, max - 1, measure);
+    let (kept, cells) = fitting(text, &ends, max - 1, measure);
+    let cells = cells + measure("…");
     let text = Cow::Owned(format!("{kept}…"));
     Fitted { text, cells }
 }
 
-/// The graphemes of `text` kept before the first that takes it past
-/// `budget` cells, in one walk. Each grapheme costs what [`width_of`]
-/// (by `measure`) adds when it follows the one before,
-/// `measure(previous + grapheme) - measure(previous)`, signed: a width
-/// can hang on its whole sequence (`♥` then U+FE0F draws two cells), on its neighbour (a
-/// Lisu tone letter after another draws none), or fall where a joiner
+/// The longest of the walk's kept graphemes, then half of them, then a
+/// quarter, down to none, whose measured width is within `budget`, and
+/// that width. The walk's pairwise sum falls short where joins overlap
+/// (in `ⵏ⵿ⴾ⵿ⵏ` each pair's fall is counted, but the run falls less), so
+/// its cut is measured before it is kept. Each try measures at most half
+/// the text the one before did, so the work stays within twice the kept
+/// text, and none, which measures nothing, always fits (#1167).
+fn fitting<'a>(
+    text: &'a str,
+    ends: &[usize],
+    budget: usize,
+    measure: &mut impl FnMut(&str) -> usize,
+) -> (&'a str, usize) {
+    let mut count = ends.len() - 1;
+    loop {
+        let kept = &text[..ends[count]];
+        let cells = measure(kept);
+        if cells <= budget {
+            return (kept, cells);
+        }
+        count /= 2;
+    }
+}
+
+/// Where each grapheme of `text` kept before the first that takes it
+/// past `budget` cells ends, after a leading `0`, in one walk. Each
+/// grapheme costs what [`width_of`] (by `measure`) adds when it follows
+/// the one before, `measure(previous + grapheme) - measure(previous)`,
+/// signed: a width can hang on its whole sequence (`♥` then U+FE0F draws
+/// two cells), on its neighbour (a Lisu tone letter after another draws
+/// none), or fall where a joiner
 /// joins a pair (Tifinagh `ⵏ⵿` draws two cells, `ⵏ⵿ⴾ` one), and the
 /// TUI's measure reads them all, so the walk sums to the whole text's
 /// width wherever a width hangs on no more than the grapheme before, and
 /// no prefix is measured again.
-fn kept_by<'a>(text: &'a str, budget: usize, measure: &mut impl FnMut(&str) -> usize) -> &'a str {
+fn kept_by(text: &str, budget: usize, measure: &mut impl FnMut(&str) -> usize) -> Vec<usize> {
     let budget = budget as isize;
-    let (mut spent, mut end) = (0, 0);
+    let (mut spent, mut ends) = (0, vec![0]);
     let (mut previous, mut alone, mut pair) = ("", 0, String::new());
     let span = Span::raw(text);
     for grapheme in span.styled_graphemes(Plain::new()) {
@@ -204,10 +231,10 @@ fn kept_by<'a>(text: &'a str, budget: usize, measure: &mut impl FnMut(&str) -> u
         if spent > budget {
             break;
         }
-        end += grapheme.symbol.len();
+        ends.push(ends[ends.len() - 1] + grapheme.symbol.len());
         (previous, alone) = (grapheme.symbol, measure(grapheme.symbol) as isize);
     }
-    &text[..end]
+    ends
 }
 
 /// How a table sets each row: its columns, their widths and the gap

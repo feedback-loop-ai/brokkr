@@ -593,6 +593,57 @@ fn a_cut_reports_the_cells_of_the_text_it_prints() {
     }
 }
 
+/// Tifinagh joins that overlap, `ⵏ⵿ⴾ⵿ⵏ`: the walk counts each pair's
+/// fall, and the run falls less than their sum.
+const OVERLAPPED: &str = "\u{2D4F}\u{2D7F}\u{2D3E}\u{2D7F}\u{2D4F}";
+
+/// Where joins overlap, a cut still fits its column and reports the
+/// cells it prints, so the next column starts where it does after a
+/// plain name (#1167).
+#[test]
+fn a_cut_where_joins_overlap_fits_its_column() {
+    let text = format!("abcd{OVERLAPPED}efXYZ");
+    assert_eq!(fitted(&text, 8), ("abcd…".to_string(), 5));
+    for max in 1..width_of(&text) {
+        let (printed, cells) = fitted(&text, max);
+        let measured = (cells, cells <= max);
+        assert_eq!(measured, (width_of(&printed), true), "at {max}: {printed}");
+    }
+    let columns = [
+        table::Column::left("STATE"),
+        table::Column::right("ENTERED"),
+    ];
+    let rows = vec![
+        vec![Safe::new("abcdefghij"), Safe::new("1")],
+        vec![Safe::new(&text), Safe::new("2")],
+    ];
+    let drawn = table::table(&columns, &rows, &Style::plain(16));
+    let want = "STATE    ENTERED\nabcdefg…       1\nabcd…          2\n";
+    assert_eq!(drawn, want);
+}
+
+/// A run of joins whose walk runs far past its column, as each `ⵏ⵿`
+/// after the first costs it nothing, is cut to fit in work linear in the
+/// text: the whole text, the walk, and each halving of the kept graphemes
+/// are measured once each, never a prefix grapheme by grapheme (#1167).
+#[test]
+fn a_cut_where_joins_overlap_is_made_in_linear_work() {
+    let text = format!("ab{}XYZ", "\u{2D4F}\u{2D7F}".repeat(200));
+    let measured = std::cell::Cell::new(0);
+    let cut = table::fit_by(&text, 8, &mut counting(&measured));
+    let kept = format!("ab{}…", "\u{2D4F}\u{2D7F}".repeat(4));
+    assert_eq!(
+        (width_of(&text), cut.text, cut.cells),
+        (205, kept.into(), 7)
+    );
+    // Of 405 scalars: the whole text (405); the walk keeps all 205
+    // graphemes, each beside the one before (4 × 200 + 9) and alone
+    // (405); the kept text whole, then 102, 51, 25, 12 and 6 graphemes
+    // (405 + 202 + 100 + 48 + 22 + 10); the ellipsis (1).
+    let work = 405 + (809 + 405) + (405 + 202 + 100 + 48 + 22 + 10) + 1;
+    assert_eq!(measured.get(), work);
+}
+
 /// A whole table is measured once per cell to size it, and once more to
 /// set it, with one walk and one measure of the kept text where it is
 /// cut: the padding reads the cells the cut returned, so the kept text is
