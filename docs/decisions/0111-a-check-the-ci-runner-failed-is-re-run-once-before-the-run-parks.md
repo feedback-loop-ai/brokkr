@@ -988,35 +988,38 @@ its `phases` to add `ci`; `landing` overrides the same keys over `brokkr-fast`
 (`crates/brokkr-runtime/src/bundle/compose.rs:871-921`), and no rule of landing's or `fast`'s
 changes.
 
-**Where `ci` sits in the phase order.** The order is not cosmetic. HEAD orders every transition
-by phase position (`crates/brokkr-core/src/policy/direction.rs:10-19`), and the entry check
-refuses an entry from which a forward rule reaches a work seat
-(`crates/brokkr-runtime/src/bundle/entry.rs:166-170`, `:186-209`). Landing's order is
-`classify`, `implement`, `verify`, `review`, `ship`, `done`, `stop` (`recipes/landing/policy.json`).
-Prepended, as fix round 1093r5 had it, `ci` would make `CI-FAIL` (`ci` to `implement`) a forward
-path to a work seat, so `--enter ci` would refuse as `ForwardWork`. **Recommended: (a) the
-overlay's materialized order is `classify`, `implement`, `ci`, `verify`, `review`, `ship`,
-`done`, `stop`**: `ci` placed after `implement` and before `verify`, landing's own phases in
-their own order. Then:
+**Where `ci` sits in the phase order, re-derived.** The order is not cosmetic. HEAD orders every
+transition by phase position (`crates/brokkr-core/src/policy/direction.rs:10-19`), and the entry
+check refuses an entry from which a forward rule reaches a seat with no gate, a work seat
+(`crates/brokkr-runtime/src/bundle/entry.rs:186-209`). Landing's order is `classify`,
+`implement`, `verify`, `review`, `ship`, `done`, `stop` (`recipes/landing/policy.json`). Fix
+round 1093r6 placed `ci` after `implement` only because `CI-FAIL`, `ci` to `implement`, was then
+a forward path to a work seat if `ci` came first, so `--enter ci` would have refused as
+`ForwardWork`. With no road from `ci` to `implement`, that reason is gone. **Recommended: (a)
+the overlay's materialized order is `ci`, `classify`, `implement`, `verify`, `review`, `ship`,
+`done`, `stop`**: `ci` prepended, landing's own phases in their own order. Then, by HEAD's
+entry check as read (`entry.rs:152-171`), and not yet run:
 
-- `CI-FAIL` (`ci` to `implement`) and `CI-PASS` (`ci` to `classify`) are both returns, so the
-  forward walk from `ci` reaches nothing, and `ForwardWork` admits it;
-- the protected walk from `ci` reaches no terminal but `stop` around `review`
-  (`crates/brokkr-runtime/src/bundle/phases.rs:146-157` skips `stop`): every road from `ci` runs
-  through `classify` or `implement`, and landing's own rules reach `ship` only through `review`;
-- the visit check still finds `implement` reachable from `ci` without a visit-reading rule, by
-  `CI-FAIL`, so fast's `visits_implement_gte` groups are admitted, as from landing's `classify`;
-- no landing rule changes direction, because no rule joins `ci`'s neighbours across it: the
-  only pairs whose order moved involve `ci` itself.
+- **the forward-work check.** The only road from `ci` to another phase is `CI-PASS`, forward to
+  `classify`, which is a gate (`recipes/landing/bundle.json`, its `classify` seat's
+  `"class": "gate"`); every other walk from `ci` is the walk from `classify`, which HEAD admits
+  as landing's own `initial` today. So `ForwardWork` admits `ci` exactly as it admits `classify`;
+- **the protected check.** Every road from `ci` runs through `classify`, so `ci` reaches no
+  terminal around `review` that `classify` does not, and `classify` reaches none
+  (`crates/brokkr-runtime/src/bundle/phases.rs:146-157` skips `stop`). Review stays unavoidable
+  before `ship`;
+- **the visit and change checks** (`entry.rs:239-266`, `:268`) see from `ci` the groups and
+  sources they see from `classify`, since `ci` reads no visit and needs no change, and no
+  landing phase moved relative to another;
+- no landing rule changes direction: the only pairs whose order moved involve `ci` itself, and
+  `CI-PASS` is forward.
 
-Costs, said plainly: the rail, which reads the recorded order (`crates/brokkr-view/src/rail.rs:9-12`),
-paints both `CI-` roads as roads back; and on an explicit `--enter ci`, HEAD's seat input gives
-`classify` a `returned_from` naming `ci` and its result word
-(`crates/brokkr-runtime/src/engine/input.rs:151-168`), which landing's classify script does not
-read (`recipes/landing/scripts/classify-seat.sh`). **(b)** `implement`, `ci`, `classify`, …: `CI-PASS` is forward, but landing's
-own order moves, and `implement` stops receiving `classify`'s result on its later visits. Not
-recommended. **(c)** an engine rule exempting `ci`'s edges from `ForwardWork`: no order needs
-it, so no engine change is proposed.
+The rail, which reads the recorded order (`crates/brokkr-view/src/rail.rs:9-12`), paints
+`CI-PASS` as a road forward, and `classify` receives no `returned_from`, as on landing's own
+default start. **(b)** fix round 1093r6's order, `ci` after `implement`: it still admits every
+start, but it paints `CI-PASS` as a road back and hands `classify` a `returned_from` naming `ci`,
+for a reason that no longer holds. Not recommended. **(c)** an engine rule exempting `ci`'s edges
+from `ForwardWork`: no order needs it, so no engine change is proposed.
 
 **CI is the only way in.** A table's `initial` is not the only entry: an explicit `--enter`
 phase is admitted on its own, through the entry check, and `initial` is used only when no entry
@@ -1026,16 +1029,24 @@ terminal or work phase, and one from which a path reaches a terminal around the 
 documents `--enter review` and `--enter classify --continues <run>`
 (`recipes/landing/README.md:91-99`), and both pass that check. So, as fix round 1093r4 left it,
 `landing-ci --enter review` would skip `ci`. Under the frame that is landing as it is today, not
-a pass the gate grants; it is still designed out, so the overlay's typed outcomes are reached on
-every run that names it. **Recommended: (a) `landing-ci`'s entry admission admits `ci` alone,
+a pass the gate grants; it is still designed out, so a person's park is reached on every run
+that names the overlay over a non-green observation. **Recommended: (a) `landing-ci`'s entry admission admits `ci` alone,
 through the existing entry check.** The check's chain of refusals gains one arm: in a bundle
 whose table declares a `ci` seat, every phase but that one refuses as a new `EntryRefusal`
 variant, `BeforeCi`, naming the `ci` phase, and `admitted()` lists `ci` alone. The arm sits
 after the work-seat arm and before the protected arm, so `ci` itself still meets every existing
 check: protected, forward work, strategy, change and visits, which the materialized order above
-admits. `--enter ci`, with or without `--continues`, stays admitted, and the default start uses
-`initial`, `ci`, as HEAD's `first_phase` does (`entry.rs:139-150`). The protected-phase arm is
-unchanged, so `review` stays unavoidable before `ship`. Refused alternatives: **(b)**
+admits. Every start the overlay admits enters at `ci`:
+
+- **the default start** uses `initial`, `ci`, as HEAD's `first_phase` does (`entry.rs:139-150`);
+- **`--enter ci`** passes every existing arm, as above, and `BeforeCi` does not judge `ci`
+  itself;
+- **continuation**, `--enter ci --continues <run>`, is the same admission over a continued run;
+  landing's documented `--enter classify --continues <run>` refuses as `BeforeCi` under the
+  overlay, and the person continues at `ci` instead;
+- **`--enter review`, `--enter classify`** and every other phase refuse as `BeforeCi`.
+
+The protected-phase arm is unchanged, so `review` stays unavoidable before `ship`. Refused alternatives: **(b)**
 a table rule alone, which the explicit entry never reads; **(c)** removing `--enter` from the
 CLI for every recipe, which takes landing's documented continuation away from recipes that have
 no `ci` phase.
@@ -1069,17 +1080,19 @@ filters to nothing, and an observation with no entry to match would draw `green`
 unrelated checks it saw. So the compile requires at least one entry-eligible check, one entry
 without `"after"`, and refuses the list otherwise (ruling 5).
 
-**Every route and cap, from the incoming edge.** First match wins, in the order listed. The
-`When` column names the class; ruling 10 gives its schema-legal spelling.
+**Every route, from the incoming edge.** First match wins, in the order listed. The `When`
+column names the judgment; ruling 10 gives its schema-legal spelling.
 
 | Rule | From | Result | When | Next |
 |---|---|---|---|---|
 | (entry) | | | `initial: ci`; an explicit entry admits `ci` alone | `ci` |
-| `CI-REFUSED` | `ci` | `fail` | class `refused` | park, `ruled`, naming the refusals |
-| `CI-INFRASTRUCTURE` | `ci` | `fail` | class `ci-infrastructure` | park, `infrastructure` `ci-infrastructure` |
-| `CI-PASS` | `ci` | `pass` | class `green` | `classify` |
+| `CI-PASS` | `ci` | `pass` | `green` | `classify` |
 | `CI-PASS-UNBOUND` | `ci` | `pass` | | park, `ruled`, naming the word binding |
-| `CI-FAIL` | `ci` | `fail` | | `implement`, `flagged` |
+| `CI-PARK` | `ci` | `fail` | | park, `ruled`, naming the observation's digest and its unmet words (ruling 7) |
+
+`CI-PARK` is the one park rule: every observation not established `green` reaches it, and so
+does `launch-untrusted`, whose attempt ends in the gate's `fail` before any observation exists
+(ruling 2). It needs no `when`: the word binding admits `fail` only off `green` (ruling 3).
 
 **The table is total.** HEAD's compile refuses a table with an unruled valuation:
 `seated_and_ruled` calls `refuse_unruled` (`crates/brokkr-runtime/src/bundle/phases.rs:118-130`),
@@ -1087,42 +1100,42 @@ which sweeps every valuation of each `(from, result)` group's axes through the r
 and refuses the first no rule rules (`crates/brokkr-core/src/policy/audit.rs:187-197`,
 `:358-381`). A flag axis is both booleans (`:441-443`), whoever owns the flag. So with
 `CI-PASS` the sole `(ci, pass)` row, the valuation `ci_green = false` is unruled and the
-composed overlay would not compile. **Recommended: (a) `CI-PASS-UNBOUND`, a named, fail-closed
-row:** the unconditional `(ci, pass)` rule after `CI-PASS`, parking `ruled` for a person and
-naming the word binding. It is never reached while the binding holds: ruling 3 refuses `pass`
-on any class but `green` before the table reads it. It is the table's answer if the binding
-were ever lifted, and a park, never a route. The `(ci, fail)` group is already total:
-`CI-FAIL` is unconditional beneath its two parks. **(b) Proving the valuation impossible** is
-not taken: the audit sweeps each flag on its own, and HEAD gives it no way to read a
-cross-input invariant such as the word binding, so the proof would need an engine change for
-one row.
+composed overlay would not compile. HEAD's boolean sweep therefore still needs
+**`CI-PASS-UNBOUND`**, recommended as (a): the unconditional `(ci, pass)` rule after `CI-PASS`,
+parking `ruled` for a person and naming the word binding. It is never reached while the binding
+holds: ruling 3 refuses `pass` off `green` before the table reads it. It is the table's answer if
+the binding were ever lifted, and a park, never a route. The `(ci, fail)` group is total:
+`CI-PARK` is unconditional. **(b) Proving the valuation impossible** is not taken: the audit
+sweeps each flag on its own, and HEAD gives it no way to read a cross-input invariant such as the
+word binding, so the proof would need an engine change for one row.
 
 Then landing's own two rules, `CLASSIFY-DOCS` to `review` and `CLASSIFY-CODE` to `verify`
 (`recipes/landing/policy.json:9-21`), and every `fast` rule, unchanged.
 
-**The CI loop keeps a bound.** `ci` is entered only as the run's `initial`, and again only by
-the operator's retry of its own park; the compile refuses any rule whose `next` is `ci`. So
-`CI-FAIL` fires at most once a run, and the implement visit it buys is counted by `fast`'s one
-implement bound, `visits_implement_gte: 3` (`recipes/fast/policy.json:76-94`;
-`visits_<phase>_gte` counts every entry of the phase, whatever routed into it,
-`contracts/phase-machine.v2.schema.json:73`). No loop runs through `ci`.
+**No loop runs through `ci`.** `ci` is entered only as the run's `initial`, and again only by
+the operator's retry of its own park; the compile refuses any rule whose `next` is `ci`. Nothing
+leaves `ci` but `CI-PASS` and the two parks, so the gate buys no seat attempt beyond its own
+exec attempt, and `fast`'s implement bound, `visits_implement_gte: 3`
+(`recipes/fast/policy.json:76-94`), counts only the visits landing's own rules buy, as today.
 
-**What this does not gate.** A head the run itself makes, by an implement after `CI-FAIL` or a
+**What this does not gate.** A head the run itself makes, by an implement after a verify or a
 review return, is local, and no gate in this run reads its CI: it is verified locally, judged,
 and shipped for a person to push, and the pull request's CI then runs on it as it does today.
 Gating a head the run made needs a publish-and-resume handoff: a park that names the head to
 push, and a resume that refuses any head but that one. That is a follow-up, and the pre-review
 interception in `fast` and `verify` that fix round 1093r3 drafted, removed here, waits on it.
 
-**Refused routes**, each because it would unbound a loop, hide a failure, read an unpublished
+**Refused routes**, each because it would hide a failure, skip the gate, read an unpublished
 head or write to the forge:
 
-- any route to a re-run, under every class (ruling 1);
+- any route to a re-run (ruling 1);
+- any rule from `ci` whose `next` is not `classify`, `implement` among them: the implement
+  route waits on the deferred classifier
+  ([Deferred to a later decision](#deferred-to-a-later-decision));
 - any rule whose `next` is `ci`: it would gate a head the run made, which is unpublished;
 - any rule into `classify` but `CI-PASS`, and any explicit entry but `ci`: either would skip
   the gate;
-- a refusal routed to `implement`; a refusal parks;
-- `CI-PASS` on any class but `green`; the word binding refuses it (ruling 3).
+- `CI-PASS` off `green`; the word binding refuses it (ruling 3).
 
 Each is refused by the overlay test, over the complete composed table (ruling 10). The
 scope-widened reconciliation park fix round 1093r2 promised went with the write (ruling 1); no
