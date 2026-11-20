@@ -925,6 +925,34 @@ fn the_visit_reader_places_only_what_the_journal_names_and_stamps_only_known_hea
     );
 }
 
+/// #1212: the carry reads a sequence step's record by the engine's
+/// authorship (fix round 0109a1r4, K1), never by its word. A checkpoint of
+/// attempt `settled` naming `sequence-step-finished` and step `p` adds the
+/// step only where the engine authored it; a driver's live checkpoint,
+/// with no `authored` or another author's, adds none.
+#[test]
+fn the_carry_reads_a_step_record_by_its_authorship_never_by_its_word() {
+    let (_dir, _runtime, initial, events) = clean_visit();
+    let steps = |authored: Option<&str>| {
+        let mut checkpoint = json!({"step": "sequence-step-finished", "step_name": "p"});
+        if let Some(author) = authored {
+            checkpoint["authored"] = json!(author);
+        }
+        let payload = json!({"attempt_id": "settled", "checkpoint": checkpoint});
+        let mut events = events.clone();
+        let (seq, kind) = (
+            events.len() as u64 + 1,
+            brokkr_core::EventType::EffectCheckpointed,
+        );
+        events.push(event(seq, kind, payload));
+        let attempts = facts::read_visit(&events, &initial, u64::MAX).unwrap();
+        attempts[0].steps.clone()
+    };
+    assert_eq!(steps(None), Vec::<String>::new());
+    assert_eq!(steps(Some("driver")), Vec::<String>::new());
+    assert_eq!(steps(Some("engine")), ["p"]);
+}
+
 fn observed(
     runtime: &Engine,
     initial: &RunState,

@@ -181,7 +181,9 @@ fn record_park(attempts: &mut [PanelAttempt], payload: &Value) {
 
 /// A checkpoint of one of this visit's attempts: a finished step's name,
 /// and each member the engine's own marker settles (fix round 0109a1r6,
-/// W2), read by the one check inspect reads it by.
+/// W2), each read by the one check inspect reads it by, the engine's
+/// authorship (fix round 0109a1r4, K1; #1212): a driver's checkpoint that
+/// names a marker's word is no step record.
 fn record_step(attempts: &mut [PanelAttempt], payload: &Value) {
     let Some(at) = attempts
         .iter_mut()
@@ -194,7 +196,7 @@ fn record_step(attempts: &mut [PanelAttempt], payload: &Value) {
         let site = checkpoint["site_ref"].as_str().map(str::to_owned);
         at.marked.insert(Tag(member.to_owned()), site);
     }
-    if checkpoint["step"] != "sequence-step-finished" {
+    if EngineMarker::authored(checkpoint) != Some(EngineMarker::StepFinished) {
         return;
     }
     if let Some(step) = checkpoint["step_name"].as_str() {
