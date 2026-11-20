@@ -15,14 +15,14 @@
 
 Brokkr is a deterministic delivery engine for autonomous multi-agent software delivery: you give it a feature and a reviewable recipe, its agents implement, verify, review and ship, and its event-sourced phase machine records every result and ruling in a journal you can replay and audit.
 
-The [v0.15.1 release](docs/releases/v0.15.1.md) moves the shipped model
-roster to Sol 6.2, Astra 6.2, Terra 6.1 and Fable 5.2, admits dsh
-0.2.2-rc.5 as a measured hands release, and makes a damaged journal one
-refusal that names the file and the way back.
-[v0.15.0 “Gullinbursti”](docs/releases/v0.15.0.md) makes
-`brokkr dispatch` stand, starting queued runs every interval until a
-signal stops it, has a driver reap the orphans its harness leaves, and
-lets a dry sweep name the trees a pass would keep.
+The [v0.15.2 release](docs/releases/v0.15.2.md) opens every journal
+path as the literal file it names, never as a SQLite URI, reads dsh 0.2
+transcripts that ran background jobs, and keeps a volta shim from
+recursing under a private `HOME`.
+[v0.15.1](docs/releases/v0.15.1.md) moves the shipped model roster to
+Sol 6.2, Astra 6.2, Terra 6.1 and Fable 5.2, admits dsh 0.2.2-rc.5 as a
+measured hands release, and makes a damaged journal one refusal that
+names the file and the way back.
 
 ## Install
 

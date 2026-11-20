@@ -135,7 +135,7 @@ rest are Brokkr-only (decision 0087 ruling 5).
 
 ```text
 $ brokkr --version
-brokkr 0.15.1
+brokkr 0.15.2
 ```
 
 > **Building from a checkout** is a fallback, not a co-equal option: it
@@ -153,7 +153,7 @@ brokkr 0.15.1
 ```text
 $ brokkr doctor
 warn     folder: none from /home/you/my-app up to /home/you/my-app — brokkr init . writes one
-ok       contracts: engine 0.15.1, event_schema 1, database_schema 1, driver_protocol 1
+ok       contracts: engine 0.15.2, event_schema 1, database_schema 1, driver_protocol 1
 …
 warn     adapters: adapters: adapters adapters: No such file or directory (os error 2)
 …
