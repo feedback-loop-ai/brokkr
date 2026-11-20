@@ -296,7 +296,7 @@ fn an_engine_run_of_a_qoder_seat_served_another_model_journals_no_turn() {
         (
             &json!(
                 "provider refused before the first turn: model_substituted: the seat pinned \
-                 \"Fast\" and Qoder served another: init named \"Auto\"; stderr tail: "
+                 \"Fast\" and Qoder served \"Auto\"; stderr tail: "
             ),
             &json!(true)
         )

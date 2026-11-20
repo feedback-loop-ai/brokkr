@@ -82,8 +82,15 @@ const CRASHED: &str = "unexpected critical error";
 
 /// Why a seat's argv is not launched. Each names what was written, never a
 /// value (AS3).
-#[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[derive(Debug, Error)]
 pub(super) enum LaunchError {
+    /// Qoder keeps no session (`--no-session-persistence`), so a start
+    /// offered a rejoin has nothing to rejoin and is refused (U4).
+    #[error(
+        "refusing to invoke the agent CLI: the start offers a resume, and the qoder adapter \
+         declares no resume (#1178)"
+    )]
+    Resumed,
     #[error(
         "refusing to invoke the agent CLI: the seat's arguments carry '{0}', which brokkr \
          driver qoder does not admit; a qoder seat's arguments are -m, --reasoning-effort \
@@ -109,14 +116,15 @@ pub(super) enum LaunchError {
          that is not UTF-8, so no argument names it exactly (#1178)"
     )]
     Unnamed,
-    /// The engine's MCP file could not be written; the I/O error's words.
+    /// The engine's MCP file could not be written.
     #[error(
         "refusing to invoke the agent CLI: the engine's MCP file for the qoder seat was not \
          written: {0}"
     )]
-    Unstaged(String),
-    /// The launch's one MCP admission refused it ([`McpRefusal::at_launch`]).
-    #[error("refusing to invoke the agent CLI: {0}")]
+    Unstaged(#[source] std::io::Error),
+    /// The launch's one MCP admission refused it, in the words every
+    /// driver states it with ([`McpRefusal::at_launch`]).
+    #[error("{}", .0.at_launch())]
     Mcp(#[from] McpRefusal),
 }
 
@@ -187,10 +195,10 @@ fn granted(extra: &[String], grants: &[String]) -> Vec<String> {
 }
 
 /// One qoder seat, start to end: its composed arguments, the launch
-/// [`prepared`] from them, and its turn. `offered` is whether the engine
-/// offered a rejoin, which it never does for a seat that declares no
-/// resume, so the seat is admitted cold. The launch's errors are rendered
-/// here, once.
+/// [`prepared`] from them, and its turn. `offered` is whether the start
+/// offered a rejoin: the qoder adapter declares no resume, so an offer is
+/// refused before any provider work, and every launch is admitted cold.
+/// The launch's errors are rendered here, once.
 pub(super) fn drive(
     bin: &str,
     extra: &[String],
@@ -200,8 +208,11 @@ pub(super) fn drive(
     bindings: &[secret::BoundSecret],
     emit: &mut impl FnMut(&Value),
 ) -> Result<Invocation, String> {
+    if offered {
+        return Err(LaunchError::Resumed.to_string());
+    }
     let composed = super::composed_launch("qoder", extra, input)?;
-    let prepared = prepared(bin, &composed.extra, offered, input, &std::env::temp_dir());
+    let prepared = prepared(bin, &composed.extra, input, &std::env::temp_dir());
     // The file lives until the turn ends.
     let (_staged, launch) = prepared.map_err(|error| error.to_string())?;
     invoke(&launch, prompt, input, bindings, emit)
@@ -211,16 +222,16 @@ pub(super) fn drive(
 /// ([`mcp::isolated`]), as every built-in harness is admitted, then the
 /// engine's set read from the intent it checked ([`mcp::qoder_set`]), its
 /// document written to a private file under `root` that the launch names,
-/// and the launch.
+/// and the launch. No launch is offered a rejoin, so the cold assessment is
+/// the one admitted.
 fn prepared(
     bin: &str,
     extra: &[String],
-    offered: bool,
     input: &Value,
     root: &Path,
 ) -> Result<(tempfile::TempDir, Launch), LaunchError> {
     let edge = mcp::Edge::new(input);
-    let isolated = mcp::isolated("qoder", &edge, extra, offered)?;
+    let isolated = mcp::isolated("qoder", &edge, extra, false)?;
     let workdir = input.get("workdir").and_then(Value::as_str).unwrap_or("");
     let served = mcp::qoder_set(&edge, &isolated, workdir)?;
     let staged = staged(&served.document, root)?;
@@ -244,7 +255,7 @@ fn staged(document: &Value, root: &Path) -> Result<tempfile::TempDir, LaunchErro
         .and_then(|dir| {
             std::fs::write(dir.path().join(MCP_FILE), document.to_string()).map(|()| dir)
         });
-    written.map_err(|error| LaunchError::Unstaged(error.to_string()))
+    written.map_err(LaunchError::Unstaged)
 }
 
 /// Qoder's rows read for the model they served, before the Claude fold
@@ -285,7 +296,7 @@ impl QoderFold {
         if kind == Some("system") && event["subtype"] == "init" {
             let served = event.get("model").and_then(Value::as_str).unwrap_or("");
             if served != self.pin {
-                return Err(substituted(&self.pin, &format!("init named {served:?}")));
+                return Err(substituted(&self.pin, Some(served)));
             }
             self.served = Some(served.to_string());
         } else if self.served.is_none() && matches!(kind, Some("assistant" | "user" | "result")) {
@@ -311,47 +322,58 @@ impl QoderFold {
     }
 
     /// The refusal of the model a finished turn was served by, where the
-    /// stream left one to state: Qoder's fallback line on `stderr`, which
+    /// stream left one to state: Qoder's fallback line on stderr, which
     /// refuses the seat whatever init said and with no init at all, or a
-    /// clean exit no init row confirmed. `stderr` is the capture masked
-    /// through the seat's bindings, then without its ANSI escapes.
-    pub(super) fn identity(&self, stderr: &str, exit_code: i32) -> Option<PreSessionRefusal> {
-        if let Some(line) = stderr.lines().find(|line| line.contains(FALLBACK)) {
-            return Some(substituted(&self.pin, line.trim()));
+    /// clean exit no init row confirmed.
+    ///
+    /// `observed` is Qoder's stderr without its ANSI escapes and NOT masked,
+    /// so no binding can erase a marker it overlaps (U2). It is therefore
+    /// only matched here: no byte of it enters the refusal's words.
+    pub(super) fn identity(&self, observed: &str, exit_code: i32) -> Option<PreSessionRefusal> {
+        if observed.contains(FALLBACK) {
+            return Some(substituted(&self.pin, None));
         }
         (exit_code == 0 && self.served.is_none()).then(|| unconfirmed(&self.pin))
     }
 
-    /// The refusal a CLI that exited non-zero states on `stderr`: signed
-    /// out, or crashed on an option it refuses.
-    pub(super) fn failed(stderr: &str, exit_code: i32) -> Option<PreSessionRefusal> {
-        let line = |marker: &str| stderr.lines().find(|line| line.contains(marker));
-        match (exit_code, line(SIGNED_OUT), line(CRASHED)) {
+    /// The refusal a CLI that exited non-zero states on stderr: signed out,
+    /// or crashed on an option it refuses. `observed` is read as in
+    /// [`QoderFold::identity`], and only matched: the words are fixed.
+    pub(super) fn failed(observed: &str, exit_code: i32) -> Option<PreSessionRefusal> {
+        let said = |marker: &str| observed.contains(marker);
+        match (exit_code, said(SIGNED_OUT), said(CRASHED)) {
             (0, _, _) => None,
-            (_, Some(said), _) => Some(refusal_reason(
+            (_, true, _) => Some(refusal_reason(
                 "not_logged_in",
                 None,
-                Some(&format!(
-                    "Qoder CLI is signed out ({}): run `qodercli login`, or set \
+                Some(
+                    "Qoder CLI is signed out: run `qodercli login`, or set \
                      QODER_PERSONAL_ACCESS_TOKEN under a private QODER_CONFIG_DIR",
-                    said.trim()
-                )),
+                ),
             )),
-            (_, None, Some(said)) => Some(refusal_reason("launch_refused", None, Some(said))),
-            (_, None, None) => None,
+            (code, false, true) => Some(refusal_reason(
+                "launch_refused",
+                None,
+                Some(&format!("Qoder exited {code} on an option it refuses")),
+            )),
+            (_, false, false) => None,
         }
     }
 }
 
-/// The refusal of a seat Qoder served another model than its pin.
-fn substituted(pin: &str, served: &str) -> PreSessionRefusal {
-    refusal_reason(
-        "model_substituted",
-        None,
-        Some(&format!(
-            "the seat pinned {pin:?} and Qoder served another: {served}"
-        )),
-    )
+/// The refusal of a seat Qoder served another model than its pin: the one
+/// init named, already masked with its row, or, where init named none
+/// other, the fallback Qoder reported on stderr, in words of the driver's
+/// own (U1).
+fn substituted(pin: &str, served: Option<&str>) -> PreSessionRefusal {
+    let words = match served {
+        Some(served) => format!("the seat pinned {pin:?} and Qoder served {served:?}"),
+        None => format!(
+            "the seat pinned {pin:?} and Qoder reported on stderr that it fell back to another \
+             model"
+        ),
+    };
+    refusal_reason("model_substituted", None, Some(&words))
 }
 
 /// The refusal of a seat no init row confirmed the model of.
@@ -433,27 +455,33 @@ fn invoke(
         Some(_) => STOPPED_AT_REFUSAL,
         None => lost::exit_code(status),
     };
-    // Masked through the seat's bindings before anything reads it (decision
-    // 0012): every refusal, error and late message below reads this one text.
-    let text = without_ansi(&secret::mask_text(captured.bytes(), bindings));
+    // Read unmasked so no binding erases a marker (U2), and only matched:
+    // no refusal, error or late message below carries a byte of it.
+    let observed = without_ansi(&String::from_utf8_lossy(captured.bytes()));
     let identity = match stopped {
         Some(_) => None,
-        None => fold.identity(&text, exit_code),
+        None => fold.identity(&observed, exit_code),
     };
     // A model refused behind a turn already folded, or a result already
     // written, is no refusal to start, and the answer of a model nobody
     // confirmed is never accepted: the turn ends with no result of its own.
+    // Its words pass the seat's bindings last, as a refusal's do (U1).
     let delivered = exit_code == 0 && std::path::Path::new(result_path).exists();
     if let Some(late) = identity.as_ref().filter(|_| fold.worked() || delivered) {
-        return Err(late.words().to_string());
+        return Err(secret::mask_text(late.words().as_bytes(), bindings));
     }
     let refusal =
-        (stopped.or(identity).or(refusal)).or_else(|| QoderFold::failed(&text, exit_code));
+        (stopped.or(identity).or(refusal)).or_else(|| QoderFold::failed(&observed, exit_code));
     Ok(Invocation {
         exit_code,
         session_meta,
         stdout: String::new(),
-        stderr: captured.evidence(|raw| secret::mask_text(raw, bindings)),
+        // Stripped first, so a value an escape split is whole when the mask
+        // reads it (U3).
+        stderr: captured.evidence(|raw| {
+            let stripped = without_ansi(&String::from_utf8_lossy(raw));
+            secret::mask_text(stripped.as_bytes(), bindings)
+        }),
         state: None,
         refusal,
         answer: None,

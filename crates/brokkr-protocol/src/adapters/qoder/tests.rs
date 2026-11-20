@@ -129,8 +129,7 @@ fn a_named_model_turn_pinned_to_another_id_is_refused_naming_both() {
     assert_eq!(refused.class(), RefusalClass::Other);
     assert_eq!(
         refused.words(),
-        "model_substituted: the seat pinned \"GLM-5.3\" and Qoder served another: init named \
-         \"Qwen4-Max\""
+        "model_substituted: the seat pinned \"GLM-5.3\" and Qoder served \"Qwen4-Max\""
     );
     // Nothing of a refused seat is folded: only the transcript's end.
     assert_eq!(folded.rows, vec![none_transcript()]);
@@ -141,8 +140,7 @@ fn the_unknown_model_turn_is_refused_at_init_naming_auto() {
     let folded = fold(UNKNOWN_MODEL, "NoSuchModel");
     assert_eq!(
         folded.outcome.unwrap_err().words(),
-        "model_substituted: the seat pinned \"NoSuchModel\" and Qoder served another: init \
-         named \"Auto\""
+        "model_substituted: the seat pinned \"NoSuchModel\" and Qoder served \"Auto\""
     );
     assert_eq!(folded.rows, vec![none_transcript()]);
     assert!(!folded.fold.worked());
@@ -242,17 +240,15 @@ fn a_fallback_line_refuses_the_seat_even_with_no_init() {
     let refused = folded.fold.identity(UNKNOWN_MODEL_STDERR, 0).unwrap();
     assert_eq!(
         refused.words(),
-        "model_substituted: the seat pinned \"NoSuchModel\" and Qoder served another: Model \
-         \"NoSuchModel\" is not available right now; using \"auto\" instead. Use /model to \
-         choose another model"
+        "model_substituted: the seat pinned \"NoSuchModel\" and Qoder reported on stderr that \
+         it fell back to another model"
     );
     // Whatever init said, and whatever the CLI exited with.
     let confirmed = fold(TOOL_LESS, "Fast").fold;
     assert_eq!(
         confirmed.identity(UNKNOWN_MODEL_STDERR, 1).unwrap().words(),
-        "model_substituted: the seat pinned \"Fast\" and Qoder served another: Model \
-         \"NoSuchModel\" is not available right now; using \"auto\" instead. Use /model to \
-         choose another model."
+        "model_substituted: the seat pinned \"Fast\" and Qoder reported on stderr that it fell \
+         back to another model"
     );
 }
 
@@ -274,23 +270,22 @@ fn signed_out_is_a_refusal_naming_the_sign_in_with_no_ansi_byte() {
     assert!(SIGNED_OUT_STDERR.contains('\u{1b}'));
     let stderr = without_ansi(SIGNED_OUT_STDERR);
     let refused = QoderFold::failed(&stderr, 1).unwrap();
-    assert_eq!(
-        refused.words(),
-        "not_logged_in: Qoder CLI is signed out (Not logged in · Please run /login): run \
-         `qodercli login`, or set QODER_PERSONAL_ACCESS_TOKEN under a private QODER_CONFIG_DIR"
-    );
+    assert_eq!(refused.words(), SIGNED_OUT_WORDS);
     assert!(!refused.words().contains('\u{1b}'));
     assert!(!refused.words().contains("[31m"));
 }
 
+/// The signed-out refusal's fixed words (U1).
+const SIGNED_OUT_WORDS: &str = "not_logged_in: Qoder CLI is signed out: run `qodercli login`, or \
+                                set QODER_PERSONAL_ACCESS_TOKEN under a private QODER_CONFIG_DIR";
+
 #[test]
 fn a_bad_effort_is_a_launch_refusal() {
     let stderr = without_ansi(BAD_EFFORT_STDERR);
-    let refused = QoderFold::failed(&stderr, 1).unwrap();
+    let refused = QoderFold::failed(&stderr, 2).unwrap();
     assert_eq!(
         refused.words(),
-        "launch_refused: An unexpected critical error occurred:Error: Invalid reasoning effort: \
-         bogus. Valid values are: auto, none, low, medium, high, xhigh, max, ultracode."
+        "launch_refused: Qoder exited 2 on an option it refuses"
     );
 }
 
@@ -430,9 +425,10 @@ fn no_launch_carries_the_strict_flag_without_the_empty_setting_sources() {
         }
     }
     for flag in ["--strict-mcp-config", "--setting-sources", "--mcp-config"] {
-        assert_eq!(
-            launch("qodercli", &argv(&["-m", "Fast", flag, "x"]), EMPTY),
-            Err(LaunchError::Unadmitted(flag.into()))
+        let refused = launch("qodercli", &argv(&["-m", "Fast", flag, "x"]), EMPTY);
+        assert!(
+            matches!(&refused, Err(LaunchError::Unadmitted(said)) if said == flag),
+            "{refused:?}"
         );
     }
 }
@@ -440,25 +436,27 @@ fn no_launch_carries_the_strict_flag_without_the_empty_setting_sources() {
 #[test]
 fn a_launch_admits_only_its_three_controls_once_each_with_a_value_and_a_pin() {
     let refused = |parts: &[&str]| launch("qodercli", &argv(parts), EMPTY).unwrap_err();
-    assert_eq!(
-        refused(&["-m", "Fast", "--tools", "WebFetch"]),
-        LaunchError::Unadmitted("--tools".into())
+    let tools = refused(&["-m", "Fast", "--tools", "WebFetch"]);
+    assert!(
+        matches!(&tools, LaunchError::Unadmitted(said) if said == "--tools"),
+        "{tools:?}"
     );
-    assert_eq!(refused(&["Fast"]), LaunchError::Positional);
-    assert_eq!(
+    assert!(matches!(refused(&["Fast"]), LaunchError::Positional));
+    assert!(matches!(
         refused(&["-m", "Fast", "-m", "Auto"]),
         LaunchError::Doubled("-m")
-    );
-    assert_eq!(refused(&["-m"]), LaunchError::Valueless("-m"));
-    assert_eq!(
-        refused(&["-m", "--reasoning-effort", "high"]),
-        LaunchError::Valueless("-m")
-    );
-    assert_eq!(refused(&["-m", ""]), LaunchError::Valueless("-m"));
-    assert_eq!(
+    ));
+    for valueless in [
+        &["-m"][..],
+        &["-m", "--reasoning-effort", "high"],
+        &["-m", ""],
+    ] {
+        assert!(matches!(refused(valueless), LaunchError::Valueless("-m")));
+    }
+    assert!(matches!(
         refused(&["--reasoning-effort", "low"]),
         LaunchError::Unpinned
-    );
+    ));
     assert_eq!(
         LaunchError::Unadmitted("--tools".into()).to_string(),
         "refusing to invoke the agent CLI: the seat's arguments carry '--tools', which brokkr \
@@ -534,6 +532,18 @@ fn run_sealed(
     extra: &[&str],
     serving: Option<Value>,
 ) -> Vec<crate::Body> {
+    run_offered(dir, bin, extra, serving, None)
+}
+
+/// [`run_sealed`] with the start offered `session` to resume, where given.
+#[cfg(unix)]
+fn run_offered(
+    dir: &std::path::Path,
+    bin: &std::path::Path,
+    extra: &[&str],
+    serving: Option<Value>,
+    session: Option<&str>,
+) -> Vec<crate::Body> {
     let mut env = crate::env_guard::EnvGuard::lock();
     env.set("BROKKR_QODER_BIN", bin);
     let result = dir.join("result.json");
@@ -550,7 +560,7 @@ fn run_sealed(
         AdapterKind::Qoder,
         &argv(extra),
         &start,
-        None,
+        session,
         &mut |body| messages.push(body),
     );
     messages
@@ -661,8 +671,7 @@ fn a_substituted_model_is_refused_at_init_and_its_harness_stopped() {
     let refusal = refusal.unwrap();
     assert_eq!(
         refusal.words(),
-        "model_substituted: the seat pinned \"NoSuchModel\" and Qoder served another: init \
-         named \"Auto\""
+        "model_substituted: the seat pinned \"NoSuchModel\" and Qoder served \"Auto\""
     );
     assert_eq!(refusal.provider(), "qoder");
     let quiet = messages.iter().all(|body| {
@@ -682,15 +691,7 @@ fn a_signed_out_qoder_is_a_refusal_with_no_ansi_byte() {
     let messages = run(dir.path(), &bin, &["-m", "Fast"]);
     let (status, refusal) = result_of(&messages).unwrap();
     assert_eq!(status, &crate::ResultStatus::Failed);
-    let words = refusal.unwrap().words();
-    assert!(
-        words.starts_with("not_logged_in: Qoder CLI is signed out"),
-        "{words}"
-    );
-    assert!(
-        !words.contains('\u{1b}') && !words.contains("[31m"),
-        "{words}"
-    );
+    assert_eq!(refusal.unwrap().words(), SIGNED_OUT_WORDS);
 }
 
 #[cfg(unix)]
@@ -718,12 +719,8 @@ fn an_unreadable_mcp_intent_launches_nothing() {
     let bin = fake_qoder(dir.path(), TOOL_LESS, "", None, 0);
     let unread = Some(json!({"unknown": true}));
     let messages = run_sealed(dir.path(), &bin, &["-m", "Fast"], unread);
-    let failed = messages.iter().find_map(|body| match body {
-        crate::Body::Result { status, error, .. } => Some((status, error.clone())),
-        _ => None,
-    });
     assert_eq!(
-        failed,
+        error_of(&messages),
         Some((
             &crate::ResultStatus::Failed,
             Some(
@@ -734,6 +731,15 @@ fn an_unreadable_mcp_intent_launches_nothing() {
         ))
     );
     assert!(!dir.path().join("argv").exists());
+}
+
+/// The status and error of a run's one result, if it sent one.
+#[cfg(unix)]
+fn error_of(messages: &[crate::Body]) -> Option<(&crate::ResultStatus, Option<String>)> {
+    messages.iter().find_map(|body| match body {
+        crate::Body::Result { status, error, .. } => Some((status, error.clone())),
+        _ => None,
+    })
 }
 
 #[cfg(unix)]
@@ -762,12 +768,10 @@ fn a_fallback_line_with_no_init_is_a_refusal_to_start_or_no_result() {
     let messages = run(dir.path(), &bin, &["-m", "NoSuchModel"]);
     let (status, refusal) = result_of(&messages).unwrap();
     assert_eq!(status, &crate::ResultStatus::Failed);
-    assert!(
-        refusal
-            .unwrap()
-            .words()
-            .ends_with("using \"auto\" instead. Use /model to choose another model"),
-        "{messages:?}"
+    assert_eq!(
+        refusal.unwrap().words(),
+        "model_substituted: the seat pinned \"NoSuchModel\" and Qoder reported on stderr that \
+         it fell back to another model"
     );
 }
 
@@ -794,21 +798,30 @@ fn a_qoder_driver_declares_no_resume_and_no_probe() {
 #[test]
 fn a_launch_whose_set_is_refused_or_unwritten_states_why() {
     let refused = LaunchError::from(McpRefusal::Unreadable);
-    assert_eq!(refused, LaunchError::Mcp(McpRefusal::Unreadable));
-    assert_eq!(refused.to_string(), McpRefusal::Unreadable.at_launch());
+    assert!(matches!(refused, LaunchError::Mcp(McpRefusal::Unreadable)));
+    // The prefix is stated once (U5).
+    let stated = refused.to_string();
+    assert_eq!(stated, McpRefusal::Unreadable.at_launch());
+    assert_eq!(
+        stated.matches("refusing to invoke the agent CLI").count(),
+        1
+    );
     let missing = Path::new("/nonexistent-brokkr-qoder-root");
     let unwritten = staged(&json!({"mcpServers": {}}), missing).unwrap_err();
-    // The directory's name is random, so the words are read up to it.
-    let cause = "No such file or directory (os error 2) at path \
-                 \"/nonexistent-brokkr-qoder-root/brokkr-qoder-mcp-";
-    let LaunchError::Unstaged(words) = &unwritten else {
+    let LaunchError::Unstaged(cause) = &unwritten else {
         panic!("{unwritten:?}");
     };
-    assert!(words.starts_with(cause), "{words}");
+    assert_eq!(cause.kind(), std::io::ErrorKind::NotFound);
+    // The directory's name is random, so the words are read up to it.
+    let words = "refusing to invoke the agent CLI: the engine's MCP file for the qoder seat was \
+                 not written: No such file or directory (os error 2) at path \
+                 \"/nonexistent-brokkr-qoder-root/brokkr-qoder-mcp-";
     let stated = unwritten.to_string();
-    let prefix = "refusing to invoke the agent CLI: the engine's MCP file for the qoder seat was \
-                  not written: ";
-    assert_eq!(stated, format!("{prefix}{words}"));
+    assert!(stated.starts_with(words), "{stated}");
+    assert_eq!(
+        stated.matches("refusing to invoke the agent CLI").count(),
+        1
+    );
 }
 
 /// Serving inputs sealing `servers` beside the default hands spec under
@@ -909,22 +922,32 @@ fn an_unadmitted_hands_set_under_the_standing_fence_is_served_the_empty_set() {
 }
 
 /// A short secret bound to the seat, and Qoder's stderr lines carrying it,
-/// each coloured as Qoder colours its refusals.
+/// each coloured as Qoder colours its refusals: whole, split by a colour
+/// reset, and (bound with a space) split by a tab that a whitespace
+/// collapse would rejoin.
 const SECRET: &str = "tok9z";
-const FALLBACK_SECRET: &str =
-    "\u{1b}[33mModel \"tok9z\" is not available right now; using \"auto\" instead.\u{1b}[0m\n";
+const SPACED: &str = "tok 9z";
+const FALLBACK_SPLIT: &str = "\u{1b}[33mModel \"tok\u{1b}[0m9z\" is not available right now; \
+                              using \"auto\" instead.\u{1b}[0m\n";
+const FALLBACK_TABBED: &str =
+    "\u{1b}[33mModel \"tok\t9z\" is not available right now; using \"auto\" instead.\u{1b}[0m\n";
 const SIGNED_OUT_SECRET: &str = "\u{1b}[31mNot logged in · token tok9z expired\u{1b}[0m\n";
 const CRASHED_SECRET: &str = "An unexpected critical error occurred:Error: bad token tok9z\n";
 
+/// The fallback refusal's fixed words for a seat pinned to `Fast` (U1).
+const FELL_BACK: &str = "model_substituted: the seat pinned \"Fast\" and Qoder reported on \
+                         stderr that it fell back to another model";
+
 /// One turn of a fake `qodercli` pinned to `Fast` that prints `stdout` and
 /// `stderr`, writes its result where `delivered`, and exits `code`, run by
-/// [`invoke`] with [`SECRET`] bound; beside it, the secret as masked.
+/// [`invoke`] with `bound` bound; beside it, `bound` as masked.
 #[cfg(unix)]
 fn invoked(
     stdout: &str,
     stderr: &str,
     delivered: bool,
     code: i32,
+    bound: &str,
 ) -> (Result<Invocation, String>, String) {
     let dir = tempfile::tempdir().unwrap();
     let result = dir.path().join("result.json");
@@ -935,64 +958,106 @@ fn invoked(
         pin: "Fast".into(),
     };
     let input = json!({"workdir": dir.path(), "result_path": result});
-    // A short name, so the refusal's words keep their whole sign-in advice.
-    let bindings = [super::super::tests::binding("QT", SECRET)];
-    let masked = secret::mask_text(SECRET.as_bytes(), &bindings);
-    assert_ne!(masked, SECRET);
+    let bindings = [super::super::tests::binding("QT", bound)];
+    let masked = secret::mask_text(bound.as_bytes(), &bindings);
+    assert_ne!(masked, bound);
     let turn = invoke(&launch, "prompt", &input, &bindings, &mut |_| {});
     (turn, masked)
 }
 
-/// T2: the late path's error, which `lost::invocation_failed` prints as it
-/// is, never carries the secret in clear, after a folded turn and after a
-/// delivered result.
+/// U1 and U3: a bound value an escape or a tab splits in the fallback line
+/// reaches neither the late error, which `lost::invocation_failed` prints
+/// as it is, after a folded turn or a delivered result, nor the refusal to
+/// start, nor the invocation's stderr, which is stripped before it is
+/// masked.
 #[cfg(unix)]
 #[test]
-fn a_secret_in_the_fallback_line_never_reaches_the_late_error_in_clear() {
-    for (stdout, delivered) in [(TOOL_LESS, false), ("", true)] {
-        let (late, masked) = invoked(stdout, FALLBACK_SECRET, delivered, 0);
-        assert_eq!(
-            late.map(drop),
-            Err(format!(
-                "model_substituted: the seat pinned \"Fast\" and Qoder served another: Model \
-                 \"{masked}\" is not available right now; using \"auto\" instead."
-            )),
-            "{delivered}"
-        );
+fn a_split_secret_in_the_fallback_line_reaches_no_word_and_no_stderr() {
+    for (bound, stderr) in [(SECRET, FALLBACK_SPLIT), (SPACED, FALLBACK_TABBED)] {
+        for (stdout, delivered) in [(TOOL_LESS, false), ("", true)] {
+            let (late, _) = invoked(stdout, stderr, delivered, 0, bound);
+            assert_eq!(late.map(drop), Err(FELL_BACK.to_string()), "{bound}");
+        }
+        let (invocation, masked) = invoked("", stderr, false, 0, bound);
+        let invocation = invocation.unwrap();
+        let refused = invocation.refusal.as_ref().map(PreSessionRefusal::words);
+        assert_eq!(refused, Some(FELL_BACK), "{bound}");
+        assert!(!invocation.stderr.contains(bound), "{}", invocation.stderr);
+        if bound == SECRET {
+            assert_eq!(
+                invocation.stderr,
+                format!("Model \"{masked}\" is not available right now; using \"auto\" instead.\n")
+            );
+        }
     }
 }
 
-/// T2: the fallback, signed-out and crash lines' secret never reaches the
-/// pre-session refusal's words or the invocation's stderr in clear.
+/// U2: a binding that overlaps the fallback marker erases nothing the
+/// check reads, so a turn init confirmed, that exited 0 and delivered its
+/// result, is still refused as substituted, in words with no byte of
+/// stderr and none of the binding.
 #[cfg(unix)]
 #[test]
-fn a_secret_in_a_refusing_line_never_reaches_the_refusal_or_the_stderr_in_clear() {
+fn a_binding_overlapping_the_fallback_marker_never_hides_the_fallback() {
+    let (late, _) = invoked(TOOL_LESS, UNKNOWN_MODEL_STDERR, true, 0, "using");
+    assert_eq!(late.map(drop), Err(FELL_BACK.to_string()));
+    // The late error passes the seat's bindings last (U1): a bound pin is
+    // masked in it.
+    let (late, masked) = invoked("", UNKNOWN_MODEL_STDERR, true, 0, "Fast");
+    let words = FELL_BACK.replace("\"Fast\"", &format!("\"{masked}\""));
+    assert_eq!(late.map(drop), Err(words));
+}
+
+/// U1: the signed-out and crash refusals are fixed words, with no byte of
+/// the stderr line that carried a bound value.
+#[cfg(unix)]
+#[test]
+fn a_secret_in_a_signed_out_or_crash_line_reaches_no_word() {
     let cases = [
-        (
-            FALLBACK_SECRET,
-            0,
-            "model_substituted: the seat pinned \"Fast\" and Qoder served another: Model \
-             \"<masked>\" is not available right now; using \"auto\" instead.",
-        ),
-        (
-            SIGNED_OUT_SECRET,
-            1,
-            "not_logged_in: Qoder CLI is signed out (Not logged in · token <masked> expired): \
-             run `qodercli login`, or set QODER_PERSONAL_ACCESS_TOKEN under a private \
-             QODER_CONFIG_DIR",
-        ),
+        (SIGNED_OUT_SECRET, 1, SIGNED_OUT_WORDS),
         (
             CRASHED_SECRET,
-            1,
-            "launch_refused: An unexpected critical error occurred:Error: bad token <masked>",
+            3,
+            "launch_refused: Qoder exited 3 on an option it refuses",
         ),
     ];
     for (stderr, code, words) in cases {
-        let (invocation, masked) = invoked("", stderr, false, code);
+        let (invocation, _) = invoked("", stderr, false, code, SECRET);
         let invocation = invocation.unwrap();
         let refused = invocation.refusal.as_ref().map(PreSessionRefusal::words);
-        let words = words.replace("<masked>", &masked);
-        assert_eq!(refused.map(str::to_string), Some(words), "{stderr}");
+        assert_eq!(refused, Some(words), "{stderr}");
         assert!(!invocation.stderr.contains(SECRET), "{}", invocation.stderr);
     }
+}
+
+/// U4: a start offered a resume is refused before any provider work, even
+/// where the replacement is measured and the cold launch is not: the fake
+/// `qodercli`, which records its start, never runs.
+#[cfg(unix)]
+#[test]
+fn a_start_offered_a_resume_never_starts_its_harness() {
+    use crate::native_controls::SealedBoundary::Open;
+    let dir = tempfile::tempdir().unwrap();
+    let bin = fake_qoder(dir.path(), TOOL_LESS, "", None, 0);
+    let serving = sealed(Open, "empty", json!("unmeasured"), "lifted");
+    let messages = run_offered(
+        dir.path(),
+        &bin,
+        &["-m", "Fast"],
+        Some(serving),
+        Some("s-1"),
+    );
+    assert_eq!(
+        error_of(&messages),
+        Some((
+            &crate::ResultStatus::Failed,
+            Some(LaunchError::Resumed.to_string())
+        ))
+    );
+    assert_eq!(
+        LaunchError::Resumed.to_string(),
+        "refusing to invoke the agent CLI: the start offers a resume, and the qoder adapter \
+         declares no resume (#1178)"
+    );
+    assert!(!dir.path().join("argv").exists(), "{messages:?}");
 }
