@@ -34,32 +34,23 @@ pub(super) fn read_layer(
     // layer's walk must pin before its identity is sealed.
     let bound = crate::bundle::bound_input(dir, "bundle.json").map_err(|fault| match fault {
         crate::bundle::InputFault::Missing(error) => CompileError::Io(error),
-        crate::bundle::InputFault::Place(place) => invalid(format!(
-            "{}: the layer's declaring document, {place}. What a run is composed from must \
-             be what its identity names, so it is refused (decision 0065 slice one, design \
-             D7)",
-            file.display()
-        )),
+        crate::bundle::InputFault::Place(place) => refused(LayerRefusal::Place {
+            file: &file,
+            place: place.to_string(),
+        }),
     })?;
     let (read, bytes) = Pinned::of(bound);
     let text = String::from_utf8(bytes).map_err(std::io::Error::other)?;
     let parsed = brokkr_core::canonical::parse_strict(&text)
-        .map_err(|problem| invalid(format!("{}: {problem}", file.display())))?;
+        .map_err(|problem| LayerRefusal::Parse {
+            file: &file,
+            problem,
+        })
+        .map_err(refused)?;
     let document: Map<String, Value> = serde_json::from_value(parsed)?;
-    let name = document
-        .get("name")
-        .and_then(Value::as_str)
-        .ok_or_else(|| invalid(format!("{} missing 'name'", file.display())))?
+    let name = name_of(&document, &file, layers)
+        .map_err(refused)?
         .to_string();
-    if let Some(prior) = layers.iter().find(|layer| layer.name == name) {
-        return Err(invalid(format!(
-            "{} declares name '{name}', which its ancestor {} already declares; \
-             a derived recipe states its own name so runs, manifests and \
-             dispatch pins never report a base's name under a derived digest",
-            file.display(),
-            prior.file.display()
-        )));
-    }
     let extends = document.get("extends").cloned();
     layers.push(Layer {
         name,
@@ -88,7 +79,7 @@ pub(super) fn reach_base<'a>(
     if origin == Origin::Personal && extends.as_str() == Some(FOLDER) {
         return Ok((FOLDER, shelves.folder(dir)?));
     }
-    let base = base_of(file, extends)?;
+    let base = base_of(file, extends).map_err(refused)?;
     // The library is the leaf directory's parent, what a recipe library already is and what
     // `brokkr recipes add` installs into before it compile-verifies the copy, or a `.brokkr`
     // folder's shelf (#696): `places::base_library`, the one judgement of a layer's library.
@@ -99,30 +90,65 @@ pub(super) fn reach_base<'a>(
         Origin::Project | Origin::Folder | Origin::Library => crate::places::base_library(dir)?,
     };
     let candidate = library.join(base);
-    if !candidate.is_dir() {
+    // A missing base asks the shelf first, which may refuse a personal one in its own words.
+    let resolved = if candidate.is_dir() {
+        Some(candidate.canonicalize()?)
+    } else {
         shelves.refuse_personal(origin, dir, base)?;
-        return Err(invalid(format!(
-            "{}: extends '{base}', which is not a recipe in {}",
-            file.display(),
-            library.display()
-        )));
+        None
+    };
+    contained((file, base), &library, resolved)
+        .map(|resolved| (base, resolved))
+        .map_err(refused)
+}
+
+/// The base `base`, named by `file`, as the directory it resolved to in `library`, or refused:
+/// `None` (no directory stands there) is no recipe, and one resolving anywhere but directly in
+/// `library` stands outside it. A base must BE in the library, not merely be reachable from
+/// it: `brokkr recipes add` already refuses symlinks, and a composed base is bind-mounted
+/// read-only into every confined seat, so a link pointing outside would widen that mount.
+fn contained<'a>(
+    (file, base): (&'a Path, &'a str),
+    library: &'a Path,
+    resolved: Option<PathBuf>,
+) -> Result<PathBuf, LayerRefusal<'a>> {
+    let Some(resolved) = resolved else {
+        return Err(LayerRefusal::NotARecipe {
+            file,
+            base,
+            library,
+        });
+    };
+    if resolved.parent() != Some(library) {
+        return Err(LayerRefusal::Outside {
+            file,
+            base,
+            resolved,
+            library,
+        });
     }
-    // A base must BE in the library, not merely be reachable from
-    // it: `brokkr recipes add` already refuses symlinks, and a
-    // composed base is bind-mounted read-only into every confined
-    // seat, so a link pointing outside would widen that mount.
-    let resolved = candidate.canonicalize()?;
-    if resolved.parent() != Some(library.as_path()) {
-        return Err(invalid(format!(
-            "{}: extends '{base}', which resolves outside the library to {}; \
-             a base is composed from and mounted into confined seats, so it \
-             must be a real directory in {}",
-            file.display(),
-            resolved.display(),
-            library.display()
-        )));
+    Ok(resolved)
+}
+
+/// The name the layer `file` declares in `document`, refused when it declares none or one an
+/// ancestor in `layers` already declares.
+fn name_of<'a>(
+    document: &'a Map<String, Value>,
+    file: &'a Path,
+    layers: &'a [Layer],
+) -> Result<&'a str, LayerRefusal<'a>> {
+    let name = document
+        .get("name")
+        .and_then(Value::as_str)
+        .ok_or(LayerRefusal::Nameless { file })?;
+    match layers.iter().find(|layer| layer.name == name) {
+        Some(prior) => Err(LayerRefusal::NameTaken {
+            file,
+            name,
+            prior: &prior.file,
+        }),
+        None => Ok(name),
     }
-    Ok((base, resolved))
 }
 
 /// The pin of the layer at `dir`, `(name, reached_as)`, over `chain`, its
@@ -184,18 +210,87 @@ fn valid_recipe_name(name: &str) -> bool {
 
 /// The recipe a layer's `extends` names, refused before any path is built: a non-string, or a
 /// name that is no recipe name.
-fn base_of<'a>(file: &Path, extends: &'a Value) -> Result<&'a str, CompileError> {
-    let file = file.display();
-    let base = extends.as_str().ok_or_else(|| {
-        invalid(format!(
-            "{file}: 'extends' must be the name of a recipe in the library"
-        ))
-    })?;
+fn base_of<'f, 'v: 'f>(file: &'f Path, extends: &'v Value) -> Result<&'v str, LayerRefusal<'f>> {
+    let base = extends.as_str().ok_or(LayerRefusal::NotAString { file })?;
     if !valid_recipe_name(base) {
-        return Err(invalid(format!(
-            "{file}: 'extends' value '{base}' is not a recipe name; names match \
-             ^[a-z0-9][a-z0-9-]*$ and are refused before any path is built"
-        )));
+        return Err(LayerRefusal::NotARecipeName { file, base });
     }
     Ok(base)
 }
+
+/// Why a layer's read or its `extends` was refused, one variant per check, each field
+/// borrowed from the layer or its library where it can be. Its `Display` is the operator's
+/// text byte for byte; [`refused`] folds it into the compile refusal, the one place it
+/// becomes text (#353).
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+enum LayerRefusal<'a> {
+    /// The declaring document's bound read refused its place (decision 0065, design D7).
+    #[error(
+        "{}: the layer's declaring document, {place}. What a run is composed from must be what \
+         its identity names, so it is refused (decision 0065 slice one, design D7)",
+        .file.display()
+    )]
+    Place { file: &'a Path, place: String },
+    /// The declaring document is no strict JSON (design D3).
+    #[error("{}: {problem}", .file.display())]
+    Parse { file: &'a Path, problem: String },
+    /// The document declares no string `name`.
+    #[error("{} missing 'name'", .file.display())]
+    Nameless { file: &'a Path },
+    /// An ancestor, `prior`, already declares the layer's name.
+    #[error(
+        "{} declares name '{name}', which its ancestor {} already declares; a derived recipe \
+         states its own name so runs, manifests and dispatch pins never report a base's name \
+         under a derived digest",
+        .file.display(),
+        .prior.display()
+    )]
+    NameTaken {
+        file: &'a Path,
+        name: &'a str,
+        prior: &'a Path,
+    },
+    /// No directory stands at the base's name in the library.
+    #[error(
+        "{}: extends '{base}', which is not a recipe in {}",
+        .file.display(),
+        .library.display()
+    )]
+    NotARecipe {
+        file: &'a Path,
+        base: &'a str,
+        library: &'a Path,
+    },
+    /// The base resolves somewhere other than directly in the library.
+    #[error(
+        "{}: extends '{base}', which resolves outside the library to {}; a base is composed \
+         from and mounted into confined seats, so it must be a real directory in {}",
+        .file.display(),
+        .resolved.display(),
+        .library.display()
+    )]
+    Outside {
+        file: &'a Path,
+        base: &'a str,
+        resolved: PathBuf,
+        library: &'a Path,
+    },
+    /// `extends` is not a string.
+    #[error("{}: 'extends' must be the name of a recipe in the library", .file.display())]
+    NotAString { file: &'a Path },
+    /// `extends` is a string that is no recipe name.
+    #[error(
+        "{}: 'extends' value '{base}' is not a recipe name; names match ^[a-z0-9][a-z0-9-]*$ \
+         and are refused before any path is built",
+        .file.display()
+    )]
+    NotARecipeName { file: &'a Path, base: &'a str },
+}
+
+/// A layer's refusal as the compile refusal it has always been.
+fn refused(refusal: LayerRefusal<'_>) -> CompileError {
+    invalid(refusal.to_string())
+}
+
+#[cfg(test)]
+mod tests;
