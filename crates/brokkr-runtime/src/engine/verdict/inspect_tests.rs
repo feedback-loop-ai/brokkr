@@ -292,6 +292,62 @@ fn one_refused_settled_member_keeps_every_admitted_sibling() {
     assert_eq!((ran("a"), ran("b"), ran("c")), (false, true, true));
 }
 
+/// Fix round 0109a1r8, M4: a member's identity travels typed, so a name
+/// holding `/` is refused by that exact name. In X4's three-member panel,
+/// with `b` named `a/b`, the valid `a` keeps its payload, verdict and
+/// retry eligibility and `a/b` is refused by name; named `b/x`, the drive
+/// ends and parks. Each drive runs on its own thread, bounded at 60
+/// seconds, as a member name re-read from the pointer looped forever.
+#[test]
+fn a_member_name_holding_a_slash_is_refused_by_that_name_and_the_drive_ends() {
+    for refused in ["a/b", "b/x"] {
+        let (sent, ended) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let members = vec![
+                member("a", residual("mine", 5)),
+                member(refused, driver(&over_subset())),
+                member("c", failing()),
+            ];
+            let review = review_shaped(SeatBody::Invocation(Invocation::Panel {
+                members,
+                aggregate: Aggregate::ReviewPanel,
+            }));
+            let work = single_body(driver(&json!({"result": "complete"})));
+            let (_dir, mut engine) = begun(work, review, |_| HeadReads::default());
+            engine.drive().unwrap();
+            sent.send(engine.store.load(&engine.run_id).unwrap()).ok();
+        });
+        let bound = std::time::Duration::from_secs(60);
+        let events = ended.recv_timeout(bound).expect("the drive ends");
+        settled_beside(&events, refused);
+    }
+}
+
+/// A valid word whose `cache_read_tokens` exceed its `input_tokens`.
+fn over_subset() -> Value {
+    json!({"result": "clean", "input_tokens": 1, "cache_read_tokens": 2})
+}
+
+/// `events`' failed review row settles `a` alone, `a`'s finding shows
+/// under `a` and in the phase, and `refused` is named in the failure's own
+/// words, its pointer escaping the name (RFC 6901).
+fn settled_beside(events: &[EventEnvelope], refused: &str) {
+    assert_eq!(kept(events, Scope::Seat("review:a".into())), ["mine"]);
+    assert_eq!(kept(events, Scope::Phase("review".into())), ["mine"]);
+    let failed = (events.iter())
+        .find(|event| event.event_type == EventType::EffectFailed)
+        .unwrap();
+    let settled = failed.payload["settled_members"].as_object().unwrap();
+    assert_eq!(settled.keys().collect::<Vec<_>>(), ["a"]);
+    let error = failed.payload["error"].as_str().unwrap();
+    let named = format!("; settled member '{refused}' was refused: seat record at journal seq");
+    assert!(error.contains(&named), "{error}");
+    let escaped = refused.replace('/', "~1");
+    let pointer = format!("at /settled_members/{escaped}/cache_read_tokens");
+    assert!(error.ends_with(&pointer), "{error}");
+    assert_eq!(error.matches("was refused").count(), 1, "{error}");
+}
+
 /// Fix round 0109a1r7, X5: W4's two members inside a non-final gate panel
 /// step, `a` reporting a finding and `b`'s JSON carrying no result word.
 /// The poisoned aggregate still refuses the step, failing the attempt, and

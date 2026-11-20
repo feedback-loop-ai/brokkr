@@ -683,6 +683,7 @@ fn refused_by(seq: u64, contract: &'static str) -> Result<(), SeatRecordError> {
         seq,
         path,
         contract,
+        settled_member: None,
     })
 }
 

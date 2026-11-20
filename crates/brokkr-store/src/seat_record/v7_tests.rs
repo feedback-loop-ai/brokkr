@@ -48,6 +48,7 @@ fn refused(contract: &'static str) -> Result<(), SeatRecordError> {
         seq: 9,
         path: "/".into(),
         contract,
+        settled_member: None,
     })
 }
 
@@ -449,6 +450,7 @@ fn a_nested_results_subsets_are_checked_as_a_standalone_results_are() {
             seq: 9,
             path: "/cache_read_tokens".into(),
             contract: CONTRACT_V7,
+            settled_member: None,
         })
     );
     let (_dir, mut store) = crate::tests::store();
@@ -480,29 +482,39 @@ fn a_marked_settled_members_payload_is_validated_as_a_standalone_result() {
     }
 }
 
-/// Fix round 0109a1r7, X4: a settled member's refusal names that member,
-/// read back from the pointer the fence writes, and no other refusal
-/// names one.
+/// Fix rounds 0109a1r7, X4, and 0109a1r8, M4: a settled member's refusal
+/// names that member by its exact tag, as data, a tag holding `/` or `~`
+/// included, and its pointer escapes the tag; no other refusal names one.
+/// Beside a valid `a`, the over-subset `a/b` is the one named.
 #[test]
 fn a_settled_members_refusal_names_its_member() {
-    let named = |path: &str| {
-        let refusal = SeatRecordError {
-            seq: 1,
-            path: path.into(),
-            contract: CONTRACT_V7,
-        };
-        refusal.settled_member().map(str::to_string)
+    let over = json!({"result": "clean", "input_tokens": 1, "cache_read_tokens": 2});
+    let refused = |tag: &str| {
+        let failed = json!({"effect_id": "fx", "attempt_id": "attempt-1", "error": "c failed",
+                            "settled_members": {"a": {"result": "clean"}, tag: over}});
+        let marked = ["a", tag].map(str::to_string).into();
+        let event = (EventType::EffectFailed, &failed);
+        super::validation::validate_settled(event, &marked, 1, SeatRecordVersion::V7)
     };
-    assert_eq!(
-        named("/settled_members/a/cache_read_tokens").as_deref(),
-        Some("a")
-    );
-    assert_eq!(
-        named("/settled_members/positions:b").as_deref(),
-        Some("positions:b")
-    );
-    assert_eq!(named("/result/cache_read_tokens"), None);
-    assert_eq!(named("/"), None);
+    for (tag, escaped) in [
+        ("b", "b"),
+        ("positions:b", "positions:b"),
+        ("a/b", "a~1b"),
+        ("a~b", "a~0b"),
+    ] {
+        assert_eq!(
+            refused(tag),
+            Err(SeatRecordError {
+                seq: 1,
+                path: format!("/settled_members/{escaped}/cache_read_tokens"),
+                contract: CONTRACT_V7,
+                settled_member: Some(Box::new(tag.into())),
+            }),
+            "{tag}"
+        );
+    }
+    let standalone = judged(&over, SeatRecordVersion::V7).unwrap_err();
+    assert_eq!(standalone.settled_member, None);
 }
 
 /// A failed panel row settling member `a` with `payload`: beside the

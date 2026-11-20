@@ -694,6 +694,7 @@ fn fences_the_attribution_group(store: &mut Store, run_id: &str) {
             seq,
             path: "/".into(),
             contract: V7,
+            settled_member: None,
         };
         assert_eq!(refusal, want, "{checkpoint}");
         assert_eq!(store.head_hash(run_id).unwrap(), head);

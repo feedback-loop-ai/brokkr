@@ -193,27 +193,32 @@ impl Engine {
     /// journaled as a failure, and every sibling the fence admits keeps its
     /// payload, verdict and retry eligibility (fix round 0109a1r7, X4). The
     /// refused member is then unsettled, so a retry runs it fresh.
+    ///
+    /// The refusal names its member by its exact tag, as data, and the
+    /// turns are bounded by the payload's own settled members (fix round
+    /// 0109a1r8, M4): each turn unsettles one, so once every member is
+    /// gone the last append is the fence's own word, whatever any tag
+    /// holds.
     pub(in crate::engine) fn append_settled(
         &mut self,
         event_type: EventType,
         mut payload: Value,
         attempt_id: Option<String>,
     ) -> Result<EventEnvelope, EngineError> {
-        // The fence names only a member `payload` itself settles (it judges
-        // the payload's own `settled_members`, as
-        // a_marked_settled_members_payload_is_validated_as_a_standalone_result
-        // binds), so each turn removes one and the loop ends.
-        loop {
+        let settled = (payload.get("settled_members").and_then(Value::as_object))
+            .map_or(0, serde_json::Map::len);
+        for _ in 0..settled {
             let appended = self.append_raw(event_type, payload.clone(), attempt_id.clone());
             let refused = match &appended {
                 Err(EngineError::Store(StoreError::SeatRecord(refusal))) => refusal,
                 _ => return appended,
             };
-            let Some(tag) = refused.settled_member() else {
+            let Some(tag) = refused.settled_member.as_deref() else {
                 return appended;
             };
             unsettle(&mut payload, tag, refused);
         }
+        self.append_raw(event_type, payload, attempt_id)
     }
 }
 

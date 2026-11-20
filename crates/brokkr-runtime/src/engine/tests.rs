@@ -5738,6 +5738,7 @@ fn a_refused_checkpoint_becomes_the_attempts_outcome_once_its_driver_ends() {
         seq: 9,
         path: "/".into(),
         contract: "contracts/seat-record.v1.schema.json",
+        settled_member: None,
     };
     assert!(matches!(
         checkpoints::refused_outcome(

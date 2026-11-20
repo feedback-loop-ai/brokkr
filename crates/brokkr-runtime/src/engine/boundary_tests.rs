@@ -4077,7 +4077,8 @@ fn an_invalid_boundary_record_fails_at_append_without_writing_the_result() {
             Err(brokkr_store::SeatRecordError {
                 seq: 2,
                 path,
-                contract
+                contract,
+                settled_member: None,
             }),
             "{version:?} refuses a word that is not the realm's"
         );

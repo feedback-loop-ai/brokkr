@@ -235,6 +235,13 @@ pub struct SeatRecordError {
     pub path: String,
     /// The published contract the record was judged against.
     pub contract: &'static str,
+    /// The settled member whose marked payload the fence refused, by its
+    /// exact tag, carried as data where the refusal is made (fix round
+    /// 0109a1r8, M4), so no reader recovers it from `path`, which a tag
+    /// holding `/` would cut. `None` for every other refusal. Boxed, so the
+    /// errors that carry a refusal grow by one pointer, within clippy's
+    /// large-error bound.
+    pub settled_member: Option<Box<String>>,
 }
 
 static VALIDATOR_V1: OnceLock<jsonschema::Validator> = OnceLock::new();

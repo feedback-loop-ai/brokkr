@@ -81,6 +81,7 @@ fn validated_by(
         seq,
         path: path.to_string(),
         contract: version.contract(),
+        settled_member: None,
     };
     if schema.validate(record).is_err() || !gate_report_reads(record, version) {
         // The contract's top level is a `oneOf`, so a violation is always
@@ -168,6 +169,11 @@ pub(crate) fn settled_of(
 /// contract's closed result branch alone, never the checkpoint's (fix
 /// round 0109a1r7, X3). An unmarked payload, a released engine's raw copy,
 /// keeps its admission.
+///
+/// The refusal names its member as data, the exact tag, in
+/// [`SeatRecordError::settled_member`] (fix round 0109a1r8, M4). The
+/// pointer escapes the tag (RFC 6901), so a tag holding `/` points at
+/// itself, but no reader parses it back.
 pub(crate) fn validate_settled(
     (event_type, payload): (EventType, &Value),
     marked: &BTreeSet<String>,
@@ -178,28 +184,16 @@ pub(crate) fn validate_settled(
     for (tag, result) in marked {
         validated_by(result_branch(version), result, seq, version).map_err(|mut refusal| {
             let inner = refusal.path.strip_prefix('/').unwrap_or_default();
+            let escaped = tag.replace('~', "~0").replace('/', "~1");
             refusal.path = match inner {
-                "" => format!("{SETTLED_MEMBERS}{tag}"),
-                inner => format!("{SETTLED_MEMBERS}{tag}/{inner}"),
+                "" => format!("/settled_members/{escaped}"),
+                inner => format!("/settled_members/{escaped}/{inner}"),
             };
+            refusal.settled_member = Some(Box::new(tag.clone()));
             refusal
         })?;
     }
     Ok(())
-}
-
-/// Where a settled member's refusal points: `/settled_members/<tag>`, then
-/// the result's own pointer.
-const SETTLED_MEMBERS: &str = "/settled_members/";
-
-impl SeatRecordError {
-    /// The settled member whose marked payload the fence refused, by its
-    /// tag, read back from the pointer [`validate_settled`] writes, the
-    /// one place that writes it (fix round 0109a1r7, X4). `None` for any
-    /// other refusal.
-    pub fn settled_member(&self) -> Option<&str> {
-        self.path.strip_prefix(SETTLED_MEMBERS)?.split('/').next()
-    }
 }
 
 /// The seat record an event carries, if its type carries one: a

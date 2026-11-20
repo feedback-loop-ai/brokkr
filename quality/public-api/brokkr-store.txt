@@ -508,8 +508,7 @@ pub struct brokkr_store::SeatRecordError
 pub brokkr_store::SeatRecordError::contract: &'static str
 pub brokkr_store::SeatRecordError::path: alloc::string::String
 pub brokkr_store::SeatRecordError::seq: u64
-impl brokkr_store::SeatRecordError
-pub fn brokkr_store::SeatRecordError::settled_member(&self) -> core::option::Option<&str>
+pub brokkr_store::SeatRecordError::settled_member: core::option::Option<alloc::boxed::Box<alloc::string::String>>
 pub struct brokkr_store::SeatTree
 pub brokkr_store::SeatTree::attempt_id: alloc::string::String
 pub brokkr_store::SeatTree::effect_id: alloc::string::String

@@ -97,6 +97,7 @@ fn a_refused_checkpoint_keeps_the_received_result_beside_an_unresolved_cleanup()
         seq: 9,
         path: "/".into(),
         contract: "contracts/seat-record.v1.schema.json",
+        settled_member: None,
     };
     let received = succeeded(result.clone());
     let refused = AttemptReport {
