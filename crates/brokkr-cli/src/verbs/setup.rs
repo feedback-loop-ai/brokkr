@@ -145,17 +145,7 @@ pub(crate) fn recipes(workspace: &Path, command: RecipesCmd) -> Result<ExitCode>
             name,
             path,
             personal,
-        } => {
-            let (root, shelf) = layout.install_shelf();
-            let path = path.as_deref();
-            match personal {
-                true => {
-                    let project = layout.recipes(None);
-                    recipes::personal::add(&root, &project, &source, &name, path)?
-                }
-                false => recipes::add(&root, &shelf, Project, &source, &name, path)?,
-            }
-        }
+        } => add_recipe(&layout, (&source, &name, path.as_deref()), personal)?,
         RecipesCmd::Show { name, dir } => {
             let (project, shelf) = layout.selecting(dir);
             let recipe = BundleSource::Recipe {
@@ -164,8 +154,30 @@ pub(crate) fn recipes(workspace: &Path, command: RecipesCmd) -> Result<ExitCode>
             };
             return print_compiled(workspace, (&recipe.resolve()?, shelf.as_deref()));
         }
+        RecipesCmd::Usage {
+            name,
+            journal,
+            json,
+        } => recipes::verb::usage(workspace, name, journal, json)?,
     }
     Ok(Exit::Completed.into())
+}
+
+/// `brokkr recipes add`: install `source` as `name`, from `path` inside a
+/// clone, onto the repository's shelf, or onto the personal one.
+fn add_recipe(
+    layout: &Layout,
+    (source, name, path): (&str, &str, Option<&str>),
+    personal: bool,
+) -> Result<()> {
+    let (root, shelf) = layout.install_shelf();
+    match personal {
+        true => {
+            let project = layout.recipes(None);
+            recipes::personal::add(&root, &project, source, name, path)
+        }
+        false => recipes::add(&root, &shelf, Project, source, name, path),
+    }
 }
 
 /// `brokkr agents`: list the agent library or show one definition.

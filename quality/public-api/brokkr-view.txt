@@ -581,6 +581,18 @@ pub brokkr_view::Phase::plain: bool
 pub brokkr_view::Phase::returns: alloc::vec::Vec<brokkr_view::Road>
 pub brokkr_view::Phase::strategy: core::option::Option<alloc::string::String>
 pub brokkr_view::Phase::visits: u64
+pub struct brokkr_view::PhaseUsage
+pub brokkr_view::PhaseUsage::attempts: usize
+pub brokkr_view::PhaseUsage::cpu_ms: core::option::Option<brokkr_view::Spread>
+pub brokkr_view::PhaseUsage::mean_load_millicores: core::option::Option<brokkr_view::Spread>
+pub brokkr_view::PhaseUsage::mean_memory_bytes: core::option::Option<brokkr_view::Spread>
+pub brokkr_view::PhaseUsage::measured: usize
+pub brokkr_view::PhaseUsage::peak_load_millicores: core::option::Option<brokkr_view::Spread>
+pub brokkr_view::PhaseUsage::peak_memory_bytes: core::option::Option<brokkr_view::Spread>
+pub brokkr_view::PhaseUsage::phase: alloc::string::String
+pub brokkr_view::PhaseUsage::recipe: alloc::string::String
+pub brokkr_view::PhaseUsage::unmeasured: usize
+pub brokkr_view::PhaseUsage::wall_ms: core::option::Option<brokkr_view::Spread>
 pub struct brokkr_view::Provenance
 pub brokkr_view::Provenance::agent: alloc::string::String
 pub brokkr_view::Provenance::chain_index: u64
@@ -737,6 +749,10 @@ pub struct brokkr_view::SpendFact
 pub brokkr_view::SpendFact::at: i64
 pub brokkr_view::SpendFact::realm: alloc::string::String
 pub brokkr_view::SpendFact::usd: f64
+pub struct brokkr_view::Spread
+pub brokkr_view::Spread::average: u64
+pub brokkr_view::Spread::max: u64
+pub brokkr_view::Spread::min: u64
 pub struct brokkr_view::Subject
 pub brokkr_view::Subject::key: alloc::string::String
 pub brokkr_view::Subject::legacy_id: core::option::Option<alloc::string::String>
@@ -898,6 +914,7 @@ pub fn brokkr_view::page_rows(core::option::Option<&str>, &mut dyn core::iter::t
 pub fn brokkr_view::quarantine_finding(&str, u64, &str) -> brokkr_view::ResidualFinding
 pub fn brokkr_view::ranges(brokkr_view::Section, &str) -> alloc::vec::Vec<brokkr_core::page::Range>
 pub fn brokkr_view::realm_in_scope(core::option::Option<&str>, &str) -> bool
+pub fn brokkr_view::recipe_usage(&[alloc::vec::Vec<brokkr_core::envelope::EventEnvelope>], core::option::Option<&str>) -> alloc::vec::Vec<brokkr_view::PhaseUsage>
 pub fn brokkr_view::residual_findings_at(&str, &[brokkr_core::envelope::EventEnvelope], core::option::Option<&brokkr_core::fold::RunState>) -> alloc::vec::Vec<brokkr_view::ResidualFinding>
 pub fn brokkr_view::resolution_divergence<T: core::clone::Clone + core::cmp::PartialEq>(&alloc::collections::btree::map::BTreeMap<alloc::string::String, T>, &alloc::collections::btree::map::BTreeMap<alloc::string::String, T>) -> alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_view::Sides<T>>
 pub fn brokkr_view::resolutions_at(&[brokkr_core::envelope::EventEnvelope], core::option::Option<&brokkr_core::fold::RunState>) -> alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_view::Resolution>

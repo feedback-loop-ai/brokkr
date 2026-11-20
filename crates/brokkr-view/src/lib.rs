@@ -57,7 +57,7 @@ pub use analytics::{
     AnalyticsHearth, AnalyticsRun, FactSource, FactUnion, ParkFact, QuarantinedHearth, Query,
     Reviews, RunFacts, RunOrder, SiteFact, SiteOrder, SpendFact, WholeRead, Window,
 };
-pub use analytics::{Ledger, Range};
+pub use analytics::{recipe_usage, Ledger, PhaseUsage, Range, Spread};
 pub use brokkr_core::policy::RuleSeverity;
 use brokkr_core::seat::meter;
 use brokkr_core::seat::{

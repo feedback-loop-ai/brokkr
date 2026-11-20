@@ -173,6 +173,7 @@ this contract was minted, was accepted by the operator on 2026-10-30.
 | `panel-carry.v1.schema.json` | 0093 |
 | `provider-wait.v1.schema.json` | 0103 |
 | `park-cause.v1.schema.json` | 0106 |
+| `effect-usage.v1.schema.json` | 0112 |
 
 ## Provider wait extension (decision 0103)
 
@@ -1138,3 +1139,23 @@ a word no writer states, and a present object that does not read refuses
 by name, never as absent. The field is legal at `event_schema: 1` under
 the amended rule above. Decision 0106, under which this contract was
 minted, was accepted by the operator on 2026-11-16.
+
+## Effect usage extension (decision 0112)
+
+`effect-usage.v1.schema.json` publishes the optional, absent-by-default
+`usage` object on `effect/succeeded`, `effect/failed` and
+`effect/indeterminate`: what the attempt's process tree used, as the
+engine measured it on its tracker's 100 ms tick from spawn to settlement.
+A single seat carries its six measures — `peak_memory_bytes` and
+`mean_memory_bytes` (the tree's summed resident set, upper estimates),
+`peak_load_millicores` (the busiest one-second window) and
+`mean_load_millicores` (CPU time over wall time), `cpu_ms` (exited
+descendants included) and `wall_ms`; a panel carries `members`, one entry
+per member a tick measured. An attempt no tick read carries none, and
+its ending keeps its v1 bytes. Every field is a non-negative integer. The
+field is legal at `event_schema: 1` under the amended rule above; `fold`
+reads none of it, `RunState` gains nothing, and nothing that settles,
+kills, retries or admits an attempt reads it. `brokkr recipes usage`
+reads it, counting an ending without it as unmeasured, never as zero.
+Decision 0112, under which this contract was minted, was accepted by the
+operator on 2026-11-20.

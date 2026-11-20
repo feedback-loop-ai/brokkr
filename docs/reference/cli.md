@@ -24,6 +24,7 @@ Every `brokkr` verb and argument with its default, and every exit code, as the b
 - [`brokkr recipes list`](#brokkr-recipes-list): List recipes under --dir, then those on the personal shelf, each with its origin, project or personal; broken ones print a warning line, never abort the listing
 - [`brokkr recipes add`](#brokkr-recipes-add): Install a recipe from a local path or a git URL into the shelf at the repository's root, .brokkr/recipes/&lt;name&gt; where the folder is, else recipes/&lt;name&gt;, with the agents and charters it names that the agent library lacks
 - [`brokkr recipes show`](#brokkr-recipes-show): Print one recipe's RESOLVED bundle and, when it extends another, the composition chain it was resolved from
+- [`brokkr recipes usage`](#brokkr-recipes-usage): Print what each recipe's attempts used, per phase, as the engine measured their process trees: the minimum, average and maximum of peak and mean memory, peak and mean load, CPU time and wall time, over the drivers measured. An attempt journaled without usage is counted as unmeasured, never as zero
 - [`brokkr agents`](#brokkr-agents): The agent library: one definition per agent — description, charter, an ordered chain of abstract model names, abstract tool/MCP configuration — that seats reference by name
 - [`brokkr agents list`](#brokkr-agents-list): One line per agent — name, model chain, description. A broken definition prints a warning line and never aborts the listing
 - [`brokkr agents show`](#brokkr-agents-show): The definition as written, plus the per-chain-entry resolution the compiler would compute. An unknown name errors naming the known set
@@ -366,6 +367,21 @@ Usage: brokkr recipes show [OPTIONS] <NAME>
 | --- | --- | --- | --- |
 | `<NAME>` |  |  | The recipe's name, resolved to &lt;dir&gt;/&lt;name&gt;, else to the personal shelf's; a name on both refuses |
 | `--dir <DIR>` |  |  | The recipe library directory (default the found .brokkr/recipes, else recipes) |
+
+## brokkr recipes usage
+
+Print what each recipe's attempts used, per phase, as the engine measured their process trees: the minimum, average and maximum of peak and mean memory, peak and mean load, CPU time and wall time, over the drivers measured. An attempt journaled without usage is counted as unmeasured, never as zero
+
+```text
+Usage: brokkr recipes usage [OPTIONS] [NAME]
+```
+
+| Argument | Default | Selector | Description |
+| --- | --- | --- | --- |
+| `<NAME>` |  |  | One recipe, by the name its runs started under (default every recipe the journal has runs of) |
+| `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
+| `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
+| `--json` |  |  | Print the rows as JSON |
 
 ## brokkr agents
 

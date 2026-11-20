@@ -80,6 +80,7 @@ mod provenance;
 mod ratchets;
 mod readable_profiles;
 mod realms;
+mod recipe_usage;
 mod recipes;
 mod rename_guard;
 mod research_registry;

@@ -1,0 +1,68 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://feedback-loop.ai/forge/contracts/effect-usage.v1.json",
+  "title": "Forge effect usage v1",
+  "description": "Decision 0112 ruling 3: the optional, absent-by-default `usage` object on `effect/succeeded`, `effect/failed` and `effect/indeterminate`, published as a numbered extension at event_schema 1 under the amended rule in contracts/README.md. What the attempt's process tree used, as the engine measured it on its tracker's 100 ms tick from spawn to settlement (ruling 1): a single seat's measures, or a panel's, one entry per member a tick measured. An attempt no tick read carries none. Every field is a non-negative integer, so no seat-controlled text reaches the journal through it. `fold` reads none of it, RunState gains nothing, and nothing that settles, kills, retries or admits an attempt reads it (ruling 6).",
+  "type": "object",
+  "properties": {
+    "usage": {
+      "oneOf": [
+        { "$ref": "#/definitions/measures" },
+        {
+          "type": "object",
+          "required": ["members"],
+          "additionalProperties": false,
+          "properties": {
+            "members": {
+              "type": "object",
+              "description": "A panel's measures, keyed by the member's name; a member no tick measured is absent.",
+              "minProperties": 1,
+              "additionalProperties": { "$ref": "#/definitions/measures" }
+            }
+          }
+        }
+      ]
+    }
+  },
+  "definitions": {
+    "count": { "type": "integer", "minimum": 0 },
+    "measures": {
+      "type": "object",
+      "required": [
+        "peak_memory_bytes",
+        "mean_memory_bytes",
+        "peak_load_millicores",
+        "mean_load_millicores",
+        "cpu_ms",
+        "wall_ms"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "peak_memory_bytes": {
+          "$ref": "#/definitions/count",
+          "description": "The highest summed resident set of the tree on any tick, in bytes: an upper estimate, since a shared page counts once per process."
+        },
+        "mean_memory_bytes": {
+          "$ref": "#/definitions/count",
+          "description": "That sum averaged over the attempt's ticks, in bytes: an upper estimate."
+        },
+        "peak_load_millicores": {
+          "$ref": "#/definitions/count",
+          "description": "The most cores the tree kept busy over a one-second window of ticks, in thousandths of a core; an attempt whose ticks span less than a second, its load since spawn."
+        },
+        "mean_load_millicores": {
+          "$ref": "#/definitions/count",
+          "description": "CPU time over wall time, in thousandths of a core."
+        },
+        "cpu_ms": {
+          "$ref": "#/definitions/count",
+          "description": "The tree's CPU time, user and system, the time of exited descendants its processes waited for included, in milliseconds."
+        },
+        "wall_ms": {
+          "$ref": "#/definitions/count",
+          "description": "The monotonic time from the driver's spawn to the attempt's settlement, in milliseconds."
+        }
+      }
+    }
+  }
+}
