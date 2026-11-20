@@ -88,8 +88,10 @@ What #1093 does not get now, and why:
 - **The typed port-bind park.** A port bind during service boot parks like every other red, on
   row `not-success`: for a person, as `ruled`, with no word that says "the runner's". Typing
   it as a runner fault is deferred with the classifier
-  ([Deferred to a later decision](#deferred-to-a-later-decision)). The person tells a port bind
-  from a red test by reading the observation, and re-runs.
+  ([Deferred to a later decision](#deferred-to-a-later-decision)). The observation reads no job
+  log, so it cannot tell a port bind from a red test either: what it gives the person is where
+  to look, the run id, attempt and job id the sealed observation names (ruling 9), from which
+  the person opens that job's log on the forge, tells the two apart there, and re-runs.
 - **The wall clock.** The wait until a person looks remains. What is gone is the diagnosing
   seat attempt the issue counts.
 - **The timing-sensitive test.** It parks for a person too, on row `not-success` as every red
@@ -244,9 +246,8 @@ until slice 0111a records real payloads.**
 
 Unmeasured in particular: the closed list of `conclusion` words (the documentation lists
 `success`, `failure`, `neutral`, `cancelled`, `skipped`, `timed_out`, `action_required`, and for a
-run `startup_failure`); how a job log is cut into steps; and whether the API says who cancelled a
-job. **A step has no `kind` field**: whether a step is setup, a service or a test is not a forge
-fact, so any step role below is recipe data.
+run `startup_failure`); and whether the API says who cancelled a job. The observation reads no
+step and no job log (ruling 3), so no step's role enters it.
 
 ## The rulings
 
@@ -1184,8 +1185,12 @@ the projection is fixed, in the one input builder:**
 - no seat ever receives `ci_observation` or `ci_green`. The review seat receives nothing of `ci`
   on any road.
 
-So the `ci` result has no projection, and nothing a later seat reads can stand for CI's
-verdict. No seat needs one: the only road out of `ci` to a seat is `CI-PASS`, and a park's
+**What `classify` sees, exactly.** On landing's one road to a seat, `classify`'s
+`last_decision` names the rule `CI-PASS` and the result word `pass`, and nothing else of `ci`:
+the observation and the `ci_green` flag are omitted from it, and `results` holds no `ci`. That
+is the whole of the `ci` result's projection, and it is the fact `classify` was entered by
+`CI-PASS`, which landing's own entry already implies; nothing a later seat reads can stand for
+CI's verdict. No seat needs more: the only road out of `ci` to a seat is `CI-PASS`, and a park's
 evidence is for a person, who reads it through `inspect` (ruling 9). **(b)** projecting it
 unchanged: a model seat would read the observation and a `green` it could take as authority.
 Not recommended.
@@ -1253,20 +1258,28 @@ documents `--enter review` and `--enter classify --continues <run>`
 `landing-ci --enter review` would skip `ci`. Under the frame that is landing as it is today, not
 a pass the gate grants; it is still designed out, so a person's park is reached on every run
 that names the overlay over a non-green observation. **Recommended: (a) `landing-ci`'s entry admission admits `ci` alone,
-through the existing entry check.** The check's chain of refusals gains one arm: in a bundle
-whose table declares a `ci` seat, every phase but that one refuses as a new `EntryRefusal`
-variant, `BeforeCi`, naming the `ci` phase, and `admitted()` lists `ci` alone. The arm sits
-after the work-seat arm and before the protected arm, so `ci` itself still meets every existing
-check: protected, forward work, strategy, change and visits, which the materialized order above
-admits. Every start the overlay admits enters at `ci`:
+through the existing entry check.** The check's chain of refusals gains one arm, after HEAD's
+own first four. HEAD's `refusal` returns, in order, `Absent` for a phase the table lacks,
+`Terminal`, `Unprintable` for a name outside the entry grammar, and `Work` for a seat with
+work (`crates/brokkr-runtime/src/bundle/entry.rs:152-171`); those outcomes are kept, unchanged,
+under the overlay. Then, in a bundle whose table declares a `ci` seat, every phase that passed
+them but the `ci` phase refuses as a new `EntryRefusal` variant, `BeforeCi`, naming the `ci`
+phase; so `BeforeCi` is the refusal of an otherwise eligible later gate, such as `classify` or
+`review`, and `admitted()` lists `ci` alone. The arm sits before the protected arm, so `ci`
+itself still meets every existing check: protected, forward work, strategy, change and visits,
+which the materialized order above admits. Every start the overlay admits enters at `ci`:
 
 - **the default start** uses `initial`, `ci`, as HEAD's `first_phase` does (`entry.rs:139-150`);
 - **`--enter ci`** passes every existing arm, as above, and `BeforeCi` does not judge `ci`
   itself;
-- **continuation**, `--enter ci --continues <run>`, is the same admission over a continued run;
-  landing's documented `--enter classify --continues <run>` refuses as `BeforeCi` under the
-  overlay, and the person continues at `ci` instead;
-- **`--enter review`, `--enter classify`** and every other phase refuse as `BeforeCi`.
+- **continuation**, `--enter ci --continues <run>`, is the same admission over a continued run,
+  after HEAD's lineage checks: the launch admits the entry, then requires each continued run to
+  exist, carry no dispatch and be concluded (`crates/brokkr-runtime/src/launch.rs:301-306`,
+  `:453-489`). Landing's documented `--enter classify --continues <run>` refuses as `BeforeCi`
+  under the overlay, and the person continues at `ci` instead;
+- **`--enter review`, `--enter classify`**, `--enter verify` and every other gate that passes
+  HEAD's four first arms refuse as `BeforeCi`; `--enter implement` keeps HEAD's `Work`, and
+  `--enter done` its `Terminal`.
 
 The protected-phase arm is unchanged, so `review` stays unavoidable before `ship`. Refused alternatives: **(b)**
 a table rule alone, which the explicit entry never reads; **(c)** removing `--enter` from the
@@ -1786,7 +1799,7 @@ member, `pull_request`, built in 0111b.
      `a_required_check_still_in_progress_parks_as_not_settled`;
      `a_failed_cancelled_timed_out_skipped_or_neutral_required_check_parks_as_not_success`;
      `a_run_with_an_empty_association_parks_as_association_unproven`;
-     `a_red_setup_only_run_on_the_same_head_for_another_pull_request_parks_as_association_unproven`;
+     `a_red_run_on_the_same_head_for_another_pull_request_parks_as_association_unproven`;
      `an_association_naming_a_and_a_closed_b_parks_as_association_ambiguous`;
      `a_head_entry_whose_run_records_no_tested_commit_parks_as_revision_unproven` (the chief's
      r9 case: the run's `head_sha` and the association's `head.sha` both the gated head, every
@@ -1907,9 +1920,15 @@ member, `pull_request`, built in 0111b.
      `the_landing_ci_default_start_enters_ci`;
      `landing_ci_admits_ci_alone_as_an_explicit_entry` (`--enter ci` passes every existing arm,
      `ForwardWork` among them, and `admitted()` is exactly `["ci"]`);
-     `landing_ci_enter_ci_with_continues_is_admitted`;
+     `landing_ci_enter_ci_continuing_a_concluded_landing_run_is_admitted_through_launch` (through
+     `launch.rs`'s start, over a store holding a concluded, eligible predecessor run with no
+     dispatch: the lineage checks pass and the run enters `ci`);
      `landing_ci_enter_review_refuses_as_before_ci`;
      `landing_ci_enter_classify_refuses_as_before_ci`, with and without `--continues`;
+     `landing_ci_enter_verify_refuses_as_before_ci` (every otherwise eligible later gate);
+     `landing_ci_keeps_heads_absent_terminal_unprintable_and_work_refusals` (`--enter` of a
+     phase the table lacks, `done`, a name outside the grammar, and `implement`: `Absent`,
+     `Terminal`, `Unprintable` and `Work`, never `BeforeCi`);
      `the_landing_ci_order_is_ci_then_landings_own`;
      `ci_after_implement_admits_every_start_but_paints_ci_pass_backward` (the control: fix round
      1093r6's order, option (b));
