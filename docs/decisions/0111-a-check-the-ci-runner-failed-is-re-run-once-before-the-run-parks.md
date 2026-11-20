@@ -879,8 +879,8 @@ the duplicate is an unexpected instance, which draws `change` with `matrix-incom
   change's tree as surely as a `make` there does. The same table names, for every command word it
   admits, which operand positions are paths it reads (for `test`, the operand of `-f`, `-e`,
   `-d`, `-s` and `-r`; for `cat`, `cmp` and `diff`, every operand; for `echo` and `printf`,
-  none). Each such operand, taken relative to the effective working directory, lies outside the
-  change classes, or `machinery-escapes` withholds, naming the word, the operand and the step;
+  none). Each such operand, taken relative to the effective working directory and resolved
+  through verified tree entries (below), lies outside the change classes, or `machinery-escapes` withholds, naming the word, the operand and the step;
   one that is not a literal word is `machinery-unresolved`.
 - **And so does everything an implicit input includes.** An implicit input is a reached file:
   it is scanned in turn, by the table's grammar for its format, for what it pulls in. A
@@ -896,6 +896,22 @@ the duplicate is an unexpected instance, which draws `change` with `matrix-incom
   from, in its closure tree,
   lies outside the change classes,** or `machinery-escapes` withholds the class, naming the
   reference and the file that made it.
+- **Every path resolves through verified tree entries, symlinks included.** A path's spelling
+  is not what a program opens: `test -f ops/ci/ready` follows an unchanged tracked symlink
+  `ops/ci/ready` to `../../crates/ci/ready`, so a change to the target alone reaches the step
+  while every spelling, directory and machinery check passes. So each path the closure classes
+  (an effective working directory, a reference, an implicit or product input, an
+  environment-selected file, a read operand, an include) is resolved component by component in
+  the job's closure tree through 0109's verified reader, never by the spelling and never on a
+  filesystem: a tree entry of mode `120000` is a symlink, whose blob is its target, substituted
+  relative to the entry's directory before the next component. Every path the walk visits, the
+  spelled path, each link and each target, is classed: one that is, or lies under, a change
+  class withholds as `machinery-escapes`, naming the spelled path, each link and the resolved
+  target. A walk that leaves the closure tree, meets an absolute target, a gitlink (mode
+  `160000`) or a component the tree does not hold (a file a step creates at run time), or
+  follows more than 40 links, withholds as `machinery-unresolved`, naming the path and where
+  the walk stopped. Cost, said plainly: a step that reads a directory or file an earlier step
+  created, outside the tree, is unresolved, so it never types setup.
 - **A reference the test cannot resolve fails closed,** as `machinery-unresolved`: an operand or
   command word built by an expansion, a command substitution, `eval`, or a glob, unless it is a
   variable the same file assigns only from literal words.
@@ -1061,8 +1077,9 @@ ruling 3's closure parse:
   observation does not report as succeeded, is unproven;
 - every reached step of that job, the matched setup step and every step before it among them,
   has an effective working directory (ruling 3's rule: its own, else the job's default, else
-  the workflow's, else the workspace root, moved by any literal `cd`) that is, or lies under,
-  the proven checkout. An absolute directory, a `..` component, or one built by an expression
+  the workflow's, else the workspace root, moved by any literal `cd`, and resolved through
+  verified tree entries, a symlinked directory as its target, by ruling 3's path rule) that is,
+  or lies under, the proven checkout. An absolute directory, a `..` component, or one built by an expression
   (`${{ runner.temp }}`, `$HOME`) is not; nor is the workspace root, reached by default, when the
   proven checkout has a `path` of its own;
 - an operand naming a file outside the proven checkout is not resolved by the closure at all,
@@ -1222,8 +1239,8 @@ stops nothing landing would do. Each is a precision guard on the one class, and 
 | Withholding | When |
 |---|---|
 | `machinery-touched` | a changed path lies outside every change class; it names the paths |
-| `machinery-escapes` | in a job's closure tree, under its event workflow's schedule, a file a required job executes, a command word's implicit input or read operand, a file its effective environment selects, a product input of a declared setup step or of a step that supplies one, a file an implicit input includes, or a reached step's effective working directory lies inside a change class |
-| `machinery-unresolved` | in a job's closure tree, under its event workflow's schedule, a reached file holds a reference, read operand or include the closure test cannot resolve, a file-selecting environment key or assignment the table cannot resolve, a state-restoring action supplies a setup step, or a command word, remote action or implicit input format the pinned table does not name |
+| `machinery-escapes` | in a job's closure tree, under its event workflow's schedule, a file a required job executes, a command word's implicit input or read operand, a file its effective environment selects, a product input of a declared setup step or of a step that supplies one, a file an implicit input includes, or a reached step's effective working directory lies inside a change class, on any path its tree-entry walk visits, a symlink's target included |
+| `machinery-unresolved` | in a job's closure tree, under its event workflow's schedule, a reached file holds a reference, read operand or include the closure test cannot resolve, a file-selecting environment key or assignment the table cannot resolve, a state-restoring action supplies a setup step, a path's tree-entry walk cannot complete, or a command word, remote action or implicit input format the pinned table does not name |
 | `range-unproven` | 0109's verified reader cannot establish the range's provenance and its complete, byte-exact path list |
 | `range-too-large` | the range's changed paths exceed the bound the classification record carries |
 | `basis-too-large` | the classifier's sealed basis would exceed its bound |
@@ -2359,6 +2376,14 @@ slice that produces it, and each typed assertion is in the slice that builds its
    `a_read_operand_in_a_change_class_draws_no_ci_infrastructure` (a required setup step runs
    `test -f crates/ci/ready` from the workspace root, and the change only removes that file:
    `change`, `withheld`, with `machinery-escapes` naming `test`, the operand and the step);
+   `a_change_to_an_unchanged_symlinks_target_only_draws_no_ci_infrastructure` (a tracked
+   symlink `ops/ci/ready`, unchanged, targets `../../crates/ci/ready`; a required setup step
+   runs `test -f ops/ci/ready` from the workspace root, and the change edits only
+   `crates/ci/ready`: `change`, `withheld`, with `machinery-escapes` naming `test`, the spelled
+   `ops/ci/ready`, the link and the resolved `crates/ci/ready`; and its siblings, a symlinked
+   working directory into `crates/` the same, and a link with an absolute target, one that
+   leaves the tree and a loop past 40 links, each `machinery-unresolved` naming where the walk
+   stopped);
    `a_machinery_makefile_including_a_change_class_file_draws_no_ci_infrastructure` (a bare
    `make` under a machinery directory whose `Makefile` includes `crates/ci/setup.mk`, the
    change editing only `setup.mk`: `change`, `withheld`, with `machinery-escapes` naming the
