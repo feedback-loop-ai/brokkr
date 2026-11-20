@@ -70,9 +70,16 @@ fn an_unread_call_and_a_name_only_in_the_arguments_are_denied() {
 }
 
 /// The hooks document the record's gate turns ran under
-/// (`documents/gate.hooks.json`), its hook named `gate`.
-const RECORDED: &str =
-    include_str!("../../../../../../docs/evidence/adapters/agy-cli-1-5/documents/gate.hooks.json");
+/// (`documents/gate.hooks.json`), its hook named `gate`, read when the
+/// test runs: the record lives outside the crate, so no `include_str!`
+/// may reach it (packaging's `no_crate_includes_a_file_from_outside_itself`).
+fn recorded_hooks() -> String {
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../docs/evidence/adapters/agy-cli-1-5/documents/gate.hooks.json"
+    );
+    std::fs::read_to_string(path).unwrap()
+}
 
 /// A `brokkr` path holding a space and a quote.
 const BROKKR: &str = "/opt/it's my/brokkr";
@@ -102,7 +109,7 @@ fn split(command: &str) -> Vec<String> {
 /// `call_mcp_tool` only where the document names a server (J10).
 #[test]
 fn the_hook_runs_the_gate_on_every_tool_with_the_level_one_list() {
-    let mut recorded: Value = serde_json::from_str(RECORDED).unwrap();
+    let mut recorded: Value = serde_json::from_str(&recorded_hooks()).unwrap();
     let mut golden = recorded["gate"].take();
     command_of(&mut golden);
     let listed = [
