@@ -211,6 +211,17 @@ fn retried(
     names: &[&str],
     parked: impl FnOnce(&[EventEnvelope]),
 ) -> (tempfile::TempDir, Vec<EventEnvelope>) {
+    retried_after(members, names, |_, engine| engine, parked)
+}
+
+/// [`retried`], with the engine that parked `replaced` by what it makes
+/// of the run in its directory before `parked` reads the journal.
+fn retried_after(
+    members: Vec<PanelMember>,
+    names: &[&str],
+    replaced: impl FnOnce(&std::path::Path, Engine) -> Engine,
+    parked: impl FnOnce(&[EventEnvelope]),
+) -> (tempfile::TempDir, Vec<EventEnvelope>) {
     let review = SeatBody::Invocation(Invocation::Panel {
         members,
         aggregate: Aggregate::ReviewPanel,
@@ -218,6 +229,7 @@ fn retried(
     let work = single_body(driver(&json!({"result": "complete"})));
     let (dir, mut engine) = begun(work, review_shaped(review), |_| HeadReads::default());
     engine.drive().unwrap();
+    let mut engine = replaced(dir.path(), engine);
     parked(&engine.store.load(&engine.run_id).unwrap());
     let read = Engine::read_member_retry(&mut engine.store, &engine.run_id)
         .unwrap()
@@ -321,6 +333,84 @@ fn a_member_name_holding_a_slash_is_refused_by_that_name_and_the_drive_ends() {
         let events = ended.recv_timeout(bound).expect("the drive ends");
         settled_beside(&events, refused);
     }
+}
+
+/// Fix round 0109a1r8, M5: every settled payload takes one per-member
+/// path, whatever the store's contention. X4's three-member panel is
+/// driven until it parks; its failed row and what follows are then
+/// removed by direct SQL, and a resumed engine holds that terminal as the
+/// store lock held it back, `b`'s refused payload and the original error
+/// restored. The lawful end lands it: `a` keeps its payload, verdict and
+/// retry eligibility, `b` is refused by name, and a retry of `b` and `c`
+/// carries `a` and runs `b` and `c` only.
+#[test]
+fn a_held_terminal_lands_each_settled_member_by_the_same_path() {
+    let members = vec![
+        member("a", residual("mine", 5)),
+        member("b", driver(&over_subset())),
+        member("c", failing()),
+    ];
+    let (_dir, events) = retried_after(members, &["b", "c"], held_back, |events| {
+        settled_beside(events, "b");
+        let failed = (events.iter()).filter(|event| event.event_type == EventType::EffectFailed);
+        assert_eq!(failed.count(), 1, "the held terminal landed once");
+    });
+    assert_eq!(carried(&events), [vec![], vec![], vec!["a".to_string()]]);
+    let retry = (events.iter())
+        .rfind(|event| event.event_type == EventType::EffectStarted)
+        .unwrap();
+    let ran = |member: &str| {
+        events.iter().any(|event| {
+            event.event_type == EventType::EffectCheckpointed
+                && event.payload["attempt_id"] == retry.payload["attempt_id"]
+                && event.payload["checkpoint"]["member"] == member
+        })
+    };
+    assert_eq!((ran("a"), ran("b"), ran("c")), (false, true, true));
+}
+
+/// `engine`'s parked run in `dir` with its failed terminal held back: the
+/// row and its tail removed by direct SQL, the terminal as the engine
+/// first built it (`b` still settled, its error unsuffixed) held by a
+/// resumed engine, and landed by the lawful end, then driven to its park.
+fn held_back(dir: &std::path::Path, engine: Engine) -> Engine {
+    let (run_id, bundle) = (engine.run_id.clone(), engine.bundle.clone());
+    let events = engine.store.load(&run_id).unwrap();
+    drop(engine);
+    let failed = (events.iter())
+        .find(|event| event.event_type == EventType::EffectFailed)
+        .unwrap();
+    let mut payload = failed.payload.clone();
+    payload["settled_members"]["b"] = over_subset();
+    let error = payload["error"].as_str().unwrap();
+    payload["error"] = json!(error.split("; settled member 'b'").next().unwrap());
+    let db = dir.join("forge.db");
+    let raw = rusqlite::Connection::open(&db).unwrap();
+    raw.execute_batch("DROP TRIGGER events_append_only_delete;")
+        .unwrap();
+    for table in ["events", "event_index"] {
+        let sql = format!("DELETE FROM {table} WHERE run_id = ?1 AND seq >= ?2");
+        raw.execute(&sql, (&run_id, failed.seq as i64)).unwrap();
+    }
+    drop(raw);
+    let store = brokkr_store::Store::open(&db).unwrap();
+    let mut engine = Engine::resume(store, bundle, &run_id, Some(dir.join("work"))).unwrap();
+    engine.held_outcome = Some(crate::engine::checkpoints::HeldOutcome {
+        event_type: EventType::EffectFailed,
+        payload,
+        attempt_id: failed.attempt_id.clone(),
+    });
+    let contended = brokkr_store::StoreError::Contended {
+        operation: "append",
+        waited_ms: 30_000,
+    };
+    let end = engine.lawful_end_under_contention(contended.into());
+    assert!(
+        end.unwrap().is_none(),
+        "the held terminal lands, and the drive goes on"
+    );
+    engine.drive().unwrap();
+    engine
 }
 
 /// A valid word whose `cache_read_tokens` exceed its `input_tokens`.

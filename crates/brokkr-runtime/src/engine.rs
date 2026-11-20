@@ -915,17 +915,17 @@ impl Engine {
         }))
     }
 
-    /// Journal the attempt's held outcome. A result the seat-record fence
-    /// refuses now settles the attempt indeterminate with the refusal
-    /// named: the failure its seat would have built was not held, and a
-    /// park loses nothing.
+    /// Journal the attempt's held outcome through the per-member path a
+    /// terminal the lock never held takes (fix round 0109a1r8, M5). A
+    /// result the fence still refuses settles the attempt indeterminate,
+    /// the refusal named, and a park loses nothing.
     fn land_held_outcome(
         &mut self,
         held: checkpoints::HeldOutcome,
         effect_id: &str,
     ) -> Result<(), EngineError> {
         let attempt_id = held.attempt_id.clone();
-        match self.append_raw(held.event_type, held.payload, held.attempt_id) {
+        match self.append_settled(held.event_type, held.payload, held.attempt_id) {
             Err(EngineError::Store(StoreError::SeatRecord(refusal))) => {
                 let reason = format!(
                     "the journal refused the result a peer's lock had held back: {refusal}"
