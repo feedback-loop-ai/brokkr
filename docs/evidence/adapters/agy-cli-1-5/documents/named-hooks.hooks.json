@@ -1,0 +1,1 @@
+{"hooks":{"PreToolUse":[{"matcher":"","hooks":[{"type":"command","command":"/var/tmp/probe-agy/hooks/gate.py","timeout":10}]}]}}

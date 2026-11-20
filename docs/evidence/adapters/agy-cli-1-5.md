@@ -282,6 +282,63 @@ Every turn here ran under the scratch HOME named.
   `url-fetch-default` it called `search_web` instead, and in
   `url-fetch-deny-rule` it ran `curl` through `run_command`.
 
+## Second measurement, for round two (2026-11-20)
+
+Round one's review asked what the record did not say. Same host, binary and
+account; every turn ran under a scratch HOME.
+
+### The documents the hook and MCP turns used
+
+They are in [`agy-cli-1-5/documents/`](agy-cli-1-5/documents/), byte for byte
+as planted, with the lab's own paths.
+
+| File | Where it was planted | Turns |
+| --- | --- | --- |
+| `gate.hooks.json` | `$HOME/.gemini/config/hooks.json` | `gate-prior-grant`, `gate-no-rules-write`, `rule-multi-word-prefix` |
+| `named-hooks.hooks.json` | the same path | `hook-document-named-hooks` |
+| `workspace-planted.hooks.json` | `<workspace>/.agents/hooks.json` | `ambient-workspace-hook` |
+| `engine.mcp_config.json` | `$HOME/.gemini/config/mcp_config.json` | `iso-07`, `iso-08`, `iso-09` |
+
+- **`hooks.json` maps a name of the author's choosing to that hook's events.**
+  The top-level key is the hook's name (`gate`), and its value holds
+  `PreToolUse`, a list of objects each with a `matcher` and a `hooks` list of
+  `{"type":"command","command":…,"timeout":…}`. A document whose one name is
+  the word `hooks` loads the same way: under it the gate saw `search_web` and
+  denied it (`hook-document-named-hooks`).
+- **`timeout` is seconds.** (docs: "optional integer seconds, default `30`".)
+  No turn here ran a hook past its timeout.
+- **The hook's `command` is run as a shell command**, with the hook's JSON on
+  its stdin and its decision read from its stdout.
+
+### What ends the walk up from the working directory
+
+Each turn's working directory is a `sub` directory. A sentinel was planted in
+`.agents/mcp_config.json` at each place named.
+
+| Turn | Layout | Started |
+| --- | --- | --- |
+| `git-root-linked-worktree` | a linked worktree, whose `.git` is a file naming the main repository's `worktrees/wt`; sentinels at the worktree's root, in the directory above it, and at the main repository's root | the worktree's root only |
+| `git-root-nested-repository` | a repository inside a repository; sentinels at both roots | the inner root only |
+| `git-root-empty-dot-git-dir` | a repository; between its root and the working directory, a directory holding an **empty `.git` directory**; sentinels there and at the real root | both: the empty directory did not end the walk |
+| `git-root-junk-dot-git-file` | the same, with a **`.git` file** holding one line that names no git directory | only the directory with the file: any `.git` file ended the walk |
+
+- The walk ends at the nearest ancestor that holds a `.git` file, whatever it
+  says, or a `.git` directory that git itself would take for a repository. A
+  `.git` directory that is not one does not end it.
+
+### A rule of more than one word
+
+`rule-multi-word-prefix`: under `permissions.allow` of `command(git status)`,
+with the gate, `git status --short` and `git status` ran and `git log
+--oneline -1` was refused as a tool error. A rule's words match the command's
+first words, one by one.
+
+### The login file
+
+Each scratch HOME's link to the login file was still a link after every turn.
+Whether the CLI, when it refreshes the login, writes through such a link or
+replaces it is not measured.
+
 ## Not measured
 
 - macOS.
@@ -315,3 +372,6 @@ Every turn here ran under the scratch HOME named.
   off".
 - No page read states that a paid personal plan's interactions are not used
   for training.
+- The operator, 2026-11-20: "telemetry is off". That is the account
+  preference section 5 names, stated by the operator and not measured: it is
+  saved with the account and has no local file (#1200).
