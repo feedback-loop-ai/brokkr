@@ -11,6 +11,8 @@ Changes merged since v0.15.1 that the next release's notes carry.
   adapters directory. It maps five provisional models, holds no gate,
   declares no hands and is never resumed. A seat whose served model is
   not exactly its pin is refused, and so is a signed-out CLI.
-  `BROKKR_QODER_BIN` overrides the binary. On Linux a qoder seat does
-  not compile yet, because Qoder's MCP isolation is unmeasured ([provider
+  `BROKKR_QODER_BIN` overrides the binary. Every launch carries
+  `--strict-mcp-config --mcp-config <the engine's file> --setting-sources
+  ""`, the MCP isolation measured on Linux for the cold and replacement
+  shapes without hands, so a qoder seat compiles there ([provider
   adapters](../guides/provider-adapters.md#qoder-cli-a-provisional-harness)).

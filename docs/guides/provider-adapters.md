@@ -425,9 +425,14 @@ on `--reasoning-effort`.
 
 **The launch.** The driver runs `qodercli -p --output-format stream-json
 --no-session-persistence --permission-mode accept_edits`, then the
-seat's pin, effort and tool grants, then `--tools Read Edit Write Glob
-Grep Bash --disallowed-tools mcp_call,mcp_get,mcp_list`. The prompt goes
-on stdin. Without `--tools`, Qoder keeps its 34-tool default, which
+seat's pin, effort and tool grants, then `--strict-mcp-config
+--mcp-config <file> --setting-sources ""`, then `--tools Read Edit Write
+Glob Grep Bash --disallowed-tools mcp_call,mcp_get,mcp_list`. The prompt
+goes on stdin. The file is the engine's MCP document, written for the
+turn alone and removed after it; it names no server, so the MCP
+meta-tools are denied. A launch served an engine server would keep them
+and grant each tool as `mcp__<server>__<tool>` in the one
+`--allowed-tools` value. Without `--tools`, Qoder keeps its 34-tool default, which
 includes `Agent`, `Workflow`, the cron tools and the web tools. Web
 tools are never offered at level 1. Tool grants are one `--allowed-tools`
 value of comma-separated `Bash(<command>:*)` patterns. Any other
@@ -466,13 +471,13 @@ none of them, so a token-authenticated turn is unmeasured.
 under its tool's name. The turn still ends `success`. The seat record
 has no field for the denial itself.
 
-**On Linux, a qoder seat does not compile yet.** The compile demands
-measured ambient MCP isolation for every shape a seat is served as
-(SI2, [below](#measured-mcp-isolation)), and Qoder's is unmeasured. Each
-seat is refused with "provider 'qoder' has no measured strict MCP
-configuration for 'cold'". This lifts when the cold and replacement
-shapes without hands are measured against planted sentinels and recorded
-in the adapter's `mcp`.
+**MCP isolation.** The compile demands measured ambient MCP isolation
+for every shape a seat is served as (SI2, [below](#measured-mcp-isolation)).
+Qoder's cold and replacement shapes without hands are measured on Linux,
+so a qoder seat compiles there. `--strict-mcp-config` alone still
+started the user-scope server, and `--setting-sources ""` alone still
+started the project-scope server, so the driver always passes both. A
+site that boxes its hands still refuses the seat.
 
 ## Hands
 
@@ -972,7 +977,7 @@ stands and nothing here is claimed. The evidence is
 | `dsh` | Cold without hands: 0.1.5-rc.1 (U0, U0c). Replacement without hands: 0.2.1-rc.2 (U0b D06, and pass 8 on the keyed routes). Cold and replacement with boxed hands: 0.2.1-rc.2 (#896). | The replacements' native-write, store and process axes, and the cold no-hands shape's native write (its store read is `unsupported`). A shape carries no route scope: its record names the routes it was measured on, and `spark` was never qualified (U0c). |
 | `lanetally` | Cold and replacement without hands, through the wrapper itself: launcher sha256 `b886c95ab275956bfef3ba0d9e6c617ec0878abdbddbd7369d2fe27903205dfb` running LaneTally's session-wrapper.sh at 4614bb7, sha256 `ecac09b98a39eeb618812e4d5838c35f0b9ed48482d345befed4f198fbc325d7`, over Claude Code 2.1.287 (cold) and 2.1.308 (replacement). | Process reads; store read is `unsupported`, and native write is `unsupported` cold and unmeasured on replacement. A different wrapper is a different measurement. |
 | `exec` | `inapplicable`: no model MCP surface. | — |
-| `qoder` (example) | None. Its `mcp` is `unsupported`. | Every shape. With `--strict-mcp-config --mcp-config '{"mcpServers":{}}'`, init listed no server, but no planted sentinel was tried. So on Linux every qoder seat is refused until its cold and replacement shapes without hands are measured. |
+| `qoder` (example) | Cold and replacement without hands: Qoder CLI 1.1.92, against planted user, local, project and plugin sentinels (Q07, Q10, Q11, Q14, Q15 in [`qoder-cli-1-1.md`](../evidence/adapters/qoder-cli-1-1.md#mcp-isolation-si2)). Every launch carries `--strict-mcp-config --mcp-config <the engine's file> --setting-sources ""`: either flag alone still started a planted server. | Native write, store read and process read: Qoder's permission check refused the attempts, and that check is not an isolation mechanism. No boxed shape, so a site that boxes its hands refuses the seat. A managed or enterprise MCP configuration. |
 
 A shape's `measured_on.version` is not compared with the version of
 the harness installed: a measurement stays applied after the binary

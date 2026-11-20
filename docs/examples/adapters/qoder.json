@@ -70,7 +70,57 @@
       "specify": "Bash(specify:*)"
     }
   },
-  "mcp": "unsupported",
+  "mcp": {
+    "carriage": {
+      "measured": "Q14 (cold) and Q15 (replacement, Q14's argv again), Qoder CLI 1.1.92, Linux, 2026-11-20: under --strict-mcp-config --mcp-config <engine file> --setting-sources \"\" the engine sentinel started, init listed it connected, and it answered tools/call under an --allowed-tools grant naming it mcp__<server>__<tool> (docs/evidence/adapters/qoder-cli-1-1.md, MCP isolation (SI2))"
+    },
+    "shapes": [
+      {
+        "invocation": "cold",
+        "hands": "none",
+        "measured_on": {
+          "harness": "qoder",
+          "binary": "qodercli",
+          "version": "1.1.92",
+          "host": "linux"
+        },
+        "ambient": {
+          "measured": "Q01 and Q02, the positive control: with no MCP flags the user, local, project and plugin sentinels all started; Q07 and Q10 (cold): under --strict-mcp-config --mcp-config <empty file> --setting-sources \"\" no planted sentinel started and init mcp_servers was [] (docs/evidence/adapters/qoder-cli-1-1.md, MCP isolation (SI2))"
+        },
+        "native_write": {
+          "unmeasured": "native writes outside the workdir are not measured as an isolation property: Qoder's permission check refused Q12's Write and Edit attempts, and that check is not an isolation mechanism (docs/evidence/adapters/qoder-cli-1-1.md, Not measured)"
+        },
+        "store_read": {
+          "unmeasured": "store reads outside the workdir are not measured as an isolation property: Qoder's permission check refused Q12's reads outside the workdir, and that check is not an isolation mechanism (docs/evidence/adapters/qoder-cli-1-1.md, Not measured)"
+        },
+        "process_read": {
+          "unmeasured": "process reads outside the workdir are not measured as an isolation property: Qoder's permission check refused Q12's attempts, and that check is not an isolation mechanism (docs/evidence/adapters/qoder-cli-1-1.md, Not measured)"
+        }
+      },
+      {
+        "invocation": "replacement",
+        "hands": "none",
+        "measured_on": {
+          "harness": "qoder",
+          "binary": "qodercli",
+          "version": "1.1.92",
+          "host": "linux"
+        },
+        "ambient": {
+          "measured": "Q01 and Q02, the positive control: with no MCP flags the user, local, project and plugin sentinels all started; Q11 (Q10's argv again) and Q15 (Q14's argv again, with the engine file), in the same HOME and workdir: no planted sentinel started (docs/evidence/adapters/qoder-cli-1-1.md, MCP isolation (SI2))"
+        },
+        "native_write": {
+          "unmeasured": "native writes outside the workdir are not measured as an isolation property: Qoder's permission check refused Q12's Write and Edit attempts, and that check is not an isolation mechanism (docs/evidence/adapters/qoder-cli-1-1.md, Not measured)"
+        },
+        "store_read": {
+          "unmeasured": "store reads outside the workdir are not measured as an isolation property: Qoder's permission check refused Q12's reads outside the workdir, and that check is not an isolation mechanism (docs/evidence/adapters/qoder-cli-1-1.md, Not measured)"
+        },
+        "process_read": {
+          "unmeasured": "process reads outside the workdir are not measured as an isolation property: Qoder's permission check refused Q12's attempts, and that check is not an isolation mechanism (docs/evidence/adapters/qoder-cli-1-1.md, Not measured)"
+        }
+      }
+    ]
+  },
   "native_capabilities": {
     "known": {
       "web-fetch": {
@@ -92,7 +142,7 @@
           "scope": "the tools init lists under the driver's fixed --tools list; no live call of WebFetch, with or without the list, was tried",
           "limitations": [
             "that the fixed --tools list leaves WebFetch out is init's list, not a refused live call",
-            "ambient MCP isolation is unmeasured, so a server the operator's configuration loads may still reach the web"
+            "ambient MCP isolation is measured without hands on Linux only (docs/evidence/adapters/qoder-cli-1-1.md, MCP isolation (SI2)); a managed or enterprise MCP configuration was not measured, so a server it loads may still reach the web"
           ]
         }
       },
@@ -115,7 +165,7 @@
           "scope": "the tools init lists under the driver's fixed --tools list; no live call of WebSearch, with or without the list, was tried",
           "limitations": [
             "that the fixed --tools list leaves WebSearch out is init's list, not a refused live call",
-            "ambient MCP isolation is unmeasured, so a server the operator's configuration loads may still reach the web"
+            "ambient MCP isolation is measured without hands on Linux only (docs/evidence/adapters/qoder-cli-1-1.md, MCP isolation (SI2)); a managed or enterprise MCP configuration was not measured, so a server it loads may still reach the web"
           ]
         }
       }

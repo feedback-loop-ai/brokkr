@@ -5550,9 +5550,8 @@ fn invoke_with_stager(
             }
         }
         AdapterKind::Dsh => invoke_dsh(pinned, prompt, input, session, bindings, &mut probe, emit),
-        AdapterKind::Qoder => qoder::launch(bin, &composed_launch("qoder", extra, input)?.extra)
-            .map_err(|error| error.to_string())
-            .and_then(|launch| qoder::invoke(&launch, prompt, input, bindings, emit)),
+        AdapterKind::Qoder => composed_launch("qoder", extra, input)
+            .and_then(|composed| qoder::drive(bin, &composed.extra, prompt, input, bindings, emit)),
         AdapterKind::Exec => {
             exec::invoke_exec(extra, prompt, &workdir, input, bindings, emit, stage)
         }

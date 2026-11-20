@@ -37,13 +37,16 @@ fn write(path: &Path, body: &[u8]) {
     write_mode(path, body, 0o644);
 }
 
-/// A fake `qodercli` that logs its argv, writes the seat's result where
-/// the prompt names it, prints `stdout` and exits 0.
+/// A fake `qodercli` that logs its argv, copies the MCP file the engine
+/// names after `--mcp-config`, writes the seat's result where the prompt
+/// names it, prints `stdout` and exits 0.
 fn fake_qoder(root: &Path, stdout: &str) -> PathBuf {
     write(&root.join("recorded.ndjson"), stdout.as_bytes());
     let body = format!(
         "#!/bin/sh\n\
          printf '%s\\n' \"$@\" > '{root}/argv.log'\n\
+         prev=; for a in \"$@\"; do [ \"$prev\" = --mcp-config ] && cat \"$a\" > '{root}/mcp.log'; \
+         prev=$a; done\n\
          prompt=$(cat)\n\
          target=$(printf '%s\\n' \"$prompt\" | sed -n 's/^    \\(.*\\.json\\)$/\\1/p' | head -1)\n\
          [ -n \"$target\" ] && printf '{{\"result\":\"complete\"}}' > \"$target\"\n\
@@ -57,37 +60,15 @@ fn fake_qoder(root: &Path, stdout: &str) -> PathBuf {
     path
 }
 
-/// Qoder's example adapter as the guide ships it.
-fn example() -> Value {
-    let path =
+/// Qoder's example adapter copied as the guide ships it, its own `mcp`
+/// block included, a `tinker` office hiring `qoder-fast` at `low` with one
+/// grant, and a recipe whose work seat it holds.
+fn tree(root: &Path) -> PathBuf {
+    let example =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/examples/adapters/qoder.json");
-    serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
-}
-
-/// A test-only measurement of Qoder's cold and replacement shapes with no
-/// hands, which nobody has taken (`qoder-cli-1-1.md`, Not measured). It
-/// stands in so the engine compiles the seat where SI2's fence is lifted
-/// and the driver can be handed the engine's own start; it is no evidence.
-fn fixture_mcp() -> Value {
-    let fixture = json!({"measured": "test fixture only: no ambient MCP sentinel was planted"});
-    let shape = |invocation: &str| {
-        json!({
-            "invocation": invocation, "hands": "none",
-            "measured_on": {"harness": "qoder", "binary": "qodercli", "version": "1.1.92",
-                            "host": if cfg!(target_os = "macos") { "macos" } else { "linux" }},
-            "ambient": fixture, "native_write": fixture,
-            "store_read": fixture, "process_read": fixture,
-        })
-    };
-    json!({"carriage": {"unmeasured": "test fixture"}, "shapes": [shape("cold"), shape("replacement")]})
-}
-
-/// `adapter` as Qoder's, a `tinker` office hiring `qoder-fast` at `low`
-/// with one grant, and a recipe whose work seat it holds.
-fn tree(root: &Path, adapter: &Value) -> PathBuf {
     write(
         &root.join("adapters/qoder.json"),
-        &serde_json::to_vec(adapter).unwrap(),
+        &std::fs::read(example).unwrap(),
     );
     let exec = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../adapters/exec.json");
     write(
@@ -121,8 +102,7 @@ fn tree(root: &Path, adapter: &Value) -> PathBuf {
         "name": "qoder", "policy": "policy.json",
         "seats": {
             "work": {"results": ["complete"], "agent": "tinker"},
-            // The protected review gate asks a strict MCP configuration,
-            // which Qoder's unmeasured isolation cannot give.
+            // A provisional model holds no gate.
             "review": {"results": ["complete"],
                        "driver": {"command": ["{brokkr}", "driver", "exec", "--", "true"]}},
         },
@@ -175,9 +155,9 @@ fn segments(candidate: &mut Candidate) -> impl Iterator<Item = &mut Vec<String>>
         .map(|segment| &mut segment.argv)
 }
 
-/// The recipe compiled on `adapter` where the world lists `tinker`.
-fn compile(root: &Path, adapter: &Value) -> Result<Bundle, brokkr_runtime::bundle::CompileError> {
-    let recipe = tree(root, adapter);
+/// The recipe compiled on the example where the world lists `tinker`.
+fn compile(root: &Path) -> Result<Bundle, brokkr_runtime::bundle::CompileError> {
+    let recipe = tree(root);
     let law = RealmLaw {
         boundary: Boundary::Namespace,
         provisional_offices: vec!["tinker".to_string()],
@@ -185,12 +165,10 @@ fn compile(root: &Path, adapter: &Value) -> Result<Bundle, brokkr_runtime::bundl
     Bundle::compile_under(&recipe, &root.join("agents"), &root.join("adapters"), law)
 }
 
-/// The recipe compiled on the fixture measurement and run once over
-/// `stdout` in `root`. The checkpoints the journal kept are returned.
+/// The recipe compiled on the example and run once over `stdout` in
+/// `root`. The checkpoints the journal kept are returned.
 fn run(root: &Path, stdout: &str) -> Vec<Value> {
-    let mut adapter = example();
-    adapter["mcp"] = fixture_mcp();
-    let mut bundle = compile(root, &adapter).expect("a qoder seat in a listed office compiles");
+    let mut bundle = compile(root).expect("a qoder seat in a listed office compiles");
     patch(&mut bundle);
     let mut env = EnvGuard::lock();
     env.set("BROKKR_QODER_BIN", fake_qoder(root, stdout));
@@ -224,21 +202,6 @@ fn root() -> (tempfile::TempDir, PathBuf) {
     (home, root)
 }
 
-/// SI2 on Linux, where its fence is lifted: the example declares Qoder's
-/// ambient MCP isolation unmeasured, as the record leaves it, so a seat on
-/// it is refused at compile and nothing is launched.
-#[cfg(target_os = "linux")]
-#[test]
-fn the_example_is_refused_on_linux_until_its_mcp_isolation_is_measured() {
-    let (_home, root) = root();
-    let refused = compile(&root, &example()).map(drop).unwrap_err();
-    assert_eq!(
-        refused.to_string(),
-        "bundle: seat 'work' (office 'tinker') in realm '<unmapped>': provider 'qoder' has no \
-         measured strict MCP configuration for 'cold'"
-    );
-}
-
 #[test]
 fn an_engine_run_of_a_qoder_seat_launches_its_pin_and_journals_the_served_model() {
     // In an engine of its own (#403): an engine is its attempts' subreaper.
@@ -250,8 +213,18 @@ fn an_engine_run_of_a_qoder_seat_launches_its_pin_and_journals_the_served_model(
     let events = run(&root, TOOL_LESS);
     let checkpoints = checkpoints(&events);
     let argv = std::fs::read_to_string(root.join("argv.log")).unwrap();
+    let mut argv: Vec<&str> = argv.lines().collect();
+    // The engine wrote its file for this turn alone, and it is gone.
+    let file = argv[14].to_string();
+    assert!(file.ends_with("/mcp.json"), "{file}");
+    assert!(!Path::new(&file).exists(), "{file}");
+    argv[14] = "<file>";
     assert_eq!(
-        argv.lines().collect::<Vec<_>>(),
+        std::fs::read_to_string(root.join("mcp.log")).unwrap(),
+        r#"{"mcpServers":{}}"#
+    );
+    assert_eq!(
+        argv,
         [
             "-p",
             "--output-format",
@@ -265,6 +238,11 @@ fn an_engine_run_of_a_qoder_seat_launches_its_pin_and_journals_the_served_model(
             "low",
             "--allowed-tools",
             "Bash(git:*)",
+            "--strict-mcp-config",
+            "--mcp-config",
+            "<file>",
+            "--setting-sources",
+            "",
             "--tools",
             "Read",
             "Edit",

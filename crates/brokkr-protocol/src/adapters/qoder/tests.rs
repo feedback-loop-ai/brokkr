@@ -305,51 +305,141 @@ fn argv(parts: &[&str]) -> Vec<String> {
     parts.iter().map(|part| part.to_string()).collect()
 }
 
+/// The engine's empty set, its file at `/tmp/e/mcp.json`.
+const EMPTY: Engine<'static> = Engine {
+    file: "/tmp/e/mcp.json",
+    grants: &[],
+};
+
+/// The launch of `extra` served `engine`, its command alone.
+fn command(extra: &[&str], engine: Engine<'_>) -> Vec<String> {
+    launch("qodercli", &argv(extra), engine).unwrap().command
+}
+
+/// The print head every launch leads with.
+const LEAD: [&str; 7] = [
+    "qodercli",
+    "-p",
+    "--output-format",
+    "stream-json",
+    "--no-session-persistence",
+    "--permission-mode",
+    "accept_edits",
+];
+
+/// The isolation and the native tools every launch carries after the seat.
+const ISOLATED: [&str; 12] = [
+    "--strict-mcp-config",
+    "--mcp-config",
+    "/tmp/e/mcp.json",
+    "--setting-sources",
+    "",
+    "--tools",
+    "Read",
+    "Edit",
+    "Write",
+    "Glob",
+    "Grep",
+    "Bash",
+];
+
+/// With no engine server: the print head, the seat's controls, the
+/// three-flag isolation, the fixed tools and the meta-tools denied.
 #[test]
-fn a_qoder_launch_is_the_print_head_the_seat_controls_and_the_fixed_tools() {
-    let extra = argv(&[
+fn a_qoder_launch_is_the_print_head_the_seat_controls_the_isolation_and_the_fixed_tools() {
+    let extra = [
         "-m",
         "Qwen4-Max",
         "--reasoning-effort",
         "high",
         "--allowed-tools",
         "Bash(cargo:*),Bash(git:*)",
-    ]);
+    ];
+    let denied = ["--disallowed-tools", "mcp_call,mcp_get,mcp_list"];
     assert_eq!(
-        launch("qodercli", &extra).unwrap(),
+        launch("qodercli", &argv(&extra), EMPTY).unwrap(),
         Launch {
-            command: argv(&[
-                "qodercli",
-                "-p",
-                "--output-format",
-                "stream-json",
-                "--no-session-persistence",
-                "--permission-mode",
-                "accept_edits",
-                "-m",
-                "Qwen4-Max",
-                "--reasoning-effort",
-                "high",
-                "--allowed-tools",
-                "Bash(cargo:*),Bash(git:*)",
-                "--tools",
-                "Read",
-                "Edit",
-                "Write",
-                "Glob",
-                "Grep",
-                "Bash",
-                "--disallowed-tools",
-                "mcp_call,mcp_get,mcp_list",
-            ]),
+            command: argv(&[&LEAD[..], &extra, &ISOLATED, &denied].concat()),
             pin: "Qwen4-Max".to_string(),
         }
     );
 }
 
+/// With one engine server: the meta-tools are kept, and its tool is granted
+/// in the seat's one `--allowed-tools` value beside its Bash pattern, or as
+/// that control where the seat grants nothing of its own (Q12 to Q15).
+#[test]
+fn an_engine_server_keeps_the_meta_tools_and_is_granted_in_the_one_allow_list() {
+    let grants = ["mcp__brokkr__workspace".to_string()];
+    let served = Engine {
+        file: "/tmp/e/mcp.json",
+        grants: &grants,
+    };
+    let golden = |seat: &[&str]| argv(&[&LEAD[..], seat, &ISOLATED].concat());
+    assert_eq!(
+        command(&["-m", "Fast", "--allowed-tools", "Bash(git:*)"], served),
+        golden(&[
+            "-m",
+            "Fast",
+            "--allowed-tools",
+            "Bash(git:*),mcp__brokkr__workspace"
+        ])
+    );
+    assert_eq!(
+        command(&["--allowed-tools", "Bash(ls:*)", "-m", "Fast"], served),
+        golden(&[
+            "--allowed-tools",
+            "Bash(ls:*),mcp__brokkr__workspace",
+            "-m",
+            "Fast"
+        ])
+    );
+    assert_eq!(
+        command(&["-m", "Fast"], served),
+        golden(&["-m", "Fast", "--allowed-tools", "mcp__brokkr__workspace"])
+    );
+}
+
+/// No launch carries `--strict-mcp-config` without `--setting-sources ""`
+/// beside it (Q03 to Q06): every launch, served a server or none, carries
+/// the fragment's one home once and no flag of it elsewhere, and a seat
+/// may write none of its flags.
+#[test]
+fn no_launch_carries_the_strict_flag_without_the_empty_setting_sources() {
+    let grants = ["mcp__brokkr__workspace".to_string()];
+    let served = Engine {
+        file: "/tmp/e/mcp.json",
+        grants: &grants,
+    };
+    let seats: [&[&str]; 2] = [
+        &["-m", "Fast"],
+        &["-m", "Fast", "--allowed-tools", "Bash(ls:*)"],
+    ];
+    for engine in [EMPTY, served] {
+        for seat in seats {
+            let command = command(seat, engine);
+            let strict = command
+                .iter()
+                .position(|part| part == "--strict-mcp-config");
+            let strict = strict.expect("the strict flag");
+            assert_eq!(command[strict..strict + 5], isolation("/tmp/e/mcp.json"));
+            for flag in ["--strict-mcp-config", "--mcp-config", "--setting-sources"] {
+                let count = command.iter().filter(|part| *part == flag).count();
+                assert_eq!(count, 1, "{flag} in {command:?}");
+            }
+        }
+    }
+    for flag in ["--strict-mcp-config", "--setting-sources", "--mcp-config"] {
+        assert_eq!(
+            launch("qodercli", &argv(&["-m", "Fast", flag, "x"]), EMPTY),
+            Err(LaunchError::Unadmitted(flag.into()))
+        );
+    }
+}
+
 #[test]
 fn a_launch_admits_only_its_three_controls_once_each_with_a_value_and_a_pin() {
-    let refused = |parts: &[&str]| launch("qodercli", &argv(parts)).unwrap_err();
+    let refused = |parts: &[&str]| launch("qodercli", &argv(parts), EMPTY).unwrap_err();
     assert_eq!(
         refused(&["-m", "Fast", "--tools", "WebFetch"]),
         LaunchError::Unadmitted("--tools".into())
@@ -393,6 +483,11 @@ fn a_launch_admits_only_its_three_controls_once_each_with_a_value_and_a_pin() {
         "refusing to invoke the agent CLI: the seat pins no model with -m, and Qoder serves a \
          model of its own choosing when none is named; a provisional seat pins its id (#1178)"
     );
+    assert_eq!(
+        LaunchError::Unnamed.to_string(),
+        "refusing to invoke the agent CLI: the engine's MCP file for the qoder seat has a path \
+         that is not UTF-8, so no argument names it exactly (#1178)"
+    );
 }
 
 /// A fake `qodercli` under `dir`: it records its argv, reads the prompt,
@@ -414,8 +509,11 @@ fn fake_qoder(
             path.display()
         )
     });
+    // The MCP file the launch names is copied while the turn runs.
     let body = format!(
         "#!/bin/sh\nprintf '%s\\n' \"$@\" > '{dir}/argv'\ncat > '{dir}/prompt'\n\
+         prev=; for a in \"$@\"; do [ \"$prev\" = --mcp-config ] && cat \"$a\" > '{dir}/mcp'; \
+         prev=$a; done\n\
          cat '{dir}/stderr' >&2\ncat '{dir}/stdout'\n{write}exit {code}\n",
         dir = dir.display()
     );
@@ -425,13 +523,27 @@ fn fake_qoder(
 /// One qoder seat run through the driver's own `run_seat` on `bin`.
 #[cfg(unix)]
 fn run(dir: &std::path::Path, bin: &std::path::Path, extra: &[&str]) -> Vec<crate::Body> {
+    run_sealed(dir, bin, extra, None)
+}
+
+/// [`run`] with `serving` as the sealed serving inputs, where given.
+#[cfg(unix)]
+fn run_sealed(
+    dir: &std::path::Path,
+    bin: &std::path::Path,
+    extra: &[&str],
+    serving: Option<Value>,
+) -> Vec<crate::Body> {
     let mut env = crate::env_guard::EnvGuard::lock();
     env.set("BROKKR_QODER_BIN", bin);
     let result = dir.join("result.json");
-    let input = json!({
+    let mut input = json!({
         "role_path": "/dev/null", "phase": "work", "feature": "f",
         "allowed_results": ["complete"], "result_path": result, "workdir": dir,
     });
+    if let Some(serving) = serving {
+        input[crate::native_controls::SERVING_INPUTS] = serving;
+    }
     let start = json!({"attempt_id": "attempt", "effect_id": "effect", "input": input});
     let mut messages = Vec::new();
     super::super::run_seat(
@@ -485,8 +597,18 @@ fn a_qoder_seat_runs_the_overridden_binary_and_finishes_on_its_pin() {
         })
     );
     let argv = std::fs::read_to_string(dir.path().join("argv")).unwrap();
+    let mut argv: Vec<&str> = argv.lines().collect();
+    // The engine's file is private to the turn and gone after it.
+    let file = argv[12].to_string();
+    assert!(file.ends_with("/mcp.json"), "{file}");
+    assert!(!std::path::Path::new(&file).exists(), "{file}");
+    argv[12] = "<file>";
     assert_eq!(
-        argv.lines().collect::<Vec<_>>(),
+        std::fs::read_to_string(dir.path().join("mcp")).unwrap(),
+        r#"{"mcpServers":{}}"#
+    );
+    assert_eq!(
+        argv,
         [
             "-p",
             "--output-format",
@@ -498,6 +620,11 @@ fn a_qoder_seat_runs_the_overridden_binary_and_finishes_on_its_pin() {
             "Fast",
             "--reasoning-effort",
             "low",
+            "--strict-mcp-config",
+            "--mcp-config",
+            "<file>",
+            "--setting-sources",
+            "",
             "--tools",
             "Read",
             "Edit",
@@ -580,6 +707,33 @@ fn a_fallback_line_behind_a_folded_turn_leaves_no_result() {
     );
     let messages = run(dir.path(), &bin, &["-m", "Fast"]);
     assert_eq!(result_of(&messages), None, "{messages:?}");
+}
+
+/// Sealed serving inputs the engine's set cannot be read from launch
+/// nothing: no MCP file is served unread.
+#[cfg(unix)]
+#[test]
+fn an_unreadable_mcp_intent_launches_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let bin = fake_qoder(dir.path(), TOOL_LESS, "", None, 0);
+    let unread = Some(json!({"unknown": true}));
+    let messages = run_sealed(dir.path(), &bin, &["-m", "Fast"], unread);
+    let failed = messages.iter().find_map(|body| match body {
+        crate::Body::Result { status, error, .. } => Some((status, error.clone())),
+        _ => None,
+    });
+    assert_eq!(
+        failed,
+        Some((
+            &crate::ResultStatus::Failed,
+            Some(
+                "refusing to invoke the agent CLI: the engine's MCP isolation intent cannot be \
+                 read, so no strict MCP configuration is built"
+                    .to_string()
+            )
+        ))
+    );
+    assert!(!dir.path().join("argv").exists());
 }
 
 #[cfg(unix)]

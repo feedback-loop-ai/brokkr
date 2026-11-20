@@ -30,6 +30,7 @@ use thiserror::Error;
 use super::claude_fold::ClaudeFold;
 use super::refusal::refusal_reason;
 use super::{fold_stream_event, io_context, lost, secret, spawn_fed, Invocation, LaunchTerminal};
+use crate::native_controls::mcp::qoder::isolation;
 use crate::transcript::{Kind as TranscriptKind, Transcript};
 use crate::PreSessionRefusal;
 
@@ -44,22 +45,24 @@ const HEAD: [&str; 6] = [
     "accept_edits",
 ];
 
-/// The native tools a level-1 seat holds, and the MCP meta-tools it is
-/// denied. Without `--tools` the CLI keeps its 34-tool default, `Agent`,
-/// `Workflow`, the cron tools and the web tools among them; `--tools ""`
-/// still leaves the three MCP meta-tools, which only `--disallowed-tools`
-/// removes (the record's Tools facts).
-const TOOLS: [&str; 9] = [
-    "--tools",
-    "Read",
-    "Edit",
-    "Write",
-    "Glob",
-    "Grep",
-    "Bash",
-    "--disallowed-tools",
-    "mcp_call,mcp_get,mcp_list",
-];
+/// The native tools a level-1 seat holds. Without `--tools` the CLI keeps
+/// its 34-tool default, `Agent`, `Workflow`, the cron tools and the web
+/// tools among them (the record's Tools facts).
+const TOOLS: [&str; 7] = ["--tools", "Read", "Edit", "Write", "Glob", "Grep", "Bash"];
+
+/// The MCP meta-tools a seat the engine serves no server is denied:
+/// `--tools ""` still leaves them, and only `--disallowed-tools` removes
+/// them (the record's Tools facts). A seat served one keeps them, because
+/// the engine's server is reached through them (Q14, Q15).
+const META_DENIED: [&str; 2] = ["--disallowed-tools", "mcp_call,mcp_get,mcp_list"];
+
+/// What the engine's MCP set gives one launch: the file the engine wrote
+/// its document to, and the grant of each tool that document serves.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct Engine<'a> {
+    pub(super) file: &'a str,
+    pub(super) grants: &'a [String],
+}
 
 /// The three controls a seat's argv may carry, each once and each with one
 /// value: the adapter's model flag, its effort flag and its tool
@@ -99,6 +102,11 @@ pub(super) enum LaunchError {
          model of its own choosing when none is named; a provisional seat pins its id (#1178)"
     )]
     Unpinned,
+    #[error(
+        "refusing to invoke the agent CLI: the engine's MCP file for the qoder seat has a path \
+         that is not UTF-8, so no argument names it exactly (#1178)"
+    )]
+    Unnamed,
 }
 
 /// One qoder launch: the command spawned and the id it pins.
@@ -108,11 +116,13 @@ pub(super) struct Launch {
     pub(super) pin: String,
 }
 
-/// The launch for `extra`, the arguments behind the driver's `--`: the
-/// head, the seat's own controls in the order it wrote them, and the tool
-/// lists last. Nothing else in `extra` is launched: a token this driver
-/// does not admit refuses before any provider work.
-pub(super) fn launch(bin: &str, extra: &[String]) -> Result<Launch, LaunchError> {
+/// The launch for `extra`, the arguments behind the driver's `--`, served
+/// `engine`'s set: the head, the seat's own controls in the order it wrote
+/// them, the engine's grants joined to its one `--allowed-tools` value,
+/// the MCP isolation in its one home, and the tool lists last. Nothing
+/// else in `extra` is launched: a token this driver does not admit
+/// refuses before any provider work.
+fn launch(bin: &str, extra: &[String], engine: Engine<'_>) -> Result<Launch, LaunchError> {
     let mut pin = None;
     let mut seen: Vec<&'static str> = Vec::new();
     let mut parts = extra.iter();
@@ -138,9 +148,72 @@ pub(super) fn launch(bin: &str, extra: &[String]) -> Result<Launch, LaunchError>
     let pin = pin.ok_or(LaunchError::Unpinned)?;
     let mut command = vec![bin.to_string()];
     command.extend(HEAD.iter().map(|part| part.to_string()));
-    command.extend(extra.iter().cloned());
+    command.extend(granted(extra, engine.grants));
+    command.extend(isolation(engine.file));
     command.extend(TOOLS.iter().map(|part| part.to_string()));
+    if engine.grants.is_empty() {
+        command.extend(META_DENIED.iter().map(|part| part.to_string()));
+    }
     Ok(Launch { command, pin })
+}
+
+/// The seat's admitted controls with `grants` joined after the value of
+/// its one `--allowed-tools`, comma-separated as the adapter's separator,
+/// or written as that control where the seat grants nothing of its own: so
+/// the control appears once. No grant changes no byte.
+fn granted(extra: &[String], grants: &[String]) -> Vec<String> {
+    let mut seat = extra.to_vec();
+    if grants.is_empty() {
+        return seat;
+    }
+    let allowed = CONTROLS[2];
+    // Every value was read as no option, so the control is found by itself.
+    match seat.iter().position(|part| part == allowed) {
+        Some(at) => seat[at + 1] = [&seat[at + 1..at + 2], grants].concat().join(","),
+        None => seat.extend([allowed.to_string(), grants.join(",")]),
+    }
+    seat
+}
+
+/// One qoder seat, start to end: the engine's set read from `input`
+/// ([`super::mcp::qoder_set`]), its document written to a private file the
+/// launch names, the launch, and its turn. The file lives until the turn
+/// ends.
+pub(super) fn drive(
+    bin: &str,
+    extra: &[String],
+    prompt: &str,
+    input: &Value,
+    bindings: &[secret::BoundSecret],
+    emit: &mut impl FnMut(&Value),
+) -> Result<Invocation, String> {
+    let workdir = input.get("workdir").and_then(Value::as_str).unwrap_or("");
+    let served = super::mcp::qoder_set(input, workdir).map_err(|refusal| refusal.at_launch())?;
+    let staged = io_context(staged(&served.document), STAGING)?;
+    let file = staged.path().join(MCP_FILE);
+    let engine = Engine {
+        file: file.to_str().ok_or(LaunchError::Unnamed.to_string())?,
+        grants: &served.grants,
+    };
+    let launch = launch(bin, extra, engine).map_err(|error| error.to_string())?;
+    invoke(&launch, prompt, input, bindings, emit)
+}
+
+/// The name of the engine's MCP document in its private directory.
+const MCP_FILE: &str = "mcp.json";
+
+/// What a launch whose MCP file could not be written states.
+const STAGING: &str = "refusing to invoke the agent CLI: the engine's MCP file for the qoder seat \
+                       was not written";
+
+/// `document` written as [`MCP_FILE`] in a private directory of its own,
+/// which goes with the value.
+fn staged(document: &Value) -> std::io::Result<tempfile::TempDir> {
+    let dir = tempfile::Builder::new()
+        .prefix("brokkr-qoder-mcp-")
+        .tempdir()?;
+    std::fs::write(dir.path().join(MCP_FILE), document.to_string())?;
+    Ok(dir)
 }
 
 /// Qoder's rows read for the model they served, before the Claude fold
@@ -289,7 +362,7 @@ const STOPPED_AT_REFUSAL: i32 = 1;
 /// [`QoderFold`], the harness stopped at a refusing row, and the turn's
 /// end read for a refusal its stream did not state. `input` names the
 /// workdir and the result path, as it does for every driver.
-pub(super) fn invoke(
+fn invoke(
     launch: &Launch,
     prompt: &str,
     input: &Value,

@@ -745,7 +745,8 @@ fn resolved(
 /// no broker (U7d, U9b1c; SI2): Claude's fragment carries them, while Codex's
 /// fragment and dsh's engine-only home do not, so the driver refuses such a
 /// set for either whichever way the fence stands; Qoder's level-1 driver
-/// composes no MCP at all (#1178). Any other set meets none.
+/// carries no broker, because its broker grant is unmeasured (#1178). Any
+/// other set meets none.
 fn unbrokered(set: McpIntent, harness: &str) -> Option<StrictCause> {
     let carried = match AdapterKind::parse(harness) {
         Some(AdapterKind::Codex | AdapterKind::Dsh | AdapterKind::Qoder) => false,

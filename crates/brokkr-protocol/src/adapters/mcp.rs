@@ -44,6 +44,8 @@ use crate::served_home::{dsh_served, DshCause, DshRefusal, DshServed, RouteRefus
 use crate::transcript::{DshHome, DshHomeError};
 
 mod admit;
+mod qoder;
+pub(super) use qoder::qoder_set;
 
 /// The MCP document of the empty server set, exactly as U0 measured it
 /// (cell C03).

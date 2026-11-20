@@ -29,7 +29,7 @@ mod access;
 pub use access::Access;
 pub mod grammar;
 mod listed;
-mod mcp;
+pub(crate) mod mcp;
 mod read;
 
 use grammar::{Command, Effect, ListKind};

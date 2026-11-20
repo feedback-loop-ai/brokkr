@@ -938,6 +938,67 @@ fn the_qoder_example_declares_five_provisional_models_and_no_judge() {
     assert_eq!(qoder.hands, None);
 }
 
+/// `workspace`'s copy of Qoder's example with its `mcp` shapes kept where
+/// `keep` holds of a shape's invocation.
+fn qoder_shapes(workspace: &Workspace, keep: impl Fn(&str) -> bool) -> &Workspace {
+    let file = workspace.path("adapters/qoder.json");
+    let mut adapter: Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+    let shapes = adapter["mcp"]["shapes"].as_array_mut().unwrap();
+    shapes.retain(|shape| keep(shape["invocation"].as_str().unwrap()));
+    std::fs::write(file, adapter.to_string()).unwrap();
+    workspace
+}
+
+/// The `researcher` work seat of `workspace` compiled beside an exec gate,
+/// which serves no model, past the lifted fence: its error's words.
+fn si2(workspace: &Workspace) -> Result<Bundle, String> {
+    let exec = shipped().join("adapters/exec.json");
+    std::fs::copy(exec, workspace.path("adapters/exec.json")).unwrap();
+    let command = json!(["{brokkr}", "driver", "exec", "--", "true"]);
+    let review = json!({"results": ["clean"], "driver": {"command": command}});
+    let _lift = crate::capabilities::McpFence::lift();
+    let compiled = workspace.compile_beside(seat("researcher", "work"), review, &["researcher"]);
+    compiled.map_err(|error| error.to_string())
+}
+
+/// SI2 past the lifted fence (#1178): the example's measured cold and
+/// replacement shapes without hands admit a work seat, and each is needed;
+/// the same office boxing its hands is refused.
+#[test]
+fn si2_admits_a_qoder_seat_without_hands_and_refuses_it_boxed() {
+    assert_eq!(chain(&si2(&qoder_workspace()).unwrap()), ["qoder-fast"]);
+    for missing in ["cold", "replacement"] {
+        let workspace = qoder_workspace();
+        let compiled = si2(qoder_shapes(&workspace, |shape| shape != missing));
+        assert_eq!(
+            compiled.map(drop),
+            Err(format!(
+                "bundle: seat 'work' (office 'researcher') in realm '<unmapped>': provider \
+                 'qoder' has no measured strict MCP configuration for '{missing}'"
+            ))
+        );
+    }
+    let boxed = qoder_workspace();
+    let office = boxed.path("agents/researcher.json");
+    let mut body: Value = serde_json::from_slice(&std::fs::read(&office).unwrap()).unwrap();
+    body["hands"] = json!("workspace");
+    std::fs::write(office, body.to_string()).unwrap();
+    assert_eq!(
+        si2(&boxed).map(drop),
+        Err(
+            "bundle: seat 'work': agent 'researcher' cannot be served by provider 'qoder' on \
+             model 'qoder-fast': the provider declares hands unsupported (level 1 is unboxed \
+             (#1178, decision 0075): a boxed Qoder turn, its egress and its process reach are \
+             not measured (docs/evidence/adapters/qoder-cli-1-1.md, Not measured), so a site \
+             that boxes its hands refuses this seat), so the agent's hands cannot be put in the \
+             box and the agent would run with the harness's own tools. A capability the \
+             provider cannot express fails compilation here rather than degrading silently at \
+             run time"
+                .to_string()
+        )
+    );
+}
+
 /// The adapter fixture as every load refusal names it.
 fn adapter_file(workspace: &Workspace) -> String {
     let path = workspace.path("adapters/newcomer.json");
