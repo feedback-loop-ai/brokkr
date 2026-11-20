@@ -745,23 +745,45 @@ operator's compile names it. Cost, said plainly: a change to `Cargo.toml`, a dep
 them, can never park as `ci-infrastructure`; a setup fault beside it costs one implement visit,
 as today.
 
-**The closure is checked on the tree each judged job executed.** The change classes are only as
-good as the machinery's closure, so the engine tests it before it trusts it, over the tree the
-job actually ran, read through 0109's verified reader (below) and never from the worktree. A
-job's **closure tree** is the commit its one proven checkout (ruling 3, below) holds: for a
-`merge` entry, the merge commit the run records, whose first parent is the base the observation
-names; for a `head` entry, the gated head. Its workflow definition is read from the revision
-the run's event ran the workflow from, which for `pull_request` the forge documents as the
-merge revision
-(<https://docs.github.com/en/actions/writing-workflows/choosing-when-your-workflow-runs/events-that-trigger-workflows#pull_request>;
-unmeasured until 0111a). A job whose closure tree, or whose workflow's revision, the
-observation does not establish is `revision-unmeasured`, and no closure verdict is taken for
-it. Where this decision reads the closure, the aggregate parse or a matrix "at the base", it
-reads it at that job's closure tree; the basis seals each job's closure-tree commit, so a
-replay reads which tree was judged.
+**The closure reads two sources, each the one GitHub ran.** The change classes are only as
+good as the machinery's closure, so the engine tests it before it trusts it, over what the job
+actually ran, read through 0109's verified reader (below) and never from the worktree. What ran
+has two parts, and each has exactly one source:
 
-- Every workflow file of an entry in the entry set (ruling 6's one derivation) is parsed at the
-  base into a typed subset: each job's
+- **The schedule comes from the event workflow.** Every step, `uses`, `run`, `env`,
+  `working-directory`, `needs` and `strategy.matrix` the closure, the aggregate parse and the
+  instance table read is parsed only from the **event workflow**: the workflow file at the
+  revision GitHub ran for that run, as the run reports it. For `pull_request` the forge
+  documents that revision as the merge revision
+  (<https://docs.github.com/en/actions/writing-workflows/choosing-when-your-workflow-runs/events-that-trigger-workflows#pull_request>;
+  unmeasured until 0111a), so for this house it is the merge commit, whichever tree a job then
+  checks out. Its identity is the run's reported revision, the workflow's path, and the blob id
+  0109's verified reader finds at that path in that revision. The checked-out tree's copy of the
+  workflow is never parsed: it is a file the job may hold, not the schedule GitHub ran.
+- **Local files come from the executed checkout.** Every script, local action (`uses: ./…` and
+  its `action.yml`), implicit input, environment-selected file, read operand and include the
+  closure follows is resolved in the job's **closure tree**, the commit its one proven checkout
+  (below) holds: for a `merge` entry, the merge commit the run records, whose first parent is
+  the base the observation names; for a `head` entry, the gated head.
+
+Both identities are sealed, the event workflow's per run and the closure tree per judged job, in
+the basis's instance table (below), so a replay reads which schedule and which tree were judged.
+**When either cannot be established, the observation refuses as `source-unestablished`**,
+naming the run or the job and which source ([No refusal weakens](#no-refusal-weakens)): the
+expected instances `instance-duplicated` reads come from the event workflow, so an unknown
+schedule leaves that refusal undecided. Where this decision reads the closure, the aggregate
+parse or a matrix "at the base", it reads the schedule from the event workflow and the files
+from that job's closure tree.
+
+Why it matters: let the event workflow add a dependency job key, under a required aggregate,
+that the checked-out head's copy of the workflow lacks, and let the forge report that key twice
+in one attempt, beside a single failed required aggregate. The event workflow expects the key,
+so `instance-duplicated` holds and the run refuses, `CI-REFUSED`. Parsed from the head instead,
+the duplicate is an unexpected instance, which draws `change` with `matrix-incomplete` and routes
+`CI-FAIL`: a person's ruled park would have become an implement visit.
+
+- Every workflow file of an entry in the entry set (ruling 6's one derivation) is parsed, as its
+  event workflow, into a typed subset: each job's
   `needs`, its `strategy.matrix`, its steps' `uses`, `run`, `working-directory` and `env`, the
   workflow's and the job's `env`, and the
   workflow's and the job's `defaults.run.working-directory`
@@ -858,7 +880,7 @@ replay reads which tree was judged.
   what they read is not known, so it is not known to be machinery.
 - **Every file a required job executes, reads as an implicit input, a product input of a step
   that supplies setup, an environment-selected file, a read operand or an include, or runs
-  from at the base
+  from, in its closure tree,
   lies outside the change classes,** or `machinery-escapes` withholds the class, naming the
   reference and the file that made it.
 - **A reference the test cannot resolve fails closed,** as `machinery-unresolved`: an operand or
@@ -949,12 +971,12 @@ run on the head may check out the base (`:49-55`). So each required Actions entr
 `tested`, one of two words, and the tested revision must be the exact one:
 
 - `head`: the job tested the gated head itself. The run's `head_sha` and its association's
-  `head.sha` must equal the gated head, and the pinned workflow at the base, read by ruling 3's
-  closure parse, must check that SHA out in the job: an `actions/checkout` step whose `ref` is
+  `head.sha` must equal the gated head, and the event workflow, read by ruling 3's closure
+  parse, must check that SHA out in the job: an `actions/checkout` step whose `ref` is
   the head-SHA expression `${{ github.event.pull_request.head.sha }}`, as `:61-64` spells it.
-  A `head` entry whose job checks out no such ref, or more than one ref it could run from,
-  withholds the class as `revision-unestablished`.
-- `merge`: the job tested the forge's merge revision, `refs/pull/<number>/merge`. The pinned
+  A `head` entry whose job checks out no such ref, or more than one ref it could run from, has
+  no established closure tree, and refuses as `source-unestablished`.
+- `merge`: the job tested the forge's merge revision, `refs/pull/<number>/merge`. The event
   workflow's checkout in the job must take that ref, by default or by naming it. The
   observation must name the exact merge commit the run tested, as the run records it, and that
   commit's two parents. Its first parent must be the base the observation names, which must be
@@ -991,21 +1013,21 @@ commit and the gated head all be one commit, which no valid merge is; that row i
 job, such as a test that checks out another commit, is the change under test, which review reads:
 it is not CI's machinery and this decision does not guard it. A checkout moved by machinery, a
 workflow step or a script outside the change classes, is ruling 3's: if the change touched that
-machinery, `machinery-touched` already withholds; if it did not, the base's machinery is what
-ran. What the forge would have to give, to prove beyond that which revision a verdict-bearing
+machinery, `machinery-touched` already withholds; if it did not, the event workflow's schedule
+over the closure tree's files is what ran, and ruling 3's closure judges exactly those. What the forge would have to give, to prove beyond that which revision a verdict-bearing
 step used, is a field naming the commit the run checked out. The run's `head_sha` is the pull
 request's head, not the merge commit, and whether any field of the run or its jobs records the
 merge commit tested is **unmeasured** until 0111a. **Where the forge exposes no such field, the
-entry is `revision-unmeasured`, and no `ci-infrastructure` is drawn.** This decision claims no
-proof GitHub does not give.
+job's closure tree is not established, and the observation refuses as `source-unestablished`**
+(ruling 3's two sources). This decision claims no proof GitHub does not give.
 
 **One proven checkout, and every relevant step inside it.** A proven checkout proves the
 revision of one directory, not of the step. A runner may hold other checkouts already: a
 self-hosted runner's earlier workspace, or another `actions/checkout` into a `path` of its own,
 as HEAD's `delivered by brokkr` checks out the base and the head into two directories
 (`.github/workflows/ci.yml:49-64`). A step whose `working-directory` points at one of those ran
-on its revision, and every comparison above can still pass. So, at the base, by ruling 3's
-closure parse:
+on its revision, and every comparison above can still pass. So, in the event workflow, by
+ruling 3's closure parse:
 
 - the rule judges a job that executes checkout contents: every job an entry or its aggregate is
   drawn through, **except a verdict-only aggregate** (ruling 4), which by its definition has no
@@ -1015,7 +1037,8 @@ closure parse:
   them must be one commit, or `revision-disagrees` withholds, naming the two instances;
 - each job the rule judges has exactly one `actions/checkout` step,
   and its `path` (the workspace root when it names none) is **the proven checkout**; a job with
-  two, or with a `path` built by an expression, is unproven;
+  two, or with a `path` built by an expression, has no one closure tree, and refuses as
+  `source-unestablished`;
 - **the checkout completed before any step claimed to run in it.** The checkout step precedes,
   in the job's step list, every reached step the rule judges inside it, and the sealed
   observation reports that step concluded `success` in the same job attempt, its number and
@@ -1032,18 +1055,20 @@ closure parse:
 - an operand naming a file outside the proven checkout is not resolved by the closure at all,
   and withholds there.
 
-Otherwise the entry is `revision-unmeasured`, naming the step and its directory, and no
+Otherwise, where the job's one closure tree is established but a step is not proven inside it,
+the entry is `revision-unmeasured`, naming the step and its directory, and no
 `ci-infrastructure` is drawn.
 
 The declaration is the operator's statement about a pinned workflow, and `machinery-touched`
 withholds the class whenever that workflow moved from the base's bytes. Every required entry in
 this house's list is `merge` (ruling 5), so until 0111a's evidence shows a forge field that
-records the tested merge commit, no `merge` entry draws `ci-infrastructure`, for this house or
-an adopter, and the narrowed acceptance ([above](#what-1093s-acceptance-becomes)) waits on that
+records the tested merge commit, and the revision a run's workflow was read from, every
+observation over a `merge` entry refuses as `source-unestablished`, for this house or an
+adopter, and the narrowed acceptance ([above](#what-1093s-acceptance-becomes)) waits on that
 evidence; this house waits on the closure follow-up as well (above). If 0111a
 finds no such field, the decision is revised before acceptance, and the acceptance is not
-delivered on GitHub. That fails closed: `green` and `change` still behave as landing does
-today.
+delivered on GitHub. That fails closed: every such observation is a person's `ruled` park,
+never a weaker class.
 
 **When `green` is drawn.** `green` grants nothing
 ([The gate grants nothing](#the-gate-grants-nothing)); the rule below says only when the gate
@@ -1079,9 +1104,11 @@ pinned entry green is `change`; and a sole red check under a required entry's na
 workflow is `change` with `producer-mismatch`, never `missing-required`. An inadmissible check
 that succeeded changes nothing: the entry is still matched or absent on its own.
 
-The association and the tested revision are not in that rule: they are precision guards on
-`ci-infrastructure` alone, and an all-success observation whose association or revision is
-unproven proceeds as landing does without the gate.
+The association and the tested revision's comparisons are not in that rule: they are precision
+guards on `ci-infrastructure` alone, and an all-success observation whose association is
+unproven, or whose revisions disagree, proceeds as landing does without the gate. The two sources
+are not guards: an observation whose event workflow or closure tree is not established refuses
+as `source-unestablished` ([No refusal weakens](#no-refusal-weakens)).
 
 The **current execution** of an Actions entry is the workflow run with the highest run number
 among those the forge lists for its workflow path, its event and the head, read at its highest
@@ -1128,9 +1155,11 @@ guards is the one direction the frame does not: a refusal turned into `change`, 
 implement visit where a person's park was owed.
 
 Cost, said plainly: an observation refuses wherever a fact is unknown, `green` included. Until
-0111a measures how the forge names a matrix instance, every observation whose entry set reaches a
-matrix job refuses; no live compile admits a `ci` seat before 0111e, which follows 0111a, and if
-0111a finds the naming unmeasurable the decision is revised before acceptance. An adopter whose
+0111a measures how the forge names a matrix instance, and which fields record the revision a
+run's workflow was read from and the commit a job checked out, every observation whose entry set
+reaches a matrix job, or a `merge` entry, refuses; no live compile admits a `ci` seat before
+0111e, which follows 0111a, and if 0111a finds either unmeasurable the decision is revised before
+acceptance. An adopter whose
 matrix is built by an expression cannot use the gate. **(b)** keeping each case's own fix, as fix rounds
 1093r6 and 1093r7 did, is not taken: it leaves the next case open.
 
@@ -1163,7 +1192,8 @@ outcome. *Observation* is the sealed `ci_observation`; *basis* is the `ci_class`
 | `missing-required` | a required entry has no eligible current match, a check from its bound producer in its current run attempt, and no observed inadmissible failure is reported under its name; a stale same-producer check of any conclusion never counts; it names the entry | the pinned required list (basis); the check list, read whole, each check's producer, run id and attempt, and each key's whole run list (observation) | `missing-required`, naming the entry and the fact |
 | `ambiguous-required` | a required entry matches more than one check in its current execution | the same facts as `missing-required` | `ambiguous-required`, naming the entry and the fact |
 | `execution-ambiguous` | a required entry's current execution cannot be told, as above | each key's whole run list, with each run's status and attempt (observation) | `execution-ambiguous`, naming the key |
-| `instance-duplicated` | one expected matrix instance's key is observed more than once in one run attempt; it names the key and the jobs | each matrix dependency's expected instance keys, parsed from the pinned workflow, with that source's identity, and the forge's instance naming (basis, instance table); each observed job's name, run id and attempt (observation) | `instance-duplicated`, naming the dependency and the fact: an unexpandable matrix, unmeasured naming, or an instance table parsed from another source |
+| `source-unestablished` | a source the classifier parses or resolves against is not established as the one GitHub ran (ruling 3's two sources): a current run's event workflow, or a judged job's closure tree | each current run's reported workflow revision, its workflow path and that file's blob id, and each judged job's one proven checkout and its commit (observation; sealed again in the basis's instance table) | `source-unestablished`, naming the run or the job and which source |
+| `instance-duplicated` | one expected matrix instance's key is observed more than once in one run attempt; it names the key and the jobs | each matrix dependency's expected instance keys, parsed from the event workflow, with that source's identity, and the forge's instance naming (basis, instance table); each observed job's name, run id and attempt (observation) | `instance-duplicated`, naming the dependency and the fact: an unexpandable matrix, unmeasured naming, or an instance table parsed from another source |
 | `instances-too-large` | the instance table exceeds its bound, so `instance-duplicated` cannot be decided; it names the measured count | the instance table's overflow witness (basis) | this row is the `overflowed` state of `instance-duplicated`'s fact, and holds whenever the witness does |
 | `not-settled` | a required check is still queued or in progress when the observer's own polling bound ends, short of the seat's deadline | each matched check's status (observation) | `not-settled`, naming the check |
 | `non-success` | no check in the failure set and no observed inadmissible failure is red, and a matched required check concluded `neutral`, `skipped`, `stale` or `action_required`; it names the check and the word | each matched check's conclusion, and every red the observation holds (observation) | `non-success`, naming the check |
@@ -1179,20 +1209,19 @@ stops nothing landing would do. Each is a precision guard on the one class, and 
 | Withholding | When |
 |---|---|
 | `machinery-touched` | a changed path lies outside every change class; it names the paths |
-| `machinery-escapes` | at the base, a file a required job executes, a command word's implicit input or read operand, a file its effective environment selects, a product input of a declared setup step or of a step that supplies one, a file an implicit input includes, or a reached step's effective working directory lies inside a change class |
-| `machinery-unresolved` | at the base, a reached file holds a reference, read operand or include the closure test cannot resolve, a file-selecting environment key or assignment the table cannot resolve, a state-restoring action supplies a setup step, or a command word, remote action or implicit input format the pinned table does not name |
+| `machinery-escapes` | in a job's closure tree, under its event workflow's schedule, a file a required job executes, a command word's implicit input or read operand, a file its effective environment selects, a product input of a declared setup step or of a step that supplies one, a file an implicit input includes, or a reached step's effective working directory lies inside a change class |
+| `machinery-unresolved` | in a job's closure tree, under its event workflow's schedule, a reached file holds a reference, read operand or include the closure test cannot resolve, a file-selecting environment key or assignment the table cannot resolve, a state-restoring action supplies a setup step, or a command word, remote action or implicit input format the pinned table does not name |
 | `range-unproven` | 0109's verified reader cannot establish the range's provenance and its complete, byte-exact path list |
 | `range-too-large` | the range's changed paths exceed the bound the classification record carries |
 | `basis-too-large` | the classifier's sealed basis would exceed its bound |
 | `association-unproven` | an execution is not positively associated with this pull request, its head and its base; it names the run |
 | `association-ambiguous` | an execution's association array names more than one pull request, open or closed; it names them |
-| `revision-unestablished` | an entry's pinned checkout does not establish its tested revision, as above |
 | `revision-disagrees` | one of the separate comparisons above fails; it names the two values |
-| `revision-unmeasured` | the forge exposes no field proving the revision the entry's run checked out, a job's closure tree or workflow revision is not established, a relevant step's effective working directory is not inside the job's one proven checkout, or the step precedes that checkout's observed success; it names the step |
+| `revision-unmeasured` | a relevant step's effective working directory is not inside the job's one proven checkout, or the step precedes that checkout's observed success; it names the step. A closure tree or event workflow that is not established is not this row's: it refuses as `source-unestablished` |
 | `producer-mismatch` | a check carries a required entry's name from another app or workflow path; it names it, so a substitute is never silently passed over |
 | `status-required` | the forge's required set names a commit status context, which is never admitted |
 | `required-set-disagrees` | the forge requires a check the pinned list lacks |
-| `matrix-incomplete` | a verdict-only aggregate's dependency is missing an expected instance, from the base's pinned matrix (ruling 4), or holds one whose values match no expected entry; it names them. A matrix that cannot be expanded, or whose instances cannot be named, is not this row's: it leaves `instance-duplicated` unestablished, and refuses ([No refusal weakens](#no-refusal-weakens)) |
+| `matrix-incomplete` | a verdict-only aggregate's dependency is missing an expected instance, from its event workflow's matrix (ruling 4), or holds one whose values match no expected entry; it names them. A matrix that cannot be expanded, or whose instances cannot be named, is not this row's: it leaves `instance-duplicated` unestablished, and refuses ([No refusal weakens](#no-refusal-weakens)) |
 
 The gate's word is bound to the engine's class: `pass` is admitted only on `green`, and `fail`
 with a `green` class is refused. A refused word is never rewritten (the same binding 0109
@@ -1226,8 +1255,12 @@ bounded, typed data under `ci-classification/v1`:
   `needs.<dep>.result`; or `independent`, naming its first independent step; or the typed
   `kind-unmeasured`, naming the step the parse could not read;
 - **the instance table**, sealed apart from the closure's job map and inside its own bound
-  (below): **each matrix dependency's expected instance identities**, the base's pinned
-  `strategy.matrix` expanded into its fixed list of instance keys, each the matrix values in
+  (below): **the two sources** (ruling 3), each current run's event workflow identity (its
+  reported revision, path and blob id) and each judged job's closure-tree commit, or the typed
+  `unestablished` naming which, so `source-unestablished` replays; and **each matrix
+  dependency's expected instance identities**, the event workflow's
+  `strategy.matrix` expanded into its fixed list of instance keys, with the event workflow
+  identity it was parsed from, each the matrix values in
   their declared order, each with the revision its own entry rule established for it, so a
   verdict-only aggregate's derived revision replays, with the forge's name for it once 0111a
   measures how the forge names an
@@ -1478,7 +1511,7 @@ an aggregate: job `engine` `needs: engine-machines`, runs `always()`, and its on
 `needs.engine-machines.result` is `success` (`.github/workflows/ci.yml:315-329`). A port bind
 during service boot in an `engine-machines` instance therefore fails `engine` in a step that
 prints no setup literal, and read alone it is `untyped`. So such a job is typed through its
-`needs`, but only when, in the base revision's pinned workflow as ruling 3's closure parse took
+`needs`, but only when, in its event workflow as ruling 3's closure parse took
 it, it is a **verdict-only aggregate**: it has no `uses` step and no checkout, and every one of
 its steps is a single assertion that a dependency's result is `success`, of the form
 `test "$NAME" = success` with `NAME` bound in that step's `env` to exactly
@@ -1490,8 +1523,8 @@ own failed step; that is removed.
 
 The classifier then finds the aggregate's dependencies in the same workflow run and attempt,
 and types each instance that did not succeed by the same rules, recursively. **Every expected
-instance is accounted for.** A dependency's expected instances come from the base's pinned
-`strategy.matrix`: for HEAD's `engine-machines`, its nine `include` entries, five Linux and four
+instance is accounted for.** A dependency's expected instances come from its event workflow's
+`strategy.matrix` (ruling 3's two sources), never from a checked-out copy: for HEAD's `engine-machines`, its nine `include` entries, five Linux and four
 macOS machines (`:192-215`). An observation missing any
 expected instance, or holding one whose matrix values match no expected entry, withholds the
 class as `matrix-incomplete`, so a sparse observation cannot look all-setup. **The binding is
@@ -1505,8 +1538,9 @@ keys unknown, so `instance-duplicated` cannot be established false and the obser
 observed job is matched to its expected entry, is **unmeasured** until 0111a; until it is
 measured every observation that reaches a matrix dependency refuses the same way.
 
-This is safe because the base workflow is the one the run used (ruling 3 withholds the class on
-a changed one as `machinery-touched`), and because the type only parks: a mistyped aggregate
+This is safe because the event workflow is the one GitHub ran, by its sealed identity (ruling 3
+refuses where it is not established, and withholds the class on a changed one as
+`machinery-touched`), and because the type only parks: a mistyped aggregate
 costs a person's look, never a pass. A verdict-only aggregate's own failed step is taken as its
 dependencies' consequence, not read, because it holds nothing else.
 
@@ -1582,7 +1616,7 @@ Under ruling 4 (a), two more keys declare the evidence that types a park:
 The job is HEAD's: `engine-machines`, which the required `test (…)` aggregate needs
 (`.github/workflows/ci.yml:315-329`). The step is illustrative: HEAD's `engine-machines` boots no
 compose service, and the adopter's step name and excerpt are unmeasured. A setup step's job must
-be a required entry's job, or a job a required aggregate needs at the base, transitively; the
+be a required entry's job, or a job a required aggregate needs in its event workflow, transitively; the
 check runs with ruling 3's closure parse, and a setup step outside both withholds the class as
 `machinery-unresolved`. Under ruling 4 (b) the compile refuses either key. A pattern is a
 literal: 1 to 200 printable ASCII bytes, matched as an exact, case-sensitive byte substring. No
@@ -2235,7 +2269,24 @@ slice that produces it, and each typed assertion is in the slice that builds its
    `a_matrix_built_by_an_expression_refuses_as_instance_duplicated_unestablished`;
    `an_aggregate_with_one_untyped_dependency_is_the_changes`;
    `an_aggregate_whose_dependency_is_in_another_attempt_is_the_changes`;
-   `the_aggregate_reads_its_needs_from_the_base_workflow_never_the_head`;
+   `the_aggregate_reads_its_needs_and_matrix_from_the_event_workflow_never_the_checkout`
+   (the event workflow and the checked-out head's copy name different `needs`: the event's are
+   followed);
+   `an_event_workflow_dependency_key_absent_from_the_checkout_observed_twice_refuses_as_instance_duplicated`
+   (the chief's case: established instance naming; the event workflow adds a dependency key
+   under a required aggregate that the checked-out head's copy lacks, and the forge reports that
+   key twice in one attempt beside a single failed required aggregate: `refused`,
+   `instance-duplicated` naming the key, `CI-REFUSED`, never `change` with `matrix-incomplete`
+   or `CI-FAIL`, live and from the journal alone);
+   `a_setup_command_that_differs_between_the_event_workflow_and_the_checkout_is_judged_by_the_event_workflow`
+   (the event workflow's declared setup step runs `test -f crates/ci/ready`, the checked-out
+   head's copy of the same step runs `echo`, and the change removes only that file: `change`,
+   `withheld`, `machinery-escapes` naming the event workflow's command, and its control with
+   the two commands swapped reaches classification);
+   `a_run_whose_event_workflow_revision_is_unreported_refuses_as_source_unestablished` (live
+   and from the journal alone);
+   `a_local_helper_is_resolved_in_the_executed_checkout_never_the_event_revision` (a `head`
+   entry whose helper differs between the merge commit and the head: the head's is followed);
    `a_setup_step_in_a_job_no_required_aggregate_needs_withholds`;
    `a_stale_head_observation_does_not_read`; `a_pass_with_a_failed_job_is_refused`;
    `a_seat_cannot_write_the_classification`; `a_ci_list_on_a_model_seat_refuses_to_compile`.
@@ -2248,7 +2299,7 @@ slice that produces it, and each typed assertion is in the slice that builds its
    (`association-ambiguous`, with B closed and the open list naming only A);
    `an_all_success_observation_with_an_unproven_association_is_green`;
    `an_association_and_a_checkout_that_disagree_withhold_as_revision_disagrees`;
-   `a_head_entry_whose_pinned_job_checks_out_another_ref_withholds_as_revision_unestablished`;
+   `a_head_entry_whose_event_workflow_job_checks_out_another_ref_refuses_as_source_unestablished`;
    `the_full_two_entry_engine_matrix_with_a_distinct_valid_merge_commit_reaches_classification`
    (a synthetic workflow of the house's shape, whose closure resolves: both `test (…)` entries
    over all nine `engine-machines` instances, each with a merge commit distinct from the head
@@ -2258,7 +2309,7 @@ slice that produces it, and each typed assertion is in the slice that builds its
    `changing_the_checkout_revision_of_a_dependency_draws_no_ci_infrastructure`
    (one `engine-machines` instance records another merge commit: `revision-disagrees` for the
    aggregate);
-   `an_entry_whose_run_records_no_tested_commit_withholds_as_revision_unmeasured`;
+   `an_entry_whose_run_records_no_tested_commit_refuses_as_source_unestablished`;
    `a_setup_step_whose_working_directory_points_at_another_provisioned_checkout_draws_no_ci_infrastructure`
    (unchanged machinery, one checkout of the correct merge commit into `candidate/`, every
    comparison passing, and the declared setup step's `working-directory` another directory
@@ -2271,7 +2322,7 @@ slice that produces it, and each typed assertion is in the slice that builds its
    `a_step_whose_working_directory_is_the_candidate_checkout_reaches_classification` (the
    positive control: the same job, the step's `working-directory: candidate`, a declared
    port-bind literal: `ci-infrastructure`);
-   `a_job_with_two_checkouts_withholds_as_revision_unmeasured`;
+   `a_job_with_two_checkouts_refuses_as_source_unestablished`;
    `a_step_working_directory_built_by_an_expression_withholds_as_revision_unmeasured`;
    `a_status_entry_in_the_required_list_refuses_to_compile`;
    `a_status_context_in_the_forges_required_set_withholds_as_status_required`;
@@ -2335,7 +2386,7 @@ slice that produces it, and each typed assertion is in the slice that builds its
    editing only that file so A's helper, still in the head, prints the declared literal:
    `change`, `withheld`, with `machinery-escapes` naming A's helper and the read, though a scan
    of B closes);
-   `a_job_whose_closure_tree_is_not_established_withholds_as_revision_unmeasured`;
+   `a_job_whose_closure_tree_is_not_established_refuses_as_source_unestablished`;
    `a_setup_step_listed_before_the_checkout_withholds_as_revision_unmeasured` (the declared
    setup step precedes the job's one `actions/checkout`, and its literal `working-directory` is
    inside the checkout's `path`: `change`, `withheld`, `revision-unmeasured` naming the step and
@@ -2352,7 +2403,7 @@ slice that produces it, and each typed assertion is in the slice that builds its
    a red setup-only observation of `mutants in the diff: brokkr-core`: exactly `change`,
    `withheld`, `machinery-unresolved` naming `scripts/mutants.sh:31` and its substituted `cd`;
    replaced with the other at the follow-up);
-   `an_ambiguous_tested_revision_withholds_as_revision_unestablished`;
+   `an_ambiguous_tested_revision_refuses_as_source_unestablished`;
    `a_merge_revision_whose_parents_are_not_the_base_and_the_head_withholds`;
    `two_unsettled_runs_for_one_entry_refuse_as_execution_ambiguous`;
    `missing_required_beside_a_classifiable_failure_refuses_and_is_never_typed`;
@@ -2488,6 +2539,8 @@ slice that produces it, and each typed assertion is in the slice that builds its
    (the required audit is not on the pages read; another entry's ordinary failure is);
    `a_check_list_read_short_of_its_last_page_beside_one_match_refuses_as_ambiguous_required_unestablished`;
    `a_run_list_read_short_of_its_last_page_refuses_as_execution_ambiguous_unestablished`;
+   `an_unreported_event_workflow_revision_beside_an_all_setup_failure_refuses_as_source_unestablished`
+   and its sibling, a judged job whose closure tree no run field records;
    `an_unexpandable_matrix_beside_an_all_setup_failure_refuses_as_instance_duplicated_unestablished`;
    `unmeasured_instance_naming_beside_an_all_success_observation_refuses_as_instance_duplicated_unestablished`;
    `an_instance_table_whose_source_is_not_the_established_one_refuses_as_instance_duplicated_wrong_source`;
