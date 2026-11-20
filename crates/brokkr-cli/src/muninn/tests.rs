@@ -380,7 +380,7 @@ fn the_work_queue_refuses_a_settled_run_and_offers_an_unjudged_one_as_its_action
             ending,
         };
         assert_eq!(queue::offer(&dossier, &cited), Err(refusal.clone()));
-        assert_eq!(queued(run_id).err(), Some(refusal.to_string()));
+        assert_eq!(queued(run_id).err(), Some(Unusable::Settled(refusal)));
     }
     for (run_id, ending, offer, word) in [
         ("outage-run", "infrastructure", queue::Offer::Retry, "retry"),
@@ -646,9 +646,9 @@ fn one_unfoldable_journal_is_a_finding_and_the_rest_of_the_fleet_still_reads() {
     )
     .err()
     .expect("a run nothing could fold admits no command");
-    assert!(
-        refused.contains("not an operator command the dossier states"),
-        "{refused}"
+    assert_eq!(
+        refused,
+        not_admitted("a parked-run proposal", "retry", "poisoned-run")
     );
 
     // And the seat may not dress the unfoldable run in a realm: the
@@ -668,7 +668,16 @@ fn one_unfoldable_journal_is_a_finding_and_the_rest_of_the_fleet_still_reads() {
     )
     .err()
     .expect("a realm the dossier does not state is refused");
-    assert!(dressed.contains("no realm"), "{dressed}");
+    assert_eq!(
+        dressed,
+        Unusable::OtherRealm {
+            what: "a work-queue entry",
+            run_id: "poisoned-run".to_string(),
+            seq: 6,
+            claimed: "alpha".to_string(),
+            stated: None,
+        }
+    );
 }
 
 /// Decision 0047 ruling 4: the dossier carries the mark, the annotation
@@ -785,9 +794,9 @@ fn a_report_may_cite_the_annotation_and_leaves_the_finding_out_of_the_queue() {
     )
     .err()
     .expect("a run that has finished admits no operator command");
-    assert!(
-        refused.contains("not an operator command the dossier states"),
-        "{refused}"
+    assert_eq!(
+        refused,
+        not_admitted("a parked-run proposal", "supersede", "held-run")
     );
 }
 
@@ -1003,8 +1012,16 @@ fn a_proposal_is_recorded_under_the_realm_the_dossier_states_for_it() {
     )
     .err()
     .expect("a report naming the wrong realm is refused");
-    assert!(wrong.contains("in realm 'beta'"), "{wrong}");
-    assert!(wrong.contains("realm 'alpha'"), "{wrong}");
+    assert_eq!(
+        wrong,
+        Unusable::OtherRealm {
+            what: "a parked-run proposal",
+            run_id: "parked-run".to_string(),
+            seq: 8,
+            claimed: "beta".to_string(),
+            stated: Some("alpha".to_string()),
+        }
+    );
 }
 
 /// A reader must be able to follow a proposal back to the journal it was
@@ -1328,11 +1345,12 @@ fn a_crossing_citation_is_checked_against_the_consuming_realm() {
     )
     .err()
     .expect("an invented crossing is refused");
-    assert!(
-        invented.contains("does not state as a finding"),
-        "{invented}"
-    );
-    assert!(invented.contains("ghost.api"), "{invented}");
+    let unstated = |realm: &str, crossing: &str| Unusable::UnstatedCrossing {
+        what: "a work-queue entry",
+        realm: realm.to_string(),
+        crossing: crossing.to_string(),
+    };
+    assert_eq!(invented, unstated("beta", "ghost.api"));
 
     let mismatched = validate(
         &derived,
@@ -1347,10 +1365,7 @@ fn a_crossing_citation_is_checked_against_the_consuming_realm() {
     )
     .err()
     .expect("a crossing charged to the wrong realm is refused");
-    assert!(
-        mismatched.contains("does not state as a finding"),
-        "{mismatched}"
-    );
+    assert_eq!(mismatched, unstated("alpha", "orders.api"));
 }
 
 /// A report that queues beta's moved `orders.api` contract, validated
@@ -1632,8 +1647,26 @@ fn empty_report() -> Value {
     }))
 }
 
-fn refused(result: Value) -> String {
+fn refused(result: Value) -> Unusable {
     validate(&parked_dossier(), &result).err().expect("refused")
+}
+
+fn no_text(what: &'static str, key: &'static str) -> Unusable {
+    Unusable::NoText { what, key }
+}
+
+fn unstated(what: &'static str, run_id: &str, seq: u64) -> Unusable {
+    let run_id = run_id.to_string();
+    Unusable::Unstated { what, run_id, seq }
+}
+
+fn not_admitted(what: &'static str, command: &str, run_id: &str) -> Unusable {
+    let (command, run_id) = (command.to_string(), run_id.to_string());
+    Unusable::NotAdmitted {
+        what,
+        command,
+        run_id,
+    }
 }
 
 #[test]
@@ -1677,20 +1710,27 @@ fn a_well_formed_report_validates_with_its_citations_collected() {
 
 #[test]
 fn a_report_that_does_not_meet_the_shape_is_refused_and_never_repaired() {
-    assert!(refused(json!({"result": "complete"})).contains("reached 'complete'"));
-    assert!(refused(json!({})).contains("reached '—'"));
-    assert!(refused(json!({"result": "proposed"})).contains("no 'inputs' object"));
-    assert!(refused(reported(json!({}))).contains("missing a non-empty 'fleet_summary'"));
-    assert!(
-        refused(reported(json!({"fleet_summary": ""}))).contains("non-empty 'fleet_summary'"),
+    let reached = |reached: &str| Unusable::Unreached {
+        reached: reached.to_string(),
+    };
+    assert_eq!(refused(json!({"result": "complete"})), reached("complete"));
+    assert_eq!(refused(json!({})), reached("—"));
+    assert_eq!(refused(json!({"result": "proposed"})), Unusable::NoInputs);
+    let summary = no_text("the report", "fleet_summary");
+    assert_eq!(refused(reported(json!({}))), summary);
+    assert_eq!(
+        refused(reported(json!({"fleet_summary": ""}))),
+        summary,
         "an empty summary is as absent as no summary"
     );
-    assert!(refused(reported(json!({"fleet_summary": "s"})))
-        .contains("missing the 'parked_runs' array"));
-    assert!(refused(reported(json!({
-        "fleet_summary": "s", "parked_runs": []
-    })))
-    .contains("missing the 'work_queue' array"));
+    assert_eq!(
+        refused(reported(json!({"fleet_summary": "s"}))),
+        Unusable::NoArray { key: "parked_runs" }
+    );
+    assert_eq!(
+        refused(reported(json!({"fleet_summary": "s", "parked_runs": []}))),
+        Unusable::NoArray { key: "work_queue" }
+    );
 }
 
 #[test]
@@ -1700,37 +1740,57 @@ fn a_proposal_that_cannot_be_followed_back_to_a_journal_fact_is_refused() {
             "fleet_summary": "s", "parked_runs": [entry], "work_queue": [],
         }))
     };
-    assert!(refused(parked(json!({}))).contains("missing a non-empty 'run_id'"));
-    assert!(refused(parked(json!({"run_id": "parked-run"}))).contains("missing a numeric 'seq'"));
-    assert!(refused(parked(json!({"run_id": "parked-run", "seq": 3})))
-        .contains("cites parked-run seq 3, which the dossier does not state"));
-    assert!(
-        refused(parked(json!({"run_id": "ghost-run", "seq": 8}))).contains("cites ghost-run seq 8")
+    let what = "a parked-run proposal";
+    assert_eq!(refused(parked(json!({}))), no_text(what, "run_id"));
+    assert_eq!(
+        refused(parked(json!({"run_id": "parked-run"}))),
+        Unusable::NoSeq { what }
     );
-    assert!(refused(parked(json!({"run_id": "parked-run", "seq": 8})))
-        .contains("a parked-run proposal is missing a non-empty 'command'"));
-    assert!(refused(parked(
-        json!({"run_id": "parked-run", "seq": 8, "command": "ship"})
-    ))
-    .contains("suggests 'ship' for parked-run, which is not an operator command"));
-    assert!(refused(parked(
-        json!({"run_id": "parked-run", "seq": 8, "command": "retry"})
-    ))
-    .contains("a parked-run proposal is missing a non-empty 'reasoning'"));
+    assert_eq!(
+        refused(parked(json!({"run_id": "parked-run", "seq": 3}))),
+        unstated(what, "parked-run", 3)
+    );
+    assert_eq!(
+        refused(parked(json!({"run_id": "ghost-run", "seq": 8}))),
+        unstated(what, "ghost-run", 8)
+    );
+    assert_eq!(
+        refused(parked(json!({"run_id": "parked-run", "seq": 8}))),
+        no_text(what, "command")
+    );
+    assert_eq!(
+        refused(parked(
+            json!({"run_id": "parked-run", "seq": 8, "command": "ship"})
+        )),
+        not_admitted(what, "ship", "parked-run")
+    );
+    assert_eq!(
+        refused(parked(
+            json!({"run_id": "parked-run", "seq": 8, "command": "retry"})
+        )),
+        no_text(what, "reasoning")
+    );
 
     let queued = |entry: Value| {
         reported(json!({
             "fleet_summary": "s", "parked_runs": [], "work_queue": [entry],
         }))
     };
-    assert!(refused(queued(json!({"run_id": "parked-run", "seq": 4})))
-        .contains("a work-queue entry cites parked-run seq 4"));
-    assert!(refused(queued(json!({"run_id": "parked-run", "seq": 7})))
-        .contains("a work-queue entry is missing a non-empty 'finding'"));
-    assert!(refused(queued(
-        json!({"run_id": "parked-run", "seq": 7, "finding": "high"})
-    ))
-    .contains("a work-queue entry is missing a non-empty 'reasoning'"));
+    let what = "a work-queue entry";
+    assert_eq!(
+        refused(queued(json!({"run_id": "parked-run", "seq": 4}))),
+        unstated(what, "parked-run", 4)
+    );
+    assert_eq!(
+        refused(queued(json!({"run_id": "parked-run", "seq": 7}))),
+        no_text(what, "finding")
+    );
+    assert_eq!(
+        refused(queued(
+            json!({"run_id": "parked-run", "seq": 7, "finding": "high"})
+        )),
+        no_text(what, "reasoning")
+    );
 }
 
 // ------------------------------------------------------ usage and rendering
@@ -1878,3 +1938,4 @@ fn the_listing_reads_the_record_back_plainly_and_as_json() {
 
 mod endings;
 mod pins;
+mod refusals;

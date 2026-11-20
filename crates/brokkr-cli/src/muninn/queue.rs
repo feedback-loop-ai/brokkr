@@ -9,7 +9,7 @@ use serde::Serialize;
 use serde_json::Value;
 
 use super::document::{Queued, QueuedCrossing, QueuedRun};
-use super::{citation, crossing_citation, string_field, Cited, CitedCrossing, Dossier};
+use super::{citation, crossing_citation, string_field, Cited, CitedCrossing, Dossier, Unusable};
 use crate::render::Safe;
 
 /// What a queued run is offered as, when its ending says the work was not
@@ -78,10 +78,10 @@ pub(super) fn offer(dossier: &Dossier, cited: &Cited) -> Result<Option<Offer>, R
 }
 
 /// One work-queue entry about a run fact, cited by run id and sequence.
-pub(super) fn run(dossier: &Dossier, entry: &Value) -> Result<(Cited, Queued), String> {
+pub(super) fn run(dossier: &Dossier, entry: &Value) -> Result<(Cited, Queued), Unusable> {
     let what = "a work-queue entry";
     let cited = citation(what, dossier, entry)?;
-    let offered_as = offer(dossier, &cited).map_err(|refusal| refusal.to_string())?;
+    let offered_as = offer(dossier, &cited)?;
     let (realm, run_id, seq) = cited;
     let finding = string_field(what, entry, "finding")?;
     let reasoning = string_field(what, entry, "reasoning")?;
@@ -101,7 +101,7 @@ pub(super) fn run(dossier: &Dossier, entry: &Value) -> Result<(Cited, Queued), S
 pub(super) fn crossing(
     dossier: &Dossier,
     entry: &Value,
-) -> Result<(CitedCrossing, Queued), String> {
+) -> Result<(CitedCrossing, Queued), Unusable> {
     let what = "a work-queue entry";
     let (realm, crossing) = crossing_citation(what, dossier, entry)?;
     let finding = string_field(what, entry, "finding")?;
