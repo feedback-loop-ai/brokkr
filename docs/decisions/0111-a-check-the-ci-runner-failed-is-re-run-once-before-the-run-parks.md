@@ -1183,9 +1183,9 @@ already paint (`crates/brokkr-cli/src/tui/columns.rs:375`,
 `crates/brokkr-view/src/fleet.rs:339`). It reads `ruled <rule id>: <detail>`, the detail naming
 the observation's digest and its first unmet words (ruling 7).
 
-### 10. How a table spells the class
+### 10. How a table spells the judgment
 
-**Recommended: (a) engine-owned flags, one per class word, legal under phase-machine v2 with no
+**Recommended: (a) one engine-owned flag, `ci_green`, legal under phase-machine v2 with no
 version.**
 
 The first draft wrote `ci_fault_in: [runner-fault]`. That fails the frozen v2 schema: `when`'s
@@ -1194,36 +1194,39 @@ values are a boolean, a number or a string, never an array
 (`crates/brokkr-core/src/policy/conditions.rs:43-75`), but the published contract does not admit
 them, and 0082 mints no version outside an accepted decision.
 
-- **(a) Engine-owned flags.** `ci_green`, `ci_infrastructure` and `ci_refused`, each an
-  `Owner::Engine` `Flag`. All three are projected from the one `ci_class` enum at decide, so at
-  most one is true, and `change` is all three false. A boolean input by name is what v2's `when`
-  admits (`:73`). Ruling 6's `When` column reads `ci_refused: true`, `ci_green: true` and
-  `ci_infrastructure: true`. Cost: three names for one enum. That is a projection, not a second
-  home, because the enum stays the one fact and the flags are derived in one function. A table
-  could also write two of them in one rule, which would never match; the overlay test refuses
-  that at compile. It mints no contract.
-- **(b) A table contract of this decision's own, admitting a `<choice>_in` array.** Refused.
+**Re-derived for one judgment.** Fix rounds 1093r5 to 1093r8 spelled four class words as three
+flags, `ci_green`, `ci_infrastructure` and `ci_refused`, with `change` all three false. With the
+judgment `green` or not, one flag spells it whole, and the rest leave with their classes.
+
+- **(a) `ci_green` alone.** An `Owner::Engine` `Flag`, true exactly when the judgment is
+  `green`. A boolean input by name is what v2's `when` admits (`:73`). Ruling 6's `CI-PASS`
+  reads `ci_green: true`, and nothing else reads it. It is the table's reading of the engine's
+  judgment rather than of the seat's word: the word binding (ruling 3) makes `pass` and
+  `ci_green` agree, and if that binding were ever lifted, `CI-PASS-UNBOUND` parks a `pass`
+  without `green` rather than proceeding. No second flag is needed: the park rule is
+  unconditional on `fail`, and a flag for "not green" would be the same fact twice (0071 ruling
+  5). It mints no contract.
+- **(b) No flag: route on the result word alone.** `(ci, pass)` to `classify` and `(ci, fail)`
+  to the park, with no `when`. It is one input fewer, but the table would then admit a pass on
+  the seat's word, and the engine's judgment would guard it only through the binding. Not
+  recommended.
+- **(c) A table contract of this decision's own, admitting a `<choice>_in` array.** Refused.
   Phase-machine v3 is decision 0109's, which is accepted, and its v3 is proposed in its slice
   0109c (`docs/decisions/0109-a-gate-s-re-visit-reads-what-changed.md:1500-1520`, `:1830`). This
   decision claims no table version of its own. What it needs from v3 is the ask below.
-- **(c) `ci_fault_in` under v2, as drafted.** Refused: it is not legal under the schema it
-  claims.
 
 **One result per row.** Each rule's `result` is one string under v2
 (`contracts/phase-machine.v2.schema.json:31`, `:50`), and the engine matches it by exact
 equality (`crates/brokkr-core/src/policy.rs:264-273`). Ruling 1 removed the two re-run words
 fix round 1093r2 put on one row. **Each row of ruling 6's landing table, checked against v2:**
 
-- `CI-REFUSED` and `CI-INFRASTRUCTURE`: one result, `fail`; a `when` of one boolean input,
-  `ci_refused: true` or `ci_infrastructure: true` (`:73`); `park: true`, with no `next`, no
-  severity and no `requires_artifacts`, as v2's park admits (`:53-57`). Legal.
-- `CI-PASS`: one result, `pass`; `when` `ci_green: true`; `next: classify`, a declared phase.
-  Legal.
-- `CI-PASS-UNBOUND`: one result, `pass`; no `when`; `park: true`, as the two parks above. Legal,
-  and not made unreachable by `CI-PASS`, which is conditional.
-- `CI-FAIL`: one result, `fail`; no `when`; `next: implement` with severity `flagged`. Legal,
-  and not made unreachable by an unconditional rule above it for the same `(from, result)`
-  (`:28`), since the two parks above it are conditional.
+- `CI-PASS`: one result, `pass`; `when` `ci_green: true` (`:73`); `next: classify`, a declared
+  phase. Legal.
+- `CI-PASS-UNBOUND`: one result, `pass`; no `when`; `park: true`, with no `next`, no severity and
+  no `requires_artifacts`, as v2's park admits (`:53-57`). Legal, and not made unreachable by
+  `CI-PASS`, which is conditional.
+- `CI-PARK`: one result, `fail`; no `when`; `park: true`, as above. Legal, and the only rule of
+  its `(from, result)` group, so no rule above it makes it unreachable (`:28`).
 - The overlay's `initial: ci` and its `phases`, which add `ci` to landing's seven, are one
   string and a list of strings (`:16-20`). Legal.
 
@@ -1242,20 +1245,19 @@ keeps the environment park validates whole under v2. A `jq` scan of every
 `recipes/*/policy.json` for an array-valued condition printed `blocked_by_in` for `fast`,
 `drift_in` and `strategy_in` for `triage`, and nothing for any other table.
 
-**But the composed landing table does not validate whole under v2, so 0111 still needs 0109's
-v3.** `landing` extends `brokkr-fast`, which extends `fast` (`recipes/landing/bundle.json:5`,
-`recipes/brokkr-fast/bundle.json:4`), so `landing-ci`'s composed table carries `fast`'s
-`IMPL-BLOCKED-ENVIRONMENT` and its array. That is true of `landing` today, before 0111 adds a
-row; 0111 adds no array and inherits the one there. Fix round 1093r3's v2 route was the
-`verify`-based gate, and that gate goes with the pre-review interception (ruling 6). No
-composition that holds the landing gate and keeps the environment park validates under v2, so
-the ask below stays.
+**The 0109 v3 dependency stands for the narrowed gate, and so does its ask.** The narrowing
+changes only the gate's own rows, and those were already v2-legal; it never touched the array
+`landing-ci` inherits. `landing` extends `brokkr-fast`, which extends `fast`
+(`recipes/landing/bundle.json:5`, `recipes/brokkr-fast/bundle.json:4`), so `landing-ci`'s
+composed table carries `fast`'s `IMPL-BLOCKED-ENVIRONMENT` and its array. That is true of
+`landing` today, before 0111 adds a row; 0111 adds no array and inherits the one there. No
+composition that holds the landing gate and keeps the environment park validates under v2.
 
 **Recommended: (a) the landing gate on 0109's v3.**
 
 - **(a) Recommended.** `landing-ci` lands only after 0109c moves `fast` to v3, and only if the
   operator grants the ask below. Its composed table then validates whole under v3. Cost, said
-  plainly: no live producer exists before 0109c. 0111a to 0111d land and test offline, and live
+  plainly: no live producer exists before 0109c. 0111a to 0111c land and test offline, and live
   telemetry waits on 0109c.
 - **(b) An engine-owned boolean projection of `blocked_by`,** such as `blocked_by_environment`,
   so `fast`'s park spells as a scalar under v2 and `landing-ci` validates under v2 now. It edits
@@ -1268,11 +1270,12 @@ the ask below stays.
 `<choice>_in` key as a non-empty array of words from that choice's closed vocabulary, which is
 the shape HEAD's runtime already reads (`conditions.rs:43-75`). `fast`'s `blocked_by_in` and
 `triage`'s `drift_in` and `strategy_in` would then validate whole, and so would `landing` and
-`landing-ci`. 0111 mints nothing for it; the ask is 0109's to rule.
+`landing-ci`. The narrowed gate needs nothing else of v3: its own rows use only a boolean flag.
+0111 mints nothing for it; the ask is 0109's to rule.
 
-**Enforcement binding:** 0111e validates the complete materialized table `landing-ci` composes,
-not the overlay's file, against v3. A test asserts that exactly one flag is true for each
-non-`change` class.
+**Enforcement binding:** 0111d validates the complete materialized table `landing-ci` composes,
+not the overlay's file, against v3. A test asserts that `ci_green` is true exactly when the
+judgment is `green`.
 
 ## Deferred to a later decision
 
