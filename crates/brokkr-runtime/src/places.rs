@@ -207,7 +207,7 @@ pub(crate) enum Skip {
 /// A git question the bundle's walk could not get answered (#908):
 /// refused by name rather than read as "pin everything" or "skip
 /// everything".
-#[derive(Debug, Error)]
+#[derive(Debug, PartialEq, Eq, Error)]
 pub(crate) enum SkipError {
     #[error(
         "asking git which trees the bundle at {} ignores failed ({detail}); a bundle's walk \

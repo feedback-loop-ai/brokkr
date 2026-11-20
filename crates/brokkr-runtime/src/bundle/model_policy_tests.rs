@@ -2792,23 +2792,27 @@ fn pinned_script_components_reject_ambiguity_and_directories() {
         .into_iter()
         .map(str::to_string)
         .collect::<Vec<_>>();
-    assert!(pinned_script(&fixture.bundle_dir(), &no_separator)
-        .unwrap_err()
-        .contains("no `--` after `exec`"));
-    for script in [
-        "./scripts/./check.sh",
-        "./scripts/../check.sh",
-        "./scripts//check.sh",
-        "./scripts",
+    let dir = fixture.bundle_dir();
+    let refused = pinned_script(&dir, &no_separator);
+    assert_eq!(refused, Err(PinnedScriptRefusal::NoSeparator));
+    let not_plain = |token| PinnedScriptRefusal::NotPlain { token };
+    for (script, expected) in [
+        ("./scripts/./check.sh", not_plain("./scripts/./check.sh")),
+        ("./scripts/../check.sh", not_plain("./scripts/../check.sh")),
+        ("./scripts//check.sh", not_plain("./scripts//check.sh")),
+        (
+            "./scripts",
+            PinnedScriptRefusal::NotAFile {
+                token: "./scripts",
+                dir: &dir,
+            },
+        ),
     ] {
         let command: Vec<String> = ["engine", "driver", "exec", "--", "sh", script]
             .into_iter()
             .map(str::to_string)
             .collect();
-        assert!(
-            pinned_script(&fixture.bundle_dir(), &command).is_err(),
-            "{script}"
-        );
+        assert_eq!(pinned_script(&dir, &command), Err(expected), "{script}");
     }
 }
 

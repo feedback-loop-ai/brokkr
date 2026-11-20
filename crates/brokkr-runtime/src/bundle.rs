@@ -49,6 +49,8 @@ mod opened;
 mod origins;
 mod parse;
 mod phases;
+mod pinned_refusal;
+use pinned_refusal::PinnedScriptRefusal;
 mod pins;
 mod reference;
 mod route_policy;
@@ -2726,40 +2728,38 @@ fn measured(gap: &Option<String>) -> String {
 /// a careless bundle, not a hostile seat (decision 0049 ruling 3).
 ///
 /// Returns the manifest key the script is pinned under.
-fn pinned_script(dir: &Path, parts: &[String]) -> Result<String, String> {
+fn pinned_script<'a>(
+    dir: &'a Path,
+    parts: &'a [String],
+) -> Result<String, PinnedScriptRefusal<'a>> {
     let after = parts
         .iter()
         .position(|part| part == "--")
         .map(|index| &parts[index + 1..])
-        .ok_or_else(|| "the dispatch carries no `--` after `exec`".to_string())?;
+        .ok_or(PinnedScriptRefusal::NoSeparator)?;
     for token in after {
         if let Some(relative) = token.strip_prefix("./") {
             return pinned_key(dir, token, relative);
         }
         if token.starts_with('-') {
-            return Err(format!(
-                "'{token}' is an option token before the script; interpreters take no \
-                 options here (`bash -c` would run text, not pinned bytes)"
-            ));
+            return Err(PinnedScriptRefusal::OptionToken { token });
         }
         if token.contains(['/', '\\']) {
-            return Err(format!(
-                "'{token}' is spelled as a path that is not `./`-relative to the bundle; \
-                 only a `./` script the manifest walk pins is admitted unboxed"
-            ));
+            return Err(PinnedScriptRefusal::Spelled { token });
         }
         // A bare interpreter name (`bash`, `python3`, `true`): walked
         // past, until a script token or the end of the argv.
     }
-    Err(format!(
-        "the command names no `./`-relative script after its interpreters ({})",
-        after.join(" ")
-    ))
+    Err(PinnedScriptRefusal::NoScript { after })
 }
 
 /// The lookup half of [`pinned_script`]: the components of one `./`
 /// token, and the file they name under the declaring layer.
-fn pinned_key(dir: &Path, token: &str, relative: &str) -> Result<String, String> {
+fn pinned_key<'a>(
+    dir: &'a Path,
+    token: &'a str,
+    relative: &'a str,
+) -> Result<String, PinnedScriptRefusal<'a>> {
     let components: Vec<&str> = relative.split('/').collect();
     // Closed against the interpreters measured in decision 0048 only:
     // * ? [ ] select glob matches; { } expand brace alternatives; ( )
@@ -2776,29 +2776,26 @@ fn pinned_key(dir: &Path, token: &str, relative: &str) -> Result<String, String>
     // This changes admission only; walk_files and the canonical pin keep
     // the exact filename bytes. See 0048 for evidence and scope.
     const STARTUP_METACHARACTERS: &str = "*?[]{}()'\"\\~`\r\n";
-    for component in &components {
+    for &component in &components {
         if let Some(character) = component
             .chars()
             .find(|c| STARTUP_METACHARACTERS.contains(*c))
         {
-            return Err(format!(
-                "'{token}' has component {component:?} containing refused startup character \
-                 {character:?}; rename the component to meet the pinned-script admission \
-                 rule (decision 0048; decision 0046 ruling 4)"
-            ));
+            return Err(PinnedScriptRefusal::Startup {
+                token,
+                component,
+                character,
+            });
         }
     }
     let plain = |component: &&str| {
         !component.is_empty() && *component != "." && *component != ".." && !component.contains(':')
     };
     if !components.iter().all(plain) {
-        return Err(format!(
-            "'{token}' is not a plain `./`-relative path: every component is a plain name, \
-             never `..`, `.`, empty, a `\\` or a drive"
-        ));
+        return Err(PinnedScriptRefusal::NotPlain { token });
     }
     if let Some(skip) = crate::places::unpinned_reason(dir, Path::new(relative))
-        .map_err(|refused| refused.to_string())?
+        .map_err(PinnedScriptRefusal::Git)?
     {
         let holds = match skip {
             crate::places::Skip::Workspace
@@ -2810,9 +2807,11 @@ fn pinned_key(dir: &Path, token: &str, relative: &str) -> Result<String, String>
                  the bundle's identity"
             }
         };
-        return Err(format!(
-            "'{token}' names a path the manifest walk does not pin ({relative} is {holds})"
-        ));
+        return Err(PinnedScriptRefusal::Unpinned {
+            token,
+            relative,
+            holds,
+        });
     }
     let mut path = dir.to_path_buf();
     for component in &components {
@@ -2820,10 +2819,7 @@ fn pinned_key(dir: &Path, token: &str, relative: &str) -> Result<String, String>
     }
     match std::fs::metadata(&path) {
         Ok(meta) if meta.is_file() => Ok(components.join("/")),
-        _ => Err(format!(
-            "'{token}' names no regular file under the declaring layer {}",
-            dir.display()
-        )),
+        _ => Err(PinnedScriptRefusal::NotAFile { token, dir }),
     }
 }
 

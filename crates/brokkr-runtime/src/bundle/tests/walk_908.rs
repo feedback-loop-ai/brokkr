@@ -2,7 +2,7 @@
 //! and a bundle past the walk's bound is refused by name before a run
 //! starts.
 
-use super::super::{CompileError, ReadStage, READ_HOOK};
+use super::super::{CompileError, PinnedScriptRefusal, ReadStage, READ_HOOK};
 use super::{error, workspace_root, Boundary, Bundle, Fixture};
 use brokkr_core::canonical::sha256_bytes;
 use serde_json::json;
@@ -374,8 +374,13 @@ fn a_pinned_script_lookup_that_cannot_ask_git_refuses_by_name() {
     let not_a_directory = holder.path().join("bundle");
     std::fs::write(&not_a_directory, "not a directory").unwrap();
     let refused = super::super::pinned_key(&not_a_directory, "./x/run.sh", "x/run.sh").unwrap_err();
+    let unasked = crate::places::SkipError::Git {
+        bundle: not_a_directory.clone(),
+        detail: spawned_in_a_file().to_string(),
+    };
+    assert_eq!(refused, PinnedScriptRefusal::Git(unasked));
     assert_eq!(
-        refused,
+        refused.to_string(),
         git_unreadable(&not_a_directory, spawned_in_a_file())
     );
 }
@@ -413,8 +418,11 @@ fn a_pinned_script_under_git_metadata_is_refused_by_name() {
             .unwrap_err();
     assert_eq!(
         refused,
-        "'./.git/hooks/run.sh' names a path the manifest walk does not pin (.git/hooks/run.sh \
-         is git's own metadata, which no bundle pins)"
+        PinnedScriptRefusal::Unpinned {
+            token: "./.git/hooks/run.sh",
+            relative: ".git/hooks/run.sh",
+            holds: "git's own metadata, which no bundle pins",
+        }
     );
 }
 
