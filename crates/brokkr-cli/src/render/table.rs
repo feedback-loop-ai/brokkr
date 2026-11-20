@@ -1,9 +1,13 @@
 //! The one table writer the terminal readouts share (decision 0071 ruling
 //! 5): columns sized to their widest cell, the header's included. The
 //! seats block sizes its columns here; `brokkr graph` draws its states and
-//! rules as whole tables here (#1167), measured in the terminal's cells.
+//! rules as whole tables here (#1167), measured in the terminal's cells
+//! a grapheme at a time, as ratatui's buffer draws them.
 
 use std::cmp::Reverse;
+
+use ratatui::style::Style as Plain;
+use ratatui::text::Span;
 
 use super::{push_line, scalars, tint, Safe, Style, BOLD};
 use crate::tui::width_of;
@@ -104,7 +108,7 @@ fn give_way(columns: &[Column], widths: &mut [usize], over: usize) {
 /// every number stays whole.
 pub(crate) fn table(columns: &[Column], rows: &[Vec<Safe>], style: &Style) -> String {
     let heads: Vec<&str> = columns.iter().map(|column| column.head).collect();
-    let mut widths = sized(&heads, rows, width_of);
+    let mut widths = sized(&heads, rows, drawn);
     let gap = gap(&widths, style.width);
     let used = widths.iter().sum::<usize>() + gap.len() * (widths.len() - 1);
     give_way(columns, &mut widths, used.saturating_sub(style.width));
@@ -118,33 +122,45 @@ pub(crate) fn table(columns: &[Column], rows: &[Vec<Safe>], style: &Style) -> St
     out
 }
 
-/// `text` cut to `max` terminal cells, the cut marked with `…`. The
-/// TUI's clamp also bounds `char`s, as its buffer spends a cell on each;
-/// a printed row spends only the cells the terminal draws, so a
-/// decomposed accent costs nothing here (#1167). `max` is at least one,
-/// a header's width.
+/// A cell's width in the terminal's cells, as ratatui's buffer draws it:
+/// one grapheme at a time, each by [`width_of`], the TUI's one measure.
+/// A grapheme's width can hang on its whole sequence (`♥` then U+FE0F
+/// draws two cells, each alone one), so a cell is never measured a
+/// scalar at a time (#1167).
+fn drawn(text: &str) -> usize {
+    let span = Span::raw(text);
+    span.styled_graphemes(Plain::new())
+        .map(|grapheme| width_of(grapheme.symbol))
+        .sum()
+}
+
+/// `text` cut to `max` terminal cells by [`drawn`]'s measure, the cut
+/// marked with `…`. The TUI's clamp also bounds `char`s, as its buffer
+/// spends a cell on each; a printed row spends only the cells the
+/// terminal draws, so a decomposed accent costs nothing here (#1167).
+/// `max` is at least one, a header's width.
 fn fit(text: &str, max: usize) -> String {
     fit_by(text, max, width_of)
 }
 
-/// [`fit`] by `measure`: the whole text measured once, then each scalar
-/// once, in one walk that stops where the next would pass the budget
-/// less the ellipsis, so no prefix is measured again (#1167).
+/// [`fit`] by `measure`, in one walk that measures each grapheme once:
+/// it keeps what fits the budget less the ellipsis, and cuts there the
+/// moment the text passes `max`, so no prefix is measured again (#1167).
 pub(super) fn fit_by(text: &str, max: usize, mut measure: impl FnMut(&str) -> usize) -> String {
-    if measure(text) <= max {
-        return text.to_string();
-    }
     let budget = max.saturating_sub(1);
     let mut spent = 0;
     let mut kept = String::new();
-    for character in text.chars() {
-        spent += measure(character.encode_utf8(&mut [0; 4]));
-        if spent > budget {
-            break;
+    let span = Span::raw(text);
+    for grapheme in span.styled_graphemes(Plain::new()) {
+        spent += measure(grapheme.symbol);
+        if spent > max {
+            return kept + "…";
         }
-        kept.push(character);
+        if spent <= budget {
+            kept.push_str(grapheme.symbol);
+        }
     }
-    kept + "…"
+    text.to_string()
 }
 
 /// One row's cells, each clamped to its column's width in cells and set
@@ -155,7 +171,7 @@ fn line(cells: &[Safe], columns: &[Column], widths: &[usize], gap: &str) -> Stri
         .zip(columns.iter().zip(widths))
         .map(|(cell, (column, &width))| {
             let text = fit(cell.as_str(), width);
-            let pad = " ".repeat(width.saturating_sub(width_of(&text)));
+            let pad = " ".repeat(width.saturating_sub(drawn(&text)));
             match column.align {
                 Align::Left => text + &pad,
                 Align::Right => pad + &text,

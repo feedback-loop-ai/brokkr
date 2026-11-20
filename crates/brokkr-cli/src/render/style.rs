@@ -92,19 +92,28 @@ pub(super) fn color_enabled(is_terminal: bool, no_color: bool, term_is_dumb: boo
     is_terminal && !no_color && !term_is_dumb
 }
 
+/// `COLUMNS` where it is a whole number of cells.
+fn whole(set: Option<&str>) -> Option<usize> {
+    set.and_then(|text| text.parse::<usize>().ok())
+}
+
+/// A width found, clamped, else the default: both policies end here.
+fn sized(width: Option<usize>) -> usize {
+    width.map_or(DEFAULT_WIDTH, |width| width.clamp(MIN_WIDTH, MAX_WIDTH))
+}
+
+/// [`Width::Columns`]' rule: `COLUMNS` where it is a whole number, 0
+/// clamped up as on main, else the default.
 pub(super) fn width_from(value: Option<&str>) -> usize {
-    match value.and_then(|text| text.parse::<usize>().ok()) {
-        Some(width) => width.clamp(MIN_WIDTH, MAX_WIDTH),
-        None => DEFAULT_WIDTH,
-    }
+    sized(whole(value))
 }
 
 /// [`Width::Stdout`]'s rule: `set` where it is a whole, nonzero number,
 /// else what `measure` reads, nonzero, each clamped, else the default.
 fn measured(set: Option<&str>, measure: impl FnOnce() -> Option<u16>) -> usize {
-    let set = set.and_then(|text| text.parse::<usize>().ok());
-    let width = set
-        .filter(|&width| width > 0)
-        .or_else(|| measure().map(usize::from).filter(|&width| width > 0));
-    width.map_or(DEFAULT_WIDTH, |width| width.clamp(MIN_WIDTH, MAX_WIDTH))
+    let nonzero = |width: &usize| *width > 0;
+    let width = whole(set)
+        .filter(nonzero)
+        .or_else(|| measure().map(usize::from).filter(nonzero));
+    sized(width)
 }

@@ -21,9 +21,12 @@
 //!
 //! **Width.** `COLUMNS` with a sane default (`brokkr graph` alone also
 //! measures the stdout it writes to), all column arithmetic
-//! saturating, all truncation on `char` boundaries. Without a
-//! Unicode-width dependency — forbidden by the ruling — CJK and emoji
-//! columns will misalign. That is stated, not pretended away.
+//! saturating, all truncation on `char` boundaries. The readouts that
+//! measure in `char`s ([`Safe::width`], the seats block) take no
+//! Unicode-width dependency of their own, so their CJK and emoji columns
+//! will misalign; that is stated, not pretended away. `brokkr graph`'s
+//! tables alone measure the terminal's cells, by the TUI's ratatui
+//! widths (#1167).
 
 use brokkr_view::transcript::TranscriptRead;
 use brokkr_view::{

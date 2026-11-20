@@ -504,9 +504,94 @@ fn a_cell_is_cut_in_one_walk_however_many_marks_it_carries() {
         width_of(text)
     };
     assert_eq!(table::fit_by(&text, 4, counting), format!("a{marks}bc…"));
-    let kept = 1 + 1000 + 2;
-    assert_eq!(measured.get(), text.chars().count() + kept + 1);
+    // `a` and its marks, then `b`, `c`, `d` and the `e` that passes 4:
+    // each scalar up to the cut measured once, nothing after it.
+    assert_eq!(measured.get(), 1001 + 4);
     assert_eq!(table::fit_by("abc", 3, width_of), "abc", "it fits");
+}
+
+/// A grapheme whose width hangs on its sequence is measured whole: `♥`
+/// alone is one cell, `♥` then U+FE0F two, so an eight-cell column cuts
+/// before it and pads, and the next column stays where it is (#1167).
+#[test]
+fn a_cell_is_cut_and_padded_by_its_graphemes_widths() {
+    let heart = "♥\u{FE0F}";
+    assert_eq!((width_of("♥"), width_of(heart)), (1, 2));
+    let text = format!("abcdef{heart}XYZ");
+    assert_eq!(table::fit_by(&text, 8, width_of), "abcdef…");
+    assert_eq!(table::fit_by(&text, 9, width_of), format!("abcdef{heart}…"));
+    let columns = [table::Column::left("NAME"), table::Column::right("N")];
+    let rows = vec![vec![Safe::new(&text), Safe::new("1")]];
+    let drawn = table::table(&columns, &rows, &Style::plain(10));
+    assert_eq!(drawn, "NAME     N\nabcdef…  1\n");
+    let fits = vec![vec![Safe::new(&format!("ab{heart}")), Safe::new("1")]];
+    let drawn = table::table(&columns, &fits, &Style::plain(10));
+    assert_eq!(
+        drawn, "NAME  N\nab♥\u{FE0F}  1\n",
+        "padded by its two cells"
+    );
+}
+
+/// The child half of the test below names the file it reports to here.
+const CONTROLLED_REPORT: &str = "BROKKR_TEST_CONTROLLED_REPORT";
+
+/// A pseudo-terminal `columns` wide: its controller and the terminal
+/// a process is handed, opened without becoming this one's.
+fn pty(columns: u16) -> (std::os::fd::OwnedFd, std::os::fd::OwnedFd) {
+    use rustix::fs::{open, Mode, OFlags};
+    use rustix::pty::{grantpt, openpt, ptsname, unlockpt, OpenptFlags};
+    let controller = openpt(OpenptFlags::RDWR | OpenptFlags::NOCTTY).unwrap();
+    grantpt(&controller).unwrap();
+    unlockpt(&controller).unwrap();
+    let name = ptsname(&controller, Vec::new()).unwrap();
+    let size = rustix::termios::Winsize {
+        ws_row: 24,
+        ws_col: columns,
+        ws_xpixel: 0,
+        ws_ypixel: 0,
+    };
+    rustix::termios::tcsetwinsize(&controller, size).unwrap();
+    let terminal = open(
+        name.as_c_str(),
+        OFlags::RDWR | OFlags::NOCTTY,
+        Mode::empty(),
+    )
+    .unwrap();
+    (controller, terminal)
+}
+
+/// `brokkr graph`'s production detector reads the stdout it writes to,
+/// never the controlling terminal (#1167): this test re-runs itself in a
+/// session of its own whose controlling terminal is 80 cells and whose
+/// stdout is a 60-cell terminal, with no `COLUMNS`, and the child sizes
+/// to 60. A lookup through /dev/tty, as crossterm's is, reads 80.
+#[test]
+fn a_60_cell_stdout_under_an_80_cell_controlling_terminal_sizes_to_60() {
+    if let Some(report) = std::env::var_os(CONTROLLED_REPORT) {
+        rustix::process::setsid().unwrap();
+        rustix::process::ioctl_tiocsctty(std::io::stdin()).unwrap();
+        let tty = std::fs::File::open("/dev/tty").unwrap();
+        let controlling = rustix::termios::tcgetwinsize(&tty).unwrap().ws_col;
+        let width = Style::detect_for(Width::Stdout).width;
+        std::fs::write(report, format!("{controlling} {width}")).unwrap();
+        return;
+    }
+    let (_stdout_controller, stdout) = pty(60);
+    let (_tty_controller, tty) = pty(80);
+    let dir = tempfile::tempdir().unwrap();
+    let report = dir.path().join("width");
+    let name = "render::tests::a_60_cell_stdout_under_an_80_cell_controlling_terminal_sizes_to_60";
+    let status = std::process::Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", name, "--test-threads=1"])
+        .env(CONTROLLED_REPORT, &report)
+        .env_remove("COLUMNS")
+        .stdin(std::process::Stdio::from(tty))
+        .stdout(std::process::Stdio::from(stdout))
+        .stderr(std::process::Stdio::null())
+        .status()
+        .unwrap();
+    assert!(status.success(), "{status}");
+    assert_eq!(std::fs::read_to_string(&report).unwrap(), "80 60");
 }
 
 #[test]
