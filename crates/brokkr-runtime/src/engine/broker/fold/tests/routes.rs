@@ -247,10 +247,13 @@ fn a_driver_killed_at_its_deadline_settles_its_interrupted_call() {
         answered(&mut ledger, 1);
         let _cut = ledger.room().unwrap().begin("lookup").unwrap();
     });
-    let last = concluded(&mut site, Duration::from_secs(1)).unwrap();
+    let mut last = concluded(&mut site, Duration::from_secs(1)).unwrap();
     let reason = "attempt exceeded its 1s deadline and was killed; its process tree is gone, and \
                   what it did is unknown; stderr tail: ";
     let killed = json!({"effect_id": EFFECT, "attempt_id": ATTEMPT, "reason": reason});
+    // What the tracker measured of the real tree (decision 0112) is the
+    // ending's, beside what the kill left, and is set aside here.
+    last.payload.as_object_mut().unwrap().remove("usage");
     assert_eq!(
         (last.event_type, last.payload),
         (EventType::EffectIndeterminate, killed)
