@@ -24,7 +24,7 @@ use thiserror::Error;
 use super::escapes::plain_evidence;
 use super::mcp::{self, McpRefusal};
 use super::spawn::spawn_fed_in;
-use super::stream_turn::{streamed, Turn};
+use super::stream_turn::{streamed_lines, Turn};
 use super::{secret, Invocation, LaunchTerminal};
 use crate::transcript::{Kind as TranscriptKind, Transcript};
 
@@ -32,8 +32,10 @@ mod fold;
 mod gate;
 mod home;
 
+use super::qoder::Observed;
+use super::stream_turn::Line;
 use crate::PreSessionRefusal;
-use fold::{AgyFold, Failure, Verdict};
+use fold::{AgyFold, Failed, Verdict};
 pub(super) use gate::{gate, gate_listed};
 use home::{Home, Homes, Written};
 
@@ -121,11 +123,21 @@ pub(super) enum LaunchError {
          a path that is not UTF-8, so nothing names it exactly (#1200)"
     )]
     Unnamed,
+    /// A working directory that cannot be canonicalized, named as the seat
+    /// gave it (K4).
     #[error(
-        "refusing to invoke the agent CLI: the agy seat's working directory cannot be resolved: \
-         {0}"
+        "refusing to invoke the agent CLI: the agy seat's working directory {0} cannot be \
+         resolved: {1}"
     )]
-    Unrooted(#[source] std::io::Error),
+    Unrooted(String, #[source] std::io::Error),
+    /// A `.git` entry where git could name no top level: where agy's walk
+    /// ends is unknown (K4). Nothing of git's own text is quoted.
+    #[error(
+        "refusing to invoke the agent CLI: the agy seat's workspace has a .git entry in {}, and \
+         git could not name its top level, so where agy's walk ends is unknown (#1200)",
+        .0.display()
+    )]
+    Rootless(PathBuf),
     /// A workspace that carries agy's own configuration (G6).
     #[error(
         "refusing to invoke the agent CLI: the agy seat's workspace carries {}, which agy would \
@@ -178,13 +190,14 @@ pub(super) enum LaunchError {
 
 /// How a seat ended with no invocation, typed until [`drive`] renders it
 /// once (#1178 T4): its launch refused, its turn failed, a refusal behind
-/// work already done, or the shared driver's own words.
+/// work already done, or a shared helper's own error, which arrives
+/// rendered at its own boundary and is the one end that does (K10).
 #[derive(Debug, Error)]
 enum Ended {
     #[error(transparent)]
     Launch(#[from] LaunchError),
     #[error(transparent)]
-    Failed(#[from] Failure),
+    Failed(#[from] Failed),
     #[error("{}", .0.words())]
     Late(PreSessionRefusal),
     #[error("{0}")]
@@ -323,7 +336,10 @@ fn stdin_line(prompt: &str) -> String {
 /// rejoin, because the agy adapter declares no resume, and otherwise the
 /// seat's [`turn`]. Every error the seat ends with, its launch's and its
 /// turn's alike, is rendered here, once, and passes the seat's bindings
-/// once, last.
+/// last: no shared path masks an error a driver returns. A word of agy's
+/// inside it was masked once already, whole, before it was cut (K3); this
+/// second pass is the only one over the seat's own words and the shared
+/// helpers' errors, and over what joining words could rejoin (K10).
 pub(super) fn drive(
     pinned: super::Pinned<'_>,
     offered: bool,
@@ -393,13 +409,16 @@ fn prepared(
     Ok((home::made(homes, written)?, launch))
 }
 
-/// Run one agy turn under `home`: the prompt on stdin, every row through
-/// [`AgyFold`], agy stopped at a refusing row, and the turn's verdict read
-/// at its end. Each row is judged as agy wrote it, and what leaves the
-/// driver passes the seat's bindings: every emitted row, every value of
-/// the record, the refusal, the answer and the stderr (J2). A failure, and
-/// a refusal behind a folded turn or a delivered result, ends the turn with
-/// no result of its own: its words pass the bindings in [`drive`].
+/// Run one agy turn under `home`: the prompt on stdin, every line of its
+/// stdout through [`AgyFold`] as agy wrote its bytes, to its end, agy
+/// stopped at a refusing row, and the turn's verdict read at its end in
+/// one order (K2). Each value is masked once (K10): the shared driver masks
+/// every emitted row, every value of the record and the refusal, so they
+/// leave here as agy's fold made them, and this driver masks what no shared
+/// path does, the answer and the stderr. A failure, and a refusal behind a
+/// folded turn or a delivered result, ends the turn with no result of its
+/// own and with its words alone, as qoder's late path does: they pass the
+/// bindings in [`drive`], and carry no stderr (K8).
 fn invoke(
     (launch, home): (&Launch, &Home),
     input: &Value,
@@ -407,47 +426,35 @@ fn invoke(
     bindings: &[secret::BoundSecret],
     emit: &mut impl FnMut(&Value),
 ) -> Result<Invocation, Ended> {
-    let mut fold = AgyFold::new(&launch.pin);
+    let mut fold = AgyFold::new(&launch.pin, bindings);
     let workdir = input.get("workdir").and_then(Value::as_str).unwrap_or("");
     let mut transcript = Transcript::resolve(TranscriptKind::None)?;
-    // Each row the fold emits is the driver's own: its keys are the
-    // checkpoint's vocabulary, and its values pass the bindings.
-    let mut masked = |row: &Value| {
-        let mut row = row.clone();
-        let values = row
-            .as_object_mut()
-            .into_iter()
-            .flat_map(|row| row.values_mut());
-        values.for_each(|value| secret::mask_json(value, bindings));
-        emit(&row);
-    };
     // The engine's HOME, set on the child last, after the bindings (J1).
     let owned = [(HOME, home.path())];
     let line = stdin_line(prompt);
     let fed = spawn_fed_in(&launch.command, &line, (workdir, &owned), bindings)?;
     let mut session_meta = Map::new();
-    let ended = streamed(fed, |event| {
-        fold.read(&event, &mut session_meta, &mut masked)
+    let ended = streamed_lines(fed, |line| {
+        match fold.read(line, &mut session_meta, &mut *emit) {
+            Ok(()) => Line::Read,
+            Err(refused) => Line::Stopped(refused),
+        }
     })?;
-    transcript.finish(&mut session_meta, &mut masked);
-    for value in session_meta.values_mut() {
-        secret::mask_json(value, bindings);
-    }
+    transcript.finish(&mut session_meta, &mut *emit);
     let Turn {
         exit_code,
-        stopped,
         captured,
+        ..
     } = ended;
-    let verdict = match stopped {
-        Some(refused) => Verdict::Refused(refused),
-        None => fold.verdict(exit_code),
-    };
+    // Read unmasked so no binding erases the marker, and only matched (J4).
+    let signed_out = fold.signed_out() || Observed::of(captured.bytes()).said(fold::SIGNED_OUT);
+    let verdict = fold.verdict(exit_code, signed_out);
     let delivered = exit_code == 0 && super::delivered_result(input);
     let (refusal, answer) = judged(verdict, fold.worked() || delivered, bindings)?;
     // Evidence: agy's stderr, stripped and then masked, which the shared
     // driver's tail journals as it does every adapter's until #1199; a
     // signed-out agy's is its sign-in block, which is not evidence (J4).
-    let stderr = match fold.signed_out() {
+    let stderr = match signed_out {
         true => SIGN_IN_WITHHELD.to_string(),
         false => captured.evidence(|raw| plain_evidence(raw, bindings)),
     };
@@ -463,25 +470,25 @@ fn invoke(
     })
 }
 
-/// The turn's refusal and answer from its `verdict`, each masked through
-/// `bindings`, or how it ended with neither: a failure, or a refusal behind
-/// work the seat already did. The answer rides as the claude and qoder
-/// folds' would, where nothing journals it; the result file is the seat's
-/// result (J7).
+/// The turn's refusal and answer from its `verdict`, or how it ended with
+/// neither: a failure, or a refusal behind work the seat already did. The
+/// refusal is masked where the shared driver masks every adapter's
+/// ([`super::masked_refusal`]); the answer, which no shared path reads,
+/// passes `bindings` here, and rides as the claude and qoder folds' would,
+/// where nothing journals it; the result file is the seat's result (J7).
 fn judged(
     verdict: Verdict,
     worked: bool,
     bindings: &[secret::BoundSecret],
 ) -> Result<(Option<PreSessionRefusal>, Option<Value>), Ended> {
     match verdict {
-        Verdict::Failed(failure) => Err(Ended::Failed(failure)),
+        Verdict::Failed(failed) => Err(Ended::Failed(failed)),
         Verdict::Refused(late) if worked => Err(Ended::Late(late)),
-        Verdict::Refused(refused) => Ok((super::masked_refusal(Some(refused), bindings), None)),
+        Verdict::Refused(refused) => Ok((Some(refused), None)),
         Verdict::Answer(response) => {
             let response = secret::mask_text(response.as_bytes(), bindings);
             Ok((None, Some(Value::String(response))))
         }
-        Verdict::Exited => Ok((None, None)),
     }
 }
 

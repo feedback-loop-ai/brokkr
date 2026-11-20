@@ -586,7 +586,7 @@ fn a_launch_admits_only_its_three_controls_once_each_with_a_value_and_a_pin() {
 #[cfg(unix)]
 fn fake_qoder(
     dir: &std::path::Path,
-    stdout: &str,
+    stdout: impl AsRef<[u8]>,
     stderr: &str,
     result: Option<&std::path::Path>,
     code: i32,
@@ -780,6 +780,22 @@ fn a_qoder_seat_runs_the_overridden_binary_and_finishes_on_its_pin() {
         prompt.contains("result"),
         "the prompt went on stdin: {prompt}"
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_qoder_line_that_is_not_utf8_ends_the_reading_as_it_always_has() {
+    // Behind the line, the recorded turn is never read: the clean exit
+    // confirmed no model, so the delivered file is no answer and the
+    // attempt sends no result (#1200's byte seam leaves qoder unchanged).
+    let dir = tempfile::tempdir().unwrap();
+    let result = dir.path().join("result.json");
+    let stdout = [b"\xff\n".as_slice(), TOOL_LESS.as_bytes()].concat();
+    let bin = fake_qoder(dir.path(), &stdout, "", Some(&result), 0);
+    let messages = run(dir.path(), &bin, &["-m", "Fast"]);
+    assert_eq!(result_of(&messages), None);
+    let turned = |body: &crate::Body| matches!(body, crate::Body::Checkpoint { data, .. } if data["step"] == "seat-turn");
+    assert!(!messages.iter().any(turned), "{messages:?}");
 }
 
 #[cfg(unix)]

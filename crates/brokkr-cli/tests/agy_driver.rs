@@ -23,11 +23,29 @@ const NEON: &str =
 const TOOL_LESS: &str =
     include_str!("../../../docs/evidence/adapters/agy-cli-1-5/tool-less-turn.ndjson");
 
+const SIGNED_OUT: &str =
+    include_str!("../../../docs/evidence/adapters/agy-cli-1-5/signed-out.ndjson");
+const SIGNED_OUT_STDERR: &str =
+    include_str!("../../../docs/evidence/adapters/agy-cli-1-5/signed-out.stderr");
+const PRINT_TIMEOUT: &str =
+    include_str!("../../../docs/evidence/adapters/agy-cli-1-5/print-timeout.ndjson");
+const PRINT_TIMEOUT_STDERR: &str =
+    include_str!("../../../docs/evidence/adapters/agy-cli-1-5/print-timeout.stderr");
+
+/// How the fake `agy` ends a turn: its stdout, its stderr and its exit.
+struct Ending<'a> {
+    stdout: &'a str,
+    stderr: &'a str,
+    code: i32,
+}
+
 /// A fake `agy` that logs its argv, its HOME and the engine's two
 /// configuration files there, writes the seat's result where the prompt's
-/// one stdin line names it, and prints `stdout`.
-fn fake_agy(root: &Path, stdout: &str) -> PathBuf {
-    write(&root.join("turn.ndjson"), stdout.as_bytes());
+/// one stdin line names it, prints `ending`'s stdout and stderr, and exits
+/// its code.
+fn fake_agy(root: &Path, ending: &Ending<'_>) -> PathBuf {
+    write(&root.join("turn.ndjson"), ending.stdout.as_bytes());
+    write(&root.join("turn.stderr"), ending.stderr.as_bytes());
     let script = format!(
         r#"#!/bin/sh
 printf '%s\n' "$@" > '{root}/argv.log'
@@ -37,9 +55,12 @@ cat "$HOME/.gemini/config/hooks.json" > '{root}/hooks.log'
 line=$(cat)
 target=$(printf '%s' "$line" | sed -n 's/.*\\n    \(\/[^\\"]*\.json\)\\n.*/\1/p' | head -1)
 [ -n "$target" ] && printf '{{"result":"complete"}}' > "$target"
+cat '{root}/turn.stderr' >&2
 cat '{root}/turn.ndjson'
+exit {code}
 "#,
-        root = root.display()
+        root = root.display(),
+        code = ending.code
     );
     // Written before the engine starts, in a process that runs this test
     // alone, so no forked child holds it open for writing when it runs.
@@ -95,9 +116,19 @@ fn world(root: &Path) -> PathBuf {
     recipe
 }
 
-/// The recipe compiled where the world lists `scout`, run once over
-/// `stdout`: the journal's events.
+/// The recipe compiled where the world lists `scout`, run once over a fake
+/// `agy` that prints `stdout` and exits 0: the journal's events.
 fn engine_run(root: &Path, stdout: &str) -> Vec<Value> {
+    let ending = Ending {
+        stdout,
+        stderr: "",
+        code: 0,
+    };
+    engine_run_ending(root, &ending)
+}
+
+/// [`engine_run`] over a fake `agy` that ends as `ending` says.
+fn engine_run_ending(root: &Path, ending: &Ending<'_>) -> Vec<Value> {
     let recipe = world(root);
     let law = RealmLaw {
         boundary: Boundary::Namespace,
@@ -108,7 +139,7 @@ fn engine_run(root: &Path, stdout: &str) -> Vec<Value> {
     let mut bundle = compiled.expect("an agy seat in a listed office compiles");
     patch(&mut bundle);
     let mut env = EnvGuard::lock();
-    env.set("BROKKR_AGY_BIN", fake_agy(root, stdout));
+    env.set("BROKKR_AGY_BIN", fake_agy(root, ending));
     env.set("HOME", root);
     std::fs::create_dir_all(root.join("work")).unwrap();
     let store = Store::open(&root.join("forge.db")).unwrap();
@@ -222,6 +253,70 @@ fn an_engine_run_of_an_agy_seat_served_another_model_journals_no_turn() {
                  \"gemini-3.8-flash-low\"";
     assert!(error.contains(words), "{error}");
     assert_eq!(failed["payload"]["start_failure"], true);
+}
+
+/// A signed-out agy, end to end: the driver process's own output, which
+/// the engine journals as the attempt's stderr, holds the driver's words
+/// in place of agy's sign-in block, and no piece of its URL (#1200 K8).
+#[test]
+fn an_engine_run_of_a_signed_out_agy_journals_no_piece_of_the_sign_in_url() {
+    let test = "agy_driver::an_engine_run_of_a_signed_out_agy_journals_no_piece_of_the_sign_in_url";
+    if !brokkr_protocol::process::in_its_own_engine(test) {
+        return;
+    }
+    let (_home, root) = root();
+    let ending = Ending {
+        stdout: SIGNED_OUT,
+        stderr: SIGNED_OUT_STDERR,
+        code: 1,
+    };
+    let journal = serde_json::to_string(&engine_run_ending(&root, &ending)).unwrap();
+    assert!(
+        journal.contains("agy wrote its sign-in request on stderr, which brokkr does not keep"),
+        "the driver's printed stderr is journaled: {journal}"
+    );
+    assert!(
+        journal.contains("not_logged_in: Antigravity CLI is signed out"),
+        "{journal}"
+    );
+    // The sign-in line's own words, its client, challenge and state among
+    // them: none is journaled.
+    let (_, link) = SIGNED_OUT_STDERR.split_once("https://").unwrap();
+    let link = link.lines().next().unwrap();
+    let words: Vec<&str> = (link.split(|c: char| !c.is_ascii_alphanumeric()))
+        .filter(|word| word.len() > 8)
+        .collect();
+    assert!(words.len() > 5, "{words:?}");
+    let journaled: Vec<&&str> = words
+        .iter()
+        .filter(|word| journal.contains(**word))
+        .collect();
+    assert_eq!(journaled, Vec::<&&str>::new());
+}
+
+/// A print timeout behind work, end to end: the attempt ends with no
+/// result, and what the driver prints for it is the print-timeout refusal's
+/// words, which the engine journals (#1200 K9).
+#[test]
+fn an_engine_run_of_an_agy_print_timeout_journals_its_words() {
+    let test = "agy_driver::an_engine_run_of_an_agy_print_timeout_journals_its_words";
+    if !brokkr_protocol::process::in_its_own_engine(test) {
+        return;
+    }
+    let (_home, root) = root();
+    let stdout = PRINT_TIMEOUT.replace("gemini-3.8-flash-low", "gemini-4-neon");
+    let ending = Ending {
+        stdout: &stdout,
+        stderr: PRINT_TIMEOUT_STDERR,
+        code: 3,
+    };
+    let events = engine_run_ending(&root, &ending);
+    let journal = serde_json::to_string(&events).unwrap();
+    let words = "print_timeout: agy exited 3 at its own print timeout, which this launch never \
+                 asks for; agy's result had status ERROR";
+    assert!(journal.contains(words), "{journal}");
+    let succeeded = (events.iter()).any(|event| event["type"] == "effect/succeeded");
+    assert!(!succeeded, "{journal}");
 }
 
 /// The gate mode `brokkr driver agy -- --gate <name>...` answers one hook

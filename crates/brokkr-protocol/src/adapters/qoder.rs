@@ -415,7 +415,7 @@ impl Observed {
         Observed { raw, stripped }
     }
 
-    fn said(&self, marker: &str) -> bool {
+    pub(super) fn said(&self, marker: &str) -> bool {
         self.raw.contains(marker) || self.stripped.contains(marker)
     }
 }

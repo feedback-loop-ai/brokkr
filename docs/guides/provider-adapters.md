@@ -551,7 +551,9 @@ plugins and hooks. Every launch runs with HOME set, for the `agy` child
 alone and after the seat's secret bindings, so no binding replaces it, to
 a directory the driver makes for that launch, mode 0700, and removes
 when the turn ends. A seat that binds a secret named `HOME` is refused
-before the CLI starts. Each HOME is a hands session, its owner's pid in
+before the CLI starts. Each HOME is the one directory, `home`, inside a
+hands session, so nothing of the operator's shares a directory with the
+session's own records: its owner's pid in
 its name and its lock held while the driver lives, under one parent of
 agy's own, `brokkr-agy-homes-<uid>` under the engine's temporary root,
 mode 0700 and refused when it is anyone else's. A driver killed at the
@@ -573,15 +575,24 @@ a workspace nobody trusted, and a workspace hook approved its own
 command. So from the working directory upward, an entry of any type at
 `<dir>/.agents/mcp_config.json`, `<dir>/.agents/plugins` or
 `<dir>/.agents/hooks.json` refuses the launch before the CLI starts,
-naming the path. The walk ends where agy's ends, inclusive: at the first
-directory that holds a `.git` file, whatever it says, or that git names
-as the working directory's top level (`git rev-parse --show-toplevel`,
-asked once). A `.git` directory git does not take for a repository does
-not end it (`git-root-linked-worktree`, `git-root-nested-repository`,
-`git-root-empty-dot-git-dir`, `git-root-junk-dot-git-file`). Where
-neither is found, the working directory is checked by itself alone
-(`iso-06`). A path the walk cannot read refuses, naming it, and so does a
-git that cannot be run.
+naming the path. The walk ends where agy's ends, inclusive:
+
+- at the first directory that holds a `.git` file, whatever it says
+  (`git-root-junk-dot-git-file`);
+- otherwise at the top level git names, asked once (`git rev-parse
+  --show-toplevel`). A `.git` directory git does not take for a repository
+  does not end it (`git-root-linked-worktree`, `git-root-nested-repository`,
+  `git-root-empty-dot-git-dir`);
+- where git names no top level, for any reason it gives, and the working
+  directory or a directory above it holds a `.git` entry of any type, the
+  launch is refused, naming that directory and saying git could not name
+  its top level. None of git's own text is quoted;
+- where git names none and no `.git` entry stands above, the working
+  directory is checked alone (`iso-06`).
+
+A path the walk cannot read refuses, naming it, and so does a git that
+cannot be run. A working directory that cannot be resolved refuses, named
+as the seat gave it.
 
 **The gate.** Agy's native web search runs with no rule, and no rule
 stops it. One `PreToolUse` hook in the engine's HOME does, on every tool,
@@ -603,15 +614,37 @@ empty response. The only sign is the result's `denied_actions`. A result
 that carries them fails the invocation, naming each denied action, and
 leaves no result. A denied step's own `state` is never read: the record
 shows it `ERROR` once and `DONE` the other times. The answer is the
-`response` of a `SUCCESS` result, and an empty one is no answer. Each
-row is judged as agy wrote it, before the seat's secrets are masked out
-of what the driver passes on. One launch is one turn: a second `init`, a
-second `result`, a known row behind the `result`, or an `init`,
-`step_update` or `result` row that does not read, such as a `result`
-with no `status` or a `denied_actions` that is no list, fails the
-invocation; once a denial or a failure is seen, no later row changes
-it. A row of another `event`, and a line that is no JSON object naming
-one, is passed over.
+`response` of a `SUCCESS` result, and an empty one is no answer. Agy's
+stdout is read as bytes, to its end, and each known row is typed once from
+its text, as agy wrote it, before the seat's secrets are masked out of what
+the driver passes on. One launch is one turn: a second `init`, a second
+`result`, a known row behind the `result`, a line that is not UTF-8, or an
+`init`, `step_update` or `result` row that does not read, such as a
+`result` with no `status`, a `denied_actions` that is no list, or a key
+the driver reads written twice, fails the invocation; once a denial or a
+failure is seen, no later row changes it. A row of another `event`, and a
+line that is not JSON, is passed over and changes nothing.
+
+**The verdict.** The first of these that applies is the turn's verdict:
+
+1. a fault: a row out of order, a known row that does not type, a line
+   that is not UTF-8, a substituted model, or a denial. Behind exit 3 its
+   words also say agy timed out;
+2. the signed-out words, in a result or on stderr, whatever else the
+   result says;
+3. exit 3, agy's print timeout;
+4. any other non-zero exit. Before a confirmed init, exit 1 is a launch
+   refusal and exit 2 with no known row a refused option; otherwise it
+   fails naming the exit code;
+5. a result whose status is not `SUCCESS`, failing naming it;
+6. no result;
+7. a `SUCCESS` no init confirmed, or an empty response;
+8. the answer.
+
+Every failure and refusal that follows a result names its status. A word
+of agy's the driver names, a status, a denied action or the served model,
+is masked through the seat's secrets whole first, and only then escaped
+and cut to 40 characters.
 
 **The served model is the pinned one, or the seat is refused.** Init's
 `model` must be exactly the pin, or the seat is refused before any row
@@ -624,14 +657,15 @@ cache read. Agy reports no price and no cache-write count, so both read
 "not reported", never 0.
 
 **Refusals.** An `ERROR` result with exit 1 before any turn, an unknown
-model or an effort the model lacks, is a launch refusal. Exit 2 with an
-empty stdout is a launch refusal on an option agy does not define. Exit
+model or an effort the model lacks, is a launch refusal. Exit 2 with no
+known row is a launch refusal on an option agy does not define. Exit
 3 is agy's own print timeout, which the launch never asks for, whatever
 rows came before it; behind a turn already folded it ends the seat with
 no result, as every late refusal does. A result whose status is not
 `SUCCESS`, such as `ERROR`, `CANCELED`, `INTERRUPTED`, `INVALID`,
 `WAITING` or `RUNNING`, fails naming it, up to 40 characters. No
 refusal, error or late message quotes agy's stderr or its `error` text.
+A failure, and a refusal behind work, leave with their words alone.
 Agy's stderr is still recorded as evidence, its escape sequences
 stripped and then masked, except a signed-out CLI's: that is a sign-in
 request holding a link made for one attempt, so the driver's own words

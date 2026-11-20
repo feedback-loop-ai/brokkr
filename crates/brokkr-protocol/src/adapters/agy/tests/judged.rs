@@ -11,7 +11,7 @@ use fold::Event;
 /// `value` bound to the seat as `name`, whatever its length: the store is
 /// written by hand, so a value `brokkr secrets set` would refuse as short
 /// is bound too.
-fn bound(name: &str, value: &str) -> secret::BoundSecret {
+pub(super) fn bound(name: &str, value: &str) -> secret::BoundSecret {
     let dir = tempfile::tempdir().unwrap();
     let store = dir.path().join("secrets.env");
     std::fs::write(&store, format!("{name}={value}\n")).unwrap();
@@ -21,21 +21,32 @@ fn bound(name: &str, value: &str) -> secret::BoundSecret {
 }
 
 /// What one turn of a fake `agy` left the driver with.
-struct Driven {
-    turn: Result<Invocation, String>,
-    rows: Vec<Value>,
+pub(super) struct Driven {
+    pub(super) turn: Result<Invocation, String>,
+    pub(super) rows: Vec<Value>,
     started: bool,
 }
 
 /// One turn of a fake `agy` printing `stdout` and `stderr` and exiting
 /// `code`, run by [`drive`] for a seat pinned to `pin` under `bindings`.
-fn driven(
+pub(super) fn driven(
     (stdout, stderr, code): (&str, &str, i32),
     pin: &str,
     bindings: &[secret::BoundSecret],
 ) -> Driven {
+    driven_with((stdout.as_bytes(), stderr, code), false, pin, bindings)
+}
+
+/// [`driven`] over `stdout`'s bytes, the seat's result written where
+/// `delivers`.
+pub(super) fn driven_with(
+    (stdout, stderr, code): (&[u8], &str, i32),
+    delivers: bool,
+    pin: &str,
+    bindings: &[secret::BoundSecret],
+) -> Driven {
     let mut world = World::new();
-    let bin = fake_agy(&world.seat(), stdout, stderr, false, code);
+    let bin = fake_agy(&world.seat(), stdout, stderr, delivers, code);
     world.set(&bin);
     let input = world.input(None);
     let (binary, extra) = (bin.to_string_lossy(), argv(&["--model", pin]));
@@ -87,7 +98,7 @@ fn a_seat_that_binds_home_is_refused_and_its_child_home_is_the_engines() {
 }
 
 /// Every string value of `value`, keys aside.
-fn strings(value: &Value) -> Vec<String> {
+pub(super) fn strings(value: &Value) -> Vec<String> {
     match value {
         Value::String(text) => vec![text.clone()],
         Value::Array(items) => items.iter().flat_map(strings).collect(),
@@ -96,51 +107,101 @@ fn strings(value: &Value) -> Vec<String> {
     }
 }
 
-/// Whether `secret` reads in clear anywhere a turn left the driver.
-fn in_clear(driven: &Driven, secret: &str) -> bool {
-    let mut left: Vec<String> = driven.rows.iter().flat_map(strings).collect();
-    match &driven.turn {
-        Err(words) => left.push(words.clone()),
-        Ok(invocation) => {
-            let record = Value::Object(invocation.session_meta.clone());
-            left.extend(strings(&record));
-            left.extend(invocation.answer.iter().flat_map(strings));
-            left.extend(invocation.refusal.iter().map(|r| r.words().to_string()));
-            left.push(invocation.stderr.clone());
+/// The seat's input in `world`, `value` bound to it as `AT` through a
+/// store under the world's root, as the shared driver resolves a seat's
+/// secrets.
+pub(super) fn bound_input(world: &World, value: &str) -> Value {
+    let store = world.path("secrets.env");
+    std::fs::write(&store, format!("AT={value}\n")).unwrap();
+    std::fs::set_permissions(&store, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let mut input = world.input(None);
+    input["secrets"] = json!(["AT"]);
+    input["secrets_file"] = json!(store);
+    input
+}
+
+/// The words the shared driver writes itself, whatever any adapter's
+/// stream said: no value of a seat's.
+const DRIVER_WORDS: [&str; 2] = ["agy-cli-session-finished", "not reported"];
+
+/// The shared driver's own lead before a refusal to start's words.
+const REFUSED: &str = "provider refused before the first turn: ";
+
+/// Every string a run sent that is not the shared driver's own word: each
+/// checkpoint's values, and the result's error, refusal and payload.
+pub(super) fn sent(messages: &[crate::Body]) -> Vec<String> {
+    let texts = messages.iter().flat_map(|body| match body {
+        crate::Body::Checkpoint { data, .. } => strings(data),
+        crate::Body::Result {
+            error,
+            refusal,
+            result,
+            ..
+        } => {
+            let error = error
+                .as_deref()
+                .map(|error| error.strip_prefix(REFUSED).unwrap_or(error));
+            let mut texts: Vec<String> = error.iter().map(|error| error.to_string()).collect();
+            texts.extend(refusal.iter().map(|r| r.words().to_string()));
+            texts.extend(result.iter().flat_map(strings));
+            texts
         }
-    }
-    left.iter().any(|text| text.contains(secret))
+        _ => Vec::new(),
+    });
+    texts
+        .filter(|text| !DRIVER_WORDS.contains(&text.as_str()))
+        .collect()
 }
 
 /// A bound secret spelled as a key, a status, the pin or one letter
 /// changes no verdict, and reads in clear nowhere the driver's output goes
-/// (J2).
+/// (J2): the refusal and every row leave masked once, by the shared driver
+/// (K10), and the failure's words and the answer by this one.
 #[test]
 fn a_bound_secret_of_any_spelling_changes_no_verdict_and_leaves_masked() {
     for value in ["denied_actions", "status", "SUCCESS", "model", FLASH, "d"] {
         let bindings = [bound("AT", value)];
         let mask = |words: &str| secret::mask_text(words.as_bytes(), &bindings);
         let denied = driven((DENIED_ACCEPT, "", 0), FLASH, &bindings);
-        let failure = Failure::Denied(argv(&["command"])).to_string();
-        assert_eq!(
-            denied.turn.as_ref().map(drop),
-            Err(&mask(&failure)),
-            "{value}"
-        );
-        let substituted = driven((NEON, "", 0), "gemini-4-carbon", &bindings);
-        let words = "model_substituted: the seat pinned \"gemini-4-carbon\" and agy served \
-                     \"gemini-4-neon\"";
-        let refusal = substituted.turn.as_ref().unwrap().refusal.as_ref();
-        assert_eq!(
-            refusal.map(PreSessionRefusal::words),
-            Some(&*mask(words)),
-            "{value}"
-        );
+        let failure = Failed {
+            failure: Failure::Denied(argv(&["command"])),
+            seen: fold::Seen {
+                status: Some("SUCCESS".into()),
+                timed_out: false,
+            },
+        };
+        let words = mask(&failure.to_string());
+        assert_eq!(denied.turn.as_ref().map(drop), Err(&words), "{value}");
+        assert!(!words.contains(value), "{value}");
         let answered = driven((TOOL_LESS, "", 0), FLASH, &bindings);
         let answer = answered.turn.as_ref().unwrap().answer.clone();
         assert_eq!(answer, Some(json!(mask("READY\n"))), "{value}");
-        for turn in [&denied, &substituted, &answered] {
-            assert!(!in_clear(turn, value), "{value}");
+        let substituted = {
+            let mut world = World::new();
+            let bin = fake_agy(&world.seat(), NEON, "", false, 0);
+            let input = bound_input(&world, value);
+            world.run(&bin, &["--model", "gemini-4-carbon"], input, None)
+        };
+        let words = "model_substituted: the seat pinned \"gemini-4-carbon\" and agy served \
+                     \"gemini-4-neon\"";
+        assert_eq!(
+            ended(&substituted).and_then(|(_, _, refusal)| refusal),
+            Some(mask(words)),
+            "{value}"
+        );
+        let ran = {
+            let mut world = World::new();
+            let bin = fake_agy(&world.seat(), TOOL_LESS, "", false, 0);
+            let input = bound_input(&world, value);
+            world.run(&bin, &["--model", FLASH], input, None)
+        };
+        assert!(finished(&ran).is_some(), "{value}");
+        for messages in [&substituted, &ran] {
+            let left = sent(messages);
+            assert!(
+                left.iter().all(|text| !text.contains(value)),
+                "{value}: {left:?}"
+            );
         }
     }
 }
@@ -149,7 +210,7 @@ fn a_bound_secret_of_any_spelling_changes_no_verdict_and_leaves_masked() {
 const SUCCESS: &str = r#"{"event":"result","result":{"status":"SUCCESS","response":"READY\n"}}"#;
 
 /// `rows` joined as one stream.
-fn stream(rows: &[&str]) -> String {
+pub(super) fn stream(rows: &[&str]) -> String {
     let lines: Vec<&str> = rows.iter().map(|row| row.trim_end()).collect();
     lines.join("\n")
 }
@@ -159,9 +220,15 @@ fn stream(rows: &[&str]) -> String {
 #[test]
 fn a_success_behind_a_denial_fails_naming_the_denial() {
     let behind = stream(&[DENIED_ACCEPT, SUCCESS]);
-    let denial = Failure::Denied(argv(&["command"]));
+    let denial = Failed {
+        failure: Failure::Denied(argv(&["command"])),
+        seen: fold::Seen {
+            status: Some("SUCCESS".into()),
+            timed_out: false,
+        },
+    };
     let read = read(&behind, FLASH);
-    assert_eq!(read.fold.verdict(0), Verdict::Failed(denial.clone()));
+    assert_eq!(read.fold.verdict(0, false), Verdict::Failed(denial.clone()));
     {
         let mut world = World::new();
         let bin = fake_agy(&world.seat(), &behind, "", true, 0);
@@ -190,18 +257,21 @@ fn a_success_behind_a_denial_fails_naming_the_denial() {
 fn a_turn_out_of_its_order_or_a_known_row_that_does_not_type_fails() {
     let lines: Vec<&str> = TOOL_LESS.lines().collect();
     let (init, step, result) = (lines[0], lines[1], lines[lines.len() - 1]);
-    let failed = |rows: &[&str]| read(&stream(rows), FLASH).fold.verdict(0);
-    let cases: [(&[&str], Failure); 8] = [
-        (&[init, init, step, result], Failure::Reinitialized),
-        (&[TOOL_LESS, step], Failure::Behind(Event::StepUpdate)),
-        (&[TOOL_LESS, result], Failure::Behind(Event::Result)),
-        (&[result, init], Failure::Behind(Event::Init)),
+    let verdict = |rows: &[&str]| read(stream(rows), FLASH).fold.verdict(0, false);
+    // Each failure, and the status of a result folded before it.
+    let ok = Some("SUCCESS");
+    let cases: [(&[&str], Failure, Option<&str>); 8] = [
+        (&[init, init, step, result], Failure::Reinitialized, None),
+        (&[TOOL_LESS, step], Failure::Behind(Event::StepUpdate), ok),
+        (&[TOOL_LESS, result], Failure::Behind(Event::Result), ok),
+        (&[result, init], Failure::Behind(Event::Init), ok),
         (
             &[
                 init,
                 r#"{"event":"result","result":{"response":"READY\n"}}"#,
             ],
             Failure::Unread(Event::Result),
+            None,
         ),
         (
             &[
@@ -209,31 +279,41 @@ fn a_turn_out_of_its_order_or_a_known_row_that_does_not_type_fails() {
                 r#"{"event":"result","result":{"status":"SUCCESS","response":"x","denied_actions":"command"}}"#,
             ],
             Failure::Unread(Event::Result),
+            None,
         ),
         (
             &[r#"{"event":"init","init":5}"#, TOOL_LESS],
             Failure::Unread(Event::Init),
+            None,
         ),
         (
             &[init, r#"{"event":"step_update"}"#, step, result],
             Failure::Unread(Event::StepUpdate),
+            None,
         ),
     ];
-    for (rows, failure) in cases {
-        assert_eq!(failed(rows), Verdict::Failed(failure.clone()), "{failure}");
+    for (rows, failure, status) in cases {
+        let words = failure.to_string();
+        assert_eq!(verdict(rows), failed(failure, status, false), "{words}");
     }
     let passed = [
         r#"{"event":"user","message":{}}"#,
         r#"{"event":7}"#,
         r#"{"no_event":"result"}"#,
+        r#"{"event":{"init":1},"result":5}"#,
+        r#"{"event":"result""#,
+        r#"{"event""#,
+        r#"{"x":"#,
+        "{",
         "[1]",
         "\"result\"",
+        "",
     ];
     let mut rows = vec![init];
     rows.extend(passed);
     rows.extend(&lines[1..]);
     assert_eq!(
-        read(&stream(&rows), FLASH).fold.verdict(0),
+        read(stream(&rows), FLASH).fold.verdict(0, false),
         Verdict::Answer("READY\n".into())
     );
     // A line that is not JSON at all, through the driver.
@@ -277,7 +357,10 @@ fn a_print_timeout_ends_as_its_refusal_whatever_rows_came_before() {
     let timeout = refusal_of(PRINT_TIMEOUT, 3);
     assert!(read(PRINT_TIMEOUT, FLASH).fold.worked());
     let after_answer = refusal_of(TOOL_LESS, 3);
-    assert_eq!(after_answer, timeout);
+    assert_eq!(
+        after_answer.words(),
+        format!("{PRINT_TIMEOUT_WORDS}; agy's result had status SUCCESS")
+    );
     let timed_out = driven((PRINT_TIMEOUT, PRINT_TIMEOUT_STDERR, 3), FLASH, &[]);
     assert_eq!(timed_out.turn.map(drop), Err(timeout.words().to_string()));
     let mut world = World::new();
@@ -301,16 +384,17 @@ fn a_status_that_is_not_success_is_named_by_it() {
         ("RUNNING", "RUNNING"),
         ("SOMETHING_NEW", "SOMETHING_NEW"),
         (&long, &long[..40]),
-        ("rm -rf", "<unnamed>"),
+        ("rm -rf", "rm -rf"),
+        ("a\tb\u{1b}", "a\\tb\\u{1b}"),
     ];
     for (status, name) in statuses {
         let result = json!({"event": "result", "result": {"status": status}});
-        let verdict = read(&stream(&[init, &result.to_string()]), FLASH)
+        let verdict = read(stream(&[init, &result.to_string()]), FLASH)
             .fold
-            .verdict(0);
+            .verdict(0, false);
         assert_eq!(
             verdict,
-            Verdict::Failed(Failure::Status(name.into())),
+            failed(Failure::Status(name.into()), None, false),
             "{status}"
         );
     }

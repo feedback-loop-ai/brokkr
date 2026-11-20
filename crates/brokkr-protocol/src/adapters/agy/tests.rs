@@ -10,6 +10,7 @@ use serde_json::{json, Map, Value};
 use super::*;
 use crate::adapters::AdapterKind;
 use crate::{PreSessionRefusal, RefusalClass};
+use fold::Failure;
 
 macro_rules! recorded {
     ($file:literal) => {
@@ -65,19 +66,18 @@ const MODEL_REFUSALS: [(&str, &str); 4] = [
 /// reads it: what it emitted, the record it left, and the refusal it
 /// stopped at, if any.
 struct Read {
-    fold: AgyFold,
+    fold: AgyFold<'static>,
     rows: Vec<Value>,
     record: Map<String, Value>,
     stopped: Option<PreSessionRefusal>,
 }
 
-fn read(stdout: &str, pin: &str) -> Read {
-    let mut fold = AgyFold::new(pin);
+fn read(stdout: impl AsRef<[u8]>, pin: &str) -> Read {
+    let mut fold = AgyFold::new(pin, &[]);
     let (mut rows, mut record, mut stopped) = (Vec::new(), Map::new(), None);
-    for line in stdout.lines() {
-        let event: Value = serde_json::from_str(line).unwrap();
+    for line in stdout.as_ref().split(|byte| *byte == b'\n') {
         let mut emitted = |row: &Value| rows.push(row.clone());
-        if let Err(refused) = fold.read(&event, &mut record, &mut emitted) {
+        if let Err(refused) = fold.read(line, &mut record, &mut emitted) {
             stopped = Some(refused);
             break;
         }
@@ -123,7 +123,7 @@ fn the_tool_less_stdin_and_named_model_turns_answer_ready_on_their_pins() {
     for (stdout, pin) in turns {
         let read = read(stdout, pin);
         assert_eq!(read.stopped, None, "{pin}");
-        assert_eq!(answer(read.fold.verdict(0)), "READY\n", "{pin}");
+        assert_eq!(answer(read.fold.verdict(0, false)), "READY\n", "{pin}");
         assert_eq!(read.rows, [turn_row(1, pin)], "{pin}");
         assert_eq!(read.record["model"], pin);
     }
@@ -139,7 +139,7 @@ fn the_tools_and_gate_turns_answer_past_the_calls_the_gate_refused() {
     ];
     for (stdout, turns, answered) in answers {
         let read = read(stdout, FLASH);
-        assert_eq!(answer(read.fold.verdict(0)), answered);
+        assert_eq!(answer(read.fold.verdict(0, false)), answered);
         let rows: Vec<Value> = (1..=turns).map(|turn| turn_row(turn, FLASH)).collect();
         assert_eq!(read.rows, rows);
     }
@@ -151,12 +151,25 @@ fn the_tools_and_gate_turns_answer_past_the_calls_the_gate_refused() {
     assert!(!GATE_PRIOR.contains("denied_actions"));
 }
 
+/// `failure` as a verdict, with the status a result named and whether agy
+/// timed out behind it.
+fn failed(failure: Failure, status: Option<&str>, timed_out: bool) -> Verdict {
+    let seen = fold::Seen {
+        status: status.map(str::to_string),
+        timed_out,
+    };
+    Verdict::Failed(Failed { failure, seen })
+}
+
 /// A turn agy stopped at a denial fails, naming each denied action, as
 /// the result says it and whatever the denied step's state read, and
-/// whatever the CLI exited with.
+/// whatever the CLI exited with: its result's status beside it, and the
+/// print timeout behind it.
 #[test]
 fn a_turn_stopped_at_a_denial_is_a_failure_naming_each_action() {
-    let failure = |actions: &[&str]| Verdict::Failed(Failure::Denied(argv(actions)));
+    let failure = |actions: &[&str], timed_out| {
+        failed(Failure::Denied(argv(actions)), Some("SUCCESS"), timed_out)
+    };
     for (stdout, action) in [
         (DENIED_DEFAULT, "command"),
         (DENIED_ACCEPT, "command"),
@@ -166,8 +179,8 @@ fn a_turn_stopped_at_a_denial_is_a_failure_naming_each_action() {
         assert_eq!(read.stopped, None);
         for exit in [0, 1, 3] {
             assert_eq!(
-                read.fold.verdict(exit),
-                failure(&[action]),
+                read.fold.verdict(exit, false),
+                failure(&[action], exit == 3),
                 "{action} {exit}"
             );
         }
@@ -177,13 +190,16 @@ fn a_turn_stopped_at_a_denial_is_a_failure_naming_each_action() {
     let denied = "\"state\":\"ERROR\",\"step_type\":\"tool\",\"tool_name\":\"run_command\"";
     assert!(DENIED_DEFAULT.contains(denied));
     assert!(!DENIED_ACCEPT.contains("\"state\":\"ERROR\""));
-    // An action that is no plain identifier is never quoted.
-    let odd = r#"{"event":"result","result":{"status":"SUCCESS","response":"x","denied_actions":[{"action":"rm -rf /"},{"action":"command"}]}}"#;
+    // An action is named escaped, on one line (K3).
+    let odd = r#"{"event":"result","result":{"status":"SUCCESS","response":"x","denied_actions":[{"action":"rm -rf /\n"},{"action":"command"}]}}"#;
     let read = read(
-        &format!("{}\n{odd}", TOOL_LESS.lines().next().unwrap()),
+        format!("{}\n{odd}", TOOL_LESS.lines().next().unwrap()),
         FLASH,
     );
-    assert_eq!(read.fold.verdict(0), failure(&["<unnamed>", "command"]));
+    assert_eq!(
+        read.fold.verdict(0, false),
+        failure(&["rm -rf /\\n", "command"], false)
+    );
 }
 
 #[test]
@@ -208,15 +224,16 @@ fn a_stream_with_no_init_row_gives_no_answer() {
     let headless: String = TOOL_LESS.lines().skip(1).collect::<Vec<_>>().join("\n");
     assert_eq!(read(&headless, FLASH).stopped.unwrap().words(), unconfirmed);
     let result_only = TOOL_LESS.lines().last().unwrap();
-    for stdout in [result_only, ""] {
-        let Verdict::Refused(refused) = read(stdout, FLASH).fold.verdict(0) else {
+    let behind_result = format!("{unconfirmed}; agy's result had status SUCCESS");
+    for (stdout, words) in [(result_only, behind_result.as_str()), ("", unconfirmed)] {
+        let Verdict::Refused(refused) = read(stdout, FLASH).fold.verdict(0, false) else {
             panic!("{stdout}");
         };
-        assert_eq!(refused.words(), unconfirmed);
+        assert_eq!(refused.words(), words);
     }
     // An init that names no model, and rows the fold does not type, pass.
     let nameless = r#"{"event":"init","init":{"cwd":"/w"}}"#;
-    let read = read(&format!("{nameless}\n5\n{{\"event\":\"other\"}}"), FLASH);
+    let read = read(format!("{nameless}\n5\n{{\"event\":\"other\"}}"), FLASH);
     assert_eq!(read.stopped, None);
     assert!(read.record.is_empty());
 }
@@ -242,7 +259,7 @@ fn quotes_nothing(words: &str, stdout: &str, stderr: &str) {
 
 /// The refusal `stdout` and `exit` end a seat pinned to [`FLASH`] with.
 fn refusal_of(stdout: &str, exit: i32) -> PreSessionRefusal {
-    match read(stdout, FLASH).fold.verdict(exit) {
+    match read(stdout, FLASH).fold.verdict(exit, false) {
         Verdict::Refused(refused) => refused,
         other => panic!("not a refusal: {other:?}"),
     }
@@ -251,7 +268,7 @@ fn refusal_of(stdout: &str, exit: i32) -> PreSessionRefusal {
 #[test]
 fn the_model_effort_and_flag_refusals_are_launch_refusals_quoting_nothing() {
     let model = "launch_refused: agy exited 1 before any turn: it does not serve the model or \
-                 the effort the seat named";
+                 the effort the seat named; agy's result had status ERROR";
     for (stdout, stderr) in MODEL_REFUSALS {
         let refused = refusal_of(stdout, 1);
         assert_eq!(
@@ -270,8 +287,8 @@ fn the_model_effort_and_flag_refusals_are_launch_refusals_quoting_nothing() {
     assert_eq!(
         read(TOOL_LESS.lines().next().unwrap(), FLASH)
             .fold
-            .verdict(2),
-        Verdict::Exited
+            .verdict(2, false),
+        failed(Failure::Exited(2), None, false)
     );
 }
 
@@ -280,12 +297,12 @@ fn a_print_timeout_and_a_signed_out_cli_are_refusals_quoting_nothing() {
     let timeout = refusal_of(PRINT_TIMEOUT, 3);
     assert_eq!(
         timeout.words(),
-        "print_timeout: agy exited 3 at its own print timeout, which this launch never asks for"
+        format!("{PRINT_TIMEOUT_WORDS}; agy's result had status ERROR")
     );
     quotes_nothing(timeout.words(), PRINT_TIMEOUT, PRINT_TIMEOUT_STDERR);
-    assert_eq!(refusal_of("", 3), timeout);
+    assert_eq!(refusal_of("", 3).words(), PRINT_TIMEOUT_WORDS);
     let signed_out = refusal_of(SIGNED_OUT, 1);
-    assert_eq!(signed_out.words(), SIGNED_OUT_WORDS);
+    assert_eq!(signed_out.words(), signed_out_words("ERROR"));
     quotes_nothing(signed_out.words(), SIGNED_OUT, SIGNED_OUT_STDERR);
     // No piece of the sign-in URL the stderr holds reaches the words.
     let url = SIGNED_OUT_STDERR
@@ -303,29 +320,51 @@ const SIGNED_OUT_WORDS: &str = "not_logged_in: Antigravity CLI is signed out: ru
                                 and sign in; the login is \
                                 ~/.gemini/antigravity-cli/antigravity-oauth-token";
 
+/// [`SIGNED_OUT_WORDS`] behind a result of `status` (K5).
+fn signed_out_words(status: &str) -> String {
+    format!("{SIGNED_OUT_WORDS}; agy's result had status {status}")
+}
+
+/// The print-timeout refusal's fixed words.
+const PRINT_TIMEOUT_WORDS: &str =
+    "print_timeout: agy exited 3 at its own print timeout, which this launch never asks for";
+
 /// A clean exit that is still no answer fails in the driver's own words:
 /// an empty response, a status that is not success, and no result at all.
 #[test]
 fn a_clean_exit_with_no_answer_fails_in_the_drivers_words() {
     let init = TOOL_LESS.lines().next().unwrap();
-    let ended = |result: &str| read(&format!("{init}\n{result}"), FLASH).fold.verdict(0);
-    let failed = Verdict::Failed;
+    let ended = |result: &str| {
+        read(format!("{init}\n{result}"), FLASH)
+            .fold
+            .verdict(0, false)
+    };
     assert_eq!(
         ended(r#"{"event":"result","result":{"status":"SUCCESS","response":" \n"}}"#),
-        failed(Failure::Empty)
+        failed(Failure::Empty, None, false)
     );
     assert_eq!(
         ended(r#"{"event":"result","result":{"status":"NOT OK"}}"#),
-        failed(Failure::Status("<unnamed>".into()))
+        failed(Failure::Status("NOT OK".into()), None, false)
     );
-    assert_eq!(read(init, FLASH).fold.verdict(0), failed(Failure::Unended));
-    // A non-zero exit says it all, and a status with no turn at exit 1 is a
-    // launch refusal only before any init.
+    assert_eq!(
+        read(init, FLASH).fold.verdict(0, false),
+        failed(Failure::Unended, None, false)
+    );
+    // A non-zero exit is named with the status a result named, and a status
+    // with no turn at exit 1 is a launch refusal only before any init.
     let error = r#"{"event":"result","result":{"status":"ERROR"}}"#;
-    let errored = read(&format!("{init}\n{error}"), FLASH);
-    assert_eq!(errored.fold.verdict(1), Verdict::Exited);
-    assert_eq!(errored.fold.verdict(4), Verdict::Exited);
-    assert_eq!(read(init, FLASH).fold.verdict(5), Verdict::Exited);
+    let errored = read(format!("{init}\n{error}"), FLASH);
+    for code in [1, 4] {
+        assert_eq!(
+            errored.fold.verdict(code, false),
+            failed(Failure::Exited(code), Some("ERROR"), false)
+        );
+    }
+    assert_eq!(
+        read(init, FLASH).fold.verdict(5, false),
+        failed(Failure::Exited(5), None, false)
+    );
 }
 
 /// One figure per invocation, from the result: input with its cache read,
@@ -504,7 +543,8 @@ fn each_launch_refusal_states_what_was_written_and_never_a_value() {
         (LaunchError::Unpinned, "the seat pins no model with --model; a provisional seat pins its id (#1200)"),
         (LaunchError::Unruled, "the seat's --allow carries a rule that is neither command(…) nor mcp(…), which agy would ignore without a word (#1200)"),
         (LaunchError::Unnamed, "the engine's HOME or executable for the agy seat has a path that is not UTF-8, so nothing names it exactly (#1200)"),
-        (LaunchError::Unrooted(io()), "the agy seat's working directory cannot be resolved: entity not found"),
+        (LaunchError::Unrooted("w/sub".into(), io()), "the agy seat's working directory w/sub cannot be resolved: entity not found"),
+        (LaunchError::Rootless("/w".into()), "the agy seat's workspace has a .git entry in /w, and git could not name its top level, so where agy's walk ends is unknown (#1200)"),
         (LaunchError::Configured("/w/.agents/plugins".into()), "the agy seat's workspace carries /w/.agents/plugins, which agy would start or run in a turn nobody trusted; remove it, or run the seat elsewhere (#1200)"),
         (LaunchError::SignedOut, "Antigravity CLI is signed out: run `agy` once and sign in; the login is ~/.gemini/antigravity-cli/antigravity-oauth-token (#1200)"),
         (LaunchError::Unhomed(io()), "the engine's HOME for the agy seat was not made: entity not found"),
@@ -534,17 +574,50 @@ fn each_failure_states_the_drivers_words_and_names_only_plain_words() {
         (Failure::Behind(Event::StepUpdate), "agy wrote a step_update row behind the turn's result, and one launch is one turn (#1200)"),
         (Failure::Behind(Event::Result), "agy wrote a result row behind the turn's result, and one launch is one turn (#1200)"),
         (Failure::Unread(Event::Init), "agy wrote an init row the driver cannot read, so the turn gave no answer (#1200)"),
+        (Failure::Exited(5), "agy exited 5, so the turn gave no answer (#1200)"),
+        (Failure::NotText, "agy wrote a line that is not UTF-8, so the turn gave no answer (#1200)"),
     ];
     for (failure, words) in stated {
         assert_eq!(failure.to_string(), words);
     }
+    // What a result and an exit add, each and both.
+    let seen = |status: Option<&str>, timed_out| fold::Seen {
+        status: status.map(str::to_string),
+        timed_out,
+    };
+    let added = [
+        (seen(None, false), ""),
+        (
+            seen(Some("ERROR"), false),
+            "; agy's result had status ERROR",
+        ),
+        (
+            seen(None, true),
+            "; agy then exited 3 at its own print timeout",
+        ),
+        (
+            seen(Some("ERROR"), true),
+            "; agy's result had status ERROR; agy then exited 3 at its own print timeout",
+        ),
+    ];
+    for (seen, words) in added {
+        let failed = Failed {
+            failure: Failure::Empty,
+            seen,
+        };
+        assert_eq!(failed.to_string(), format!("{}{words}", Failure::Empty));
+    }
     let late = refusal_of(PRINT_TIMEOUT, 3);
+    let empty = Failed {
+        failure: Failure::Empty,
+        seen: fold::Seen::default(),
+    };
     let ended = [
         (
             Ended::Launch(LaunchError::Unpinned),
             LaunchError::Unpinned.to_string(),
         ),
-        (Ended::Failed(Failure::Empty), Failure::Empty.to_string()),
+        (Ended::Failed(empty), Failure::Empty.to_string()),
         (Ended::Late(late.clone()), late.words().to_string()),
         (
             Ended::from("could not".to_string()),
@@ -638,6 +711,16 @@ fn home_root() -> (tempfile::TempDir, std::path::PathBuf, std::path::PathBuf) {
     (root, operator, temp)
 }
 
+/// The names in `dir`, sorted.
+fn listed(dir: &Path) -> Vec<String> {
+    let entries = std::fs::read_dir(dir).unwrap();
+    let mut names: Vec<String> = (entries.flatten())
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    names
+}
+
 /// The engine's HOME: mode 0700, a link to the login, the engine's own
 /// configuration, and every other operator entry with a UTF-8 name linked,
 /// `.gemini` and `.agents` not; gone with the value, the operator's intact.
@@ -652,9 +735,12 @@ fn the_engine_home_links_the_login_and_the_operators_entries_but_not_its_agent_s
     let set = empty_set();
     let home = home::made(homes, written(&set)).unwrap();
     let path = Path::new(home.path());
-    // A session of its own under agy's one parent, which is owner-only.
-    assert_eq!(path.parent(), Some(home::parent(&temp).as_path()));
-    let name = path.file_name().unwrap().to_str().unwrap();
+    // The `home` of a session of its own under agy's one parent, each
+    // owner-only (K7).
+    assert_eq!(path.file_name().unwrap(), "home");
+    let session = path.parent().unwrap();
+    assert_eq!(session.parent(), Some(home::parent(&temp).as_path()));
+    let name = session.file_name().unwrap().to_str().unwrap();
     assert!(name.starts_with("brokkr-hands-agy-"), "{name}");
     for dir in [path, &home::parent(&temp)] {
         let mode = std::fs::metadata(dir).unwrap().permissions().mode();
@@ -674,18 +760,13 @@ fn the_engine_home_links_the_login_and_the_operators_entries_but_not_its_agent_s
             operator.join(linked)
         );
     }
-    let mut entries: Vec<String> = std::fs::read_dir(path)
-        .unwrap()
-        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
-        .collect();
-    entries.sort();
-    assert_eq!(entries, [".cargo", ".gemini", ".gitconfig", ".owner.lock"]);
+    assert_eq!(listed(path), [".cargo", ".gemini", ".gitconfig"]);
     assert!(!path
         .join(".gemini")
         .symlink_metadata()
         .unwrap()
         .is_symlink());
-    let made = path.to_path_buf();
+    let made = session.to_path_buf();
     drop(home);
     assert!(!made.exists());
     assert_eq!(
@@ -986,8 +1067,13 @@ fn a_workspace_path_that_cannot_be_read_refuses_naming_it() {
         matches!(unasked, Err(LaunchError::Unasked(_))),
         "{unasked:?}"
     );
-    let missing = home::unconfigured("/nonexistent-brokkr-agy-workdir");
-    assert!(matches!(missing, Err(LaunchError::Unrooted(_))));
+    // Named as the seat gave it (K4).
+    let given = "/nonexistent-brokkr-agy-workdir/sub";
+    let missing = home::unconfigured(given);
+    assert!(
+        matches!(&missing, Err(LaunchError::Unrooted(named, _)) if named == given),
+        "{missing:?}"
+    );
 }
 
 /// A fake `agy` under `dir`: it records its argv, its HOME, its stdin, the
@@ -996,12 +1082,12 @@ fn a_workspace_path_that_cannot_be_read_refuses_naming_it() {
 /// and exits `code`.
 fn fake_agy(
     dir: &Path,
-    stdout: &str,
+    stdout: impl AsRef<[u8]>,
     stderr: &str,
     delivers: bool,
     code: i32,
 ) -> std::path::PathBuf {
-    for (stream, printed) in [("stdout", stdout), ("stderr", stderr)] {
+    for (stream, printed) in [("stdout", stdout.as_ref()), ("stderr", stderr.as_bytes())] {
         std::fs::write(dir.join(stream), printed).unwrap();
     }
     let answer = dir.join("result.json");
@@ -1197,11 +1283,14 @@ fn an_agy_seat_runs_the_overridden_binary_under_the_engine_home_and_answers_on_i
         "{hooks}"
     );
     assert!(!hooks.contains("call_mcp_tool"), "{hooks}");
+    // The child's HOME is the `home` directory of the session tree (K7).
     let home = world.recorded("home");
-    let named = Path::new(&home).file_name().unwrap().to_string_lossy();
+    let session = Path::new(&home).parent().unwrap();
+    assert_eq!(Path::new(&home).file_name().unwrap(), "home");
+    let named = session.file_name().unwrap().to_string_lossy();
     assert!(named.starts_with("brokkr-hands-agy-"), "{home}");
     assert_eq!(
-        Path::new(&home).parent(),
+        session.parent(),
         Some(home::parent(&std::env::temp_dir()).as_path())
     );
     assert!(!Path::new(&home).exists(), "{home}");
@@ -1239,8 +1328,8 @@ fn a_refused_or_unspawned_seat_states_why_and_leaves_no_home() {
     let signed_out = Some((SIGNED_OUT, SIGNED_OUT_STDERR, 1));
     let ((status, error, refusal), _, gone) = seat_over(signed_out, FLASH);
     assert_eq!(
-        (status, refusal.as_deref()),
-        (crate::ResultStatus::Failed, Some(SIGNED_OUT_WORDS))
+        (status, refusal),
+        (crate::ResultStatus::Failed, Some(signed_out_words("ERROR")))
     );
     assert!(!error.unwrap().contains("accounts.google.com"));
     assert!(gone);
@@ -1430,18 +1519,19 @@ fn bound_turn(stdout: &str, delivers: bool, code: i32) -> (Result<Invocation, St
 fn a_bound_secret_in_agys_stderr_or_error_text_reaches_no_word() {
     let init = TOOL_LESS.lines().next().unwrap();
     let signed_out = SIGNED_OUT.replace("timed out", &format!("timed out for {SECRET}"));
-    let errored = format!(
-        "{init}\n{{\"event\":\"result\",\"result\":{{\"status\":\"ERROR\",\"error\":\"bad {SECRET}\"}}}}"
+    let error_row = format!(
+        "{{\"event\":\"result\",\"result\":{{\"status\":\"ERROR\",\"error\":\"bad {SECRET}\"}}}}"
     );
+    let errored = format!("{init}\n{error_row}");
     let (refused, masked) = bound_turn(&signed_out, false, 1);
     let refused = refused.unwrap();
     assert_eq!(
-        refused.refusal.as_ref().map(PreSessionRefusal::words),
-        Some(SIGNED_OUT_WORDS)
+        refused.refusal.map(|refusal| refusal.words().to_string()),
+        Some(signed_out_words("ERROR"))
     );
     assert_eq!(refused.stderr, SIGN_IN_WITHHELD);
-    // A turn that fails another way keeps its stderr, stripped and masked.
-    let (exited, _) = bound_turn(&errored, false, 1);
+    // A turn refused another way keeps its stderr, stripped and masked.
+    let (exited, _) = bound_turn(&error_row, false, 1);
     assert_eq!(
         exited.unwrap().stderr,
         format!("error: token {masked} expired at https://x/{masked}\n")
@@ -1459,7 +1549,7 @@ fn a_bound_secret_in_agys_stderr_or_error_text_reaches_no_word() {
         late.map(drop),
         Err(
             "model_unconfirmed: the seat pinned \"gemini-3.8-flash-low\" and no init row named \
-             the model agy served"
+             the model agy served; agy's result had status SUCCESS"
                 .to_string()
         )
     );
@@ -1471,3 +1561,4 @@ fn a_bound_secret_in_agys_stderr_or_error_text_reaches_no_word() {
 }
 
 mod judged;
+mod whole;

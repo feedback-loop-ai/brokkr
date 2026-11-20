@@ -1,8 +1,9 @@
-//! One stream turn read to its end: the rows a fed harness prints, each
-//! handed to its driver's fold, the harness stopped at the first row the
-//! fold refuses, and its exit and stderr taken. The one home Qoder's
-//! (#1178) and Antigravity's (#1200) drivers read a turn through, moved out
-//! of the qoder driver unchanged.
+//! One stream turn read to its end: the lines a fed harness prints, each
+//! handed to its driver, the harness stopped at the first line the driver
+//! refuses, and its exit and stderr taken. The one home Qoder's (#1178) and
+//! Antigravity's (#1200) drivers read a turn through: Qoder's reading of
+//! JSON rows ([`streamed`]) is built on the one byte seam
+//! ([`streamed_lines`]) Antigravity's driver reads its lines through.
 
 use std::io::BufRead;
 
@@ -28,24 +29,41 @@ pub(super) struct Turn {
     pub(super) captured: CapturedStderr,
 }
 
-/// The turn of the harness `fed`, each JSON row of its stdout handed whole
-/// to `row`, a line that is not JSON passed over. A row `row` refuses
-/// stops the harness there, and the turn reads [`STOPPED_AT_REFUSAL`].
-pub(super) fn streamed(
+/// What a driver makes of one line of its harness's stdout.
+pub(super) enum Line {
+    /// Read on.
+    Read,
+    /// Read no further, and wait for the harness to end.
+    Ended,
+    /// Stop the harness here, refused.
+    Stopped(PreSessionRefusal),
+}
+
+/// The turn of the harness `fed`, each line of its stdout handed to `line`
+/// as its bytes, without its line ending, to the end of the stream or a
+/// stdout that can no longer be read. A line `line` stops at stops the
+/// harness there, and the turn reads [`STOPPED_AT_REFUSAL`].
+pub(super) fn streamed_lines(
     fed: (Spawned, StderrCapture),
-    mut row: impl FnMut(Value) -> Result<(), PreSessionRefusal>,
+    mut line: impl FnMut(&[u8]) -> Line,
 ) -> Result<Turn, String> {
     let (mut child, stderr) = fed;
     let stdout = child.stdout.take().expect("piped");
     let mut stopped = None;
-    for line in std::io::BufReader::new(stdout).lines() {
-        let Ok(line) = line else { break };
-        let Ok(event) = serde_json::from_str::<Value>(&line) else {
-            continue;
-        };
-        if let Err(refused) = row(event) {
-            stopped = Some(refused);
-            break;
+    // The reader is dropped before the wait, so a harness still writing
+    // meets a closed pipe rather than a full one.
+    {
+        let mut reader = std::io::BufReader::new(stdout);
+        let mut bytes = Vec::new();
+        while reader.read_until(b'\n', &mut bytes).unwrap_or(0) > 0 {
+            match line(ended(&bytes)) {
+                Line::Read => bytes.clear(),
+                Line::Ended => break,
+                Line::Stopped(refused) => {
+                    stopped = Some(refused);
+                    break;
+                }
+            }
         }
     }
     let status = match stopped {
@@ -61,5 +79,34 @@ pub(super) fn streamed(
         exit_code,
         stopped,
         captured,
+    })
+}
+
+/// `bytes` without the `\n` that ends it and a `\r` before that, as
+/// [`BufRead::lines`] ends a line.
+fn ended(bytes: &[u8]) -> &[u8] {
+    let bytes = bytes.strip_suffix(b"\n").unwrap_or(bytes);
+    bytes.strip_suffix(b"\r").unwrap_or(bytes)
+}
+
+/// The turn of the harness `fed`, each JSON row of its stdout handed whole
+/// to `row`, a line that is not JSON passed over, and the reading ended at
+/// a line that is not UTF-8. A row `row` refuses stops the harness there,
+/// and the turn reads [`STOPPED_AT_REFUSAL`].
+pub(super) fn streamed(
+    fed: (Spawned, StderrCapture),
+    mut row: impl FnMut(Value) -> Result<(), PreSessionRefusal>,
+) -> Result<Turn, String> {
+    streamed_lines(fed, |bytes| {
+        let Ok(text) = std::str::from_utf8(bytes) else {
+            return Line::Ended;
+        };
+        let Ok(event) = serde_json::from_str::<Value>(text) else {
+            return Line::Read;
+        };
+        match row(event) {
+            Ok(()) => Line::Read,
+            Err(refused) => Line::Stopped(refused),
+        }
     })
 }

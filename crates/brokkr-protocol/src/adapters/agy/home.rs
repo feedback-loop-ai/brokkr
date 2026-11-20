@@ -22,11 +22,17 @@
 //! above that root or above a directory in no repository (`iso-02`,
 //! `iso-05`, `iso-06`); a workspace hook ran in a workspace nobody trusted
 //! and approved its own command (`ambient-workspace-hook`). The walk ends
-//! at a `.git` file, whatever it says, or at the root git names, and not at
-//! a `.git` directory git does not take for a repository
-//! (`git-root-linked-worktree`, `git-root-nested-repository`,
-//! `git-root-empty-dot-git-dir`, `git-root-junk-dot-git-file`). So a
-//! workspace that carries any of them is refused before the HOME is made.
+//! at a `.git` file, whatever it says (`git-root-junk-dot-git-file`), or at
+//! the root git names, and not at a `.git` directory git does not take for a
+//! repository (`git-root-linked-worktree`, `git-root-nested-repository`,
+//! `git-root-empty-dot-git-dir`). Where git names no root and a `.git`
+//! entry stands above, where agy's walk ends is unknown, and the launch is
+//! refused (K4). So a workspace that carries any of them is refused before
+//! the HOME is made.
+//!
+//! The session tree holds the engine's records, its owner's name and its
+//! lock, and one directory, `home`, that is the child's HOME: nothing of the
+//! operator's shares a directory with them (K7).
 
 use std::ffi::OsString;
 use std::os::unix::ffi::OsStringExt;
@@ -51,6 +57,9 @@ const PARENT_PREFIX: &str = "brokkr-agy-homes-";
 
 /// The label of each HOME's session under that parent.
 const LABEL: &str = "agy";
+
+/// The one directory of a session's tree that is the child's HOME (K7).
+const HOME_DIR: &str = "home";
 
 /// The type and permission bits of a parent that is this user's alone, and
 /// what they read: a directory nobody else may enter.
@@ -87,9 +96,9 @@ pub(super) struct Written<'a> {
     pub(super) hooks: &'a str,
 }
 
-/// The engine's HOME for one launch: a session of its own, mode 0700, that
-/// goes with the value, on every path out of the turn. Its path is UTF-8,
-/// so the child's environment names it exactly.
+/// The engine's HOME for one launch: the `home` directory, mode 0700, of a
+/// session of its own, that goes with the value, on every path out of the
+/// turn. Its path is UTF-8, so the child's environment names it exactly.
 pub(super) struct Home {
     /// Held for its lock and its drop, which removes the HOME and all in
     /// it, the links themselves and never what they name.
@@ -128,12 +137,9 @@ pub(super) fn made(homes: Homes<'_>, written: Written<'_>) -> Result<Home, Launc
     // reaping kept or removed is no fact of this launch's.
     crate::hands::reap_dead_sessions_under(&parent);
     let session = Session::create_under(&parent, LABEL).map_err(LaunchError::Unsessioned)?;
-    let path = session
-        .path()
-        .to_str()
-        .ok_or(LaunchError::Unnamed)?
-        .to_string();
-    furnished(session.path(), operator, &login, written).map_err(LaunchError::Unhomed)?;
+    let home = session.path().join(HOME_DIR);
+    let path = home.to_str().ok_or(LaunchError::Unnamed)?.to_string();
+    furnished(&home, operator, &login, written).map_err(LaunchError::Unhomed)?;
     Ok(Home {
         _session: session,
         path,
@@ -168,6 +174,7 @@ fn furnished(
     login: &Path,
     written: Written<'_>,
 ) -> std::io::Result<()> {
+    std::fs::create_dir(home)?;
     std::fs::set_permissions(home, std::fs::Permissions::from_mode(0o700))?;
     let (state, config) = (home.join(STATE), home.join(CONFIG));
     std::fs::create_dir_all(&state)?;
@@ -197,17 +204,11 @@ pub(super) fn unconfigured(workdir: &str) -> Result<(), LaunchError> {
 
 /// [`unconfigured`] asking `git` for the working directory's top level.
 pub(super) fn unconfigured_with(git: &str, workdir: &str) -> Result<(), LaunchError> {
-    let workdir = if workdir.is_empty() { "." } else { workdir };
-    let workdir = std::fs::canonicalize(workdir).map_err(LaunchError::Unrooted)?;
-    let top = top_level(git, &workdir)?;
+    let given = if workdir.is_empty() { "." } else { workdir };
+    let workdir = std::fs::canonicalize(given)
+        .map_err(|error| LaunchError::Unrooted(given.to_string(), error))?;
     let ancestors: Vec<&Path> = workdir.ancestors().collect();
-    let mut end = 0;
-    for (at, dir) in ancestors.iter().enumerate() {
-        if Some(*dir) == top.as_deref() || linked(dir)? {
-            end = at;
-            break;
-        }
-    }
+    let end = walk_end(git, &ancestors)?;
     for dir in &ancestors[..=end] {
         if let Some(path) = configured(dir)? {
             return Err(LaunchError::Configured(path));
@@ -216,8 +217,29 @@ pub(super) fn unconfigured_with(git: &str, workdir: &str) -> Result<(), LaunchEr
     Ok(())
 }
 
+/// Where agy's walk up `ancestors` ends, as an index into them (K4): at the
+/// first `.git` file, or at the top level git names, asked once. Where git
+/// names none, a `.git` entry of any other type below the first `.git` file
+/// refuses, naming its directory: agy's walk ends somewhere git could not
+/// say. With neither, the working directory is read alone (`iso-06`).
+fn walk_end(git: &str, ancestors: &[&Path]) -> Result<usize, LaunchError> {
+    let top = top_level(git, ancestors[0])?;
+    for (at, dir) in ancestors.iter().enumerate() {
+        let dot_git = entry(&dir.join(".git"))?;
+        let found = (dot_git.as_ref()).map(std::fs::Metadata::is_file);
+        if Some(*dir) == top.as_deref() || found == Some(true) {
+            return Ok(at);
+        }
+        if top.is_none() && found.is_some() {
+            return Err(LaunchError::Rootless(dir.to_path_buf()));
+        }
+    }
+    Ok(0)
+}
+
 /// The top level git names for `workdir`, asked once, or none where git
-/// says it is in no work tree. A git that cannot be run refuses: the walk
+/// names none, for whatever reason it gives; nothing of git's text is kept
+/// but the path it names. A git that cannot be run refuses (J8): the walk
 /// would not know where agy's ends.
 fn top_level(git: &str, workdir: &Path) -> Result<Option<PathBuf>, LaunchError> {
     let mut asked = Command::new(git);
@@ -225,18 +247,11 @@ fn top_level(git: &str, workdir: &Path) -> Result<Option<PathBuf>, LaunchError> 
         .args(["rev-parse", "--show-toplevel"])
         .current_dir(workdir);
     let out = crate::process::spawned::output(&mut asked).map_err(LaunchError::Unasked)?;
-    Ok(out.status.success().then(|| {
-        // One path and its newline: the path may end in a space.
-        let mut named = out.stdout;
-        named.pop();
-        PathBuf::from(OsString::from_vec(named))
-    }))
-}
-
-/// Whether `dir` holds a `.git` file, which ends agy's walk whatever it
-/// says (`git-root-junk-dot-git-file`).
-fn linked(dir: &Path) -> Result<bool, LaunchError> {
-    Ok(entry(&dir.join(".git"))?.is_some_and(|meta| meta.is_file()))
+    // One path and its newline: the path may end in a space.
+    let mut named = out.stdout;
+    named.pop();
+    Ok((out.status.success() && !named.is_empty())
+        .then(|| PathBuf::from(OsString::from_vec(named))))
 }
 
 /// The first of [`WORKSPACE_CONFIGURATION`] present in `dir`, whatever it
