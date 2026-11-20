@@ -90,6 +90,10 @@ fn the_engine_stamps_the_reporting_site_and_keeps_the_record() {
     assert_eq!(read[0].summary().to_string(), "the length is not checked");
     assert_eq!(read[0].severity(), Severity::Medium);
     assert!(!read[0].security());
+    let mut flagged = json!({"result": "residual",
+                             "findings": [with(reported(), "security", json!(true))]});
+    let flagged = admit(&mut flagged, GATE).unwrap().unwrap();
+    assert!(flagged[0].security(), "a security finding reads as one");
     let mut plain = json!({"result": "clean", "notes": "n"});
     assert_eq!(admit(&mut plain, None), Ok(None));
     assert_eq!(plain, json!({"result": "clean", "notes": "n"}));
