@@ -887,6 +887,10 @@ const PINS: &[(&str, &str)] = &[
 ];
 
 /// Every file under `dir`, by its path relative to `root`, with `/`.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the test walks the committed evidence directory"
+)]
 fn walk(root: &Path, dir: &Path, found: &mut BTreeMap<String, PathBuf>) {
     for entry in std::fs::read_dir(dir).expect("the evidence directory reads") {
         let path = entry.expect("an evidence entry reads").path();
@@ -901,6 +905,10 @@ fn walk(root: &Path, dir: &Path, found: &mut BTreeMap<String, PathBuf>) {
 }
 
 #[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the test reads the committed evidence files"
+)]
 fn the_ci_evidence_files_are_pinned_by_digest() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/ci/evidence");
     let mut found = BTreeMap::new();
