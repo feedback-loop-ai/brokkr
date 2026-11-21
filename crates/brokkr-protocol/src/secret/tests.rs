@@ -221,6 +221,22 @@ fn occurrences_finds_every_start_overlapping_ones_included() {
     assert_eq!(occurrences(b"xyz", b"q"), Vec::<usize>::new());
 }
 
+#[test]
+fn covered_gives_out_a_run_once_the_next_disjoint_start_closes_it() {
+    // A run is given out once the next disjoint occurrence is read, not
+    // after the whole text, so many runs never wait in a slot each.
+    let needles = vec![(b"abcd".to_vec(), "A")];
+    let text = b"abcd-abcd-abcd-abcd-";
+    let mut runs = super::covered(text, &needles);
+    assert_eq!(runs.next(), Some((0, 4, "A")));
+    assert_eq!(runs.open, Some((5, 9, "A")));
+    assert_eq!(runs.heads[0].peek(), Some(&10));
+    assert_eq!(
+        runs.collect::<Vec<_>>(),
+        vec![(5, 9, "A"), (10, 14, "A"), (15, 19, "A")]
+    );
+}
+
 /// The 44-character value of #1213's case, and the eight-character one
 /// whose last byte is its first.
 const LONG: &str = "Z0123456789abcdefghijklmnopqrstuvwxyzABCDEFG";

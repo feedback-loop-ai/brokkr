@@ -624,30 +624,56 @@ fn mask_needles(bytes: &[u8], bindings: &[BoundSecret], encodings: &[(&str, Enco
 /// binding whose occurrence starts first; of those starting at one byte,
 /// the longest needle's, as it always was. Each needle is found in one
 /// pass of [`occurrences`], so the cost is linear in the text times the
-/// needles.
-fn covered<'n>(bytes: &[u8], needles: &[(Vec<u8>, &'n str)]) -> Vec<(usize, usize, &'n str)> {
+/// needles. The runs are read as the mask writes them, each given out
+/// once the next disjoint start, or the text's end, closes it, so a text
+/// of many runs never holds a slot per run.
+fn covered<'a, 'n>(bytes: &'a [u8], needles: &'a [(Vec<u8>, &'n str)]) -> Runs<'a, 'n> {
     // Each needle's next unread occurrence, found as the merge reaches it,
     // so the scratch is the needles', never a slot per byte of the text.
-    let mut heads: Vec<_> = needles
+    let heads = needles
         .iter()
         .map(|(needle, _)| Occurrences::new(bytes, needle).peekable())
         .collect();
-    let mut runs: Vec<(usize, usize, &str)> = Vec::new();
-    // The earliest unread occurrence; of those starting at one byte, the
-    // first needle's, so the longest. Each turn reads one start, so the
-    // turns are at most the text's bytes, each costing the needles.
-    while let Some((start, index)) = earliest(&mut heads) {
-        for head in &mut heads {
-            head.next_if_eq(&start);
-        }
-        let (needle, name) = &needles[index];
-        let end = start + needle.len();
-        match runs.last_mut() {
-            Some(run) if start <= run.1 => run.1 = run.1.max(end),
-            _ => runs.push((start, end, name)),
-        }
+    Runs {
+        needles,
+        heads,
+        open: None,
     }
-    runs
+}
+
+/// The runs [`covered`] reads, in order.
+struct Runs<'a, 'n> {
+    needles: &'a [(Vec<u8>, &'n str)],
+    heads: Vec<Peekable<Occurrences<'a>>>,
+    /// The run the occurrences read so far end in, not yet closed.
+    open: Option<(usize, usize, &'n str)>,
+}
+
+impl<'n> Iterator for Runs<'_, 'n> {
+    type Item = (usize, usize, &'n str);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        // The earliest unread occurrence; of those starting at one byte,
+        // the first needle's, so the longest. Each turn reads one start,
+        // so the turns are at most the text's bytes, each costing the
+        // needles.
+        while let Some((start, index)) = earliest(&mut self.heads) {
+            for head in &mut self.heads {
+                head.next_if_eq(&start);
+            }
+            let (needle, name) = &self.needles[index];
+            let end = start + needle.len();
+            match &mut self.open {
+                Some(run) if start <= run.1 => run.1 = run.1.max(end),
+                open => {
+                    if let Some(closed) = open.replace((start, end, name)) {
+                        return Some(closed);
+                    }
+                }
+            }
+        }
+        self.open.take()
+    }
 }
 
 /// The least next start among `heads`, and the index of the first head
