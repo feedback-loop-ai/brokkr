@@ -329,6 +329,38 @@ fn a_move_orders_within_its_priority_and_every_command_keeps_the_order() {
     );
 }
 
+/// The listing's rows and their places are read in one snapshot: a peer's
+/// move committed after the rows are read and before their places are
+/// changes neither, so the order listed and the places listed agree, and
+/// the next listing reads the move whole (#1191).
+#[test]
+fn a_peer_move_between_the_rows_and_their_places_is_not_read_half() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("forge.db");
+    let mut store = Store::open(&path).unwrap();
+    queue(&mut store, 3);
+    let mut peer = Store::open(&path).unwrap();
+    let mut between = || {
+        let command = QueueCommand::Move { to: 1 };
+        peer.queue_command(EntryId(3), command, BY).unwrap();
+    };
+    let listed: Vec<(i64, Option<u32>)> = list_once(&store.conn, &mut between)
+        .unwrap()
+        .into_iter()
+        .map(|e| (e.id.0, e.position))
+        .collect();
+    assert_eq!(listed, [(1, Some(1)), (2, Some(2)), (3, Some(3))]);
+    assert_eq!(order(&store), [(3, Some(1)), (1, Some(2)), (2, Some(3))]);
+
+    let mut between = || {
+        let command = QueueCommand::Move { to: 1 };
+        peer.queue_command(EntryId(2), command, BY).unwrap();
+    };
+    let read = entry_once(&store.conn, EntryId(2), &mut between).unwrap();
+    assert_eq!(read.position, Some(3));
+    assert_eq!(store.queue_entry(EntryId(2)).unwrap().position, Some(1));
+}
+
 /// A queue journaled before the order read priority keeps arrival's
 /// places on disk; read now, each waiting entry's place is its place in
 /// the queue's order, through `list`, `entry`, a read-only open, a hold

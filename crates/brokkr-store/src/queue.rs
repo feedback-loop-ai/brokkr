@@ -382,12 +382,17 @@ fn move_entry(tx: &Transaction<'_>, entry: EntryId, to: u32) -> Result<u32, Stor
 /// The entries `filter` selects with `key`, in the queue's order, each
 /// with its waits, the launch it stands for and the latch that stands on
 /// it. A waiting entry's place is read as its place in the queue's order,
-/// not as stored. A version 1 queue holds no pins and no latches.
+/// not as stored. A version 1 queue holds no pins and no latches. The
+/// caller reads it under one snapshot, so the order the rows list in and
+/// the places read for them are one state's. `between` runs after the
+/// rows are read and before their places are: the instant a peer's
+/// command lands, which the tests stage.
 fn entries(
     conn: &Connection,
     stored: Stored,
     filter: &str,
     key: &dyn rusqlite::ToSql,
+    between: &mut dyn FnMut(),
 ) -> Result<Vec<QueueEntry>, StoreError> {
     let (payload, pin, latched) = match stored {
         Stored::V2 | Stored::V3 | Stored::V4 | Stored::V5 | Stored::V6 => {
@@ -415,6 +420,7 @@ fn entries(
             })
         })?
         .collect::<Result<Vec<_>, _>>()?;
+    between();
     let mut waits = conn.prepare(WAITS)?;
     let mut latches = latched.then(|| conn.prepare(STANDING_LATCH)).transpose()?;
     let order = waiting(conn)?;
@@ -428,16 +434,32 @@ fn entries(
     Ok(listed)
 }
 
-fn list_once(conn: &Connection) -> Result<Vec<QueueEntry>, StoreError> {
+/// The queue under one read snapshot, `between` run inside it as
+/// [`entries`] says.
+fn list_once(conn: &Connection, between: &mut dyn FnMut()) -> Result<Vec<QueueEntry>, StoreError> {
+    let _snapshot = conn.unchecked_transaction()?;
     match queue_stored(conn)? {
-        Some(stored) => entries(conn, stored, "state != ?1", &Standing::Dropped.word()),
+        Some(stored) => entries(
+            conn,
+            stored,
+            "state != ?1",
+            &Standing::Dropped.word(),
+            between,
+        ),
         None => Ok(Vec::new()),
     }
 }
 
-fn entry_once(conn: &Connection, entry: EntryId) -> Result<QueueEntry, StoreError> {
+/// One entry under one read snapshot, its place read in the same state as
+/// its row, `between` run inside it as [`entries`] says.
+fn entry_once(
+    conn: &Connection,
+    entry: EntryId,
+    between: &mut dyn FnMut(),
+) -> Result<QueueEntry, StoreError> {
+    let _snapshot = conn.unchecked_transaction()?;
     let stored = queue_stored(conn)?.ok_or(QueueRefusal::UnknownEntry(entry))?;
-    let mut found = entries(conn, stored, "entry_id = ?1", &entry.0)?;
+    let mut found = entries(conn, stored, "entry_id = ?1", &entry.0, between)?;
     found.pop().ok_or(QueueRefusal::UnknownEntry(entry).into())
 }
 
@@ -478,14 +500,14 @@ impl Store {
     /// has an empty one.
     pub fn queue_list(&self) -> Result<Vec<QueueEntry>, StoreError> {
         patiently("queue_list", self.patience, &self.path, || {
-            list_once(&self.conn)
+            list_once(&self.conn, &mut || {})
         })
     }
 
     /// One entry, whatever its standing, dropped included.
     pub fn queue_entry(&self, entry: EntryId) -> Result<QueueEntry, StoreError> {
         patiently("queue_entry", self.patience, &self.path, || {
-            entry_once(&self.conn, entry)
+            entry_once(&self.conn, entry, &mut || {})
         })
     }
 

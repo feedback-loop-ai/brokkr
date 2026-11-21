@@ -28,11 +28,19 @@ pub(crate) fn queue(workspace: &Path, command: QueueCmd) -> Result<ExitCode> {
         QueueCmd::Add(args) => add(workspace, args),
         QueueCmd::List(args) => list(workspace, args, &mut std::io::stderr()),
         QueueCmd::Judge(args) => judge(workspace, args, &mut std::io::stderr()),
-        QueueCmd::Move(args) => change(workspace, args.entry, QueueCommand::Move { to: args.to }),
-        QueueCmd::Hold(args) => change(workspace, args, QueueCommand::Hold),
-        QueueCmd::Release(args) => change(workspace, args, QueueCommand::Release),
+        QueueCmd::Move(args) => {
+            let command = QueueCommand::Move { to: args.to };
+            change(workspace, args.entry, command, &mut std::io::stderr())
+        }
+        QueueCmd::Hold(args) => change(workspace, args, QueueCommand::Hold, &mut std::io::stderr()),
+        QueueCmd::Release(args) => change(
+            workspace,
+            args,
+            QueueCommand::Release,
+            &mut std::io::stderr(),
+        ),
         QueueCmd::Repin(args) => repin(workspace, args, &mut std::io::stderr()),
-        QueueCmd::Drop(args) => change(workspace, args, QueueCommand::Drop),
+        QueueCmd::Drop(args) => change(workspace, args, QueueCommand::Drop, &mut std::io::stderr()),
     }
 }
 
@@ -82,20 +90,21 @@ fn change(
         journal,
     }: QueueEntryArgs,
     command: QueueCommand,
+    stderr: &mut impl Write,
 ) -> Result<ExitCode> {
     let mut store = open_journal(&journal.journal(workspace)?, Access::Append)?;
     attributed(&reason, |by| store.queue_command(entry, command, by))?;
-    match command {
+    let said = match command {
         // Priority orders first, so the place held can be other than the
         // place asked for: say the one the journal shows.
-        QueueCommand::Move { .. } => {
-            if let Some(place) = store.queue_entry(entry)?.position {
-                eprintln!("moved queue entry {entry} to place {place}");
-            }
-        }
-        QueueCommand::Hold => eprintln!("held queue entry {entry}"),
-        QueueCommand::Release => eprintln!("released queue entry {entry}"),
-        QueueCommand::Drop => eprintln!("dropped queue entry {entry}"),
+        QueueCommand::Move { .. } => (store.queue_entry(entry)?.position)
+            .map(|place| format!("moved queue entry {entry} to place {place}")),
+        QueueCommand::Hold => Some(format!("held queue entry {entry}")),
+        QueueCommand::Release => Some(format!("released queue entry {entry}")),
+        QueueCommand::Drop => Some(format!("dropped queue entry {entry}")),
+    };
+    if let Some(said) = said {
+        writeln!(stderr, "{said}")?;
     }
     Ok(Exit::Completed.into())
 }

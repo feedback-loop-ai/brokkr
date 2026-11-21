@@ -55,15 +55,19 @@ fn queue_in(workspace: &Path, db: &Path, words: &[&str]) -> Result<ExitCode> {
     queue(workspace, parsed(db, words))
 }
 
-/// What `brokkr queue list`, `judge` or `repin`, run in `workspace`
-/// against `db`, prints on stderr.
+/// What `brokkr queue list`, `judge`, `repin` or `move`, run in
+/// `workspace` against `db`, prints on stderr.
 fn stderr_of(workspace: &Path, db: &Path, words: &[&str]) -> String {
     let mut stderr = Vec::new();
     let exit = match parsed(db, words) {
         QueueCmd::List(args) => list(workspace, args, &mut stderr),
         QueueCmd::Judge(args) => judge(workspace, args, &mut stderr),
         QueueCmd::Repin(args) => repin(workspace, args, &mut stderr),
-        _ => unreachable!("only list, judge and repin paint the journal's strings on stderr"),
+        QueueCmd::Move(args) => {
+            let command = QueueCommand::Move { to: args.to };
+            change(workspace, args.entry, command, &mut stderr)
+        }
+        _ => unreachable!("only list, judge, repin and move are read on stderr here"),
     };
     assert_eq!(exit.unwrap(), completed());
     String::from_utf8(stderr).unwrap()
@@ -418,7 +422,8 @@ fn a_higher_priority_entry_lists_first_with_its_place() {
     }
     lists_b_first();
     let above = ["move", "1", "--to", "1", "--reason", "first?"];
-    assert_eq!(queue_in(ws, &db, &above).unwrap(), completed());
+    let held = "moved queue entry 1 to place 2\n";
+    assert_eq!(stderr_of(ws, &db, &above), held);
     lists_b_first();
 }
 
