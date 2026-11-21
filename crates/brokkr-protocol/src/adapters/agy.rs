@@ -81,7 +81,7 @@ impl<'a> Hands<'a> {
     fn of(boxing: Option<SealedBoundary>, rules: &'a [String]) -> Result<Hands<'a>, LaunchError> {
         match boxing {
             None => Ok(Hands::Native),
-            Some(boundary) if rules.is_empty() => Err(LaunchError::Unboxed(boundary.word())),
+            Some(boundary) if rules.is_empty() => Err(LaunchError::Unboxed(boundary)),
             Some(_) => Ok(Hands::Boxed(rules)),
         }
     }
@@ -240,11 +240,23 @@ pub(super) enum LaunchError {
     /// standing fence served the shape as before, or no hands were declared
     /// (#1224).
     #[error(
-        "refusing to invoke the agent CLI: the agy seat stands under the {0} boundary, which \
+        "refusing to invoke the agent CLI: the agy seat stands under the {} boundary, which \
          boxes its hands, and the box's hands were not served, so agy would run with its native \
-         tools; an agy seat under a boundary that boxes is boxed or refused (#1224)"
+         tools; an agy seat under a boundary that boxes is boxed or refused (#1224)",
+        .0.word()
     )]
-    Unboxed(&'static str),
+    Unboxed(SealedBoundary),
+    /// The sealed inputs stand under a boundary that boxes the seat's
+    /// hands, and the launch's one MCP admission refused them, for the
+    /// cause it states (#1224).
+    #[error(
+        "refusing to invoke the agent CLI: the agy seat stands under the {} boundary, which \
+         boxes its hands, and the box's hands were not served: {}; an agy seat under a boundary \
+         that boxes is boxed or refused (#1224)",
+        .0.word(),
+        .1
+    )]
+    Unserved(SealedBoundary, #[source] McpRefusal),
     /// The launch's one MCP admission refused it, in the words every
     /// driver states it with ([`McpRefusal::at_launch`]).
     #[error("{}", .0.at_launch())]
@@ -467,7 +479,8 @@ struct Prepared {
 /// run by `brokkr`. Whether the hands are boxed is read here, once, from
 /// the boundary the sealed inputs stand under and the set ([`Hands::of`]),
 /// and decides the launch and the gate alike, or refuses before any HOME
-/// is made. No
+/// is made; an admission refused under a boundary that boxes is refused
+/// naming that boundary beside its cause ([`LaunchError::Unserved`]). No
 /// launch is offered a rejoin, so the cold assessment is the one admitted.
 fn prepared(
     bin: &str,
@@ -488,10 +501,15 @@ fn prepared_with(
     made: impl FnOnce(Homes<'_>, Written<'_>) -> Result<Home, LaunchError>,
 ) -> Result<Prepared, LaunchError> {
     let edge = mcp::Edge::new(input);
-    let isolated = mcp::isolated("agy", &edge, extra, false)?;
+    let boxing = mcp::agy_boxing(&edge)?;
+    let unserved = |refusal| match boxing {
+        Some(boundary) => LaunchError::Unserved(boundary, refusal),
+        None => LaunchError::Mcp(refusal),
+    };
+    let isolated = mcp::isolated("agy", &edge, extra, false).map_err(unserved)?;
     let workdir = input.get("workdir").and_then(Value::as_str).unwrap_or("");
-    let served = mcp::agy_set(&edge, &isolated, workdir)?;
-    let hands = Hands::of(mcp::agy_boxing(&edge)?, &served.rules)?;
+    let served = mcp::agy_set(&edge, &isolated, workdir).map_err(unserved)?;
+    let hands = Hands::of(boxing, &served.rules)?;
     let launch = launch(bin, &isolated.argv, hands)?;
     let workdir = home::resolved(workdir)?;
     let hooks = gate::hooks(brokkr, hands)?;

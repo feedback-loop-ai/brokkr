@@ -547,7 +547,8 @@ fn each_launch_refusal_states_what_was_written_and_never_a_value() {
         (LaunchError::SignedOut, "Antigravity CLI is signed out: run `agy` once and sign in; the login is ~/.gemini/antigravity-cli/antigravity-oauth-token (#1200)"),
         (LaunchError::Unhomed(io()), "the engine's HOME for the agy seat was not made: entity not found"),
         (LaunchError::BoxedGrant, "the seat's arguments carry '--allow', and an agy seat whose hands are boxed takes no native grant: its gate switches off every native tool, so the grant would do nothing (#1224)"),
-        (LaunchError::Unboxed("seatbelt"), "the agy seat stands under the seatbelt boundary, which boxes its hands, and the box's hands were not served, so agy would run with its native tools; an agy seat under a boundary that boxes is boxed or refused (#1224)"),
+        (LaunchError::Unboxed(crate::native_controls::SealedBoundary::Seatbelt), "the agy seat stands under the seatbelt boundary, which boxes its hands, and the box's hands were not served, so agy would run with its native tools; an agy seat under a boundary that boxes is boxed or refused (#1224)"),
+        (LaunchError::Unserved(crate::native_controls::SealedBoundary::Container, McpRefusal::NotSealed { provider: "agy" }), "the agy seat stands under the container boundary, which boxes its hands, and the box's hands were not served: provider 'agy' final MCP configuration is not the engine's sealed server set; an agy seat under a boundary that boxes is boxed or refused (#1224)"),
     ];
     for (error, words) in stated {
         assert_eq!(
@@ -1359,36 +1360,37 @@ fn sealed(
 
 /// SI2 before spawn: past the lifted fence an unmeasured or unsupported
 /// cold shape refuses, and a set the inputs do not declare refuses
-/// whichever way the fence stands. Hands the standing fence serves as
-/// before are refused by the agy launch itself (`boxed.rs`).
+/// whichever way the fence stands, under a boundary that boxes naming it.
+/// Hands the standing fence serves as before are refused by the agy launch
+/// itself (`boxed.rs`).
 #[test]
 fn the_admission_refuses_before_spawn() {
     use crate::native_controls::SealedBoundary::{Namespace, Open};
+    let launch = |cause: &str| format!("refusing to invoke the agent CLI: {cause}");
+    let not_sealed = McpRefusal::NotSealed { provider: "agy" };
+    let boxed = LaunchError::Unserved(Namespace, not_sealed).to_string();
     let cases = [
         (
             sealed(Open, "empty", json!("unmeasured"), "lifted"),
-            "provider 'agy' has no measured strict MCP configuration for 'cold'",
+            launch("provider 'agy' has no measured strict MCP configuration for 'cold'"),
         ),
         (
             sealed(Open, "empty", json!({"unsupported": "a reason"}), "lifted"),
-            "provider 'agy' cannot exclude ambient MCP configuration (a reason)",
+            launch("provider 'agy' cannot exclude ambient MCP configuration (a reason)"),
         ),
         (
             sealed(Namespace, "empty", json!("measured"), "lifted"),
-            "provider 'agy' final MCP configuration is not the engine's sealed server set",
+            boxed.clone(),
         ),
         (
             sealed(Namespace, "empty", json!("measured"), "standing"),
-            "provider 'agy' final MCP configuration is not the engine's sealed server set",
+            boxed,
         ),
     ];
-    for (serving, cause) in cases {
+    for (serving, words) in cases {
         let (world, error) = served_refusal(serving);
-        assert_eq!(
-            error,
-            Some(format!("refusing to invoke the agent CLI: {cause}"))
-        );
-        assert!(!world.started(), "{cause}");
+        assert_eq!(error.as_ref(), Some(&words));
+        assert!(!world.started(), "{words}");
     }
 }
 

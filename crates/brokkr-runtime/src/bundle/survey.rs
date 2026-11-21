@@ -117,7 +117,7 @@ pub(super) fn composed(
 /// minimum is read first, by the parser the table's own lints call, so a
 /// failure after it, the rest of the table's lints and the realm's grants
 /// included, is the survey's `failed` and never loses it.
-pub(super) fn surveyed(
+fn surveyed(
     resolved: &compose::Resolved,
     roots: (&Path, &Path),
     (realm_name, dialect, law): (Option<&str>, Option<&Dialect>, RealmLaw),
@@ -135,6 +135,19 @@ pub(super) fn surveyed(
     });
     survey.failed = planned.err();
     Ok(survey)
+}
+
+/// [`surveyed`], reached by the tier tests alone, which read the typed SI2
+/// cause a compile renders to words (#1224); a build that is not a Linux
+/// test keeps `surveyed` private to the survey.
+#[cfg(all(test, target_os = "linux"))]
+pub(super) fn surveyed_for_tests(
+    resolved: &compose::Resolved,
+    roots: (&Path, &Path),
+    law: (Option<&str>, Option<&Dialect>, RealmLaw),
+    capabilities: &CapabilityContext,
+) -> Result<Survey, CompileError> {
+    surveyed(resolved, roots, law, capabilities)
 }
 
 /// Every site's plan under `authority`, written into `survey` as far as

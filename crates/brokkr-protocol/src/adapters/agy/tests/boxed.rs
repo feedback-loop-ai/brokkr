@@ -97,7 +97,16 @@ fn handed(input: impl FnOnce(&World) -> Value) -> (Vec<String>, String, String) 
 }
 
 /// The unboxed launch's hooks document, its gate run by `PROGRAM`.
-const LEVEL_ONE_HOOKS: &str = r#"{"brokkr-gate":{"PreToolUse":[{"matcher":"","hooks":[{"type":"command","command":"'PROGRAM' 'driver' 'agy' '--' '--gate' 'read_file' 'write_file' 'edit_file' 'run_command' 'manage_task'","timeout":10}]}]}}"#;
+const LEVEL_ONE_HOOKS: &str = r#"{"brokkr-gate":{"PreToolUse":[{"matcher":"","hooks":[{"type":"command","command":"PROGRAM 'driver' 'agy' '--' '--gate' 'read_file' 'write_file' 'edit_file' 'run_command' 'manage_task'","timeout":10}]}]}}"#;
+
+/// A hooks `template` with its gate run by `program`: the path as one
+/// single-quoted shell word, each `'` closed, escaped and reopened, and
+/// that word as a JSON string's contents, so any path is pinned exactly.
+fn hooks_run_by(template: &str, program: &str) -> String {
+    let word = format!("'{}'", program.replace('\'', r"'\''"));
+    let string = serde_json::to_string(&word).unwrap();
+    template.replace("PROGRAM", &string[1..string.len() - 1])
+}
 
 /// B6: the unboxed launch is level 1's, byte for byte, its two HOME
 /// documents among it, and the boxed one differs from it in exactly the
@@ -112,11 +121,15 @@ fn a_boxed_launch_differs_from_the_unboxed_in_its_mode_list_rules_and_document_a
     assert_eq!(open_argv, open);
     assert_eq!(open_mcp, r#"{"mcpServers":{}}"#);
     let program = std::env::current_exe().unwrap();
-    let level_one = LEVEL_ONE_HOOKS.replace("PROGRAM", program.to_str().unwrap());
-    assert_eq!(open_hooks, level_one);
+    let program = program.to_str().unwrap();
+    assert_eq!(open_hooks, hooks_run_by(LEVEL_ONE_HOOKS, program));
+    let quoted = r#"/o'pt/"b\r"#;
+    let hooks = gate::hooks(Path::new(quoted), Hands::Native).unwrap();
+    assert_eq!(hooks, hooks_run_by(LEVEL_ONE_HOOKS, quoted));
     // The gate's list alone differs in the hooks document.
     let natives = "'read_file' 'write_file' 'edit_file' 'run_command' 'manage_task'";
-    assert_eq!(boxed_hooks, level_one.replace(natives, "'call_mcp_tool'"));
+    let boxed = LEVEL_ONE_HOOKS.replace(natives, "'call_mcp_tool'");
+    assert_eq!(boxed_hooks, hooks_run_by(&boxed, program));
     // The mode out and the rule in, and nothing else of the argv.
     let mut moded = boxed_argv.clone();
     moded.splice(4..4, argv(&["--mode", "accept-edits"]));
@@ -138,11 +151,28 @@ fn a_boxed_launch_differs_from_the_unboxed_in_its_mode_list_rules_and_document_a
     assert_eq!(args[..2], [json!("hands"), json!("serve")]);
 }
 
+/// The typed refusal [`prepared_with`] ends the seat's `input` with, its
+/// HOME maker never called, so nothing is made.
+fn prepared_refusal(input: &Value) -> LaunchError {
+    let homes = Homes {
+        temp: Path::new("/nonexistent-agy-homes"),
+        operator: None,
+    };
+    let at = (homes, Path::new("/brokkr"));
+    let never = |_: Homes<'_>, _: Written<'_>| -> Result<Home, LaunchError> {
+        panic!("a refused launch makes no HOME")
+    };
+    let seat = argv(&["--model", FLASH]);
+    prepared_with("agy", &seat, input, at, never).err().unwrap()
+}
+
 /// C1: what the sealed inputs declare decides, never what was built. Under
 /// each boundary that boxes, hands the standing fence served as before, and
 /// a boundary that boxes no declared hands, end as the typed refusal naming
-/// the boundary: the fake `agy` never starts and no engine HOME is left.
-/// Under `harness` and `open` the same hands launch natively, level 1's.
+/// the boundary; hands the lifted fence refused end as the refusal naming
+/// the boundary beside the admission's cause. The fake `agy` never starts
+/// and no engine HOME is left. Under `harness` and `open` the same hands
+/// launch natively, level 1's.
 #[test]
 fn an_agy_launch_under_a_boundary_that_boxes_is_boxed_or_refused_never_native() {
     use crate::native_controls::SealedBoundary::{Container, Harness, Open, Seatbelt};
@@ -150,17 +180,31 @@ fn an_agy_launch_under_a_boundary_that_boxes_is_boxed_or_refused_never_native() 
     let mut undeclared = sealed(Namespace, "empty", json!("measured"), "standing");
     let none = super::super::super::mcp::tests::dispatched(Default::default(), Vec::new(), None);
     undeclared["spec"] = none["spec"].clone();
+    let lifted = sealed(Namespace, "hands", json!("unmeasured"), "lifted");
+    let cold = McpRefusal::Strict(crate::adapters::StrictCause::Unmeasured {
+        provider: "agy".into(),
+        shape: "cold".into(),
+    });
     let refused = [
-        (unmeasured(Namespace), "namespace"),
-        (unmeasured(Seatbelt), "seatbelt"),
-        (unmeasured(Container), "container"),
-        (undeclared, "namespace"),
+        (unmeasured(Namespace), Namespace, None),
+        (unmeasured(Seatbelt), Seatbelt, None),
+        (unmeasured(Container), Container, None),
+        (undeclared, Namespace, None),
+        (lifted, Namespace, Some(cold)),
     ];
-    for (serving, word) in refused {
+    for (serving, boundary, cause) in refused {
+        let typed = prepared_refusal(&World::new().input(Some(serving.clone())));
+        match (&typed, cause) {
+            (LaunchError::Unboxed(stands), None) => assert_eq!(*stands, boundary),
+            (LaunchError::Unserved(stands, refused), Some(cause)) => {
+                assert_eq!((*stands, refused), (boundary, &cause));
+            }
+            (other, cause) => panic!("{other:?} for {boundary:?}, {cause:?}"),
+        }
         let (world, error) = served_refusal(serving);
-        assert_eq!(error, Some(LaunchError::Unboxed(word).to_string()));
-        assert!(!world.started(), "{word}");
-        assert!(world.homes_gone(), "{word}");
+        assert_eq!(error, Some(typed.to_string()));
+        assert!(!world.started(), "{boundary:?}");
+        assert!(world.homes_gone(), "{boundary:?}");
     }
     for stands in [Harness, Open] {
         let serving = sealed(stands, "empty", json!("measured"), "standing");

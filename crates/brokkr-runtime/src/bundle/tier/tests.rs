@@ -8,6 +8,7 @@ use super::*;
 use crate::agents::LibraryError;
 use crate::bundle::{Bundle, Invocation, SeatBody};
 use crate::places::places_tests::clean_git_config;
+#[cfg(target_os = "linux")]
 use brokkr_protocol::adapters::StrictCause;
 use serde_json::json;
 use std::path::{Path, PathBuf};
@@ -973,6 +974,7 @@ fn si2_refusal(workspace: &Workspace) -> String {
 /// The typed SI2 cause the survey keeps for the `work` seat of the bundle
 /// [`si2_refusal`] refused, read before the compile renders it to words
 /// (#1224): the survey records every serving's verdict past the fence.
+#[cfg(target_os = "linux")]
 fn si2_cause(workspace: &Workspace) -> Option<StrictCause> {
     use crate::capabilities::{CapabilityContext, UNMAPPED};
     let shelves = crate::places::Shelves::default();
@@ -985,7 +987,8 @@ fn si2_cause(workspace: &Workspace) -> Option<StrictCause> {
     let context = CapabilityContext::no_grants(UNMAPPED, workspace.dir.path());
     let roots = (workspace.path("agents"), workspace.path("adapters"));
     let at = (roots.0.as_path(), roots.1.as_path());
-    let survey = super::super::survey::surveyed(&resolved, at, (None, None, law), &context);
+    let law = (None, None, law);
+    let survey = super::super::survey::surveyed_for_tests(&resolved, at, law, &context);
     survey.unwrap().strict["work"][0].clone()
 }
 

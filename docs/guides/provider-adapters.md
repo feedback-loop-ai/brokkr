@@ -635,7 +635,8 @@ unboxed launch, and nothing else does:
 **A boxed seat is boxed or refused.** What the launch's sealed inputs
 declare decides, never what was served: under a boundary that boxes, a
 launch whose hands were not served is refused before any HOME is made,
-naming the boundary, so a boxed seat never runs with agy's native tools.
+naming the boundary, and the admission's cause where the admission refused
+them, so a boxed seat never runs with agy's native tools.
 On a host where nothing is measured for agy (macOS), a boxed agy seat does
 not launch.
 
