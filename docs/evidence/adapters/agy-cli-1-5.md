@@ -489,6 +489,59 @@ verify and review with the workspace tool as their only tool; Neon's change
 was complete and its run stopped on a verify failure outside its change
 (#1239).
 
+## Sixth measurement, on 1.5.14: the short security set, and a command's stdin (2026-11-21)
+
+**Why.** The operator ruled on 2026-11-21 that a harness version the
+adapter was not measured on is warned about where the versioning says it is
+compatible and refused where it is not (#1240), and that the new version is
+measured again. Not every patch gets the full pass: a short security set is
+re-run per version, and the full pass per minor line. This is that set, on
+1.5.14, so that the axes the declared shapes rest on have one version
+between them.
+
+**How.** Eleven turns on `gemini-3.8-flash-low`, each with
+`AGY_CLI_DISABLE_AUTO_UPDATE=true`, with the HOME documents and sentinel
+servers of the measurements above. `security-set-v14.sh` in the recordings
+folder ran ten of them; the resume was run by hand after it, with the cold
+turn's arguments and `--conversation`. `turns.log` holds each argv. The
+three boxed turns ran under the driver's own gate, built from 1acdeeaa
+(`brokkr driver agy -- --gate call_mcp_tool`), with the hands server of the
+fourth measurement. Each recording is `<turn>-v14.ndjson`, with
+`.starts` for the sentinels that started and `.hooklog` where a hook ran.
+`agy --version` printed 1.5.14 after the pass. Every result is the one
+1.5.13 gave.
+
+| Turn | What it asks | Result on 1.5.14 |
+|---|---|---|
+| `iso-01-positive-control-v14` | the operator-like HOME, with `--add-dir` | all six sentinels started |
+| `iso-02-engine-home-workspace-cwd-v14` | a scratch HOME, the seeded workspace as the working directory | `workspace`, `parent` and `wsplugin` started; none of the user's |
+| `iso-05-above-git-root-v14`, `iso-06-parent-without-git-v14` | a scratch HOME, a clean workspace | none started |
+| `iso-07-engine-carriage-cold-v14` | the engine's server in the scratch HOME's `mcp_config.json`, a cold turn | the server started and its tool answered `SENTINEL-NONCE-ENGINE` |
+| `iso-09-engine-carriage-resume-v14` | `--conversation` on that conversation | the same conversation; the server started and its tool answered |
+| `hook-crash-v14` | a gate hook that crashes, and a web search | `NO SEARCH`: a gate that crashes denies |
+| `hook-timeout-v14` | a gate hook that hangs, and `uname -s` | the call failed with the hook killed at its timeout: a gate that hangs denies |
+| `box-engine-workspace-tool-v14` | three commands through the workspace tool, then the native shell and the native file tool | the three ran; both natives `REFUSED` |
+| `box-reach-v14` | what the box can see | 4 entries in `/proc`, pid 1 is `bwrap`, an empty home, only the worktree's parent, no network |
+| `box-other-natives-v14` | nine other native tools by name | each refused by the gate by name; `browser_get_dom` was not offered |
+
+With `box-store` of the fifth measurement, every axis of the boxed shapes
+has a measurement on 1.5.14. The launch grammar, the stream's shape and the
+refusals of the first measurement were not run again on 1.5.14; the driver
+refuses a turn whose stream does not parse as recorded.
+
+### A native command's stdin is a terminal
+
+`command-stdin-v14` asked for one shell command through the native
+`run_command`, under `--mode accept-edits` and allowed by `command(sh)`: whether stdin is a terminal, and
+what it is. The answer was `STDIN-IS-A-TTY` and `/dev/pts/17`. So a command
+an agy seat runs without a box is given a pseudo-terminal, and a command
+that reads its stdin to the end waits there until the turn's limit. A boxed
+seat's commands run through the hands server and have no terminal.
+
+This cost one arm of the #1200 wager three attempts: `cargo test` reached a
+`brokkr-cli` test that reads the process's stdin (#1245) and stayed there
+for the seat's two-hour limit each time.
+
 ## Not measured
 
 - macOS.
