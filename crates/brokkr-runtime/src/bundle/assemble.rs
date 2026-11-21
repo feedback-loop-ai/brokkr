@@ -6,6 +6,7 @@
 //! family. `assemble` reads as their sequence.
 
 mod inputs;
+mod seat_refusal;
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -16,6 +17,7 @@ use brokkr_protocol::hands::HandsSpec;
 use serde_json::{Map, Value};
 
 use inputs::seat_inputs;
+use seat_refusal::{covered_results, declared_results, known_phase, refused, wrapped_body};
 
 use super::parse::{SeatScope, SiteCompiler};
 use super::site_form::{classify, SEAT};
@@ -26,8 +28,8 @@ use super::{
     pins, record_capabilities, record_hands, record_judged_tools, refuse_aliasing_sites,
     refuse_class_without_a_driver, refuse_global_aliasing, relocate_verify_facts, resolved_hands,
     site_facts, Aggregate, CapabilityWalk, CharterPins, Charters, CompileError, Dialect,
-    DialectExecution, ExecutableBody, Invocation, LibraryRead, Limits, Opened, ResolvedSeat, Seat,
-    SeatBody, SeatClass, SequenceStep, SiteFacts, SiteKey, SiteLaw, StepBody,
+    DialectExecution, Invocation, LibraryRead, Limits, Opened, ResolvedSeat, Seat, SeatBody,
+    SeatClass, SequenceStep, SiteFacts, SiteKey, SiteLaw, StepBody,
 };
 use crate::agents::EgressClass;
 use crate::argv::Executable;
@@ -99,11 +101,7 @@ pub(super) fn compile_seats(
         // against the layer that WROTE them, found by name — the
         // resolver never looked inside the seat to learn this.
         let dir = &resolved.roots[resolved.seat_origin[phase]];
-        if !machine.phases.contains(phase) {
-            return Err(CompileError::Invalid(format!(
-                "seat '{phase}' names a phase the policy does not have"
-            )));
-        }
+        known_phase(machine, phase).map_err(refused)?;
         let seat = compile_seat(
             compiler,
             machine,
@@ -205,43 +203,9 @@ fn compile_seat(
 
 /// A seat's non-empty `results`, each covered by a rule from its phase.
 fn seat_results(machine: &Machine, phase: &str, raw: &Value) -> Result<Vec<String>, CompileError> {
-    let results = raw
-        .get("results")
-        .and_then(Value::as_array)
-        .map(|a| {
-            a.iter()
-                .filter_map(Value::as_str)
-                .map(str::to_string)
-                .collect::<Vec<_>>()
-        })
-        .filter(|r| !r.is_empty())
-        .ok_or_else(|| {
-            CompileError::Invalid(format!("seat '{phase}' needs non-empty 'results'"))
-        })?;
+    let results = declared_results(phase, raw).map_err(refused)?;
     Aggregate::refuse_member_marker(&results, &format!("seat '{phase}'"))?;
-    for result in &results {
-        let covered = machine
-            .rules
-            .iter()
-            .any(|rule| rule.from == *phase && rule.result == *result);
-        // Decision 0041 reserves the implementer's `oversized`
-        // verdict before ruling 6 seats triage. Until that phase
-        // exists there can be no edge to it; the unmatched verdict
-        // parks fail-closed. Once triage exists, ordinary coverage
-        // is mandatory and the roster test pins both bounded arms.
-        let reserved_oversized = phase == phase_name::IMPLEMENT
-            && result == "oversized"
-            && !machine
-                .phases
-                .iter()
-                .any(|known| known == phase_name::TRIAGE);
-        if !covered && !reserved_oversized {
-            return Err(CompileError::Invalid(format!(
-                "seat '{phase}' may emit '{result}' but no rule covers it; \
-                 result variants without an outer rule are rejected"
-            )));
-        }
-    }
+    covered_results(machine, phase, &results).map_err(refused)?;
     Ok(results)
 }
 
@@ -533,16 +497,7 @@ fn wrapped_owners(seats: &BTreeMap<String, Seat>) -> Result<(StepBody, Vec<Moved
         .get(verify)
         .expect("the wrapper is applied only to a parsed verify seat")
         .body;
-    let executable = match body.selected(None) {
-        Some((executable, _)) if !matches!(executable, ExecutableBody::Sequence { .. }) => {
-            executable
-        }
-        _ => {
-            return Err(CompileError::Invalid(
-                "dialect verify currently requires a single or panel verify seat".into(),
-            ))
-        }
-    };
+    let (executable, invocation) = wrapped_body(body).map_err(refused)?;
     let moved: Vec<(String, String, SiteKey)> =
         crate::engine::resume::owner_sites(executable, verify, None)
             .into_iter()
@@ -554,14 +509,7 @@ fn wrapped_owners(seats: &BTreeMap<String, Seat>) -> Result<(StepBody, Vec<Moved
                 (owner.label(), destination, owner)
             })
             .collect();
-    let prior_body = match body {
-        SeatBody::Invocation(invocation) => StepBody::Invocation(invocation.to_step()),
-        _ => {
-            return Err(CompileError::Invalid(
-                "dialect verify currently requires a single or panel verify seat".into(),
-            ))
-        }
-    };
+    let prior_body = StepBody::Invocation(invocation.to_step());
     Ok((prior_body, moved))
 }
 
