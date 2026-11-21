@@ -6,6 +6,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use brokkr_core::findings::ResidualPair;
 use brokkr_core::realms::Boundary;
 use brokkr_protocol::hands::HandsSpec;
 use serde_json::{Map, Value};
@@ -42,12 +43,15 @@ pub(super) struct SiteCompiler<'a> {
 
 /// What a body inherits from its seat: the layer that wrote it, and the
 /// seat's results and bindings. A select case is written by its own
-/// layer, and a panel step declares its own results.
+/// layer, and a panel step declares its own results. Every review-panel
+/// member's word is bound to the seat's `residual` pair (decision 0109
+/// ruling 2), whatever contains the member.
 #[derive(Clone, Copy)]
 pub(super) struct SeatScope<'s> {
     pub(super) dir: &'s Path,
     pub(super) results: &'s [String],
     pub(super) secrets: &'s [String],
+    pub(super) residual: ResidualPair,
 }
 
 impl<'a> SiteCompiler<'a> {
@@ -346,6 +350,7 @@ impl<'a> SiteCompiler<'a> {
             class,
             law: MemberLaw {
                 results: aggregate.member_results(declared),
+                residual: at.residual,
             },
         })
     }

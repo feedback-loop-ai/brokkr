@@ -142,7 +142,10 @@ fn a_hold_outside_a_members_list_or_the_narrow_default_is_refused_and_parks() {
             .unwrap();
         held.command = driver(&json!({"result": "security-hold"}));
         if let Some(results) = law.clone() {
-            held.law = MemberLaw { results };
+            held.law = MemberLaw {
+                results,
+                ..held.law.clone()
+            };
         }
         let panel = SeatBody::Invocation(Invocation::Panel { members, aggregate });
         let (_dir, events) = reviewed(panel, &PAIR);
@@ -194,4 +197,117 @@ fn the_shipped_design_positions_pass_and_reach_their_chief() {
             .unwrap_or_else(|| panic!("{recipe}: the positions step finished"));
         assert_eq!(joined["result"]["result"], "pass", "{recipe}: {joined}");
     }
+}
+
+/// A finding a member reports, `security` or not, at `severity`.
+fn finding(id: &str, severity: &str, security: bool) -> Value {
+    json!({"id": id, "file": "crates/a/src/lib.rs", "line": 3, "summary": "a finding",
+           "severity": severity, "security": security})
+}
+
+/// Triage's engine review panel, compiled over its seat's `spec_defect`
+/// and residual pair, each member answering `answer(name)`, as the
+/// fixture's review seat compiling the same three inputs.
+fn triage_panel(answer: impl Fn(&str) -> Value) -> (tempfile::TempDir, Vec<EventEnvelope>) {
+    let steps = steps_of(&shipped("triage"), "review", Some("engine"));
+    let (members, aggregate) = answering(&steps[0], answer);
+    let panel = SeatBody::Invocation(Invocation::Panel { members, aggregate });
+    reviewed(panel, &["spec_defect", PAIR[0], PAIR[1]])
+}
+
+/// The poisoned review's refusal of `member`, from the parked decision.
+fn refusal_of(events: &[EventEnvelope], member: &str) -> Value {
+    let review = &decided(events, "review")[0];
+    assert_eq!(review["result"], "__schema-invalid__", "{review}");
+    assert!(decided(events, "ship").is_empty(), "never shipped");
+    review["inputs"]["raw_result"]["notes"]["refused"][member].clone()
+}
+
+/// Ruling 2: an all-clean panel's aggregate carries both residual inputs,
+/// `none` and `false`, and a triage-shaped panel whose four members write
+/// only the pair, over a seat that also compiles `spec_defect`, is
+/// admitted: the member is held to the pair alone.
+#[test]
+fn a_triage_shaped_all_clean_panel_carries_both_inputs_and_is_admitted() {
+    let (_dir, events) = triage_panel(|_| clean());
+    let review = &decided(&events, "review")[0];
+    assert_eq!(review["result"], "clean", "{review}");
+    assert_eq!(review["problem"], Value::Null, "{review}");
+    assert_eq!(review["inputs"]["max_residual_severity"], "none");
+    assert_eq!(review["inputs"]["has_security_residual"], false);
+    assert_eq!(review["inputs"]["spec_defect"], false);
+}
+
+/// Ruling 2: a member that omits a residual input its seat declares is
+/// refused, and its word never reaches the join.
+#[test]
+fn a_member_omitting_a_residual_input_is_refused_before_the_join() {
+    let (_dir, events) = triage_panel(|name| match name {
+        "spec-compliance" => {
+            json!({"result": "clean", "inputs": {"max_residual_severity": "none"}})
+        }
+        _ => clean(),
+    });
+    assert_eq!(
+        refusal_of(&events, "spec-compliance"),
+        "the passing word 'clean' omits 'has_security_residual', which the seat declares \
+         (decision 0109 ruling 2)"
+    );
+}
+
+/// The answer of a member reporting `word` over one high finding, flagged
+/// `security` as the declared pair says.
+fn high(word: &str, security: bool) -> Value {
+    json!({"result": word, "findings": [finding("leak", "high", security)],
+           "inputs": {"max_residual_severity": "high", "has_security_residual": security}})
+}
+
+/// Ruling 2: a correctness member's security finding has no lawful word,
+/// because its agent lists no `security-hold`, so the panel parks.
+#[test]
+fn a_correctness_members_security_finding_is_refused_and_parks() {
+    let (_dir, events) = triage_panel(|name| match name {
+        "correctness" => high("residual", true),
+        _ => clean(),
+    });
+    assert_eq!(
+        refusal_of(&events, "correctness"),
+        "the word 'residual' stands over a security finding, which requires 'security-hold' \
+         (decision 0109 ruling 2)"
+    );
+}
+
+/// Rulings 2 and 11: the security member's `security-hold` over a high
+/// security finding is lawful, and the panel's word is the hold.
+#[test]
+fn the_security_members_hold_over_a_high_security_finding_is_admitted() {
+    let (_dir, events) = triage_panel(|name| match name {
+        "security" => high("security-hold", true),
+        _ => clean(),
+    });
+    let review = &decided(&events, "review")[0];
+    assert_eq!(review["result"], "security-hold", "{review}");
+    assert_eq!(review["rule_id"], "REVIEW-HOLD", "{review}");
+    assert_eq!(review["inputs"]["has_security_residual"], true);
+}
+
+/// Ruling 2: a review-panel member is bound whatever its class, so
+/// gpt-flash's work-class member that writes `clean` over a declared high
+/// residual is refused.
+#[test]
+fn a_work_class_members_clean_over_a_declared_high_residual_is_refused() {
+    let steps = steps_of(&shipped("gpt-flash"), "review", Some("engine"));
+    let (members, aggregate) = answering(&steps[0], |name| match name {
+        "correctness" => json!({"result": "clean", "inputs": {
+            "max_residual_severity": "high", "has_security_residual": false}}),
+        _ => clean(),
+    });
+    assert!(members.iter().all(|member| member.class == SeatClass::Work));
+    let panel = SeatBody::Invocation(Invocation::Panel { members, aggregate });
+    let (_dir, events) = reviewed(panel, &PAIR);
+    assert_eq!(
+        refusal_of(&events, "correctness"),
+        "the passing word 'clean' stands over a declared max_residual_severity of 'high' \
+         (decision 0109 ruling 2)"
+    );
 }

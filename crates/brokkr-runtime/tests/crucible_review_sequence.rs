@@ -325,7 +325,7 @@ fn review_bundle(panel: &[(&str, &str)], chief: &str) -> Bundle {
                         .iter()
                         .find(|(name, _)| *name == member.name)
                         .map(|(_, result)| *result)
-                        .unwrap_or(r#"{"result":"clean"}"#);
+                        .unwrap_or(CLEAN);
                     member.command = driver(result);
                     member.candidates.clear();
                     member.role_path = PathBuf::new();
@@ -397,12 +397,18 @@ fn events(
     (events, run_id)
 }
 
+/// The clean every member charter orders: both residual inputs named, as
+/// the residual pair triage's review compiles binds it (decision 0109
+/// ruling 2).
+const CLEAN: &str =
+    r#"{"result":"clean","inputs":{"max_residual_severity":"none","has_security_residual":false}}"#;
+
 fn panel<'a>(results: &'a [(&'a str, &'a str)]) -> Vec<(&'a str, &'a str)> {
     let mut panel = vec![
-        ("adversarial", r#"{"result":"clean"}"#),
-        ("correctness", r#"{"result":"clean"}"#),
-        ("security", r#"{"result":"clean"}"#),
-        ("spec-compliance", r#"{"result":"clean"}"#),
+        ("adversarial", CLEAN),
+        ("correctness", CLEAN),
+        ("security", CLEAN),
+        ("spec-compliance", CLEAN),
     ];
     for (name, result) in results {
         panel.retain(|(key, _)| key != name);

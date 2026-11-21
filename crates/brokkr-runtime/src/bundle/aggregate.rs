@@ -4,7 +4,7 @@
 
 use std::collections::BTreeMap;
 
-use brokkr_core::findings::Finding;
+use brokkr_core::findings::{bind, Finding, ResidualPair, WordRefusal};
 use brokkr_core::policy::SEVERITY_ORDER;
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
@@ -125,25 +125,30 @@ impl Aggregate {
 }
 
 /// What one panel member's word answers to, compiled at its site: the
-/// results it may report (decision 0109 ruling 11).
+/// results it may report (decision 0109 ruling 11), and the residual pair
+/// its owning seat compiles, which its word is bound to (ruling 2).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct MemberLaw {
     pub(crate) results: Vec<String>,
+    pub(crate) residual: ResidualPair,
 }
 
 impl MemberLaw {
-    /// A law admitting every word a review panel ranks, for tests that
-    /// build members by hand and do not test the law.
+    /// A law admitting every word a review panel ranks, over a seat that
+    /// declares no residual pair, for tests that build members by hand and
+    /// do not test the law.
     #[cfg(test)]
     pub(crate) fn open() -> Self {
         Self::declaring(&["clean", "residual", "security-hold"])
     }
 
-    /// A law admitting exactly `results`.
+    /// A law admitting exactly `results`, over a seat that declares no
+    /// residual pair.
     #[cfg(test)]
     pub(crate) fn declaring(results: &[&str]) -> Self {
         MemberLaw {
             results: results.iter().map(|word| word.to_string()).collect(),
+            residual: ResidualPair::declared_in::<&str>(&[]),
         }
     }
 }
@@ -156,6 +161,8 @@ pub(crate) enum MemberRefusal {
     Unbound,
     #[error("member result '{word}' is not among its declared results [{}]", .results.join(", "))]
     Undeclared { word: String, results: Vec<String> },
+    #[error(transparent)]
+    Word(#[from] WordRefusal),
 }
 
 /// A panel's join: its declared aggregate and, by member, the law each
@@ -218,9 +225,17 @@ impl PanelJoin {
     }
 
     /// Refuse `word` from the member `name` when its law does not admit
-    /// it. Only a `review-panel` member is held by its law: a
-    /// `unanimous-pass` member keeps that aggregate's own check.
-    fn refusal(&self, name: &str, word: &str) -> Option<MemberRefusal> {
+    /// it, or when it is not bound to the member's `findings` and the
+    /// residual inputs of its `payload` against the owning seat's pair
+    /// (decision 0109 ruling 2), whatever the member's class. Only a
+    /// `review-panel` member is held by its law: a `unanimous-pass` member
+    /// keeps that aggregate's own check.
+    fn refusal(
+        &self,
+        (name, word): (&str, &str),
+        findings: &[Finding],
+        payload: &Value,
+    ) -> Option<MemberRefusal> {
         if self.aggregate != Aggregate::ReviewPanel {
             return None;
         }
@@ -233,7 +248,10 @@ impl PanelJoin {
                 results: law.results.clone(),
             });
         }
-        None
+        let inputs = payload.get("inputs").and_then(Value::as_object);
+        bind(word, findings, inputs, law.residual)
+            .err()
+            .map(MemberRefusal::from)
     }
 
     /// Deterministic, order-independent aggregation of member results. A
@@ -407,7 +425,7 @@ impl<'a> Verdicts<'a> {
             let MemberFindings::Read(reported) = reported else {
                 return Err(None);
             };
-            if let Some(refusal) = join.refusal(name, result) {
+            if let Some(refusal) = join.refusal((name, result), reported, payload) {
                 return Err(Some((name.clone(), refusal)));
             }
             findings.extend(reported.iter().cloned());
@@ -461,16 +479,17 @@ fn review_panel(parsed: &[(&str, &str, &Value)], meta: Value) -> Value {
     // tables no longer declare or read it and therefore drop it.
     inputs.insert("fixes_applied".into(), Value::Bool(false));
     inputs.insert("spec_defect".into(), Value::Bool(joined.spec_defect));
-    if worst.1 == "residual" || joined.severity_rank > 0 {
-        inputs.insert(
-            "max_residual_severity".into(),
-            Value::String(SEVERITY_ORDER[joined.severity_rank].to_string()),
-        );
-        inputs.insert(
-            "has_security_residual".into(),
-            Value::Bool(joined.has_security),
-        );
-    }
+    // Both residual inputs on every result, `none` and `false` when no
+    // member reports one, so an all-clean panel's word is bound to a
+    // declared pair rather than an absent one (decision 0109 ruling 2).
+    inputs.insert(
+        "max_residual_severity".into(),
+        Value::String(SEVERITY_ORDER[joined.severity_rank].to_string()),
+    );
+    inputs.insert(
+        "has_security_residual".into(),
+        Value::Bool(joined.has_security),
+    );
     json!({"result": worst.1, "inputs": inputs, "notes": meta})
 }
 

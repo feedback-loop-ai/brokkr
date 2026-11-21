@@ -2,6 +2,12 @@ use super::*;
 use brokkr_core::EventType;
 use brokkr_store::Store;
 
+/// The residual pair every member charter's clean names (decision 0109
+/// ruling 2), which the review seat's compiled inputs bind.
+fn clear() -> Value {
+    json!({"max_residual_severity": "none", "has_security_residual": false})
+}
+
 fn git(ws: &Workspace, args: &[&str]) -> String {
     let output = Command::new("git")
         .args(args)
@@ -18,9 +24,8 @@ fn git(ws: &Workspace, args: &[&str]) -> String {
 
 fn panel(stuck: bool) -> Workspace {
     let mut script = happy_script();
-    script["seats"]["review:correctness"] =
-        json!([{"behavior":"succeed", "result":{"result":"clean", "notes":"settled"}}]);
-    let fresh = json!({"behavior":"succeed", "result":{"result":"clean", "notes":"retried"}});
+    script["seats"]["review:correctness"] = json!([{"behavior":"succeed", "result":{"result":"clean", "inputs":clear(), "notes":"settled"}}]);
+    let fresh = json!({"behavior":"succeed", "result":{"result":"clean", "inputs":clear(), "notes":"retried"}});
     script["seats"]["review:security"] = if stuck {
         json!([{"behavior":"vanish"}, fresh])
     } else {
@@ -292,11 +297,11 @@ fn a_moved_head_refuses_at_the_command_and_again_at_the_drive() {
 fn a_retried_security_residual_returns_through_implement_verify_and_a_full_panel() {
     let mut script = happy_script();
     script["seats"]["review:correctness"] =
-        json!([{"behavior":"succeed","result":{"result":"clean"}}]);
+        json!([{"behavior":"succeed","result":{"result":"clean","inputs":clear()}}]);
     script["seats"]["review:security"] = json!([
         {"behavior":"vanish"},
         {"behavior":"succeed","result":{"result":"residual","inputs":{"has_security_residual":true,"max_residual_severity":"low"},"notes":"repair this"}},
-        {"behavior":"succeed","result":{"result":"clean"}},
+        {"behavior":"succeed","result":{"result":"clean","inputs":clear()}},
     ]);
     let ws = fixture(script, REFORGING_POLICY);
     let run = parked(&ws);
