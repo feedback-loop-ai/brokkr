@@ -179,9 +179,10 @@ journal here: **unmeasured**.
 So Brokkr reads no check. What a model seat may do is call `gh run view` under its grant and
 write prose about it; nothing types what it read.
 
-No house recipe has a CI phase. `landing`'s phases are `classify` → `verify` → `review` →
-`ship` → `done`, and "the rest of the checks main requires stay CI's"
-(`recipes/landing/README.md:5-11`). That is an absence of a CI reader, not an ordering. CI runs
+No house recipe has a CI phase. `landing`'s phase list is `classify`, `implement`, `verify`,
+`review`, `ship`, `done` and `stop` (`recipes/landing/policy.json:5-7`), its normal route
+`classify` → `verify` → `review` → `ship` → `done`, and "the rest of the checks main requires
+stay CI's" (`recipes/landing/README.md:5-11`). That is an absence of a CI reader, not an ordering. CI runs
 on a pull request's `opened`, `synchronize`, `reopened`, `labeled` and `unlabeled` events
 (`.github/workflows/ci.yml:3-17`), so on a pull request already open, CI can start before a
 landing run does, and run beside it. When a person or the merge queue reads a red check, and
@@ -439,7 +440,7 @@ Fencing is the wrong frame, for three reasons:
 
 **What bounds the account's reach through the observer:**
 
-- **The frame.** A forged or tampered observation costs at most a person's park, or landing as
+- **The frame.** A forged or tampered observation costs at most a person's look, or landing as
   it is today, never a merge ([The gate grants nothing](#the-gate-grants-nothing)); and no
   later seat's input carries the observation (ruling 6's projection), so a forged one reaches no
   model as text.
@@ -783,7 +784,8 @@ parses; 8 MiB and one byte seals the witness, and `jq` is never handed it); and
 `the_selected_transport_takes_in_no_more_than_the_bound_plus_one_byte_of_a_streamed_page` (a
 source streaming 64 MiB counts the bytes taken from it: no more than the bound plus one byte and
 one pipe buffer, before any parse). 0111c's
-`an_oversized_first_page_through_the_real_reader_parks_as_response_too_large` binds the park.
+`an_oversized_first_page_through_the_selected_transport_parks_as_response_too_large` binds the
+park through that same production reader.
 
 **The observer reads no job log.** No condition of `green` reads a step's log, so no log byte is
 read, sealed or journaled, and the person reads the log itself on the forge, from the run,
@@ -996,7 +998,7 @@ default, and each paged list carries whether it was read to its last page.
 | `jobs-incomplete` | each run's job list under `filter=all`, its last-page fact and overflow witness | P2 | as `checks-incomplete`, for one run's jobs; it names the run id and the attempts read | `a_job_list_unread_or_overflowed_parks_as_jobs_incomplete_naming_the_run_and_attempt_live_and_on_replay` |
 | `pulls-incomplete` | the open-pull-request list for the head, its last-page fact and overflow witness | P2 | as `checks-incomplete`, for the open pull requests on the head | `the_open_pull_request_list_unread_or_overflowed_parks_as_pulls_incomplete_live_and_on_replay` |
 | `required-set-incomplete` | the forge's required set, where read, its last-page fact and overflow witness | P2 | the read began and did not reach its last page, or overflowed; a set never read is `unread`, and the pinned list alone governs | `a_partly_read_forge_required_set_parks_as_required_set_incomplete_live_and_on_replay` |
-| `response-too-large` | each response witness | P2 | one forge response passed its 8 MiB byte bound while being read: the bound plus one byte was read; it names the list, the page and the bytes read | `an_oversized_first_page_through_the_real_reader_parks_as_response_too_large` |
+| `response-too-large` | each response witness | P2 | one forge response passed its 8 MiB byte bound while being read: the bound plus one byte was read; it names the list, the page and the bytes read | `an_oversized_first_page_through_the_selected_transport_parks_as_response_too_large` |
 | `status-present` | the complete commit-status list for the head | P8 | it holds any status; a status names no attempt (the currentness rule) | `a_status_on_the_head_parks_as_status_present_live_and_on_replay` |
 | `pulls-disagree` | the complete open-pull-request list for the head; the launch-bound pull request | P5 | the list lacks the launch-bound pull request, or holds another; it names every one | `an_open_pull_request_list_without_the_bound_one_or_with_another_parks_as_pulls_disagree` |
 | `empty` | the complete check list for the head | P3 | the forge reports no check for the head | `an_observation_with_no_check_names_empty_then_missing_required_for_every_entry` |
@@ -1084,19 +1086,24 @@ so the rows a replay names are the rows named live.
 **The table binds the text.** 0111c's doc test,
 `every_park_statement_in_0111_cites_a_row_of_its_park_table`, reads this decision: every
 paragraph, list item or table row that says the gate parks, spelled `parks`, `parked` or
-`parking` in prose (a test name in a code span is not a statement) or `CI-PARK`, outside the
+`parking` in prose, the bare verb after a modal or `to` (`would park`, `to park`), the noun
+`a person's park` (a test name in a code span is not a statement) or `CI-PARK`, outside the
 heading, [What main holds at HEAD](#what-main-holds-at-head),
 [Deferred to a later decision](#deferred-to-a-later-decision) and [Evidence](#evidence), names
 a row id in backticks, such as `unrelated`, and every id it names is a row of this table. Only a
 statement about every row, spelled with `every`, may link this table in place of an id; HEAD's
 own hold is spelled `held`. Every row has an id, a `Reads` fact and a `Bound by` test. Its
 control, `the_park_citation_checker_refuses_a_statement_with_no_row_or_an_unknown_row`, feeds it
-a statement naming no row, one naming an id the table lacks, and a specific one that only links
-the table, and expects each refused by its line. Its companions:
+a statement naming no row, one naming an id the table lacks, a specific one that only links
+the table, and one in each further form (`a person's park is reached on every red run`, `the run
+would park on a red`) naming no row, and expects each refused by its line. Its companions:
 `every_park_row_is_bound_by_a_test_the_slices_name` (every `Bound by` cell names a test one of
-[The slices](#the-slices) lists); `every_test_proved_by_the_slices_is_named_in_its_slices_plan`
-(every name [Proved by the slices](#proved-by-the-slices) lists under a slice appears in that
-slice's plan, and every slice it lists is one of [The slices](#the-slices)); and
+[The slices](#the-slices) lists); `every_test_proved_by_the_slices_is_named_in_its_slices_plan`,
+both ways: every name [Proved by the slices](#proved-by-the-slices) lists under a slice appears
+in that slice's plan, the plan's `Acceptance rows:` line states how many the table lists for
+it and the count agrees, and every slice it lists is one of [The slices](#the-slices); its
+removal controls delete one table row, and one plan entry, from a copy of this text and expect
+each refused naming the test; and
 `the_judges_park_rows_are_the_decisions_park_table_in_order`, which holds the judge's closed row
 enum to this table's ids in this order, less `word-unbound`, the composed table's alone.
 
@@ -1310,8 +1317,8 @@ a local commit (`recipes/fast/policy.json:69-75`), pushed by a person after revi
 checks to read. **Recommended: (a) the gate is the `landing` recipe's check-watching step, its
 entry phase** ("a land run that watches pull request checks", as the commission quotes the
 issue). Landing runs over a branch that already exists (`recipes/landing/README.md:5-8`), and at
-its entry no seat has committed; a head the person has not pushed parks on `head-unpublished`
-(ruling 3), and after a push the operator's retry observes again.
+its entry no seat has committed; an unpushed head is row `head-unpublished`'s case, and after a
+push the operator's retry observes again.
 
 The overlay, `landing-ci`, extends `landing` and overrides its table's `initial` to `ci` and
 its `phases` to add `ci`; `landing` overrides the same keys over `brokkr-fast`
@@ -1360,8 +1367,8 @@ terminal or work phase, and one from which a path reaches a terminal around the 
 documents `--enter review` and `--enter classify --continues <run>`
 (`recipes/landing/README.md:91-99`), and both pass that check. So, as fix round 1093r4 left it,
 `landing-ci --enter review` would skip `ci`. Under the frame that is landing as it is today, not
-a pass the gate grants; it is still designed out, so a person's park is reached on every run
-that names the overlay over a non-green observation. **Recommended: (a) `landing-ci`'s entry admission admits `ci` alone,
+a pass the gate grants; it is still designed out, so every run that names the overlay enters at
+`ci`, where every true row of the [park table](#the-park-table) holds it for a person. **Recommended: (a) `landing-ci`'s entry admission admits `ci` alone,
 through the existing entry check.** The check's chain of refusals gains one arm, after HEAD's
 own first four. HEAD's `refusal` returns, in order, `Absent` for a phase the table lacks,
 `Terminal`, `Unprintable` for a name outside the entry grammar, and `Work` for a seat with
@@ -1407,7 +1414,7 @@ The rule for the recipe data: an entry whose producer reads anything this run's 
 (its anchor, its journal, its ledger) carries `"after": "ship"`. For the house that is
 `delivered by brokkr`, and only it. The forge's requirement stays at merge, unchanged. The
 declaration is the operator's: the compile cannot see what a check reads, and an entry left
-undeclared costs a person's park (the frame's table), never a pass. Refused alternative:
+undeclared costs a person's look on row `not-success`, never a pass. Refused alternative:
 **(b)** observing it as any other entry, which parks every first landing on `not-success`.
 
 **The entry set is derived once, and every reader but the inventory reads it.** One function
@@ -1749,7 +1756,8 @@ tenth hold in the slice [Proved by the slices](#proved-by-the-slices) names.
    `a_bundle_declaring_a_ci_seat_refuses_to_compile_until_the_first_live_producer_lands`, a
    custom exec recipe's declaration included. About 450 production, 150 script and 700 test
    lines; it may split at triage into the contracts and the launch. Contracts, minted here and
-   only after 0111a: `ci-observation/v1` and `ci-checks/v1`. Tests, the launch driven through a
+   only after 0111a: `ci-observation/v1` and `ci-checks/v1`. `Acceptance rows:` 4
+   ([Proved by the slices](#proved-by-the-slices)). Tests, the launch driven through a
    test-only bundle the live compile does not admit:
    - the contracts: `an_observation_with_an_unknown_field_refuses_whole`;
      `an_unknown_conclusion_word_is_observation_unreadable`;
@@ -1847,7 +1855,8 @@ tenth hold in the slice [Proved by the slices](#proved-by-the-slices) names.
    predicate. **The tested commit in the lists below:** a builder fixture carries a tested-commit
    record, which no live observer writes (ruling 3); a case run live through 0111b's observer
    seals it `unread`, so its exact list also holds `revision-unproven` for every entry with a
-   match, in the table's place, and so does its replay. Tests:
+   match, in the table's place, and so does its replay. `Acceptance rows:` 35
+   ([Proved by the slices](#proved-by-the-slices)). Tests:
    - 0111a's cases: `every_0111a_evidence_case_parks_with_its_recorded_rows` (each of the eight
      directories under `crates/brokkr-core/src/ci/evidence/`, its pages served by a stub `gh`, the
      binding its own pull request and head: `CI-PARK`, never `CI-PASS`, with the exact list the
@@ -1919,17 +1928,23 @@ tenth hold in the slice [Proved by the slices](#proved-by-the-slices) names.
      `the_status_list_unread_or_overflowed_parks_as_statuses_incomplete_live_and_on_replay`
      (`statuses-incomplete` alone);
      `a_run_list_unread_or_overflowed_parks_as_runs_incomplete_live_and_on_replay`
-     (`runs-incomplete`, `missing-required` A, B, `execution-ambiguous` A, B);
+     (unread, R seen on what was read: `runs-incomplete`, `missing-required` A, B,
+     `execution-ambiguous` A, B; overflowed, whose witness holds no run, so no job list is read
+     and no check run joins: the same, then `attempt-unnamed` A, B);
      `a_job_list_unread_or_overflowed_parks_as_jobs_incomplete_naming_the_run_and_attempt_live_and_on_replay`
-     (`jobs-incomplete`, `ambiguous-required` A, B);
+     (unread, A's and B's jobs seen once: `jobs-incomplete`, `ambiguous-required` A, B;
+     overflowed, whose witness holds no job, so A's and B's checks join none:
+     `jobs-incomplete`, `missing-required` A, B, `attempt-unnamed` A, B);
      `the_open_pull_request_list_unread_or_overflowed_parks_as_pulls_incomplete_live_and_on_replay`
      (the chief's r9 case, only this list incomplete: `pulls-incomplete` alone);
      `a_partly_read_forge_required_set_parks_as_required_set_incomplete_live_and_on_replay`
      (`required-set-incomplete` alone);
-     `an_oversized_first_page_through_the_real_reader_parks_as_response_too_large` (live only:
-     the first page of the check-run list is past 8 MiB, served by a stub `gh` to 0111b's real
-     observer script and its pinned `head`; `checks-incomplete`, `response-too-large`,
-     `missing-required` A, B, and no byte of that page parsed);
+     `an_oversized_first_page_through_the_selected_transport_parks_as_response_too_large` (live only:
+     the first page of the check-run list is past 8 MiB, served at the seam of whichever
+     transport 0111b selects (a stub `gh` to the real observer script and its pinned `head`, or
+     a stub forge to the bounded reader) and read by that production reader;
+     `checks-incomplete`, `response-too-large`, `missing-required` A, B, and no byte of that page
+     parsed; its name stays if the selection changes);
    - the currentness rule, each live and on replay as the inventories are, over two entries A
      (`test (ubuntu-latest)`) and B (the audit) of one key, every list complete, each
      expecting `CI-PARK` with exactly these rows:
@@ -2055,7 +2070,8 @@ tenth hold in the slice [Proved by the slices](#proved-by-the-slices) names.
    `revision-unproven`, so the telemetry counts parks only; this slice's `CI-PASS` tests feed
    decide a stub observer's stdout that carries a tested-commit record. The
    park's lifecycle is this slice's too: a person looks and re-runs, then the operator retries
-   the parked `ci` phase, which observes again. Tests:
+   the parked `ci` phase, which observes again. `Acceptance rows:` 3
+   ([Proved by the slices](#proved-by-the-slices)). Tests:
    - the frame's two ([The gate grants nothing](#the-gate-grants-nothing)):
      `after_ci_pass_the_composed_table_is_landings_own_rule_for_rule` and
      `nothing_in_the_recipes_or_seat_scripts_reads_the_ci_phases_result`;
@@ -2111,8 +2127,9 @@ tenth hold in the slice [Proved by the slices](#proved-by-the-slices) names.
 The operator ruled on 2026-11-21 that each build-proof finding of the tenth hold (landing
 `landing-over-an-existing-branch--7833a069`) is an acceptance test of the slice that builds its
 piece, which that slice's own review proves; one spanning two slices is owned by the slice that
-builds the reader it binds. Each rule is stated where it lives, and each test is named in its
-slice's plan, as `every_test_proved_by_the_slices_is_named_in_its_slices_plan` holds.
+builds the reader it binds. The eleventh hold's findings are held the same way (round
+1093r12). Each rule is stated where it lives, and each test is named in its slice's plan, whose
+`Acceptance rows:` line counts them, as `every_test_proved_by_the_slices_is_named_in_its_slices_plan` holds.
 
 | Slice | Test | Answers | Expects |
 |---|---|---|---|
@@ -2143,17 +2160,17 @@ slice's plan, as `every_test_proved_by_the_slices_is_named_in_its_slices_plan` h
 | 0111c | `a_head_moved_during_ci_is_indeterminate_never_ci_park` | who settles a moved head | HEAD's indeterminate, never `CI-PASS` |
 | 0111c | `the_check_run_list_unread_or_overflowed_parks_as_checks_incomplete_live_and_on_replay` | ordered reasons on an incomplete list (text corrected) | `CI-PARK`: `checks-incomplete`, then `ambiguous-required` or `missing-required` |
 | 0111c | `the_status_list_unread_or_overflowed_parks_as_statuses_incomplete_live_and_on_replay` | ordered reasons | `CI-PARK`: `statuses-incomplete` |
-| 0111c | `a_run_list_unread_or_overflowed_parks_as_runs_incomplete_live_and_on_replay` | ordered reasons | `CI-PARK`: `runs-incomplete`, `missing-required`, `execution-ambiguous` |
-| 0111c | `a_job_list_unread_or_overflowed_parks_as_jobs_incomplete_naming_the_run_and_attempt_live_and_on_replay` | ordered reasons | `CI-PARK`: `jobs-incomplete`, `ambiguous-required` |
+| 0111c | `a_run_list_unread_or_overflowed_parks_as_runs_incomplete_live_and_on_replay` | ordered reasons (r12: overflow split) | `CI-PARK`: `runs-incomplete`, `missing-required`, `execution-ambiguous`; overflowed, then `attempt-unnamed` |
+| 0111c | `a_job_list_unread_or_overflowed_parks_as_jobs_incomplete_naming_the_run_and_attempt_live_and_on_replay` | ordered reasons (r11 MEDIUM: overflow split) | `CI-PARK`: unread, `jobs-incomplete`, `ambiguous-required`; overflowed, `jobs-incomplete`, `missing-required`, `attempt-unnamed` |
 | 0111c | `the_open_pull_request_list_unread_or_overflowed_parks_as_pulls_incomplete_live_and_on_replay` | ordered reasons | `CI-PARK`: `pulls-incomplete` |
 | 0111c | `a_partly_read_forge_required_set_parks_as_required_set_incomplete_live_and_on_replay` | ordered reasons | `CI-PARK`: `required-set-incomplete` |
-| 0111c | `an_oversized_first_page_through_the_real_reader_parks_as_response_too_large` | ordered reasons; the byte bound | `CI-PARK`: `checks-incomplete`, `response-too-large`, `missing-required` |
+| 0111c | `an_oversized_first_page_through_the_selected_transport_parks_as_response_too_large` | ordered reasons; the byte bound through the selected transport (r11 MEDIUM) | `CI-PARK`: `checks-incomplete`, `response-too-large`, `missing-required` |
 | 0111c | `a_duplicate_job_for_a_required_entry_on_the_last_page_parks_as_ambiguous_required` | ordered reasons, the control | `CI-PARK`: `ambiguous-required`; unread, `jobs-incomplete` first |
 | 0111c | `an_entry_with_no_current_execution_names_missing_required_then_execution_ambiguous` | ordered reasons (name corrected) | `CI-PARK`: `missing-required`, `execution-ambiguous` |
 | 0111c | `inspect_on_a_truncated_ci_park_after_its_bundle_is_gone_paints_the_named_rows_and_the_count` | `inspect` after the bundle is gone (text corrected) | the reason's rows, the count of the rest |
 | 0111c | `a_required_check_not_completed_with_a_null_conclusion_parks_as_not_settled_alone` | P4's rows partition (LOW) | `CI-PARK`: `not-settled` |
-| 0111c | `the_park_citation_checker_refuses_a_statement_with_no_row_or_an_unknown_row` | the checker's reach (LOW) | each bad line refused |
-| 0111c | `every_test_proved_by_the_slices_is_named_in_its_slices_plan` | this list | every name in its slice's plan |
+| 0111c | `the_park_citation_checker_refuses_a_statement_with_no_row_or_an_unknown_row` | the checker's reach (LOW; r11 LOW: the noun and bare verb) | each bad line refused |
+| 0111c | `every_test_proved_by_the_slices_is_named_in_its_slices_plan` | this list, both ways (r11 MEDIUM) | every name in its plan, each plan's count agreeing; a deleted row or plan entry refused |
 | 0111c | `the_0111_index_row_names_the_last_round_the_decision_records` | the index row's history (INFO) | the row names round 1093r11 |
 | 0111d | `a_pass_without_green_through_the_real_policy_and_park_writer_parks_at_ci_pass_unbound` | one owner for `word-unbound` (text corrected) | a `ruled` park at `CI-PASS-UNBOUND` |
 | 0111d | `classify_after_ci_pass_receives_last_decision_naming_ci_pass_and_pass_and_nothing_else_of_ci` | `classify`'s input assertions | `CI-PASS` and `pass`, nothing else of `ci` |
