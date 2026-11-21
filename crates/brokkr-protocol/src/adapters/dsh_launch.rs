@@ -394,7 +394,7 @@ fn invoke_dsh_stream_json(
     let status = loop {
         match io_context(
             state.pass(&mut open, &reads, &mut child, &mut wait, emit, observer),
-            "agent CLI did not conclude",
+            super::stream_turn::UNCONCLUDED,
         )? {
             DshPass::Continue => {}
             DshPass::Answered => {

@@ -818,7 +818,7 @@ fn stop_harness(child: &mut Spawned) -> std::io::Result<std::process::ExitStatus
 /// converts its typed wait failure here, so the operator's words have one
 /// home (#430 L3; decision 0071 rulings 5 and 8).
 fn conclude_harness(child: &mut Spawned) -> Result<std::process::ExitStatus, String> {
-    io_context(stop_harness(child), "agent CLI did not conclude")
+    io_context(stop_harness(child), stream_turn::UNCONCLUDED)
 }
 
 fn run_cli(
@@ -834,7 +834,7 @@ fn run_cli(
     } else {
         drop(child.stdin.take());
     }
-    io_context(child.wait_with_output(), "agent CLI did not conclude")
+    io_context(child.wait_with_output(), stream_turn::UNCONCLUDED)
 }
 
 // ---------------------------------------------------------------------
@@ -2403,7 +2403,7 @@ fn poll_until_exit(
     mut drain: impl FnMut() -> bool,
 ) -> Result<i32, String> {
     loop {
-        let finished = io_context(wait(child), "agent CLI did not conclude")?;
+        let finished = io_context(wait(child), stream_turn::UNCONCLUDED)?;
         if drain() {
             return Ok(lost::exit_code(conclude_harness(child)?));
         }
@@ -2516,7 +2516,7 @@ fn invoke_stream_json(
         let status = if stopped {
             conclude_harness(&mut child)?
         } else {
-            io_context(child.wait(), "agent CLI did not conclude")?
+            io_context(child.wait(), stream_turn::UNCONCLUDED)?
         };
         transcript.finish(&mut session_meta, &mut watch);
         status
@@ -3703,7 +3703,7 @@ fn invoke_codex(
         if stopped {
             conclude_harness(&mut child)?
         } else {
-            io_context(child.wait(), "agent CLI did not conclude")?
+            io_context(child.wait(), stream_turn::UNCONCLUDED)?
         }
     };
     let captured = stderr_thread.take(stopped);

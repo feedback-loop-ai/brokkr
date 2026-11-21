@@ -6,7 +6,7 @@
 use super::judged::{driven, driven_with, stream};
 use super::*;
 use crate::adapters::stream_turn::{
-    json_rows, read_lines, turn_read, Line, Read as Reading, Unconcluded,
+    json_rows, read_lines, streamed_lines, turn_read, Line, Read as Reading,
 };
 use fold::Seen;
 
@@ -71,19 +71,29 @@ fn failing() -> std::io::BufReader<Failing> {
     std::io::BufReader::new(Failing(std::io::Cursor::new(bytes.into_bytes())))
 }
 
-/// The turn a spawned fake `agy`, exiting 0 with nothing on stderr, ends
-/// with when its stdout is read from `reader` by the function that builds
-/// the production [`Turn`] ([`turn_read`]), concluded with the seat's
-/// result file delivered: whether the turn was unread, and its answer.
+/// A spawned child under `dir` that reads nothing and simply exits 0, with
+/// nothing on stderr.
+fn exits(
+    dir: &Path,
+) -> (
+    crate::process::spawned::Spawned,
+    crate::adapters::stderr::StderrCapture,
+) {
+    let exits = super::super::super::tests::executable(dir, "exits", "#!/bin/sh\nexit 0\n");
+    let command = [exits.to_string_lossy().into_owned()];
+    spawn_fed_in(&command, "", (dir.to_str().unwrap(), &[]), &[]).unwrap()
+}
+
+/// The turn a spawned child that simply exits ends with when its stdout is
+/// read from `reader` by the function that builds the production [`Turn`]
+/// ([`turn_read`]), concluded with the seat's result file delivered:
+/// whether the turn was unread, and its answer.
 fn concluded_on(reader: impl std::io::BufRead) -> (bool, Result<Option<Value>, Ended>) {
     let root = tempfile::tempdir().unwrap();
     let dir = root.path();
     let result = dir.join("result.json");
     std::fs::write(&result, "{\"result\":\"complete\"}").unwrap();
-    let command = [fake_agy(dir, "", "", false, 0)
-        .to_string_lossy()
-        .into_owned()];
-    let fed = spawn_fed_in(&command, "", (dir.to_str().unwrap(), &[]), &[]).unwrap();
+    let fed = exits(dir);
     let (mut fold, mut record) = (AgyFold::new(FLASH, &[]), Map::new());
     let turn = turn_read(fed, reader, |line| {
         match fold.read(line, &mut record, &mut |_| {}) {
@@ -98,14 +108,23 @@ fn concluded_on(reader: impl std::io::BufRead) -> (bool, Result<Option<Value>, E
     (unread, concluded.map(|invocation| invocation.answer))
 }
 
-/// A turn whose harness cannot be waited on is typed where the turn is
-/// built and ends in the shared driver's words at its text boundary.
+/// A turn whose harness cannot be waited on, because it was reaped behind
+/// the driver's back, ends at the production text boundary
+/// ([`streamed_lines`]) in the shared driver's words.
 #[test]
 fn a_turn_that_does_not_conclude_ends_in_the_shared_drivers_words() {
-    let unconcluded = Unconcluded::from(std::io::Error::other("gone"));
+    let root = tempfile::tempdir().unwrap();
+    let fed = exits(root.path());
+    let pid = libc::pid_t::try_from(fed.0.id()).unwrap();
+    let mut status = 0;
+    // SAFETY: `pid` is this test's own child, and `status` outlives the call.
+    assert_eq!(unsafe { libc::waitpid(pid, &mut status, 0) }, pid);
+    let Err(words) = streamed_lines(fed, |_| Line::Read) else {
+        panic!("a reaped harness was waited on")
+    };
     assert_eq!(
-        String::from(unconcluded),
-        "agent CLI did not conclude: gone"
+        words,
+        "agent CLI did not conclude: No child processes (os error 10)"
     );
 }
 

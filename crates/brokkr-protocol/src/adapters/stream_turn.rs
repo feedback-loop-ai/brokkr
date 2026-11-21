@@ -40,11 +40,16 @@ pub(super) struct Read {
     pub(super) unread: bool,
 }
 
+/// The shared driver's words for a harness whose wait failed: their one
+/// home, read by every driver and by [`Unconcluded`] (decision 0071
+/// ruling 5).
+pub(super) const UNCONCLUDED: &str = "agent CLI did not conclude";
+
 /// Why a turn did not conclude: the wait on its harness failed. Rendered
 /// once, at [`streamed_lines`]'s text boundary, in the shared driver's
 /// words (decision 0071 ruling 8).
 #[derive(Debug, Error)]
-#[error("agent CLI did not conclude: {0}")]
+#[error("{UNCONCLUDED}: {0}")]
 pub(super) struct Unconcluded(#[from] std::io::Error);
 
 /// [`Unconcluded`] at the one text boundary its callers read.
