@@ -706,8 +706,10 @@ pub(crate) fn safe_lines(text: &str) -> String {
 /// appears in `--help`.
 ///
 /// An old flat spelling is respelled before the parse and says its new
-/// one on stderr first (decision 0113 ruling 4).
+/// one on stderr first (decision 0113 ruling 4). A shell's completion
+/// request is answered before either, and exits (decision 0115 ruling 2).
 pub fn main() -> ExitCode {
+    completion::answer_if_asked();
     if let Some(args) = dsh_sandbox_runner_args() {
         return dsh_sandbox_runner(args);
     }

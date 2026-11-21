@@ -22,6 +22,12 @@ pub(crate) const INDEX: &str = "runs_created_at";
 const LATEST_SQL: &str =
     "SELECT run_id, created_at FROM runs ORDER BY created_at DESC, rowid DESC LIMIT 1";
 
+/// `recent_runs`' statement: the index walked backwards, `?1` rows, each
+/// with the summary's bounded feature line where one is folded.
+const RECENT_SQL: &str = "SELECT runs.run_id, run_summary.feature_line FROM runs
+     LEFT JOIN run_summary ON run_summary.run_id = runs.run_id
+     ORDER BY runs.created_at DESC, runs.rowid DESC LIMIT ?1";
+
 /// `prefixed_runs`' statement: the key range a prefix reads.
 const PREFIX_SQL: &str =
     "SELECT run_id, created_at, rowid FROM runs WHERE run_id >= ?1 ORDER BY run_id";
@@ -56,6 +62,21 @@ impl Store {
             let found = statement
                 .query_row([], |row| Ok((row.get(0)?, row.get(1)?)))
                 .optional()?;
+            self.note(&statement);
+            Ok(found)
+        })
+    }
+
+    /// The newest `limit` runs, newest first in `latest`'s order, each with
+    /// its summary's feature line, or `None` where none is folded: one page
+    /// of the `(created_at)` index and a key seek per row, whatever the
+    /// journal's size (decision 0115 ruling 4). No event is read.
+    pub fn recent_runs(&self, limit: u32) -> Result<Vec<(String, Option<String>)>, StoreError> {
+        patiently("recent_runs", self.patience, &self.path, || {
+            let mut statement = self.conn.prepare(RECENT_SQL)?;
+            let found = statement
+                .query_map(params![limit], |row| Ok((row.get(0)?, row.get(1)?)))?
+                .collect::<Result<Vec<_>, _>>()?;
             self.note(&statement);
             Ok(found)
         })

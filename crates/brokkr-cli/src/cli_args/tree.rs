@@ -54,7 +54,10 @@ enum Root {
     /// bundle, without executing any agent.
     Doctor(DoctorArgs),
     /// Print the shell completion script for bash, zsh, fish, powershell
-    /// or elvish: every visible verb, flag and fixed value.
+    /// or elvish: every visible verb, flag and fixed value. `source
+    /// <(COMPLETE=bash brokkr)` registers the live completer instead, which
+    /// also offers run ids, phases, seats, recipes, agents, realms and
+    /// queue entries.
     Completions(crate::completion::CompletionsArgs),
     /// The runs in the journal: list them (the default), read one,
     /// compare two, re-run, close or command one, and the overseer that

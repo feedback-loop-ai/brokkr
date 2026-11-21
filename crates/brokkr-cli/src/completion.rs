@@ -2,7 +2,8 @@
 //! the script clap_complete writes for the command tree (ruling 1), so a
 //! shell offers every visible verb, flag and fixed value set. The tree
 //! holds no 0.16 alias, which is a respelling made before the tree parses
-//! (decision 0113 ruling 4).
+//! (decision 0113 ruling 4). The live completer, which `COMPLETE` asks
+//! for, is [`live`]'s.
 
 use std::io::Write;
 use std::process::ExitCode;
@@ -10,6 +11,9 @@ use std::process::ExitCode;
 use clap::{Command, CommandFactory};
 
 use crate::exit::Exit;
+
+mod live;
+pub(crate) use live::answer_if_asked;
 
 #[derive(clap::Args)]
 #[group(skip)]

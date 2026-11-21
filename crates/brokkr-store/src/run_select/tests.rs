@@ -234,3 +234,58 @@ fn latest_exact_and_a_unique_prefix_cost_a_page_and_an_ambiguous_one_its_matches
         "an ambiguous prefix's cost grows with its matches: {large_all} against {large_ten}"
     );
 }
+
+/// The completer's page (decision 0115 ruling 4): the newest runs in
+/// `latest`'s order, ties to the row inserted last, each with the feature
+/// line its summary folded, and no more than the limit.
+#[test]
+fn recent_runs_lists_the_newest_first_with_their_feature_lines_within_the_limit() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open(&dir.path().join("forge.db")).unwrap();
+    plant(&store.conn, "run-old", "2026-01-01T00:00:00Z");
+    plant(&store.conn, "tie-first", "2026-01-01T00:00:01Z");
+    plant(&store.conn, "tie-second", "2026-01-01T00:00:01Z");
+    store
+        .conn
+        .execute(
+            "UPDATE run_summary SET feature_line = 'the old one' WHERE run_id = 'run-old'",
+            [],
+        )
+        .unwrap();
+
+    assert_eq!(
+        store.recent_runs(50).unwrap(),
+        vec![
+            ("tie-second".to_string(), None),
+            ("tie-first".to_string(), None),
+            ("run-old".to_string(), Some("the old one".to_string())),
+        ],
+        "newest first, a tie to the later row, the folded line beside its run"
+    );
+    assert_eq!(
+        store.recent_runs(2).unwrap(),
+        vec![
+            ("tie-second".to_string(), None),
+            ("tie-first".to_string(), None)
+        ],
+        "the limit is the page"
+    );
+}
+
+/// A page of fifty costs the same in a journal of sixty runs and in one
+/// of ten thousand: the read stops at the page.
+#[test]
+fn recent_runs_costs_one_page_whatever_the_journal_holds() {
+    let dir = tempfile::tempdir().unwrap();
+    let small = planted(&dir.path().join("small.db"), 60);
+    let large = planted(&dir.path().join("large.db"), 10_000);
+
+    let (small_page, small_steps) = steps(&small, || small.recent_runs(50).unwrap());
+    let (large_page, large_steps) = steps(&large, || large.recent_runs(50).unwrap());
+    assert_eq!((small_page.len(), large_page.len()), (50, 50));
+    assert_eq!(
+        large_page[0].0, "special-000000",
+        "the newest run leads the page"
+    );
+    assert_eq!(large_steps, small_steps, "the page reads fifty rows");
+}

@@ -98,6 +98,7 @@ mod summary;
 mod terminal;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support;
+mod untouched;
 pub use acknowledgement::Acknowledgement;
 pub use chain::{Chain, Rows};
 pub use damage::Damage;
@@ -123,7 +124,7 @@ pub use summary::Disagreement;
 use brokkr_core::summary::Account;
 pub use import::RUN_ID_MAX;
 use patience::patiently;
-use schema::{ensure_wal, schema_supported, RECORDED_SCHEMA};
+use schema::ensure_wal;
 use start::Row;
 
 /// How long any statement waits for a peer's write lock before giving
@@ -455,20 +456,7 @@ impl Store {
         let bound = literal::journal(path)?;
         let conn = Connection::open_with_flags(&bound, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
             .map_err(|error| literal::as_given(error, path, &bound))?;
-        conn.busy_timeout(BUSY_TIMEOUT)?;
-        conn.pragma_update(None, "cache_size", -READER_CACHE_KIB)?;
-        let found: Option<String> = patiently("open_read_only", BUSY_TIMEOUT, path, || {
-            Ok(conn
-                .query_row(RECORDED_SCHEMA, [], |row| row.get(0))
-                .optional()?)
-        })?;
-        let damage = Damage::NoSchema;
-        let found = found.ok_or_else(|| StoreError::Damaged {
-            journal: path.into(),
-            damage,
-        })?;
-        schema_supported(found.parse().unwrap_or(0))?;
-        Ok(Store::holding(conn, path))
+        Store::reading(conn, path, BUSY_TIMEOUT)
     }
 
     /// A store on `conn`, which opened `path`.

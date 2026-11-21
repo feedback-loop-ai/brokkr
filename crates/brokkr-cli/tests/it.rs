@@ -102,6 +102,7 @@ mod seat_items;
 mod seat_rows;
 mod seat_view;
 mod shelf;
+mod shell_completion;
 mod status_pages;
 mod suppressions;
 mod test_shards;
