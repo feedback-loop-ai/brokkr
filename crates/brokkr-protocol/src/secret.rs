@@ -621,21 +621,62 @@ fn mask_needles(bytes: &[u8], bindings: &[BoundSecret], encodings: &[(&str, Enco
 /// of every needle, so a needle starting inside another's match is masked
 /// whole. Occurrences that overlap or touch are one run, named for the
 /// binding whose occurrence starts first; of those starting at one byte,
-/// the longest needle's, as it always was.
+/// the longest needle's, as it always was. Each needle is found in one
+/// pass of [`occurrences`], so the cost is linear in the text times the
+/// needles.
 fn covered<'n>(bytes: &[u8], needles: &[(Vec<u8>, &'n str)]) -> Vec<(usize, usize, &'n str)> {
+    // Where an occurrence starts, the end and name of the first needle,
+    // so the longest, found starting there.
+    let mut first: Vec<Option<(usize, &str)>> = vec![None; bytes.len()];
+    for (needle, name) in needles {
+        for start in occurrences(bytes, needle) {
+            first[start].get_or_insert((start + needle.len(), name));
+        }
+    }
     let mut runs: Vec<(usize, usize, &str)> = Vec::new();
-    for start in 0..bytes.len() {
-        let occurs = |needle: &&(Vec<u8>, &str)| bytes[start..].starts_with(&needle.0);
-        let Some((needle, name)) = needles.iter().find(occurs) else {
+    for (start, found) in first.into_iter().enumerate() {
+        let Some((end, name)) = found else {
             continue;
         };
-        let end = start + needle.len();
         match runs.last_mut() {
             Some(run) if start <= run.1 => run.1 = run.1.max(end),
             _ => runs.push((start, end, name)),
         }
     }
     runs
+}
+
+/// Where every occurrence of `needle`, which is not empty, starts in
+/// `bytes`, overlapping ones included: one Knuth–Morris–Pratt pass,
+/// linear in the text and the needle.
+fn occurrences(bytes: &[u8], needle: &[u8]) -> Vec<usize> {
+    // `border[i]`: the longest proper prefix of `needle[..=i]` that is
+    // also its suffix.
+    let mut border = vec![0; needle.len()];
+    let mut matched = 0;
+    for i in 1..needle.len() {
+        matched = advance(needle, &border, matched, needle[i]);
+        border[i] = matched;
+    }
+    let mut starts = Vec::new();
+    let mut matched = 0;
+    for (i, &byte) in bytes.iter().enumerate() {
+        matched = advance(needle, &border, matched, byte);
+        if matched == needle.len() {
+            starts.push(i + 1 - matched);
+            matched = border[matched - 1];
+        }
+    }
+    starts
+}
+
+/// How much of `needle` is matched after `byte`, when `matched` bytes of
+/// it, fewer than all, were matched before it.
+fn advance(needle: &[u8], border: &[usize], mut matched: usize, byte: u8) -> usize {
+    while matched > 0 && byte != needle[matched] {
+        matched = border[matched - 1];
+    }
+    matched + usize::from(byte == needle[matched])
 }
 
 /// [`mask_bytes`] over every string inside a JSON value — object keys
@@ -666,11 +707,26 @@ pub fn mask_json(value: &mut serde_json::Value, bindings: &[BoundSecret]) {
             let entries = std::mem::take(map);
             for (key, mut item) in entries {
                 mask_json(&mut item, bindings);
-                map.insert(mask_text(key.as_bytes(), bindings), item);
+                let masked = unclaimed(map, mask_text(key.as_bytes(), bindings));
+                map.insert(masked, item);
             }
         }
         _ => {}
     }
+}
+
+/// `key`, or, where masking gave two keys of one object one text, the
+/// first `key#N` from `N` = 2 that `map` does not hold yet, so no value is
+/// overwritten (#1213: keys `abcd` and `abcdefg` both read one marker
+/// when `abcd` and `defg` are bound).
+fn unclaimed(map: &serde_json::Map<String, serde_json::Value>, key: String) -> String {
+    let mut candidate = key.clone();
+    let mut n = 1;
+    while map.contains_key(&candidate) {
+        n += 1;
+        candidate = format!("{key}#{n}");
+    }
+    candidate
 }
 
 /// `bytes` masked by [`mask_bytes`] and only then decoded, lossily, as

@@ -96,12 +96,16 @@ masked the first and left the second's other bytes readable.
    covers is masked: each bound value raw and in every listed encoding,
    and, where a projected transcript is masked, each value's JSON string
    escaping too, all in one union. Occurrences that overlap or touch are
-   one run. The cost stays linear in the text times the needles, with no
-   new dependency.
+   one run. Each needle is found in one linear pass, so the cost stays
+   linear in the text times the needles, with no new dependency.
 2. **One marker per run.** A run reads one `[secret:NAME]`, its form
    unchanged, naming the binding whose occurrence starts first; of those
    starting at one byte, the longest needle's, as before. A run that
-   holds one occurrence reads exactly as it did.
+   holds one occurrence reads exactly as it did. Where masking gives two
+   keys of one JSON object one text, as `abcd` and `abcdefg` with `abcd`
+   and `defg` bound, each value is kept: the first key in the object's
+   order reads the masked text, and each later one that text followed by
+   `#2`, `#3` and so on, the first such key the object does not hold.
 3. **The guard sees what the masker would.** The final guard refuses
    bytes holding a bound value whose start an earlier match covers, as it
    refuses any other occurrence.

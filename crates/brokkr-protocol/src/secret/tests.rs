@@ -205,6 +205,19 @@ fn masker_masks_adjacent_and_repeated_needles() {
         mask_bytes(b"vvvv-vvvv", &bindings),
         b"[secret:K]-[secret:K]"
     );
+    // Occurrences that touch and do not overlap: no third occurrence
+    // bridges them, and they are still one run, of one value or of two.
+    let bindings = vec![bound("A", b"abcd"), bound("W", b"wxyz")];
+    assert_eq!(mask_bytes(b"-abcdabcd-", &bindings), b"-[secret:A]-");
+    assert_eq!(mask_bytes(b"-wxyzabcd-", &bindings), b"-[secret:W]-");
+}
+
+#[test]
+fn occurrences_finds_every_start_overlapping_ones_included() {
+    assert_eq!(super::occurrences(b"abababab", b"abab"), vec![0, 2, 4]);
+    assert_eq!(super::occurrences(b"aabaabaab", b"aabaa"), vec![0, 3]);
+    assert_eq!(super::occurrences(b"aaabaaab", b"aab"), vec![1, 5]);
+    assert_eq!(super::occurrences(b"xyz", b"q"), Vec::<usize>::new());
 }
 
 /// The 44-character value of #1213's case, and the eight-character one
@@ -282,6 +295,70 @@ fn mask_projected_masks_the_union_of_an_escaped_form_and_a_raw_one() {
         mask_projected(&projected, &bindings),
         "{\"a\":\"[secret:SHORT]\"}"
     );
+}
+
+#[test]
+fn mask_projected_names_the_first_occurrence_raw_or_escaped() {
+    let tail = TAIL.replace('!', "\"");
+    let short = SHORT.replace('!', "\"");
+    let cases = [
+        // Raw first, an escaped form starting in its last three bytes.
+        (
+            vec![
+                bound("TAIL", tail.as_bytes()),
+                bound("LONG", LONG.as_bytes()),
+            ],
+            format!("<{LONG}\\\"suffix>"),
+            "<[secret:LONG]>",
+        ),
+        // Escaped first, the raw value starting at its last byte.
+        (
+            vec![
+                bound("LONG", LONG.as_bytes()),
+                bound("SHORT", short.as_bytes()),
+            ],
+            format!("<prefix\\\"{LONG}>"),
+            "<[secret:SHORT]>",
+        ),
+        // A raw value inside an escaped one.
+        (
+            vec![bound("INNER", b"cdefgh"), bound("OUTER", b"ab\"cdefgh\"ij")],
+            "<ab\\\"cdefgh\\\"ij>".to_string(),
+            "<[secret:OUTER]>",
+        ),
+        // An escaped value inside a raw one.
+        (
+            vec![bound("INNER", b"c\"d"), bound("OUTER", b"xc\\\"dy")],
+            "<xc\\\"dy>".to_string(),
+            "<[secret:OUTER]>",
+        ),
+    ];
+    for (bindings, projected, masked) in cases {
+        assert_eq!(mask_projected(&projected, &bindings), masked, "{projected}");
+    }
+}
+
+#[test]
+fn mask_json_keeps_every_value_of_keys_masking_made_one() {
+    let bindings = vec![bound("LEFT", b"abcd"), bound("RIGHT", b"defg")];
+    let mut value = serde_json::json!({"abcd": 1, "abcdefg": 2, "defg": 3, "defgabcd": 4});
+    mask_json(&mut value, &bindings);
+    let expected = serde_json::json!({
+        "[secret:LEFT]": 1,
+        "[secret:LEFT]#2": 2,
+        "[secret:RIGHT]": 3,
+        "[secret:RIGHT]#2": 4,
+    });
+    assert_eq!(value, expected);
+    let mut value = serde_json::json!({"abcd": 1, "abcdefg": 2, "abcdabcd": 3});
+    mask_json(&mut value, &bindings);
+    // Keys are taken in the object's order, so `abcdabcd` claims `#2`.
+    let expected = serde_json::json!({
+        "[secret:LEFT]": 1,
+        "[secret:LEFT]#2": 3,
+        "[secret:LEFT]#3": 2,
+    });
+    assert_eq!(value, expected);
 }
 
 #[test]
