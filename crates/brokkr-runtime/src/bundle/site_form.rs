@@ -14,7 +14,7 @@ use super::{bounded_site, CompileError};
 /// 0007 declaration; a panel member or sequence step has neither — the
 /// seat above it does. So an agent carrying `limits` or `inputs` cannot
 /// be referenced from a member or a step: silently discarding them would
-/// make `brokkr agents show` a lie for that site.
+/// make `brokkr library agents show` a lie for that site.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum SiteRole {
     Seat,
@@ -253,7 +253,7 @@ pub(super) fn refuse_amendments(what: &str, raw: &Value) -> Result<(), CompileEr
         Err(CompileError::Invalid(format!(
             "seat '{what}' combines 'agent' with '{key}'; an agent reference is \
              total — '{key}' states what the agent IS, and a seat that could \
-             amend it would make `brokkr agents show` a lie for that seat"
+             amend it would make `brokkr library agents show` a lie for that seat"
         )))
     };
     for key in ["role", "inputs", "hands"] {

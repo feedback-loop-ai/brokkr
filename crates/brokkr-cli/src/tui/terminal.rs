@@ -69,7 +69,7 @@ pub(crate) fn install_panic_hook(restore: fn()) {
 /// and `brokkr watch` are named: an operator who cannot have the console
 /// must be told what they can have instead.
 pub(crate) fn refuse(is_tty: bool, size: (u16, u16), db_is_file: bool) -> Option<String> {
-    let instead = "use `brokkr inspect --run <id>` or `brokkr watch --run <id>` instead";
+    let instead = "use `brokkr runs inspect --run <id>` or `brokkr watch --run <id>` instead";
     if !db_is_file {
         return Some(format!(
             "no workspace database to read, and a read never creates one; {instead}"

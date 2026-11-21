@@ -725,7 +725,7 @@ fn a_dead_running_run_needs_you_as_stale_and_never_reads_as_live() {
         format!("way out   brokkr resume --run {DEAD} --bundle <its-bundle>"),
         "          drives it again under its pinned bundle (or --recipe <name>);".to_string(),
         format!(
-            "          or brokkr conclude --run {DEAD} --cause <cause> --reason <why> closes it"
+            "          or brokkr runs conclude --run {DEAD} --cause <cause> --reason <why> closes it"
         ),
     ];
     assert_eq!(under(&detail, "WAY OUT"), wanted, "{detail:#?}");
@@ -769,10 +769,10 @@ fn a_stopping_run_wears_its_mark_and_its_detail_names_the_way_out() {
     let detail = dashboard_of(&views, &views.runs.runs[0]);
     assert_eq!(detail[2], "stopping · verify · 7m03s");
     let said = "detail    stop accepted at seq 93; no ending written. If no driver is running \
-                it, `brokkr conclude` closes it.";
+                it, `brokkr runs conclude` closes it.";
     assert!(detail.iter().any(|line| line == said), "{detail:#?}");
     let wanted = [format!(
-        "way out   brokkr conclude --run {STOPPING} --cause <cause> --reason <why>"
+        "way out   brokkr runs conclude --run {STOPPING} --cause <cause> --reason <why>"
     )];
     assert_eq!(under(&detail, "WAY OUT"), wanted, "{detail:#?}");
 }
@@ -922,9 +922,9 @@ fn a_quarantined_run_says_export_and_inspect_and_how() {
     );
     let run = "journal-that-broke-7f8e9d0c";
     let wanted = [
-        format!("way out   brokkr export --run {run}"),
+        format!("way out   brokkr journal export --run {run}"),
         "          and inspect the journal it writes".to_string(),
-        format!("          then brokkr operator acknowledge --run {run} --reason <why> lists it under older"),
+        format!("          then brokkr runs operator acknowledge --run {run} --reason <why> lists it under older"),
     ];
     assert_eq!(under(&detail, "WAY OUT"), wanted, "{detail:#?}");
 }

@@ -233,7 +233,7 @@ impl Server {
     fn start(world: &World) -> Self {
         use std::io::BufRead;
         let mut child = Command::new(brokkr_bin())
-            .args(["ui", "--port", "0", "--db"])
+            .args(["system", "ui", "--port", "0", "--db"])
             .arg(&world.db)
             .env("HOME", &world.home)
             .current_dir(world.dir.path())
@@ -242,7 +242,7 @@ impl Server {
             .spawn()
             .unwrap();
         let mut stderr = std::io::BufReader::new(child.stderr.take().unwrap());
-        // "brokkr ui: http://127.0.0.1:<port>/ (read-only; Ctrl-C to stop)"
+        // "brokkr system ui: http://127.0.0.1:<port>/ (read-only; Ctrl-C to stop)"
         let mut line = String::new();
         let _ = stderr.read_line(&mut line);
         let port = line

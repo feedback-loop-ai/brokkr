@@ -142,7 +142,7 @@ fn each_refusal_says_the_words_its_verb_says() {
     assert_eq!(
         retry.text("r1"),
         "refused operator retry (run_not_awaiting_operator): the run is not in a state this \
-         command can apply to; the refusal is journaled. Read it with: brokkr inspect --run r1"
+         command can apply to; the refusal is journaled. Read it with: brokkr runs inspect --run r1"
     );
     let concluded = CommandRefusal::Concluded(Status::Stopped);
     assert_eq!(concluded.word(), "already_concluded");

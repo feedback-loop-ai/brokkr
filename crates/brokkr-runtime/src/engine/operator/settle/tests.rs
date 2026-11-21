@@ -402,7 +402,7 @@ fn every_settle_refusal_is_typed_and_its_words_are_pinned_once() {
         }
         .to_string(),
         "attempt 'a1' stands: its driver records are not sealed Settled, and it recorded no \
-         process group to ask the host about; repair the run, then `brokkr operator release` is \
+         process group to ask the host about; repair the run, then `brokkr runs operator release` is \
          the operator's route where the attempt's journaled ending is indeterminate"
     );
     assert_eq!(
@@ -416,7 +416,7 @@ fn every_settle_refusal_is_typed_and_its_words_are_pinned_once() {
         }
         .to_string(),
         "run 'run-a' is not acknowledged, so it is not quarantined; answer it with `brokkr \
-         operator acknowledge --run run-a --reason <why>` first"
+         runs operator acknowledge --run run-a --reason <why>` first"
     );
     assert_eq!(
         SettleRefusal::NoRoot.to_string(),

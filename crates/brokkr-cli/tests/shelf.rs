@@ -32,13 +32,13 @@ fn shelved() -> Repo {
 fn an_absent_shelf_lists_nothing() {
     let repo = Repo::new();
     repo.folder();
-    let ran = repo.brokkr("src", &["recipes", "list"]);
+    let ran = repo.brokkr("src", &["library", "recipes", "list"]);
     assert_eq!((ran.code, &*ran.stdout, &*ran.stderr), (Some(0), "", ""));
-    let ran = repo.brokkr("", &["recipes", "list", "--dir", "missing"]);
+    let ran = repo.brokkr("", &["library", "recipes", "list", "--dir", "missing"]);
     let absent = "warning: recipes dir missing: No such file or directory (os error 2)\n";
     assert_eq!((ran.code, &*ran.stdout), (Some(0), absent));
     let shelf = repo.write(".brokkr/recipes", "a file\n");
-    let ran = repo.brokkr("", &["recipes", "list"]);
+    let ran = repo.brokkr("", &["library", "recipes", "list"]);
     let unlisted = format!(
         "warning: recipes dir {}: Not a directory (os error 20)\n",
         shelf.display()
@@ -46,7 +46,7 @@ fn an_absent_shelf_lists_nothing() {
     assert_eq!((ran.code, ran.stdout), (Some(0), unlisted));
     std::fs::remove_file(&shelf).unwrap();
     std::os::unix::fs::symlink("removed-shelf", &shelf).unwrap();
-    let ran = repo.brokkr("", &["recipes", "list"]);
+    let ran = repo.brokkr("", &["library", "recipes", "list"]);
     let dangling = format!(
         "warning: recipes dir {}: No such file or directory (os error 2)\n",
         shelf.display()
@@ -70,14 +70,14 @@ fn list_and_show_read_the_shelf() {
     );
     // Where this machine places no personal shelf, the project's alone.
     let mut unplaced = repo.command("");
-    unplaced.args(["recipes", "list"]);
+    unplaced.args(["library", "recipes", "list"]);
     unplaced.env_remove("XDG_CONFIG_HOME").env_remove("HOME");
     let ran = Ran::of(unplaced.output().unwrap());
     assert_eq!((ran.code, &ran.stdout, &*ran.stderr), (Some(0), &line, ""));
     for from in ["", "src/deep"] {
-        let ran = repo.brokkr(from, &["recipes", "list"]);
+        let ran = repo.brokkr(from, &["library", "recipes", "list"]);
         assert_eq!((ran.code, &ran.stdout), (Some(0), &line), "{}", ran.stderr);
-        let ran = repo.brokkr(from, &["recipes", "show", "x"]);
+        let ran = repo.brokkr(from, &["library", "recipes", "show", "x"]);
         let shown: Value = serde_json::from_str(&ran.stdout).unwrap();
         assert_eq!(
             (ran.code, &shown["digest"]),
@@ -85,15 +85,15 @@ fn list_and_show_read_the_shelf() {
         );
     }
     repo.bundle("own/y", "y", completes());
-    let ran = repo.brokkr("", &["recipes", "list", "--dir", "own"]);
+    let ran = repo.brokkr("", &["library", "recipes", "list", "--dir", "own"]);
     let own = format!(
         "y\t{}\t3 phases\timplement, review\t\t\tproject\town/y\n",
         &digest(&repo, "own/y")[..12]
     );
     assert_eq!((ran.code, ran.stdout), (Some(0), own));
-    let ran = repo.brokkr("", &["recipes", "show", "x", "--dir", "own"]);
-    let absent = "error: recipe 'x' not found under own; install it with `brokkr recipes add \
-                  <source> --name x`";
+    let ran = repo.brokkr("", &["library", "recipes", "show", "x", "--dir", "own"]);
+    let absent = "error: recipe 'x' not found under own; install it with `brokkr library recipes \
+                  add <source> --name x`";
     assert_eq!(
         (ran.code, ran.stderr.lines().next()),
         (Some(1), Some(absent))
@@ -146,7 +146,7 @@ fn a_linked_shelf_composes_no_base() {
     let mut bundle: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
     bundle["extends"] = serde_json::json!("shared");
     std::fs::write(&path, bundle.to_string()).unwrap();
-    let ran = repo.brokkr("", &["compile", "--bundle", ".brokkr"]);
+    let ran = repo.brokkr("", &["library", "compile", "--bundle", ".brokkr"]);
     let (root, shelf) = (repo.root.display(), outside.join("shared"));
     let refusal = format!(
         "error: bundle: {root}/.brokkr/bundle.json: extends 'shared', which resolves outside the \
@@ -222,7 +222,7 @@ const COPIED: [&str; 3] = [
 
 /// The folder bundle, compiled.
 fn compiled(repo: &Repo) -> Value {
-    let ran = repo.brokkr("", &["compile", "--bundle", ".brokkr"]);
+    let ran = repo.brokkr("", &["library", "compile", "--bundle", ".brokkr"]);
     assert_eq!(ran.code, Some(0), "{}", ran.stderr);
     serde_json::from_str(&ran.stdout).unwrap()
 }
@@ -247,7 +247,7 @@ fn add_copies_the_agents_a_recipe_names() {
     let add = |name: &str| {
         repo.brokkr(
             "",
-            &["recipes", "add", fast.to_str().unwrap(), "--name", name],
+            &["library", "recipes", "add", fast.to_str().unwrap(), "--name", name],
         )
     };
     let (before, mut pinned_before) = pinned(&repo);
@@ -260,7 +260,7 @@ fn add_copies_the_agents_a_recipe_names() {
         let copy = std::fs::read(agents.join(file)).unwrap();
         assert_eq!(copy, std::fs::read(source).unwrap(), "{file}");
     }
-    let listed = repo.brokkr("", &["recipes", "list"]);
+    let listed = repo.brokkr("", &["library", "recipes", "list"]);
     let digest = &listed.stdout[5..17];
     let at = agents.display();
     let expected = format!(
@@ -306,10 +306,10 @@ fn add_copies_the_agents_a_recipe_names() {
 #[test]
 fn every_recipe_verb_names_the_digest_show_prints() {
     let (repo, fast) = library_of_fast();
-    let add = ["recipes", "add", fast.to_str().unwrap(), "--name", "fast"];
+    let add = ["library", "recipes", "add", fast.to_str().unwrap(), "--name", "fast"];
     let added = repo.brokkr("", &add);
     assert_eq!(added.code, Some(0), "{}", added.stderr);
-    let shown = repo.brokkr("", &["recipes", "show", "fast"]);
+    let shown = repo.brokkr("", &["library", "recipes", "show", "fast"]);
     let compiled: Value = serde_json::from_str(&shown.stdout).unwrap();
     let realm = &compiled["manifest"]["capabilities"]["realm"];
     assert_eq!((shown.code, realm), (Some(0), &json!("starter")));
@@ -318,7 +318,7 @@ fn every_recipe_verb_names_the_digest_show_prints() {
     let first = |text: &str| text.lines().next().unwrap().to_string();
     let added_line = format!("added recipe 'fast' ({digest}) at {}/fast", shelf.display());
     assert_eq!(first(&added.stderr), added_line);
-    let listed = repo.brokkr("", &["recipes", "list"]);
+    let listed = repo.brokkr("", &["library", "recipes", "list"]);
     assert_eq!(listed.stdout.split('\t').nth(1), Some(digest));
     let doctor = repo.brokkr("", &["doctor"]);
     let line = format!("ok       recipe fast: {digest} at {}/fast", shelf.display());
@@ -336,7 +336,7 @@ fn every_recipe_verb_names_the_digest_show_prints() {
 #[test]
 fn add_refuses_a_differing_agent_and_removes_a_refused_compiles_agents() {
     let (repo, fast) = library_of_fast();
-    let add = ["recipes", "add", fast.to_str().unwrap(), "--name", "fast"];
+    let add = ["library", "recipes", "add", fast.to_str().unwrap(), "--name", "fast"];
     let planted = repo.write(".brokkr/agents/fast-reviewer.json", "{}\n");
     let before = repo.files();
     let ran = repo.brokkr("", &add);
@@ -404,7 +404,7 @@ fn add_copies_the_agents_of_a_shelf_and_of_a_clone() {
     ];
     let agents = repo.path(".brokkr/agents");
     for (source, library) in sources {
-        let add = [&["recipes", "add"], &source[..], &["--name", "fast"]].concat();
+        let add = [&["library", "recipes", "add"], &source[..], &["--name", "fast"]].concat();
         let ran = repo.brokkr("", &add);
         assert_eq!(ran.code, Some(0), "{}", ran.stderr);
         for file in COPIED {
@@ -438,7 +438,7 @@ fn add_refuses_a_folder_bundle_as_a_source() {
     source.bundle(".brokkr/recipes/base", "base", completes());
     let custom = json!({"name": "custom", "extends": "base"});
     source.write(".brokkr/bundle.json", &custom.to_string());
-    let compiled = source.brokkr("", &["compile", "--bundle", ".brokkr"]);
+    let compiled = source.brokkr("", &["library", "compile", "--bundle", ".brokkr"]);
     assert_eq!(compiled.code, Some(0), "{}", compiled.stderr);
     let folder = source.path(".brokkr");
     let linked = source.root.with_file_name("linked");
@@ -447,7 +447,7 @@ fn add_refuses_a_folder_bundle_as_a_source() {
     let before = tree(&repo);
     let refused = |from: &Path| {
         let from = from.to_str().unwrap();
-        let ran = repo.brokkr("", &["recipes", "add", from, "--name", "custom"]);
+        let ran = repo.brokkr("", &["library", "recipes", "add", from, "--name", "custom"]);
         assert_eq!((ran.code, ran.stderr), (Some(1), folder_bundle(&folder)));
         assert_eq!(tree(&repo), before, "{from}");
     };
@@ -476,7 +476,7 @@ fn add_refuses_a_charter_its_library_lacks() {
         agents.display()
     );
     let held = repo.path(".brokkr/agents/charters/reviewer.md");
-    let add = ["recipes", "add", fast.to_str().unwrap(), "--name", "fast"];
+    let add = ["library", "recipes", "add", fast.to_str().unwrap(), "--name", "fast"];
     for holds in [true, false] {
         assert_eq!(held.is_file(), holds);
         let before = repo.files();
@@ -530,7 +530,7 @@ fn add_copies_the_definitions_its_agents_request() {
     let add = |name: &str| {
         repo.brokkr(
             "",
-            &["recipes", "add", fast.to_str().unwrap(), "--name", name],
+            &["library", "recipes", "add", fast.to_str().unwrap(), "--name", name],
         )
     };
     let record = |repo: &Repo| compiled(repo)["manifest"]["capabilities"]["definitions"].take();
@@ -574,7 +574,7 @@ fn add_refuses_a_definition_it_would_replace_or_cannot_read() {
     let (repo, fast) = library_of_fast();
     let library = fast.join("../..").canonicalize().unwrap();
     requesting(&repo, &library);
-    let add = ["recipes", "add", fast.to_str().unwrap(), "--name", "fast"];
+    let add = ["library", "recipes", "add", fast.to_str().unwrap(), "--name", "fast"];
     let refused = |expected: String| {
         let before = repo.files();
         let ran = repo.brokkr("", &add);
@@ -630,7 +630,7 @@ fn add_refuses_a_destination_that_is_no_plain_file() {
     let reviewer = std::fs::read_to_string(library.join("agents/fast-reviewer.json")).unwrap();
     repo.write(".brokkr/capabilities/same.txt", text);
     repo.write(".brokkr/agents/same.json", &reviewer);
-    let add = ["recipes", "add", fast.to_str().unwrap(), "--name", "fast"];
+    let add = ["library", "recipes", "add", fast.to_str().unwrap(), "--name", "fast"];
     let refused = |at: &Path| {
         let before = repo.files();
         let ran = repo.brokkr("", &add);
@@ -705,7 +705,7 @@ fn add_refuses_a_socket_or_a_fifo_at_a_destination() {
     use std::os::unix::fs::{FileTypeExt, MetadataExt};
     let (repo, fast) = library_of_fast();
     requesting(&repo, &fast.join("../.."));
-    let add = ["recipes", "add", "--name=fast", fast.to_str().unwrap()];
+    let add = ["library", "recipes", "add", "--name=fast", fast.to_str().unwrap()];
     let definition = repo.path(".brokkr/capabilities/web-fetch.json");
     std::fs::create_dir_all(definition.parent().unwrap()).unwrap();
     // Each is planted after the files are read: reading a FIFO waits.
@@ -745,7 +745,7 @@ fn add_refuses_a_destination_beneath_a_plain_file() {
     let before = repo.files();
     let ran = repo.brokkr(
         "",
-        &["recipes", "add", "--name=fast", fast.to_str().unwrap()],
+        &["library", "recipes", "add", "--name=fast", fast.to_str().unwrap()],
     );
     let blocked = format!(
         "error: the workspace's {} is not a directory, where recipes add would copy a file \
@@ -769,7 +769,7 @@ fn add_refuses_a_destination_beneath_a_linked_directory() {
     let library = fast.join("../..").canonicalize().unwrap();
     requesting(&repo, &library);
     let (charters, inside) = (repo.path(".brokkr/agents/charters"), repo.path("charters"));
-    let add = ["recipes", "add", "--name=fast", fast.to_str().unwrap()];
+    let add = ["library", "recipes", "add", "--name=fast", fast.to_str().unwrap()];
     let refused = |at: &Path, target: &Path| {
         std::os::unix::fs::symlink(target, at).unwrap();
         let before = repo.files();
@@ -812,7 +812,7 @@ fn the_library_route_copies_definitions_where_its_compile_reads_them() {
         let from = folder.path(&format!(".brokkr/{dir}"));
         crate::machine_proof::copy_dir(&from, &repo.path(dir));
     }
-    let add = ["recipes", "add", fast.to_str().unwrap(), "--name", "fast"];
+    let add = ["library", "recipes", "add", fast.to_str().unwrap(), "--name", "fast"];
     let reviewer = library.join("agents/fast-reviewer.json");
     let kept = std::fs::read(&reviewer).unwrap();
     std::fs::write(&reviewer, json!({"extends": "absent"}).to_string()).unwrap();
@@ -845,7 +845,7 @@ fn a_folder_source_gives_the_definitions_its_compile_reads() {
     let source = initialised();
     let fast = fast_in(&source, &source.path(".brokkr"));
     let text = requesting(&source, &source.path(".brokkr"));
-    let add = ["recipes", "add", fast.to_str().unwrap(), "--name", "fast"];
+    let add = ["library", "recipes", "add", fast.to_str().unwrap(), "--name", "fast"];
     for mapped in [true, false] {
         if !mapped {
             std::fs::remove_file(source.path(".brokkr/realms.json")).unwrap();
@@ -874,7 +874,7 @@ fn a_library_named_like_the_folder_gives_its_own_definitions() {
     let fast = fast_in(&source, &checkout);
     let text = requesting(&source, &checkout);
     git(&checkout, &["init", "-q"]);
-    let add = ["recipes", "add", fast.to_str().unwrap(), "--name", "fast"];
+    let add = ["library", "recipes", "add", fast.to_str().unwrap(), "--name", "fast"];
     let repo = initialised();
     let ran = repo.brokkr("", &add);
     assert_eq!(ran.code, Some(0), "{}", ran.stderr);
@@ -941,7 +941,7 @@ fn under(repo: &Repo, env: &[(&str, Option<&Path>)], args: &[&str]) -> Ran {
 /// `recipes add --personal <source> --name <name>` from `repo`'s root,
 /// under `env` ([`under`]).
 fn add_named(repo: &Repo, source: &Path, name: &str, env: &[(&str, Option<&Path>)]) -> Ran {
-    let add = ["recipes", "add", "--personal", source.to_str().unwrap()];
+    let add = ["library", "recipes", "add", "--personal", source.to_str().unwrap()];
     under(repo, env, &[&add[..], &["--name", name]].concat())
 }
 
@@ -1036,7 +1036,7 @@ fn run_recipe_reads_the_project_shelf_then_the_personal_one() {
         format!("{name}\t{digest}\t3 phases\timplement, review\t\t\t{origin}\t{at}\n")
     };
     let project = repo.path(".brokkr/recipes/x");
-    let listed = repo.brokkr("", &["recipes", "list"]);
+    let listed = repo.brokkr("", &["library", "recipes", "list"]);
     let both = line("x", "project", &project) + &line("mine", "personal", &mine);
     assert_eq!((listed.code, listed.stdout), (Some(0), both));
     let doctor = repo.brokkr("", &["doctor"]);
@@ -1071,7 +1071,7 @@ fn run_recipe_reads_the_project_shelf_then_the_personal_one() {
     let shadowed = format!("error: {}", shadowed("x", &project, &personal.join("x")));
     let ran = repo.brokkr("", &["run", "--recipe", "x", "--feature", "f", "--no-view"]);
     assert_eq!((ran.code, ran.stderr), (Some(1), shadowed.clone()));
-    let ran = repo.brokkr("", &["recipes", "show", "x"]);
+    let ran = repo.brokkr("", &["library", "recipes", "show", "x"]);
     assert_eq!((ran.code, ran.stderr), (Some(1), shadowed));
 }
 
@@ -1096,7 +1096,7 @@ fn a_recipe_name_that_is_a_path_refuses_on_every_verb() {
     let verbs = [
         vec!["run", "--feature", "f", "--no-view", "--recipe"],
         vec!["resume", "--run", &delivered, "--no-view", "--recipe"],
-        vec!["rerun", "--run", &delivered, "--recipe"],
+        vec!["runs", "rerun", "--run", &delivered, "--recipe"],
         vec![
             "queue",
             "add",
@@ -1106,7 +1106,7 @@ fn a_recipe_name_that_is_a_path_refuses_on_every_verb() {
             "r",
             "--recipe",
         ],
-        vec!["recipes", "show"],
+        vec!["library", "recipes", "show"],
     ];
     let names = ["x/", "./x", "x/.", "../x", "a/b", "/abs/x", ""];
     let personal = repo.config().join("brokkr/recipes/x");
@@ -1159,7 +1159,7 @@ fn spelled(
     let mut asked: Vec<_> = verbs.iter().map(|v| (owned(v), broken.into())).collect();
     let named = verbs.iter().flat_map(|v| spellings(repo).map(|s| (v, s)));
     for (verb, spelling) in named.filter(|_| project) {
-        let show = verb[0] == "recipes";
+        let show = verb[1] == "recipes";
         let flag = if show { "--dir" } else { "--recipes-dir" };
         let typed = show && !spelling.starts_with('/');
         let shown = if typed {
@@ -1176,10 +1176,10 @@ fn spelled(
 /// `resume` and `rerun` of the run `delivered`, and `queue add`.
 fn reading_x(delivered: &str) -> [Vec<&str>; 5] {
     [
-        vec!["recipes", "show", "x"],
+        vec!["library", "recipes", "show", "x"],
         vec!["run", "--feature", "f", "--no-view", "--recipe", "x"],
         vec!["resume", "--run", delivered, "--no-view", "--recipe", "x"],
-        vec!["rerun", "--run", delivered, "--recipe", "x"],
+        vec!["runs", "rerun", "--run", delivered, "--recipe", "x"],
         vec![
             "queue",
             "add",
@@ -1273,7 +1273,7 @@ fn a_shelf_that_cannot_be_read_refuses_on_every_verb() {
     let ran = repo.brokkr("", &["run", "--recipe", "x", "--feature", "f", "--no-view"]);
     assert_eq!(ran.code, Some(0), "{}", ran.stderr);
     let delivered = started(&ran);
-    let shown = repo.brokkr("", &["recipes", "show", "x"]);
+    let shown = repo.brokkr("", &["library", "recipes", "show", "x"]);
     assert_eq!(shown.code, Some(0), "{}", shown.stderr);
     let verbs = reading_x(&delivered);
     repo.bundle(personal.join("x").to_str().unwrap(), "px", completes());
@@ -1360,7 +1360,7 @@ fn a_project_shelf_climbing_out_of_what_does_not_stand_refuses_on_every_verb() {
     let (state, listed) = ((kept(&repo, "x"), kept(&repo, "px")), ledger(&repo));
     let spelled = ".brokkr/recipes/sub/..";
     for verb in reading_x(&delivered) {
-        let (flag, shelf) = match verb[0] {
+        let (flag, shelf) = match verb[1] {
             "recipes" => ("--dir", PathBuf::from(spelled)),
             _ => ("--recipes-dir", repo.path(spelled)),
         };
@@ -1394,7 +1394,7 @@ fn a_project_shelf_refuses_with_no_personal_shelf_placed() {
                   or remove it; nothing was run or installed\n";
     let cases = [
         (
-            vec!["recipes", "show", "x", "--dir", spelled],
+            vec!["library", "recipes", "show", "x", "--dir", spelled],
             climbing("project", Path::new(spelled), Path::new(".brokkr/recipes")),
         ),
         (
@@ -1402,7 +1402,7 @@ fn a_project_shelf_refuses_with_no_personal_shelf_placed() {
             climbing("project", &absolute, &repo.path(".brokkr/recipes")),
         ),
         (
-            vec!["recipes", "show", "x", "--dir", "Cargo.toml"],
+            vec!["library", "recipes", "show", "x", "--dir", "Cargo.toml"],
             unread.to_string(),
         ),
     ];
@@ -1438,7 +1438,7 @@ fn an_unreadable_project_shelf_refuses_with_no_personal_shelf_placed() {
             "--recipe",
             "x",
         ],
-        vec!["recipes", "show", "x"],
+        vec!["library", "recipes", "show", "x"],
         vec!["run", "--recipe", "x", "--feature", "f", "--no-view"],
     ];
     let mode = |bits| std::os::unix::fs::PermissionsExt::from_mode(bits);
@@ -1529,7 +1529,7 @@ fn a_personal_shelf_climbing_out_of_what_does_not_stand_refuses() {
             "{}: No such file or directory (os error 2)",
             shelf.display()
         );
-        let listed = under(&repo, &env, &["recipes", "list"]);
+        let listed = under(&repo, &env, &["library", "recipes", "list"]);
         let warned = format!("{line}warning: recipes dir {absent}\n");
         assert_eq!((listed.code, listed.stdout), (Some(0), warned), "{env:?}");
         let doctor = under(&repo, &env, &["doctor"]);
@@ -1614,7 +1614,7 @@ fn started_payload(repo: &Repo, run: &str) -> Value {
 
 /// What `recipes show <name>` prints from the root, compiled.
 fn shown(repo: &Repo, name: &str) -> Value {
-    let ran = repo.brokkr("", &["recipes", "show", name]);
+    let ran = repo.brokkr("", &["library", "recipes", "show", name]);
     assert_eq!(ran.code, Some(0), "{}", ran.stderr);
     serde_json::from_str(&ran.stdout).unwrap()
 }
@@ -1758,7 +1758,7 @@ fn a_project_layer_naming_a_personal_recipe_refuses() {
     let extends = json!({"name": "team", "extends": "mine"}).to_string();
     let team = repo.write(".brokkr/recipes/team/bundle.json", &extends);
     let project = project_names_mine(team.parent().unwrap(), &personal);
-    let ran = repo.brokkr("src", &["recipes", "show", "team"]);
+    let ran = repo.brokkr("src", &["library", "recipes", "show", "team"]);
     assert_eq!((ran.code, ran.stderr), (Some(1), project.clone()));
     let ran = repo.brokkr(
         "",
@@ -1771,7 +1771,7 @@ fn a_project_layer_naming_a_personal_recipe_refuses() {
     let folder = folder_names_mine(&repo.path(".brokkr"), &personal);
     let ran = repo.brokkr("src", &["run", "--feature", "f", "--no-view"]);
     assert_eq!((ran.code, ran.stderr), (Some(1), folder.clone()));
-    let ran = repo.brokkr("", &["compile", "--bundle", ".brokkr"]);
+    let ran = repo.brokkr("", &["library", "compile", "--bundle", ".brokkr"]);
     assert_eq!((ran.code, ran.stderr), (Some(1), folder));
 }
 
@@ -1816,9 +1816,9 @@ fn an_unreadable_shelf_refuses_every_compile_that_reads_it() {
         let unread = unread(origin, shelf, cause);
         let leaf = leaf.to_str().unwrap();
         let verbs = [
-            (vec!["recipes", "show", name], format!("error: {unread}")),
+            (vec!["library", "recipes", "show", name], format!("error: {unread}")),
             (
-                vec!["compile", "--bundle", leaf],
+                vec!["library", "compile", "--bundle", leaf],
                 format!("error: bundle: {unread}"),
             ),
             (
@@ -1839,7 +1839,7 @@ fn an_unreadable_shelf_refuses_every_compile_that_reads_it() {
     let ran = repo.brokkr(
         "",
         &[
-            "compile",
+            "library", "compile",
             "--bundle",
             team.parent().unwrap().to_str().unwrap(),
         ],
@@ -1852,7 +1852,7 @@ fn an_unreadable_shelf_refuses_every_compile_that_reads_it() {
     assert_eq!((ran.code, ran.stderr), (Some(1), missing));
     std::fs::rename(personal.with_extension("gone"), &personal).unwrap();
     std::fs::rename(&project, project.with_extension("gone")).unwrap();
-    let ran = repo.brokkr("", &["compile", "--bundle", mine.to_str().unwrap()]);
+    let ran = repo.brokkr("", &["library", "compile", "--bundle", mine.to_str().unwrap()]);
     assert_eq!(ran.code, Some(0), "{}", ran.stderr);
     let compiled: Value = serde_json::from_str(&ran.stdout).unwrap();
     let chain = layers(&[("personal", &mine), ("personal", &own)]);
@@ -1863,7 +1863,7 @@ fn an_unreadable_shelf_refuses_every_compile_that_reads_it() {
 /// project shelf `own` by its flag, `--dir` or `--recipes-dir`.
 fn selecting<'a>(own: &'a str, name: &'a str) -> [Vec<&'a str>; 2] {
     [
-        vec!["recipes", "show", name, "--dir", own],
+        vec!["library", "recipes", "show", name, "--dir", own],
         vec![
             "run",
             "--recipe",

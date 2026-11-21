@@ -772,7 +772,7 @@ fn store_causes_render_the_legacy_text_at_the_string_edge() {
     assert_eq!(
         resolve_bindings(&present, &["PRESENT".into(), "ABSENT".into()]).unwrap_err(),
         format!(
-            "secret 'ABSENT' is not in the store at {} (brokkr secrets set ABSENT)",
+            "secret 'ABSENT' is not in the store at {} (brokkr system secrets set ABSENT)",
             present.display()
         )
     );
@@ -960,7 +960,7 @@ fn resolve_bindings_classifies_a_miss_from_its_one_read() {
     assert_eq!(
         resolved,
         Some(Err(format!(
-            "secret 'ABSENT' is not in the store at {} (brokkr secrets set ABSENT)",
+            "secret 'ABSENT' is not in the store at {} (brokkr system secrets set ABSENT)",
             fifo.display()
         )))
     );
@@ -1095,7 +1095,7 @@ fn the_sender_frames_the_injectors_environment_of_the_declared_names_alone() {
     );
     assert_eq!(kept("DOCS_TOKEN", |_| Ok(())), (token, Some(true), Ok(())));
     let not_in = format!(
-        "secret 'MISSING' is not in the store at {} (brokkr secrets set MISSING)",
+        "secret 'MISSING' is not in the store at {} (brokkr system secrets set MISSING)",
         path.display()
     );
     assert_eq!(
@@ -1118,7 +1118,7 @@ fn the_sender_carries_decision_0012s_own_causes_from_the_admitted_handle() {
     };
     let name = |text: String| Err(Refusal::Name(text));
     let not_in = format!(
-        "secret 'DOCS_TOKEN' is not in the store at {} (brokkr secrets set DOCS_TOKEN)",
+        "secret 'DOCS_TOKEN' is not in the store at {} (brokkr system secrets set DOCS_TOKEN)",
         missing.display()
     );
     assert_eq!(cause(&missing), name(not_in));

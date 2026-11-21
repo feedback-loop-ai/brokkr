@@ -55,7 +55,7 @@ fn a_named_realm_heads_the_painting_and_a_bad_clock_is_refused() {
 
 #[test]
 fn clap_refuses_a_range_outside_the_three_with_the_views_error() {
-    let refused = Cli::try_parse_from(["brokkr", "analytics", "--range", "2d"])
+    let refused = Cli::try_parse_from(["brokkr", "stats", "analytics", "--range", "2d"])
         .err()
         .expect("2d is no range");
     assert_eq!(refused.kind(), clap::error::ErrorKind::ValueValidation);
@@ -1216,7 +1216,7 @@ fn a_hearth_the_fleet_refuses_contributes_no_rows() {
         rows.quarantined[0].refusal,
         format!(
             "the journal '{}' is damaged (SQLite reads it as no database); nothing was read \
-             from it; restore it from a backup with `brokkr restore` and see the guide's \
+             from it; restore it from a backup with `brokkr journal restore` and see the guide's \
              \"A damaged journal\" (#1000)",
             journal.display()
         ),

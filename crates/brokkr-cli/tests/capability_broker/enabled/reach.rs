@@ -142,7 +142,7 @@ fn an_empty_or_missing_store_starts_no_server() {
         let looked = held.filter(|bytes| !bytes.is_empty());
         let looked = looked.map(|_| world.store_reads());
         let cause = format!(
-            "secret 'DOCS_TOKEN' is not in the store at {} (brokkr secrets set DOCS_TOKEN)",
+            "secret 'DOCS_TOKEN' is not in the store at {} (brokkr system secrets set DOCS_TOKEN)",
             store.display()
         );
         let ended = world.run();

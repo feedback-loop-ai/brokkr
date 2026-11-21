@@ -15,7 +15,7 @@ use crate::{Damage, Store, StoreError};
 fn refusal(journal: &Path, shown: &str, damage: Damage) -> (PathBuf, Damage, String) {
     let words = format!(
         "the journal '{shown}' is damaged ({damage}); nothing was read from it; restore it \
-         from a backup with `brokkr restore` and see the guide's \"A damaged journal\" (#1000)"
+         from a backup with `brokkr journal restore` and see the guide's \"A damaged journal\" (#1000)"
     );
     (journal.to_path_buf(), damage, words)
 }

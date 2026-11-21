@@ -197,7 +197,7 @@ pub enum LaunchError {
     RealmsWithDispatch,
     #[error(
         "recipe '{name}' not found under {}; install it with \
-         `brokkr recipes add <source> --name {name}`",
+         `brokkr library recipes add <source> --name {name}`",
         recipes_dir.display()
     )]
     RecipeNotFound { name: String, recipes_dir: PathBuf },

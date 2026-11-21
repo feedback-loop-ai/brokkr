@@ -219,7 +219,7 @@ fn the_records_and_the_host_prove_an_attempt_by_their_own_facts() {
     assert_eq!(
         proven_records(&gone, "a1").unwrap_err().to_string(),
         "attempt 'a1' stands: only the host's word proves it: its process group is gone, and no \
-         driver record is sealed Settled; `brokkr operator settle` is the operator's route"
+         driver record is sealed Settled; `brokkr runs operator settle` is the operator's route"
     );
 
     // A group recorded for a Settled driver is not asked: the seal is the
@@ -264,7 +264,7 @@ fn the_records_and_the_host_prove_an_attempt_by_their_own_facts() {
         .to_string(),
         "attempt 'a1' stands: its cleanup was witnessed unresolved: a stray or a descendant \
          outside the process groups it recorded, or a process still holding its stdout or stderr, \
-         may still run, which no group question can disprove; `brokkr operator release` is the \
+         may still run, which no group question can disprove; `brokkr runs operator release` is the \
          operator's route where the attempt's journaled ending is indeterminate",
         "the unresolved refusal names the witness's reason and the operator's route"
     );

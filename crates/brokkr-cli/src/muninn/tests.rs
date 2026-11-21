@@ -855,7 +855,7 @@ fn a_run_the_journal_cannot_read_names_itself_rather_than_vanishing() {
         format!(
             "the journal '{}' is damaged (run 'broken-run' holds an envelope at seq 1 that is \
              not JSON); nothing was read from it; restore it from a backup with `brokkr \
-             restore` and see the guide's \"A damaged journal\" (#1000)",
+             journal restore` and see the guide's \"A damaged journal\" (#1000)",
             broken.db().display()
         )
     );

@@ -614,7 +614,7 @@ fn the_bindings_are_looked_up_after_readiness_sent_once_and_their_pipe_closed() 
     // sent or bound; a bootstrap gone before the frame, the handoff's, its
     // bindings given to the binder first (operator ruling 2026-10-13).
     let missing = Refusal::Name(
-        "secret 'DOCS_TOKEN' is not in the store at /store (brokkr secrets set DOCS_TOKEN)"
+        "secret 'DOCS_TOKEN' is not in the store at /store (brokkr system secrets set DOCS_TOKEN)"
             .to_string(),
     );
     let answer = delivering(&["DOCS_TOKEN"], "", (true, b""), Ok(()));

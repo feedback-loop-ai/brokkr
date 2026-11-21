@@ -102,14 +102,14 @@ pub enum Live {
 pub enum UnprovenWhy {
     #[error(
         "its driver records are not sealed Settled, and it recorded no process group to ask the \
-         host about; repair the run, then `brokkr operator release` is the operator's route where \
+         host about; repair the run, then `brokkr runs operator release` is the operator's route where \
          the attempt's journaled ending is indeterminate"
     )]
     NoGroup,
     #[error(
         "its cleanup was witnessed unresolved: a stray or a descendant outside the process \
          groups it recorded, or a process still holding its stdout or stderr, may still run, \
-         which no group question can disprove; `brokkr operator release` is the operator's \
+         which no group question can disprove; `brokkr runs operator release` is the operator's \
          route where the attempt's journaled ending is indeterminate"
     )]
     Unresolved,
@@ -118,7 +118,7 @@ pub enum UnprovenWhy {
     /// settle`.
     #[error(
         "only the host's word proves it: its process group is gone, and no driver record is \
-         sealed Settled; `brokkr operator settle` is the operator's route"
+         sealed Settled; `brokkr runs operator settle` is the operator's route"
     )]
     NoRecords,
     /// A reservation read through the view of another build names no

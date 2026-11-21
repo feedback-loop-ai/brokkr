@@ -106,7 +106,7 @@ pub(in crate::engine) fn operator_supersede_racing(
         if !derived.iter().any(|known| known.ruling.seq == *finding) {
             return Err(refused(format!(
                 "seq {finding} is not a residual finding of run '{run_id}'; \
-                 brokkr inspect --run {run_id} lists the rulings that carry one"
+                 brokkr runs inspect --run {run_id} lists the rulings that carry one"
             )));
         }
     }

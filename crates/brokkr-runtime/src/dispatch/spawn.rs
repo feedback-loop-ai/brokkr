@@ -65,7 +65,7 @@ pub enum DriverError {
     /// The entry is not linked under the claim the driver was handed, or
     /// its `spawn` row has not landed: nothing was written.
     #[error(
-        "dispatch drive: queue entry {entry} is not linked under claim {claim} with a `spawn` \
+        "queue dispatch drive: queue entry {entry} is not linked under claim {claim} with a `spawn` \
          row, so this driver resumes nothing and wrote nothing (decision 0110)"
     )]
     Unspawned { entry: EntryId, claim: i64 },

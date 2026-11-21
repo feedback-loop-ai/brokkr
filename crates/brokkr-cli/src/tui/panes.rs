@@ -74,11 +74,9 @@ pub(super) fn draw_reader(frame: &mut Frame, area: Rect, text: &str, offset: usi
 pub(super) fn draw_too_small(frame: &mut Frame, area: Rect) {
     let lines = vec![
         line("this terminal is too small for brokkr tui", header_style()),
-        line(
-            "try `brokkr inspect --run <id>` or `brokkr watch --run <id>`,",
-            plain(),
-        ),
-        line("or make the window bigger. q or Ctrl+C quits.", plain()),
+        line("try `brokkr runs inspect --run <id>`,", plain()),
+        line("`brokkr watch --run <id>`, or make the window", plain()),
+        line("bigger. q or Ctrl+C quits.", plain()),
     ];
     frame.render_widget(Clear, area);
     frame.render_widget(Paragraph::new(lines), area);

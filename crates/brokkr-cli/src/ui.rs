@@ -631,7 +631,7 @@ fn open_system_browser(url: &str) {
 fn open_browser_with(url: &str, spawn: impl FnOnce(&str, &str)) {
     match browser_program() {
         Ok(program) => spawn(&program, url),
-        Err(refused) => eprintln!("brokkr ui: no browser opened: {refused}"),
+        Err(refused) => eprintln!("brokkr system ui: no browser opened: {refused}"),
     }
 }
 
@@ -652,7 +652,7 @@ fn serve_listener_with(
 ) -> std::io::Result<()> {
     let bound = listener.local_addr()?.port();
     let url = format!("http://127.0.0.1:{bound}/");
-    eprintln!("brokkr ui: {url} (read-only; Ctrl-C to stop)");
+    eprintln!("brokkr system ui: {url} (read-only; Ctrl-C to stop)");
     if open_browser {
         opener(&url);
     }

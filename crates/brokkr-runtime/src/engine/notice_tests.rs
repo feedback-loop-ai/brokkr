@@ -1539,7 +1539,7 @@ fn a_recipe_cannot_declare_or_suppress_the_notice_structurally() {
     // notice written there never reaches a hands parser.
     let agent_total = "bundle: seat 'work' combines 'agent' with 'hands'; an agent reference is \
                        total — 'hands' states what the agent IS, and a seat that could amend it \
-                       would make `brokkr agents show` a lie for that seat"
+                       would make `brokkr library agents show` a lie for that seat"
         .to_string();
     let expected: Vec<(String, String)> = [
         (

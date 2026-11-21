@@ -304,7 +304,7 @@ const PLAIN: &str = "  run-shipped             shipped             done      seq
 ? run-unclassified        unclassified        implement seq 14 7m03s f
 ! run-parked              awaiting_operator   -         seq 14 7m03s f
 > run-stopping            stopping            -         seq 14 7m03s f
-    stop accepted at seq 9; no ending written. If no driver is running it, `brokkr conclude` closes it.
+    stop accepted at seq 9; no ending written. If no driver is running it, `brokkr runs conclude` closes it.
 > run-quarantined         ?                   -         seq -  7m03s f
     fold  event 3: impossible
   run-running             running             -         seq 14 7m03s f
@@ -331,7 +331,7 @@ const COLOURED: &str = "  run-shipped             \x1b[32mshipped            \x1
 ? run-unclassified        \x1b[2munclassified       \x1b[0m implement seq 14 7m03s f
 ! run-parked              \x1b[33mawaiting_operator  \x1b[0m -         seq 14 7m03s f
 > run-stopping            \x1b[36mstopping           \x1b[0m -         seq 14 7m03s f
-    stop accepted at seq 9; no ending written. If no driver is running it, `brokkr conclude` closes it.
+    stop accepted at seq 9; no ending written. If no driver is running it, `brokkr runs conclude` closes it.
 > run-quarantined         \x1b[36m?                  \x1b[0m -         seq -  7m03s f
     fold  event 3: impossible
   run-running             \x1b[1mrunning            \x1b[0m -         seq 14 7m03s f

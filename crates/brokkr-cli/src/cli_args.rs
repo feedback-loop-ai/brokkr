@@ -408,7 +408,7 @@ pub(super) struct InspectArgs {
     #[arg(long, value_name = "CALL_ID", conflicts_with_all = ["phase", "seat"])]
     pub(super) capability_call: Option<String>,
     /// The operated repository whose run-local directory holds the call's retained response, as
-    /// `ledger --repo` resolves it; without it, the workspace's own.
+    /// `stats ledger --repo` resolves it; without it, the workspace's own.
     #[arg(long, requires = "capability_call")]
     pub(super) repo: Option<PathBuf>,
 }

@@ -850,8 +850,8 @@ fn ui_refuses_a_world_of_two_hearths_that_tui_reads_whole() {
     assert_eq!(
         refused.to_string(),
         format!(
-            "brokkr ui serves one journal, and this world's realms name 2: {}, {}; --db names \
-             the one to serve (brokkr tui and brokkr runs read them all)",
+            "brokkr system ui serves one journal, and this world's realms name 2: {}, {}; --db \
+             names the one to serve (brokkr tui and brokkr runs read them all)",
             alpha.display(),
             beta.display()
         )
@@ -987,7 +987,7 @@ fn keep_ref_verbs_plant_list_and_release_one_runs_exhibits() {
         },
     ] {
         let refused = run(cli(Cmd::KeepRefs { command })).unwrap_err().to_string();
-        assert!(refused.contains("brokkr keep-refs list"), "{refused}");
+        assert!(refused.contains("journal keep-refs list"), "{refused}");
     }
     assert_eq!(
         brokkr_runtime::list_keep_refs(&repo).unwrap().get("r1"),
@@ -3709,7 +3709,7 @@ fn conclude_stops_a_stranded_run_and_refuses_a_concluded_one() {
     let conclude = |run: &str, reason: &str| {
         let (cause, db) = ("operator-stopped", db.to_str().unwrap());
         let argv = [
-            "brokkr", "conclude", "--run", run, "--cause", cause, "--reason", reason,
+            "brokkr", "runs", "conclude", "--run", run, "--cause", cause, "--reason", reason,
         ];
         crate::run(Cli::try_parse_from(argv.into_iter().chain(["--db", db])).unwrap())
     };

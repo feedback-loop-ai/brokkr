@@ -517,7 +517,7 @@ fn keep_ref_run(workspace: &std::path::Path, journal: JournalArgs, run: &str) ->
     anyhow::ensure!(
         run != selector::LATEST,
         "'{}' is a question for the workspace database, and {} is not there; \
-         name the run itself — `brokkr keep-refs list` prints the runs this \
+         name the run itself — `brokkr journal keep-refs list` prints the runs this \
          repository holds exhibits for",
         selector::LATEST,
         db.display()
@@ -1184,8 +1184,8 @@ fn supersede(
     )?;
     eprintln!(
         "recorded supersede at seq {} on {run}; the findings stay in the journal, \
-         marked, and the run's status is untouched. Read it with: brokkr inspect \
-         --run {run}",
+         marked, and the run's status is untouched. Read it with: brokkr runs \
+         inspect --run {run}",
         written.seq
     );
     Ok(Exit::Completed.into())
@@ -1229,8 +1229,8 @@ fn ui_journal(workspace: &std::path::Path, journal: JournalArgs) -> Result<PathB
     let mut hearths = hearths_of(workspace, journal.realms, journal.db)?;
     anyhow::ensure!(
         hearths.len() == 1,
-        "brokkr ui serves one journal, and this world's realms name {}: {}; --db names \
-         the one to serve (brokkr tui and brokkr runs read them all)",
+        "brokkr system ui serves one journal, and this world's realms name {}: {}; --db \
+         names the one to serve (brokkr tui and brokkr runs read them all)",
         hearths.len(),
         hearths
             .iter()

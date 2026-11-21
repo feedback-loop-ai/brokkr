@@ -114,7 +114,7 @@ impl Need {
 }
 
 fn acknowledge(run_id: &str) -> String {
-    format!("brokkr operator acknowledge --run {run_id} --reason <why>")
+    format!("brokkr runs operator acknowledge --run {run_id} --reason <why>")
 }
 
 /// The way-out line a quarantine ends on (#511).
@@ -126,11 +126,11 @@ fn acknowledged(run_id: &str) -> String {
 }
 
 fn conclude(run_id: &str) -> String {
-    format!("brokkr conclude --run {run_id} --cause <cause> --reason <why>")
+    format!("brokkr runs conclude --run {run_id} --cause <cause> --reason <why>")
 }
 
 fn export(run_id: &str) -> String {
-    format!("brokkr export --run {run_id}")
+    format!("brokkr journal export --run {run_id}")
 }
 
 fn resume(run_id: &str) -> String {

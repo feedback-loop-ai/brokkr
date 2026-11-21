@@ -142,8 +142,8 @@ fn a_recipe_that_is_not_installed_is_refused_at_every_entry_point_before_a_row_i
         ..asked.clone()
     };
     let missing = format!(
-        "recipe 'absent' not found under {}; install it with `brokkr recipes add <source> \
-         --name absent`",
+        "recipe 'absent' not found under {}; install it with `brokkr library recipes add \
+         <source> --name absent`",
         recipes_dir.display()
     );
 

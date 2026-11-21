@@ -737,7 +737,7 @@ fn stack_header(detected: Option<&Detected>, hired: &[Cli], claims: Claims) -> S
                  - {adapters} and `adapters/exec.json` — the model and\n\
                    deterministic drivers, including their trust tiers.\n\
                  - `agents/*.json` — one agent per model office: charter, model chain,\n\
-                   tool allowance, limits. `brokkr agents show <name>` reads one back.\n\
+                   tool allowance, limits. `brokkr library agents show <name>` reads one back.\n\
                  - `agents/charters/*.md` — the three model-office charters.\n\
                  - `scripts/*.sh` — deterministic verify and ship offices; verify\n\
                    names this repository's own commands and {runs}.\n\n",

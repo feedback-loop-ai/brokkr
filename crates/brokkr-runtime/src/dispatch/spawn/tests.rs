@@ -244,7 +244,7 @@ fn a_driver_of_a_claim_with_no_spawn_row_refuses_and_writes_nothing() {
     assert_eq!(
         refused.to_string(),
         format!(
-            "dispatch drive: queue entry {entry} is not linked under claim {seq} with a `spawn` \
+            "queue dispatch drive: queue entry {entry} is not linked under claim {seq} with a `spawn` \
              row, so this driver resumes nothing and wrote nothing (decision 0110)"
         )
     );

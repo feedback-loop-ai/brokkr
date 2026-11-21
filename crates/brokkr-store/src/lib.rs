@@ -173,7 +173,7 @@ pub enum StoreError {
     /// surface prints (#1000); see [`damage`].
     #[error(
         "the journal '{}' is damaged ({damage}); nothing was read from it; restore it from a \
-         backup with `brokkr restore` and see the guide's \"A damaged journal\" (#1000)",
+         backup with `brokkr journal restore` and see the guide's \"A damaged journal\" (#1000)",
         journal.display().to_string().escape_debug()
     )]
     Damaged { journal: PathBuf, damage: Damage },
