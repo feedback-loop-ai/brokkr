@@ -20,7 +20,7 @@ use serde_json::{Map, Value};
 use inputs::seat_inputs;
 use seat_refusal::{covered_results, declared_results, known_phase, refused, wrapped_body};
 
-use super::parse::{SeatScope, SiteCompiler};
+use super::parse::{declares_change, SeatScope, SiteCompiler};
 use super::site_form::{classify, SEAT};
 use super::survey::Refusals;
 use super::{
@@ -178,15 +178,19 @@ fn compile_seat(
     let secrets = parse_secrets(phase, raw)?;
     // A seat that holds panel members hires no agent of its own, so its
     // input set is read before its body is: every review-panel member is
-    // bound to that set's residual pair (decision 0109 ruling 2).
-    let unhired = seat_inputs(machine, phase, raw, &None)?;
+    // bound to that set's residual pair (decision 0109 ruling 2). Its
+    // refusal waits for the body's, which is reported first (#1221 C).
+    let unhired = seat_inputs(machine, phase, raw, &None);
+    let declared = unhired.as_deref().unwrap_or_default();
     let at = SeatScope {
         dir,
         results: &results,
         secrets: &secrets,
-        residual: ResidualPair::declared_in(&unhired),
+        residual: ResidualPair::declared_in(declared),
+        declares_change: declares_change(declared),
     };
     let (agent_seat, body, sequence_gate) = compiler.parse_seat_body(at, phase, raw, shape)?;
+    let unhired = unhired?;
     // The dialect wrapper is applied after this loop, once every
     // authoring owner is registered (design D10 F2). Record the
     // agent hands the wrapped seat resolved so the synthetic
@@ -403,6 +407,7 @@ impl Seated<'_, '_> {
         relocate_verify_facts(&mut self.sites, &moved);
         refusals.relocate(&moved);
         let residual = ResidualPair::declared_in(&self.seats[verify].inputs);
+        let change = declares_change(&self.seats[verify].inputs);
         let prior = SequenceStep {
             name: "checks".into(),
             class: SeatClass::of(self.seats[verify].has_gate()),
@@ -411,6 +416,7 @@ impl Seated<'_, '_> {
             ends_on: Vec::new(),
             hard_results: Vec::new(),
             residual,
+            declares_change: change,
         };
         self.seats.get_mut(verify).expect("parsed above").body = SeatBody::Sequence {
             steps: vec![
@@ -431,6 +437,7 @@ impl Seated<'_, '_> {
                     ends_on: Vec::new(),
                     hard_results: Vec::new(),
                     residual,
+                    declares_change: change,
                 },
             ],
         };

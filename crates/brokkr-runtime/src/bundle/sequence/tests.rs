@@ -29,6 +29,7 @@ fn parsed(name: &str) -> SequenceStep {
         ends_on: Vec::new(),
         hard_results: Vec::new(),
         residual: brokkr_core::findings::ResidualPair::declared_in::<&str>(&[]),
+        declares_change: false,
     }
 }
 
@@ -40,6 +41,7 @@ fn results_of(raw: &Value, final_step: bool) -> Result<Vec<String>, StepFault<'_
         results: &seat,
         secrets: &[],
         residual: brokkr_core::findings::ResidualPair::declared_in::<&str>(&[]),
+        declares_change: false,
     };
     let step = StepAt {
         phase: "plan",

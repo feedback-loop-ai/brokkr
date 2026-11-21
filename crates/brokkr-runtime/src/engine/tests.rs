@@ -677,46 +677,41 @@ fn a_sequence_fences_a_malformed_change_before_the_dialect_tool_runs() {
             {"role_path":"", "result_path":"validate.json", "allowed_results":["drafted", "fail"]}
         ]
     });
-    let (_kept, mut runtime) = engine(single_body(vec!["driver".into()]));
-    runtime.bundle.seats.get_mut("work").unwrap().inputs = vec!["change".into()];
     let outcome = AttemptOutcome::Succeeded {
         result: json!({"result":"drafted"}),
     };
     let selection = exec_selection("validate", driver_command("effect", "attempt", outcome));
-    let steps = [first, validate];
-    run_sequence(
-        &mut runtime,
-        &SequenceAt::new("effect", "attempt", "work"),
-        &steps,
-        &input,
-        2,
-        &selection,
-    )
-    .unwrap();
-
-    let events = runtime.store.load(&runtime.run_id).unwrap();
-    assert_eq!(
-        events.last().unwrap().event_type,
-        EventType::EffectIndeterminate
-    );
-    assert!(events.last().unwrap().payload["reason"]
-        .as_str()
-        .unwrap()
-        .contains("must match"));
-    assert_eq!(
-        events
-            .iter()
-            .filter(|event| event.payload["checkpoint"]["step"] == "live")
-            .count(),
-        1,
-        "only the author ran; validate never received an argv"
-    );
+    let undeclared_steps = [first, validate];
+    // The seat's `change` declaration is the compiled steps', read the same
+    // under a plain seat and under a select case's site label (#1221 E).
+    let steps = undeclared_steps.clone().map(|step| SequenceStep {
+        declares_change: true,
+        ..step
+    });
+    for seat in ["work", "work:chore"] {
+        let (_kept, mut runtime) = engine(single_body(vec!["driver".into()]));
+        let at = SequenceAt::new("effect", "attempt", seat);
+        run_sequence(&mut runtime, &at, &steps, &input, 2, &selection).unwrap();
+        let events = runtime.store.load(&runtime.run_id).unwrap();
+        let last = events.last().unwrap();
+        assert_eq!(last.event_type, EventType::EffectIndeterminate, "{seat}");
+        let reason = last.payload["reason"].as_str().unwrap();
+        assert!(reason.contains("must match"), "{seat}: {reason}");
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| event.payload["checkpoint"]["step"] == "live")
+                .count(),
+            1,
+            "{seat}: only the author ran; validate never received an argv"
+        );
+    }
 
     let (_kept, mut undeclared) = engine(single_body(vec!["driver".into()]));
     run_sequence(
         &mut undeclared,
         &SequenceAt::new("effect", "attempt", "work"),
-        &steps,
+        &undeclared_steps,
         &input,
         2,
         &selection,
@@ -734,7 +729,6 @@ fn a_sequence_fences_a_malformed_change_before_the_dialect_tool_runs() {
         .contains("no preceding successful result carries it"));
 
     let (_kept, mut storage_error) = engine_failing("effect/indeterminate");
-    storage_error.bundle.seats.get_mut("work").unwrap().inputs = vec!["change".into()];
     assert!(run_sequence(
         &mut storage_error,
         &SequenceAt::new("effect", "attempt", "work"),

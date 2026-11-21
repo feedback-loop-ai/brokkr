@@ -64,6 +64,13 @@ pub(in crate::engine) fn binds_its_word(step: &SequenceStep) -> bool {
         || matches!(step.body, StepBody::Invocation(Invocation::Panel { .. }))
 }
 
+/// Whether the sequence's seat declares `change`, as its steps were
+/// compiled from the seat scope: a select case's sequence reads it the
+/// same way a plain seat's does, never by its site label (#1221 E).
+pub(super) fn declares_change(steps: &[SequenceStep]) -> bool {
+    steps.iter().any(|step| step.declares_change)
+}
+
 pub(crate) fn nearest_change(context: &Value) -> Option<String> {
     crate::phase_name::CHANGE_SOURCES.iter().find_map(|phase| {
         context
