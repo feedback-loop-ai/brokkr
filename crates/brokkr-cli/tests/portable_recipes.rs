@@ -100,8 +100,14 @@ fn installs_and_compiles(cli: &str) {
         let (code, _, stderr) = brokkr(&["init", "."]);
         assert_eq!(code, Some(0), "{cli}: {stderr}");
         let source = workspace().join("recipes").join(recipe);
-        let (code, _, stderr) =
-            brokkr(&["library", "recipes", "add", source.to_str().unwrap(), "--name", recipe]);
+        let (code, _, stderr) = brokkr(&[
+            "library",
+            "recipes",
+            "add",
+            source.to_str().unwrap(),
+            "--name",
+            recipe,
+        ]);
         assert_eq!(code, Some(0), "{cli} {recipe}: {stderr}");
         // The binary reports canonical paths; macOS's temporary root
         // (`/var`, a link to `/private/var`) is not spelled canonically.

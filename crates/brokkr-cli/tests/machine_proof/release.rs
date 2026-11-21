@@ -89,7 +89,8 @@ fn a_killed_engines_worktree_is_released_by_the_operator_and_a_conflicting_run_a
     );
     assert_eq!(running, refused(not_ended));
     let conclude = [
-        "runs", "conclude",
+        "runs",
+        "conclude",
         "--run",
         &run,
         "--reason",

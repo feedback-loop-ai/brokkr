@@ -25,6 +25,13 @@ fn shelved() -> Repo {
     repo
 }
 
+/// `library recipes add <from> --name <name>`, the install most tests here
+/// make.
+fn adding<'a>(from: &'a Path, name: &'a str) -> [&'a str; 6] {
+    let from = from.to_str().unwrap();
+    ["library", "recipes", "add", from, "--name", name]
+}
+
 /// With no shelf, `recipes list` lists nothing and says nothing; a shelf
 /// that is not a directory, a link to nothing, and an absent `--dir`, warn
 /// as before.
@@ -244,12 +251,7 @@ fn pinned(repo: &Repo) -> (Value, serde_json::Map<String, Value>) {
 #[test]
 fn add_copies_the_agents_a_recipe_names() {
     let (repo, fast) = library_of_fast();
-    let add = |name: &str| {
-        repo.brokkr(
-            "",
-            &["library", "recipes", "add", fast.to_str().unwrap(), "--name", name],
-        )
-    };
+    let add = |name: &str| repo.brokkr("", &adding(&fast, name));
     let (before, mut pinned_before) = pinned(&repo);
     let ran = add("fast");
     assert_eq!(ran.code, Some(0), "{}", ran.stderr);
@@ -306,7 +308,7 @@ fn add_copies_the_agents_a_recipe_names() {
 #[test]
 fn every_recipe_verb_names_the_digest_show_prints() {
     let (repo, fast) = library_of_fast();
-    let add = ["library", "recipes", "add", fast.to_str().unwrap(), "--name", "fast"];
+    let add = adding(&fast, "fast");
     let added = repo.brokkr("", &add);
     assert_eq!(added.code, Some(0), "{}", added.stderr);
     let shown = repo.brokkr("", &["library", "recipes", "show", "fast"]);
@@ -336,7 +338,7 @@ fn every_recipe_verb_names_the_digest_show_prints() {
 #[test]
 fn add_refuses_a_differing_agent_and_removes_a_refused_compiles_agents() {
     let (repo, fast) = library_of_fast();
-    let add = ["library", "recipes", "add", fast.to_str().unwrap(), "--name", "fast"];
+    let add = adding(&fast, "fast");
     let planted = repo.write(".brokkr/agents/fast-reviewer.json", "{}\n");
     let before = repo.files();
     let ran = repo.brokkr("", &add);
@@ -404,7 +406,12 @@ fn add_copies_the_agents_of_a_shelf_and_of_a_clone() {
     ];
     let agents = repo.path(".brokkr/agents");
     for (source, library) in sources {
-        let add = [&["library", "recipes", "add"], &source[..], &["--name", "fast"]].concat();
+        let add = [
+            &["library", "recipes", "add"],
+            &source[..],
+            &["--name", "fast"],
+        ]
+        .concat();
         let ran = repo.brokkr("", &add);
         assert_eq!(ran.code, Some(0), "{}", ran.stderr);
         for file in COPIED {
@@ -476,7 +483,7 @@ fn add_refuses_a_charter_its_library_lacks() {
         agents.display()
     );
     let held = repo.path(".brokkr/agents/charters/reviewer.md");
-    let add = ["library", "recipes", "add", fast.to_str().unwrap(), "--name", "fast"];
+    let add = adding(&fast, "fast");
     for holds in [true, false] {
         assert_eq!(held.is_file(), holds);
         let before = repo.files();
@@ -527,12 +534,7 @@ fn requesting(repo: &Repo, library: &Path) -> &'static str {
 fn add_copies_the_definitions_its_agents_request() {
     let (repo, fast) = library_of_fast();
     let text = requesting(&repo, &fast.join("../.."));
-    let add = |name: &str| {
-        repo.brokkr(
-            "",
-            &["library", "recipes", "add", fast.to_str().unwrap(), "--name", name],
-        )
-    };
+    let add = |name: &str| repo.brokkr("", &adding(&fast, name));
     let record = |repo: &Repo| compiled(repo)["manifest"]["capabilities"]["definitions"].take();
     assert_eq!(record(&repo), json!({}));
     let (_, mut pinned_before) = pinned(&repo);
@@ -574,7 +576,7 @@ fn add_refuses_a_definition_it_would_replace_or_cannot_read() {
     let (repo, fast) = library_of_fast();
     let library = fast.join("../..").canonicalize().unwrap();
     requesting(&repo, &library);
-    let add = ["library", "recipes", "add", fast.to_str().unwrap(), "--name", "fast"];
+    let add = adding(&fast, "fast");
     let refused = |expected: String| {
         let before = repo.files();
         let ran = repo.brokkr("", &add);
@@ -630,7 +632,7 @@ fn add_refuses_a_destination_that_is_no_plain_file() {
     let reviewer = std::fs::read_to_string(library.join("agents/fast-reviewer.json")).unwrap();
     repo.write(".brokkr/capabilities/same.txt", text);
     repo.write(".brokkr/agents/same.json", &reviewer);
-    let add = ["library", "recipes", "add", fast.to_str().unwrap(), "--name", "fast"];
+    let add = adding(&fast, "fast");
     let refused = |at: &Path| {
         let before = repo.files();
         let ran = repo.brokkr("", &add);
@@ -705,7 +707,13 @@ fn add_refuses_a_socket_or_a_fifo_at_a_destination() {
     use std::os::unix::fs::{FileTypeExt, MetadataExt};
     let (repo, fast) = library_of_fast();
     requesting(&repo, &fast.join("../.."));
-    let add = ["library", "recipes", "add", "--name=fast", fast.to_str().unwrap()];
+    let add = [
+        "library",
+        "recipes",
+        "add",
+        "--name=fast",
+        fast.to_str().unwrap(),
+    ];
     let definition = repo.path(".brokkr/capabilities/web-fetch.json");
     std::fs::create_dir_all(definition.parent().unwrap()).unwrap();
     // Each is planted after the files are read: reading a FIFO waits.
@@ -745,7 +753,13 @@ fn add_refuses_a_destination_beneath_a_plain_file() {
     let before = repo.files();
     let ran = repo.brokkr(
         "",
-        &["library", "recipes", "add", "--name=fast", fast.to_str().unwrap()],
+        &[
+            "library",
+            "recipes",
+            "add",
+            "--name=fast",
+            fast.to_str().unwrap(),
+        ],
     );
     let blocked = format!(
         "error: the workspace's {} is not a directory, where recipes add would copy a file \
@@ -769,7 +783,13 @@ fn add_refuses_a_destination_beneath_a_linked_directory() {
     let library = fast.join("../..").canonicalize().unwrap();
     requesting(&repo, &library);
     let (charters, inside) = (repo.path(".brokkr/agents/charters"), repo.path("charters"));
-    let add = ["library", "recipes", "add", "--name=fast", fast.to_str().unwrap()];
+    let add = [
+        "library",
+        "recipes",
+        "add",
+        "--name=fast",
+        fast.to_str().unwrap(),
+    ];
     let refused = |at: &Path, target: &Path| {
         std::os::unix::fs::symlink(target, at).unwrap();
         let before = repo.files();
@@ -812,7 +832,7 @@ fn the_library_route_copies_definitions_where_its_compile_reads_them() {
         let from = folder.path(&format!(".brokkr/{dir}"));
         crate::machine_proof::copy_dir(&from, &repo.path(dir));
     }
-    let add = ["library", "recipes", "add", fast.to_str().unwrap(), "--name", "fast"];
+    let add = adding(&fast, "fast");
     let reviewer = library.join("agents/fast-reviewer.json");
     let kept = std::fs::read(&reviewer).unwrap();
     std::fs::write(&reviewer, json!({"extends": "absent"}).to_string()).unwrap();
@@ -845,7 +865,7 @@ fn a_folder_source_gives_the_definitions_its_compile_reads() {
     let source = initialised();
     let fast = fast_in(&source, &source.path(".brokkr"));
     let text = requesting(&source, &source.path(".brokkr"));
-    let add = ["library", "recipes", "add", fast.to_str().unwrap(), "--name", "fast"];
+    let add = adding(&fast, "fast");
     for mapped in [true, false] {
         if !mapped {
             std::fs::remove_file(source.path(".brokkr/realms.json")).unwrap();
@@ -874,7 +894,7 @@ fn a_library_named_like_the_folder_gives_its_own_definitions() {
     let fast = fast_in(&source, &checkout);
     let text = requesting(&source, &checkout);
     git(&checkout, &["init", "-q"]);
-    let add = ["library", "recipes", "add", fast.to_str().unwrap(), "--name", "fast"];
+    let add = adding(&fast, "fast");
     let repo = initialised();
     let ran = repo.brokkr("", &add);
     assert_eq!(ran.code, Some(0), "{}", ran.stderr);
@@ -941,7 +961,13 @@ fn under(repo: &Repo, env: &[(&str, Option<&Path>)], args: &[&str]) -> Ran {
 /// `recipes add --personal <source> --name <name>` from `repo`'s root,
 /// under `env` ([`under`]).
 fn add_named(repo: &Repo, source: &Path, name: &str, env: &[(&str, Option<&Path>)]) -> Ran {
-    let add = ["library", "recipes", "add", "--personal", source.to_str().unwrap()];
+    let add = [
+        "library",
+        "recipes",
+        "add",
+        "--personal",
+        source.to_str().unwrap(),
+    ];
     under(repo, env, &[&add[..], &["--name", name]].concat())
 }
 
@@ -1816,7 +1842,10 @@ fn an_unreadable_shelf_refuses_every_compile_that_reads_it() {
         let unread = unread(origin, shelf, cause);
         let leaf = leaf.to_str().unwrap();
         let verbs = [
-            (vec!["library", "recipes", "show", name], format!("error: {unread}")),
+            (
+                vec!["library", "recipes", "show", name],
+                format!("error: {unread}"),
+            ),
             (
                 vec!["library", "compile", "--bundle", leaf],
                 format!("error: bundle: {unread}"),
@@ -1836,14 +1865,8 @@ fn an_unreadable_shelf_refuses_every_compile_that_reads_it() {
     assert!(!repo.path(".brokkr/state/forge.db").exists());
 
     std::fs::rename(&personal, personal.with_extension("gone")).unwrap();
-    let ran = repo.brokkr(
-        "",
-        &[
-            "library", "compile",
-            "--bundle",
-            team.parent().unwrap().to_str().unwrap(),
-        ],
-    );
+    let bundle = team.parent().unwrap().to_str().unwrap();
+    let ran = repo.brokkr("", &["library", "compile", "--bundle", bundle]);
     let missing = format!(
         "error: bundle: {}: extends 'gone', which is not a recipe in {}\n",
         team.display(),
@@ -1852,7 +1875,10 @@ fn an_unreadable_shelf_refuses_every_compile_that_reads_it() {
     assert_eq!((ran.code, ran.stderr), (Some(1), missing));
     std::fs::rename(personal.with_extension("gone"), &personal).unwrap();
     std::fs::rename(&project, project.with_extension("gone")).unwrap();
-    let ran = repo.brokkr("", &["library", "compile", "--bundle", mine.to_str().unwrap()]);
+    let ran = repo.brokkr(
+        "",
+        &["library", "compile", "--bundle", mine.to_str().unwrap()],
+    );
     assert_eq!(ran.code, Some(0), "{}", ran.stderr);
     let compiled: Value = serde_json::from_str(&ran.stdout).unwrap();
     let chain = layers(&[("personal", &mine), ("personal", &own)]);

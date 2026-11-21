@@ -179,7 +179,8 @@ impl Workspace {
 
     fn inspect_json(&self, run_id: &str) -> Value {
         let (stdout, _) = self.brokkr(&[
-            "runs", "inspect",
+            "runs",
+            "inspect",
             "--run",
             run_id,
             "--json",
@@ -191,7 +192,8 @@ impl Workspace {
 
     fn inspect_text(&self, run_id: &str) -> String {
         self.brokkr(&[
-            "runs", "inspect",
+            "runs",
+            "inspect",
             "--run",
             run_id,
             "--db",
@@ -362,7 +364,8 @@ fn compare_reports_a_resolution_divergence_even_when_the_recipe_matches() {
     let first_choice = ws.run();
 
     let (stdout, _) = ws.brokkr(&[
-        "runs", "compare",
+        "runs",
+        "compare",
         &fallen_back,
         &first_choice,
         "--db",
@@ -391,7 +394,8 @@ fn compare_reports_a_resolution_divergence_even_when_the_recipe_matches() {
     // rather than omitting the field: absence of a difference is itself
     // a reported fact.
     let (stdout, _) = ws.brokkr(&[
-        "runs", "compare",
+        "runs",
+        "compare",
         &first_choice,
         &first_choice,
         "--db",
@@ -454,14 +458,16 @@ fn the_agents_verbs_run_against_the_default_roots() {
 
     // Explicit roots, and the refusal an unknown name earns.
     let (stdout, _) = ws.brokkr(&[
-        "library", "agents",
+        "library",
+        "agents",
         "list",
         "--agents-dir",
         ws.path().join("agents").to_str().unwrap(),
     ]);
     assert!(stdout.contains("worker"), "{stdout}");
     let (_, stderr) = ws.brokkr(&[
-        "library", "agents",
+        "library",
+        "agents",
         "show",
         "nobody",
         "--agents-dir",
@@ -538,7 +544,10 @@ fn the_agents_verbs_lint_every_ask_against_the_operators_definitions() {
     // A malformed definition is the operator's to repair, and both verbs
     // name the file rather than linting against half a directory.
     std::fs::write(ws.path().join("capabilities/broken.json"), "{").unwrap();
-    for verb in [vec!["library", "agents", "list"], vec!["library", "agents", "show", "worker"]] {
+    for verb in [
+        vec!["library", "agents", "list"],
+        vec!["library", "agents", "show", "worker"],
+    ] {
         let (stdout, stderr) = ws.brokkr(&verb);
         assert_eq!(stdout, "");
         assert!(

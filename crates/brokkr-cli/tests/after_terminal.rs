@@ -49,7 +49,8 @@ fn an_operator_stop_after_a_conclusion_refuses_and_writes_nothing() {
     let concluded = brokkr(
         dir.path(),
         &[
-            "runs", "conclude",
+            "runs",
+            "conclude",
             "--run",
             "late",
             "--cause",
@@ -77,7 +78,8 @@ fn an_operator_stop_after_a_conclusion_refuses_and_writes_nothing() {
     let late = brokkr(
         dir.path(),
         &[
-            "runs", "operator",
+            "runs",
+            "operator",
             "stop",
             "--run",
             "late",
@@ -157,7 +159,8 @@ fn a_run_concluded_beneath_a_live_driver_reads_stopped() {
     let concluded = brokkr(
         dir.path(),
         &[
-            "runs", "conclude",
+            "runs",
+            "conclude",
             "--run",
             "beneath",
             "--cause",
@@ -278,7 +281,10 @@ fn inspect_shows(dir: &Path, db: &str, needles: &[&str]) {
 
 /// `inspect --run late --json` over `db`, read back.
 fn inspect_json(dir: &Path, db: &str) -> serde_json::Value {
-    let inspect = brokkr(dir, &["runs", "inspect", "--run", "late", "--json", "--db", db]);
+    let inspect = brokkr(
+        dir,
+        &["runs", "inspect", "--run", "late", "--json", "--db", db],
+    );
     assert_eq!(inspect.status.code(), Some(0), "{inspect:?}");
     serde_json::from_slice(&inspect.stdout).unwrap()
 }
@@ -632,7 +638,10 @@ fn a_fold_refused_by_a_late_wait_is_not_painted_by_runs() {
 
     // `inspect` refuses the refused fold before it prints, and its read
     // never paints the late wait either.
-    let inspect = brokkr(dir.path(), &["runs", "inspect", "--run", "late", "--db", &db]);
+    let inspect = brokkr(
+        dir.path(),
+        &["runs", "inspect", "--run", "late", "--db", &db],
+    );
     assert_eq!(inspect.status.code(), Some(1), "{inspect:?}");
     assert_eq!(String::from_utf8_lossy(&inspect.stdout), "");
     assert!(
@@ -677,7 +686,8 @@ fn an_operator_settle_of_an_unacknowledged_run_refuses_and_writes_nothing() {
     let concluded = brokkr(
         dir.path(),
         &[
-            "runs", "conclude",
+            "runs",
+            "conclude",
             "--run",
             "late",
             "--cause",

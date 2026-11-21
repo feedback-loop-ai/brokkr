@@ -61,7 +61,13 @@ fn refused(dir: &Path, db: &Path, run: &str, verbs: &[&str], words: &str) {
 #[test]
 fn every_read_verb_refuses_a_damaged_journal_in_one_sentence() {
     let dir = tempfile::tempdir().unwrap();
-    let read = ["runs", "runs inspect", "journal export", "runs seats", "watch"];
+    let read = [
+        "runs",
+        "runs inspect",
+        "journal export",
+        "runs seats",
+        "watch",
+    ];
     let events = damaged(dir.path(), "events", |db| damage_table(db, "events"));
     refused(
         dir.path(),
@@ -92,7 +98,13 @@ fn every_read_verb_refuses_a_damaged_journal_in_one_sentence() {
 fn a_damaged_runs_table_refuses_every_verb_that_reads_a_runs_row() {
     let dir = tempfile::tempdir().unwrap();
     let db = damaged(dir.path(), "runs", |db| damage_table(db, "runs"));
-    let verbs = ["runs inspect", "journal export", "runs seats", "watch", "tui"];
+    let verbs = [
+        "runs inspect",
+        "journal export",
+        "runs seats",
+        "watch",
+        "tui",
+    ];
     refused(dir.path(), &db, "good", &verbs, &refusal(&db, MALFORMED));
     let (stdout, stderr, ok) = brokkr(dir.path(), &["runs", "--db", db.to_str().unwrap()]);
     assert!(ok, "{stderr}");
@@ -122,7 +134,10 @@ fn an_envelope_that_is_not_json_is_named_and_hides_no_other_run() {
     );
     assert!(stdout.contains("\n  good running work seq 2 "), "{stdout}");
     for verb in [["runs", "inspect"], ["journal", "export"]] {
-        let (_, stderr, ok) = brokkr(dir.path(), &[&verb[..], &["--run", "good", "--db", named]].concat());
+        let (_, stderr, ok) = brokkr(
+            dir.path(),
+            &[&verb[..], &["--run", "good", "--db", named]].concat(),
+        );
         assert!(ok, "{verb:?}: {stderr}");
     }
 }

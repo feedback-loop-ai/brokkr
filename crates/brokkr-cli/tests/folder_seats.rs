@@ -76,7 +76,12 @@ const RUN: [&str; 6] = [
 ];
 
 /// The fixture's compile, as each test asks for it.
-const COMPILE: [&str; 4] =["library", "compile", "--bundle", ".brokkr/recipes/folder-seat"];
+const COMPILE: [&str; 4] = [
+    "library",
+    "compile",
+    "--bundle",
+    ".brokkr/recipes/folder-seat",
+];
 
 /// A fresh folder `init` scaffolded for codex, the home `brokkr` runs
 /// under, and the fixture written beside them, not yet added.
@@ -107,7 +112,8 @@ impl Scratch {
     /// Add the fixture to the folder's shelf as `folder-seat`.
     fn add(&self) {
         let source = self.source.path().to_str().unwrap();
-        let (code, _, stderr) = self.brokkr(&["library", "recipes", "add", source, "--name", "folder-seat"]);
+        let (code, _, stderr) =
+            self.brokkr(&["library", "recipes", "add", source, "--name", "folder-seat"]);
         assert_eq!(code, Some(0), "{stderr}");
     }
 

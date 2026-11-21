@@ -666,7 +666,14 @@ fn secrets_set_without_a_folder_refuses() {
     let ran = repo.brokkr_with("", &["system", "secrets", "set", "NAME"], "value\n");
     refused_with_no_place(&repo, &ran);
 
-    let flagged = ["system", "secrets", "set", "NAME", "--secrets-file", "named.env"];
+    let flagged = [
+        "system",
+        "secrets",
+        "set",
+        "NAME",
+        "--secrets-file",
+        "named.env",
+    ];
     let ran = repo.brokkr_with("", &flagged, "value\n");
     assert_eq!(ran.code, Some(0), "{}", ran.stderr);
     assert_eq!(
@@ -842,7 +849,8 @@ fn a_named_map_is_read(repo: &Repo, bundled: &String) {
 /// `--agents-dir`, `--adapters-dir` and `--secrets-file` beside the
 /// folder's own: the named library, adapters and store are read.
 fn a_named_library_is_read(repo: &Repo) {
-    let agents = |extra: &[&str]| repo.brokkr("", &[&["library", "agents", "list"][..], extra].concat());
+    let agents =
+        |extra: &[&str]| repo.brokkr("", &[&["library", "agents", "list"][..], extra].concat());
     let (named, folder) = (agents(&["--agents-dir", "own/agents"]), agents(&[]));
     let absent = |library: &str| {
         format!("error: agent library {library}: No such file or directory (os error 2)\n")
@@ -860,7 +868,8 @@ fn a_named_library_is_read(repo: &Repo) {
         "{offices:?}"
     );
     let probe = [
-        "system", "probe",
+        "system",
+        "probe",
         "harness",
         "--adapter",
         "nope",
@@ -874,11 +883,21 @@ fn a_named_library_is_read(repo: &Repo) {
     // --secrets-file: the named store is the one listed.
     let named = repo.write("own/secrets.env", "OWN=1\n");
     std::fs::set_permissions(&named, std::os::unix::fs::PermissionsExt::from_mode(0o600)).unwrap();
-    let ran = repo.brokkr_with(".brokkr", &["system", "secrets", "set", "FOLDER"], "value\n");
+    let ran = repo.brokkr_with(
+        ".brokkr",
+        &["system", "secrets", "set", "FOLDER"],
+        "value\n",
+    );
     assert_eq!(ran.code, Some(0), "{}", ran.stderr);
     let ran = repo.brokkr(
         "",
-        &["system", "secrets", "list", "--secrets-file", "own/secrets.env"],
+        &[
+            "system",
+            "secrets",
+            "list",
+            "--secrets-file",
+            "own/secrets.env",
+        ],
     );
     assert_eq!((ran.code, ran.stdout.as_str()), (Some(0), "OWN\n"));
     let ran = repo.brokkr("", &["system", "secrets", "list"]);
@@ -1084,7 +1103,14 @@ fn ledger_of_a_library_run(repo: &Repo) -> Ran {
     library.library();
     let run = library_run(&library);
     let db = library.path(".forge/forge.db");
-    let ledger = ["stats", "ledger", "--run", &run, "--db", db.to_str().unwrap()];
+    let ledger = [
+        "stats",
+        "ledger",
+        "--run",
+        &run,
+        "--db",
+        db.to_str().unwrap(),
+    ];
     repo.brokkr("", &[&ledger[..], &["--repo", "."]].concat())
 }
 
@@ -1189,7 +1215,8 @@ fn an_explicit_db_reaches_the_old_journal() {
         ran.stderr
     );
     let conclude = [
-        "runs", "conclude",
+        "runs",
+        "conclude",
         "--run",
         &run,
         "--cause",

@@ -73,7 +73,8 @@ fn retry_with(ws: &Workspace, run: &str, extra: &[&str]) -> (Option<i32>, Value,
     invoke(
         ws,
         &[
-            "runs", "operator",
+            "runs",
+            "operator",
             "retry",
             "--member",
             "security",
@@ -134,7 +135,8 @@ fn a_plain_retry_starts_as_today_and_the_verb_prints_the_views_refusal_on_a_conc
     let run = parked(&ws);
     let db = ws.db();
     let (code, _, stderr) = ws.brokkr(&[
-        "runs", "operator",
+        "runs",
+        "operator",
         "retry",
         "--reason",
         "whole panel",

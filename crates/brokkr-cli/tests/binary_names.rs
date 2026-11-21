@@ -96,7 +96,11 @@ fn no_user_facing_help_text_names_the_binary_forge() {
         let usage = format!("Usage: brokkr {}", path.join(" "));
         assert!(help.contains(&usage), "{help}");
         assert_eq!(binary_named_forge(&help), Vec::<String>::new(), "{path:?}");
-        paths.extend(listed(&help).into_iter().map(|verb| [path.clone(), vec![verb]].concat()));
+        paths.extend(
+            listed(&help)
+                .into_iter()
+                .map(|verb| [path.clone(), vec![verb]].concat()),
+        );
     }
     assert!(paths.len() > 40, "{paths:?}");
 }

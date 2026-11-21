@@ -294,7 +294,8 @@ fn a_pass_hands_its_run_to_a_driver_of_its_own_that_completes_it() {
     // is working), is refused in decision 0108's words, and writes nothing.
     machine.seat_runs();
     let args = [
-        "queue", "dispatch",
+        "queue",
+        "dispatch",
         "drive",
         "--db",
         machine.db(),
@@ -352,7 +353,8 @@ fn a_driver_of_a_claim_with_no_spawn_row_refuses_and_writes_nothing() {
     machine.queued();
     let before = std::fs::read(&machine.journal).unwrap();
     let args = [
-        "queue", "dispatch",
+        "queue",
+        "dispatch",
         "drive",
         "--db",
         machine.db(),
