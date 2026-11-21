@@ -593,6 +593,15 @@ fn a_table_arm_no_reachable_step_or_aggregate_can_emit_is_refused() {
     );
 }
 
+/// The review arms `a`, to done, and `hold`, the phase's hard stop.
+fn a_and_hold_rules() -> Value {
+    json!([
+        {"id": "REVIEW-A", "from": "review", "result": "a", "next": "done", "reason": "a"},
+        {"id": "REVIEW-HOLD", "from": "review", "result": "hold", "next": "stop",
+         "severity": "hard", "reason": "hold"},
+    ])
+}
+
 /// An impassable middle step makes every later step unreachable, so a word
 /// only a later step could emit must not suppress the earlier step's
 /// ending: the engine would stop at the barrier and never reach the tail.
@@ -600,12 +609,7 @@ fn a_table_arm_no_reachable_step_or_aggregate_can_emit_is_refused() {
 /// (decision 0050, ruling 7).
 #[test]
 fn an_unreachable_later_step_does_not_hide_an_earlier_ending() {
-    let rules = json!([
-        {"id": "REVIEW-A", "from": "review", "result": "a", "next": "done",
-         "reason": "a"},
-        {"id": "REVIEW-HOLD", "from": "review", "result": "hold", "next": "stop",
-         "severity": "hard", "reason": "hold"},
-    ]);
+    let rules = a_and_hold_rules();
     let seats = json!({
         "work": single_seat(&["complete"]),
         "review": {
@@ -691,11 +695,7 @@ fn assert_marker_refusal(compiled: Result<Bundle, CompileError>, what: &str) {
 /// declares none gives its steps none.
 #[test]
 fn a_sequences_steps_carry_their_seats_change_declaration_wherever_they_stand() {
-    let rules = json!([
-        {"id": "REVIEW-A", "from": "review", "result": "a", "next": "done", "reason": "a"},
-        {"id": "REVIEW-HOLD", "from": "review", "result": "hold", "next": "stop",
-         "severity": "hard", "reason": "hold"},
-    ]);
+    let rules = a_and_hold_rules();
     let sequence = sequence_seat(json!(["a", "hold"]))["sequence"].clone();
     let single = json!({"role": "roles/role.md", "driver": {"command": ["driver"]}});
     let flags = |seat: Value| {
