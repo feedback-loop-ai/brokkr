@@ -75,7 +75,9 @@ pub(super) fn driven_with(
 /// yields the resolved path (M5).
 #[test]
 fn a_seat_that_binds_an_owned_name_is_refused_and_its_child_keeps_the_engines() {
-    for name in OWNED {
+    // The names are written here, not taken from the driver's own list, so
+    // a name dropped from it is a case that fails, not one that is skipped.
+    for name in ["HOME", "PWD", "AGY_CLI_DISABLE_AUTO_UPDATE"] {
         let value = "/srv/the-operators-own-home";
         let bindings = [bound(name, value)];
         let refused = driven((TOOL_LESS, "", 0), FLASH, &bindings);
@@ -96,8 +98,14 @@ fn a_seat_that_binds_an_owned_name_is_refused_and_its_child_keeps_the_engines() 
         let input = world.input(None);
         // A seat that got past the check would be refused signed out.
         world.env.remove("HOME");
-        let start = drive_on(&bin, &input, &bindings);
-        assert_eq!(start, Err(LaunchError::Owned(name).to_string()));
+        let start = pinned_on(&bin, |pinned| {
+            turn(pinned, "p", &input, &bindings, &mut |_| {}).map(drop)
+        });
+        assert!(
+            matches!(&start, Err(Ended::Launch(LaunchError::Owned(owned))) if *owned == name),
+            "{start:?}"
+        );
+        assert!(!world.started() && world.homes_gone());
         let (binary, extra) = (bin.to_string_lossy(), argv(&["--model", FLASH]));
         let temp = std::env::temp_dir();
         let operator = world.path("operator");
@@ -265,12 +273,18 @@ fn a_success_behind_a_denial_fails_naming_the_denial() {
 /// One seat of `bin` pinned to [`FLASH`], run by [`drive`] on `input`
 /// under `bindings`.
 fn drive_on(bin: &Path, input: &Value, bindings: &[secret::BoundSecret]) -> Result<(), String> {
+    pinned_on(bin, |pinned| {
+        drive(pinned, false, "p", input, bindings, &mut |_| {}).map(drop)
+    })
+}
+
+/// What `then` makes of a seat of `bin` pinned to [`FLASH`].
+fn pinned_on<T>(bin: &Path, then: impl FnOnce(super::super::super::Pinned<'_>) -> T) -> T {
     let (binary, extra) = (bin.to_string_lossy(), argv(&["--model", FLASH]));
-    let pinned = super::super::super::Pinned {
+    then(super::super::super::Pinned {
         binary: &binary,
         extra: &extra,
-    };
-    drive(pinned, false, "p", input, bindings, &mut |_| {}).map(drop)
+    })
 }
 
 /// One launch is one turn, and a known row that does not type fails it; an

@@ -1777,7 +1777,8 @@ fn an_inline_site_is_served_with_its_own_adapters_authentication_names() {
 #[cfg(target_os = "linux")]
 #[test]
 fn the_agy_examples_boxed_store_read_stays_unmeasured_and_a_secret_is_refused() {
-    use crate::capabilities::{Authority, NativePlan, Outcome, SiteAsks};
+    use crate::capabilities::tests::manifest::holding_outcome;
+    use crate::capabilities::{Authority, Outcome, SiteAsks};
     let dir = tempfile::tempdir().unwrap();
     let example = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/examples/adapters");
     std::fs::copy(example.join("agy.json"), dir.path().join("agy.json")).unwrap();
@@ -1789,20 +1790,12 @@ fn the_agy_examples_boxed_store_read_stays_unmeasured_and_a_secret_is_refused() 
     }
     // One agy candidate holding `library-docs` alone, as the resolver
     // seals it past the fence.
-    let mut outcome = Outcome {
-        native: NativePlan::Unmeasured {
-            declaration: None,
-            reason: "synthetic".into(),
-            provenance: brokkr_protocol::native_controls::Provenance::default(),
-        },
+    let outcome = Outcome {
         provider: "agy".into(),
         harness: "agy".into(),
         model: Some("agy-neon".into()),
-        notices: Vec::new(),
-        not_held: BTreeMap::new(),
-        held: BTreeMap::new(),
+        ..holding_outcome(holding, "synthetic")
     };
-    outcome.held.insert("library-docs".to_string(), holding);
     let authority = Authority::nothing("private", dir.path());
     let asks = SiteAsks::at(SeatClass::Work, "research", None, None).unwrap();
     for invocation in [McpInvocation::Cold, McpInvocation::Replacement] {

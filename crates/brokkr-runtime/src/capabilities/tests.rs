@@ -2044,4 +2044,4 @@ pub(crate) mod binding;
 mod dialect_policy;
 mod fence;
 mod gate_class;
-mod manifest;
+pub(crate) mod manifest;
