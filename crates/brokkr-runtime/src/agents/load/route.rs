@@ -18,8 +18,7 @@ use brokkr_core::canonical::{is_sha256_hex, sha256_bytes};
 use serde_json::{Map, Value};
 
 use super::{
-    egress_class, invalid, object, only_keys, route_name, string, EgressClass, LibraryError,
-    ROUTE_GRAMMAR,
+    egress_class, object, only_keys, route_name, string, EgressClass, LibraryError, ROUTE_GRAMMAR,
 };
 use crate::agents::DeclaredRouteOverlay;
 
@@ -57,22 +56,97 @@ pub(super) fn declarations(
     path: &Path,
     driver: &[String],
 ) -> Result<Declared, LibraryError> {
+    declared_routes(map, what, path, driver).map_err(|fault| match fault {
+        RouteFault::Library(error) => error,
+        RouteFault::Refused(refusal) => LibraryError::Invalid(refusal.to_string()),
+    })
+}
+
+/// Why one adapter's `routes` declaration was refused: one variant per
+/// check, in the order the checks run, so a test can tell which fired.
+/// Each names the adapter, the route and the field, never the value. It
+/// becomes text only in [`declarations`].
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+enum RouteRefusal<'a> {
+    #[error("{what} 'routes' must be an object of route name → egress class")]
+    NotObject { what: &'a str },
+    #[error("{what} 'routes' cannot resolve the adapter file's own directory")]
+    NoDirectory { what: &'a str },
+    #[error(
+        "{what} 'routes' names '{route}', which does not match {grammar}",
+        grammar = ROUTE_GRAMMAR
+    )]
+    BadName { what: &'a str, route: &'a str },
+    #[error("{what} 'routes.{route}' needs 'egress': the route's class is declared in both forms")]
+    NeedsEgress { what: &'a str, route: &'a str },
+    #[error(
+        "{what} 'routes.{route}.egress' is not one of {vocabulary}; a route's class is the same \
+         closed vocabulary in both forms (decision 0036 ruling 1)",
+        vocabulary = EgressClass::VOCABULARY
+    )]
+    BadEgress { what: &'a str, route: &'a str },
+    #[error(
+        "{what} 'routes.{route}' needs 'overlay': the object form is how a route declares one"
+    )]
+    NeedsOverlay { what: &'a str, route: &'a str },
+    #[error(
+        "{what} 'routes.{route}.overlay' declares a route overlay on an \
+         adapter that dispatches '{kind}'; only the '{overlay_driver}' \
+         driver reads a route overlay, so a driver that does not is \
+         refused at load rather than handed a flag it ignores",
+        overlay_driver = OVERLAY_DRIVER
+    )]
+    WrongDriver {
+        what: &'a str,
+        route: &'a str,
+        kind: &'a str,
+    },
+    #[error(
+        "{what} 'routes.{route}' must be a string egress class or an object \
+         with 'egress' and 'overlay'"
+    )]
+    NeitherForm { what: &'a str, route: &'a str },
+}
+
+/// What [`declared_routes`] refuses with: the shared readers' own
+/// [`LibraryError`], carried unchanged, or this declaration's typed refusal.
+#[derive(Debug)]
+enum RouteFault<'a> {
+    Library(LibraryError),
+    Refused(RouteRefusal<'a>),
+}
+
+impl From<LibraryError> for RouteFault<'_> {
+    fn from(error: LibraryError) -> Self {
+        Self::Library(error)
+    }
+}
+
+impl<'a> From<RouteRefusal<'a>> for RouteFault<'a> {
+    fn from(refusal: RouteRefusal<'a>) -> Self {
+        Self::Refused(refusal)
+    }
+}
+
+/// [`declarations`] before its refusal becomes text.
+fn declared_routes<'a>(
+    map: &'a Map<String, Value>,
+    what: &'a str,
+    path: &Path,
+    driver: &'a [String],
+) -> Result<Declared, RouteFault<'a>> {
     let mut routes = BTreeMap::new();
     let mut overlays = BTreeMap::new();
     let Some(declared) = map.get("routes") else {
         return Ok(Declared { routes, overlays });
     };
     let Some(entries) = declared.as_object() else {
-        return invalid(format!(
-            "{what} 'routes' must be an object of route name → egress class"
-        ));
+        return Err(RouteRefusal::NotObject { what }.into());
     };
     let directory = directory(path, what)?;
     for (route, value) in entries {
         if !route_name(route) {
-            return invalid(format!(
-                "{what} 'routes' names '{route}', which does not match {ROUTE_GRAMMAR}"
-            ));
+            return Err(RouteRefusal::BadName { what, route }.into());
         }
         match value {
             Value::String(_) => {
@@ -82,68 +156,60 @@ pub(super) fn declarations(
                 );
             }
             Value::Object(entry) => {
-                let at = format!("{what} 'routes.{route}'");
-                only_keys(entry, &ROUTE_KEYS, &at)?;
-                let egress = entry.get("egress").ok_or_else(|| {
-                    LibraryError::Invalid(format!(
-                        "{at} needs 'egress': the route's class is declared in both forms"
-                    ))
-                })?;
-                routes.insert(route.clone(), route_egress(egress, route, what)?);
-                let overlay = entry.get("overlay").ok_or_else(|| {
-                    LibraryError::Invalid(format!(
-                        "{at} needs 'overlay': the object form is how a route declares one"
-                    ))
-                })?;
-                let kind = crate::capabilities::harness_of(driver);
-                if kind != OVERLAY_DRIVER {
-                    return invalid(format!(
-                        "{what} 'routes.{route}.overlay' declares a route overlay on an \
-                         adapter that dispatches '{kind}'; only the '{OVERLAY_DRIVER}' \
-                         driver reads a route overlay, so a driver that does not is \
-                         refused at load rather than handed a flag it ignores"
-                    ));
-                }
-                overlays.insert(
-                    route.clone(),
-                    overlay_declaration(overlay, what, route, &directory)?,
-                );
+                let (class, overlay) = object_entry(entry, what, route, driver, &directory)?;
+                routes.insert(route.clone(), class);
+                overlays.insert(route.clone(), overlay);
             }
-            _ => {
-                return invalid(format!(
-                    "{what} 'routes.{route}' must be a string egress class or an object \
-                     with 'egress' and 'overlay'"
-                ))
-            }
+            _ => return Err(RouteRefusal::NeitherForm { what, route }.into()),
         }
     }
     Ok(Declared { routes, overlays })
 }
 
+/// One object route entry: its keys, its class, then its overlay, which
+/// only the overlay driver reads.
+fn object_entry<'a>(
+    entry: &Map<String, Value>,
+    what: &'a str,
+    route: &'a str,
+    driver: &'a [String],
+    directory: &Path,
+) -> Result<(EgressClass, DeclaredRouteOverlay), RouteFault<'a>> {
+    only_keys(entry, &ROUTE_KEYS, &format!("{what} 'routes.{route}'"))?;
+    let egress = entry
+        .get("egress")
+        .ok_or(RouteRefusal::NeedsEgress { what, route })?;
+    let class = route_egress(egress, route, what)?;
+    let overlay = entry
+        .get("overlay")
+        .ok_or(RouteRefusal::NeedsOverlay { what, route })?;
+    let kind = crate::capabilities::harness_of(driver);
+    if kind != OVERLAY_DRIVER {
+        return Err(RouteRefusal::WrongDriver { what, route, kind }.into());
+    }
+    Ok((class, overlay_declaration(overlay, what, route, directory)?))
+}
+
 /// The class an object entry's `egress` states, refused in the closed
 /// vocabulary without echoing the value.
-fn route_egress(declared: &Value, route: &str, what: &str) -> Result<EgressClass, LibraryError> {
-    match declared.as_str().and_then(EgressClass::parse) {
-        Some(class) => Ok(class),
-        None => invalid(format!(
-            "{what} 'routes.{route}.egress' is not one of {}; a route's class is the same \
-             closed vocabulary in both forms (decision 0036 ruling 1)",
-            EgressClass::VOCABULARY
-        )),
-    }
+fn route_egress<'a>(
+    declared: &Value,
+    route: &'a str,
+    what: &'a str,
+) -> Result<EgressClass, RouteRefusal<'a>> {
+    declared
+        .as_str()
+        .and_then(EgressClass::parse)
+        .ok_or(RouteRefusal::BadEgress { what, route })
 }
 
 /// The adapter file's own directory, canonical, where its overlay paths
 /// resolve.
-fn directory(path: &Path, what: &str) -> Result<PathBuf, LibraryError> {
+fn directory<'a>(path: &Path, what: &'a str) -> Result<PathBuf, RouteRefusal<'a>> {
     path.parent()
         .unwrap_or_else(|| Path::new(""))
         .canonicalize()
-        .map_err(|_| {
-            LibraryError::Invalid(format!(
-                "{what} 'routes' cannot resolve the adapter file's own directory"
-            ))
-        })
+        .map_err(|_| RouteRefusal::NoDirectory { what })
 }
 
 /// One overlay declaration: `file` and `sha256`, checked against the file
