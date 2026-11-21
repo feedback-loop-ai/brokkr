@@ -40,8 +40,16 @@ fn engine_marker(event: &str, steps: &[&str]) -> String {
     let entries =
         format!("json_each(CASE WHEN json_valid({checkpoint}) THEN {checkpoint} ELSE '{{}}' END)");
     let words: Vec<String> = steps.iter().map(|step| format!("'{step}'")).collect();
+    // A row whose stored text names none of the words cannot be such a
+    // marker, since the engine writes each word as it is. So one substring
+    // scan turns it away before the JSON walks below parse its envelope,
+    // which they do several times a row (#1243's Callgrind).
+    let named: Vec<String> = (words.iter())
+        .map(|word| format!("instr({event}.envelope, {word}) > 0"))
+        .collect();
     format!(
-        "{step} IN ({words}) AND {authored} = 'engine'",
+        "CASE WHEN {named} THEN {step} IN ({words}) AND {authored} = 'engine' ELSE 0 END",
+        named = named.join(" OR "),
         step = last_text(&entries, "step"),
         words = words.join(", "),
         authored = last_text(&entries, "authored"),
