@@ -338,10 +338,12 @@ fn serving_exec(dir: &std::path::Path) -> std::path::PathBuf {
 }
 
 /// A dialect step whose validator prints `stdout` and the sentinel on its
-/// stderr, then exits `code`.
+/// stderr, then exits `code`. Read the prompt first so the validator
+/// cannot close stdin before the exec driver writes it.
 #[cfg(unix)]
 fn validator(stdout: &str, code: i32) -> SequenceStep {
-    let script = format!("printf '{stdout}'; printf %s {SENTINEL} >&2; exit {code}");
+    let script =
+        format!("cat >/dev/null; printf '{stdout}'; printf %s {SENTINEL} >&2; exit {code}");
     uncompiled_sequence_step! {
         name: "validate".into(),
         class: SeatClass::Gate,
@@ -452,7 +454,7 @@ fn a_killed_validators_tail_is_told_after_its_step_settles() {
     let StepBody::Dialect { execution } = &mut killed.body else {
         unreachable!("a dialect step")
     };
-    execution.argv[2] = format!("printf '%s\\n' {SENTINEL} >&2; kill -KILL $$");
+    execution.argv[2] = format!("cat >/dev/null; printf '%s\\n' {SENTINEL} >&2; kill -KILL $$");
     let (_dir, driven, watch) = dialect_run(&[killed]);
     let events = assert_sealed(&driven);
     let parked = terminal(&events, EventType::EffectIndeterminate);
