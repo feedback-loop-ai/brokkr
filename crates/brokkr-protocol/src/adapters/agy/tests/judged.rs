@@ -66,15 +66,16 @@ pub(super) fn driven_with(
     }
 }
 
-/// A seat that binds `HOME` or `PWD` is refused by the name before spawn,
-/// and before any HOME is made, with no operator HOME to make one from;
-/// with the refusal passed by, the child's HOME and `PWD` are still the
-/// engine's (J1, L2). The competing `PWD`, the binding's and the driver's
-/// own, is a link to the child's directory, which `/bin/sh` keeps as its
-/// `PWD` where it wins, so only the engine's yields the resolved path (M5).
+/// A seat that binds `HOME`, `PWD` or the update switch is refused by the
+/// name before spawn, and before any HOME is made, with no operator HOME to
+/// make one from; with the refusal passed by, the child's HOME, `PWD` and
+/// update switch are still the engine's (J1, L2, D1). The competing `PWD`,
+/// the binding's and the driver's own, is a link to the child's directory,
+/// which `/bin/sh` keeps as its `PWD` where it wins, so only the engine's
+/// yields the resolved path (M5).
 #[test]
-fn a_seat_that_binds_home_or_pwd_is_refused_and_its_child_keeps_the_engines() {
-    for name in ["HOME", "PWD"] {
+fn a_seat_that_binds_an_owned_name_is_refused_and_its_child_keeps_the_engines() {
+    for name in OWNED {
         let value = "/srv/the-operators-own-home";
         let bindings = [bound(name, value)];
         let refused = driven((TOOL_LESS, "", 0), FLASH, &bindings);
@@ -110,6 +111,7 @@ fn a_seat_that_binds_home_or_pwd_is_refused_and_its_child_keeps_the_engines() {
         assert_eq!(world.recorded("home"), prepared.home.path());
         let resolved = world.seat().canonicalize().unwrap();
         assert_eq!(Path::new(&world.recorded("pwd")), resolved);
+        assert_eq!(world.recorded("update"), "true");
     }
 }
 

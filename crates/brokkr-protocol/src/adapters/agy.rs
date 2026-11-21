@@ -109,11 +109,17 @@ const SETTINGS: &str = "--settings";
 const RULE_FORMS: [&str; 2] = ["command(", "mcp("];
 
 /// The names of the child's environment the engine owns for an agy seat,
-/// which no seat binds: its HOME (J1), and its `PWD`, the resolved working
-/// directory agy walks up from (L2).
+/// which no seat binds: its HOME (J1), its `PWD`, the resolved working
+/// directory agy walks up from (L2), and the switch that keeps a turn from
+/// starting agy's self-updater (`updater-default`, `updater-disabled-true`).
 const HOME: &str = "HOME";
 const PWD: &str = "PWD";
-const OWNED: [&str; 2] = [HOME, PWD];
+const AUTO_UPDATE: &str = "AGY_CLI_DISABLE_AUTO_UPDATE";
+const OWNED: [&str; 3] = [HOME, PWD, AUTO_UPDATE];
+
+/// The one value of [`AUTO_UPDATE`] measured to stop the updater; `1` does
+/// not (`updater-disabled`).
+const NO_UPDATE: &str = "true";
 
 /// Why a seat is not launched. Each names what was written, never a value
 /// (AS3).
@@ -127,8 +133,9 @@ pub(super) enum LaunchError {
     )]
     Resumed,
     /// A seat binding one of [`OWNED`] would start agy under its own HOME,
-    /// with the operator's servers, plugins and hooks (J1), or walking up
-    /// another `PWD` than the one the workspace check read (L2).
+    /// with the operator's servers, plugins and hooks (J1), walking up
+    /// another `PWD` than the one the workspace check read (L2), or free to
+    /// let agy replace the binary its facts were measured on.
     #[error(
         "refusing to invoke the agent CLI: the seat binds a secret named {0}, which the engine \
          owns for an agy seat (#1200)"
@@ -550,9 +557,14 @@ fn invoke(
     } = prepared;
     let mut fold = AgyFold::new(&launch.pin, bindings);
     let mut transcript = Transcript::resolve(TranscriptKind::None)?;
-    // The engine's HOME and PWD, set on the child last, after the bindings
-    // (J1, L2); the child runs in the directory its PWD names.
-    let owned = [(HOME, home.path()), (PWD, workdir.as_str())];
+    // The engine's HOME, PWD and update switch, set on the child last, after
+    // the bindings and over the engine's own environment (J1, L2); the child
+    // runs in the directory its PWD names.
+    let owned = [
+        (HOME, home.path()),
+        (PWD, workdir.as_str()),
+        (AUTO_UPDATE, NO_UPDATE),
+    ];
     let line = stdin_line(prompt);
     // The workspace check, once, last before agy starts (M1): it narrows
     // the time a writer has to plant agy's configuration, and does not close

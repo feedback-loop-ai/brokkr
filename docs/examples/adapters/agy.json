@@ -131,7 +131,7 @@
           "measured": "box-engine-workspace-tool and box-other-natives: with the gate listing call_mcp_tool alone, write_file, edit_file and run_command were denied by name, and the hands tool wrote inside the worktree (box-engine-workspace-tool, box-default-notice); the denial is the gate's, by name, in agy's own process, not a boundary of the operating system (docs/evidence/adapters/agy-cli-1-5.md)"
         },
         "store_read": {
-          "unmeasured": "box-engine-workspace-tool and box-default-notice-carbon: the native read_file was denied by name by the gate; no box whose reach names a store was measured (docs/evidence/adapters/agy-cli-1-5.md, Fourth measurement, for level 3)"
+          "unmeasured": "on 1.5.14, not this shape's 1.5.13: the hands tool was denied a store sealed at its production path (box-store-drive, control box-store-drive-control), and under the driver's gate the native read_file and run_command were denied by name (box-store); declared once one version has measured every axis (docs/evidence/adapters/agy-cli-1-5.md, Fifth measurement)"
         },
         "process_read": {
           "measured": "box-reach: the hands tool's command saw 4 entries in /proc with bubblewrap as pid 1; box-engine-workspace-tool: the native shell, run_command, was denied by name by the gate (docs/evidence/adapters/agy-cli-1-5.md, Fourth measurement, for level 3)"
@@ -153,7 +153,7 @@
           "measured": "a replacement is a cold launch again under a fresh engine HOME; box-engine-workspace-tool and box-other-natives: with the gate listing call_mcp_tool alone, write_file, edit_file and run_command were denied by name, and the hands tool wrote inside the worktree (box-default-notice); the denial is the gate's, by name, in agy's own process, not an operating-system boundary"
         },
         "store_read": {
-          "unmeasured": "a replacement is a cold launch again under a fresh engine HOME; box-engine-workspace-tool and box-default-notice-carbon: the native read_file was denied by name by the gate; no box whose reach names a store was measured (docs/evidence/adapters/agy-cli-1-5.md, Fourth measurement, for level 3)"
+          "unmeasured": "a replacement is a cold launch again; on 1.5.14, not this shape's 1.5.13: the hands tool was denied a store sealed at its production path (box-store-drive, control box-store-drive-control), and under the driver's gate the native read_file and run_command were denied by name (box-store); declared once one version has measured every axis (docs/evidence/adapters/agy-cli-1-5.md, Fifth measurement)"
         },
         "process_read": {
           "measured": "a replacement is a cold launch again under a fresh engine HOME; box-reach: the hands tool's command saw 4 entries in /proc with bubblewrap as pid 1; box-engine-workspace-tool: the native shell, run_command, was denied by name by the gate (docs/evidence/adapters/agy-cli-1-5.md, Fourth measurement, for level 3)"

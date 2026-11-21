@@ -1027,7 +1027,8 @@ fn a_workspace_path_that_cannot_be_read_refuses_naming_it() {
 }
 
 /// A fake `agy` under `dir`: it records its argv, its HOME, its `PWD` and
-/// the directory it runs in, its stdin, the
+/// the directory it runs in, its update switch (`unset` where it has none),
+/// its stdin, the
 /// engine's two configuration files and its login's link, prints `stdout`
 /// and `stderr` as recorded, writes the seat's result where `delivers`,
 /// and exits `code`.
@@ -1053,6 +1054,7 @@ fn fake_agy(
     let body = format!(
         "#!/bin/sh\nd='{dir}'\nprintf '%s\\n' \"$@\" > \"$d/argv\"\nprintf '%s' \"$HOME\" > \"$d/home\"\n\
          printf '%s' \"$PWD\" > \"$d/pwd\"\npwd -P > \"$d/cwd\"\n\
+         printf '%s' \"${{AGY_CLI_DISABLE_AUTO_UPDATE-unset}}\" > \"$d/update\"\n\
          cat > \"$d/stdin\"\nc=\"$HOME/.gemini/config\"\ncat \"$c/mcp_config.json\" > \"$d/mcp\"\n\
          cat \"$c/hooks.json\" > \"$d/hooks\"\n\
          readlink \"$HOME/.gemini/antigravity-cli/antigravity-oauth-token\" > \"$d/login\"\n\

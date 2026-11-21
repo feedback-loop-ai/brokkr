@@ -1769,3 +1769,61 @@ fn an_inline_site_is_served_with_its_own_adapters_authentication_names() {
         [lost(&binding::collides("DOCS_TOKEN")), lost(binding::MCP)]
     );
 }
+
+/// D3 of #1224: Agy's example loads with its boxed shapes' store read still
+/// `unmeasured`, measured on another version than the shapes', so a boxed
+/// agy seat whose MCP holding binds a secret is refused for it, on the cold
+/// shape and the replacement alike.
+#[cfg(target_os = "linux")]
+#[test]
+fn the_agy_examples_boxed_store_read_stays_unmeasured_and_a_secret_is_refused() {
+    use crate::capabilities::{Authority, NativePlan, Outcome, SiteAsks};
+    let dir = tempfile::tempdir().unwrap();
+    let example = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/examples/adapters");
+    std::fs::copy(example.join("agy.json"), dir.path().join("agy.json")).unwrap();
+    let adapters = Adapters::load(dir.path()).unwrap();
+    let agy = adapters.adapter("agy").unwrap();
+    let mut holding = mcp_holding("library-docs");
+    if let crate::capabilities::Implementation::Mcp { secrets, .. } = &mut holding.implementation {
+        secrets.push("DOCS_TOKEN".to_string());
+    }
+    // One agy candidate holding `library-docs` alone, as the resolver
+    // seals it past the fence.
+    let mut outcome = Outcome {
+        native: NativePlan::Unmeasured {
+            declaration: None,
+            reason: "synthetic".into(),
+            provenance: brokkr_protocol::native_controls::Provenance::default(),
+        },
+        provider: "agy".into(),
+        harness: "agy".into(),
+        model: Some("agy-neon".into()),
+        notices: Vec::new(),
+        not_held: BTreeMap::new(),
+        held: BTreeMap::new(),
+    };
+    outcome.held.insert("library-docs".to_string(), holding);
+    let authority = Authority::nothing("private", dir.path());
+    let asks = SiteAsks::at(SeatClass::Work, "research", None, None).unwrap();
+    for invocation in [McpInvocation::Cold, McpInvocation::Replacement] {
+        let (shape, ambient) = entry(invocation, McpHands::Boxed, LEGACY);
+        let store_read = agy.mcp.isolation(&shape).store_read;
+        let McpAxis::Unmeasured(McpUnmeasured::Declared(why)) = &store_read else {
+            panic!("{shape}: {store_read:?}");
+        };
+        assert!(
+            why.contains("on 1.5.14, not this shape's 1.5.13: "),
+            "{why}"
+        );
+        let site = mcp::McpSite {
+            intent: Some(McpIntent::Hands),
+            adapter: Some(agy),
+            strict: vec![(shape, ambient)],
+            networked: false,
+        };
+        let mut judged = outcome.clone();
+        let judgment = site.contribute(authority.who(&asks), &asks.asks, &mut judged);
+        let refused = mcp::Unservable::SecretsUnprotected("library-docs".into());
+        assert_eq!(judgment, Err(refused));
+    }
+}

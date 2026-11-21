@@ -52,3 +52,4 @@ Changes merged since v0.15.1 that the next release's notes carry.
   never runs with agy's native tools. The unboxed launch
   is unchanged ([provider
   adapters](../guides/provider-adapters.md#a-boxed-agy-seat)).
+- **An agy seat never starts agy's self-updater** (#1224): every agy child carries `AGY_CLI_DISABLE_AUTO_UPDATE=true`, and a seat that binds that name is refused.

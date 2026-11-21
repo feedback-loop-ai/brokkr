@@ -84,16 +84,30 @@ fn a_boxed_seat_with_allow_is_refused_before_agy_starts_and_leaves_no_home() {
 }
 
 /// What one seat on `input` handed agy through the fake: its argv, and its
-/// HOME's MCP and hooks documents as they were written.
-fn handed(input: impl FnOnce(&World) -> Value) -> (Vec<String>, String, String) {
+/// HOME's MCP and hooks documents as they were written, beside the update
+/// switch it started with while the engine's own environment held `1`,
+/// the value that does not stop the updater (`updater-disabled`).
+fn handed(input: impl FnOnce(&World) -> Value) -> (Vec<String>, String, String, String) {
     let mut world = World::new();
+    world.env.set(AUTO_UPDATE, "1");
     let bin = fake_agy(&world.seat(), TOOL_LESS, "", true, 0);
     let input = input(&world);
     let messages = world.run(&bin, &["--model", FLASH, "--effort", "low"], input, None);
     let (status, _, _) = ended(&messages).unwrap();
     assert_eq!(status, crate::ResultStatus::Succeeded);
     let argv = world.recorded("argv").lines().map(str::to_string).collect();
-    (argv, world.recorded("mcp"), world.recorded("hooks"))
+    let documents = (world.recorded("mcp"), world.recorded("hooks"));
+    (argv, documents.0, documents.1, world.recorded("update"))
+}
+
+/// D1: every agy child, boxed or not, starts with agy's self-updater
+/// switched off by the one value measured to (`updater-disabled-true`),
+/// over the engine's own `1`.
+#[test]
+fn every_agy_child_starts_with_the_self_updater_off_over_the_engines_own_value() {
+    let (.., open) = handed(|world| world.input(None));
+    let (.., boxed) = handed(boxed_input);
+    assert_eq!([open.as_str(), boxed.as_str()], ["true", "true"]);
 }
 
 /// The unboxed launch's hooks document, its gate run by `PROGRAM`.
@@ -114,8 +128,8 @@ fn hooks_run_by(template: &str, program: &str) -> String {
 /// hands server.
 #[test]
 fn a_boxed_launch_differs_from_the_unboxed_in_its_mode_list_rules_and_document_alone() {
-    let (open_argv, open_mcp, open_hooks) = handed(|world| world.input(None));
-    let (boxed_argv, boxed_mcp, boxed_hooks) = handed(boxed_input);
+    let (open_argv, open_mcp, open_hooks, _) = handed(|world| world.input(None));
+    let (boxed_argv, boxed_mcp, boxed_hooks, _) = handed(boxed_input);
     let tail = ["--model", FLASH, "--effort", "low", "--settings"];
     let open = [&LEAD[1..], &tail, &[r#"{"permissions":{"allow":[]}}"#]].concat();
     assert_eq!(open_argv, open);
@@ -208,7 +222,7 @@ fn an_agy_launch_under_a_boundary_that_boxes_is_boxed_or_refused_never_native() 
     }
     for stands in [Harness, Open] {
         let serving = sealed(stands, "empty", json!("measured"), "standing");
-        let (argv, mcp, hooks) = handed(|world| world.input(Some(serving)));
+        let (argv, mcp, hooks, _) = handed(|world| world.input(Some(serving)));
         assert!(argv
             .windows(2)
             .any(|pair| pair == ["--mode", "accept-edits"]));

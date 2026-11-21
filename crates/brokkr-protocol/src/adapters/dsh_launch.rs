@@ -608,7 +608,9 @@ mod tests {
     /// a cold seat has no offer to confirm, a rejoin whose init event has
     /// not named the offer has nothing to settle, a settled watch is not
     /// revisited, and only a named, unsettled rejoin settles on the idle
-    /// tick (decision 0103 ruling 4(a); design D7).
+    /// tick (decision 0103 ruling 4(a); design D7). It holds with no `HOME`
+    /// and no `DSH_HOME` in the process, as while another test holds them
+    /// away (#1224).
     #[test]
     fn the_between_lines_poll_settles_only_a_named_unsettled_offer() {
         fn poll_once(launch: &DshLaunch, watch: &mut DshRootWatch) -> (bool, usize) {
@@ -635,6 +637,9 @@ mod tests {
             (answered, observed)
         }
 
+        let mut env = EnvGuard::lock();
+        env.remove("HOME");
+        env.remove("DSH_HOME");
         let dir = tempfile::tempdir().unwrap();
         crate::adapters::tests::plant_dsh_session(dir.path(), "seat", "--w--", "session-1", 27);
         let root = dir.path().join("seat");

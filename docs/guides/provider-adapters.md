@@ -592,6 +592,17 @@ so it walks up from the path the driver checked. A seat that binds a
 secret named `PWD` is refused before the CLI starts, as one that binds
 `HOME` is.
 
+**The engine switches agy's self-update off for its seats.** A plain turn
+starts agy's background updater, which replaced the operator's binary
+during a run (`updater-default`). Every agy child the driver starts,
+boxed or not, carries `AGY_CLI_DISABLE_AUTO_UPDATE=true`, set over the
+engine's own environment as HOME is: `true` stops the turn from starting
+the updater (`updater-disabled-true`), and `1` does not
+(`updater-disabled`). A seat that binds a secret of that name is refused
+before the CLI starts, as one that binds `HOME` is. The operator's own use
+of `agy` still updates the binary, and an updated binary is a version the
+record did not measure; `brokkr doctor` shows the version it observes.
+
 A path the check cannot read refuses, naming it. A working directory that
 cannot be resolved refuses, named as the seat gave it, and one that
 resolves to a path that is not UTF-8 refuses, naming it escaped.
@@ -663,9 +674,14 @@ office's grants.
 
 The boxed seat is still provisional and untrusted: a work seat in an office
 `provisional_offices` lists, never a gate or a judge, and never resumed.
-Store reads are not measured boxed, so an MCP capability that binds a
-secret is refused at a boxed agy seat. Not measured: a box whose reach
-names a store, a bind or the network; a boxed turn on Neon, Hydrogen or
+Store reads stay `unmeasured` boxed, so an MCP capability that binds a
+secret is refused at a boxed agy seat: on 1.5.14, not the shapes' 1.5.13,
+the hands tool was denied a sealed store at its production path
+(`box-store-drive`, control `box-store-drive-control`) and the native
+`read_file` and `run_command` were denied by name under the driver's gate
+(`box-store`), and the axis is declared when one version has measured
+every axis of the shape. Not measured: a box whose reach names a bind or
+the network; a boxed turn on Neon, Hydrogen or
 Argon; and any boxed turn through `brokkr driver agy` itself, since the
 record's turns ran agy by hand.
 
@@ -1251,7 +1267,7 @@ stands and nothing here is claimed. The evidence is
 | `lanetally` | Cold and replacement without hands, through the wrapper itself: launcher sha256 `b886c95ab275956bfef3ba0d9e6c617ec0878abdbddbd7369d2fe27903205dfb` running LaneTally's session-wrapper.sh at 4614bb7, sha256 `ecac09b98a39eeb618812e4d5838c35f0b9ed48482d345befed4f198fbc325d7`, over Claude Code 2.1.287 (cold) and 2.1.308 (replacement). | Process reads; store read is `unsupported`, and native write is `unsupported` cold and unmeasured on replacement. A different wrapper is a different measurement. |
 | `exec` | `inapplicable`: no model MCP surface. | — |
 | `qoder` (example) | Cold and replacement without hands: Qoder CLI 1.1.92, against planted user, local, project and plugin sentinels (Q07, Q10, Q11, Q14, Q15 in [`qoder-cli-1-1.md`](../evidence/adapters/qoder-cli-1-1.md#mcp-isolation-si2)). Every launch carries `--strict-mcp-config --mcp-config <the engine's file> --setting-sources ""`: either flag alone still started a planted server. | Native write, store read and process read: Qoder's permission check refused the attempts, and that check is not an isolation mechanism. No boxed shape, so a site that boxes its hands refuses the seat. A managed or enterprise MCP configuration. |
-| `agy` (example) | Cold and replacement without hands: Antigravity CLI 1.5.13, against planted user, plugin, workspace, parent, workspace-plugin and added-directory sentinels (`iso-01` to `iso-06` in [`agy-cli-1-5.md`](../evidence/adapters/agy-cli-1-5.md#mcp-isolation-si2)). Every launch runs under an engine HOME of its own, which started none of the user's servers, and a workspace carrying `<dir>/.agents/mcp_config.json`, `<dir>/.agents/plugins` or `<dir>/.agents/hooks.json` in the working directory or any directory above it is refused before spawn, because agy starts those in a workspace nobody trusted (`iso-02`). Cold and replacement, boxed: the same version, under a HOME whose one server is the engine's, which started and answered (`iso-07`, `box-engine-workspace-tool`); with the gate listing `call_mcp_tool` alone, native writes and the native shell were denied by name, and the hands tool's command saw 4 entries in `/proc` (`box-other-natives`, `box-reach`, in the [fourth measurement](../evidence/adapters/agy-cli-1-5.md#fourth-measurement-for-level-3-2026-11-20-and-2026-11-21)). The native denial is the gate's, in agy's own process on the host, not a boundary of the operating system. | Without hands: native write, store read and process read, since the record's host has no terminal sandbox. Boxed: store read is `unmeasured` (the native `read_file` was denied by name, and no box whose reach names a store was measured), so an MCP capability that binds a secret is refused; a box whose reach names a bind or the network; Neon, Hydrogen and Argon boxed; any turn through `brokkr driver agy` itself. macOS. |
+| `agy` (example) | Cold and replacement without hands: Antigravity CLI 1.5.13, against planted user, plugin, workspace, parent, workspace-plugin and added-directory sentinels (`iso-01` to `iso-06` in [`agy-cli-1-5.md`](../evidence/adapters/agy-cli-1-5.md#mcp-isolation-si2)). Every launch runs under an engine HOME of its own, which started none of the user's servers, and a workspace carrying `<dir>/.agents/mcp_config.json`, `<dir>/.agents/plugins` or `<dir>/.agents/hooks.json` in the working directory or any directory above it is refused before spawn, because agy starts those in a workspace nobody trusted (`iso-02`). Cold and replacement, boxed: the same version, under a HOME whose one server is the engine's, which started and answered (`iso-07`, `box-engine-workspace-tool`); with the gate listing `call_mcp_tool` alone, native writes and the native shell were denied by name, and the hands tool's command saw 4 entries in `/proc` (`box-other-natives`, `box-reach`, in the [fourth measurement](../evidence/adapters/agy-cli-1-5.md#fourth-measurement-for-level-3-2026-11-20-and-2026-11-21)). The native denial is the gate's, in agy's own process on the host, not a boundary of the operating system. | Without hands: native write, store read and process read, since the record's host has no terminal sandbox. Boxed: store read is `unmeasured` (a sealed store was denied to the hands tool and to the native tools on 1.5.14 alone, not the shapes' version: `box-store-drive`, `box-store`), so an MCP capability that binds a secret is refused; a box whose reach names a bind or the network; Neon, Hydrogen and Argon boxed; any turn through `brokkr driver agy` itself. macOS. |
 
 A shape's `measured_on.version` is not compared with the version of
 the harness installed: a measurement stays applied after the binary

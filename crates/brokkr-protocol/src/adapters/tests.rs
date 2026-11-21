@@ -5576,9 +5576,18 @@ pub(super) fn dsh_stream_launch(
         root: root.to_path_buf(),
         workdir: ".".to_string(),
         overlay: dsh_seat_overlay_with(None, None, root, None, None).unwrap(),
-        home: crate::transcript::DshHome::operator().unwrap(),
+        home: dsh_planted_home(root),
         hands: None,
     }
+}
+
+/// The operator home a seat's `root` was planted under
+/// ([`plant_dsh_session`]), given by the caller's own path and never read
+/// from the process's `HOME`, which another test may hold away (#1224).
+#[cfg(unix)]
+fn dsh_planted_home(root: &std::path::Path) -> crate::transcript::DshHome {
+    let home = root.parent().expect("a seat root is planted under a home");
+    crate::transcript::DshHome::Operator(home.to_path_buf())
 }
 
 /// [`dsh_stream_launch`] with no recorded digest and no `--effort` pin.
