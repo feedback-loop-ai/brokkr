@@ -582,7 +582,7 @@ pub fn brokkr_store::Store::index_checkpoints(&self, &str, &str, core::option::O
 pub fn brokkr_store::Store::index_trail(&self, &str) -> core::result::Result<alloc::vec::Vec<u64>, brokkr_store::StoreError>
 pub fn brokkr_store::Store::reads_index(&self) -> core::result::Result<bool, brokkr_store::StoreError>
 impl brokkr_store::Store
-pub fn brokkr_store::Store::envelopes_of_checkpoints(&self, &str, u64, u64) -> core::result::Result<alloc::vec::Vec<brokkr_core::envelope::EventEnvelope>, brokkr_store::StoreError>
+pub fn brokkr_store::Store::envelopes_of_engine_markers(&self, &str, u64, u64) -> core::result::Result<alloc::vec::Vec<brokkr_core::envelope::EventEnvelope>, brokkr_store::StoreError>
 pub fn brokkr_store::Store::envelopes_of_member_markers(&self, &str, &[&str], u64) -> core::result::Result<alloc::vec::Vec<brokkr_core::envelope::EventEnvelope>, brokkr_store::StoreError>
 pub fn brokkr_store::Store::last_event(&self, &str, u64) -> core::result::Result<core::option::Option<brokkr_core::envelope::EventEnvelope>, brokkr_store::StoreError>
 pub fn brokkr_store::Store::load_after(&self, &str, u64, &str) -> core::result::Result<alloc::vec::Vec<brokkr_core::envelope::EventEnvelope>, brokkr_store::StoreError>

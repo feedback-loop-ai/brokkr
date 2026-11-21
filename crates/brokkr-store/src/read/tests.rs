@@ -236,3 +236,41 @@ fn last_event_reads_one_row_by_its_key() {
         Err(StoreError::UnknownHead { seq }) if seq == u64::MAX
     ));
 }
+
+/// #1212 (1212b): the verdicts window's marker read searches the run's
+/// primary-key range between its bounds and reads each envelope by its
+/// key, in the key's order with no sort of its own, never scanning another
+/// run's rows: every other step of its plan is nested in the stored
+/// checkpoint's walk, one correlated subquery per row.
+#[test]
+fn the_engine_markers_search_the_run_s_key_range() {
+    let dir = tempfile::tempdir().unwrap();
+    let (store, run) = imported(dir.path());
+    let sql = format!("EXPLAIN QUERY PLAN {}", *super::ENGINE_MARKERS);
+    let mut statement = store.conn.prepare(&sql).unwrap();
+    let steps = statement.query_map(rusqlite::params![run, 1, 9], |row| {
+        Ok((row.get::<_, i64>(1)?, row.get::<_, String>(3)?))
+    });
+    let top: Vec<String> = (steps.unwrap().map(Result::unwrap))
+        .filter(|(parent, _)| *parent == 0)
+        .map(|(_, detail)| detail.split(' ').take(3).collect::<Vec<_>>().join(" "))
+        .collect();
+    assert_eq!(
+        top,
+        [
+            "SEARCH i USING",
+            "SEARCH e USING",
+            "CORRELATED SCALAR SUBQUERY",
+            "CORRELATED SCALAR SUBQUERY",
+        ]
+    );
+    let keyed = test_support::plan(&store, &super::ENGINE_MARKERS, rusqlite::params![run, 1, 9]);
+    let keyed = keyed.unwrap();
+    assert_eq!(
+        keyed[..2],
+        [
+            "SEARCH i USING PRIMARY KEY (run_id=? AND seq>? AND seq<?)",
+            "SEARCH e USING INDEX sqlite_autoindex_events_1 (run_id=? AND seq=?)",
+        ]
+    );
+}

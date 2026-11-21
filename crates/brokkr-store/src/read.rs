@@ -17,14 +17,51 @@ const ROWS_THROUGH: &str = "SELECT (SELECT count(*) FROM events
          WHERE run_id = head.value ->> 0 AND seq <= head.value ->> 1)
      FROM json_each(?1) AS head ORDER BY head.key";
 
-/// A run's checkpoints between two seqs, both held, in seq order: the
-/// rows a frame's trail omits, read through the primary key's range within
-/// the window it names.
-static CHECKPOINTS_BETWEEN: LazyLock<String> = LazyLock::new(|| {
+/// The engine's step record's `step` word (`EngineMarker::StepFinished`).
+const STEP_FINISHED: &str = "sequence-step-finished";
+
+/// The engine's panel member's marker's `step` word
+/// (`EngineMarker::MemberFinished`).
+const MEMBER_FINISHED: &str = "panel-member-finished";
+
+/// Whether the `events` row aliased `event` holds a stored checkpoint that
+/// is the engine's own marker whose `step` is one of `steps`: the
+/// checkpoint object serde reads, the payload's last `checkpoint`, as the
+/// index's own projection reads it and never `json_extract`'s first, whose
+/// last `step` is one of `steps` and whose last `authored` is the
+/// engine's. The one home of that read and of its words, which every
+/// marker statement here shares (#1212), held to `EngineMarker::record` by
+/// the store's tests.
+fn engine_marker(event: &str, steps: &[&str]) -> String {
+    let checkpoint = format!(
+        "(SELECT value FROM {} WHERE key = 'checkpoint' ORDER BY id DESC LIMIT 1)",
+        payload(&format!("{event}.envelope"))
+    );
+    let entries =
+        format!("json_each(CASE WHEN json_valid({checkpoint}) THEN {checkpoint} ELSE '{{}}' END)");
+    let words: Vec<String> = steps.iter().map(|step| format!("'{step}'")).collect();
     format!(
-        "SELECT seq FROM event_index
-         WHERE run_id = ?1 AND seq >= ?2 AND seq <= ?3 AND type = '{CHECKPOINTED}'
-         ORDER BY seq"
+        "{step} IN ({words}) AND {authored} = 'engine'",
+        step = last_text(&entries, "step"),
+        words = words.join(", "),
+        authored = last_text(&entries, "authored"),
+    )
+}
+
+/// A run's checkpoints between two seqs, both held, that are the engine's
+/// own markers, a step record or a panel member's finish, in seq order:
+/// the only checkpoints a verdicts window reads (#1212), found through the
+/// primary key's range and filtered on the stored checkpoint before any
+/// envelope is decoded, so a seat turn, telemetry or a driver's record of
+/// either word is never read.
+static ENGINE_MARKERS: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT i.seq FROM event_index AS i
+         JOIN events AS e ON e.run_id = i.run_id AND e.seq = i.seq
+         WHERE i.run_id = ?1 AND i.seq >= ?2 AND i.seq <= ?3 AND i.type = '{CHECKPOINTED}'
+           AND {marker}
+         ORDER BY i.seq",
+        marker = engine_marker("e", &[STEP_FINISHED, MEMBER_FINISHED]),
     )
 });
 
@@ -36,24 +73,15 @@ static CHECKPOINTS_BETWEEN: LazyLock<String> = LazyLock::new(|| {
 /// (fix round 0109a1r8, R1). `member` alone cannot tell them apart:
 /// `tag_member` writes it on every panel member's checkpoint.
 static MEMBER_MARKERS: LazyLock<String> = LazyLock::new(|| {
-    // The checkpoint object serde reads: the payload's last `checkpoint`,
-    // as the index's own projection reads it, never `json_extract`'s first.
-    let checkpoint = format!(
-        "(SELECT value FROM {} WHERE key = 'checkpoint' ORDER BY id DESC LIMIT 1)",
-        payload("e.envelope")
-    );
-    let entries =
-        format!("json_each(CASE WHEN json_valid({checkpoint}) THEN {checkpoint} ELSE '{{}}' END)");
     format!(
         "SELECT i.seq FROM event_index AS i INDEXED BY event_index_stream
          JOIN events AS e ON e.run_id = i.run_id AND e.seq = i.seq
          WHERE i.run_id = ?1 AND i.attempt_id IN (SELECT value FROM json_each(?2))
            AND i.member IS NOT NULL
            AND i.seq <= ?3 AND i.type = '{CHECKPOINTED}'
-           AND {step} = 'panel-member-finished' AND {authored} = 'engine'
+           AND {marker}
          ORDER BY i.seq",
-        step = last_text(&entries, "step"),
-        authored = last_text(&entries, "authored"),
+        marker = engine_marker("e", &[MEMBER_FINISHED]),
     )
 });
 
@@ -121,18 +149,24 @@ impl Store {
         })
     }
 
-    /// A run's checkpoints in `from..=to`, in seq order, each read by its
-    /// key: the rows a frame's trail omits, read within a window the caller
-    /// bounds (decision 0089 ruling 9, #1212). A journal that reads no
-    /// index must read the run whole instead ([`Store::reads_index`]).
-    pub fn envelopes_of_checkpoints(
+    /// A run's checkpoints in `from..=to` that are the engine's own
+    /// markers, a sequence step's record or a panel member's finish, in seq
+    /// order, found in one query through the primary key's range and each
+    /// read by its key: the only checkpoints a verdicts window holds a
+    /// verdict or a member's mark in (decision 0089 ruling 9, #1212). Each
+    /// is chosen on its stored checkpoint before any envelope is decoded,
+    /// so a seat turn, telemetry or a driver's checkpoint naming either
+    /// word without the engine's authorship is never read. A journal that
+    /// reads no index must read the run whole instead
+    /// ([`Store::reads_index`]).
+    pub fn envelopes_of_engine_markers(
         &self,
         run_id: &str,
         from: u64,
         to: u64,
     ) -> Result<Vec<EventEnvelope>, StoreError> {
         let found = patiently("index", self.patience, &self.path, || {
-            seqs(&self.conn, &CHECKPOINTS_BETWEEN, params![run_id, from, to])
+            seqs(&self.conn, &ENGINE_MARKERS, params![run_id, from, to])
         })?;
         self.envelopes_at(run_id, &found)
     }

@@ -405,27 +405,45 @@ fn a_journal_that_lost_an_index_is_read_as_before_until_restored() {
     assert_eq!(store.index_trail("r").unwrap(), [1]);
 }
 
-/// #1212: a frame's verdict window reads only its checkpoints, in seq
-/// order, within the range it names.
+/// #1212 (1212b): a frame's verdict window reads only the engine's own
+/// markers inside the range it names, in seq order. A seat turn, even one
+/// stamped with the engine's authorship, and a driver's checkpoint naming
+/// either marker's word without it are filtered out before any envelope is
+/// decoded, and so is a marker outside the window. The engine's rows are
+/// written by `EngineMarker` itself, so the query's copy of the words and
+/// their authorship is held to its source.
 #[test]
-fn a_checkpoint_window_reads_only_its_checkpoints() {
+fn a_verdict_window_reads_only_the_engine_s_markers_inside_it() {
+    use brokkr_core::findings::EngineMarker;
     let (_dir, store) = store();
-    let named = |kind| event(kind, json!({"effect_id": "e", "attempt_id": "a"}));
+    let checkpoint = |fields: Json| {
+        event(
+            EventType::EffectCheckpointed,
+            json!({"effect_id": "e", "attempt_id": "a", "checkpoint": fields}),
+        )
+    };
+    let step = || EngineMarker::StepFinished.record(json!({"step_name": "judge"}));
+    let member = || EngineMarker::MemberFinished.record(json!({"member": "m1"}));
     run_of(
         &store,
         "r",
         vec![
-            named(EventType::RunStarted),
-            named(EventType::EffectCheckpointed),
-            named(EventType::EffectCheckpointed),
-            named(EventType::PhaseEntered),
-            named(EventType::EffectCheckpointed),
-            named(EventType::EffectCheckpointed),
+            // Outside the window, before it.
+            checkpoint(step()),
+            checkpoint(json!({"step": "seat-turn", "turn": 1, "member": "m1",
+                              "authored": "engine"})),
+            checkpoint(json!({"step": "sequence-step-finished", "step_name": "judge"})),
+            checkpoint(json!({"step": "panel-member-finished", "member": "m1"})),
+            checkpoint(member()),
+            event(EventType::PhaseEntered, json!({"phase": "p"})),
+            checkpoint(step()),
+            // Outside the window, after it.
+            checkpoint(member()),
         ],
     );
-    let found = store.envelopes_of_checkpoints("r", 3, 5).unwrap();
+    let found = store.envelopes_of_engine_markers("r", 2, 7).unwrap();
     let seqs: Vec<u64> = found.iter().map(|event| event.seq).collect();
-    assert_eq!(seqs, [3, 5]);
+    assert_eq!(seqs, [5, 7]);
 }
 
 /// #1212, L2's review: an attempt's member markers are read by its key,
