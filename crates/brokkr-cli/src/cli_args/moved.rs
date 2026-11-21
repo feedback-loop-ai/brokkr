@@ -62,16 +62,23 @@ impl std::fmt::Display for Moved {
 
 /// The command line as the tree parses it: an old flat spelling in the
 /// verb's place is replaced by its new path, and named, and every other
-/// argument stays exactly as it was typed.
+/// argument stays exactly as it was typed. The verb's place is the first
+/// word, or the second after `help`, so `brokkr help inspect` still
+/// prints the help it printed before the roots nested.
 pub(crate) fn respelled<T: Into<OsString>>(
     argv: impl IntoIterator<Item = T>,
 ) -> (Vec<OsString>, Option<Moved>) {
     let mut argv: Vec<OsString> = argv.into_iter().map(Into::into).collect();
-    let typed = argv.get(1).and_then(|verb| verb.to_str());
+    let at = if argv.get(1).is_some_and(|word| word == "help") {
+        2
+    } else {
+        1
+    };
+    let typed = argv.get(at).and_then(|verb| verb.to_str());
     let Some(&(old, new)) = MOVED.iter().find(|(old, _)| typed == Some(*old)) else {
         return (argv, None);
     };
-    argv.splice(1..2, new.iter().map(OsString::from));
+    argv.splice(at..=at, new.iter().map(OsString::from));
     (argv, Some(Moved { old, new }))
 }
 
