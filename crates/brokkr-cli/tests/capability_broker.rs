@@ -610,7 +610,7 @@ fn granting_mcp(root: &Root) {
 fn the_compile_fence_refuses_an_unused_mcp_grant_only_where_it_stands() {
     let root = Root::new();
     granting_mcp(&root);
-    let ran = root.brokkr(&["compile", "--bundle", ".brokkr"]);
+    let ran = root.brokkr(&["library", "compile", "--bundle", ".brokkr"]);
     if cfg!(target_os = "linux") {
         let compiled: serde_json::Value = serde_json::from_str(&ran.stdout).unwrap();
         return assert_eq!(
