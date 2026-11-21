@@ -163,7 +163,7 @@ impl<'a> SiteCompiler<'a> {
         phase: &str,
         raw: &Value,
     ) -> Result<SeatBody, CompileError> {
-        let (cases_raw, default_raw) = select_cases(phase, raw)?;
+        let (cases_raw, default_raw) = select_cases(phase, raw).map_err(select_refused)?;
         let roots = self.roots;
         let mut cases = BTreeMap::new();
         for (case, body) in cases_raw {
@@ -394,51 +394,85 @@ impl<'a> SiteCompiler<'a> {
 /// A select's closed vocabulary, judged before any case is parsed: its
 /// keys, its `on`, its strategy cases, and a body for every strategy.
 /// Returns the cases and the default.
-fn select_cases<'v>(
-    phase: &str,
+fn select_cases<'v, 'a>(
+    phase: &'a str,
     raw: &'v Value,
-) -> Result<(&'v Map<String, Value>, Option<&'v Value>), CompileError> {
+) -> Result<(&'v Map<String, Value>, Option<&'v Value>), SelectRefusal<'a, 'v>> {
     let select = raw
         .get("select")
         .and_then(Value::as_object)
-        .ok_or_else(|| CompileError::Invalid(format!("seat '{phase}' select must be an object")))?;
+        .ok_or(SelectRefusal::NotObject { phase })?;
     for key in select.keys() {
         if !["on", "cases", "default"].contains(&key.as_str()) {
-            return Err(CompileError::Invalid(format!(
-                "seat '{phase}' select has unknown key '{key}'; known: on, cases, default"
-            )));
+            return Err(SelectRefusal::UnknownKey { phase, key });
         }
     }
     match select.get("on").and_then(Value::as_str) {
         Some("strategy") => {}
-        other => return Err(CompileError::Invalid(format!(
-            "seat '{phase}' select has unknown 'on' {}; known: strategy — the selection vocabulary is closed",
-            other.unwrap_or("<missing>")
-        ))),
+        other => {
+            let on = other.unwrap_or("<missing>");
+            return Err(SelectRefusal::UnknownOn { phase, on });
+        }
     }
     let cases_raw = select
         .get("cases")
         .and_then(Value::as_object)
-        .ok_or_else(|| {
-            CompileError::Invalid(format!("seat '{phase}' select.cases must be an object"))
-        })?;
+        .ok_or(SelectRefusal::CasesNotObject { phase })?;
     for case in cases_raw.keys() {
         if !SELECT_STRATEGIES.contains(&case.as_str()) {
-            return Err(CompileError::Invalid(format!(
-                "seat '{phase}' select has unknown strategy case '{case}'; known: {}",
-                SELECT_STRATEGIES.join(", ")
-            )));
+            return Err(SelectRefusal::UnknownCase { phase, case });
         }
     }
     let has_default = select.get("default").is_some();
     for strategy in SELECT_STRATEGIES {
         if !cases_raw.contains_key(strategy) && !has_default {
-            return Err(CompileError::Invalid(format!(
-                "strategy class '{strategy}' resolves to nothing in seat '{phase}'; add that case or a default"
-            )));
+            return Err(SelectRefusal::Unresolved { phase, strategy });
         }
     }
     Ok((cases_raw, select.get("default")))
+}
+
+/// Why a select seat's closed vocabulary was refused, one variant per
+/// check of [`select_cases`], in its order. `phase` borrows the seat's
+/// name and every other field the select itself; the `Display` is the
+/// operator's text byte for byte, and [`select_refused`] is the one place
+/// it becomes a [`CompileError`] (#353).
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+enum SelectRefusal<'a, 'v> {
+    /// `select` is absent or not an object.
+    #[error("seat '{phase}' select must be an object")]
+    NotObject { phase: &'a str },
+    /// The first key outside `on`, `cases` and `default`, in map order.
+    #[error("seat '{phase}' select has unknown key '{key}'; known: on, cases, default")]
+    UnknownKey { phase: &'a str, key: &'v str },
+    /// `on` is not `strategy`; `<missing>` when absent or not a string.
+    #[error(
+        "seat '{phase}' select has unknown 'on' {on}; known: strategy — the selection vocabulary is closed"
+    )]
+    UnknownOn { phase: &'a str, on: &'v str },
+    /// `cases` is absent or not an object.
+    #[error("seat '{phase}' select.cases must be an object")]
+    CasesNotObject { phase: &'a str },
+    /// The first case outside [`SELECT_STRATEGIES`], in map order.
+    #[error(
+        "seat '{phase}' select has unknown strategy case '{case}'; known: {}",
+        SELECT_STRATEGIES.join(", ")
+    )]
+    UnknownCase { phase: &'a str, case: &'v str },
+    /// The first strategy, in [`SELECT_STRATEGIES`]'s order, with no case
+    /// and no default.
+    #[error(
+        "strategy class '{strategy}' resolves to nothing in seat '{phase}'; add that case or a default"
+    )]
+    Unresolved {
+        phase: &'a str,
+        strategy: &'static str,
+    },
+}
+
+/// A select's refusal as the compile reports it.
+fn select_refused(refusal: SelectRefusal<'_, '_>) -> CompileError {
+    CompileError::Invalid(refusal.to_string())
 }
 
 /// A panel may judge or work, never do both: its members' written classes
@@ -464,3 +498,6 @@ fn refuse_mixed_panel(what: &str, members_raw: &Map<String, Value>) -> Result<()
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests;
