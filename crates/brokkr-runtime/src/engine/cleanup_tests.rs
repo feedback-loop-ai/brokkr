@@ -97,6 +97,7 @@ fn a_refused_checkpoint_keeps_the_received_result_beside_an_unresolved_cleanup()
         seq: 9,
         path: "/".into(),
         contract: "contracts/seat-record.v1.schema.json",
+        settled_member: None,
     };
     let received = succeeded(result.clone());
     let refused = AttemptReport {
@@ -157,7 +158,7 @@ fn a_panel_member_not_proven_over_parks_the_panel_with_its_evidence() {
         ),
     ];
     assert!(matches!(
-        panel_outcome(Aggregate::UnanimousPass, reports.clone()),
+        panel_outcome(Aggregate::UnanimousPass, reports.clone(), Default::default()),
         AttemptOutcome::Indeterminate { reason }
             if reason == "panel members [\"held\"] could not establish completion"
     ));

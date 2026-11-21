@@ -3887,7 +3887,7 @@ fn every_panel_spawn_rechecks_its_layer_and_journals_a_moved_member_failure() {
         input: json!({}),
     }];
     let deadline = std::time::Duration::from_secs(5);
-    let clean = engine
+    let (clean, _) = engine
         .run_panel("effect", "attempt", &runs, deadline, "")
         .unwrap();
     assert!(clean[0].1.accepted);
@@ -3900,7 +3900,7 @@ fn every_panel_spawn_rechecks_its_layer_and_journals_a_moved_member_failure() {
         let original = std::fs::read(&path).unwrap();
         std::fs::write(&path, "moved\n").unwrap();
         for prefix in ["", "step:"] {
-            let reports = engine
+            let (reports, stamped) = engine
                 .run_panel("effect", "attempt", &runs, deadline, prefix)
                 .unwrap();
             assert!(!reports[0].1.accepted, "nothing spawned");
@@ -3908,7 +3908,7 @@ fn every_panel_spawn_rechecks_its_layer_and_journals_a_moved_member_failure() {
                 panic!("moved member ran")
             };
             assert!(error.contains(&format!("changed: {key}")), "{error}");
-            let outcome = panel_outcome(Aggregate::UnanimousPass, reports);
+            let outcome = panel_outcome(Aggregate::UnanimousPass, reports, stamped);
             engine
                 .conclude_single(
                     "effect",
@@ -4055,19 +4055,20 @@ fn an_invalid_boundary_record_fails_at_append_without_writing_the_result() {
         .any(|event| event.event_type == EventType::EffectSucceeded));
     let failed = events.last().unwrap();
     assert_eq!(failed.event_type, EventType::EffectFailed);
-    // The contract named is the one this run's engine wrote: the 0.12
-    // line reads v6 (decision 0065 ruling 8). The boundary's own
+    // The contract named is the one this run's engine wrote: the 0.14
+    // line reads v7 (decision 0109 ruling 1). The boundary's own
     // authority is unchanged — `chroot` is not one of decision 0046's
     // five words under any of these versions, and the invalid value
     // stays out of the diagnostic.
     let refusal = "seat record at journal seq 2 violates \
-                   contracts/seat-record.v6.schema.json at /";
+                   contracts/seat-record.v7.schema.json at /";
     assert_eq!(failed.payload["error"], refusal, "{failed:?}");
-    use brokkr_store::SeatRecordVersion::{V4, V5, V6};
+    use brokkr_store::SeatRecordVersion::{V4, V5, V6, V7};
     for (version, contract) in [
         (V4, "contracts/seat-record.v4.schema.json"),
         (V5, "contracts/seat-record.v5.schema.json"),
         (V6, "contracts/seat-record.v6.schema.json"),
+        (V7, "contracts/seat-record.v7.schema.json"),
     ] {
         let record = json!({"result":"complete", "model":"m", "boundary":"chroot"});
         let path = "/".to_string();
@@ -4076,7 +4077,8 @@ fn an_invalid_boundary_record_fails_at_append_without_writing_the_result() {
             Err(brokkr_store::SeatRecordError {
                 seq: 2,
                 path,
-                contract
+                contract,
+                settled_member: None,
             }),
             "{version:?} refuses a word that is not the realm's"
         );

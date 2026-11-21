@@ -85,9 +85,14 @@ struct Workspace {
 impl Workspace {
     /// A workspace holding a bundle whose one seat is an exec gate with
     /// hands running the bundle's own `./scripts/gate.sh`, and a v4 map
-    /// naming the workspace itself as a realm under `boundary`.
+    /// naming the workspace itself as a realm under `boundary`. The
+    /// workspace is a repository with a clean head, since review is
+    /// decided on the head its check accepted (fix round 0109a1r3, H1).
     fn new(boundary: &str) -> Workspace {
-        let ws = Workspace::fresh();
+        let ws = Workspace {
+            dir: crate::brokkr_folder::clean_repository(),
+            home: tempfile::tempdir().unwrap(),
+        };
         let bundle = ws.bundle_dir();
         std::fs::create_dir_all(bundle.join("scripts")).unwrap();
         std::fs::create_dir_all(bundle.join("roles")).unwrap();

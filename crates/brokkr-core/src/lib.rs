@@ -12,6 +12,7 @@ pub mod ending;
 pub mod entry;
 pub mod envelope;
 pub mod event_index;
+pub mod findings;
 pub mod fold;
 pub mod gate_moved_head;
 pub mod keep_refs;

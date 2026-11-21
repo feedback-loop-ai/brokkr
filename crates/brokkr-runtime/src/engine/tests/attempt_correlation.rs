@@ -38,6 +38,9 @@ read -r done
 
 fn configured_engine(foreign_review: bool) -> (tempfile::TempDir, Engine) {
     let (dir, mut engine) = engine(single_body(vec!["unused".into()]));
+    // Review is decided on the head its check accepted, so the worktree
+    // has one (fix round 0109a1r3, H1).
+    super::git_commit(&engine.repo, "base");
     for (phase, result) in [
         ("work", "complete"),
         ("review", "clean"),

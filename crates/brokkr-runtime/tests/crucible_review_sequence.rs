@@ -821,7 +821,7 @@ fn chief_a_nonterminal_stop_does_not_skip_the_refusal() {
         "the final step runs and its refusing result is the effect's"
     );
     assert!(
-        succeeded.payload.get("step").is_none(),
+        succeeded.payload.get("why").is_none(),
         "the final step settles the effect; no early ending skipped it"
     );
     assert!(
@@ -858,7 +858,7 @@ fn chief_checkpoint_reaches_final_refusal_control() {
         "the final step's refusing result is the effect's"
     );
     assert!(
-        succeeded.payload.get("step").is_none(),
+        succeeded.payload.get("why").is_none(),
         "the final step settles the effect"
     );
     assert_eq!(
@@ -890,7 +890,7 @@ fn a_hard_arm_that_does_not_stop_does_not_skip_the_final_step() {
         "the final step's refusing result is the effect's"
     );
     assert!(
-        succeeded.payload.get("step").is_none(),
+        succeeded.payload.get("why").is_none(),
         "the final step settles the effect; no early ending skipped it"
     );
     let decided = events

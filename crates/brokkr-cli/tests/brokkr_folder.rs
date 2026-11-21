@@ -73,6 +73,9 @@ impl Repo {
         let root = dir.path().canonicalize().unwrap().join("repo");
         std::fs::create_dir_all(&root).unwrap();
         git(&root, &["init", "-q"]);
+        // Review is decided on the head its check accepted, so the
+        // repository has one (fix round 0109a1r3, H1).
+        git(&root, &BASE_COMMIT);
         Repo {
             root,
             aside: aside.path().canonicalize().unwrap(),
@@ -238,6 +241,58 @@ impl Repo {
 
 pub(crate) fn completes() -> Value {
     json!([{"behavior": "succeed", "result": {"result": "complete"}}])
+}
+
+/// An empty commit with a fixed identity and no signature, so a fresh
+/// repository has a HEAD a run's review can be checked on (fix round
+/// 0109a1r3, H1).
+pub(crate) const BASE_COMMIT: [&str; 12] = [
+    "-c",
+    "user.name=Brokkr Test",
+    "-c",
+    "user.email=brokkr@test",
+    "-c",
+    "commit.gpgSign=false",
+    "commit",
+    "-q",
+    "--allow-empty",
+    "--no-verify",
+    "-m",
+    "base",
+];
+
+/// A temporary directory that is a git repository with a clean head:
+/// everything it will hold is ignored, so a run's review is checked on its
+/// head and its ship reads the tree as clean (fix round 0109a1r3, H1).
+pub(crate) fn clean_repository() -> tempfile::TempDir {
+    let dir = tempfile::tempdir().unwrap();
+    clean_head(dir.path());
+    dir
+}
+
+/// A [`clean_repository`] laid out for an inline `work` seat under
+/// `policy`: its bundle's roles, agent charters, adapters and state
+/// directories, the policy, and the work seat's role and charter, which an
+/// inline seat's file map pins inside its own bundle (decision 0066
+/// ruling 5).
+pub(crate) fn inline_work_seat(policy: &str) -> tempfile::TempDir {
+    let dir = clean_repository();
+    for sub in ["bundle/roles", "agents/charters", "adapters", "state"] {
+        std::fs::create_dir_all(dir.path().join(sub)).unwrap();
+    }
+    std::fs::write(dir.path().join("bundle/policy.json"), policy).unwrap();
+    std::fs::write(dir.path().join("bundle/roles/work.md"), "# work\n").unwrap();
+    std::fs::write(dir.path().join("agents/charters/work.md"), "# work\n").unwrap();
+    dir
+}
+
+/// `dir`, created when needed, made a git repository with a clean head as
+/// [`clean_repository`] makes one: the fixture a run operates in place.
+pub(crate) fn clean_head(dir: &Path) {
+    std::fs::create_dir_all(dir).unwrap();
+    git(dir, &["init", "-q"]);
+    std::fs::write(dir.join(".gitignore"), "*\n").unwrap();
+    git(dir, &BASE_COMMIT);
 }
 
 pub(crate) fn git(dir: &Path, args: &[&str]) -> String {

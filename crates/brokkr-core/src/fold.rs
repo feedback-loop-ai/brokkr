@@ -8,14 +8,14 @@
 use std::collections::BTreeMap;
 use std::fmt;
 
-use serde_json::{Map, Value};
+use serde_json::Value;
 use thiserror::Error;
 
 use crate::decision::{Decision, PhaseResult, ReviewedHeads};
 use crate::envelope::{EventEnvelope, EventType};
 use crate::gate_moved_head;
 use crate::payload;
-use crate::policy::{CONSECUTIVE_FAILURES, REVIEWED_HEADS, STRATEGIES, STRATEGY, STRATEGY_PHASE};
+use crate::policy::{CONSECUTIVE_FAILURES, REVIEWED_HEADS, STRATEGIES, STRATEGY_PHASE};
 
 mod operator;
 use operator::{accept, command};
@@ -32,6 +32,10 @@ pub use receipt::ReceiptReason;
 
 mod run;
 pub use run::{ParkReason, Run};
+mod inputs;
+pub use inputs::computed_inputs;
+mod observation;
+pub use observation::{StepObservation, StepRecords};
 
 /// Results that universally count toward the consecutive-failure counter,
 /// matching the production table's retry/hard-stop rules. A strategy-local
@@ -225,6 +229,11 @@ pub struct RunState {
     /// [`fold_onto`] so a repair read from the rest of the journal checks
     /// exactly the types the whole fold checks.
     pub tail_types: BTreeMap<u64, EventType>,
+    /// The in-flight attempt's engine-authored step records, which decide
+    /// holds the attempt's result to, against what its body owes (X1).
+    pub step_records: StepRecords,
+    /// The sequence step the latest success names as its producer (W1).
+    pub ending_step: Option<String>,
 }
 
 impl RunState {
@@ -516,6 +525,8 @@ pub fn fold(events: &[EventEnvelope]) -> Result<RunState, FoldError> {
         late_tail: None,
         terminal_seq: None,
         tail_types: BTreeMap::new(),
+        step_records: StepRecords::default(),
+        ending_step: None,
     };
     fold_onto(state, events)
 }
@@ -622,6 +633,7 @@ fn start(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> {
             seat,
             failed_attempts,
         }) if *open == started.effect_id => {
+            state.step_records = StepRecords::default();
             state.run = Run::Running(Cursor::EffectInFlight {
                 effect_id: started.effect_id.to_string(),
                 attempt_id: started.attempt_id.to_string(),
@@ -649,10 +661,17 @@ fn the_open_effect(
     }
 }
 
-/// At `EffectInFlight`, for the effect it holds.
-fn checkpoint(state: &RunState, event: &EventEnvelope) -> Result<(), FoldError> {
+/// At `EffectInFlight`, for the effect it holds; the in-flight attempt's
+/// engine-authored step records are kept.
+fn checkpoint(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> {
     let checkpointed = payload::EffectCheckpointed::read(event)?;
-    the_open_effect(state, event, checkpointed.effect_id)
+    the_open_effect(state, event, checkpointed.effect_id)?;
+    let flying = matches!(state.run.cursor(), Some(Cursor::EffectInFlight { attempt_id, .. })
+        if event.payload["attempt_id"] == attempt_id.as_str());
+    if flying {
+        state.step_records.record(&event.payload["checkpoint"]);
+    }
+    Ok(())
 }
 
 /// At `EffectInFlight`, for the effect it holds.
@@ -661,6 +680,7 @@ fn succeed(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError>
         the_open_effect(state, event, effect_id)
     })?;
     let (effect_id, result) = (succeeded.effect_id.to_string(), succeeded.result.clone());
+    state.ending_step = (event.payload.get("step").and_then(Value::as_str)).map(str::to_string);
     state.last_result = Some(result.clone());
     conclude(state, Cursor::Decide { effect_id, result });
     Ok(())
@@ -771,28 +791,6 @@ fn park(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> {
 fn conclude_run(state: &mut RunState, run: Run) -> Result<(), FoldError> {
     state.run = run;
     Ok(())
-}
-
-/// The evaluation inputs the ENGINE computes from the journal (never
-/// accepted from a seat): the consecutive-failure counter including the
-/// failure being decided, matching the referee's counting, when the
-/// consecutive-failure rule (`counts_as_failure`) counts `result`.
-/// `counter_read` says whether the phase's rules read the counter.
-pub fn computed_inputs(
-    state: &RunState,
-    phase: &str,
-    result: &str,
-    counter_read: bool,
-) -> Map<String, Value> {
-    let mut inputs = Map::new();
-    if counts_as_failure(result, counter_read) {
-        let prior = state.consecutive_failures.get(phase).copied().unwrap_or(0);
-        inputs.insert(CONSECUTIVE_FAILURES.to_string(), Value::from(prior + 1));
-    }
-    if let Some(strategy) = &state.strategy {
-        inputs.insert(STRATEGY.to_string(), Value::from(strategy.clone()));
-    }
-    inputs
 }
 
 #[cfg(test)]

@@ -60,16 +60,8 @@ impl Workspace {
     /// two falls back — the run every readout below is asked to explain.
     fn new(models: Value) -> Workspace {
         let ws = Workspace {
-            dir: tempfile::tempdir().unwrap(),
+            dir: crate::brokkr_folder::inline_work_seat(POLICY),
         };
-        for sub in ["bundle/roles", "agents/charters", "adapters", "state"] {
-            std::fs::create_dir_all(ws.path().join(sub)).unwrap();
-        }
-        std::fs::write(ws.path().join("bundle/policy.json"), POLICY).unwrap();
-        // An inline seat's role stands inside its own bundle, where the
-        // file map pins it (decision 0066 ruling 5).
-        std::fs::write(ws.path().join("bundle/roles/work.md"), "# work\n").unwrap();
-        std::fs::write(ws.path().join("agents/charters/work.md"), "# work\n").unwrap();
         ws.write(
             "adapters/absent.json",
             json!({
@@ -229,9 +221,18 @@ fn a_run_off_a_terminal_prints_what_it_always_has() {
         let git = git.args(args).current_dir(ws.path());
         assert!(git.status().unwrap().success());
     }
+    // Review is decided on the head its check accepted, which the
+    // decision records (fix round 0109a1r3, H1).
+    let head = Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(ws.path())
+        .output()
+        .unwrap();
+    let head = String::from_utf8(head.stdout).unwrap();
     let printed = |extra: &[&str]| {
         let (run, stdout, stderr) = ws.run_printing(extra);
-        (stdout.replace(&run, "<run>"), stderr.replace(&run, "<run>"))
+        let stdout = stdout.replace(&run, "<run>").replace(head.trim(), "<head>");
+        (stdout, stderr.replace(&run, "<run>"))
     };
     let summary = r#"{
   "consecutive_failures": {
@@ -245,7 +246,11 @@ fn a_run_off_a_terminal_prints_what_it_always_has() {
   "feature": "readouts",
   "last_decision": {
     "from": "review",
-    "inputs": {},
+    "inputs": {
+      "reviewed_heads": {
+        "repo": "<head>"
+      }
+    },
     "next": "done",
     "problem": null,
     "result": "clean",

@@ -3,14 +3,14 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use brokkr_core::fold::RunState;
 use brokkr_core::EventEnvelope;
-use brokkr_protocol::{AttemptOutcome, AttemptReport};
+use brokkr_protocol::AttemptOutcome;
 use serde_json::Value;
 use thiserror::Error;
 
-use super::panel::{outcome_over, panel_outcome};
+use super::panel::{outcome_over, panel_outcome, Members, Stamped};
 use super::worktree::TreeReading;
 use super::{Engine, EngineError};
-use crate::bundle::{Aggregate, ExecutableBody, Invocation, SeatBody, StepBody};
+use crate::bundle::{Aggregate, ExecutableBody, Invocation, MemberFindings, SeatBody, StepBody};
 
 pub(crate) mod facts;
 pub(crate) mod record;
@@ -94,7 +94,11 @@ enum Contribution {
     Carried {
         tag: Tag,
         result: Value,
+        findings: MemberFindings,
         source: String,
+        /// The site the engine's own marker named for the member in its
+        /// source attempt, where it marked one (fix round 0109a1r7, X2).
+        site: Option<String>,
     },
 }
 
@@ -159,9 +163,12 @@ impl CarryPlan {
         self.entries
             .iter()
             .filter_map(|entry| match entry {
-                Contribution::Carried { tag, source, .. } => Some(CarriedEntry {
+                Contribution::Carried {
+                    tag, source, site, ..
+                } => Some(CarriedEntry {
                     member: tag.clone(),
                     attempt_id: source.clone(),
+                    site_ref: site.clone(),
                 }),
                 Contribution::Fresh(_) => None,
             })
@@ -198,8 +205,8 @@ impl CarryPlan {
 
     fn join(
         &self,
-        reports: Vec<(String, AttemptReport)>,
-    ) -> Result<Vec<(String, AttemptOutcome)>, EngineError> {
+        (reports, mut stamped): Members,
+    ) -> Result<(Vec<(String, AttemptOutcome)>, Stamped), EngineError> {
         let mut fresh = BTreeMap::new();
         for (name, report) in reports {
             if fresh.insert(name, report.settled_outcome()).is_some() {
@@ -208,26 +215,26 @@ impl CarryPlan {
         }
         let mut joined = Vec::new();
         for entry in &self.entries {
-            let (tag, outcome) = match entry {
-                Contribution::Fresh(tag) => (
-                    tag,
-                    fresh
-                        .remove(tag.bare(self.step.as_deref()))
-                        .ok_or_else(|| join_defect("missing fresh report"))?,
-                ),
-                Contribution::Carried { tag, result, .. } => (
-                    tag,
+            let bare = entry.tag().bare(self.step.as_deref()).to_owned();
+            let outcome = match entry {
+                Contribution::Fresh(_) => fresh
+                    .remove(&bare)
+                    .ok_or_else(|| join_defect("missing fresh report"))?,
+                Contribution::Carried {
+                    result, findings, ..
+                } => {
+                    stamped.insert(bare.clone(), findings.clone());
                     AttemptOutcome::Succeeded {
                         result: result.clone(),
-                    },
-                ),
+                    }
+                }
             };
-            joined.push((tag.bare(self.step.as_deref()).to_owned(), outcome));
+            joined.push((bare, outcome));
         }
         if !fresh.is_empty() {
             return Err(join_defect("foreign fresh report"));
         }
-        Ok(joined)
+        Ok((joined, stamped))
     }
 }
 
@@ -257,12 +264,12 @@ impl Panelled {
 pub(crate) fn outcome_under(
     aggregate: Aggregate,
     plan: Option<&CarryPlan>,
-    reports: Vec<(String, AttemptReport)>,
+    (reports, stamped): Members,
     span: &PanelSpan,
     attempt: &str,
 ) -> Result<Panelled, EngineError> {
     let Some(plan) = plan else {
-        return Ok(Panelled::Joined(panel_outcome(aggregate, reports)));
+        return Ok(Panelled::Joined(panel_outcome(aggregate, reports, stamped)));
     };
     if let Some(subject) = &plan.subject {
         if !span.holds(subject) {
@@ -277,10 +284,8 @@ pub(crate) fn outcome_under(
             }));
         }
     }
-    Ok(Panelled::Joined(outcome_over(
-        aggregate,
-        plan.join(reports)?,
-    )))
+    let (joined, stamped) = plan.join((reports, stamped))?;
+    Ok(Panelled::Joined(outcome_over(aggregate, joined, stamped)))
 }
 
 pub(crate) fn carry_plan(facts: &CarryFacts, names: &[Tag]) -> Result<CarryPlan, CarryRefusal> {
@@ -424,10 +429,25 @@ fn contributions<'a>(
         });
         match verdict {
             Some((source, result)) => {
+                // The carried member's findings, read once, here, where
+                // the plan reads its journaled result, and only beside the
+                // engine's mark for its source attempt and member (fix
+                // round 0109a1r6, W2): an unmarked payload, a released
+                // engine's raw copy, keeps its result word, and its
+                // findings and `covered` stay in it as unverified legacy
+                // evidence, never the new aggregate's keyed findings.
+                let mut result = result.clone();
+                let mark = source.marked.get(tag);
+                let findings = match mark.is_some() {
+                    true => MemberFindings::taken_from(&mut result),
+                    false => MemberFindings::Read(Vec::new()),
+                };
                 entries.push(Contribution::Carried {
                     tag: tag.clone(),
-                    result: result.clone(),
+                    result,
+                    findings,
                     source: source.id.clone(),
+                    site: mark.cloned().flatten(),
                 });
                 if !sources.iter().any(|at: &&PanelAttempt| at.id == source.id) {
                     sources.push(source);

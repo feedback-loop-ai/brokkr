@@ -484,9 +484,9 @@ pub fn render_prompt(input: &Value, kind: AdapterKind) -> Result<String, StartRe
          you did and why>\"}}
 
 {only} The object carries exactly these top-level \
-         keys — result, inputs, notes — and nothing else: a typed fact goes INSIDE \
+         keys — result, inputs, notes and, from a gate, findings — and nothing else: a typed fact goes INSIDE \
          inputs, and a record with any other top-level key is refused where it is \
-         sealed (decision 0034), which loses the whole attempt. You never decide the next phase — the engine's policy table rules \
+         sealed (decision 0034), which loses the whole attempt. A gate lists each finding it reports in findings as {{\"id\": \"<a stable lowercase id matching ^[a-z0-9][a-z0-9._-]*$, at most 64 bytes, the same on every visit>\", \"file\": \"<repository-relative path>\", \"line\": <positive integer>, \"summary\": \"<one line>\", \"severity\": \"<none, info, low, medium, high or critical>\", \"security\": <true or false>}} and writes no site, covered or follow_ups: the engine writes those (decision 0109). You never decide the next phase — the engine's policy table rules \
          on your typed result.{hands}\n",
         role = role,
         house = house,

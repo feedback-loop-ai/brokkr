@@ -1,11 +1,14 @@
 //! The suffix read (#354): what landed on a run after a head the caller
 //! already verified, and the row reader the whole read shares.
 
+use std::sync::LazyLock;
+
 use brokkr_core::canonical::ZERO_HASH;
 use brokkr_core::envelope::{verify_chain_after, EventEnvelope};
 use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::damage::envelope;
+use crate::event_index::{last_text, payload, seqs, CHECKPOINTED};
 use crate::{patiently, Store, StoreError, HEAD_OF_RUN};
 
 /// The rows of each `[run_id, seq]` pair of the JSON array `?1` at or
@@ -13,6 +16,46 @@ use crate::{patiently, Store, StoreError, HEAD_OF_RUN};
 const ROWS_THROUGH: &str = "SELECT (SELECT count(*) FROM events
          WHERE run_id = head.value ->> 0 AND seq <= head.value ->> 1)
      FROM json_each(?1) AS head ORDER BY head.key";
+
+/// A run's checkpoints between two seqs, both held, in seq order: the
+/// rows a frame's trail omits, read through the primary key's range within
+/// the window it names.
+static CHECKPOINTS_BETWEEN: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT seq FROM event_index
+         WHERE run_id = ?1 AND seq >= ?2 AND seq <= ?3 AND type = '{CHECKPOINTED}'
+         ORDER BY seq"
+    )
+});
+
+/// A run's checkpoints under the attempts of the JSON array `?2` that are
+/// the engine's own `panel-member-finished` marker, at or below a seq, in
+/// seq order: one query over every attempt (#1212, R1), read through the
+/// stream index and filtered on the stored checkpoint before any envelope
+/// is decoded, so a member-tagged seat turn or a step record is never read
+/// (fix round 0109a1r8, R1). `member` alone cannot tell them apart:
+/// `tag_member` writes it on every panel member's checkpoint.
+static MEMBER_MARKERS: LazyLock<String> = LazyLock::new(|| {
+    // The checkpoint object serde reads: the payload's last `checkpoint`,
+    // as the index's own projection reads it, never `json_extract`'s first.
+    let checkpoint = format!(
+        "(SELECT value FROM {} WHERE key = 'checkpoint' ORDER BY id DESC LIMIT 1)",
+        payload("e.envelope")
+    );
+    let entries =
+        format!("json_each(CASE WHEN json_valid({checkpoint}) THEN {checkpoint} ELSE '{{}}' END)");
+    format!(
+        "SELECT i.seq FROM event_index AS i INDEXED BY event_index_stream
+         JOIN events AS e ON e.run_id = i.run_id AND e.seq = i.seq
+         WHERE i.run_id = ?1 AND i.attempt_id IN (SELECT value FROM json_each(?2))
+           AND i.member IS NOT NULL
+           AND i.seq <= ?3 AND i.type = '{CHECKPOINTED}'
+           AND {step} = 'panel-member-finished' AND {authored} = 'engine'
+         ORDER BY i.seq",
+        step = last_text(&entries, "step"),
+        authored = last_text(&entries, "authored"),
+    )
+});
 
 impl Store {
     /// What landed on a run after a head the caller already loaded and
@@ -76,6 +119,46 @@ impl Store {
                 .optional()?;
             raw.map(|raw| envelope(run_id, seq, &raw)).transpose()
         })
+    }
+
+    /// A run's checkpoints in `from..=to`, in seq order, each read by its
+    /// key: the rows a frame's trail omits, read within a window the caller
+    /// bounds (decision 0089 ruling 9, #1212). A journal that reads no
+    /// index must read the run whole instead ([`Store::reads_index`]).
+    pub fn envelopes_of_checkpoints(
+        &self,
+        run_id: &str,
+        from: u64,
+        to: u64,
+    ) -> Result<Vec<EventEnvelope>, StoreError> {
+        let found = patiently("index", self.patience, &self.path, || {
+            seqs(&self.conn, &CHECKPOINTS_BETWEEN, params![run_id, from, to])
+        })?;
+        self.envelopes_at(run_id, &found)
+    }
+
+    /// A run's checkpoints under the attempts `attempts` names that are the
+    /// engine's own `panel-member-finished` marker, at or below `to`, in seq
+    /// order, found in one query through the stream index and each read by
+    /// its key: the markers a verdicts window's cut dropped, which a verdict
+    /// inside that window is read with (decision 0089 ruling 9, #1212). The
+    /// query still parses each named attempt's member-tagged checkpoints up
+    /// to `to`, so its work grows with those attempts, not with the window.
+    /// A member-tagged seat turn and a step record name a member too but
+    /// carry no marker's word and no authorship, so neither is read. A
+    /// journal that reads no index must read the run whole instead
+    /// ([`Store::reads_index`]).
+    pub fn envelopes_of_member_markers(
+        &self,
+        run_id: &str,
+        attempts: &[&str],
+        to: u64,
+    ) -> Result<Vec<EventEnvelope>, StoreError> {
+        let attempts = serde_json::to_string(attempts)?;
+        let found = patiently("index", self.patience, &self.path, || {
+            seqs(&self.conn, &MEMBER_MARKERS, params![run_id, attempts, to])
+        })?;
+        self.envelopes_at(run_id, &found)
     }
 
     /// How many rows each run of `heads` holds at or below its seq, in

@@ -24,7 +24,14 @@ fn digest(relative: &str) -> String {
 /// Recorded from this tree before the agent library existed, plus the
 /// realms map v1 — pinned when decision 0026 landed `forge.realms/v2`
 /// beside it, so "beside, never inside" is machine-checked.
-const FROZEN: [(&str, &str); 39] = [
+const FROZEN: [(&str, &str); 40] = [
+    // Decision 0109 slice 0109a1 lands seat-record v7 beside v6, which was
+    // the new file when decision 0065 slice two landed and is frozen from
+    // here.
+    (
+        "contracts/seat-record.v6.schema.json",
+        "aae18b7ff691cd70bd7c47392a2bb5578dfb1aca3622a097c15ef7b11a6a6749",
+    ),
     // Decision 0103 (accepted) mints the driver-refusal extension beside
     // the frozen v1 family; its bytes are pinned from here. Fix round
     // 430s4a6 L2 re-pins the unreleased file after the shared route form
@@ -809,6 +816,17 @@ fn the_v6_seat_record_lands_beside_its_frozen_predecessor() {
     assert_eq!(
         titled("contracts/seat-record.v6.schema.json"),
         "Forge seat record v6"
+    );
+}
+
+/// Decision 0109 slice 0109a1: a gate's findings, follow-ups and covered
+/// identity arrive as seat-record v7, a new file beside v6, whose bytes
+/// `FROZEN` pins and which did not move.
+#[test]
+fn the_v7_seat_record_lands_beside_its_frozen_predecessor() {
+    assert_eq!(
+        titled("contracts/seat-record.v7.schema.json"),
+        "Forge seat record v7"
     );
 }
 

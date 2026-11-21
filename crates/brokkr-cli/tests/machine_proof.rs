@@ -211,13 +211,19 @@ impl Workspace {
         Workspace::with_policy(script, POLICY)
     }
 
-    fn with_policy(script: Value, policy: &str) -> Workspace {
+    /// A clean repository with the bundle's roles and the state directory.
+    fn bare() -> Workspace {
         let ws = Workspace {
-            dir: tempfile::tempdir().unwrap(),
+            dir: crate::brokkr_folder::clean_repository(),
         };
-        let bundle = ws.bundle_dir();
-        std::fs::create_dir_all(bundle.join("roles")).unwrap();
+        std::fs::create_dir_all(ws.bundle_dir().join("roles")).unwrap();
         std::fs::create_dir_all(ws.path().join("state")).unwrap();
+        ws
+    }
+
+    fn with_policy(script: Value, policy: &str) -> Workspace {
+        let ws = Workspace::bare();
+        let bundle = ws.bundle_dir();
         std::fs::write(bundle.join("policy.json"), policy).unwrap();
         let script_path = ws.path().join("script.json");
         std::fs::write(&script_path, serde_json::to_string(&script).unwrap()).unwrap();
@@ -246,20 +252,17 @@ impl Workspace {
     }
 
     fn triage(script: Value) -> Workspace {
-        let ws = Workspace {
-            dir: tempfile::tempdir().unwrap(),
-        };
-        let bundle = ws.bundle_dir();
-        std::fs::create_dir_all(bundle.join("roles")).unwrap();
-        std::fs::create_dir_all(ws.path().join("dialects")).unwrap();
-        std::fs::create_dir_all(ws.path().join("adapters")).unwrap();
-        std::fs::create_dir_all(ws.path().join("state")).unwrap();
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .parent()
             .unwrap()
             .parent()
             .unwrap()
             .to_path_buf();
+        let ws = Workspace::bare();
+        let bundle = ws.bundle_dir();
+        for sub in ["dialects", "adapters"] {
+            std::fs::create_dir_all(ws.path().join(sub)).unwrap();
+        }
         std::fs::copy(
             root.join("dialects/speckit.json"),
             ws.path().join("dialects/speckit.json"),

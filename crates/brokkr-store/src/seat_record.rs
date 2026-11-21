@@ -1,5 +1,5 @@
 //! Validation of the frozen seat-record contract — v1 (decision 0034)
-//! and v2 (decision 0035) through v6 (decision 0065 ruling 8), never one
+//! and v2 (decision 0035) through v7 (decision 0109 ruling 1), never one
 //! pretending to be another.
 //!
 //! Every schema is embedded beside this module so a packaged `brokkr`
@@ -27,7 +27,9 @@ use thiserror::Error;
 mod validation;
 
 pub use validation::validate_seat_record;
-pub(crate) use validation::{record_of, validate_events};
+pub(crate) use validation::{
+    marked_member, record_of, settled_of, validate_events, validate_settled,
+};
 
 const SCHEMA_V1: &str = include_str!("seat-record.v1.schema.json");
 const SCHEMA_V2: &str = include_str!("seat-record.v2.schema.json");
@@ -35,6 +37,7 @@ const SCHEMA_V3: &str = include_str!("seat-record.v3.schema.json");
 const SCHEMA_V4: &str = include_str!("seat-record.v4.schema.json");
 const SCHEMA_V5: &str = include_str!("seat-record.v5.schema.json");
 const SCHEMA_V6: &str = include_str!("seat-record.v6.schema.json");
+const SCHEMA_V7: &str = include_str!("seat-record.v7.schema.json");
 
 const CONTRACT_V1: &str = "contracts/seat-record.v1.schema.json";
 const CONTRACT_V2: &str = "contracts/seat-record.v2.schema.json";
@@ -42,6 +45,7 @@ const CONTRACT_V3: &str = "contracts/seat-record.v3.schema.json";
 const CONTRACT_V4: &str = "contracts/seat-record.v4.schema.json";
 const CONTRACT_V5: &str = "contracts/seat-record.v5.schema.json";
 const CONTRACT_V6: &str = "contracts/seat-record.v6.schema.json";
+const CONTRACT_V7: &str = "contracts/seat-record.v7.schema.json";
 
 /// The engine line in which seat-record v2 landed. A run whose
 /// `run/started` manifest names an older engine is read under v1.
@@ -102,6 +106,24 @@ const V5_ENGINE: (u64, u64, u64) = (0, 10, 0);
 /// did under v5, and the 0.10 and 0.11 lines are dispatched to v5.
 const V6_ENGINE: (u64, u64, u64) = (0, 12, 0);
 
+/// The engine line in which seat-record v7 landed (decision 0109 ruling
+/// 1, slice 0109a1). Drawn at the 0.14 line, on the same argument as
+/// `V2_ENGINE`: `engine` carries no position within a line. The tagged
+/// 0.14.0 and 0.15.0 engines are v6-era writers in that line, and main's
+/// version still reads 0.15.0 after the tag, so the version cannot tell
+/// them from this contract's writer. v7 therefore adds only optional
+/// properties — `findings`, `follow_ups`, `covered` and `checked_head` on
+/// the successful result, and `authored` on a checkpoint — and its one
+/// new refusal, a checkpoint's nested `result` closed as a successful
+/// result is, is scoped on `authored`, as `V5_ENGINE`'s conditions are
+/// on `site_ref`: the within-row fact only this contract's writer emits,
+/// which v6's closed checkpoint refuses, so no v6-era row carries it
+/// (fix round 0109a1r4, K5). So every record the tagged 0.14.0 and 0.15.0
+/// engines wrote validates under v7 exactly as it did under v6, and the
+/// 0.12 and 0.13 lines are dispatched to v6, where any of the five is
+/// refused.
+const V7_ENGINE: (u64, u64, u64) = (0, 14, 0);
+
 /// Which seat-record contract a record is judged against.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SeatRecordVersion {
@@ -111,6 +133,7 @@ pub enum SeatRecordVersion {
     V4,
     V5,
     V6,
+    V7,
 }
 
 impl SeatRecordVersion {
@@ -126,9 +149,11 @@ impl SeatRecordVersion {
         // name directly to judge a record against it; it is simply never
         // what dispatch chooses. `V2_ENGINE` still draws v1's boundary,
         // `V4_ENGINE` draws v3's (decision 0046), `V5_ENGINE` draws v4's
-        // (proposed decision 0056 ruling 7), and `V6_ENGINE` draws v5's
-        // (decision 0065 ruling 8).
+        // (proposed decision 0056 ruling 7), `V6_ENGINE` draws v5's
+        // (decision 0065 ruling 8), and `V7_ENGINE` draws v6's (decision
+        // 0109 ruling 1).
         match semver_triple(engine) {
+            Some(version) if version >= V7_ENGINE => SeatRecordVersion::V7,
             Some(version) if version >= V6_ENGINE => SeatRecordVersion::V6,
             Some(version) if version >= V5_ENGINE => SeatRecordVersion::V5,
             Some(version) if version >= V4_ENGINE => SeatRecordVersion::V4,
@@ -156,6 +181,7 @@ impl SeatRecordVersion {
             SeatRecordVersion::V4 => CONTRACT_V4,
             SeatRecordVersion::V5 => CONTRACT_V5,
             SeatRecordVersion::V6 => CONTRACT_V6,
+            SeatRecordVersion::V7 => CONTRACT_V7,
         }
     }
 
@@ -167,6 +193,7 @@ impl SeatRecordVersion {
             SeatRecordVersion::V4 => SCHEMA_V4,
             SeatRecordVersion::V5 => SCHEMA_V5,
             SeatRecordVersion::V6 => SCHEMA_V6,
+            SeatRecordVersion::V7 => SCHEMA_V7,
         }
     }
 
@@ -181,6 +208,7 @@ impl SeatRecordVersion {
             SeatRecordVersion::V4 => &VALIDATOR_V4,
             SeatRecordVersion::V5 => &VALIDATOR_V5,
             SeatRecordVersion::V6 => &VALIDATOR_V6,
+            SeatRecordVersion::V7 => &VALIDATOR_V7,
         }
     }
 }
@@ -207,6 +235,13 @@ pub struct SeatRecordError {
     pub path: String,
     /// The published contract the record was judged against.
     pub contract: &'static str,
+    /// The settled member whose marked payload the fence refused, by its
+    /// exact tag, carried as data where the refusal is made (fix round
+    /// 0109a1r8, M4), so no reader recovers it from `path`, which a tag
+    /// holding `/` would cut. `None` for every other refusal. Boxed, so the
+    /// errors that carry a refusal grow by one pointer, within clippy's
+    /// large-error bound.
+    pub settled_member: Option<Box<String>>,
 }
 
 static VALIDATOR_V1: OnceLock<jsonschema::Validator> = OnceLock::new();
@@ -215,6 +250,9 @@ static VALIDATOR_V3: OnceLock<jsonschema::Validator> = OnceLock::new();
 static VALIDATOR_V4: OnceLock<jsonschema::Validator> = OnceLock::new();
 static VALIDATOR_V5: OnceLock<jsonschema::Validator> = OnceLock::new();
 static VALIDATOR_V6: OnceLock<jsonschema::Validator> = OnceLock::new();
+static VALIDATOR_V7: OnceLock<jsonschema::Validator> = OnceLock::new();
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod v7_tests;

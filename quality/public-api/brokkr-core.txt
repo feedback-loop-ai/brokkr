@@ -281,6 +281,115 @@ pub brokkr_core::event_index::Indexed::recorded_at: &'a str
 pub brokkr_core::event_index::Indexed::seq: u64
 impl<'a> brokkr_core::event_index::Indexed<'a>
 pub fn brokkr_core::event_index::Indexed<'a>::of(&'a brokkr_core::envelope::EventEnvelope) -> brokkr_core::event_index::Indexed<'a>
+pub mod brokkr_core::findings
+pub enum brokkr_core::findings::AdmissionRefusal
+pub brokkr_core::findings::AdmissionRefusal::Duplicate
+pub brokkr_core::findings::AdmissionRefusal::Duplicate::id: brokkr_core::findings::FindingId
+pub brokkr_core::findings::AdmissionRefusal::EngineWritten(brokkr_core::findings::EngineWritten)
+pub brokkr_core::findings::AdmissionRefusal::Id
+pub brokkr_core::findings::AdmissionRefusal::Id::index: usize
+pub brokkr_core::findings::AdmissionRefusal::Malformed
+pub brokkr_core::findings::AdmissionRefusal::Malformed::index: usize
+pub brokkr_core::findings::AdmissionRefusal::NotAnArray
+pub brokkr_core::findings::AdmissionRefusal::SeatSite
+pub brokkr_core::findings::AdmissionRefusal::SeatSite::index: usize
+pub brokkr_core::findings::AdmissionRefusal::Unsited
+pub brokkr_core::findings::AdmissionRefusal::WorkSite
+pub enum brokkr_core::findings::CoveredHead
+pub brokkr_core::findings::CoveredHead::Commit(alloc::string::String)
+pub brokkr_core::findings::CoveredHead::Digest(alloc::string::String)
+pub enum brokkr_core::findings::EngineMarker
+pub brokkr_core::findings::EngineMarker::MemberFinished
+pub brokkr_core::findings::EngineMarker::StepFinished
+impl brokkr_core::findings::EngineMarker
+pub fn brokkr_core::findings::EngineMarker::authored(&serde_json::value::Value) -> core::option::Option<brokkr_core::findings::EngineMarker>
+pub fn brokkr_core::findings::EngineMarker::record(self, serde_json::value::Value) -> serde_json::value::Value
+pub fn brokkr_core::findings::EngineMarker::settled_member(&serde_json::value::Value) -> core::option::Option<&str>
+pub enum brokkr_core::findings::EngineWritten
+pub brokkr_core::findings::EngineWritten::CheckedHead
+pub brokkr_core::findings::EngineWritten::Covered
+pub brokkr_core::findings::EngineWritten::FollowUps
+impl brokkr_core::findings::EngineWritten
+pub const fn brokkr_core::findings::EngineWritten::field(self) -> &'static str
+impl core::fmt::Display for brokkr_core::findings::EngineWritten
+pub fn brokkr_core::findings::EngineWritten::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub enum brokkr_core::findings::LiveRefusal
+pub brokkr_core::findings::LiveRefusal::EngineAuthored
+pub brokkr_core::findings::LiveRefusal::Finding
+pub brokkr_core::findings::LiveRefusal::Result(brokkr_core::findings::AdmissionRefusal)
+pub enum brokkr_core::findings::Reporter<'a>
+pub brokkr_core::findings::Reporter::Gate(&'a str)
+pub brokkr_core::findings::Reporter::Work
+pub enum brokkr_core::findings::WordError
+pub brokkr_core::findings::WordError::File
+pub brokkr_core::findings::WordError::Id
+pub brokkr_core::findings::WordError::Site
+pub brokkr_core::findings::WordError::Summary
+pub struct brokkr_core::findings::CheckedHead(_)
+impl brokkr_core::findings::CheckedHead
+pub fn brokkr_core::findings::CheckedHead::as_str(&self) -> &str
+impl core::convert::From<brokkr_core::findings::CheckedHead> for alloc::string::String
+pub fn alloc::string::String::from(brokkr_core::findings::CheckedHead) -> alloc::string::String
+impl core::convert::TryFrom<alloc::string::String> for brokkr_core::findings::CheckedHead
+pub type brokkr_core::findings::CheckedHead::Error = brokkr_core::findings::covered::CoveredError
+pub fn brokkr_core::findings::CheckedHead::try_from(alloc::string::String) -> core::result::Result<brokkr_core::findings::CheckedHead, brokkr_core::findings::covered::CoveredError>
+pub struct brokkr_core::findings::Covered
+impl brokkr_core::findings::Covered
+pub fn brokkr_core::findings::Covered::commit(&str, bool) -> core::option::Option<brokkr_core::findings::Covered>
+pub fn brokkr_core::findings::Covered::digest_of(&str, bool) -> brokkr_core::findings::Covered
+pub fn brokkr_core::findings::Covered::dirty(&self) -> bool
+pub fn brokkr_core::findings::Covered::head(&self) -> &brokkr_core::findings::CoveredHead
+pub fn brokkr_core::findings::Covered::projects(&self, &str) -> bool
+pub struct brokkr_core::findings::Finding
+impl brokkr_core::findings::Finding
+pub fn brokkr_core::findings::Finding::file(&self) -> &brokkr_core::findings::RepoFile
+pub fn brokkr_core::findings::Finding::key(&self) -> brokkr_core::findings::FindingKey
+pub fn brokkr_core::findings::Finding::line(&self) -> core::option::Option<u64>
+pub fn brokkr_core::findings::Finding::security(&self) -> bool
+pub fn brokkr_core::findings::Finding::severity(&self) -> brokkr_core::policy::Severity
+pub fn brokkr_core::findings::Finding::summary(&self) -> &brokkr_core::findings::Summary
+pub struct brokkr_core::findings::FindingId(_)
+impl core::convert::From<brokkr_core::findings::FindingId> for alloc::string::String
+pub fn alloc::string::String::from(brokkr_core::findings::FindingId) -> alloc::string::String
+impl core::convert::TryFrom<alloc::string::String> for brokkr_core::findings::FindingId
+pub type brokkr_core::findings::FindingId::Error = brokkr_core::findings::WordError
+pub fn brokkr_core::findings::FindingId::try_from(alloc::string::String) -> core::result::Result<brokkr_core::findings::FindingId, brokkr_core::findings::WordError>
+impl core::fmt::Display for brokkr_core::findings::FindingId
+pub fn brokkr_core::findings::FindingId::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct brokkr_core::findings::FindingKey
+impl brokkr_core::findings::FindingKey
+pub fn brokkr_core::findings::FindingKey::id(&self) -> &brokkr_core::findings::FindingId
+pub fn brokkr_core::findings::FindingKey::site(&self) -> &brokkr_core::findings::SiteDigest
+pub struct brokkr_core::findings::RepoFile(_)
+impl core::convert::From<brokkr_core::findings::RepoFile> for alloc::string::String
+pub fn alloc::string::String::from(brokkr_core::findings::RepoFile) -> alloc::string::String
+impl core::convert::TryFrom<alloc::string::String> for brokkr_core::findings::RepoFile
+pub type brokkr_core::findings::RepoFile::Error = brokkr_core::findings::WordError
+pub fn brokkr_core::findings::RepoFile::try_from(alloc::string::String) -> core::result::Result<brokkr_core::findings::RepoFile, brokkr_core::findings::WordError>
+impl core::fmt::Display for brokkr_core::findings::RepoFile
+pub fn brokkr_core::findings::RepoFile::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct brokkr_core::findings::SiteDigest(_)
+impl core::convert::From<brokkr_core::findings::SiteDigest> for alloc::string::String
+pub fn alloc::string::String::from(brokkr_core::findings::SiteDigest) -> alloc::string::String
+impl core::convert::TryFrom<alloc::string::String> for brokkr_core::findings::SiteDigest
+pub type brokkr_core::findings::SiteDigest::Error = brokkr_core::findings::WordError
+pub fn brokkr_core::findings::SiteDigest::try_from(alloc::string::String) -> core::result::Result<brokkr_core::findings::SiteDigest, brokkr_core::findings::WordError>
+impl core::fmt::Display for brokkr_core::findings::SiteDigest
+pub fn brokkr_core::findings::SiteDigest::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct brokkr_core::findings::Summary(_)
+impl core::convert::From<brokkr_core::findings::Summary> for alloc::string::String
+pub fn alloc::string::String::from(brokkr_core::findings::Summary) -> alloc::string::String
+impl core::convert::TryFrom<alloc::string::String> for brokkr_core::findings::Summary
+pub type brokkr_core::findings::Summary::Error = brokkr_core::findings::WordError
+pub fn brokkr_core::findings::Summary::try_from(alloc::string::String) -> core::result::Result<brokkr_core::findings::Summary, brokkr_core::findings::WordError>
+impl core::fmt::Display for brokkr_core::findings::Summary
+pub fn brokkr_core::findings::Summary::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub const brokkr_core::findings::AUTHORED: &str
+pub fn brokkr_core::findings::admit(&mut serde_json::value::Value, core::option::Option<brokkr_core::findings::Reporter<'_>>) -> core::result::Result<core::option::Option<alloc::vec::Vec<brokkr_core::findings::Finding>>, brokkr_core::findings::AdmissionRefusal>
+pub fn brokkr_core::findings::admit_live(&mut serde_json::value::Value, core::option::Option<brokkr_core::findings::Reporter<'_>>) -> core::result::Result<(), brokkr_core::findings::LiveRefusal>
+pub fn brokkr_core::findings::by_the_engine(&serde_json::value::Value) -> bool
+pub fn brokkr_core::findings::journal(&mut serde_json::value::Value, &[brokkr_core::findings::Finding])
+pub fn brokkr_core::findings::stamp_authored(&mut serde_json::value::Value)
 pub mod brokkr_core::fold
 pub enum brokkr_core::fold::Cursor
 pub brokkr_core::fold::Cursor::Decide
@@ -385,6 +494,13 @@ pub brokkr_core::fold::Status::Stopped
 impl brokkr_core::fold::Status
 pub const fn brokkr_core::fold::Status::as_str(self) -> &'static str
 pub fn brokkr_core::fold::Status::named(&str) -> core::option::Option<brokkr_core::fold::Status>
+pub enum brokkr_core::fold::StepObservation
+pub brokkr_core::fold::StepObservation::Checked
+pub brokkr_core::fold::StepObservation::Checked::covered: brokkr_core::findings::Covered
+pub brokkr_core::fold::StepObservation::Checked::head: brokkr_core::findings::CheckedHead
+pub brokkr_core::fold::StepObservation::Partial
+pub brokkr_core::fold::StepObservation::Unobserved
+pub brokkr_core::fold::StepObservation::Unreadable
 pub struct brokkr_core::fold::LateTail
 pub brokkr_core::fold::LateTail::event_types: alloc::vec::Vec<brokkr_core::envelope::EventType>
 pub brokkr_core::fold::LateTail::first_seq: u64
@@ -397,6 +513,7 @@ pub fn brokkr_core::fold::LateTail::events(&self) -> impl core::iter::traits::it
 pub fn brokkr_core::fold::LateTail::holds(&self, u64) -> bool
 pub struct brokkr_core::fold::RunState
 pub brokkr_core::fold::RunState::consecutive_failures: alloc::collections::btree::map::BTreeMap<alloc::string::String, u64>
+pub brokkr_core::fold::RunState::ending_step: core::option::Option<alloc::string::String>
 pub brokkr_core::fold::RunState::feature: core::option::Option<alloc::string::String>
 pub brokkr_core::fold::RunState::last_decision: core::option::Option<brokkr_core::decision::Decision>
 pub brokkr_core::fold::RunState::last_hash: alloc::string::String
@@ -409,6 +526,7 @@ pub brokkr_core::fold::RunState::reviewed_heads: core::option::Option<brokkr_cor
 pub brokkr_core::fold::RunState::run: brokkr_core::fold::Run
 pub brokkr_core::fold::RunState::run_id: alloc::string::String
 pub brokkr_core::fold::RunState::seq: u64
+pub brokkr_core::fold::RunState::step_records: brokkr_core::fold::StepRecords
 pub brokkr_core::fold::RunState::stop_accepted_seq: core::option::Option<u64>
 pub brokkr_core::fold::RunState::strategy: core::option::Option<alloc::string::String>
 pub brokkr_core::fold::RunState::tail_types: alloc::collections::btree::map::BTreeMap<u64, brokkr_core::envelope::EventType>
@@ -422,6 +540,10 @@ pub struct brokkr_core::fold::SkippedAnnotation
 pub brokkr_core::fold::SkippedAnnotation::event_type: brokkr_core::envelope::EventType
 pub brokkr_core::fold::SkippedAnnotation::seq: u64
 pub brokkr_core::fold::SkippedAnnotation::word: &'static str
+pub struct brokkr_core::fold::StepRecords
+pub brokkr_core::fold::StepRecords::by_step: alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_core::fold::StepObservation>
+pub brokkr_core::fold::StepRecords::malformed: core::option::Option<brokkr_core::fold::StepObservation>
+pub brokkr_core::fold::StepRecords::order: alloc::vec::Vec<alloc::string::String>
 pub const brokkr_core::fold::FAILURE_RESULTS: [&str; 2]
 pub const brokkr_core::fold::REPAIR: &str
 pub const brokkr_core::fold::SETTLE: &str
@@ -1603,6 +1725,7 @@ impl brokkr_core::ProviderWait
 pub fn brokkr_core::ProviderWait::until_stamp(&self) -> core::result::Result<alloc::string::String, brokkr_core::ProviderWaitError>
 pub struct brokkr_core::RunState
 pub brokkr_core::RunState::consecutive_failures: alloc::collections::btree::map::BTreeMap<alloc::string::String, u64>
+pub brokkr_core::RunState::ending_step: core::option::Option<alloc::string::String>
 pub brokkr_core::RunState::feature: core::option::Option<alloc::string::String>
 pub brokkr_core::RunState::last_decision: core::option::Option<brokkr_core::decision::Decision>
 pub brokkr_core::RunState::last_hash: alloc::string::String
@@ -1615,6 +1738,7 @@ pub brokkr_core::RunState::reviewed_heads: core::option::Option<brokkr_core::dec
 pub brokkr_core::RunState::run: brokkr_core::fold::Run
 pub brokkr_core::RunState::run_id: alloc::string::String
 pub brokkr_core::RunState::seq: u64
+pub brokkr_core::RunState::step_records: brokkr_core::fold::StepRecords
 pub brokkr_core::RunState::stop_accepted_seq: core::option::Option<u64>
 pub brokkr_core::RunState::strategy: core::option::Option<alloc::string::String>
 pub brokkr_core::RunState::tail_types: alloc::collections::btree::map::BTreeMap<u64, brokkr_core::envelope::EventType>

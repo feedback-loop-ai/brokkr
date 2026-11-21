@@ -1,5 +1,6 @@
 use super::tests::event;
 use super::*;
+use brokkr_core::gate_moved_head::MovedHead;
 
 fn marked(start: Option<&str>, end: Option<&str>) -> String {
     gate_moved_head::encode(&MovedHead {

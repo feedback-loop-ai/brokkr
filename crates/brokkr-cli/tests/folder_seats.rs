@@ -128,6 +128,8 @@ impl Scratch {
         for identity in [["user.name", "t"], ["user.email", "t@example.invalid"]] {
             git(repo, &[&["config"][..], &identity[..]].concat());
         }
+        // The run's review is checked on a head (fix round 0109a1r3, H1).
+        git(repo, &crate::brokkr_folder::BASE_COMMIT);
         let (code, _, stderr) = self.brokkr(run);
         assert_eq!(code, Some(3), "{stderr}");
         let run = stderr

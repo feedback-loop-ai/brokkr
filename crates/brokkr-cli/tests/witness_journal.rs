@@ -45,7 +45,14 @@ const GOLDEN: [(&str, &[&str]); 11] = [
         "effect/checkpointed",
         &["attempt_id", "checkpoint", "effect_id"],
     ),
-    ("effect/succeeded", &["attempt_id", "effect_id", "result"]),
+    // `authored`: the engine's within-row mark that the success's result
+    // is its admitted verdict, which no released engine wrote (decision
+    // 0109, fix round 0109a1r6, W6). It is the engine's, not the agent
+    // library's, so every run carries it.
+    (
+        "effect/succeeded",
+        &["attempt_id", "authored", "effect_id", "result"],
+    ),
     (
         "transition/decided",
         &[

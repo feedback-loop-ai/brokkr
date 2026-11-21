@@ -13,10 +13,15 @@ JSON object to exactly this file:\n\n    /result.json\n\nwith the shape:\n\n    
 \"<one of: complete>\",\n      \"inputs\": { ...optional typed facts for the phase machine... },\n      \
 \"notes\": \"<short human summary of what you did and why>\"}\n\nThe file is the ONLY channel the \
 engine reads. Printing the JSON instead of writing the file counts as producing no result. The \
-object carries exactly these top-level keys — result, inputs, notes — and nothing else: a typed \
-fact goes INSIDE inputs, and a record with any other top-level key is refused where it is sealed \
-(decision 0034), which loses the whole attempt. You never decide the next phase — the engine's \
-policy table rules on your typed result.";
+object carries exactly these top-level keys — result, inputs, notes and, from a gate, findings — \
+and nothing else: a typed fact goes INSIDE inputs, and a record with any other top-level key is \
+refused where it is sealed (decision 0034), which loses the whole attempt. A gate lists each \
+finding it reports in findings as {\"id\": \"<a stable lowercase id matching \
+^[a-z0-9][a-z0-9._-]*$, at most 64 bytes, the same on every visit>\", \"file\": \
+\"<repository-relative path>\", \"line\": <positive integer>, \"summary\": \"<one line>\", \
+\"severity\": \"<none, info, low, medium, high or critical>\", \"security\": <true or false>} and \
+writes no site, covered or follow_ups: the engine writes those (decision 0109). You never decide \
+the next phase — the engine's policy table rules on your typed result.";
 
 /// Decision 0043's boxed paragraph, byte for byte.
 const BOXED: &str = "\n\nYour hands are boxed: write the worktree, and this result file, through \
@@ -255,10 +260,15 @@ must be exactly a JSON object, which your harness writes to exactly this file:\n
 { ...optional typed facts for the phase machine... },\n      \"notes\": \"<short human summary \
 of what you did and why>\"}\n\nThe file is the ONLY channel the engine reads; your harness \
 writes your final message there, so a final message that is not the bare object counts as \
-producing no result. The object carries exactly these top-level keys — result, inputs, notes — \
-and nothing else: a typed fact goes INSIDE inputs, and a record with any other top-level key is \
-refused where it is sealed (decision 0034), which loses the whole attempt. You never decide the \
-next phase — the engine's policy table rules on your typed result.\n\nYour hands stand under the \
+producing no result. The object carries exactly these top-level keys — result, inputs, notes \
+and, from a gate, findings — and nothing else: a typed fact goes INSIDE inputs, and a record with \
+any other top-level key is refused where it is sealed (decision 0034), which loses the whole \
+attempt. A gate lists each finding it reports in findings as {\"id\": \"<a stable lowercase id \
+matching ^[a-z0-9][a-z0-9._-]*$, at most 64 bytes, the same on every visit>\", \"file\": \
+\"<repository-relative path>\", \"line\": <positive integer>, \"summary\": \"<one line>\", \
+\"severity\": \"<none, info, low, medium, high or critical>\", \"security\": <true or false>} and \
+writes no site, covered or follow_ups: the engine writes those (decision 0109). You never decide \
+the next phase — the engine's policy table rules on your typed result.\n\nYour hands stand under the \
 `harness` boundary: no workspace tool of Brokkr's is served, and you run under your harness's \
 own read-only sandbox. Your FINAL message must be exactly the result object above and nothing \
 else — the harness writes that message to the result path, so you do not write the file \

@@ -21,7 +21,7 @@ those bytes:
 |---|---|---|
 | Attempt-bound dispatch | `dispatch-envelope.v2.schema.json` | Looper, brokkr-core, Brokkr bridge |
 | Looper-bound run manifest | `run-manifest.v2.schema.json` | brokkr-runtime, brokkr-store export/resume, Brokkr bridge |
-| Seat record | `seat-record.v1.schema.json` | every driver, brokkr-store append/export/verify, every seat readout (superseded for new runs by `seat-record.v6.schema.json`, below) |
+| Seat record | `seat-record.v1.schema.json` | every driver, brokkr-store append/export/verify, every seat readout (superseded for new runs by `seat-record.v7.schema.json`, below) |
 
 The v2 manifest embeds the complete canonical dispatch envelope. The existing
 `runs.manifest` immutability trigger therefore makes Looper correlation,
@@ -1161,3 +1161,64 @@ kills, retries or admits an attempt reads it. `brokkr recipes usage`
 reads it, counting an ending without it as unmeasured, never as zero.
 Decision 0112, under which this contract was minted, was accepted by the
 operator on 2026-11-20.
+
+## Seat record with a gate's report (decision 0109)
+
+Decision 0109's first slice (0109a1, ruling 1) adds one file and changes
+none of the bytes above — `seat-record.v6`'s included, which is now pinned
+by digest beside the frozen files:
+
+| Contract | File | Consumers |
+|---|---|---|
+| Seat record with a gate's findings, follow-ups and covered identity | `seat-record.v7.schema.json` | brokkr-store append/export/verify (an embedded copy held byte-equal by test), `brokkr inspect`'s findings and covered lines, every seat readout |
+
+`seat-record.v7` is `v6` with its definitions kept under `$defs` and four
+optional properties on the successful result: `findings`, `follow_ups`,
+`covered` and `checked_head`. A finding is closed: `site` (the 64-hex digest of the compiled
+structural site that reported it), `id` (`^[a-z0-9][a-z0-9._-]*$`, at most
+64 bytes), a repository-relative `file` (non-empty, at most 4096
+characters, never absolute and with no `..` component, exactly what the
+engine's reader admits), an optional positive `line` (absent for a whole
+file; a present `null` is refused), a non-empty `summary`, a `severity` in `none < info < low < medium < high <
+critical` and a boolean `security`. Its key is `(site, id)` (ruling 3); the
+rest is the record. `follow_ups` has the same shape. `covered` is closed
+and tagged by `kind`: `head` with exactly one of `head` (a commit id) or
+`head_digest` (the SHA-256 of the protected phase's decide-time head
+string), beside `dirty`, and no `base`; or `artifacts` with at least one
+`{path, sha256}`. `checked_head` is a commit id: the head the protected
+phase's effect's stable-head check accepted, journaled with its result
+(and with a protected sequence gate step's checkpoint) so decide records
+it as `reviewed_heads` from the journal, and a resumed engine decides on
+the same head with no HEAD read of its own. A protected result without
+one, or whose `covered` does not project it, is refused at decide.
+
+A checkpoint may carry `authored: "engine"`: the engine's own record of a
+sequence step's finish or a panel member's, written beside a verdict. It
+is engine-written. The engine refuses a driver's live checkpoint that
+carries it or names either marker's `step` word, and passes a live
+checkpoint's nested `result` through the same admission a successful
+result passes, so a reader admits a checkpoint as a verdict by
+`authored` alone, never by its `step` word.
+
+`covered`, `follow_ups`, `checked_head` and each finding's `site` are the engine's: the
+engine refuses a seat result that carries any of them before this
+contract is asked, and stamps them itself (rulings 1 and 3). In this
+slice the engine writes `findings` where a gate site reports them, each
+with its own site, and refuses a work site's result that carries any; it
+writes `covered` on a gate-produced result in the `head` arm only, from
+the head its span's stable-head check accepted; the `artifacts` arm and `follow_ups` are admitted and written by no
+path until slices 0109c and 0109d, and every `dirty` is `true` until
+0109b's tree check proves a worktree clean.
+
+A checkpoint's nested `result` is an object, as v6 admits it, unless the
+checkpoint carries `authored`; then it is the same closed result a
+successful result is, and the fence reads its findings through the
+engine's typed reader. The scope is `authored` because only this
+contract's writer emits it and v6's closed checkpoint refuses it.
+
+The store dispatches the 0.14 engine line and later to v7, and the 0.12
+and 0.13 lines to v6, at append, export, import verification and offline
+verification alike. The tagged 0.14.0 and 0.15.0 engines are v6-era
+writers in that line: they wrote none of the five fields, and every new
+refusal is scoped on `authored`, so every row they wrote reads under v7
+exactly as it did under v6.

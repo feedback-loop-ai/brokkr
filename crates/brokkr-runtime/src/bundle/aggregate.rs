@@ -2,7 +2,9 @@
 //! it, its parse and closed vocabulary, the results it can emit, and the
 //! aggregation the engine runs over the members' results.
 
+use brokkr_core::findings::Finding;
 use brokkr_core::policy::SEVERITY_ORDER;
+use serde::Deserialize;
 use serde_json::{json, Map, Value};
 
 use super::CompileError;
@@ -107,7 +109,8 @@ impl Aggregate {
     }
 
     /// Deterministic, order-independent aggregation of member results. A
-    /// member payload without a readable result string poisons the
+    /// member payload without a readable result string, or with findings
+    /// that are not the engine's stamped records, poisons the
     /// aggregate into a marker the engine's own schema validation parks
     /// with the full member evidence attached — never coerced (law 0001).
     /// A member result outside the three ranked words ranks WORST and is
@@ -115,50 +118,158 @@ impl Aggregate {
     /// emit; undeclared, a non-final step's `vocabulary_problem` fails the
     /// attempt, and only a final step's word reaches decide(), whose
     /// declared-results check parks it with evidence.
-    pub(crate) fn aggregate_results(self, members: &[(String, Value)]) -> Value {
+    pub(crate) fn aggregate_results(self, members: &[MemberVerdict]) -> Value {
         let Some(read) = Verdicts::read(members) else {
-            let evidence: Map<String, Value> = members.iter().cloned().collect();
-            return json!({
+            let evidence: Map<String, Value> =
+                members.iter().map(MemberVerdict::evidence).collect();
+            let mut poisoned = json!({
                 "result": Aggregate::MEMBER_SCHEMA_INVALID,
                 "notes": {"members": Value::Object(evidence)},
             });
+            // The members' admitted findings stay the record's keyed
+            // findings, each under its member's own site, so a refused
+            // aggregate hides none in its notes (fix round 0109a1r6, W4).
+            let admitted = MemberVerdict::admitted(members);
+            if !admitted.is_empty() {
+                brokkr_core::findings::journal(&mut poisoned, &admitted);
+            }
+            return poisoned;
         };
         let meta = json!({"members": read.notes, "verdicts": read.verdicts});
-        match self {
+        let mut result = match self {
             Aggregate::UnanimousPass => unanimous_pass(&read.parsed, meta),
             Aggregate::ReviewPanel => review_panel(&read.parsed, meta),
+        };
+        if !read.findings.is_empty() {
+            brokkr_core::findings::journal(&mut result, &read.findings);
         }
+        result
+    }
+}
+
+/// A panel member's findings as the aggregate joins them, typed: those
+/// admission stamped for a fresh member, or a carried member's read once
+/// from its journaled result; or a carried record whose findings do not
+/// read, which poisons the aggregate.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum MemberFindings {
+    Read(Vec<Finding>),
+    Unread,
+}
+
+impl MemberFindings {
+    /// The findings a journaled `result` records, taken out of it: none
+    /// where it records none; [`MemberFindings::Unread`], leaving them in
+    /// place as evidence, where they do not read as stamped records.
+    pub(crate) fn taken_from(result: &mut Value) -> Self {
+        let Some(recorded) = result.get("findings") else {
+            return MemberFindings::Read(Vec::new());
+        };
+        let Ok(findings) = Vec::<Finding>::deserialize(recorded) else {
+            return MemberFindings::Unread;
+        };
+        let _taken = result
+            .as_object_mut()
+            .and_then(|fields| fields.remove("findings"));
+        MemberFindings::Read(findings)
+    }
+}
+
+/// One panel member's verdict as the aggregate reads it: its name, its
+/// result's payload, and its findings kept typed beside it.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct MemberVerdict {
+    pub(crate) name: String,
+    pub(crate) payload: Value,
+    pub(crate) findings: MemberFindings,
+}
+
+impl MemberVerdict {
+    /// A member verdict read from its journaled `payload`, as a carried
+    /// member's is: the tests' one builder.
+    #[cfg(test)]
+    pub(crate) fn journaled(name: &str, mut payload: Value) -> Self {
+        let findings = MemberFindings::taken_from(&mut payload);
+        MemberVerdict {
+            name: name.to_string(),
+            payload,
+            findings,
+        }
+    }
+
+    /// Every `(name, payload)` pair read as [`MemberVerdict::journaled`].
+    #[cfg(test)]
+    pub(crate) fn all(pairs: &[(&str, Value)]) -> Vec<Self> {
+        (pairs.iter())
+            .map(|(name, payload)| Self::journaled(name, payload.clone()))
+            .collect()
+    }
+
+    /// The member's payload as a poisoned aggregate's evidence names it.
+    /// The findings it read are the record's own keyed findings, so they
+    /// are not written here a second time (fix round 0109a1r6, W4); a
+    /// payload whose findings do not read keeps them in place.
+    fn evidence(&self) -> (String, Value) {
+        (self.name.clone(), self.payload.clone())
+    }
+
+    /// Every finding `members` read, in declared order: what a poisoned
+    /// aggregate keeps as its keyed findings, each with its member's site.
+    fn admitted(members: &[MemberVerdict]) -> Vec<Finding> {
+        (members.iter())
+            .filter_map(|member| match &member.findings {
+                MemberFindings::Read(findings) => Some(findings.iter().cloned()),
+                MemberFindings::Unread => None,
+            })
+            .flatten()
+            .collect()
     }
 }
 
 /// Every member's result string, read once for the aggregate: by member,
 /// its notes and its verdict as evidence, and beside its name the result
-/// and the payload it came in.
+/// and the payload it came in; and every member's findings, typed, in
+/// declared order, each as the engine stamped it with that member's own
+/// site (decision 0109 ruling 3), so a copy of a sibling's finding is
+/// another key and never a borrowed one.
 struct Verdicts<'a> {
     notes: Map<String, Value>,
     verdicts: Map<String, Value>,
     parsed: Vec<(&'a str, &'a str, &'a Value)>,
+    findings: Vec<Finding>,
 }
 
 impl<'a> Verdicts<'a> {
     /// The members' verdicts, or `None` when any member's payload has no
-    /// readable result string.
-    fn read(members: &'a [(String, Value)]) -> Option<Self> {
+    /// readable result string or carries findings that do not read as the
+    /// engine's stamped records.
+    fn read(members: &'a [MemberVerdict]) -> Option<Self> {
         let mut notes = Map::new();
         let mut verdicts = Map::new();
         let mut parsed: Vec<(&str, &str, &Value)> = Vec::new();
-        for (name, payload) in members {
+        let mut findings = Vec::new();
+        for MemberVerdict {
+            name,
+            payload,
+            findings: reported,
+        } in members
+        {
             if let Some(note) = payload.get("notes") {
                 notes.insert(name.clone(), note.clone());
             }
             let result = payload.get("result").and_then(Value::as_str)?;
             verdicts.insert(name.clone(), Value::String(result.to_string()));
             parsed.push((name.as_str(), result, payload));
+            let MemberFindings::Read(reported) = reported else {
+                return None;
+            };
+            findings.extend(reported.iter().cloned());
         }
         Some(Verdicts {
             notes,
             verdicts,
             parsed,
+            findings,
         })
     }
 }

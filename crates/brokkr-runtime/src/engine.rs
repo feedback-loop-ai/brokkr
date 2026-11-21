@@ -11,7 +11,7 @@ use std::process::Command;
 use brokkr_core::dispatch::{bundle_manifest_from_run, DispatchEnvelopeV2, DispatchError};
 use brokkr_core::envelope::EventType;
 use brokkr_core::fold::{Cursor, OperatorCommand, Run, RunState, Status};
-use brokkr_core::gate_moved_head::{self, MovedHead};
+use brokkr_core::gate_moved_head;
 use brokkr_core::park::{Park, ParkCause};
 use brokkr_core::realms::Boundary;
 use brokkr_core::EventEnvelope;
@@ -60,6 +60,7 @@ mod decide;
 mod dispatch;
 use dispatch::{spawn_site, Door};
 mod fence;
+mod heads;
 mod input;
 mod isolation;
 use capability_calls::Calls;
@@ -83,6 +84,7 @@ pub(crate) mod sequence;
 pub(in crate::engine) use seat_tree::AttemptIds;
 mod start;
 mod usage;
+mod verdict;
 use operator::operator_stop_reason;
 #[cfg(test)]
 use panel::panel_outcome;
@@ -497,17 +499,19 @@ pub struct Engine {
     /// sleep the wait reads (decision 0071 ruling 1), and the probe's
     /// answer the retry journals (decision 0103 rulings 3 and 5).
     pub(crate) cooldown: cooldown::Seam,
-    /// Present only while this process is executing a gate-bearing site,
-    /// and it holds exactly one observation: the head as that site's own
-    /// span began. The span is the gate STEP inside a sequence and the
-    /// whole effect for a gate single seat or panel — never both at once,
-    /// so a sequence's steps are the only observation a sequence makes.
-    /// The observations are compared at the end of the span that armed
-    /// them; only a mismatch is journaled, as the raw evidence on the
-    /// resulting park. A span that ends through an `Err` — appending no
-    /// terminal event — clears it rather than leaving it for the next
-    /// effect to spend.
-    active_gate_head: Option<Option<String>>,
+    /// The checked spans of the effect this process is executing: the
+    /// head each armed span began on, compared at the end of the span
+    /// that armed it, where only a mismatch is journaled, as the raw
+    /// evidence on the resulting park, and the observations the matches
+    /// kept (heads.rs). A span that ends through an `Err`, appending no
+    /// terminal event, is abandoned rather than left for the next effect
+    /// to spend.
+    spans: heads::Spans,
+    /// What the dispatched gate effect's success records as `covered`
+    /// (decision 0109 ruling 7), spent by its terminal event.
+    covering: Option<verdict::Covering>,
+    /// Every HEAD read the engine takes (decision 0109 ruling 7).
+    heads: heads::HeadReads,
     /// The boundary every site with hands is composed from (decision
     /// 0046 ruling 1): the compiled bundle's word, set once at entry and
     /// never re-read from a map, so the pinned word and the world the run
@@ -605,7 +609,9 @@ fn shell(store: Store, bundle: Bundle, run_id: String, feature: String, repo: Pa
         secrets_file: None,
         state: None,
         cooldown: Default::default(),
-        active_gate_head: None,
+        spans: Default::default(),
+        covering: None,
+        heads: Default::default(),
         network_prefix: None,
         replay: Default::default(),
         held_outcome: None,
@@ -909,17 +915,17 @@ impl Engine {
         }))
     }
 
-    /// Journal the attempt's held outcome. A result the seat-record fence
-    /// refuses now settles the attempt indeterminate with the refusal
-    /// named: the failure its seat would have built was not held, and a
-    /// park loses nothing.
+    /// Journal the attempt's held outcome through the per-member path a
+    /// terminal the lock never held takes (fix round 0109a1r8, M5). A
+    /// result the fence still refuses settles the attempt indeterminate,
+    /// the refusal named, and a park loses nothing.
     fn land_held_outcome(
         &mut self,
         held: checkpoints::HeldOutcome,
         effect_id: &str,
     ) -> Result<(), EngineError> {
         let attempt_id = held.attempt_id.clone();
-        match self.append_raw(held.event_type, held.payload, held.attempt_id) {
+        match self.append_settled(held.event_type, held.payload, held.attempt_id) {
             Err(EngineError::Store(StoreError::SeatRecord(refusal))) => {
                 let reason = format!(
                     "the journal refused the result a peer's lock had held back: {refusal}"
@@ -957,42 +963,13 @@ impl Engine {
                 .get("effect_id")
                 .and_then(Value::as_str)
                 .unwrap_or("unknown");
-            if let Some(moved) = self.finish_gate_head_check(effect_id, attempt_id.clone())? {
+            let span = heads::Span::Effect;
+            if let Some(moved) = self.finish_gate_head_check(span, effect_id, attempt_id.clone())? {
                 return Ok(moved);
             }
         }
-        self.append_raw(event_type, payload, attempt_id)
-    }
-
-    fn finish_gate_head_check(
-        &mut self,
-        effect_id: &str,
-        attempt_id: Option<String>,
-    ) -> Result<Option<EventEnvelope>, EngineError> {
-        let Some(start) = self.active_gate_head.take() else {
-            return Ok(None);
-        };
-        let end = git_head(&self.repo);
-        if start == end {
-            return Ok(None);
-        }
-        let moved = MovedHead {
-            head_at_end: end,
-            head_at_start: start,
-        };
-        // EffectIndeterminate has only a reason string in the frozen event
-        // contract. Keep the evidence packed there and attach its structured
-        // copy to run/parked rather than widening that contract in this slice.
-        self.append_raw(
-            EventType::EffectIndeterminate,
-            json!({
-                "effect_id": effect_id,
-                "attempt_id": attempt_id,
-                "reason": gate_moved_head::encode(&moved),
-            }),
-            attempt_id,
-        )
-        .map(Some)
+        let payload = self.stamp_covered(event_type, payload);
+        self.append_settled(event_type, payload, attempt_id)
     }
 
     fn request_or_finish(&mut self, state: &RunState) -> Result<(), EngineError> {
@@ -1629,11 +1606,13 @@ impl Engine {
                     Some(context) => context.stamp(checkpoint),
                     None => resume::unstamped(checkpoint),
                 };
-                sink.offer("", checkpoint, call);
+                sink.offer_live("", checkpoint, call, stamp.as_ref());
             },
         )?;
         let report = self.folded([effect_id, attempt_id, driver_seat], spawn, begun, report)?;
-        Ok(DriverRun::Ran(report))
+        Ok(DriverRun::Ran(
+            verdict::admitted(report, stamp.as_ref()).journaled(),
+        ))
     }
 
     /// Append the attempt's successful result — or, when the journal
@@ -3132,7 +3111,7 @@ impl Engine {
                 .unwrap_or(0)
                 > 0;
         if phase == self.bundle.protected_phase || returning_implement {
-            if let Some(head) = git_head(&self.repo) {
+            if let Some(head) = self.heads.read(&self.repo) {
                 payload["head"] = Value::String(head);
             }
         }

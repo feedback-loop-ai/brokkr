@@ -422,7 +422,8 @@ directory is a separate, RAM-backed tmpfs, so both floors matter.
 
 ### `brokkr inspect` — one run, explained
 
-Header, ruling, seats, decision trail, and the phase graph as a tree.
+Header, ruling, seats, decision trail, the phase graph as a tree, and
+what each gate verdict recorded.
 `--phase` and `--seat` are the scoping verbs the console's clicks
 became.
 
@@ -470,9 +471,18 @@ graph
   ship ×2
     → ⏺ ship · finished
   · done ×1  ←current
+…
 ```
 
-The seats block is `seats`' own readout, shown whole below. The ship
+The seats block is `seats`' own readout, shown whole below. After the
+graph, a `verdicts` block, elided here, says what each gate's result
+recorded beside its word (decision 0109), one line each: the head it
+covered, such as `verify · covered head <commit> · dirty`, with the
+protected review's as `covered head sha256 <digest>` of the heads
+decided on, and each finding it reported, keyed by its id and its site.
+`dirty` stays on every line until the engine checks the worktree clean;
+a run older than seat-record v7, or one whose head did not read,
+prints no such block. The ship
 gate runs twice: its first visit writes the run's ledger and answers
 `ready`, which `SHIP-READY` sends back to ship to confirm the close-out,
 and the second answers `shipped`.

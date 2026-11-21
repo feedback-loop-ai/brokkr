@@ -57,6 +57,7 @@ mod dsh_key;
 mod dsh_sandbox_runner;
 mod effect_replay;
 mod folder_seats;
+mod gate_readouts;
 mod hands;
 mod harness_probe;
 mod hosts;

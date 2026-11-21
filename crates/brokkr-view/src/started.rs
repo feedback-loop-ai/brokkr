@@ -54,6 +54,30 @@ pub(super) fn sites(scan: &mut Scan, slot: usize, effect_id: &str, payload: &Val
     }
 }
 
+/// What the open attempt's terminal `payload` stamps on its participants:
+/// the effect's model, word and effort, read from its result, and the
+/// sequence step that produced a success, which the success names, as a
+/// participant of its own, so its verdict has a seat to be selected by
+/// whether or not its driver journaled a checkpoint (fix round 0109a1r4,
+/// K6).
+pub(super) fn terminal(scan: &mut Scan, slot: usize, effect_id: &str, payload: &Value) {
+    if let Some(model) = payload.pointer("/result/model").and_then(Value::as_str) {
+        let part = ensure(scan, slot, effect_id, None);
+        scan.parts[part].model = Some(model.to_string());
+    }
+    if let Some(word) = payload.get("result").and_then(stamp_of) {
+        let part = ensure(scan, slot, effect_id, None);
+        scan.parts[part].stamp = Some(word);
+    }
+    if let Some(effort) = payload.pointer("/result/effort").and_then(Value::as_str) {
+        let part = ensure(scan, slot, effect_id, None);
+        scan.parts[part].effort = Some(effort.to_string());
+    }
+    if let Some(step) = field(payload, "step").filter(|_| payload.get("result").is_some()) {
+        ensure(scan, slot, effect_id, Some(step));
+    }
+}
+
 fn carried_entries(payload: &Value) -> Vec<CarriedEntry> {
     payload
         .get("carried")

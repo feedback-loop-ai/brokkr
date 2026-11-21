@@ -23,7 +23,10 @@ mod own_home;
 
 #[path = "support/git.rs"]
 mod git;
-use git::{in_clean_git_config, test_repository};
+#[path = "support/git_child.rs"]
+mod git_child;
+use git::test_repository;
+use git_child::in_clean_git_config;
 
 static CWD: Mutex<()> = Mutex::new(());
 

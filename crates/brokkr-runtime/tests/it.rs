@@ -6,6 +6,10 @@
 
 // Support shared by several files, declared once: a file reaches it as
 // `crate::witnesses`.
+#[path = "support/committed.rs"]
+mod committed;
+#[path = "support/git.rs"]
+mod git;
 #[path = "../../../tests/support/hired_office.rs"]
 mod hired_office;
 #[path = "support/office.rs"]

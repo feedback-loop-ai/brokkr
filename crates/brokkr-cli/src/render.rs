@@ -36,7 +36,7 @@ use brokkr_view::{
 
 pub(crate) mod ending;
 pub(crate) mod graph;
-mod inspect;
+pub(crate) mod inspect;
 mod style;
 pub(crate) mod table;
 

@@ -63,6 +63,7 @@ mod tier;
 mod walk;
 
 pub use aggregate::Aggregate;
+pub(crate) use aggregate::{MemberFindings, MemberVerdict};
 use capability_record::{record_capabilities, CapabilityWalk};
 use charters::parse_role;
 use compose::{Ancestor, COMPOSE_PREFIX};

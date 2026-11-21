@@ -19,6 +19,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use brokkr_core::{EventEnvelope, EventType};
 use serde_json::{json, Map, Value};
 
+use brokkr_core::findings::Reporter;
 use brokkr_core::realms::Boundary;
 
 use crate::agents::Candidate;
@@ -238,6 +239,15 @@ impl SiteContext {
             instance_ref,
             class,
             history: RootHistory::default(),
+        }
+    }
+
+    /// What this site reports as, read by its compiled class: a gate by
+    /// its site digest, or a work site (decision 0109 ruling 1).
+    pub(super) fn reporter(&self) -> Reporter<'_> {
+        match self.class {
+            SeatClass::Gate => Reporter::Gate(&self.site_ref),
+            SeatClass::Work => Reporter::Work,
         }
     }
 

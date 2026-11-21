@@ -34,6 +34,10 @@ use super::{workspace, write};
 
 #[path = "legacy_journal/codex.rs"]
 mod codex;
+#[path = "../support/committed.rs"]
+mod committed;
+#[path = "../support/git.rs"]
+mod git;
 #[path = "../support/own_home.rs"]
 mod own_home;
 
@@ -53,7 +57,9 @@ const UNRECORDED: [&str; 6] = [
     OBSERVATION_KEY,
 ];
 
-const V6: &str = "contracts/seat-record.v6.schema.json";
+/// The contract this engine's line writes: v7 since decision 0109's
+/// slice 0109a1, which keeps v6's checkpoint unchanged.
+const V7: &str = "contracts/seat-record.v7.schema.json";
 
 /// The version the fake harness reports, and the fixture assessment
 /// qualifies against.
@@ -256,6 +262,7 @@ fn rooted() -> (tempfile::TempDir, PathBuf) {
     for sub in ["bin", "state", "home", "work"] {
         std::fs::create_dir_all(root.join(sub)).unwrap();
     }
+    committed::committed_repository(&root.join("work"));
     (dir, root)
 }
 
@@ -497,23 +504,29 @@ fn wanted() -> Sites {
     site("fallback", "", whole("", "agent-root-1"));
     for (member, root) in [("member", "member-root-0"), ("agent", "agent-root-2")] {
         let mut rows = whole(member, root);
+        // The finish marker keeps its member's site (fix round 0109a1r3, M3).
         rows.push(
             json!({"step": "panel-member-finished", "boundary": "not applicable",
                          "inner_checkpoints": 6, "member": member, "model": OPUS,
-                         "outcome": "succeeded", "session_ref": null}),
+                         "outcome": "succeeded", "session_ref": null,
+                         "site_ref": "site_ref", "authored": "engine"}),
         );
         site("panel", member, rows);
     }
-    site("sequence", "first", whole("first", "first-root-0"));
-    site("sequence", "then", whole("then", "agent-root-3"));
     let result = json!({"result": "complete", "notes": "done", "model": OPUS,
                         "effort": "not reported", "boundary": "not applicable",
                         "input_tokens": 13, "output_tokens": 2, "num_turns": 2,
                         "transcript": {"home": "<root>/home/.claude/projects",
                                        "kind": "claude-session", "locator": "first-root-0"}});
+    // The step's finish marker is its step's own record (fix round
+    // 0109a1r4, K6), journaled after the step's live rows.
     let finished = json!({"step": "sequence-step-finished", "step_name": "first",
-                          "boundary": "not applicable", "model": OPUS, "result": result});
-    site("sequence", "", vec![finished]);
+                          "member": "first", "boundary": "not applicable", "model": OPUS,
+                          "result": result, "authored": "engine"});
+    let mut first = whole("first", "first-root-0");
+    first.push(finished);
+    site("sequence", "first", first);
+    site("sequence", "then", whole("then", "agent-root-3"));
     let mut resumed = session("", "resumed-root-0", "cold", true, false);
     resumed.extend(session("", "resumed-root-0", "resumed", true, true));
     site("resumed", "", resumed);
@@ -680,7 +693,8 @@ fn fences_the_attribution_group(store: &mut Store, run_id: &str) {
         let want = SeatRecordError {
             seq,
             path: "/".into(),
-            contract: V6,
+            contract: V7,
+            settled_member: None,
         };
         assert_eq!(refusal, want, "{checkpoint}");
         assert_eq!(store.head_hash(run_id).unwrap(), head);

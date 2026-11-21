@@ -63,6 +63,16 @@ pub(crate) fn key_of(effect_id: &str, member: Option<&str>) -> String {
     }
 }
 
+/// A participant's label: its effect's seat, and `:` and its member's
+/// name where it is a member's. The one home of the form a seat scope
+/// names a participant by.
+pub(crate) fn label_of(seat: &str, member: Option<&str>) -> String {
+    match member {
+        Some(member) => format!("{seat}:{member}"),
+        None => seat.to_string(),
+    }
+}
+
 impl Participant {
     /// The legacy-synthesis rule this participant's provenance admits:
     /// only Claude, LaneTally and an inline seat with no provenance may

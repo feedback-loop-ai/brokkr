@@ -405,6 +405,84 @@ fn a_journal_that_lost_an_index_is_read_as_before_until_restored() {
     assert_eq!(store.index_trail("r").unwrap(), [1]);
 }
 
+/// #1212: a frame's verdict window reads only its checkpoints, in seq
+/// order, within the range it names.
+#[test]
+fn a_checkpoint_window_reads_only_its_checkpoints() {
+    let (_dir, store) = store();
+    let named = |kind| event(kind, json!({"effect_id": "e", "attempt_id": "a"}));
+    run_of(
+        &store,
+        "r",
+        vec![
+            named(EventType::RunStarted),
+            named(EventType::EffectCheckpointed),
+            named(EventType::EffectCheckpointed),
+            named(EventType::PhaseEntered),
+            named(EventType::EffectCheckpointed),
+            named(EventType::EffectCheckpointed),
+        ],
+    );
+    let found = store.envelopes_of_checkpoints("r", 3, 5).unwrap();
+    let seqs: Vec<u64> = found.iter().map(|event| event.seq).collect();
+    assert_eq!(seqs, [3, 5]);
+}
+
+/// #1212, L2's review: an attempt's member markers are read by its key,
+/// through the bound it names, and no member-tagged seat turn, step record
+/// or driver's record of the word comes with them. The engine's records
+/// are written by `EngineMarker` itself, so the query's copy of the
+/// marker's word and authorship is held to its source (#1212, R3), and
+/// several attempts are read in the one query (R1).
+#[test]
+fn an_attempt_s_member_markers_read_by_key_through_their_bound() {
+    use brokkr_core::findings::EngineMarker;
+    let (_dir, store) = store();
+    let marker = |attempt: &str, member: &str| {
+        let finished = json!({"member": member, "outcome": "succeeded"});
+        event(
+            EventType::EffectCheckpointed,
+            json!({"effect_id": "e", "attempt_id": attempt,
+                   "checkpoint": EngineMarker::MemberFinished.record(finished)}),
+        )
+    };
+    let checkpoint = |fields: Json| {
+        event(
+            EventType::EffectCheckpointed,
+            json!({"effect_id": "e", "attempt_id": "a", "checkpoint": fields}),
+        )
+    };
+    run_of(
+        &store,
+        "r",
+        vec![
+            marker("a", "m1"),
+            // A panel member's seat turn carries the member too, and must
+            // not be read as its finish.
+            checkpoint(json!({"step": "seat-turn", "turn": 1, "member": "m1"})),
+            // A driver's checkpoint that names the word without the
+            // engine's authorship is no marker (decision 0109 ruling 1).
+            checkpoint(json!({"step": "panel-member-finished", "member": "m1",
+                              "outcome": "succeeded"})),
+            // A sequence step's record names its step in `member` as well,
+            // and is not a panel member's marker either.
+            checkpoint(
+                EngineMarker::StepFinished.record(json!({"step_name": "judge", "member": "judge"})),
+            ),
+            marker("b", "m2"),
+            marker("a", "m3"),
+            marker("c", "m4"),
+        ],
+    );
+    let seqs = |attempts: &[&str], to| -> Vec<u64> {
+        let found = store.envelopes_of_member_markers("r", attempts, to);
+        found.unwrap().iter().map(|event| event.seq).collect()
+    };
+    assert_eq!(seqs(&["a"], 6), [1, 6]);
+    assert_eq!(seqs(&["b", "a"], 7), [1, 5, 6]);
+    assert_eq!(seqs(&["a", "a", "c"], 7), [1, 6, 7]);
+}
+
 /// A run of three events, each with an attempt and a member to edit.
 fn three(store: &Store) {
     let step = |seq: u64| {

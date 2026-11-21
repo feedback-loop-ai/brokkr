@@ -38,6 +38,7 @@ fn embedded_schemas_are_the_published_contracts() {
         (CONTRACT_V4, SCHEMA_V4),
         (CONTRACT_V5, SCHEMA_V5),
         (CONTRACT_V6, SCHEMA_V6),
+        (CONTRACT_V7, SCHEMA_V7),
     ] {
         let published = std::fs::read(workspace.join(relative)).unwrap();
         assert_eq!(
@@ -206,12 +207,12 @@ fn the_version_is_the_one_the_runs_engine_wrote() {
     assert_eq!(SeatRecordVersion::of_engine("0.9.0"), SeatRecordVersion::V4);
     assert_eq!(SeatRecordVersion::of_engine("0.9.1"), SeatRecordVersion::V4);
     // Proposed decision 0056 ruling 7 moved the top of this ladder to
-    // v5 at the 0.10 line, and decision 0065 ruling 8 to v6 at the 0.12
-    // line, on the same superset argument, so a release-candidate of
-    // 1.0.0 reads v6.
+    // v5 at the 0.10 line, decision 0065 ruling 8 to v6 at the 0.12
+    // line, and decision 0109 ruling 1 to v7 at the 0.14 line, on the
+    // same superset argument, so a release-candidate of 1.0.0 reads v7.
     assert_eq!(
         SeatRecordVersion::of_engine("1.0.0-rc.1"),
-        SeatRecordVersion::V6
+        SeatRecordVersion::V7
     );
     assert_eq!(
         SeatRecordVersion::of_engine("0.10.0"),
@@ -682,6 +683,7 @@ fn refused_by(seq: u64, contract: &'static str) -> Result<(), SeatRecordError> {
         seq,
         path,
         contract,
+        settled_member: None,
     })
 }
 
@@ -701,7 +703,7 @@ fn the_zero_twelve_line_reads_v6_and_the_eleven_line_still_reads_v5() {
         ("0.12.0+build.7", SeatRecordVersion::V6),
         ("0.12.0", SeatRecordVersion::V6),
         ("0.12.3", SeatRecordVersion::V6),
-        ("1.0.0", SeatRecordVersion::V6),
+        ("0.13.9", SeatRecordVersion::V6),
         ("0.12", SeatRecordVersion::V1),
         ("0.12.0.1", SeatRecordVersion::V1),
         ("", SeatRecordVersion::V1),
@@ -849,31 +851,37 @@ fn every_valid_v5_shape_is_a_valid_v6_record_and_v5s_conditions_stand() {
 /// and export and verify; a malformed group planted past the fence is
 /// refused by both read sweeps with the same violation. A 0.11 run's
 /// fence refuses the complete group under v5.
+/// `run` created in `store` by the engine line `engine`, through effect
+/// `fx`'s first attempt, `attempt-1`, started in `implement`.
+pub(super) fn started_run(store: &mut crate::Store, run: &str, engine: &str) {
+    let manifest = json!({"engine": engine});
+    store.create_run(run, "feat", "self", &manifest).unwrap();
+    for (event_type, payload) in [
+        (
+            EventType::RunStarted,
+            json!({"feature":"feat", "manifest": manifest}),
+        ),
+        (EventType::PhaseEntered, json!({"phase":"implement"})),
+        (
+            EventType::EffectRequested,
+            json!({"effect_id":"fx", "seat":"implement"}),
+        ),
+        (
+            EventType::EffectStarted,
+            json!({"effect_id":"fx", "attempt_id":"attempt-1"}),
+        ),
+    ] {
+        store
+            .append_next(run, event_type, payload, None, None)
+            .unwrap();
+    }
+}
+
 #[test]
 fn append_export_and_verify_judge_one_v6_contract() {
     let (_dir, mut store) = crate::tests::store();
     for (run, engine) in [("twelve", "0.12.0"), ("eleven", "0.11.0")] {
-        let manifest = json!({"engine": engine});
-        store.create_run(run, "feat", "self", &manifest).unwrap();
-        for (event_type, payload) in [
-            (
-                EventType::RunStarted,
-                json!({"feature":"feat", "manifest": manifest}),
-            ),
-            (EventType::PhaseEntered, json!({"phase":"implement"})),
-            (
-                EventType::EffectRequested,
-                json!({"effect_id":"fx", "seat":"implement"}),
-            ),
-            (
-                EventType::EffectStarted,
-                json!({"effect_id":"fx", "attempt_id":"attempt-1"}),
-            ),
-        ] {
-            store
-                .append_next(run, event_type, payload, None, None)
-                .unwrap();
-        }
+        started_run(&mut store, run, engine);
     }
     let append = |store: &mut crate::Store, run: &str, record: Value| {
         let payload = json!({"effect_id":"fx", "checkpoint": record});

@@ -8,9 +8,11 @@
 //! journals each member's outcome in declared order, and [`panel_outcome`]
 //! joins the reports by the [`Aggregate`] the seat declares.
 
+use std::collections::BTreeMap;
 use std::path::Path;
 
 use brokkr_core::envelope::EventType;
+use brokkr_core::findings::EngineMarker;
 use brokkr_core::realms::Boundary;
 use brokkr_protocol::{AttemptOutcome, AttemptReport, Cleanup};
 use brokkr_store::Store;
@@ -30,7 +32,9 @@ use super::{
     stamp_boundary, start_failure_fields, tag_member, Calls, Checkpoints, Door, DriverRun, Engine,
     EngineError, Indeterminate, Selection, Site, SiteSpawn, Unproven,
 };
-use crate::bundle::{Aggregate, Bundle, PanelMember, ENGINE_VERSION};
+use crate::bundle::{
+    Aggregate, Bundle, MemberFindings, MemberVerdict, PanelMember, ENGINE_VERSION,
+};
 
 pub(super) struct PanelAt<'a> {
     effect_id: &'a str,
@@ -91,13 +95,14 @@ impl Engine {
             "",
             gate,
         );
-        let reports = self.run_panel(effect_id, attempt_id, &runs, bound.remaining, "")?;
+        let (reports, stamped) =
+            self.run_panel(effect_id, attempt_id, &runs, bound.remaining, "")?;
         self.usage.panel(attempt_id, &reports);
         self.journal_panel_members(effect_id, attempt_id, &reports, &runs, "")?;
         span.close(&self.repo);
         let record = PanelRecord {
             span,
-            settled_members: settled_members(&reports, None),
+            settled_members: settled_members((&reports, &stamped), None),
         };
         let start_failures = start_failure_sites(&reports, "");
         // Every member that refused with a rate limit records its own wait
@@ -110,7 +115,8 @@ impl Engine {
         // One line, as `disposed`'s refusal callsites: the exact-coverage
         // gate reads a multi-line call's `?` edge as its own region.
         let name = bound.deadline.panel_namer(&reports);
-        let mut outcome = outcome_under(aggregate, carry, reports, &record.span, attempt_id)?;
+        let members = (reports, stamped);
+        let mut outcome = outcome_under(aggregate, carry, members, &record.span, attempt_id)?;
         name(&mut outcome);
         match outcome.outcome() {
             AttemptOutcome::Indeterminate { reason } => {
@@ -153,8 +159,9 @@ impl Engine {
             }
             AttemptOutcome::Succeeded { result } => {
                 // The aggregate is the engine's own record — `result`,
-                // `inputs`, `notes` and nothing else, with every member's
-                // evidence under `notes` — so it conforms by
+                // `inputs`, `notes`, the members' stamped `findings` and
+                // nothing else, with every member's evidence under
+                // `notes` — so it conforms by
                 // construction and the seat-record fence has nothing to
                 // refuse here. A refusal would be an engine defect, and
                 // it propagates as one, like any other storage error;
@@ -260,7 +267,7 @@ impl Engine {
         runs: &[MemberRun],
         deadline: std::time::Duration,
         tag_prefix: &str,
-    ) -> Result<Vec<(String, AttemptReport)>, EngineError> {
+    ) -> Result<Members, EngineError> {
         let workdir = self.workdir();
         // Where each member's attempt began, before anything of it spawns.
         let begun =
@@ -336,8 +343,10 @@ impl Engine {
     /// member's evidence is read while a sibling's broker may still write
     /// (#403; D7), then each report carrying what its checkpoints left of
     /// it and settled by its own broker calls ([`Engine::settled_by`])
-    /// before any is admitted. A sink that failed is handed up once every
-    /// member is witnessed.
+    /// before any is admitted. Each member's admitted findings are handed
+    /// back typed beside the reports, by member, never in its result's
+    /// `Value`. A sink that failed is handed up once every member is
+    /// witnessed.
     pub(super) fn settle_members(
         &mut self,
         ids: [&str; 2],
@@ -345,17 +354,24 @@ impl Engine {
         reports: Vec<(String, AttemptReport, Option<Begun>)>,
         settled: Result<checkpoints::Settled, EngineError>,
         tag_prefix: &str,
-    ) -> Result<Vec<(String, AttemptReport)>, EngineError> {
+    ) -> Result<Members, EngineError> {
         for ((_, report, _), run) in reports.iter().zip(runs) {
             ended(&mut self.held, &run.driver_seat, &report.cleanup);
         }
         let settled = settled?;
         let mut members = Vec::with_capacity(reports.len());
+        let mut stamped = Stamped::new();
         for ((name, mut report, begun), run) in reports.into_iter().zip(runs) {
             settled.carry(&Tag::prefixed(tag_prefix, &name).0, &mut report);
-            members.push((name, self.settled_by(ids, &run.spawn, begun, report)?));
+            // Each member's findings carry the member's own site.
+            let report = self.settled_by(ids, &run.spawn, begun, report)?;
+            let admitted = super::verdict::admitted(report, run.context.as_ref());
+            if let Some(findings) = admitted.findings {
+                stamped.insert(name.clone(), MemberFindings::Read(findings));
+            }
+            members.push((name, admitted.report));
         }
-        Ok(members)
+        Ok((members, stamped))
     }
 
     /// Journal member outcomes as checkpoint evidence in declared
@@ -369,10 +385,13 @@ impl Engine {
         tag_prefix: &str,
     ) -> Result<(), EngineError> {
         for (name, report) in reports {
-            let boundary = runs
-                .iter()
-                .find(|run| run.name == *name)
-                .and_then(|run| run.boundary);
+            let run = runs.iter().find(|run| run.name == *name);
+            let boundary = run.and_then(|run| run.boundary);
+            // The member's structural site, the one its findings are
+            // stamped with, so a reader files each finding under the
+            // member that reported it even when the member journaled no
+            // checkpoint of its own (fix round 0109a1r3, M3).
+            let site = run.and_then(|run| run.context.as_ref());
             let settled = report.settled_outcome();
             let kind = match &settled {
                 AttemptOutcome::Succeeded { .. } => "succeeded",
@@ -397,17 +416,17 @@ impl Engine {
             .unwrap_or_else(|| "not reported".to_string());
             // The engine's own marker names the member's model, so it
             // carries the member's boundary beside it (design DD19).
-            let marker = stamp_boundary(
-                json!({
-                    "step": "panel-member-finished",
-                    "member": Tag::prefixed(tag_prefix, name),
-                    "outcome": kind,
-                    "model": model,
-                    "session_ref": report.session_ref,
-                    "inner_checkpoints": report.checkpoints.len(),
-                }),
-                boundary,
-            );
+            let mut marker = EngineMarker::MemberFinished.record(json!({
+                "member": Tag::prefixed(tag_prefix, name),
+                "outcome": kind,
+                "model": model,
+                "session_ref": report.session_ref,
+                "inner_checkpoints": report.checkpoints.len(),
+            }));
+            if let Some(site) = site {
+                marker["site_ref"] = Value::String(site.site_ref.clone());
+            }
+            let marker = stamp_boundary(marker, boundary);
             self.append(
                 EventType::EffectCheckpointed,
                 json!({
@@ -534,11 +553,12 @@ fn offer_member_checkpoint(
     let checkpoint = stamp_boundary(tag_member(checkpoint, member), boundary);
     // The member's own stamp, applied by the one journal
     // writer from the context its worker handed over.
-    let checkpoint = match owner.and_then(|run| run.context.as_ref()) {
+    let context = owner.and_then(|run| run.context.as_ref());
+    let checkpoint = match context {
         Some(context) => context.stamp(checkpoint),
         None => resume::unstamped(checkpoint),
     };
-    sink.offer(member, checkpoint, call);
+    sink.offer_live(member, checkpoint, call, context);
 }
 
 /// Join member reports into the attempt's single outcome: any
@@ -548,6 +568,7 @@ fn offer_member_checkpoint(
 pub(super) fn panel_outcome(
     aggregate: Aggregate,
     reports: Vec<(String, AttemptReport)>,
+    stamped: Stamped,
 ) -> AttemptOutcome {
     outcome_over(
         aggregate,
@@ -555,19 +576,39 @@ pub(super) fn panel_outcome(
             .into_iter()
             .map(|(name, report)| (name, report.settled_outcome()))
             .collect(),
+        stamped,
     )
 }
+
+/// Each panel member's findings, typed, by member name: what admission
+/// stamped for a fresh member, or what a carried member's journaled
+/// result records. A member absent here reported none.
+pub(crate) type Stamped = BTreeMap<String, MemberFindings>;
+
+/// A panel's settled members: their reports in declared order, and their
+/// findings, typed, beside them.
+pub(crate) type Members = (Vec<(String, AttemptReport)>, Stamped);
 
 pub(super) fn outcome_over(
     aggregate: Aggregate,
     reports: Vec<(String, AttemptOutcome)>,
+    mut stamped: Stamped,
 ) -> AttemptOutcome {
     let mut indeterminate = Vec::new();
     let mut failures = Vec::new();
     let mut member_results = Vec::new();
     for (name, report) in reports {
         match report {
-            AttemptOutcome::Succeeded { result } => member_results.push((name, result)),
+            AttemptOutcome::Succeeded { result } => {
+                let findings = stamped
+                    .remove(&name)
+                    .unwrap_or(MemberFindings::Read(Vec::new()));
+                member_results.push(MemberVerdict {
+                    name,
+                    payload: result,
+                    findings,
+                });
+            }
             AttemptOutcome::Failed { error } => failures.push(format!("{name}: {error}")),
             AttemptOutcome::Indeterminate { .. } => indeterminate.push(name),
         }
