@@ -187,7 +187,7 @@ fn order_holds_waits_and_run_linkage_survive_a_reopen() {
             word(1, "add", Some(1)),
             word(2, "add", Some(2)),
             word(3, "add", Some(3)),
-            word(4, "add", Some(4)),
+            word(4, "add", Some(1)),
             word(4, "move", Some(1)),
             word(2, "hold", None),
             word(3, "drop", None),
@@ -195,7 +195,8 @@ fn order_holds_waits_and_run_linkage_survive_a_reopen() {
             step("link"),
         ]
     );
-    // Released, the held entry keeps its place; moved last, it takes it.
+    // Released, the held entry keeps its place; moved to the first, it
+    // stays under the higher priority.
     let mut store = store;
     store
         .queue_command(ids[1], QueueCommand::Release, BY)
@@ -208,8 +209,122 @@ fn order_holds_waits_and_run_linkage_survive_a_reopen() {
     assert_eq!(
         places[..2],
         [
-            (2, Some(1), EntryState::Queued),
-            (4, Some(2), EntryState::Queued)
+            (4, Some(1), EntryState::Queued),
+            (2, Some(2), EntryState::Queued)
+        ]
+    );
+}
+
+/// Queue an entry at `priority` with no waits, its payload named `n`.
+fn add_at(store: &mut Store, n: u32, priority: i64) -> EntryId {
+    let new = NewEntry {
+        payload: &payload(n),
+        priority,
+        waits: &[],
+    };
+    store.queue_add(new, BY).unwrap()
+}
+
+/// The listing's ids and places, in the order it lists them; and, as
+/// the operator's ruling on #1191 needs, each waiting entry's place is
+/// its place in that order.
+fn order(store: &Store) -> Vec<(i64, Option<u32>)> {
+    let listed: Vec<(i64, Option<u32>)> = rows(store).into_iter().map(|r| (r.0, r.1)).collect();
+    let places: Vec<u32> = listed.iter().filter_map(|(_, place)| *place).collect();
+    assert_eq!(places, (1..=places.len() as u32).collect::<Vec<_>>());
+    listed
+}
+
+/// The place the last command journaled.
+fn last_place(store: &Store) -> Option<u32> {
+    commands(&store.conn).pop().unwrap().2
+}
+
+/// The queue's one order is priority, higher first, then place (#1191,
+/// decision 0068 ruling 2): equal priorities list in arrival order, a
+/// negative one after the default, and an add lands last among its own
+/// priority, ahead of every lower one, its place journaled as held.
+#[test]
+fn the_queue_lists_by_priority_first_then_by_place() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&dir.path().join("forge.db")).unwrap();
+    add_at(&mut store, 1, 0);
+    add_at(&mut store, 2, -1);
+    add_at(&mut store, 3, 10);
+    assert_eq!(last_place(&store), Some(1));
+    add_at(&mut store, 4, 0);
+    assert_eq!(last_place(&store), Some(3));
+    add_at(&mut store, 5, 10);
+    assert_eq!(last_place(&store), Some(2));
+    assert_eq!(
+        order(&store),
+        [
+            (3, Some(1)),
+            (5, Some(2)),
+            (1, Some(3)),
+            (4, Some(4)),
+            (2, Some(5))
+        ]
+    );
+}
+
+/// `move` orders an entry among those of its own priority, and priority
+/// always wins (the operator's ruling on #1191): a place across a
+/// priority's edge leaves the entry at that edge, and the place journaled
+/// is the one it holds. A hold, a release, a drop and a claim keep the
+/// order, and the places equal it after every command.
+#[test]
+fn a_move_orders_within_its_priority_and_every_command_keeps_the_order() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&dir.path().join("forge.db")).unwrap();
+    for (n, priority) in [(1, 5), (2, 0), (3, 0), (4, 0), (5, -3)] {
+        add_at(&mut store, n, priority);
+    }
+    let to = |store: &mut Store, entry: i64, to: u32| {
+        let command = QueueCommand::Move { to };
+        store.queue_command(EntryId(entry), command, BY).unwrap();
+        last_place(store)
+    };
+    let places = |order: [i64; 5]| {
+        (1..)
+            .zip(order)
+            .map(|(p, e)| (e, Some(p)))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(to(&mut store, 4, 2), Some(2));
+    assert_eq!(order(&store), places([1, 4, 2, 3, 5]));
+    assert_eq!(to(&mut store, 2, 1), Some(2));
+    assert_eq!(order(&store), places([1, 2, 4, 3, 5]));
+    assert_eq!(to(&mut store, 3, 5), Some(4));
+    assert_eq!(order(&store), places([1, 2, 4, 3, 5]));
+    assert_eq!(to(&mut store, 5, 1), Some(5));
+    assert_eq!(to(&mut store, 1, 4), Some(1));
+    assert_eq!(order(&store), places([1, 2, 4, 3, 5]));
+
+    let hold = |store: &mut Store, entry: i64, command: QueueCommand| {
+        store.queue_command(EntryId(entry), command, BY).unwrap();
+    };
+    hold(&mut store, 4, QueueCommand::Hold);
+    assert_eq!(order(&store), places([1, 2, 4, 3, 5]));
+    hold(&mut store, 4, QueueCommand::Release);
+    assert_eq!(order(&store), places([1, 2, 4, 3, 5]));
+    hold(&mut store, 2, QueueCommand::Drop);
+    let left = [(1, Some(1)), (4, Some(2)), (3, Some(3)), (5, Some(4))];
+    assert_eq!(order(&store), left);
+    started(&mut store, "run-a");
+    linked(&mut store, EntryId(4), "run-a");
+    let claimed = [(1, Some(1)), (3, Some(2)), (5, Some(3)), (4, None)];
+    assert_eq!(order(&store), claimed);
+    add_at(&mut store, 6, 0);
+    assert_eq!(last_place(&store), Some(3));
+    assert_eq!(
+        order(&store),
+        [
+            (1, Some(1)),
+            (3, Some(2)),
+            (6, Some(3)),
+            (5, Some(4)),
+            (4, None)
         ]
     );
 }

@@ -21,7 +21,9 @@ journal is refused, and the refusal names the one that holds it.
 3. **Read the bound**: the number of counted refusals after which an
    entry is held.
 4. **Judge the queue**, as `brokkr queue judge` would.
-5. **Start each admitted entry**, in the queue's order. Each entry gets
+5. **Start each admitted entry**, in the queue's order: priority first,
+   higher before lower, then place. `brokkr queue move` orders an entry
+   only among those of its own priority. Each entry gets
    its claim, its run, its link, its `spawn` row and its driver before the
    next entry is claimed.
 

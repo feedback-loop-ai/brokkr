@@ -20,7 +20,8 @@
 //! entry is re-pinned after it: nothing else clears one, and a latch or a
 //! re-pin is written only over the pin and the latch its caller read
 //! ([`Seen`]). Priority and
-//! waits are operator data, stored and listed here; admission weighs them.
+//! waits are operator data, stored and listed here; the queue's order
+//! reads priority first, and admission weighs the waits.
 
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 
@@ -163,18 +164,30 @@ fn exists(
     Ok(tx.query_row(query, [key], |_| Ok(())).optional()?.is_some())
 }
 
-/// The entries in the queue's order: queued, held and launching, by
-/// place, since a claimed entry keeps its place until it is linked. Every
-/// unclaimed entry's state is read as a [`Standing`], so one this brokkr
-/// does not know refuses the command rather than being placed.
-fn waiting(tx: &Transaction<'_>) -> Result<Vec<EntryId>, StoreError> {
-    let unclaimed = tx
-        .prepare(
-            "SELECT entry_id, state FROM queue_entries
-             WHERE run_id IS NULL ORDER BY position",
-        )?
-        .query_map([], |row| Ok((EntryId(row.get(0)?), row.get(1)?)))?
-        .collect::<Result<Vec<(EntryId, Standing)>, _>>()?;
+/// The queue's one order (decision 0068 ruling 2, and the operator's
+/// ruling on #1191: "`queue move` orders entries within one priority, and
+/// priority always wins"): priority, higher first, then place, then id.
+/// Every read of the queue sorts by it, and every write of the places
+/// writes them in it, so a place is always its place in this order.
+const ORDER: &str = "priority DESC, position, entry_id";
+
+/// A waiting entry and the priority that orders it first.
+type Waiting = (EntryId, i64);
+
+/// The entries in the queue's order: queued, held and launching, since a
+/// claimed entry keeps its place until it is linked. Every unclaimed
+/// entry's state is read as a [`Standing`], so one this brokkr does not
+/// know refuses the command rather than being placed.
+fn waiting(tx: &Transaction<'_>) -> Result<Vec<Waiting>, StoreError> {
+    let query = format!(
+        "SELECT entry_id, state, priority FROM queue_entries
+         WHERE run_id IS NULL ORDER BY {ORDER}"
+    );
+    let read = |row: &rusqlite::Row<'_>| -> rusqlite::Result<(Waiting, Standing)> {
+        Ok(((EntryId(row.get(0)?), row.get(2)?), row.get(1)?))
+    };
+    let mut statement = tx.prepare(&query)?;
+    let unclaimed = (statement.query_map([], read)?).collect::<Result<Vec<_>, _>>()?;
     Ok(unclaimed
         .into_iter()
         .filter(|(_, standing)| *standing != Standing::Dropped)
@@ -182,9 +195,14 @@ fn waiting(tx: &Transaction<'_>) -> Result<Vec<EntryId>, StoreError> {
         .collect())
 }
 
+/// The place `entry` holds in `order`, from 1.
+fn place_in(order: &[Waiting], entry: EntryId) -> u32 {
+    order.iter().take_while(|(id, _)| *id != entry).count() as u32 + 1
+}
+
 /// Write the queue's order back as places from 1.
-fn renumber(tx: &Transaction<'_>, order: &[EntryId]) -> Result<(), StoreError> {
-    for (place, entry) in (1u32..).zip(order) {
+fn renumber(tx: &Transaction<'_>, order: &[Waiting]) -> Result<(), StoreError> {
+    for (place, (entry, _)) in (1u32..).zip(order) {
         tx.execute(
             "UPDATE queue_entries SET position = ?1 WHERE entry_id = ?2",
             params![place, entry.0],
@@ -276,7 +294,7 @@ fn add_once(
     let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
     queue_stored(&tx)?;
     admit_waits(&tx, new.waits)?;
-    let place = waiting(&tx)?.len() as u32 + 1;
+    let end = waiting(&tx)?.len() as u32 + 1;
     tx.execute(
         "INSERT INTO queue_entries (payload, priority, added_at, state, position)
          VALUES (?1, ?2, ?3, ?4, ?5)",
@@ -285,10 +303,15 @@ fn add_once(
             new.priority,
             now_rfc3339(),
             Standing::Queued.word(),
-            place
+            end
         ],
     )?;
     let entry = EntryId(tx.last_insert_rowid());
+    // Added at the end, it stands last among its own priority; the
+    // renumber writes that place.
+    let order = waiting(&tx)?;
+    renumber(&tx, &order)?;
+    let place = place_in(&order, entry);
     for wait in new.waits {
         tx.execute(
             "INSERT INTO queue_waits (entry_id, awaits, condition) VALUES (?1, ?2, ?3)",
@@ -334,18 +357,24 @@ fn apply(
     }
 }
 
-/// Move `entry` to place `to` among the waiting entries, refusing a place
-/// past either end.
+/// Move `entry` toward place `to` among the waiting entries, refusing a
+/// place past either end, and say the place it holds after. Priority
+/// still orders first: the entry moves only among those of its own
+/// priority, so a place across a priority's edge leaves it at that edge.
 fn move_entry(tx: &Transaction<'_>, entry: EntryId, to: u32) -> Result<u32, StoreError> {
-    let mut order = waiting(tx)?;
+    let order = waiting(tx)?;
     let last = order.len() as u32;
     if to == 0 || to > last {
         return Err(QueueRefusal::PastTheEnds { entry, to, last }.into());
     }
-    order.retain(|id| *id != entry);
-    order.insert(to as usize - 1, entry);
+    let (moved, mut order): (Vec<Waiting>, Vec<Waiting>) =
+        order.into_iter().partition(|(id, _)| *id == entry);
+    let at = to as usize - 1;
+    order.splice(at..at, moved);
+    // Stable, so the move's order within each priority stands.
+    order.sort_by_key(|(_, priority)| std::cmp::Reverse(*priority));
     renumber(tx, &order)?;
-    Ok(to)
+    Ok(place_in(&order, entry))
 }
 
 /// The entries `filter` selects with `key`, in the queue's order, each
@@ -366,7 +395,7 @@ fn entries(
     let mut entries = conn.prepare(&format!(
         "SELECT entry_id, position, state, run_id, priority, {payload}, added_at, {pin}
          FROM queue_entries WHERE {filter}
-         ORDER BY position IS NULL, position, entry_id"
+         ORDER BY position IS NULL, {ORDER}"
     ))?;
     let mut listed = entries
         .query_map([key], |row| {
@@ -408,7 +437,8 @@ fn entry_once(conn: &Connection, entry: EntryId) -> Result<QueueEntry, StoreErro
 }
 
 impl Store {
-    /// Queue a new entry at the end of the queue, journaling the `add`.
+    /// Queue a new entry last among those of its own priority, journaling
+    /// the `add` with the place it takes.
     /// Every entry it waits for must already be in the queue.
     pub fn queue_add(
         &mut self,
@@ -436,7 +466,9 @@ impl Store {
         })
     }
 
-    /// The queue: waiting entries in order, then the claimed ones by id.
+    /// The queue: waiting entries in the queue's order (priority, higher
+    /// first, then place, then id), then the claimed ones in the same
+    /// order less the place they gave up.
     /// Dropped entries are not listed. A journal from before the queue
     /// has an empty one.
     pub fn queue_list(&self) -> Result<Vec<QueueEntry>, StoreError> {

@@ -36,8 +36,9 @@ pub(crate) fn queue(workspace: &Path, command: QueueCmd) -> Result<ExitCode> {
     }
 }
 
-/// `brokkr queue add`: the launch, encoded, at the end of the queue in the
-/// journal the launch would write. The entry is launched from wherever the
+/// `brokkr queue add`: the launch, encoded, last among the entries of its
+/// own priority in the journal the launch would write. The entry is
+/// launched from wherever the
 /// dispatcher stands, so it names its workspace absolutely, and every path
 /// it holds is anchored to that workspace ([`QueuedLaunch::of`]).
 fn add(
@@ -85,7 +86,13 @@ fn change(
     let mut store = open_journal(&journal.journal(workspace)?, Access::Append)?;
     attributed(&reason, |by| store.queue_command(entry, command, by))?;
     match command {
-        QueueCommand::Move { to } => eprintln!("moved queue entry {entry} to place {to}"),
+        // Priority orders first, so the place held can be other than the
+        // place asked for: say the one the journal shows.
+        QueueCommand::Move { .. } => {
+            if let Some(place) = store.queue_entry(entry)?.position {
+                eprintln!("moved queue entry {entry} to place {place}");
+            }
+        }
         QueueCommand::Hold => eprintln!("held queue entry {entry}"),
         QueueCommand::Release => eprintln!("released queue entry {entry}"),
         QueueCommand::Drop => eprintln!("dropped queue entry {entry}"),

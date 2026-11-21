@@ -426,6 +426,52 @@ fn two_admitted_entries_under_one_provider_ceiling_start_only_the_first() {
     assert_eq!((again.waiting, again.held_entries), (1, 1));
 }
 
+/// "Queue it before the rest" is a priority (decision 0068 ruling 2,
+/// #1191): A queued at the default priority, then B at 10, with room for
+/// one run. The pass starts B, and A waits on the room B took.
+#[test]
+fn a_higher_priority_queued_later_starts_first_and_the_earlier_waits_on_capacity() {
+    let (mut fixture, file, dispatcher, entries) = setup(1);
+    let a = entries[0];
+    let payload = fixture.launch_in("bundle").encode().unwrap();
+    let b = brokkr_store::NewEntry {
+        payload: &payload,
+        priority: 10,
+        waits: &[],
+    };
+    let b = fixture
+        .store
+        .queue_add(b, crate::admission::capacity::tests::BY);
+    let b = b.unwrap();
+    let full = Reason::Capacity(crate::admission::capacity::Capacity::ProviderFull {
+        provider: "alpha".into(),
+        running: 1,
+        ceiling: 1,
+    });
+
+    let (passed, seen) = one_pass(&mut fixture.store, &dispatcher, &file);
+    let started: Vec<EntryId> = passed.started.iter().map(|s| s.entry).collect();
+    let refused: Vec<(EntryId, &Reason)> = (passed.claims_refused.iter())
+        .map(|refused| (refused.entry, &refused.reason))
+        .collect();
+    assert_eq!(
+        (started, refused, seen.len()),
+        (vec![b], vec![(a, &full)], 1)
+    );
+    assert_eq!(state(&fixture.store, a), EntryState::Queued);
+
+    let judged = admission::pass_within(&fixture.store, &host(&file))
+        .unwrap()
+        .0;
+    let verdicts: Vec<(EntryId, Option<admission::Verdict>)> = (judged.into_iter())
+        .map(|judged| (judged.entry.id, judged.verdict))
+        .collect();
+    let waits = admission::Verdict {
+        reasons: vec![full],
+    };
+    assert_eq!(verdicts, vec![(a, Some(waits)), (b, None)]);
+}
+
 #[test]
 fn reconciliation_spawns_a_linked_run_with_no_spawn_row_once() {
     use crate::dispatch::reconcile::Settled;
