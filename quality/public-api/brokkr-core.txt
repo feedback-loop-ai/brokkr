@@ -320,11 +320,35 @@ pub brokkr_core::findings::LiveRefusal::Result(brokkr_core::findings::AdmissionR
 pub enum brokkr_core::findings::Reporter<'a>
 pub brokkr_core::findings::Reporter::Gate(&'a str)
 pub brokkr_core::findings::Reporter::Work
+pub enum brokkr_core::findings::ResidualInput
+pub brokkr_core::findings::ResidualInput::HasSecurityResidual
+pub brokkr_core::findings::ResidualInput::MaxResidualSeverity
+impl brokkr_core::findings::ResidualInput
+pub const fn brokkr_core::findings::ResidualInput::name(self) -> &'static str
+impl core::fmt::Display for brokkr_core::findings::ResidualInput
+pub fn brokkr_core::findings::ResidualInput::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub enum brokkr_core::findings::WordError
 pub brokkr_core::findings::WordError::File
 pub brokkr_core::findings::WordError::Id
 pub brokkr_core::findings::WordError::Site
 pub brokkr_core::findings::WordError::Summary
+pub enum brokkr_core::findings::WordRefusal
+pub brokkr_core::findings::WordRefusal::Absent
+pub brokkr_core::findings::WordRefusal::Absent::input: brokkr_core::findings::ResidualInput
+pub brokkr_core::findings::WordRefusal::Absent::word: alloc::string::String
+pub brokkr_core::findings::WordRefusal::BlockingFinding
+pub brokkr_core::findings::WordRefusal::BlockingFinding::word: alloc::string::String
+pub brokkr_core::findings::WordRefusal::Findings
+pub brokkr_core::findings::WordRefusal::ResidualSeverity
+pub brokkr_core::findings::WordRefusal::ResidualSeverity::severity: brokkr_core::policy::Severity
+pub brokkr_core::findings::WordRefusal::ResidualSeverity::word: alloc::string::String
+pub brokkr_core::findings::WordRefusal::SecurityFinding
+pub brokkr_core::findings::WordRefusal::SecurityFinding::word: alloc::string::String
+pub brokkr_core::findings::WordRefusal::SecurityResidual
+pub brokkr_core::findings::WordRefusal::SecurityResidual::word: alloc::string::String
+pub brokkr_core::findings::WordRefusal::Unreadable
+pub brokkr_core::findings::WordRefusal::Unreadable::input: brokkr_core::findings::ResidualInput
+pub brokkr_core::findings::WordRefusal::Unreadable::word: alloc::string::String
 pub struct brokkr_core::findings::CheckedHead(_)
 impl brokkr_core::findings::CheckedHead
 pub fn brokkr_core::findings::CheckedHead::as_str(&self) -> &str
@@ -368,6 +392,9 @@ pub type brokkr_core::findings::RepoFile::Error = brokkr_core::findings::WordErr
 pub fn brokkr_core::findings::RepoFile::try_from(alloc::string::String) -> core::result::Result<brokkr_core::findings::RepoFile, brokkr_core::findings::WordError>
 impl core::fmt::Display for brokkr_core::findings::RepoFile
 pub fn brokkr_core::findings::RepoFile::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct brokkr_core::findings::ResidualPair
+impl brokkr_core::findings::ResidualPair
+pub fn brokkr_core::findings::ResidualPair::declared_in<S: core::convert::AsRef<str>>(&[S]) -> brokkr_core::findings::ResidualPair
 pub struct brokkr_core::findings::SiteDigest(_)
 impl core::convert::From<brokkr_core::findings::SiteDigest> for alloc::string::String
 pub fn alloc::string::String::from(brokkr_core::findings::SiteDigest) -> alloc::string::String
@@ -387,6 +414,8 @@ pub fn brokkr_core::findings::Summary::fmt(&self, &mut core::fmt::Formatter<'_>)
 pub const brokkr_core::findings::AUTHORED: &str
 pub fn brokkr_core::findings::admit(&mut serde_json::value::Value, core::option::Option<brokkr_core::findings::Reporter<'_>>) -> core::result::Result<core::option::Option<alloc::vec::Vec<brokkr_core::findings::Finding>>, brokkr_core::findings::AdmissionRefusal>
 pub fn brokkr_core::findings::admit_live(&mut serde_json::value::Value, core::option::Option<brokkr_core::findings::Reporter<'_>>) -> core::result::Result<(), brokkr_core::findings::LiveRefusal>
+pub fn brokkr_core::findings::bind(&str, &[brokkr_core::findings::Finding], core::option::Option<&serde_json::map::Map<alloc::string::String, serde_json::value::Value>>, brokkr_core::findings::ResidualPair) -> core::result::Result<(), brokkr_core::findings::WordRefusal>
+pub fn brokkr_core::findings::bind_journaled(&serde_json::map::Map<alloc::string::String, serde_json::value::Value>, &str, brokkr_core::findings::ResidualPair) -> core::result::Result<(), brokkr_core::findings::WordRefusal>
 pub fn brokkr_core::findings::by_the_engine(&serde_json::value::Value) -> bool
 pub fn brokkr_core::findings::journal(&mut serde_json::value::Value, &[brokkr_core::findings::Finding])
 pub fn brokkr_core::findings::stamp_authored(&mut serde_json::value::Value)
