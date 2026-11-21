@@ -340,12 +340,25 @@ fn decision_of(payload: &Value) -> Decision {
 /// per member, with each member's verdict — or else the error a failed
 /// attempt wrote. An empty text is no notes.
 fn notes_of(payload: &Value) -> Option<String> {
-    let notes = match payload.pointer("/result/notes") {
-        Some(Value::Object(map)) => Some(panel_notes(map)),
-        Some(other) => Some(js::to_display(Some(other))),
-        None => field(payload, "error").map(str::to_string),
+    match payload.pointer("/result/notes") {
+        Some(_) => result_notes(payload),
+        None => field(payload, "error")
+            .filter(|text| !text.trim().is_empty())
+            .map(str::to_string),
+    }
+}
+
+/// The one reader of a result payload's `/result/notes`, as text: a
+/// string as itself, a panel's notes one line per member with each
+/// member's verdict, and any other value as the journal wrote it. Absent
+/// notes, or notes empty after trimming, are none. The dashboard and the
+/// ledger both paint it (decision 0071 ruling 7).
+pub fn result_notes(payload: &Value) -> Option<String> {
+    let notes = match payload.pointer("/result/notes")? {
+        Value::Object(map) => panel_notes(map),
+        other => js::to_display(Some(other)),
     };
-    notes.filter(|text| !text.trim().is_empty())
+    (!notes.trim().is_empty()).then_some(notes)
 }
 
 /// A panel's notes, one line per member: `name (verdict): note`. Notes of

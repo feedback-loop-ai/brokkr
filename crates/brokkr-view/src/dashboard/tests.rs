@@ -374,6 +374,34 @@ fn a_concluded_attempt_reports_what_it_wrote_and_a_stale_one_nothing() {
     assert_eq!(dashboard(&[]), Dashboard::default());
 }
 
+/// The one reader of `/result/notes`: a string as itself, a panel one line
+/// per member with its verdict where one is recorded, any other shape as
+/// written, and absent or blank notes, a panel of no members among them,
+/// as none. It never falls back to an error.
+#[test]
+fn the_result_notes_reader_renders_every_shape_once() {
+    let notes = |notes: Value| result_notes(&json!({"result": {"notes": notes}}));
+    assert_eq!(
+        notes(json!("12 tests passed")).as_deref(),
+        Some("12 tests passed")
+    );
+    assert_eq!(
+        notes(json!({"members": {"alice": "fine", "bob": "one low"},
+                     "verdicts": {"alice": "clean"}}))
+        .as_deref(),
+        Some("alice (clean): fine\nbob: one low")
+    );
+    assert_eq!(notes(json!({"why": 1})).as_deref(), Some(r#"{"why":1}"#));
+    assert_eq!(notes(json!(["a", "b"])).as_deref(), Some("a,b"));
+    assert_eq!(notes(json!(7)).as_deref(), Some("7"));
+    assert_eq!(notes(json!(" \n ")), None);
+    assert_eq!(notes(json!({"members": {}})), None);
+    assert_eq!(
+        result_notes(&json!({"result": {}, "error": "exit 1"})),
+        None
+    );
+}
+
 /// The live column's stream: the working seat's checkpoints and its
 /// working members', newest first, and no other seat's.
 #[test]

@@ -6,7 +6,7 @@ use std::process::Command;
 
 use anyhow::{Context, Result};
 use brokkr_core::{EventEnvelope, EventType};
-use brokkr_view::applied_events;
+use brokkr_view::{applied_events, result_notes};
 use serde_json::Value;
 
 fn git(repo: &Path, args: &[&str]) -> Option<String> {
@@ -21,7 +21,7 @@ fn git(repo: &Path, args: &[&str]) -> Option<String> {
         .then(|| String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
-fn result_notes(
+fn phase_results(
     events: &[EventEnvelope],
     phase: &str,
     vocabulary: &[&str],
@@ -46,18 +46,28 @@ fn result_notes(
             }
             let result = event.payload.pointer("/result/result")?.as_str()?;
             vocabulary.contains(&result).then(|| {
+                let notes = result_notes(&event.payload);
                 (
                     result.to_string(),
-                    event
-                        .payload
-                        .pointer("/result/notes")
-                        .and_then(Value::as_str)
-                        .unwrap_or("no notes recorded")
-                        .to_string(),
+                    notes.unwrap_or_else(|| "no notes recorded".to_string()),
                 )
             })
         })
         .collect()
+}
+
+/// One result's bullet. A one-line note follows its result word; a note of
+/// several lines, a panel's one line per member among them, is a nested
+/// list under it, one bullet per line, so the markdown stays a list.
+fn result_line(result: &str, notes: &str) -> String {
+    if !notes.contains('\n') {
+        return format!("- **{result}** — {notes}\n");
+    }
+    let mut line = format!("- **{result}**\n");
+    for note in notes.lines() {
+        line.push_str(&format!("  - {note}\n"));
+    }
+    line
 }
 
 fn commit_ids(events: &[EventEnvelope], repo: &Path) -> Vec<String> {
@@ -120,8 +130,8 @@ pub(crate) fn render(run_id: &str, events: Vec<EventEnvelope>, repo: &Path) -> R
         .unwrap_or("no delivery description recorded");
     let head = git(repo, &["rev-parse", "HEAD"]).unwrap_or_else(|| "unavailable".to_string());
     let commits = commit_ids(events, repo);
-    let verify = result_notes(events, "verify", &["pass", "fail"]);
-    let review = result_notes(events, "review", &["clean", "residual", "security-hold"]);
+    let verify = phase_results(events, "verify", &["pass", "fail"]);
+    let review = phase_results(events, "review", &["clean", "residual", "security-hold"]);
 
     let mut ledger = format!(
         "# Delivery ledger — {run_id}\n\n## Delivered\n\n{feature}\n\n\
@@ -150,7 +160,7 @@ pub(crate) fn render(run_id: &str, events: Vec<EventEnvelope>, repo: &Path) -> R
         ledger.push_str("No verify result is recorded.\n");
     } else {
         for (result, notes) in verify {
-            ledger.push_str(&format!("- **{result}** — {notes}\n"));
+            ledger.push_str(&result_line(&result, &notes));
         }
     }
     ledger.push_str("\n## Review residuals\n\n");
@@ -158,7 +168,7 @@ pub(crate) fn render(run_id: &str, events: Vec<EventEnvelope>, repo: &Path) -> R
         ledger.push_str("No review result is recorded.\n");
     } else {
         for (result, notes) in review {
-            ledger.push_str(&format!("- **{result}** — {notes}\n"));
+            ledger.push_str(&result_line(&result, &notes));
         }
     }
     ledger.push_str(

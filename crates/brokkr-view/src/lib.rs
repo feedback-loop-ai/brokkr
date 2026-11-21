@@ -88,7 +88,7 @@ pub use compare::{
 };
 pub use composed::{composed_view, composed_whole, seat_keys, Parts};
 use dashboard::dashboard;
-pub use dashboard::working_participants;
+pub use dashboard::{result_notes, working_participants};
 pub use dashboard::{working_checkpoints, Concluded, Dashboard, Decision, Outcome, Ruled, Visit};
 pub use fleet::{
     at_work, behind_line, fleet_rows, late_line, need, page, ranges, run_row, run_rows,
