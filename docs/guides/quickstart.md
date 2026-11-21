@@ -1008,6 +1008,44 @@ The script prints this every run, and so does this page:
 
 Neither number is a claim about your machine. Run the script.
 
+### Shell completion
+
+`brokkr completions <shell>` prints a completion script for bash, zsh,
+fish, powershell or elvish. It offers every verb, flag and fixed value,
+and none of the hidden engine verbs or the old flat spellings. Install
+it once, saving each shell's script where that shell looks:
+
+```sh
+brokkr completions bash
+brokkr completions zsh
+brokkr completions fish
+```
+
+- bash: save the output as `brokkr` in
+  `~/.local/share/bash-completion/completions/`.
+- zsh: save it as `_brokkr` in a directory on your `fpath`, such as
+  `~/.zfunc`, before `compinit` runs.
+- fish: save it as `brokkr.fish` in `~/.config/fish/completions/`.
+
+The live completer completes values as well. Register it instead of the
+static script, with the one line for your shell in its startup file
+(`~/.bashrc`, `~/.zshrc` or `~/.config/fish/config.fish`):
+
+```text
+source <(COMPLETE=bash brokkr)
+source <(COMPLETE=zsh brokkr)
+COMPLETE=fish brokkr | source
+```
+
+It offers the 50 newest run ids for `--run`, `--by-run` and `runs
+compare`, newest first, and the phases and seats of the run a `--run`
+on the line names. It also offers recipe and agent names from the
+libraries, realm names from the map, and the waiting queue entries for
+the queue's commands. It reads the journal the completed command would
+read, and a `--db` or `--realms` on the line wins. It opens that journal
+read-only, creates no file beside it and never waits on a busy one. Any
+failure completes nothing and prints nothing (decision 0115).
+
 ### Limits worth knowing
 
 - **One journal per world.** A realms map names a set of repositories

@@ -3,7 +3,7 @@
 Status: accepted — operator ruled on #1230, 2026-11-21: "I want auto-complete, both static and dynamic, that will improve our quality of life tremendously!!! Schedule it after the new CLI shape"; the standing ruling of 2026-11-04 ("go with recommended on anything else that comes up") places what that ruling does not name
 Date: 2026-11-22
 
-Built: unbuilt (#1230)
+Built: built — the verb, the live completer and its read rules (#1230); the Homebrew formula's install is the tap's, out of scope
 
 ## Context
 
