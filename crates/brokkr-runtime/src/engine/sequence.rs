@@ -38,8 +38,8 @@ mod success;
 pub(in crate::engine) use compose::StepComposition;
 pub(in crate::engine) use step_facts::binds_its_word;
 pub(crate) use step_facts::needs_change;
+use step_facts::{declares_change, tailed_outcome, vocabulary_problem};
 pub(super) use step_facts::{dialect_attempt_outcome, expand_dialect_argv, nearest_change};
-use step_facts::{tailed_outcome, vocabulary_problem};
 
 /// Where a step leaves its attempt, at each stage of settling it.
 enum StepVerdict<T> {
@@ -294,11 +294,7 @@ impl Engine {
             input: seq_input,
             bound,
             selection,
-            declares_change: self
-                .bundle
-                .seats
-                .get(at.seat_name)
-                .is_some_and(|seat| seat.inputs.iter().any(|input| input == "change")),
+            declares_change: declares_change(steps),
         };
         let mut carried = Carried {
             prior_results: Map::new(),

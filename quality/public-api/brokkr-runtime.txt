@@ -820,6 +820,7 @@ pub fn brokkr_runtime::bundle::Seat::has_gate(&self) -> bool
 pub struct brokkr_runtime::bundle::SequenceStep
 pub brokkr_runtime::bundle::SequenceStep::body: brokkr_runtime::bundle::StepBody
 pub brokkr_runtime::bundle::SequenceStep::class: brokkr_runtime::bundle::SeatClass
+pub brokkr_runtime::bundle::SequenceStep::declares_change: bool
 pub brokkr_runtime::bundle::SequenceStep::ends_on: alloc::vec::Vec<alloc::string::String>
 pub brokkr_runtime::bundle::SequenceStep::hard_results: alloc::vec::Vec<alloc::string::String>
 pub brokkr_runtime::bundle::SequenceStep::name: alloc::string::String
@@ -2499,6 +2500,7 @@ pub fn brokkr_runtime::bundle::Seat::has_gate(&self) -> bool
 pub struct brokkr_runtime::SequenceStep
 pub brokkr_runtime::SequenceStep::body: brokkr_runtime::bundle::StepBody
 pub brokkr_runtime::SequenceStep::class: brokkr_runtime::bundle::SeatClass
+pub brokkr_runtime::SequenceStep::declares_change: bool
 pub brokkr_runtime::SequenceStep::ends_on: alloc::vec::Vec<alloc::string::String>
 pub brokkr_runtime::SequenceStep::hard_results: alloc::vec::Vec<alloc::string::String>
 pub brokkr_runtime::SequenceStep::name: alloc::string::String

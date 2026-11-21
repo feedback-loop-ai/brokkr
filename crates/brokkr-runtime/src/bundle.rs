@@ -30,6 +30,7 @@ macro_rules! uncompiled_sequence_step {
             ends_on: Vec::new(),
             hard_results: Vec::new(),
             residual: brokkr_core::findings::ResidualPair::declared_in::<&str>(&[]),
+            declares_change: false,
         }
     };
 }
@@ -298,6 +299,9 @@ pub struct SequenceStep {
     /// The residual pair its seat compiles, which a gate step's or a panel
     /// step's word is bound to before a later step runs (decision 0109).
     pub residual: brokkr_core::findings::ResidualPair,
+    /// Whether its seat's compiled input set declares `change`, read at
+    /// compile from the seat scope, a select case's included (#1221 E).
+    pub declares_change: bool,
 }
 
 #[derive(Debug, Clone)]
