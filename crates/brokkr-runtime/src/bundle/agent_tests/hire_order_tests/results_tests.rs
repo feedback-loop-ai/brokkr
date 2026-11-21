@@ -189,6 +189,70 @@ fn the_shipped_members_compile_to_their_agents_lists() {
     assert_eq!(seen, 26, "every shipped panel member");
 }
 
+/// #1221 A: a `unanimous-pass` panel writes no residual pair, so under a
+/// seat whose input set declares one it could never pass ruling 2's
+/// aggregate arm. It is refused at compile in each position a panel may
+/// take, naming the panel's site; a review-panel under the same seat
+/// compiles.
+#[test]
+fn a_unanimous_pass_panel_under_a_residual_seat_is_refused_where_it_stands() {
+    let fixture = offices();
+    let members = json!({"listed": {"agent": "listed"}, "plain": {"agent": "plain"}});
+    let panel = json!({"aggregate": "unanimous-pass", "panel": members.clone()});
+    let mut table = policy();
+    table["rules"].as_array_mut().unwrap().extend([
+        json!({"id": "PASS", "from": "review", "result": "pass", "next": "done", "reason": "p"}),
+        json!({"id": "FAIL", "from": "review", "result": "fail", "next": "done", "reason": "f"}),
+    ]);
+    let single = json!({"role": "roles/work.md", "driver": {"command": ["driver"]}});
+    let mut chief = single.clone();
+    chief["name"] = json!("chief");
+    let mut step = panel.clone();
+    step["name"] = json!("positions");
+    let select = json!({"on": "strategy", "cases": {"chore": panel.clone()}, "default": single});
+    let bodies = [
+        (panel, "review"),
+        (json!({"sequence": [step, chief]}), "review:positions"),
+        (json!({"select": select}), "review:chore"),
+    ];
+    for (body, site) in bodies {
+        for input in ["max_residual_severity", "has_security_residual"] {
+            let mut seat = body.clone();
+            seat["results"] = json!(["pass", "fail"]);
+            seat["inputs"] = json!([input]);
+            let mut config = fixture.config();
+            config["seats"]["review"] = seat;
+            match fixture.compile_with_policy(config, &table) {
+                Err(CompileError::Body(refusal)) => assert_eq!(
+                    refusal,
+                    crate::bundle::BodyRefusal::UnanimousPassUnderResidual { panel: site.into() },
+                    "{site} under {input}"
+                ),
+                other => panic!("{site} under {input}: the refusal, not {:?}", other.err()),
+            }
+        }
+    }
+    assert_eq!(
+        crate::bundle::BodyRefusal::UnanimousPassUnderResidual {
+            panel: "review".into()
+        }
+        .to_string(),
+        "panel 'review' joins by 'unanimous-pass', which writes no residual pair, under a seat \
+         whose input set declares 'max_residual_severity' or 'has_security_residual'; its pass \
+         could never stand (decision 0109 ruling 2): join it by 'review-panel' or drop the pair \
+         from the seat's inputs"
+    );
+
+    let mut config = panelled(&fixture, "review-panel", members);
+    config["seats"]["review"]["inputs"] = json!(["max_residual_severity", "has_security_residual"]);
+    let bundle = (fixture.compile_with_policy(config, &review_policy()))
+        .expect("a review-panel binds the pair");
+    assert_eq!(
+        bundle.seats["review"].inputs,
+        ["max_residual_severity", "has_security_residual"]
+    );
+}
+
 /// Every panel member `body` can run, whatever contains it.
 fn panels<'a>(body: &'a SeatBody, out: &mut Vec<&'a PanelMember>) {
     match body {
