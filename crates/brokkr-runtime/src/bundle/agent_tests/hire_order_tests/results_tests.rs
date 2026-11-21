@@ -59,6 +59,21 @@ fn laws(bundle: &Bundle) -> Vec<(String, Vec<String>)> {
         .collect()
 }
 
+/// The two offices as panel members.
+fn two_members() -> Value {
+    json!({"listed": {"agent": "listed"}, "plain": {"agent": "plain"}})
+}
+
+/// A table where `review` may answer `pass` and `fail`.
+fn pass_fail_policy() -> Value {
+    let mut table = policy();
+    table["rules"].as_array_mut().unwrap().extend([
+        json!({"id": "PASS", "from": "review", "result": "pass", "next": "done", "reason": "p"}),
+        json!({"id": "FAIL", "from": "review", "result": "fail", "next": "done", "reason": "f"}),
+    ]);
+    table
+}
+
 fn words(words: &[&str]) -> Vec<String> {
     words.iter().map(|word| word.to_string()).collect()
 }
@@ -87,12 +102,8 @@ fn a_review_panel_member_is_held_to_its_agents_list_or_the_narrow_default() {
 #[test]
 fn a_unanimous_pass_member_keeps_pass_and_fail_whatever_its_agent_declares() {
     let fixture = offices();
-    let members = json!({"listed": {"agent": "listed"}, "plain": {"agent": "plain"}});
-    let mut table = policy();
-    table["rules"].as_array_mut().unwrap().extend([
-        json!({"id": "PASS", "from": "review", "result": "pass", "next": "done", "reason": "p"}),
-        json!({"id": "FAIL", "from": "review", "result": "fail", "next": "done", "reason": "f"}),
-    ]);
+    let members = two_members();
+    let table = pass_fail_policy();
     let bundle = fixture.compile_with_policy(panelled(&fixture, "unanimous-pass", members), &table);
     let pass_fail = words(&["pass", "fail"]);
     assert_eq!(
@@ -197,13 +208,9 @@ fn the_shipped_members_compile_to_their_agents_lists() {
 #[test]
 fn a_unanimous_pass_panel_under_a_residual_seat_is_refused_where_it_stands() {
     let fixture = offices();
-    let members = json!({"listed": {"agent": "listed"}, "plain": {"agent": "plain"}});
+    let members = two_members();
     let panel = json!({"aggregate": "unanimous-pass", "panel": members.clone()});
-    let mut table = policy();
-    table["rules"].as_array_mut().unwrap().extend([
-        json!({"id": "PASS", "from": "review", "result": "pass", "next": "done", "reason": "p"}),
-        json!({"id": "FAIL", "from": "review", "result": "fail", "next": "done", "reason": "f"}),
-    ]);
+    let table = pass_fail_policy();
     let single = json!({"role": "roles/work.md", "driver": {"command": ["driver"]}});
     let mut chief = single.clone();
     chief["name"] = json!("chief");
