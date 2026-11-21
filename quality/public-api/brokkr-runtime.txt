@@ -662,6 +662,10 @@ pub enum brokkr_runtime::bundle::Aggregate
 pub brokkr_runtime::bundle::Aggregate::ReviewPanel
 pub brokkr_runtime::bundle::Aggregate::UnanimousPass
 pub enum brokkr_runtime::bundle::BodyRefusal
+pub brokkr_runtime::bundle::BodyRefusal::PreGateEnding
+pub brokkr_runtime::bundle::BodyRefusal::PreGateEnding::seat: alloc::string::String
+pub brokkr_runtime::bundle::BodyRefusal::PreGateEnding::step: alloc::string::String
+pub brokkr_runtime::bundle::BodyRefusal::PreGateEnding::word: alloc::string::String
 pub brokkr_runtime::bundle::BodyRefusal::UnanimousPassUnderResidual
 pub brokkr_runtime::bundle::BodyRefusal::UnanimousPassUnderResidual::panel: alloc::string::String
 pub enum brokkr_runtime::bundle::CharterOwner

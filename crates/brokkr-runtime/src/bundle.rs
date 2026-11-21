@@ -1045,10 +1045,11 @@ impl Bundle {
         // Every compiled step's endings, after the dialect wrapper has
         // written the synthetic verify sequence (decision 0050, ruling 7).
         for (phase, seat) in &mut seated.seats {
+            let protected = *phase == table.protected_phase;
             sequence::stamp_endings(
                 &table.machine,
                 &resolved.name,
-                phase,
+                (phase, protected),
                 &seat.results,
                 &mut seat.body,
             )?;
