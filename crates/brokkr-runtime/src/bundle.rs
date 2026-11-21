@@ -63,7 +63,9 @@ mod tier;
 mod walk;
 
 pub use aggregate::Aggregate;
-pub(crate) use aggregate::{MemberFindings, MemberVerdict};
+pub(crate) use aggregate::{
+    laws_of, MemberFindings, MemberLaw, MemberLaws, MemberVerdict, PanelJoin,
+};
 use capability_record::{record_capabilities, CapabilityWalk};
 use charters::parse_role;
 use compose::{Ancestor, COMPOSE_PREFIX};
@@ -315,6 +317,8 @@ pub struct PanelMember {
     pub candidates: Vec<Candidate>,
     pub written: Vec<String>,
     pub class: SeatClass,
+    /// What its word answers to, compiled at its site (decision 0109).
+    pub(crate) law: MemberLaw,
 }
 
 /// Which side of decision 0021 ruling 1 a driver-bearing site sits on.
@@ -743,6 +747,7 @@ struct ResolvedSeat {
     candidates: Vec<Candidate>,
     limits: Option<Limits>,
     inputs: Option<Vec<String>>,
+    results: Option<Vec<String>>,
     /// Decision 0043: the agent's hands, when it declared them.
     hands: Option<HandsSpec>,
 }
@@ -1371,6 +1376,7 @@ fn resolve_reference(
         candidates,
         limits: resolution.limits,
         inputs: resolution.inputs.clone(),
+        results: resolution.results.clone(),
         hands: resolution.hands.clone(),
     })
 }

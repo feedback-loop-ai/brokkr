@@ -2,12 +2,14 @@
 //! it, its parse and closed vocabulary, the results it can emit, and the
 //! aggregation the engine runs over the members' results.
 
+use std::collections::BTreeMap;
+
 use brokkr_core::findings::Finding;
 use brokkr_core::policy::SEVERITY_ORDER;
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 
-use super::CompileError;
+use super::{CompileError, PanelMember};
 
 /// Deterministic, order-independent aggregation rules — a closed
 /// vocabulary, like conditions: named in data, implemented in the
@@ -108,35 +110,151 @@ impl Aggregate {
         }
     }
 
+    /// A member's compiled result set (decision 0109 ruling 11): a
+    /// `unanimous-pass` member keeps the aggregate's own two words
+    /// whatever its agent declares; a `review-panel` member is held to its
+    /// hired agent's `declared` list, or, declaring none, to the narrow
+    /// `clean` and `residual`, never to the owning seat's set.
+    pub(crate) fn member_results(self, declared: Option<Vec<String>>) -> Vec<String> {
+        let words = |words: &[&str]| words.iter().map(|word| word.to_string()).collect();
+        match self {
+            Aggregate::UnanimousPass => words(&["pass", "fail"]),
+            Aggregate::ReviewPanel => declared.unwrap_or_else(|| words(&["clean", "residual"])),
+        }
+    }
+}
+
+/// What one panel member's word answers to, compiled at its site: the
+/// results it may report (decision 0109 ruling 11).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct MemberLaw {
+    pub(crate) results: Vec<String>,
+}
+
+impl MemberLaw {
+    /// A law admitting every word a review panel ranks, for tests that
+    /// build members by hand and do not test the law.
+    #[cfg(test)]
+    pub(crate) fn open() -> Self {
+        Self::declaring(&["clean", "residual", "security-hold"])
+    }
+
+    /// A law admitting exactly `results`.
+    #[cfg(test)]
+    pub(crate) fn declaring(results: &[&str]) -> Self {
+        MemberLaw {
+            results: results.iter().map(|word| word.to_string()).collect(),
+        }
+    }
+}
+
+/// Why a review-panel member's word is refused before the join. Its
+/// text is the poisoned aggregate's evidence.
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+pub(crate) enum MemberRefusal {
+    #[error("the member has no compiled result set")]
+    Unbound,
+    #[error("member result '{word}' is not among its declared results [{}]", .results.join(", "))]
+    Undeclared { word: String, results: Vec<String> },
+}
+
+/// A panel's join: its declared aggregate and, by member, the law each
+/// member's word answers to.
+#[derive(Debug, Clone)]
+pub(crate) struct PanelJoin {
+    aggregate: Aggregate,
+    laws: MemberLaws,
+}
+
+/// Each member's compiled law, by its bare name.
+pub(crate) type MemberLaws = BTreeMap<String, MemberLaw>;
+
+/// The laws of `members`, by name.
+pub(crate) fn laws_of(members: &[PanelMember]) -> MemberLaws {
+    (members.iter())
+        .map(|member| (member.name.clone(), member.law.clone()))
+        .collect()
+}
+
+impl PanelJoin {
+    /// The join of `members` under `aggregate`, each with its own law.
+    pub(crate) fn of(aggregate: Aggregate, members: &[PanelMember]) -> Self {
+        let laws = laws_of(members);
+        PanelJoin { aggregate, laws }
+    }
+
+    /// The join over a partial retry's members: the fresh members' laws,
+    /// and every carried member's from the declared panel's `laws`.
+    pub(crate) fn carrying(&self, laws: &MemberLaws) -> Self {
+        let mut joined = laws.clone();
+        joined.extend(self.laws.clone());
+        PanelJoin {
+            aggregate: self.aggregate,
+            laws: joined,
+        }
+    }
+
+    /// The join of the members `names` under `aggregate`, each under
+    /// [`MemberLaw::open`].
+    #[cfg(test)]
+    pub(crate) fn open(aggregate: Aggregate, names: &[&str]) -> Self {
+        Self::under(
+            aggregate,
+            names.iter().map(|name| (*name, MemberLaw::open())),
+        )
+    }
+
+    /// The join under `aggregate` of the members `laws` names, each
+    /// under its own law.
+    #[cfg(test)]
+    pub(crate) fn under<'n>(
+        aggregate: Aggregate,
+        laws: impl IntoIterator<Item = (&'n str, MemberLaw)>,
+    ) -> Self {
+        let laws = (laws.into_iter())
+            .map(|(name, law)| (name.to_string(), law))
+            .collect();
+        PanelJoin { aggregate, laws }
+    }
+
+    /// Refuse `word` from the member `name` when its law does not admit
+    /// it. Only a `review-panel` member is held by its law: a
+    /// `unanimous-pass` member keeps that aggregate's own check.
+    fn refusal(&self, name: &str, word: &str) -> Option<MemberRefusal> {
+        if self.aggregate != Aggregate::ReviewPanel {
+            return None;
+        }
+        let Some(law) = self.laws.get(name) else {
+            return Some(MemberRefusal::Unbound);
+        };
+        if !law.results.iter().any(|lawful| lawful == word) {
+            return Some(MemberRefusal::Undeclared {
+                word: word.to_string(),
+                results: law.results.clone(),
+            });
+        }
+        None
+    }
+
     /// Deterministic, order-independent aggregation of member results. A
-    /// member payload without a readable result string, or with findings
-    /// that are not the engine's stamped records, poisons the
-    /// aggregate into a marker the engine's own schema validation parks
-    /// with the full member evidence attached — never coerced (law 0001).
-    /// A member result outside the three ranked words ranks WORST and is
-    /// returned verbatim: declared by the step, it is a word the step can
-    /// emit; undeclared, a non-final step's `vocabulary_problem` fails the
+    /// member payload without a readable result string, with findings
+    /// that are not the engine's stamped records, or, in a review panel,
+    /// with a word its compiled law refuses, poisons the aggregate into a
+    /// marker the engine's own schema validation parks with the full
+    /// member evidence attached — never coerced (law 0001); a refused
+    /// member's reason rides beside it under `refused`. A member result
+    /// outside the three ranked words ranks WORST and is returned
+    /// verbatim: declared by the step, it is a word the step can emit;
+    /// undeclared, a non-final step's `vocabulary_problem` fails the
     /// attempt, and only a final step's word reaches decide(), whose
     /// declared-results check parks it with evidence.
-    pub(crate) fn aggregate_results(self, members: &[MemberVerdict]) -> Value {
-        let Some(read) = Verdicts::read(members) else {
-            let evidence: Map<String, Value> =
-                members.iter().map(MemberVerdict::evidence).collect();
-            let mut poisoned = json!({
-                "result": Aggregate::MEMBER_SCHEMA_INVALID,
-                "notes": {"members": Value::Object(evidence)},
-            });
-            // The members' admitted findings stay the record's keyed
-            // findings, each under its member's own site, so a refused
-            // aggregate hides none in its notes (fix round 0109a1r6, W4).
-            let admitted = MemberVerdict::admitted(members);
-            if !admitted.is_empty() {
-                brokkr_core::findings::journal(&mut poisoned, &admitted);
-            }
-            return poisoned;
+    pub(crate) fn aggregate_results(&self, members: &[MemberVerdict]) -> Value {
+        let read = match Verdicts::read(members, self) {
+            Ok(read) => read,
+            Err(refused) => return poisoned(members, refused),
         };
         let meta = json!({"members": read.notes, "verdicts": read.verdicts});
-        let mut result = match self {
+        let mut result = match self.aggregate {
             Aggregate::UnanimousPass => unanimous_pass(&read.parsed, meta),
             Aggregate::ReviewPanel => review_panel(&read.parsed, meta),
         };
@@ -145,6 +263,28 @@ impl Aggregate {
         }
         result
     }
+}
+
+/// The aggregate `members` poison: the marker, every member's evidence,
+/// the refused member's reason where one was refused by its law, and the
+/// members' admitted findings kept keyed.
+fn poisoned(members: &[MemberVerdict], refused: Option<(String, MemberRefusal)>) -> Value {
+    let evidence: Map<String, Value> = members.iter().map(MemberVerdict::evidence).collect();
+    let mut poisoned = json!({
+        "result": Aggregate::MEMBER_SCHEMA_INVALID,
+        "notes": {"members": Value::Object(evidence)},
+    });
+    if let Some((name, refusal)) = refused {
+        poisoned["notes"]["refused"] = json!({ name: refusal.to_string() });
+    }
+    // The members' admitted findings stay the record's keyed findings,
+    // each under its member's own site, so a refused aggregate hides none
+    // in its notes (fix round 0109a1r6, W4).
+    let admitted = MemberVerdict::admitted(members);
+    if !admitted.is_empty() {
+        brokkr_core::findings::journal(&mut poisoned, &admitted);
+    }
+    poisoned
 }
 
 /// A panel member's findings as the aggregate joins them, typed: those
@@ -240,10 +380,14 @@ struct Verdicts<'a> {
 }
 
 impl<'a> Verdicts<'a> {
-    /// The members' verdicts, or `None` when any member's payload has no
-    /// readable result string or carries findings that do not read as the
-    /// engine's stamped records.
-    fn read(members: &'a [MemberVerdict]) -> Option<Self> {
+    /// The members' verdicts, or the poison when any member's payload has
+    /// no readable result string, carries findings that do not read as
+    /// the engine's stamped records, or, under `join`, writes a word its
+    /// law refuses, which the poison then names.
+    fn read(
+        members: &'a [MemberVerdict],
+        join: &PanelJoin,
+    ) -> Result<Self, Option<(String, MemberRefusal)>> {
         let mut notes = Map::new();
         let mut verdicts = Map::new();
         let mut parsed: Vec<(&str, &str, &Value)> = Vec::new();
@@ -257,15 +401,18 @@ impl<'a> Verdicts<'a> {
             if let Some(note) = payload.get("notes") {
                 notes.insert(name.clone(), note.clone());
             }
-            let result = payload.get("result").and_then(Value::as_str)?;
+            let result = payload.get("result").and_then(Value::as_str).ok_or(None)?;
             verdicts.insert(name.clone(), Value::String(result.to_string()));
             parsed.push((name.as_str(), result, payload));
             let MemberFindings::Read(reported) = reported else {
-                return None;
+                return Err(None);
             };
+            if let Some(refusal) = join.refusal(name, result) {
+                return Err(Some((name.clone(), refusal)));
+            }
             findings.extend(reported.iter().cloned());
         }
-        Some(Verdicts {
+        Ok(Verdicts {
             notes,
             verdicts,
             parsed,

@@ -430,22 +430,7 @@ fn parse_agent(root: &Path, name: &str, path: &Path) -> Result<Agent, LibraryErr
     }
     let source = overlay::effective(root, &what, read_request_source(path)?)?;
     let map = object(&source, &what)?;
-    only_keys(
-        map,
-        &[
-            "description",
-            "charter",
-            "models",
-            "efforts",
-            "tools",
-            "capabilities",
-            "hands",
-            "access",
-            "limits",
-            "inputs",
-        ],
-        &what,
-    )?;
+    only_keys(map, &agent::KEYS, &what)?;
     let capabilities = agent::capabilities(map, name)?;
     let agent::Office {
         description,
@@ -458,7 +443,7 @@ fn parse_agent(root: &Path, name: &str, path: &Path) -> Result<Agent, LibraryErr
     let hands = agent::hands(map, &what)?;
     let access = access::parse(map, &what)?;
     let limits = parse_limits(map, &what)?;
-    let inputs = agent::inputs(map, &what)?;
+    let (inputs, results) = agent::declared(map, &what)?;
     super::charter_data::check_office(&charter_bytes, &capabilities, &what, &charter_rel)?;
     Ok(Agent {
         name: name.to_string(),
@@ -476,6 +461,7 @@ fn parse_agent(root: &Path, name: &str, path: &Path) -> Result<Agent, LibraryErr
         hands,
         limits,
         inputs,
+        results,
         digest: sha256_hex(&source),
         source,
     })

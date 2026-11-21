@@ -134,6 +134,9 @@ pub struct Agent {
     pub hands: Option<brokkr_protocol::hands::HandsSpec>,
     pub limits: Option<Limits>,
     pub inputs: Option<Vec<String>>,
+    /// Decision 0109 ruling 11: the results the office may report, where
+    /// it names them. Inherited through `extends`, never an overlay key.
+    pub results: Option<Vec<String>>,
     /// sha256 over the canonical definition JSON.
     pub digest: String,
     /// The definition as written, for `brokkr agents show`.
@@ -1084,6 +1087,8 @@ pub struct Resolution {
     pub charter_source: CharterSource,
     pub limits: Option<Limits>,
     pub inputs: Option<Vec<String>>,
+    /// The office's declared results (decision 0109 ruling 11).
+    pub results: Option<Vec<String>>,
     /// Ordered; `[0]` is the choice and the rest are the bounded
     /// fallback order.
     pub candidates: Vec<Candidate>,
@@ -1483,6 +1488,7 @@ pub(crate) fn resolve_report(
         charter_source: agent.charter_source(),
         limits: agent.limits,
         inputs: agent.inputs.clone(),
+        results: agent.results.clone(),
         candidates,
         record,
         notices,

@@ -158,7 +158,11 @@ fn a_panel_member_not_proven_over_parks_the_panel_with_its_evidence() {
         ),
     ];
     assert!(matches!(
-        panel_outcome(Aggregate::UnanimousPass, reports.clone(), Default::default()),
+        panel_outcome(
+            &crate::bundle::PanelJoin::open(Aggregate::UnanimousPass, &[]),
+            reports.clone(),
+            Default::default()
+        ),
         AttemptOutcome::Indeterminate { reason }
             if reason == "panel members [\"held\"] could not establish completion"
     ));

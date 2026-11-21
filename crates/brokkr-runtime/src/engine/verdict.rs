@@ -544,3 +544,5 @@ mod span_tests;
 mod stop_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod word_tests;

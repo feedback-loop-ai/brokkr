@@ -669,10 +669,28 @@ fn sequence_fixture(
     seats: serde_json::Value,
     offices: &[(&str, &[String])],
 ) -> (tempfile::TempDir, Bundle) {
+    listed_sequence_fixture(policy, seats, offices, &[])
+}
+
+/// [`sequence_fixture`], with each office `listed` names declaring its
+/// `results` (decision 0109 ruling 11).
+fn listed_sequence_fixture(
+    policy: serde_json::Value,
+    seats: serde_json::Value,
+    offices: &[(&str, &[String])],
+    listed: &[(&str, &[&str])],
+) -> (tempfile::TempDir, Bundle) {
     let dir = tempfile::tempdir().expect("a fixture directory");
     for (office, driver) in offices {
         let driver: Vec<&str> = driver.iter().map(String::as_str).collect();
         crate::office::hire(dir.path(), office, &driver, None);
+    }
+    for (office, results) in listed {
+        let path = dir.path().join("agents").join(format!("{office}.json"));
+        let mut hired: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).expect("the hired office")).unwrap();
+        hired["results"] = serde_json::json!(results);
+        std::fs::write(&path, serde_json::to_vec_pretty(&hired).unwrap()).unwrap();
     }
     // The default dialect is read beside the library root, whose parent
     // is the fixture directory now that the offices stand there.
@@ -1084,8 +1102,9 @@ fn a_final_panel_that_cannot_emit_refuse_lets_an_earlier_refuse_end_the_sequence
 
 /// A v2 review fixture whose non-final step is a `review-panel` declaring
 /// the panel's three required words AND `hold`. Both members report `hold`,
-/// which `review_panel` returns verbatim, so the step's aggregate emits a
-/// word beyond its required results.
+/// which their office lists (decision 0109 ruling 11) and `review_panel`
+/// returns verbatim, so the step's aggregate emits a word beyond its
+/// required results.
 fn review_panel_declaring_a_hard_word_bundle() -> (tempfile::TempDir, Bundle) {
     let member = driver(r#"{"result":"hold"}"#);
     let last = driver(r#"{"result":"clean"}"#);
@@ -1118,10 +1137,11 @@ fn review_panel_declaring_a_hard_word_bundle() -> (tempfile::TempDir, Bundle) {
         },
     });
     let worker = crate::office::answering(":", "complete");
-    let (dir, mut compiled) = sequence_fixture(
+    let (dir, mut compiled) = listed_sequence_fixture(
         policy,
         seats,
         &[("worker", &worker), ("member", &member), ("last", &last)],
+        &[("member", &["clean", "residual", "hold"])],
     );
     compiled.machine.initial = "review".to_string();
     (dir, compiled)

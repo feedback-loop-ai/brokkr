@@ -23,7 +23,8 @@ use super::{
     start_failure_sites, DriverRun, Engine, EngineError, Indeterminate, Selection, Site, Unproven,
 };
 use crate::bundle::{
-    dialect_results, Aggregate, Invocation, PanelMember, SeatClass, SequenceStep, StepBody,
+    dialect_results, Aggregate, Invocation, PanelJoin, PanelMember, SeatClass, SequenceStep,
+    StepBody,
 };
 use crate::dialect::DialectPhase;
 
@@ -466,8 +467,8 @@ impl Engine {
         let refused = refused_members(&reports, &tag_prefix);
         let unproven = Unproven::panel(&reports);
         let name = run.bound.deadline.panel_namer(&reports);
-        let members = (reports, stamped);
-        let mut outcome = outcome_under(aggregate, plan, members, &record.span, run.attempt_id)?;
+        let (join, members) = (PanelJoin::of(aggregate, members), (reports, stamped));
+        let mut outcome = outcome_under(&join, plan, members, &record.span, run.attempt_id)?;
         name(&mut outcome);
         Ok(StepRun {
             record: Some(record),

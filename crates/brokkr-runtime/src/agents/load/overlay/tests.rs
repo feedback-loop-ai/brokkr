@@ -239,3 +239,49 @@ fn an_overlay_that_hides_a_change_or_reaches_past_one_level_is_refused() {
         assert_eq!(fixture.refusal(&overlay), expected, "{overlay}");
     }
 }
+
+/// Decision 0109 ruling 11: an office's `results` are read typed, a base's
+/// list is inherited through `extends`, and an overlay can neither widen
+/// nor narrow it, because `results` is not an overlay key.
+#[test]
+fn an_offices_results_are_inherited_through_extends_and_no_overlay_writes_them() {
+    let fixture = Fixture::new();
+    let mut held = base();
+    held["results"] = json!(["clean", "residual", "security-hold"]);
+    fixture.write("held", &held);
+    fixture.write("scoped", &json!({"extends": "held", "models": ["opus"]}));
+    let library = fixture.library();
+    let words = |name: &str| library.agent(name).unwrap().results.clone();
+    let three = Some(vec![
+        "clean".into(),
+        "residual".into(),
+        "security-hold".into(),
+    ]);
+    assert_eq!(words("held"), three);
+    assert_eq!(words("scoped"), three, "inherited through extends");
+    assert_eq!(words("base"), None, "a list-less office declares none");
+    let overlay = json!({"extends": "held", "models": ["opus"], "results": ["clean"]});
+    assert_eq!(
+        fixture.refusal(&overlay),
+        "<scoped> has unknown key 'results'; known keys: extends, models, efforts, \
+         charter, inputs, tools, hands, replaces"
+    );
+    for (results, expected) in [
+        (
+            json!([]),
+            "<scoped> 'results' is empty; an office that declares its results names at least one",
+        ),
+        (
+            json!(["Clean"]),
+            "<scoped> 'results' names 'Clean', which does not match ^[a-z0-9][a-z0-9._-]*$",
+        ),
+        (
+            json!("clean"),
+            "<scoped> needs 'results' as an array of strings",
+        ),
+    ] {
+        let mut written = base();
+        written["results"] = results;
+        assert_eq!(fixture.refusal(&written), expected);
+    }
+}
