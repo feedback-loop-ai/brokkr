@@ -270,8 +270,8 @@ to a later decision. That amends (a) below by deferring "classify". No forge wri
 person still re-runs. Accepting the rest of this decision is still the operator's.
 
 - **(a) Ruled by the operator: observe, classify and park; narrowed to observe and park.** The
-  engine and the recipes observe CI, and park every observation that is not established green,
-  with no diagnosis seat attempt. They send no re-run request and hold no write credential. A
+  engine and the recipes observe CI, and the gate parks on every true row of the
+  [park table](#the-park-table), with no diagnosis seat attempt. They send no re-run request and hold no write credential. A
   person reads the observation and re-runs or rules.
   - Cost: the issue's "re-run once" is not built. The wall-clock wait for a person remains, but
     the diagnosing seat attempt the issue counts is gone.
@@ -555,8 +555,8 @@ its own outcome:
 |---|---|---|---|---|
 | `observed` | the observer exited 0 before its deadline, and its stdout, inside its bound, is UTF-8 and parses | yes | none of its own; the observation's rows judge it | the captured stdout bytes, all of them |
 | `unbound` | the run's `run/started` holds no pull request (ruling 3) | no | `pull-request-unbound` | nothing: no observation exists |
-| `launch-refused` | a launch rule of ruling 2 failed before the spawn; it names the rule | no | `launch-untrusted` | nothing: no observation exists |
-| `deadline` | the observer had not exited when the seat's deadline ended; the driver kills its process group | yes | `observer-deadline` | the stdout bytes captured before the kill |
+| `launch-refused` | a launch rule of ruling 2 failed before the spawn, or the driver failed to spawn (below); it names which | no | `launch-untrusted` | nothing: no observation exists |
+| `deadline` | the observer had not exited at its own bound, which ends a reporting margin before the seat's deadline; the driver kills the observer's process group | yes | `observer-deadline` | the stdout bytes captured before the kill |
 | `exited` | the observer exited non-zero, or on a signal; it names the status | yes | `observer-exited` | the captured stdout bytes |
 | `absent` | the observer exited 0 with no stdout byte | yes | `observation-absent` | nothing: no byte was written |
 | `too-large` | stdout passed 1 MiB; the driver stops reading at the bound plus one byte | yes | `observation-too-large` | the first 1 MiB, the bounded witness, with the count read as a lower bound; no byte past it is read |
@@ -568,10 +568,19 @@ park names no digest, says `no observation`, and names the attempt id. Only `obs
 an observation, so the observation's rows are evaluated only on it (the dependency rule in the
 [park table](#the-park-table)).
 
-**The word is the engine's.** The driver writes no result word for a `ci` attempt, and decide
-derives it before the table reads it: `pass` exactly when the judgment is `green`, and `fail`
-otherwise. So the word never disagrees with the judgment, and no word is refused on a road the
-fold would retry; `word-unbound` stays the table's totality row (ruling 6).
+**The record is HEAD's, and the word is the engine's.** HEAD's fence checks every
+`effect/succeeded` before it is appended (`crates/brokkr-store/src/chain.rs:24-45`): seat-record
+v6 requires a non-empty `result` string in a closed object
+(`contracts/seat-record.v6.schema.json:557-571`), and a refused record becomes `effect/failed`
+(`crates/brokkr-runtime/src/engine/sequence/success.rs:17-35`), the road the fold retries. So
+the driver seals every `ci` attempt with the constant word `fail`, never a word the observer
+wrote, and the `CiAttempt` envelope as its `ci_observation` input; decide, for a `ci` seat
+alone, raises the decision's word to `pass` exactly when the judgment is `green`. No word on the
+record can pass, and `word-unbound` stays the table's totality row (ruling 6). **Proved by
+0111c:** `a_ci_attempt_record_passes_heads_fence_and_decides_from_the_judgment` (an observed
+green attempt and a no-spawn `launch-refused` one, each through the real store append, fold and
+decide: both append as `effect/succeeded` with the word `fail`; the first decides `CI-PASS`, the
+second `CI-PARK` naming `launch-untrusted`).
 
 **Pre-admission errors are not outcomes.** They end before a run exists, so they journal
 nothing and need no row: every compile refusal of rulings 2, 5, 6 and 10; and run start's
@@ -579,9 +588,33 @@ refusals before the journal opens (`crates/brokkr-runtime/src/launch.rs:301-306`
 `door` in `engine/start.rs`), which are the entry check's, `BeforeCi` among them (ruling 6), a
 `ci` seat whose bundle layer is inside the worktree (above), and `--pull-request` on a bundle
 with no `ci` seat (ruling 3). Each is a typed `LaunchError` or compile refusal the operator
-reads at the prompt. One end is neither: a driver that dies before it reports leaves an
-indeterminate effect, which HEAD already holds for operator judgment and never retries
-(`fold.rs:694-699`); it is HEAD's own, unchanged, not a `ci` rule.
+reads at the prompt.
+
+**Who settles each end.** The driver reports every outcome above, and the engine settles three
+ends the driver cannot report:
+
+- **A driver that fails to spawn.** HEAD settles it as `effect/failed` (`engine.rs:1467-1484`),
+  which the fold retries. For a `ci` site the engine settles it once as `launch-refused`, naming
+  the spawn error, on `launch-untrusted`; nothing ran, so no observation exists.
+- **The seat's watchdog.** At the seat's deadline HEAD kills the whole process group, driver
+  included, and reports the attempt `Indeterminate` (`crates/brokkr-protocol/src/process.rs:503-520`).
+  So the driver enforces the observer's own bound, which ends a reporting margin before that
+  deadline, and reports `deadline` itself; the compile refuses a `ci` seat whose bound leaves no
+  margin under its `timeout_seconds`. The watchdog stays the backstop.
+- **A moved head.** HEAD replaces any settlement of a gate attempt whose head moved with
+  `effect/indeterminate` (`engine.rs:953-995`).
+
+The watchdog's kill, a moved head and a driver that dies before it reports stay HEAD's
+indeterminate, held for operator judgment and never retried (`fold.rs:694-699`): the one end that
+is not `CI-PARK`, and never `CI-PASS`. **Proved by 0111c**, each through dispatch and the fold,
+counting attempts: `a_ci_driver_that_fails_to_spawn_parks_once_as_launch_untrusted_with_no_retry`
+(`CI-PARK` naming `launch-untrusted`, one attempt, no `effect/failed`);
+`an_observer_past_its_own_bound_is_killed_by_the_driver_and_parks_once_as_observer_deadline`
+(`CI-PARK` naming `observer-deadline`, the digest of the stdout captured before the kill);
+`a_seat_watchdog_kill_of_the_ci_driver_is_indeterminate_never_ci_park` and
+`a_head_moved_during_ci_is_indeterminate_never_ci_park` (one `effect/indeterminate`, no `ci`
+decision, held for operator judgment). **Proved by 0111b:**
+`a_ci_seat_whose_observer_bound_leaves_no_reporting_margin_refuses_to_compile`.
 
 **Live admission is refused until the first live producer lands, and this is the one statement
 of the order.** 0111b builds the observer, its trusted launch and the compile's `ci`
@@ -764,13 +797,21 @@ item counts above bound a list, and the stdout cap bounds what the observer writ
 bounds one forge response, and a single page can be large. So every response has a byte bound
 the contract fixes, 8 MiB, and the observer enforces it on the stream: it fetches one page per
 `gh api` call, never `--paginate`, and reads that call's body through the pinned `head -c`
-with a limit of the bound plus one byte, into a buffer of that size. When the limit is reached
-it stops reading, ends the call, parses no byte of that response, and seals a **response
-witness** in the list's place: the list, the page, the bound, and the bytes read as a lower
-bound. A response witness makes `response-too-large` true, and leaves its list incomplete, so
-that list's own row is true too. Whether `gh api` itself streams a body or holds it whole
-before writing it is **unmeasured**; 0111a measures it, and if `gh` holds a body whole, the
-decision is revised before acceptance to a reader that bounds the transfer itself.
+with a limit of the bound plus one byte, into a buffer of that size. A response of the bound or
+fewer bytes is parsed; when the bound plus one byte is read, it stops reading, ends the call,
+parses no byte of that response, and seals a **response witness** in the list's place: the
+list, the page, the bound, and the bytes read as a lower bound. A response witness makes
+`response-too-large` true, and leaves its list incomplete, so that list's own row is true too.
+Whether `gh api` itself streams a body or holds it whole before writing it is **unmeasured**;
+0111a measures it, and that measurement selects the transport: `gh api` through `head` if `gh`
+streams, and otherwise a reader that bounds the transfer itself, written into this decision
+before acceptance. **Proved by 0111b,** over the selected transport:
+`a_response_of_exactly_the_byte_bound_is_parsed_and_one_byte_more_is_a_response_witness` (8 MiB
+parses; 8 MiB and one byte seals the witness, and `jq` is never handed it); and
+`the_selected_transport_takes_in_no_more_than_the_bound_plus_one_byte_of_a_streamed_page` (a
+source streaming 64 MiB counts the bytes taken from it: no more than the bound plus one byte and
+one pipe buffer, before any parse). 0111c's
+`an_oversized_first_page_through_the_real_reader_parks_as_response_too_large` binds the park.
 
 **The observer reads no job log.** No condition of `green` reads a step's log, so no log byte is
 read, sealed or journaled, and the person reads the log itself on the forge, from the run,
@@ -795,20 +836,11 @@ carries the same array (<https://docs.github.com/en/rest/checks/runs#get-a-check
 field is named from that documentation; this seat read neither page, so its live contents are
 **unmeasured**. In particular, whether it is empty for a run from a fork, or for any other case,
 is unmeasured until 0111a's evidence, and an empty association is never read as this pull
-request's. An execution is admitted only when:
-
-- its `pull_requests` names this pull request's number;
-- the element's `head.sha` equals the gated head, and its `base.sha` the base the observation
-  names;
-- **the array names this pull request and no other.** An association array that names more
-  than one pull request is ambiguous, whether or not the others are still open: a pull request
-  closed since the run cannot be told apart from the one that triggered it by the array alone
-  (fix round 1093r4's rule read only the open list, so an array naming A and a since-closed B
-  fitted A).
-
-Otherwise the execution is not admitted, and the observation parks, naming
-`association-unproven` and the run, or `association-ambiguous` and every pull request the array
-names. Refused alternatives: **(b)** matching by workflow path, event and head alone, which is
+request's. An execution is admitted only when P5 holds, and otherwise the gate parks on
+`association-unproven` or `association-ambiguous` ([the park table](#the-park-table)). An array
+naming a since-closed pull request beside this one is ambiguous too: the array alone cannot tell
+it from the one that triggered the run (fix round 1093r4's rule read only the open list, so an
+array naming A and a since-closed B fitted A). Refused alternatives: **(b)** matching by workflow path, event and head alone, which is
 fix round 1093r3's key and admits the other pull request's run; and **(c)** matching by the
 merge commit's parents, which cannot tell two pull requests with the same base and head apart.
 
@@ -959,8 +991,8 @@ default, and each paged list carries whether it was read to its last page.
 | Id | Reads | Negates | True when | Bound by (0111c unless named) |
 |---|---|---|---|---|
 | `pull-request-unbound` | the run's `run/started` `pull_request` member | P1 | it is absent or unreadable; read before the launch, so no observer is spawned | `a_ci_run_started_without_a_pull_request_parks_as_pull_request_unbound_and_spawns_nothing` |
-| `launch-untrusted` | the attempt's outcome, `launch-refused` | P7 | a rule of ruling 2 failed before the spawn; it names the rule | `a_launch_refusal_parks_once_as_launch_untrusted_and_spawns_nothing` |
-| `observer-deadline` | the attempt's outcome, `deadline` | P7 | the observer had not exited when the seat's deadline ended | `an_observer_past_its_deadline_is_killed_and_parks_once_as_observer_deadline` |
+| `launch-untrusted` | the attempt's outcome, `launch-refused` | P7 | a rule of ruling 2 failed before the spawn, or the driver failed to spawn; it names which | `a_launch_refusal_parks_once_as_launch_untrusted_and_spawns_nothing` |
+| `observer-deadline` | the attempt's outcome, `deadline` | P7 | the observer had not exited at its own bound | `an_observer_past_its_own_bound_is_killed_by_the_driver_and_parks_once_as_observer_deadline` |
 | `observer-exited` | the attempt's outcome, `exited` | P7 | the observer exited non-zero or on a signal; it names the status | `an_observer_that_exits_non_zero_parks_once_as_observer_exited_with_no_second_attempt` |
 | `observation-absent` | the attempt's outcome, `absent` | P7 | the observer exited 0 and wrote no stdout byte | `an_observer_with_no_stdout_parks_once_as_observation_absent` |
 | `observation-too-large` | the attempt's outcome, `too-large` | P7 | stdout passed its 1 MiB bound | `an_observer_over_the_stdout_bound_parks_once_as_observation_too_large_naming_the_witness_digest` |
@@ -974,15 +1006,15 @@ default, and each paged list carries whether it was read to its last page.
 | `jobs-incomplete` | each current run attempt's job list, its last-page fact and overflow witness | P2 | as `checks-incomplete`, for one attempt's jobs; it names the run id and attempt | `a_job_list_unread_or_overflowed_parks_as_jobs_incomplete_naming_the_run_and_attempt_live_and_on_replay` |
 | `pulls-incomplete` | the open-pull-request list for the head, its last-page fact and overflow witness | P2 | as `checks-incomplete`, for the open pull requests on the head | `the_open_pull_request_list_unread_or_overflowed_parks_as_pulls_incomplete_live_and_on_replay` |
 | `required-set-incomplete` | the forge's required set, where read, its last-page fact and overflow witness | P2 | the read began and did not reach its last page, or overflowed; a set never read is `unread`, and the pinned list alone governs | `a_partly_read_forge_required_set_parks_as_required_set_incomplete_live_and_on_replay` |
-| `response-too-large` | each response witness | P2 | one forge response reached its 8 MiB byte bound while being read; it names the list, the page and the bytes read | `an_oversized_first_page_through_the_real_reader_parks_as_response_too_large` |
+| `response-too-large` | each response witness | P2 | one forge response passed its 8 MiB byte bound while being read: the bound plus one byte was read; it names the list, the page and the bytes read | `an_oversized_first_page_through_the_real_reader_parks_as_response_too_large` |
 | `empty` | the complete check list for the head | P3 | the forge reports no check for the head | `an_observation_with_no_check_names_empty_then_missing_required_for_every_entry` |
 | `missing-required` | each entry's matches | P3 | an entry has no eligible current match; a stale check never makes it present | `a_required_audit_missing_from_the_observation_parks_as_missing_required` |
 | `ambiguous-required` | each entry's matches over the check and job lists | P3 | an entry matches more than one check, or more than one job of its current run attempt; or it is seen exactly once over a list whose `-incomplete` row is true, where a second may sit on the unread page; it names every match | `two_matches_for_one_required_check_park_as_ambiguous_required` |
 | `execution-ambiguous` | each key's complete run list | P3 | an entry's current execution cannot be told, as below | `two_unsettled_runs_for_one_entry_park_as_execution_ambiguous` |
 | `snapshot-inconsistent` | each item bearing on the entry, on every list, and the attempt it names; the entry's current execution | P8 | an item names a newer run or attempt of the entry's key, in any status, or two lists name different attempts as the entry's; it names the list, the item and both attempts | `a_complete_green_attempt_beside_a_queued_newer_attempt_on_the_check_list_parks_live_and_on_replay` |
 | `attempt-unnamed` | the same items | P8 | an item names no attempt, or its attempt is `unread`; a status under the entry's name is one | `a_status_under_the_name_of_a_required_entry_parks_as_attempt_unnamed_live_and_on_replay` |
-| `not-settled` | each match's status | P4 | a match is still queued or in progress when the observer's polling bound ends | `a_required_check_still_in_progress_parks_as_not_settled` |
-| `not-success` | each match's conclusion | P4 | a match concluded anything but `success`; it names the check and the word | `a_failed_cancelled_timed_out_skipped_or_neutral_required_check_parks_as_not_success` |
+| `not-settled` | each match's status | P4 | a match's status is any word but `completed`, `queued`, `in_progress`, `waiting`, `pending` and `requested` among them, when the observer's polling bound ends | `a_required_check_not_completed_with_a_null_conclusion_parks_as_not_settled_alone` |
+| `not-success` | each match's conclusion | P4 | a `completed` match concluded anything but `success`; it names the check and the word. It reads only a completed match, so a null conclusion beside another status is `not-settled` alone | `a_failed_cancelled_timed_out_skipped_or_neutral_required_check_parks_as_not_success` |
 | `association-unproven` | each current execution's `pull_requests` | P5 | it does not name this pull request, its head and its base, or is empty | `a_run_with_an_empty_association_parks_as_association_unproven` |
 | `association-ambiguous` | each current execution's `pull_requests` | P5 | it names more than one pull request, open or closed; it names every one | `an_association_naming_a_and_a_closed_b_parks_as_association_ambiguous` |
 | `revision-unproven` | each current execution's tested-commit record, in either checkout mode | P6 | the record is absent or unread, in `head` mode as in `merge` mode | `a_head_entry_whose_run_records_no_tested_commit_parks_as_revision_unproven` and `a_merge_entry_whose_run_records_no_tested_commit_parks_as_revision_unproven` |
@@ -990,15 +1022,24 @@ default, and each paged list carries whether it was read to its last page.
 | `producer-mismatch` | every check under an entry-set entry's name | | a check under that name from another producer concluded red | `a_sole_red_from_another_producer_names_missing_required_for_its_entry_then_producer_mismatch` |
 | `status-required` | the forge's required set, where read | | it names a commit status context | `a_status_context_in_the_forges_required_set_parks_as_status_required` |
 | `required-set-disagrees` | the forge's required set, where read; the declared list | | the forge requires a context the declared list lacks | `a_forge_required_check_the_list_lacks_parks_as_required_set_disagrees` |
-| `word-unbound` | the gate's result word and `ci_green`, read by the table, not the judge | | the word is `pass` while `ci_green` is false; decide derives the word from the judgment (ruling 2's outcomes), so it is reached only at `CI-PASS-UNBOUND` if that derivation were lifted | 0111d: `the_whole_composed_landing_ci_overlay_compiles_against_heads_totality_gate` |
+| `word-unbound` | the decision's word and `ci_green`, read only by the composed table's `CI-PASS-UNBOUND`, never by the judge | | the word is `pass` while `ci_green` is false; decide raises the word only on `green` (ruling 2's outcomes), so it is reached only if that were lifted | 0111d: `a_pass_without_green_through_the_real_policy_and_park_writer_parks_at_ci_pass_unbound` |
 
 **Every true row parks, and the park records every one, in the table's order.** There is no
 weaker outcome to fall to, so no precedence among the rows is needed and no row suppresses
-another: the judge returns every true row of the [park table](#the-park-table), in its order; a
-per-entry row once per entry,
-in `required_checks` order, and a per-list row once per list. That ordered list is the judge's
-output, re-derived from the sealed record live and on replay; the park's reason holds its prefix
-inside 256 bytes with a count of the rest (ruling 7), and `inspect` paints it whole (ruling 9).
+another: the judge returns every true row of the [park table](#the-park-table) but
+`word-unbound`, which only the composed table reads, in its order; a per-entry row once per
+entry, in `required_checks` order, and a per-list row once per list. That ordered list is the
+judge's output, re-derived from the sealed record and the compiled list, live and on replay; the
+park's reason holds its prefix inside 256 bytes with a count of the rest (ruling 7).
+
+**`inspect` paints the whole list only while it can derive it.** With the compiled bundle held,
+it re-derives and paints every true row of the [park table](#the-park-table) (ruling 9). With the bundle gone, the journal holds the
+observation, the digest and the reason, and not the list the judge read, so `inspect` paints the
+digest, the rows the reason names and the count of the rest, and says the rest needs the
+compiled bundle; it never paints a prefix as the whole. **Proved by 0111c:**
+`inspect_on_a_truncated_ci_park_after_its_bundle_is_gone_paints_the_named_rows_and_the_count`
+(a `CI-PARK` whose true rows pass 256 bytes, its compiled bundle deleted: exactly the reason's
+rows, the count of the rest and the bundle-gone line, and no other row).
 
 **The dependency rule: what a row does when its subject does not exist.** A row reads one
 subject: the attempt (the rows from `pull-request-unbound` to `result-file-present`), the
@@ -1016,7 +1057,9 @@ subject is not evaluated, so it is never read as false in place of a park:
   `snapshot-inconsistent` and `attempt-unnamed` read the items bearing on the entry, not its
   match, so they are evaluated whether or not it has one.
 - **No current execution for an entry.** `execution-ambiguous` is true, and the entry has no
-  eligible current match, so `missing-required` is true for it as well.
+  eligible current match, so `missing-required` is true for it as well, before it in the
+  table's order. The currentness rows have no execution to compare with, and are not evaluated
+  for it.
 - **More than one match.** `ambiguous-required` is true, and the match rows read every match.
 - **An incomplete list.** Its row is true, and the rows that read it are evaluated over what was
   read: a fact the unread pages could change is not established, so an entry seen with no match
@@ -1043,16 +1086,22 @@ so the rows a replay names are the rows named live.
 
 **The table binds the text.** 0111c's doc test,
 `every_park_statement_in_0111_cites_a_row_of_its_park_table`, reads this decision: every
-paragraph, list item or table row that says the gate parks, spelled `parks` in prose (a test
-name in a code span is not a statement) or `CI-PARK`, outside the heading,
-[What main holds at HEAD](#what-main-holds-at-head),
+paragraph, list item or table row that says the gate parks, spelled `parks`, `parked` or
+`parking` in prose (a test name in a code span is not a statement) or `CI-PARK`, outside the
+heading, [What main holds at HEAD](#what-main-holds-at-head),
 [Deferred to a later decision](#deferred-to-a-later-decision) and [Evidence](#evidence), names
-a row id of this table in backticks, such as `unrelated`, or links this table; and every row
-has an id, a `Reads` fact and a `Bound by` test.
-Its companion, `every_park_row_is_bound_by_a_test_the_slices_name`, checks that every row's
-`Bound by` cell names a test that one of [The slices](#the-slices) lists, and 0111c's
-`the_judges_park_rows_are_the_decisions_park_table_in_order` holds the judge's closed row enum
-to this table's ids in this order, so the code and the decision cannot drift apart.
+a row id in backticks, such as `unrelated`, and every id it names is a row of this table. Only a
+statement about every row, spelled with `every`, may link this table in place of an id; HEAD's
+own hold is spelled `held`. Every row has an id, a `Reads` fact and a `Bound by` test. Its
+control, `the_park_citation_checker_refuses_a_statement_with_no_row_or_an_unknown_row`, feeds it
+a statement naming no row, one naming an id the table lacks, and a specific one that only links
+the table, and expects each refused by its line. Its companions:
+`every_park_row_is_bound_by_a_test_the_slices_name` (every `Bound by` cell names a test one of
+[The slices](#the-slices) lists); `every_test_proved_by_the_slices_is_named_in_its_slices_plan`
+(every name [Proved by the slices](#proved-by-the-slices) lists under a slice appears in that
+slice's plan, and every slice it lists is one of [The slices](#the-slices)); and
+`the_judges_park_rows_are_the_decisions_park_table_in_order`, which holds the judge's closed row
+enum to this table's ids in this order, less `word-unbound`, the composed table's alone.
 
 The **current execution** of an Actions entry is the workflow run with the highest run number
 among those the forge lists for its workflow path, its event and the head, read at its highest
@@ -1084,16 +1133,20 @@ sealed, and the rule reads nothing else:
   reach is a wrong `green`, landing as it is today, and the forge's checks at merge
   ([The gate grants nothing](#the-gate-grants-nothing)).
 
+**The person's re-run is of every job.** GitHub's re-run of failed jobs opens a new attempt and
+re-runs only those jobs; which attempt a job it did not re-run then reports is **unmeasured**
+until 0111a. Until that evidence admits a carried-over job, which would revise this rule before
+acceptance, the recovery `inspect` names is re-running all of the run's jobs. **Proved by
+0111c:** `a_failed_jobs_only_rerun_leaving_a_passed_entry_in_the_earlier_attempt_parks_live_and_on_replay`
+(R/1: A success, B failure; R/2 re-runs B to success; the check list holds A's in R/1:
+`missing-required` for A, then `snapshot-inconsistent` for A); **by 0111d:**
+`an_operator_retry_after_a_person_re_runs_all_jobs_observes_again_and_passes` (`CI-PASS`).
+
 So a required audit with no check in its current run, an older same-producer `success` on the
 same head, and a second required job with an ordinary failed test parks, naming
 `missing-required` for the audit and `not-success` for the test: the stale success never makes
 the audit present. Fix rounds 1093r6 to 1093r8 each found a case where such a fact fell through
 to a weaker class; with none below the park, there is nowhere for it to fall.
-
-The gate's word is bound to the engine's judgment by construction: decide derives it, `pass`
-exactly on `green` and `fail` otherwise, and no seat writes it
-([every attempt's outcome](#2-what-reads-the-checks)). So there is no refused word to rewrite,
-and no word on a road the fold would retry.
 
 The judgment is engine-written: an `Owner::Engine` flag, as `reviewed_heads` is an engine-owned
 input (`crates/brokkr-core/src/policy/inputs.rs:116`), so a seat may neither declare nor
@@ -1113,8 +1166,8 @@ records each bundle file as a digest, never its bytes
 bundle and refuses when its digest is not the manifest's, and reads the comparison values from
 the run's own journal: the pull request from its `run/started`, and which record holds the
 gated head is settled by 0111c's replay test, and is unmeasured here. Where the bundle is gone, the park's
-reason still names the observation's digest and its true rows from the journal alone, which is
-what a person needs. Fix rounds 1093r4 to 1093r8 sealed a basis under `ci-classification/v1` so
+reason still names the observation's digest, its first true rows and the count of the rest
+(`inspect`, above). Fix rounds 1093r4 to 1093r8 sealed a basis under `ci-classification/v1` so
 a typed class could be re-derived from the journal alone; with no class to re-derive, that
 record leaves with the classifier.
 
@@ -1222,7 +1275,12 @@ the observation and the `ci_green` flag are omitted from it, and `results` holds
 is the whole of the `ci` result's projection, and it is the fact `classify` was entered by
 `CI-PASS`, which landing's own entry already implies; nothing a later seat reads can stand for
 CI's verdict. No seat needs more: the only road out of `ci` to a seat is `CI-PASS`, and a park's
-evidence is for a person, who reads it through `inspect` (ruling 9). **(b)** projecting it
+evidence is for a person, who reads it through `inspect` (ruling 9). **Proved by 0111d:**
+`classify_after_ci_pass_receives_last_decision_naming_ci_pass_and_pass_and_nothing_else_of_ci`
+(the engine's own input builder, `crates/brokkr-runtime/src/engine/input.rs:110-168`, over a
+journal holding the `ci` decision: `last_decision` is present, its rule id `CI-PASS` and its
+result `pass`, each asserted by value; it holds no `ci_*` key, and `results` holds no `ci`; so
+dropping `last_decision`, or a wrong rule or word, fails it as an extra key does). **(b)** projecting it
 unchanged: a model seat would read the observation and a `green` it could take as authority.
 Not recommended.
 
@@ -1236,8 +1294,7 @@ check-watching step, its entry phase.** The issue names the step ("a land run th
 request checks", as the commission quotes it; the issue was not read in this seat). Landing runs
 over a branch that already exists (`recipes/landing/README.md:5-8`), and at its entry no seat
 has committed, so the head is the one the person brought. Whether they pushed it is checked, not
-assumed: the observation names the pull request's head as the forge reports it, and the engine
-refuses with `head-unpublished` when that is not its own git head (ruling 3). A person pushes,
+assumed: the gate parks on `head-unpublished` (ruling 3). A person pushes,
 and the operator's retry observes again.
 
 The overlay, `landing-ci`, extends `landing` and overrides its table's `initial` to `ci` and
@@ -1358,9 +1415,8 @@ column names the judgment; ruling 10 gives its schema-legal spelling.
 
 `CI-PARK` is the one park rule for an observation: every true row of the
 [park table](#the-park-table) but `word-unbound` reaches it, `launch-untrusted` among them,
-whose attempt ends as the outcome `launch-refused`, reported as `effect/succeeded`, with decide
-deriving `fail` before any observation exists (ruling 2). It needs no `when`: decide derives
-`fail` only off `green` (ruling 3).
+whose attempt ends as the outcome `launch-refused`, reported as `effect/succeeded` with the
+driver's `fail`, which decide raises only on `green` (ruling 2). It needs no `when`.
 
 **The table is total.** HEAD's compile refuses a table with an unruled valuation:
 `seated_and_ruled` calls `refuse_unruled` (`crates/brokkr-runtime/src/bundle/phases.rs:118-130`),
@@ -1371,8 +1427,8 @@ and refuses the first no rule rules (`crates/brokkr-core/src/policy/audit.rs:187
 composed overlay would not compile. HEAD's boolean sweep therefore still needs
 **`CI-PASS-UNBOUND`**, recommended as (a): the unconditional `(ci, pass)` rule after `CI-PASS`,
 parking `ruled` for a person on row `word-unbound`. It is never reached while the binding
-holds: decide derives `pass` only on `green` before the table reads it (ruling 2's outcomes). It
-is the table's answer if that derivation were ever lifted, and a park, never a route. The `(ci, fail)` group is total:
+holds: decide raises the word to `pass` only on `green` (ruling 2's outcomes). It is the
+table's answer if that were ever lifted, and a park, never a route. The `(ci, fail)` group is total:
 `CI-PARK` is unconditional ([park table](#the-park-table)). **(b) Proving the valuation impossible** is not taken: the audit
 sweeps each flag on its own, and HEAD gives it no way to read a cross-input invariant such as the
 word binding, so the proof would need an engine change for one row.
@@ -1404,7 +1460,7 @@ head or write to the forge:
 - any rule whose `next` is `ci`: it would gate a head the run made, which is unpublished;
 - any rule into `classify` but `CI-PASS`, and any explicit entry but `ci`: either would skip
   the gate;
-- `CI-PASS` off `green`; decide never derives `pass` off `green` (ruling 2's outcomes).
+- `CI-PASS` off `green`; decide never raises the word to `pass` off `green` (ruling 2's outcomes).
 
 Each is refused by the overlay test, over the complete composed table (ruling 10). The
 scope-widened reconciliation park fix round 1093r2 promised went with the write (ruling 1); no
@@ -1447,7 +1503,7 @@ no reading of this park in that budget needs a ruling of its own.
 **Recommended: (a) one derivation in `brokkr-view`, painted by `inspect` and the fleet.**
 
 `inspect` names each observation's judgment, every true row of the
-[park table](#the-park-table), and the evidence a
+[park table](#the-park-table) while the bundle is held (ruling 3), and the evidence a
 person needs to look and re-run: the workflow run's id and attempt and each required job's id
 and conclusion, from one view model (0071 ruling 7). The fleet paints the park's cause through
 `ParkCause::line` (`crates/brokkr-core/src/park.rs:275-280`), which the TUI and `inspect`
@@ -1474,9 +1530,9 @@ judgment `green` or not, one flag spells it whole, and the rest leave with their
 - **(a) `ci_green` alone.** An `Owner::Engine` `Flag`, true exactly when the judgment is
   `green`. A boolean input by name is what v2's `when` admits (`:73`). Ruling 6's `CI-PASS`
   reads `ci_green: true`, and nothing else reads it. It is the table's reading of the engine's
-  judgment rather than of the result word: decide derives the word from the same judgment
-  (ruling 2's outcomes), so `pass` and `ci_green` agree, and if that derivation were ever lifted, `CI-PASS-UNBOUND` parks a `pass`
-  without `green` on row `word-unbound` rather than proceeding. No second flag is needed: the park rule is
+  judgment rather than of the result word: decide raises the word from the same judgment
+  (ruling 2's outcomes), so `pass` and `ci_green` agree, and otherwise `CI-PASS-UNBOUND` parks
+  on row `word-unbound`. No second flag is needed: the park rule is
   unconditional on `fail`, and a flag for "not green" would be the same fact twice (0071 ruling
   5). It mints no contract.
 - **(b) No flag: route on the result word alone.** `(ci, pass)` to `classify` and `(ci, fail)`
@@ -1676,8 +1732,8 @@ member, `pull_request`, built in 0111b.
    - what a run's and a check run's `pull_requests` association holds, and in which cases it is
      empty, a fork's pull request among them (ruling 3);
    - whether the forge reports a job's key, and the app's numeric id (ruling 3);
-   - which field of each list names the run and attempt an item belongs to (the currentness
-     rule);
+   - which field of each list names the run and attempt an item belongs to, and which attempt
+     a job a failed-jobs re-run did not re-run reports (the currentness rule);
    - how each list pages, and how the observer tells the last page (ruling 3's bounded reads);
    - the largest page each list returned, against the 8 MiB response bound, and whether
      `gh api` streams a response body or holds it whole before writing it (ruling 3);
@@ -1723,9 +1779,8 @@ member, `pull_request`, built in 0111b.
    - the bounded reads: `a_list_past_its_bound_seals_an_overflow_witness_never_a_truncated_list`;
      `each_paged_list_carries_whether_it_was_read_to_its_last_page`;
      `the_observer_reads_every_page_of_each_current_attempts_job_list`;
-     `the_observer_reads_each_response_through_its_byte_bound_and_parses_none_of_an_oversized_one`
-     (a stub `gh` writes a body past 8 MiB: the pinned `head` stops at the bound plus one byte,
-     `jq` is never handed the body, and a response witness is sealed);
+     `a_response_of_exactly_the_byte_bound_is_parsed_and_one_byte_more_is_a_response_witness`;
+     `the_selected_transport_takes_in_no_more_than_the_bound_plus_one_byte_of_a_streamed_page`;
      `no_job_log_is_read_or_sealed`;
    - the launch:
      `one_admitted_launch_resolves_the_sealed_binding_into_the_cleared_environment_captures_stdout_and_parses_the_result`
@@ -1759,6 +1814,7 @@ member, `pull_request`, built in 0111b.
      `an_observer_interpreter_whose_digest_moved_refuses_before_the_spawn`;
      `an_observer_tool_under_the_worktree_refuses_before_the_spawn`;
      `a_bare_interpreter_name_refuses_to_compile`;
+     `a_ci_seat_whose_observer_bound_leaves_no_reporting_margin_refuses_to_compile`;
    - the result channel and environment:
      `a_replaced_result_file_under_forge_results_is_never_read_and_the_observation_comes_from_stdout`;
      `the_driver_stops_reading_stdout_at_the_bound_plus_one_byte`;
@@ -1787,7 +1843,7 @@ member, `pull_request`, built in 0111b.
    (`judge(observation, pinned)`, total, matching every conclusion and status word without a
    wildcard, 0071 ruling 2); `crates/brokkr-core/src/policy/inputs.rs` (the engine-owned
    `ci_green` flag); `crates/brokkr-runtime/src/engine/decide.rs` (judge at decide over the
-   `CiAttempt` outcome, derive the word, and write `ci_green`); the park's reason for a `ci` park, naming the gate's rule, the
+   `CiAttempt` outcome, raise the word, and write `ci_green`); the park's reason for a `ci` park, naming the gate's rule, the
    observation's digest and its true rows inside 256 bytes, in the engine's park path
    (`crates/brokkr-runtime/src/engine/cursor.rs:369` keeps writing `ruled`);
    `crates/brokkr-runtime/src/bundle/` (the refusals of ruling 6's routes); and the readout it
@@ -1804,12 +1860,15 @@ member, `pull_request`, built in 0111b.
    (0071 ruling 9); `scripts/mutants.sh` over `ci/judge.rs` leaves no surviving mutant of a row
    predicate. Tests:
    - the park table ([its one home](#the-park-table)):
-     `every_park_statement_in_0111_cites_a_row_of_its_park_table` and
-     `every_park_row_is_bound_by_a_test_the_slices_name`, two doc tests in a new
+     `every_park_statement_in_0111_cites_a_row_of_its_park_table`,
+     `the_park_citation_checker_refuses_a_statement_with_no_row_or_an_unknown_row`,
+     `every_park_row_is_bound_by_a_test_the_slices_name`,
+     `every_test_proved_by_the_slices_is_named_in_its_slices_plan` and
+     `the_0111_index_row_names_the_last_round_the_decision_records`, doc tests in a new
      `crates/brokkr-cli/tests/ci_park_table.rs`, a module of `tests/it.rs` beside
      `decisions_index` (`it.rs:48`), reading this decision's text; and
      `the_judges_park_rows_are_the_decisions_park_table_in_order`, which parses the table's `Id`
-     column and asserts it equals the judge's closed row enum, in order;
+     column and asserts it equals the judge's closed row enum, less `word-unbound`, in order;
    - `green`: `a_complete_settled_successful_current_observation_is_green`;
      `the_full_two_entry_engine_matrix_with_a_distinct_valid_merge_commit_is_green` (both
      `test (…)` entries, each run's merge commit distinct from the head, its parents the base and
@@ -1826,10 +1885,12 @@ member, `pull_request`, built in 0111b.
      `two_matches_for_one_required_check_park_as_ambiguous_required`;
      `a_duplicate_job_for_a_required_entry_on_the_last_page_parks_as_ambiguous_required` (the r8
      case: every expected job observed once on the first pages, a second job with the entry's
-     name on the last; and its control, the last page unread: `jobs-incomplete`, never
-     `green`);
+     name on the last; and its control, the last page unread: `jobs-incomplete`, then
+     `ambiguous-required` for each entry, never `green`);
      `two_unsettled_runs_for_one_entry_park_as_execution_ambiguous`;
-     `a_required_check_still_in_progress_parks_as_not_settled`;
+     `a_required_check_not_completed_with_a_null_conclusion_parks_as_not_settled_alone`
+     (each status word but `completed` 0111a lists, `in_progress` and `waiting` among them:
+     `not-settled` alone, never `not-success`);
      `a_failed_cancelled_timed_out_skipped_or_neutral_required_check_parks_as_not_success`;
      `a_run_with_an_empty_association_parks_as_association_unproven`;
      `a_red_run_on_the_same_head_for_another_pull_request_parks_as_association_unproven`;
@@ -1846,24 +1907,30 @@ member, `pull_request`, built in 0111b.
      `a_status_context_in_the_forges_required_set_parks_as_status_required`;
      `a_forge_required_check_the_list_lacks_parks_as_required_set_disagrees`;
    - the inventories, one test per list the observer reads, each with two cases, the last page
-     unread and the list sealed as its overflow witness, every other list complete and every
-     other row false, each expecting `CI-PARK` naming that list's row (`checks-incomplete` to
-     `required-set-incomplete`), and each run twice:
-     live, a stub `gh` serving the pages to 0111b's observer through its test-only launch and
-     decide judging its stdout; and on replay, a fold rebuilt from that journal re-deriving the
-     same rows:
-     `the_check_run_list_unread_or_overflowed_parks_as_checks_incomplete_live_and_on_replay`;
-     `the_status_list_unread_or_overflowed_parks_as_statuses_incomplete_live_and_on_replay`;
-     `a_run_list_unread_or_overflowed_parks_as_runs_incomplete_live_and_on_replay`;
-     `a_job_list_unread_or_overflowed_parks_as_jobs_incomplete_naming_the_run_and_attempt_live_and_on_replay`;
+     unread and the list sealed as its overflow witness, over two entries A and B of one key,
+     each seen once on what was read as a settled, consistent success, every other list
+     complete, and each run twice: live, a stub `gh` serving the pages to 0111b's observer
+     through its test-only launch and decide judging its stdout; and on replay, a fold rebuilt
+     from that journal re-deriving the same rows. Each expects `CI-PARK` with exactly the list
+     its name gives, in the table's order, an entry row per entry in `required_checks` order
+     (the dependency rule):
+     `the_check_run_list_unread_or_overflowed_parks_as_checks_incomplete_live_and_on_replay`
+     (unread: `checks-incomplete`, `ambiguous-required` A, B; overflowed, whose witness holds no
+     entry: `checks-incomplete`, `missing-required` A, B);
+     `the_status_list_unread_or_overflowed_parks_as_statuses_incomplete_live_and_on_replay`
+     (`statuses-incomplete` alone);
+     `a_run_list_unread_or_overflowed_parks_as_runs_incomplete_live_and_on_replay`
+     (`runs-incomplete`, `missing-required` A, B, `execution-ambiguous` A, B);
+     `a_job_list_unread_or_overflowed_parks_as_jobs_incomplete_naming_the_run_and_attempt_live_and_on_replay`
+     (`jobs-incomplete`, `ambiguous-required` A, B);
      `the_open_pull_request_list_unread_or_overflowed_parks_as_pulls_incomplete_live_and_on_replay`
-     (the chief's r9 case: every required job complete and successful, its run uniquely
-     associated, and only this list overflowed);
-     `a_partly_read_forge_required_set_parks_as_required_set_incomplete_live_and_on_replay`;
+     (the chief's r9 case, only this list incomplete: `pulls-incomplete` alone);
+     `a_partly_read_forge_required_set_parks_as_required_set_incomplete_live_and_on_replay`
+     (`required-set-incomplete` alone);
      `an_oversized_first_page_through_the_real_reader_parks_as_response_too_large` (live only:
      the first page of the check-run list is past 8 MiB, served by a stub `gh` to 0111b's real
-     observer script and its pinned `head`; `CI-PARK` names `response-too-large` and
-     `checks-incomplete`, and no byte of that page is parsed);
+     observer script and its pinned `head`; `checks-incomplete`, `response-too-large`,
+     `missing-required` A, B, and no byte of that page parsed);
    - the currentness rule, each live and on replay as the inventories are, over two entries A
      (`test (ubuntu-latest)`) and B (the audit) of one key, every list complete, each
      expecting `CI-PARK` with exactly these rows:
@@ -1880,7 +1947,9 @@ member, `pull_request`, built in 0111b.
      completed; the check list holds R/1's successes and A's R/2 `failure`:
      `snapshot-inconsistent` for A, and no `not-success`, since R/1's is the current match);
      `a_status_under_the_name_of_a_required_entry_parks_as_attempt_unnamed_live_and_on_replay`
-     (`attempt-unnamed` for A); and its control,
+     (`attempt-unnamed` for A);
+     `a_failed_jobs_only_rerun_leaving_a_passed_entry_in_the_earlier_attempt_parks_live_and_on_replay`;
+     and its control,
      `a_consistent_single_attempt_snapshot_is_green_live_and_on_replay` (every item names R/1:
      `CI-PASS`);
    - the shared facts and the dependency rule, each its worked case in the
@@ -1890,7 +1959,7 @@ member, `pull_request`, built in 0111b.
      (and `ambiguous-required` for each entry seen once);
      `an_entry_seen_once_on_an_incomplete_job_list_names_ambiguous_required`;
      `an_entry_with_no_match_is_false_on_every_match_row_and_true_on_missing_required`;
-     `an_entry_with_no_current_execution_names_execution_ambiguous_then_missing_required`;
+     `an_entry_with_no_current_execution_names_missing_required_then_execution_ambiguous`;
      `no_observation_row_is_evaluated_on_an_attempt_with_no_observation` (each outcome but
      `observed`: its own row alone, and `result-file-present` where a file exists);
      `the_true_rows_are_recorded_in_the_tables_order_entries_in_required_checks_order`;
@@ -1916,15 +1985,20 @@ member, `pull_request`, built in 0111b.
      table names, no `effect/failed`, no second attempt and no attempt-cap park:
      `a_launch_refusal_parks_once_as_launch_untrusted_and_spawns_nothing` (the stub interpreter
      records no exec);
-     `an_observer_past_its_deadline_is_killed_and_parks_once_as_observer_deadline`;
+     `a_ci_driver_that_fails_to_spawn_parks_once_as_launch_untrusted_with_no_retry`;
+     `an_observer_past_its_own_bound_is_killed_by_the_driver_and_parks_once_as_observer_deadline`;
      `an_observer_that_exits_non_zero_parks_once_as_observer_exited_with_no_second_attempt`;
      `an_observer_with_no_stdout_parks_once_as_observation_absent`;
      `an_observer_over_the_stdout_bound_parks_once_as_observation_too_large_naming_the_witness_digest`
      (the digest is of the first 1 MiB);
      `an_unreadable_observation_parks_once_as_observation_unreadable_naming_its_digest`;
      `a_result_file_for_the_ci_attempt_is_never_read_and_parks_as_result_file_present`;
-     `the_park_digest_is_the_sha256_of_the_bytes_the_seat_record_seals`;
-   - the word and the table: `decide_derives_pass_exactly_on_green_and_fail_otherwise`;
+     `the_park_digest_is_the_sha256_of_the_bytes_the_seat_record_seals`; and the two ends that
+     are HEAD's indeterminate, never `CI-PARK`:
+     `a_seat_watchdog_kill_of_the_ci_driver_is_indeterminate_never_ci_park`;
+     `a_head_moved_during_ci_is_indeterminate_never_ci_park`;
+   - the word and the table: `a_ci_attempt_record_passes_heads_fence_and_decides_from_the_judgment`;
+     `decide_raises_the_drivers_fail_to_pass_exactly_on_green`;
      `a_ci_attempt_carries_no_result_word_of_the_observers`; `ci_green_is_true_exactly_on_green`;
      `every_non_green_observation_parks_at_ci_park_with_no_seat_attempt_after_the_gates`
      (the gate's one exec attempt is journaled, and no `implement` or other model seat attempt
@@ -1942,6 +2016,7 @@ member, `pull_request`, built in 0111b.
      decision's inputs hold `ci_green`, a fold rebuilt from the journal re-derives the same
      judgment, and `inspect` paints it);
    - the readout: `inspect_names_the_judgment_and_every_true_row`;
+     `inspect_on_a_truncated_ci_park_after_its_bundle_is_gone_paints_the_named_rows_and_the_count`;
      `inspect_names_the_run_attempt_and_job_ids_a_person_re_runs`;
      `the_fleet_paints_the_ci_park_as_ruled_ci_park_with_its_digest`.
 4. **0111d — the gate on `landing`, over a published head.** The first slice with a live
@@ -1967,6 +2042,7 @@ member, `pull_request`, built in 0111b.
      `verify`, `review` and `ship`: no `results.ci`, and no `ci_*` key anywhere in the input);
      `the_review_seat_input_holds_no_ci_key_on_any_road` (after `CLASSIFY-DOCS`, and after
      `VERIFY-PASS`);
+     `classify_after_ci_pass_receives_last_decision_naming_ci_pass_and_pass_and_nothing_else_of_ci`;
    - the entry (ruling 6), each over the overlay's materialized bundle, its composed table and
      phase order, through HEAD's `first_phase` and `admitted()`:
      `the_landing_ci_default_start_enters_ci`;
@@ -1993,14 +2069,63 @@ member, `pull_request`, built in 0111b.
    - the roads: `a_green_observation_passes_to_classify`;
      `a_red_observation_parks_for_a_person_and_never_reaches_implement`;
      `a_pushed_head_after_a_head_unpublished_park_observes_again_on_retry`;
-     `an_operator_retry_after_a_person_re_runs_observes_again`;
+     `an_operator_retry_after_a_person_re_runs_all_jobs_observes_again_and_passes`;
      `a_head_the_run_made_is_never_gated_by_ci`;
      `the_environment_park_survives_the_ci_overlay`;
    - the table: `the_composed_landing_ci_table_validates_whole_against_phase_machine_v3`;
      `the_whole_composed_landing_ci_overlay_compiles_against_heads_totality_gate` (the
      materialized bundle through `seated_and_ruled` and `refuse_unruled`: it compiles; and its
      control, the same overlay less `CI-PASS-UNBOUND`, refuses with `Refusal::Totality` naming
-     `ci`, `pass` and `ci_green = false`).
+     `ci`, `pass` and `ci_green = false`);
+     `a_pass_without_green_through_the_real_policy_and_park_writer_parks_at_ci_pass_unbound`
+     (`(ci, pass)` with `ci_green` false, through the composed table's evaluator and the
+     engine's park writer: one `ruled` park at `CI-PASS-UNBOUND`, its reason naming
+     `word-unbound`, and no `phase/entered` after it; deleting `word-unbound` from the reason
+     fails it, which the totality control alone would not).
+
+## Proved by the slices
+
+The tenth hold (landing `landing-over-an-existing-branch--7833a069`) left build-proof findings,
+and the operator ruled on 2026-11-21 that each becomes an acceptance test of the slice that builds
+its piece, which that slice's own review proves. Each rule is stated where it lives, and each test
+is named in its slice's plan above; `every_test_proved_by_the_slices_is_named_in_its_slices_plan`
+holds this list to those plans. A finding that spans two slices is owned by the slice that builds
+the reader it binds.
+
+| Slice | Test | Answers | Expects |
+|---|---|---|---|
+| 0111b | `a_ci_seat_whose_observer_bound_leaves_no_reporting_margin_refuses_to_compile` | who settles a watchdog kill | a compile refusal |
+| 0111b | `a_response_of_exactly_the_byte_bound_is_parsed_and_one_byte_more_is_a_response_witness` | the transport's byte bound | parsed; a response witness |
+| 0111b | `the_selected_transport_takes_in_no_more_than_the_bound_plus_one_byte_of_a_streamed_page` | the transport's byte bound | bounded intake before any parse |
+| 0111c | `a_complete_green_attempt_beside_a_queued_newer_attempt_on_the_check_list_parks_live_and_on_replay` | mixed attempts (the HIGH) | `CI-PARK`: `snapshot-inconsistent` |
+| 0111c | `a_newer_attempt_in_progress_on_the_run_list_only_parks_live_and_on_replay` | mixed attempts | `CI-PARK`: `missing-required`, `snapshot-inconsistent` |
+| 0111c | `two_lists_naming_different_attempts_park_live_and_on_replay` | mixed attempts | `CI-PARK`: `missing-required`, `snapshot-inconsistent` |
+| 0111c | `a_newer_attempt_that_already_failed_parks_live_and_on_replay` | mixed attempts | `CI-PARK`: `snapshot-inconsistent` |
+| 0111c | `a_status_under_the_name_of_a_required_entry_parks_as_attempt_unnamed_live_and_on_replay` | mixed attempts | `CI-PARK`: `attempt-unnamed` |
+| 0111c | `a_consistent_single_attempt_snapshot_is_green_live_and_on_replay` | mixed attempts, the control | `CI-PASS` |
+| 0111c | `a_failed_jobs_only_rerun_leaving_a_passed_entry_in_the_earlier_attempt_parks_live_and_on_replay` | the person's re-run (LOW) | `CI-PARK`: `missing-required`, `snapshot-inconsistent` |
+| 0111c | `a_ci_attempt_record_passes_heads_fence_and_decides_from_the_judgment` | a wordless `CiAttempt` (text corrected) | `CI-PASS`; `CI-PARK`: `launch-untrusted` |
+| 0111c | `a_ci_driver_that_fails_to_spawn_parks_once_as_launch_untrusted_with_no_retry` | who settles a spawn failure (text corrected) | `CI-PARK`: `launch-untrusted` |
+| 0111c | `an_observer_past_its_own_bound_is_killed_by_the_driver_and_parks_once_as_observer_deadline` | who settles a deadline (text corrected) | `CI-PARK`: `observer-deadline` |
+| 0111c | `a_seat_watchdog_kill_of_the_ci_driver_is_indeterminate_never_ci_park` | who settles a watchdog kill | HEAD's indeterminate, never `CI-PASS` |
+| 0111c | `a_head_moved_during_ci_is_indeterminate_never_ci_park` | who settles a moved head | HEAD's indeterminate, never `CI-PASS` |
+| 0111c | `the_check_run_list_unread_or_overflowed_parks_as_checks_incomplete_live_and_on_replay` | ordered reasons on an incomplete list (text corrected) | `CI-PARK`: `checks-incomplete`, then `ambiguous-required` or `missing-required` |
+| 0111c | `the_status_list_unread_or_overflowed_parks_as_statuses_incomplete_live_and_on_replay` | ordered reasons | `CI-PARK`: `statuses-incomplete` |
+| 0111c | `a_run_list_unread_or_overflowed_parks_as_runs_incomplete_live_and_on_replay` | ordered reasons | `CI-PARK`: `runs-incomplete`, `missing-required`, `execution-ambiguous` |
+| 0111c | `a_job_list_unread_or_overflowed_parks_as_jobs_incomplete_naming_the_run_and_attempt_live_and_on_replay` | ordered reasons | `CI-PARK`: `jobs-incomplete`, `ambiguous-required` |
+| 0111c | `the_open_pull_request_list_unread_or_overflowed_parks_as_pulls_incomplete_live_and_on_replay` | ordered reasons | `CI-PARK`: `pulls-incomplete` |
+| 0111c | `a_partly_read_forge_required_set_parks_as_required_set_incomplete_live_and_on_replay` | ordered reasons | `CI-PARK`: `required-set-incomplete` |
+| 0111c | `an_oversized_first_page_through_the_real_reader_parks_as_response_too_large` | ordered reasons; the byte bound | `CI-PARK`: `checks-incomplete`, `response-too-large`, `missing-required` |
+| 0111c | `a_duplicate_job_for_a_required_entry_on_the_last_page_parks_as_ambiguous_required` | ordered reasons, the control | `CI-PARK`: `ambiguous-required`; unread, `jobs-incomplete` first |
+| 0111c | `an_entry_with_no_current_execution_names_missing_required_then_execution_ambiguous` | ordered reasons (name corrected) | `CI-PARK`: `missing-required`, `execution-ambiguous` |
+| 0111c | `inspect_on_a_truncated_ci_park_after_its_bundle_is_gone_paints_the_named_rows_and_the_count` | `inspect` after the bundle is gone (text corrected) | the reason's rows, the count of the rest |
+| 0111c | `a_required_check_not_completed_with_a_null_conclusion_parks_as_not_settled_alone` | P4's rows partition (LOW) | `CI-PARK`: `not-settled` |
+| 0111c | `the_park_citation_checker_refuses_a_statement_with_no_row_or_an_unknown_row` | the checker's reach (LOW) | each bad line refused |
+| 0111c | `every_test_proved_by_the_slices_is_named_in_its_slices_plan` | this list | every name in its slice's plan |
+| 0111c | `the_0111_index_row_names_the_last_round_the_decision_records` | the index row's history (INFO) | the row names round 1093r11 |
+| 0111d | `a_pass_without_green_through_the_real_policy_and_park_writer_parks_at_ci_pass_unbound` | one owner for `word-unbound` (text corrected) | a `ruled` park at `CI-PASS-UNBOUND` |
+| 0111d | `classify_after_ci_pass_receives_last_decision_naming_ci_pass_and_pass_and_nothing_else_of_ci` | `classify`'s input assertions | `CI-PASS` and `pass`, nothing else of `ci` |
+| 0111d | `an_operator_retry_after_a_person_re_runs_all_jobs_observes_again_and_passes` | the person's re-run (LOW) | `CI-PASS` |
 
 ## Evidence
 
@@ -2091,6 +2216,20 @@ is the base's):
 - the chief's notes and both review positions of run
   `narrowing-round-1093r9-for-issue-3b8d3010`, in
   `.forge/results/aefeb40e-561f-4146-b483-c34539fb2bc2-{chief,positions-adversarial,positions-correctness}.json`.
+
+Round 1093r11, read at the story's base `e667a04c2`:
+
+- `.github/workflows/ci.yml:1-30` (`labeled` and `unlabeled` re-run the gate on the same head);
+- `crates/brokkr-store/src/chain.rs:15-45` and `crates/brokkr-store/src/seat_record/validation.rs:55-75`
+  (the fence on `effect/succeeded`'s `result`), `contracts/seat-record.v6.schema.json:550-575`,
+  `crates/brokkr-runtime/src/engine/sequence/success.rs:10-40` and
+  `crates/brokkr-runtime/src/engine/decide.rs:20-100`, `:239-261`;
+- `crates/brokkr-runtime/src/engine.rs:950-996` (the moved-head guard) and `:1460-1490` (a driver
+  spawn failure is `effect/failed`); `crates/brokkr-protocol/src/process.rs:500-522` (the
+  watchdog's `Indeterminate`); `crates/brokkr-runtime/src/engine/dispatch.rs:155-175`;
+  `crates/brokkr-runtime/src/engine/input.rs:108-130`;
+- the chief's notes and both positions of landing `landing-over-an-existing-branch--7833a069`, in
+  `.forge/results/43ce433d-ed05-443e-8509-071c2ffb16ea-{chief,positions-adversarial,positions-correctness}.json`.
 
 The park table's binding of the text was checked by hand in this round, by a scratch reading of
 this file: every paragraph that says the gate parks, outside the exempt sections, cites a row id
