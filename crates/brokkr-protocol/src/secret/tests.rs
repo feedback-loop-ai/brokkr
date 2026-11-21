@@ -197,8 +197,117 @@ fn masker_operates_on_bytes_so_invalid_utf8_neighbors_still_mask() {
 
 #[test]
 fn masker_masks_adjacent_and_repeated_needles() {
+    // Every occurrence from the second byte on overlaps the one before,
+    // and occurrences that overlap or touch are one run (#1213).
     let bindings = vec![bound("K", b"vvvv")];
-    assert_eq!(mask_bytes(b"vvvvvvvv", &bindings), b"[secret:K][secret:K]");
+    assert_eq!(mask_bytes(b"vvvvvvvv", &bindings), b"[secret:K]");
+    assert_eq!(
+        mask_bytes(b"vvvv-vvvv", &bindings),
+        b"[secret:K]-[secret:K]"
+    );
+}
+
+/// The 44-character value of #1213's case, and the eight-character one
+/// whose last byte is its first.
+const LONG: &str = "Z0123456789abcdefghijklmnopqrstuvwxyzABCDEFG";
+const SHORT: &str = "prefix!Z";
+/// A value starting inside `LONG`'s last three bytes.
+const TAIL: &str = "EFG!suffix";
+
+/// Each overlap #1213 rules on, as the bindings in the order bound, the
+/// text that holds them, and the text masked: the shorter value first and
+/// the longer starting at its last byte; the reverse; one value inside
+/// another; and two sharing one byte.
+fn overlaps() -> Vec<(Vec<BoundSecret>, String, String)> {
+    let pair = |first: (&str, &str), second: (&str, &str)| {
+        vec![
+            bound(first.0, first.1.as_bytes()),
+            bound(second.0, second.1.as_bytes()),
+        ]
+    };
+    vec![
+        (
+            pair(("LONG", LONG), ("SHORT", SHORT)),
+            format!("a prefix!{LONG} b"),
+            "a [secret:SHORT] b".to_string(),
+        ),
+        (
+            pair(("TAIL", TAIL), ("LONG", LONG)),
+            format!("a {LONG}!suffix b"),
+            "a [secret:LONG] b".to_string(),
+        ),
+        (
+            pair(("INNER", "cdefgh"), ("OUTER", "abcdefghij")),
+            "a abcdefghij b cdefgh c".to_string(),
+            "a [secret:OUTER] b [secret:INNER] c".to_string(),
+        ),
+        (
+            pair(("RIGHT", "Xdefghi"), ("LEFT", "abcdefX")),
+            "a abcdefXdefghi b".to_string(),
+            "a [secret:LEFT] b".to_string(),
+        ),
+    ]
+}
+
+#[test]
+fn masker_masks_the_union_of_overlapping_values_as_one_run() {
+    for (bindings, text, masked) in overlaps() {
+        assert_eq!(mask_text(text.as_bytes(), &bindings), masked, "{text}");
+    }
+}
+
+#[test]
+fn mask_json_masks_the_union_in_a_string_value_and_an_object_key() {
+    for (bindings, text, masked) in overlaps() {
+        let mut value = serde_json::json!({"said": text.clone(), text.clone(): 1});
+        mask_json(&mut value, &bindings);
+        let expected = serde_json::json!({"said": masked.clone(), masked.clone(): 1});
+        assert_eq!(value, expected, "{text}");
+    }
+}
+
+#[test]
+fn mask_projected_masks_the_union_of_an_escaped_form_and_a_raw_one() {
+    // `SHORT` and `TAIL` with a quote in them, so each reaches projected
+    // text escaped, overlapping `LONG` raw.
+    let short = SHORT.replace('!', "\"");
+    let tail = TAIL.replace('!', "\"");
+    let bindings = vec![
+        bound("SHORT", short.as_bytes()),
+        bound("TAIL", tail.as_bytes()),
+        bound("LONG", LONG.as_bytes()),
+    ];
+    let projected = format!("{{\"a\":\"prefix\\\"{LONG}\\\"suffix\"}}");
+    assert_eq!(
+        mask_projected(&projected, &bindings),
+        "{\"a\":\"[secret:SHORT]\"}"
+    );
+}
+
+#[test]
+fn masker_masks_text_without_overlap_as_it_always_did() {
+    // A golden: separate occurrences of two values, raw and encoded, and
+    // a needle-free neighbour, each run read as before #1213.
+    let bindings = vec![bound("ALPHA", b"abcdef"), bound("BETA", b"tok3n+v4lue!")];
+    let text = b"x abcdef y dG9rM24rdjRsdWUh z tok3n%2Bv4lue%21 \xff abcdefabc";
+    assert_eq!(
+        mask_bytes(text, &bindings),
+        b"x [secret:ALPHA] y [secret:BETA] z [secret:BETA] \xff [secret:ALPHA]abc"
+    );
+}
+
+#[test]
+fn the_guard_refuses_a_value_whose_start_an_earlier_match_covers() {
+    // Two bytes before, so neither value starts on a stride of its own
+    // length: the guard finds each wherever it starts.
+    let bindings = vec![
+        bound("LONG", LONG.as_bytes()),
+        bound("SHORT", SHORT.as_bytes()),
+    ];
+    let guard = Guard::new(&bindings);
+    let text = format!("a prefix!{LONG} b");
+    assert!(!guard.text(text.as_bytes()));
+    assert!(guard.text(mask_text(text.as_bytes(), &bindings).as_bytes()));
 }
 
 // ------------------------------------------------- layer 2: store

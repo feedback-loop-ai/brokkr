@@ -541,9 +541,11 @@ fn enc_pct_lower(bytes: &[u8]) -> Vec<u8> {
 /// Mask every needle of every bound secret in `bytes`, replacing each
 /// match with `[secret:NAME]`. Operates on RAW captured bytes — callers
 /// mask first and lossy-convert to string second, never the reverse
-/// (UTF-8 replacement characters must not split needles). Replacement
-/// is longest-needle-first so overlapping needles from multiple secrets
-/// resolve deterministically.
+/// (UTF-8 replacement characters must not split needles). Every byte
+/// any occurrence of any needle covers is masked, and occurrences that
+/// overlap or touch read one marker, named for the binding whose
+/// occurrence starts first (the longest needle's where several start at
+/// one byte), so overlapping needles resolve deterministically.
 ///
 /// BUFFERED-ONLY INVARIANT: every masked surface today is a complete
 /// captured buffer (`wait_with_output`), so whole-buffer masking is
@@ -603,19 +605,37 @@ fn mask_needles(bytes: &[u8], bindings: &[BoundSecret], encodings: &[(&str, Enco
     }
     let needles = needles(bindings, encodings);
     let mut out = Vec::with_capacity(bytes.len());
-    let mut i = 0;
-    'scan: while i < bytes.len() {
-        for (needle, name) in &needles {
-            if bytes[i..].starts_with(needle) {
-                out.extend_from_slice(format!("[secret:{name}]").as_bytes());
-                i += needle.len();
-                continue 'scan;
-            }
-        }
-        out.push(bytes[i]);
-        i += 1;
+    let mut clear = 0;
+    for (start, end, name) in covered(bytes, &needles) {
+        out.extend_from_slice(&bytes[clear..start]);
+        out.extend_from_slice(format!("[secret:{name}]").as_bytes());
+        clear = end;
     }
+    out.extend_from_slice(&bytes[clear..]);
     out
+}
+
+/// Every run of `bytes` that occurrences of `needles` cover, in order, as
+/// where it begins and ends and the name the run's marker reads (#1213,
+/// decision 0012's addendum of 2026-11-21): the union of every occurrence
+/// of every needle, so a needle starting inside another's match is masked
+/// whole. Occurrences that overlap or touch are one run, named for the
+/// binding whose occurrence starts first; of those starting at one byte,
+/// the longest needle's, as it always was.
+fn covered<'n>(bytes: &[u8], needles: &[(Vec<u8>, &'n str)]) -> Vec<(usize, usize, &'n str)> {
+    let mut runs: Vec<(usize, usize, &str)> = Vec::new();
+    for start in 0..bytes.len() {
+        let occurs = |needle: &&(Vec<u8>, &str)| bytes[start..].starts_with(&needle.0);
+        let Some((needle, name)) = needles.iter().find(occurs) else {
+            continue;
+        };
+        let end = start + needle.len();
+        match runs.last_mut() {
+            Some(run) if start <= run.1 => run.1 = run.1.max(end),
+            _ => runs.push((start, end, name)),
+        }
+    }
+    runs
 }
 
 /// [`mask_bytes`] over every string inside a JSON value — object keys
