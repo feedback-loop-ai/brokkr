@@ -459,23 +459,43 @@ fn judged_line(id: &str) -> String {
     format!("  review · finding {id} · by review:judge · site 5a1e00000000 · low · a.rs · s\n")
 }
 
+/// A seat turn of `e0`'s attempt `a0`.
+fn turn(turn: u64) -> (EventType, serde_json::Value) {
+    let checkpoint = json!({"step": "seat-turn", "turn": turn});
+    let payload = json!({"effect_id": "e0", "attempt_id": "a0", "checkpoint": checkpoint});
+    (EventType::EffectCheckpointed, payload)
+}
+
+/// The seat turns `numbers` names, the rows a long run fills its budget
+/// with.
+fn turns(
+    numbers: impl Iterator<Item = u64>,
+) -> impl Iterator<Item = (EventType, serde_json::Value)> {
+    numbers.map(turn)
+}
+
+/// The one line plain `inspect` prints where its budget left the first
+/// `unread` of the `head` rows unread.
+fn unread_line(unread: u64, head: u64) -> String {
+    format!(
+        "  … inspect read the newest {} of the run's {head} journal rows for verdicts; \
+         the first {unread} were not read, and `inspect --phase <phase>` or `--seat <seat>` \
+         reads the run whole\n",
+        head - unread
+    )
+}
+
 /// #1212, L2: plain `inspect` reads its verdicts within the frame's
 /// budget. A run of `VERDICT_ROWS` and seven rows: `outside`, judged in
-/// attempt `a0` at seq 5, and `a0`'s turns and failure, which run into
-/// the window, are left unread; `inside`, judged in the retry `a1`,
-/// started inside the window, shows in its phase, read from `e0`'s
-/// request before the window; and one line says how many rows were not
-/// read.
+/// attempt `a0` at seq 5 before the window, is not read; `inside`, judged
+/// in the retry `a1`, started inside the window, shows in its phase, read
+/// from `e0`'s request before the window; and one line says how many rows
+/// were not read.
 #[test]
 fn plain_inspect_reads_its_verdicts_within_the_frames_budget() {
     let dir = tempfile::tempdir().unwrap();
     let mut journal = vec![(EventType::EffectCheckpointed, judged("outside"))];
-    let turn = |turn| {
-        let checkpoint = json!({"step": "seat-turn", "turn": turn});
-        json!({"effect_id": "e0", "attempt_id": "a0", "checkpoint": checkpoint})
-    };
-    let turns = (1..super::VERDICT_ROWS).map(|n| (EventType::EffectCheckpointed, turn(n)));
-    journal.extend(turns);
+    journal.extend(turns(1..super::VERDICT_ROWS));
     let retry = [
         (
             EventType::EffectFailed,
@@ -493,9 +513,80 @@ fn plain_inspect_reads_its_verdicts_within_the_frames_budget() {
     journal.extend(retry);
     let db = in_review(dir.path(), journal);
     let verdicts = inspected_verdicts(dir.path(), &db, &viewed);
-    let unread = "  … verdicts in 1005 of the run's 1007 journal rows not read; \
-                  `inspect --phase <phase>` or `--seat <seat>` reads them all\n";
-    assert_eq!(verdicts, format!("{}{unread}", judged_line("inside")));
+    assert_eq!(
+        verdicts,
+        format!("{}{}", judged_line("inside"), unread_line(7, 1007))
+    );
+}
+
+/// #1212, L2's review: a verdict inside the budget shows even when its
+/// attempt began before it. A run whose `a0` started at the window's own
+/// cut and whose newest row, a sequence step's authored record, sits
+/// inside the window: plain `inspect` prints it and says the earlier rows
+/// were not read.
+#[test]
+fn plain_inspect_reads_a_verdict_from_an_attempt_begun_before_its_budget() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut journal: Vec<_> = turns(1..super::VERDICT_ROWS).collect();
+    journal.push((EventType::EffectCheckpointed, judged("newest")));
+    let db = in_review(dir.path(), journal);
+    let verdicts = inspected_verdicts(dir.path(), &db, &viewed);
+    assert_eq!(
+        verdicts,
+        format!("{}{}", judged_line("newest"), unread_line(4, 1004))
+    );
+}
+
+/// #1212, L2: a run within the budget reads every verdict it holds, with
+/// no line of rows unread.
+#[test]
+fn plain_inspect_reads_every_verdict_of_a_run_within_its_budget() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = in_review(
+        dir.path(),
+        vec![
+            (EventType::EffectCheckpointed, judged("early")),
+            (EventType::EffectCheckpointed, judged("later")),
+        ],
+    );
+    let verdicts = inspected_verdicts(dir.path(), &db, &viewed);
+    assert_eq!(
+        verdicts,
+        format!("{}{}", judged_line("early"), judged_line("later"))
+    );
+}
+
+/// #1212, L2: a budget that cuts rows off with no verdict inside them
+/// still says so, under the verdicts header rather than silently.
+#[test]
+fn plain_inspect_says_when_its_budget_holds_no_verdict() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = in_review(dir.path(), turns(1..=super::VERDICT_ROWS + 1).collect());
+    let verdicts = inspected_verdicts(dir.path(), &db, &viewed);
+    assert_eq!(verdicts, unread_line(5, 1005));
+}
+
+/// #1212, L2: a journal whose event index is not read is read whole, as
+/// the frame reads it (decision 0089 ruling 8), rather than bounded by a
+/// window the index cannot name: a verdict before the window shows too,
+/// and no line says rows were left out.
+#[test]
+fn plain_inspect_reads_an_index_less_journal_whole() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut journal = vec![(EventType::EffectCheckpointed, judged("outside"))];
+    journal.extend(turns(1..super::VERDICT_ROWS));
+    journal.push((EventType::EffectCheckpointed, judged("inside")));
+    let db = in_review(dir.path(), journal);
+    let journal = rusqlite::Connection::open(&db).unwrap();
+    journal
+        .execute_batch("DROP INDEX event_index_trail")
+        .unwrap();
+    drop(journal);
+    let verdicts = inspected_verdicts(dir.path(), &db, &viewed);
+    assert_eq!(
+        verdicts,
+        format!("{}{}", judged_line("outside"), judged_line("inside"))
+    );
 }
 
 /// Fix round 0109a1r7, X6: inspect's verdict block reads no row past its

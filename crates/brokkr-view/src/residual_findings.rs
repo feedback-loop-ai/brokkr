@@ -70,10 +70,39 @@ pub struct GateRecord {
 /// on no frame that predates it (fix round 0109a1r7, X6). A caller with no
 /// fold passes `None`.
 pub fn gate_records(events: &[EventEnvelope], state: Option<&RunState>) -> Vec<GateRecord> {
+    records(&events.iter().collect::<Vec<_>>(), state)
+}
+
+/// Every verdict `events` records inside the window after journal row
+/// `cut`, read with the effect rows before it that name a verdict's phase
+/// and seat: a frame reads its trail whole and its verdicts' checkpoints
+/// from the window alone (decision 0089 ruling 9, #1212), so a verdict
+/// from an attempt begun before the window still shows, and no verdict
+/// before the window does. Read with `state` as [`gate_records`] reads
+/// it.
+pub fn gate_records_within(
+    events: &[EventEnvelope],
+    state: Option<&RunState>,
+    cut: u64,
+) -> Vec<GateRecord> {
+    let window: Vec<&EventEnvelope> = (events.iter())
+        .filter(|event| {
+            event.seq > cut
+                || matches!(
+                    event.event_type,
+                    EventType::EffectRequested | EventType::EffectStarted
+                )
+        })
+        .collect();
+    records(&window, state)
+}
+
+/// [`gate_records`] over the rows a reader has chosen.
+fn records(events: &[&EventEnvelope], state: Option<&RunState>) -> Vec<GateRecord> {
     let kept = |event: &&EventEnvelope| {
         state.is_none_or(|state| event.seq <= state.seq && state.applies(event.seq))
     };
-    let events: Vec<&EventEnvelope> = events.iter().filter(kept).collect();
+    let events: Vec<&EventEnvelope> = events.iter().copied().filter(kept).collect();
     let events = events.as_slice();
     let effects: BTreeMap<&str, (&str, &str)> = (events.iter().copied())
         .filter(|event| event.event_type == EventType::EffectRequested)

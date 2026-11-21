@@ -405,6 +405,29 @@ fn a_journal_that_lost_an_index_is_read_as_before_until_restored() {
     assert_eq!(store.index_trail("r").unwrap(), [1]);
 }
 
+/// #1212: a frame's verdict window reads only its checkpoints, in seq
+/// order, within the range it names.
+#[test]
+fn a_checkpoint_window_reads_only_its_checkpoints() {
+    let (_dir, store) = store();
+    let named = |kind| event(kind, json!({"effect_id": "e", "attempt_id": "a"}));
+    run_of(
+        &store,
+        "r",
+        vec![
+            named(EventType::RunStarted),
+            named(EventType::EffectCheckpointed),
+            named(EventType::EffectCheckpointed),
+            named(EventType::PhaseEntered),
+            named(EventType::EffectCheckpointed),
+            named(EventType::EffectCheckpointed),
+        ],
+    );
+    let found = store.envelopes_of_checkpoints("r", 3, 5).unwrap();
+    let seqs: Vec<u64> = found.iter().map(|event| event.seq).collect();
+    assert_eq!(seqs, [3, 5]);
+}
+
 /// A run of three events, each with an attempt and a member to edit.
 fn three(store: &Store) {
     let step = |seq: u64| {

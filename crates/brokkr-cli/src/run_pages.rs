@@ -57,11 +57,15 @@ impl Shows {
     }
 }
 
-/// A run's view as its reader shows it, and the run's fold, or the fold's
-/// refusal, which `inspect` and `seats` refuse the run with.
+/// A run's view as its reader shows it, the run's fold, or the fold's
+/// refusal, which `inspect` and `seats` refuse the run with, and the
+/// journal rows the read already holds: the frame's trail, or the run
+/// whole where that read fell back to it. A later reader of the same
+/// journal reads beside them, never the trail again.
 pub(crate) struct Viewed {
     pub(crate) view: RunView,
     pub(crate) folded: Result<RunState, FoldError>,
+    pub(crate) trail: Vec<EventEnvelope>,
 }
 
 /// `run`'s view in `store` as a reader that `shows` it reads it: opened,
@@ -101,7 +105,11 @@ pub(crate) fn participants(
     run: &str,
     now: &str,
 ) -> Result<Result<Vec<Participant>, FoldError>, StoreError> {
-    let Viewed { view, folded } = viewed(store, run, Shows::Frame, now)?;
+    let Viewed {
+        view,
+        folded,
+        trail: _,
+    } = viewed(store, run, Shows::Frame, now)?;
     Ok(folded.map(|_| view.participants))
 }
 
@@ -111,7 +119,11 @@ fn whole(store: &Store, run: &str, now: &str) -> Result<Viewed, StoreError> {
     let folded = fold(&events);
     let cooling = crate::fleet::cooling(store, now)?;
     let view = brokkr_view::run_view_with(&events, folded.as_ref().ok(), &cooling);
-    Ok(Viewed { view, folded })
+    Ok(Viewed {
+        view,
+        folded,
+        trail: events,
+    })
 }
 
 /// What one read at an opening's head holds, asked past the head so it
@@ -180,9 +192,10 @@ impl Frame {
 
 /// `run`'s view composed once from one read at `opened` ([`Frame`]). With
 /// `journal`, every event the opening kept, it is the view whole, each
-/// participant's checkpoints made from it; without, the frame's. `None`
-/// where the read is kept, its summary row records the fold's refusal or
-/// the rows do not compose.
+/// participant's checkpoints made from it; without, the frame's. A frame
+/// read hands its trail over, the rows a later reader of the same run
+/// reads beside. `None` where the read is kept, its summary row records
+/// the fold's refusal or the rows do not compose.
 fn composed(
     store: &Store,
     run: &str,
@@ -200,8 +213,13 @@ fn composed(
         }
         None => frame.view(),
     };
-    let folded = Ok(*frame.state);
-    Ok(view.map(|view| Viewed { view, folded }))
+    let Frame { trail, state, .. } = frame;
+    let folded = Ok(*state);
+    Ok(view.map(|view| Viewed {
+        view,
+        folded,
+        trail,
+    }))
 }
 
 /// Which of the console's run screens a frame paints, and so what it reads

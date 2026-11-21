@@ -919,6 +919,7 @@ pub fn brokkr_view::first_divergence(&[alloc::string::String], &[alloc::string::
 pub fn brokkr_view::fleet_rows(&[brokkr_view::HearthEntries<'_>], &[brokkr_view::Cooling]) -> brokkr_view::FleetView
 pub fn brokkr_view::fmt_dur(&str, &str) -> core::option::Option<alloc::string::String>
 pub fn brokkr_view::gate_records(&[brokkr_core::envelope::EventEnvelope], core::option::Option<&brokkr_core::fold::RunState>) -> alloc::vec::Vec<brokkr_view::GateRecord>
+pub fn brokkr_view::gate_records_within(&[brokkr_core::envelope::EventEnvelope], core::option::Option<&brokkr_core::fold::RunState>, u64) -> alloc::vec::Vec<brokkr_view::GateRecord>
 pub fn brokkr_view::graph(&brokkr_view::GraphQuery<'_>) -> core::result::Result<brokkr_view::GraphView, brokkr_view::GraphError>
 pub fn brokkr_view::keeps_participant(core::option::Option<&brokkr_view::Lens>, &brokkr_view::Participant) -> bool
 pub fn brokkr_view::keeps_phase(core::option::Option<&brokkr_view::Lens>, &brokkr_view::Phase) -> bool

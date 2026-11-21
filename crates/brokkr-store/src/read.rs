@@ -1,11 +1,14 @@
 //! The suffix read (#354): what landed on a run after a head the caller
 //! already verified, and the row reader the whole read shares.
 
+use std::sync::LazyLock;
+
 use brokkr_core::canonical::ZERO_HASH;
 use brokkr_core::envelope::{verify_chain_after, EventEnvelope};
 use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::damage::envelope;
+use crate::event_index::{seqs, CHECKPOINTED};
 use crate::{patiently, Store, StoreError, HEAD_OF_RUN};
 
 /// The rows of each `[run_id, seq]` pair of the JSON array `?1` at or
@@ -13,6 +16,17 @@ use crate::{patiently, Store, StoreError, HEAD_OF_RUN};
 const ROWS_THROUGH: &str = "SELECT (SELECT count(*) FROM events
          WHERE run_id = head.value ->> 0 AND seq <= head.value ->> 1)
      FROM json_each(?1) AS head ORDER BY head.key";
+
+/// A run's checkpoints between two seqs, both held, in seq order: the
+/// rows a frame's trail omits, read through the primary key's range within
+/// the window it names.
+static CHECKPOINTS_BETWEEN: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT seq FROM event_index
+         WHERE run_id = ?1 AND seq >= ?2 AND seq <= ?3 AND type = '{CHECKPOINTED}'
+         ORDER BY seq"
+    )
+});
 
 impl Store {
     /// What landed on a run after a head the caller already loaded and
@@ -76,6 +90,22 @@ impl Store {
                 .optional()?;
             raw.map(|raw| envelope(run_id, seq, &raw)).transpose()
         })
+    }
+
+    /// A run's checkpoints in `from..=to`, in seq order, each read by its
+    /// key: the rows a frame's trail omits, read within a window the caller
+    /// bounds (decision 0089 ruling 9, #1212). A journal that reads no
+    /// index must read the run whole instead ([`Store::reads_index`]).
+    pub fn envelopes_of_checkpoints(
+        &self,
+        run_id: &str,
+        from: u64,
+        to: u64,
+    ) -> Result<Vec<EventEnvelope>, StoreError> {
+        let found = patiently("index", self.patience, &self.path, || {
+            seqs(&self.conn, &CHECKPOINTS_BETWEEN, params![run_id, from, to])
+        })?;
+        self.envelopes_at(run_id, &found)
     }
 
     /// How many rows each run of `heads` holds at or below its seq, in
