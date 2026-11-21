@@ -5,10 +5,9 @@
 //! rewritten word. The shipped panels are compiled from `recipes/` and run
 //! with their compiled laws.
 
-use std::path::PathBuf;
-
 use serde_json::{json, Value};
 
+use super::stop_tests::{clean, decided, shipped, steps_of};
 use super::tests::{driven_with, driver};
 use crate::bundle::{
     Aggregate, Bundle, GateAssessment, Invocation, MemberLaw, PanelMember, SeatBody, SeatClass,
@@ -18,25 +17,6 @@ use crate::engine::tests::{single_body, step_body};
 use brokkr_core::envelope::{EventEnvelope, EventType};
 use brokkr_core::findings::ResidualPair;
 use brokkr_core::policy::Machine;
-
-/// The shipped recipe `name`, compiled against the shipped library.
-fn shipped(name: &str) -> Bundle {
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let dir = root.join("recipes").join(name);
-    Bundle::compile_with(&dir, &root.join("agents"), &root.join("adapters")).unwrap()
-}
-
-/// The compiled steps of `recipe`'s `seat`, under `case` where it selects.
-fn steps_of(recipe: &Bundle, seat: &str, case: Option<&str>) -> Vec<SequenceStep> {
-    let mut body = &recipe.seats[seat].body;
-    if let (SeatBody::Select { cases, .. }, Some(case)) = (body, case) {
-        body = &cases[case];
-    }
-    let SeatBody::Sequence { steps } = body else {
-        panic!("{seat} is a sequence")
-    };
-    steps.clone()
-}
 
 /// The compiled members of a panel step, each answering `answer(name)`
 /// through a scripted driver in place of its model, its law unchanged.
@@ -93,21 +73,6 @@ fn reviewing(compiled: &mut Bundle, body: SeatBody, inputs: &[&str]) {
 fn reviewed(body: SeatBody, inputs: &[&str]) -> (tempfile::TempDir, Vec<EventEnvelope>) {
     let work = single_body(driver(&json!({"result": "complete"})));
     driven_with(work, |compiled| reviewing(compiled, body, inputs))
-}
-
-/// `phase`'s journaled decisions, in order.
-fn decided(events: &[EventEnvelope], phase: &str) -> Vec<Value> {
-    (events.iter())
-        .filter(|event| event.event_type == EventType::TransitionDecided)
-        .filter(|event| event.payload["from"] == phase)
-        .map(|event| event.payload.clone())
-        .collect()
-}
-
-/// The charter-shaped clean every member charter orders.
-fn clean() -> Value {
-    json!({"result": "clean", "inputs": {"max_residual_severity": "none",
-                                         "has_security_residual": false}})
 }
 
 const PAIR: [&str; 2] = ["max_residual_severity", "has_security_residual"];
