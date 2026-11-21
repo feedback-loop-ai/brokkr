@@ -204,3 +204,70 @@ Since it was drafted (refreshed 2026-10-12):
   the realm's to grant), 0071 (the architectural principles), 0072 (full
   access inside a seat box), 0077 (the broker as the harness's child), and
   0082 (the contract lifecycle).
+
+## Addendum — 2026-11-21, operator ruled: a provisional harness's stream confirms its served model
+
+Accepted by the operator on 2026-11-21 (#1178, ruling "1").
+
+A provisional seat is priced and judged on the model it was pinned to,
+so its stream must prove that model served it. Qoder CLI is the first
+case (#1178; `docs/evidence/adapters/qoder-cli-1-1.md`). Four rounds of
+review found a value escaping a mask or a rendering in a new place each
+time, because the pin and the served model ran as free text through
+masks, `Debug` renderings and error words. These rulings close that
+class:
+
+1. **The pin is a plain id.** It is 1 to 80 characters. The first is an
+   ASCII letter or a digit, so no pin reads as a flag, and each other is
+   an ASCII letter, a digit, `.`, `_` or `-`. It is checked once, at launch,
+   before spawn, and a pin that fails is refused in fixed words naming
+   no value. A plain id has no escaped form. It also holds no character
+   of the mask's replacement text, so no mask can turn another model
+   into the pin.
+2. **Exactly one identity row names it.** The driver's own rules read
+   each row as the harness wrote it. The shared fold reads only a copy
+   the seat's bindings masked, so its classifier, the session record and
+   every row emitted read masked text alone. One identity row
+   naming exactly the pin confirms the model. One naming another model,
+   a second identity row, or a turn before any confirmation refuses the
+   seat.
+3. **Any shape no measured stream carries refuses.** For Qoder, that
+   is a stdout line that is not UTF-8 or not a JSON object, an empty
+   line included. No line ends the read early, and none is skipped.
+4. **A fallback notice is a substitution wherever the stream stops.**
+   The harness's own notice that it served another model refuses the
+   seat as substituted, whatever the identity row said. A refusal
+   before the seat's first turn and before any delivery (item 8) is a
+   refusal to start. After a turn, or after delivery, the seat ends with
+   no result, and its error keeps the refusal's words.
+5. **Refusal words name only plain ids.** Words name an id by
+   `Display`, in single quotes. They name the served model only when it
+   is a plain id, and otherwise say "a model that is not a plain id". No
+   other value from the stream, its stderr, the environment or a path
+   appears in them. Every word the driver returns passes the seat's
+   bindings once, last. The shared driver's own pass over every
+   adapter's refusal stays.
+
+Amended on 2026-11-21 under the same ruling, and still accepted:
+
+6. **A classified provider refusal is named by its class.** A refusal
+   the shared classifier reads is named in fixed words for its class.
+   Today there are two classes: a rate limit, and any other refusal,
+   an API error or an authentication failure included. The words carry
+   none of the provider's text and no other value from the row. The
+   HTTP status and the retry-after stay as the refusal's
+   fields. The driver's own words pass no clipping step, so an id of 80
+   characters is named whole.
+7. **A fallback notice wins every stop.** Where the harness's fallback
+   notice is on the stderr captured by then, every stop refuses as
+   substituted, in the reported-on-stderr words. That includes a second
+   identity row and a line no measured stream carries. Otherwise each
+   stop keeps its own words.
+8. **A stop after work or delivery is lost (decision 0006).** Delivery
+   is read from the harness's real exit: it exited 0 on its own and its
+   result file exists. After a turn, or after delivery, a stop or an
+   identity refusal ends the attempt with no result of its own. The
+   driver prints its words for the operator and sends no wire result, so
+   no provider chain advances past delivered work.
+
+The order of masking and folding, for every adapter, is tracked as #1242.

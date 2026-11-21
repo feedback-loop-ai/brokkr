@@ -526,7 +526,11 @@ fn inapplicable(wire: InapplicableWire, driver: &[String]) -> Result<McpSupport,
             reason: wire.inapplicable.0,
         }),
         Some(
-            AdapterKind::Claude | AdapterKind::Lanetally | AdapterKind::Codex | AdapterKind::Dsh,
+            AdapterKind::Claude
+            | AdapterKind::Lanetally
+            | AdapterKind::Codex
+            | AdapterKind::Dsh
+            | AdapterKind::Qoder,
         )
         | None => Err(McpError::ModelHarness(harness.to_string())),
     }

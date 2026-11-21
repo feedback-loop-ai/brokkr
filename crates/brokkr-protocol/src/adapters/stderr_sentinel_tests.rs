@@ -35,8 +35,26 @@ fn staged(kind: AdapterKind, child: &mut Command, dir: &Path, shim: &Path) -> Ve
             child.env("BROKKR_DSH_BIN", shim).env("DSH_HOME", dir);
             Vec::new()
         }
+        AdapterKind::Qoder => {
+            child.env("BROKKR_QODER_BIN", qoder(dir, shim));
+            vec!["-m".to_string(), "Fast".to_string()]
+        }
         AdapterKind::Exec => vec![shim.to_string_lossy().into_owned()],
     }
+}
+
+/// A Qoder CLI that prints its recorded tool-less turn's init, assistant
+/// and result rows on its stdout, then runs `shim` as the rest of itself.
+fn qoder(dir: &Path, shim: &Path) -> PathBuf {
+    let rows = super::qoder::tests::tool_less_rows();
+    let stdout = dir.join("qoder-stdout");
+    std::fs::write(&stdout, rows).unwrap();
+    let body = format!(
+        "#!/bin/sh\ncat '{}'\nexec '{}'\n",
+        stdout.display(),
+        shim.display()
+    );
+    executable(dir, "qodercli", &body)
 }
 
 /// A harness that marks it ran, writes the sentinel only to its stderr,

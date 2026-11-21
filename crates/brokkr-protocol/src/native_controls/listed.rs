@@ -124,6 +124,16 @@ fn named(plan: &Command, kind: ListKind) -> Vec<String> {
         .collect()
 }
 
+/// The grant of the typed hands' one tool, `mcp__<server>__<tool>`: the one
+/// spelling a seat is allowed the box's hands by, Claude's and Qoder's alike.
+pub(super) fn hands_grant() -> String {
+    format!(
+        "mcp__{}__{}",
+        crate::hands::SERVER_NAME,
+        crate::hands::TOOL_NAME
+    )
+}
+
 /// The final tool lists [`final_tools`] resolves for the seat, whose own
 /// allow list carries `carried`. The typed hands' include list is the base
 /// the holdings fill. Every other explicit include list an engine
@@ -148,11 +158,7 @@ fn resolved(
     // them; T is what the engine lowered from its typed allow.
     let mut hands_tools: Vec<String> = match typed_hands {
         0 => Vec::new(),
-        _ => vec![format!(
-            "mcp__{}__{}",
-            crate::hands::SERVER_NAME,
-            crate::hands::TOOL_NAME
-        )],
+        _ => vec![hands_grant()],
     };
     // W also admits each broker the hands contribution's own MCP
     // document serves, by its served name (U9b1d; ruling R4). This is

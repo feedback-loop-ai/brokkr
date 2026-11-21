@@ -1,0 +1,2 @@
+An unexpected critical error occurred:Error: Invalid reasoning effort: bogus. Valid values are: auto, none, low, medium, high, xhigh, max, ultracode.
+    at rl (/$bunfs/root/chunk-n856jzhr.js:5:5365)

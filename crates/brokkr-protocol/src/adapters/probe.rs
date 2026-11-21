@@ -80,7 +80,7 @@ pub(super) fn is_answer(kind: AdapterKind, event: &Value) -> bool {
                     == Some("agent_message")
         }
         AdapterKind::Dsh => event.get("type").and_then(Value::as_str) == Some("assistant/message"),
-        AdapterKind::Exec => false,
+        AdapterKind::Qoder | AdapterKind::Exec => false,
     }
 }
 
@@ -148,16 +148,18 @@ impl super::AdapterKind {
     pub(super) fn model_flag(self) -> Option<&'static str> {
         match self {
             Self::Codex => Some("-m"),
-            Self::Claude | Self::Lanetally | Self::Dsh | Self::Exec => None,
+            // Qoder's `-m` pin is read by its own launch (#1178); the shared
+            // reader's one table is #1248's.
+            Self::Claude | Self::Lanetally | Self::Dsh | Self::Qoder | Self::Exec => None,
         }
     }
 }
 
 /// Define the kinds, their wire names, and the test inventory together.
 macro_rules! adapter_kinds {
-    ($($kind:ident => $name:literal),+ $(,)?) => {
+    ($($(#[$meta:meta])* $kind:ident => $name:literal),+ $(,)?) => {
         #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-        pub enum AdapterKind { $($kind),+ }
+        pub enum AdapterKind { $($(#[$meta])* $kind),+ }
 
         impl AdapterKind {
             pub fn parse(name: &str) -> Option<AdapterKind> {

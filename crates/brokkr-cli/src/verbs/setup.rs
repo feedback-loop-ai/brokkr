@@ -293,7 +293,9 @@ pub(crate) fn secrets(workspace: &Path, command: SecretsCmd) -> Result<ExitCode>
 /// `brokkr driver`: serve a built-in forge-driver/v1 adapter.
 pub(crate) fn driver(DriverArgs { kind, args }: DriverArgs) -> Result<ExitCode> {
     let kind = brokkr_protocol::adapters::AdapterKind::parse(&kind).ok_or_else(|| {
-        anyhow::anyhow!("unknown driver '{kind}'; known: claude, lanetally, codex, dsh, exec")
+        anyhow::anyhow!(
+            "unknown driver '{kind}'; known: claude, lanetally, codex, dsh, qoder, exec"
+        )
     })?;
     let extra = driver_payload(kind, args);
     brokkr_protocol::adapters::serve(kind, extra, confine)?;
