@@ -6,8 +6,22 @@
 
 use std::path::Path;
 
-use super::{engine_executable, sealed_reach, Edge, Isolated, McpRefusal};
+use super::{engine_executable, intent, sealed_reach, Edge, Isolated, McpRefusal};
 use crate::native_controls::mcp::agy::{served, Served};
+use crate::native_controls::SealedBoundary;
+
+/// The boundary an agy launch's sealed inputs on `edge` stand under, where
+/// it boxes their hands, and `None` where they carry no boundary that does:
+/// a driver run by hand, `harness` or `open`. What the sealed inputs
+/// declare decides whether a launch's hands must be boxed, never what its
+/// set was built with (#1224); inputs that cannot be read refuse as the
+/// admission refuses them.
+pub(in crate::adapters) fn agy_boxing(
+    edge: &Edge<'_>,
+) -> Result<Option<SealedBoundary>, McpRefusal> {
+    let stands = intent(edge)?.and_then(|(sealed, _)| sealed.dialect.stands);
+    Ok(stands.filter(|boundary| boundary.boxes()))
+}
 
 /// What the engine's set gives an agy launch in `workdir`, once `isolated`
 /// admitted it from `edge`'s sealed inputs: the box's hands only where the

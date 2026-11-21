@@ -616,12 +616,12 @@ Where the seat's site boxes its hands, the seat is boxed as any harness
 that declares boxed shapes is (decision 0075 ruling 4; decisions 0043 and
 0046): the harness runs on the host, and its hands are the box's. The hands ride no
 argument, so the adapter's `workspace` fragment is the empty list and it
-declares no `notice` and no `harness`. The engine's HOME holds the box's
-hands as the one server of `<HOME>/.gemini/config/mcp_config.json`,
-`brokkr`, which is
-`brokkr hands serve` for the seat's worktree. Three things differ from an
+declares no `notice` and no `harness`. Four things differ from an
 unboxed launch, and nothing else does:
 
+- the engine HOME's `<HOME>/.gemini/config/mcp_config.json` holds the
+  box's hands as its one server, `brokkr`, which is `brokkr hands serve`
+  for the seat's worktree;
 - the one `--settings` value holds the engine's one rule,
   `mcp(brokkr/workspace)`, and nothing else;
 - the gate's command lists `call_mcp_tool` alone, so `read_file`,
@@ -631,6 +631,13 @@ unboxed launch, and nothing else does:
 - the launch carries no `--mode`, as every boxed turn of the record ran,
   so a native edit the gate somehow missed would need an approval nobody
   can give, and agy's soft denial fails the turn as any denial does.
+
+**A boxed seat is boxed or refused.** What the launch's sealed inputs
+declare decides, never what was served: under a boundary that boxes, a
+launch whose hands were not served is refused before any HOME is made,
+naming the boundary, so a boxed seat never runs with agy's native tools.
+On a host where nothing is measured for agy (macOS), a boxed agy seat does
+not launch.
 
 The model reaches the workspace tool through agy's built-in
 `call_mcp_tool`; the engine's own hands paragraph was enough for two

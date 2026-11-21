@@ -56,9 +56,10 @@ fn agy_is_a_serving_shape_whose_measured_cold_assessment_admits() {
     );
 }
 
-/// Every launch the admission serves no hands is served the empty set: a
-/// driver run by hand, unboxed hands, an empty intent beside them, and the
-/// hands dispatch seals measured on no shape while the fence stands.
+/// Every truly native launch is served the empty set: a driver run by
+/// hand, hands under `harness`, and an empty intent beside them. Hands a
+/// boundary boxes and the standing fence served as before are the agy
+/// launch's refusal (`agy/tests/boxed.rs`), never native.
 #[test]
 fn an_agy_launch_served_no_hands_is_served_the_empty_document() {
     let unboxed = sealed_hands(SealedBoundary::Harness);
@@ -66,7 +67,6 @@ fn an_agy_launch_served_no_hands_is_served_the_empty_document() {
         json!({"workdir": "/w"}),
         unboxed.clone(),
         intended(unboxed, "empty", cold_only()),
-        sealed_hands(SealedBoundary::Namespace),
     ];
     for input in inputs {
         assert_eq!(

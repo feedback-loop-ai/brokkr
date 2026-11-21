@@ -547,6 +547,7 @@ fn each_launch_refusal_states_what_was_written_and_never_a_value() {
         (LaunchError::SignedOut, "Antigravity CLI is signed out: run `agy` once and sign in; the login is ~/.gemini/antigravity-cli/antigravity-oauth-token (#1200)"),
         (LaunchError::Unhomed(io()), "the engine's HOME for the agy seat was not made: entity not found"),
         (LaunchError::BoxedGrant, "the seat's arguments carry '--allow', and an agy seat whose hands are boxed takes no native grant: its gate switches off every native tool, so the grant would do nothing (#1224)"),
+        (LaunchError::Unboxed("seatbelt"), "the agy seat stands under the seatbelt boundary, which boxes its hands, and the box's hands were not served, so agy would run with its native tools; an agy seat under a boundary that boxes is boxed or refused (#1224)"),
     ];
     for (error, words) in stated {
         assert_eq!(
@@ -1357,11 +1358,11 @@ fn sealed(
 }
 
 /// SI2 before spawn: past the lifted fence an unmeasured or unsupported
-/// cold shape refuses, a set the inputs do not declare refuses whichever
-/// way the fence stands, and the standing fence serves unmeasured hands
-/// the empty set and no `call_mcp_tool`.
+/// cold shape refuses, and a set the inputs do not declare refuses
+/// whichever way the fence stands. Hands the standing fence serves as
+/// before are refused by the agy launch itself (`boxed.rs`).
 #[test]
-fn the_admission_refuses_before_spawn_or_serves_the_empty_set() {
+fn the_admission_refuses_before_spawn() {
     use crate::native_controls::SealedBoundary::{Namespace, Open};
     let cases = [
         (
@@ -1382,24 +1383,23 @@ fn the_admission_refuses_before_spawn_or_serves_the_empty_set() {
         ),
     ];
     for (serving, cause) in cases {
-        let mut world = World::new();
-        let bin = fake_agy(&world.seat(), TOOL_LESS, "", false, 0);
-        let messages = world.run(&bin, &["--model", FLASH], world.input(Some(serving)), None);
-        let error = ended(&messages).and_then(|(_, error, _)| error);
+        let (world, error) = served_refusal(serving);
         assert_eq!(
             error,
             Some(format!("refusing to invoke the agent CLI: {cause}"))
         );
         assert!(!world.started(), "{cause}");
     }
+}
+
+/// The error a seat pinned to [`FLASH`] on sealed `serving` ends with
+/// through a fake `agy`, beside the world it ran in.
+fn served_refusal(serving: Value) -> (World, Option<String>) {
     let mut world = World::new();
     let bin = fake_agy(&world.seat(), TOOL_LESS, "", false, 0);
-    let standing = sealed(Namespace, "hands", json!("unmeasured"), "standing");
-    world.run(&bin, &["--model", FLASH], world.input(Some(standing)), None);
-    assert_eq!(world.recorded("mcp"), r#"{"mcpServers":{}}"#);
-    assert!(!world.recorded("hooks").contains("call_mcp_tool"));
-    let settings = world.recorded("argv").lines().last().unwrap().to_string();
-    assert_eq!(settings, r#"{"permissions":{"allow":[]}}"#);
+    let messages = world.run(&bin, &["--model", FLASH], world.input(Some(serving)), None);
+    let error = ended(&messages).and_then(|(_, error, _)| error);
+    (world, error)
 }
 
 /// A short secret bound to the seat, and agy's stderr and `error` text

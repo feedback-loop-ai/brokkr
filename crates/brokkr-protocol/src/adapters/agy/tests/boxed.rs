@@ -83,9 +83,9 @@ fn a_boxed_seat_with_allow_is_refused_before_agy_starts_and_leaves_no_home() {
     assert!(world.homes_gone());
 }
 
-/// What one seat on `input` handed agy through the fake: its argv, its
-/// HOME's MCP document, and its gate's command split as a shell splits it.
-fn handed(input: impl FnOnce(&World) -> Value) -> (Vec<String>, Value, Vec<String>) {
+/// What one seat on `input` handed agy through the fake: its argv, and its
+/// HOME's MCP and hooks documents as they were written.
+fn handed(input: impl FnOnce(&World) -> Value) -> (Vec<String>, String, String) {
     let mut world = World::new();
     let bin = fake_agy(&world.seat(), TOOL_LESS, "", true, 0);
     let input = input(&world);
@@ -93,41 +93,30 @@ fn handed(input: impl FnOnce(&World) -> Value) -> (Vec<String>, Value, Vec<Strin
     let (status, _, _) = ended(&messages).unwrap();
     assert_eq!(status, crate::ResultStatus::Succeeded);
     let argv = world.recorded("argv").lines().map(str::to_string).collect();
-    let mcp = serde_json::from_str(&world.recorded("mcp")).unwrap();
-    let hooks: Value = serde_json::from_str(&world.recorded("hooks")).unwrap();
-    let command = hooks["brokkr-gate"]["PreToolUse"][0]["hooks"][0]["command"].clone();
-    let words = std::process::Command::new("sh")
-        .args([
-            "-c",
-            &format!("printf '%s\\n' {}", command.as_str().unwrap()),
-        ])
-        .output()
-        .unwrap();
-    let words = String::from_utf8(words.stdout).unwrap();
-    (argv, mcp, words.lines().map(str::to_string).collect())
+    (argv, world.recorded("mcp"), world.recorded("hooks"))
 }
 
-/// B6: the unboxed launch is level 1's, byte for byte, and the boxed one
-/// differs from it in exactly the mode, the gate's list, the rules and the
-/// MCP document, which names the hands server.
+/// The unboxed launch's hooks document, its gate run by `PROGRAM`.
+const LEVEL_ONE_HOOKS: &str = r#"{"brokkr-gate":{"PreToolUse":[{"matcher":"","hooks":[{"type":"command","command":"'PROGRAM' 'driver' 'agy' '--' '--gate' 'read_file' 'write_file' 'edit_file' 'run_command' 'manage_task'","timeout":10}]}]}}"#;
+
+/// B6: the unboxed launch is level 1's, byte for byte, its two HOME
+/// documents among it, and the boxed one differs from it in exactly the
+/// mode, the gate's list, the rules and the MCP document, which names the
+/// hands server.
 #[test]
 fn a_boxed_launch_differs_from_the_unboxed_in_its_mode_list_rules_and_document_alone() {
-    let (open_argv, open_mcp, open_gate) = handed(|world| world.input(None));
-    let (boxed_argv, boxed_mcp, boxed_gate) = handed(boxed_input);
+    let (open_argv, open_mcp, open_hooks) = handed(|world| world.input(None));
+    let (boxed_argv, boxed_mcp, boxed_hooks) = handed(boxed_input);
     let tail = ["--model", FLASH, "--effort", "low", "--settings"];
     let open = [&LEAD[1..], &tail, &[r#"{"permissions":{"allow":[]}}"#]].concat();
     assert_eq!(open_argv, open);
-    assert_eq!(open_mcp, json!({"mcpServers": {}}));
-    let level_one = [
-        "read_file",
-        "write_file",
-        "edit_file",
-        "run_command",
-        "manage_task",
-    ];
-    let (program, list) = open_gate.split_at(5);
-    assert_eq!(program[1..], ["driver", "agy", "--", "--gate"]);
-    assert_eq!(list, level_one);
+    assert_eq!(open_mcp, r#"{"mcpServers":{}}"#);
+    let program = std::env::current_exe().unwrap();
+    let level_one = LEVEL_ONE_HOOKS.replace("PROGRAM", program.to_str().unwrap());
+    assert_eq!(open_hooks, level_one);
+    // The gate's list alone differs in the hooks document.
+    let natives = "'read_file' 'write_file' 'edit_file' 'run_command' 'manage_task'";
+    assert_eq!(boxed_hooks, level_one.replace(natives, "'call_mcp_tool'"));
     // The mode out and the rule in, and nothing else of the argv.
     let mut moded = boxed_argv.clone();
     moded.splice(4..4, argv(&["--mode", "accept-edits"]));
@@ -136,6 +125,7 @@ fn a_boxed_launch_differs_from_the_unboxed_in_its_mode_list_rules_and_document_a
     let settings = format!(r#"{{"permissions":{{"allow":["{RULE}"]}}}}"#);
     assert_eq!(boxed_argv.last(), Some(&settings));
     assert!(!boxed_argv.iter().any(|part| part == "--mode"));
+    let boxed_mcp: Value = serde_json::from_str(&boxed_mcp).unwrap();
     let servers: Vec<&String> = boxed_mcp["mcpServers"]
         .as_object()
         .unwrap()
@@ -146,8 +136,41 @@ fn a_boxed_launch_differs_from_the_unboxed_in_its_mode_list_rules_and_document_a
         .as_array()
         .unwrap();
     assert_eq!(args[..2], [json!("hands"), json!("serve")]);
-    assert_eq!(boxed_gate[..5], *program);
-    assert_eq!(boxed_gate[5..], ["call_mcp_tool"]);
+}
+
+/// C1: what the sealed inputs declare decides, never what was built. Under
+/// each boundary that boxes, hands the standing fence served as before, and
+/// a boundary that boxes no declared hands, end as the typed refusal naming
+/// the boundary: the fake `agy` never starts and no engine HOME is left.
+/// Under `harness` and `open` the same hands launch natively, level 1's.
+#[test]
+fn an_agy_launch_under_a_boundary_that_boxes_is_boxed_or_refused_never_native() {
+    use crate::native_controls::SealedBoundary::{Container, Harness, Open, Seatbelt};
+    let unmeasured = |stands| sealed(stands, "hands", json!("unmeasured"), "standing");
+    let mut undeclared = sealed(Namespace, "empty", json!("measured"), "standing");
+    let none = super::super::super::mcp::tests::dispatched(Default::default(), Vec::new(), None);
+    undeclared["spec"] = none["spec"].clone();
+    let refused = [
+        (unmeasured(Namespace), "namespace"),
+        (unmeasured(Seatbelt), "seatbelt"),
+        (unmeasured(Container), "container"),
+        (undeclared, "namespace"),
+    ];
+    for (serving, word) in refused {
+        let (world, error) = served_refusal(serving);
+        assert_eq!(error, Some(LaunchError::Unboxed(word).to_string()));
+        assert!(!world.started(), "{word}");
+        assert!(world.homes_gone(), "{word}");
+    }
+    for stands in [Harness, Open] {
+        let serving = sealed(stands, "empty", json!("measured"), "standing");
+        let (argv, mcp, hooks) = handed(|world| world.input(Some(serving)));
+        assert!(argv
+            .windows(2)
+            .any(|pair| pair == ["--mode", "accept-edits"]));
+        assert_eq!(mcp, r#"{"mcpServers":{}}"#);
+        assert!(hooks.contains("'run_command'"), "{hooks}");
+    }
 }
 
 /// The recorded boxed turns fold through the driver's fold to their

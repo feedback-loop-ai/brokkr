@@ -117,7 +117,7 @@ pub(super) fn composed(
 /// minimum is read first, by the parser the table's own lints call, so a
 /// failure after it, the rest of the table's lints and the realm's grants
 /// included, is the survey's `failed` and never loses it.
-fn surveyed(
+pub(super) fn surveyed(
     resolved: &compose::Resolved,
     roots: (&Path, &Path),
     (realm_name, dialect, law): (Option<&str>, Option<&Dialect>, RealmLaw),

@@ -47,6 +47,8 @@ Changes merged since v0.15.1 that the next release's notes carry.
   `call_mcp_tool` alone, and there is no `--mode accept-edits`. Agy's own
   process still runs on the host, and its native tools are switched off
   by agy's hook, not by a boundary of the operating system. A boxed seat
-  that passes `--allow` is refused before agy starts. The unboxed launch
+  that passes `--allow` is refused before agy starts, and so is a launch
+  under a boundary that boxes whose hands were not served, so a boxed seat
+  never runs with agy's native tools. The unboxed launch
   is unchanged ([provider
   adapters](../guides/provider-adapters.md#a-boxed-agy-seat)).

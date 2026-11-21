@@ -8,6 +8,7 @@ use super::*;
 use crate::agents::LibraryError;
 use crate::bundle::{Bundle, Invocation, SeatBody};
 use crate::places::places_tests::clean_git_config;
+use brokkr_protocol::adapters::StrictCause;
 use serde_json::json;
 use std::path::{Path, PathBuf};
 
@@ -969,6 +970,25 @@ fn si2_refusal(workspace: &Workspace) -> String {
     }
 }
 
+/// The typed SI2 cause the survey keeps for the `work` seat of the bundle
+/// [`si2_refusal`] refused, read before the compile renders it to words
+/// (#1224): the survey records every serving's verdict past the fence.
+fn si2_cause(workspace: &Workspace) -> Option<StrictCause> {
+    use crate::capabilities::{CapabilityContext, UNMAPPED};
+    let shelves = crate::places::Shelves::default();
+    let (_, resolved) =
+        super::super::survey::composed(&workspace.path("bundle"), &shelves).unwrap();
+    let law = RealmLaw {
+        boundary: Boundary::Namespace,
+        provisional_offices: vec!["researcher".into()],
+    };
+    let context = CapabilityContext::no_grants(UNMAPPED, workspace.dir.path());
+    let roots = (workspace.path("agents"), workspace.path("adapters"));
+    let at = (roots.0.as_path(), roots.1.as_path());
+    let survey = super::super::survey::surveyed(&resolved, at, (None, None, law), &context);
+    survey.unwrap().strict["work"][0].clone()
+}
+
 /// SI2 past the lifted fence on Linux (#1178), the one host the record
 /// measured: the example's measured cold and replacement shapes without
 /// hands admit a work seat, and each is needed; the same office boxing its
@@ -1188,12 +1208,20 @@ fn a_boxed_agy_seat_at_a_gate_or_on_an_undeclared_shape_is_refused() {
     for missing in ["cold", "replacement"] {
         let workspace = boxed_agy_workspace();
         let refused = si2_refusal(agy_without_shape(&workspace, missing, "boxed"));
-        let words = format!(
-            "bundle: seat 'work' (office 'researcher') in realm '<unmapped>': provider 'agy' has \
-             no measured strict MCP configuration for '{missing}'"
-        );
-        assert_eq!(refused, words);
+        let cause = StrictCause::Unmeasured {
+            provider: "agy".into(),
+            shape: missing.into(),
+        };
+        assert_eq!(si2_cause(&workspace), Some(cause.clone()), "{missing}");
+        let who = "bundle: seat 'work' (office 'researcher') in realm '<unmapped>'";
+        assert_eq!(refused, format!("{who}: {cause}"));
     }
+    let words = "provider 'agy' has no measured strict MCP configuration for 'cold'";
+    let cold = StrictCause::Unmeasured {
+        provider: "agy".into(),
+        shape: "cold".into(),
+    };
+    assert_eq!(cold.to_string(), words);
 }
 
 /// SI2 past the lifted fence on macOS (#1200; decision 0063): the record

@@ -38,6 +38,7 @@ mod home;
 
 use super::qoder::Observed;
 use super::stream_turn::Line;
+use crate::native_controls::SealedBoundary;
 use crate::PreSessionRefusal;
 use fold::{AgyFold, Failed, Verdict};
 pub(super) use gate::{gate, gate_listed};
@@ -57,11 +58,12 @@ const ACCEPT_EDITS: [&str; 2] = ["--mode", "accept-edits"];
 
 /// Whether a launch's hands are boxed: the one value that decides the
 /// launch's mode, the gate's list and whether the seat's `--allow` is
-/// admitted, made once in [`prepared_with`] from the engine's set (#1224).
+/// admitted, made once in [`prepared_with`] from the launch's sealed
+/// inputs (#1224).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Hands<'a> {
-    /// No engine server: level 1, the native tools on the gate's list, the
-    /// seat's own grants, accepting edits.
+    /// No sealed boundary that boxes: level 1, the native tools on the
+    /// gate's list, the seat's own grants, accepting edits.
     Native,
     /// The engine's set serves the box's hands, granted by these rules:
     /// `call_mcp_tool` alone on the gate's list, the rules alone in the
@@ -70,12 +72,17 @@ enum Hands<'a> {
 }
 
 impl<'a> Hands<'a> {
-    /// The hands the engine's set gives a launch granted `rules`: boxed
-    /// where they grant anything, since no rule is no server.
-    fn of(rules: &'a [String]) -> Hands<'a> {
-        match rules.is_empty() {
-            true => Hands::Native,
-            false => Hands::Boxed(rules),
+    /// The hands of a launch whose sealed inputs stand under `boxing`, the
+    /// boundary that boxes them ([`mcp::agy_boxing`]), and whose set grants
+    /// `rules`: native where nothing boxes, boxed where the set serves the
+    /// box's hands, and refused where a boundary boxes and they were not
+    /// served, so a seat compiled as boxed never runs with agy's native
+    /// tools.
+    fn of(boxing: Option<SealedBoundary>, rules: &'a [String]) -> Result<Hands<'a>, LaunchError> {
+        match boxing {
+            None => Ok(Hands::Native),
+            Some(boundary) if rules.is_empty() => Err(LaunchError::Unboxed(boundary.word())),
+            Some(_) => Ok(Hands::Boxed(rules)),
         }
     }
 
@@ -228,6 +235,16 @@ pub(super) enum LaunchError {
          so the grant would do nothing (#1224)"
     )]
     BoxedGrant,
+    /// The sealed inputs stand under a boundary that boxes the seat's
+    /// hands, named by its word, and the box's hands were not served: the
+    /// standing fence served the shape as before, or no hands were declared
+    /// (#1224).
+    #[error(
+        "refusing to invoke the agent CLI: the agy seat stands under the {0} boundary, which \
+         boxes its hands, and the box's hands were not served, so agy would run with its native \
+         tools; an agy seat under a boundary that boxes is boxed or refused (#1224)"
+    )]
+    Unboxed(&'static str),
     /// The launch's one MCP admission refused it, in the words every
     /// driver states it with ([`McpRefusal::at_launch`]).
     #[error("{}", .0.at_launch())]
@@ -448,7 +465,9 @@ struct Prepared {
 /// ([`mcp::agy_set`]), the launch, the working directory resolved, and the
 /// engine's HOME made under `homes` with the set's document and the gate
 /// run by `brokkr`. Whether the hands are boxed is read here, once, from
-/// the set ([`Hands::of`]), and decides the launch and the gate alike. No
+/// the boundary the sealed inputs stand under and the set ([`Hands::of`]),
+/// and decides the launch and the gate alike, or refuses before any HOME
+/// is made. No
 /// launch is offered a rejoin, so the cold assessment is the one admitted.
 fn prepared(
     bin: &str,
@@ -472,7 +491,7 @@ fn prepared_with(
     let isolated = mcp::isolated("agy", &edge, extra, false)?;
     let workdir = input.get("workdir").and_then(Value::as_str).unwrap_or("");
     let served = mcp::agy_set(&edge, &isolated, workdir)?;
-    let hands = Hands::of(&served.rules);
+    let hands = Hands::of(mcp::agy_boxing(&edge)?, &served.rules)?;
     let launch = launch(bin, &isolated.argv, hands)?;
     let workdir = home::resolved(workdir)?;
     let hooks = gate::hooks(brokkr, hands)?;
