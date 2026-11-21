@@ -9,8 +9,8 @@ use serde_json::{json, Value};
 
 use super::super::{argv_for, Engine, EngineError};
 use super::{
-    dialect_attempt_outcome, expand_dialect_argv, needs_change, SequenceRun, StepAt, StepInputKind,
-    StepRun, StepVerdict, Unproven,
+    dialect_attempt_outcome, expand_dialect_argv, needs_change, retained_stderr, SequenceRun,
+    StepAt, StepInputKind, StepRun, StepVerdict, Unproven,
 };
 use crate::bundle::{dialect_results, DialectExecution};
 
@@ -77,13 +77,17 @@ impl Engine {
         )?;
         run.bound.deadline.name(&mut driven);
         let mut unproven = Unproven::Proven;
+        // The exec driver's stderr, its validator's masked: kept for the
+        // tell after the step's terminal event, so a validator killed by
+        // a signal still leaves its diagnostic tail (#1199).
+        let stderr = retained_stderr(&driven);
         Ok(StepVerdict::Goes(StepRun {
             record: None,
             outcome: dialect_attempt_outcome(driven, &mut unproven),
             start_failures: Vec::new(),
             refused: Vec::new(),
             unproven,
-            stderr: String::new(),
+            stderr,
         }))
     }
 }

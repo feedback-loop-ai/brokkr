@@ -439,6 +439,11 @@ fn a_codex_model_on_stderr_is_journaled_only_as_the_seats_pin() {
     if !super::own_home::in_own_home(test) {
         return;
     }
+    // No unpinned Codex seat reaches this driver: the compiler refuses
+    // one (decision 0031 ruling 2), and a wrapper that drops the pin is
+    // refused before launch because the argv no longer reassembles the
+    // engine's record (decision 0066 ruling 4). The driver's unpinned rule
+    // is `codex_uses_its_own_model_header_only_when_it_is_the_seats_pin`'s.
     for (pin, header, journaled) in [
         ("gpt-6-astra", SENTINEL, "not reported"),
         ("gpt-x", "gpt-x", "gpt-x"),

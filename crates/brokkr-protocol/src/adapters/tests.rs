@@ -412,6 +412,9 @@ fn served_model_evidence_is_strict_and_dsh_reads_nested_usage_chunks() {
         pinned_model(&extra).map(str::to_string)
     };
     assert_eq!(short(&["exec", "-m", "gpt-x"]).as_deref(), Some("gpt-x"));
+    assert_eq!(short(&["exec", "-m=gpt-x"]).as_deref(), Some("gpt-x"));
+    assert_eq!(short(&["exec", "-mgpt-x"]).as_deref(), Some("gpt-x"));
+    assert_eq!(short(&["exec", "-m"]), None);
     assert_eq!(
         short(&["--model=gpt-y", "-m", "gpt-x"]).as_deref(),
         Some("gpt-y")
@@ -970,6 +973,17 @@ fn dialect_exec_turns_command_output_and_state_into_a_typed_result() {
     assert_eq!(failed["result"], "fail");
     assert!(failed["inputs"]["change"].is_null());
     assert!(failed.get("state").is_none());
+
+    // The evidence is over the bytes captured: one 0xff is one byte,
+    // never the three of its lossy reading.
+    let raw = run(
+        &["sh", "-c", "cat >/dev/null; printf '\\377' >&2"],
+        json!({}),
+    );
+    assert_eq!(
+        raw["notes"],
+        "validator stderr: 1 bytes (first byte: non-ASCII; sha256: a8100ae6aa1940d0)"
+    );
 }
 
 #[test]
@@ -2623,11 +2637,15 @@ fn codex_uses_its_own_model_header_only_when_it_is_the_seats_pin() {
             pinned(&["--model", "gpt-from-header"]),
             Some(json!("gpt-from-header"))
         );
-        assert_eq!(
-            pinned(&["-m", "gpt-from-header"]),
-            Some(json!("gpt-from-header"))
-        );
+        for short in [
+            &["-m", "gpt-from-header"][..],
+            &["-m=gpt-from-header"],
+            &["-mgpt-from-header"],
+        ] {
+            assert_eq!(pinned(short), Some(json!("gpt-from-header")), "{short:?}");
+        }
         assert_eq!(pinned(&["--model", "gpt-pinned"]), None);
+        assert_eq!(pinned(&["-mgpt-pinned"]), None);
         assert_eq!(pinned(&[]), None);
     });
 }

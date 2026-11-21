@@ -52,7 +52,7 @@ fn failing() -> Vec<String> {
 /// The engine's stderr as a test watches it: what was told, and the
 /// event types the run's journal already held when its first byte came.
 #[derive(Clone)]
-struct Watch {
+pub(in crate::engine) struct Watch {
     db: std::path::PathBuf,
     run_id: String,
     held_at_first_byte: Arc<Mutex<Option<Vec<EventType>>>>,
@@ -76,9 +76,9 @@ impl std::io::Write for Watch {
 
 impl Watch {
     /// Hand `engine` a watch for its stderr, journaled under `dir`.
-    fn on(dir: &tempfile::TempDir, engine: &mut Engine) -> Watch {
+    pub(in crate::engine) fn on(dir: impl AsRef<std::path::Path>, engine: &mut Engine) -> Watch {
         let watch = Watch {
-            db: dir.path().join("forge.db"),
+            db: dir.as_ref().join("forge.db"),
             run_id: engine.run_id.clone(),
             held_at_first_byte: Arc::default(),
             told: Arc::default(),
@@ -89,9 +89,16 @@ impl Watch {
 
     /// What was told, and whether `terminal` was journaled before it.
     fn told_after(&self, terminal: EventType) -> (String, bool) {
+        let (told, held) = self.told_and_held();
+        (told, held.contains(&terminal))
+    }
+
+    /// What was told, and the event types journaled before its first
+    /// byte: none where nothing was told.
+    pub(in crate::engine) fn told_and_held(&self) -> (String, Vec<EventType>) {
         let told = String::from_utf8(self.told.lock().unwrap().clone()).unwrap();
         let held = self.held_at_first_byte.lock().unwrap().clone();
-        (told, held.is_some_and(|held| held.contains(&terminal)))
+        (told, held.unwrap_or_default())
     }
 }
 
@@ -183,7 +190,7 @@ fn sequenced(command: Vec<String>) -> (tempfile::TempDir, Engine, Watch) {
     run_sequence(
         &mut driven,
         &SequenceAt::new("effect", "attempt", "work"),
-        &[step("failing", saying(command))],
+        &[step("failing", command)],
         &json!({"role_path": "role.md", "inputs": {}}),
         5,
         &Selection::new(),
@@ -194,7 +201,7 @@ fn sequenced(command: Vec<String>) -> (tempfile::TempDir, Engine, Watch) {
 
 #[test]
 fn a_sequence_step_failure_journals_its_stderr_by_evidence_alone() {
-    let (_dir, driven, watch) = sequenced(failing());
+    let (_dir, driven, watch) = sequenced(saying(failing()));
     let events = assert_sealed(&driven);
     assert_eq!(
         terminal_text(&events, EventType::EffectFailed, "error"),
@@ -217,7 +224,7 @@ fn a_sequence_step_indeterminate_journals_its_stderr_before_it_is_told() {
             reason: "lost".into(),
         },
     );
-    let (_dir, driven, watch) = sequenced(lost);
+    let (_dir, driven, watch) = sequenced(saying(lost));
     let events = assert_sealed(&driven);
     assert_eq!(
         terminal_text(&events, EventType::EffectIndeterminate, "reason"),
@@ -267,6 +274,17 @@ fn a_spawn_failure_names_no_stderr() {
              \"driver did not spawn: failed to spawn driver /nonexistent/brokkr-1199-driver: \
              No such file or directory (os error 2)\"}}"
         )
+    );
+    assert_eq!(
+        watch.told_after(EventType::EffectFailed),
+        (String::new(), false)
+    );
+    // A sequence step's driver that never spawned retained no stderr.
+    let (_dir, driven, watch) = sequenced(vec!["/nonexistent/brokkr-1199-driver".into()]);
+    assert_eq!(
+        failed_error(&driven),
+        "sequence step 'failing': driver did not spawn: failed to spawn driver \
+         /nonexistent/brokkr-1199-driver: No such file or directory (os error 2)"
     );
     assert_eq!(
         watch.told_after(EventType::EffectFailed),
@@ -331,9 +349,23 @@ fn validator(stdout: &str, code: i32) -> SequenceStep {
     }
 }
 
+/// The sequence engine over `steps`, its executable the exec driver, its
+/// stderr watched; run to its end.
+#[cfg(unix)]
+fn dialect_run(steps: &[SequenceStep]) -> (tempfile::TempDir, Engine, Watch) {
+    let (dir, mut driven) = engine(single_body(vec!["driver".into()]));
+    driven.bundle.executable = crate::argv::Executable(Some(serving_exec(dir.path())));
+    let watch = Watch::on(&dir, &mut driven);
+    let at = SequenceAt::new("effect", "attempt", "work");
+    let input = json!({"role_path": "role.md", "inputs": {}});
+    run_sequence(&mut driven, &at, steps, &input, 30, &Selection::new()).unwrap();
+    (dir, driven, watch)
+}
+
 /// HIGH A of #1199's round two: a dialect check's notes are its stdout,
 /// its stderr named only by evidence, through production's exec driver,
-/// as a non-final step's checkpoint and as the attempt's result.
+/// as a non-final step's checkpoint and as the attempt's result, whether
+/// the validator passed or failed.
 #[cfg(unix)]
 #[test]
 fn a_dialect_checks_stderr_reaches_no_journal_event() {
@@ -352,28 +384,107 @@ fn a_dialect_checks_stderr_reaches_no_journal_event() {
             },
         ),
     );
-    for (steps, notes) in [
-        (vec![validator("", 1), then], named.clone()),
-        (vec![validator("diag", 0)], format!("diag\n{named}")),
+    let checkpoint = EventType::EffectCheckpointed;
+    let succeeded = EventType::EffectSucceeded;
+    for (steps, journaled, verdict, notes) in [
+        (
+            vec![validator("", 1), then.clone()],
+            checkpoint,
+            "fail",
+            named.clone(),
+        ),
+        (vec![validator("", 1)], succeeded, "fail", named.clone()),
+        (
+            vec![validator("diag", 0), then],
+            checkpoint,
+            "drafted",
+            format!("diag\n{named}"),
+        ),
+        (
+            vec![validator("diag", 0)],
+            succeeded,
+            "drafted",
+            format!("diag\n{named}"),
+        ),
     ] {
-        let (dir, mut driven) = engine(single_body(vec!["driver".into()]));
-        driven.bundle.executable = crate::argv::Executable(Some(serving_exec(dir.path())));
-        let at = SequenceAt::new("effect", "attempt", "work");
-        let input = json!({"role_path": "role.md", "inputs": {}});
-        run_sequence(&mut driven, &at, &steps, &input, 30, &Selection::new()).unwrap();
+        let (_dir, driven, _watch) = dialect_run(&steps);
         let events = assert_sealed(&driven);
-        let result = events
+        let (event_type, result) = events
             .iter()
             .find_map(|event| match event.event_type {
                 EventType::EffectCheckpointed => {
                     let checkpoint = &event.payload["checkpoint"];
                     (checkpoint["step"] == "sequence-step-finished")
-                        .then(|| checkpoint["result"].clone())
+                        .then(|| (event.event_type, checkpoint["result"].clone()))
                 }
-                EventType::EffectSucceeded => Some(event.payload["result"].clone()),
+                EventType::EffectSucceeded => {
+                    Some((event.event_type, event.payload["result"].clone()))
+                }
                 _ => None,
             })
             .unwrap_or_else(|| panic!("the validator's result is journaled: {events:#?}"));
-        assert_eq!(result["notes"], json!(notes), "{result}");
+        assert_eq!(
+            (event_type, &result["result"], &result["notes"]),
+            (journaled, &json!(verdict), &json!(notes)),
+            "{result}"
+        );
+    }
+}
+
+/// A validator a signal kills leaves no result; its masked tail is still
+/// told, once the step's indeterminate is journaled.
+#[cfg(unix)]
+#[test]
+fn a_killed_validators_tail_is_told_after_its_step_settles() {
+    let mut killed = validator("", 0);
+    let StepBody::Dialect { execution } = &mut killed.body else {
+        unreachable!("a dialect step")
+    };
+    execution.argv[2] = format!("printf '%s\\n' {SENTINEL} >&2; kill -KILL $$");
+    let (_dir, driven, watch) = dialect_run(&[killed]);
+    let events = assert_sealed(&driven);
+    let parked = terminal(&events, EventType::EffectIndeterminate);
+    let attempt = parked.payload["attempt_id"].as_str().unwrap();
+    assert_eq!(
+        watch.told_after(EventType::EffectIndeterminate),
+        (
+            format!(
+                "{attempt}: driver stderr: {SENTINEL}\n\
+                 {attempt}: driver stderr: agent CLI ended by a signal, so no result is sent\n"
+            ),
+            true
+        )
+    );
+}
+
+/// A step's result the seat-record fence refuses fails the attempt there,
+/// and the step's tail is told once that failure is journaled: at the
+/// final result, and at a non-final step's checkpoint.
+#[test]
+fn a_fenced_steps_tail_is_told_after_its_failure() {
+    let refused = |result: Value| {
+        let succeeded = AttemptOutcome::Succeeded { result };
+        step(
+            "fenced",
+            saying(driver_command("effect", "attempt", succeeded)),
+        )
+    };
+    let last = refused(json!({"result": "complete", "commits": ["see the branch"]}));
+    let first = refused(json!({"result": "complete", "model": "a configured guess"}));
+    let never = step("never", vec!["missing-driver".into()]);
+    for (steps, input) in [
+        (vec![last], step_input()),
+        (vec![first, never], two_step_input()),
+    ] {
+        let (dir, mut driven) = engine(single_body(vec!["driver".into()]));
+        let watch = Watch::on(&dir, &mut driven);
+        let at = SequenceAt::new("effect", "attempt", "work");
+        run_sequence(&mut driven, &at, &steps, &input, 5, &Selection::new()).unwrap();
+        let events = assert_sealed(&driven);
+        let failed = terminal(&events, EventType::EffectFailed);
+        assert_eq!(
+            watch.told_after(EventType::EffectFailed),
+            (told(failed), true)
+        );
     }
 }

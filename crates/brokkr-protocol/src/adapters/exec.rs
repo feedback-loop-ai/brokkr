@@ -42,12 +42,13 @@ pub(super) fn invoke_exec(
     let out = run_cli(&command, stdin_payload, workdir, bindings)?;
     // Known-plaintext masking choke point (decision 0012, layer
     // 5), on RAW captured bytes before any string conversion.
-    // stdout is captured-and-dropped today; stderr is re-emitted
-    // by run_seat and its tail told to the engine's own log on
-    // failure (the journal names it by evidence alone, #1199) —
-    // the path that fires when a credentialed command prints it.
+    // stdout becomes a dialect check's notes; stderr is named there by
+    // evidence over those same masked bytes, re-emitted by run_seat,
+    // and its tail told to the engine's own log on failure (the
+    // journal names it by evidence alone, #1199) — the path that
+    // fires when a credentialed command prints it.
     let stderr = secret::mask_bytes(&out.stderr, bindings);
-    let stdout = secret::mask_bytes(&out.stdout, bindings);
+    let notes = dialect_notes(&secret::mask_bytes(&out.stdout, bindings), &stderr);
     let state = input
         .pointer("/dialect_exec/state")
         .and_then(Value::as_array)
@@ -68,7 +69,7 @@ pub(super) fn invoke_exec(
         answer: None,
         exit_code: lost::exit_code(out.status),
         session_meta,
-        stdout: String::from_utf8_lossy(&stdout).into_owned(),
+        notes,
         stderr: String::from_utf8_lossy(&stderr).into_owned(),
         state,
         // Decision 0053: exec has no model turn and no provider
@@ -86,14 +87,15 @@ pub(super) fn invoke_exec(
 /// checkpoint or as the attempt's result, and a validator can print a
 /// value the seat binds nowhere, so no byte of its stderr is copied here:
 /// a realm that wants its validator's diagnostics in the notes redirects
-/// them to stdout inside its own command.
-pub(super) fn dialect_notes(stdout: &str, stderr: &str) -> String {
-    let mut notes = stdout.trim().to_string();
+/// them to stdout inside its own command. The evidence counts and digests
+/// the captured masked bytes themselves, never a lossy reading of them.
+fn dialect_notes(stdout: &[u8], stderr: &[u8]) -> String {
+    let mut notes = String::from_utf8_lossy(stdout).trim().to_string();
     if !stderr.is_empty() {
         if !notes.is_empty() {
             notes.push('\n');
         }
-        let evidence = crate::process::Evidence::of(stderr.as_bytes());
+        let evidence = crate::process::Evidence::of(stderr);
         notes.push_str(&format!("validator stderr: {evidence}"));
     }
     notes

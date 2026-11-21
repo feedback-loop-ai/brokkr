@@ -120,17 +120,24 @@ under the operator's ruling "(a)":
   the engine journals those notes as a step checkpoint or as the attempt's
   result. Its notes are now its validator's trimmed stdout alone; where
   the validator wrote to stderr, one last line names it by the same
-  evidence, `validator stderr: <evidence>`, and an empty stderr adds
-  nothing. The verdict is unchanged. A realm that wants its validator's
+  evidence, `validator stderr: <evidence>`, counted and digested over the
+  masked bytes captured, never a lossy reading of them, and an empty
+  stderr adds nothing. The verdict is unchanged. A realm that wants its validator's
   diagnostics in the notes redirects them to stdout inside its own command.
 - A Codex model read from the `model:` header on stderr, when the stream
   and the rollout named none, went into the `codex-session-finished`
   checkpoint. It now counts only when it equals the seat's pinned model,
-  the `--model` or `-m` the engine resolved into the seat's passthrough;
-  any other header, or a seat with no pin, leaves the model `not reported`.
+  the `--model` or `-m` the engine resolved into the seat's passthrough,
+  read in every spelling the compiler's pin reader admits (`-m VALUE`,
+  `-m=VALUE`, `-mVALUE`); any other header, or a seat with no pin, leaves
+  the model `not reported`.
 
 And the engine tells a failed attempt's masked tail only after it has
 appended the attempt's terminal event (the failure, the indeterminate
-park, a sequence step's failure or indeterminate), through a writer it
-holds, best-effort: forming the reason does no I/O, and a stalled or
-closed stderr can no longer keep an attempt from settling.
+park, a sequence step's failure or indeterminate, and the failure a
+seat-record fence makes of a step's refused result) and any park that
+ending takes, through a writer it holds, best-effort: forming the reason
+does no I/O, and a stalled or closed stderr can no longer keep an attempt
+from settling or hold the run between its failure and its park. A
+dialect step keeps its driver's stderr for that tell, so a validator a
+signal kills still leaves its tail on the engine's stderr.

@@ -99,7 +99,7 @@ mod tests {
             answer: None,
             exit_code,
             session_meta: Map::new(),
-            stdout: String::new(),
+            notes: String::new(),
             stderr: stderr.to_string(),
             state: None,
             refusal: None,

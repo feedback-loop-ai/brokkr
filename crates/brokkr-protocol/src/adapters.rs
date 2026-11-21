@@ -504,7 +504,10 @@ pub fn render_prompt(input: &Value, kind: AdapterKind) -> Result<String, StartRe
 struct Invocation {
     exit_code: i32,
     session_meta: Map<String, Value>,
-    stdout: String,
+    /// A dialect check's notes, which exec builds from its validator's
+    /// masked bytes ([`exec::dialect_notes`]); empty for every model
+    /// harness, which has none.
+    notes: String,
     stderr: String,
     state: Option<String>,
     /// A provider refusal the harness recorded BEFORE its first turn
@@ -2529,7 +2532,7 @@ fn invoke_stream_json(
     Ok(Invocation {
         exit_code: lost::exit_code(status),
         session_meta,
-        stdout: String::new(),
+        notes: String::new(),
         stderr,
         state: None,
         refusal,
@@ -3779,7 +3782,7 @@ fn invoke_codex(
     Ok(Invocation {
         exit_code: lost::exit_code(status),
         session_meta,
-        stdout: String::new(),
+        notes: String::new(),
         stderr,
         state: None,
         refusal,
@@ -5411,7 +5414,7 @@ fn finish_dsh(
             answer,
             exit_code,
             session_meta: session_meta.clone(),
-            stdout: String::new(),
+            notes: String::new(),
             stderr,
             state: None,
             refusal,
@@ -6571,7 +6574,7 @@ fn run_seat_with(
     let Invocation {
         exit_code,
         mut session_meta,
-        stdout,
+        notes,
         stderr,
         state,
         refusal,
@@ -6714,7 +6717,7 @@ fn run_seat_with(
         let mut result = json!({
             "result": if exit_code == 0 { success } else { failure },
             "inputs": {"change": dialect.get("change").cloned().unwrap_or(Value::Null)},
-            "notes": exec::dialect_notes(&stdout, &stderr),
+            "notes": notes,
             "model": served_model,
             "effort": applied_effort,
         });

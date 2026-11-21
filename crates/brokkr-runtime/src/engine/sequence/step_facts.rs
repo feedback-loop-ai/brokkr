@@ -66,6 +66,16 @@ pub(crate) fn expand_dialect_argv(argv: &[String], change: &str) -> Vec<String> 
         .collect()
 }
 
+/// A step driver's retained stderr, which its settling tells once the
+/// attempt's terminal event is appended (#1199); a driver that never
+/// spawned retained none.
+pub(super) fn retained_stderr(run: &DriverRun) -> String {
+    match run {
+        DriverRun::SpawnFailed(_) => String::new(),
+        DriverRun::Ran(report) => report.stderr.clone(),
+    }
+}
+
 /// A dialect step's outcome, and into `evidence` what its terminal event
 /// carries when its tree is not proven over (#403).
 pub(crate) fn dialect_attempt_outcome(run: DriverRun, evidence: &mut Unproven) -> AttemptOutcome {

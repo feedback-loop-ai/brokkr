@@ -36,7 +36,7 @@ mod success;
 pub(in crate::engine) use compose::StepComposition;
 pub(crate) use step_facts::needs_change;
 pub(super) use step_facts::{dialect_attempt_outcome, expand_dialect_argv, nearest_change};
-use step_facts::{tailed_outcome, vocabulary_problem};
+use step_facts::{retained_stderr, tailed_outcome, vocabulary_problem};
 
 /// Where a step leaves its attempt, at each stage of settling it.
 enum StepVerdict<T> {
@@ -127,9 +127,10 @@ struct StepRun {
     /// What the step's terminal event carries when its tree is not
     /// proven over (#403).
     unproven: Unproven,
-    /// A single step driver's retained stderr, told to the engine's own
-    /// stderr after a failed or indeterminate step's terminal event is
-    /// appended (#1199); empty for every other form, which tells nothing.
+    /// A single or dialect step driver's retained stderr, told to the
+    /// engine's own stderr once the attempt's terminal event and any park
+    /// it takes are appended (#1199); empty for a panel step and a driver
+    /// that never spawned, which tell nothing.
     stderr: String,
 }
 
@@ -391,6 +392,7 @@ impl Engine {
             run.selection.plan(&site),
         )?;
         run.bound.deadline.name(&mut driven);
+        let stderr = retained_stderr(&driven);
         Ok(match driven {
             DriverRun::SpawnFailed(error) => StepRun {
                 record: None,
@@ -398,7 +400,7 @@ impl Engine {
                 start_failures: vec![Some(at.step.name.clone())],
                 refused: Vec::new(),
                 unproven: Unproven::Proven,
-                stderr: String::new(),
+                stderr,
             },
             DriverRun::Ran(report) => {
                 let start_failures = if failed_to_start(&report) {
@@ -416,7 +418,7 @@ impl Engine {
                     refused,
                     unproven: Unproven::seat(&report),
                     outcome: tailed_outcome(&report),
-                    stderr: report.stderr,
+                    stderr,
                 }
             }
         })
@@ -483,7 +485,7 @@ impl Engine {
         &mut self,
         run: &SequenceRun,
         at: &StepAt,
-        ran: StepRun,
+        mut ran: StepRun,
         carried: &mut Carried,
     ) -> Result<StepVerdict<()>, EngineError> {
         // A step's result that names a model carries the step's
@@ -491,25 +493,51 @@ impl Engine {
         // names none and carries none.
         let boundary = self.site_boundary(&at.label);
         let start_failures = ran.start_failures.clone();
+        // Told only once the attempt's terminal event, and any park it
+        // takes, is appended, so a stalled stderr cannot keep the
+        // attempt from settling (#1199).
+        let stderr = std::mem::take(&mut ran.stderr);
         let StepVerdict::Goes(result) = self.step_result(run, at, ran, boundary)? else {
+            self.tell_stderr(run.attempt_id, &stderr);
             return Ok(StepVerdict::Ended);
         };
+        // A step's result the fence refuses (decision 0034, ruling
+        // 6) fails the attempt at that step, with the same facts a
+        // step that failed on its own would carry.
+        let fenced = std::cell::Cell::new(false);
+        let refused = |mut refusal: String| {
+            fenced.set(true);
+            run.bound.deadline.name_words(&mut refusal);
+            run.failed_payload(at, &refusal, &start_failures)
+        };
+        let verdict = self.settle_result(run, at, result, boundary, carried, &refused)?;
+        if fenced.get() {
+            self.tell_stderr(run.attempt_id, &stderr);
+        }
+        Ok(verdict)
+    }
+
+    /// A step's successful result, through the checks a step before the
+    /// last answers and the change it names, to the attempt's success or
+    /// the step's checkpoint; `refused` builds the failure a fence turns
+    /// that result into.
+    fn settle_result(
+        &mut self,
+        run: &SequenceRun,
+        at: &StepAt,
+        result: Value,
+        boundary: Option<Boundary>,
+        carried: &mut Carried,
+        refused: &impl Fn(String) -> Value,
+    ) -> Result<StepVerdict<()>, EngineError> {
         if !run.is_last(at) {
-            let StepVerdict::Goes(()) =
-                self.between_steps(run, at, &result, carried, &start_failures)?
+            let StepVerdict::Goes(()) = self.between_steps(run, at, &result, carried, refused)?
             else {
                 return Ok(StepVerdict::Ended);
             };
         }
         let StepVerdict::Goes(()) = self.carry_change(run, at, &result, carried)? else {
             return Ok(StepVerdict::Ended);
-        };
-        // A step's result the fence refuses (decision 0034, ruling
-        // 6) fails the attempt at that step, with the same facts a
-        // step that failed on its own would carry.
-        let refused = |mut refusal: String| {
-            run.bound.deadline.name_words(&mut refusal);
-            run.failed_payload(at, &refusal, &start_failures)
         };
         if run.is_last(at) {
             self.finish_sequence(run, at, result, carried, refused)
@@ -539,7 +567,6 @@ impl Engine {
                 }
                 let terminal = self.step_terminal(run.effect_id, payload, &ran.refused, true)?;
                 let _ = self.end_failed::<()>(run, terminal.payload)?;
-                self.tell_stderr(run.attempt_id, &ran.stderr);
                 if let Some(park) = terminal.park {
                     self.park(&park)?;
                 }
@@ -558,7 +585,6 @@ impl Engine {
                 let terminal = self.step_terminal(run.effect_id, payload, &ran.refused, false)?;
                 let attempt = Some(run.attempt_id.to_owned());
                 self.append(EventType::EffectIndeterminate, terminal.payload, attempt)?;
-                self.tell_stderr(run.attempt_id, &ran.stderr);
                 Ok(StepVerdict::Ended)
             }
         }
@@ -573,7 +599,7 @@ impl Engine {
         at: &StepAt,
         result: &Value,
         carried: &mut Carried,
-        start_failures: &[Site],
+        refused: &impl Fn(String) -> Value,
     ) -> Result<StepVerdict<()>, EngineError> {
         if let Some(mut problem) = vocabulary_problem(at.step, result) {
             run.bound.deadline.name_words(&mut problem);
@@ -599,7 +625,7 @@ impl Engine {
         // the step may report, or a hard word from the phase's table. The
         // journal names the step and why it ended.
         if let Some(why) = run.ends_sequence(at, result) {
-            return self.end_sequence_on(run, at, result, why, start_failures, carried);
+            return self.end_sequence_on(run, at, result, why, refused, carried);
         }
         Ok(StepVerdict::Goes(()))
     }
@@ -705,7 +731,7 @@ impl Engine {
         at: &StepAt,
         result: &Value,
         why: &'static str,
-        start_failures: &[Site],
+        refused: &impl Fn(String) -> Value,
         carried: &Carried,
     ) -> Result<StepVerdict<()>, EngineError> {
         if let StepVerdict::Ended = self.refuse_contradiction(run, at, result, carried)? {
@@ -720,10 +746,7 @@ impl Engine {
                 "why": why,
             }),
             run.attempt_id,
-            |mut refusal| {
-                run.bound.deadline.name_words(&mut refusal);
-                run.failed_payload(at, &refusal, start_failures)
-            },
+            refused,
         )?;
         Ok(StepVerdict::Ended)
     }

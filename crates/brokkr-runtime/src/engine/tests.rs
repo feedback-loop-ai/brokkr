@@ -1,5 +1,5 @@
 mod attempt_correlation;
-mod driver_stderr;
+pub(in crate::engine) mod driver_stderr;
 mod early_ending;
 mod entry;
 mod park_cause;
