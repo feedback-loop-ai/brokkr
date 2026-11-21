@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::envelope::{EventEnvelope, EventType};
+use crate::findings::ResidualInput;
 use crate::policy::Severity;
 
 /// The command word of the operator annotation that closes a residual
@@ -60,15 +61,15 @@ impl Claim {
     /// severity of `none`, a false flag, an unranked severity name and
     /// any key outside the vocabulary all carry no finding.
     fn of(key: &str, value: &Value) -> Option<Claim> {
+        const SEVERITY: &str = ResidualInput::MaxResidualSeverity.name();
+        const SECURITY: &str = ResidualInput::HasSecurityResidual.name();
         match key {
-            "max_residual_severity" => value
+            SEVERITY => value
                 .as_str()
                 .and_then(Severity::named)
                 .filter(|severity| *severity != Severity::None)
                 .map(Claim::MaxSeverity),
-            "has_security_residual" => {
-                (value.as_bool() == Some(true)).then_some(Claim::SecurityResidual)
-            }
+            SECURITY => (value.as_bool() == Some(true)).then_some(Claim::SecurityResidual),
             "high_risk_uncovered" => {
                 (value.as_bool() == Some(true)).then_some(Claim::HighRiskUncovered)
             }
@@ -80,8 +81,8 @@ impl Claim {
     /// closed vocabulary.
     pub fn input(self) -> &'static str {
         match self {
-            Claim::MaxSeverity(_) => "max_residual_severity",
-            Claim::SecurityResidual => "has_security_residual",
+            Claim::MaxSeverity(_) => ResidualInput::MaxResidualSeverity.name(),
+            Claim::SecurityResidual => ResidualInput::HasSecurityResidual.name(),
             Claim::HighRiskUncovered => "high_risk_uncovered",
         }
     }
