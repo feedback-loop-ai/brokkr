@@ -874,7 +874,7 @@ fn the_visit_reader_places_only_what_the_journal_names_and_stamps_only_known_hea
         event(
             8,
             EffectCheckpointed,
-            json!({"attempt_id":"settled","checkpoint":{"step":"sequence-step-finished"}}),
+            json!({"attempt_id":"settled","checkpoint":{"step":"sequence-step-finished","authored":"engine"}}),
         ),
         event(
             9,

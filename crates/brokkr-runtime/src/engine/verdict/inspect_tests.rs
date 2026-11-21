@@ -140,6 +140,28 @@ fn producers(events: &[EventEnvelope], scope: Scope) -> Vec<(String, String)> {
         .collect()
 }
 
+/// Fix round 0109a1r7, X6, through the real engine: a verdict journaled
+/// past the fold's head shows on no frame folded before it. A scoped
+/// inspect reads the journal whole after its frame (#1212), so the
+/// records' own bound keeps the later verdicts off that frame.
+#[test]
+fn a_verdict_past_the_folds_head_shows_on_no_frame_folded_before_it() {
+    let (_dir, events) = driven_with(
+        single_body(driver(&json!({"result": "complete"}))),
+        reviewed,
+    );
+    let judged = (events.iter())
+        .position(|event| event.payload["checkpoint"]["step"] == "sequence-step-finished")
+        .unwrap();
+    let state = brokkr_core::fold::fold(&events[..=judged]).unwrap();
+    let ids: Vec<String> = (gate_records(&events, Some(&state)).into_iter())
+        .flat_map(|record| record.findings)
+        .map(|finding| finding.id)
+        .collect();
+    assert_eq!(ids, ["early"]);
+    assert_eq!(gate_records(&events, None).len(), 3);
+}
+
 /// Fix round 0109a1r4, K6, through the real engine with no planted
 /// checkpoint: a finding-bearing single gate step before the end of a
 /// sequence and one at its end are each selected by their own seat, and

@@ -283,7 +283,9 @@ fn verdicts_of<'a>(event: &'a EventEnvelope, settled: &BTreeSet<StepOf<'_>>) -> 
                 .into_iter())
             .collect()
         }
-        EventType::EffectFailed | EventType::EffectIndeterminate => (payload
+        // `journals_a_verdict` admits no other kind past the two arms
+        // above than a failed or indeterminate attempt's settled members.
+        _ => (payload
             .get("settled_members")
             .and_then(Value::as_object)
             .into_iter()
@@ -293,7 +295,6 @@ fn verdicts_of<'a>(event: &'a EventEnvelope, settled: &BTreeSet<StepOf<'_>>) -> 
             verdict(result, Some(member.as_str()), marked)
         })
         .collect(),
-        _ => Vec::new(),
     }
 }
 
