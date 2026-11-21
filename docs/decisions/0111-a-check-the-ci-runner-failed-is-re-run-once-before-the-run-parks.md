@@ -1141,7 +1141,7 @@ of its payload under `crates/brokkr-core/src/ci/evidence/`:
   `workflow_dispatch` run writes check runs under the same names (`dispatch-in-progress-beside-pr-green/`),
   and its `delivered by brokkr` concludes `skipped`, since that job runs only for a pull request
   (`dispatch-and-pr-both-green/check-runs.all.page1.json`); HEAD's workflow notes that "a skipped
-  job reports success to a required check" (`.github/workflows/ci.yml:312-314`). So the
+  job reports success to a required check" (`.github/workflows/ci.yml:311-312`). So the
   after-ship exclusion (ruling 6) is the current execution's alone, a head with a dispatch run of
   the workflow parks, and a cancelled twin (`cancelled-twin/`, run 3560) parks until a person
   re-runs it.
@@ -1701,36 +1701,17 @@ ruling 10's ask.
 Smallest first; each lands on its own. Evidence comes before any contract, because 0082 forbids
 fixing a minted version in place: a shape the evidence would change is changed here, while
 proposed. Each assertion is in the slice that builds its writer, and each acceptance test of the
-tenth hold in the slice [Proved by the slices](#proved-by-the-slices) names.
+tenth and eleventh holds in the slice [Proved by the slices](#proved-by-the-slices) names.
 
-1. **0111a — the forge's evidence, before any contract.** The operator captures, by hand, outside
-   any run, and with a read-only token, representative payloads for this repository's own pull
-   requests: the check runs and the commit statuses for a head, every page of each; the workflow
-   runs that produced them, with path, event, number, attempt, head, association and whatever
-   the forge says of the revision each tested; the jobs of each current run attempt, every page;
-   the open pull requests on the head, every page; and the base branch's required set, every
-   page. No job log is captured: no condition of `green` reads one.
-   Files: the captured payloads, redacted, as test data under `crates/brokkr-core/src/ci/evidence/`
-   with a note of how each was taken; one test that pins their digests, so no later slice
-   regenerates them. About 40 test lines and the data. No contract and no production code. It
-   settles, or marks still unmeasured:
-   - the tested-run identity in both checkout modes: whether a run names the commit it tested,
-     as a field distinct from its `head_sha`, for a job that checks out the pull request's head
-     by explicit ref (`.github/workflows/ci.yml:49-64`) and for one that checks out the forge's
-     merge revision (`:663-683`); this decides whether any `head` or `merge` entry can be
-     `green` (ruling 3);
-   - what a run's and a check run's `pull_requests` association holds, and in which cases it is
-     empty, a fork's pull request among them (ruling 3);
-   - whether the forge reports a job's key, and the app's numeric id (ruling 3);
-   - which field of each list names the run and attempt an item belongs to, and which attempt
-     a job a failed-jobs re-run did not re-run reports (the currentness rule);
-   - how each list pages, and how the observer tells the last page (ruling 3's bounded reads);
-   - the largest page each list returned, against the 8 MiB response bound, and whether
-     `gh api` streams a response body or holds it whole before writing it (ruling 3);
-   - the closed list of conclusion and status words.
-
-   Where a fact differs from what this decision assumes, the decision is revised before it is
-   accepted, or before 0111b mints. Test: `the_ci_evidence_files_are_pinned_by_digest`.
+1. **0111a — the forge's evidence, before any contract. Built** at `9679ac541`, by hand on the
+   operator's ruling of 2026-11-21 ("measure first"): eight cases on four heads, every call a
+   GET, under `crates/brokkr-core/src/ci/evidence/`, with its `README.md` and each case's
+   `index.json`; `crates/brokkr-core/tests/ci_evidence.rs`'s
+   `the_ci_evidence_files_are_pinned_by_digest` pins every file, so no later slice regenerates
+   them. Round 1093r12 revised this decision against it, once: what it settled is cited by path
+   where each rule reads it ([What main holds](#the-forges-shape), the currentness rule, ruling
+   3), and what it left unmeasured is marked there (a fork's pull request, a full last page,
+   `gh api`'s streaming, `queued` and `waiting`, a read-only token's access to protection).
 2. **0111b — the observer and its trusted launch.** Files: a new `crates/brokkr-core/src/ci.rs`
    with `ci/observation.rs` and `ci/checks.rs` (the two contracts' types, parsed once with
    unknown fields refused; `ci/observation.rs` holds the closed `CiAttempt` outcome around the
@@ -1759,8 +1740,16 @@ tenth hold in the slice [Proved by the slices](#proved-by-the-slices) names.
    only after 0111a: `ci-observation/v1` and `ci-checks/v1`. `Acceptance rows:` 4
    ([Proved by the slices](#proved-by-the-slices)). Tests, the launch driven through a
    test-only bundle the live compile does not admit:
-   - the contracts: `an_observation_with_an_unknown_field_refuses_whole`;
-     `an_unknown_conclusion_word_is_observation_unreadable`;
+   - the contracts, each over 0111a's payloads by path, never a hand-written shape:
+     `every_0111a_payload_parses_into_the_observation_edge_types` (each case's
+     `check-runs.all.page<n>.json`, `runs.page1.json`, `run.<id>.jobs.all.page1.json`,
+     `statuses.page1.json`, `pulls.open.on-head.page1.json` and
+     `protection.required_status_checks.json` under `crates/brokkr-core/src/ci/evidence/`);
+     `the_house_observer_seals_the_tested_commit_unread_over_every_0111a_case`;
+     `the_join_reads_each_check_runs_attempt_through_its_job` (`failed-jobs-rerun-with-cancelled-twin/`:
+     103 check runs, each joined by id to `run.<id>.jobs.all.page1.json`);
+     `an_observation_with_an_unknown_field_refuses_whole` (one of those payloads with a field
+     added); `an_unknown_conclusion_word_is_observation_unreadable`;
      `a_ci_checks_file_with_change_classes_setup_steps_or_patterns_refuses_to_compile`;
      `a_status_entry_in_the_required_list_refuses_to_compile`;
      `an_empty_required_list_refuses_to_compile`;
@@ -2171,7 +2160,7 @@ builds the reader it binds. The eleventh hold's findings are held the same way (
 | 0111c | `a_required_check_not_completed_with_a_null_conclusion_parks_as_not_settled_alone` | P4's rows partition (LOW) | `CI-PARK`: `not-settled` |
 | 0111c | `the_park_citation_checker_refuses_a_statement_with_no_row_or_an_unknown_row` | the checker's reach (LOW; r11 LOW: the noun and bare verb) | each bad line refused |
 | 0111c | `every_test_proved_by_the_slices_is_named_in_its_slices_plan` | this list, both ways (r11 MEDIUM) | every name in its plan, each plan's count agreeing; a deleted row or plan entry refused |
-| 0111c | `the_0111_index_row_names_the_last_round_the_decision_records` | the index row's history (INFO) | the row names round 1093r11 |
+| 0111c | `the_0111_index_row_names_the_last_round_the_decision_records` | the index row's history (INFO) | the row names round 1093r12 |
 | 0111d | `a_pass_without_green_through_the_real_policy_and_park_writer_parks_at_ci_pass_unbound` | one owner for `word-unbound` (text corrected) | a `ruled` park at `CI-PASS-UNBOUND` |
 | 0111d | `classify_after_ci_pass_receives_last_decision_naming_ci_pass_and_pass_and_nothing_else_of_ci` | `classify`'s input assertions | `CI-PASS` and `pass`, nothing else of `ci` |
 | 0111d | `an_operator_retry_after_a_person_re_runs_all_jobs_observes_again_and_passes` | the person's re-run (LOW) | `CI-PASS` |
@@ -2179,10 +2168,11 @@ builds the reader it binds. The eleventh hold's findings are held the same way (
 ## Evidence
 
 Every claim about today's behavior is read at the story's base, `e667a04c2`, or named
-unmeasured. The forge's shape was not read in any round: this seat holds no web capability, the
-re-run verbs' parameters are the controller's reading of
-<https://docs.github.com/en/rest/actions/workflow-runs> on 2026-11-18, and every forge fact cited
-by URL is unmeasured until 0111a.
+unmeasured. No round read the forge itself: this seat holds no web capability, and the re-run
+verbs' parameters are the controller's reading of
+<https://docs.github.com/en/rest/actions/workflow-runs> on 2026-11-18. Every forge fact this
+decision rules on is 0111a's, cited by its payload's path; a fact cited only by URL is
+unmeasured.
 
 The first draft ran the two `grep` inventories in
 [What main holds at HEAD](#what-main-holds-at-head) and the count of `infrastructure(true`
@@ -2191,24 +2181,21 @@ citation stands where it is used. The round-by-round lists of what fix rounds 10
 read, and of the review records each answered, are this section as it stood at `b5ffc5944`;
 this round cut them so the decision does not grow (X3 of round 1093r11).
 
-Round 1093r11, read at the story's base `e667a04c2`:
+Round 1093r11's list is this section as it stood at `f70fad92d`. Round 1093r12 read:
 
-- `.github/workflows/ci.yml:1-30` (`labeled` and `unlabeled` re-run the gate on the same head);
-- `crates/brokkr-store/src/chain.rs:15-45` and `crates/brokkr-store/src/seat_record/validation.rs:55-75`
-  (the fence on `effect/succeeded`'s `result`), `contracts/seat-record.v6.schema.json:550-575`,
-  `crates/brokkr-runtime/src/engine/sequence/success.rs:10-40` and
-  `crates/brokkr-runtime/src/engine/decide.rs:20-100`, `:239-261`;
-- `crates/brokkr-runtime/src/engine.rs:950-996` (the moved-head guard) and `:1460-1490` (a driver
-  spawn failure is `effect/failed`); `crates/brokkr-protocol/src/process.rs:500-522` (the
-  watchdog's `Indeterminate`); `crates/brokkr-runtime/src/engine/dispatch.rs:155-175`;
-  `crates/brokkr-runtime/src/engine/input.rs:108-130`;
-- the chief's notes and both positions of landing `landing-over-an-existing-branch--7833a069`, in
-  `.forge/results/43ce433d-ed05-443e-8509-071c2ffb16ea-{chief,positions-adversarial,positions-correctness}.json`.
+- 0111a's payloads, each fact by the path cited where it is used, with `jq` over every case's
+  `runs.page1.json`, `check-runs.*.json`, `run.<id>.attempt<n>.jobs.page1.json` and
+  `index.json`; one disagreement with the evidence `README.md`, the largest page (ruling 3's
+  forge shape: 356,478 bytes, not 309,267), where the payload wins;
+- at the base: `.github/workflows/ci.yml:311-322` (a skipped job reports success; the verdict
+  job `engine`) and `recipes/landing/policy.json:5-7`;
+- both positions of the eleventh hold, in
+  `.forge/results/3868ac46-9673-43c6-a97d-e2340b7d9da9-positions-{adversarial,correctness}.json`.
 
 This round held each name [Proved by the slices](#proved-by-the-slices) lists to its slice's plan
-by a scratch `grep -n -o -F` over this file (32 of 32, each inside its own slice's item), and read
-its own new park statements against the citation rule by hand. 0111c's doc tests make both a
-gate.
+by a scratch `grep -o -w -F` over each plan's lines (35 of 35 in 0111c, 4 of 4 in 0111b, 3 of 3
+in 0111d), and read its own new park statements against the citation rule by hand. 0111c's doc
+tests make both a gate.
 
 The entry check's verdicts over the narrowed order (ruling 6) are read from HEAD's code, not run:
 **unmeasured** until 0111d's entry tests.
