@@ -612,9 +612,9 @@ offered at level 1.
 
 #### A boxed agy seat
 
-Where the seat's site boxes its hands, the seat is boxed as claude's and
-codex's are (decision 0075 ruling 4; decisions 0043 and 0046): the harness
-runs on the host, and its hands are the box's. The hands ride no
+Where the seat's site boxes its hands, the seat is boxed as any harness
+that declares boxed shapes is (decision 0075 ruling 4; decisions 0043 and
+0046): the harness runs on the host, and its hands are the box's. The hands ride no
 argument, so the adapter's `workspace` fragment is the empty list and it
 declares no `notice` and no `harness`. The engine's HOME holds the box's
 hands as the one server of `<HOME>/.gemini/config/mcp_config.json`,
