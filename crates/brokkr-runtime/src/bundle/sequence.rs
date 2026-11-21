@@ -18,7 +18,7 @@ use super::{
     record_inline_tools, refuse_class_without_a_driver, resolve_reference, Aggregate, BodyRefusal,
     CompileError, DialectExecution, Invocation, SeatBody, SeatClass, SequenceStep, StepBody,
 };
-use crate::dialect::DialectPhase;
+use crate::dialect::{Dialect, DialectPhase};
 
 /// One sequence step as its seat wrote it: the seat's phase, the step's
 /// name and `phase:name`, and its declaration.
@@ -42,10 +42,10 @@ pub(super) struct ParsedStep {
 /// share.
 const OWN_RESULTS: &str = "needs its own non-empty 'results' vocabulary";
 
-/// Why a seat's sequence or one of its steps' names or results was
-/// refused: one variant per check, in the order the checks run, so a test
-/// can tell which fired even where two share their words. It becomes text
-/// only in [`refused`].
+/// Why a seat's sequence, one of its steps' names or results, or a
+/// dialect step was refused: one variant per check, in the order the
+/// checks run, so a test can tell which fired even where two share their
+/// words. It becomes text only in [`refused`].
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
 pub(super) enum SequenceRefusal<'a> {
     #[error("seat '{phase}' sequence must be an array")]
@@ -70,6 +70,32 @@ pub(super) enum SequenceRefusal<'a> {
     EmptyResults { what: &'a str },
     #[error("sequence step '{what}' {text}", text = OWN_RESULTS)]
     NoVocabulary { what: &'a str },
+    #[error("sequence step '{what}' dialect must be 'validate' or 'check'")]
+    NoOperation { what: &'a str },
+    #[error(
+        "sequence step '{what}' uses dialect operation '{operation}'; phase '{phase}' needs '{expected}'"
+    )]
+    WrongOperation {
+        what: &'a str,
+        operation: &'a str,
+        phase: &'a str,
+        expected: &'a str,
+    },
+    #[error("phase '{phase}' needs a realm dialect to resolve step '{name}'")]
+    NoDialect { phase: &'a str, name: &'a str },
+    #[error(
+        "sequence step '{what}' declares 'tools' on a dialect step whose \
+         '{operation}' the dialect does not supply; no executable site \
+         exists to own the declaration, so it could only be discarded — \
+         refused (decision 0065 slice one, design D5)"
+    )]
+    ToolsWithoutSite { what: &'a str, operation: &'a str },
+    #[error("dialect '{dialect}' declares phase '{phase}' {operation} unsupported")]
+    Unsupported {
+        dialect: &'a str,
+        phase: &'a str,
+        operation: &'a str,
+    },
 }
 
 /// What [`step_results`] refuses with: this file's typed refusal, or the
@@ -236,6 +262,67 @@ pub(super) fn step_body(
     }))
 }
 
+/// A dialect step's operation and the realm dialect that resolves it: the
+/// step writes an operation, the one its phase needs (`check` for a loop
+/// phase, `validate` otherwise), and only then is a dialect required.
+fn dialect_operation<'a>(
+    step: StepAt<'a>,
+    dialect: Option<&'a Dialect>,
+) -> Result<(&'a str, &'a Dialect), SequenceRefusal<'a>> {
+    let StepAt {
+        phase,
+        name,
+        what,
+        raw,
+    } = step;
+    let operation = raw
+        .get("dialect")
+        .and_then(Value::as_str)
+        .ok_or(SequenceRefusal::NoOperation { what })?;
+    let expected = if DialectPhase::parse(phase).is_some_and(DialectPhase::is_loop) {
+        "check"
+    } else {
+        "validate"
+    };
+    if operation != expected {
+        return Err(SequenceRefusal::WrongOperation {
+            what,
+            operation,
+            phase,
+            expected,
+        });
+    }
+    let dialect = dialect.ok_or(SequenceRefusal::NoDialect { phase, name })?;
+    Ok((operation, dialect))
+}
+
+/// A dialect step whose operation its dialect does not supply: an
+/// unsupplied `check` that writes no `tools` is admitted and compiles to no
+/// step; an unsupplied `validate` is refused.
+fn unsupplied<'a>(
+    step: StepAt<'a>,
+    operation: &'a str,
+    dialect: &'a Dialect,
+) -> Result<(), SequenceRefusal<'a>> {
+    if operation == "check" {
+        // No executable site is compiled for an unsupported
+        // check, so a `tools` declaration here would have no
+        // owner and could only be discarded (design D5.2).
+        if step.raw.get("tools").is_some() {
+            return Err(SequenceRefusal::ToolsWithoutSite {
+                what: step.what,
+                operation,
+            });
+        }
+        return Ok(());
+    }
+    Err(SequenceRefusal::Unsupported {
+        dialect: &dialect.name,
+        phase: step.phase,
+        operation,
+    })
+}
+
 /// A dialect step: the operation its phase needs, resolved by the realm's
 /// dialect into an exec-generated check judged as a site; `None` for a
 /// `check` the dialect does not supply.
@@ -246,52 +333,15 @@ fn dialect_step(
 ) -> Result<Option<ParsedStep>, CompileError> {
     let StepAt {
         phase,
-        name,
         what,
         raw: step_raw,
+        ..
     } = step;
-    let operation = step_raw
-        .get("dialect")
-        .and_then(Value::as_str)
-        .ok_or_else(|| {
-            CompileError::Invalid(format!(
-                "sequence step '{what}' dialect must be 'validate' or 'check'"
-            ))
-        })?;
-    let expected = if DialectPhase::parse(phase).is_some_and(DialectPhase::is_loop) {
-        "check"
-    } else {
-        "validate"
-    };
-    if operation != expected {
-        return Err(CompileError::Invalid(format!(
-            "sequence step '{what}' uses dialect operation '{operation}'; phase '{phase}' needs '{expected}'"
-        )));
-    }
-    let dialect = compiler.dialect.ok_or_else(|| {
-        CompileError::Invalid(format!(
-            "phase '{phase}' needs a realm dialect to resolve step '{name}'"
-        ))
-    })?;
+    let (operation, dialect) = dialect_operation(step, compiler.dialect).map_err(refused)?;
     let Some(command) = dialect.validation(phase) else {
-        if operation == "check" {
-            // No executable site is compiled for an unsupported
-            // check, so a `tools` declaration here would have no
-            // owner and could only be discarded (design D5.2).
-            if step_raw.get("tools").is_some() {
-                return Err(CompileError::Invalid(format!(
-                    "sequence step '{what}' declares 'tools' on a dialect step whose \
-                     '{operation}' the dialect does not supply; no executable site \
-                     exists to own the declaration, so it could only be discarded — \
-                     refused (decision 0065 slice one, design D5)"
-                )));
-            }
-            return Ok(None);
-        }
-        return Err(CompileError::Invalid(format!(
-            "dialect '{}' declares phase '{phase}' {operation} unsupported",
-            dialect.name
-        )));
+        return unsupplied(step, operation, dialect)
+            .map(|()| None)
+            .map_err(refused);
     };
     let synthetic = dialect_gate_site(what, compiler.boundary)?;
     // The dialect's validator is an exec-generated check: it can

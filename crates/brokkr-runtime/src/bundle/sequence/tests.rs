@@ -1,18 +1,81 @@
-//! A seat's sequence, its steps' names and their results: each refusal
-//! matched by its variant, each admitted shape by its value, and every
-//! refusal's text pinned once.
+//! A seat's sequence, its steps' names and their results, and a dialect
+//! step's operation: each refusal matched by its variant, each admitted
+//! shape by its value, and every refusal's text pinned once.
 
-use std::path::Path;
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
 
+use brokkr_core::realms::Boundary;
 use serde_json::{json, Value};
 
 use super::{
-    sequence_steps, step_name, step_results, CompileError, DialectExecution, SeatClass, SeatScope,
-    SequenceRefusal, SequenceStep, StepAt, StepBody, StepFault,
+    dialect_operation, dialect_step, sequence_steps, step_name, step_results, unsupplied,
+    CompileError, DialectExecution, SeatClass, SeatScope, SequenceRefusal, SequenceStep, StepAt,
+    StepBody, StepFault,
 };
+use crate::bundle::{Charters, SiteCompiler};
+use crate::dialect::Dialect;
 
 /// The seat's own vocabulary, which the final step receives.
 const SEAT: [&str; 2] = ["approved", "rejected"];
+
+/// The seat scope a test step compiles in, under the seat's `results`.
+fn scope(results: &[String]) -> SeatScope<'_> {
+    SeatScope {
+        dir: Path::new("."),
+        results,
+        secrets: &[],
+        residual: brokkr_core::findings::ResidualPair::declared_in::<&str>(&[]),
+        declares_change: false,
+    }
+}
+
+/// The shipped openspec dialect's file.
+fn openspec_path() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../dialects/openspec.json")
+}
+
+/// The shipped openspec dialect: `validate` for specify, design and tasks,
+/// `check` for clarify and analyze.
+fn openspec() -> Dialect {
+    Dialect::load(&openspec_path()).unwrap().0
+}
+
+/// openspec with clarify's `check` declared unsupported.
+fn without_clarify_check() -> Dialect {
+    let path = openspec_path();
+    let mut file: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    file["phases"]["clarify"]["check"] = json!({"unsupported": "no clarify check here"});
+    let dialect = Dialect::parse(&path.display().to_string(), &file.to_string())
+        .unwrap()
+        .0;
+    assert!(
+        dialect.validation("clarify").is_none(),
+        "clarify's check is unsupplied"
+    );
+    dialect
+}
+
+/// Step `what` of seat `phase`, written as `raw`; its name is what follows
+/// `phase:`.
+fn dialect_at<'s>(phase: &'s str, what: &'s str, raw: &'s Value) -> StepAt<'s> {
+    StepAt {
+        phase,
+        name: &what[phase.len() + 1..],
+        what,
+        raw,
+    }
+}
+
+/// `dialect_operation` on `step`, its dialect read as whether it is the one
+/// passed in.
+fn resolved<'a>(
+    step: StepAt<'a>,
+    dialect: Option<&'a Dialect>,
+) -> Result<(&'a str, bool), SequenceRefusal<'a>> {
+    dialect_operation(step, dialect)
+        .map(|(operation, got)| (operation, dialect.is_some_and(|d| std::ptr::eq(d, got))))
+}
 
 /// A step already parsed under `name`, as `step_name` sees its forerunners.
 fn parsed(name: &str) -> SequenceStep {
@@ -36,13 +99,7 @@ fn parsed(name: &str) -> SequenceStep {
 /// `step_results` on `raw` as step `plan:draft`, final or not.
 fn results_of(raw: &Value, final_step: bool) -> Result<Vec<String>, StepFault<'_>> {
     let seat: Vec<String> = SEAT.map(str::to_string).to_vec();
-    let at = SeatScope {
-        dir: Path::new("."),
-        results: &seat,
-        secrets: &[],
-        residual: brokkr_core::findings::ResidualPair::declared_in::<&str>(&[]),
-        declares_change: false,
-    };
+    let at = scope(&seat);
     let step = StepAt {
         phase: "plan",
         name: "draft",
@@ -157,6 +214,145 @@ fn a_step_s_vocabulary_is_its_own_strings_its_aggregate_s_or_the_seat_s() {
 }
 
 #[test]
+fn each_dialect_step_refusal_names_its_own_check() {
+    let (spec, bare) = (openspec(), without_clarify_check());
+    let (design, clarify, engine) = ("design:lint", "clarify:count", "clarify:engine:count");
+    let seven = json!({"dialect": 7});
+    assert_eq!(
+        resolved(dialect_at("design", design, &seven), Some(&spec)),
+        Err(SequenceRefusal::NoOperation { what: design })
+    );
+    let check = json!({"dialect": "check"});
+    assert_eq!(
+        resolved(dialect_at("design", design, &check), Some(&spec)),
+        Err(SequenceRefusal::WrongOperation {
+            what: design,
+            operation: "check",
+            phase: "design",
+            expected: "validate",
+        })
+    );
+    let bogus = json!({"dialect": "bogus"});
+    assert_eq!(
+        resolved(dialect_at("clarify", clarify, &bogus), Some(&spec)),
+        Err(SequenceRefusal::WrongOperation {
+            what: clarify,
+            operation: "bogus",
+            phase: "clarify",
+            expected: "check",
+        })
+    );
+    let validate = json!({"dialect": "validate"});
+    assert_eq!(
+        resolved(dialect_at("design", design, &validate), None),
+        Err(SequenceRefusal::NoDialect {
+            phase: "design",
+            name: "lint",
+        })
+    );
+    let tooled = json!({"dialect": "check", "tools": []});
+    assert_eq!(
+        unsupplied(dialect_at("clarify", clarify, &tooled), "check", &bare),
+        Err(SequenceRefusal::ToolsWithoutSite {
+            what: clarify,
+            operation: "check",
+        })
+    );
+    assert_eq!(
+        unsupplied(
+            dialect_at("clarify:engine", engine, &validate),
+            "validate",
+            &spec
+        ),
+        Err(SequenceRefusal::Unsupported {
+            dialect: "openspec",
+            phase: "clarify:engine",
+            operation: "validate",
+        })
+    );
+}
+
+#[test]
+fn a_dialect_step_s_checks_run_operation_first_and_tools_only_for_a_check() {
+    let (design, engine) = ("design:lint", "clarify:engine:count");
+    let check = json!({"dialect": "check"});
+    assert_eq!(
+        resolved(dialect_at("design", design, &check), None),
+        Err(SequenceRefusal::WrongOperation {
+            what: design,
+            operation: "check",
+            phase: "design",
+            expected: "validate",
+        })
+    );
+    let seven = json!({"dialect": 7});
+    assert_eq!(
+        resolved(dialect_at("design", design, &seven), None),
+        Err(SequenceRefusal::NoOperation { what: design })
+    );
+    let tooled = json!({"dialect": "validate", "tools": []});
+    assert_eq!(
+        unsupplied(
+            dialect_at("clarify:engine", engine, &tooled),
+            "validate",
+            &openspec()
+        ),
+        Err(SequenceRefusal::Unsupported {
+            dialect: "openspec",
+            phase: "clarify:engine",
+            operation: "validate",
+        })
+    );
+}
+
+#[test]
+fn a_dialect_step_its_phase_and_dialect_admit_is_admitted() {
+    let (spec, bare) = (openspec(), without_clarify_check());
+    let check = json!({"dialect": "check"});
+    assert_eq!(
+        unsupplied(
+            dialect_at("clarify", "clarify:count", &check),
+            "check",
+            &bare
+        ),
+        Ok(())
+    );
+    let validate = json!({"dialect": "validate"});
+    assert_eq!(
+        resolved(dialect_at("design", "design:lint", &validate), Some(&spec)),
+        Ok(("validate", true))
+    );
+    assert_eq!(
+        resolved(dialect_at("clarify", "clarify:count", &check), Some(&spec)),
+        Ok(("check", true))
+    );
+}
+
+#[test]
+fn a_dialect_step_without_a_realm_dialect_is_refused_in_its_text() {
+    let (charters, case_origin) = (Charters::default(), BTreeMap::new());
+    let compiler = &mut SiteCompiler::new(
+        crate::bundle::tests::unopened(),
+        (Boundary::Namespace, &crate::argv::tests::ENGINE),
+        None,
+        &charters,
+        &[],
+        &case_origin,
+        Path::new(""),
+    );
+    let seat: Vec<String> = SEAT.map(str::to_string).to_vec();
+    let validate = json!({"dialect": "validate"});
+    let step = dialect_at("design", "design:lint", &validate);
+    let Err(CompileError::Invalid(text)) = dialect_step(compiler, scope(&seat), step) else {
+        panic!("a dialect step without a dialect must be refused");
+    };
+    assert_eq!(
+        text,
+        "phase 'design' needs a realm dialect to resolve step 'lint'"
+    );
+}
+
+#[test]
 fn every_sequence_refusal_reads_as_it_always_has() {
     let (phase, what) = ("plan", "plan:draft");
     let cases = [
@@ -188,6 +384,43 @@ fn every_sequence_refusal_reads_as_it_always_has() {
         (
             SequenceRefusal::NoVocabulary { what },
             "sequence step 'plan:draft' needs its own non-empty 'results' vocabulary",
+        ),
+        (
+            SequenceRefusal::NoOperation { what },
+            "sequence step 'plan:draft' dialect must be 'validate' or 'check'",
+        ),
+        (
+            SequenceRefusal::WrongOperation {
+                what,
+                operation: "check",
+                phase,
+                expected: "validate",
+            },
+            "sequence step 'plan:draft' uses dialect operation 'check'; phase 'plan' needs 'validate'",
+        ),
+        (
+            SequenceRefusal::NoDialect {
+                phase,
+                name: "draft",
+            },
+            "phase 'plan' needs a realm dialect to resolve step 'draft'",
+        ),
+        (
+            SequenceRefusal::ToolsWithoutSite {
+                what,
+                operation: "check",
+            },
+            "sequence step 'plan:draft' declares 'tools' on a dialect step whose 'check' the \
+             dialect does not supply; no executable site exists to own the declaration, so it \
+             could only be discarded — refused (decision 0065 slice one, design D5)",
+        ),
+        (
+            SequenceRefusal::Unsupported {
+                dialect: "openspec",
+                phase,
+                operation: "validate",
+            },
+            "dialect 'openspec' declares phase 'plan' validate unsupported",
         ),
     ];
     for (refusal, text) in cases {
