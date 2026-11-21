@@ -247,8 +247,9 @@ impl VerdictRows {
 }
 
 /// The rows of `run` plain `inspect`'s verdicts block reads, through
-/// `head` and never past it: `trail`, the frame's read, beside the
-/// checkpoints of the newest [`VERDICT_ROWS`] read by key, and beside the
+/// `head` and never past it: `trail`, the frame's read, beside the engine's
+/// own markers among the newest [`VERDICT_ROWS`], the only checkpoints that
+/// hold a verdict or a member's mark, read by key, and beside the
 /// member markers of an attempt whose verdict is inside that window,
 /// read by key even where the window's cut dropped them. A journal whose
 /// event index is not read is read whole, as the frame reads it (decision
@@ -269,11 +270,11 @@ fn verdict_rows(
     }
     let mut rows: std::collections::BTreeMap<u64, brokkr_core::EventEnvelope> =
         trail.into_iter().map(|event| (event.seq, event)).collect();
-    for event in store.envelopes_of_checkpoints(run, cut + 1, head)? {
+    for event in store.envelopes_of_engine_markers(run, cut + 1, head)? {
         rows.insert(event.seq, event);
     }
-    // A window's every checkpoint is already read, so its members' markers
-    // are too; only a cut can leave a verdict's marker behind it.
+    // A window's every marker is already read, its members' included; only
+    // a cut can leave a verdict's marker behind it.
     if cut > 0 {
         let window: Vec<&brokkr_core::EventEnvelope> = rows.values().collect();
         let attempts = brokkr_view::verdict_attempts_within(&window, cut);
