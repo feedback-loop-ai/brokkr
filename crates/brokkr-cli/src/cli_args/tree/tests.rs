@@ -49,6 +49,9 @@ fn the_engines_verbs_stay_at_the_root_hidden() {
     }
     let driven = Cli::try_parse_from(["brokkr", "driver", "exec", "--", "true"]).unwrap();
     assert!(matches!(driven.command, Cmd::Driver(args) if args.kind == "exec"));
+    let line = ["brokkr", "bridge", "--run", "r", "--looper-url", "http://x"];
+    let bridged = Cli::try_parse_from(line).unwrap();
+    assert!(matches!(bridged.command, Cmd::Bridge(args) if args.run == "r"));
 }
 
 #[test]

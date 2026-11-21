@@ -70,4 +70,10 @@ name.
    old spellings left outside the binary move too: the first-party
    console extension under `extensions/dsh/brokkr-console`, which spawns
    and prints the flat names, the guides (1169b), and the comments,
-   recipe READMEs, workflows and scripts that still name them.
+   recipe READMEs, workflows and scripts that still name them. One alias
+   is spawned rather than typed: a dispatcher from before 0.16 spawns
+   `dispatch drive`, and it reaches this build only through the alias, so
+   its note lands in that driver's own log. The 0.17 removal must keep
+   `dispatch drive` until no live dispatcher can still spawn it, which
+   means every installed dispatcher is from 0.16 or later. Its removal is
+   that follow-up's to prove, not to assume.
