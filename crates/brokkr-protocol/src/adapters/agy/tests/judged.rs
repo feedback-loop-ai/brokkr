@@ -96,8 +96,13 @@ fn a_seat_that_binds_an_owned_name_is_refused_and_its_child_keeps_the_engines() 
         world.env.set("PWD", &alias);
         let bindings = [bound(name, alias.to_str().unwrap())];
         let input = world.input(None);
-        // A seat that got past the check would be refused signed out.
-        world.env.remove("HOME");
+        // A seat that got past the check would be refused signed out: the
+        // operator's HOME is an empty directory, with no login to link. It
+        // is pointed there, not removed, so no test that reads `HOME`
+        // unguarded loses it while this one runs (D2).
+        let empty = world.path("empty");
+        std::fs::create_dir(&empty).unwrap();
+        world.env.set("HOME", &empty);
         let start = pinned_on(&bin, |pinned| {
             turn(pinned, "p", &input, &bindings, &mut |_| {}).map(drop)
         });
