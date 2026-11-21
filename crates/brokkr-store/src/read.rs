@@ -61,13 +61,16 @@ fn engine_marker(event: &str, steps: &[&str]) -> String {
 /// the only checkpoints a verdicts window reads (#1212), found through the
 /// primary key's range and filtered on the stored checkpoint before any
 /// envelope is decoded, so a seat turn, telemetry or a driver's record of
-/// either word is never read.
+/// either word is never read. Both markers name their `member` (a step
+/// record its step, a member's finish its member), so the index's own
+/// `member` column turns every single seat's turn away before its row is
+/// even joined (#1243's Callgrind).
 static ENGINE_MARKERS: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT i.seq FROM event_index AS i
          JOIN events AS e ON e.run_id = i.run_id AND e.seq = i.seq
          WHERE i.run_id = ?1 AND i.seq >= ?2 AND i.seq <= ?3 AND i.type = '{CHECKPOINTED}'
-           AND {marker}
+           AND i.member IS NOT NULL AND {marker}
          ORDER BY i.seq",
         marker = engine_marker("e", &[STEP_FINISHED, MEMBER_FINISHED]),
     )

@@ -422,7 +422,11 @@ fn a_verdict_window_reads_only_the_engine_s_markers_inside_it() {
             json!({"effect_id": "e", "attempt_id": "a", "checkpoint": fields}),
         )
     };
-    let step = || EngineMarker::StepFinished.record(json!({"step_name": "judge"}));
+    // The engine's step record names its step in `member` too
+    // (engine/sequence/record.rs), as every authored one has since it was
+    // first written, so the index's `member` column holds it.
+    let step =
+        || EngineMarker::StepFinished.record(json!({"step_name": "judge", "member": "judge"}));
     let member = || EngineMarker::MemberFinished.record(json!({"member": "m1"}));
     run_of(
         &store,
