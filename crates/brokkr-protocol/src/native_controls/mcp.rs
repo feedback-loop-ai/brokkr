@@ -14,6 +14,8 @@ use super::grammar::{self, Command, Effect, ListKind};
 use super::State;
 use crate::hands::SERVER_NAME;
 
+pub(crate) mod qoder;
+
 /// One value as the body of a TOML basic string (rebuild unit 13-fix-c,
 /// R2): the ONE encoder every value interpolated into a Codex TOML
 /// assignment passes through, for the value emitted and the value expected

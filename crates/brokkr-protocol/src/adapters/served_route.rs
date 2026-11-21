@@ -46,6 +46,7 @@ impl AdapterKind {
             AdapterKind::Claude
             | AdapterKind::Lanetally
             | AdapterKind::Codex
+            | AdapterKind::Qoder
             | AdapterKind::Exec => split_route(model_id).0,
         }
     }
