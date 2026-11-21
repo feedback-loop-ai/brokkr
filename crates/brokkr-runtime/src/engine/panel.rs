@@ -368,8 +368,7 @@ impl Engine {
             settled.carry(&Tag::prefixed(tag_prefix, &name).0, &mut report);
             // Each member's findings carry the member's own site.
             let report = self.settled_by(ids, &run.spawn, begun, report)?;
-            let admitted = super::verdict::admitted(report, run.context.as_ref())
-                .kinds_judged(run.kinds(), &run.driver_seat);
+            let admitted = super::verdict::judged(report, run.context.as_ref(), &run.driver_seat);
             if let Some(findings) = admitted.findings {
                 stamped.insert(name.clone(), MemberFindings::Read(findings));
             }

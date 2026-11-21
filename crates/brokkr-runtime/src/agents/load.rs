@@ -109,9 +109,9 @@ fn refuse_secret_stores(root: &Path, kind: &str) -> Result<(), LibraryError> {
     Ok(())
 }
 
-fn read_json(path: &Path) -> Result<Value, LibraryError> {
-    let bytes = std::fs::read(path)?;
-    serde_json::from_slice(&bytes)
+/// The JSON `bytes`, the file at `path` as it was read, parse as.
+fn json_of(bytes: &[u8], path: &Path) -> Result<Value, LibraryError> {
+    serde_json::from_slice(bytes)
         .map_err(|e| LibraryError::Invalid(format!("{}: {e}", path.display())))
 }
 
@@ -697,39 +697,52 @@ fn parse_adapter(
     if !valid_name(name) {
         return invalid(format!("{what}: the file name must match {NAME_GRAMMAR}"));
     }
-    let source = read_json(path)?;
-    let map = object(&source, &what)?;
-    only_keys(map, &adapter::ADAPTER_KEYS, &what)?;
+    adapter_from(name, path, &what, &std::fs::read(path)?)
+}
+
+/// The adapter `bytes` declare, the file at `path` read once (the
+/// controller's ruling R9 of 2026-11-21): its strict parse, the map every
+/// declaration is read from and the digest its site pins are all of
+/// these bytes, so no declaration is of other bytes than the witness.
+fn adapter_from(
+    name: &str,
+    path: &Path,
+    what: &str,
+    bytes: &[u8],
+) -> Result<(Adapter, BTreeMap<String, DeclaredRouteOverlay>), LibraryError> {
+    let source = json_of(bytes, path)?;
+    let map = object(&source, what)?;
+    only_keys(map, &adapter::ADAPTER_KEYS, what)?;
     let adapter::Invocation {
         native,
         provider,
         binary,
         driver,
-    } = adapter::invocation(name, map, path, &what)?;
+    } = adapter::invocation(name, map, bytes, what)?;
     let adapter::Served {
         models,
         provisional,
         judges,
-    } = adapter::served(map, &what)?;
-    let (tool_permissions, tool_permissions_gap) = adapter::tool_permissions(map, &what)?;
-    let mcp = adapter::mcp(map, &what, &driver)?;
+    } = adapter::served(map, what)?;
+    let (tool_permissions, tool_permissions_gap) = adapter::tool_permissions(map, what)?;
+    let mcp = adapter::mcp(map, what, &driver)?;
     let adapter::Pinning {
         hint,
         model_flag,
         efforts,
         effortless_routes,
-    } = adapter::pinning(map, &what)?;
+    } = adapter::pinning(map, what)?;
     let adapter::Hands {
         hands,
         hands_gap,
         harness,
         hands_notice,
-    } = adapter::hands(map, &what)?;
-    let resume = resume_assessment(map, &what)?;
-    let record_kinds = adapter::record_kinds(map, &what)?;
-    let credentials = auth::credentials(map, &what)?;
+    } = adapter::hands(map, what)?;
+    let resume = resume_assessment(map, what)?;
+    let record_kinds = adapter::record_kinds(map, what)?;
+    let credentials = auth::credentials(map, what)?;
     let mcp = mcp.admit(&McpContext {
-        what: &what,
+        what,
         binary: &binary,
         workspace: hands.is_some(),
         harness: &harness,
@@ -743,7 +756,7 @@ fn parse_adapter(
         harness_auth,
         effort_flag,
         digest,
-    } = adapter::settled(map, &credentials, path, &what, &driver)?;
+    } = adapter::settled(map, &credentials, (path, bytes), what, &driver)?;
     Ok((
         Adapter {
             provider,

@@ -701,11 +701,7 @@ pub struct Bundle {
     /// phase whose office receives it. Review is supplied only to the
     /// spec-compliance member by the engine.
     pub dialect_prompts: BTreeMap<String, String>,
-    /// The seat-record kinds the adapters this compile loaded declare
-    /// (decision 0075 ruling 2), which the engine's writer admits beside
-    /// the built-in drivers' own. Recomputed by every compile from the
-    /// adapter files, so never digested: it narrows what is written and
-    /// never what a reader admits.
+    /// The kinds this compile's adapters let a seat write (decision 0075 ruling 2); never digested.
     pub declared_kinds: crate::agents::DeclaredKinds,
 }
 

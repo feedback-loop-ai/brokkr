@@ -234,27 +234,23 @@ fn an_adapter_step_failing_two_adjacent_reads_reports_the_earlier() {
     assert_eq!(observed, expected);
 }
 
-/// The two reads a definition alone cannot fail beside a field: the
-/// file's strict parse, ahead of the native inventory, and the file's
-/// digest, behind the effort flag. Each step is called with a map and a
-/// file that disagree.
+/// The strict parse of the bytes read, which a definition alone cannot
+/// fail beside a field, runs ahead of the native inventory; and the
+/// digest, of those same bytes, is no read of its own, so an absent file
+/// leaves the effort flag's refusal standing (the controller's ruling
+/// R9). Each step is called with a map and bytes that disagree.
 #[test]
 fn an_adapter_step_failing_a_field_and_its_file_reports_the_earlier() {
     let dir = tempfile::tempdir().unwrap();
-    let twice = dir.path().join("claude.json");
-    std::fs::write(
-        &twice,
-        r#"{"native_capabilities": 7, "native_capabilities": 7}"#,
-    )
-    .unwrap();
+    let twice = br#"{"native_capabilities": 7, "native_capabilities": 7}"#;
     let native = json!({"native_capabilities": 7});
-    let invocation = super::adapter::invocation("claude", native.as_object().unwrap(), &twice, "w");
+    let invocation = super::adapter::invocation("claude", native.as_object().unwrap(), twice, "w");
     let effort = json!({"effort_flag": 7});
     let absent = dir.path().join("absent.json");
     let settled = super::adapter::settled(
         effort.as_object().unwrap(),
         &BTreeMap::new(),
-        &absent,
+        (&absent, b""),
         "w",
         &[],
     );
@@ -340,6 +336,32 @@ fn a_root_session_kind_without_a_resume_is_refused_by_its_own_variant() {
              'resume'; a rejoin is declared, never defaulted (decision 0075 ruling 1)"
         )
     );
+}
+
+/// One read (the controller's ruling R9 of 2026-11-21): an adapter is
+/// what the bytes it was read from declare, strictly parsed, and its
+/// digest, the witness its site pins, is of those bytes, whatever the
+/// file at its path holds by then — here a key written twice and another
+/// transcript kind.
+#[test]
+fn an_adapter_declares_and_digests_the_one_read_of_its_bytes() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("claude.json");
+    let mut read = loadable_adapter();
+    read["record_kinds"] = json!({"transcript": "trellis-trail"});
+    let mut later = loadable_adapter();
+    later["record_kinds"] = json!({"transcript": "other-trail"});
+    let later = format!("{{\"provider\": \"claude\", {}", &later.to_string()[1..]);
+    std::fs::write(&path, later).unwrap();
+    let bytes = read.to_string().into_bytes();
+    let what = super::models::described("claude", &path);
+    let (adapter, _) = super::adapter_from("claude", &path, &what, &bytes).unwrap();
+    assert_eq!(adapter.digest, brokkr_core::canonical::sha256_bytes(&bytes));
+    let declared = crate::agents::kinds::RecordKinds {
+        transcript: "trellis-trail".to_string(),
+        root_session: None,
+    };
+    assert_eq!(adapter.record_kinds, Some(declared));
 }
 
 #[test]

@@ -1299,6 +1299,15 @@ fn resume_gate(input: &Value, shape: &str) -> ResumeGate {
     }
 }
 
+/// Whether the resume gate enables `shape` for the driver input `input`
+/// (`resume_gate`), the gate itself and never a copy of it. Its one
+/// consumer is the test that holds the engine's offer of a root of a new
+/// kind to this gate, row for row, on the input the engine wrote
+/// (`engine::kinds_tests`; the controller's ruling R11 of 2026-11-21).
+pub fn resume_enabled(input: &Value, shape: &str) -> bool {
+    matches!(resume_gate(input, shape), ResumeGate::Enabled { .. })
+}
+
 /// Ask the selected executable which version it is, once, through the
 /// interface that was measured for it (proposed decision 0056 ruling 5).
 ///

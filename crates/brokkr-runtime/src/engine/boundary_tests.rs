@@ -4056,11 +4056,10 @@ fn an_invalid_boundary_record_fails_at_append_without_writing_the_result() {
         .any(|event| event.event_type == EventType::EffectSucceeded));
     let failed = events.last().unwrap();
     assert_eq!(failed.event_type, EventType::EffectFailed);
-    // The contract named is the one this run's engine wrote: the 0.14
-    // line reads v8 (decision 0075 ruling 2, at v7's line). The boundary's
-    // own authority is unchanged — `chroot` is not one of decision 0046's
-    // five words under any of these versions, and the invalid value
-    // stays out of the diagnostic.
+    // The contract named is the one this run's engine wrote: the 0.14 line reads v8 (decision
+    // 0075 ruling 2, at v7's line). The boundary's own authority is unchanged — `chroot` is not
+    // one of decision 0046's five words under any of these versions, and the invalid value stays
+    // out of the diagnostic.
     let refusal = "seat record at journal seq 2 violates \
                    contracts/seat-record.v8.schema.json at /";
     assert_eq!(failed.payload["error"], refusal, "{failed:?}");

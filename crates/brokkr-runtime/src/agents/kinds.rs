@@ -113,7 +113,9 @@ pub(crate) struct SeatKinds {
 }
 
 /// What one adapter adds to a seat's harness: its `record_kinds`, and the
-/// shapes of its `resume` that are not `unsupported`. Never a driver.
+/// shapes of its `resume` whose status is `supported`, the only status
+/// a driver's resume gate enables (decision 0056 ruling 5: any other is
+/// `unsupported-resume`). Never a driver.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct AdapterKinds {
     declared: Option<RecordKinds>,
@@ -123,7 +125,7 @@ struct AdapterKinds {
 impl AdapterKinds {
     fn of(adapter: &Adapter) -> AdapterKinds {
         let shapes = adapter.resume.0.values();
-        let resumable = shapes.filter(|shape| shape.status != ResumeStatus::Unsupported);
+        let resumable = shapes.filter(|shape| shape.status == ResumeStatus::Supported);
         AdapterKinds {
             declared: adapter.record_kinds.clone(),
             resumable: resumable.cloned().collect(),
@@ -173,11 +175,12 @@ impl SeatKinds {
     }
 
     /// Whether a work site of this harness standing at `standing` may be
-    /// offered a root of `kind` (the controller's ruling R4 of
+    /// offered a root of `kind` (the controller's rulings R4 and R11 of
     /// 2026-11-21): one of the three kinds a built-in driver writes, as
     /// today; otherwise only the root session kind this harness's adapter
-    /// declares, where a shape of that adapter's resume that is not
-    /// `unsupported` covers the site. Unknown standing declines.
+    /// declares, where a `supported` shape of that adapter's resume covers
+    /// the site, so the engine offers no wider than the driver's resume
+    /// gate would rejoin. Unknown standing declines.
     pub(crate) fn rejoins(&self, kind: &str, standing: Option<Standing>) -> bool {
         if driver_kinds().contains(&kind) {
             return true;
@@ -224,12 +227,19 @@ impl SeatKinds {
 
     /// `report` with its successful result refused, as a refused
     /// checkpoint's is (decision 0034 ruling 6), when the result names a
-    /// kind this harness does not declare. A report already refused stands.
+    /// kind this harness does not declare. A refusal already in place
+    /// stands, and keeps its words. Either way the received result is
+    /// judged too, and one naming an undeclared kind is received as the
+    /// kind refusal in its place, so no evidence an unresolved cleanup
+    /// journals carries the kind (the controller's ruling R10 of
+    /// 2026-11-21). A result naming declared kinds is received as it came.
     pub(crate) fn refused(&self, seat: &str, mut report: AttemptReport) -> AttemptReport {
-        if let (None, AttemptOutcome::Succeeded { result }) = (&report.refused, &report.outcome) {
+        if let AttemptOutcome::Succeeded { result } = &report.outcome {
             if let Err(refusal) = self.admit(result, seat) {
                 let error = refusal.to_string();
-                report.refused = Some(AttemptOutcome::Failed { error });
+                let refusal = AttemptOutcome::Failed { error };
+                report.refused.get_or_insert_with(|| refusal.clone());
+                report.outcome = refusal;
             }
         }
         report

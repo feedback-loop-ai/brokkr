@@ -231,9 +231,11 @@ site no plan covers, keeps v7's three kinds and `none`: no adapter
 exists to hold a declaration for it, and v8 neither opens nor narrows
 what it may write. A root of a kind no built-in driver writes is
 offered for a rejoin only where the seat's adapter declares it and a
-resume shape that is not `unsupported` covers the site: class `work`,
-the site's boundary among its `boundaries`, and its `hands` the site's,
-the words the engine writes into the driver's input. A harness that
+`supported` resume shape covers the site: class `work`, the site's
+boundary among its `boundaries`, and its `hands` the site's, the words
+the engine writes into the driver's input, so the engine offers no wider
+than the driver's resume gate rejoins (decision 0056 ruling 5: an
+unmeasured shape is `unsupported-resume` there too). A harness that
 declares its kinds is never offered decision 0030's flat session id.
 An adapter declaring a root session kind must declare `resume`. Every
 reader judges a record by the schema alone. v8 is minted under this decision, which is accepted,
