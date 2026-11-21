@@ -10,6 +10,7 @@ use serde_json::Value;
 use thiserror::Error;
 
 use crate::phase_name;
+use refusal::{refused, DialectRefusal};
 
 /// The five phases a dialect fills, a closed set (#349, ask 5): three
 /// draft artifacts and two loop back over them with a taxonomy.
@@ -406,17 +407,7 @@ impl Dialect {
         // older shape happens to trip over. A v2 archive carries no
         // `instructions`, so typed deserialization alone would tell an
         // operator only that some untagged enum matched no variant.
-        if let Some(schema) = value.get("schema").and_then(Value::as_str) {
-            if !accepted.contains(&schema) {
-                return Err(DialectError::Invalid {
-                    path: path.to_string(),
-                    problem: format!(
-                        "it calls itself '{schema}'; this reads {} ({note})",
-                        accepted.join(", ")
-                    ),
-                });
-            }
-        }
+        check_version(&value, accepted, note).map_err(|refusal| refused(path, refusal))?;
         let dialect: Dialect =
             serde_json::from_value(value.clone()).map_err(|error| DialectError::Malformed {
                 path: path.to_string(),
@@ -430,37 +421,34 @@ impl Dialect {
     /// phase rule, one check after another; the first refusal is the one
     /// reported.
     fn check(&self, path: &str) -> Result<(), DialectError> {
-        self.check_versions(path)?;
-        self.check_identity(path)?;
-        let artifact_position = check_artifacts(&self.phases, path)?;
-        self.check_order(path, &artifact_position)?;
-        self.check_taxonomies(path)?;
-        self.check_instruction_paths(path)?;
-        check_command_tokens(self, path)?;
-        Ok(())
+        self.first_refusal()
+            .map_err(|refusal| refused(path, refusal))
+    }
+
+    /// `check`'s seven checks in their order, the first refusal returned.
+    fn first_refusal(&self) -> Result<(), DialectRefusal<'_>> {
+        self.check_versions()?;
+        self.check_identity()?;
+        let artifact_position = check_artifacts(&self.phases)?;
+        self.check_order(&artifact_position)?;
+        self.check_taxonomies()?;
+        self.check_instruction_paths()?;
+        check_command_tokens(self)
     }
 
     /// The fields the read version requires or forbids: the tool install,
     /// and the archive instruction.
-    fn check_versions(&self, path: &str) -> Result<(), DialectError> {
-        let invalid = invalid_at(path);
+    fn check_versions(&self) -> Result<(), DialectRefusal<'_>> {
         // Every read version keeps its own shape: an older file may not
         // borrow a field that landed after it, and a file that claims a
         // version must carry what that version requires. Version-tolerant
         // reading is how a pinned world survives (the realm map reads v1
         // through v4 the same way); version-blind reading is not.
         match (self.schema.as_str(), self.tool.install.is_some()) {
-            (SCHEMA_V1, true) => {
-                return Err(invalid(format!(
-                    "a '{SCHEMA_V1}' dialect carries no tool install; \
-                     the install identity landed in {SCHEMA_V2}"
-                )))
-            }
+            (SCHEMA_V1, true) => return Err(DialectRefusal::InstallTooEarly),
             (SCHEMA_V2 | SCHEMA_V3, false) => {
-                return Err(invalid(format!(
-                    "a '{}' dialect names what installs its tool",
-                    self.schema
-                )))
+                let schema = self.schema.as_str();
+                return Err(DialectRefusal::Uninstalled { schema });
             }
             _ => {}
         }
@@ -469,20 +457,15 @@ impl Dialect {
             ArchiveOrUnsupported::Unsupported(_) => false,
         };
         if instructed && self.schema != SCHEMA_V3 {
-            return Err(invalid(format!(
-                "a '{}' archive carries no instruction; \
-                 the archive instruction landed in {SCHEMA_V3}",
-                self.schema
-            )));
+            let schema = self.schema.as_str();
+            return Err(DialectRefusal::InstructionTooEarly { schema });
         }
         if self.schema == SCHEMA_V3 && !instructed {
             if let ArchiveOrUnsupported::Command(_) = &self.archive {
                 // Folding without the provenance rule would silently break
                 // the two-way trail, so a promoting v3 dialect must say how
                 // it records the change that wrote each capability.
-                return Err(invalid(format!(
-                    "a '{SCHEMA_V3}' archive command names the instruction it carries"
-                )));
+                return Err(DialectRefusal::Uninstructed);
             }
         }
         Ok(())
@@ -490,72 +473,69 @@ impl Dialect {
 
     /// The dialect's name and its tool's identity: non-empty, and a binary
     /// named bare.
-    fn check_identity(&self, path: &str) -> Result<(), DialectError> {
-        let invalid = invalid_at(path);
-        if self.name.trim().is_empty()
-            || self.tool.binary.trim().is_empty()
-            || self.tool.version.trim().is_empty()
-            || self.tool.install.as_ref().is_some_and(|install| {
-                install.package.trim().is_empty()
-                    || install
-                        .source
-                        .as_ref()
-                        .is_some_and(|source| source.trim().is_empty())
-            })
-        {
-            return Err(invalid(
-                "name, tool binary, measured version and install package must be non-empty".into(),
-            ));
+    fn check_identity(&self) -> Result<(), DialectRefusal<'_>> {
+        if let Some(empty) = self.empty_identity() {
+            return Err(empty);
         }
         let binary = self.tool.binary.as_str();
         if binary.contains(['/', '\\', ':']) {
-            return Err(invalid(format!(
-                "tool binary '{binary}' must be a bare filename resolved from PATH"
-            )));
+            return Err(DialectRefusal::NotBare { binary });
         }
         Ok(())
+    }
+
+    /// The first identity field that trims to empty: name, binary,
+    /// version, then a present install's package and present source.
+    fn empty_identity(&self) -> Option<DialectRefusal<'_>> {
+        let install = self.tool.install.as_ref();
+        [
+            (Some(&self.name), DialectRefusal::EmptyName),
+            (Some(&self.tool.binary), DialectRefusal::EmptyBinary),
+            (Some(&self.tool.version), DialectRefusal::EmptyVersion),
+            (install.map(|i| &i.package), DialectRefusal::EmptyPackage),
+            (
+                install.and_then(|i| i.source.as_ref()),
+                DialectRefusal::EmptySource,
+            ),
+        ]
+        .into_iter()
+        .find_map(|(field, empty)| field.is_some_and(|f| f.trim().is_empty()).then_some(empty))
     }
 
     /// Every dependency names assigned artifacts, the one it depends on
     /// mapped first.
     fn check_order(
         &self,
-        path: &str,
         artifact_position: &BTreeMap<String, usize>,
-    ) -> Result<(), DialectError> {
-        let invalid = invalid_at(path);
+    ) -> Result<(), DialectRefusal<'_>> {
         for edge in &self.order {
-            let before = artifact_position.get(&edge.before).ok_or_else(|| {
-                invalid(format!("order names unassigned artifact '{}'", edge.before))
-            })?;
-            let after = artifact_position.get(&edge.after).ok_or_else(|| {
-                invalid(format!("order names unassigned artifact '{}'", edge.after))
-            })?;
-            if before >= after {
-                return Err(invalid(format!(
-                    "artifact '{}' is mapped before its dependency '{}'",
-                    edge.after, edge.before
-                )));
+            let (before, after) = (edge.before.as_str(), edge.after.as_str());
+            let Some(before_at) = artifact_position.get(before) else {
+                return Err(DialectRefusal::UnassignedBefore { artifact: before });
+            };
+            let Some(after_at) = artifact_position.get(after) else {
+                return Err(DialectRefusal::UnassignedAfter { artifact: after });
+            };
+            if before_at >= after_at {
+                return Err(DialectRefusal::Reversed { after, before });
             }
         }
         Ok(())
     }
 
     /// Every loop phase names its taxonomy.
-    fn check_taxonomies(&self, path: &str) -> Result<(), DialectError> {
-        let invalid = invalid_at(path);
+    fn check_taxonomies(&self) -> Result<(), DialectRefusal<'_>> {
         for (phase, loop_phase) in self.phases.loops() {
             if loop_phase.taxonomy.trim().is_empty() {
                 let phase = phase.as_str();
-                return Err(invalid(format!("phase '{phase}' has no taxonomy")));
+                return Err(DialectRefusal::NoTaxonomy { phase });
             }
         }
         Ok(())
     }
 
     /// Every instruction path spelled relative, beside its dialect.
-    fn check_instruction_paths(&self, path: &str) -> Result<(), DialectError> {
-        let invalid = invalid_at(path);
+    fn check_instruction_paths(&self) -> Result<(), DialectRefusal<'_>> {
         for instruction in self.instruction_paths() {
             // A dialect is data that travels between machines, so this
             // boundary is judged by the SPELLING, never by the host.
@@ -574,9 +554,7 @@ impl Dialect {
                     .split(['/', '\\'])
                     .any(|component| component == "..")
             {
-                return Err(invalid(format!(
-                    "instruction path '{instruction}' must be relative and remain beside its dialect"
-                )));
+                return Err(DialectRefusal::Escapes { instruction });
             }
         }
         Ok(())
@@ -686,44 +664,51 @@ impl Dialect {
     }
 }
 
-/// The refusal every check of the dialect at `path` reports a problem by.
-fn invalid_at(path: &str) -> impl Fn(String) -> DialectError + '_ {
-    move |problem| DialectError::Invalid {
-        path: path.to_string(),
-        problem,
+/// The version the bytes call themselves, read before they are given a
+/// shape: absent, or one of `accepted`.
+fn check_version<'a>(
+    value: &'a Value,
+    accepted: &'a [&'a str],
+    note: &'a str,
+) -> Result<(), DialectRefusal<'a>> {
+    if let Some(schema) = value.get("schema").and_then(Value::as_str) {
+        if !accepted.contains(&schema) {
+            return Err(DialectRefusal::Version {
+                schema,
+                accepted,
+                note,
+            });
+        }
     }
+    Ok(())
 }
 
 /// Every artifact phase filled with a required step, and every artifact
 /// assigned once; the artifacts' positions in map order are returned. A
 /// function of the phases, outside `impl Dialect`, so its loops stay within
 /// the nesting ceiling (decision 0071 ruling 4).
-fn check_artifacts(phases: &Phases, path: &str) -> Result<BTreeMap<String, usize>, DialectError> {
-    let invalid = invalid_at(path);
+fn check_artifacts(phases: &Phases) -> Result<BTreeMap<String, usize>, DialectRefusal<'_>> {
     let mut artifact_position = BTreeMap::new();
     let mut assigned = BTreeSet::new();
     let mut position = 0usize;
     for (known, phase) in phases.artifacts() {
         let phase_name = known.as_str();
         if phase.steps.is_empty() {
-            return Err(invalid(format!("phase '{phase_name}' is unfilled")));
+            return Err(DialectRefusal::Unfilled { phase: phase_name });
         }
         if !phase.steps.iter().any(|step| !step.optional) {
-            return Err(invalid(format!(
-                "phase '{phase_name}' has no required step"
-            )));
+            return Err(DialectRefusal::NoRequiredStep { phase: phase_name });
         }
         for step in &phase.steps {
-            if step.name.trim().is_empty() || step.artifacts.is_empty() {
-                return Err(invalid(format!(
-                    "phase '{phase_name}' has an empty step or artifact list"
-                )));
+            if step.name.trim().is_empty() {
+                return Err(DialectRefusal::UnnamedStep { phase: phase_name });
+            }
+            if step.artifacts.is_empty() {
+                return Err(DialectRefusal::NoArtifacts { phase: phase_name });
             }
             for artifact in &step.artifacts {
-                if !assigned.insert(artifact.clone()) {
-                    return Err(invalid(format!(
-                        "artifact '{artifact}' is assigned more than once"
-                    )));
+                if !assigned.insert(artifact.as_str()) {
+                    return Err(DialectRefusal::AssignedTwice { artifact });
                 }
                 artifact_position.insert(artifact.clone(), position);
                 position += 1;
@@ -733,7 +718,7 @@ fn check_artifacts(phases: &Phases, path: &str) -> Result<BTreeMap<String, usize
     Ok(artifact_position)
 }
 
-fn check_command_tokens(dialect: &Dialect, path: &str) -> Result<(), DialectError> {
+fn check_command_tokens(dialect: &Dialect) -> Result<(), DialectRefusal<'_>> {
     let mut commands: Vec<(&Vec<String>, Option<&Vec<String>>)> = Vec::new();
     for phase in DIALECT_PHASES {
         if let Some(command) = dialect.validation(phase) {
@@ -750,10 +735,7 @@ fn check_command_tokens(dialect: &Dialect, path: &str) -> Result<(), DialectErro
         for token in argv.iter().chain(state.into_iter().flatten()) {
             let stripped = token.replace("{change}", "");
             if stripped.contains('{') || stripped.contains('}') {
-                return Err(DialectError::Invalid {
-                    path: path.to_string(),
-                    problem: format!("argv token '{token}' uses an unknown placeholder"),
-                });
+                return Err(DialectRefusal::UnknownPlaceholder { token });
             }
         }
     }
@@ -768,5 +750,6 @@ pub fn library_path(root: &Path, declaration: &str, realm_root: &Path) -> PathBu
     }
 }
 
+mod refusal;
 #[cfg(test)]
 mod tests;
