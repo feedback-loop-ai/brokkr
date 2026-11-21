@@ -31,6 +31,9 @@ use std::time::{Duration, Instant};
 
 use serde_json::{json, Map, Value};
 
+use bind_refusal::BindRefusal;
+
+mod bind_refusal;
 pub(crate) mod environment;
 mod evidence;
 mod git;
@@ -221,50 +224,44 @@ impl HandsSpec {
 
 impl Bind {
     fn parse(raw: &Value) -> Result<Bind, String> {
-        let object = raw
-            .as_object()
-            .ok_or_else(|| "hands.binds entry must be an object".to_string())?;
-        for key in object.keys() {
-            if !["path", "mode", "mask"].contains(&key.as_str()) {
-                return Err(format!(
-                    "hands.binds entry has unknown key '{key}'; known: path, mode, mask"
-                ));
-            }
+        Bind::checked(raw).map_err(|refusal| refusal.to_string())
+    }
+
+    /// The bind's checks, in order, each refusing in its own variant.
+    fn checked(raw: &Value) -> Result<Bind, BindRefusal<'_>> {
+        let Some(object) = raw.as_object() else {
+            return Err(BindRefusal::NotObject);
+        };
+        let known = ["path", "mode", "mask"];
+        if let Some(key) = object.keys().find(|key| !known.contains(&key.as_str())) {
+            return Err(BindRefusal::UnknownKey { key });
         }
-        let path = object
-            .get("path")
-            .and_then(Value::as_str)
-            .filter(|path| !path.is_empty())
-            .ok_or_else(|| "hands.binds entry needs a non-empty 'path'".to_string())?
-            .to_string();
+        let present = object.get("path").and_then(Value::as_str);
+        let Some(path) = present.filter(|path| !path.is_empty()) else {
+            return Err(BindRefusal::NoPath);
+        };
         let mode = match object.get("mode").and_then(Value::as_str) {
             Some("ro") => BindMode::Ro,
             Some("rw") => BindMode::Rw,
             Some("overlay") => BindMode::Overlay,
-            _ => {
-                return Err(format!(
-                    "hands.binds entry '{path}' needs mode \"ro\", \"rw\" or \"overlay\""
-                ))
-            }
+            _ => return Err(BindRefusal::Mode { path }),
         };
         let mut mask = Vec::new();
         if let Some(raw_mask) = object.get("mask") {
-            let names = raw_mask
-                .as_array()
-                .ok_or_else(|| format!("hands.binds entry '{path}' mask must be an array"))?;
+            let Some(names) = raw_mask.as_array() else {
+                return Err(BindRefusal::MaskNotArray { path });
+            };
             for name in names {
-                let name = name
+                match name
                     .as_str()
                     .filter(|name| !name.is_empty() && !name.contains('/'))
-                    .ok_or_else(|| {
-                        format!(
-                            "hands.binds entry '{path}' mask names one file each, \
-                             without a slash"
-                        )
-                    })?;
-                mask.push(name.to_string());
+                {
+                    Some(name) => mask.push(name.to_string()),
+                    None => return Err(BindRefusal::MaskName { path }),
+                }
             }
         }
+        let path = path.to_string();
         Ok(Bind { path, mode, mask })
     }
 }
