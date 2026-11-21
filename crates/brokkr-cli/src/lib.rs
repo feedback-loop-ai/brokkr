@@ -15,6 +15,7 @@ mod broker;
 mod budget_frame;
 mod cli_args;
 mod compare;
+mod completion;
 mod doctor;
 mod dsh_key;
 mod exit;
@@ -89,6 +90,7 @@ enum Cmd {
     Ui(UiArgs),
     Tui(TuiArgs),
     Doctor(DoctorArgs),
+    Completions(completion::CompletionsArgs),
     Compile(CompileArgs),
     Run(RunArgs),
     Resume(ResumeArgs),
@@ -1324,6 +1326,7 @@ fn run_with(
         Cmd::Ui(args) => readouts::ui(workspace, args, serve_ui),
         Cmd::Tui(args) => readouts::tui(workspace, args, run_tui),
         Cmd::Doctor(args) => setup::doctor(args),
+        Cmd::Completions(args) => Ok(completion::script(args, &mut std::io::stdout().lock())),
         Cmd::Compile(args) => setup::compile(workspace, args),
         Cmd::Run(args) => delivery::run(workspace, args, &run_view::PRODUCTION),
         Cmd::Resume(args) => delivery::resume(workspace, args, &run_view::PRODUCTION),

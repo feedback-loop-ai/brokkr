@@ -1,0 +1,61 @@
+//! Shell completion (decision 0115). `brokkr completions <shell>` prints
+//! the script clap_complete writes for the command tree (ruling 1), so a
+//! shell offers every visible verb, flag and fixed value set. The tree
+//! holds no 0.16 alias, which is a respelling made before the tree parses
+//! (decision 0113 ruling 4).
+
+use std::io::Write;
+use std::process::ExitCode;
+
+use clap::{Command, CommandFactory};
+
+use crate::exit::Exit;
+
+#[derive(clap::Args)]
+#[group(skip)]
+pub(crate) struct CompletionsArgs {
+    /// The shell the script is written for.
+    #[arg(value_enum)]
+    pub(crate) shell: clap_complete::Shell,
+}
+
+/// `brokkr completions`: the script for `shell`, on `out`.
+pub(crate) fn script(CompletionsArgs { shell }: CompletionsArgs, out: &mut dyn Write) -> ExitCode {
+    let mut tree = offered(&crate::Cli::command());
+    clap_complete::generate(shell, &mut tree, "brokkr", out);
+    Exit::Completed.into()
+}
+
+/// `command` as a shell may offer it: every hidden subcommand left out, at
+/// every depth. clap_complete 4.6.9's generators write a hidden
+/// subcommand into the script, and clap cannot remove one from a command,
+/// so each level is built again from what a script reads of it: its name,
+/// texts, version, arguments and visible subcommands. clap is built
+/// without its `string` feature, so a name it takes is `'static`: each is
+/// leaked once, in a process that prints one script and exits.
+fn offered(command: &Command) -> Command {
+    let visible = command.get_subcommands().filter(|sub| !sub.is_hide_set());
+    let mut offered = Command::new(leaked(command.get_name()))
+        .args(command.get_arguments().cloned())
+        .subcommands(visible.map(offered));
+    if let Some(about) = command.get_about() {
+        offered = offered.about(about.clone());
+    }
+    if let Some(about) = command.get_long_about() {
+        offered = offered.long_about(about.clone());
+    }
+    if let Some(version) = command.get_version() {
+        offered = offered.version(leaked(version));
+    }
+    if let Some(bin) = command.get_bin_name() {
+        offered = offered.bin_name(bin.to_string());
+    }
+    offered
+}
+
+fn leaked(text: &str) -> &'static str {
+    Box::leak(text.to_string().into_boxed_str())
+}
+
+#[cfg(test)]
+mod tests;

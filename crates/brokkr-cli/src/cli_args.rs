@@ -15,6 +15,8 @@ mod queue;
 pub(crate) use member_retry::MemberRetryArgs;
 pub(crate) use queue::{QueueAddArgs, QueueCmd, QueueEntryArgs, QueueJudgeArgs, QueueListArgs};
 mod moved;
+#[cfg(test)]
+pub(crate) use moved::old_spellings;
 pub(crate) use moved::respelled;
 mod tree;
 

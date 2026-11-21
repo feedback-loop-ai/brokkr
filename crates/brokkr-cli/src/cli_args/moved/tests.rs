@@ -158,7 +158,10 @@ fn every_root_main_had_is_placed_once() {
     placed.extend(
         roots
             .iter()
-            .filter(|root| !["journal", "library", "stats", "system"].contains(root)),
+            // `completions` is decision 0115's, a root main never had.
+            .filter(|root| {
+                !["journal", "library", "stats", "system", "completions"].contains(root)
+            }),
     );
     placed.sort_unstable();
     let mut main = MAIN_ROOTS.to_vec();

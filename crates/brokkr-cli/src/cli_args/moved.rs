@@ -42,6 +42,13 @@ const MOVED: [(&str, &[&str]); 30] = [
     ("ui", &["system", "ui"]),
 ];
 
+/// Every old flat spelling, for the completion scripts' proof that none
+/// is offered (decision 0115 ruling 1).
+#[cfg(test)]
+pub(crate) fn old_spellings() -> impl Iterator<Item = &'static str> {
+    MOVED.iter().map(|(old, _)| *old)
+}
+
 /// An old flat spelling that was typed, and where its verb lives now.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct Moved {
