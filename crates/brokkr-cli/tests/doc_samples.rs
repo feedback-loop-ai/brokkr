@@ -773,8 +773,24 @@ fn ran(
     Printed {
         code,
         stdout,
-        stderr,
+        stderr: unnoted(stderr),
         roots,
+    }
+}
+
+/// `stderr` without the one line an old flat spelling says first: the
+/// guides still type the spellings 1169b moves (decision 0113 ruling 4),
+/// and that note is no part of what a sample shows. Any other first line
+/// is kept as printed.
+fn unnoted(stderr: String) -> String {
+    match stderr.split_once('\n') {
+        Some((first, rest))
+            if first.starts_with("brokkr: '")
+                && first.ends_with("; the old spelling goes in 0.17") =>
+        {
+            rest.to_string()
+        }
+        _ => stderr,
     }
 }
 

@@ -246,7 +246,7 @@ fn a_killed_engines_run_released_by_the_operator_lets_a_fresh_run_be_served() {
     assert!(cause.contains(&run), "held by the first run: {held:?}");
     let db = world.repo.join(".brokkr/state/forge.db");
     let args = [
-        "operator",
+        "runs", "operator",
         "--run",
         &run,
         "--reason",

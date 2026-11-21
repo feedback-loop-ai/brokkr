@@ -1151,10 +1151,12 @@ fn refusal(line: &str) -> Option<String> {
 const NO_SUBCOMMAND: &str = "a `brokkr` with no subcommand, which prints its help and fails";
 
 /// Why clap refuses one `brokkr` command, or nothing when it parses.
-/// `--help` and `--version` stop clap's parse but are valid lines.
+/// `--help` and `--version` stop clap's parse but are valid lines. An old
+/// flat spelling is respelled first, as the binary respells it, so a doc
+/// still written in one parses until 0.17 (decision 0113 ruling 4).
 fn clap_refusal(argv: &[String]) -> Option<String> {
     use clap::error::ErrorKind;
-    match Cli::try_parse_from(argv) {
+    match Cli::try_parse_from(crate::cli_args::respelled(argv).0) {
         Ok(_) => None,
         Err(error)
             if matches!(

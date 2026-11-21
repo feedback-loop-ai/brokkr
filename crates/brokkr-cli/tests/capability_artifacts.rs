@@ -60,7 +60,7 @@ fn plant(db: &Path, run_id: &str, engine: &str, checkpoints: &[Value]) {
 /// `inspect --json`'s checkpoint call evidence for `run_id`, in order.
 fn evidence(dir: &Path, db: &Path, run_id: &str) -> Vec<Value> {
     let db = db.to_str().unwrap();
-    let (out, err, ok) = brokkr(dir, &["inspect", "--run", run_id, "--db", db, "--json"]);
+    let (out, err, ok) = brokkr(dir, &["runs", "inspect", "--run", run_id, "--db", db, "--json"]);
     assert!(ok, "{err}");
     let view: Value = serde_json::from_str(&out).unwrap();
     let rows = view["participants"][0]["checkpoints"].as_array().unwrap();
@@ -258,7 +258,7 @@ impl Workspace {
     fn open_with(&self, run: &str, call: &str, more: &[&str]) -> (String, String, bool) {
         let db = self.db.to_str().unwrap();
         let args = [
-            "inspect",
+            "runs", "inspect",
             "--run",
             run,
             "--db",
@@ -347,7 +347,7 @@ fn inspect_fails_a_readout_its_output_refuses_with_the_cause() {
     let device = fs::File::options().write(true).open("/dev/full").unwrap();
     let db = workspace.db.to_str().unwrap();
     let args = [
-        "inspect",
+        "runs", "inspect",
         "--run",
         "retained",
         "--db",
@@ -401,7 +401,7 @@ fn inspect_opens_only_a_call_the_selected_run_records_once() {
     // The selector names one call, never a call within a scope.
     let db = workspace.db.to_str().unwrap();
     for (scope, value) in [("--phase", "research"), ("--seat", "research")] {
-        let args = ["inspect", "--run", "selected", "--db", db, scope, value];
+        let args = ["runs", "inspect", "--run", "selected", "--db", db, scope, value];
         let args = [&args[..], &["--capability-call", "a1:b:1"]].concat();
         let (out, err, ok) = brokkr(&workspace.root, &args);
         let named = format!(
@@ -499,7 +499,7 @@ fn inspect_opens_a_call_in_the_repository_repo_names() {
     let unplaced = workspace.open_with("elsewhere", "a1:b:1", &["--repo", place]);
     assert_eq!(unplaced, refused(&nowhere));
     let db = workspace.db.to_str().unwrap();
-    let args = ["inspect", "--run", "elsewhere", "--db", db, "--repo", repo];
+    let args = ["runs", "inspect", "--run", "elsewhere", "--db", db, "--repo", repo];
     let (out, err, ok) = brokkr(&workspace.root, &args);
     let first = err.lines().take(2).collect::<Vec<_>>();
     let required = [
@@ -655,7 +655,7 @@ impl EvidenceHost {
 
     /// `brokkr evidence list`, as its JSON array.
     fn listed(&self) -> Vec<Value> {
-        let (out, err, ok) = self.run(&["evidence", "list", "--json"]);
+        let (out, err, ok) = self.run(&["journal", "evidence", "list", "--json"]);
         assert!(ok, "{err}");
         serde_json::from_str(&out).unwrap()
     }
@@ -663,7 +663,7 @@ impl EvidenceHost {
     /// Retire the host's root into the archive `to` with `reason`.
     fn retire_archived(&self, to: &Path, reason: &str) -> (String, String, bool) {
         self.run(&[
-            "evidence",
+            "journal", "evidence",
             "retire",
             "--root",
             self.root(),
@@ -677,7 +677,7 @@ impl EvidenceHost {
     /// `inspect --capability-call` over `run` in this host.
     fn inspect_call(&self, run: &str, call: &str) -> (String, String, bool) {
         self.run(&[
-            "inspect",
+            "runs", "inspect",
             "--run",
             run,
             "--db",
@@ -696,7 +696,7 @@ fn evidence_lists_archives_and_retires_a_root() {
     let host = EvidenceHost::new();
     let sha256 = host.publish(RESPONSE);
     host.record();
-    let (out, err, ok) = host.run(&["evidence", "list"]);
+    let (out, err, ok) = host.run(&["journal", "evidence", "list"]);
     assert!(ok, "{err}");
     assert!(out.contains(host.root()), "{out}");
     assert!(
@@ -711,7 +711,7 @@ fn evidence_lists_archives_and_retires_a_root() {
 
     let to = host.home.join("archive");
     let (out, err, ok) = host.run(&[
-        "evidence",
+        "journal", "evidence",
         "retire",
         "--root",
         host.root(),
@@ -738,11 +738,11 @@ fn evidence_lists_archives_and_retires_a_root() {
     assert_eq!(inventory["artifacts"][0]["bytes"], json!(RESPONSE.len()));
     assert_eq!(inventory["total_bytes"], json!(RESPONSE.len()));
 
-    let (out, _, ok) = host.run(&["evidence", "list"]);
+    let (out, _, ok) = host.run(&["journal", "evidence", "list"]);
     assert!(ok);
     assert!(out.contains("archived at"), "{out}");
     let (_, err, ok) = host.run(&[
-        "evidence",
+        "journal", "evidence",
         "retire",
         "--root",
         host.root(),
@@ -768,7 +768,7 @@ fn evidence_discards_a_root_and_inspect_names_it_never_corrupt() {
         &[kept("a1:b:1", Some(&sha256))],
     );
     let (out, err, ok) = host.run(&[
-        "evidence",
+        "journal", "evidence",
         "retire",
         "--root",
         host.root(),
@@ -781,7 +781,7 @@ fn evidence_discards_a_root_and_inspect_names_it_never_corrupt() {
     assert!(!host.artifacts.exists(), "the root is removed");
     assert_eq!(host.listed()[0]["exists"], json!(false));
     let (out, err, ok) = host.run(&[
-        "inspect",
+        "runs", "inspect",
         "--run",
         "discarded",
         "--db",
@@ -793,7 +793,7 @@ fn evidence_discards_a_root_and_inspect_names_it_never_corrupt() {
     assert!(out.contains("response discarded"), "{out}");
     assert!(!out.to_lowercase().contains("corrupt"), "{out}");
     let (out, err, ok) = host.run(&[
-        "inspect",
+        "runs", "inspect",
         "--run",
         "discarded",
         "--db",
@@ -850,7 +850,7 @@ fn evidence_refuses_a_full_destination_and_an_unrecorded_root() {
     assert!(!ok, "{err}");
     assert!(err.contains("already holds a file"), "{err}");
     let (_, err, ok) = host.run(&[
-        "evidence",
+        "journal", "evidence",
         "retire",
         "--root",
         "/no/such/evidence/root",
@@ -882,7 +882,7 @@ fn evidence_list_prints_every_root_and_exits_nonzero_after_a_bad_one() {
     fs::create_dir_all(&third).unwrap();
     host.record_for(&third);
 
-    let (out, err, ok) = host.run(&["evidence", "list"]);
+    let (out, err, ok) = host.run(&["journal", "evidence", "list"]);
     assert!(!ok, "a bad root makes the verb exit non-zero: {err}");
     for at in [
         host.root(),
@@ -894,7 +894,7 @@ fn evidence_list_prints_every_root_and_exits_nonzero_after_a_bad_one() {
     assert!(out.contains("problem:"), "{out}");
     assert!(out.contains(&unfinished.display().to_string()), "{out}");
 
-    let (out, _err, ok) = host.run(&["evidence", "list", "--json"]);
+    let (out, _err, ok) = host.run(&["journal", "evidence", "list", "--json"]);
     assert!(!ok);
     let rows: Vec<Value> = serde_json::from_str(&out).unwrap();
     assert_eq!(rows.len(), 3, "every root is in the JSON array");
@@ -915,7 +915,7 @@ fn a_relative_archive_destination_is_recorded_absolute() {
     host.publish(RESPONSE);
     host.record();
     let (out, err, ok) = host.run(&[
-        "evidence",
+        "journal", "evidence",
         "retire",
         "--root",
         host.root(),
@@ -940,7 +940,7 @@ fn a_readout_with_no_lock_creates_none() {
     let sha256 = host.publish(RESPONSE);
     host.record();
     fs::remove_file(host.lock()).unwrap();
-    let (out, err, ok) = host.run(&["evidence", "list", "--json"]);
+    let (out, err, ok) = host.run(&["journal", "evidence", "list", "--json"]);
     assert!(ok, "{err}");
     assert_eq!(out.trim(), "[]", "nothing has been written under no lock");
     assert!(!host.lock().exists(), "the readout created no lock");
@@ -952,7 +952,7 @@ fn a_readout_with_no_lock_creates_none() {
         &[kept("a1:b:1", Some(&sha256))],
     );
     let (out, err, ok) = host.run(&[
-        "inspect",
+        "runs", "inspect",
         "--run",
         "unlocked",
         "--db",
@@ -1006,7 +1006,7 @@ fn evidence_list_prints_a_superseded_retirement_as_history() {
     let host = EvidenceHost::new();
     host.record();
     host.supersede("run-a");
-    let (out, err, ok) = host.run(&["evidence", "list"]);
+    let (out, err, ok) = host.run(&["journal", "evidence", "list"]);
     assert!(ok, "{err}");
     assert!(
         out.contains("superseded on 2026-11-09T00:00:00Z by run 'run-a'"),

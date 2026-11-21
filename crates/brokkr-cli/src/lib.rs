@@ -702,11 +702,18 @@ pub(crate) fn safe_lines(text: &str) -> String {
 /// profile from the command, and clap cannot both parse a verb and
 /// preserve that separator. It is not a user-facing command and never
 /// appears in `--help`.
+///
+/// An old flat spelling is respelled before the parse and says its new
+/// one on stderr first (decision 0113 ruling 4).
 pub fn main() -> ExitCode {
     if let Some(args) = dsh_sandbox_runner_args() {
         return dsh_sandbox_runner(args);
     }
-    match Cli::try_parse().map(run) {
+    let (argv, moved) = respelled(std::env::args_os());
+    if let Some(moved) = moved {
+        eprintln!("{moved}");
+    }
+    match Cli::try_parse_from(argv).map(run) {
         Ok(Ok(code)) => code,
         Ok(Err(e)) => report(&e),
         Err(usage) => Exit::of_parse(&usage).into(),

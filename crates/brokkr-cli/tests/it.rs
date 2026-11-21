@@ -41,6 +41,7 @@ mod budget_frame;
 mod capability_artifacts;
 mod capability_broker;
 mod capability_verbs;
+mod cli_aliases;
 mod composed_view;
 mod contract_lifecycle;
 mod contributing;

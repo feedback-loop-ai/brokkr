@@ -101,7 +101,7 @@ fn installs_and_compiles(cli: &str) {
         assert_eq!(code, Some(0), "{cli}: {stderr}");
         let source = workspace().join("recipes").join(recipe);
         let (code, _, stderr) =
-            brokkr(&["recipes", "add", source.to_str().unwrap(), "--name", recipe]);
+            brokkr(&["library", "recipes", "add", source.to_str().unwrap(), "--name", recipe]);
         assert_eq!(code, Some(0), "{cli} {recipe}: {stderr}");
         // The binary reports canonical paths; macOS's temporary root
         // (`/var`, a link to `/private/var`) is not spelled canonically.
@@ -109,7 +109,7 @@ fn installs_and_compiles(cli: &str) {
         assert_reported(&stderr, &folder, recipes, copied);
         let agents = folder.join("agents");
         let installed = format!(".brokkr/recipes/{recipe}");
-        let (code, stdout, stderr) = brokkr(&["compile", "--bundle", &installed]);
+        let (code, stdout, stderr) = brokkr(&["library", "compile", "--bundle", &installed]);
         assert_eq!(code, Some(0), "{cli} {recipe}: {stderr}");
         let compiled: Value = serde_json::from_str(&stdout).unwrap();
         for (seat, provider) in providers(cli) {

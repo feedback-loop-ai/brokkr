@@ -179,7 +179,7 @@ impl Workspace {
 
     fn inspect_json(&self, run_id: &str) -> Value {
         let (stdout, _) = self.brokkr(&[
-            "inspect",
+            "runs", "inspect",
             "--run",
             run_id,
             "--json",
@@ -191,7 +191,7 @@ impl Workspace {
 
     fn inspect_text(&self, run_id: &str) -> String {
         self.brokkr(&[
-            "inspect",
+            "runs", "inspect",
             "--run",
             run_id,
             "--db",
@@ -362,7 +362,7 @@ fn compare_reports_a_resolution_divergence_even_when_the_recipe_matches() {
     let first_choice = ws.run();
 
     let (stdout, _) = ws.brokkr(&[
-        "compare",
+        "runs", "compare",
         &fallen_back,
         &first_choice,
         "--db",
@@ -391,7 +391,7 @@ fn compare_reports_a_resolution_divergence_even_when_the_recipe_matches() {
     // rather than omitting the field: absence of a difference is itself
     // a reported fact.
     let (stdout, _) = ws.brokkr(&[
-        "compare",
+        "runs", "compare",
         &first_choice,
         &first_choice,
         "--db",
@@ -443,10 +443,10 @@ fn no_surface_composes_the_provenance_sentence_itself() {
 #[test]
 fn the_agents_verbs_run_against_the_default_roots() {
     let ws = Workspace::new(json!(["second"]));
-    let (stdout, _) = ws.brokkr(&["agents", "list"]);
+    let (stdout, _) = ws.brokkr(&["library", "agents", "list"]);
     assert!(stdout.starts_with("worker\tsecond\tthe worker"), "{stdout}");
 
-    let (stdout, _) = ws.brokkr(&["agents", "show", "worker"]);
+    let (stdout, _) = ws.brokkr(&["library", "agents", "show", "worker"]);
     let shown: Value = serde_json::from_str(&stdout).unwrap();
     assert_eq!(shown["name"], "worker");
     assert_eq!(shown["resolution"]["chosen"]["provider"], "fake");
@@ -454,14 +454,14 @@ fn the_agents_verbs_run_against_the_default_roots() {
 
     // Explicit roots, and the refusal an unknown name earns.
     let (stdout, _) = ws.brokkr(&[
-        "agents",
+        "library", "agents",
         "list",
         "--agents-dir",
         ws.path().join("agents").to_str().unwrap(),
     ]);
     assert!(stdout.contains("worker"), "{stdout}");
     let (_, stderr) = ws.brokkr(&[
-        "agents",
+        "library", "agents",
         "show",
         "nobody",
         "--agents-dir",
@@ -499,12 +499,12 @@ fn the_agents_verbs_lint_every_ask_against_the_operators_definitions() {
                    declare its classes before requesting it";
 
     // `list` warns and keeps listing; `show` refuses, as the compiler would.
-    let (stdout, _) = ws.brokkr(&["agents", "list"]);
+    let (stdout, _) = ws.brokkr(&["library", "agents", "list"]);
     assert_eq!(
         stdout,
         format!("warning: {missing}\nworker\tsecond\tthe worker\n")
     );
-    let (stdout, stderr) = ws.brokkr(&["agents", "show", "worker"]);
+    let (stdout, stderr) = ws.brokkr(&["library", "agents", "show", "worker"]);
     assert_eq!(stdout, "");
     assert_eq!(stderr, format!("error: {missing}\n"));
 
@@ -516,7 +516,7 @@ fn the_agents_verbs_lint_every_ask_against_the_operators_definitions() {
         "agents/capabilities/operator-library-docs.json",
         definition.clone(),
     );
-    let (stdout, _) = ws.brokkr(&["agents", "list", "--agents-dir", "agents"]);
+    let (stdout, _) = ws.brokkr(&["library", "agents", "list", "--agents-dir", "agents"]);
     assert!(
         stdout.starts_with(&format!("warning: {missing}\n")),
         "{stdout}"
@@ -526,9 +526,9 @@ fn the_agents_verbs_lint_every_ask_against_the_operators_definitions() {
     // library lints clean and `show` prints the ask as written.
     std::fs::create_dir_all(ws.path().join("capabilities")).unwrap();
     ws.write("capabilities/operator-library-docs.json", definition);
-    let (stdout, _) = ws.brokkr(&["agents", "list"]);
+    let (stdout, _) = ws.brokkr(&["library", "agents", "list"]);
     assert_eq!(stdout, "worker\tsecond\tthe worker\n");
-    let (stdout, _) = ws.brokkr(&["agents", "show", "worker"]);
+    let (stdout, _) = ws.brokkr(&["library", "agents", "show", "worker"]);
     let shown: Value = serde_json::from_str(&stdout).unwrap();
     assert_eq!(
         shown["capabilities"],
@@ -538,7 +538,7 @@ fn the_agents_verbs_lint_every_ask_against_the_operators_definitions() {
     // A malformed definition is the operator's to repair, and both verbs
     // name the file rather than linting against half a directory.
     std::fs::write(ws.path().join("capabilities/broken.json"), "{").unwrap();
-    for verb in [vec!["agents", "list"], vec!["agents", "show", "worker"]] {
+    for verb in [vec!["library", "agents", "list"], vec!["library", "agents", "show", "worker"]] {
         let (stdout, stderr) = ws.brokkr(&verb);
         assert_eq!(stdout, "");
         assert!(

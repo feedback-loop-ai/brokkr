@@ -14,6 +14,8 @@ mod member_retry;
 mod queue;
 pub(crate) use member_retry::MemberRetryArgs;
 pub(crate) use queue::{QueueAddArgs, QueueCmd, QueueEntryArgs, QueueJudgeArgs, QueueListArgs};
+mod moved;
+pub(crate) use moved::respelled;
 mod tree;
 
 use std::path::PathBuf;
