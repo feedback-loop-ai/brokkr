@@ -167,8 +167,10 @@ fn exists(
 /// The queue's one order (decision 0068 ruling 2, and the operator's
 /// ruling on #1191: "`queue move` orders entries within one priority, and
 /// priority always wins"): priority, higher first, then place, then id.
-/// Every read of the queue sorts by it, and every write of the places
-/// writes them in it, so a place is always its place in this order.
+/// Every read of the queue sorts by it, every write of the places writes
+/// them in it, and every read gives each waiting entry its place in it,
+/// so a queue journaled before this order, its places still arrival's,
+/// lists and moves by the same places.
 const ORDER: &str = "priority DESC, position, entry_id";
 
 /// A waiting entry and the priority that orders it first.
@@ -178,7 +180,7 @@ type Waiting = (EntryId, i64);
 /// claimed entry keeps its place until it is linked. Every unclaimed
 /// entry's state is read as a [`Standing`], so one this brokkr does not
 /// know refuses the command rather than being placed.
-fn waiting(tx: &Transaction<'_>) -> Result<Vec<Waiting>, StoreError> {
+fn waiting(conn: &Connection) -> Result<Vec<Waiting>, StoreError> {
     let query = format!(
         "SELECT entry_id, state, priority FROM queue_entries
          WHERE run_id IS NULL ORDER BY {ORDER}"
@@ -186,7 +188,7 @@ fn waiting(tx: &Transaction<'_>) -> Result<Vec<Waiting>, StoreError> {
     let read = |row: &rusqlite::Row<'_>| -> rusqlite::Result<(Waiting, Standing)> {
         Ok(((EntryId(row.get(0)?), row.get(2)?), row.get(1)?))
     };
-    let mut statement = tx.prepare(&query)?;
+    let mut statement = conn.prepare(&query)?;
     let unclaimed = (statement.query_map([], read)?).collect::<Result<Vec<_>, _>>()?;
     Ok(unclaimed
         .into_iter()
@@ -379,7 +381,8 @@ fn move_entry(tx: &Transaction<'_>, entry: EntryId, to: u32) -> Result<u32, Stor
 
 /// The entries `filter` selects with `key`, in the queue's order, each
 /// with its waits, the launch it stands for and the latch that stands on
-/// it. A version 1 queue holds no pins and no latches.
+/// it. A waiting entry's place is read as its place in the queue's order,
+/// not as stored. A version 1 queue holds no pins and no latches.
 fn entries(
     conn: &Connection,
     stored: Stored,
@@ -414,7 +417,9 @@ fn entries(
         .collect::<Result<Vec<_>, _>>()?;
     let mut waits = conn.prepare(WAITS)?;
     let mut latches = latched.then(|| conn.prepare(STANDING_LATCH)).transpose()?;
+    let order = waiting(conn)?;
     for entry in &mut listed {
+        entry.position = entry.position.map(|_| place_in(&order, entry.id));
         if let Some(latches) = &mut latches {
             entry.latch = latches.query_row([entry.id.0], latch_row).optional()?;
         }

@@ -329,6 +329,61 @@ fn a_move_orders_within_its_priority_and_every_command_keeps_the_order() {
     );
 }
 
+/// A queue journaled before the order read priority keeps arrival's
+/// places on disk; read now, each waiting entry's place is its place in
+/// the queue's order, through `list`, `entry`, a read-only open, a hold
+/// and a release, and `move --to` names the place listed (#1191).
+#[test]
+fn a_queue_placed_by_arrival_lists_and_moves_by_its_places_in_the_order() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("forge.db");
+    let mut store = Store::open(&path).unwrap();
+    for (n, priority) in [(1, 0), (2, 10), (3, 0), (4, 10)] {
+        add_at(&mut store, n, priority);
+    }
+    // The places as a binary before this order wrote them: arrival's.
+    let arrival = "UPDATE queue_entries SET position = entry_id";
+    store.conn.execute(arrival, []).unwrap();
+    let listed = [(2, Some(1)), (4, Some(2)), (1, Some(3)), (3, Some(4))];
+    assert_eq!(order(&store), listed);
+    assert_eq!(store.queue_entry(EntryId(1)).unwrap().position, Some(3));
+    store
+        .queue_command(EntryId(3), QueueCommand::Hold, BY)
+        .unwrap();
+    assert_eq!(order(&store), listed);
+    store
+        .queue_command(EntryId(3), QueueCommand::Release, BY)
+        .unwrap();
+    drop(store);
+
+    let read = Store::open_read_only(&path).unwrap();
+    assert_eq!(order(&read), listed);
+    assert_eq!(read.queue_entry(EntryId(2)).unwrap().position, Some(1));
+    drop(read);
+    let mut store = Store::open(&path).unwrap();
+    let to = QueueCommand::Move { to: 3 };
+    store.queue_command(EntryId(3), to, BY).unwrap();
+    assert_eq!(last_place(&store), Some(3));
+    let moved = [(2, Some(1)), (4, Some(2)), (3, Some(3)), (1, Some(4))];
+    assert_eq!(order(&store), moved);
+}
+
+/// The claimed entries list after the waiting ones, by priority, higher
+/// first, then by id.
+#[test]
+fn claimed_entries_list_after_the_waiting_by_priority_then_id() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&dir.path().join("forge.db")).unwrap();
+    for (n, priority) in [(1, 0), (2, 0), (3, 10)] {
+        add_at(&mut store, n, priority);
+    }
+    for (entry, run) in [(1, "run-a"), (3, "run-b")] {
+        started(&mut store, run);
+        linked(&mut store, EntryId(entry), run);
+    }
+    assert_eq!(order(&store), [(2, Some(1)), (3, None), (1, None)]);
+}
+
 #[test]
 fn a_journal_at_mains_schema_migrates_to_the_queue_and_keeps_its_runs() {
     let dir = tempfile::tempdir().unwrap();
