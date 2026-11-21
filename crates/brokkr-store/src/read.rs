@@ -28,6 +28,18 @@ static CHECKPOINTS_BETWEEN: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
+/// A run's checkpoints under one attempt that name a member, at or below
+/// a seq, in seq order: the engine's own markers, read through the stream
+/// index, never a seat turn.
+static MEMBER_MARKERS: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT seq FROM event_index INDEXED BY event_index_stream
+         WHERE run_id = ?1 AND attempt_id = ?2 AND member IS NOT NULL
+           AND seq <= ?3 AND type = '{CHECKPOINTED}'
+         ORDER BY seq"
+    )
+});
+
 impl Store {
     /// What landed on a run after a head the caller already loaded and
     /// verified, `(seq, hash)`: the events past `seq`, verified as the
@@ -104,6 +116,34 @@ impl Store {
     ) -> Result<Vec<EventEnvelope>, StoreError> {
         let found = patiently("index", self.patience, &self.path, || {
             seqs(&self.conn, &CHECKPOINTS_BETWEEN, params![run_id, from, to])
+        })?;
+        self.envelopes_at(run_id, &found)
+    }
+
+    /// A run's checkpoints under the attempts `attempts` names that name a
+    /// member, at or below `to`, in seq order, each read by its key through
+    /// the stream index: the engine's own panel-member-finished markers a
+    /// verdicts window's cut dropped, which a verdict inside that window is
+    /// read with (decision 0089 ruling 9, #1212). A journal that reads no
+    /// index must read the run whole instead ([`Store::reads_index`]).
+    pub fn envelopes_of_member_markers(
+        &self,
+        run_id: &str,
+        attempts: &[&str],
+        to: u64,
+    ) -> Result<Vec<EventEnvelope>, StoreError> {
+        let found = patiently("index", self.patience, &self.path, || {
+            let mut found = Vec::new();
+            for attempt in attempts {
+                found.extend(seqs(
+                    &self.conn,
+                    &MEMBER_MARKERS,
+                    params![run_id, *attempt, to],
+                )?);
+            }
+            found.sort_unstable();
+            found.dedup();
+            Ok(found)
         })?;
         self.envelopes_at(run_id, &found)
     }

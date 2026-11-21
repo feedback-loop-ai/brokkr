@@ -190,18 +190,10 @@ fn a_step_verdict_reads_by_the_engines_authorship_never_by_its_word() {
     assert_eq!(keys, ["e0:judge"]);
 }
 
-/// #1212, L2's review: a verdict inside the window shows even from an
-/// attempt begun before it, and a verdict before the window does not.
-/// The effect's request and start are read as context wherever they lie,
-/// so the window's verdict keeps its phase and seat.
-#[test]
-fn a_window_reads_its_verdicts_wherever_their_attempt_began() {
-    let judged = |id: &str| {
-        json!({"step": "sequence-step-finished", "authored": "engine", "step_name": "judge",
-               "member": "judge", "model": "m",
-               "result": {"result": "residual", "findings": [finding(id)]}})
-    };
-    let events = [
+/// `e0`'s request and attempt `a`'s start in phase `review`, then `rest`:
+/// the context a verdicts window keeps wherever it lies.
+fn reviewed(rest: impl IntoIterator<Item = EventEnvelope>) -> Vec<EventEnvelope> {
+    let opening = [
         ev(
             1,
             EventType::EffectRequested,
@@ -214,13 +206,68 @@ fn a_window_reads_its_verdicts_wherever_their_attempt_began() {
             json!({"effect_id": "e0", "attempt_id": "a"}),
             T,
         ),
+    ];
+    (opening.into_iter()).chain(rest).collect()
+}
+
+/// #1212, L2's review: a verdict inside the window shows even from an
+/// attempt begun before it, and a verdict before the window does not.
+/// The effect's request and start are read as context wherever they lie,
+/// so the window's verdict keeps its phase and seat.
+#[test]
+fn a_window_reads_its_verdicts_wherever_their_attempt_began() {
+    let judged = |id: &str| {
+        json!({"step": "sequence-step-finished", "authored": "engine", "step_name": "judge",
+               "member": "judge", "model": "m",
+               "result": {"result": "residual", "findings": [finding(id)]}})
+    };
+    let events = reviewed([
         checkpointed(3, judged("before")),
         checkpointed(5, judged("inside")),
-    ];
+    ]);
     let all = gate_records(&events, None);
     assert_eq!(all.len(), 2);
     let window = gate_records_within(&events, None, 3);
     assert_eq!(window.len(), 1);
     assert_eq!(window[0].phase, "review");
     assert_eq!(window[0].findings[0].id, "inside");
+}
+
+/// #1212, L2's review: a member's authored finish before the window is
+/// read as the window's context, so its attempt's settled payload inside
+/// the window is a verdict whose finding names the member, never
+/// unverified legacy evidence. A finish that only names the word is a
+/// driver's, and marks nothing.
+#[test]
+fn a_window_reads_a_member_finished_before_it_as_its_context() {
+    let result = json!({"result": "residual", "findings": [finding("kept")]});
+    let marker = |authored: bool| {
+        let mut marker = json!({"step": "panel-member-finished", "member": "a",
+                                "outcome": "succeeded", "site_ref": SITE});
+        if authored {
+            marker["authored"] = json!("engine");
+        }
+        marker
+    };
+    let terminal = |marker: Value| {
+        reviewed([
+            checkpointed(3, marker),
+            ev(
+                5,
+                EventType::EffectFailed,
+                json!({"effect_id": "e0", "attempt_id": "a",
+                       "settled_members": {"a": result}}),
+                T,
+            ),
+        ])
+    };
+    let authored = gate_records_within(&terminal(marker(true)), None, 4);
+    assert_eq!(authored.len(), 1);
+    assert_eq!(authored[0].unverified, None);
+    assert_eq!(authored[0].findings[0].id, "kept");
+    assert_eq!(authored[0].findings[0].producer, "review:a");
+    let worded = gate_records_within(&terminal(marker(false)), None, 4);
+    assert_eq!(worded.len(), 1);
+    assert_eq!(worded[0].unverified.as_deref(), Some("review:a"));
+    assert_eq!(worded[0].findings, Vec::new());
 }

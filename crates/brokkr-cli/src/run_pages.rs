@@ -59,13 +59,23 @@ impl Shows {
 
 /// A run's view as its reader shows it, the run's fold, or the fold's
 /// refusal, which `inspect` and `seats` refuse the run with, and the
-/// journal rows the read already holds: the frame's trail, or the run
-/// whole where that read fell back to it. A later reader of the same
+/// journal rows the read already holds. A later reader of the same
 /// journal reads beside them, never the trail again.
 pub(crate) struct Viewed {
     pub(crate) view: RunView,
     pub(crate) folded: Result<RunState, FoldError>,
-    pub(crate) trail: Vec<EventEnvelope>,
+    pub(crate) rows: Rows,
+}
+
+/// The journal rows a read already holds: a frame's trail, or the run
+/// whole where the frame's read was kept and fell back to it. Which one
+/// decides whether a later block bounds its read at all: the whole run is
+/// already held, the trail is not.
+pub(crate) enum Rows {
+    /// Every journal row of the run but a checkpoint.
+    Trail(Vec<EventEnvelope>),
+    /// The run whole, a checkpoint among its rows.
+    Whole(Vec<EventEnvelope>),
 }
 
 /// `run`'s view in `store` as a reader that `shows` it reads it: opened,
@@ -108,7 +118,7 @@ pub(crate) fn participants(
     let Viewed {
         view,
         folded,
-        trail: _,
+        rows: _,
     } = viewed(store, run, Shows::Frame, now)?;
     Ok(folded.map(|_| view.participants))
 }
@@ -122,7 +132,7 @@ fn whole(store: &Store, run: &str, now: &str) -> Result<Viewed, StoreError> {
     Ok(Viewed {
         view,
         folded,
-        trail: events,
+        rows: Rows::Whole(events),
     })
 }
 
@@ -218,7 +228,7 @@ fn composed(
     Ok(view.map(|view| Viewed {
         view,
         folded,
-        trail,
+        rows: Rows::Trail(trail),
     }))
 }
 

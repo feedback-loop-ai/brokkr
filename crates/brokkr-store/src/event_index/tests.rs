@@ -428,6 +428,38 @@ fn a_checkpoint_window_reads_only_its_checkpoints() {
     assert_eq!(seqs, [3, 5]);
 }
 
+/// #1212, L2's review: an attempt's member markers are read by its key,
+/// through the bound it names, and no seat turn comes with them.
+#[test]
+fn an_attempt_s_member_markers_read_by_key_through_their_bound() {
+    let (_dir, store) = store();
+    let marker = |attempt: &str, member: &str| {
+        event(
+            EventType::EffectCheckpointed,
+            json!({"effect_id": "e", "attempt_id": attempt,
+                   "checkpoint": {"step": "panel-member-finished", "authored": "engine",
+                                  "member": member, "outcome": "succeeded"}}),
+        )
+    };
+    run_of(
+        &store,
+        "r",
+        vec![
+            marker("a", "m1"),
+            event(
+                EventType::EffectCheckpointed,
+                json!({"effect_id": "e", "attempt_id": "a",
+                       "checkpoint": {"step": "seat-turn", "turn": 1}}),
+            ),
+            marker("b", "m2"),
+            marker("a", "m3"),
+        ],
+    );
+    let found = store.envelopes_of_member_markers("r", &["a"], 3).unwrap();
+    let seqs: Vec<u64> = found.iter().map(|event| event.seq).collect();
+    assert_eq!(seqs, [1]);
+}
+
 /// A run of three events, each with an attempt and a member to edit.
 fn three(store: &Store) {
     let step = |seq: u64| {

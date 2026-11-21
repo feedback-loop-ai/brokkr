@@ -8,6 +8,7 @@ use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
+use brokkr_core::findings::EngineMarker;
 use brokkr_core::fold::fold;
 use brokkr_runtime::engine::artifacts::artifact_root;
 use brokkr_runtime::engine::evidence::{self, Retirement, RetirementHistory};
@@ -18,7 +19,7 @@ use serde_json::json;
 
 use crate::cli_args::{CompareArgs, CostsArgs, InspectArgs, LedgerArgs, RealmsArgs};
 use crate::cli_args::{ReplayArgs, RunsArgs, SeatsArgs, TuiArgs, UiArgs, WatchArgs};
-use crate::run_pages::{self, Shows};
+use crate::run_pages::{self, Rows, Shows};
 use crate::{compare, fleet, ledger, realms, render, run_view, selector, tui};
 use crate::{hearths_of, journal_of, now_rfc3339, open_journal, resolve_in_hearths};
 use crate::{summarize, ui_journal, watch_loop, Access, Exit, Invocation};
@@ -103,7 +104,7 @@ type Reads<'r> = &'r dyn Fn(&Store, &str, Shows, &str) -> Result<run_pages::View
 /// selector names, in the journal the world names, read by `read` as a
 /// reader that `shows` it reads it, at `now`, and refused where it does
 /// not fold; beside it, the journal it was read from, the run's id, and
-/// the journal rows that read already holds.
+/// the journal rows that read already holds ([`Rows`]).
 fn run_view_of(
     workspace: &Path,
     realms: Option<PathBuf>,
@@ -117,18 +118,14 @@ fn run_view_of(
     Store,
     String,
     brokkr_core::RunState,
-    Vec<brokkr_core::EventEnvelope>,
+    Rows,
 )> {
     let db = journal_of(workspace, realms, db)?;
     let store = open_journal(&db, Access::Read)?;
     let run = selector::resolve_run(&store, run)?;
-    let run_pages::Viewed {
-        view,
-        folded,
-        trail,
-    } = read(&store, &run, shows, now)?;
+    let run_pages::Viewed { view, folded, rows } = read(&store, &run, shows, now)?;
     let state = folded?;
-    Ok((view, store, run, state, trail))
+    Ok((view, store, run, state, rows))
 }
 
 /// `inspect --json`'s bytes, which `seats --json` prints too: the view as
@@ -168,7 +165,7 @@ fn inspect_with(
 ) -> Result<ExitCode> {
     let whole = json || capability_call.is_some();
     let now = crate::now_rfc3339();
-    let (view, store, run, state, trail) =
+    let (view, store, run, state, rows) =
         run_view_of(workspace, realms, db, &run, Shows::of(whole), &now, read)?;
     if let Some(call_id) = capability_call {
         let repo = repo.as_deref().unwrap_or(workspace);
@@ -195,9 +192,10 @@ fn inspect_with(
     // read and this one shows on no frame that predates it (fix round
     // 0109a1r7, X6). Unscoped, it reads within the frame's budget
     // ([`verdict_rows`]); a scope reads the journal whole.
-    let read = match scope {
-        Some(_) => VerdictRows::whole(store.load(&run)?),
-        None => verdict_rows(&store, &run, state.seq, trail)?,
+    let read = match (scope, rows) {
+        (Some(_), _) => VerdictRows::whole(store.load(&run)?),
+        (None, Rows::Whole(events)) => VerdictRows::whole(events),
+        (None, Rows::Trail(trail)) => verdict_rows(&store, &run, state.seq, trail)?,
     };
     let gates = brokkr_view::gate_records_within(&read.events, Some(&state), read.unread);
     let gates: Vec<_> = (gates.iter())
@@ -250,11 +248,14 @@ impl VerdictRows {
 }
 
 /// The rows of `run` plain `inspect`'s verdicts block reads, through
-/// `head` and never past it: `trail`, the frame's read, which already
-/// holds every row but a checkpoint, beside the checkpoints of the newest
-/// [`VERDICT_ROWS`] read by key. A journal whose event index is not read
-/// is read whole, as the frame reads it (decision 0089 ruling 8). Each
-/// checkpoint is read after the frame's opening verified the chain
+/// `head` and never past it: `trail`, the frame's read, beside the
+/// checkpoints of the newest [`VERDICT_ROWS`] read by key, and beside the
+/// member markers of an attempt whose verdict is inside that window,
+/// read by key even where the window's cut dropped them. A journal whose
+/// event index is not read is read whole, as the frame reads it (decision
+/// 0089 ruling 8). The view alone decides which of these rows shows
+/// ([`brokkr_view::gate_records_within`]); this reads what it may need.
+/// Each checkpoint is read after the frame's opening verified the chain
 /// (ruling 5).
 fn verdict_rows(
     store: &Store,
@@ -264,21 +265,19 @@ fn verdict_rows(
 ) -> Result<VerdictRows, StoreError> {
     let cut = head.saturating_sub(VERDICT_ROWS);
     if !store.reads_index()? {
-        return Ok(VerdictRows::whole(trail));
+        return Ok(VerdictRows::whole(store.load(run)?));
     }
     let checkpoints = store.envelopes_of_checkpoints(run, cut + 1, head)?;
-    let context = |event: &brokkr_core::EventEnvelope| {
-        matches!(
-            event.event_type,
-            brokkr_core::EventType::EffectRequested | brokkr_core::EventType::EffectStarted
-        )
-    };
-    let mut rows = std::collections::BTreeMap::new();
-    for event in trail
-        .into_iter()
-        .filter(|event| event.seq > cut || context(event))
-    {
-        rows.insert(event.seq, event);
+    let mut rows: std::collections::BTreeMap<u64, brokkr_core::EventEnvelope> =
+        trail.into_iter().map(|event| (event.seq, event)).collect();
+    // A window's every checkpoint is already read, so its members' markers
+    // are too; only a cut can leave a verdict's marker behind it.
+    if cut > 0 {
+        let attempts = verdict_attempts(&rows, &checkpoints, cut);
+        let named: Vec<&str> = attempts.iter().map(String::as_str).collect();
+        for event in store.envelopes_of_member_markers(run, &named, head)? {
+            rows.insert(event.seq, event);
+        }
     }
     for event in checkpoints {
         rows.insert(event.seq, event);
@@ -287,6 +286,40 @@ fn verdict_rows(
         events: rows.into_values().collect(),
         unread: cut,
     })
+}
+
+/// The attempts `trail` and `checkpoints` give a verdict inside the
+/// window after `cut`: every attempt a terminal inside it concludes, and
+/// every attempt an authored step record inside it belongs to. These are
+/// the attempts whose member markers the window may have cut off, and so
+/// the ones [`verdict_rows`] reads those markers for.
+fn verdict_attempts(
+    trail: &std::collections::BTreeMap<u64, brokkr_core::EventEnvelope>,
+    checkpoints: &[brokkr_core::EventEnvelope],
+    cut: u64,
+) -> Vec<String> {
+    let terminal = |event: &&brokkr_core::EventEnvelope| {
+        event.seq > cut
+            && matches!(
+                event.event_type,
+                brokkr_core::EventType::EffectSucceeded
+                    | brokkr_core::EventType::EffectFailed
+                    | brokkr_core::EventType::EffectIndeterminate
+            )
+    };
+    let step = |event: &&brokkr_core::EventEnvelope| {
+        event.event_type == brokkr_core::EventType::EffectCheckpointed
+            && EngineMarker::authored(&event.payload["checkpoint"])
+                == Some(EngineMarker::StepFinished)
+    };
+    let mut attempts: Vec<String> = (trail.values())
+        .filter(terminal)
+        .chain(checkpoints.iter().filter(step))
+        .filter_map(|event| event.payload["attempt_id"].as_str().map(str::to_string))
+        .collect();
+    attempts.sort_unstable();
+    attempts.dedup();
+    attempts
 }
 
 /// Why `inspect --capability-call` opens no call of the selected run's

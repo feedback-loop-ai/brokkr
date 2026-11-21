@@ -74,12 +74,15 @@ pub fn gate_records(events: &[EventEnvelope], state: Option<&RunState>) -> Vec<G
 }
 
 /// Every verdict `events` records inside the window after journal row
-/// `cut`, read with the effect rows before it that name a verdict's phase
-/// and seat: a frame reads its trail whole and its verdicts' checkpoints
-/// from the window alone (decision 0089 ruling 9, #1212), so a verdict
-/// from an attempt begun before the window still shows, and no verdict
-/// before the window does. Read with `state` as [`gate_records`] reads
-/// it.
+/// `cut`, read with the rows before it that name its phase and seat or
+/// mark its attempt's members: a frame reads its trail whole and its
+/// verdicts' checkpoints from the window alone (decision 0089 ruling 9,
+/// #1212), so a verdict from an attempt begun before the window still
+/// shows, and no verdict before the window does. A panel member's authored
+/// finish is such a row wherever it lies — the window's cut may have
+/// dropped it while its attempt's verdict stayed inside — so the member's
+/// settled evidence is still read as a verdict, and its finding still
+/// names the member. Read with `state` as [`gate_records`] reads it.
 pub fn gate_records_within(
     events: &[EventEnvelope],
     state: Option<&RunState>,
@@ -92,6 +95,8 @@ pub fn gate_records_within(
                     event.event_type,
                     EventType::EffectRequested | EventType::EffectStarted
                 )
+                || EngineMarker::authored(&event.payload["checkpoint"])
+                    == Some(EngineMarker::MemberFinished)
         })
         .collect();
     records(&window, state)

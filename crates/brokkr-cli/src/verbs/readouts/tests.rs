@@ -589,7 +589,67 @@ fn plain_inspect_reads_an_index_less_journal_whole() {
     );
 }
 
-/// Fix round 0109a1r7, X6: inspect's verdict block reads no row past its
+/// #1212, L2's review (R1): a panel member's authored finish before the
+/// budget is read by its attempt's key, so its attempt's settled payload
+/// inside the budget is a verdict with its finding under its member,
+/// never unverified legacy evidence.
+#[test]
+fn plain_inspect_reads_a_member_finished_before_its_budget() {
+    let dir = tempfile::tempdir().unwrap();
+    let site = "5a1e00000000beef000000000000000000000000000000000000000000000000";
+    let finding = json!({"site": site, "id": "settled", "file": "a.rs", "summary": "s",
+                         "severity": "low", "security": false});
+    let marker = json!({"step": "panel-member-finished", "authored": "engine",
+                        "member": "a", "outcome": "succeeded", "site_ref": site});
+    let mut journal = vec![(
+        EventType::EffectCheckpointed,
+        json!({"effect_id": "e0", "attempt_id": "a0", "checkpoint": marker}),
+    )];
+    journal.extend(turns(1..super::VERDICT_ROWS));
+    journal.push((
+        EventType::EffectFailed,
+        json!({"effect_id": "e0", "attempt_id": "a0", "error": "e",
+               "settled_members": {"a": {"result": "residual", "findings": [finding]}}}),
+    ));
+    let db = in_review(dir.path(), journal);
+    let verdicts = inspected_verdicts(dir.path(), &db, &viewed);
+    assert_eq!(
+        verdicts,
+        format!(
+            "  review · finding settled · by review:a · site 5a1e00000000 · low · a.rs · s\n{}",
+            unread_line(5, 1005)
+        )
+    );
+}
+
+/// #1212, L2's review (R2): where the frame's paged read is kept and the
+/// run is read whole, the verdicts block reads that whole run too, so a
+/// verdict before the budget shows and no line claims rows were not read.
+#[test]
+fn plain_inspect_reads_a_kept_journals_verdicts_whole() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut journal = vec![(EventType::EffectCheckpointed, judged("early"))];
+    journal.extend(turns(1..super::VERDICT_ROWS));
+    journal.push((EventType::EffectCheckpointed, judged("late")));
+    let db = in_review(dir.path(), journal);
+    // The frame's trail no longer begins at the run's first event, so the
+    // frame's read is kept and the run is read whole; the index itself is
+    // still read, so the block's own window would otherwise cut.
+    let index = rusqlite::Connection::open(&db).unwrap();
+    index
+        .execute(
+            "DELETE FROM event_index WHERE run_id = 'r1' AND seq = 1",
+            [],
+        )
+        .unwrap();
+    drop(index);
+    let verdicts = inspected_verdicts(dir.path(), &db, &viewed);
+    assert_eq!(
+        verdicts,
+        format!("{}{}", judged_line("early"), judged_line("late"))
+    );
+}
+
 /// frame's head. A run in review whose judge step journaled `early` before
 /// the frame's read, and `late` after it, appended through the read seam
 /// between the frame's read and the verdict block's: the block shows
