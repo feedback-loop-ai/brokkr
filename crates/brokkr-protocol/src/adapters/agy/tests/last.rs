@@ -37,11 +37,10 @@ fn a_workspace_path_planted_while_the_home_is_made_is_refused_and_agy_never_star
     );
     let prepared = prepared.unwrap();
     let invoked = invoke(&prepared, &input, "prompt", &[], &mut |_| {});
-    let configured = LaunchError::Configured(planted.unwrap());
-    assert_eq!(
-        invoked.map(drop).map_err(|ended| ended.to_string()),
-        Err(configured.to_string())
-    );
+    let Err(Ended::Launch(LaunchError::Configured(path))) = invoked.map(drop) else {
+        panic!("the planted path was admitted or ended otherwise")
+    };
+    assert_eq!(Some(path), planted);
     drop(prepared);
     assert!(!world.started());
     assert!(world.homes_gone());
@@ -53,7 +52,12 @@ fn a_workspace_path_planted_while_the_home_is_made_is_refused_and_agy_never_star
 fn a_workspace_path_present_from_the_start_is_refused_and_leaves_no_home() {
     let mut world = World::new();
     let bin = fake_agy(&world.seat(), TOOL_LESS, "", true, 0);
-    let planted = plant(&world.seat(), ".agents/mcp_config.json");
+    // The driver names the path it checked, the resolved one, so a
+    // temporary directory reached through a link is planted at its end.
+    let planted = plant(
+        &world.seat().canonicalize().unwrap(),
+        ".agents/mcp_config.json",
+    );
     let messages = world.run(&bin, &["--model", FLASH], world.input(None), None);
     let error = ended(&messages).and_then(|(_, error, _)| error);
     assert_eq!(error, Some(LaunchError::Configured(planted).to_string()));

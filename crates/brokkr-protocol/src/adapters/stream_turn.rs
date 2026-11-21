@@ -8,10 +8,11 @@
 use std::io::BufRead;
 
 use serde_json::Value;
+use thiserror::Error;
 
 use super::spawn::Spawned;
 use super::stderr::{CapturedStderr, StderrCapture};
-use super::{conclude_harness, io_context, lost};
+use super::{lost, stop_harness};
 use crate::PreSessionRefusal;
 
 /// The exit a refused seat reads when the driver stopped its harness at
@@ -39,6 +40,20 @@ pub(super) struct Read {
     pub(super) unread: bool,
 }
 
+/// Why a turn did not conclude: the wait on its harness failed. Rendered
+/// once, at [`streamed_lines`]'s text boundary, in the shared driver's
+/// words (decision 0071 ruling 8).
+#[derive(Debug, Error)]
+#[error("agent CLI did not conclude: {0}")]
+pub(super) struct Unconcluded(#[from] std::io::Error);
+
+/// [`Unconcluded`] at the one text boundary its callers read.
+impl From<Unconcluded> for String {
+    fn from(unconcluded: Unconcluded) -> String {
+        unconcluded.to_string()
+    }
+}
+
 /// What a driver makes of one line of its harness's stdout.
 pub(super) enum Line {
     /// Read on.
@@ -60,7 +75,7 @@ pub(super) fn streamed_lines(
 ) -> Result<Turn, String> {
     let (mut child, stderr) = fed;
     let stdout = child.stdout.take().expect("piped");
-    turn_read((child, stderr), std::io::BufReader::new(stdout), line)
+    turn_read((child, stderr), std::io::BufReader::new(stdout), line).map_err(String::from)
 }
 
 /// The turn of the harness `fed`, its stdout read from `reader` by
@@ -69,14 +84,14 @@ pub(super) fn turn_read(
     fed: (Spawned, StderrCapture),
     reader: impl BufRead,
     line: impl FnMut(&[u8]) -> Line,
-) -> Result<Turn, String> {
+) -> Result<Turn, Unconcluded> {
     let (mut child, stderr) = fed;
     // The reader is dropped before the wait, so a harness still writing
     // meets a closed pipe rather than a full one.
     let Read { stopped, unread } = read_lines(reader, line);
     let status = match stopped {
-        Some(_) => conclude_harness(&mut child)?,
-        None => io_context(child.wait(), "agent CLI did not conclude")?,
+        Some(_) => stop_harness(&mut child)?,
+        None => child.wait()?,
     };
     let captured = stderr.take(stopped.is_some());
     let exit_code = match stopped {

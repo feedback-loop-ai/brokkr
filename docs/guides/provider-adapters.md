@@ -575,11 +575,10 @@ a workspace nobody trusted, and a workspace hook approved its own
 command. So an entry of any type at `<dir>/.agents/mcp_config.json`,
 `<dir>/.agents/plugins` or `<dir>/.agents/hooks.json`, where `<dir>` is
 the resolved working directory or any directory above it up to the
-filesystem root, refuses the launch, naming the path. The driver checks
-every directory to the root, and agy reads no more than those: its own
-walk up stops sooner, at a repository root the record measures
-(`git-root-*`), so the driver asks git nothing. The cost is a refusal for
-a path agy would not have read; it names the path, and removing it admits
+filesystem root, refuses the launch, naming the path. Agy reads only
+within that range: its own walk up ends at the root or sooner, where the
+record measures (`git-root-*`), so the driver asks git nothing. The cost
+is a refusal for a path agy would not have read; it names the path, and removing it admits
 the seat. The check runs once, after the engine's HOME is made and
 directly before the CLI starts, and a seat it refuses leaves no HOME
 behind. A writer that plants a path after the check and before agy reads

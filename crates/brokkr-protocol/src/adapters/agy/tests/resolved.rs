@@ -5,7 +5,9 @@
 
 use super::judged::{driven, driven_with, stream};
 use super::*;
-use crate::adapters::stream_turn::{json_rows, read_lines, turn_read, Line, Read as Reading};
+use crate::adapters::stream_turn::{
+    json_rows, read_lines, turn_read, Line, Read as Reading, Unconcluded,
+};
 use fold::Seen;
 
 /// The recorded tool-less turn's init, its finished response step, and its
@@ -73,7 +75,7 @@ fn failing() -> std::io::BufReader<Failing> {
 /// with when its stdout is read from `reader` by the function that builds
 /// the production [`Turn`] ([`turn_read`]), concluded with the seat's
 /// result file delivered: whether the turn was unread, and its answer.
-fn concluded_on(reader: impl std::io::BufRead) -> (bool, Result<Option<Value>, String>) {
+fn concluded_on(reader: impl std::io::BufRead) -> (bool, Result<Option<Value>, Ended>) {
     let root = tempfile::tempdir().unwrap();
     let dir = root.path();
     let result = dir.join("result.json");
@@ -93,8 +95,18 @@ fn concluded_on(reader: impl std::io::BufRead) -> (bool, Result<Option<Value>, S
     let unread = turn.unread;
     let input = json!({ "result_path": result });
     let concluded = concluded(fold, turn, record, &input, &[]);
-    let answer = concluded.map(|invocation| invocation.answer);
-    (unread, answer.map_err(|ended| ended.to_string()))
+    (unread, concluded.map(|invocation| invocation.answer))
+}
+
+/// A turn whose harness cannot be waited on is typed where the turn is
+/// built and ends in the shared driver's words at its text boundary.
+#[test]
+fn a_turn_that_does_not_conclude_ends_in_the_shared_drivers_words() {
+    let unconcluded = Unconcluded::from(std::io::Error::other("gone"));
+    assert_eq!(
+        String::from(unconcluded),
+        "agent CLI did not conclude: gone"
+    );
 }
 
 /// A pinned `SUCCESS` and then a read that fails: the production turn is
@@ -117,13 +129,17 @@ fn a_stdout_that_fails_before_its_end_fails_the_turn_and_qoder_ends_its_reading(
         "agy's result had status SUCCESS; agy's stdout could not be read to its end, so the turn \
          gave no answer (#1200)"
     );
-    assert_eq!(concluded_on(failing()), (true, Err(failure.to_string())));
+    let (unread_turn, ended) = concluded_on(failing());
+    assert!(unread_turn);
+    let Err(Ended::Failed(failed)) = ended else {
+        panic!("{ended:?}")
+    };
+    assert_eq!(failed, failure);
     let (init, step, result) = turn_rows();
     let whole = stream(&[init, step, result]) + "\n";
-    assert_eq!(
-        concluded_on(std::io::Cursor::new(whole)),
-        (false, Ok(Some(json!("READY\n"))))
-    );
+    let (unread_turn, answer) = concluded_on(std::io::Cursor::new(whole));
+    assert!(!unread_turn);
+    assert_eq!(answer.unwrap(), Some(json!("READY\n")));
     // A fault seen earlier stands.
     let mut faulted = read(b"\xff", FLASH).fold;
     faulted.unreadable(true);
