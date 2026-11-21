@@ -313,22 +313,21 @@ fn exec_driver_child() {
 
 /// The engine's own executable for a dialect step: a wrapper that drops
 /// `driver exec --` and serves the rest through [`exec_driver_child`],
-/// passing on only protocol lines.
+/// passing on only protocol lines. Copied in by a child and renamed,
+/// never exec'd from a file this process wrote: a sibling test's fork
+/// that still holds the writer would make it `Text file busy` (ETXTBSY).
 #[cfg(unix)]
 fn serving_exec(dir: &std::path::Path) -> std::path::PathBuf {
-    use std::os::unix::fs::PermissionsExt;
-    let path = dir.join("serve-exec");
+    use crate::engine::capability_tests::provision_tests::survey_tests::installed;
     let body = format!(
         "#!/bin/sh\nshift 3\n{SERVE_EXEC}=\"$(printf '%s\\n' \"$@\")\" \
          exec '{exe}' --exact engine::tests::driver_stderr::exec_driver_child \
          --nocapture --test-threads=1 -q | grep --line-buffered '^{{'\n",
         exe = std::env::current_exe().unwrap().display(),
     );
-    let staged = dir.join("serve-exec.staged");
-    std::fs::write(&staged, body).unwrap();
-    std::fs::set_permissions(&staged, std::fs::Permissions::from_mode(0o755)).unwrap();
-    std::fs::rename(&staged, &path).unwrap();
-    path
+    let source = dir.join("serve-exec.sh");
+    std::fs::write(&source, body).unwrap();
+    installed(dir, "serve-exec", &source)
 }
 
 /// A dialect step whose validator prints `stdout` and the sentinel on its
