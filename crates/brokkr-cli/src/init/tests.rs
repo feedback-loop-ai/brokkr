@@ -815,3 +815,19 @@ fn pytest() -> Tool {
         permission: "Bash(.venv/bin/pytest:*)",
     }
 }
+
+/// The ship seat `init` scaffolds writes its ledger by the verb's own
+/// path, never the flat alias 0.17 removes (decision 0113 ruling 6).
+#[test]
+fn the_scaffolded_ship_seat_calls_the_ledger_by_its_new_path() {
+    let calls: Vec<&str> = super::SHIP_SCRIPT
+        .lines()
+        .filter(|line| line.contains("\"$brokkr\""))
+        .collect();
+    assert_eq!(
+        calls,
+        [
+            r#"  output="$("$brokkr" stats ledger --run "$run_id" --db "$journal" --repo . 2>&1)"; status=$?"#
+        ]
+    );
+}

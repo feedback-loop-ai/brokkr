@@ -62,7 +62,7 @@ ledger=".forge/ledger/$run_id.md"
 if [ "$rule_id" != "SHIP-READY" ]; then
     [ -n "$journal" ] || { echo "ship-seat: prompt lacks journal path" >&2; exit 2; }
     dirty="$(git status --porcelain 2>&1 || true)"
-    ledger_output="$("$brokkr" ledger --run "$run_id" --db "$journal" --repo . 2>&1)"
+    ledger_output="$("$brokkr" stats ledger --run "$run_id" --db "$journal" --repo . 2>&1)"
     ledger_status=$?
     if [ "$ledger_status" -ne 0 ]; then
         printf 'ship-seat: ledger generation failed: %s\n' "$ledger_output" >&2
