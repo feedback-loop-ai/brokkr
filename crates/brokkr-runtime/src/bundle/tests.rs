@@ -647,6 +647,26 @@ fn compiler_refuses_invalid_phase_seat_limit_and_input_shapes() {
     assert!(error(fixture.compile(&config, &policy)).contains("has no seat"));
 }
 
+/// #1221 C: a seat whose body and input set are both refused reports the
+/// body's refusal, and its inputs' once the body compiles.
+#[test]
+fn a_seats_body_refusal_is_reported_before_its_inputs() {
+    let (fixture, policy) = (Fixture::new(), Fixture::policy());
+    let mut config = Fixture::config();
+    config["seats"]["work"]["inputs"] = json!("bad");
+    let inputs = error(fixture.compile(&config, &policy));
+    assert_eq!(
+        inputs,
+        "bundle: seat 'work' inputs must be an array of strings"
+    );
+    config["seats"]["work"]
+        .as_object_mut()
+        .unwrap()
+        .remove("role");
+    let body = error(fixture.compile(&config, &policy));
+    assert_eq!(body, "bundle: seat 'work' missing 'role'");
+}
+
 #[test]
 fn select_parses_every_case_and_refuses_closed_vocabulary_defects_by_case() {
     let fixture = Fixture::new();
