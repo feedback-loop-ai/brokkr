@@ -1246,8 +1246,10 @@ root session is a confirmed provider session or it is absent.
 
 The schema admits the grammar; the engine's writer narrows it. Where the
 engine appends a driver's checkpoint or successful result, it refuses a
-kind in either member that no loaded adapter declares, naming the kind
-and the seat, and the attempt fails on that refusal. An adapter declares
+kind, at any place the record names one, that the seat's own harness
+does not declare — its adapter's or its built-in driver's, never
+another adapter's — naming the kind and the seat, and the attempt fails
+on that refusal. An adapter declares
 its kinds in the optional `record_kinds` member, a `transcript` kind and,
 where the harness confirms one, a `root_session` kind. The built-in
 drivers declare the kinds they write, so no shipped adapter carries the

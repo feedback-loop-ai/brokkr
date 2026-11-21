@@ -428,7 +428,7 @@ pub brokkr_runtime::agents::DeclaredDialect::boundary: brokkr_runtime::agents::B
 pub brokkr_runtime::agents::DeclaredDialect::hands: alloc::vec::Vec<alloc::string::String>
 pub brokkr_runtime::agents::DeclaredDialect::permissions: core::option::Option<brokkr_protocol::native_controls::ListFlag>
 pub brokkr_runtime::agents::DeclaredDialect::sandbox: alloc::vec::Vec<alloc::string::String>
-pub struct brokkr_runtime::agents::DeclaredKinds
+pub struct brokkr_runtime::agents::DeclaredKinds(_)
 pub struct brokkr_runtime::agents::HarnessHands
 pub brokkr_runtime::agents::HarnessHands::gate: core::option::Option<alloc::vec::Vec<alloc::string::String>>
 pub brokkr_runtime::agents::HarnessHands::gate_gap: core::option::Option<alloc::string::String>

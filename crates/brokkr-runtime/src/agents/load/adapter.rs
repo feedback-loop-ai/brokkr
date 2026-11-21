@@ -77,6 +77,15 @@ pub(super) fn record_kinds(
         true => Some(kind("root_session")?),
         false => None,
     };
+    // A root session kind is what a rejoin would be offered on, and
+    // whether one exists is a capability: declared, never defaulted
+    // (decision 0075 ruling 1).
+    if root_session.is_some() && !map.contains_key("resume") {
+        return invalid(format!(
+            "{what} declares a 'root_session' kind and the adapter declares no 'resume'; \
+             a rejoin is declared, never defaulted (decision 0075 ruling 1)"
+        ));
+    }
     Ok(Some(RecordKinds {
         transcript,
         root_session,

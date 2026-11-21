@@ -218,9 +218,14 @@ Each kind is one lowercase word of letters, digits and single inner
 hyphens, at most 40 characters, declared by the harness's adapter in its
 optional `record_kinds` member. The built-in drivers declare the kinds
 they write. `none` stays a transcript's empty locator and is never a
-root session kind. The engine refuses at append a kind no loaded adapter
-declares, naming the kind and the seat; every reader judges a record by
-the schema alone. v8 is minted under this decision, which is accepted,
+root session kind. The engine refuses at append, wherever a record
+names a kind, one the seat's own harness does not declare — its
+adapter's, or its built-in driver's — naming the kind and the seat; no
+other adapter's declaration counts. A root of a kind no built-in driver
+writes is offered for a rejoin only where the seat's adapter declares
+it and declares a resume for the site that is not `unsupported`, and an
+adapter declaring a root session kind must declare `resume`. Every
+reader judges a record by the schema alone. v8 is minted under this decision, which is accepted,
 through decision 0082's lifecycle, and stands at v7's engine line, so
 dispatch never chooses v7.
 

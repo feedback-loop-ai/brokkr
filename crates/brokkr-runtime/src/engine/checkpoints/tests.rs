@@ -221,7 +221,7 @@ fn a_refused_live_checkpoint_behind_a_latch_never_takes_its_place() {
         attempt_id: "attempt",
     };
     let dir = tempfile::tempdir().unwrap();
-    let kinds = crate::agents::DeclaredKinds::default();
+    let kinds = crate::agents::kinds::SeatKinds::default();
     let declared = super::Declared {
         kinds: &kinds,
         seat: "seat",

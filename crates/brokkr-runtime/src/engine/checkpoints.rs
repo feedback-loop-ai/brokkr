@@ -86,8 +86,7 @@ use serde_json::{json, Value};
 use super::capability_calls::{self, BrokerCheckpoint, SettledEvent, Stamp};
 use super::resume::SiteContext;
 use super::EngineError;
-use crate::agents::kinds::UndeclaredKind;
-use crate::agents::DeclaredKinds;
+use crate::agents::kinds::{SeatKinds, UndeclaredKind};
 
 /// How many of the store's patiences an attempt's settlement gets — its
 /// terminal event, the evidence journaled with it, and the checkpoints
@@ -186,16 +185,17 @@ enum Refused {
     /// 0109a1r4, K1).
     #[error(transparent)]
     Live(LiveRefusal),
-    /// A driver's checkpoint named a kind no loaded adapter declares
-    /// (decision 0075 ruling 2).
+    /// A driver's checkpoint named a kind its seat's harness does not
+    /// declare (decision 0075 ruling 2).
     #[error(transparent)]
     Kind(UndeclaredKind),
 }
 
-/// The kinds a sink's writer admits, and the seat whose driver it reads.
+/// The kinds a sink's writer admits — the seat's own harness's — and the
+/// seat whose driver it reads.
 #[derive(Clone, Copy)]
 pub(super) struct Declared<'k> {
-    pub(super) kinds: &'k DeclaredKinds,
+    pub(super) kinds: &'k SeatKinds,
     pub(super) seat: &'k str,
 }
 

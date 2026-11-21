@@ -302,6 +302,15 @@ fn a_record_kinds_declaration_refuses_every_other_shape() {
             json!({"record_kinds": {"transcript": "trellis-trail", "root_session": "none"}}),
             format!("{{what}} 'record_kinds' 'root_session' {kind_rule}"),
         ),
+        // A root session kind with no `resume` member at all: a rejoin is
+        // declared, never defaulted (decision 0075 ruling 1).
+        (
+            json!({"record_kinds": {"transcript": "trellis-trail",
+                                    "root_session": "trellis-thread"}}),
+            "{what} 'record_kinds' declares a 'root_session' kind and the adapter declares no \
+             'resume'; a rejoin is declared, never defaulted (decision 0075 ruling 1)"
+                .to_string(),
+        ),
     ];
     let rows: Vec<(Value, &str)> = (rows.iter())
         .map(|(patch, text)| (patch.clone(), text.as_str()))

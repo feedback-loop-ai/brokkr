@@ -1273,6 +1273,7 @@ impl<'de> serde_core::de::Deserialize<'de> for brokkr_protocol::Probe
 pub fn brokkr_protocol::Probe::deserialize<D>(D) -> core::result::Result<Self, <D as serde_core::de::Deserializer>::Error> where D: serde_core::de::Deserializer<'de>
 pub const brokkr_protocol::DRIVER_REFUSAL_SCHEMA: &str
 pub const brokkr_protocol::PROTO: &str
+pub fn brokkr_protocol::driver_kind(brokkr_protocol::adapters::AdapterKind) -> core::option::Option<&'static str>
 pub fn brokkr_protocol::driver_kinds() -> [&'static str; 3]
 pub fn brokkr_protocol::dsh_served(core::option::Option<&brokkr_protocol::native_controls::SealedIsolation>, bool, core::option::Option<&str>, bool) -> core::result::Result<brokkr_protocol::DshServed, brokkr_protocol::DshRefusal>
 pub fn brokkr_protocol::holds_dotenv(&std::path::Path) -> bool

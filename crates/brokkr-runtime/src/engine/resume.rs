@@ -22,6 +22,7 @@ use serde_json::{json, Map, Value};
 use brokkr_core::findings::Reporter;
 use brokkr_core::realms::Boundary;
 
+use crate::agents::kinds::SeatKinds;
 use crate::agents::Candidate;
 pub(super) use crate::bundle::SiteKey;
 use crate::bundle::{ExecutableBody, Invocation, SeatClass, StepBody};
@@ -189,6 +190,9 @@ pub(super) fn originating_root(
 /// without one supplies no offer, whatever else it says.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct ConfirmedSession {
+    /// Which provider's session this is (decision 0075 ruling 2). A root
+    /// whose kind does not read supplies no offer.
+    pub(super) kind: String,
     pub(super) id: String,
     pub(super) persistent: bool,
 }
@@ -196,6 +200,7 @@ pub(super) struct ConfirmedSession {
 impl ConfirmedSession {
     fn read(root: &Value) -> Option<ConfirmedSession> {
         Some(ConfirmedSession {
+            kind: root.get("kind").and_then(Value::as_str)?.to_string(),
             id: root.get("id").and_then(Value::as_str)?.to_string(),
             // Absent persistence is not "probably persistent". A root
             // whose shape never established the answer cannot be
@@ -218,6 +223,9 @@ pub(super) struct SiteContext {
     pub(super) class: SeatClass,
     /// The offered root's history at this site; empty unless offered.
     pub(super) history: RootHistory,
+    /// What this site's harness declares (decision 0075 ruling 2): the
+    /// kinds its records may name, and the root kinds it may be offered.
+    pub(super) kinds: SeatKinds,
 }
 
 /// What the offered root's earlier attempts journaled at one site
@@ -239,7 +247,13 @@ impl SiteContext {
             instance_ref,
             class,
             history: RootHistory::default(),
+            kinds: SeatKinds::default(),
         }
+    }
+
+    /// This context judged by `kinds`, its site's own harness.
+    pub(super) fn of_harness(self, kinds: SeatKinds) -> Self {
+        SiteContext { kinds, ..self }
     }
 
     /// What this site reports as, read by its compiled class: a gate by
@@ -397,7 +411,10 @@ pub(super) fn eligible_offer(
             return None;
         }
         let root = ConfirmedSession::read(root)?;
-        if !root.persistent {
+        // A root of a kind no built-in driver writes is offered only where
+        // this site's own adapter declares that kind and a resume for a
+        // work site that is not `unsupported` (decision 0075 ruling 2).
+        if !root.persistent || !context.kinds.rejoins(&root.kind) {
             return None;
         }
         // The attempt this row belongs to must be one of this seat's own

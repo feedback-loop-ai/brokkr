@@ -41,6 +41,19 @@ pub fn driver_kinds() -> [&'static str; 3] {
     [Kind::ClaudeSession, Kind::CodexThread, Kind::DshSession].map(Kind::label)
 }
 
+/// The one kind `driver` writes, as its transcript's and its confirmed
+/// root session's (decision 0075 ruling 2): LaneTally wraps claude, so it
+/// writes claude's, and `exec` writes none.
+pub fn driver_kind(driver: crate::adapters::AdapterKind) -> Option<&'static str> {
+    use crate::adapters::AdapterKind;
+    match driver {
+        AdapterKind::Claude | AdapterKind::Lanetally => Some(Kind::ClaudeSession.label()),
+        AdapterKind::Codex => Some(Kind::CodexThread.label()),
+        AdapterKind::Dsh => Some(Kind::DshSession.label()),
+        AdapterKind::Exec => None,
+    }
+}
+
 /// One invocation's transcript identity. The locator may arrive after the
 /// harness starts, so the value is mutable while the home and kind are not.
 pub(crate) struct Transcript {

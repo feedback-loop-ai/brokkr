@@ -32,7 +32,7 @@ use super::{
     stamp_boundary, start_failure_fields, tag_member, Calls, Checkpoints, Door, DriverRun, Engine,
     EngineError, Indeterminate, Selection, Site, SiteSpawn, Unproven,
 };
-use crate::agents::DeclaredKinds;
+use crate::agents::kinds::{SeatKinds, UNDECLARED};
 use crate::bundle::{
     Aggregate, Bundle, MemberFindings, MemberVerdict, PanelJoin, PanelMember, ENGINE_VERSION,
 };
@@ -327,7 +327,7 @@ impl Engine {
             // abandoned channel must not deadlock the members.
             drop(sender);
             sink.take(&receiver, |sink, (member, checkpoint)| {
-                let at = (runs, &mut calls[..], tag_prefix, &bundle.declared_kinds);
+                let at = (runs, &mut calls[..], tag_prefix);
                 offer_member_checkpoint(sink, at, &member, checkpoint);
             });
             handles
@@ -366,7 +366,7 @@ impl Engine {
         let mut stamped = Stamped::new();
         for ((name, mut report, begun), run) in reports.into_iter().zip(runs) {
             settled.carry(&Tag::prefixed(tag_prefix, &name).0, &mut report);
-            let report = self.bundle.declared_kinds.refused(&run.driver_seat, report);
+            let report = run.kinds().refused(&run.driver_seat, report);
             // Each member's findings carry the member's own site.
             let report = self.settled_by(ids, &run.spawn, begun, report)?;
             let admitted = super::verdict::admitted(report, run.context.as_ref());
@@ -512,6 +512,11 @@ impl MemberRun {
             on_checkpoint,
         ))
     }
+
+    /// What this member's own harness declares (decision 0075 ruling 2).
+    fn kinds(&self) -> &SeatKinds {
+        (self.context.as_ref()).map_or(&UNDECLARED, |context| &context.kinds)
+    }
 }
 
 /// The report of a member whose driver did not spawn, by `error`: a
@@ -540,10 +545,10 @@ fn unspawned(error: &str) -> AttemptReport {
 /// Offer one live member checkpoint to the panel's sink, on the main
 /// thread: read by the call authority of the member it is tagged with,
 /// stamped with that member's boundary and structural identity, and
-/// admitted by the kinds the loaded adapters declare.
+/// admitted by the kinds that member's own harness declares.
 fn offer_member_checkpoint(
     sink: &mut Checkpoints<'_, fn(&mut Store)>,
-    (runs, calls, tag_prefix, kinds): (&[MemberRun], &mut [Calls], &str, &DeclaredKinds),
+    (runs, calls, tag_prefix): (&[MemberRun], &mut [Calls], &str),
     member: &str,
     mut checkpoint: Value,
 ) {
@@ -552,6 +557,7 @@ fn offer_member_checkpoint(
         .position(|run| Tag::prefixed(tag_prefix, &run.name).0 == member);
     let owner = at.map(|at| &runs[at]);
     let seat = owner.map_or(member, |run| run.driver_seat.as_str());
+    let kinds = owner.map_or(&UNDECLARED, MemberRun::kinds);
     let declared = checkpoints::Declared { kinds, seat };
     let call = at.map_or(Ok(None), |at| calls[at].consume(&mut checkpoint));
     let boundary = owner.and_then(|run| run.boundary);

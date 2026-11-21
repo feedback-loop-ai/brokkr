@@ -28,6 +28,7 @@ use serde_json::{json, Map, Value};
 use thiserror::Error;
 use uuid::Uuid;
 
+use crate::agents::kinds::UNDECLARED;
 use crate::agents::{Candidate, Lowering, ResultDoor};
 use crate::argv::Executable;
 use crate::bundle::{
@@ -1244,6 +1245,14 @@ impl Engine {
                 )
                 .digest(),
                 entry.class,
+            )
+            .of_harness(
+                self.bundle.declared_kinds.seat(
+                    selection
+                        .get(&entry.site)
+                        .map(|link| link.provider.as_str()),
+                    argv_for(selection, &entry.site, &entry.command),
+                ),
             );
             let offer = offer_for_site(
                 events,
@@ -1574,10 +1583,10 @@ impl Engine {
             effect_id,
             attempt_id,
         };
-        let (facts, kinds) = (
-            self.bundle.sites.get(driver_seat),
-            &self.bundle.declared_kinds,
-        );
+        let facts = self.bundle.sites.get(driver_seat);
+        // The seat's own harness judges its kinds; a site no plan covers
+        // spawns no driver of a harness, and keeps v7's vocabulary.
+        let kinds = (stamp.as_ref()).map_or(&UNDECLARED, |context| &context.kinds);
         let declared = checkpoints::Declared {
             kinds,
             seat: driver_seat,
@@ -1616,7 +1625,7 @@ impl Engine {
                 sink.offer_live("", checkpoint, call, stamp.as_ref(), declared);
             },
         )?;
-        let report = self.bundle.declared_kinds.refused(driver_seat, report);
+        let report = kinds.refused(driver_seat, report);
         let report = self.folded([effect_id, attempt_id, driver_seat], spawn, begun, report)?;
         Ok(DriverRun::Ran(
             verdict::admitted(report, stamp.as_ref()).journaled(),

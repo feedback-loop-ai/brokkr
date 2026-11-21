@@ -42,58 +42,137 @@ fn the_kind_grammar_is_the_contracts() {
     }
 }
 
-fn declaring(transcript: &[&str], root_session: &[&str]) -> DeclaredKinds {
-    let set = |kinds: &[&str]| kinds.iter().map(ToString::to_string).collect();
-    DeclaredKinds {
-        transcript: set(transcript),
-        root_session: set(root_session),
-    }
+fn argv(words: &[&str]) -> Vec<String> {
+    words.iter().map(ToString::to_string).collect()
 }
 
-/// A declared, a built-in driver's and `none` transcript kind are
-/// admitted; an undeclared one in either member is refused naming the
-/// seat, the member and the kind; a kind outside the grammar is left to
-/// the schema. Each member is declared apart: a transcript kind does
-/// not declare a root session kind.
+/// Two fixture harnesses on raw drivers, each declaring its own kinds,
+/// beside the shipped LaneTally harness, which declares none and runs its
+/// built-in driver.
+fn loaded() -> DeclaredKinds {
+    let fixture = |transcript: &str, root: &str| SeatKinds {
+        declared: Some(RecordKinds {
+            transcript: transcript.into(),
+            root_session: Some(root.into()),
+        }),
+        driver: None,
+        rejoins_work: false,
+    };
+    let lanetally = SeatKinds {
+        driver: Some(AdapterKind::Lanetally),
+        ..SeatKinds::default()
+    };
+    DeclaredKinds(BTreeMap::from([
+        ("trellis".into(), fixture("trellis-trail", "trellis-thread")),
+        ("arbor".into(), fixture("arbor-log", "arbor-root")),
+        ("lanetally".into(), lanetally),
+    ]))
+}
+
+fn record(transcript: &str, root: &str) -> Value {
+    json!({"step": "s", "transcript": {"kind": transcript}, "root_session": {"kind": root}})
+}
+
+fn refused(member: Member, kind: &str) -> Result<(), UndeclaredKind> {
+    Err(UndeclaredKind {
+        seat: "work".into(),
+        member,
+        kind: kind.into(),
+    })
+}
+
+/// Each seat is judged by its own harness alone (the controller's ruling
+/// Q1): a fixture seat admits its own kinds and `none`, and refuses the
+/// other fixture's and every built-in driver's; a LaneTally seat admits
+/// claude's and no other driver's; a raw command no adapter declares
+/// kinds for keeps v7's three. A transcript kind declares no root session
+/// kind.
 #[test]
-fn the_writer_admits_what_is_declared_and_refuses_the_rest_by_name() {
-    let kinds = declaring(&["trellis-trail"], &["trellis-thread"]);
-    let record = |transcript: &str, root: &str| {
-        json!({"step": "s", "transcript": {"kind": transcript},
-               "root_session": {"kind": root}})
-    };
-    for (transcript, root) in [
-        ("trellis-trail", "trellis-thread"),
-        ("codex-thread", "dsh-session"),
-        ("none", "claude-session"),
-        ("Not A Kind", "trellis-thread"),
+fn each_seat_is_judged_by_its_own_harness_and_never_by_another() {
+    let loaded = loaded();
+    let raw = argv(&["sh", "-c", "true"]);
+    let (trellis, arbor) = (
+        loaded.seat(Some("trellis"), &raw),
+        loaded.seat(Some("arbor"), &raw),
+    );
+    for (seat, transcript, root) in [
+        (&trellis, "trellis-trail", "trellis-thread"),
+        (&trellis, "none", "trellis-thread"),
+        (&arbor, "arbor-log", "arbor-root"),
+        (&trellis, "Not A Kind", "trellis-thread"),
     ] {
-        assert_eq!(kinds.admit(&record(transcript, root), "work"), Ok(()));
+        assert_eq!(seat.admit(&record(transcript, root), "work"), Ok(()));
     }
-    let refused = |member, kind: &str| {
-        Err(UndeclaredKind {
-            seat: "work".into(),
-            member,
-            kind: kind.into(),
-        })
-    };
-    assert_eq!(
-        kinds.admit(&record("trellis-thread", "trellis-thread"), "work"),
-        refused(Member::Transcript, "trellis-thread")
-    );
-    assert_eq!(
-        kinds.admit(&record("trellis-trail", "trellis-trail"), "work"),
-        refused(Member::RootSession, "trellis-trail")
-    );
-    assert_eq!(
-        kinds.admit(
-            &json!({"result": "complete", "transcript": {"kind": "stray"}}),
-            "work"
+    for (seat, transcript, root, member, kind) in [
+        (
+            &trellis,
+            "arbor-log",
+            "trellis-thread",
+            Member::Transcript,
+            "arbor-log",
         ),
-        refused(Member::Transcript, "stray")
+        (
+            &trellis,
+            "trellis-trail",
+            "arbor-root",
+            Member::RootSession,
+            "arbor-root",
+        ),
+        (
+            &arbor,
+            "trellis-trail",
+            "arbor-root",
+            Member::Transcript,
+            "trellis-trail",
+        ),
+        (
+            &arbor,
+            "arbor-log",
+            "trellis-thread",
+            Member::RootSession,
+            "trellis-thread",
+        ),
+        (
+            &trellis,
+            "codex-thread",
+            "trellis-thread",
+            Member::Transcript,
+            "codex-thread",
+        ),
+        (
+            &trellis,
+            "trellis-trail",
+            "claude-session",
+            Member::RootSession,
+            "claude-session",
+        ),
+        (
+            &trellis,
+            "trellis-thread",
+            "trellis-thread",
+            Member::Transcript,
+            "trellis-thread",
+        ),
+    ] {
+        let judged = seat.admit(&record(transcript, root), "work");
+        assert_eq!(judged, refused(member, kind), "{transcript} {root}");
+    }
+    // An inline LaneTally seat finds the shipped adapter by its driver.
+    let lanetally = loaded.seat(None, &argv(&["{brokkr}", "driver", "lanetally", "--"]));
+    let claude = record("claude-session", "claude-session");
+    assert_eq!(lanetally.admit(&claude, "work"), Ok(()));
+    let codex = record("codex-thread", "claude-session");
+    assert_eq!(
+        lanetally.admit(&codex, "work"),
+        refused(Member::Transcript, "codex-thread")
+    );
+    let unnamed = loaded.seat(None, &raw);
+    assert_eq!(
+        unnamed.admit(&record("dsh-session", "codex-thread"), "work"),
+        Ok(())
     );
     assert_eq!(
-        DeclaredKinds::default().admit(&record("trellis-trail", "dsh-session"), "work"),
+        unnamed.admit(&record("trellis-trail", "codex-thread"), "work"),
         refused(Member::Transcript, "trellis-trail")
     );
     let text = refused(Member::RootSession, "stray")
@@ -101,7 +180,83 @@ fn the_writer_admits_what_is_declared_and_refuses_the_rest_by_name() {
         .to_string();
     assert_eq!(
         text,
-        "seat 'work' recorded root session kind 'stray', which no loaded adapter declares \
-         (decision 0075 ruling 2)"
+        "seat 'work' recorded root session kind 'stray', which the seat's harness does not \
+         declare (decision 0075 ruling 2)"
     );
+}
+
+/// The reader walks every place v8 admits a kind (the controller's ruling
+/// Q2): the top level of a checkpoint or result, and a checkpoint's nested
+/// result, whose members are refused when undeclared and, since the
+/// schema does not judge an open nested result, when outside the grammar,
+/// without echoing them. A member that does not read keeps no sibling
+/// from being read.
+#[test]
+fn every_place_a_record_names_a_kind_is_read() {
+    let trellis = loaded().seat(Some("trellis"), &argv(&["sh"]));
+    let kind = |kind: &str| json!({"kind": kind});
+    for (record, member) in [
+        (
+            json!({"step": "s", "transcript": kind("stray")}),
+            Member::Transcript,
+        ),
+        (
+            json!({"step": "s", "root_session": kind("stray")}),
+            Member::RootSession,
+        ),
+        (
+            json!({"result": "complete", "transcript": kind("stray")}),
+            Member::Transcript,
+        ),
+        (
+            json!({"step": "s", "result": {"result": "complete", "transcript": kind("stray")}}),
+            Member::ResultTranscript,
+        ),
+        (
+            json!({"step": "s", "result": {"root_session": kind("stray")}}),
+            Member::ResultRootSession,
+        ),
+        (
+            json!({"step": "s", "transcript": 7, "result": {"transcript": kind("stray")}}),
+            Member::ResultTranscript,
+        ),
+        (
+            json!({"step": "s", "result": [1], "root_session": kind("stray")}),
+            Member::RootSession,
+        ),
+    ] {
+        assert_eq!(
+            trellis.admit(&record, "work"),
+            refused(member, "stray"),
+            "{record}"
+        );
+    }
+    let outside = json!({"step": "s", "result": {"transcript": kind("Not A Kind")}});
+    let refusal = trellis.admit(&outside, "work");
+    assert_eq!(refusal, refused(Member::ResultTranscript, "Not A Kind"));
+    assert_eq!(
+        refusal.unwrap_err().to_string(),
+        "seat 'work' recorded nested result's transcript kind outside seat-record v8's \
+         grammar, which the seat's harness does not declare (decision 0075 ruling 2)"
+    );
+    let declared = json!({"step": "s", "result": {"transcript": kind("trellis-trail"),
+                                                  "root_session": kind("trellis-thread")}});
+    assert_eq!(trellis.admit(&declared, "work"), Ok(()));
+}
+
+/// A root of one of the three kinds a built-in driver writes rejoins as
+/// today; any other only where the harness declares it as its root
+/// session kind and declares a resume for a work site that is not
+/// `unsupported` (the controller's ruling Q3).
+#[test]
+fn a_new_root_kind_rejoins_only_where_its_harness_declares_a_resume() {
+    let mut trellis = loaded().seat(Some("trellis"), &argv(&["sh"]));
+    for kind in ["claude-session", "codex-thread", "dsh-session"] {
+        assert!(trellis.rejoins(kind), "{kind}");
+    }
+    assert!(!trellis.rejoins("trellis-thread"));
+    trellis.rejoins_work = true;
+    assert!(trellis.rejoins("trellis-thread"));
+    assert!(!trellis.rejoins("trellis-trail"));
+    assert!(!trellis.rejoins("arbor-root"));
 }
