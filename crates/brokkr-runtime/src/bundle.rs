@@ -63,10 +63,10 @@ mod survey;
 mod tier;
 mod walk;
 
-pub use aggregate::Aggregate;
 pub(crate) use aggregate::{
     laws_of, MemberFindings, MemberLaw, MemberLaws, MemberVerdict, PanelJoin,
 };
+pub use aggregate::{Aggregate, BodyRefusal};
 use capability_record::{record_capabilities, CapabilityWalk};
 use charters::parse_role;
 use compose::{Ancestor, COMPOSE_PREFIX};
@@ -148,6 +148,9 @@ pub enum CompileError {
     /// A seat that cannot be the folder's own (decision 0091 ruling 1).
     #[error("bundle: {0}")]
     Folder(compose::FolderSeatRefusal),
+    /// A body the engine can never take (decision 0109 follow-ups, #1221).
+    #[error("bundle: {0}")]
+    Body(BodyRefusal),
 }
 /// How [`CompileError::Capability`] renders.
 fn capability_line(reason: &str) -> String {

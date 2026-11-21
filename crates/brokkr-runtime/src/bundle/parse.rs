@@ -287,6 +287,7 @@ impl<'a> SiteCompiler<'a> {
                 Aggregate::known()
             ))
         })?;
+        (aggregate.refuse_unbindable(what, at.residual)).map_err(CompileError::Body)?;
         for required in aggregate.required_results() {
             if !at.results.iter().any(|r| r == required) {
                 return Err(CompileError::Invalid(format!(

@@ -4,7 +4,7 @@
 
 use std::collections::BTreeMap;
 
-use brokkr_core::findings::{bind, Finding, ResidualPair, WordRefusal};
+use brokkr_core::findings::{bind, Finding, ResidualInput, ResidualPair, WordRefusal};
 use brokkr_core::policy::SEVERITY_ORDER;
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
@@ -149,6 +149,43 @@ impl MemberLaw {
         MemberLaw {
             results: results.iter().map(|word| word.to_string()).collect(),
             residual: ResidualPair::declared_in::<&str>(&[]),
+        }
+    }
+}
+
+/// A body the engine can never take, refused at compile rather than at
+/// every run-time pass (decision 0109 follow-ups, #1221).
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum BodyRefusal {
+    /// A `unanimous-pass` panel writes no residual pair, so under a seat
+    /// that declares one its `pass` fails ruling 2's aggregate arm on
+    /// every pass (decision 0109 ruling 2). Only `review-panel` joins it.
+    #[error(
+        "panel '{panel}' joins by 'unanimous-pass', which writes no residual pair, under a \
+         seat whose input set declares '{}' or '{}'; its pass could never stand (decision 0109 \
+         ruling 2): join it by 'review-panel' or drop the pair from the seat's inputs",
+        ResidualInput::MaxResidualSeverity.name(),
+        ResidualInput::HasSecurityResidual.name()
+    )]
+    UnanimousPassUnderResidual { panel: String },
+}
+
+impl Aggregate {
+    /// Refuse a `unanimous-pass` panel at `panel` under a seat whose
+    /// compiled input set declares any of the residual pair.
+    pub(super) fn refuse_unbindable(
+        self,
+        panel: &str,
+        residual: ResidualPair,
+    ) -> Result<(), BodyRefusal> {
+        let undeclared = ResidualPair::declared_in::<&str>(&[]);
+        match self {
+            Aggregate::UnanimousPass if residual != undeclared => {
+                Err(BodyRefusal::UnanimousPassUnderResidual {
+                    panel: panel.to_string(),
+                })
+            }
+            Aggregate::UnanimousPass | Aggregate::ReviewPanel => Ok(()),
         }
     }
 }
