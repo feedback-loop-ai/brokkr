@@ -814,9 +814,11 @@ fn stop_harness(child: &mut Spawned) -> std::io::Result<std::process::ExitStatus
     child.wait()
 }
 
-/// [`stop_harness`] at the ONE existing text boundary: every stopped route
-/// converts its typed wait failure here, so the operator's words have one
-/// home (#430 L3; decision 0071 rulings 5 and 8).
+/// [`stop_harness`] at a text boundary: a stopped route converts its typed
+/// wait failure with the one prefix, [`stream_turn::UNCONCLUDED`], here or,
+/// for a route that stops through `stream_turn` (agy and Qoder), in its
+/// `streamed_lines`, so the operator's words have one home (#430 L3;
+/// decision 0071 rulings 5 and 8).
 fn conclude_harness(child: &mut Spawned) -> Result<std::process::ExitStatus, String> {
     io_context(stop_harness(child), stream_turn::UNCONCLUDED)
 }
