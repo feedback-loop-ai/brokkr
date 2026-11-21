@@ -215,6 +215,15 @@ pub(super) enum Producer<'a> {
         steps: Vec<(&'a str, SeatClass)>,
         at: usize,
     },
+    /// A sequence ended at `at`, a work step before every gate step the
+    /// body holds, on a word in that step's compiled `ends_on` that is a
+    /// compiled hard word: every table arm for it is hard and stops the run
+    /// (decision 0050 rulings 5 and 7). A stop ships no head, so it owes
+    /// no gate record and decides on none (#1221, #1212).
+    Stop {
+        steps: Vec<(&'a str, SeatClass)>,
+        at: usize,
+    },
 }
 
 impl<'a> Producer<'a> {
@@ -242,7 +251,8 @@ impl<'a> Producer<'a> {
     }
 
     /// `name`, one of `steps`, where the body may end with `word`: the
-    /// last step, or one whose compiled `ends_on` holds it.
+    /// last step, or one whose compiled `ends_on` holds it. A work step
+    /// before every gate step, ended on a compiled hard word, is a stop.
     fn step(
         steps: &'a [SequenceStep],
         name: &str,
@@ -255,10 +265,20 @@ impl<'a> Producer<'a> {
             let step = name.to_string();
             return Err(ObservationProblem::Unlawful { step });
         }
+        // A step before a gate is not the last, so its word is in `ends_on`.
+        let hard = |word: &str| steps[at].hard_results.iter().any(|hard| hard == word);
+        let gated = steps.iter().any(|step| step.class == SeatClass::Gate);
+        let before_gates = steps[..=at]
+            .iter()
+            .all(|step| step.class == SeatClass::Work);
+        let stops = gated && before_gates && word.is_some_and(hard);
         let steps = (steps.iter())
             .map(|step| (step.name.as_str(), step.class))
             .collect();
-        Ok(Producer::Step { steps, at })
+        Ok(match stops {
+            true => Producer::Stop { steps, at },
+            false => Producer::Step { steps, at },
+        })
     }
 }
 
@@ -313,19 +333,46 @@ pub(super) fn checked_head(
         Some(Ok(covered)) if covered.projects(head.as_str()) => Some(covered),
         Some(_) => return Err(ObservationProblem::Disagrees),
     };
-    match &records.malformed {
-        Some(StepObservation::Partial) => return Err(ObservationProblem::Partial),
-        Some(_) => return Err(ObservationProblem::Disagrees),
-        None => {}
-    }
+    unlatched(records)?;
     let decided = match producer {
         Producer::Effect { gate } => effect_head(*gate, records, head, covered.as_ref())?,
-        Producer::Step { steps, at } => {
+        // A stop owes a gate record it never has, so asked for a head it
+        // refuses as before; `decided_head` never asks.
+        Producer::Step { steps, at } | Producer::Stop { steps, at } => {
             reconciled(steps, *at, records)?;
             step_head(steps, *at, records, head, covered.as_ref())?
         }
     };
     decided.ok_or(ObservationProblem::Disagrees)
+}
+
+/// The head decide records for a protected terminal: none for a stop
+/// (#1221, #1212), whose table arms all stop the run so no ship reads a
+/// head, once every record of its attempt is reconciled against its
+/// position; otherwise the head [`checked_head`] reads.
+pub(super) fn decided_head(
+    raw_result: &Value,
+    records: &StepRecords,
+    producer: &Producer<'_>,
+) -> Result<Option<CheckedHead>, ObservationProblem> {
+    match producer {
+        Producer::Stop { steps, at } => {
+            unlatched(records)?;
+            reconciled(steps, *at, records).map(|()| None)
+        }
+        Producer::Effect { .. } | Producer::Step { .. } => {
+            checked_head(raw_result, records, producer).map(Some)
+        }
+    }
+}
+
+/// Refuse an attempt whose fold latched a malformed step record.
+fn unlatched(records: &StepRecords) -> Result<(), ObservationProblem> {
+    match &records.malformed {
+        Some(StepObservation::Partial) => Err(ObservationProblem::Partial),
+        Some(_) => Err(ObservationProblem::Disagrees),
+        None => Ok(()),
+    }
 }
 
 /// The head a single body decides on, its terminal's own, if no step
@@ -493,5 +540,7 @@ mod live_tests;
 mod observation_tests;
 #[cfg(test)]
 mod span_tests;
+#[cfg(test)]
+mod stop_tests;
 #[cfg(test)]
 mod tests;

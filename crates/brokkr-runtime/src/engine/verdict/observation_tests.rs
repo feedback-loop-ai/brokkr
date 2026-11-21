@@ -16,7 +16,7 @@ use crate::engine::verdict::ObservationProblem::{
     self, Beyond, Disagrees, Missing, Partial, Reordered, Unattributed, Uncovered, Unlawful,
     Unrecorded, Unselected,
 };
-use crate::engine::verdict::Producer;
+use crate::engine::verdict::{checked_head, decided_head, Producer};
 use crate::engine::Engine;
 use brokkr_core::canonical::sha256_bytes;
 use brokkr_core::envelope::{EventEnvelope, EventType};
@@ -857,4 +857,178 @@ fn a_later_review_replaces_an_earlier_reviews_head() {
     let shipped = decided_from(&events, "ship");
     assert_eq!(shipped["rule_id"], "SHIP", "{shipped}");
     assert_eq!(shipped["inputs"]["drift_detected"], json!(false));
+}
+
+/// A [draft (work), judge (gate)] body whose draft answers `answer` and may
+/// end the sequence on `held`, compiled as a hard word when `hard`.
+fn held_early(answer: &str, hard: bool) -> SeatBody {
+    let mut draft = clean_step("draft", SeatClass::Work);
+    draft.results = vec!["clean".into(), "held".into()];
+    draft.body = step_body(driver(&json!({"result": answer})));
+    draft.ends_on = vec!["held".into()];
+    draft.hard_results = hard.then(|| "held".to_string()).into_iter().collect();
+    SeatBody::Sequence {
+        steps: vec![draft, clean_step("judge", SeatClass::Gate)],
+    }
+}
+
+/// #1221, #1212: only a work step before every gate step, ended on a word
+/// its compiled `ends_on` holds that is a compiled hard word, is a stop. A
+/// non-hard ending there, a hard word outside `ends_on`, a hard ending
+/// after a gate step, and one in a body with no gate step are not; a stop
+/// is reconciled against its position and decides on no head, and asked
+/// for a head it refuses as a work producer before every gate does.
+#[test]
+fn only_a_compiled_hard_ending_before_every_gate_is_a_stop() {
+    let dir = tempfile::tempdir().unwrap();
+    let compiled = crate::engine::tests::bundle(dir.path(), completes());
+    let seat = |body: SeatBody| {
+        let mut seat = compiled.seats["review"].clone();
+        seat.body = body;
+        seat
+    };
+    let ending = |name: &str, class, ends: &[&str], hard: &[&str]| SequenceStep {
+        ends_on: ends.iter().map(|word| word.to_string()).collect(),
+        hard_results: hard.iter().map(|word| word.to_string()).collect(),
+        ..clean_step(name, class)
+    };
+    let (work, gate) = (SeatClass::Work, SeatClass::Gate);
+    let sequence = |steps| seat(SeatBody::Sequence { steps });
+    let stop = seat(held_early("held", true));
+    let soft = seat(held_early("held", false));
+    let unended = sequence(vec![
+        ending("draft", work, &[], &["held"]),
+        clean_step("judge", gate),
+    ]);
+    let after = sequence(vec![
+        clean_step("judge", gate),
+        ending("tidy", work, &["held"], &["held"]),
+        clean_step("chief", gate),
+    ]);
+    let ungated = sequence(vec![
+        ending("draft", work, &["held"], &["held"]),
+        clean_step("tidy", work),
+    ]);
+    let pair = vec![("draft", work), ("judge", gate)];
+    let unlawful = || {
+        Err(Unlawful {
+            step: "draft".into(),
+        })
+    };
+    let step = |steps: &[(&'static str, SeatClass)], at| Producer::Step {
+        steps: steps.to_vec(),
+        at,
+    };
+    let stopped = Ok(Producer::Stop {
+        steps: pair.clone(),
+        at: 0,
+    });
+    let after_steps = [("judge", gate), ("tidy", work), ("chief", gate)];
+    let cases = [
+        (&stop, "draft", "held", stopped),
+        (&stop, "draft", "clean", unlawful()),
+        (&soft, "draft", "held", Ok(step(&pair, 0))),
+        (&unended, "draft", "held", unlawful()),
+        (&after, "tidy", "held", Ok(step(&after_steps, 1))),
+        (
+            &ungated,
+            "draft",
+            "held",
+            Ok(step(&[("draft", work), ("tidy", work)], 0)),
+        ),
+    ];
+    for (seat, step, word, want) in cases {
+        let mut state = crate::engine::tests::state(Some("review"), Cursor::RequestEffect);
+        state.ending_step = Some(step.into());
+        let producer = Producer::of(seat, &state, Some(word));
+        assert_eq!(producer, want, "{step} {word}");
+    }
+}
+
+/// #1221, #1212: a stop decides on no head once every record of its
+/// attempt is reconciled against its position, and a latched malformed
+/// record or a record past it refuses; asked for a head, it refuses as a
+/// work producer before every gate does.
+#[test]
+fn a_stop_decides_on_no_head_and_is_reconciled_against_its_position() {
+    let pair = vec![("draft", SeatClass::Work), ("judge", SeatClass::Gate)];
+    let stopped = Producer::Stop { steps: pair, at: 0 };
+    let raw = json!({"result": "held", "checked_head": "89abcdef0123456789abcdef0123456789abcdef"});
+    let mut records = brokkr_core::fold::StepRecords::default();
+    assert_eq!(decided_head(&raw, &records, &stopped), Ok(None));
+    let judge = || "judge".to_string();
+    assert_eq!(
+        checked_head(&raw, &records, &stopped),
+        Err(Unrecorded { step: judge() })
+    );
+    records.malformed = Some(brokkr_core::fold::StepObservation::Partial);
+    assert_eq!(decided_head(&raw, &records, &stopped), Err(Partial));
+    records.malformed = None;
+    let unobserved = brokkr_core::fold::StepObservation::Unobserved;
+    records.by_step.insert(judge(), unobserved);
+    assert_eq!(
+        decided_head(&raw, &records, &stopped),
+        Err(Beyond { step: judge() })
+    );
+}
+
+/// #1221, #1212 through the real engine: a protected [draft (work), judge
+/// (gate)] body whose draft ends the sequence on `held`, a word that does
+/// not stop the run, journals no gate record and no checked head, so decide
+/// refuses it and the run parks: judge never ran and ship is never asked.
+#[test]
+fn a_protected_pre_gate_ending_that_does_not_stop_the_run_refuses_and_parks() {
+    let shape = reviewed_by(drift_refusing(), held_early("held", false), false);
+    let (_dir, events) = driven_over(
+        completes(),
+        |compiled| {
+            shape(compiled);
+            let review = compiled.seats.get_mut("review").unwrap();
+            review.results.push("held".into());
+        },
+        |_| HeadReads::default(),
+    );
+    let succeeded = ended_in(&events, "review", EventType::EffectSucceeded);
+    assert_eq!(succeeded[0]["step"], "draft");
+    assert_eq!(succeeded[0]["result"].get("checked_head"), None);
+    refused_at_decide(&events, &Missing);
+    assert!(!(events.iter()).any(|event| event.payload["checkpoint"]["step_name"] == "judge"));
+    assert_eq!(events.last().unwrap().event_type, EventType::RunParked);
+}
+
+/// #1221, #1212: where draft's `held` is a compiled hard ending, judge's
+/// success re-tagged to draft by direct SQL on `clean`, a word outside
+/// draft's `ends_on`, still refuses `Unlawful`; re-worded to the hard
+/// `held` with judge's record kept, it is no stop, since that record lies
+/// past draft: `Beyond`.
+#[test]
+fn a_success_retagged_to_a_hard_ending_work_step_still_refuses() {
+    for (worded, kept, problem) in [
+        (
+            None,
+            &["judge"][..],
+            Unlawful {
+                step: "draft".into(),
+            },
+        ),
+        (
+            Some("held"),
+            &["judge"][..],
+            Beyond {
+                step: "judge".into(),
+            },
+        ),
+    ] {
+        let mut stopped = Stopped::after(held_early("clean", true), false);
+        stopped.drafted(kept);
+        if let Some(word) = worded {
+            stopped.replanted(|result| result["result"] = json!(word));
+        }
+        let review = stopped.bundle.seats.get_mut("review").unwrap();
+        review.results.push("held".into());
+        let events = stopped.resumed();
+        let succeeded = ended_in(&events, "review", EventType::EffectSucceeded);
+        assert_eq!(succeeded[0]["step"], "draft");
+        refused_at_decide(&events, &problem);
+    }
 }

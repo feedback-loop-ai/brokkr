@@ -37,7 +37,7 @@ impl Engine {
         let word = raw_result.get("result").and_then(Value::as_str);
         let checked = protected.then(|| {
             super::verdict::Producer::of(seat, state, word).and_then(|producer| {
-                super::verdict::checked_head(&raw_result, &state.step_records, &producer)
+                super::verdict::decided_head(&raw_result, &state.step_records, &producer)
             })
         });
         let observation = checked.as_ref().and_then(|checked| checked.as_ref().err());
@@ -65,7 +65,8 @@ impl Engine {
             .as_str()
             .expect("checked above")
             .to_string();
-        let checked = checked.and_then(Result::ok);
+        // A protected stop decides on no head (#1221, #1212).
+        let checked = checked.and_then(Result::ok).flatten();
         let inputs = self.decision_inputs(state, (&phase, checked), seat, object, &result);
         let payload = self.ruling(&phase, &result, &inputs, object);
         self.append(EventType::TransitionDecided, payload, None)?;
