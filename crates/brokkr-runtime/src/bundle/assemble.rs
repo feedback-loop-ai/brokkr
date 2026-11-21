@@ -5,26 +5,29 @@
 //! wrapper, and the manifest's projections of the one canonical site
 //! family. `assemble` reads as their sequence.
 
+mod inputs;
+
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use brokkr_core::policy::{is_declarable, Machine};
+use brokkr_core::policy::Machine;
 use brokkr_core::realms::Boundary;
 use brokkr_protocol::hands::HandsSpec;
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value};
+
+use inputs::seat_inputs;
 
 use super::parse::{SeatScope, SiteCompiler};
 use super::site_form::{classify, SEAT};
 use super::survey::Refusals;
 use super::{
     body_manifest, claim_address, compose, dialect_gate_site, dialect_results, enforce_model_pins,
-    enforce_model_policy, fold_driver_facts, is_engine_owned, owner_index, parse_limits,
-    parse_secrets, phases, pins, record_capabilities, record_hands, record_judged_tools,
-    refuse_aliasing_sites, refuse_class_without_a_driver, refuse_global_aliasing,
-    relocate_verify_facts, resolved_hands, site_facts, Aggregate, CapabilityWalk, CharterPins,
-    Charters, CompileError, Dialect, DialectExecution, ExecutableBody, Invocation, LibraryRead,
-    Limits, Opened, ResolvedSeat, Seat, SeatBody, SeatClass, SequenceStep, SiteFacts, SiteKey,
-    SiteLaw, StepBody,
+    enforce_model_policy, fold_driver_facts, owner_index, parse_limits, parse_secrets, phases,
+    pins, record_capabilities, record_hands, record_judged_tools, refuse_aliasing_sites,
+    refuse_class_without_a_driver, refuse_global_aliasing, relocate_verify_facts, resolved_hands,
+    site_facts, Aggregate, CapabilityWalk, CharterPins, Charters, CompileError, Dialect,
+    DialectExecution, ExecutableBody, Invocation, LibraryRead, Limits, Opened, ResolvedSeat, Seat,
+    SeatBody, SeatClass, SequenceStep, SiteFacts, SiteKey, SiteLaw, StepBody,
 };
 use crate::agents::EgressClass;
 use crate::argv::Executable;
@@ -287,70 +290,6 @@ fn seat_limits(
         }
     };
     Ok(limits)
-}
-
-/// Input provenance (decision 0007): every input the phase's rules
-/// reference must be engine-computed or supplied by this seat's
-/// declaration; a declaration may only name known, non-engine-owned
-/// evaluator inputs. An agent-resolved seat faces this lint exactly as an
-/// inline one does — its declaration is the agent's, or the 0007 default.
-fn seat_inputs(
-    machine: &Machine,
-    phase: &str,
-    raw: &Value,
-    agent_seat: &Option<ResolvedSeat>,
-) -> Result<Vec<String>, CompileError> {
-    let referenced = machine.seat_inputs(phase);
-    let raw_inputs = match agent_seat
-        .as_ref()
-        .and_then(|agent_seat| agent_seat.inputs.clone())
-    {
-        Some(declared) => Some(json!(declared)),
-        None => raw.get("inputs").cloned(),
-    };
-    let inputs = match raw_inputs {
-        None => referenced.clone(),
-        Some(declared) => {
-            let declared = declared
-                .as_array()
-                .map(|a| {
-                    a.iter()
-                        .filter_map(Value::as_str)
-                        .map(str::to_string)
-                        .collect::<Vec<_>>()
-                })
-                .ok_or_else(|| {
-                    CompileError::Invalid(format!(
-                        "seat '{phase}' inputs must be an array of strings"
-                    ))
-                })?;
-            for name in &declared {
-                if is_engine_owned(name) {
-                    return Err(CompileError::Invalid(format!(
-                        "seat '{phase}' declares engine-owned input '{name}'; \
-                         journal-computed truth is never accepted from a seat"
-                    )));
-                }
-                if !is_declarable(name) {
-                    return Err(CompileError::Invalid(format!(
-                        "seat '{phase}' declares unknown input '{name}'; known: \
-                         the evaluator's closed vocabulary minus engine-owned"
-                    )));
-                }
-            }
-            for needed in &referenced {
-                if !declared.contains(needed) {
-                    return Err(CompileError::Invalid(format!(
-                        "phase '{phase}' rules reference input '{needed}' but \
-                         seat '{phase}' does not declare it; the rule could \
-                         never fire from seat data"
-                    )));
-                }
-            }
-            declared
-        }
-    };
-    Ok(inputs)
 }
 
 /// Decision 0031 over the TYPED, flattened seats before the wrapper moves
