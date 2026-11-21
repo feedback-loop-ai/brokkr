@@ -469,17 +469,21 @@ checkpoint, handed to the chief as `context.prior_results.positions` —
 so a `security-hold` from the panel reaches the rule table only if the
 chief reproduces it. The engine will accept a chief that rules lower.
 
-The same rule disables a fail-closed path you may not know you were
-relying on. A panel aggregate that cannot read a member's payload emits
+The same rule does not disable the fail-closed path for a malformed
+member. A panel aggregate that cannot read a member's payload emits
 `result: "__member-schema-invalid__"` — deliberately not in any
 vocabulary, so that the seat's declared-results check rejects it and the
-run parks with the member evidence attached. On a *non-final* step
-nothing performs that check, so the sentinel is handed to the next step
-as an ordinary string and the malformed-driver signal is lost unless
-that step's charter names it. Give the floor a branch for a result
-outside the vocabulary, not just for the worst result inside it.
+run parks with the member evidence attached. On a *non-final* step the
+step's own vocabulary check rejects it instead: the attempt fails with
+the panel's evidence stamped on it, and is retried within the seat's
+limits like any failed attempt (decision 0006). A non-final gate step's
+word, or a panel step's aggregate, that its binding to its findings and
+the seat's residual pair refuses (decision 0109 ruling 2) fails the
+attempt in the same place. Neither is ever handed to the next step as an
+ordinary string, so the floor a later step's charter needs is for the
+worst result inside the vocabulary.
 
-There is a third consequence, and it is the easiest to miss: a non-final
+There is a further consequence, and it is the easiest to miss: a non-final
 step's `notes` are copied **verbatim** into the next step's context. If
 the later step is a gate and an earlier one is a work seat — which
 admits any driver, trusted or not (decision 0021 ruling 7) — then
