@@ -37,6 +37,7 @@ pub(super) fn member(name: &str, candidates: Vec<Candidate>) -> PanelMember {
         candidates,
         written: Vec::new(),
         class: SeatClass::Work,
+        law: crate::bundle::MemberLaw::open(),
     }
 }
 

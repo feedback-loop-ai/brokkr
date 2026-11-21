@@ -28,6 +28,7 @@ fn panel_member(name: &str, script: Vec<String>) -> PanelMember {
         candidates: vec![driven(script)],
         written: Vec::new(),
         class: SeatClass::Work,
+        law: crate::bundle::MemberLaw::open(),
     }
 }
 

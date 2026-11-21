@@ -16,6 +16,8 @@ pub(crate) enum PanelShape {
     Panel {
         step: Option<String>,
         tags: Vec<Tag>,
+        /// Every member's compiled law, by bare name (decision 0109).
+        laws: crate::bundle::MemberLaws,
     },
     NoPanel {
         phase: String,
@@ -322,6 +324,7 @@ fn panel_shape(body: Option<ExecutableBody<'_>>, phase: &str) -> PanelShape {
                 .iter()
                 .map(|member| Tag::new(None, &member.name))
                 .collect(),
+            laws: crate::bundle::laws_of(members),
         },
         Some(ExecutableBody::Sequence { steps }) => {
             for (index, step) in steps.iter().enumerate() {
@@ -338,6 +341,7 @@ fn panel_shape(body: Option<ExecutableBody<'_>>, phase: &str) -> PanelShape {
                             .iter()
                             .map(|member| Tag::new(Some(&step.name), &member.name))
                             .collect(),
+                        laws: crate::bundle::laws_of(members),
                     };
                 }
             }

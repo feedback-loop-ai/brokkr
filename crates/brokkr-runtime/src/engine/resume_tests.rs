@@ -246,14 +246,7 @@ fn gate_seat(body: SeatBody, results: &[&str], max_attempts: u64, gate: bool) ->
 }
 
 fn member(name: &str, command: Vec<String>) -> PanelMember {
-    PanelMember {
-        name: name.into(),
-        role_path: PathBuf::from("role.md"),
-        command,
-        candidates: Vec::new(),
-        written: Vec::new(),
-        class: SeatClass::Work,
-    }
+    super::tests::member(name, command)
 }
 
 fn panel(members: Vec<PanelMember>) -> SeatBody {

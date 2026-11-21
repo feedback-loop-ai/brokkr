@@ -6,6 +6,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use brokkr_core::findings::ResidualPair;
 use brokkr_core::realms::Boundary;
 use brokkr_protocol::hands::HandsSpec;
 use serde_json::{Map, Value};
@@ -14,8 +15,9 @@ use super::site_form::{classify, CaseShape, MemberShape, SeatShape, CASE, MEMBER
 use super::{
     built_in_model_driver, command_parts, enforce_model_policy, parse_class, parse_command,
     parse_role, parse_sequence, record_hands, record_inline_tools, refuse_class_without_a_driver,
-    resolve_reference, Aggregate, Candidate, Charters, CompileError, Dialect, Invocation, Opened,
-    PanelMember, ResolvedSeat, SeatBody, SeatClass, SiteFacts, SiteLaw, SELECT_STRATEGIES,
+    resolve_reference, Aggregate, Candidate, Charters, CompileError, Dialect, Invocation,
+    MemberLaw, Opened, PanelMember, ResolvedSeat, SeatBody, SeatClass, SiteFacts, SiteLaw,
+    SELECT_STRATEGIES,
 };
 use crate::argv::Executable;
 
@@ -41,12 +43,15 @@ pub(super) struct SiteCompiler<'a> {
 
 /// What a body inherits from its seat: the layer that wrote it, and the
 /// seat's results and bindings. A select case is written by its own
-/// layer, and a panel step declares its own results.
+/// layer, and a panel step declares its own results. Every review-panel
+/// member's word is bound to the seat's `residual` pair (decision 0109
+/// ruling 2), whatever contains the member.
 #[derive(Clone, Copy)]
 pub(super) struct SeatScope<'s> {
     pub(super) dir: &'s Path,
     pub(super) results: &'s [String],
     pub(super) secrets: &'s [String],
+    pub(super) residual: ResidualPair,
 }
 
 impl<'a> SiteCompiler<'a> {
@@ -114,6 +119,7 @@ impl<'a> SiteCompiler<'a> {
             SeatShape::Agent => {
                 let agent_seat =
                     resolve_reference(self, at.dir, phase, raw, at.secrets, SEAT.role)?;
+                refuse_results_beyond_agent(phase, at.results, &agent_seat)?;
                 let body = SeatBody::Invocation(Invocation::Single {
                     role_path: agent_seat.role_path.clone(),
                     command: agent_seat.command.clone(),
@@ -217,6 +223,7 @@ impl<'a> SiteCompiler<'a> {
         raw: &Value,
     ) -> Result<SeatBody, CompileError> {
         let resolved = resolve_reference(self, at.dir, what, raw, at.secrets, CASE.role)?;
+        refuse_results_beyond_agent(what, at.results, &resolved)?;
         let class = self.judge(at, what, raw, &resolved.candidates, resolved.hands)?;
         Ok(SeatBody::Invocation(Invocation::Single {
             role_path: resolved.role_path,
@@ -290,22 +297,25 @@ impl<'a> SiteCompiler<'a> {
         }
         let mut members = Vec::with_capacity(members_raw.len());
         for (name, member_raw) in members_raw {
-            members.push(self.parse_member(at, what, name, member_raw)?);
+            members.push(self.parse_member(at, (what, aggregate), name, member_raw)?);
         }
         Ok((members, aggregate))
     }
 
-    /// One panel member, `<what>:<name>`, judged at its own site.
+    /// One panel member, `<what>:<name>`, judged at its own site, with the
+    /// result set its hired agent declares under the panel's `aggregate`
+    /// (decision 0109 ruling 11): read from the agent, never from a key
+    /// of the member's own, which [`MEMBER`] refuses.
     fn parse_member(
         &mut self,
         at: SeatScope<'_>,
-        what: &str,
+        (what, aggregate): (&str, Aggregate),
         name: &str,
         raw: &Value,
     ) -> Result<PanelMember, CompileError> {
         let site = format!("{what}:{name}");
         let shape = classify(&site, raw, &MEMBER)?;
-        let (role_path, command, candidates, agent_hands, written) = match shape {
+        let (role_path, command, candidates, agent_hands, written, declared) = match shape {
             MemberShape::Inline => {
                 let written = self.inline_written(at, &site, raw, false)?;
                 (
@@ -314,6 +324,7 @@ impl<'a> SiteCompiler<'a> {
                     Vec::new(),
                     None,
                     written,
+                    None,
                 )
             }
             MemberShape::Agent => {
@@ -325,6 +336,7 @@ impl<'a> SiteCompiler<'a> {
                     resolved.candidates,
                     resolved.hands,
                     command_parts(raw),
+                    resolved.results,
                 )
             }
         };
@@ -336,6 +348,10 @@ impl<'a> SiteCompiler<'a> {
             candidates,
             written,
             class,
+            law: MemberLaw {
+                results: aggregate.member_results(declared),
+                residual: at.residual,
+            },
         })
     }
 
@@ -497,6 +513,29 @@ fn refuse_mixed_panel(what: &str, members_raw: &Map<String, Value>) -> Result<()
         )));
     }
     Ok(())
+}
+
+/// A single seat's declared `results` lie within its hired agent's list
+/// where the agent declares one (decision 0109 ruling 11): the list is a
+/// ceiling, never a floor, and an agent that declares none leaves the
+/// seat as it is.
+fn refuse_results_beyond_agent(
+    what: &str,
+    results: &[String],
+    hired: &ResolvedSeat,
+) -> Result<(), CompileError> {
+    let Some(ceiling) = &hired.results else {
+        return Ok(());
+    };
+    match results.iter().find(|word| !ceiling.contains(word)) {
+        None => Ok(()),
+        Some(word) => Err(CompileError::Invalid(format!(
+            "seat '{what}' declares result '{word}', which its hired agent's results [{}] \
+             do not admit; an agent's results are the ceiling of every seat that hires it \
+             (decision 0109 ruling 11)",
+            ceiling.join(", ")
+        ))),
+    }
 }
 
 #[cfg(test)]

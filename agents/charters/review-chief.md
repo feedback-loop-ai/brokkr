@@ -99,7 +99,8 @@ to implement, not a fix by this seat. A spec-compliance member may rule
 remains unconditional.
 
 Result:
-- `clean`.
+- `clean` with `inputs: {"max_residual_severity": "none",
+  "has_security_residual": false}`.
 - `residual` with `inputs: {"max_residual_severity": "<severity>",
   "has_security_residual": <bool>, "spec_defect": <bool>}` — every
   surviving finding listed in `notes` with its severity and its author.

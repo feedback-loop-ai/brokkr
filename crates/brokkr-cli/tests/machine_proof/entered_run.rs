@@ -9,8 +9,8 @@ fn fixture() -> Workspace {
         {"behavior":"succeed","result":{"result":"fail"}},
         {"behavior":"succeed","result":{"result":"pass"}}
     ]);
-    script["seats"]["review"] = json!([{"behavior":"echo",
-        "result":{"result":"clean","inputs":{"fixes_applied":false}}}]);
+    script["seats"]["review"] = json!([{"behavior":"echo", "result":{"result":"clean", "inputs":
+        {"fixes_applied":false, "max_residual_severity":"none", "has_security_residual":false}}}]);
     let mut policy: Value = serde_json::from_str(POLICY).unwrap();
     policy["phases"]
         .as_array_mut()

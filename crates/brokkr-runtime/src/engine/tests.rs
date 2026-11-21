@@ -8,7 +8,7 @@ use super::sequence::{dialect_attempt_outcome, expand_dialect_argv, nearest_chan
 use super::verdict::covered_tests::{reviewing, reviewing_on};
 use super::*;
 use crate::agents::HarnessHands;
-use crate::bundle::{Limits, MemberVerdict, Seat};
+use crate::bundle::{Limits, MemberLaw, MemberVerdict, PanelJoin, Seat};
 use crate::dispatch_fixture::dispatch_envelope;
 use crate::engine::dispatch::deadline::{AttemptBound, Deadline};
 use crate::envelope_builder::EnvelopeBuilder;
@@ -1974,35 +1974,39 @@ fn panel_sequence_and_aggregation_cover_all_terminal_shapes() {
     engine
         .journal_panel_members("effect", "attempt", &outcomes, &[], "step:")
         .unwrap();
-    let joined = |n: usize| {
-        panel_outcome(
-            Aggregate::UnanimousPass,
-            outcomes[..n].to_vec(),
-            Stamped::new(),
-        )
-    };
+    let unanimous = PanelJoin::open(Aggregate::UnanimousPass, &[]);
+    let joined = |n: usize| panel_outcome(&unanimous, outcomes[..n].to_vec(), Stamped::new());
     assert!(matches!(joined(3), AttemptOutcome::Indeterminate { .. }));
     assert!(matches!(joined(2), AttemptOutcome::Failed { .. }));
     assert!(matches!(joined(1), AttemptOutcome::Succeeded { .. }));
     let all = MemberVerdict::all;
     assert_eq!(
-        Aggregate::UnanimousPass.aggregate_results(&all(&[("bad", json!({"notes":"missing"}))]))
-            ["result"],
+        unanimous.aggregate_results(&all(&[("bad", json!({"notes":"missing"}))]))["result"],
         "__member-schema-invalid__"
     );
     assert_eq!(
-        Aggregate::UnanimousPass.aggregate_results(&all(&[("bad", json!({"result":"invented"}))]))
-            ["result"],
+        unanimous.aggregate_results(&all(&[("bad", json!({"result":"invented"}))]))["result"],
         "__member-schema-invalid__"
     );
     assert_eq!(
-        Aggregate::UnanimousPass.aggregate_results(&all(&[
+        unanimous.aggregate_results(&all(&[
             ("one", json!({"result":"pass"})),
             ("two", json!({"result":"fail"}))
         ]))["result"],
         "fail"
     );
-    let review = Aggregate::ReviewPanel.aggregate_results(&all(&[
+    // A word the member's agent declares beyond the ranked three ranks
+    // worst and is returned verbatim (decision 0109 ruling 11).
+    let invented = MemberLaw::declaring(&["invented"]);
+    let laws = [
+        ("clean", MemberLaw::open()),
+        ("residual", MemberLaw::open()),
+    ];
+    let review = PanelJoin::under(
+        Aggregate::ReviewPanel,
+        laws.into_iter().chain([("unknown", invented)]),
+    );
+    let review = review.aggregate_results(&all(&[
         (
             "clean",
             json!({"result":"clean", "inputs":{"spec_defect":true}}),
@@ -2020,7 +2024,8 @@ fn panel_sequence_and_aggregation_cover_all_terminal_shapes() {
     assert_eq!(review["inputs"]["has_security_residual"], true);
     assert_eq!(review["inputs"]["fixes_applied"], false);
     assert_eq!(review["inputs"]["spec_defect"], true);
-    let unknown_severity = Aggregate::ReviewPanel.aggregate_results(&all(&[(
+    let open = PanelJoin::open(Aggregate::ReviewPanel, &["residual"]);
+    let unknown_severity = open.aggregate_results(&all(&[(
         "residual",
         json!({"result":"residual","inputs":{"max_residual_severity":"invented"}}),
     )]));
@@ -2082,6 +2087,7 @@ pub(super) fn member(name: &str, command: Vec<String>) -> PanelMember {
         candidates: Vec::new(),
         written: Vec::new(),
         class: SeatClass::Work,
+        law: MemberLaw::open(),
     }
 }
 
@@ -3347,12 +3353,8 @@ fn a_boxed_site_is_told_so_in_its_driver_input_and_an_unboxed_one_is_not() {
     // A panel member is marked by its own label, never by the seat's.
     set_site_hands(&mut engine.bundle, "review:security", HandsSpec::default());
     let member = |name: &str| PanelMember {
-        name: name.into(),
         role_path: PathBuf::from(format!("{name}.md")),
-        command: vec!["driver".into()],
-        candidates: Vec::new(),
-        written: Vec::new(),
-        class: SeatClass::Work,
+        ..member(name, vec!["driver".into()])
     };
     let members = vec![member("security"), member("correctness")];
     let meta = json!({

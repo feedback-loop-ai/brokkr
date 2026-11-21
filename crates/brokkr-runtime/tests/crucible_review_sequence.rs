@@ -325,7 +325,7 @@ fn review_bundle(panel: &[(&str, &str)], chief: &str) -> Bundle {
                         .iter()
                         .find(|(name, _)| *name == member.name)
                         .map(|(_, result)| *result)
-                        .unwrap_or(r#"{"result":"clean"}"#);
+                        .unwrap_or(CLEAN);
                     member.command = driver(result);
                     member.candidates.clear();
                     member.role_path = PathBuf::new();
@@ -397,12 +397,18 @@ fn events(
     (events, run_id)
 }
 
+/// The clean every member charter orders: both residual inputs named, as
+/// the residual pair triage's review compiles binds it (decision 0109
+/// ruling 2).
+const CLEAN: &str =
+    r#"{"result":"clean","inputs":{"max_residual_severity":"none","has_security_residual":false}}"#;
+
 fn panel<'a>(results: &'a [(&'a str, &'a str)]) -> Vec<(&'a str, &'a str)> {
     let mut panel = vec![
-        ("adversarial", r#"{"result":"clean"}"#),
-        ("correctness", r#"{"result":"clean"}"#),
-        ("security", r#"{"result":"clean"}"#),
-        ("spec-compliance", r#"{"result":"clean"}"#),
+        ("adversarial", CLEAN),
+        ("correctness", CLEAN),
+        ("security", CLEAN),
+        ("spec-compliance", CLEAN),
     ];
     for (name, result) in results {
         panel.retain(|(key, _)| key != name);
@@ -669,10 +675,28 @@ fn sequence_fixture(
     seats: serde_json::Value,
     offices: &[(&str, &[String])],
 ) -> (tempfile::TempDir, Bundle) {
+    listed_sequence_fixture(policy, seats, offices, &[])
+}
+
+/// [`sequence_fixture`], with each office `listed` names declaring its
+/// `results` (decision 0109 ruling 11).
+fn listed_sequence_fixture(
+    policy: serde_json::Value,
+    seats: serde_json::Value,
+    offices: &[(&str, &[String])],
+    listed: &[(&str, &[&str])],
+) -> (tempfile::TempDir, Bundle) {
     let dir = tempfile::tempdir().expect("a fixture directory");
     for (office, driver) in offices {
         let driver: Vec<&str> = driver.iter().map(String::as_str).collect();
         crate::office::hire(dir.path(), office, &driver, None);
+    }
+    for (office, results) in listed {
+        let path = dir.path().join("agents").join(format!("{office}.json"));
+        let mut hired: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).expect("the hired office")).unwrap();
+        hired["results"] = serde_json::json!(results);
+        std::fs::write(&path, serde_json::to_vec_pretty(&hired).unwrap()).unwrap();
     }
     // The default dialect is read beside the library root, whose parent
     // is the fixture directory now that the offices stand there.
@@ -1084,8 +1108,9 @@ fn a_final_panel_that_cannot_emit_refuse_lets_an_earlier_refuse_end_the_sequence
 
 /// A v2 review fixture whose non-final step is a `review-panel` declaring
 /// the panel's three required words AND `hold`. Both members report `hold`,
-/// which `review_panel` returns verbatim, so the step's aggregate emits a
-/// word beyond its required results.
+/// which their office lists (decision 0109 ruling 11) and `review_panel`
+/// returns verbatim, so the step's aggregate emits a word beyond its
+/// required results.
 fn review_panel_declaring_a_hard_word_bundle() -> (tempfile::TempDir, Bundle) {
     let member = driver(r#"{"result":"hold"}"#);
     let last = driver(r#"{"result":"clean"}"#);
@@ -1118,10 +1143,11 @@ fn review_panel_declaring_a_hard_word_bundle() -> (tempfile::TempDir, Bundle) {
         },
     });
     let worker = crate::office::answering(":", "complete");
-    let (dir, mut compiled) = sequence_fixture(
+    let (dir, mut compiled) = listed_sequence_fixture(
         policy,
         seats,
         &[("worker", &worker), ("member", &member), ("last", &last)],
+        &[("member", &["clean", "residual", "hold"])],
     );
     compiled.machine.initial = "review".to_string();
     (dir, compiled)

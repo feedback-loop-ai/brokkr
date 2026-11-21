@@ -99,6 +99,7 @@ fn invocation_sites_name_every_shape_the_engine_can_run() {
         candidates,
         written: Vec::new(),
         class: SeatClass::Work,
+        law: crate::bundle::MemberLaw::open(),
     };
     let single = SeatBody::Invocation(worker(SeatClass::Work));
     assert_eq!(

@@ -40,7 +40,8 @@ fn member_findings_join_typed_and_an_unstamped_one_poisons_the_aggregate() {
     let typed = Vec::<Finding>::deserialize(json!([stamped('a', "x")])).unwrap();
     assert_eq!(read[0].findings, MemberFindings::Read(typed));
     assert_eq!(read[0].payload, json!({"result": "residual"}), "taken out");
-    let joined = Aggregate::ReviewPanel.aggregate_results(&read);
+    let review = PanelJoin::open(Aggregate::ReviewPanel, &["a", "b", "c"]);
+    let joined = review.aggregate_results(&read);
     assert_eq!(joined["result"], "residual");
     assert_eq!(
         joined["findings"],
@@ -51,7 +52,7 @@ fn member_findings_join_typed_and_an_unstamped_one_poisons_the_aggregate() {
         .as_object_mut()
         .unwrap()
         .remove("site");
-    let poisoned = Aggregate::ReviewPanel.aggregate_results(&members(&unstamped));
+    let poisoned = review.aggregate_results(&members(&unstamped));
     assert_eq!(poisoned["result"], Aggregate::MEMBER_SCHEMA_INVALID);
     assert_eq!(poisoned["notes"]["members"]["c"], unstamped[2]);
     // Fix round 0109a1r6, W4: a's admitted finding stays the record's
@@ -62,5 +63,46 @@ fn member_findings_join_typed_and_an_unstamped_one_poisons_the_aggregate() {
         poisoned["findings"],
         json!([stamped('a', "x")]),
         "{poisoned}"
+    );
+}
+
+/// Decision 0109 ruling 11: a review-panel member's word outside its
+/// compiled law poisons the aggregate, naming the member and the reason;
+/// a member the join holds no law for is refused, never read as lawful;
+/// and a partial retry joins its carried members under their own laws.
+#[test]
+fn a_review_panel_members_word_answers_to_its_law_and_a_lawless_one_poisons() {
+    let narrow = MemberLaw::declaring(&["clean", "residual"]);
+    let members = MemberVerdict::all(&[
+        ("a", json!({"result": "clean"})),
+        ("b", json!({"result": "security-hold"})),
+    ]);
+    let join = PanelJoin::under(
+        Aggregate::ReviewPanel,
+        [("a", narrow.clone()), ("b", narrow)],
+    );
+    let poisoned = join.aggregate_results(&members);
+    assert_eq!(poisoned["result"], Aggregate::MEMBER_SCHEMA_INVALID);
+    assert_eq!(
+        poisoned["notes"]["refused"],
+        json!({"b": "member result 'security-hold' is not among its declared results [clean, residual]"})
+    );
+    let lawless = PanelJoin::open(Aggregate::ReviewPanel, &["a"]).aggregate_results(&members);
+    assert_eq!(
+        lawless["notes"]["refused"],
+        json!({"b": "the member has no compiled result set"})
+    );
+    let carried = PanelJoin::open(Aggregate::ReviewPanel, &["a"])
+        .carrying(&[("b".to_string(), MemberLaw::open())].into());
+    assert_eq!(
+        carried.aggregate_results(&members)["result"],
+        "security-hold"
+    );
+    let unanimous = PanelJoin::open(Aggregate::UnanimousPass, &[]);
+    let passing = MemberVerdict::all(&[("a", json!({"result": "pass"}))]);
+    assert_eq!(
+        unanimous.aggregate_results(&passing)["result"],
+        "pass",
+        "keeps its own check"
     );
 }

@@ -16,6 +16,6 @@ finding above low is a return to implement, not a fix by this seat.
 Result: `clean` · `residual`
 with `inputs: {"max_residual_severity": "<none|info|low|medium|high|critical>",
 "has_security_residual": false}` listing every
-finding in `notes` · never `security-hold` (that verdict belongs to the
+finding in `notes` (a clean writes `none` and `false`) · never `security-hold` (that verdict belongs to the
 security member; if you smell security, say so in notes at your honest
 severity). The panel aggregate takes the worst member verdict.

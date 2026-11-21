@@ -3908,7 +3908,8 @@ fn every_panel_spawn_rechecks_its_layer_and_journals_a_moved_member_failure() {
                 panic!("moved member ran")
             };
             assert!(error.contains(&format!("changed: {key}")), "{error}");
-            let outcome = panel_outcome(Aggregate::UnanimousPass, reports, stamped);
+            let join = crate::bundle::PanelJoin::open(Aggregate::UnanimousPass, &[]);
+            let outcome = panel_outcome(&join, reports, stamped);
             engine
                 .conclude_single(
                     "effect",

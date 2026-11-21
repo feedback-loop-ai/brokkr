@@ -115,6 +115,7 @@ fn an_agent_declaration_is_judged_over_the_seat_s_own() {
             limits: None,
             inputs: Some(inputs.iter().map(|name| name.to_string()).collect()),
             hands: None,
+            results: None,
         })
     };
     let raw = json!({"inputs": "not an array"});

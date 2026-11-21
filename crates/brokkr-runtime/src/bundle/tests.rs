@@ -767,6 +767,7 @@ fn panel_and_sequence_parsers_refuse_every_ambiguous_shape() {
         dir,
         results: &results,
         secrets: &[],
+        residual: brokkr_core::findings::ResidualPair::declared_in::<&str>(&[]),
     };
 
     for raw in [

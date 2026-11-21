@@ -8,14 +8,14 @@
 use std::path::Path;
 
 use brokkr_core::envelope::EventType;
-use brokkr_core::findings::CheckedHead;
+use brokkr_core::findings::{bind_journaled, CheckedHead, ResidualPair};
 use brokkr_core::fold::{computed_inputs, RunState};
 use brokkr_core::policy::{Outcome, CONSECUTIVE_FAILURES, VISIT_PREFIX};
 use brokkr_core::realms::LEGACY_REALM_KEY;
 use serde_json::{json, Map, Value};
 
 use super::{artifact_failures, artifact_problem, git_dirty, phase_of, Engine, EngineError};
-use crate::bundle::{Seat, REALM_FACTS};
+use crate::bundle::{ExecutableBody, Invocation, Seat, SeatClass, REALM_FACTS};
 use crate::phase_name;
 
 impl Engine {
@@ -41,8 +41,9 @@ impl Engine {
             })
         });
         let observation = checked.as_ref().and_then(|checked| checked.as_ref().err());
-        let problem =
-            schema_problem(seat, &raw_result).or_else(|| observation.map(ToString::to_string));
+        let problem = schema_problem(seat, &raw_result)
+            .or_else(|| observation.map(ToString::to_string))
+            .or_else(|| word_problem(seat, state, &raw_result));
         if let Some(problem) = problem {
             self.append(
                 EventType::TransitionDecided,
@@ -282,6 +283,38 @@ fn schema_problem(seat: &Seat, raw_result: &Value) -> Option<String> {
                     )),
                 }),
         },
+    }
+}
+
+/// Why a schema-valid `raw_result`'s word is refused (decision 0109
+/// ruling 2): a gate's word, or the aggregate a panel's engine wrote,
+/// bound to its stamped findings and to the residual pair `seat`
+/// compiles. The word is never rewritten; a refusal parks as a malformed
+/// result. A work seat's word outside a panel is not a verdict.
+fn word_problem(seat: &Seat, state: &RunState, raw_result: &Value) -> Option<String> {
+    let object = raw_result.as_object().expect("checked above");
+    let word = object["result"].as_str().expect("checked above");
+    let pair = ResidualPair::declared_in(&seat.inputs);
+    (binds_its_word(seat, state))
+        .then(|| bind_journaled(object, word, pair).err())
+        .flatten()
+        .map(|refusal| format!("the seat's word was refused: {refusal}"))
+}
+
+/// Whether the word `seat` ended `state`'s effect with is one ruling 2
+/// binds: a gate's, or a panel's engine-written aggregate, read from the
+/// compiled body the effect selected and the step its success named. A
+/// body the journal cannot place is bound, never exempted.
+fn binds_its_word(seat: &Seat, state: &RunState) -> bool {
+    match seat.body.selected(state.strategy.as_deref()) {
+        Some((ExecutableBody::Invocation(Invocation::Single { class, .. }), _)) => {
+            *class == SeatClass::Gate
+        }
+        Some((ExecutableBody::Sequence { steps }, _)) => (steps.iter())
+            .find(|step| Some(step.name.as_str()) == state.ending_step.as_deref())
+            .or(steps.last())
+            .is_none_or(super::sequence::binds_its_word),
+        Some((ExecutableBody::Invocation(Invocation::Panel { .. }), _)) | None => true,
     }
 }
 

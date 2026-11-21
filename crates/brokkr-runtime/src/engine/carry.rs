@@ -10,7 +10,9 @@ use thiserror::Error;
 use super::panel::{outcome_over, panel_outcome, Members, Stamped};
 use super::worktree::TreeReading;
 use super::{Engine, EngineError};
-use crate::bundle::{Aggregate, ExecutableBody, Invocation, MemberFindings, SeatBody, StepBody};
+use crate::bundle::{
+    ExecutableBody, Invocation, MemberFindings, MemberLaws, PanelJoin, SeatBody, StepBody,
+};
 
 pub(crate) mod facts;
 pub(crate) mod record;
@@ -107,6 +109,10 @@ pub(crate) struct CarryPlan {
     entries: Vec<Contribution>,
     step: Option<String>,
     subject: Option<Head>,
+    /// Every declared member's compiled law, by bare name: the attempt
+    /// runs only the fresh ones, and a carried member's word is joined
+    /// under its own law all the same (decision 0109 ruling 11).
+    laws: MemberLaws,
 }
 
 impl Contribution {
@@ -136,7 +142,14 @@ impl CarryPlan {
             entries,
             step,
             subject,
+            laws: MemberLaws::new(),
         })
+    }
+
+    /// The plan with every declared member's compiled `laws`.
+    fn under(self, laws: &MemberLaws) -> Self {
+        let laws = laws.clone();
+        Self { laws, ..self }
     }
 
     fn all_fresh(tags: &[Tag], step: Option<String>) -> Self {
@@ -262,14 +275,14 @@ impl Panelled {
 }
 
 pub(crate) fn outcome_under(
-    aggregate: Aggregate,
+    join: &PanelJoin,
     plan: Option<&CarryPlan>,
     (reports, stamped): Members,
     span: &PanelSpan,
     attempt: &str,
 ) -> Result<Panelled, EngineError> {
     let Some(plan) = plan else {
-        return Ok(Panelled::Joined(panel_outcome(aggregate, reports, stamped)));
+        return Ok(Panelled::Joined(panel_outcome(join, reports, stamped)));
     };
     if let Some(subject) = &plan.subject {
         if !span.holds(subject) {
@@ -285,12 +298,13 @@ pub(crate) fn outcome_under(
         }
     }
     let (joined, stamped) = plan.join((reports, stamped))?;
-    Ok(Panelled::Joined(outcome_over(aggregate, joined, stamped)))
+    let join = join.carrying(&plan.laws);
+    Ok(Panelled::Joined(outcome_over(&join, joined, stamped)))
 }
 
 pub(crate) fn carry_plan(facts: &CarryFacts, names: &[Tag]) -> Result<CarryPlan, CarryRefusal> {
-    let (step, tags) = match &facts.shape {
-        PanelShape::Panel { step, tags } => (step, tags),
+    let (step, tags, laws) = match &facts.shape {
+        PanelShape::Panel { step, tags, laws } => (step, tags, laws),
         PanelShape::NoPanel { phase } => {
             return Err(Refusal::NoPanel {
                 phase: phase.clone(),
@@ -331,7 +345,8 @@ pub(crate) fn carry_plan(facts: &CarryFacts, names: &[Tag]) -> Result<CarryPlan,
     // controls that invariant without adding a recoverable operator refusal for an engine defect.
     Ok(
         CarryPlan::new(tags, entries, step.clone(), facts.head.clone())
-            .expect("contributions cover declared members"),
+            .expect("contributions cover declared members")
+            .under(laws),
     )
 }
 
