@@ -707,26 +707,11 @@ pub fn mask_json(value: &mut serde_json::Value, bindings: &[BoundSecret]) {
             let entries = std::mem::take(map);
             for (key, mut item) in entries {
                 mask_json(&mut item, bindings);
-                let masked = unclaimed(map, mask_text(key.as_bytes(), bindings));
-                map.insert(masked, item);
+                map.insert(mask_text(key.as_bytes(), bindings), item);
             }
         }
         _ => {}
     }
-}
-
-/// `key`, or, where masking gave two keys of one object one text, the
-/// first `key#N` from `N` = 2 that `map` does not hold yet, so no value is
-/// overwritten (#1213: keys `abcd` and `abcdefg` both read one marker
-/// when `abcd` and `defg` are bound).
-fn unclaimed(map: &serde_json::Map<String, serde_json::Value>, key: String) -> String {
-    let mut candidate = key.clone();
-    let mut n = 1;
-    while map.contains_key(&candidate) {
-        n += 1;
-        candidate = format!("{key}#{n}");
-    }
-    candidate
 }
 
 /// `bytes` masked by [`mask_bytes`] and only then decoded, lossily, as

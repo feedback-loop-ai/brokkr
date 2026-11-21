@@ -482,6 +482,22 @@ fn a_key_masking_makes_collide_with_another_is_the_servers_protocol_fault() {
 }
 
 #[test]
+fn keys_a_union_of_two_bound_values_makes_one_are_the_servers_protocol_fault() {
+    // #1213: with `abcd` and `defg` bound, `abcd` and `abcdefg` both mask
+    // to `[secret:LEFT]`, so the object would lose a member. The control,
+    // `abcdefg` beside a key that stays apart, is masked and kept.
+    let bindings = bound_as(&[("LEFT", "abcd"), ("RIGHT", "defg")]);
+    let body = json!({"content": [], "structuredContent": {"abcd": 1, "abcdefg": 2}});
+    assert_eq!(alone(body, &bindings), Err(PROTOCOL));
+    let data = r#"{"code":-1,"message":"no","data":{"abcd":1,"abcdefg":2}}"#;
+    assert_eq!(edge(fault(data), &bindings), Err(PROTOCOL));
+    let apart = json!({"content": [], "structuredContent": {"abcdefg": 1, "k": 2}});
+    let masked = alone(apart, &bindings).ok().unwrap();
+    let bytes = r#"{"result":{"content":[],"structuredContent":{"[secret:LEFT]":1,"k":2}}}"#;
+    assert_eq!(String::from_utf8(masked).unwrap(), bytes);
+}
+
+#[test]
 fn masking_that_changes_what_a_reply_says_cannot_be_safely_masked() {
     // A bound value that is one of MCP's own keys: masking never touches
     // it, so the result would still say its tool failed, and the error

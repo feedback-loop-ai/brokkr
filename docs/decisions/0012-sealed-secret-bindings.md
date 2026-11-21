@@ -101,11 +101,12 @@ masked the first and left the second's other bytes readable.
 2. **One marker per run.** A run reads one `[secret:NAME]`, its form
    unchanged, naming the binding whose occurrence starts first; of those
    starting at one byte, the longest needle's, as before. A run that
-   holds one occurrence reads exactly as it did. Where masking gives two
-   keys of one JSON object one text, as `abcd` and `abcdefg` with `abcd`
-   and `defg` bound, each value is kept: the first key in the object's
-   order reads the masked text, and each later one that text followed by
-   `#2`, `#3` and so on, the first such key the object does not hold.
+   holds one occurrence reads exactly as it did. A union can make two
+   keys of one JSON object one text, as `abcd` and `abcdefg` do with
+   `abcd` and `defg` bound. `mask_json` keeps one member for them, as it
+   did before. Where that matters, the caller detects it: the broker's
+   output edge refuses it as the server's protocol fault. What an
+   adapter's stream rows read as structure is #1242's.
 3. **The guard sees what the masker would.** The final guard refuses
    bytes holding a bound value whose start an earlier match covers, as it
    refuses any other occurrence.
