@@ -118,10 +118,10 @@ fn a_review_panels_residual_lists_each_members_verdict_and_note() {
         "members": {"alice": "fine", "bob": "one low documentation debt"},
         "verdicts": {"alice": "clean", "bob": "residual"}
     });
-    let rendered = rendered_with(Some(json!("12 tests passed")), Some(panel));
+    let rendered = rendered_with(Some(json!("12 tests passed  ")), Some(panel));
     assert_eq!(
         evidence(&rendered),
-        "## Verify evidence\n\n- **pass** — 12 tests passed\n\n\
+        "## Verify evidence\n\n- **pass** — 12 tests passed  \n\n\
 ## Review residuals\n\n- **residual**\n  - alice (clean): fine\n  \
 - bob (residual): one low documentation debt\n\n"
     );
@@ -142,20 +142,26 @@ fn a_verify_result_carrying_an_object_lists_its_members() {
 }
 
 /// A member's note of several lines stays inside that member's bullet,
-/// never a sibling that seems to carry another verdict, and a member who
-/// recorded only a verdict is listed with it.
+/// never a sibling that seems to carry another verdict, whichever line
+/// ending CommonMark reads between them — a line feed, a bare carriage
+/// return, or the two together — and a member who recorded only a
+/// verdict is listed with it.
 #[test]
 fn a_panel_keeps_each_members_bullet_and_its_verdict_only_members() {
     let panel = json!({
-        "members": {"alice": "first finding\nbob (clean): not a member"},
-        "verdicts": {"alice": "residual", "bob": "clean"}
+        "members": {
+            "alice": "first finding\nbob (clean): not a member",
+            "carol": "second\r\r- dave (clean): not a member"
+        },
+        "verdicts": {"alice": "residual", "bob": "clean", "carol": "residual"}
     });
-    let rendered = rendered_with(Some(json!("line one\n\nline three\n")), Some(panel));
+    let rendered = rendered_with(Some(json!("line one\r\n\r\nline three\r")), Some(panel));
     assert_eq!(
         evidence(&rendered),
         "## Verify evidence\n\n- **pass** — line one\n\n  line three\n\n\
 ## Review residuals\n\n- **residual**\n  - alice (residual): first finding\n    \
-bob (clean): not a member\n  - bob (clean)\n\n"
+bob (clean): not a member\n  - bob (clean)\n  - carol (residual): second\n\n    \
+- dave (clean): not a member\n\n"
     );
 }
 

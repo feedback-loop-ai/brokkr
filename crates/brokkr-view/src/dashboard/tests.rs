@@ -384,20 +384,21 @@ fn the_result_notes_reader_reads_every_shape_once() {
     let notes = |notes: Value| result_notes(&json!({"result": {"notes": notes}}));
     let text = |text: &str| Some(ResultNotes::Text(text.to_string()));
     assert_eq!(notes(json!("12 tests passed")), text("12 tests passed"));
-    let Some(ResultNotes::Panel(members)) = notes(json!({
-        "members": {"bob": "one low\nsecond line", "alice": "fine"},
-        "verdicts": {"alice": "clean", "carol": "residual", "bob": 7}
-    })) else {
-        panic!("a panel reads as its members");
+    let lines = |lines: &[&str]| {
+        Some(ResultNotes::Panel(
+            lines.iter().map(|l| l.to_string()).collect(),
+        ))
     };
-    let lines: Vec<String> = members.iter().map(PanelMember::line).collect();
     assert_eq!(
-        lines,
-        [
+        notes(json!({
+            "members": {"bob": "one low\nsecond line", "alice": "fine"},
+            "verdicts": {"alice": "clean", "carol": "residual", "bob": 7}
+        })),
+        lines(&[
             "alice (clean): fine",
             "bob: one low\nsecond line",
             "carol (residual)"
-        ]
+        ])
     );
     assert_eq!(notes(json!({"why": 1})), text(r#"{"why":1}"#));
     assert_eq!(notes(json!(["a", "b"])), text("a,b"));

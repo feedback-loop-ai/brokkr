@@ -64,7 +64,7 @@ fn result_line(result: &str, notes: Option<ResultNotes>) -> String {
         Some(ResultNotes::Panel(members)) => {
             let mut line = format!("- **{result}**\n");
             for member in members {
-                line.push_str(&format!("  - {}\n", indented(&member.line(), "    ")));
+                line.push_str(&format!("  - {}\n", indented(&member, "    ")));
             }
             line
         }
@@ -72,9 +72,13 @@ fn result_line(result: &str, notes: Option<ResultNotes>) -> String {
 }
 
 /// `text` with every line after its first indented by `indent`, a blank
-/// line left blank, and its trailing whitespace dropped.
+/// line left blank, and its trailing line endings dropped. A line ends
+/// where CommonMark ends one: at a line feed, a carriage return, or the
+/// two together, so no bare carriage return can start a line outside
+/// the bullet. Every other byte, trailing spaces included, is kept.
 fn indented(text: &str, indent: &str) -> String {
-    let mut lines = text.trim_end().split('\n');
+    let text = text.replace("\r\n", "\n").replace('\r', "\n");
+    let mut lines = text.trim_end_matches('\n').split('\n');
     let mut out = lines.next().unwrap_or_default().to_string();
     for line in lines {
         out.push('\n');

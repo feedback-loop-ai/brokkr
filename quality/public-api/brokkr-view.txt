@@ -243,7 +243,7 @@ pub fn brokkr_view::Range::from_str(&str) -> core::result::Result<brokkr_view::R
 impl serde_core::ser::Serialize for brokkr_view::Range
 pub fn brokkr_view::Range::serialize<S: serde_core::ser::Serializer>(&self, S) -> core::result::Result<<S as serde_core::ser::Serializer>::Ok, <S as serde_core::ser::Serializer>::Error>
 pub enum brokkr_view::ResultNotes
-pub brokkr_view::ResultNotes::Panel(alloc::vec::Vec<brokkr_view::PanelMember>)
+pub brokkr_view::ResultNotes::Panel(alloc::vec::Vec<alloc::string::String>)
 pub brokkr_view::ResultNotes::Text(alloc::string::String)
 pub enum brokkr_view::Ruled
 pub brokkr_view::Ruled::Flagged
@@ -544,9 +544,6 @@ pub brokkr_view::Page::rows: alloc::vec::Vec<(brokkr_view::Section, brokkr_view:
 pub struct brokkr_view::Paged
 pub brokkr_view::Paged::behind: u64
 pub brokkr_view::Paged::next: core::option::Option<brokkr_view::Cursor>
-pub struct brokkr_view::PanelMember
-impl brokkr_view::PanelMember
-pub fn brokkr_view::PanelMember::line(&self) -> alloc::string::String
 pub struct brokkr_view::ParkFact
 pub brokkr_view::ParkFact::answered: i64
 pub brokkr_view::ParkFact::at: i64

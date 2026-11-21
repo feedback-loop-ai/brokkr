@@ -345,27 +345,15 @@ const NOTES: &str = "/result/notes";
 /// where the notes are absent, the error a failed attempt wrote. An empty
 /// text is no notes.
 fn notes_of(payload: &Value) -> Option<String> {
-    match payload.pointer(NOTES) {
-        Some(notes) => read_notes(notes).and_then(notes_text),
+    match notes_at(payload, Listed::Writers) {
+        Some(notes) => notes.map(|notes| match notes {
+            ResultNotes::Text(text) => text,
+            ResultNotes::Panel(lines) => lines.join("\n"),
+        }),
         None => field(payload, "error")
             .filter(|text| !text.trim().is_empty())
             .map(str::to_string),
     }
-}
-
-/// The dashboard's text of a result's notes: a panel's members who wrote
-/// a note, one line each; a panel where none did is no notes.
-fn notes_text(notes: ResultNotes) -> Option<String> {
-    let members = match notes {
-        ResultNotes::Text(text) => return Some(text),
-        ResultNotes::Panel(members) => members,
-    };
-    let lines: Vec<String> = members
-        .iter()
-        .filter(|member| member.note.is_some())
-        .map(PanelMember::line)
-        .collect();
-    (!lines.is_empty()).then(|| lines.join("\n"))
 }
 
 /// A result payload's `/result/notes`, read once for every surface that
@@ -375,45 +363,42 @@ pub enum ResultNotes {
     /// A string as itself, and notes of any shape but a panel's as the
     /// journal wrote them.
     Text(String),
-    /// A panel's members in name order: every member who wrote a note or
-    /// recorded a verdict, one entry each.
-    Panel(Vec<PanelMember>),
-}
-
-/// One member of a panel's notes.
-#[derive(Clone, PartialEq, Eq, Debug)]
-pub struct PanelMember {
-    /// `name (verdict)`, or the bare name where no verdict is recorded.
-    named: String,
-    /// The member's note as the journal wrote it; none where the member
-    /// recorded only a verdict.
-    note: Option<String>,
-}
-
-impl PanelMember {
-    /// The member's line: `name (verdict): note`, without the note where
-    /// the member wrote none.
-    pub fn line(&self) -> String {
-        match &self.note {
-            Some(note) => format!("{}: {note}", self.named),
-            None => self.named.clone(),
-        }
-    }
+    /// A panel's members in name order, one line each: `name (verdict):
+    /// note`, the bare name where no verdict is recorded, and no `: note`
+    /// where the member recorded only a verdict.
+    Panel(Vec<String>),
 }
 
 /// The one reader of a result payload's `/result/notes`: a string as
-/// itself, a panel's members with their verdicts and notes, and any other
-/// value as the journal wrote it. Absent notes, notes empty after
-/// trimming, and a panel of no members are none.
+/// itself, a panel's members with their verdicts and notes, each member
+/// who recorded only a verdict among them, and any other value as the
+/// journal wrote it. Absent notes, notes empty after trimming, and a
+/// panel of no members are none.
 pub fn result_notes(payload: &Value) -> Option<ResultNotes> {
-    payload.pointer(NOTES).and_then(read_notes)
+    notes_at(payload, Listed::Every).flatten()
+}
+
+/// Which of a panel's members a surface lists.
+#[derive(Clone, Copy)]
+enum Listed {
+    /// Only the members who wrote a note: the dashboard's form.
+    Writers,
+    /// The writers and each member who recorded only a verdict.
+    Every,
+}
+
+/// The one lookup of a payload's notes: none where the journal wrote
+/// none, else what they read as, which may itself be nothing.
+fn notes_at(payload: &Value, listed: Listed) -> Option<Option<ResultNotes>> {
+    let notes = payload.pointer(NOTES)?;
+    Some(read_notes(notes, listed))
 }
 
 /// Notes the journal wrote, read into their shape.
-fn read_notes(notes: &Value) -> Option<ResultNotes> {
+fn read_notes(notes: &Value, listed: Listed) -> Option<ResultNotes> {
     let text = match notes {
         Value::Object(map) => match map.get("members").and_then(Value::as_object) {
-            Some(members) => return panel(members, map.get("verdicts")),
+            Some(members) => return panel(members, map.get("verdicts"), listed),
             None => notes.to_string(),
         },
         other => js::to_display(Some(other)),
@@ -421,25 +406,40 @@ fn read_notes(notes: &Value) -> Option<ResultNotes> {
     (!text.trim().is_empty()).then_some(ResultNotes::Text(text))
 }
 
-/// A panel's members in name order: each one who wrote a note, and each
-/// one who recorded only a verdict.
-fn panel(members: &Map<String, Value>, verdicts: Option<&Value>) -> Option<ResultNotes> {
+/// A panel's member lines in name order: each member who wrote a note,
+/// and, where every member is listed, each who recorded only a verdict.
+fn panel(
+    members: &Map<String, Value>,
+    verdicts: Option<&Value>,
+    listed: Listed,
+) -> Option<ResultNotes> {
     let verdicts = verdicts.and_then(Value::as_object);
+    let voters = match listed {
+        Listed::Writers => None,
+        Listed::Every => verdicts,
+    };
     let names: BTreeSet<&String> = members
         .keys()
-        .chain(verdicts.into_iter().flat_map(Map::keys))
+        .chain(voters.into_iter().flat_map(Map::keys))
         .collect();
-    let panel: Vec<PanelMember> = names
+    let lines: Vec<String> = names
         .into_iter()
-        .map(|name| PanelMember {
-            named: match verdicts.and_then(|verdicts| verdicts.get(name)?.as_str()) {
-                Some(verdict) => format!("{name} ({verdict})"),
-                None => name.clone(),
-            },
-            note: members.get(name).map(|note| js::to_display(Some(note))),
-        })
+        .map(|name| member_line(name, members.get(name), verdicts))
         .collect();
-    (!panel.is_empty()).then_some(ResultNotes::Panel(panel))
+    (!lines.is_empty()).then_some(ResultNotes::Panel(lines))
+}
+
+/// One member's line: `name (verdict): note`, without the verdict where
+/// none is recorded and without the note where the member wrote none.
+fn member_line(name: &str, note: Option<&Value>, verdicts: Option<&Map<String, Value>>) -> String {
+    let named = match verdicts.and_then(|verdicts| verdicts.get(name)?.as_str()) {
+        Some(verdict) => format!("{name} ({verdict})"),
+        None => name.to_string(),
+    };
+    match note {
+        Some(note) => format!("{named}: {}", js::to_display(Some(note))),
+        None => named,
+    }
 }
 
 /// The participants of the seat the fold names as at work: the seat's own
