@@ -6,7 +6,7 @@ use std::process::Command;
 
 use anyhow::{Context, Result};
 use brokkr_core::{EventEnvelope, EventType};
-use brokkr_view::{applied_events, result_notes};
+use brokkr_view::{applied_events, result_notes, ResultNotes};
 use serde_json::Value;
 
 fn git(repo: &Path, args: &[&str]) -> Option<String> {
@@ -25,7 +25,7 @@ fn phase_results(
     events: &[EventEnvelope],
     phase: &str,
     vocabulary: &[&str],
-) -> Vec<(String, String)> {
+) -> Vec<(String, Option<ResultNotes>)> {
     let requested: BTreeMap<&str, &str> = events
         .iter()
         .filter(|event| event.event_type == EventType::EffectRequested)
@@ -45,29 +45,45 @@ fn phase_results(
                 return None;
             }
             let result = event.payload.pointer("/result/result")?.as_str()?;
-            vocabulary.contains(&result).then(|| {
-                let notes = result_notes(&event.payload);
-                (
-                    result.to_string(),
-                    notes.unwrap_or_else(|| "no notes recorded".to_string()),
-                )
-            })
+            vocabulary
+                .contains(&result)
+                .then(|| (result.to_string(), result_notes(&event.payload)))
         })
         .collect()
 }
 
-/// One result's bullet. A one-line note follows its result word; a note of
-/// several lines, a panel's one line per member among them, is a nested
-/// list under it, one bullet per line, so the markdown stays a list.
-fn result_line(result: &str, notes: &str) -> String {
-    if !notes.contains('\n') {
-        return format!("- **{result}** — {notes}\n");
+/// One result's bullet. A text follows its result word; a panel is a
+/// nested list under it, one bullet per member, however many members it
+/// has. Every line after a note's first is indented under its own bullet,
+/// so a note of several lines stays inside it and the markdown stays a
+/// list. Only absent notes are "no notes recorded".
+fn result_line(result: &str, notes: Option<ResultNotes>) -> String {
+    match notes {
+        None => format!("- **{result}** — no notes recorded\n"),
+        Some(ResultNotes::Text(text)) => format!("- **{result}** — {}\n", indented(&text, "  ")),
+        Some(ResultNotes::Panel(members)) => {
+            let mut line = format!("- **{result}**\n");
+            for member in members {
+                line.push_str(&format!("  - {}\n", indented(&member.line(), "    ")));
+            }
+            line
+        }
     }
-    let mut line = format!("- **{result}**\n");
-    for note in notes.lines() {
-        line.push_str(&format!("  - {note}\n"));
+}
+
+/// `text` with every line after its first indented by `indent`, a blank
+/// line left blank, and its trailing whitespace dropped.
+fn indented(text: &str, indent: &str) -> String {
+    let mut lines = text.trim_end().split('\n');
+    let mut out = lines.next().unwrap_or_default().to_string();
+    for line in lines {
+        out.push('\n');
+        if !line.trim().is_empty() {
+            out.push_str(indent);
+            out.push_str(line);
+        }
     }
-    line
+    out
 }
 
 fn commit_ids(events: &[EventEnvelope], repo: &Path) -> Vec<String> {
@@ -160,7 +176,7 @@ pub(crate) fn render(run_id: &str, events: Vec<EventEnvelope>, repo: &Path) -> R
         ledger.push_str("No verify result is recorded.\n");
     } else {
         for (result, notes) in verify {
-            ledger.push_str(&result_line(&result, &notes));
+            ledger.push_str(&result_line(&result, notes));
         }
     }
     ledger.push_str("\n## Review residuals\n\n");
@@ -168,7 +184,7 @@ pub(crate) fn render(run_id: &str, events: Vec<EventEnvelope>, repo: &Path) -> R
         ledger.push_str("No review result is recorded.\n");
     } else {
         for (result, notes) in review {
-            ledger.push_str(&result_line(&result, &notes));
+            ledger.push_str(&result_line(&result, notes));
         }
     }
     ledger.push_str(

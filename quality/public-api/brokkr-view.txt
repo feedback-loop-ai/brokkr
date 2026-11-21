@@ -242,6 +242,9 @@ pub type brokkr_view::Range::Err = brokkr_view::AnalyticsError
 pub fn brokkr_view::Range::from_str(&str) -> core::result::Result<brokkr_view::Range, brokkr_view::AnalyticsError>
 impl serde_core::ser::Serialize for brokkr_view::Range
 pub fn brokkr_view::Range::serialize<S: serde_core::ser::Serializer>(&self, S) -> core::result::Result<<S as serde_core::ser::Serializer>::Ok, <S as serde_core::ser::Serializer>::Error>
+pub enum brokkr_view::ResultNotes
+pub brokkr_view::ResultNotes::Panel(alloc::vec::Vec<brokkr_view::PanelMember>)
+pub brokkr_view::ResultNotes::Text(alloc::string::String)
 pub enum brokkr_view::Ruled
 pub brokkr_view::Ruled::Flagged
 pub brokkr_view::Ruled::Open
@@ -541,6 +544,9 @@ pub brokkr_view::Page::rows: alloc::vec::Vec<(brokkr_view::Section, brokkr_view:
 pub struct brokkr_view::Paged
 pub brokkr_view::Paged::behind: u64
 pub brokkr_view::Paged::next: core::option::Option<brokkr_view::Cursor>
+pub struct brokkr_view::PanelMember
+impl brokkr_view::PanelMember
+pub fn brokkr_view::PanelMember::line(&self) -> alloc::string::String
 pub struct brokkr_view::ParkFact
 pub brokkr_view::ParkFact::answered: i64
 pub brokkr_view::ParkFact::at: i64
@@ -940,7 +946,7 @@ pub fn brokkr_view::residual_findings_at(&str, &[brokkr_core::envelope::EventEnv
 pub fn brokkr_view::resolution_divergence<T: core::clone::Clone + core::cmp::PartialEq>(&alloc::collections::btree::map::BTreeMap<alloc::string::String, T>, &alloc::collections::btree::map::BTreeMap<alloc::string::String, T>) -> alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_view::Sides<T>>
 pub fn brokkr_view::resolutions_at(&[brokkr_core::envelope::EventEnvelope], core::option::Option<&brokkr_core::fold::RunState>) -> alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_view::Resolution>
 pub fn brokkr_view::resolved(alloc::vec::Vec<brokkr_view::Participant>) -> alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_view::Resolution>
-pub fn brokkr_view::result_notes(&serde_json::value::Value) -> core::option::Option<alloc::string::String>
+pub fn brokkr_view::result_notes(&serde_json::value::Value) -> core::option::Option<brokkr_view::ResultNotes>
 pub fn brokkr_view::run_row(&brokkr_view::RunEntry<'_>, &[brokkr_view::Cooling]) -> brokkr_view::RunRow
 pub fn brokkr_view::run_rows(&[brokkr_view::RunEntry<'_>], &[brokkr_view::Cooling]) -> brokkr_view::RunsView
 pub fn brokkr_view::run_view(&[brokkr_core::envelope::EventEnvelope], core::option::Option<&brokkr_core::fold::RunState>) -> brokkr_view::RunView

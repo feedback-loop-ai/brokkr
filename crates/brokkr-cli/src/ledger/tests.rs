@@ -128,15 +128,34 @@ fn a_review_panels_residual_lists_each_members_verdict_and_note() {
 }
 
 /// A verify result whose notes are a panel's object reads through the
-/// same reader as review's.
+/// same reader as review's, and a panel of one member is still a nested
+/// list under its result word.
 #[test]
 fn a_verify_result_carrying_an_object_lists_its_members() {
     let panel = json!({"members": {"tests": "12 passed"}, "verdicts": {"tests": "pass"}});
     let rendered = rendered_with(Some(panel), Some(json!("one low")));
     assert_eq!(
         evidence(&rendered),
-        "## Verify evidence\n\n- **pass** — tests (pass): 12 passed\n\n\
+        "## Verify evidence\n\n- **pass**\n  - tests (pass): 12 passed\n\n\
 ## Review residuals\n\n- **residual** — one low\n\n"
+    );
+}
+
+/// A member's note of several lines stays inside that member's bullet,
+/// never a sibling that seems to carry another verdict, and a member who
+/// recorded only a verdict is listed with it.
+#[test]
+fn a_panel_keeps_each_members_bullet_and_its_verdict_only_members() {
+    let panel = json!({
+        "members": {"alice": "first finding\nbob (clean): not a member"},
+        "verdicts": {"alice": "residual", "bob": "clean"}
+    });
+    let rendered = rendered_with(Some(json!("line one\n\nline three\n")), Some(panel));
+    assert_eq!(
+        evidence(&rendered),
+        "## Verify evidence\n\n- **pass** — line one\n\n  line three\n\n\
+## Review residuals\n\n- **residual**\n  - alice (residual): first finding\n    \
+bob (clean): not a member\n  - bob (clean)\n\n"
     );
 }
 
