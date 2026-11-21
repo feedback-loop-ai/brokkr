@@ -32,6 +32,7 @@ use std::time::{Duration, Instant};
 use serde_json::{json, Map, Value};
 
 use bind_refusal::BindRefusal;
+use spec_refusal::SpecRefusal;
 
 mod bind_refusal;
 pub(crate) mod environment;
@@ -41,6 +42,7 @@ mod namespace;
 mod overlay;
 mod sealed;
 mod session;
+mod spec_refusal;
 pub use evidence::UNPROTECTED_EVIDENCE;
 #[cfg(test)]
 use git::parse_git_dirs;
@@ -160,48 +162,46 @@ impl HandsSpec {
     /// `workspace` and nothing else; unknown keys are refused, because a
     /// dropped key here would be a dropped boundary.
     pub fn parse(raw: &Value) -> Result<HandsSpec, String> {
-        let object = match raw {
-            Value::String(kind) if kind == "workspace" => return Ok(HandsSpec::default()),
-            Value::String(other) => {
-                return Err(format!(
-                    "hands '{other}' is not a known kind; the vocabulary is: workspace"
-                ))
-            }
-            Value::Object(object) => object,
-            other => {
-                return Err(format!(
-                    "hands must be \"workspace\" or an object, got {other}"
-                ))
-            }
-        };
+        HandsSpec::checked(raw).map_err(|refusal| refusal.to_string())
+    }
+
+    /// The string-or-object read: a string is the kind, an object is
+    /// checked whole.
+    fn checked(raw: &Value) -> Result<HandsSpec, SpecRefusal<'_>> {
+        match raw {
+            Value::String(kind) if kind == "workspace" => Ok(HandsSpec::default()),
+            Value::String(kind) => Err(SpecRefusal::UnknownKind { kind }),
+            Value::Object(object) => HandsSpec::checked_object(object),
+            got => Err(SpecRefusal::NotKindOrObject { got }),
+        }
+    }
+
+    /// The object's checks, in order, each refusing in its own variant.
+    fn checked_object(object: &Map<String, Value>) -> Result<HandsSpec, SpecRefusal<'_>> {
         // Named as a misplaced field, never as an unknown key: the author
         // is told where the word lives (decision 0046 ruling 1).
         if object.contains_key("boundary") {
-            return Err(format!("hands names 'boundary'; {BOUNDARY_IS_THE_REALMS}"));
+            return Err(SpecRefusal::Boundary);
         }
-        for key in object.keys() {
-            if !["kind", "network", "binds"].contains(&key.as_str()) {
-                return Err(format!(
-                    "hands has unknown key '{key}'; known: kind, network, binds"
-                ));
-            }
+        let known = ["kind", "network", "binds"];
+        if let Some(key) = object.keys().find(|key| !known.contains(&key.as_str())) {
+            return Err(SpecRefusal::UnknownKey { key });
         }
-        match object.get("kind").and_then(Value::as_str) {
-            Some("workspace") => {}
-            _ => return Err("hands.kind must be \"workspace\"".to_string()),
+        if object.get("kind").and_then(Value::as_str) != Some("workspace") {
+            return Err(SpecRefusal::Kind);
         }
         let network = match object.get("network") {
             None => false,
             Some(Value::Bool(flag)) => *flag,
-            Some(other) => return Err(format!("hands.network must be a boolean, got {other}")),
+            Some(got) => return Err(SpecRefusal::Network { got }),
         };
         let mut binds = Vec::new();
         if let Some(raw_binds) = object.get("binds") {
-            let entries = raw_binds
-                .as_array()
-                .ok_or_else(|| "hands.binds must be an array".to_string())?;
+            let Some(entries) = raw_binds.as_array() else {
+                return Err(SpecRefusal::BindsNotArray);
+            };
             for entry in entries {
-                binds.push(Bind::parse(entry)?);
+                binds.push(Bind::checked(entry).map_err(SpecRefusal::Bind)?);
             }
         }
         Ok(HandsSpec { network, binds })
@@ -223,10 +223,6 @@ impl HandsSpec {
 }
 
 impl Bind {
-    fn parse(raw: &Value) -> Result<Bind, String> {
-        Bind::checked(raw).map_err(|refusal| refusal.to_string())
-    }
-
     /// The bind's checks, in order, each refusing in its own variant.
     fn checked(raw: &Value) -> Result<Bind, BindRefusal<'_>> {
         let Some(object) = raw.as_object() else {

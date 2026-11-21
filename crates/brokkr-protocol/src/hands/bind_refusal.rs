@@ -2,8 +2,8 @@
 //!
 //! `Bind::checked` refuses in this one cause, one variant per check, so a
 //! test can name the check that fired and tell a bind's refusal from the
-//! spec's. Its `Display` is the operator's text byte for byte; `Bind::parse`
-//! is the one place it becomes text (#353).
+//! spec's. Its `Display` is the operator's text byte for byte;
+//! `HandsSpec::parse` is the one place it becomes text (#353).
 
 /// Why a bind entry was refused, each field borrowed from the entry.
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
