@@ -1,0 +1,6 @@
+box3 gate saw tool: read_file args-keys: ['Path']
+box3 gate saw tool: call_mcp_tool args-keys: ['Arguments', 'ServerName', 'ToolName']
+box3 gate saw tool: call_mcp_tool args-keys: ['Arguments', 'ServerName', 'ToolName']
+box3 gate saw tool: call_mcp_tool args-keys: ['Arguments', 'ServerName', 'ToolName']
+box3 gate saw tool: run_command args-keys: ['CommandLine', 'WaitMsBeforeAsync', 'toolSummary']
+box3 gate saw tool: write_file args-keys: ['Content', 'Path']

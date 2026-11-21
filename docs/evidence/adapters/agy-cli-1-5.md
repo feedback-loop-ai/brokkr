@@ -306,7 +306,8 @@ as planted, with the lab's own paths.
   the word `hooks` loads the same way: under it the gate saw `search_web` and
   denied it (`hook-document-named-hooks`).
 - **`timeout` is seconds.** (docs: "optional integer seconds, default `30`".)
-  No turn here ran a hook past its timeout.
+  No turn here ran a hook past its timeout; `hook-timeout` in the fourth
+  measurement did.
 - **The hook's `command` is run as a shell command**, with the hook's JSON on
   its stdin and its decision read from its stdout.
 
@@ -375,6 +376,60 @@ The layout, under one lab directory:
 A check that reads the ancestors of the resolved path covers what agy reads
 only where the child's `PWD` is that resolved path. Every earlier turn of this
 record held: the lab entered each directory by its resolved path.
+
+## Fourth measurement, for level 3 (2026-11-20 and 2026-11-21)
+
+Level 1 seats agy unboxed. Before asking for boxed hands (#1224), the
+controller measured whether an agy turn can be left one tool, the engine's.
+Same host, binary and account. Every turn ran `agy` by hand, never through
+`brokkr driver agy`, with `-p`, no `--mode`, and one allow rule in
+`--settings`: `mcp(brokkr/*)` for the first three turns and
+`mcp(brokkr/workspace)` for the two notice turns. `hook-timeout` carried
+`command(uname)` instead. The model was `gemini-3.8-flash-low`, except
+`box-default-notice-carbon`, which ran `gemini-4-carbon`.
+
+The scratch HOME held three things: the login link,
+[`documents/box.mcp_config.json`](agy-cli-1-5/documents/box.mcp_config.json)
+as `.gemini/config/mcp_config.json`, and
+[`documents/box.hooks.json`](agy-cli-1-5/documents/box.hooks.json) as
+`.gemini/config/hooks.json`. The MCP document names one server, `brokkr`:
+`brokkr hands serve` of the 0.14.0 release for a scratch worktree, with no
+network, no binds and no store in its reach. The hook is `box3-gate.py`: it
+answers `deny_unless_prior_grant` for `call_mcp_tool` where `ServerName` is
+`brokkr`, and `deny` for every other tool, by name. Each `.hooklog` is that
+gate's own list of the calls it saw.
+
+| File | What was asked | What it shows |
+| --- | --- | --- |
+| `box-engine-workspace-tool.ndjson`, `.hooklog` | three commands through the workspace tool, then `uname -s` through the native shell and a file through the native file tool | the three ran as `call_mcp_tool` with `ServerName` `brokkr`, `ToolName` `workspace` and the command in `Arguments.command`; `ls /home \| wc -l` answered 0; `run_command` and `write_file` failed "tool call denied by pre-tool hook"; the result is `SUCCESS` with a full answer and no `denied_actions` |
+| `box-reach.ndjson`, `.hooklog` | six commands through the workspace tool | `/proc` holds 4 numbered entries and pid 1 is `bwrap`; `ls -a ~` shows an empty directory; `ls /var/tmp/probe-agy` shows the worktree's parent `box3` and nothing else of the lab; `curl` fails "Could not resolve host"; the command runs as uid 1000 in the worktree |
+| `box-other-natives.ndjson`, `.hooklog` | ten native tools, each called once by name | the gate saw `manage_task`, `schedule`, `define_subagent`, `run_workflow`, `send_message`, `ask_question`, `edit_file`, `search_web` and `swarm`, and each failed as denied by the hook; the model answered that it has no `browser_get_dom` and called nothing for it |
+| `hook-timeout.ndjson`, `.hooklog` | `uname -s` under `command(uname)`, with [`documents/slow.hooks.json`](agy-cli-1-5/documents/slow.hooks.json): `slow.sh` sleeps 20 seconds under a `timeout` of 3 and would then allow | the call failed: `JSON hook "jsonhook__brokkr-gate_PreToolUse_0_0" failed: command failed: signal: killed`; the log holds the hook's start and never its end |
+| `box-default-notice.ndjson`, `box-default-notice-carbon.ndjson`, `.hooklog` | read a file and write `result.json`, followed by the engine's own hands paragraph, which names the tool `mcp__brokkr__workspace` | both models wrote the file through `call_mcp_tool`; each first called `read_file` on `<HOME>/.gemini/antigravity-cli/mcp/brokkr/workspace.json` and `list_resources`, both denied, and `call_mcp_tool` once with no arguments, which the server refused |
+
+- **A turn can be left one tool.** With the gate listing `call_mcp_tool`
+  alone, every native tool the model called was denied by name as a tool
+  error, and the turn went on to an answer. Eighteen native calls reached the
+  gate across these turns, under thirteen names: `read_file`, `write_file`,
+  `edit_file`, `run_command`, `manage_task`, `schedule`, `define_subagent`,
+  `run_workflow`, `send_message`, `ask_question`, `search_web`, `swarm` and
+  `list_resources`.
+- **The engine's tool is reached through `call_mcp_tool`.** The hook is told
+  that name, with the server and the tool in `ServerName` and `ToolName`.
+  No call named `mcp__brokkr__workspace` or `mcp_brokkr_workspace`.
+- **What the tool's command sees is the box's**, not agy's: a private
+  process space, an empty HOME, no network, and of the host's tree only the
+  worktree. Agy itself runs on the host, outside the box.
+- **A gate that outlives its timeout denies.** Agy kills it and fails the
+  call, as it fails the call of a gate that exits 1 (`hook-crash`).
+- **The engine's default hands paragraph is enough.** Neither model was told
+  `call_mcp_tool`, `ServerName` or the command argument. Agy keeps each
+  server's tool schemas as files under the HOME, and both models tried to
+  read that file with the native `read_file` first.
+
+Not measured here: any of this through `brokkr driver agy`, whose gate mode
+reads the tool's name alone; a box whose reach names a store, a bind or the
+network; a boxed turn on Neon, Hydrogen or Argon; and a resume.
 
 ## Not measured
 
