@@ -57,10 +57,14 @@ NDJSON over stdio, one JSON object per line.
 - **stdout is protocol-only.** Any line that is not a valid protocol
   message fails the attempt closed. Do not print banners, progress bars
   or logs there.
-- **stderr is captured as an artifact** and rides on failed and
-  indeterminate outcomes. Put your logging there. It is masked for
-  declared secret values on raw bytes before any string exists (decision
-  0012), so an echoed token does not reach the journal.
+- **stderr is captured, and never journaled.** Put your logging there.
+  A failed or indeterminate outcome names it in the journal by
+  content-free evidence alone: its length, the class of its first byte
+  and a SHA-256 prefix (decision 0012's addendum of 2026-11-20). Its
+  tail goes to the engine's own stderr, each line under the attempt id:
+  the terminal under `brokkr run`, the driver log under `brokkr
+  dispatch`. A built-in driver masks declared secret values in it on raw
+  bytes before any string exists, so an echoed token is not printed there.
 
 Every message, in both directions, carries three keys:
 

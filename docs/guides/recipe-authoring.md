@@ -409,7 +409,13 @@ as a deterministic exec with no model, and its `{change}` token comes from the
 nearest preceding typed result. The `clarify` and `analyze` loop sequences run
 their dialect check before the judge, a gate chartered not to write whose
 only enforced check is that it left HEAD where it found it, which receives
-that output as `prior_results`. A realm that does not declare a dialect cannot compile a
+that output as `prior_results`. A dialect check's `notes` are its
+validator's trimmed stdout; where the validator wrote to stderr, one last
+line, `validator stderr: <evidence>`, names that stderr by its length, the
+class of its first byte and a SHA-256 prefix, and no byte of it reaches the
+journal (decision 0012's addendum, #1199). A realm that wants its
+validator's diagnostics in the notes redirects them to stdout inside its
+own command, as `2>&1` does. A realm that does not declare a dialect cannot compile a
 bundle containing these dialect-owned steps. Nor can a realm whose
 boundary is `harness` or `open`: the step holds its gate by the box
 (decision 0042 ruling 4), and its argv is the dialect's tool, not the

@@ -81,7 +81,7 @@ fn an_early_ending_cannot_judge_away_a_deterministic_check_failure() {
     assert_eq!(
         contradiction.payload["reason"],
         "sequence step 'judge': result '\"clear\"' contradicts deterministic step 'check' \
-         result 'ambiguous'",
+         result 'ambiguous'; driver stderr: empty",
         "{test}"
     );
     assert!(

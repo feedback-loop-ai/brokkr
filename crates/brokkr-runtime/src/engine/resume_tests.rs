@@ -2473,8 +2473,17 @@ fn a_valid_route_overlay_binds_on_an_offered_panel_member_start_too() {
 /// name is found by one search.
 const ROUTE_MARKER: &str = "route4amarker";
 
-const DSH_PIN_LINE: &str =
-    "dsh driver: dsh exited 3 with the pinned model deepseek/deepseek-v4-flash on route deepseek\n";
+/// Failed attempt `n`'s error: its 115 bytes of stderr, "dsh child {n} wrote this\n" and the driver's
+/// "dsh driver: dsh exited 3 with the pinned model deepseek/deepseek-v4-flash on route deepseek\n",
+/// named by evidence alone (#1199), so the attempt's digest prefix is `DSH_FAILED[n - 1]`.
+const DSH_FAILED: [&str; 3] = ["2a1e51a00b2294fd", "2cdb647152645145", "5a928d1d0ed25e08"];
+fn dsh_failed(n: usize) -> String {
+    let evidence = format!(
+        "115 bytes (first byte: letter; sha256: {})",
+        DSH_FAILED[n - 1]
+    );
+    format!("agent CLI exited 3; driver stderr: {evidence}")
+}
 
 /// A valid DSH route document (the reader's grammar for a
 /// `deepseek/deepseek-v4-flash` pin; `adapters/tests.rs` validates the
@@ -2512,7 +2521,7 @@ fn assert_journal_free_of_route_and_carriers(events: &[EventEnvelope], layer: &P
                 .unwrap()
                 .remove("route.yml");
         }
-        // A string field (an error's stderr tail) escapes the quotes of a
+        // A string field (an old journal's stderr tail) escapes the quotes of a
         // carrier it copied; the search reads it unescaped as well.
         let text = serde_json::to_string(&payload)
             .unwrap()
@@ -2888,15 +2897,15 @@ fn serve_dsh_when_spawned() {
 /// `adapters::serve`, spawned as this very test binary — on a seat whose
 /// `--patch` route binds, and the journal that attempt appends is read.
 /// The gate is closed, as it ships, so this is the cold route production
-/// runs today. The first attempt fails with stderr, so the stderr tail the
-/// engine journals on a failed attempt is read too; the retry succeeds.
+/// runs today. The first attempt fails with stderr, so the evidence the
+/// engine journals of it on a failed attempt is read too; the retry succeeds.
 ///
 /// The route reaches the child on both attempts, and the private context
 /// the driver was started with holds the binding and the assessment; the
-/// journal — each launch row, the failed attempt's stderr tail, every
+/// journal — each launch row, the failed attempt's error, every
 /// other event — carries none of the route's content, its path, its
-/// digest, the binding or a private carrier, and the stderr tail is
-/// exactly the child's own bytes. The adapter's stdout reaches the engine
+/// digest, the binding or a private carrier, and the error names exactly
+/// the child's own bytes by evidence (#1199). The adapter's stdout reaches the engine
 /// whole but for libtest's one announcement line, and that raw stream is
 /// searched too, so a disclosure the adapter prints outside the protocol
 /// is neither filtered away nor missed.
@@ -3050,7 +3059,7 @@ fn the_real_dsh_driver_journals_no_route_byte_and_no_carrier() {
     }
 
     // The two attempts, as journaled: a launch row each, the first failed
-    // with a stderr tail and the second succeeded — the surfaces the
+    // naming its stderr and the second succeeded — the surfaces the
     // exclusion above was read over.
     let attempts: Vec<&str> = starts
         .iter()
@@ -3075,13 +3084,6 @@ fn the_real_dsh_driver_journals_no_route_byte_and_no_carrier() {
     assert_eq!(failed.len(), 1, "{failed:?}");
     assert_eq!(failed[0].attempt_id.as_deref(), Some(attempts[0]));
     assert!(
-        failed[0].payload["error"]
-            .as_str()
-            .is_some_and(|error| error.contains("; stderr tail: ")),
-        "the failed attempt journals a stderr tail: {}",
-        failed[0].payload
-    );
-    assert!(
         events.iter().any(|event| {
             event.event_type == EventType::EffectSucceeded
                 && event.attempt_id.as_deref() == Some(attempts[1])
@@ -3089,14 +3091,12 @@ fn the_real_dsh_driver_journals_no_route_byte_and_no_carrier() {
         "the retry succeeded"
     );
 
-    // And each is exactly what the adapter and the engine own: the stderr
-    // tail is the child's own line plus the driver's line naming the pinned
-    // route (#532), and the launch row is the shipped route's vocabulary
-    // plus the engine's three stamps, whose two references are hashes.
-    assert_eq!(
-        failed[0].payload["error"],
-        format!("agent CLI exited 3; stderr tail: dsh child 1 wrote this\n{DSH_PIN_LINE}")
-    );
+    // And each is exactly what the adapter and the engine own: the failed
+    // attempt names, by evidence, the child's own line plus the driver's
+    // line naming the pinned route (#532), and the launch row is the shipped
+    // route's vocabulary plus the engine's three stamps, whose two
+    // references are hashes.
+    assert_eq!(failed[0].payload["error"], dsh_failed(1));
     for attempt in &attempts {
         let rows = launch_rows(attempt);
         let mut row = rows[0].clone();
@@ -3276,7 +3276,7 @@ fn dsh_assessment_measuring(measured: &str) -> crate::agents::ResumeAssessment {
 ///    journaled (an accepted success journals none);
 /// 4. the last retry declines the same way, and succeeds.
 ///
-/// For each, every journaled event, launch row and stderr tail, and the
+/// For each, every journaled event, launch row and failed error, and the
 /// adapter's raw stdout, carry no route content, path, digest, binding,
 /// `resume_context`, `owned_target` or `assessment`; each launch row is
 /// exactly its own vocabulary, and the confirmed rejoin's keeps the
@@ -3554,11 +3554,7 @@ fn the_real_dsh_driver_journals_no_route_byte_on_the_gated_shapes() {
     for (n, event) in failed.iter().enumerate() {
         assert_eq!(event.attempt_id.as_deref(), Some(attempts[n]));
         let n = n + 1;
-        assert_eq!(
-            event.payload["error"],
-            format!("agent CLI exited 3; stderr tail: dsh child {n} wrote this\n{DSH_PIN_LINE}"),
-            "attempt {n}"
-        );
+        assert_eq!(event.payload["error"], dsh_failed(n), "attempt {n}");
     }
     assert!(
         events.iter().any(|event| {

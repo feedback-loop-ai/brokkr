@@ -55,6 +55,8 @@ mod tree;
 mod usage;
 
 use attempts::{Attempt, Unspawned};
+pub use evidence::DriverStderr;
+pub(crate) use evidence::Evidence;
 pub(crate) use launched::Launched;
 use limits::{Exceeded, Frame, Limits, Retained, STDOUT_LINES};
 use outcome::{reached, refuse_foreign, unread};

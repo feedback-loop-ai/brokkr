@@ -1,6 +1,7 @@
-//! The dsh stderr a journal may quote: the child's own lines with its
-//! reasoning redacted, and the one line the driver adds when the child
-//! fails.
+//! The dsh stderr the engine may tell its own stderr: the child's own
+//! lines with its reasoning redacted, and the one line the driver adds
+//! when the child fails. The journal quotes none of it; it names the
+//! driver's stderr by content-free evidence alone (#1199).
 
 use super::{parse_dsh_model, split_dsh_model, Invocation};
 
@@ -24,16 +25,17 @@ pub(super) fn before_reasoning(stderr: &str) -> &str {
     stderr
 }
 
-/// The one dsh stderr stream the journal may not quote.
+/// The one dsh stderr stream the engine's own stderr may not be told.
 ///
 /// dsh 0.1.2-rc.1's headless profile streams the model's reasoning to
 /// stderr under a `dsh: reasoning:` line (measured 2026-09-04: one
 /// header, then the raw thinking text, until the harness's next `dsh: `
-/// line or the end of the stream). The driver's stderr tail is what a
-/// parked seat quotes into the journal, and a journal admits no
-/// reasoning text (decisions 0032 and 0034). So a reasoning block is
-/// replaced by one line that says it was there, and every harness line
-/// survives, because those are what a park needs to be read.
+/// line or the end of the stream). The driver's stderr tail is what the
+/// engine tells its own stderr of a failed seat, never the journal, which
+/// names it by evidence alone (#1199), and it carries no reasoning text
+/// (decisions 0032 and 0034). So a reasoning block is replaced by one
+/// line that says it was there, and every harness line survives, because
+/// those are what an operator reads a park by.
 pub(super) fn redact_dsh_reasoning(stderr: &str) -> String {
     const REDACTED: &str = "dsh: reasoning: [not journaled — decision 0034]";
     let mut kept = Vec::new();
@@ -57,10 +59,12 @@ pub(super) fn redact_dsh_reasoning(stderr: &str) -> String {
 }
 
 /// A failed dsh seat names the route and model it pinned (#532), as the
-/// last line of its stderr, so the tail the engine journals beside `agent
-/// CLI exited <code>` says which route the seat asked for. A host whose
-/// dsh does not serve that route fails here, and the operator reads the
-/// route from the failure rather than from the bundle.
+/// last line of its stderr, so the tail the engine tells its own stderr
+/// beside the journaled `agent CLI exited <code>` says which route the
+/// seat asked for; the journal names that stderr by evidence alone
+/// (#1199). A host whose dsh does not serve that route fails here, and
+/// the operator reads the route from the engine's stderr rather than
+/// from the bundle.
 ///
 /// The line states the pin and the exit code and nothing else: it reads
 /// none of dsh's prose and decides nothing from it (decisions 0001 and
@@ -95,7 +99,7 @@ mod tests {
             answer: None,
             exit_code,
             session_meta: Map::new(),
-            stdout: String::new(),
+            notes: String::new(),
             stderr: stderr.to_string(),
             state: None,
             refusal: None,

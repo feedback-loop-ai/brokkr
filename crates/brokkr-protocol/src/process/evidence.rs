@@ -17,14 +17,14 @@ const DIGEST_HEX: usize = 16;
 
 /// Refused bytes, described without their content.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct Evidence {
+pub(crate) struct Evidence {
     bytes: usize,
     first: FirstByte,
     digest: String,
 }
 
 impl Evidence {
-    pub(super) fn of(bytes: &[u8]) -> Self {
+    pub(crate) fn of(bytes: &[u8]) -> Self {
         let mut digest = hex::encode(Sha256::digest(bytes));
         digest.truncate(DIGEST_HEX);
         Evidence {
@@ -44,6 +44,55 @@ impl fmt::Display for Evidence {
             "{} bytes (first byte: {}; sha256: {})",
             self.bytes, self.first, self.digest
         )
+    }
+}
+
+/// How many characters of a driver's stderr the engine tells its own
+/// stderr when an attempt fails or is indeterminate.
+const TOLD_CHARS: usize = 2000;
+
+/// A driver's retained stderr (`AttemptReport::stderr`). The journal
+/// names it only as [`Evidence`], never by a byte of its content
+/// (decision 0012, addendum of 2026-11-20, #1199): a harness can print a
+/// credential the seat does not bind, which no driver masks. Its masked
+/// tail goes to the engine's own stderr, which is never journaled.
+#[derive(Debug, Clone, Copy)]
+pub struct DriverStderr<'s>(&'s str);
+
+impl<'s> DriverStderr<'s> {
+    pub fn of(stderr: &'s str) -> Self {
+        DriverStderr(stderr)
+    }
+
+    /// `reason` as the journal carries it, this stderr named beside it
+    /// by evidence: "{reason}; driver stderr: …". Pure: nothing is told
+    /// here, so a reason is made without waiting on any stream.
+    pub fn named(&self, reason: &str) -> String {
+        format!("{reason}; {self}")
+    }
+
+    /// Tell `out` the last [`TOLD_CHARS`] characters, as the driver masked
+    /// them, each line prefixed by `attempt_id`. Nothing where the driver
+    /// said nothing. The engine tells only after the attempt's terminal
+    /// event is appended (#1199), so a stalled stream cannot keep it from
+    /// settling; a write `out` refuses is not the attempt's failure, so
+    /// it is dropped.
+    pub fn tell(&self, attempt_id: &str, out: &mut impl std::io::Write) {
+        let skip = self.0.chars().count().saturating_sub(TOLD_CHARS);
+        let tail: String = self.0.chars().skip(skip).collect();
+        for line in tail.lines() {
+            drop(writeln!(out, "{attempt_id}: driver stderr: {line}"));
+        }
+    }
+}
+
+impl fmt::Display for DriverStderr<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.0.is_empty() {
+            f.write_str("driver stderr: empty")
+        } else {
+            write!(f, "driver stderr: {}", Evidence::of(self.0.as_bytes()))
+        }
     }
 }
 

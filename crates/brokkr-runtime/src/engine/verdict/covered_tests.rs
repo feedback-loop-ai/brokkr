@@ -570,7 +570,7 @@ fn a_seat_supplied_covered_or_follow_ups_fails_the_attempt() {
         assert_eq!(failed.len(), 2, "{field}");
         let want = format!(
             "the result was refused: the result carries '{field}', which only the engine \
-             writes (decision 0109 ruling 1); stderr tail: "
+             writes (decision 0109 ruling 1); driver stderr: "
         );
         for failure in failed {
             assert!(

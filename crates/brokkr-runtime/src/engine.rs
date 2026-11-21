@@ -51,6 +51,7 @@ pub use broker::evidence;
 // The test modules compare a box's argv through `use super::*`.
 #[cfg(test)]
 use boxed::hands_command;
+mod attempt_stderr;
 mod capability_calls;
 mod carry;
 mod checkpoints;
@@ -536,6 +537,8 @@ pub struct Engine {
     /// The run's lock while this process drives it (decision 0108 ruling
     /// 1), taken before the first append and let go as the engine is.
     run_lock: Option<crate::run_lock::RunLock>,
+    stderr: attempt_stderr::AttemptStderr,
+    told: Box<dyn std::io::Write + Send>,
 }
 
 pub(crate) fn verify_dispatch_bundle_bounds(
@@ -619,6 +622,8 @@ fn shell(store: Store, bundle: Bundle, run_id: String, feature: String, repo: Pa
         fence: None,
         held: None,
         run_lock: None,
+        stderr: Default::default(),
+        told: Box::new(std::io::stderr()),
     }
 }
 
@@ -794,7 +799,9 @@ impl Engine {
                 Ok(None) => {}
                 Err(error) => {
                     before_lawful_end(&error);
-                    if let Some(end) = self.lawful_end_under_contention(error)? {
+                    let end = self.lawful_end_under_contention(error)?;
+                    self.finish_turn()?;
+                    if let Some(end) = end {
                         return Ok(end);
                     }
                 }
@@ -838,6 +845,7 @@ impl Engine {
             }
         }
         self.replay = replay;
+        self.finish_turn()?;
         Ok(None)
     }
 
@@ -925,18 +933,20 @@ impl Engine {
         effect_id: &str,
     ) -> Result<(), EngineError> {
         let attempt_id = held.attempt_id.clone();
-        match self.append_settled(held.event_type, held.payload, held.attempt_id) {
+        self.stderr.active = held.stderr;
+        let landed = match self.append_settled(held.event_type, held.payload, held.attempt_id) {
             Err(EngineError::Store(StoreError::SeatRecord(refusal))) => {
                 let reason = format!(
                     "the journal refused the result a peer's lock had held back: {refusal}"
                 );
                 let settled =
                     json!({"effect_id": effect_id, "attempt_id": attempt_id, "reason": reason});
-                self.append_raw(EventType::EffectIndeterminate, settled, attempt_id)
+                self.append(EventType::EffectIndeterminate, settled, attempt_id)
             }
             landed => landed,
-        }
-        .map(drop)
+        };
+        self.stderr.active = None;
+        landed.map(drop)
     }
 
     fn append(
@@ -968,7 +978,8 @@ impl Engine {
                 return Ok(moved);
             }
         }
-        let payload = self.stamp_covered(event_type, payload);
+        let mut payload = self.stamp_covered(event_type, payload);
+        self.stderr.name(event_type, &mut payload);
         self.append_settled(event_type, payload, attempt_id)
     }
 
@@ -1430,8 +1441,9 @@ impl Engine {
     }
 
     /// Conclude a single-driver attempt with its terminal effect event.
-    /// The stderr tail rides on failed/indeterminate outcomes; a spawn
-    /// failure has no stderr and carries none.
+    /// A failed or indeterminate outcome names the driver's stderr by
+    /// content-free evidence, its masked tail told to the engine's own
+    /// stderr (#1199); a spawn failure has no stderr and names none.
     fn conclude_single(
         &mut self,
         effect_id: &str,
@@ -1462,24 +1474,21 @@ impl Engine {
             DriverRun::Ran(report) => report,
         };
         let start_failure = failed_to_start(&report);
-        let stderr_tail = stderr_tail(&report.stderr);
         let unproven = Unproven::seat(&report);
-        match report.settled_outcome() {
+        let outcome = report.settled_outcome();
+        self.stderr.active = Some(report.stderr);
+        match outcome {
             AttemptOutcome::Succeeded { result } => {
                 let result = stamp_boundary(result, boundary);
                 self.append_succeeded(effect_id, attempt_id, result, |refusal| {
-                    json!({
-                        "effect_id": effect_id,
-                        "attempt_id": attempt_id,
-                        "error": format!("{refusal}; stderr tail: {stderr_tail}"),
-                    })
+                    json!({"effect_id": effect_id, "attempt_id": attempt_id, "error": refusal})
                 })?;
             }
             AttemptOutcome::Failed { error } => {
                 let mut payload = json!({
                     "effect_id": effect_id,
                     "attempt_id": attempt_id,
-                    "error": format!("{error}; stderr tail: {stderr_tail}"),
+                    "error": error,
                 });
                 if start_failure {
                     start_failure_fields(&mut payload, selection, vec![None]);
@@ -1502,7 +1511,7 @@ impl Engine {
                     json!(Indeterminate {
                         effect_id,
                         attempt_id,
-                        reason: format!("{reason}; stderr tail: {stderr_tail}"),
+                        reason,
                         unproven,
                     }),
                     Some(attempt_id.to_string()),
@@ -1619,7 +1628,7 @@ impl Engine {
     /// refuses that result under the seat-record fence (decision 0034,
     /// ruling 6), the failure the refusal is. The failed payload is the
     /// caller's to build, because each seat shape carries its own facts
-    /// on a failed attempt (a stderr tail, the sites that failed to
+    /// on a failed attempt (its stderr's evidence, the sites that failed to
     /// start); the closure receives the refusal's text and nothing else.
     fn append_succeeded(
         &mut self,
@@ -1645,7 +1654,7 @@ pub const OPERATOR_STOP_RULE: &str = "OPERATOR-STOP";
 
 /// A driver invocation that got as far as running, or one that never
 /// spawned. Spawn failures carry no stderr, and their terminal error
-/// grows no stderr tail — the distinction keeps event payloads exactly
+/// names no stderr evidence — the distinction keeps event payloads exactly
 /// as they were before this enum existed.
 enum DriverRun {
     SpawnFailed(String),
@@ -2935,17 +2944,6 @@ fn tag_member(checkpoint: Value, member: &str) -> Value {
         }
         other => json!({"member": member, "value": other}),
     }
-}
-
-fn stderr_tail(stderr: &str) -> String {
-    stderr
-        .chars()
-        .rev()
-        .take(2000)
-        .collect::<String>()
-        .chars()
-        .rev()
-        .collect()
 }
 
 /// The first abstract definition or tool dialect a compiled `capabilities`

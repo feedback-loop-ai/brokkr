@@ -648,7 +648,7 @@ fn ended_view(view: &Value) -> Ended {
     let park = view["park_reason"].as_str();
     let cause = park.map(|park| {
         let (_, last) = park.split_once("last error: ").unwrap_or(("", park));
-        let (cause, _) = last.split_once("; stderr tail").unwrap_or((last, ""));
+        let (cause, _) = last.split_once("; driver stderr").unwrap_or((last, ""));
         cause.to_string()
     });
     Ended {

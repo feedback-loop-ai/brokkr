@@ -220,7 +220,7 @@ fn a_seat_supplied_site_a_duplicate_id_and_a_bad_id_each_fail_the_attempt() {
         assert_eq!(failed.len(), 2, "{refusal}");
         for failure in failed {
             let error = failure["error"].as_str().unwrap();
-            let want = format!("the result was refused: {refusal}; stderr tail: ");
+            let want = format!("the result was refused: {refusal}; driver stderr: ");
             assert!(error.starts_with(&want), "{error}");
         }
         assert!(events

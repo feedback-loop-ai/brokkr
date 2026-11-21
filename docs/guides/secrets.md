@@ -63,8 +63,11 @@ exports reaches the harness undeclared and is not masked. The
 [security model](../security-model.md) states the whole flow.
 
 Whatever the child writes back is masked to `[secret:NAME]` before it
-reaches the journal: its stderr on raw bytes before the string ever
-exists; a harness's stream and transcript on each decoded event, before
+reaches the journal or the engine's log: its stderr on raw bytes before
+the string ever exists, which the journal never holds a byte of, naming
+it by length, first-byte class and a SHA-256 prefix alone (decision
+0012's addendum of 2026-11-20), while its masked tail goes to the
+engine's own stderr; a harness's stream and transcript on each decoded event, before
 any fold clamps a field to a length or rewrites a refusal into one line;
 and the result file after it is parsed, so a value JSON escaped on the
 way out is still found. A wholly numeric secret that a structured field
