@@ -204,3 +204,29 @@ Since it was drafted (refreshed 2026-10-12):
   the realm's to grant), 0071 (the architectural principles), 0072 (full
   access inside a seat box), 0077 (the broker as the harness's child), and
   0082 (the contract lifecycle).
+
+## Addendum — 2026-11-21, operator ruled: seat-record v8 opens the transcript kind and the root session kind
+
+The operator ruled on
+[#1227](https://github.com/feedback-loop-ai/brokkr/issues/1227) that day:
+"v8 in its own story, and yes open root_session.kind". Seat-record v8
+opens the transcript kind as ruling 2 ordered, and the same version
+opens `root_session.kind` on the same rule, amending the closed `kind`
+of decision 0056 ruling 3 and nothing else of that object.
+
+Each kind is one lowercase word of letters, digits and single inner
+hyphens, at most 40 characters, declared by the harness's adapter in its
+optional `record_kinds` member. The built-in drivers declare the kinds
+they write. `none` stays a transcript's empty locator and is never a
+root session kind. The engine refuses at append a kind no loaded adapter
+declares, naming the kind and the seat; every reader judges a record by
+the schema alone. v8 is minted under this decision, which is accepted,
+through decision 0082's lifecycle, and stands at v7's engine line, so
+dispatch never chooses v7.
+
+**Enforcement binding:** `contracts/seat-record.v8.schema.json` and its
+embedded copy; `seat_record::v8_tests` in brokkr-store; the writer's
+check in `crates/brokkr-runtime/src/agents/kinds.rs` and
+`engine::kinds_tests`, whose fixture harness no code names seats,
+records, verifies, exports and renders, and whose undeclared kind is
+refused at append.

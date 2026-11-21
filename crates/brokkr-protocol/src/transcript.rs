@@ -24,7 +24,7 @@ pub(crate) enum Kind {
 }
 
 impl Kind {
-    fn label(self) -> &'static str {
+    pub(crate) const fn label(self) -> &'static str {
         match self {
             Kind::ClaudeSession => "claude-session",
             Kind::CodexThread => "codex-thread",
@@ -32,6 +32,13 @@ impl Kind {
             Kind::None => "none",
         }
     }
+}
+
+/// The kinds the built-in drivers declare by writing them (decision 0075
+/// ruling 2): each harness's transcript kind, which is also the kind of
+/// the root session its driver confirms. `none` needs no declaration.
+pub fn driver_kinds() -> [&'static str; 3] {
+    [Kind::ClaudeSession, Kind::CodexThread, Kind::DshSession].map(Kind::label)
 }
 
 /// One invocation's transcript identity. The locator may arrive after the

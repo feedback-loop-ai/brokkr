@@ -21,7 +21,7 @@ those bytes:
 |---|---|---|
 | Attempt-bound dispatch | `dispatch-envelope.v2.schema.json` | Looper, brokkr-core, Brokkr bridge |
 | Looper-bound run manifest | `run-manifest.v2.schema.json` | brokkr-runtime, brokkr-store export/resume, Brokkr bridge |
-| Seat record | `seat-record.v1.schema.json` | every driver, brokkr-store append/export/verify, every seat readout (superseded for new runs by `seat-record.v7.schema.json`, below) |
+| Seat record | `seat-record.v1.schema.json` | every driver, brokkr-store append/export/verify, every seat readout (superseded for new runs by `seat-record.v8.schema.json`, below) |
 
 The v2 manifest embeds the complete canonical dispatch envelope. The existing
 `runs.manifest` immutability trigger therefore makes Looper correlation,
@@ -1221,4 +1221,42 @@ and 0.13 lines to v6, at append, export, import verification and offline
 verification alike. The tagged 0.14.0 and 0.15.0 engines are v6-era
 writers in that line: they wrote none of the five fields, and every new
 refusal is scoped on `authored`, so every row they wrote reads under v7
-exactly as it did under v6.
+exactly as it did under v6. Since seat-record v8 (below) stands at this
+same line, dispatch chooses v8 for these lines and v7 for none.
+
+## Seat record with open kinds (decision 0075 ruling 2)
+
+Decision 0075 ruling 2, with its addendum of 2026-11-21, adds one file and
+changes none of the bytes above — `seat-record.v7`'s included, which is
+now pinned by digest beside the frozen files:
+
+| Contract | File | Consumers |
+|---|---|---|
+| Seat record whose transcript and root session kinds its harness's adapter declares | `seat-record.v8.schema.json` | brokkr-store append/export/verify (an embedded copy held byte-equal by test), every seat readout |
+
+`seat-record.v8` is `v7` with two members opened and nothing else:
+`transcript.kind` and `root_session.kind` are each one lowercase word of
+letters, digits and single inner hyphens, `^[a-z][a-z0-9]*(-[a-z0-9]+)*$`,
+at most 40 characters, where v7 listed `claude-session`, `codex-thread`,
+`dsh-session` (and, for a transcript, `none`). Every listed kind fits the
+grammar, so every valid v7 record is a valid v8 record. `none` keeps its
+meaning for a transcript, whose `locator` and `home` are then empty, and
+is refused as a root session kind, as v7's list already refused it: a
+root session is a confirmed provider session or it is absent.
+
+The schema admits the grammar; the engine's writer narrows it. Where the
+engine appends a driver's checkpoint or successful result, it refuses a
+kind in either member that no loaded adapter declares, naming the kind
+and the seat, and the attempt fails on that refusal. An adapter declares
+its kinds in the optional `record_kinds` member, a `transcript` kind and,
+where the harness confirms one, a `root_session` kind. The built-in
+drivers declare the kinds they write, so no shipped adapter carries the
+member, and `none` needs no declaration. Readers — export, import
+verification, offline verification and every seat readout — judge a
+record by this schema alone, so an exported journal verifies without the
+adapters that wrote it, and a kind no reader knows renders as its kind,
+locator and home.
+
+v8 stands at v7's own engine line: the store dispatches the 0.14 line
+and later to v8, and the 0.12 and 0.13 lines to v6. As with v2, no engine
+string selects v7; it stays published, pinned and nameable.

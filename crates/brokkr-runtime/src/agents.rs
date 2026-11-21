@@ -49,10 +49,12 @@ use crate::bundle::Limits;
 
 pub(crate) mod charter_data;
 mod compose;
+pub(crate) mod kinds;
 mod load;
 mod mcp;
 mod route;
 pub use brokkr_protocol::adapters::HandsNotice;
+pub use kinds::{DeclaredKinds, RecordKinds};
 pub use load::{resolve_route, valid_name, Adapters, Library, LibraryError, NAME_GRAMMAR};
 pub(crate) use mcp::Uncarried;
 pub use mcp::{McpAxis, McpError, McpHands, McpHost, McpInvocation, McpIsolation, McpMeasurement};
@@ -492,6 +494,10 @@ pub struct Adapter {
     /// `hands` already uses, and the reading every adapter written
     /// before this ruling gets.
     pub resume: ResumeAssessment,
+    /// Decision 0075 ruling 2: the transcript and root session kinds this
+    /// harness's seat records name. `None` declares nothing, which every
+    /// shipped adapter is: a built-in driver declares the kinds it writes.
+    pub record_kinds: Option<RecordKinds>,
     /// Decision 0065 ruling 4: the powers this harness already has — a
     /// server-side search, a built-in fetch — each with how it is switched
     /// on and off, or `unsupported` with the measured reason, or

@@ -171,6 +171,7 @@ pub(super) fn bundle(dir: &Path, body: SeatBody) -> Bundle {
     }
     Bundle {
         dialect_prompts: Default::default(),
+        declared_kinds: Default::default(),
         name: "test".into(),
         description: String::new(),
         cost: String::new(),

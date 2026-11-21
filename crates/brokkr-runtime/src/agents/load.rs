@@ -682,30 +682,6 @@ impl Adapters {
     }
 }
 
-/// Every top-level key an adapter file may write; any other is refused.
-const ADAPTER_KEYS: [&str; 20] = [
-    "provider",
-    "trust_tier",
-    "egress",
-    "routes",
-    "credentials",
-    "harness_auth",
-    "binary",
-    "hint",
-    "driver",
-    "models",
-    "judges",
-    "model_flag",
-    "efforts",
-    "effort_flag",
-    "effortless_routes",
-    "tool_permissions",
-    "mcp",
-    "hands",
-    "resume",
-    "native_capabilities",
-];
-
 fn parse_adapter(
     name: &str,
     path: &Path,
@@ -716,7 +692,7 @@ fn parse_adapter(
     }
     let source = read_json(path)?;
     let map = object(&source, &what)?;
-    only_keys(map, &ADAPTER_KEYS, &what)?;
+    only_keys(map, &adapter::ADAPTER_KEYS, &what)?;
     let adapter::Invocation {
         native,
         provider,
@@ -743,6 +719,7 @@ fn parse_adapter(
         hands_notice,
     } = adapter::hands(map, &what)?;
     let resume = resume_assessment(map, &what)?;
+    let record_kinds = adapter::record_kinds(map, &what)?;
     let credentials = auth::credentials(map, &what)?;
     let mcp = mcp.admit(&McpContext {
         what: &what,
@@ -786,6 +763,7 @@ fn parse_adapter(
             hands_notice,
             mcp,
             resume,
+            record_kinds,
             native,
             digest,
         },

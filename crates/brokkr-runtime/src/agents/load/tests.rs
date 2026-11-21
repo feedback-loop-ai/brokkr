@@ -269,6 +269,47 @@ fn an_adapter_step_failing_a_field_and_its_file_reports_the_earlier() {
     );
 }
 
+/// Decision 0075 ruling 2: `record_kinds` is an object of a `transcript`
+/// kind and an optional `root_session` kind, each one seat-record v8 kind
+/// and never `none`; anything else refuses by the rule it broke.
+#[test]
+fn a_record_kinds_declaration_refuses_every_other_shape() {
+    let kind_rule = "must be one kind of at most 40 bytes matching \
+                     ^[a-z][a-z0-9]*(-[a-z0-9]+)*$, and not 'none'";
+    let rows = [
+        (
+            json!({"record_kinds": "trellis-trail"}),
+            "{what} 'record_kinds' must be a JSON object".to_string(),
+        ),
+        (
+            json!({"record_kinds": {"transcript": "trellis-trail", "home": "/h"}}),
+            "{what} 'record_kinds' has unknown key 'home'; known keys: transcript, root_session"
+                .to_string(),
+        ),
+        (
+            json!({"record_kinds": {"root_session": "trellis-thread"}}),
+            "{what} 'record_kinds' needs a non-empty string 'transcript'".to_string(),
+        ),
+        (
+            json!({"record_kinds": {"transcript": "Trellis"}}),
+            format!("{{what}} 'record_kinds' 'transcript' {kind_rule}"),
+        ),
+        (
+            json!({"record_kinds": {"transcript": "none"}}),
+            format!("{{what}} 'record_kinds' 'transcript' {kind_rule}"),
+        ),
+        (
+            json!({"record_kinds": {"transcript": "trellis-trail", "root_session": "none"}}),
+            format!("{{what}} 'record_kinds' 'root_session' {kind_rule}"),
+        ),
+    ];
+    let rows: Vec<(Value, &str)> = (rows.iter())
+        .map(|(patch, text)| (patch.clone(), text.as_str()))
+        .collect();
+    let (observed, expected) = adapter_refusals(&rows);
+    assert_eq!(observed, expected);
+}
+
 #[test]
 fn a_resume_shape_failing_two_adjacent_steps_reports_the_earlier() {
     let shape = |patch: Value| {

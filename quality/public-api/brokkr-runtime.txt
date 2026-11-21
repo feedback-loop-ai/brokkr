@@ -339,6 +339,7 @@ pub brokkr_runtime::agents::Adapter::models: alloc::collections::btree::map::BTr
 pub brokkr_runtime::agents::Adapter::native: brokkr_runtime::capabilities::NativeInventory
 pub brokkr_runtime::agents::Adapter::provider: alloc::string::String
 pub brokkr_runtime::agents::Adapter::provisional: alloc::collections::btree::set::BTreeSet<alloc::string::String>
+pub brokkr_runtime::agents::Adapter::record_kinds: core::option::Option<brokkr_runtime::agents::RecordKinds>
 pub brokkr_runtime::agents::Adapter::resume: brokkr_runtime::agents::ResumeAssessment
 pub brokkr_runtime::agents::Adapter::routes: alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_runtime::agents::EgressClass>
 pub brokkr_runtime::agents::Adapter::tool_permissions: core::option::Option<brokkr_runtime::agents::ToolPermissions>
@@ -427,6 +428,7 @@ pub brokkr_runtime::agents::DeclaredDialect::boundary: brokkr_runtime::agents::B
 pub brokkr_runtime::agents::DeclaredDialect::hands: alloc::vec::Vec<alloc::string::String>
 pub brokkr_runtime::agents::DeclaredDialect::permissions: core::option::Option<brokkr_protocol::native_controls::ListFlag>
 pub brokkr_runtime::agents::DeclaredDialect::sandbox: alloc::vec::Vec<alloc::string::String>
+pub struct brokkr_runtime::agents::DeclaredKinds
 pub struct brokkr_runtime::agents::HarnessHands
 pub brokkr_runtime::agents::HarnessHands::gate: core::option::Option<alloc::vec::Vec<alloc::string::String>>
 pub brokkr_runtime::agents::HarnessHands::gate_gap: core::option::Option<alloc::string::String>
@@ -480,6 +482,7 @@ pub brokkr_runtime::agents::Notice::model: alloc::string::String
 pub brokkr_runtime::agents::Notice::provider: alloc::string::String
 impl brokkr_runtime::agents::Notice
 pub fn brokkr_runtime::agents::Notice::value(&self) -> serde_json::value::Value
+pub struct brokkr_runtime::agents::RecordKinds
 pub struct brokkr_runtime::agents::Report
 pub brokkr_runtime::agents::Report::agent: brokkr_runtime::agents::Agent
 pub brokkr_runtime::agents::Report::chosen: core::option::Option<usize>
@@ -760,6 +763,7 @@ pub brokkr_runtime::bundle::Bundle::boundary: brokkr_core::realms::Boundary
 pub brokkr_runtime::bundle::Bundle::chain: alloc::vec::Vec<brokkr_runtime::bundle::compose::Ancestor>
 pub brokkr_runtime::bundle::Bundle::charters: brokkr_runtime::bundle::CharterPins
 pub brokkr_runtime::bundle::Bundle::cost: alloc::string::String
+pub brokkr_runtime::bundle::Bundle::declared_kinds: brokkr_runtime::agents::DeclaredKinds
 pub brokkr_runtime::bundle::Bundle::description: alloc::string::String
 pub brokkr_runtime::bundle::Bundle::dialect_prompts: alloc::collections::btree::map::BTreeMap<alloc::string::String, alloc::string::String>
 pub brokkr_runtime::bundle::Bundle::dir: std::path::PathBuf
@@ -2393,6 +2397,7 @@ pub brokkr_runtime::Bundle::boundary: brokkr_core::realms::Boundary
 pub brokkr_runtime::Bundle::chain: alloc::vec::Vec<brokkr_runtime::bundle::compose::Ancestor>
 pub brokkr_runtime::Bundle::charters: brokkr_runtime::bundle::CharterPins
 pub brokkr_runtime::Bundle::cost: alloc::string::String
+pub brokkr_runtime::Bundle::declared_kinds: brokkr_runtime::agents::DeclaredKinds
 pub brokkr_runtime::Bundle::description: alloc::string::String
 pub brokkr_runtime::Bundle::dialect_prompts: alloc::collections::btree::map::BTreeMap<alloc::string::String, alloc::string::String>
 pub brokkr_runtime::Bundle::dir: std::path::PathBuf

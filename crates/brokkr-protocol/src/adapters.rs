@@ -3042,7 +3042,7 @@ fn codex_plan(
         rejoining: None,
         refusal,
         sandbox: None,
-        kind: "codex-thread",
+        kind: TranscriptKind::CodexThread.label(),
         harness_version: version,
         wrapper_digest: None,
         // A codex thread is a rollout on disk: it outlives its
@@ -3080,7 +3080,7 @@ fn codex_plan(
         rejoining: Some(session.to_string()),
         refusal: None,
         sandbox: Some(class),
-        kind: "codex-thread",
+        kind: TranscriptKind::CodexThread.label(),
         harness_version: qualification.observed,
         wrapper_digest: None,
         persistent: true,
@@ -3598,7 +3598,7 @@ fn claude_launch(
         rejoining,
         refusal,
         sandbox: None,
-        kind: "claude-session",
+        kind: TranscriptKind::ClaudeSession.label(),
         harness_version: version,
         wrapper_digest: wrapper_digest.clone(),
         persistent,
@@ -4331,7 +4331,7 @@ impl DshLaunch {
             } else {
                 EFFORT_NOT_REPORTED.to_string()
             }),
-            kind: "dsh-session",
+            kind: TranscriptKind::DshSession.label(),
             harness_version: self.observed.clone(),
             wrapper_digest: self.wrapper_digest.clone(),
             persistent: true,

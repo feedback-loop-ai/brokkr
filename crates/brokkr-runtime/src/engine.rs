@@ -1574,7 +1574,14 @@ impl Engine {
             effect_id,
             attempt_id,
         };
-        let facts = self.bundle.sites.get(driver_seat);
+        let (facts, kinds) = (
+            self.bundle.sites.get(driver_seat),
+            &self.bundle.declared_kinds,
+        );
+        let declared = checkpoints::Declared {
+            kinds,
+            seat: driver_seat,
+        };
         let mut calls = Calls::of(facts, spawn, attempt_id, stamp.as_ref());
         let sink = Checkpoints::new(&mut self.store, &mut self.current_cause, attempt);
         let report = sink.drive(
@@ -1606,9 +1613,10 @@ impl Engine {
                     Some(context) => context.stamp(checkpoint),
                     None => resume::unstamped(checkpoint),
                 };
-                sink.offer_live("", checkpoint, call, stamp.as_ref());
+                sink.offer_live("", checkpoint, call, stamp.as_ref(), declared);
             },
         )?;
+        let report = self.bundle.declared_kinds.refused(driver_seat, report);
         let report = self.folded([effect_id, attempt_id, driver_seat], spawn, begun, report)?;
         Ok(DriverRun::Ran(
             verdict::admitted(report, stamp.as_ref()).journaled(),
@@ -3265,6 +3273,8 @@ mod conclude_tests;
 mod contention_tests;
 #[cfg(test)]
 mod gate_head_tests;
+#[cfg(test)]
+mod kinds_tests;
 #[cfg(test)]
 mod notice_tests;
 #[cfg(test)]

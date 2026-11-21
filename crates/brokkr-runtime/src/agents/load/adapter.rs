@@ -18,7 +18,70 @@ use super::{
     string_array, trust_tier, EgressClass, HarnessHands, LibraryError, McpSupport, ToolPermissions,
     TrustTier, ROUTE_GRAMMAR,
 };
+use crate::agents::kinds::{kind_word, RecordKinds};
 use crate::agents::mcp::McpDecoded;
+
+/// Every top-level key an adapter file may write; any other is refused.
+pub(super) const ADAPTER_KEYS: [&str; 21] = [
+    "provider",
+    "trust_tier",
+    "egress",
+    "routes",
+    "credentials",
+    "harness_auth",
+    "binary",
+    "hint",
+    "driver",
+    "models",
+    "judges",
+    "model_flag",
+    "efforts",
+    "effort_flag",
+    "effortless_routes",
+    "tool_permissions",
+    "mcp",
+    "hands",
+    "resume",
+    "record_kinds",
+    "native_capabilities",
+];
+
+/// Decision 0075 ruling 2: the kinds this harness's seat records name, a
+/// `transcript` kind and, where the harness confirms one, a
+/// `root_session` kind, each one seat-record v8 kind. Absent declares
+/// nothing, which every shipped adapter is: the built-in drivers declare
+/// their own kinds by writing them. `none` needs no declaration, so it is
+/// refused here as a declaration of nothing.
+pub(super) fn record_kinds(
+    map: &Map<String, Value>,
+    what: &str,
+) -> Result<Option<RecordKinds>, LibraryError> {
+    let Some(declared) = map.get("record_kinds") else {
+        return Ok(None);
+    };
+    let what = format!("{what} 'record_kinds'");
+    let raw = object(declared, &what)?;
+    only_keys(raw, &["transcript", "root_session"], &what)?;
+    let kind = |key: &str| -> Result<String, LibraryError> {
+        let kind = string(raw, key, &what)?;
+        match kind_word(&kind) && kind != "none" {
+            true => Ok(kind),
+            false => invalid(format!(
+                "{what} '{key}' must be one kind of at most 40 bytes matching \
+                 ^[a-z][a-z0-9]*(-[a-z0-9]+)*$, and not 'none'"
+            )),
+        }
+    };
+    let transcript = kind("transcript")?;
+    let root_session = match raw.contains_key("root_session") {
+        true => Some(kind("root_session")?),
+        false => None,
+    };
+    Ok(Some(RecordKinds {
+        transcript,
+        root_session,
+    }))
+}
 
 /// Who the provider is and how it is invoked, with the native inventory
 /// its driver's harness judges.
