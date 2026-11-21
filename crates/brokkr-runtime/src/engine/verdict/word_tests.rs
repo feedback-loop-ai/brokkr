@@ -16,6 +16,7 @@ use crate::bundle::{
 };
 use crate::engine::tests::{single_body, step_body};
 use brokkr_core::envelope::{EventEnvelope, EventType};
+use brokkr_core::findings::ResidualPair;
 use brokkr_core::policy::Machine;
 
 /// The shipped recipe `name`, compiled against the shipped library.
@@ -310,4 +311,167 @@ fn a_work_class_members_clean_over_a_declared_high_residual_is_refused() {
         "the passing word 'clean' stands over a declared max_residual_severity of 'high' \
          (decision 0109 ruling 2)"
     );
+}
+
+/// A single gate seat answering `answer`.
+fn gate(answer: &Value) -> SeatBody {
+    SeatBody::Invocation(Invocation::Single {
+        role_path: "role.md".into(),
+        command: driver(answer),
+        candidates: Vec::new(),
+        written: Vec::new(),
+        class: SeatClass::Gate,
+    })
+}
+
+/// The review's decision when its single gate seat, compiling `inputs`,
+/// answers `answer`.
+fn decided_on(answer: Value, inputs: &[&str]) -> (Value, Vec<EventEnvelope>) {
+    let (_dir, events) = reviewed(gate(&answer), inputs);
+    (decided(&events, "review")[0].clone(), events)
+}
+
+/// The refusal decide journaled for the review's word, which parked.
+fn refused_word(answer: Value, inputs: &[&str]) -> String {
+    let (review, events) = decided_on(answer, inputs);
+    assert_eq!(review["result"], "__schema-invalid__", "{review}");
+    assert!(decided(&events, "ship").is_empty(), "never shipped");
+    let parked = events.last().unwrap();
+    assert_eq!(
+        parked.event_type,
+        EventType::RunParked,
+        "{}",
+        parked.payload
+    );
+    review["problem"].as_str().unwrap().to_string()
+}
+
+/// decide's prefix for a refused word.
+fn word_refused(refusal: &str) -> String {
+    format!(
+        "result failed schema validation: the seat's word was refused: {refusal} (decision 0109 \
+         ruling 2)"
+    )
+}
+
+/// Ruling 2 at decide: a gate's passing word is refused over a declared
+/// residual, a security residual, an omitted residual input, and a high
+/// security finding, and decide journals the refusal and parks; the word
+/// is never rewritten.
+#[test]
+fn decide_refuses_a_gates_clean_over_its_declared_residual_or_its_security_finding() {
+    let pair = |severity: &str, security: bool| json!({"max_residual_severity": severity, "has_security_residual": security});
+    let rows = [
+        (
+            json!({"result": "clean", "inputs": pair("high", false)}),
+            "the passing word 'clean' stands over a declared max_residual_severity of 'high'",
+        ),
+        (
+            json!({"result": "clean", "inputs": pair("none", true)}),
+            "the passing word 'clean' stands over a declared has_security_residual of true",
+        ),
+        (
+            json!({"result": "clean", "inputs": {"max_residual_severity": "none"}}),
+            "the passing word 'clean' omits 'has_security_residual', which the seat declares",
+        ),
+        (
+            json!({"result": "clean", "inputs": pair("none", false),
+                   "findings": [finding("leak", "high", true)]}),
+            "the word 'clean' stands over a security finding, which requires 'security-hold'",
+        ),
+    ];
+    for (answer, refusal) in rows {
+        assert_eq!(
+            refused_word(answer.clone(), &PAIR),
+            word_refused(refusal),
+            "{answer}"
+        );
+    }
+}
+
+/// Ruling 2 at decide: a clean from a seat that declares no residual input
+/// stands as today; the hold over a high security finding and a residual
+/// over a medium finding are lawful words; and a work seat's word is not a
+/// verdict, whatever it declares.
+#[test]
+fn decide_admits_every_lawful_word_and_leaves_a_work_seats_word_alone() {
+    let (review, _) = decided_on(json!({"result": "clean"}), &[]);
+    assert_eq!(
+        (review["result"].as_str(), review["rule_id"].as_str()),
+        (Some("clean"), Some("REVIEW"))
+    );
+    let held = json!({"result": "security-hold", "findings": [finding("leak", "high", true)],
+                      "inputs": {"max_residual_severity": "high", "has_security_residual": true}});
+    let (review, _) = decided_on(held, &PAIR);
+    assert_eq!(review["rule_id"], "REVIEW-HOLD", "{review}");
+    let residual = json!({"result": "residual", "findings": [finding("len", "medium", false)],
+                          "inputs": {"max_residual_severity": "medium",
+                                     "has_security_residual": false}});
+    let (review, _) = decided_on(residual, &PAIR);
+    assert_eq!(review["rule_id"], "REVIEW-RESIDUAL", "{review}");
+    let work = single_body(driver(&json!({"result": "complete"})));
+    let (_dir, events) = driven_with(work, |compiled| {
+        reviewing(compiled, gate(&clean()), &PAIR);
+        let work = compiled.seats.get_mut("work").unwrap();
+        work.inputs = PAIR.map(String::from).to_vec();
+    });
+    assert_eq!(
+        decided(&events, "work")[0]["rule_id"],
+        "WORK",
+        "a work seat's word stands"
+    );
+}
+
+/// Ruling 2 at a non-final gate step: a refused word fails the attempt at
+/// that step, as its vocabulary refusal does (decision 0006), and no
+/// later step runs; the attempt cap then parks the run, and no word is
+/// rewritten.
+#[test]
+fn a_non_final_gate_steps_refused_word_fails_the_attempt_and_no_later_step_runs() {
+    // Every compiled step carries its seat's pair: triage's review steps
+    // carry the review seat's.
+    let pair = ResidualPair::declared_in(&PAIR);
+    let compiled = steps_of(&shipped("triage"), "review", Some("engine"));
+    assert!(compiled.iter().all(|step| step.residual == pair));
+    let judge = SequenceStep {
+        residual: pair,
+        ..uncompiled_sequence_step! {
+            name: "judge".into(),
+            class: SeatClass::Gate,
+            results: vec!["clean".into(), "residual".into()],
+            body: step_body(driver(&json!({"result": "clean", "inputs": {
+                "max_residual_severity": "high", "has_security_residual": false}}))),
+        }
+    };
+    let chief = uncompiled_sequence_step! {
+        name: "chief".into(),
+        class: SeatClass::Gate,
+        results: vec!["clean".into()],
+        body: step_body(driver(&clean())),
+    };
+    let review = SeatBody::Sequence {
+        steps: vec![judge, chief],
+    };
+    let (_dir, events) = reviewed(review, &PAIR);
+    let failed: Vec<&Value> = (events.iter())
+        .filter(|event| event.event_type == EventType::EffectFailed)
+        .map(|event| &event.payload)
+        .collect();
+    assert!(!failed.is_empty(), "the attempt failed");
+    for payload in &failed {
+        assert_eq!(
+            payload["error"],
+            "sequence step 'judge': reported a word that was refused: the passing word 'clean' \
+             stands over a declared max_residual_severity of 'high' (decision 0109 ruling 2)",
+            "{payload}"
+        );
+    }
+    let chief_ran =
+        (events.iter()).any(|event| event.payload["checkpoint"]["step_name"] == "chief");
+    assert!(!chief_ran, "no later step ran");
+    assert!(
+        decided(&events, "review").is_empty(),
+        "the word never reached a rule"
+    );
+    assert_eq!(events.last().unwrap().event_type, EventType::RunParked);
 }

@@ -36,6 +36,7 @@ mod step_facts;
 mod success;
 
 pub(in crate::engine) use compose::StepComposition;
+pub(in crate::engine) use step_facts::binds_its_word;
 pub(crate) use step_facts::needs_change;
 pub(super) use step_facts::{dialect_attempt_outcome, expand_dialect_argv, nearest_change};
 use step_facts::{tailed_outcome, vocabulary_problem};

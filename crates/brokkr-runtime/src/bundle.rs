@@ -29,6 +29,7 @@ macro_rules! uncompiled_sequence_step {
             $($field)*
             ends_on: Vec::new(),
             hard_results: Vec::new(),
+            residual: brokkr_core::findings::ResidualPair::declared_in::<&str>(&[]),
         }
     };
 }
@@ -291,6 +292,9 @@ pub struct SequenceStep {
     /// journal can say a hard word ended the sequence rather than an
     /// unreachable one.
     pub hard_results: Vec<String>,
+    /// The residual pair its seat compiles, which a gate step's or a panel
+    /// step's word is bound to before a later step runs (decision 0109).
+    pub residual: brokkr_core::findings::ResidualPair,
 }
 
 #[derive(Debug, Clone)]

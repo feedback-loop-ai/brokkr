@@ -57,7 +57,7 @@ inputs='{}'
 case "$phase" in
   intake) result=resolved ;;
   implement) result=complete ;;
-  review) result=clean; inputs='{"fixes_applied":false}' ;;
+  review) result=clean; inputs='{"fixes_applied":false,"max_residual_severity":"none","has_security_residual":false}' ;;
   *) result=blocked ;;
 esac
 if [ -z "$result_file" ]; then

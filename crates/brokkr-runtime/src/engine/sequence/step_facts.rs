@@ -1,14 +1,16 @@
 //! The pure step facts a sequence's settling reads: its driver's outcome
-//! with its stderr tail, the step's own result vocabulary, the change a
+//! with its stderr tail, the step's own result vocabulary and its word's
+//! binding (decision 0109 ruling 2), the change a
 //! dialect step expands, and a dialect step's outcome. Moved out of
 //! `sequence.rs` mechanically so that file stays within ruling 4's 800-line
 //! ceiling (decision 0103 slice 4c2b); no behaviour changed.
 
+use brokkr_core::findings::bind_journaled;
 use brokkr_protocol::AttemptOutcome;
 use serde_json::Value;
 
 use super::super::{stderr_tail, DriverRun, Unproven};
-use crate::bundle::{DialectExecution, SequenceStep};
+use crate::bundle::{DialectExecution, Invocation, SeatClass, SequenceStep, StepBody};
 
 /// A step driver's outcome, its failure or indeterminate reason with the
 /// driver's stderr tail beside it: the tail rides on the attempt's
@@ -37,7 +39,10 @@ pub(crate) fn needs_change(execution: &DialectExecution) -> bool {
 }
 
 /// What is wrong with a step's result against its own vocabulary, if
-/// anything.
+/// anything, and then, at a gate step or a panel step's engine-written
+/// aggregate, against its word's binding to its findings and to the
+/// residual pair its seat compiles (decision 0109 ruling 2). A refused
+/// word is the step's failure; it is never rewritten.
 pub(super) fn vocabulary_problem(step: &SequenceStep, result: &Value) -> Option<String> {
     match result.get("result").and_then(Value::as_str) {
         None => Some("has no 'result' string".to_string()),
@@ -45,8 +50,18 @@ pub(super) fn vocabulary_problem(step: &SequenceStep, result: &Value) -> Option<
             "reported '{word}', outside its declared results {:?}",
             step.results
         )),
+        Some(word) if binds_its_word(step) => (result.as_object())
+            .and_then(|result| bind_journaled(result, word, step.residual).err())
+            .map(|refusal| format!("reported a word that was refused: {refusal}")),
         Some(_) => None,
     }
+}
+
+/// Whether `step`'s word is a verdict ruling 2 binds: a gate step's, or
+/// the aggregate a panel step's engine writes, whatever its members' class.
+pub(in crate::engine) fn binds_its_word(step: &SequenceStep) -> bool {
+    step.class == SeatClass::Gate
+        || matches!(step.body, StepBody::Invocation(Invocation::Panel { .. }))
 }
 
 pub(crate) fn nearest_change(context: &Value) -> Option<String> {

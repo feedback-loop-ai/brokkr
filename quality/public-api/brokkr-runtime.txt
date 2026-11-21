@@ -819,6 +819,7 @@ pub brokkr_runtime::bundle::SequenceStep::class: brokkr_runtime::bundle::SeatCla
 pub brokkr_runtime::bundle::SequenceStep::ends_on: alloc::vec::Vec<alloc::string::String>
 pub brokkr_runtime::bundle::SequenceStep::hard_results: alloc::vec::Vec<alloc::string::String>
 pub brokkr_runtime::bundle::SequenceStep::name: alloc::string::String
+pub brokkr_runtime::bundle::SequenceStep::residual: brokkr_core::findings::word::ResidualPair
 pub brokkr_runtime::bundle::SequenceStep::results: alloc::vec::Vec<alloc::string::String>
 pub struct brokkr_runtime::bundle::SiteFacts
 pub brokkr_runtime::bundle::SiteFacts::access: core::option::Option<brokkr_protocol::native_controls::access::Access>
@@ -2496,6 +2497,7 @@ pub brokkr_runtime::SequenceStep::class: brokkr_runtime::bundle::SeatClass
 pub brokkr_runtime::SequenceStep::ends_on: alloc::vec::Vec<alloc::string::String>
 pub brokkr_runtime::SequenceStep::hard_results: alloc::vec::Vec<alloc::string::String>
 pub brokkr_runtime::SequenceStep::name: alloc::string::String
+pub brokkr_runtime::SequenceStep::residual: brokkr_core::findings::word::ResidualPair
 pub brokkr_runtime::SequenceStep::results: alloc::vec::Vec<alloc::string::String>
 pub struct brokkr_runtime::Settle<'a>
 pub brokkr_runtime::Settle::operator: &'a str

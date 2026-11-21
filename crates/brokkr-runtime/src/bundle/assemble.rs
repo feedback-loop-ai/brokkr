@@ -402,6 +402,7 @@ impl Seated<'_, '_> {
         self.seat_validator(dialect_site, refusals)?;
         relocate_verify_facts(&mut self.sites, &moved);
         refusals.relocate(&moved);
+        let residual = ResidualPair::declared_in(&self.seats[verify].inputs);
         let prior = SequenceStep {
             name: "checks".into(),
             class: SeatClass::of(self.seats[verify].has_gate()),
@@ -409,6 +410,7 @@ impl Seated<'_, '_> {
             body: prior_body,
             ends_on: Vec::new(),
             hard_results: Vec::new(),
+            residual,
         };
         self.seats.get_mut(verify).expect("parsed above").body = SeatBody::Sequence {
             steps: vec![
@@ -428,6 +430,7 @@ impl Seated<'_, '_> {
                     },
                     ends_on: Vec::new(),
                     hard_results: Vec::new(),
+                    residual,
                 },
             ],
         };

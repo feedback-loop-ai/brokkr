@@ -194,7 +194,7 @@ case "$phase" in
   # real; the model review answers clean with nothing fixed, so the
   # run is carried all the way to `done`. The window therefore
   # OVER-measures time-to-first-effect and never under-measures it.
-  review) result=clean; inputs='{"fixes_applied":false}' ;;
+  review) result=clean; inputs='{"fixes_applied":false,"max_residual_severity":"none","has_security_residual":false}' ;;
   *) result=blocked ;;
 esac
 if [ -z "$result_file" ]; then
