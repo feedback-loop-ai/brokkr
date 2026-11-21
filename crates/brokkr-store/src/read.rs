@@ -8,7 +8,7 @@ use brokkr_core::envelope::{verify_chain_after, EventEnvelope};
 use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::damage::envelope;
-use crate::event_index::{seqs, CHECKPOINTED};
+use crate::event_index::{last_text, payload, seqs, CHECKPOINTED};
 use crate::{patiently, Store, StoreError, HEAD_OF_RUN};
 
 /// The rows of each `[run_id, seq]` pair of the JSON array `?1` at or
@@ -28,15 +28,30 @@ static CHECKPOINTS_BETWEEN: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-/// A run's checkpoints under one attempt that name a member, at or below
-/// a seq, in seq order: the engine's own markers, read through the stream
-/// index, never a seat turn.
+/// A run's checkpoints under one attempt that are the engine's own
+/// `panel-member-finished` marker, at or below a seq, in seq order: read
+/// through the stream index and filtered on the stored checkpoint before
+/// any envelope is decoded, so a member-tagged seat turn or a step record
+/// is never read (fix round 0109a1r8, R1). `member` alone cannot tell them
+/// apart: `tag_member` writes it on every panel member's checkpoint.
 static MEMBER_MARKERS: LazyLock<String> = LazyLock::new(|| {
+    // The checkpoint object serde reads: the payload's last `checkpoint`,
+    // as the index's own projection reads it, never `json_extract`'s first.
+    let checkpoint = format!(
+        "(SELECT value FROM {} WHERE key = 'checkpoint' ORDER BY id DESC LIMIT 1)",
+        payload("e.envelope")
+    );
+    let entries =
+        format!("json_each(CASE WHEN json_valid({checkpoint}) THEN {checkpoint} ELSE '{{}}' END)");
     format!(
-        "SELECT seq FROM event_index INDEXED BY event_index_stream
-         WHERE run_id = ?1 AND attempt_id = ?2 AND member IS NOT NULL
-           AND seq <= ?3 AND type = '{CHECKPOINTED}'
-         ORDER BY seq"
+        "SELECT i.seq FROM event_index AS i INDEXED BY event_index_stream
+         JOIN events AS e ON e.run_id = i.run_id AND e.seq = i.seq
+         WHERE i.run_id = ?1 AND i.attempt_id = ?2 AND i.member IS NOT NULL
+           AND i.seq <= ?3 AND i.type = '{CHECKPOINTED}'
+           AND {step} = 'panel-member-finished' AND {authored} = 'engine'
+         ORDER BY i.seq",
+        step = last_text(&entries, "step"),
+        authored = last_text(&entries, "authored"),
     )
 });
 
@@ -120,12 +135,14 @@ impl Store {
         self.envelopes_at(run_id, &found)
     }
 
-    /// A run's checkpoints under the attempts `attempts` names that name a
-    /// member, at or below `to`, in seq order, each read by its key through
-    /// the stream index: the engine's own panel-member-finished markers a
+    /// A run's checkpoints under the attempts `attempts` names that are the
+    /// engine's own `panel-member-finished` marker, at or below `to`, in seq
+    /// order, each read by its key through the stream index: the markers a
     /// verdicts window's cut dropped, which a verdict inside that window is
-    /// read with (decision 0089 ruling 9, #1212). A journal that reads no
-    /// index must read the run whole instead ([`Store::reads_index`]).
+    /// read with (decision 0089 ruling 9, #1212). A member-tagged seat turn
+    /// and a step record name a member too but carry no marker's word and no
+    /// authorship, so neither is read. A journal that reads no index must
+    /// read the run whole instead ([`Store::reads_index`]).
     pub fn envelopes_of_member_markers(
         &self,
         run_id: &str,

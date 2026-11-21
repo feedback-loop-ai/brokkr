@@ -566,6 +566,23 @@ fn plain_inspect_says_when_its_budget_holds_no_verdict() {
     assert_eq!(verdicts, unread_line(5, 1005));
 }
 
+/// A journal in `dir` whose run holds `outside` before the budget and
+/// `inside` at its newest row, its event index not read (its trail index
+/// dropped): the run the frame reads whole, and whose verdicts block falls
+/// back to the whole read.
+fn index_less_journal(dir: &Path) -> PathBuf {
+    let mut journal = vec![(EventType::EffectCheckpointed, judged("outside"))];
+    journal.extend(turns(1..super::VERDICT_ROWS));
+    journal.push((EventType::EffectCheckpointed, judged("inside")));
+    let db = in_review(dir, journal);
+    let journal = rusqlite::Connection::open(&db).unwrap();
+    journal
+        .execute_batch("DROP INDEX event_index_trail")
+        .unwrap();
+    drop(journal);
+    db
+}
+
 /// #1212, L2: a journal whose event index is not read is read whole, as
 /// the frame reads it (decision 0089 ruling 8), rather than bounded by a
 /// window the index cannot name: a verdict before the window shows too,
@@ -573,20 +590,30 @@ fn plain_inspect_says_when_its_budget_holds_no_verdict() {
 #[test]
 fn plain_inspect_reads_an_index_less_journal_whole() {
     let dir = tempfile::tempdir().unwrap();
-    let mut journal = vec![(EventType::EffectCheckpointed, judged("outside"))];
-    journal.extend(turns(1..super::VERDICT_ROWS));
-    journal.push((EventType::EffectCheckpointed, judged("inside")));
-    let db = in_review(dir.path(), journal);
-    let journal = rusqlite::Connection::open(&db).unwrap();
-    journal
-        .execute_batch("DROP INDEX event_index_trail")
-        .unwrap();
-    drop(journal);
+    let db = index_less_journal(dir.path());
     let verdicts = inspected_verdicts(dir.path(), &db, &viewed);
     assert_eq!(
         verdicts,
         format!("{}{}", judged_line("outside"), judged_line("inside"))
     );
+}
+
+/// #1212, L2's review (R2): the verdicts block's own read falls back to the
+/// whole journal where the event index is not read, even where the frame's
+/// read reached it (the race between the frame's read and the block's).
+/// Plain `inspect` never reaches this arm — an index-less journal takes
+/// `Rows::Whole` first — so the block is read directly.
+#[test]
+fn verdict_rows_reads_an_index_less_journal_whole() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = index_less_journal(dir.path());
+    let store = Store::open_read_only(&db).unwrap();
+    let head = store.load("r1").unwrap().len() as u64;
+    assert!(head > super::VERDICT_ROWS, "{head}");
+    let rows = super::verdict_rows(&store, "r1", head, Vec::new()).unwrap();
+    assert_eq!(rows.unread, 0);
+    assert_eq!(rows.events.first().map(|event| event.seq), Some(1));
+    assert_eq!(rows.events.last().map(|event| event.seq), Some(head));
 }
 
 /// #1212, L2's review (R1): a panel member's authored finish before the
@@ -650,11 +677,12 @@ fn plain_inspect_reads_a_kept_journals_verdicts_whole() {
     );
 }
 
-/// frame's head. A run in review whose judge step journaled `early` before
-/// the frame's read, and `late` after it, appended through the read seam
-/// between the frame's read and the verdict block's: the block shows
+/// #1212, L2's review (R5): plain `inspect`'s verdict block reads no row
+/// past its frame's head. A run in review whose judge step journaled `early`
+/// before the frame's read, and `late` after it, appended through the read
+/// seam between the frame's read and the verdict block's: the block shows
 /// `early` and not `late`, and a run within the budget shows every verdict
-/// it holds with no line of rows unread (#1212, L2).
+/// it holds with no line of rows unread.
 #[test]
 fn inspects_verdict_block_reads_no_row_past_its_frames_head() {
     let dir = tempfile::tempdir().unwrap();

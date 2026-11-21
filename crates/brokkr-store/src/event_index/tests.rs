@@ -429,7 +429,8 @@ fn a_checkpoint_window_reads_only_its_checkpoints() {
 }
 
 /// #1212, L2's review: an attempt's member markers are read by its key,
-/// through the bound it names, and no seat turn comes with them.
+/// through the bound it names, and no member-tagged seat turn, step record
+/// or driver's record of the word comes with them.
 #[test]
 fn an_attempt_s_member_markers_read_by_key_through_their_bound() {
     let (_dir, store) = store();
@@ -441,23 +442,37 @@ fn an_attempt_s_member_markers_read_by_key_through_their_bound() {
                                   "member": member, "outcome": "succeeded"}}),
         )
     };
+    let checkpoint = |fields: Json| {
+        event(
+            EventType::EffectCheckpointed,
+            json!({"effect_id": "e", "attempt_id": "a", "checkpoint": fields}),
+        )
+    };
     run_of(
         &store,
         "r",
         vec![
             marker("a", "m1"),
-            event(
-                EventType::EffectCheckpointed,
-                json!({"effect_id": "e", "attempt_id": "a",
-                       "checkpoint": {"step": "seat-turn", "turn": 1}}),
+            // A panel member's seat turn carries the member too, and must
+            // not be read as its finish.
+            checkpoint(json!({"step": "seat-turn", "turn": 1, "member": "m1"})),
+            // A driver's checkpoint that names the word without the
+            // engine's authorship is no marker (decision 0109 ruling 1).
+            checkpoint(json!({"step": "panel-member-finished", "member": "m1",
+                              "outcome": "succeeded"})),
+            // A sequence step's record names its step in `member` as well,
+            // and is not a panel member's marker either.
+            checkpoint(
+                json!({"step": "sequence-step-finished", "authored": "engine",
+                              "step_name": "judge", "member": "judge"}),
             ),
             marker("b", "m2"),
             marker("a", "m3"),
         ],
     );
-    let found = store.envelopes_of_member_markers("r", &["a"], 3).unwrap();
+    let found = store.envelopes_of_member_markers("r", &["a"], 6).unwrap();
     let seqs: Vec<u64> = found.iter().map(|event| event.seq).collect();
-    assert_eq!(seqs, [1]);
+    assert_eq!(seqs, [1, 6]);
 }
 
 /// A run of three events, each with an attempt and a member to edit.

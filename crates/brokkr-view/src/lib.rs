@@ -77,7 +77,8 @@ pub use live::applied_events;
 use live::derived;
 mod residual_findings;
 pub use residual_findings::{
-    gate_records, gate_records_within, residual_findings_at, GateFinding, GateRecord,
+    gate_records, gate_records_within, residual_findings_at, verdict_attempts_within, GateFinding,
+    GateRecord,
 };
 mod seat_view;
 pub use commands::{Admission, Command, CommandRefusal, Disabled, Offered, Unavailable};

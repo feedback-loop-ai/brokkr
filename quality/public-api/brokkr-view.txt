@@ -954,6 +954,7 @@ pub fn brokkr_view::summary(&brokkr_core::fold::RunState, &[brokkr_core::envelop
 pub fn brokkr_view::summary_row(&brokkr_core::page::Row, core::option::Option<&brokkr_core::page::Whole>, &brokkr_view::WaitFact, &[brokkr_view::Cooling]) -> brokkr_view::RunRow
 pub fn brokkr_view::title(&str) -> alloc::string::String
 pub fn brokkr_view::title_within(&str, usize) -> alloc::string::String
+pub fn brokkr_view::verdict_attempts_within(&[&brokkr_core::envelope::EventEnvelope], u64) -> alloc::vec::Vec<alloc::string::String>
 pub fn brokkr_view::whole_read(&brokkr_view::Query<'_>, brokkr_view::Window) -> brokkr_view::WholeRead
 pub fn brokkr_view::window<E>(core::option::Option<&brokkr_view::Cursor>, (usize, &str), usize, impl core::ops::function::FnMut(brokkr_view::Section, core::option::Option<brokkr_core::page::Place<'_>>, usize) -> core::result::Result<alloc::vec::Vec<brokkr_view::RunRow>, E>) -> core::result::Result<(brokkr_view::Page, core::option::Option<brokkr_view::Cursor>), E>
 pub fn brokkr_view::windows(&brokkr_view::Query<'_>) -> core::result::Result<(brokkr_view::Window, brokkr_view::Window), brokkr_view::AnalyticsError>

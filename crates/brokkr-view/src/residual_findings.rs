@@ -102,6 +102,24 @@ pub fn gate_records_within(
     records(&window, state)
 }
 
+/// The attempts a verdict inside the window after journal row `cut` belongs
+/// to, each id once in order: the attempt a success's result, a failed or
+/// indeterminate attempt's settled members, or a sequence step's authored
+/// record inside the window names. A reader of the window alone may have cut
+/// off a panel member's marker for such an attempt, so it reads those
+/// markers by these attempts (decision 0089 ruling 9, #1212). The predicate
+/// is `journals_a_verdict`, the one `verdicts_of` admits an event by, so a
+/// verdict kind the view gains names its attempt here too.
+pub fn verdict_attempts_within(events: &[&EventEnvelope], cut: u64) -> Vec<String> {
+    let mut attempts: Vec<String> = (events.iter().copied())
+        .filter(|event| event.seq > cut && journals_a_verdict(event))
+        .filter_map(|event| event.payload["attempt_id"].as_str().map(str::to_string))
+        .collect();
+    attempts.sort_unstable();
+    attempts.dedup();
+    attempts
+}
+
 /// [`gate_records`] over the rows a reader has chosen.
 fn records(events: &[&EventEnvelope], state: Option<&RunState>) -> Vec<GateRecord> {
     let kept = |event: &&EventEnvelope| {
@@ -204,6 +222,24 @@ struct Producer {
     label: String,
 }
 
+/// Whether `event` journals a verdict: a success's result, a sequence step's
+/// authored record, or a failed or indeterminate attempt's settled members.
+/// The one predicate [`verdicts_of`] admits an event by and
+/// [`verdict_attempts_within`] names its attempt by.
+fn journals_a_verdict(event: &EventEnvelope) -> bool {
+    match event.event_type {
+        EventType::EffectSucceeded => true,
+        EventType::EffectCheckpointed => {
+            EngineMarker::authored(&event.payload["checkpoint"]) == Some(EngineMarker::StepFinished)
+        }
+        EventType::EffectFailed | EventType::EffectIndeterminate => event
+            .payload
+            .get("settled_members")
+            .is_some_and(Value::is_object),
+        _ => false,
+    }
+}
+
 /// The verdicts `event` journals, admitted only by provenance the engine
 /// established (fix round 0109a1r4, K1): a success's result, which only
 /// the engine appends, under the sequence step it names (K6); a sequence
@@ -218,6 +254,9 @@ struct Producer {
 /// authored `panel-member-finished` marker of that attempt naming that
 /// member as succeeded (fix round 0109a1r5, V2).
 fn verdicts_of<'a>(event: &'a EventEnvelope, settled: &BTreeSet<StepOf<'_>>) -> Vec<Verdict<'a>> {
+    if !journals_a_verdict(event) {
+        return Vec::new();
+    }
     let effect_id = text(event, "effect_id");
     let verdict = |result, seat, marked| Verdict {
         effect_id,

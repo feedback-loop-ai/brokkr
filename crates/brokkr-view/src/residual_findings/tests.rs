@@ -271,3 +271,61 @@ fn a_window_reads_a_member_finished_before_it_as_its_context() {
     assert_eq!(worded[0].unverified.as_deref(), Some("review:a"));
     assert_eq!(worded[0].findings, Vec::new());
 }
+
+/// #1212, L2's review: the view names the attempts a verdict inside the
+/// window belongs to, so the CLI reads their member markers without
+/// restating which events carry a verdict. A terminal inside the window and
+/// an engine-authored step record are named; a record that only names the
+/// word, a seat turn and a terminal before the window are not.
+#[test]
+fn a_window_s_verdict_attempts_are_the_view_s_own_verdicts() {
+    let step = |authored: bool| {
+        let mut checkpoint = json!({"step": "sequence-step-finished", "step_name": "judge"});
+        if authored {
+            checkpoint["authored"] = json!("engine");
+        }
+        checkpoint
+    };
+    let checkpointed_at = |seq, attempt: &str, checkpoint: Value| {
+        ev(
+            seq,
+            EventType::EffectCheckpointed,
+            json!({"effect_id": "e0", "attempt_id": attempt, "checkpoint": checkpoint}),
+            T,
+        )
+    };
+    let succeeded = |seq, attempt: &str| {
+        ev(
+            seq,
+            EventType::EffectSucceeded,
+            json!({"effect_id": "e0", "attempt_id": attempt,
+                   "result": {"result": "clean"}, "authored": "engine"}),
+            T,
+        )
+    };
+    let events = [
+        succeeded(1, "before"),
+        checkpointed_at(2, "step", step(true)),
+        checkpointed_at(3, "worded", step(false)),
+        checkpointed_at(4, "turn", json!({"step": "seat-turn", "member": "m"})),
+        succeeded(5, "after"),
+        ev(
+            6,
+            EventType::EffectFailed,
+            json!({"effect_id": "e0", "attempt_id": "failed",
+                   "settled_members": {"m": {"result": "clean"}}}),
+            T,
+        ),
+        ev(
+            7,
+            EventType::EffectIndeterminate,
+            json!({"effect_id": "e0", "attempt_id": "no-members"}),
+            T,
+        ),
+    ];
+    let window: Vec<&EventEnvelope> = events.iter().collect();
+    assert_eq!(
+        verdict_attempts_within(&window, 1),
+        ["after", "failed", "step"]
+    );
+}
