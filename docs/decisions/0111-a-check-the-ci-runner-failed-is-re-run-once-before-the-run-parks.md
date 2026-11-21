@@ -221,22 +221,39 @@ park's reason and its `ruled` cause. Nothing typed names a job, a step or a forg
 
 ### The forge's shape
 
-This shell has no forge client and this seat holds no web capability, so the forge's shape below
-is from GitHub's public documentation by URL and was **not read in this session: unmeasured
-until slice 0111a records real payloads.**
+**Measured by 0111a** (built at `9679ac541`): this repository's own CI, eight cases on four
+heads, read with `gh api --method GET` by the controller on 2026-11-21 and pinned by digest under
+`crates/brokkr-core/src/ci/evidence/`, whose `README.md` says how each was taken. Each fact below
+names its payload; where that README and a payload disagree, the payload wins.
 
-- A workflow run's jobs, each with `id`, `name`, `status`, `conclusion` and `steps[]` of
-  `{number, name, status, conclusion}`:
-  <https://docs.github.com/en/rest/actions/workflow-jobs>.
-- A job's log: <https://docs.github.com/en/rest/actions/workflow-jobs#download-job-logs-for-a-workflow-run>.
-- Check runs and their conclusions: <https://docs.github.com/en/rest/checks/runs>.
-- The re-run verbs, which this decision never calls (ruling 1):
-  <https://docs.github.com/en/rest/actions/workflow-runs>.
+- **Check runs** (`<case>/check-runs.{latest,all}.page<n>.json`) carry `id`, `name`, `status`,
+  `conclusion`, `head_sha`, `details_url`, `check_suite.id`, `app`, `pull_requests` and their
+  times, and name no attempt; `filter` defaults to `latest`. The app is `github-actions`, id
+  15368, on every check run read.
+- **Runs** (`<case>/runs.page1.json`, `run.<id>.json`, `run.<id>.attempt<n>.json`) carry
+  `run_number`, `run_attempt`, `created_at`, `run_started_at`, `event`, `path`, `status`,
+  `conclusion`, `head_sha`, `pull_requests` and `previous_attempt_url`. No field names a tested
+  commit beyond `head_sha` (ruling 3).
+- **Jobs** (`run.<id>.jobs.{latest,all}.page1.json`, `run.<id>.attempt<n>.jobs.page1.json`)
+  carry `id`, `run_id`, `run_attempt`, `name`, `status`, `conclusion`, `started_at`,
+  `completed_at` and `steps`, and no workflow or matrix key.
+- **The words seen:** `completed` with `success`, `failure`, `cancelled` or `skipped`, and
+  `in_progress` with a null conclusion. The documentation's other words (`queued`, `waiting`,
+  and `neutral`, `timed_out`, `action_required`, `startup_failure`,
+  <https://docs.github.com/en/rest/checks/runs>) were not caught: **unmeasured**, and kept in
+  the closed list. Whether the API says who cancelled a job was not looked for.
+- **Pages:** every list read with `per_page=100`, its last page the short one, `total_count`
+  on the first page (`failed-jobs-rerun-with-cancelled-twin/check-runs.all.page{1,2}.json`: 103,
+  as 100 and 3). The largest response is 356,478 bytes
+  (`older-run-full-rerun-complete/index.json`, its `check-runs.all.page1.json`), under the
+  8 MiB bound; the README's 309,267 is `failed-jobs-rerun-with-cancelled-twin`'s, not the
+  largest, and the payload wins.
+- **Still unmeasured:** a fork's pull request; a last page of exactly 100 items; whether
+  `gh api` streams a body or holds it whole.
 
-Unmeasured in particular: the closed list of `conclusion` words (the documentation lists
-`success`, `failure`, `neutral`, `cancelled`, `skipped`, `timed_out`, `action_required`, and for a
-run `startup_failure`); and whether the API says who cancelled a job. The observation reads no
-step and no job log (ruling 3), so no step's role enters it.
+The observation reads no step and no job log (ruling 3), so no step's role enters it. The re-run
+verbs, which this decision never calls (ruling 1), are at
+<https://docs.github.com/en/rest/actions/workflow-runs>.
 
 ## The rulings
 
@@ -711,9 +728,11 @@ forge's default is `latest`, which drops an earlier attempt's check runs within 
   the engine can tell which run is current and whose it is; and every job of each such run,
   under `filter=all`, each with its `id`, `run_id`, `run_attempt`, `name`, status, conclusion,
   `started_at` and `completed_at`;
-- every open pull request the forge lists for the head commit
-  (<https://docs.github.com/en/rest/commits/commits#list-pull-requests-associated-with-a-commit>),
-  so a head two pull requests share is seen;
+- every open pull request on the head, read as 0111a read it,
+  `pulls?state=open&head=<owner>:<branch>` (`dispatch-in-progress-beside-pr-green/index.json`),
+  each with its number, state and `head.sha`, so a head two pull requests share is seen;
+  `commits/<sha>/pulls` is not that list, since it still names a closed one
+  (`cancelled-twin/commit.pulls.json`: #1222, `closed`);
 - a commit status carries its context, its state and its creator's login and numeric id
   (<https://docs.github.com/en/rest/commits/statuses#get-the-combined-status-for-a-specific-reference>),
   so it can be named; it is never admitted as required evidence (below).
@@ -735,6 +754,14 @@ pull requests on the head (`pulls-incomplete`) and, where it is read, the forge'
 carries makes its row true, whether or not any other row reads that list. The whole observation
 is also bounded at 1 MiB on the observer's stdout (ruling 2).
 
+**How a list's last page is told, as measured.** Every list is read with `per_page=100`; the
+last page is the one holding fewer than 100 items, and the first page's `total_count`, where the
+list carries one, is the whole count (0111a: `two-runs-both-rerun/check-runs.all.page{1,2}.json`,
+136 as 100 and 36). A list whose items read differ from its `total_count` is not read to its last
+page. A last page of exactly 100 is **unmeasured**, so a full page is always followed by one more
+read, and a list whose read ends on a full page, or on a page that does not parse, is not read to
+its last page.
+
 **One response is bounded in bytes while it is read, before it is buffered or parsed.** The
 item counts above bound a list, and the stdout cap bounds what the observer writes; neither
 bounds one forge response, and a single page can be large. So every response has a byte bound
@@ -745,10 +772,12 @@ fewer bytes is parsed; when the bound plus one byte is read, it stops reading, e
 parses no byte of that response, and seals a **response witness** in the list's place: the
 list, the page, the bound, and the bytes read as a lower bound. A response witness makes
 `response-too-large` true, and leaves its list incomplete, so that list's own row is true too.
-Whether `gh api` itself streams a body or holds it whole before writing it is **unmeasured**;
-0111a measures it, and that measurement selects the transport: `gh api` through `head` if `gh`
-streams, and otherwise a reader that bounds the transfer itself, written into this decision
-before acceptance. **Proved by 0111b,** over the selected transport:
+The largest response 0111a read is 356,478 bytes (`older-run-full-rerun-complete/index.json`),
+so the bound sits well above every measured page. Whether `gh api` itself streams a body or holds
+it whole before writing it is still **unmeasured**: 0111a did not measure it. So the measurement
+moves to 0111b, before it mints: `gh api` through `head` if the pinned `gh` streams, and
+otherwise, or while unmeasured, a reader that bounds the transfer itself, named in 0111b's plan
+by a revision of this decision before 0111b mints. **Proved by 0111b,** over the selected transport:
 `a_response_of_exactly_the_byte_bound_is_parsed_and_one_byte_more_is_a_response_witness` (8 MiB
 parses; 8 MiB and one byte seals the witness, and `jq` is never handed it); and
 `the_selected_transport_takes_in_no_more_than_the_bound_plus_one_byte_of_a_streamed_page` (a
@@ -762,9 +791,14 @@ attempt and job ids the park names. Whether the forge masks every secret is ther
 question this decision depends on.
 
 It is parsed once at the edge, with unknown fields refused (0071 ruling 3). An unknown
-conclusion word is `observation-unreadable`, naming it. Whether the forge reports a workflow
-job's key, as the workflow file spells it, is unmeasured until 0111a's evidence; if it does, the
-observation carries it.
+conclusion word is `observation-unreadable`, naming it.
+
+**No job key: an entry binds its job by display name.** A job carries its display `name`, such
+as `test (ubuntu-latest) on linux/1`, but neither its workflow key nor a matrix key (0111a,
+every `run.<id>.jobs.all.page1.json`). So each matrix instance is its own entry, bound by its
+exact name, as `test (ubuntu-latest)` and `test (macos-latest)` are, and a name is never a
+pattern: `test (ubuntu-latest) on linux/1` is not `test (ubuntu-latest)`. A required name the
+declared list does not hold parks on `required-set-disagrees` where the forge's set is read.
 
 **`green` needs this pull request's run.** HEAD's workflow keys its concurrency by ref
 (`.github/workflows/ci.yml:19-27`) and reads pull-request-specific data, the body and the
@@ -775,15 +809,16 @@ Actions execution counts toward `green` only when the forge positively associate
 pull request, and with no other.** The field is the workflow run's `pull_requests` array, each
 element naming a pull request's `number` and its `head` and `base` with `ref` and `sha`
 (<https://docs.github.com/en/rest/actions/workflow-runs#get-a-workflow-run>); a check run
-carries the same array (<https://docs.github.com/en/rest/checks/runs#get-a-check-run>). The
-field is named from that documentation; this seat read neither page, so its live contents are
-**unmeasured**. In particular, whether it is empty for a run from a fork, or for any other case,
-is unmeasured until 0111a's evidence, and an empty association is never read as this pull
-request's. An execution is admitted only when P5 holds, and otherwise the gate parks on
+carries the same array. 0111a measured it: on an open pull request's head it names that pull
+request on every run and check run, the `workflow_dispatch` run's included
+(`dispatch-in-progress-beside-pr-green/runs.page1.json`, #1237); on the heads whose pull request
+is closed it is empty (`cancelled-twin/runs.page1.json`, #1222; likewise #1216 and #1229), though
+`commits/<sha>/pulls` still names the closed one. A fork's pull request is still **unmeasured**,
+and an empty association is never read as this pull request's. An execution is admitted only when P5 holds, and otherwise the gate parks on
 `association-unproven` or `association-ambiguous` ([the park table](#the-park-table)). An array
 naming a since-closed pull request beside this one is ambiguous too: the array alone cannot tell
-it from the one that triggered the run (fix round 1093r4's rule read only the open list, so an
-array naming A and a since-closed B fitted A). Refused alternatives: **(b)** matching by workflow path, event and head alone, which is
+it from the one that triggered the run. 0111a saw a closed one leave the array rather than
+stay in it, so that case was not caught; the row stays, the conservative reading. Refused alternatives: **(b)** matching by workflow path, event and head alone, which is
 fix round 1093r3's key and admits the other pull request's run; and **(c)** matching by the
 merge commit's parents, which cannot tell two pull requests with the same base and head apart.
 
@@ -805,21 +840,25 @@ the compiled bundle outside the change, each entry bound to its producer.**
 - **(a) Recipe-declared.** `required_checks` lives in ruling 5's file, which the operator's
   compile pins. It must be non-empty, or the compile refuses. Each entry names its producer, and
   a check matches it only when every part of that producer matches:
-  - **an Actions job** is bound to its app, its workflow file's path, its job (the key the
-    workflow declares, and the display name the forge reports for it), and its triggering event.
-    For this house the audit entry is job `dependency-audit` in `.github/workflows/ci.yml`,
-    displayed `RustSec dependency audit` (`:673-674`), from `github-actions`, on `pull_request`.
-    The required test jobs are named by system: `test (ubuntu-latest)` and
-    `test (macos-latest)`, job `engine` over its matrix (`:315-322`). Each is its own entry.
+  - **an Actions job** is bound to its app (slug and numeric id), its workflow file's path, its
+    display name, and its triggering event; the forge reports no job key (above). For this house
+    the audit entry is `RustSec dependency audit` in `.github/workflows/ci.yml` (`:673-674`),
+    from `github-actions`, id 15368, on `pull_request`. The required test jobs are named by
+    system: `test (ubuntu-latest)` and `test (macos-latest)`, the verdict job over the
+    machines' matrix (`:315-322`), not its `… on linux/<n>` shards. Each is its own entry.
   - **No commit status** is an entry, as above.
 
   Where the observer can also read the forge's own required set for the base branch
   (branch protection, <https://docs.github.com/en/rest/branches/branch-protection>, or rulesets,
   <https://docs.github.com/en/rest/repos/rules>), every check the forge requires must be in the
-  declared list, or the observation parks as `required-set-disagrees`, for the same reason. The
-  forge's set can only widen what `green` needs, never narrow it. The token scope that read needs
-  is unmeasured; where it is unread, the observation records `forge_required: unread`, and the
-  pinned list alone governs. A read that began and stopped short is not `unread`: it is
+  declared list, with the same app id, or the observation parks as `required-set-disagrees`,
+  for the same reason. The forge's set can only widen what `green` needs, never narrow it.
+  0111a read it: for this house it is branch protection's 12 checks, each with `app_id` 15368,
+  `strict: false`, from `branches/main/protection/required_status_checks`, and main's ruleset
+  holds only the merge queue (each case's `protection.required_status_checks.json` and
+  `rules.main.json`); so the observer reads both. Whether a read-only token can read protection
+  is still **unmeasured** (the capture's token was not read-only); where it is unread, the
+  observation records `forge_required: unread`, and the pinned list alone governs. A read that began and stopped short is not `unread`: it is
   `required-set-incomplete`. Cost: one more list for the operator to keep.
 - **(b) The forge's branch protection alone.** It is outside the change, but a repository
   administrator can change it at any time, the read needs an administration scope (unmeasured),
@@ -862,12 +901,22 @@ wrong one costs at most a wrong `green`, which is landing as it is today.
 Any one of those comparisons that fails is row `revision-disagrees`, naming the two values that
 differ; it is never resolved by preferring one source. (Fix round 1093r4's row demanded that
 the association, the run's head, the tested commit and the gated head all be one commit, which
-no valid merge is; that row is replaced.) Whether any field of a run records the commit it
-tested, in either mode, is **unmeasured** until 0111a, which measures the tested-run identity
-for a `head` checkout and a `merge` checkout alike. Until 0111a's evidence shows such a field,
-every observation over any required entry makes `revision-unproven` true, for this house or an
-adopter. That fails closed: it is a person's look, never a pass. If 0111a finds no such field
-for a mode, the decision is revised before acceptance.
+no valid merge is; that row is replaced.)
+
+**The tested commit, as measured: no source, so no entry is `green` yet.** 0111a found that a
+run names only `head_sha`, the pull request's head, in both checkout modes, and that no field of
+a run, a job or a check run names the merge revision a `merge`-checkout job tested (every
+`run.<id>.json` and `run.<id>.jobs.all.page1.json`; the house's audit and ratchet jobs are both
+`merge` checkouts). So the rule above applies as written: the observer seals every tested-commit
+record as `unread`, with the reason that the forge names none, and every observation with a
+matched required entry makes `revision-unproven` true, in `head` mode as in `merge` mode, for
+this house and every adopter. **No live observation is `green` until a later measurement**: the
+gate, once 0111d lifts its refusal, parks every observation for a person. That is the
+conservative outcome, and it costs every landing under the overlay a person's look, never a
+pass. What would change it is a source of the tested commit outside the change, measured by a
+later capture and ruled by a revision of this decision: a forge field naming a job's checkout,
+or a record the trusted base writes; a record a job writes under a workflow file the change can
+edit is not such a source.
 
 The revision is the run's, not a step's: a step moved off it is CI's own machinery, green on the
 forge as well, landing's existing exposure; proving a step's revision was the deferred
@@ -899,7 +948,7 @@ predicates are `green`'s own conditions, stated once here and nowhere else:
   stands for a complete job list, nor one run's for another's.
 - **P3, every required entry matched once, currently.** Every entry of `required_checks` in the
   entry set (ruling 6) has exactly one **eligible current match**: a check from its bound
-  producer (its app, workflow path, job and event) in that producer's current execution, the
+  producer (its app, workflow path, event and name) in that producer's current execution, the
   one run attempt defined below, read through its job. A check in an earlier attempt of that
   run is **history**, whatever it concluded, and never counts; a check in any other run, or in
   a newer attempt, is P8's (the currentness rule). "Exactly
@@ -960,7 +1009,7 @@ default, and each paged list carries whether it was read to its last page.
 | `carried-job` | each match's job: its `started_at` and its attempt's `run_started_at` | P8 | the job started before its attempt did, or either time does not read: a failed-jobs-only re-run carried it | `a_failed_jobs_only_rerun_carrying_a_passed_entry_parks_as_carried_job_live_and_on_replay` |
 | `attempt-unnamed` | each check run bearing on the entry | P8 | it joins no job read, or its job's `run_attempt` is `unread` | `a_check_run_that_joins_no_job_parks_as_attempt_unnamed_live_and_on_replay` |
 | `check-job-disagrees` | each check run bearing on the entry and its joined job | P8 | their status or conclusion differ; it names both | `a_check_run_and_its_job_disagreeing_on_state_park_as_check_job_disagrees_live_and_on_replay` |
-| `not-settled` | each match's status | P4 | a match's status is any word but `completed`, `queued`, `in_progress`, `waiting`, `pending` and `requested` among them, when the observer's polling bound ends | `a_required_check_not_completed_with_a_null_conclusion_parks_as_not_settled_alone` |
+| `not-settled` | each match's status | P4 | a match's status is any word but `completed`, `in_progress` (measured) and `queued`, `waiting`, `pending` and `requested` (unmeasured, kept in the closed list) among them, when the observer's polling bound ends | `a_required_check_not_completed_with_a_null_conclusion_parks_as_not_settled_alone` |
 | `not-success` | each match's conclusion | P4 | a `completed` match concluded anything but `success`; it names the check and the word. It reads only a completed match, so a null conclusion beside another status is `not-settled` alone | `a_failed_cancelled_timed_out_skipped_or_neutral_required_check_parks_as_not_success` |
 | `association-unproven` | each current execution's `pull_requests` | P5 | it does not name this pull request, its head and its base, or is empty | `a_run_with_an_empty_association_parks_as_association_unproven` |
 | `association-ambiguous` | each current execution's `pull_requests` | P5 | it names more than one pull request, open or closed; it names every one | `an_association_naming_a_and_a_closed_b_parks_as_association_ambiguous` |
@@ -1181,20 +1230,20 @@ classifier ([Deferred to a later decision](#deferred-to-a-later-decision)). What
   },
   "required_checks": [
     {"actions_job": {
-      "app": "github-actions", "workflow": ".github/workflows/ci.yml",
-      "job": "engine", "name": "test (ubuntu-latest)", "event": "pull_request",
-      "tested": "merge"}},
+      "app": "github-actions", "app_id": 15368, "workflow": ".github/workflows/ci.yml",
+      "name": "test (ubuntu-latest)", "event": "pull_request", "tested": "merge"}},
     {"actions_job": {
-      "app": "github-actions", "workflow": ".github/workflows/ci.yml",
-      "job": "dependency-audit", "name": "RustSec dependency audit", "event": "pull_request",
-      "tested": "merge"}}
+      "app": "github-actions", "app_id": 15368, "workflow": ".github/workflows/ci.yml",
+      "name": "RustSec dependency audit", "event": "pull_request", "tested": "merge"}}
   ]
 }
 ```
 
 The list is cut short: the house's full `required_checks` is the twelve required contexts
-ruling 3 names. The app's numeric id is pinned beside its slug once 0111a's evidence shows it.
-The compile refuses a `status` entry.
+ruling 3 names. The app's numeric id, 15368, is pinned beside its slug, as 0111a read it on
+every check run and in branch protection's `checks`. There is no `job` key: the forge reports
+none, so a pin nothing could compare would have no reader (0071 ruling 6). The compile refuses a
+`status` entry.
 
 `required_checks` must be non-empty and hold at least one entry with no `"after"` (ruling 6's
 entry set is never empty); every Actions entry must name all of its producer's parts and its
@@ -1568,12 +1617,13 @@ that would type each; its home in recipe data; how such a park reads in 0106d's 
 cause it would write.
 
 **The facts it waits on, which are 0111a's measurements and beyond.** Each of these was an input
-the classifier drafted in fix rounds 1093r2 to 1093r8 needed, and each is unmeasured:
+the classifier drafted in fix rounds 1093r2 to 1093r8 needed, and each is unmeasured but the one
+0111a settled:
 
 - which revision a step ran on, beyond the run's tested commit: whether any forge field records
   a job's checkout;
 - the revision of the workflow file GitHub ran for a run, and whether the forge reports it;
-- how the forge names a matrix instance, so an observed job binds to its expected instance;
+- how the forge names a matrix instance: settled by 0111a, by display name alone, with no key;
 - GitHub's precedence among workflow, job and step `env:` and `GITHUB_ENV` writes, from a
   recorded run or the runner's source;
 - how a job log is cut into steps, and what a step's bounded tail holds.
@@ -1631,7 +1681,9 @@ true row of the [park table](#the-park-table), with a cause a script can read an
 person can act on. Brokkr sends the forge nothing and types no failure, and the forge's required
 checks at merge stay the only CI authority. A recipe with no list behaves exactly as now. The
 cost is an exec observer per recipe that wants it, one read-only token, a list an operator keeps,
-and a person's look at every red until the deferred classifier is ruled. Two contract versions
+and a person's look at every red until the deferred classifier is ruled. Until a tested-commit
+source outside the change is measured, that look is at every observation, green on the forge
+or not: 0111a found none (ruling 3). Two contract versions
 are proposed, `ci-observation/v1` and `ci-checks/v1`, each minted only when 0111b lands under
 this decision's acceptance (0082) and after 0111a's evidence, and one additive `run/started`
 member, `pull_request` (ruling 3). No table contract is proposed: the gate waits on 0109's v3 and
@@ -1792,7 +1844,14 @@ tenth hold in the slice [Proved by the slices](#proved-by-the-slices) names.
    makes that row's predicate always false leaves the row out of the fixture's list and fails
    that row's `Bound by` test, and 0111c records each such mutation with the test it failed
    (0071 ruling 9); `scripts/mutants.sh` over `ci/judge.rs` leaves no surviving mutant of a row
-   predicate. Tests:
+   predicate. **The tested commit in the lists below:** a builder fixture carries a tested-commit
+   record, which no live observer writes (ruling 3); a case run live through 0111b's observer
+   seals it `unread`, so its exact list also holds `revision-unproven` for every entry with a
+   match, in the table's place, and so does its replay. Tests:
+   - 0111a's cases: `every_0111a_evidence_case_parks_with_its_recorded_rows` (each of the eight
+     directories under `crates/brokkr-core/src/ci/evidence/`, its pages served by a stub `gh`, the
+     binding its own pull request and head: `CI-PARK`, never `CI-PASS`, with the exact list the
+     slice records from the payloads, `revision-unproven` for every matched entry in each);
    - the park table ([its one home](#the-park-table)):
      `every_park_statement_in_0111_cites_a_row_of_its_park_table`,
      `the_park_citation_checker_refuses_a_statement_with_no_row_or_an_unknown_row`,
@@ -1825,7 +1884,8 @@ tenth hold in the slice [Proved by the slices](#proved-by-the-slices) names.
      at the latest `run_started_at`, and a time that does not read: `missing-required`, then
      `execution-ambiguous`, for each entry);
      `a_required_check_not_completed_with_a_null_conclusion_parks_as_not_settled_alone`
-     (each status word but `completed` 0111a lists, `in_progress` and `waiting` among them:
+     (each status word but `completed` in the closed list, `in_progress` as 0111a caught it and
+     `queued` and `waiting`, which it did not:
      `not-settled` alone, never `not-success`);
      `a_failed_cancelled_timed_out_skipped_or_neutral_required_check_parks_as_not_success`;
      `a_run_with_an_empty_association_parks_as_association_unproven`;
@@ -1990,7 +2050,10 @@ tenth hold in the slice [Proved by the slices](#proved-by-the-slices) names.
    compile tests. About 100 data, 80 production and 450 test lines. No contract of this
    decision's own. **Live read-only telemetry starts here**: from the first landing the operator
    drives under this overlay on a real pull request, each observation, judgment and park is
-   journaled, and a sweep can count parked runs against the diagnosis seat attempts they saved. The
+   journaled, and a sweep can count parked runs against the diagnosis seat attempts they saved.
+   Until a tested-commit source is measured (ruling 3), every live observation parks on
+   `revision-unproven`, so the telemetry counts parks only; this slice's `CI-PASS` tests feed
+   decide a stub observer's stdout that carries a tested-commit record. The
    park's lifecycle is this slice's too: a person looks and re-runs, then the operator retries
    the parked `ci` phase, which observes again. Tests:
    - the frame's two ([The gate grants nothing](#the-gate-grants-nothing)):
@@ -2071,6 +2134,7 @@ slice's plan, as `every_test_proved_by_the_slices_is_named_in_its_slices_plan` h
 | 0111c | `a_cancelled_twin_beside_a_green_run_parks_as_other_run_not_success` | another run under the names | `CI-PARK`: `other-run-not-success` among the recorded list |
 | 0111c | `a_stale_same_producer_success_beside_an_ordinary_failure_names_missing_required_and_not_success` | run versus attempt (r11 F2) | `CI-PARK`: `missing-required`, `not-success` |
 | 0111c | `a_consistent_single_attempt_snapshot_is_green` | mixed attempts, the control | `CI-PASS` |
+| 0111c | `every_0111a_evidence_case_parks_with_its_recorded_rows` | the measured shapes (round 1093r12) | `CI-PARK`, `revision-unproven` in each |
 | 0111c | `a_failed_jobs_only_rerun_carrying_a_passed_entry_parks_as_carried_job_live_and_on_replay` | the person's re-run (LOW, corrected) | `CI-PARK`: `carried-job` |
 | 0111c | `a_ci_attempt_record_passes_heads_fence_and_decides_from_the_judgment` | a wordless `CiAttempt` (text corrected) | `CI-PASS`; `CI-PARK`: `launch-untrusted` |
 | 0111c | `a_ci_driver_that_fails_to_spawn_parks_once_as_launch_untrusted_with_no_retry` | who settles a spawn failure (text corrected) | `CI-PARK`: `launch-untrusted` |
