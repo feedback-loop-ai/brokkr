@@ -47,18 +47,12 @@ review held as a security risk a design that sent the request anyway, and on 202
 operator ruled ruling 1 (a): Brokkr observes, classifies and parks, and a person re-runs (the
 park is now the [park table](#the-park-table)'s, with no classification).
 
-**No classification.** The first draft and fix rounds 1093r2 to 1093r8 drafted a classifier
-that typed a red
-observation as the runner's (a typed park) or the change's (a return to `implement`). For three
-rounds each security hold was the same class: a fact a refusal needs was lost or misread, so a
-case owed a person's ruling fell through to an implement visit. Each round's fix added surface,
-and the next round found a new case in it; the decision grew from 2,366 to 2,795 lines. Many of
-the classifier's inputs were unmeasured until 0111a anyway: GitHub's environment-file
-precedence, the step logs, matrix identity and the revision a step ran on. On 2026-11-20 the
-operator ruled "narrow 0111 as recommended": keep the CI reading, the trust-root model and the
-security bounds; park every non-green CI result for a person; defer the classifier and the
+**No classification.** Fix rounds 1093r2 to 1093r8 drafted a classifier that typed a red
+observation as the runner's or the change's, and each security hold was one class: a fact a
+refusal needs, lost or misread, let a case owed a person fall through to an implement visit. On
+2026-11-20 the operator ruled "narrow 0111 as recommended", deferring the classifier and the
 implement route ([Deferred to a later decision](#deferred-to-a-later-decision)). With no
-outcome weaker than a person's park, the class has nowhere to fall.
+outcome weaker than a person's look, the class has nowhere to fall.
 
 What this decision holds fixed: 0071's rules (one home per rule, a closed vocabulary matched
 without a wildcard, observe before decide, every guard bound by a test); 0082 (a contract version
@@ -151,16 +145,11 @@ claim to close it.
 
 **Enforcement binding (0111d):**
 `after_ci_pass_the_composed_table_is_landings_own_rule_for_rule` (the composed `landing-ci`
-table, less every rule whose `from` is `ci`, its `initial` and its `ci` phase, equals
-`landing`'s composed table rule for rule); and
-`nothing_in_the_recipes_or_seat_scripts_reads_the_ci_phases_result` (a search of every recipe's
-bundle, policy and scripts, and of `scripts/`, for `ci_observation`, `ci_green` and a
-`from: ci` decision finds only the rules whose `from` is `ci`). Both derive the `ci` rows from
-the composed table itself, never from a count, so they agree with ruling 6's table, whatever it
-holds. A text search
-cannot prove what a seat reads, because a seat reads its built input, not the tree; so the
-consumer input is tested too, over the engine's own input builder, by ruling 6's projection
-tests.
+table, less its `ci` rules, `initial` and phase, is `landing`'s rule for rule) and
+`nothing_in_the_recipes_or_seat_scripts_reads_the_ci_phases_result` (a search of recipes and
+`scripts/` for `ci_observation`, `ci_green` and a `from: ci` decision), both deriving the `ci`
+rows from the composed table; and, since a seat reads its built input rather than the tree,
+ruling 6's projection tests over the engine's own input builder.
 
 ## What main holds at HEAD
 
@@ -277,33 +266,19 @@ person still re-runs. Accepting the rest of this decision is still the operator'
     the diagnosing seat attempt the issue counts is gone.
   - It refuses every forge write. A park costs a person's look, never a pass or a re-run.
 - **(b) An automated re-run on GitHub, as the forge offers it.** The engine would send one of
-  the two verbs above. The residual, stated plainly:
-  - **No attempt precondition.** A request names a job or a run, never the attempt the engine
-    observed. A re-run another actor starts between the engine's read and its write is re-run
-    or widened again, and the forge cannot be asked to refuse it.
-  - **Dependents re-run, an audit among them.** Each verb re-runs "and its dependent jobs". A
-    dependent that passed, or an audit job, re-runs with the target, and its new result replaces
-    the one the engine observed.
-  - **A concurrent person's re-run cannot be told apart.** A new attempt carries no mark of which
-    request made it, so the engine cannot attribute a new attempt to its own request.
-  - **A lost receipt is indeterminate.** A request the forge accepted while the effect died before
-    recording it cannot be told from one never sent. Sending again may double it; not sending may
-    leave none.
-
-  The operator did not take it.
+  the two verbs above, with no attempt precondition (another actor's re-run between read and
+  write is re-run or widened again), dependents re-run with the target (an audit among them, its
+  new result replacing the observed one), no mark of which request made a new attempt, and a lost
+  receipt that cannot be told from a request never sent. The operator did not take it.
 - **(c) An automated re-run only on a forge that gives an attempt-bound, closure-bound write.**
   That is a forge whose re-run takes the attempt, refuses when the attempt moved, and re-runs
   exactly the named jobs. None is measured. It is the follow-up decision this one names, and that
   decision would rule the durable intent, its reconciliation and the scope rules a write needs.
 
-**What leaves with the write.** Fix round 1093r2 drafted them, and each answered a finding that
-held only because a write was sent:
-
-- the credentialed writer seat and its write token;
-- the durable intent and its reconciliation;
-- the multi-target re-run rounds and the per-head re-run count;
-- the re-run routes, and the classes and park kinds only they drew;
-- the rule that let an audit job be re-run.
+**What leaves with the write**, each drafted by fix round 1093r2 for a finding that held only
+because a write was sent: the writer seat and its token, the durable intent and its
+reconciliation, the re-run rounds and count, the re-run routes with the classes only they drew,
+and the rule that let an audit job be re-run.
 
 **Enforcement binding:** 0111c's compile test refuses any seat in the CI overlay that declares a
 write binding, and 0111b's compile refuses an observer credential declared with any `access`
@@ -320,13 +295,10 @@ but `read` (ruling 2).
   table routes on the engine-owned result. Observing and deciding stay apart (0071 ruling 10).
   Cost: one script, one core module, one engine input. It refuses forge-specific network code in
   the engine. It serves an adopter's exec gate and a future house one through the same contract.
-- **(b) A built-in engine effect that calls the forge.** One reader for every recipe, and no
-  child process whose launch must be proven. But the engine holds no forge client at HEAD: its
-  one HTTP client, `ureq`, is in `brokkr-bridge`, which speaks to Looper, not to a forge
-  (`crates/brokkr-bridge/src/lib.rs:1-7`, `:210-219`). So (b) builds an HTTP client, a
-  credential path and a forge vocabulary into the runtime, a second effect kind for one forge.
-  Not recommended now; the observation contract in (a) is what (b) would write, so (b) stays
-  open, as a slice of its own if ruled.
+- **(b) A built-in engine effect that calls the forge.** No child launch to prove, but HEAD's one
+  HTTP client, `ureq` in `brokkr-bridge`, speaks to Looper (`crates/brokkr-bridge/src/lib.rs:1-7`,
+  `:210-219`), so (b) builds a client, a credential path and a forge vocabulary into the runtime.
+  Not recommended now; it would write (a)'s contract, so it stays open as a slice if ruled.
 - **(c) A model seat reads `gh run view` and says.** Refused: a model's reading is prose, and
   no model decides a routing.
 
@@ -412,34 +384,24 @@ file, execute that file; and no path anyone but root can change.**
   what holds it; the pipe holds the script on both systems. Where the chain does not hold, the
   launch refuses; it never falls back to an unchecked path.
 
-  The alternatives: **(b)** copy the verified bytes into an engine-owned 0700 directory outside
-  the worktree and execute from there. Not recommended: a 0700 directory still admits every
-  process under the same account, which is the case this rule exists for, so it shortens the
-  window and does not close it. **(c)** the engine makes the read-only forge call itself (ruling
-  2 (b)): no child process, so no executable to bind, no launch to prove and no handoff. Its
-  dependency cost is an HTTP client with TLS, a credential path and a GitHub vocabulary in the
-  runtime: the one client HEAD holds is `ureq` in `brokkr-bridge`, which speaks to Looper
-  (`crates/brokkr-bridge/src/lib.rs:1-7`, `:210-219`). It stays open as that option's slice.
+  The alternatives: **(b)** copy the verified bytes into an engine-owned 0700 directory and
+  execute from there. Not recommended: every process of the account can still reach it, so it
+  shortens the window and does not close it. **(c)** the engine makes the read-only call itself
+  (ruling 2 (b)): no executable to bind, at the cost of an HTTP client, a credential path and a
+  GitHub vocabulary in the runtime. It stays open as that option's slice.
 
 #### The account is the trust root
 
 This is the one home of the rule; every other mention points here.
 
 **The launch claims no isolation of the observer from any process of the account, whether
-Brokkr launched it or not.** Fix round 1093r5 admitted the live launch only where this bundle's
-sites were boxed and no realm in this invocation's map was unboxed. Both review positions of run
-`fix-round-1093r5-for-issue-1093--a8bd2af6` showed that neither check sees a second Brokkr run
-under the same UID: one started with another map (`--realms`,
-`crates/brokkr-cli/src/cli_args.rs:220-225`; `World::discover`,
-`crates/brokkr-runtime/src/realms.rs:409-412`), or one in the same `namespace` realm with a
-site that has no hands, which HEAD spawns unboxed
-(`crates/brokkr-runtime/src/engine/dispatch.rs:555-559`;
-`crates/brokkr-runtime/src/engine.rs:2867-2869`, `:2040-2050`). In a read-only Linux probe, the
-adversarial review of run `fix-round-1093r4-for-issue-1093--b1cf18e6` had such a same-UID
-sibling open another process's anonymous pipe write endpoint through procfs
-(`/proc/<pid>/fd/<n>`). The correctness position added that the r5 rule contradicted itself:
-it required every site boxed, while a boxed observer cannot hold the credential binding (form
-(c) below) and the plan launched the observer without hands.
+Brokkr launched it or not.** Fix round 1093r5's boxed-only admission could not see a second run
+under the same UID, started with another map (`--realms`, `crates/brokkr-cli/src/cli_args.rs:220-225`;
+`crates/brokkr-runtime/src/realms.rs:409-412`) or from a site with no hands, which HEAD spawns
+unboxed (`crates/brokkr-runtime/src/engine/dispatch.rs:555-559`,
+`crates/brokkr-runtime/src/engine.rs:2867-2869`); and run
+`fix-round-1093r4-for-issue-1093--b1cf18e6`'s adversarial probe had such a sibling open another
+process's pipe endpoint through `/proc/<pid>/fd/<n>`.
 
 Fencing is the wrong frame, for three reasons:
 
@@ -512,16 +474,12 @@ hold, the launch refuses. The offline judgment (0111c) runs on both systems (006
   taken. It needs a host registry of runs and sites that Brokkr does not keep, and it still
   cannot see the operator's own processes, which hold the same store.
 - **(c) Fix round 1093r5's `namespace`-only admission.** Removed, with its refusal word
-  `launch-unboxed-peer`. Its checks could not see another run's map or a site without hands in
-  another bundle, and it required every site boxed while the observer itself has no hands.
-- **(d) Linux non-dumpable processes.** `PR_SET_DUMPABLE` 0 on the observer and on the
-  engine's pipe holder makes their `/proc/<pid>/fd` entries and `ptrace` closed to a same-UID
-  process without `CAP_SYS_PTRACE` (<https://man7.org/linux/man-pages/man2/prctl.2.html>; not
-  read in this session). Under the trust root it buys nothing the store does not already give
-  away. Costs: the engine's own diagnostics, no core dump and no `gdb`, `strace` or
-  `/proc/<pid>/fd` read of the engine by the operator; and the attribute is expected to reset on
-  `execve` (unmeasured), so `bash` cannot hold it. Not recommended; macOS has no equivalent and
-  0063 needs both.
+  `launch-unboxed-peer`, for the blind spots above.
+- **(d) Linux non-dumpable processes** (`PR_SET_DUMPABLE` 0,
+  <https://man7.org/linux/man-pages/man2/prctl.2.html>; not read in this session). Under the
+  trust root it buys nothing the store does not already give away, costs the operator's
+  diagnostics of the engine, is expected to reset on `execve` (unmeasured), and has no macOS
+  equivalent. Not recommended.
 
 **The result comes back through the engine, never the worktree.** HEAD hands every seat a result
 path under the run-local results directory (`crates/brokkr-runtime/src/engine/input.rs:69-82`),
@@ -628,32 +586,16 @@ whole all exist. Refused alternative: lifting it in 0111b, which would admit a l
 whose observation no judgment reads and whose table validates under no published schema
 (ruling 10).
 
-What HEAD lacks for this form, each built by slice 0111b:
-
-- **A cleared environment for a site without hands.** Such a site spawns in the engine's own
-  environment: `SiteSpawn::inherit` sets `SpawnEnv::Inherit`
-  (`crates/brokkr-runtime/src/engine.rs:2040-2050`), and `harness_command` adds the bindings
-  without clearing what it inherited (`crates/brokkr-protocol/src/adapters.rs:756-770`). The
-  cleared form exists: `SpawnEnv::Exactly` (`crates/brokkr-protocol/src/process.rs:85-94`,
-  applied with `env_clear` at `:303-305`). Today only an unboxed exec dispatch with hands uses
-  it (`crates/brokkr-runtime/src/engine.rs:2871-2880`).
-- **A working directory other than the worktree.** The exec adapter runs its command from the
-  workdir it is handed (`crates/brokkr-protocol/src/adapters/exec.rs:33-42`), and no site
-  declares another.
-- **A pinned executable identity.** None exists for any exec site (0049 ruling 3).
-- **Execution of the verified bytes.** No site executes a descriptor or feeds a script over a
-  pipe, and none checks a root-owned chain.
-- **A result channel the engine owns.** Every seat's result is a file under the run-local
-  results directory, by default the worktree's `.forge` (above).
-- **Directories held by descriptor.** The descriptor-held 0700 walk is 1091a's, not yet on
-  main. No boundary admission is needed: the account is the trust root
-  ([above](#the-account-is-the-trust-root)).
-
-The other forms:
-
-- **(b) The engine observes through a forge client.** It has no child process to prove, but
-  HEAD holds no forge client (ruling 2 (b)), so it is that option's cost.
-- **(c) A boxed observer under `namespace`.** The box clears the environment and starts from `/`
+What HEAD lacks for this form, each built by slice 0111b: a cleared environment for a site
+without hands, which spawns in the engine's own (`SiteSpawn::inherit`,
+`crates/brokkr-runtime/src/engine.rs:2040-2050`; `harness_command` adds bindings without
+clearing, `crates/brokkr-protocol/src/adapters.rs:756-770`), though the cleared
+`SpawnEnv::Exactly` exists (`crates/brokkr-protocol/src/process.rs:85-94`, `:303-305`) and an
+unboxed exec dispatch with hands uses it (`engine.rs:2871-2880`); a working directory other than
+the worktree (`crates/brokkr-protocol/src/adapters/exec.rs:33-42`); a pinned executable identity
+(0049 ruling 3); execution of verified bytes; an engine-owned result channel; and 1091a's
+descriptor-held walk, not yet on main. The other forms: **(b)** a forge client in the engine,
+ruling 2 (b)'s cost; and **(c) a boxed observer under `namespace`.** The box clears the environment and starts from `/`
   (`crates/brokkr-protocol/src/hands.rs:764`), and supplies the filesystem and `PATH` (0049,
   `docs/decisions/0049-the-platform-classes.md:43-46`). But HEAD refuses any hands site with a
   secret binding (`crates/brokkr-runtime/src/bundle.rs:3940-3967`), so a boxed observer could
@@ -925,15 +867,9 @@ every observation over any required entry makes `revision-unproven` true, for th
 adopter. That fails closed: it is a person's look, never a pass. If 0111a finds no such field
 for a mode, the decision is revised before acceptance.
 
-The revision is the run's, not a step's. Which commit a particular step of a job ran on, after a
-checkout the workflow or a script moves, is CI's own machinery: a change that moves it is green
-on the forge as well, which is landing's existing exposure ([The gate grants
-nothing](#the-gate-grants-nothing)), and a wrong `green` from it costs landing as it is today.
-Proving a step's revision was the deferred classifier's need, so that a park could be typed as
-the runner's; it leaves with it ([Deferred to a later decision](#deferred-to-a-later-decision)).
-`delivered by brokkr`, with its trusted-base verifier and its explicit pull-request head
-(`:49-102`), is not in the entry set at all (ruling 6): its evidence is this landing's own
-output.
+The revision is the run's, not a step's: a step moved off it is CI's own machinery, green on the
+forge as well, landing's existing exposure; proving a step's revision was the deferred
+classifier's need. `delivered by brokkr` (`:49-102`) is not in the entry set (ruling 6).
 
 #### The park table
 
@@ -1117,14 +1053,15 @@ reads: a person's re-run, or a new run on an unchanged head, which HEAD's `label
 sealed, and the rule reads nothing else:
 
 - **One attempt.** An item **bears on** an entry when it is a check run or a job of the entry's
-  bound producer under the entry's name, or a run of the entry's key. Every such item, on every
+  bound producer under the entry's name, a status whose context is that name, or a run of the
+  entry's key. Every such item, on every
   list (check runs, statuses, workflow runs and jobs), names one run and attempt, and each names
   the entry's current execution. An item that names a newer run or attempt of the key, queued,
   in progress or concluded, whether it succeeded or failed, or two lists that name different
   attempts as the entry's, make `snapshot-inconsistent` true for the entry.
 - **A list that names no attempt cannot establish it.** An item that bears on an entry and names
-  no attempt, or carries it `unread`, makes `attempt-unnamed` true. A commit status names none
-  (ruling 3), so a status under an entry's name is such an item. The open pull requests on the
+  no attempt, or carries it `unread`, makes `attempt-unnamed` true; a commit status names none
+  (ruling 3). The open pull requests on the
   head carry no attempt and bear on no entry's; P5 and `pulls-incomplete` read them. Which field
   of each list names the attempt is **unmeasured** until 0111a, so until its evidence every item
   is `unread` there: that fails closed, as `revision-unproven` does.
@@ -1141,12 +1078,6 @@ acceptance, the recovery `inspect` names is re-running all of the run's jobs. **
 (R/1: A success, B failure; R/2 re-runs B to success; the check list holds A's in R/1:
 `missing-required` for A, then `snapshot-inconsistent` for A); **by 0111d:**
 `an_operator_retry_after_a_person_re_runs_all_jobs_observes_again_and_passes` (`CI-PASS`).
-
-So a required audit with no check in its current run, an older same-producer `success` on the
-same head, and a second required job with an ordinary failed test parks, naming
-`missing-required` for the audit and `not-success` for the test: the stale success never makes
-the audit present. Fix rounds 1093r6 to 1093r8 each found a case where such a fact fell through
-to a weaker class; with none below the park, there is nowhere for it to fall.
 
 The judgment is engine-written: an `Owner::Engine` flag, as `reviewed_heads` is an engine-owned
 input (`crates/brokkr-core/src/policy/inputs.rs:116`), so a seat may neither declare nor
@@ -1167,9 +1098,8 @@ bundle and refuses when its digest is not the manifest's, and reads the comparis
 the run's own journal: the pull request from its `run/started`, and which record holds the
 gated head is settled by 0111c's replay test, and is unmeasured here. Where the bundle is gone, the park's
 reason still names the observation's digest, its first true rows and the count of the rest
-(`inspect`, above). Fix rounds 1093r4 to 1093r8 sealed a basis under `ci-classification/v1` so
-a typed class could be re-derived from the journal alone; with no class to re-derive, that
-record leaves with the classifier.
+(`inspect`, above). Fix rounds 1093r4 to 1093r8's `ci-classification/v1` basis leaves with the
+classifier.
 
 An attempt with no observation, `launch-refused` or `unbound` among them, is still a sealed
 record: its `CiAttempt` outcome is the seat record of its `effect/succeeded`, naming the
@@ -1184,12 +1114,10 @@ table).
 **Recommended: (a) recipe data, `ci-checks.json` beside the policy, under `ci-checks/v1`,
 compiled into the bundle and pinned with it.**
 
-**`green` still needs a recipe-declared set, re-derived.** Ruling 3's condition 3 matches every
-required entry by its producer, so the set must come from somewhere the change cannot edit.
-The forge's branch protection alone can be changed by an administrator at any time, needs an
-administration scope to read (unmeasured), and yields an empty set on an unprotected branch;
-and "whatever checks the forge reports" cannot see an absent audit (ruling 3's (b) and (c)). So
-the declared list stays, and with it its file. What the file loses is every key that existed
+**`green` still needs a recipe-declared set, re-derived.** P3 matches every required entry by
+its producer, so the set must come from where the change cannot edit, and ruling 3 refuses the
+forge's protection alone and "whatever the forge reports" ((b) and (c)). So the declared list
+stays, and with it its file. What the file loses is every key that existed
 only to type a failure: the change classes, the setup steps and the patterns leave with the
 classifier ([Deferred to a later decision](#deferred-to-a-later-decision)). What it keeps beside
 `required_checks` are the pins the kept bounds read: the repository the binding checks
@@ -1272,10 +1200,8 @@ the projection is fixed, in the one input builder:**
 **What `classify` sees, exactly.** On landing's one road to a seat, `classify`'s
 `last_decision` names the rule `CI-PASS` and the result word `pass`, and nothing else of `ci`:
 the observation and the `ci_green` flag are omitted from it, and `results` holds no `ci`. That
-is the whole of the `ci` result's projection, and it is the fact `classify` was entered by
-`CI-PASS`, which landing's own entry already implies; nothing a later seat reads can stand for
-CI's verdict. No seat needs more: the only road out of `ci` to a seat is `CI-PASS`, and a park's
-evidence is for a person, who reads it through `inspect` (ruling 9). **Proved by 0111d:**
+is the fact `classify` was entered by `CI-PASS`, which landing's own entry already implies, and
+a park's evidence is for a person, through `inspect` (ruling 9). **Proved by 0111d:**
 `classify_after_ci_pass_receives_last_decision_naming_ci_pass_and_pass_and_nothing_else_of_ci`
 (the engine's own input builder, `crates/brokkr-runtime/src/engine/input.rs:110-168`, over a
 journal holding the `ci` decision: `last_decision` is present, its rule id `CI-PASS` and its
@@ -1284,18 +1210,14 @@ dropping `last_decision`, or a wrong rule or word, fails it as an extra key does
 unchanged: a model seat would read the observation and a `green` it could take as authority.
 Not recommended.
 
-**Where the gate sits: where the head is already published.** Fix round 1093r3 put an
-exact-head CI gate before review in `fast` and `verify`. But `fast`'s implement completes with
-a local commit (`recipes/fast/policy.json:69-75`), and pushing is a person's act after review:
-the shipper's notes say "review, push, and merge next"
-(`recipes/fast/scripts/ship-seat.sh:73`, `:91`). A head no one has pushed has no remote checks,
-so that gate could only refuse or wait. **Recommended: (a) the gate is the `landing` recipe's
-check-watching step, its entry phase.** The issue names the step ("a land run that watches pull
-request checks", as the commission quotes it; the issue was not read in this seat). Landing runs
-over a branch that already exists (`recipes/landing/README.md:5-8`), and at its entry no seat
-has committed, so the head is the one the person brought. Whether they pushed it is checked, not
-assumed: the gate parks on `head-unpublished` (ruling 3). A person pushes,
-and the operator's retry observes again.
+**Where the gate sits: where the head is already published.** `fast`'s implement completes with
+a local commit (`recipes/fast/policy.json:69-75`), pushed by a person after review
+(`recipes/fast/scripts/ship-seat.sh:73`, `:91`), so a gate before review there has no remote
+checks to read. **Recommended: (a) the gate is the `landing` recipe's check-watching step, its
+entry phase** ("a land run that watches pull request checks", as the commission quotes the
+issue). Landing runs over a branch that already exists (`recipes/landing/README.md:5-8`), and at
+its entry no seat has committed; a head the person has not pushed parks on `head-unpublished`
+(ruling 3), and after a push the operator's retry observes again.
 
 The overlay, `landing-ci`, extends `landing` and overrides its table's `initial` to `ci` and
 its `phases` to add `ci`; `landing` overrides the same keys over `brokkr-fast`
@@ -1424,14 +1346,11 @@ which sweeps every valuation of each `(from, result)` group's axes through the r
 and refuses the first no rule rules (`crates/brokkr-core/src/policy/audit.rs:187-197`,
 `:358-381`). A flag axis is both booleans (`:441-443`), whoever owns the flag. So with
 `CI-PASS` the sole `(ci, pass)` row, the valuation `ci_green = false` is unruled and the
-composed overlay would not compile. HEAD's boolean sweep therefore still needs
-**`CI-PASS-UNBOUND`**, recommended as (a): the unconditional `(ci, pass)` rule after `CI-PASS`,
-parking `ruled` for a person on row `word-unbound`. It is never reached while the binding
-holds: decide raises the word to `pass` only on `green` (ruling 2's outcomes). It is the
-table's answer if that were ever lifted, and a park, never a route. The `(ci, fail)` group is total:
-`CI-PARK` is unconditional ([park table](#the-park-table)). **(b) Proving the valuation impossible** is not taken: the audit
-sweeps each flag on its own, and HEAD gives it no way to read a cross-input invariant such as the
-word binding, so the proof would need an engine change for one row.
+composed overlay would not compile. So **`CI-PASS-UNBOUND`**, recommended as (a), is the
+unconditional `(ci, pass)` rule after `CI-PASS`, parking `ruled` on row `word-unbound`: never
+reached while decide raises the word only on `green`, and a park, never a route. `CI-PARK` makes
+`(ci, fail)` total. **(b) Proving the valuation impossible** would need an engine change for one
+row, since the audit sweeps each flag on its own. Not taken.
 
 Then landing's own two rules, `CLASSIFY-DOCS` to `review` and `CLASSIFY-CODE` to `verify`
 (`recipes/landing/policy.json:9-21`), and every `fast` rule, unchanged.
@@ -1443,12 +1362,10 @@ gate buys no seat attempt beyond its own
 exec attempt, and `fast`'s implement bound, `visits_implement_gte: 3`
 (`recipes/fast/policy.json:76-94`), counts only the visits landing's own rules buy, as today.
 
-**What this does not gate.** A head the run itself makes, by an implement after a verify or a
-review return, is local, and no gate in this run reads its CI: it is verified locally, judged,
-and shipped for a person to push, and the pull request's CI then runs on it as it does today.
-Gating a head the run made needs a publish-and-resume handoff: a park that names the head to
-push, and a resume that refuses any head but that one. That is a follow-up, and the pre-review
-interception in `fast` and `verify` that fix round 1093r3 drafted, removed here, waits on it.
+**What this does not gate.** A head the run itself makes, by an implement after a return, is
+local: verified locally, judged and shipped for a person to push, and its CI runs as today.
+Gating it needs a publish-and-resume handoff, a follow-up on which fix round 1093r3's pre-review
+interception waits.
 
 **Refused routes**, each because it would hide a failure, skip the gate, read an unpublished
 head or write to the forge:
@@ -1462,12 +1379,9 @@ head or write to the forge:
   the gate;
 - `CI-PASS` off `green`; decide never raises the word to `pass` off `green` (ruling 2's outcomes).
 
-Each is refused by the overlay test, over the complete composed table (ruling 10). The
-scope-widened reconciliation park fix round 1093r2 promised went with the write (ruling 1); no
-route or cause remains for it.
-
-- **(b) The pre-review gate in `fast` and `verify`, as fix round 1093r3 drafted.** Refused for
-  now: its head is unpublished by construction. It returns with the follow-up handoff above.
+Each is refused by the overlay test, over the complete composed table (ruling 10). **(b)** fix
+round 1093r3's pre-review gate in `fast` and `verify` is refused for now: its head is unpublished
+by construction, and it returns with the follow-up handoff above.
 
 ### 7. The park's cause
 
@@ -1517,15 +1431,10 @@ the observation's digest and its first true rows (ruling 7).
 **Recommended: (a) one engine-owned flag, `ci_green`, legal under phase-machine v2 with no
 version.**
 
-The first draft wrote `ci_fault_in: [runner-fault]`. That fails the frozen v2 schema: `when`'s
-values are a boolean, a number or a string, never an array
-(`contracts/phase-machine.v2.schema.json:71-77`). HEAD's runtime does read choice arrays
-(`crates/brokkr-core/src/policy/conditions.rs:43-75`), but the published contract does not admit
-them, and 0082 mints no version outside an accepted decision.
-
-**Re-derived for one judgment.** Fix rounds 1093r5 to 1093r8 spelled four class words as three
-flags, `ci_green`, `ci_infrastructure` and `ci_refused`, with `change` all three false. With the
-judgment `green` or not, one flag spells it whole, and the rest leave with their classes.
+v2's `when` admits a boolean, a number or a string, never an array
+(`contracts/phase-machine.v2.schema.json:71-77`), though HEAD's runtime reads choice arrays
+(`crates/brokkr-core/src/policy/conditions.rs:43-75`). With the judgment `green` or not, one
+flag spells it whole; fix rounds 1093r5 to 1093r8's other two flags left with their classes.
 
 - **(a) `ci_green` alone.** An `Owner::Engine` `Flag`, true exactly when the judgment is
   `green`. A boolean input by name is what v2's `when` admits (`:73`). Ruling 6's `CI-PASS`
@@ -1546,21 +1455,11 @@ judgment `green` or not, one flag spells it whole, and the rest leave with their
 
 **One result per row.** Each rule's `result` is one string under v2
 (`contracts/phase-machine.v2.schema.json:31`, `:50`), and the engine matches it by exact
-equality (`crates/brokkr-core/src/policy.rs:264-273`). Ruling 1 removed the two re-run words
-fix round 1093r2 put on one row. **Each row of ruling 6's landing table, checked against v2:**
-
-- `CI-PASS`: one result, `pass`; `when` `ci_green: true` (`:73`); `next: classify`, a declared
-  phase. Legal.
-- `CI-PASS-UNBOUND`: one result, `pass`; no `when`; `park: true`, with no `next`, no severity and
-  no `requires_artifacts`, as v2's park admits (`:53-57`). Legal, and not made unreachable by
-  `CI-PASS`, which is conditional.
-- `CI-PARK`: one result, `fail`; no `when`; `park: true`, as above. Legal, and the only rule of
-  its `(from, result)` group, so no rule above it makes it unreachable (`:28`). The rows it parks
-  on are the [park table](#the-park-table)'s, which the table's `when` never reads.
-- The overlay's `initial: ci` and its `phases`, which add `ci` to landing's seven, are one
-  string and a list of strings (`:16-20`). Legal.
-
-So every row 0111 adds is v2-legal on its own.
+equality (`crates/brokkr-core/src/policy.rs:264-273`). Against v2, each row 0111 adds is legal
+on its own: `CI-PASS` is `pass` with `when` `ci_green: true` (`:73`) and `next: classify`;
+`CI-PASS-UNBOUND` and `CI-PARK` are `pass` and `fail` with no `when` and `park: true`, as v2's
+park admits (`:53-57`), the first after a conditional rule and the second alone in its group
+(`:28`); and `initial: ci` and the `phases` list are a string and a list (`:16-20`).
 
 **The whole composed table validates, not the overlay alone.** A recipe's table is composed: an
 overlay's rules precede its base's, and an overlay rule that overrides a base rule's id replaces
@@ -1663,55 +1562,40 @@ saved, so the later decision is ruled on measured cases.
 
 ## What stays out
 
-- Any forge write: ruling 1. No re-run is requested, and no seat holds a write credential.
+- Any forge write, and an automated re-run: ruling 1, and the follow-up its (c) names.
 - No model decides: the gate is an exec seat, and the judgment is a core function.
 - No required check is skipped, marked passed or written.
-- No refusal is weakened: nothing is weaker than the gate's park, and whatever is not
-  established `green` parks ([the park table](#the-park-table)); `retryable`'s
-  positive-evidence rule stands as 0106 wrote it, and this decision writes no `infrastructure`
-  cause.
+- No refusal is weakened: the gate parks on every true row of the
+  [park table](#the-park-table), nothing is weaker, `retryable`'s positive-evidence rule stands
+  as 0106 wrote it, and no `infrastructure` cause is written.
 - No Windows code (0063).
 - #1113's own fix. Its "Not Found" is a failed step of `RustSec dependency audit`
-  (`.github/workflows/ci.yml:673-695`), so under the gate it parks for a person on `not-success`, who re-runs, as
-  today outside any run.
+  (`.github/workflows/ci.yml:673-695`), which under the gate parks on `not-success` for a person.
 - The dispatcher's retry budget: a `ruled` park spends none of it (ruling 7).
-- The automatic classification of a red observation, and every route it would take, the typed
-  port-bind park among them: the follow-up decision
-  [Deferred to a later decision](#deferred-to-a-later-decision) names.
-- Flaky-test handling of any kind, quarantine included: a follow-up of its own.
-- `fast`'s `blocked_by_in` array outside v2's published schema: a follow-up (ruling 10).
-- A CI gate on a head the run itself made, before review in `fast` or `verify`: a follow-up
-  that needs a publish-and-resume handoff (ruling 6).
-- Commit statuses as required evidence: a follow-up that needs a revision attestation (ruling 3).
-- A forge other than GitHub: `forge` is a closed enum of one word in v1.
-- An automated re-run: the follow-up decision ruling 1 (c) names.
+- The automatic classification and its routes, the typed port-bind park among them
+  ([Deferred to a later decision](#deferred-to-a-later-decision)); flaky-test handling.
+- Follow-ups: `fast`'s `blocked_by_in` under v2 (ruling 10); a gate on a head the run made
+  (ruling 6); commit statuses as evidence (ruling 3); a forge other than GitHub.
 
 ## Consequences
 
-A red CI no longer costs a model diagnosis attempt at landing's entry: every observation not
-established `green` parks for a person, with a cause a script can read and the observation's
-digest and every true row of the [park table](#the-park-table) a person can act on, and the person re-runs or rules. Brokkr sends the
-forge nothing and types no failure. Nothing leaves `ci` but `green`, which proceeds as landing
-does, and the park, so the gate is not a CI authority: the forge's required checks at merge stay
-the only one. A wrong `green` costs landing as it is today, and a wrong park a person's look. A
-recipe with no list behaves exactly as now. The cost is an exec observer per recipe that wants
-it, one read-only token, a list an operator keeps, and a person's look at every red, a runner's
-fault and the change's alike, until the deferred classifier is ruled. Two contract versions are
-proposed: `ci-observation/v1` and `ci-checks/v1`. Each is minted only when 0111b lands under
-this decision's acceptance (0082), and only after 0111a's evidence. One additive `run/started`
-member, `pull_request`, is proposed under the contracts README's rule for such members, its
-extension schema waiting on the same acceptance (ruling 3). This decision proposes no
-table contract: the gate is `landing`'s entry, over a published head, and it waits on 0109's v3
-and ruling 10's ask.
+A red CI no longer costs a model diagnosis attempt at landing's entry: the gate parks on every
+true row of the [park table](#the-park-table), with a cause a script can read and a digest a
+person can act on. Brokkr sends the forge nothing and types no failure, and the forge's required
+checks at merge stay the only CI authority. A recipe with no list behaves exactly as now. The
+cost is an exec observer per recipe that wants it, one read-only token, a list an operator keeps,
+and a person's look at every red until the deferred classifier is ruled. Two contract versions
+are proposed, `ci-observation/v1` and `ci-checks/v1`, each minted only when 0111b lands under
+this decision's acceptance (0082) and after 0111a's evidence, and one additive `run/started`
+member, `pull_request` (ruling 3). No table contract is proposed: the gate waits on 0109's v3 and
+ruling 10's ask.
 
 ## The slices
 
 Smallest first; each lands on its own. Evidence comes before any contract, because 0082 forbids
-fixing a minted version in place: a shape the evidence would change is changed in this decision,
-while it is proposed, never in a minted file. Each piece of lifecycle and readout work is in the
-slice that produces it, and each assertion is in the slice that builds its writer. Two contract
-versions are proposed: `ci-observation/v1` and `ci-checks/v1`; and one additive `run/started`
-member, `pull_request`, built in 0111b.
+fixing a minted version in place: a shape the evidence would change is changed here, while
+proposed. Each assertion is in the slice that builds its writer, and each acceptance test of the
+tenth hold in the slice [Proved by the slices](#proved-by-the-slices) names.
 
 1. **0111a — the forge's evidence, before any contract.** The operator captures, by hand, outside
    any run, and with a read-only token, representative payloads for this repository's own pull
@@ -2085,12 +1969,11 @@ member, `pull_request`, built in 0111b.
 
 ## Proved by the slices
 
-The tenth hold (landing `landing-over-an-existing-branch--7833a069`) left build-proof findings,
-and the operator ruled on 2026-11-21 that each becomes an acceptance test of the slice that builds
-its piece, which that slice's own review proves. Each rule is stated where it lives, and each test
-is named in its slice's plan above; `every_test_proved_by_the_slices_is_named_in_its_slices_plan`
-holds this list to those plans. A finding that spans two slices is owned by the slice that builds
-the reader it binds.
+The operator ruled on 2026-11-21 that each build-proof finding of the tenth hold (landing
+`landing-over-an-existing-branch--7833a069`) is an acceptance test of the slice that builds its
+piece, which that slice's own review proves; one spanning two slices is owned by the slice that
+builds the reader it binds. Each rule is stated where it lives, and each test is named in its
+slice's plan, as `every_test_proved_by_the_slices_is_named_in_its_slices_plan` holds.
 
 | Slice | Test | Answers | Expects |
 |---|---|---|---|
@@ -2137,85 +2020,10 @@ by URL is unmeasured until 0111a.
 
 The first draft ran the two `grep` inventories in
 [What main holds at HEAD](#what-main-holds-at-head) and the count of `infrastructure(true`
-writers, and read `crates/brokkr-core/src/park.rs`, `crates/brokkr-core/src/policy/inputs.rs`,
-`crates/brokkr-runtime/src/engine/cursor.rs`, `recipes/fast/policy.json`,
-`recipes/fast/bundle.json`, `recipes/landing/README.md`, `adapters/exec.json` and
-`contracts/phase-machine.v2.schema.json`.
-
-Fix rounds 1093r2 to 1093r8 each read, at the same base, every file:line they newly cited, and
-each round's commit messages name the review positions it answered. The citations this decision
-still carries, by the round that first read them:
-
-- 1093r2: `.github/workflows/ci.yml:3-26` and `:673-695`; `recipes/fast/bundle.json:25-100`,
-  `recipes/fast/policy.json:30-100` and `recipes/verify/bundle.json:40-46`;
-  `crates/brokkr-runtime/src/bundle/expand.rs:1-60` and `bundle/model_policy_tests.rs:2595-2625`;
-  `bundle/assemble.rs:320-342` and `engine/decide.rs:68-86`; `engine/cursor.rs:355-390`;
-  `crates/brokkr-core/src/policy/conditions.rs:35-80` and `policy/inputs.rs:75-190`;
-  `contracts/phase-machine.v2.schema.json:55-95`; decision 0106 (`:1205-1235`).
-- 1093r3: `.github/workflows/ci.yml:1-70`, `:300-325` and `:655-700`;
-  `recipes/brokkr-fast/bundle.json:4` and a `jq` scan of every `recipes/*/policy.json` for an
-  array-valued condition; `crates/brokkr-protocol/src/adapters/exec.rs:25-50`,
-  `adapters.rs:756-853` and `process.rs:85-100`, `:295-310`;
-  `crates/brokkr-runtime/src/engine.rs:2040-2056` and `:2860-2885`; `bundle.rs:3938-3968` and
-  `:4147-4157`; `bundle/compose.rs:815-840` and `:868-922`; `crates/brokkr-core/src/policy.rs:258-278`;
-  `crates/brokkr-bridge/src/lib.rs:1-30`, `:210-229`; decisions 0049 (`:30-60`) and 0109
-  (`:1500-1530`, `:1830`).
-- 1093r4: `.github/workflows/ci.yml:25-27`, `:40-105` and `:225-330`;
-  `.github/branch-protection.json` whole; `recipes/landing/README.md`, `bundle.json` and
-  `policy.json` (by `jq`), and `recipes/fast/scripts/ship-seat.sh`'s `push` lines;
-  `crates/brokkr-runtime/src/engine/input.rs:66-84`, `engine.rs:1044-1052`, `places.rs:684-692`,
-  `engine/dispatch.rs:145-166` and `bundle.rs:4212-4240`.
-- 1093r5 to 1093r8: decisions 0012 (`:33-37`) and 0046 (`:179-191`);
-  `crates/brokkr-cli/src/cli_args.rs:220-225`; `crates/brokkr-runtime/src/realms.rs:409-412`;
-  `crates/brokkr-protocol/src/hands/namespace/isolation.rs:4-23`, `hands/namespace.rs:154-161`
-  and `hands.rs:764`; `crates/brokkr-protocol/src/secret.rs:123-130`;
-  `scripts/delivered-by-brokkr.sh:189-204`, `:197-200` and `:265-267`;
-  `crates/brokkr-runtime/src/bundle/entry.rs:139-209`, `bundle/phases.rs:118-157` and
-  `crates/brokkr-core/src/policy/audit.rs:187-197`, `:358-381`, `:441-443`;
-  `crates/brokkr-core/src/policy/direction.rs:10-19`; `crates/brokkr-view/src/rail.rs:9-12`.
-
-This round, 1093r9, read at the story's base or at its head `27fa1c0c4` (the tracked tree
-outside `docs/decisions/` is the base's):
-
-- `crates/brokkr-core/src/park.rs:20-80` and `:272-295` (the `Ruled` variant's `rule_id` and
-  `detail`, and `ParkCause::line`'s `ruled <rule>: <detail>`);
-- `crates/brokkr-runtime/src/engine/cursor.rs:350-395` (a table park is written `ruled` with the
-  matched rule's id) and `crates/brokkr-core/src/fold/run.rs:66-85` (`ParkReason`);
-- `crates/brokkr-core/src/summary.rs:53` (`PARK_REASON_BYTES`, 256);
-- `crates/brokkr-runtime/src/bundle/entry.rs:130-300` (`first_phase`, `refusal`, `protected`,
-  `forward_work`, `visits` and `change`) and `crates/brokkr-core/src/policy/direction.rs:1-30`;
-- `recipes/landing/policy.json` by `jq` (its phases, `initial` and two rules) and
-  `recipes/landing/bundle.json:1-30` (its `classify` seat is `"class": "gate"`);
-- decision 0106 (`:248-257`, the cause table: `ruled` is never retried);
-- `git show e667a04c2:scripts/mutants.sh` line 31 and `scripts/test-shards.sh:570-575`, for the
-  deferred section's two house-closure facts;
-- the review positions of run `fix-round-1093r8-for-issue-1093--daf9cd23`, in
-  `.forge/results/c476742a-4e0f-4609-9046-2d8909c2b5f9-positions-{adversarial,correctness}.json`.
-  The chief's own result for that run was not on disk in this worktree, and `brokkr inspect`
-  needed a grant this seat did not hold, so the chief's notes were read only as the positions and
-  the commission quote them.
-
-Round 1093r10, read at the story's base `e667a04c2` (the tracked tree outside `docs/decisions/`
-is the base's):
-
-- `crates/brokkr-core/src/fold.rs:640-700` (`succeed` to `Decide`, `fail` back to
-  `ExecuteEffect` with one more failed attempt, `close` never retried) and
-  `crates/brokkr-runtime/src/engine/cursor.rs:100-140` (`park_on_record`: the cap first);
-- `crates/brokkr-protocol/src/adapters.rs:6740-6810` (a non-zero exit is `ResultStatus::Failed`;
-  a result file is read, masked and sent as `Succeeded`);
-- `crates/brokkr-runtime/src/bundle/entry.rs:135-175` (`first_phase`, and `refusal`'s order:
-  `Absent`, `Terminal`, `Unprintable`, `Work`, then the protected and later arms);
-- `crates/brokkr-runtime/src/launch.rs:290-312`, `:445-495` (`EntryRequest::admit` before the
-  journal opens; `continued_entry`'s lineage checks) and `:38-50`, `:148-160`;
-- `crates/brokkr-core/src/entry.rs:1-80` (the `run/started` entry record, unknown members
-  denied) and `crates/brokkr-runtime/src/engine/start.rs:85-120` (`run/started` in the one start
-  transaction); `contracts/README.md:236-260` (0094's additive `run/started` members);
-- `crates/brokkr-cli/src/cli_args.rs:215-230` and `crates/brokkr-cli/tests/it.rs:48`;
-- `recipes/fast/bundle.json` and `recipes/landing/bundle.json` seat classes, and
-  `recipes/fast/policy.json`'s `terminal`, by `jq`;
-- the chief's notes and both review positions of run
-  `narrowing-round-1093r9-for-issue-3b8d3010`, in
-  `.forge/results/aefeb40e-561f-4146-b483-c34539fb2bc2-{chief,positions-adversarial,positions-correctness}.json`.
+writers. Each later round read, at the same base, every file:line it newly cites, and each
+citation stands where it is used. The round-by-round lists of what fix rounds 1093r2 to 1093r10
+read, and of the review records each answered, are this section as it stood at `b5ffc5944`;
+this round cut them so the decision does not grow (X3 of round 1093r11).
 
 Round 1093r11, read at the story's base `e667a04c2`:
 
@@ -2231,9 +2039,10 @@ Round 1093r11, read at the story's base `e667a04c2`:
 - the chief's notes and both positions of landing `landing-over-an-existing-branch--7833a069`, in
   `.forge/results/43ce433d-ed05-443e-8509-071c2ffb16ea-{chief,positions-adversarial,positions-correctness}.json`.
 
-The park table's binding of the text was checked by hand in this round, by a scratch reading of
-this file: every paragraph that says the gate parks, outside the exempt sections, cites a row id
-or links the table, and every row's test is listed in a slice. 0111c's doc tests make that a gate.
+This round held each name [Proved by the slices](#proved-by-the-slices) lists to its slice's plan
+by a scratch `grep -n -o -F` over this file (32 of 32, each inside its own slice's item), and read
+its own new park statements against the citation rule by hand. 0111c's doc tests make both a
+gate.
 
 The entry check's verdicts over the narrowed order (ruling 6) are read from HEAD's code, not run:
 **unmeasured** until 0111d's entry tests.
