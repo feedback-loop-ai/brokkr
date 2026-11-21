@@ -37,11 +37,14 @@ pub(super) enum ValueRefusal {
 }
 
 /// Why a template's first malformed reference was refused. Whitespace
-/// prints four braces, as the plain literal that built it always has.
+/// prints two braces, `near '{{ secret:'`, like its neighbours: main built
+/// it from a plain literal, not a format string, so the escapes it wrote
+/// printed as four, and the operator ruled on 2026-11-21 that two were
+/// meant.
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
 pub(super) enum ReferenceRefusal<'a> {
     #[error(
-        "malformed secret reference near '{{{{{{{{ secret:': whitespace \
+        "malformed secret reference near '{{{{ secret:': whitespace \
          is not allowed inside a reference"
     )]
     Whitespace,

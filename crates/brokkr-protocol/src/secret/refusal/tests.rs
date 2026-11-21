@@ -144,7 +144,7 @@ fn every_secret_refusal_reads_as_it_always_has() {
     for (template, text) in [
         (
             "{{ secret:NAME}}",
-            "malformed secret reference near '{{{{ secret:': whitespace \
+            "malformed secret reference near '{{ secret:': whitespace \
              is not allowed inside a reference",
         ),
         (
