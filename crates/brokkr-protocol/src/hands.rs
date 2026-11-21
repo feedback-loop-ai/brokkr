@@ -32,9 +32,11 @@ use std::time::{Duration, Instant};
 use serde_json::{json, Map, Value};
 
 use bind_refusal::BindRefusal;
+use call_refusal::CallRefusal;
 use spec_refusal::SpecRefusal;
 
 mod bind_refusal;
+mod call_refusal;
 pub(crate) mod environment;
 mod evidence;
 mod git;
@@ -929,36 +931,32 @@ pub fn handle(
 /// The tool's arguments, refused when they are not exactly the two the
 /// schema names.
 fn call_arguments(params: &Value) -> Result<(String, Duration), String> {
+    checked_call(params).map_err(|refusal| refusal.to_string())
+}
+
+/// The call's checks, in order, each refusing in its own variant. An
+/// absent or non-object `arguments` reads as an empty map.
+fn checked_call(params: &Value) -> Result<(String, Duration), CallRefusal<'_>> {
     if params.get("name").and_then(Value::as_str) != Some(TOOL_NAME) {
-        return Err(format!(
-            "unknown tool; this server serves only '{TOOL_NAME}'"
-        ));
+        return Err(CallRefusal::UnknownTool);
     }
-    let empty = Map::new();
-    let arguments = params
-        .get("arguments")
-        .and_then(Value::as_object)
-        .unwrap_or(&empty);
-    for key in arguments.keys() {
-        if key != "command" && key != "timeoutMs" {
-            return Err(format!("{TOOL_NAME}: unknown argument '{key}'"));
-        }
+    let arguments = params.get("arguments").and_then(Value::as_object);
+    let known = ["command", "timeoutMs"];
+    let mut keys = arguments.into_iter().flat_map(|arguments| arguments.keys());
+    if let Some(key) = keys.find(|key| !known.contains(&key.as_str())) {
+        return Err(CallRefusal::UnknownArgument { key });
     }
-    let command = arguments
-        .get("command")
+    let argument = |name| arguments.and_then(|arguments| arguments.get(name));
+    let command = argument("command")
         .and_then(Value::as_str)
         .filter(|command| !command.trim().is_empty() && command.len() <= 16_384)
-        .ok_or_else(|| format!("{TOOL_NAME}: command must contain 1-16384 characters"))?;
-    let timeout_ms = match arguments.get("timeoutMs") {
+        .ok_or(CallRefusal::Command)?;
+    let timeout_ms = match argument("timeoutMs") {
         None => DEFAULT_TIMEOUT_MS,
         Some(value) => value
             .as_u64()
             .filter(|ms| (100..=MAX_TIMEOUT_MS).contains(ms))
-            .ok_or_else(|| {
-                format!(
-                    "{TOOL_NAME}: timeoutMs must be an integer from 100 through {MAX_TIMEOUT_MS}"
-                )
-            })?,
+            .ok_or(CallRefusal::Timeout)?,
     };
     Ok((command.to_string(), Duration::from_millis(timeout_ms)))
 }
