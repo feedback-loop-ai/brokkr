@@ -38,19 +38,73 @@ pub(super) struct ParsedStep {
     pub(super) hands: Option<HandsSpec>,
 }
 
+/// The words the non-empty-`results` check and the no-vocabulary check
+/// share.
+const OWN_RESULTS: &str = "needs its own non-empty 'results' vocabulary";
+
+/// Why a seat's sequence or one of its steps' names or results was
+/// refused: one variant per check, in the order the checks run, so a test
+/// can tell which fired even where two share their words. It becomes text
+/// only in [`refused`].
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+pub(super) enum SequenceRefusal<'a> {
+    #[error("seat '{phase}' sequence must be an array")]
+    NotArray { phase: &'a str },
+    #[error(
+        "seat '{phase}' sequence needs at least two steps; \
+         a one-step sequence is a single seat"
+    )]
+    TooFew { phase: &'a str },
+    #[error("seat '{phase}' sequence step {index} needs a non-empty 'name'")]
+    Nameless { phase: &'a str, index: usize },
+    #[error(
+        "seat '{phase}' sequence has duplicate step name '{name}' \
+         (step names are case-insensitive)"
+    )]
+    Duplicate { phase: &'a str, name: &'a str },
+    #[error(
+        "sequence step '{what}' is final and receives the seat's results; remove its ignored 'results'"
+    )]
+    FinalWritesResults { what: &'a str },
+    #[error("sequence step '{what}' {text}", text = OWN_RESULTS)]
+    EmptyResults { what: &'a str },
+    #[error("sequence step '{what}' {text}", text = OWN_RESULTS)]
+    NoVocabulary { what: &'a str },
+}
+
+/// What [`step_results`] refuses with: this file's typed refusal, or the
+/// aggregate's member-marker refusal carried unchanged.
+#[derive(Debug)]
+pub(super) enum StepFault<'a> {
+    Refused(SequenceRefusal<'a>),
+    Compile(CompileError),
+}
+
+/// The one place a [`SequenceRefusal`] becomes the operator's text.
+fn refused(refusal: SequenceRefusal<'_>) -> CompileError {
+    CompileError::Invalid(refusal.to_string())
+}
+
+/// A [`StepFault`] at [`parse_sequence`]'s edge: the refusal as its text,
+/// the carried error unchanged.
+fn step_fault(fault: StepFault<'_>) -> CompileError {
+    match fault {
+        StepFault::Refused(refusal) => refused(refusal),
+        StepFault::Compile(error) => error,
+    }
+}
+
 /// The seat's `sequence`: an array of at least two steps.
-pub(super) fn sequence_steps<'v>(phase: &str, raw: &'v Value) -> Result<&'v [Value], CompileError> {
+pub(super) fn sequence_steps<'v>(
+    phase: &'v str,
+    raw: &'v Value,
+) -> Result<&'v [Value], SequenceRefusal<'v>> {
     let steps_raw = raw
         .get("sequence")
         .and_then(Value::as_array)
-        .ok_or_else(|| {
-            CompileError::Invalid(format!("seat '{phase}' sequence must be an array"))
-        })?;
+        .ok_or(SequenceRefusal::NotArray { phase })?;
     if steps_raw.len() < 2 {
-        return Err(CompileError::Invalid(format!(
-            "seat '{phase}' sequence needs at least two steps; \
-             a one-step sequence is a single seat"
-        )));
+        return Err(SequenceRefusal::TooFew { phase });
     }
     Ok(steps_raw)
 }
@@ -58,25 +112,18 @@ pub(super) fn sequence_steps<'v>(phase: &str, raw: &'v Value) -> Result<&'v [Val
 /// Step `index`'s non-empty name, unique case-insensitively among the
 /// `steps` parsed before it.
 pub(super) fn step_name<'v>(
-    phase: &str,
+    phase: &'v str,
     index: usize,
     step_raw: &'v Value,
     steps: &[SequenceStep],
-) -> Result<&'v str, CompileError> {
+) -> Result<&'v str, SequenceRefusal<'v>> {
     let name = step_raw
         .get("name")
         .and_then(Value::as_str)
         .filter(|n| !n.is_empty())
-        .ok_or_else(|| {
-            CompileError::Invalid(format!(
-                "seat '{phase}' sequence step {index} needs a non-empty 'name'"
-            ))
-        })?;
+        .ok_or(SequenceRefusal::Nameless { phase, index })?;
     if steps.iter().any(|s| s.name.eq_ignore_ascii_case(name)) {
-        return Err(CompileError::Invalid(format!(
-            "seat '{phase}' sequence has duplicate step name '{name}' \
-             (step names are case-insensitive)"
-        )));
+        return Err(SequenceRefusal::Duplicate { phase, name });
     }
     Ok(name)
 }
@@ -84,20 +131,20 @@ pub(super) fn step_name<'v>(
 /// The step's results vocabulary: the final step receives the seat's, and
 /// writes none of its own; another step writes its own non-empty
 /// `results`, or takes what its declared aggregate requires.
-pub(super) fn step_results(
+pub(super) fn step_results<'s>(
     at: SeatScope<'_>,
-    step: StepAt<'_>,
+    step: StepAt<'s>,
     final_step: bool,
-) -> Result<Vec<String>, CompileError> {
+) -> Result<Vec<String>, StepFault<'s>> {
     let StepAt {
         what,
         raw: step_raw,
         ..
     } = step;
     if final_step && step_raw.get("results").is_some() {
-        return Err(CompileError::Invalid(format!(
-            "sequence step '{what}' is final and receives the seat's results; remove its ignored 'results'"
-        )));
+        return Err(StepFault::Refused(SequenceRefusal::FinalWritesResults {
+            what,
+        }));
     }
     if final_step {
         Ok(at.results.to_vec())
@@ -113,12 +160,9 @@ pub(super) fn step_results(
                     .collect::<Vec<_>>()
             })
             .filter(|values| !values.is_empty())
-            .ok_or_else(|| {
-                CompileError::Invalid(format!(
-                    "sequence step '{what}' needs its own non-empty 'results' vocabulary"
-                ))
-            })?;
-        Aggregate::refuse_member_marker(&values, &format!("sequence step '{what}'"))?;
+            .ok_or(StepFault::Refused(SequenceRefusal::EmptyResults { what }))?;
+        Aggregate::refuse_member_marker(&values, &format!("sequence step '{what}'"))
+            .map_err(StepFault::Compile)?;
         Ok(values)
     } else if let Some(aggregate) = step_raw
         .get("aggregate")
@@ -131,9 +175,7 @@ pub(super) fn step_results(
             .map(|result| (*result).to_string())
             .collect())
     } else {
-        Err(CompileError::Invalid(format!(
-            "sequence step '{what}' needs its own non-empty 'results' vocabulary"
-        )))
+        Err(StepFault::Refused(SequenceRefusal::NoVocabulary { what }))
     }
 }
 
@@ -326,11 +368,11 @@ pub(super) fn parse_sequence(
     phase: &str,
     raw: &Value,
 ) -> Result<(Vec<SequenceStep>, GateAssessment), CompileError> {
-    let steps_raw = sequence_steps(phase, raw)?;
+    let steps_raw = sequence_steps(phase, raw).map_err(refused)?;
     let mut steps: Vec<SequenceStep> = Vec::with_capacity(steps_raw.len());
     let mut whole_gate = GateAssessment::AllGate;
     for (index, step_raw) in steps_raw.iter().enumerate() {
-        let name = step_name(phase, index, step_raw, &steps)?;
+        let name = step_name(phase, index, step_raw, &steps).map_err(refused)?;
         let what = format!("{phase}:{name}");
         let shape = classify(&what, step_raw, &STEP)?;
         let step = StepAt {
@@ -339,7 +381,8 @@ pub(super) fn parse_sequence(
             what: &what,
             raw: step_raw,
         };
-        let step_results = step_results(at, step, index + 1 == steps_raw.len())?;
+        let step_results =
+            step_results(at, step, index + 1 == steps_raw.len()).map_err(step_fault)?;
         let written = (shape == StepShape::Dialect)
             .then(|| parse_class(&what, step_raw).unwrap_or(SeatClass::Work));
         let parsed = step_body(compiler, at, step, shape, step_results)?;
@@ -569,3 +612,6 @@ fn refuse_unreachable(
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests;
