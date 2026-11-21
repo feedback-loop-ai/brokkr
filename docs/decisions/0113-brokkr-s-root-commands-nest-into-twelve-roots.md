@@ -3,7 +3,7 @@
 Status: accepted — operator ruled on #1169, 2026-11-19: "also I believe we have too many root level commands, we should have more nesting", then on the proposal "muninn under runs, report --> stats, host --> system"
 Date: 2026-11-21
 
-Built: unbuilt (#1169) — story unit 1169a builds the tree, its aliases, the binary's own spellings and the CLI reference; the guides' spellings are 1169b's, and the aliases' removal is 0.17's
+Built: partial (#1169) — the tree, its aliases, the binary's own spellings and the CLI reference are built; the guides' spellings are 1169b's, and the aliases' removal is 0.17's
 
 ## Context
 

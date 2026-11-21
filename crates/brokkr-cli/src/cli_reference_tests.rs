@@ -62,30 +62,38 @@ enum Selector {
 /// resolver last. An entry that names no argument, and an argument whose
 /// id names a run with no entry, fail `every_selector_names_an_argument`.
 const SELECTORS: [(&str, &str, Selector); 24] = [
-    ("brokkr costs", "run", Selector::Always),
+    ("brokkr stats costs", "run", Selector::Always),
     ("brokkr run", "continues", Selector::Always),
-    ("brokkr ledger", "run", Selector::Always),
-    ("brokkr anchor", "run", Selector::Always),
-    ("brokkr keep-refs plant", "run", Selector::Always),
-    ("brokkr keep-refs list", "run", Selector::WithJournal),
-    ("brokkr keep-refs delete", "run", Selector::WithJournal),
+    ("brokkr stats ledger", "run", Selector::Always),
+    ("brokkr journal anchor", "run", Selector::Always),
+    ("brokkr journal keep-refs plant", "run", Selector::Always),
+    (
+        "brokkr journal keep-refs list",
+        "run",
+        Selector::WithJournal,
+    ),
+    (
+        "brokkr journal keep-refs delete",
+        "run",
+        Selector::WithJournal,
+    ),
     ("brokkr tui", "run", Selector::Always),
     ("brokkr resume", "run", Selector::Always),
-    ("brokkr rerun", "run", Selector::Always),
-    ("brokkr compare", "run_a", Selector::Always),
-    ("brokkr compare", "run_b", Selector::Always),
-    ("brokkr conclude", "run", Selector::Always),
-    ("brokkr conclude", "by_run", Selector::Literal),
-    ("brokkr operator", "run", Selector::Always),
-    ("brokkr operator", "by_run", Selector::Literal),
-    ("brokkr inspect", "run", Selector::Always),
+    ("brokkr runs rerun", "run", Selector::Always),
+    ("brokkr runs compare", "run_a", Selector::Always),
+    ("brokkr runs compare", "run_b", Selector::Always),
+    ("brokkr runs conclude", "run", Selector::Always),
+    ("brokkr runs conclude", "by_run", Selector::Literal),
+    ("brokkr runs operator", "run", Selector::Always),
+    ("brokkr runs operator", "by_run", Selector::Literal),
+    ("brokkr runs inspect", "run", Selector::Always),
     ("brokkr runs", "run", Selector::Literal),
-    ("brokkr transcript", "run", Selector::Always),
-    ("brokkr seats", "run", Selector::Always),
+    ("brokkr runs list", "run", Selector::Literal),
+    ("brokkr runs transcript", "run", Selector::Always),
+    ("brokkr runs seats", "run", Selector::Always),
     ("brokkr watch", "run", Selector::Always),
-    ("brokkr replay", "run", Selector::Always),
-    ("brokkr export", "run", Selector::Always),
-    ("brokkr bridge", "run", Selector::Always),
+    ("brokkr runs replay", "run", Selector::Always),
+    ("brokkr journal export", "run", Selector::Always),
 ];
 
 /// How `verb`'s argument reads a run, when it names one.
@@ -307,7 +315,11 @@ fn reference() -> String {
          2026-09-28 addendum); one marked **with a journal** does so only \
          when the workspace journal is there, and otherwise takes the id \
          literally and refuses `latest`. Every verb also takes clap's own `-h`/`--help`, \
-         and `brokkr` itself `-V`/`--version`; the tables leave them out.\n\n"
+         and `brokkr` itself `-V`/`--version`; the tables leave them out.\n\n\
+         The verbs nest under twelve roots. Every old flat name, such as \
+         `brokkr inspect` for `brokkr runs inspect` or `brokkr verify-run` for \
+         `brokkr journal verify`, still parses as a hidden alias until 0.17, \
+         and says its new spelling on stderr.\n\n"
     );
     for verb in verbs(&cli) {
         let path = verb.get_bin_name().expect("a built command names its path");
@@ -395,18 +407,18 @@ fn every_selector_names_an_argument() {
     }
     let keep_refs_list = verbs
         .iter()
-        .find(|verb| verb.get_bin_name() == Some("brokkr keep-refs list"))
+        .find(|verb| verb.get_bin_name() == Some("brokkr journal keep-refs list"))
         .unwrap();
     let run = listed(keep_refs_list)
         .into_iter()
         .find(|arg| arg.get_id() == "run")
         .unwrap();
     assert_eq!(
-        selector("brokkr keep-refs list", run),
+        selector("brokkr journal keep-refs list", run),
         Some(Selector::WithJournal)
     );
     assert_eq!(
-        selector("brokkr keep-refs plant", run),
+        selector("brokkr journal keep-refs plant", run),
         Some(Selector::Always)
     );
     assert_eq!(selector("brokkr runs", run), Some(Selector::Literal));
