@@ -152,16 +152,16 @@ pub fn denylisted(name: &str) -> bool {
 /// Validate a name for binding: grammar plus denylist. One shared
 /// refusal for bundle compile and `brokkr secrets set`.
 pub fn validate_name(name: &str) -> Result<(), String> {
+    checked_name(name).map_err(|refusal| refusal.to_string())
+}
+
+/// [`validate_name`]'s checks, refusing in a typed cause.
+fn checked_name(name: &str) -> Result<(), NameRefusal<'_>> {
     if !valid_name(name) {
-        return Err(format!(
-            "secret name '{name}' does not match [A-Z][A-Z0-9_]*"
-        ));
+        return Err(NameRefusal::Grammar { name });
     }
     if denylisted(name) {
-        return Err(format!(
-            "secret name '{name}' is denylisted (PATH, IFS, LD_PRELOAD, \
-             LD_LIBRARY_PATH, and the BROKKR_ prefix are never bindable)"
-        ));
+        return Err(NameRefusal::Denylisted { name });
     }
     Ok(())
 }
@@ -171,20 +171,23 @@ pub fn validate_name(name: &str) -> Result<(), String> {
 /// wrong secret plus garbage lines — refused instead. Returns an
 /// optional warning for short-but-accepted values.
 pub fn validate_value(value: &str) -> Result<Option<String>, String> {
+    checked_value(value).map_err(|refusal| refusal.to_string())
+}
+
+/// [`validate_value`]'s checks, refusing in a typed cause; the warning
+/// stays text on the success path.
+fn checked_value(value: &str) -> Result<Option<String>, ValueRefusal> {
     if value.is_empty() {
-        return Err("secret value is empty".into());
+        return Err(ValueRefusal::Empty);
     }
     if value.contains('\n') || value.contains('\r') {
-        return Err("secret value must be a single line (the store is line-oriented)".into());
+        return Err(ValueRefusal::MultiLine);
     }
     if value.contains('\0') {
-        return Err("secret value must not contain NUL".into());
+        return Err(ValueRefusal::Nul);
     }
     if value.len() < MIN_VALUE_BYTES {
-        return Err(format!(
-            "secret value is shorter than {MIN_VALUE_BYTES} bytes; masking a \
-             tiny value shreds the journal's evidence trail"
-        ));
+        return Err(ValueRefusal::TooShort);
     }
     if value.len() < SHORT_VALUE_WARN_BYTES {
         return Ok(Some(format!(
@@ -205,6 +208,11 @@ pub fn validate_value(value: &str) -> Result<Option<String>, String> {
 /// whitespace (`{{ secret:NAME }}`), and unclosed references all fail
 /// closed at compile; a typo never rides into argv as literal text.
 pub fn scan_secret_refs(text: &str) -> Result<Vec<String>, String> {
+    checked_refs(text).map_err(|refusal| refusal.to_string())
+}
+
+/// [`scan_secret_refs`]'s walk, refusing in a typed cause.
+fn checked_refs(text: &str) -> Result<Vec<String>, ReferenceRefusal<'_>> {
     let bytes = text.as_bytes();
     let mut names = Vec::new();
     let mut search = 0;
@@ -221,11 +229,7 @@ pub fn scan_secret_refs(text: &str) -> Result<Vec<String>, String> {
             continue; // not a secret reference (no opening braces)
         }
         if open != at {
-            return Err(
-                "malformed secret reference near '{{{{ secret:': whitespace \
-                 is not allowed inside a reference"
-                    .to_string(),
-            );
+            return Err(ReferenceRefusal::Whitespace);
         }
         let name_start = at + "secret:".len();
         let mut name_end = name_start;
@@ -238,23 +242,23 @@ pub fn scan_secret_refs(text: &str) -> Result<Vec<String>, String> {
         }
         let name = &text[name_start..name_end];
         if name.is_empty() || !valid_name(name) {
-            return Err(format!(
-                "malformed secret reference '{}': expected {{{{secret:NAME}}}} \
-                 with NAME matching [A-Z][A-Z0-9_]*",
-                &text[at - 2..(name_end + 2).min(text.len())]
-            ));
+            return Err(ReferenceRefusal::Name {
+                quoted: quoted_reference(text, at, name_end),
+            });
         }
         if !text[name_end..].starts_with("}}") {
-            return Err(format!(
-                "malformed secret reference '{{{{secret:{name}': missing the \
-                 closing '}}}}' (or the name continues with characters outside \
-                 [A-Z0-9_])"
-            ));
+            return Err(ReferenceRefusal::Unclosed { name });
         }
         names.push(name.to_string());
         search = name_end; // the closing "}}" cannot begin "secret:"
     }
     Ok(names)
+}
+
+/// The text a refused reference name quotes: from its `{{` through two
+/// bytes past the name, or the end of `text`.
+fn quoted_reference(text: &str, at: usize, name_end: usize) -> &str {
+    &text[at - 2..(name_end + 2).min(text.len())]
 }
 
 // ---------------------------------------------------------------------
@@ -655,7 +659,10 @@ pub use handoff::{exec_confined, send_environment};
 
 mod guard;
 pub(crate) mod handoff;
+mod refusal;
 mod store;
+
+use refusal::{NameRefusal, ReferenceRefusal, ValueRefusal};
 
 #[cfg(test)]
 mod tests;
