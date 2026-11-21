@@ -56,10 +56,18 @@ name.
    stdout, so `--json` output is byte for byte what the new spelling
    prints. The note is printed only for a moved root. The six daily
    verbs, `runs`, `queue` and the hidden engine verbs print none.
+   `brokkr help inspect` is respelled the same way, to
+   `brokkr help runs inspect`, and prints the same note.
 
 5. **What does not move.** The frozen contracts, every `--json` document,
    every exit code, and every flag's name and meaning stay as they are.
    Only the path to a verb changes.
 
 6. **The aliases are removed in 0.17.** That removal is a follow-up for
-   0.17. Until then, every spelling the binary prints is the new one.
+   0.17. Until then, every spelling the binary prints is the new one,
+   and the ship seat that `brokkr init` scaffolds and the `fast` recipe's
+   ship seat call `brokkr stats ledger`. Before the removal lands, the
+   old spellings left outside the binary move too: the first-party
+   console extension under `extensions/dsh/brokkr-console`, which spawns
+   and prints the flat names, the guides (1169b), and the comments,
+   recipe READMEs, workflows and scripts that still name them.

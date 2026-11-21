@@ -452,7 +452,7 @@ pub(super) struct SeatsArgs {
     /// .brokkr/state/forge.db, or a library's .forge/forge.db.
     #[arg(long)]
     pub(super) db: Option<PathBuf>,
-    /// Emit the view model verbatim — `inspect --json`'s own bytes.
+    /// Emit the view model verbatim — `runs inspect --json`'s own bytes.
     #[arg(long)]
     pub(super) json: bool,
 }

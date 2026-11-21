@@ -116,10 +116,10 @@ enum RunsCmd {
     /// or with `--capability-call` the call and its verified response.
     #[command(group(ArgGroup::new("scope").args(["phase", "seat"])))]
     Inspect(InspectArgs),
-    /// The seats of a run: the seats block `inspect` renders — every
-    /// seat's model with the boundary its hands stood behind beside it
-    /// — from the same view. `--json` prints
-    /// that view verbatim, the bytes `inspect --json` prints.
+    /// The seats of a run: the seats block `runs inspect` renders —
+    /// every seat's model with the boundary its hands stood behind beside
+    /// it — from the same view. `--json` prints
+    /// that view verbatim, the bytes `runs inspect --json` prints.
     Seats(SeatsArgs),
     /// Read one participant's retained local transcript — Claude, Codex or
     /// DSH — through the same bounded local derivation the TUI uses. The
@@ -168,7 +168,7 @@ enum JournalCmd {
     /// Write the canonical NDJSON journal and pinned manifest.
     Export(ExportArgs),
     /// Adopt an exported run into this journal, byte-identically — the
-    /// verb paired with `export`. Journals never merge; one run
+    /// verb paired with `journal export`. Journals never merge; one run
     /// relocates. Nothing lands unless the whole chain verifies, the
     /// events fold, the run_id does not already exist here, and the
     /// export is not a redacted derivative.

@@ -15,7 +15,7 @@ The verbs nest under twelve roots. Every old flat name, such as `brokkr inspect`
 - [`brokkr runs`](#brokkr-runs): The runs in the journal: list them (the default), read one, compare two, re-run, close or command one, and the overseer that reads them all
 - [`brokkr runs list`](#brokkr-runs-list): List runs in the workspace database: one clamped line per run, the fleet's sections in order and each by last activity, read a page at a time. `--json` emits the view model for scripts
 - [`brokkr runs inspect`](#brokkr-runs-inspect): Explain a run: header, ruling, seats, decision trail, and the phase graph as a tree. `--phase` and `--seat` are the scoping verbs the console's clicks became; `--json` emits the view model, or with `--capability-call` the call and its verified response
-- [`brokkr runs seats`](#brokkr-runs-seats): The seats of a run: the seats block `inspect` renders — every seat's model with the boundary its hands stood behind beside it — from the same view. `--json` prints that view verbatim, the bytes `inspect --json` prints
+- [`brokkr runs seats`](#brokkr-runs-seats): The seats of a run: the seats block `runs inspect` renders — every seat's model with the boundary its hands stood behind beside it — from the same view. `--json` prints that view verbatim, the bytes `runs inspect --json` prints
 - [`brokkr runs transcript`](#brokkr-runs-transcript): Read one participant's retained local transcript — Claude, Codex or DSH — through the same bounded local derivation the TUI uses. The verb never launches, retries or resumes a provider and writes nothing to the journal
 - [`brokkr runs compare`](#brokkr-runs-compare): Compare two runs' aligned outcomes: decision trails, first divergence, phases visited, per-seat costs. Read-only
 - [`brokkr runs replay`](#brokkr-runs-replay): Rebuild state from the journal twice and verify determinism
@@ -27,7 +27,7 @@ The verbs nest under twelve roots. Every old flat name, such as `brokkr inspect`
 - [`brokkr runs muninn list`](#brokkr-runs-muninn-list): Read the record back: every proposal, with the run ids and sequence numbers it cited
 - [`brokkr journal`](#brokkr-journal): The journal itself: export, import and verify one run, back up and restore the whole journal, and the evidence that outlives it
 - [`brokkr journal export`](#brokkr-journal-export): Write the canonical NDJSON journal and pinned manifest
-- [`brokkr journal import`](#brokkr-journal-import): Adopt an exported run into this journal, byte-identically — the verb paired with `export`. Journals never merge; one run relocates. Nothing lands unless the whole chain verifies, the events fold, the run_id does not already exist here, and the export is not a redacted derivative
+- [`brokkr journal import`](#brokkr-journal-import): Adopt an exported run into this journal, byte-identically — the verb paired with `journal export`. Journals never merge; one run relocates. Nothing lands unless the whole chain verifies, the events fold, the run_id does not already exist here, and the export is not a redacted derivative
 - [`brokkr journal verify`](#brokkr-journal-verify): Verify an exported journal offline: chain, envelopes, fold
 - [`brokkr journal backup`](#brokkr-journal-backup): Back up a whole journal — one consistent snapshot taken while writers may run, plus the versioned inventory that declares its boundary and makes the backup complete
 - [`brokkr journal restore`](#brokkr-journal-restore): Restore a journal backup into a new location, after the inventory, the snapshot's digest, SQLite's integrity, every chain and the counts all pass. It starts nothing
@@ -242,7 +242,7 @@ Usage: brokkr runs inspect [OPTIONS] --run <RUN>
 
 ## brokkr runs seats
 
-The seats of a run: the seats block `inspect` renders — every seat's model with the boundary its hands stood behind beside it — from the same view. `--json` prints that view verbatim, the bytes `inspect --json` prints
+The seats of a run: the seats block `runs inspect` renders — every seat's model with the boundary its hands stood behind beside it — from the same view. `--json` prints that view verbatim, the bytes `runs inspect --json` prints
 
 ```text
 Usage: brokkr runs seats [OPTIONS] --run <RUN>
@@ -253,7 +253,7 @@ Usage: brokkr runs seats [OPTIONS] --run <RUN>
 | `--run <RUN>` |  | yes | Full run id, a unique run-id prefix, or `latest` |
 | `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
 | `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
-| `--json` |  |  | Emit the view model verbatim — `inspect --json`'s own bytes |
+| `--json` |  |  | Emit the view model verbatim — `runs inspect --json`'s own bytes |
 
 ## brokkr runs transcript
 
@@ -430,7 +430,7 @@ Usage: brokkr journal export [OPTIONS] --run <RUN>
 
 ## brokkr journal import
 
-Adopt an exported run into this journal, byte-identically — the verb paired with `export`. Journals never merge; one run relocates. Nothing lands unless the whole chain verifies, the events fold, the run_id does not already exist here, and the export is not a redacted derivative
+Adopt an exported run into this journal, byte-identically — the verb paired with `journal export`. Journals never merge; one run relocates. Nothing lands unless the whole chain verifies, the events fold, the run_id does not already exist here, and the export is not a redacted derivative
 
 ```text
 Usage: brokkr journal import [OPTIONS] --from <FROM>
