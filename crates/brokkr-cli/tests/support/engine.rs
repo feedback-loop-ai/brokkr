@@ -244,6 +244,19 @@ pub(crate) fn run_in(dir: &Path, feature: &str, db: &Path) -> (String, String) {
     (run, stderr)
 }
 
+/// What the engine told its stderr of `run`'s last failed attempt, as it
+/// journaled that attempt's id in `db`: each line under the id, the id
+/// taken off (#1199).
+pub(crate) fn told_of_last_failure<'s>(db: &Path, run: &str, stderr: &'s str) -> Vec<&'s str> {
+    let events = brokkr_store::Store::open(db).unwrap().load(run).unwrap();
+    let failed =
+        (events.iter()).rfind(|event| event.event_type == brokkr_core::EventType::EffectFailed);
+    let attempt = failed.expect("a failed attempt").payload["attempt_id"].as_str();
+    let prefix = format!("{}: driver stderr: ", attempt.unwrap());
+    let told = stderr.lines().filter_map(|line| line.strip_prefix(&prefix));
+    told.collect()
+}
+
 /// A pid no process holds: a child that has exited and been waited for.
 pub(crate) fn dead_pid() -> u32 {
     let mut child = Command::new("true").spawn().unwrap();

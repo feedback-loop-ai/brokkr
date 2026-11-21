@@ -83,6 +83,7 @@ impl Engine {
             start_failures: Vec::new(),
             refused: Vec::new(),
             unproven,
+            stderr: String::new(),
         }))
     }
 }

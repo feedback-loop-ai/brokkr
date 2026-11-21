@@ -110,3 +110,27 @@ and `resume`.
 The journal is append-only, so events written before this addendum keep
 their tails and every reader still reads them. Nothing migrates, and no
 contract or event schema changes: `error` and `reason` stay strings.
+
+**2026-11-21, round two (#1199).** The review of the first build found
+two paths already on `main` that still carried a harness's or a
+validator's stderr into the journal, and the controller ruled them closed
+under the operator's ruling "(a)":
+
+- A dialect check's `notes` joined its validator's stdout and stderr, and
+  the engine journals those notes as a step checkpoint or as the attempt's
+  result. Its notes are now its validator's trimmed stdout alone; where
+  the validator wrote to stderr, one last line names it by the same
+  evidence, `validator stderr: <evidence>`, and an empty stderr adds
+  nothing. The verdict is unchanged. A realm that wants its validator's
+  diagnostics in the notes redirects them to stdout inside its own command.
+- A Codex model read from the `model:` header on stderr, when the stream
+  and the rollout named none, went into the `codex-session-finished`
+  checkpoint. It now counts only when it equals the seat's pinned model,
+  the `--model` or `-m` the engine resolved into the seat's passthrough;
+  any other header, or a seat with no pin, leaves the model `not reported`.
+
+And the engine tells a failed attempt's masked tail only after it has
+appended the attempt's terminal event (the failure, the indeterminate
+park, a sequence step's failure or indeterminate), through a writer it
+holds, best-effort: forming the reason does no I/O, and a stalled or
+closed stderr can no longer keep an attempt from settling.

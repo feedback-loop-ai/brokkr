@@ -3089,8 +3089,8 @@ mod journal_invariant {
         assert!(reason.contains("exited 3; driver stderr: "), "{reason}");
         assert!(!reason.contains("[secret:API_TOKEN]"), "{reason}");
         let told =
-            |said: &str| (stderr.lines()).any(|l| l.contains(&format!(": driver stderr: {said}")));
-        assert!(told(SENTINEL) && told("[secret:API_TOKEN]"), "{stderr}");
+            crate::engine::told_of_last_failure(&ws.db(), &Workspace::run_id(&stderr), &stderr);
+        assert!(told.contains(&SENTINEL) && told.iter().any(|l| l.contains("[secret:API_TOKEN]")));
         assert!(!stderr.contains(SECRET_VALUE), "{stderr}");
         let journal = assert_journal_sealed(&ws, &Workspace::run_id(&stderr));
         assert!(!contains(&journal, SENTINEL.as_bytes()), "{stderr}");

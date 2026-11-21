@@ -17,14 +17,14 @@ const DIGEST_HEX: usize = 16;
 
 /// Refused bytes, described without their content.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct Evidence {
+pub(crate) struct Evidence {
     bytes: usize,
     first: FirstByte,
     digest: String,
 }
 
 impl Evidence {
-    pub(super) fn of(bytes: &[u8]) -> Self {
+    pub(crate) fn of(bytes: &[u8]) -> Self {
         let mut digest = hex::encode(Sha256::digest(bytes));
         digest.truncate(DIGEST_HEX);
         Evidence {
@@ -65,18 +65,19 @@ impl<'s> DriverStderr<'s> {
     }
 
     /// `reason` as the journal carries it, this stderr named beside it
-    /// by evidence: "{reason}; driver stderr: …". Its tail is told to the
-    /// engine's own stderr under `attempt_id` as the reason is made.
-    pub fn named(&self, attempt_id: &str, reason: &str) -> String {
-        self.tell(attempt_id, &mut std::io::stderr().lock());
+    /// by evidence: "{reason}; driver stderr: …". Pure: nothing is told
+    /// here, so a reason is made without waiting on any stream.
+    pub fn named(&self, reason: &str) -> String {
         format!("{reason}; {self}")
     }
 
-    /// The last [`TOLD_CHARS`] characters, as the driver masked them, each
-    /// line prefixed by `attempt_id`. Nothing where the driver said
-    /// nothing. A write the engine's stderr refuses is not the attempt's
-    /// failure, so it is dropped.
-    fn tell(&self, attempt_id: &str, out: &mut impl std::io::Write) {
+    /// Tell `out` the last [`TOLD_CHARS`] characters, as the driver masked
+    /// them, each line prefixed by `attempt_id`. Nothing where the driver
+    /// said nothing. The engine tells only after the attempt's terminal
+    /// event is appended (#1199), so a stalled stream cannot keep it from
+    /// settling; a write `out` refuses is not the attempt's failure, so
+    /// it is dropped.
+    pub fn tell(&self, attempt_id: &str, out: &mut impl std::io::Write) {
         let skip = self.0.chars().count().saturating_sub(TOLD_CHARS);
         let tail: String = self.0.chars().skip(skip).collect();
         for line in tail.lines() {

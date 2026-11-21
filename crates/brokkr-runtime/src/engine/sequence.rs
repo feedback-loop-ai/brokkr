@@ -127,6 +127,10 @@ struct StepRun {
     /// What the step's terminal event carries when its tree is not
     /// proven over (#403).
     unproven: Unproven,
+    /// A single step driver's retained stderr, told to the engine's own
+    /// stderr after a failed or indeterminate step's terminal event is
+    /// appended (#1199); empty for every other form, which tells nothing.
+    stderr: String,
 }
 
 /// The results a step may report: the seat's own for the final step, which
@@ -394,6 +398,7 @@ impl Engine {
                 start_failures: vec![Some(at.step.name.clone())],
                 refused: Vec::new(),
                 unproven: Unproven::Proven,
+                stderr: String::new(),
             },
             DriverRun::Ran(report) => {
                 let start_failures = if failed_to_start(&report) {
@@ -410,7 +415,8 @@ impl Engine {
                     start_failures,
                     refused,
                     unproven: Unproven::seat(&report),
-                    outcome: tailed_outcome(&report, run.attempt_id),
+                    outcome: tailed_outcome(&report),
+                    stderr: report.stderr,
                 }
             }
         })
@@ -466,6 +472,7 @@ impl Engine {
             refused,
             unproven,
             outcome: outcome.outcome(),
+            stderr: String::new(),
         })
     }
 
@@ -532,6 +539,7 @@ impl Engine {
                 }
                 let terminal = self.step_terminal(run.effect_id, payload, &ran.refused, true)?;
                 let _ = self.end_failed::<()>(run, terminal.payload)?;
+                self.tell_stderr(run.attempt_id, &ran.stderr);
                 if let Some(park) = terminal.park {
                     self.park(&park)?;
                 }
@@ -548,12 +556,10 @@ impl Engine {
                     record.stamp(&mut payload);
                 }
                 let terminal = self.step_terminal(run.effect_id, payload, &ran.refused, false)?;
-                self.append(
-                    EventType::EffectIndeterminate,
-                    terminal.payload,
-                    Some(run.attempt_id.to_owned()),
-                )
-                .map(|_| StepVerdict::Ended)
+                let attempt = Some(run.attempt_id.to_owned());
+                self.append(EventType::EffectIndeterminate, terminal.payload, attempt)?;
+                self.tell_stderr(run.attempt_id, &ran.stderr);
+                Ok(StepVerdict::Ended)
             }
         }
     }

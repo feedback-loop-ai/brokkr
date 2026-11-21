@@ -79,3 +79,25 @@ pub(super) fn invoke_exec(
         launch: LaunchTerminal::Cold,
     })
 }
+
+/// A dialect check's notes: its validator's trimmed stdout, then, where
+/// its stderr is not empty, one line naming that stderr by content-free
+/// evidence (#1199, decision 0012). The notes reach the journal as a step
+/// checkpoint or as the attempt's result, and a validator can print a
+/// value the seat binds nowhere, so no byte of its stderr is copied here:
+/// a realm that wants its validator's diagnostics in the notes redirects
+/// them to stdout inside its own command.
+pub(super) fn dialect_notes(stdout: &str, stderr: &str) -> String {
+    let mut notes = stdout.trim().to_string();
+    if !stderr.is_empty() {
+        if !notes.is_empty() {
+            notes.push('\n');
+        }
+        let evidence = crate::process::Evidence::of(stderr.as_bytes());
+        notes.push_str(&format!("validator stderr: {evidence}"));
+    }
+    notes
+}
+
+#[cfg(test)]
+mod tests;

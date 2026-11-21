@@ -534,6 +534,10 @@ pub struct Engine {
     /// The run's lock while this process drives it (decision 0108 ruling
     /// 1), taken before the first append and let go as the engine is.
     run_lock: Option<crate::run_lock::RunLock>,
+    /// Where a failed attempt's masked stderr tail is told, after its
+    /// terminal event is appended (#1199): the engine's stderr, never the
+    /// journal. A test hands its own writer to watch the order.
+    told: Box<dyn std::io::Write + Send>,
 }
 
 pub(crate) fn verify_dispatch_bundle_bounds(
@@ -614,6 +618,7 @@ fn shell(store: Store, bundle: Bundle, run_id: String, feature: String, repo: Pa
         fence: None,
         held: None,
         run_lock: None,
+        told: Box::new(std::io::stderr()),
     }
 }
 
@@ -1488,14 +1493,19 @@ impl Engine {
         let start_failure = failed_to_start(&report);
         let stderr = brokkr_protocol::process::DriverStderr::of(&report.stderr);
         let unproven = Unproven::seat(&report);
+        // Told only once the terminal event is appended, so a stalled
+        // stderr cannot keep the attempt from settling (#1199).
+        let mut told = true;
         match report.settled_outcome() {
             AttemptOutcome::Succeeded { result } => {
                 let result = stamp_boundary(result, boundary);
+                told = false;
                 self.append_succeeded(effect_id, attempt_id, result, |refusal| {
+                    told = true;
                     json!({
                         "effect_id": effect_id,
                         "attempt_id": attempt_id,
-                        "error": stderr.named(attempt_id, &refusal),
+                        "error": stderr.named(&refusal),
                     })
                 })?;
             }
@@ -1503,7 +1513,7 @@ impl Engine {
                 let mut payload = json!({
                     "effect_id": effect_id,
                     "attempt_id": attempt_id,
-                    "error": stderr.named(attempt_id, &error),
+                    "error": stderr.named(&error),
                 });
                 if start_failure {
                     start_failure_fields(&mut payload, selection, vec![None]);
@@ -1526,14 +1536,23 @@ impl Engine {
                     json!(Indeterminate {
                         effect_id,
                         attempt_id,
-                        reason: stderr.named(attempt_id, &reason),
+                        reason: stderr.named(&reason),
                         unproven,
                     }),
                     Some(attempt_id.to_string()),
                 )?;
             }
         }
+        if told {
+            stderr.tell(attempt_id, &mut self.told);
+        }
         Ok(())
+    }
+
+    /// Tell a step driver's masked stderr tail to the engine's stderr,
+    /// once its terminal event is appended (#1199).
+    fn tell_stderr(&mut self, attempt_id: &str, stderr: &str) {
+        brokkr_protocol::process::DriverStderr::of(stderr).tell(attempt_id, &mut self.told);
     }
 
     /// Spawn one driver and run one attempt, journaling its live

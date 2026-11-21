@@ -397,11 +397,25 @@ fn served_model_evidence_is_strict_and_dsh_reads_nested_usage_chunks() {
         Some("served-by-dsh")
     );
     assert_eq!(model_in_json(&json!({"model":7})), None);
+    let header = "noise\nmodel: first\n model: second ";
     assert_eq!(
-        model_in_header("noise\nmodel: first\n model: second ").as_deref(),
+        model_in_header(header, Some("second")).as_deref(),
         Some("second")
     );
-    assert_eq!(model_in_header("models: guess\nmodel: not valid"), None);
+    // #1199: a header that is not the seat's pin, or a seat with none.
+    assert_eq!(model_in_header(header, Some("first")), None);
+    assert_eq!(model_in_header(header, None), None);
+    let invalid = "models: guess\nmodel: not valid";
+    assert_eq!(model_in_header(invalid, Some("not valid")), None);
+    let short = |extra: &[&str]| {
+        let extra: Vec<String> = extra.iter().map(|part| part.to_string()).collect();
+        pinned_model(&extra).map(str::to_string)
+    };
+    assert_eq!(short(&["exec", "-m", "gpt-x"]).as_deref(), Some("gpt-x"));
+    assert_eq!(
+        short(&["--model=gpt-y", "-m", "gpt-x"]).as_deref(),
+        Some("gpt-y")
+    );
 }
 
 #[test]
@@ -945,7 +959,11 @@ fn dialect_exec_turns_command_output_and_state_into_a_typed_result() {
     );
     assert_eq!(succeeded["result"], "clear");
     assert_eq!(succeeded["inputs"]["change"], "dialect-42");
-    assert_eq!(succeeded["notes"], "finding\nwarning");
+    // #1199: the notes are the stdout; the stderr is named by evidence.
+    assert_eq!(
+        succeeded["notes"],
+        "finding\nvalidator stderr: 7 bytes (first byte: letter; sha256: 4bd9354bb6522334)"
+    );
     assert_eq!(succeeded["state"], "state-json");
 
     let failed = run(&["sh", "-c", "cat >/dev/null; exit 7"], json!({}));
@@ -2573,9 +2591,12 @@ fn with_codex_bin<T>(env: &mut EnvGuard, shim: &std::path::Path, body: impl FnOn
     body()
 }
 
+/// #1199: a model Codex names only on its stderr header counts only when
+/// it is the seat's own pin, by `--model` or `-m`; any other header, or a
+/// seat with no pin, leaves the model unreported.
 #[cfg(unix)]
 #[test]
-fn codex_uses_its_own_model_header_when_the_event_stream_omits_it() {
+fn codex_uses_its_own_model_header_only_when_it_is_the_seats_pin() {
     let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let shim = executable(
@@ -2583,19 +2604,32 @@ fn codex_uses_its_own_model_header_when_the_event_stream_omits_it() {
         "codex-model-header",
         "#!/bin/sh\ncat >/dev/null\nprintf 'model: gpt-from-header\\n' >&2\n",
     );
-    let invocation = with_codex_bin(&mut env, &shim, || {
-        invoke(
+    let pinned = |extra: &[&str]| {
+        let extra: Vec<String> = extra.iter().map(|part| part.to_string()).collect();
+        let input = json!({"workdir":dir.path()});
+        let invocation = invoke(
             AdapterKind::Codex,
-            &["--model".into(), "gpt-pinned".into()],
+            &extra,
             "prompt",
-            &json!({"workdir":dir.path()}),
+            &input,
             None,
             &[],
             &mut |_| {},
-        )
-        .unwrap()
+        );
+        invocation.unwrap().session_meta.get("model").cloned()
+    };
+    with_codex_bin(&mut env, &shim, || {
+        assert_eq!(
+            pinned(&["--model", "gpt-from-header"]),
+            Some(json!("gpt-from-header"))
+        );
+        assert_eq!(
+            pinned(&["-m", "gpt-from-header"]),
+            Some(json!("gpt-from-header"))
+        );
+        assert_eq!(pinned(&["--model", "gpt-pinned"]), None);
+        assert_eq!(pinned(&[]), None);
     });
-    assert_eq!(invocation.session_meta["model"], "gpt-from-header");
 }
 
 /// The resume argv, whole: the subcommand, the seat's own sandbox class

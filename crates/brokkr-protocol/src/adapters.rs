@@ -664,12 +664,15 @@ fn effort_in_thread(line: &Value) -> Option<String> {
 
 /// Codex releases which omit the model from JSONL name it in the
 /// driver's own launch/usage header. The anchored `model:` field is the
-/// only stderr text admitted as evidence.
-fn model_in_header(stderr: &str) -> Option<String> {
-    stderr
+/// only stderr text read, and it counts only when it is `pin`, the model
+/// the engine resolved for this seat: stderr is never journal data
+/// (#1199), so any other token, or a seat with no pin, is not reported.
+fn model_in_header(stderr: &str, pin: Option<&str>) -> Option<String> {
+    let header = stderr
         .lines()
         .rev()
-        .find_map(|line| line.trim().strip_prefix("model:").and_then(model_token))
+        .find_map(|line| line.trim().strip_prefix("model:").and_then(model_token))?;
+    (Some(header.as_str()) == pin).then_some(header)
 }
 
 fn positive_count(value: Option<&Value>) -> Option<u64> {
@@ -3759,7 +3762,7 @@ fn invoke_codex(
             .or_insert_with(|| Value::String(effort));
     }
     if !session_meta.contains_key("model") {
-        if let Some(model) = model_in_header(&stderr) {
+        if let Some(model) = model_in_header(&stderr, pinned_model(command)) {
             session_meta.insert("model".into(), Value::String(model));
         }
     }
@@ -6708,15 +6711,10 @@ fn run_seat_with(
             .get("failure_result")
             .and_then(Value::as_str)
             .unwrap_or("fail");
-        let notes = [stdout.trim(), stderr.trim()]
-            .into_iter()
-            .filter(|part| !part.is_empty())
-            .collect::<Vec<_>>()
-            .join("\n");
         let mut result = json!({
             "result": if exit_code == 0 { success } else { failure },
             "inputs": {"change": dialect.get("change").cloned().unwrap_or(Value::Null)},
-            "notes": notes,
+            "notes": exec::dialect_notes(&stdout, &stderr),
             "model": served_model,
             "effort": applied_effort,
         });
@@ -6944,6 +6942,9 @@ mod dsh_v4_tests;
 
 #[cfg(test)]
 mod dsh_effort_tests;
+
+#[cfg(test)]
+mod stderr_sentinel_tests;
 
 #[cfg(test)]
 mod refusal_tests;

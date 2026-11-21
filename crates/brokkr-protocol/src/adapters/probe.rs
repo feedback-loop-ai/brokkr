@@ -126,12 +126,13 @@ pub(super) fn seat_row(
 }
 
 /// The concrete model id a seat's argv pins, where it pins one. The
-/// engine composes exactly one `--model`; a driver reading its own launch
-/// facts takes the first, never a later duplicate.
+/// engine composes exactly one `--model`, or the `-m` an adapter whose
+/// harness takes it declares as its `model_flag` (Codex does); a driver
+/// reading its own launch facts takes the first, never a later duplicate.
 pub(super) fn pinned_model(extra: &[String]) -> Option<&str> {
     let mut parts = extra.iter();
     while let Some(part) = parts.next() {
-        if part == "--model" {
+        if part == "--model" || part == "-m" {
             return parts.next().map(String::as_str);
         }
         if let Some(value) = part.strip_prefix("--model=") {

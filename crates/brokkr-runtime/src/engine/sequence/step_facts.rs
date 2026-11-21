@@ -12,22 +12,19 @@ use super::super::{DriverRun, Unproven};
 use crate::bundle::{DialectExecution, SequenceStep};
 
 /// A step driver's outcome, its failure or indeterminate reason naming
-/// the driver's stderr by evidence, as a single seat's does, the masked
-/// tail told to the engine's stderr under `attempt_id` (#1199). It reads
-/// the settled outcome (#403): a step whose tree is not proven over is
-/// indeterminate.
-pub(super) fn tailed_outcome(
-    report: &brokkr_protocol::AttemptReport,
-    attempt_id: &str,
-) -> AttemptOutcome {
+/// the driver's stderr by evidence, as a single seat's does (#1199). Pure:
+/// the masked tail is told by the step's settling, after its terminal
+/// event is appended. It reads the settled outcome (#403): a step whose
+/// tree is not proven over is indeterminate.
+pub(super) fn tailed_outcome(report: &brokkr_protocol::AttemptReport) -> AttemptOutcome {
     let stderr = DriverStderr::of(&report.stderr);
     match report.settled_outcome() {
         AttemptOutcome::Succeeded { result } => AttemptOutcome::Succeeded { result },
         AttemptOutcome::Failed { error } => AttemptOutcome::Failed {
-            error: stderr.named(attempt_id, &error),
+            error: stderr.named(&error),
         },
         AttemptOutcome::Indeterminate { reason } => AttemptOutcome::Indeterminate {
-            reason: stderr.named(attempt_id, &reason),
+            reason: stderr.named(&reason),
         },
     }
 }
