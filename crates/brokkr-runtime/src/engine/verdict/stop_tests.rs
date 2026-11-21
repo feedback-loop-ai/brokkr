@@ -41,8 +41,8 @@ pub(super) fn decided(events: &[EventEnvelope], phase: &str) -> Vec<Value> {
         .collect()
 }
 
-/// The clean every member charter orders.
-fn clean() -> Value {
+/// The charter-shaped clean every member charter orders.
+pub(super) fn clean() -> Value {
     json!({"result": "clean", "inputs": {"max_residual_severity": "none",
                                          "has_security_residual": false}})
 }

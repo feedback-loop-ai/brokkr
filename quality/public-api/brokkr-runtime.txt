@@ -368,6 +368,7 @@ pub brokkr_runtime::agents::Agent::library: std::path::PathBuf
 pub brokkr_runtime::agents::Agent::limits: core::option::Option<brokkr_runtime::bundle::Limits>
 pub brokkr_runtime::agents::Agent::models: alloc::vec::Vec<alloc::string::String>
 pub brokkr_runtime::agents::Agent::name: alloc::string::String
+pub brokkr_runtime::agents::Agent::results: core::option::Option<alloc::vec::Vec<alloc::string::String>>
 pub brokkr_runtime::agents::Agent::sandbox: core::option::Option<brokkr_runtime::agents::Sandbox>
 pub brokkr_runtime::agents::Agent::source: serde_json::value::Value
 impl brokkr_runtime::agents::Agent
@@ -493,6 +494,7 @@ pub brokkr_runtime::agents::Resolution::inputs: core::option::Option<alloc::vec:
 pub brokkr_runtime::agents::Resolution::limits: core::option::Option<brokkr_runtime::bundle::Limits>
 pub brokkr_runtime::agents::Resolution::notices: alloc::vec::Vec<brokkr_runtime::agents::Notice>
 pub brokkr_runtime::agents::Resolution::record: serde_json::value::Value
+pub brokkr_runtime::agents::Resolution::results: core::option::Option<alloc::vec::Vec<alloc::string::String>>
 pub struct brokkr_runtime::agents::ResumeAssessment(pub alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_runtime::agents::ResumeShape>)
 impl brokkr_runtime::agents::ResumeAssessment
 pub fn brokkr_runtime::agents::ResumeAssessment::is_empty(&self) -> bool
@@ -817,6 +819,7 @@ pub brokkr_runtime::bundle::SequenceStep::class: brokkr_runtime::bundle::SeatCla
 pub brokkr_runtime::bundle::SequenceStep::ends_on: alloc::vec::Vec<alloc::string::String>
 pub brokkr_runtime::bundle::SequenceStep::hard_results: alloc::vec::Vec<alloc::string::String>
 pub brokkr_runtime::bundle::SequenceStep::name: alloc::string::String
+pub brokkr_runtime::bundle::SequenceStep::residual: brokkr_core::findings::word::ResidualPair
 pub brokkr_runtime::bundle::SequenceStep::results: alloc::vec::Vec<alloc::string::String>
 pub struct brokkr_runtime::bundle::SiteFacts
 pub brokkr_runtime::bundle::SiteFacts::access: core::option::Option<brokkr_protocol::native_controls::access::Access>
@@ -2494,6 +2497,7 @@ pub brokkr_runtime::SequenceStep::class: brokkr_runtime::bundle::SeatClass
 pub brokkr_runtime::SequenceStep::ends_on: alloc::vec::Vec<alloc::string::String>
 pub brokkr_runtime::SequenceStep::hard_results: alloc::vec::Vec<alloc::string::String>
 pub brokkr_runtime::SequenceStep::name: alloc::string::String
+pub brokkr_runtime::SequenceStep::residual: brokkr_core::findings::word::ResidualPair
 pub brokkr_runtime::SequenceStep::results: alloc::vec::Vec<alloc::string::String>
 pub struct brokkr_runtime::Settle<'a>
 pub brokkr_runtime::Settle::operator: &'a str

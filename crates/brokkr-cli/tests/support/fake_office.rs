@@ -32,11 +32,22 @@ pub(crate) fn fake_driver(script: &Path, state: &Path) -> Value {
     ])
 }
 
+/// The office a review-panel member of [`of`] hires: the fake
+/// driver, declaring every word a review panel ranks, as a member's agent
+/// must for its member to report them (decision 0109 ruling 11).
+pub(crate) const REVIEWER: &str = "fake-reviewer";
+
 /// Writes, under `root`, the adapter `fake` whose driver is the fake
 /// driver reading `script` and keeping `state`, and the office
-/// [`OFFICE`] hiring its one model.
+/// [`OFFICE`] hiring its one model; and beside them [`REVIEWER`], over
+/// its own adapter.
 pub(crate) fn hire(root: &Path, script: &Path, state: &Path) {
     hire_driver(root, [OFFICE, "fake"], fake_driver(script, state));
+    hire_driver(root, [REVIEWER, "fake-review"], fake_driver(script, state));
+    let path = root.join(format!("agents/{REVIEWER}.json"));
+    let mut office: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    office["results"] = json!(["clean", "residual", "security-hold"]);
+    std::fs::write(&path, serde_json::to_vec_pretty(&office).unwrap()).unwrap();
 }
 
 /// Writes, under `root`, the adapter `provider` whose driver is `driver`,
@@ -128,4 +139,13 @@ pub(crate) fn seat(results: &[&str]) -> Value {
 /// A panel member, sequence step or select case hiring [`OFFICE`].
 pub(crate) fn body() -> Value {
     json!({"agent": OFFICE})
+}
+
+/// A member of a panel joined by `aggregate`: a review-panel member hires
+/// [`REVIEWER`], any other [`OFFICE`].
+pub(crate) fn of(aggregate: &str) -> Value {
+    match aggregate {
+        "review-panel" => json!({"agent": REVIEWER}),
+        _ => body(),
+    }
 }

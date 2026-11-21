@@ -11,6 +11,7 @@ mod seat_refusal;
 use std::collections::BTreeMap;
 use std::path::Path;
 
+use brokkr_core::findings::ResidualPair;
 use brokkr_core::policy::Machine;
 use brokkr_core::realms::Boundary;
 use brokkr_protocol::hands::HandsSpec;
@@ -175,10 +176,15 @@ fn compile_seat(
     let shape = classify(phase, raw, &SEAT)?;
     let results = seat_results(machine, phase, raw)?;
     let secrets = parse_secrets(phase, raw)?;
+    // A seat that holds panel members hires no agent of its own, so its
+    // input set is read before its body is: every review-panel member is
+    // bound to that set's residual pair (decision 0109 ruling 2).
+    let unhired = seat_inputs(machine, phase, raw, &None)?;
     let at = SeatScope {
         dir,
         results: &results,
         secrets: &secrets,
+        residual: ResidualPair::declared_in(&unhired),
     };
     let (agent_seat, body, sequence_gate) = compiler.parse_seat_body(at, phase, raw, shape)?;
     // The dialect wrapper is applied after this loop, once every
@@ -190,7 +196,10 @@ fn compile_seat(
     }
     judge_seat_driver(compiler, at, phase, raw, &body, &agent_seat, wrapped_verify)?;
     let limits = seat_limits(phase, raw, &agent_seat)?;
-    let inputs = seat_inputs(machine, phase, raw, &agent_seat)?;
+    let inputs = match &agent_seat {
+        Some(_) => seat_inputs(machine, phase, raw, &agent_seat)?,
+        None => unhired,
+    };
     Ok(Seat {
         gate: sequence_gate.unwrap_or_else(|| body.assess()),
         results,
@@ -393,6 +402,7 @@ impl Seated<'_, '_> {
         self.seat_validator(dialect_site, refusals)?;
         relocate_verify_facts(&mut self.sites, &moved);
         refusals.relocate(&moved);
+        let residual = ResidualPair::declared_in(&self.seats[verify].inputs);
         let prior = SequenceStep {
             name: "checks".into(),
             class: SeatClass::of(self.seats[verify].has_gate()),
@@ -400,6 +410,7 @@ impl Seated<'_, '_> {
             body: prior_body,
             ends_on: Vec::new(),
             hard_results: Vec::new(),
+            residual,
         };
         self.seats.get_mut(verify).expect("parsed above").body = SeatBody::Sequence {
             steps: vec![
@@ -419,6 +430,7 @@ impl Seated<'_, '_> {
                     },
                     ends_on: Vec::new(),
                     hard_results: Vec::new(),
+                    residual,
                 },
             ],
         };

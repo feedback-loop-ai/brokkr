@@ -21,6 +21,7 @@ pub(super) fn typed_seats(seats: &Value) -> BTreeMap<String, Seat> {
             candidates: Vec::new(),
             written: written(raw),
             class: SeatClass::Work,
+            law: crate::bundle::MemberLaw::open(),
         };
         let panel = raw.get("panel").and_then(Value::as_object);
         panel.map(|panel| panel.iter().map(member).collect::<Vec<_>>())
@@ -130,6 +131,7 @@ fn a_selected_sequence_holds_no_dialect_step() {
             dir: dir.path(),
             results: &results,
             secrets: &[],
+            residual: brokkr_core::findings::ResidualPair::declared_in::<&str>(&[]),
         };
         let raw = json!({"sequence": [
             {"name": "count", "results": ["clear"], "dialect": operation},

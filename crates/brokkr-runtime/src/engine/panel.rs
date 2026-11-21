@@ -33,7 +33,7 @@ use super::{
     EngineError, Indeterminate, Selection, Site, SiteSpawn, Unproven,
 };
 use crate::bundle::{
-    Aggregate, Bundle, MemberFindings, MemberVerdict, PanelMember, ENGINE_VERSION,
+    Aggregate, Bundle, MemberFindings, MemberVerdict, PanelJoin, PanelMember, ENGINE_VERSION,
 };
 
 pub(super) struct PanelAt<'a> {
@@ -83,6 +83,7 @@ impl Engine {
             seat_name,
             gate,
         } = *at;
+        let join = PanelJoin::of(aggregate, members);
         let mut span = PanelSpan::open(&self.repo);
         let runs = self.member_runs(
             crate::engine::AttemptIds::new(effect_id, attempt_id),
@@ -116,7 +117,7 @@ impl Engine {
         // gate reads a multi-line call's `?` edge as its own region.
         let name = bound.deadline.panel_namer(&reports);
         let members = (reports, stamped);
-        let mut outcome = outcome_under(aggregate, carry, members, &record.span, attempt_id)?;
+        let mut outcome = outcome_under(&join, carry, members, &record.span, attempt_id)?;
         name(&mut outcome);
         match outcome.outcome() {
             AttemptOutcome::Indeterminate { reason } => {
@@ -566,12 +567,12 @@ fn offer_member_checkpoint(
 /// member fails it (retryable under 0006); otherwise the declared
 /// aggregate produces the one typed result.
 pub(super) fn panel_outcome(
-    aggregate: Aggregate,
+    join: &PanelJoin,
     reports: Vec<(String, AttemptReport)>,
     stamped: Stamped,
 ) -> AttemptOutcome {
     outcome_over(
-        aggregate,
+        join,
         reports
             .into_iter()
             .map(|(name, report)| (name, report.settled_outcome()))
@@ -590,7 +591,7 @@ pub(crate) type Stamped = BTreeMap<String, MemberFindings>;
 pub(crate) type Members = (Vec<(String, AttemptReport)>, Stamped);
 
 pub(super) fn outcome_over(
-    aggregate: Aggregate,
+    join: &PanelJoin,
     reports: Vec<(String, AttemptOutcome)>,
     mut stamped: Stamped,
 ) -> AttemptOutcome {
@@ -624,6 +625,6 @@ pub(super) fn outcome_over(
         };
     }
     AttemptOutcome::Succeeded {
-        result: aggregate.aggregate_results(&member_results),
+        result: join.aggregate_results(&member_results),
     }
 }

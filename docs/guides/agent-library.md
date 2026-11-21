@@ -57,9 +57,12 @@ brokkr doctor                # which providers and models are actually here
 
 An agent is one file in `agents/`: a description, a charter, an ORDERED
 preference chain of abstract model names, an abstract tool restriction,
-the capabilities it asks for, its decision-0006 limits and its
-decision-0007 declared inputs. A seat, panel member or sequence step
-says `"agent": "<name>"`.
+the capabilities it asks for, its decision-0006 limits, its
+decision-0007 declared inputs, and the `results` it may report
+(decision 0109 ruling 11). A seat, panel member or sequence step says
+`"agent": "<name>"`. A review-panel member reports only its office's
+`results`, or `clean` and `residual` where the office declares none,
+and a seat that hires an office declaring them reports within them.
 Inline seats stay first-class. Dialect validators such as the `validate`
 step of `recipes/triage`, a Brokkr-only recipe (decision 0087 ruling 5),
 are also model-free execs, but their checked argv comes from
@@ -82,6 +85,8 @@ parses that exactly as it parses a base, so `brokkr agents show` prints
 the merged office and its digest is the merged definition's. `models`
 replaces the base's chain and `efforts` its efforts, whole; `charter` and
 `inputs` replace the base's when written; everything else is inherited.
+`results` is inherited and never written by an overlay, so an overlay
+cannot widen or narrow the words its base may report.
 `tools` and `hands` are the office's power: an overlay that writes either,
 or drops one the base declares, names it under `replaces` with its reason,
 and one that changes either without a reason does not load. An overlay

@@ -87,6 +87,18 @@ fn happy_script() -> Value {
     }})
 }
 
+/// `script` with each review member's clean naming the residual pair the
+/// review seat compiles, as every member charter orders (decision 0109
+/// ruling 2).
+fn charter_shaped(mut script: Value) -> Value {
+    for member in ["review:correctness", "review:security"] {
+        let inputs = &mut script["seats"][member][0]["result"]["inputs"];
+        inputs["max_residual_severity"] = json!("none");
+        inputs["has_security_residual"] = json!(false);
+    }
+    script
+}
+
 struct Ws {
     dir: tempfile::TempDir,
     /// The HOME every `brokkr` here is given, apart from the workspace a
@@ -103,7 +115,7 @@ impl Ws {
         std::fs::create_dir_all(ws.path().join("state")).unwrap();
         std::fs::write(
             ws.path().join("script.json"),
-            serde_json::to_string(&happy_script()).unwrap(),
+            serde_json::to_string(&charter_shaped(happy_script())).unwrap(),
         )
         .unwrap();
         ws

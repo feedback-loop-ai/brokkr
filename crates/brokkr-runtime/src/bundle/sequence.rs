@@ -408,6 +408,7 @@ pub(super) fn parse_sequence(
             body: parsed.body,
             ends_on: Vec::new(),
             hard_results: Vec::new(),
+            residual: at.residual,
         });
     }
     Ok((steps, whole_gate))

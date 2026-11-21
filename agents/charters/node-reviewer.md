@@ -40,7 +40,8 @@ finding above low returns to the implementer who owns it; report the
 finding and verdict rather than fixing it yourself.
 
 Result:
-- `clean` — no findings remain.
+- `clean` with `inputs: {"max_residual_severity": "none",
+  "has_security_residual": false}` — no findings remain.
 - `residual` with `inputs: {"max_residual_severity": "<severity>",
   "has_security_residual": <bool>}` — findings remain that you did not
   fix; list every one in `notes` with its severity. Never understate a

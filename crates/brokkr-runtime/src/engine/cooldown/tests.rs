@@ -1364,6 +1364,7 @@ fn panel_body(command: Vec<String>) -> SeatBody {
             candidates: Vec::new(),
             written: Vec::new(),
             class: SeatClass::Work,
+            law: crate::bundle::MemberLaw::open(),
         }],
         aggregate: Aggregate::UnanimousPass,
     })

@@ -49,8 +49,15 @@ fn single_step(name: &str, candidates: Vec<Candidate>, results: &[&str]) -> Sequ
     )
 }
 
-/// One panel step of `members`.
+/// One panel step of `members`, each of which may report the step's words.
 fn panel_step(name: &str, members: Vec<PanelMember>, results: &[&str]) -> SequenceStep {
+    let law = crate::bundle::MemberLaw::declaring(results);
+    let members = (members.into_iter())
+        .map(|member| PanelMember {
+            law: law.clone(),
+            ..member
+        })
+        .collect();
     step(
         name,
         StepBody::Invocation(Invocation::Panel {

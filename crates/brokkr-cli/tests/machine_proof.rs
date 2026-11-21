@@ -462,7 +462,7 @@ impl Workspace {
             serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
         let mut panel = serde_json::Map::new();
         for member in members {
-            panel.insert(member.to_string(), crate::fake_office::body());
+            panel.insert(member.to_string(), crate::fake_office::of(aggregate));
         }
         let seat = config["seats"][phase].as_object_mut().unwrap();
         seat.insert("panel".into(), Value::Object(panel));
@@ -496,7 +496,7 @@ impl Workspace {
                         let mut panel = serde_json::Map::new();
                         for member in members.as_array().unwrap() {
                             let member = member.as_str().unwrap().to_string();
-                            panel.insert(member, crate::fake_office::body());
+                            panel.insert(member, crate::fake_office::of(spec["aggregate"].as_str().unwrap_or_default()));
                         }
                         json!({
                             "name": name,
@@ -1839,8 +1839,8 @@ fn panel_one_failing_member_fails_the_phase() {
 #[test]
 fn review_panel_worst_member_wins_and_merges_inputs() {
     let mut script = happy_script();
-    script["seats"]["review:correctness"] = json!([{"behavior": "succeed",
-        "result": {"result": "clean", "inputs": {"fixes_applied": false}}}]);
+    script["seats"]["review:correctness"] = json!([{"behavior": "succeed", "result": {"result": "clean",
+        "inputs": {"fixes_applied": false, "max_residual_severity": "none", "has_security_residual": false}}}]);
     script["seats"]["review:security"] = json!([{"behavior": "succeed",
         "result": {"result": "residual",
                    "inputs": {"max_residual_severity": "low",
@@ -1856,8 +1856,8 @@ fn review_panel_worst_member_wins_and_merges_inputs() {
 #[test]
 fn review_panel_security_hold_member_hard_stops() {
     let mut script = happy_script();
-    script["seats"]["review:correctness"] = json!([{"behavior": "succeed",
-        "result": {"result": "clean", "inputs": {"fixes_applied": false}}}]);
+    script["seats"]["review:correctness"] = json!([{"result": {"inputs": {"has_security_residual": false,
+        "max_residual_severity": "none", "fixes_applied": false}, "result": "clean"}, "behavior": "succeed"}]);
     script["seats"]["review:security"] =
         json!([{"behavior": "succeed", "result": {"result": "security-hold"}}]);
     let ws = Workspace::new(script);

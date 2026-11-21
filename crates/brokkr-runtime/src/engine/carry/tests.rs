@@ -1,7 +1,13 @@
 use super::record::{PanelRecord, RetryArgs};
 use super::*;
+use crate::bundle::{Aggregate, MemberLaw};
 use crate::engine::tests::{engine, git_commit, member, report, state};
 use crate::engine::{Cursor, SeatBody};
+
+/// The fixture panel's two members, `a` and `b`, joined under `aggregate`.
+fn two_members(aggregate: Aggregate) -> PanelJoin {
+    PanelJoin::open(aggregate, &["a", "b"])
+}
 use crate::envelope_builder::EnvelopeBuilder;
 use brokkr_core::findings::EngineMarker;
 use brokkr_protocol::AttemptReport;
@@ -78,7 +84,13 @@ fn a_carried_members_findings_key_the_aggregate_only_beside_the_engines_mark() {
         let span = PanelSpan::open(&runtime.repo);
         let fresh = vec![("b".into(), success(json!({"result":"clean"})))];
         let members = (fresh, Stamped::new());
-        let carried = outcome_under(Aggregate::ReviewPanel, Some(&plan), members, &span, "retry");
+        let carried = outcome_under(
+            &two_members(Aggregate::ReviewPanel),
+            Some(&plan),
+            members,
+            &span,
+            "retry",
+        );
         let AttemptOutcome::Succeeded { result } = carried.unwrap().outcome() else {
             panic!("the carried panel succeeds");
         };
@@ -146,7 +158,7 @@ fn the_rule_preserves_the_aggregate_and_checks_identity_and_selection() {
     ];
     let span = PanelSpan::open(&runtime.repo);
     let joined = outcome_under(
-        Aggregate::ReviewPanel,
+        &two_members(Aggregate::ReviewPanel),
         Some(&plan),
         (fresh(), Stamped::new()),
         &span,
@@ -155,9 +167,15 @@ fn the_rule_preserves_the_aggregate_and_checks_identity_and_selection() {
     .unwrap()
     .outcome();
     let full = (full, Stamped::new());
-    let complete = outcome_under(Aggregate::ReviewPanel, None, full, &span, "full")
-        .unwrap()
-        .outcome();
+    let complete = outcome_under(
+        &two_members(Aggregate::ReviewPanel),
+        None,
+        full,
+        &span,
+        "full",
+    )
+    .unwrap()
+    .outcome();
     assert_eq!(
         serde_json::to_value(joined).unwrap(),
         serde_json::to_value(complete).unwrap()
@@ -189,7 +207,7 @@ fn the_rule_preserves_the_aggregate_and_checks_identity_and_selection() {
     let mut moved = span.clone();
     moved.tree.at_end = TreeReading::Dirty;
     assert!(
-        matches!(outcome_under(Aggregate::ReviewPanel, Some(&plan), (fresh(), Stamped::new()), &moved, "carrying").unwrap(), Panelled::Refused(AttemptOutcome::Indeterminate { reason }) if reason.contains("carrying attempt 'carrying' changed its reviewed subject"))
+        matches!(outcome_under(&two_members(Aggregate::ReviewPanel), Some(&plan), (fresh(), Stamped::new()), &moved, "carrying").unwrap(), Panelled::Refused(AttemptOutcome::Indeterminate { reason }) if reason.contains("carrying attempt 'carrying' changed its reviewed subject"))
     );
     assert!(
         matches!(plan.join((vec![], Stamped::new())), Err(EngineError::Invariant("complete carry plan", detail)) if detail == "missing fresh report")
@@ -453,7 +471,7 @@ fn both_aggregates_keep_opaque_and_settled_verdicts_in_declared_order() {
         let fresh = json!({"result":if matches!(aggregate, Aggregate::ReviewPanel) {"clean"} else {"pass"}});
         let span = PanelSpan::open(&runtime.repo);
         let carried = outcome_under(
-            aggregate,
+            &two_members(aggregate),
             Some(&plan),
             (vec![("b".into(), success(fresh.clone()))], Stamped::new()),
             &span,
@@ -466,7 +484,7 @@ fn both_aggregates_keep_opaque_and_settled_verdicts_in_declared_order() {
         let mut admitted = verdict.clone();
         let stamped = [("a".into(), MemberFindings::taken_from(&mut admitted))].into();
         let full = outcome_under(
-            aggregate,
+            &two_members(aggregate),
             None,
             (
                 vec![
@@ -520,7 +538,7 @@ fn the_span_is_checked_before_join_only_when_a_verdict_is_carried() {
         }
         .to_string();
         assert!(
-            matches!(outcome_under(Aggregate::ReviewPanel, Some(&carried), (vec![], Stamped::new()), &span, "two").unwrap(),
+            matches!(outcome_under(&two_members(Aggregate::ReviewPanel), Some(&carried), (vec![], Stamped::new()), &span, "two").unwrap(),
             Panelled::Refused(AttemptOutcome::Indeterminate { reason }) if reason == expected)
         );
         let reports = || {
@@ -530,11 +548,17 @@ fn the_span_is_checked_before_join_only_when_a_verdict_is_carried() {
                 Stamped::new(),
             )
         };
-        let plain = outcome_under(Aggregate::ReviewPanel, None, reports(), &span, "two")
-            .unwrap()
-            .outcome();
+        let plain = outcome_under(
+            &two_members(Aggregate::ReviewPanel),
+            None,
+            reports(),
+            &span,
+            "two",
+        )
+        .unwrap()
+        .outcome();
         let all_named = outcome_under(
-            Aggregate::ReviewPanel,
+            &two_members(Aggregate::ReviewPanel),
             Some(&fresh),
             reports(),
             &span,
@@ -624,6 +648,9 @@ fn exact_step_tags_and_all_named_retries_obey_declared_order_before_identity() {
     facts.shape = PanelShape::Panel {
         step: Some("p".into()),
         tags: tags.clone(),
+        laws: [("p:x", MemberLaw::open()), ("x", MemberLaw::open())]
+            .map(|(name, law)| (name.to_string(), law))
+            .into(),
     };
     let plan = carry_plan(&facts, &[Tag("p:x".into())]).unwrap();
     assert_eq!(plan.fresh(), [Tag("p:x".into())]);
@@ -683,6 +710,7 @@ fn the_three_way_search_passes_over_restarts_but_not_a_finished_panel_step() {
     facts.shape = PanelShape::Panel {
         step: Some("p".into()),
         tags: vec![Tag("p:a".into()), Tag("p:b".into())],
+        laws: Default::default(),
     };
     assert!(
         matches!(carry_plan(&facts, &[Tag("p:b".into())]).unwrap_err().0,
