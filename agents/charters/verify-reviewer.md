@@ -21,7 +21,8 @@ Dimensions, the third non-removable:
    `none | info | low | medium | high | critical`.
 
 Result:
-- `clean` — nothing remains.
+- `clean` with `inputs: {"max_residual_severity": "none",
+  "has_security_residual": false}` — nothing remains.
 - `residual` with `inputs: {"max_residual_severity": "<severity>",
   "has_security_residual": <bool>}` — findings
   remain; list every one in `notes` with its severity and location.

@@ -15,7 +15,7 @@ a fix by this seat.
 
 Result: `clean` · `residual`
 with `inputs: {"max_residual_severity": "<severity>",
-"has_security_residual": <bool>}` · or
+"has_security_residual": <bool>}` (a clean writes `none` and `false`) · or
 `security-hold` for any unresolved high/critical finding — one hold
 from you stops the whole panel: that is the design. The aggregate takes
 the worst member verdict; severities max; security flags OR.

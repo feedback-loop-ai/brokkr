@@ -356,7 +356,14 @@ engine, never arbitrary code:
 | `review-panel` | `clean`, `residual`, `security-hold` | Worst member wins over `clean` < `residual` < `security-hold`; severity is the max, and the security and fixes flags are OR-ed. |
 
 A seat's declared `results` must cover its aggregate's vocabulary or
-compilation fails. Any indeterminate member makes the whole attempt
+compilation fails. A member declares no `results` of its own. A
+`review-panel` member reports only the words its hired agent's `results`
+list declares, `clean` and `residual` where it declares none. Before the
+join, its word is bound to its findings and to the residual pair the
+seat compiles (decision 0109 ruling 2). A refused member poisons the
+aggregate. The aggregate writes `max_residual_severity` and
+`has_security_residual` on every result, `none` and `false` when no
+member reports one. Any indeterminate member makes the whole attempt
 indeterminate, which parks; otherwise any failed member fails the
 attempt.
 
