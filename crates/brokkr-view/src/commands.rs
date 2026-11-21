@@ -119,7 +119,7 @@ impl Serialize for CommandRefusal {
 pub fn operator_refusal(command: &str, reason: &str, run_id: &str) -> String {
     format!(
         "refused operator {command} ({reason}): the run is not in a state this command can \
-         apply to; the refusal is journaled. Read it with: brokkr inspect --run {run_id}"
+         apply to; the refusal is journaled. Read it with: brokkr runs inspect --run {run_id}"
     )
 }
 

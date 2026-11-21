@@ -91,7 +91,7 @@ impl ConcludeRefusal {
                  dead; look with `brokkr runs` before closing"
             ),
             ConcludeRefusal::Driven { holder } => format!(
-                "{}; stop it with `brokkr operator stop`, or end that process, then conclude",
+                "{}; stop it with `brokkr runs operator stop`, or end that process, then conclude",
                 named(run_id, holder)
             ),
         }

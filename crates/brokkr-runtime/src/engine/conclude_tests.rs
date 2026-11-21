@@ -578,12 +578,12 @@ fn every_conclusion_refusal_reads_as_it_always_has() {
                 }),
             },
             "run 'r' is driven by pid 42 on this host since 2026-11-13T00:00:00Z (engine \
-             0.13.1); stop it with `brokkr operator stop`, or end that process, then conclude",
+             0.13.1); stop it with `brokkr runs operator stop`, or end that process, then conclude",
         ),
         (
             ConcludeRefusal::Driven { holder: None },
             "run 'r' is driven by another process on this host, which has not recorded its \
-             facts yet; stop it with `brokkr operator stop`, or end that process, then conclude",
+             facts yet; stop it with `brokkr runs operator stop`, or end that process, then conclude",
         ),
     ];
     for (why, text) in pins {
@@ -927,7 +927,7 @@ fn a_held_run_refuses_conclude_and_writes_nothing() {
         refused.to_string(),
         format!(
             "run '{PARKED}' is driven by pid {} on this host since {} (engine {}); stop it with \
-             `brokkr operator stop`, or end that process, then conclude",
+             `brokkr runs operator stop`, or end that process, then conclude",
             child.id(),
             recorded.since,
             ENGINE_VERSION

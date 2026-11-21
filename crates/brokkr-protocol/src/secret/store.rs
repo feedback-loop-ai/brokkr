@@ -33,7 +33,7 @@ pub(super) enum StoreError {
     #[error("secrets store {} line {line} has an ill-formed name", .path.display())]
     IllFormedName { path: PathBuf, line: usize },
     #[error(
-        "secret '{name}' is not in the store at {} (brokkr secrets set {name})",
+        "secret '{name}' is not in the store at {} (brokkr system secrets set {name})",
         .path.display()
     )]
     MissingName { name: String, path: PathBuf },

@@ -4,44 +4,52 @@
 
 Every `brokkr` verb and argument with its default, and every exit code, as the binary defines them; `brokkr <verb> --help` prints the same text. An argument marked **yes** under Selector takes a full run id, a unique prefix of one, or `latest`, the run created most recently (decision 0015, and for the write paths its proposed 2026-09-28 addendum); one marked **with a journal** does so only when the workspace journal is there, and otherwise takes the id literally and refuses `latest`. Every verb also takes clap's own `-h`/`--help`, and `brokkr` itself `-V`/`--version`; the tables leave them out.
 
+The verbs nest under twelve roots. Every old flat name, such as `brokkr inspect` for `brokkr runs inspect` or `brokkr verify-run` for `brokkr journal verify`, still parses as a hidden alias until 0.17, and says its new spelling on stderr.
+
 - [`brokkr init`](#brokkr-init): Scaffold a minimal reviewable bundle and prove it compiles
-- [`brokkr costs`](#brokkr-costs): Per-seat cost and session accounting from journal checkpoints — the LaneTally join surface (stable seat ids, journal-derived)
-- [`brokkr ledger`](#brokkr-ledger): Render the shipper's delivery ledger from journal and repository evidence
-- [`brokkr anchor`](#brokkr-anchor): Anchor a run's journal head in refs/forge/&lt;run&gt; (tamper evidence), or verify the existing anchor with --check
-- [`brokkr keep-refs`](#brokkr-keep-refs): Keep-refs: the git objects a run's journal cites, held by refs/forge/keep/&lt;run&gt;/&lt;sha&gt; so a squash-merge, a branch delete and a gc cannot collect the evidence the journal names. Runs plant these themselves at conclusion; these verbs cover the runs that concluded before the mechanism existed, and the deliberate letting-go that is the operator's alone
-- [`brokkr keep-refs plant`](#brokkr-keep-refs-plant): Plant a keep-ref for every object the run's journal cites. Idempotent: replanting moves nothing
-- [`brokkr keep-refs list`](#brokkr-keep-refs-list): Which runs hold which exhibits — one `for-each-ref`, no journal needed. `--run` narrows the listing to one run
-- [`brokkr keep-refs delete`](#brokkr-keep-refs-delete): Let one run's exhibits go: remove refs/forge/keep/&lt;run&gt;/*. The operator's decision alone — nothing in the engine ever deletes a keep-ref, and the objects are then as mortal as gc leaves them
-- [`brokkr ui`](#brokkr-ui): Serve the embedded read-only surface on loopback
-- [`brokkr tui`](#brokkr-tui): Explore runs interactively in the terminal: the fleet as a navigable table, one run's phase graph, seats and decision trail, and one seat's own checkpoint and session stream. Read-only like every other readout — it issues no operator commands and writes nothing to the journal
-- [`brokkr doctor`](#brokkr-doctor): Verify tools, drivers, the workspace database, and optionally a bundle, without executing any agent
-- [`brokkr compile`](#brokkr-compile): Validate a bundle and print its pinned manifest and digest
 - [`brokkr run`](#brokkr-run): Start a new run and drive it until it parks or finishes
 - [`brokkr resume`](#brokkr-resume): Resume an existing run under its exact pinned bundle
-- [`brokkr rerun`](#brokkr-rerun): Re-run a past run's feature as a NEW run under another bundle or recipe, so outcomes can be compared by run id. No stored linkage
-- [`brokkr compare`](#brokkr-compare): Compare two runs' aligned outcomes: decision trails, first divergence, phases visited, per-seat costs. Read-only
-- [`brokkr recipes`](#brokkr-recipes): The recipe library: bundle directories as named, swappable delivery strategies
-- [`brokkr recipes list`](#brokkr-recipes-list): List recipes under --dir, then those on the personal shelf, each with its origin, project or personal; broken ones print a warning line, never abort the listing
-- [`brokkr recipes add`](#brokkr-recipes-add): Install a recipe from a local path or a git URL into the shelf at the repository's root, .brokkr/recipes/&lt;name&gt; where the folder is, else recipes/&lt;name&gt;, with the agents and charters it names that the agent library lacks
-- [`brokkr recipes show`](#brokkr-recipes-show): Print one recipe's RESOLVED bundle and, when it extends another, the composition chain it was resolved from
-- [`brokkr recipes usage`](#brokkr-recipes-usage): Print what each recipe's attempts used, per phase, as the engine measured their process trees: the minimum, average and maximum of peak and mean memory, peak and mean load, CPU time and wall time, over the drivers measured. An attempt journaled without usage is counted as unmeasured, never as zero
-- [`brokkr agents`](#brokkr-agents): The agent library: one definition per agent — description, charter, an ordered chain of abstract model names, abstract tool/MCP configuration — that seats reference by name
-- [`brokkr agents list`](#brokkr-agents-list): One line per agent — name, model chain, description. A broken definition prints a warning line and never aborts the listing
-- [`brokkr agents show`](#brokkr-agents-show): The definition as written, plus the per-chain-entry resolution the compiler would compute. An unknown name errors naming the known set
-- [`brokkr muninn`](#brokkr-muninn): The standing overseer: read the fleet, propose to the operator, execute nothing. It opens the journal read-only, issues no operator command, starts no run, and records every proposal — with the run ids and sequence numbers it was derived from — in its own append-only file beside the journal
-- [`brokkr muninn run`](#brokkr-muninn-run): Derive the fleet dossier, ask one bounded seat for proposals, and record them. Nothing is executed: a proposal becomes an action only when the operator issues the command themselves
-- [`brokkr muninn list`](#brokkr-muninn-list): Read the record back: every proposal, with the run ids and sequence numbers it cited
-- [`brokkr secrets`](#brokkr-secrets): Manage the operator-side secrets store: bundles and journals carry NAMES only; values live in this env-format file outside version control. There is no value-printing verb
-- [`brokkr secrets set`](#brokkr-secrets-set): Bind NAME to a value read from STDIN (never argv — the CLI obeys its own injection discipline). Creates the store 0600
-- [`brokkr secrets list`](#brokkr-secrets-list): Print bound names, one per line — names, never values
-- [`brokkr secrets remove`](#brokkr-secrets-remove): Remove NAME from the store
-- [`brokkr sweep`](#brokkr-sweep): Remove the run-local seat scratch trees the journal proves free and record what each complete removal freed, and reap the hands session trees whose owners are dead. One pass under the journal's dispatch lock; `--dry-run` lists what a pass would remove, with sizes, and writes nothing
-- [`brokkr dispatch`](#brokkr-dispatch): Start what admission admits from the journal's queue, each run handed to a driver of its own: one pass with `--once` under the journal's dispatch lock, the bound's command and the holder's readout
-- [`brokkr dispatch set-bound`](#brokkr-dispatch-set-bound): Set the journal's bound on the refusals counted against one entry before the dispatcher holds it, a whole number of at least 1, journaled as the operator's command
-- [`brokkr dispatch status`](#brokkr-dispatch-status): Say whether a dispatcher holds the journal, the bound in force, and each entry left launching or linked with no `spawn` row. Opens the journal read-only and writes nothing
-- [`brokkr conclude`](#brokkr-conclude): Close a stopped or parked run from its journal alone — no bundle, no recipe, no effect. `resume` compiles the exact pinned recipe and refuses on any drift, which is right for the branches that spend money but leaves a run from a moved engine with no lawful ending. This appends the operator stop conclusion and nothing else, so it needs no pinned recipe to be honest about what it wrote. It cannot retry: that re-enters the policy loop, and the policy loop needs the bundle by construction. For a run believed dead: every write is fenced, so a journal that moves beneath the conclusion — something still driving the run — refuses instead of being closed over. Check `brokkr runs` first
-- [`brokkr operator`](#brokkr-operator): Record an operator command (retry \| stop \| release \| supersede \| classify \| repair) as journal events, or acknowledge a quarantined run beside its journal
-- [`brokkr queue`](#brokkr-queue): The dispatcher's queue: runs waiting to start, in the journal's own database. Add, list, judge, move, hold, release, re-pin and drop entries; each change is journaled with its reason
+- [`brokkr watch`](#brokkr-watch): Watch a run live: redraw the graph, seats, last ruling and seat activity whenever the journal head moves; exit when the run reaches a terminal status. Read-only, like every other readout
+- [`brokkr tui`](#brokkr-tui): Explore runs interactively in the terminal: the fleet as a navigable table, one run's phase graph, seats and decision trail, and one seat's own checkpoint and session stream. Read-only like every other readout — it issues no operator commands and writes nothing to the journal
+- [`brokkr doctor`](#brokkr-doctor): Verify tools, drivers, the workspace database, and optionally a bundle, without executing any agent
+- [`brokkr runs`](#brokkr-runs): The runs in the journal: list them (the default), read one, compare two, re-run, close or command one, and the overseer that reads them all
+- [`brokkr runs list`](#brokkr-runs-list): List runs in the workspace database: one clamped line per run, the fleet's sections in order and each by last activity, read a page at a time. `--json` emits the view model for scripts
+- [`brokkr runs inspect`](#brokkr-runs-inspect): Explain a run: header, ruling, seats, decision trail, and the phase graph as a tree. `--phase` and `--seat` are the scoping verbs the console's clicks became; `--json` emits the view model, or with `--capability-call` the call and its verified response
+- [`brokkr runs seats`](#brokkr-runs-seats): The seats of a run: the seats block `runs inspect` renders — every seat's model with the boundary its hands stood behind beside it — from the same view. `--json` prints that view verbatim, the bytes `runs inspect --json` prints
+- [`brokkr runs transcript`](#brokkr-runs-transcript): Read one participant's retained local transcript — Claude, Codex or DSH — through the same bounded local derivation the TUI uses. The verb never launches, retries or resumes a provider and writes nothing to the journal
+- [`brokkr runs compare`](#brokkr-runs-compare): Compare two runs' aligned outcomes: decision trails, first divergence, phases visited, per-seat costs. Read-only
+- [`brokkr runs replay`](#brokkr-runs-replay): Rebuild state from the journal twice and verify determinism
+- [`brokkr runs rerun`](#brokkr-runs-rerun): Re-run a past run's feature as a NEW run under another bundle or recipe, so outcomes can be compared by run id. No stored linkage
+- [`brokkr runs conclude`](#brokkr-runs-conclude): Close a stopped or parked run from its journal alone — no bundle, no recipe, no effect. `resume` compiles the exact pinned recipe and refuses on any drift, which is right for the branches that spend money but leaves a run from a moved engine with no lawful ending. This appends the operator stop conclusion and nothing else, so it needs no pinned recipe to be honest about what it wrote. It cannot retry: that re-enters the policy loop, and the policy loop needs the bundle by construction. For a run believed dead: every write is fenced, so a journal that moves beneath the conclusion — something still driving the run — refuses instead of being closed over. Check `brokkr runs` first
+- [`brokkr runs operator`](#brokkr-runs-operator): Record an operator command (retry \| stop \| release \| supersede \| classify \| repair) as journal events, or acknowledge a quarantined run beside its journal
+- [`brokkr runs muninn`](#brokkr-runs-muninn): The standing overseer: read the fleet, propose to the operator, execute nothing. It opens the journal read-only, issues no operator command, starts no run, and records every proposal — with the run ids and sequence numbers it was derived from — in its own append-only file beside the journal
+- [`brokkr runs muninn run`](#brokkr-runs-muninn-run): Derive the fleet dossier, ask one bounded seat for proposals, and record them. Nothing is executed: a proposal becomes an action only when the operator issues the command themselves
+- [`brokkr runs muninn list`](#brokkr-runs-muninn-list): Read the record back: every proposal, with the run ids and sequence numbers it cited
+- [`brokkr journal`](#brokkr-journal): The journal itself: export, import and verify one run, back up and restore the whole journal, and the evidence that outlives it
+- [`brokkr journal export`](#brokkr-journal-export): Write the canonical NDJSON journal and pinned manifest
+- [`brokkr journal import`](#brokkr-journal-import): Adopt an exported run into this journal, byte-identically — the verb paired with `journal export`. Journals never merge; one run relocates. Nothing lands unless the whole chain verifies, the events fold, the run_id does not already exist here, and the export is not a redacted derivative
+- [`brokkr journal verify`](#brokkr-journal-verify): Verify an exported journal offline: chain, envelopes, fold
+- [`brokkr journal backup`](#brokkr-journal-backup): Back up a whole journal — one consistent snapshot taken while writers may run, plus the versioned inventory that declares its boundary and makes the backup complete
+- [`brokkr journal restore`](#brokkr-journal-restore): Restore a journal backup into a new location, after the inventory, the snapshot's digest, SQLite's integrity, every chain and the counts all pass. It starts nothing
+- [`brokkr journal anchor`](#brokkr-journal-anchor): Anchor a run's journal head in refs/forge/&lt;run&gt; (tamper evidence), or verify the existing anchor with --check
+- [`brokkr journal keep-refs`](#brokkr-journal-keep-refs): Keep-refs: the git objects a run's journal cites, held by refs/forge/keep/&lt;run&gt;/&lt;sha&gt; so a squash-merge, a branch delete and a gc cannot collect the evidence the journal names. Runs plant these themselves at conclusion; these verbs cover the runs that concluded before the mechanism existed, and the deliberate letting-go that is the operator's alone
+- [`brokkr journal keep-refs plant`](#brokkr-journal-keep-refs-plant): Plant a keep-ref for every object the run's journal cites. Idempotent: replanting moves nothing
+- [`brokkr journal keep-refs list`](#brokkr-journal-keep-refs-list): Which runs hold which exhibits — one `for-each-ref`, no journal needed. `--run` narrows the listing to one run
+- [`brokkr journal keep-refs delete`](#brokkr-journal-keep-refs-delete): Let one run's exhibits go: remove refs/forge/keep/&lt;run&gt;/*. The operator's decision alone — nothing in the engine ever deletes a keep-ref, and the objects are then as mortal as gc leaves them
+- [`brokkr journal evidence`](#brokkr-journal-evidence): List every historical evidence root, or retire one under the admission lock once its evidence is archived or discarded. The sealed retirement sits beside the historical record, which stays
+- [`brokkr journal evidence list`](#brokkr-journal-evidence-list): List every historical evidence root: its path, whether it exists, its digest count and bytes, its retirement and its superseded history. A root whose own counts cannot be read still prints, with its problem, and makes the verb exit non-zero after every row
+- [`brokkr journal evidence retire`](#brokkr-journal-evidence-retire): Retire one historical root, under the admission lock, after archiving its evidence or discarding it
+- [`brokkr library`](#brokkr-library): The libraries a bundle is built from: recipes and agents, and the compiler that validates a bundle
+- [`brokkr library recipes`](#brokkr-library-recipes): The recipe library: bundle directories as named, swappable delivery strategies
+- [`brokkr library recipes list`](#brokkr-library-recipes-list): List recipes under --dir, then those on the personal shelf, each with its origin, project or personal; broken ones print a warning line, never abort the listing
+- [`brokkr library recipes add`](#brokkr-library-recipes-add): Install a recipe from a local path or a git URL into the shelf at the repository's root, .brokkr/recipes/&lt;name&gt; where the folder is, else recipes/&lt;name&gt;, with the agents and charters it names that the agent library lacks
+- [`brokkr library recipes show`](#brokkr-library-recipes-show): Print one recipe's RESOLVED bundle and, when it extends another, the composition chain it was resolved from
+- [`brokkr library recipes usage`](#brokkr-library-recipes-usage): Print what each recipe's attempts used, per phase, as the engine measured their process trees: the minimum, average and maximum of peak and mean memory, peak and mean load, CPU time and wall time, over the drivers measured. An attempt journaled without usage is counted as unmeasured, never as zero
+- [`brokkr library agents`](#brokkr-library-agents): The agent library: one definition per agent — description, charter, an ordered chain of abstract model names, abstract tool/MCP configuration — that seats reference by name
+- [`brokkr library agents list`](#brokkr-library-agents-list): One line per agent — name, model chain, description. A broken definition prints a warning line and never aborts the listing
+- [`brokkr library agents show`](#brokkr-library-agents-show): The definition as written, plus the per-chain-entry resolution the compiler would compute. An unknown name errors naming the known set
+- [`brokkr library compile`](#brokkr-library-compile): Validate a bundle and print its pinned manifest and digest
+- [`brokkr queue`](#brokkr-queue): The dispatcher's queue: runs waiting to start, in the journal's own database. Add, list, judge, move, hold, release, re-pin and drop entries; each change is journaled with its reason. `dispatch` starts what admission admits, and `sweep` frees what the finished runs left behind
 - [`brokkr queue add`](#brokkr-queue-add): Queue a new run, taking `brokkr run`'s arguments, at the end of the queue. Nothing starts: the entry waits for the dispatcher
 - [`brokkr queue list`](#brokkr-queue-list): The queue in order: each waiting entry's place, state, priority, waits, launch and admission (admissible, or why it waits or is held), then the entries that started a run, with it. `--json` emits the view model for scripts
 - [`brokkr queue judge`](#brokkr-queue-judge): Judge the queue as `list` shows it, and first latch on each waiting entry the realm drift found: from then on it is held until the operator re-pins, re-queues or drops it, whatever the map comes to. Each latch is journaled with the reason
@@ -50,30 +58,24 @@ Every `brokkr` verb and argument with its default, and every exit code, as the b
 - [`brokkr queue release`](#brokkr-queue-release): Let a held entry be started again
 - [`brokkr queue repin`](#brokkr-queue-repin): Re-pin a waiting entry to the realms map that would govern it now: how the operator releases an entry `judge` latched a realm-drift hold on, accepting the differences it found. Refused when the map on disk is not the one the latch found; judge the queue again
 - [`brokkr queue drop`](#brokkr-queue-drop): Take an entry out of the queue. One that started a run cannot be
-- [`brokkr inspect`](#brokkr-inspect): Explain a run: header, ruling, seats, decision trail, and the phase graph as a tree. `--phase` and `--seat` are the scoping verbs the console's clicks became; `--json` emits the view model, or with `--capability-call` the call and its verified response
-- [`brokkr transcript`](#brokkr-transcript): Read one participant's retained local transcript — Claude, Codex or DSH — through the same bounded local derivation the TUI uses. The verb never launches, retries or resumes a provider and writes nothing to the journal
-- [`brokkr seats`](#brokkr-seats): The seats of a run: the seats block `inspect` renders — every seat's model with the boundary its hands stood behind beside it — from the same view. `--json` prints that view verbatim, the bytes `inspect --json` prints
-- [`brokkr watch`](#brokkr-watch): Watch a run live: redraw the graph, seats, last ruling and seat activity whenever the journal head moves; exit when the run reaches a terminal status. Read-only, like every other readout
-- [`brokkr replay`](#brokkr-replay): Rebuild state from the journal twice and verify determinism
-- [`brokkr export`](#brokkr-export): Write the canonical NDJSON journal and pinned manifest
-- [`brokkr evidence`](#brokkr-evidence): List every historical evidence root, or retire one under the admission lock once its evidence is archived or discarded. The sealed retirement sits beside the historical record, which stays
-- [`brokkr evidence list`](#brokkr-evidence-list): List every historical evidence root: its path, whether it exists, its digest count and bytes, its retirement and its superseded history. A root whose own counts cannot be read still prints, with its problem, and makes the verb exit non-zero after every row
-- [`brokkr evidence retire`](#brokkr-evidence-retire): Retire one historical root, under the admission lock, after archiving its evidence or discarding it
-- [`brokkr backup`](#brokkr-backup): Back up a whole journal — one consistent snapshot taken while writers may run, plus the versioned inventory that declares its boundary and makes the backup complete
-- [`brokkr restore`](#brokkr-restore): Restore a journal backup into a new location, after the inventory, the snapshot's digest, SQLite's integrity, every chain and the counts all pass. It starts nothing
-- [`brokkr import`](#brokkr-import): Adopt an exported run into this journal, byte-identically — the verb paired with `export`. Journals never merge; one run relocates. Nothing lands unless the whole chain verifies, the events fold, the run_id does not already exist here, and the export is not a redacted derivative
-- [`brokkr verify-run`](#brokkr-verify-run): Verify an exported journal offline: chain, envelopes, fold
-- [`brokkr bridge`](#brokkr-bridge): Synchronize a Looper-bound run over the authenticated producer API. The API key is read from an environment variable and is never stored
-- [`brokkr runs`](#brokkr-runs): List runs in the workspace database: one clamped line per run, the fleet's sections in order and each by last activity, read a page at a time. `--json` emits the view model for scripts
-- [`brokkr realms`](#brokkr-realms): List the world: each realm with its path, default branch and current HEAD, and the journal the world writes. Read-only, like every other readout
-- [`brokkr analytics`](#brokkr-analytics): What the runs did across every hearth, for a range and an optional realm: shipped, start to end, waiting on you, rework, cost and served models. `--json` emits the view model
-- [`brokkr graph`](#brokkr-graph): One recipe's state machine and its traffic over a range. `--json` emits the view model
-- [`brokkr driver`](#brokkr-driver): Run a built-in forge-driver/v1 adapter (claude \| lanetally \| codex \| dsh \| exec). Bundles reference these as {brokkr} driver &lt;kind&gt; -- &lt;extra args&gt;
-- [`brokkr hands`](#brokkr-hands): The model's hands are one tool, and the tool runs in an empty root: serve the `workspace` tool over MCP on stdio, or run one command whole inside the same box
-- [`brokkr hands serve`](#brokkr-hands-serve): Serve the one `workspace` tool over MCP (newline-delimited JSON-RPC on stdio); every call runs `bash -lc <command>` inside the box
-- [`brokkr hands exec`](#brokkr-hands-exec): Run one command whole inside the box with stdio passed through — how a deterministic `exec` seat holds a gate. Exits with the command's own code
-- [`brokkr probe`](#brokkr-probe): Measure an agent CLI for its adapter's facts, spending its bound credentials: host only, never CI
-- [`brokkr probe harness`](#brokkr-probe-harness): Run one agent CLI headless against a scratch repository and HOME, and report each fact its adapter must declare as measured, unmeasured or unsupported, beside the adapter's own fields and the seat eligibility the facts derive
+- [`brokkr queue dispatch`](#brokkr-queue-dispatch): Start what admission admits from the journal's queue, each run handed to a driver of its own: one pass with `--once` under the journal's dispatch lock, the bound's command and the holder's readout
+- [`brokkr queue dispatch set-bound`](#brokkr-queue-dispatch-set-bound): Set the journal's bound on the refusals counted against one entry before the dispatcher holds it, a whole number of at least 1, journaled as the operator's command
+- [`brokkr queue dispatch status`](#brokkr-queue-dispatch-status): Say whether a dispatcher holds the journal, the bound in force, and each entry left launching or linked with no `spawn` row. Opens the journal read-only and writes nothing
+- [`brokkr queue sweep`](#brokkr-queue-sweep): Remove the run-local seat scratch trees the journal proves free and record what each complete removal freed, and reap the hands session trees whose owners are dead. One pass under the journal's dispatch lock; `--dry-run` lists what a pass would remove, with sizes, and writes nothing
+- [`brokkr stats`](#brokkr-stats): What the runs did, read across them: analytics, a recipe's graph, a run's costs and its delivery ledger
+- [`brokkr stats analytics`](#brokkr-stats-analytics): What the runs did across every hearth, for a range and an optional realm: shipped, start to end, waiting on you, rework, cost and served models. `--json` emits the view model
+- [`brokkr stats graph`](#brokkr-stats-graph): One recipe's state machine and its traffic over a range. `--json` emits the view model
+- [`brokkr stats costs`](#brokkr-stats-costs): Per-seat cost and session accounting from journal checkpoints — the LaneTally join surface (stable seat ids, journal-derived)
+- [`brokkr stats ledger`](#brokkr-stats-ledger): Render the shipper's delivery ledger from journal and repository evidence
+- [`brokkr system`](#brokkr-system): This host and its world: the realms map, the secrets store, a harness probe and the read-only web surface
+- [`brokkr system realms`](#brokkr-system-realms): List the world: each realm with its path, default branch and current HEAD, and the journal the world writes. Read-only, like every other readout
+- [`brokkr system secrets`](#brokkr-system-secrets): Manage the operator-side secrets store: bundles and journals carry NAMES only; values live in this env-format file outside version control. There is no value-printing verb
+- [`brokkr system secrets set`](#brokkr-system-secrets-set): Bind NAME to a value read from STDIN (never argv — the CLI obeys its own injection discipline). Creates the store 0600
+- [`brokkr system secrets list`](#brokkr-system-secrets-list): Print bound names, one per line — names, never values
+- [`brokkr system secrets remove`](#brokkr-system-secrets-remove): Remove NAME from the store
+- [`brokkr system probe`](#brokkr-system-probe): Measure an agent CLI for its adapter's facts, spending its bound credentials: host only, never CI
+- [`brokkr system probe harness`](#brokkr-system-probe-harness): Run one agent CLI headless against a scratch repository and HOME, and report each fact its adapter must declare as measured, unmeasured or unsupported, beside the adapter's own fields and the seat eligibility the facts derive
+- [`brokkr system ui`](#brokkr-system-ui): Serve the embedded read-only surface on loopback
 - [Exit codes](#exit-codes)
 
 ## brokkr init
@@ -88,160 +90,6 @@ Usage: brokkr init [OPTIONS] <DIR>
 | --- | --- | --- | --- |
 | `<DIR>` |  |  | The repository root whose .brokkr/ folder is written; a folder that already holds more than moved state is refused, never overwritten |
 | `--cli <CLI>` |  |  | The agent CLI the seats are hired from (default: the first of claude, codex and dsh on PATH); scaffolded for even where PATH lacks it |
-
-## brokkr costs
-
-Per-seat cost and session accounting from journal checkpoints — the LaneTally join surface (stable seat ids, journal-derived)
-
-```text
-Usage: brokkr costs [OPTIONS] --run <RUN>
-```
-
-| Argument | Default | Selector | Description |
-| --- | --- | --- | --- |
-| `--run <RUN>` |  | yes | The run whose seats are accounted: a full run id, a unique run-id prefix, or `latest` |
-| `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
-| `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
-
-## brokkr ledger
-
-Render the shipper's delivery ledger from journal and repository evidence
-
-```text
-Usage: brokkr ledger [OPTIONS] --run <RUN>
-```
-
-| Argument | Default | Selector | Description |
-| --- | --- | --- | --- |
-| `--run <RUN>` |  | yes | The run whose ledger is rendered: a full run id, a unique run-id prefix, or `latest` |
-| `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
-| `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
-| `--repo <REPO>` |  |  | Write `<run>.md` under this repository's `.brokkr/state/ledger/`, or `.forge/ledger/` with no folder; without it, print the ledger |
-
-## brokkr anchor
-
-Anchor a run's journal head in refs/forge/&lt;run&gt; (tamper evidence), or verify the existing anchor with --check
-
-```text
-Usage: brokkr anchor [OPTIONS] --run <RUN>
-```
-
-| Argument | Default | Selector | Description |
-| --- | --- | --- | --- |
-| `--run <RUN>` |  | yes | Full run id, a unique run-id prefix, or `latest` |
-| `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
-| `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
-| `--repo <REPO>` | `.` |  | The git repository whose refs/forge/&lt;run&gt; holds the anchor |
-| `--check` |  |  | Verify instead of writing a new anchor |
-
-## brokkr keep-refs
-
-Keep-refs: the git objects a run's journal cites, held by refs/forge/keep/&lt;run&gt;/&lt;sha&gt; so a squash-merge, a branch delete and a gc cannot collect the evidence the journal names. Runs plant these themselves at conclusion; these verbs cover the runs that concluded before the mechanism existed, and the deliberate letting-go that is the operator's alone
-
-```text
-Usage: brokkr keep-refs <COMMAND>
-```
-
-## brokkr keep-refs plant
-
-Plant a keep-ref for every object the run's journal cites. Idempotent: replanting moves nothing
-
-```text
-Usage: brokkr keep-refs plant [OPTIONS] --run <RUN>
-```
-
-| Argument | Default | Selector | Description |
-| --- | --- | --- | --- |
-| `--run <RUN>` |  | yes | Full run id, a unique run-id prefix, or `latest` |
-| `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
-| `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
-| `--repo <REPO>` | `.` |  | The git repository the keep-refs are planted in |
-
-## brokkr keep-refs list
-
-Which runs hold which exhibits — one `for-each-ref`, no journal needed. `--run` narrows the listing to one run
-
-```text
-Usage: brokkr keep-refs list [OPTIONS]
-```
-
-| Argument | Default | Selector | Description |
-| --- | --- | --- | --- |
-| `--run <RUN>` |  | with a journal | A run id; with the workspace journal there, also a unique prefix or `latest`, and without it the id is taken literally and `latest` is refused. Omitted, every run holding keep-refs in this repository |
-| `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
-| `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
-| `--repo <REPO>` | `.` |  | The git repository whose keep-refs are listed |
-
-## brokkr keep-refs delete
-
-Let one run's exhibits go: remove refs/forge/keep/&lt;run&gt;/*. The operator's decision alone — nothing in the engine ever deletes a keep-ref, and the objects are then as mortal as gc leaves them
-
-```text
-Usage: brokkr keep-refs delete [OPTIONS] --run <RUN>
-```
-
-| Argument | Default | Selector | Description |
-| --- | --- | --- | --- |
-| `--run <RUN>` |  | with a journal | A run id; with the workspace journal there, also a unique prefix or `latest`, and without it the id is taken literally and `latest` is refused |
-| `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
-| `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
-| `--repo <REPO>` | `.` |  | The git repository the keep-refs are removed from |
-
-## brokkr ui
-
-Serve the embedded read-only surface on loopback
-
-```text
-Usage: brokkr ui [OPTIONS]
-```
-
-| Argument | Default | Selector | Description |
-| --- | --- | --- | --- |
-| `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
-| `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
-| `--port <PORT>` | `8383` |  | The loopback port the surface is served on |
-| `--open` |  |  | Open the system browser after binding |
-
-## brokkr tui
-
-Explore runs interactively in the terminal: the fleet as a navigable table, one run's phase graph, seats and decision trail, and one seat's own checkpoint and session stream. Read-only like every other readout — it issues no operator commands and writes nothing to the journal
-
-```text
-Usage: brokkr tui [OPTIONS]
-```
-
-| Argument | Default | Selector | Description |
-| --- | --- | --- | --- |
-| `--run <RUN>` |  | yes | Full run id, a unique run-id prefix, or `latest`; opens directly at that run's level |
-| `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
-| `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
-
-## brokkr doctor
-
-Verify tools, drivers, the workspace database, and optionally a bundle, without executing any agent
-
-```text
-Usage: brokkr doctor [OPTIONS]
-```
-
-| Argument | Default | Selector | Description |
-| --- | --- | --- | --- |
-| `--bundle <BUNDLE>` |  |  | A bundle directory to compile and check as well (default the found .brokkr/ folder, compiled once for the whole report and its folder line) |
-| `--realms <REALMS>` |  |  | The world's map whose realm house declarations doctor checks (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
-| `--db <DB>` |  |  | The workspace journal whose database doctor opens. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
-| `--secrets-file <SECRETS_FILE>` |  |  | Operator-side secrets store, so doctor can say which declared credentials a route is taking from the ambient environment instead (default .brokkr/state/secrets.env, else .forge/secrets.env) |
-
-## brokkr compile
-
-Validate a bundle and print its pinned manifest and digest
-
-```text
-Usage: brokkr compile --bundle <BUNDLE>
-```
-
-| Argument | Default | Selector | Description |
-| --- | --- | --- | --- |
-| `--bundle <BUNDLE>` |  |  | The bundle directory to validate, compiled against the workspace |
 
 ## brokkr run
 
@@ -286,12 +134,179 @@ Usage: brokkr resume [OPTIONS] --run <RUN>
 | `--repo <REPO>` |  |  | The repository the resumed run operates on. Without it, the engine gets no repository override and works in the current directory |
 | `--no-view` |  |  | On a terminal, print the plain lines and the summary instead of opening the run view. Off a terminal they always print |
 
-## brokkr rerun
+## brokkr watch
+
+Watch a run live: redraw the graph, seats, last ruling and seat activity whenever the journal head moves; exit when the run reaches a terminal status. Read-only, like every other readout
+
+```text
+Usage: brokkr watch [OPTIONS] --run <RUN>
+```
+
+| Argument | Default | Selector | Description |
+| --- | --- | --- | --- |
+| `--run <RUN>` |  | yes | Full run id, a unique run-id prefix, or `latest` |
+| `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
+| `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
+| `--once` |  |  | Print one frame and exit |
+| `--interval <INTERVAL_MS>` | `750` |  | Poll interval in milliseconds (floored at 100) |
+| `--no-view` |  |  | On a terminal, redraw the text frames instead of opening the run view. Off a terminal, and with `--once`, they always print |
+
+## brokkr tui
+
+Explore runs interactively in the terminal: the fleet as a navigable table, one run's phase graph, seats and decision trail, and one seat's own checkpoint and session stream. Read-only like every other readout — it issues no operator commands and writes nothing to the journal
+
+```text
+Usage: brokkr tui [OPTIONS]
+```
+
+| Argument | Default | Selector | Description |
+| --- | --- | --- | --- |
+| `--run <RUN>` |  | yes | Full run id, a unique run-id prefix, or `latest`; opens directly at that run's level |
+| `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
+| `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
+
+## brokkr doctor
+
+Verify tools, drivers, the workspace database, and optionally a bundle, without executing any agent
+
+```text
+Usage: brokkr doctor [OPTIONS]
+```
+
+| Argument | Default | Selector | Description |
+| --- | --- | --- | --- |
+| `--bundle <BUNDLE>` |  |  | A bundle directory to compile and check as well (default the found .brokkr/ folder, compiled once for the whole report and its folder line) |
+| `--realms <REALMS>` |  |  | The world's map whose realm house declarations doctor checks (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
+| `--db <DB>` |  |  | The workspace journal whose database doctor opens. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
+| `--secrets-file <SECRETS_FILE>` |  |  | Operator-side secrets store, so doctor can say which declared credentials a route is taking from the ambient environment instead (default .brokkr/state/secrets.env, else .forge/secrets.env) |
+
+## brokkr runs
+
+The runs in the journal: list them (the default), read one, compare two, re-run, close or command one, and the overseer that reads them all
+
+```text
+Usage: brokkr runs [OPTIONS]
+       brokkr runs <COMMAND>
+```
+
+| Argument | Default | Selector | Description |
+| --- | --- | --- | --- |
+| `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
+| `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
+| `--json` |  |  | Emit the view model verbatim — this is what scripts read |
+| `--limit <N>` |  |  | Print one page of at most N runs, and where the next page starts (`next`) |
+| `--after <CURSOR>` |  |  | Print the page after this cursor: a page's `next` |
+| `--run <RUN>` |  |  | Print one run's row: the same row this listing gives it, and no other. Refused by name when the id names no run |
+| `--ending <ENDING>` |  |  | List only the runs that ended so: one of the twelve endings |
+| `--needs-operator` |  |  | List only the runs that want the operator: a ruling (`!`) or an action (`>`) |
+| `--hide-settled` |  |  | Leave out the settled runs: every run that neither wants the operator nor is live |
+
+## brokkr runs list
+
+List runs in the workspace database: one clamped line per run, the fleet's sections in order and each by last activity, read a page at a time. `--json` emits the view model for scripts
+
+```text
+Usage: brokkr runs list [OPTIONS]
+```
+
+| Argument | Default | Selector | Description |
+| --- | --- | --- | --- |
+| `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
+| `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
+| `--json` |  |  | Emit the view model verbatim — this is what scripts read |
+| `--limit <N>` |  |  | Print one page of at most N runs, and where the next page starts (`next`) |
+| `--after <CURSOR>` |  |  | Print the page after this cursor: a page's `next` |
+| `--run <RUN>` |  |  | Print one run's row: the same row this listing gives it, and no other. Refused by name when the id names no run |
+| `--ending <ENDING>` |  |  | List only the runs that ended so: one of the twelve endings |
+| `--needs-operator` |  |  | List only the runs that want the operator: a ruling (`!`) or an action (`>`) |
+| `--hide-settled` |  |  | Leave out the settled runs: every run that neither wants the operator nor is live |
+
+## brokkr runs inspect
+
+Explain a run: header, ruling, seats, decision trail, and the phase graph as a tree. `--phase` and `--seat` are the scoping verbs the console's clicks became; `--json` emits the view model, or with `--capability-call` the call and its verified response
+
+```text
+Usage: brokkr runs inspect [OPTIONS] --run <RUN>
+```
+
+| Argument | Default | Selector | Description |
+| --- | --- | --- | --- |
+| `--run <RUN>` |  | yes | Full run id, a unique run-id prefix, or `latest` |
+| `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
+| `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
+| `--json` |  |  | Emit the view model verbatim — this is what scripts read |
+| `--phase <PHASE>` |  |  | Scope the readout to one phase |
+| `--seat <SEAT>` |  |  | Scope the readout to one seat, by label or participant key |
+| `--capability-call <CALL_ID>` |  |  | Open the retained response the call this id names in the run cites, verified against its recorded digest, never a path; with --json, beside the call's provenance |
+| `--repo <REPO>` |  |  | The operated repository whose run-local directory holds the call's retained response, as `stats ledger --repo` resolves it; without it, the workspace's own |
+
+## brokkr runs seats
+
+The seats of a run: the seats block `runs inspect` renders — every seat's model with the boundary its hands stood behind beside it — from the same view. `--json` prints that view verbatim, the bytes `runs inspect --json` prints
+
+```text
+Usage: brokkr runs seats [OPTIONS] --run <RUN>
+```
+
+| Argument | Default | Selector | Description |
+| --- | --- | --- | --- |
+| `--run <RUN>` |  | yes | Full run id, a unique run-id prefix, or `latest` |
+| `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
+| `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
+| `--json` |  |  | Emit the view model verbatim — `runs inspect --json`'s own bytes |
+
+## brokkr runs transcript
+
+Read one participant's retained local transcript — Claude, Codex or DSH — through the same bounded local derivation the TUI uses. The verb never launches, retries or resumes a provider and writes nothing to the journal
+
+```text
+Usage: brokkr runs transcript [OPTIONS] --run <RUN> --seat <SEAT>
+```
+
+| Argument | Default | Selector | Description |
+| --- | --- | --- | --- |
+| `--run <RUN>` |  | yes | Full run id, a unique run-id prefix, or `latest` |
+| `--seat <SEAT>` |  |  | A participant key, or a label that is unique within the run |
+| `--turn <TURN>` |  |  | One-based displayed-turn index; omitted reads the whole transcript |
+| `--json` |  |  | Emit the `brokkr.transcript/v1` document |
+| `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
+| `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
+
+## brokkr runs compare
+
+Compare two runs' aligned outcomes: decision trails, first divergence, phases visited, per-seat costs. Read-only
+
+```text
+Usage: brokkr runs compare [OPTIONS] <RUN_A> <RUN_B>
+```
+
+| Argument | Default | Selector | Description |
+| --- | --- | --- | --- |
+| `<RUN_A>` |  | yes | The first run: a full run id, a unique run-id prefix, or `latest` |
+| `<RUN_B>` |  | yes | The second run, named the same ways |
+| `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
+| `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
+
+## brokkr runs replay
+
+Rebuild state from the journal twice and verify determinism
+
+```text
+Usage: brokkr runs replay [OPTIONS] --run <RUN>
+```
+
+| Argument | Default | Selector | Description |
+| --- | --- | --- | --- |
+| `--run <RUN>` |  | yes | Full run id, a unique run-id prefix, or `latest` |
+| `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
+| `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
+
+## brokkr runs rerun
 
 Re-run a past run's feature as a NEW run under another bundle or recipe, so outcomes can be compared by run id. No stored linkage
 
 ```text
-Usage: brokkr rerun [OPTIONS] --run <RUN>
+Usage: brokkr runs rerun [OPTIONS] --run <RUN>
 ```
 
 | Argument | Default | Selector | Description |
@@ -305,265 +320,12 @@ Usage: brokkr rerun [OPTIONS] --run <RUN>
 | `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
 | `--repo <REPO>` |  |  | The repository the new run operates on: the bundle is compiled against its realm and the engine works in it. Without it, the workspace (the current directory) is compiled against, and the engine gets no repository override, so it works there too |
 
-## brokkr compare
-
-Compare two runs' aligned outcomes: decision trails, first divergence, phases visited, per-seat costs. Read-only
-
-```text
-Usage: brokkr compare [OPTIONS] <RUN_A> <RUN_B>
-```
-
-| Argument | Default | Selector | Description |
-| --- | --- | --- | --- |
-| `<RUN_A>` |  | yes | The first run: a full run id, a unique run-id prefix, or `latest` |
-| `<RUN_B>` |  | yes | The second run, named the same ways |
-| `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
-| `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
-
-## brokkr recipes
-
-The recipe library: bundle directories as named, swappable delivery strategies
-
-```text
-Usage: brokkr recipes <COMMAND>
-```
-
-## brokkr recipes list
-
-List recipes under --dir, then those on the personal shelf, each with its origin, project or personal; broken ones print a warning line, never abort the listing
-
-```text
-Usage: brokkr recipes list [OPTIONS]
-```
-
-| Argument | Default | Selector | Description |
-| --- | --- | --- | --- |
-| `--dir <DIR>` |  |  | The recipe library directory (default the found .brokkr/recipes, listing nothing while it is absent, else recipes) |
-
-## brokkr recipes add
-
-Install a recipe from a local path or a git URL into the shelf at the repository's root, .brokkr/recipes/&lt;name&gt; where the folder is, else recipes/&lt;name&gt;, with the agents and charters it names that the agent library lacks
-
-```text
-Usage: brokkr recipes add [OPTIONS] --name <NAME> <SOURCE>
-```
-
-| Argument | Default | Selector | Description |
-| --- | --- | --- | --- |
-| `<SOURCE>` |  |  | A local bundle directory or a git URL |
-| `--name <NAME>` |  |  | The name the recipe is installed under |
-| `--path <PATH>` |  |  | With a git URL, the bundle's directory inside the clone, a relative path of plain names (`recipes/fast`), walked without following a link; without it, the clone's root or its one subdirectory holding a bundle.json. The bases its recipe extends come from beside it |
-| `--personal` |  |  | Install onto the personal shelf instead, $XDG_CONFIG_HOME/brokkr/recipes/&lt;name&gt;, else $HOME/.config/brokkr/recipes/&lt;name&gt;, beside host.json and in no repository; it copies no agent or charter |
-
-## brokkr recipes show
-
-Print one recipe's RESOLVED bundle and, when it extends another, the composition chain it was resolved from
-
-```text
-Usage: brokkr recipes show [OPTIONS] <NAME>
-```
-
-| Argument | Default | Selector | Description |
-| --- | --- | --- | --- |
-| `<NAME>` |  |  | The recipe's name, resolved to &lt;dir&gt;/&lt;name&gt;, else to the personal shelf's; a name on both refuses |
-| `--dir <DIR>` |  |  | The recipe library directory (default the found .brokkr/recipes, else recipes) |
-
-## brokkr recipes usage
-
-Print what each recipe's attempts used, per phase, as the engine measured their process trees: the minimum, average and maximum of peak and mean memory, peak and mean load, CPU time and wall time, over the drivers measured. An attempt journaled without usage is counted as unmeasured, never as zero
-
-```text
-Usage: brokkr recipes usage [OPTIONS] [NAME]
-```
-
-| Argument | Default | Selector | Description |
-| --- | --- | --- | --- |
-| `<NAME>` |  |  | One recipe, by the name its runs started under (default every recipe the journal has runs of) |
-| `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
-| `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
-| `--json` |  |  | Print the rows as JSON |
-
-## brokkr agents
-
-The agent library: one definition per agent — description, charter, an ordered chain of abstract model names, abstract tool/MCP configuration — that seats reference by name
-
-```text
-Usage: brokkr agents <COMMAND>
-```
-
-## brokkr agents list
-
-One line per agent — name, model chain, description. A broken definition prints a warning line and never aborts the listing
-
-```text
-Usage: brokkr agents list [OPTIONS]
-```
-
-| Argument | Default | Selector | Description |
-| --- | --- | --- | --- |
-| `--agents-dir <AGENTS_DIR>` |  |  | The agent library directory (default .brokkr/agents, else agents) |
-
-## brokkr agents show
-
-The definition as written, plus the per-chain-entry resolution the compiler would compute. An unknown name errors naming the known set
-
-```text
-Usage: brokkr agents show [OPTIONS] <NAME>
-```
-
-| Argument | Default | Selector | Description |
-| --- | --- | --- | --- |
-| `<NAME>` |  |  | The agent's name in the library |
-| `--agents-dir <AGENTS_DIR>` |  |  | The agent library directory (default .brokkr/agents, else agents) |
-| `--adapters-dir <ADAPTERS_DIR>` |  |  | The adapter library the chain's models are resolved against (default .brokkr/adapters, else adapters) |
-
-## brokkr muninn
-
-The standing overseer: read the fleet, propose to the operator, execute nothing. It opens the journal read-only, issues no operator command, starts no run, and records every proposal — with the run ids and sequence numbers it was derived from — in its own append-only file beside the journal
-
-```text
-Usage: brokkr muninn <COMMAND>
-```
-
-## brokkr muninn run
-
-Derive the fleet dossier, ask one bounded seat for proposals, and record them. Nothing is executed: a proposal becomes an action only when the operator issues the command themselves
-
-```text
-Usage: brokkr muninn run [OPTIONS]
-```
-
-| Argument | Default | Selector | Description |
-| --- | --- | --- | --- |
-| `--realms <REALMS>` |  |  | The world's map — the journal it names is the fleet this reading covers (default .brokkr/realms.json, else ./realms.json, when present) |
-| `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, .brokkr/state/forge.db, or .forge/forge.db in a library |
-| `--agents-dir <AGENTS_DIR>` |  |  | The agent library Muninn's own seat is hired from (default .brokkr/agents, else agents) |
-| `--adapters-dir <ADAPTERS_DIR>` |  |  | The adapter library that seat's model is resolved against (default .brokkr/adapters, else adapters) |
-| `--record <RECORD>` |  |  | The append-only file each proposal is recorded in (default .brokkr/state/muninn.ndjson, or a library's .forge/muninn.ndjson) |
-
-## brokkr muninn list
-
-Read the record back: every proposal, with the run ids and sequence numbers it cited
-
-```text
-Usage: brokkr muninn list [OPTIONS]
-```
-
-| Argument | Default | Selector | Description |
-| --- | --- | --- | --- |
-| `--record <RECORD>` |  |  | The record file to read (default .brokkr/state/muninn.ndjson, or a library's .forge/muninn.ndjson) |
-| `--json` |  |  | Emit the recorded entries verbatim — this is what scripts read |
-
-## brokkr secrets
-
-Manage the operator-side secrets store: bundles and journals carry NAMES only; values live in this env-format file outside version control. There is no value-printing verb
-
-```text
-Usage: brokkr secrets <COMMAND>
-```
-
-## brokkr secrets set
-
-Bind NAME to a value read from STDIN (never argv — the CLI obeys its own injection discipline). Creates the store 0600
-
-```text
-Usage: brokkr secrets set [OPTIONS] <NAME>
-```
-
-| Argument | Default | Selector | Description |
-| --- | --- | --- | --- |
-| `<NAME>` |  |  | The name a seat's declared binding asks for |
-| `--secrets-file <SECRETS_FILE>` |  |  | The store file, created 0600 when absent (default .brokkr/state/secrets.env, or a library's .forge/secrets.env) |
-
-## brokkr secrets list
-
-Print bound names, one per line — names, never values
-
-```text
-Usage: brokkr secrets list [OPTIONS]
-```
-
-| Argument | Default | Selector | Description |
-| --- | --- | --- | --- |
-| `--secrets-file <SECRETS_FILE>` |  |  | The store file to read (default .brokkr/state/secrets.env, or a library's .forge/secrets.env) |
-
-## brokkr secrets remove
-
-Remove NAME from the store
-
-```text
-Usage: brokkr secrets remove [OPTIONS] <NAME>
-```
-
-| Argument | Default | Selector | Description |
-| --- | --- | --- | --- |
-| `<NAME>` |  |  | The bound name to remove |
-| `--secrets-file <SECRETS_FILE>` |  |  | The store file to remove it from (default .brokkr/state/secrets.env, or a library's .forge/secrets.env) |
-
-## brokkr sweep
-
-Remove the run-local seat scratch trees the journal proves free and record what each complete removal freed, and reap the hands session trees whose owners are dead. One pass under the journal's dispatch lock; `--dry-run` lists what a pass would remove, with sizes, and writes nothing
-
-```text
-Usage: brokkr sweep [OPTIONS]
-```
-
-| Argument | Default | Selector | Description |
-| --- | --- | --- | --- |
-| `--dry-run` |  |  | List what a pass would remove, with sizes, and write nothing: no tree-sweep row, no dispatch holder and no migration |
-| `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
-| `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
-
-## brokkr dispatch
-
-Start what admission admits from the journal's queue, each run handed to a driver of its own: one pass with `--once` under the journal's dispatch lock, the bound's command and the holder's readout
-
-```text
-Usage: brokkr dispatch [OPTIONS]
-       brokkr dispatch <COMMAND>
-```
-
-| Argument | Default | Selector | Description |
-| --- | --- | --- | --- |
-| `--once` |  |  | Run one pass and return without waiting on the drivers it started |
-| `--every <SECONDS>` | `60` |  | Without `--once`, the seconds from one pass's start to the next, from 5 to 3600. The dispatcher stands until SIGINT or SIGTERM |
-| `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
-| `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
-
-## brokkr dispatch set-bound
-
-Set the journal's bound on the refusals counted against one entry before the dispatcher holds it, a whole number of at least 1, journaled as the operator's command
-
-```text
-Usage: brokkr dispatch set-bound [OPTIONS] --reason <REASON> <BOUND>
-```
-
-| Argument | Default | Selector | Description |
-| --- | --- | --- | --- |
-| `<BOUND>` |  |  | The bound: counted refusals of one entry before it is held |
-| `--reason <REASON>` |  |  | Why the bound is set, journaled with it |
-| `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
-| `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
-
-## brokkr dispatch status
-
-Say whether a dispatcher holds the journal, the bound in force, and each entry left launching or linked with no `spawn` row. Opens the journal read-only and writes nothing
-
-```text
-Usage: brokkr dispatch status [OPTIONS]
-```
-
-| Argument | Default | Selector | Description |
-| --- | --- | --- | --- |
-| `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
-| `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
-
-## brokkr conclude
+## brokkr runs conclude
 
 Close a stopped or parked run from its journal alone — no bundle, no recipe, no effect. `resume` compiles the exact pinned recipe and refuses on any drift, which is right for the branches that spend money but leaves a run from a moved engine with no lawful ending. This appends the operator stop conclusion and nothing else, so it needs no pinned recipe to be honest about what it wrote. It cannot retry: that re-enters the policy loop, and the policy loop needs the bundle by construction. For a run believed dead: every write is fenced, so a journal that moves beneath the conclusion — something still driving the run — refuses instead of being closed over. Check `brokkr runs` first
 
 ```text
-Usage: brokkr conclude [OPTIONS] --run <RUN> --reason <REASON>
+Usage: brokkr runs conclude [OPTIONS] --run <RUN> --reason <REASON>
 ```
 
 | Argument | Default | Selector | Description |
@@ -577,12 +339,12 @@ Usage: brokkr conclude [OPTIONS] --run <RUN> --reason <REASON>
 | `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
 | `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
 
-## brokkr operator
+## brokkr runs operator
 
 Record an operator command (retry | stop | release | supersede | classify | repair) as journal events, or acknowledge a quarantined run beside its journal
 
 ```text
-Usage: brokkr operator [OPTIONS] --run <RUN> --reason <REASON> <COMMAND>
+Usage: brokkr runs operator [OPTIONS] --run <RUN> --reason <REASON> <COMMAND>
 ```
 
 | Argument | Default | Selector | Description |
@@ -605,9 +367,345 @@ Usage: brokkr operator [OPTIONS] --run <RUN> --reason <REASON> <COMMAND>
 | `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
 | `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
 
+## brokkr runs muninn
+
+The standing overseer: read the fleet, propose to the operator, execute nothing. It opens the journal read-only, issues no operator command, starts no run, and records every proposal — with the run ids and sequence numbers it was derived from — in its own append-only file beside the journal
+
+```text
+Usage: brokkr runs muninn <COMMAND>
+```
+
+## brokkr runs muninn run
+
+Derive the fleet dossier, ask one bounded seat for proposals, and record them. Nothing is executed: a proposal becomes an action only when the operator issues the command themselves
+
+```text
+Usage: brokkr runs muninn run [OPTIONS]
+```
+
+| Argument | Default | Selector | Description |
+| --- | --- | --- | --- |
+| `--realms <REALMS>` |  |  | The world's map — the journal it names is the fleet this reading covers (default .brokkr/realms.json, else ./realms.json, when present) |
+| `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, .brokkr/state/forge.db, or .forge/forge.db in a library |
+| `--agents-dir <AGENTS_DIR>` |  |  | The agent library Muninn's own seat is hired from (default .brokkr/agents, else agents) |
+| `--adapters-dir <ADAPTERS_DIR>` |  |  | The adapter library that seat's model is resolved against (default .brokkr/adapters, else adapters) |
+| `--record <RECORD>` |  |  | The append-only file each proposal is recorded in (default .brokkr/state/muninn.ndjson, or a library's .forge/muninn.ndjson) |
+
+## brokkr runs muninn list
+
+Read the record back: every proposal, with the run ids and sequence numbers it cited
+
+```text
+Usage: brokkr runs muninn list [OPTIONS]
+```
+
+| Argument | Default | Selector | Description |
+| --- | --- | --- | --- |
+| `--record <RECORD>` |  |  | The record file to read (default .brokkr/state/muninn.ndjson, or a library's .forge/muninn.ndjson) |
+| `--json` |  |  | Emit the recorded entries verbatim — this is what scripts read |
+
+## brokkr journal
+
+The journal itself: export, import and verify one run, back up and restore the whole journal, and the evidence that outlives it
+
+```text
+Usage: brokkr journal <COMMAND>
+```
+
+## brokkr journal export
+
+Write the canonical NDJSON journal and pinned manifest
+
+```text
+Usage: brokkr journal export [OPTIONS] --run <RUN>
+```
+
+| Argument | Default | Selector | Description |
+| --- | --- | --- | --- |
+| `--run <RUN>` |  | yes | Full run id, a unique run-id prefix, or `latest` |
+| `--out <OUT>` | `.` |  | The directory `<run>.ndjson` and `<run>.manifest.json` are written into, created when absent |
+| `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
+| `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
+| `--redact` |  |  | Also write a sanitized copy for publishable fixtures — `<run>.redacted.ndjson` and `<run>.redacted.manifest.json` — with every absolute path in event payloads rewritten to a stable placeholder. The verbatim pair is written unchanged; the redacted copy's recorded hashes no longer verify, and its manifest says so |
+
+## brokkr journal import
+
+Adopt an exported run into this journal, byte-identically — the verb paired with `journal export`. Journals never merge; one run relocates. Nothing lands unless the whole chain verifies, the events fold, the run_id does not already exist here, and the export is not a redacted derivative
+
+```text
+Usage: brokkr journal import [OPTIONS] --from <FROM>
+```
+
+| Argument | Default | Selector | Description |
+| --- | --- | --- | --- |
+| `--from <FROM>` |  |  | The exported `<run>.ndjson`. Its `<run>.manifest.json` sidecar is read from beside it and must be there |
+| `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
+| `--db <DB>` |  |  | The destination journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
+
+## brokkr journal verify
+
+Verify an exported journal offline: chain, envelopes, fold
+
+```text
+Usage: brokkr journal verify <FILE>
+```
+
+| Argument | Default | Selector | Description |
+| --- | --- | --- | --- |
+| `<FILE>` |  |  | The exported `<run>.ndjson` journal to verify |
+
+## brokkr journal backup
+
+Back up a whole journal — one consistent snapshot taken while writers may run, plus the versioned inventory that declares its boundary and makes the backup complete
+
+```text
+Usage: brokkr journal backup [OPTIONS] --to <TO>
+```
+
+| Argument | Default | Selector | Description |
+| --- | --- | --- | --- |
+| `--to <TO>` |  |  | The directory the snapshot and its inventory are written into; it must be absent or empty, and nothing in it is overwritten |
+| `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
+| `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
+
+## brokkr journal restore
+
+Restore a journal backup into a new location, after the inventory, the snapshot's digest, SQLite's integrity, every chain and the counts all pass. It starts nothing
+
+```text
+Usage: brokkr journal restore --from <FROM> --to <TO>
+```
+
+| Argument | Default | Selector | Description |
+| --- | --- | --- | --- |
+| `--from <FROM>` |  |  | The backup directory holding the snapshot and its inventory |
+| `--to <TO>` |  |  | The new journal path. It must not exist; a live journal is never a restore's destination |
+
+## brokkr journal anchor
+
+Anchor a run's journal head in refs/forge/&lt;run&gt; (tamper evidence), or verify the existing anchor with --check
+
+```text
+Usage: brokkr journal anchor [OPTIONS] --run <RUN>
+```
+
+| Argument | Default | Selector | Description |
+| --- | --- | --- | --- |
+| `--run <RUN>` |  | yes | Full run id, a unique run-id prefix, or `latest` |
+| `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
+| `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
+| `--repo <REPO>` | `.` |  | The git repository whose refs/forge/&lt;run&gt; holds the anchor |
+| `--check` |  |  | Verify instead of writing a new anchor |
+
+## brokkr journal keep-refs
+
+Keep-refs: the git objects a run's journal cites, held by refs/forge/keep/&lt;run&gt;/&lt;sha&gt; so a squash-merge, a branch delete and a gc cannot collect the evidence the journal names. Runs plant these themselves at conclusion; these verbs cover the runs that concluded before the mechanism existed, and the deliberate letting-go that is the operator's alone
+
+```text
+Usage: brokkr journal keep-refs <COMMAND>
+```
+
+## brokkr journal keep-refs plant
+
+Plant a keep-ref for every object the run's journal cites. Idempotent: replanting moves nothing
+
+```text
+Usage: brokkr journal keep-refs plant [OPTIONS] --run <RUN>
+```
+
+| Argument | Default | Selector | Description |
+| --- | --- | --- | --- |
+| `--run <RUN>` |  | yes | Full run id, a unique run-id prefix, or `latest` |
+| `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
+| `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
+| `--repo <REPO>` | `.` |  | The git repository the keep-refs are planted in |
+
+## brokkr journal keep-refs list
+
+Which runs hold which exhibits — one `for-each-ref`, no journal needed. `--run` narrows the listing to one run
+
+```text
+Usage: brokkr journal keep-refs list [OPTIONS]
+```
+
+| Argument | Default | Selector | Description |
+| --- | --- | --- | --- |
+| `--run <RUN>` |  | with a journal | A run id; with the workspace journal there, also a unique prefix or `latest`, and without it the id is taken literally and `latest` is refused. Omitted, every run holding keep-refs in this repository |
+| `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
+| `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
+| `--repo <REPO>` | `.` |  | The git repository whose keep-refs are listed |
+
+## brokkr journal keep-refs delete
+
+Let one run's exhibits go: remove refs/forge/keep/&lt;run&gt;/*. The operator's decision alone — nothing in the engine ever deletes a keep-ref, and the objects are then as mortal as gc leaves them
+
+```text
+Usage: brokkr journal keep-refs delete [OPTIONS] --run <RUN>
+```
+
+| Argument | Default | Selector | Description |
+| --- | --- | --- | --- |
+| `--run <RUN>` |  | with a journal | A run id; with the workspace journal there, also a unique prefix or `latest`, and without it the id is taken literally and `latest` is refused |
+| `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
+| `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
+| `--repo <REPO>` | `.` |  | The git repository the keep-refs are removed from |
+
+## brokkr journal evidence
+
+List every historical evidence root, or retire one under the admission lock once its evidence is archived or discarded. The sealed retirement sits beside the historical record, which stays
+
+```text
+Usage: brokkr journal evidence <COMMAND>
+```
+
+## brokkr journal evidence list
+
+List every historical evidence root: its path, whether it exists, its digest count and bytes, its retirement and its superseded history. A root whose own counts cannot be read still prints, with its problem, and makes the verb exit non-zero after every row
+
+```text
+Usage: brokkr journal evidence list [OPTIONS]
+```
+
+| Argument | Default | Selector | Description |
+| --- | --- | --- | --- |
+| `--json` |  |  | Print the roots as a JSON array |
+
+## brokkr journal evidence retire
+
+Retire one historical root, under the admission lock, after archiving its evidence or discarding it
+
+```text
+Usage: brokkr journal evidence retire [OPTIONS] --root <ROOT> --reason <REASON> <--archived-to <ARCHIVED_TO>|--discarded>
+```
+
+| Argument | Default | Selector | Description |
+| --- | --- | --- | --- |
+| `--root <ROOT>` |  |  | The artifact root the historical record names, as `evidence list` prints it |
+| `--archived-to <ARCHIVED_TO>` |  |  | Archive every artifact into this absent or empty directory, write the inventory last, and keep the root. The destination is resolved by the filesystem, so a link is followed before `..`, and it must resolve outside the coordination root and the root being retired; the resolved path is the one recorded. A root that does not stand cannot be archived: `--discarded` is the record for an absent root |
+| `--discarded` |  |  | Discard the evidence: remove the artifact root by a walk that follows no link and crosses no filesystem |
+| `--reason <REASON>` |  |  | Why the operator retires it, in their words |
+| `--json` |  |  | Print the retirement as JSON |
+
+## brokkr library
+
+The libraries a bundle is built from: recipes and agents, and the compiler that validates a bundle
+
+```text
+Usage: brokkr library <COMMAND>
+```
+
+## brokkr library recipes
+
+The recipe library: bundle directories as named, swappable delivery strategies
+
+```text
+Usage: brokkr library recipes <COMMAND>
+```
+
+## brokkr library recipes list
+
+List recipes under --dir, then those on the personal shelf, each with its origin, project or personal; broken ones print a warning line, never abort the listing
+
+```text
+Usage: brokkr library recipes list [OPTIONS]
+```
+
+| Argument | Default | Selector | Description |
+| --- | --- | --- | --- |
+| `--dir <DIR>` |  |  | The recipe library directory (default the found .brokkr/recipes, listing nothing while it is absent, else recipes) |
+
+## brokkr library recipes add
+
+Install a recipe from a local path or a git URL into the shelf at the repository's root, .brokkr/recipes/&lt;name&gt; where the folder is, else recipes/&lt;name&gt;, with the agents and charters it names that the agent library lacks
+
+```text
+Usage: brokkr library recipes add [OPTIONS] --name <NAME> <SOURCE>
+```
+
+| Argument | Default | Selector | Description |
+| --- | --- | --- | --- |
+| `<SOURCE>` |  |  | A local bundle directory or a git URL |
+| `--name <NAME>` |  |  | The name the recipe is installed under |
+| `--path <PATH>` |  |  | With a git URL, the bundle's directory inside the clone, a relative path of plain names (`recipes/fast`), walked without following a link; without it, the clone's root or its one subdirectory holding a bundle.json. The bases its recipe extends come from beside it |
+| `--personal` |  |  | Install onto the personal shelf instead, $XDG_CONFIG_HOME/brokkr/recipes/&lt;name&gt;, else $HOME/.config/brokkr/recipes/&lt;name&gt;, beside host.json and in no repository; it copies no agent or charter |
+
+## brokkr library recipes show
+
+Print one recipe's RESOLVED bundle and, when it extends another, the composition chain it was resolved from
+
+```text
+Usage: brokkr library recipes show [OPTIONS] <NAME>
+```
+
+| Argument | Default | Selector | Description |
+| --- | --- | --- | --- |
+| `<NAME>` |  |  | The recipe's name, resolved to &lt;dir&gt;/&lt;name&gt;, else to the personal shelf's; a name on both refuses |
+| `--dir <DIR>` |  |  | The recipe library directory (default the found .brokkr/recipes, else recipes) |
+
+## brokkr library recipes usage
+
+Print what each recipe's attempts used, per phase, as the engine measured their process trees: the minimum, average and maximum of peak and mean memory, peak and mean load, CPU time and wall time, over the drivers measured. An attempt journaled without usage is counted as unmeasured, never as zero
+
+```text
+Usage: brokkr library recipes usage [OPTIONS] [NAME]
+```
+
+| Argument | Default | Selector | Description |
+| --- | --- | --- | --- |
+| `<NAME>` |  |  | One recipe, by the name its runs started under (default every recipe the journal has runs of) |
+| `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
+| `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
+| `--json` |  |  | Print the rows as JSON |
+
+## brokkr library agents
+
+The agent library: one definition per agent — description, charter, an ordered chain of abstract model names, abstract tool/MCP configuration — that seats reference by name
+
+```text
+Usage: brokkr library agents <COMMAND>
+```
+
+## brokkr library agents list
+
+One line per agent — name, model chain, description. A broken definition prints a warning line and never aborts the listing
+
+```text
+Usage: brokkr library agents list [OPTIONS]
+```
+
+| Argument | Default | Selector | Description |
+| --- | --- | --- | --- |
+| `--agents-dir <AGENTS_DIR>` |  |  | The agent library directory (default .brokkr/agents, else agents) |
+
+## brokkr library agents show
+
+The definition as written, plus the per-chain-entry resolution the compiler would compute. An unknown name errors naming the known set
+
+```text
+Usage: brokkr library agents show [OPTIONS] <NAME>
+```
+
+| Argument | Default | Selector | Description |
+| --- | --- | --- | --- |
+| `<NAME>` |  |  | The agent's name in the library |
+| `--agents-dir <AGENTS_DIR>` |  |  | The agent library directory (default .brokkr/agents, else agents) |
+| `--adapters-dir <ADAPTERS_DIR>` |  |  | The adapter library the chain's models are resolved against (default .brokkr/adapters, else adapters) |
+
+## brokkr library compile
+
+Validate a bundle and print its pinned manifest and digest
+
+```text
+Usage: brokkr library compile --bundle <BUNDLE>
+```
+
+| Argument | Default | Selector | Description |
+| --- | --- | --- | --- |
+| `--bundle <BUNDLE>` |  |  | The bundle directory to validate, compiled against the workspace |
+
 ## brokkr queue
 
-The dispatcher's queue: runs waiting to start, in the journal's own database. Add, list, judge, move, hold, release, re-pin and drop entries; each change is journaled with its reason
+The dispatcher's queue: runs waiting to start, in the journal's own database. Add, list, judge, move, hold, release, re-pin and drop entries; each change is journaled with its reason. `dispatch` starts what admission admits, and `sweep` frees what the finished runs left behind
 
 ```text
 Usage: brokkr queue <COMMAND>
@@ -741,251 +839,78 @@ Usage: brokkr queue drop [OPTIONS] --reason <REASON> <ENTRY>
 | `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
 | `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
 
-## brokkr inspect
+## brokkr queue dispatch
 
-Explain a run: header, ruling, seats, decision trail, and the phase graph as a tree. `--phase` and `--seat` are the scoping verbs the console's clicks became; `--json` emits the view model, or with `--capability-call` the call and its verified response
+Start what admission admits from the journal's queue, each run handed to a driver of its own: one pass with `--once` under the journal's dispatch lock, the bound's command and the holder's readout
 
 ```text
-Usage: brokkr inspect [OPTIONS] --run <RUN>
+Usage: brokkr queue dispatch [OPTIONS]
+       brokkr queue dispatch <COMMAND>
 ```
 
 | Argument | Default | Selector | Description |
 | --- | --- | --- | --- |
-| `--run <RUN>` |  | yes | Full run id, a unique run-id prefix, or `latest` |
-| `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
-| `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
-| `--json` |  |  | Emit the view model verbatim — this is what scripts read |
-| `--phase <PHASE>` |  |  | Scope the readout to one phase |
-| `--seat <SEAT>` |  |  | Scope the readout to one seat, by label or participant key |
-| `--capability-call <CALL_ID>` |  |  | Open the retained response the call this id names in the run cites, verified against its recorded digest, never a path; with --json, beside the call's provenance |
-| `--repo <REPO>` |  |  | The operated repository whose run-local directory holds the call's retained response, as `ledger --repo` resolves it; without it, the workspace's own |
-
-## brokkr transcript
-
-Read one participant's retained local transcript — Claude, Codex or DSH — through the same bounded local derivation the TUI uses. The verb never launches, retries or resumes a provider and writes nothing to the journal
-
-```text
-Usage: brokkr transcript [OPTIONS] --run <RUN> --seat <SEAT>
-```
-
-| Argument | Default | Selector | Description |
-| --- | --- | --- | --- |
-| `--run <RUN>` |  | yes | Full run id, a unique run-id prefix, or `latest` |
-| `--seat <SEAT>` |  |  | A participant key, or a label that is unique within the run |
-| `--turn <TURN>` |  |  | One-based displayed-turn index; omitted reads the whole transcript |
-| `--json` |  |  | Emit the `brokkr.transcript/v1` document |
+| `--once` |  |  | Run one pass and return without waiting on the drivers it started |
+| `--every <SECONDS>` | `60` |  | Without `--once`, the seconds from one pass's start to the next, from 5 to 3600. The dispatcher stands until SIGINT or SIGTERM |
 | `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
 | `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
 
-## brokkr seats
+## brokkr queue dispatch set-bound
 
-The seats of a run: the seats block `inspect` renders — every seat's model with the boundary its hands stood behind beside it — from the same view. `--json` prints that view verbatim, the bytes `inspect --json` prints
+Set the journal's bound on the refusals counted against one entry before the dispatcher holds it, a whole number of at least 1, journaled as the operator's command
 
 ```text
-Usage: brokkr seats [OPTIONS] --run <RUN>
+Usage: brokkr queue dispatch set-bound [OPTIONS] --reason <REASON> <BOUND>
 ```
 
 | Argument | Default | Selector | Description |
 | --- | --- | --- | --- |
-| `--run <RUN>` |  | yes | Full run id, a unique run-id prefix, or `latest` |
-| `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
-| `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
-| `--json` |  |  | Emit the view model verbatim — `inspect --json`'s own bytes |
-
-## brokkr watch
-
-Watch a run live: redraw the graph, seats, last ruling and seat activity whenever the journal head moves; exit when the run reaches a terminal status. Read-only, like every other readout
-
-```text
-Usage: brokkr watch [OPTIONS] --run <RUN>
-```
-
-| Argument | Default | Selector | Description |
-| --- | --- | --- | --- |
-| `--run <RUN>` |  | yes | Full run id, a unique run-id prefix, or `latest` |
-| `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
-| `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
-| `--once` |  |  | Print one frame and exit |
-| `--interval <INTERVAL_MS>` | `750` |  | Poll interval in milliseconds (floored at 100) |
-| `--no-view` |  |  | On a terminal, redraw the text frames instead of opening the run view. Off a terminal, and with `--once`, they always print |
-
-## brokkr replay
-
-Rebuild state from the journal twice and verify determinism
-
-```text
-Usage: brokkr replay [OPTIONS] --run <RUN>
-```
-
-| Argument | Default | Selector | Description |
-| --- | --- | --- | --- |
-| `--run <RUN>` |  | yes | Full run id, a unique run-id prefix, or `latest` |
+| `<BOUND>` |  |  | The bound: counted refusals of one entry before it is held |
+| `--reason <REASON>` |  |  | Why the bound is set, journaled with it |
 | `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
 | `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
 
-## brokkr export
+## brokkr queue dispatch status
 
-Write the canonical NDJSON journal and pinned manifest
-
-```text
-Usage: brokkr export [OPTIONS] --run <RUN>
-```
-
-| Argument | Default | Selector | Description |
-| --- | --- | --- | --- |
-| `--run <RUN>` |  | yes | Full run id, a unique run-id prefix, or `latest` |
-| `--out <OUT>` | `.` |  | The directory `<run>.ndjson` and `<run>.manifest.json` are written into, created when absent |
-| `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
-| `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
-| `--redact` |  |  | Also write a sanitized copy for publishable fixtures — `<run>.redacted.ndjson` and `<run>.redacted.manifest.json` — with every absolute path in event payloads rewritten to a stable placeholder. The verbatim pair is written unchanged; the redacted copy's recorded hashes no longer verify, and its manifest says so |
-
-## brokkr evidence
-
-List every historical evidence root, or retire one under the admission lock once its evidence is archived or discarded. The sealed retirement sits beside the historical record, which stays
+Say whether a dispatcher holds the journal, the bound in force, and each entry left launching or linked with no `spawn` row. Opens the journal read-only and writes nothing
 
 ```text
-Usage: brokkr evidence <COMMAND>
-```
-
-## brokkr evidence list
-
-List every historical evidence root: its path, whether it exists, its digest count and bytes, its retirement and its superseded history. A root whose own counts cannot be read still prints, with its problem, and makes the verb exit non-zero after every row
-
-```text
-Usage: brokkr evidence list [OPTIONS]
-```
-
-| Argument | Default | Selector | Description |
-| --- | --- | --- | --- |
-| `--json` |  |  | Print the roots as a JSON array |
-
-## brokkr evidence retire
-
-Retire one historical root, under the admission lock, after archiving its evidence or discarding it
-
-```text
-Usage: brokkr evidence retire [OPTIONS] --root <ROOT> --reason <REASON> <--archived-to <ARCHIVED_TO>|--discarded>
-```
-
-| Argument | Default | Selector | Description |
-| --- | --- | --- | --- |
-| `--root <ROOT>` |  |  | The artifact root the historical record names, as `evidence list` prints it |
-| `--archived-to <ARCHIVED_TO>` |  |  | Archive every artifact into this absent or empty directory, write the inventory last, and keep the root. The destination is resolved by the filesystem, so a link is followed before `..`, and it must resolve outside the coordination root and the root being retired; the resolved path is the one recorded. A root that does not stand cannot be archived: `--discarded` is the record for an absent root |
-| `--discarded` |  |  | Discard the evidence: remove the artifact root by a walk that follows no link and crosses no filesystem |
-| `--reason <REASON>` |  |  | Why the operator retires it, in their words |
-| `--json` |  |  | Print the retirement as JSON |
-
-## brokkr backup
-
-Back up a whole journal — one consistent snapshot taken while writers may run, plus the versioned inventory that declares its boundary and makes the backup complete
-
-```text
-Usage: brokkr backup [OPTIONS] --to <TO>
-```
-
-| Argument | Default | Selector | Description |
-| --- | --- | --- | --- |
-| `--to <TO>` |  |  | The directory the snapshot and its inventory are written into; it must be absent or empty, and nothing in it is overwritten |
-| `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
-| `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
-
-## brokkr restore
-
-Restore a journal backup into a new location, after the inventory, the snapshot's digest, SQLite's integrity, every chain and the counts all pass. It starts nothing
-
-```text
-Usage: brokkr restore --from <FROM> --to <TO>
-```
-
-| Argument | Default | Selector | Description |
-| --- | --- | --- | --- |
-| `--from <FROM>` |  |  | The backup directory holding the snapshot and its inventory |
-| `--to <TO>` |  |  | The new journal path. It must not exist; a live journal is never a restore's destination |
-
-## brokkr import
-
-Adopt an exported run into this journal, byte-identically — the verb paired with `export`. Journals never merge; one run relocates. Nothing lands unless the whole chain verifies, the events fold, the run_id does not already exist here, and the export is not a redacted derivative
-
-```text
-Usage: brokkr import [OPTIONS] --from <FROM>
-```
-
-| Argument | Default | Selector | Description |
-| --- | --- | --- | --- |
-| `--from <FROM>` |  |  | The exported `<run>.ndjson`. Its `<run>.manifest.json` sidecar is read from beside it and must be there |
-| `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
-| `--db <DB>` |  |  | The destination journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
-
-## brokkr verify-run
-
-Verify an exported journal offline: chain, envelopes, fold
-
-```text
-Usage: brokkr verify-run <FILE>
-```
-
-| Argument | Default | Selector | Description |
-| --- | --- | --- | --- |
-| `<FILE>` |  |  | The exported `<run>.ndjson` journal to verify |
-
-## brokkr bridge
-
-Synchronize a Looper-bound run over the authenticated producer API. The API key is read from an environment variable and is never stored
-
-```text
-Usage: brokkr bridge [OPTIONS] --run <RUN> --looper-url <LOOPER_URL>
-```
-
-| Argument | Default | Selector | Description |
-| --- | --- | --- | --- |
-| `--run <RUN>` |  | yes | Full run id, a unique run-id prefix, or `latest` |
-| `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
-| `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
-| `--looper-url <LOOPER_URL>` |  |  | The base URL of the Looper producer API |
-| `--token-env <TOKEN_ENV>` | `LOOPER_API_KEY` |  | The environment variable the API key is read from; unset or empty is refused |
-| `--follow` |  |  | Keep tailing the verified journal and command feed |
-| `--interval-ms <INTERVAL_MS>` | `750` |  | With `--follow`, the pause between syncs in milliseconds (floored at 100) |
-
-## brokkr runs
-
-List runs in the workspace database: one clamped line per run, the fleet's sections in order and each by last activity, read a page at a time. `--json` emits the view model for scripts
-
-```text
-Usage: brokkr runs [OPTIONS]
+Usage: brokkr queue dispatch status [OPTIONS]
 ```
 
 | Argument | Default | Selector | Description |
 | --- | --- | --- | --- |
 | `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
 | `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
-| `--json` |  |  | Emit the view model verbatim — this is what scripts read |
-| `--limit <N>` |  |  | Print one page of at most N runs, and where the next page starts (`next`) |
-| `--after <CURSOR>` |  |  | Print the page after this cursor: a page's `next` |
-| `--run <RUN>` |  |  | Print one run's row: the same row this listing gives it, and no other. Refused by name when the id names no run |
-| `--ending <ENDING>` |  |  | List only the runs that ended so: one of the twelve endings |
-| `--needs-operator` |  |  | List only the runs that want the operator: a ruling (`!`) or an action (`>`) |
-| `--hide-settled` |  |  | Leave out the settled runs: every run that neither wants the operator nor is live |
 
-## brokkr realms
+## brokkr queue sweep
 
-List the world: each realm with its path, default branch and current HEAD, and the journal the world writes. Read-only, like every other readout
+Remove the run-local seat scratch trees the journal proves free and record what each complete removal freed, and reap the hands session trees whose owners are dead. One pass under the journal's dispatch lock; `--dry-run` lists what a pass would remove, with sizes, and writes nothing
 
 ```text
-Usage: brokkr realms [OPTIONS]
+Usage: brokkr queue sweep [OPTIONS]
 ```
 
 | Argument | Default | Selector | Description |
 | --- | --- | --- | --- |
-| `--realms <REALMS>` |  |  | The map to read (default .brokkr/realms.json, else ./realms.json) |
+| `--dry-run` |  |  | List what a pass would remove, with sizes, and write nothing: no tree-sweep row, no dispatch holder and no migration |
+| `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
 | `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
-| `--json` |  |  | Emit the view model verbatim — this is what scripts read |
 
-## brokkr analytics
+## brokkr stats
+
+What the runs did, read across them: analytics, a recipe's graph, a run's costs and its delivery ledger
+
+```text
+Usage: brokkr stats <COMMAND>
+```
+
+## brokkr stats analytics
 
 What the runs did across every hearth, for a range and an optional realm: shipped, start to end, waiting on you, rework, cost and served models. `--json` emits the view model
 
 ```text
-Usage: brokkr analytics [OPTIONS]
+Usage: brokkr stats analytics [OPTIONS]
 ```
 
 | Argument | Default | Selector | Description |
@@ -996,12 +921,12 @@ Usage: brokkr analytics [OPTIONS]
 | `--realm <REALM>` |  |  | Only this realm's runs |
 | `--json` |  |  | Emit the view model verbatim — this is what the console reads |
 
-## brokkr graph
+## brokkr stats graph
 
 One recipe's state machine and its traffic over a range. `--json` emits the view model
 
 ```text
-Usage: brokkr graph [OPTIONS]
+Usage: brokkr stats graph [OPTIONS]
 ```
 
 | Argument | Default | Selector | Description |
@@ -1013,73 +938,117 @@ Usage: brokkr graph [OPTIONS]
 | `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
 | `--json` |  |  | Emit the view model verbatim — this is what the console reads |
 
-## brokkr driver
+## brokkr stats costs
 
-Run a built-in forge-driver/v1 adapter (claude | lanetally | codex | dsh | exec). Bundles reference these as {brokkr} driver &lt;kind&gt; -- &lt;extra args&gt;
+Per-seat cost and session accounting from journal checkpoints — the LaneTally join surface (stable seat ids, journal-derived)
 
 ```text
-Usage: brokkr driver <KIND> [ARGS]...
+Usage: brokkr stats costs [OPTIONS] --run <RUN>
 ```
 
 | Argument | Default | Selector | Description |
 | --- | --- | --- | --- |
-| `<KIND>` |  |  | The adapter to run: claude, lanetally, codex, dsh or exec |
-| `<ARGS>...` |  |  | Arguments after -- pass to the agent CLI (claude/lanetally/codex/dsh) or form the command template (exec) |
+| `--run <RUN>` |  | yes | The run whose seats are accounted: a full run id, a unique run-id prefix, or `latest` |
+| `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
+| `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
 
-## brokkr hands
+## brokkr stats ledger
 
-The model's hands are one tool, and the tool runs in an empty root: serve the `workspace` tool over MCP on stdio, or run one command whole inside the same box
-
-```text
-Usage: brokkr hands <COMMAND>
-```
-
-## brokkr hands serve
-
-Serve the one `workspace` tool over MCP (newline-delimited JSON-RPC on stdio); every call runs `bash -lc <command>` inside the box
+Render the shipper's delivery ledger from journal and repository evidence
 
 ```text
-Usage: brokkr hands serve [OPTIONS] --workdir <WORKDIR> --artifacts <ARTIFACTS> --reach <REACH>
+Usage: brokkr stats ledger [OPTIONS] --run <RUN>
 ```
 
 | Argument | Default | Selector | Description |
 | --- | --- | --- | --- |
-| `--workdir <WORKDIR>` |  |  | The worktree, bound read-write at its own path |
-| `--artifacts <ARTIFACTS>` |  |  | The engine's artifact root, which the box never writes (U8a) |
-| `--reach <REACH>` |  |  | The reach sealed at admission as JSON, which every box is built from (U8a2c) |
-| `--spec <SPEC>` | `"workspace"` |  | The box spec as JSON: {"kind":"workspace","network":…,"binds":[…]} |
+| `--run <RUN>` |  | yes | The run whose ledger is rendered: a full run id, a unique run-id prefix, or `latest` |
+| `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
+| `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
+| `--repo <REPO>` |  |  | Write `<run>.md` under this repository's `.brokkr/state/ledger/`, or `.forge/ledger/` with no folder; without it, print the ledger |
 
-## brokkr hands exec
+## brokkr system
 
-Run one command whole inside the box with stdio passed through — how a deterministic `exec` seat holds a gate. Exits with the command's own code
+This host and its world: the realms map, the secrets store, a harness probe and the read-only web surface
 
 ```text
-Usage: brokkr hands exec [OPTIONS] --workdir <WORKDIR> --artifacts <ARTIFACTS> --reach <REACH> <COMMAND>...
+Usage: brokkr system <COMMAND>
+```
+
+## brokkr system realms
+
+List the world: each realm with its path, default branch and current HEAD, and the journal the world writes. Read-only, like every other readout
+
+```text
+Usage: brokkr system realms [OPTIONS]
 ```
 
 | Argument | Default | Selector | Description |
 | --- | --- | --- | --- |
-| `--workdir <WORKDIR>` |  |  | The worktree, bound read-write at its own path |
-| `--artifacts <ARTIFACTS>` |  |  | The engine's artifact root, as `serve` takes it |
-| `--reach <REACH>` |  |  | The reach sealed at admission, as `serve` takes it |
-| `--bundle-root <BUNDLE_ROOT>` |  |  | Strategy root, bound read-only at /runtime/bundle |
-| `--spec <SPEC>` | `"workspace"` |  | The box spec as JSON, as `serve` takes it |
-| `<COMMAND>...` |  |  | The command and its arguments, run inside the box |
+| `--realms <REALMS>` |  |  | The map to read (default .brokkr/realms.json, else ./realms.json) |
+| `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
+| `--json` |  |  | Emit the view model verbatim — this is what scripts read |
 
-## brokkr probe
+## brokkr system secrets
+
+Manage the operator-side secrets store: bundles and journals carry NAMES only; values live in this env-format file outside version control. There is no value-printing verb
+
+```text
+Usage: brokkr system secrets <COMMAND>
+```
+
+## brokkr system secrets set
+
+Bind NAME to a value read from STDIN (never argv — the CLI obeys its own injection discipline). Creates the store 0600
+
+```text
+Usage: brokkr system secrets set [OPTIONS] <NAME>
+```
+
+| Argument | Default | Selector | Description |
+| --- | --- | --- | --- |
+| `<NAME>` |  |  | The name a seat's declared binding asks for |
+| `--secrets-file <SECRETS_FILE>` |  |  | The store file, created 0600 when absent (default .brokkr/state/secrets.env, or a library's .forge/secrets.env) |
+
+## brokkr system secrets list
+
+Print bound names, one per line — names, never values
+
+```text
+Usage: brokkr system secrets list [OPTIONS]
+```
+
+| Argument | Default | Selector | Description |
+| --- | --- | --- | --- |
+| `--secrets-file <SECRETS_FILE>` |  |  | The store file to read (default .brokkr/state/secrets.env, or a library's .forge/secrets.env) |
+
+## brokkr system secrets remove
+
+Remove NAME from the store
+
+```text
+Usage: brokkr system secrets remove [OPTIONS] <NAME>
+```
+
+| Argument | Default | Selector | Description |
+| --- | --- | --- | --- |
+| `<NAME>` |  |  | The bound name to remove |
+| `--secrets-file <SECRETS_FILE>` |  |  | The store file to remove it from (default .brokkr/state/secrets.env, or a library's .forge/secrets.env) |
+
+## brokkr system probe
 
 Measure an agent CLI for its adapter's facts, spending its bound credentials: host only, never CI
 
 ```text
-Usage: brokkr probe <COMMAND>
+Usage: brokkr system probe <COMMAND>
 ```
 
-## brokkr probe harness
+## brokkr system probe harness
 
 Run one agent CLI headless against a scratch repository and HOME, and report each fact its adapter must declare as measured, unmeasured or unsupported, beside the adapter's own fields and the seat eligibility the facts derive
 
 ```text
-Usage: brokkr probe harness [OPTIONS] --adapter <ADAPTER>
+Usage: brokkr system probe harness [OPTIONS] --adapter <ADAPTER>
 ```
 
 | Argument | Default | Selector | Description |
@@ -1091,6 +1060,21 @@ Usage: brokkr probe harness [OPTIONS] --adapter <ADAPTER>
 | `--credential-file <CREDENTIAL_FILES>...` |  |  | A file under HOME the CLI keeps its login in, such as .codex/auth.json, linked at the same place under the scratch HOME for every credentialed launch, so a login the CLI refreshes is written to this file. Its content is never read. Repeatable |
 | `--secrets-file <SECRETS_FILE>` |  |  | The secrets store each `--credential` is read from (default .brokkr/state/secrets.env, or a library's .forge/secrets.env) |
 | `--adapters-dir <ADAPTERS_DIR>` |  |  | The directory holding the adapter files `--adapter` names (default .brokkr/adapters, else adapters) |
+
+## brokkr system ui
+
+Serve the embedded read-only surface on loopback
+
+```text
+Usage: brokkr system ui [OPTIONS]
+```
+
+| Argument | Default | Selector | Description |
+| --- | --- | --- | --- |
+| `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
+| `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
+| `--port <PORT>` | `8383` |  | The loopback port the surface is served on |
+| `--open` |  |  | Open the system browser after binding |
 
 ## Exit codes
 

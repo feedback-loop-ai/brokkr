@@ -266,7 +266,7 @@ fn a_pass_hands_its_run_to_a_driver_of_its_own_that_completes_it() {
     }
     let machine = Machine::new();
     machine.queued();
-    let pass = machine.brokkr(&["dispatch", "--once", "--db", machine.db()]);
+    let pass = machine.brokkr(&["queue", "dispatch", "--once", "--db", machine.db()]);
     let stdout = String::from_utf8_lossy(&pass.stdout).into_owned();
     assert!(pass.status.success(), "{pass:?}");
     assert_eq!(machine.commands(), ["add", "claim", "link", "spawn"]);
@@ -294,6 +294,7 @@ fn a_pass_hands_its_run_to_a_driver_of_its_own_that_completes_it() {
     // is working), is refused in decision 0108's words, and writes nothing.
     machine.seat_runs();
     let args = [
+        "queue",
         "dispatch",
         "drive",
         "--db",
@@ -352,6 +353,7 @@ fn a_driver_of_a_claim_with_no_spawn_row_refuses_and_writes_nothing() {
     machine.queued();
     let before = std::fs::read(&machine.journal).unwrap();
     let args = [
+        "queue",
         "dispatch",
         "drive",
         "--db",
@@ -365,7 +367,7 @@ fn a_driver_of_a_claim_with_no_spawn_row_refuses_and_writes_nothing() {
     assert_eq!(refused.status.code(), Some(1), "{refused:?}");
     assert_eq!(
         String::from_utf8_lossy(&refused.stderr),
-        "error: dispatch drive: queue entry 1 is not linked under claim 2 with a `spawn` row, \
+        "error: queue dispatch drive: queue entry 1 is not linked under claim 2 with a `spawn` row, \
          so this driver resumes nothing and wrote nothing (decision 0110)\n"
     );
     assert_eq!(std::fs::read(&machine.journal).unwrap(), before);
@@ -600,7 +602,7 @@ fn alive(pid: i32) -> bool {
 fn standing_over_a_working_seat(every: &str) -> (Machine, Standing) {
     let machine = Machine::new();
     machine.queued();
-    let args = ["dispatch", "--every", every, "--db", machine.db()];
+    let args = ["queue", "dispatch", "--every", every, "--db", machine.db()];
     let dispatcher = Standing::start(&machine, &args);
     machine.seat_runs();
     (machine, dispatcher)
@@ -802,7 +804,7 @@ fn a_second_sigterm_ends_the_dispatcher_at_once() {
     machine.queued();
     let holder = rusqlite::Connection::open(&machine.journal).unwrap();
     holder.execute_batch("BEGIN IMMEDIATE").unwrap();
-    let args = ["dispatch", "--every", "5", "--db", machine.db()];
+    let args = ["queue", "dispatch", "--every", "5", "--db", machine.db()];
     let dispatcher = Standing::start(&machine, &args);
     // Its handlers are installed before it takes the lock file.
     machine.dispatching();
@@ -830,7 +832,7 @@ fn every_out_of_its_range_or_beside_once_is_refused() {
             "the argument '--every <SECONDS>' cannot be used with '--once'",
         ),
     ] {
-        let argv = [&["dispatch", "--db", machine.db()][..], args].concat();
+        let argv = [&["queue", "dispatch", "--db", machine.db()][..], args].concat();
         let refused = Standing::start(&machine, &argv).ended();
         let stderr = String::from_utf8_lossy(&refused.stderr);
         assert_eq!(refused.status.code(), Some(2), "{argv:?}: {stderr}");

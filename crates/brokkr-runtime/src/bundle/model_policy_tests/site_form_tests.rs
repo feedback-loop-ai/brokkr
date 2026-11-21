@@ -52,7 +52,7 @@ fn a_seat_meets_its_form_before_its_results() {
             json!({"agent": "office"}),
             "bundle: seat 'work' combines 'agent' with 'role'; an agent reference is total — \
              'role' states what the agent IS, and a seat that could amend it would make \
-             `brokkr agents show` a lie for that seat",
+             `brokkr library agents show` a lie for that seat",
         ),
         (
             json!({"agent": "office", "panel": {}}),

@@ -74,7 +74,7 @@ fn a_killed_engines_worktree_is_released_by_the_operator_and_a_conflicting_run_a
     let db = host.journal("held");
     let db = db.to_str().unwrap();
     let release = [
-        "operator", "--run", &run, "--reason", REASON, "release", "--db", db,
+        "runs", "operator", "--run", &run, "--reason", REASON, "release", "--db", db,
     ];
     let refused = |cause: String| {
         format!("error: the operator's release was refused, and the run's writer lease stands: {cause}\n")
@@ -89,6 +89,7 @@ fn a_killed_engines_worktree_is_released_by_the_operator_and_a_conflicting_run_a
     );
     assert_eq!(running, refused(not_ended));
     let conclude = [
+        "runs",
         "conclude",
         "--run",
         &run,

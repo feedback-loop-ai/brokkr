@@ -530,6 +530,7 @@ fn the_verb_prints_the_view_as_lines_or_verbatim() {
     let db = dir.path().join("forge.db");
     let cli = Cli::try_parse_from([
         "brokkr".as_ref(),
+        "stats".as_ref(),
         "graph".as_ref(),
         "--db".as_ref(),
         db.as_os_str(),
@@ -560,9 +561,11 @@ fn the_verb_prints_the_view_as_lines_or_verbatim() {
 #[test]
 fn clap_takes_the_recipe_and_refuses_a_range_outside_the_three() {
     // The range is analytics' own parser, refusal and all (its tests).
-    let refused = Cli::try_parse_from(["brokkr", "graph", "--recipe", "self", "--range", "2d"]);
+    let refused = Cli::try_parse_from([
+        "brokkr", "stats", "graph", "--recipe", "self", "--range", "2d",
+    ]);
     assert!(refused.is_err(), "2d is no range");
-    let unnamed = Cli::try_parse_from(["brokkr", "graph"]).unwrap();
+    let unnamed = Cli::try_parse_from(["brokkr", "stats", "graph"]).unwrap();
     let Cmd::CrossRun(CrossRunCmd::Graph(args)) = unnamed.command else {
         panic!("brokkr graph is the graph verb");
     };

@@ -94,7 +94,7 @@ fn a_corrupt_claims_page_is_the_journals_damage_by_name() {
         spawned.to_string(),
         format!(
             "the journal '{}' is damaged (SQLite reads its disk image as malformed); nothing \
-             was read from it; restore it from a backup with `brokkr restore` and see the \
+             was read from it; restore it from a backup with `brokkr journal restore` and see the \
              guide's \"A damaged journal\" (#1000)",
             path.display()
         )

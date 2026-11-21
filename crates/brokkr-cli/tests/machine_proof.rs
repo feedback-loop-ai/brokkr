@@ -3379,7 +3379,7 @@ fn brokkr_tui_is_a_listed_read_verb_that_refuses_a_pipe_and_writes_nothing() {
     let missing = ws.path().join("nowhere.db");
     let (code, _, stderr) = ws.brokkr_raw(&["tui", "--db", missing.to_str().unwrap()]);
     assert_eq!(code, Some(1), "{stderr}");
-    assert!(stderr.contains("brokkr inspect"), "{stderr}");
+    assert!(stderr.contains("brokkr runs inspect"), "{stderr}");
     assert!(stderr.contains("brokkr watch"), "{stderr}");
     for suffix in ["", "-wal", "-shm"] {
         let candidate = ws.path().join(format!("nowhere.db{suffix}"));
@@ -3393,7 +3393,7 @@ fn brokkr_tui_is_a_listed_read_verb_that_refuses_a_pipe_and_writes_nothing() {
     let (code, _, stderr) = ws.brokkr_raw(&["tui", "--run", &run_id[..8], "--db", db]);
     assert_eq!(code, Some(1), "{stderr}");
     assert!(stderr.contains("needs a terminal"), "{stderr}");
-    assert!(stderr.contains("brokkr inspect") && stderr.contains("brokkr watch"));
+    assert!(stderr.contains("brokkr runs inspect") && stderr.contains("brokkr watch"));
     assert_eq!(
         tree(ws.path()),
         before_tree,

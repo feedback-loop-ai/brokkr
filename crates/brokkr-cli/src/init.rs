@@ -249,7 +249,7 @@ ledger=".brokkr/state/ledger/$run_id.md"
 if [ "$rule_id" != "SHIP-READY" ]; then
   [ -n "$journal" ] || { echo "ship-seat: prompt lacks journal path" >&2; exit 2; }
   dirty="$(git status --porcelain 2>&1 || true)"
-  output="$("$brokkr" ledger --run "$run_id" --db "$journal" --repo . 2>&1)"; status=$?
+  output="$("$brokkr" stats ledger --run "$run_id" --db "$journal" --repo . 2>&1)"; status=$?
   [ "$status" -eq 0 ] || { printf 'ship-seat: ledger generation failed: %s\n' "$output" >&2; exit "$status"; }
   if [ -n "$dirty" ]; then printf 'ledger written to %s; worktree discrepancy before close-out: %s' "$ledger" "$dirty" > "$notes"
   else printf 'ledger written to %s; review the recorded commits and evidence, then push and merge' "$ledger" > "$notes"; fi
@@ -737,7 +737,7 @@ fn stack_header(detected: Option<&Detected>, hired: &[Cli], claims: Claims) -> S
                  - {adapters} and `adapters/exec.json` — the model and\n\
                    deterministic drivers, including their trust tiers.\n\
                  - `agents/*.json` — one agent per model office: charter, model chain,\n\
-                   tool allowance, limits. `brokkr agents show <name>` reads one back.\n\
+                   tool allowance, limits. `brokkr library agents show <name>` reads one back.\n\
                  - `agents/charters/*.md` — the three model-office charters.\n\
                  - `scripts/*.sh` — deterministic verify and ship offices; verify\n\
                    names this repository's own commands and {runs}.\n\n",

@@ -41,7 +41,7 @@ fn init_scaffolds_a_compiling_bundle_and_refuses_overwrite() {
     );
 
     // The scaffold passes the same compile gate as any bundle.
-    let (code, stdout, stderr) = brokkr(&["compile", "--bundle", "."], &bundle);
+    let (code, stdout, stderr) = brokkr(&["library", "compile", "--bundle", "."], &bundle);
     assert_eq!(code, Some(0), "stderr: {stderr}");
     assert!(stdout.contains("\"starter\""));
 
@@ -102,7 +102,7 @@ fn init_with_only(present: &[&str]) -> (Repo, std::path::PathBuf, String) {
     let ran = repo.init_with_only(present);
     assert_eq!(ran.code, Some(0), "{}", ran.stderr);
     let bundle = repo.path(".brokkr");
-    let (code, stdout, error) = brokkr(&["compile", "--bundle", "."], &bundle);
+    let (code, stdout, error) = brokkr(&["library", "compile", "--bundle", "."], &bundle);
     assert_eq!(code, Some(0), "{error}");
     assert!(stdout.contains("\"starter\""), "{stdout}");
     (repo, bundle, ran.stderr)
@@ -1180,7 +1180,7 @@ fn doctor_checks_a_moved_folder() {
     std::fs::create_dir_all(repo.path("agents/charters")).unwrap();
     std::fs::rename(repo.path(&format!(".brokkr/{charter}")), repo.path(charter)).unwrap();
     let refuses_as_compile = || {
-        let compile = repo.brokkr("", &["compile", "--bundle", ".brokkr"]);
+        let compile = repo.brokkr("", &["library", "compile", "--bundle", ".brokkr"]);
         assert_eq!(compile.code, Some(1));
         let refused = compile.stderr.strip_prefix("error: ").unwrap();
         let clause =
@@ -1201,7 +1201,7 @@ fn doctor_checks_a_moved_folder() {
         "{} is not a readable realms map: key must be a string at line 1 column 2",
         repo.path(".brokkr/realms.json").display()
     );
-    let compile = repo.brokkr("", &["compile", "--bundle", ".brokkr"]);
+    let compile = repo.brokkr("", &["library", "compile", "--bundle", ".brokkr"]);
     assert_eq!(compile.stderr, format!("error: {map}\n"));
     refuses_as_compile();
 }
@@ -1227,7 +1227,7 @@ fn doctor_reads_the_found_folder_as_its_bundle() {
     let dsh = crate::workspace_root::workspace().join("adapters/dsh.json");
     std::fs::copy(dsh, repo.path(".brokkr/adapters/dsh.json")).unwrap();
     std::fs::remove_file(repo.path(".brokkr/policy.json")).unwrap();
-    let compile = repo.brokkr("", &["compile", "--bundle", ".brokkr"]);
+    let compile = repo.brokkr("", &["library", "compile", "--bundle", ".brokkr"]);
     let refused = compile.stderr.strip_prefix("error: ").unwrap().trim_end();
     let ambient = |args: &[&str]| {
         let mut doctor = repo.command("");
@@ -1396,7 +1396,7 @@ fn the_recipe_verbs_read_the_provisional_offices_the_map_lists() {
     mark_sonnet_provisional(&bundle);
     list_provisional_offices(&bundle, serde_json::json!(["implementer", "intake"]));
     let library = repo.path("library");
-    let verb = |args: &[&str]| brokkr(&[&["recipes"], args].concat(), &bundle);
+    let verb = |args: &[&str]| brokkr(&[&["library", "recipes"], args].concat(), &bundle);
 
     let starter = ["add", bundle.to_str().unwrap(), "--name", "starter"];
     let (code, _, stderr) = verb(&starter);

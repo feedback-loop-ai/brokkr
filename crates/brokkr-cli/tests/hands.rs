@@ -825,7 +825,7 @@ fn ship_first_entry_records_a_dirty_tree_after_writing_the_ledger() {
     let fake = work.path().join("ledger-command");
     std::fs::write(
         &fake,
-        "#!/bin/sh\nmkdir -p .forge/ledger\nprintf 'Repository head: `none`\\n' > .forge/ledger/known-run.md\n",
+        "#!/bin/sh\n[ \"$1 $2\" = 'stats ledger' ] || exit 9\nmkdir -p .forge/ledger\nprintf 'Repository head: `none`\\n' > .forge/ledger/known-run.md\n",
     )
     .unwrap();
     let mut permissions = std::fs::metadata(&fake).unwrap().permissions();

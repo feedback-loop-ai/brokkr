@@ -455,7 +455,7 @@ fn classify(
     let written = brokkr_runtime::operator_classify(&mut store, &cited, &run, &named)?;
     eprintln!(
         "recorded classify at seq {} on {run}; the run's status is untouched. Read it with: \
-         brokkr inspect --run {run}",
+         brokkr runs inspect --run {run}",
         written.seq
     );
     Ok(Exit::Completed.into())
@@ -603,7 +603,7 @@ fn recorded(
     let operator = operator_name();
     let written = annotate(&mut store, &run, &operator)?;
     eprintln!(
-        "recorded {verb} at seq {} on {run}; {note}. Read it with: brokkr inspect --run {run}",
+        "recorded {verb} at seq {} on {run}; {note}. Read it with: brokkr runs inspect --run {run}",
         written.seq
     );
     // L8: a lawful annotation that landed after the terminal event before

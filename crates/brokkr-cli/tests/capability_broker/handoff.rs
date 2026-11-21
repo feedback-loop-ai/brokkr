@@ -334,7 +334,7 @@ fn a_handoff_that_fails_after_the_lookup_starts_no_server() {
     assert!(shortest >= Some(CHANCE_FREE), "{shortest:?}");
     let cause = |case: &str, sealed: &Sealed| match case {
         "missing" => Refusal::Name(format!(
-            "secret 'DOCS_TOKEN' is not in the store at {} (brokkr secrets set DOCS_TOKEN)",
+            "secret 'DOCS_TOKEN' is not in the store at {} (brokkr system secrets set DOCS_TOKEN)",
             sealed.path("store/secrets.env").display()
         )),
         "not UTF-8" => Refusal::Name("secret 'DOCS_TOKEN' is not valid UTF-8".into()),

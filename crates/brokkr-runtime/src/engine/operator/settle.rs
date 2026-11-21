@@ -55,7 +55,7 @@ pub enum SettleRefusal {
     NoTerminal { run: String },
     #[error(
         "run '{run}' is not acknowledged, so it is not quarantined; answer it with \
-         `brokkr operator acknowledge --run {run} --reason <why>` first"
+         `brokkr runs operator acknowledge --run {run} --reason <why>` first"
     )]
     Unacknowledged { run: String },
     #[error("this host names no protected coordination root, so no reservation can be read")]

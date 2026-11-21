@@ -1,6 +1,6 @@
 //! `brokkr dispatch` (decision 0110 rulings 3 to 6): the standing loop,
 //! or one pass with `--once`, under the journal's dispatch lock, each run
-//! it starts handed to this binary as `dispatch drive`, a process in a
+//! it starts handed to this binary as `queue dispatch drive`, a process in a
 //! session of its own; the driver itself; the bound's command; and the
 //! holder's readout. The pass, the loop's logic, the binary's identity, the
 //! driver's log and the driver's checks are brokkr-runtime's; this handler
@@ -275,10 +275,16 @@ const DRIVE_DB: &str = "--db=";
 /// The words after `brokkr` that drive the run linked under `claim`, but
 /// for [`DRIVE_DB`] and its journal, which come last: the argv a driver is
 /// started with and the command a report pastes are both made of them.
-fn drive_words(claim: Claim) -> [String; 4] {
+fn drive_words(claim: Claim) -> [String; 5] {
     let (entry, seq) = claim.parts();
     let (entry, claim) = (format!("--entry={entry}"), format!("--claim={seq}"));
-    ["dispatch".into(), "drive".into(), entry, claim]
+    [
+        "queue".into(),
+        "dispatch".into(),
+        "drive".into(),
+        entry,
+        claim,
+    ]
 }
 
 /// The argv after this binary that drives `spawn`'s run.

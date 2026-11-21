@@ -33,7 +33,14 @@ fn an_acknowledgement_says_where_the_run_lists_and_that_its_refusal_stands() {
     unanswered(&db);
     let out = Command::new(env!("CARGO_BIN_EXE_brokkr"))
         .current_dir(dir.path())
-        .args(["operator", "--run", "unanswered", "--reason", "seen"])
+        .args([
+            "runs",
+            "operator",
+            "--run",
+            "unanswered",
+            "--reason",
+            "seen",
+        ])
         .args(["--db", db.to_str().unwrap(), "acknowledge"])
         .output()
         .unwrap();

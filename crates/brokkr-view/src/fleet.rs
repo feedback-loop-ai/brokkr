@@ -312,7 +312,7 @@ pub(crate) fn said(
 pub fn stopping_detail(seq: u64) -> String {
     format!(
         "stop accepted at seq {seq}; no ending written. If no driver is running it, \
-         `brokkr conclude` closes it."
+         `brokkr runs conclude` closes it."
     )
 }
 

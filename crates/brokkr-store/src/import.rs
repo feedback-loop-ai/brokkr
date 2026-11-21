@@ -38,7 +38,7 @@ pub enum ImportError {
         "refused: '{0}' is not a run id this journal will carry — event hashes are \
          unkeyed, so a chain proves its bytes were not altered and never that whoever \
          sealed them was entitled to the name, and the name does not stay in the \
-         database: `brokkr export` composes '<out>/<run_id>.ndjson' from it and every \
+         database: `brokkr journal export` composes '<out>/<run_id>.ndjson' from it and every \
          readout prints it. An adoptable id is 1 to {RUN_ID_MAX} characters of ASCII \
          letters, digits, '-' and '_'"
     )]
