@@ -416,6 +416,28 @@ fn claimed_entries_list_after_the_waiting_by_priority_then_id() {
     assert_eq!(order(&store), [(2, Some(1)), (3, None), (1, None)]);
 }
 
+/// A command returns the place it journaled, so a caller never reads it
+/// back (#1191): a move across a priority's edge returns the place held,
+/// not the place asked, and a hold, a release and a drop return none.
+#[test]
+fn a_command_returns_the_place_it_journaled() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&dir.path().join("forge.db")).unwrap();
+    add_at(&mut store, 1, 10);
+    let low = add_at(&mut store, 2, 0);
+    let moved = store.queue_command(low, QueueCommand::Move { to: 1 }, BY);
+    assert_eq!(moved.unwrap(), Some(2));
+    assert_eq!(last_place(&store), Some(2));
+    for command in [
+        QueueCommand::Hold,
+        QueueCommand::Release,
+        QueueCommand::Drop,
+    ] {
+        assert_eq!(store.queue_command(low, command, BY).unwrap(), None);
+        assert_eq!(last_place(&store), None);
+    }
+}
+
 #[test]
 fn a_journal_at_mains_schema_migrates_to_the_queue_and_keeps_its_runs() {
     let dir = tempfile::tempdir().unwrap();

@@ -93,12 +93,13 @@ fn change(
     stderr: &mut impl Write,
 ) -> Result<ExitCode> {
     let mut store = open_journal(&journal.journal(workspace)?, Access::Append)?;
-    attributed(&reason, |by| store.queue_command(entry, command, by))?;
+    let place = attributed(&reason, |by| store.queue_command(entry, command, by))?;
     let said = match command {
         // Priority orders first, so the place held can be other than the
-        // place asked for: say the one the journal shows.
-        QueueCommand::Move { .. } => (store.queue_entry(entry)?.position)
-            .map(|place| format!("moved queue entry {entry} to place {place}")),
+        // place asked for: say the one the command journaled.
+        QueueCommand::Move { .. } => {
+            place.map(|place| format!("moved queue entry {entry} to place {place}"))
+        }
         QueueCommand::Hold => Some(format!("held queue entry {entry}")),
         QueueCommand::Release => Some(format!("released queue entry {entry}")),
         QueueCommand::Drop => Some(format!("dropped queue entry {entry}")),

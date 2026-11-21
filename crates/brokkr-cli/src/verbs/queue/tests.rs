@@ -427,6 +427,23 @@ fn a_higher_priority_entry_lists_first_with_its_place() {
     lists_b_first();
 }
 
+/// `queue move` prints the place its own command journaled (#1191): an
+/// entry moved down past its priority's edge says the last place among
+/// its priority, not the place asked.
+#[test]
+fn a_move_down_past_its_priority_says_the_place_held() {
+    let (_host, dir) = (own_host(), tempfile::tempdir().unwrap());
+    let (ws, db) = library(&dir);
+    for priority in ["10", "10", "0"] {
+        let words = ["add", "--bundle", "b", "--feature", "f"];
+        let words = [&words[..], &["--priority", priority, "--reason", "r"]].concat();
+        assert_eq!(queue_in(ws, &db, &words).unwrap(), completed());
+    }
+    let below = ["move", "1", "--to", "3", "--reason", "last?"];
+    let held = "moved queue entry 1 to place 2\n";
+    assert_eq!(stderr_of(ws, &db, &below), held);
+}
+
 #[test]
 fn an_empty_queue_says_so() {
     assert_eq!(table(&[]), "the queue is empty\n");

@@ -330,14 +330,14 @@ fn command_once(
     entry: EntryId,
     command: QueueCommand,
     by: Attribution<'_>,
-) -> Result<(), StoreError> {
+) -> Result<Option<u32>, StoreError> {
     let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
     queue_stored(&tx)?;
     admit(entry, standing(&tx, entry)?, command)?;
     let position = apply(&tx, entry, command)?;
     record(&tx, entry, command.word(), position, by)?;
     tx.commit()?;
-    Ok(())
+    Ok(position)
 }
 
 /// Carry out an admitted command on `entry`, and say the place a move
@@ -481,12 +481,18 @@ impl Store {
     /// Move, hold, release or drop an entry, journaling the command. The
     /// check and the write are one `Immediate` transaction, so a peer's
     /// command between them cannot slip past the refusal.
+    ///
+    /// Returns the place the command journaled: `Some` with the place a
+    /// move left the entry holding, which priority can make other than
+    /// the place asked, and `None` for a hold, a release or a drop. It is
+    /// the same transaction's, so a caller never reads it back after a
+    /// peer's command may have moved it.
     pub fn queue_command(
         &mut self,
         entry: EntryId,
         command: QueueCommand,
         by: Attribution<'_>,
-    ) -> Result<(), StoreError> {
+    ) -> Result<Option<u32>, StoreError> {
         let conn = &mut self.conn;
         patiently("queue_command", self.patience, &self.path, || {
             command_once(conn, entry, command, by)
