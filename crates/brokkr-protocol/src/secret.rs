@@ -256,9 +256,15 @@ fn checked_refs(text: &str) -> Result<Vec<String>, ReferenceRefusal<'_>> {
 }
 
 /// The text a refused reference name quotes: from its `{{` through two
-/// bytes past the name, or the end of `text`.
+/// bytes past the name, or the end of `text`, rounded up to the next
+/// character boundary so a multibyte character there is quoted whole
+/// rather than split. `text.len()` is a boundary, so the loop ends.
 fn quoted_reference(text: &str, at: usize, name_end: usize) -> &str {
-    &text[at - 2..(name_end + 2).min(text.len())]
+    let mut end = (name_end + 2).min(text.len());
+    while !text.is_char_boundary(end) {
+        end += 1;
+    }
+    &text[at - 2..end]
 }
 
 // ---------------------------------------------------------------------

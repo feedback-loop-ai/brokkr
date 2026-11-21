@@ -58,7 +58,7 @@ fn each_reference_check_refuses_in_its_own_variant() {
     }
     for (text, name) in [
         (reference("NAME", ""), "NAME"),
-        (reference("NAMe", "}}"), "NAM"),
+        (reference("GH_TOKENs", "}}"), "GH_TOKEN"),
     ] {
         assert_eq!(
             checked_refs(&text),
@@ -153,11 +153,36 @@ fn every_secret_refusal_reads_as_it_always_has() {
              {{secret:NAME}} with NAME matching [A-Z][A-Z0-9_]*",
         ),
         (
-            "{{secret:NAMe}}",
-            "malformed secret reference '{{secret:NAM': missing the closing \
+            "{{secret:GH_TOKENs}}",
+            "malformed secret reference '{{secret:GH_TOKEN': missing the closing \
              '}}' (or the name continues with characters outside [A-Z0-9_])",
         ),
     ] {
         assert_eq!(scan_secret_refs(template), Err(text.to_string()));
     }
+}
+
+/// A refused name's quote ends two bytes past the name, rounded up to the
+/// next character boundary, so a multibyte character there is quoted
+/// whole instead of panicking the scanner.
+#[test]
+fn a_multibyte_character_after_a_refused_name_is_quoted_whole() {
+    for (text, quoted) in [
+        (reference("€", "}}"), "{{secret:€"),
+        (reference("a€", ""), "{{secret:a€"),
+        (reference("9€", "}}"), "{{secret:9€"),
+        (reference("é", "}}"), "{{secret:é"),
+    ] {
+        assert_eq!(
+            checked_refs(&text),
+            Err(ReferenceRefusal::Name { quoted }),
+            "{text}"
+        );
+    }
+    assert_eq!(
+        scan_secret_refs("{{secret:€}}"),
+        Err("malformed secret reference '{{secret:€': expected \
+             {{secret:NAME}} with NAME matching [A-Z][A-Z0-9_]*"
+            .to_string())
+    );
 }
