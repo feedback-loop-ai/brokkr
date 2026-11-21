@@ -183,6 +183,22 @@ pub enum BodyRefusal {
         step: String,
         word: String,
     },
+    /// A protected sequence's step before its first gate step may end the
+    /// sequence on a hard word the seat's results do not declare. decide
+    /// refuses a word outside the seat's results before it reads the stop,
+    /// so that ending parks on every pass (decision 0050 ruling 7; 1221a2's
+    /// review, L1).
+    #[error(
+        "seat '{seat}' is the protected phase's, and its sequence step '{step}' runs before its \
+         first gate step yet may end the sequence on '{word}', a stop the seat's results do not \
+         declare; decide refuses a word outside the seat's results, so the engine can never \
+         take that ending (decision 0050 ruling 7): declare '{word}' in the seat's results"
+    )]
+    PreGateUndeclared {
+        seat: String,
+        step: String,
+        word: String,
+    },
 }
 
 impl Aggregate {

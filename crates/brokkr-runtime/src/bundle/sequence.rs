@@ -430,7 +430,7 @@ pub(super) fn stamp_endings(
         SeatBody::Sequence { steps } => {
             stamp_sequence(machine, bundle, phase, seat_results, steps)?;
             match protected {
-                true => refuse_pre_gate_ending(phase, steps),
+                true => refuse_pre_gate_ending(phase, seat_results, steps),
                 false => Ok(()),
             }
         }
@@ -448,21 +448,34 @@ pub(super) fn stamp_endings(
 }
 
 /// Refuse a protected sequence whose step before its first gate step may
-/// end the sequence on a word that is not one of its compiled hard words:
-/// that ending journals no gate record and stops nothing, so decide could
-/// only refuse it (#1212 L1). A hard word there is a stop, which decide
-/// takes; a sequence with no gate step decides on its terminal.
-fn refuse_pre_gate_ending(seat: &str, steps: &[SequenceStep]) -> Result<(), CompileError> {
+/// end the sequence on a word the engine can never take there:
+/// - a word that is not one of its compiled hard words, which journals no
+///   gate record and stops nothing, so decide could only refuse it (#1212
+///   L1);
+/// - a hard word the seat's results do not declare, which decide refuses
+///   as outside the seat's results before it reads the stop (1221a2's
+///   review, L1).
+///
+/// A declared hard word there is a stop, which decide takes; a sequence
+/// with no gate step decides on its terminal.
+fn refuse_pre_gate_ending(
+    seat: &str,
+    seat_results: &[String],
+    steps: &[SequenceStep],
+) -> Result<(), CompileError> {
     let Some(first_gate) = steps.iter().position(|step| step.class == SeatClass::Gate) else {
         return Ok(());
     };
     for step in &steps[..first_gate] {
-        let soft = (step.ends_on.iter()).find(|word| !step.hard_results.contains(word));
-        if let Some(word) = soft {
-            return Err(CompileError::Body(BodyRefusal::PreGateEnding {
-                seat: seat.to_string(),
-                step: step.name.clone(),
-                word: word.clone(),
+        for word in &step.ends_on {
+            let hard = step.hard_results.contains(word);
+            if hard && seat_results.contains(word) {
+                continue;
+            }
+            let (seat, step, word) = (seat.to_string(), step.name.clone(), word.clone());
+            return Err(CompileError::Body(match hard {
+                false => BodyRefusal::PreGateEnding { seat, step, word },
+                true => BodyRefusal::PreGateUndeclared { seat, step, word },
             }));
         }
     }
