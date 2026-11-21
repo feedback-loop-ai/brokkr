@@ -15,6 +15,7 @@ use thiserror::Error;
 
 use super::resume::SiteContext;
 use super::Engine;
+use crate::agents::kinds::SeatKinds;
 use crate::bundle::Seat;
 use crate::bundle::{ExecutableBody, SeatClass, SequenceStep};
 
@@ -518,6 +519,18 @@ pub(crate) struct Admitted {
 }
 
 impl Admitted {
+    /// This admission judged by `kinds`, the harness of `seat`, the seat
+    /// that wrote it (decision 0075 ruling 2): only a result this
+    /// admission admitted is judged, so a result it refused keeps its
+    /// refusal and its words (the controller's ruling R7 of 2026-11-21).
+    /// A result naming a kind the harness does not declare is refused,
+    /// and hands back no findings.
+    pub(super) fn kinds_judged(self, kinds: &SeatKinds, seat: &str) -> Admitted {
+        let report = kinds.refused(seat, self.report);
+        let findings = self.findings.filter(|_| report.refused.is_none());
+        Admitted { report, findings }
+    }
+
     /// The report the journal records: its successful result carrying
     /// the stamped findings it was admitted with.
     pub(super) fn journaled(mut self) -> AttemptReport {

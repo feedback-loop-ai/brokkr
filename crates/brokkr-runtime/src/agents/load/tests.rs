@@ -44,13 +44,18 @@ fn refusals<T: std::fmt::Debug>(
 }
 
 /// Each row's refusal from `Adapters::load`, over an adapter that loads.
-fn adapter_refusals(rows: &[(Value, &str)]) -> (Vec<String>, Vec<String>) {
-    let loadable = json!({
+/// The smallest claude adapter that loads.
+fn loadable_adapter() -> Value {
+    json!({
         "effort_flag": "--effort", "efforts": ["high"], "model_flag": "--model",
         "models": {"opus": "claude-opus-5"}, "mcp": "unsupported", "provider": "claude",
         "tool_permissions": "unsupported", "binary": "claude",
         "driver": ["{brokkr}", "driver", "claude", "--"],
-    });
+    })
+}
+
+fn adapter_refusals(rows: &[(Value, &str)]) -> (Vec<String>, Vec<String>) {
+    let loadable = loadable_adapter();
     refusals(rows, ("claude.json", &loadable), Adapters::load, |path| {
         format!("adapter 'claude' ({})", path.display())
     })
@@ -302,21 +307,39 @@ fn a_record_kinds_declaration_refuses_every_other_shape() {
             json!({"record_kinds": {"transcript": "trellis-trail", "root_session": "none"}}),
             format!("{{what}} 'record_kinds' 'root_session' {kind_rule}"),
         ),
-        // A root session kind with no `resume` member at all: a rejoin is
-        // declared, never defaulted (decision 0075 ruling 1).
-        (
-            json!({"record_kinds": {"transcript": "trellis-trail",
-                                    "root_session": "trellis-thread"}}),
-            "{what} 'record_kinds' declares a 'root_session' kind and the adapter declares no \
-             'resume'; a rejoin is declared, never defaulted (decision 0075 ruling 1)"
-                .to_string(),
-        ),
     ];
     let rows: Vec<(Value, &str)> = (rows.iter())
         .map(|(patch, text)| (patch.clone(), text.as_str()))
         .collect();
     let (observed, expected) = adapter_refusals(&rows);
     assert_eq!(observed, expected);
+}
+
+/// A root session kind with no `resume` member at all is refused by its
+/// own variant, naming the adapter: a rejoin is declared, never defaulted
+/// (decision 0075 ruling 1; the controller's ruling R6). Its text is
+/// pinned once, here.
+#[test]
+fn a_root_session_kind_without_a_resume_is_refused_by_its_own_variant() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut adapter = loadable_adapter();
+    adapter["record_kinds"] =
+        json!({"transcript": "trellis-trail", "root_session": "trellis-thread"});
+    let path = dir.path().join("claude.json");
+    std::fs::write(&path, adapter.to_string()).unwrap();
+    let refusal = Adapters::load(dir.path()).unwrap_err();
+    let named = format!("adapter 'claude' ({})", path.display());
+    assert!(
+        matches!(&refusal, LibraryError::RootWithoutResume { adapter } if *adapter == named),
+        "{refusal:?}"
+    );
+    assert_eq!(
+        refusal.to_string(),
+        format!(
+            "{named} 'record_kinds' declares a 'root_session' kind and the adapter declares no \
+             'resume'; a rejoin is declared, never defaulted (decision 0075 ruling 1)"
+        )
+    );
 }
 
 #[test]

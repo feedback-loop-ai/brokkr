@@ -655,6 +655,17 @@ impl ResumeShape {
             "reason": self.reason,
         })
     }
+
+    /// Whether this shape was measured for a site of `class` standing
+    /// under `boundary` with `hands`: the class among its `classes`, the
+    /// boundary among its `boundaries`, and its `hands` the site's. The
+    /// same three facts, in the same words, that the engine writes into
+    /// the driver's input and the driver's resume gate matches (proposed
+    /// decision 0056 ruling 5; the controller's ruling R4 of 2026-11-21).
+    pub(crate) fn covers(&self, class: &str, boundary: &str, hands: &str) -> bool {
+        let names = |words: &[String], word: &str| words.iter().any(|named| named == word);
+        names(&self.classes, class) && names(&self.boundaries, boundary) && self.hands == hands
+    }
 }
 
 /// One adapter's whole resume assessment: named shape → what is known

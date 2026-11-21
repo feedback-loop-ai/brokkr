@@ -4,10 +4,11 @@
 //! grammar; the engine's writer, here, refuses a kind the seat's own
 //! harness does not declare. Readers judge a record by the schema alone.
 //!
-//! A seat's harness is its adapter (the selected candidate's provider, or
-//! the adapter an inline built-in driver names) and the built-in driver
-//! that adapter runs. Each adapter is judged apart: loading another
-//! adapter changes no seat's admission (the controller's ruling Q1 of
+//! A seat's harness is the built-in driver its own command runs and the
+//! adapter its site answers to (the selected candidate's provider, or the
+//! adapter the compile pins for an inline model-bearing built-in driver).
+//! Each adapter is judged apart: loading another adapter changes no
+//! seat's admission (the controller's rulings Q1, R1 and R3 of
 //! 2026-11-21).
 
 use std::collections::BTreeMap;
@@ -18,8 +19,9 @@ use serde::de::IgnoredAny;
 use serde::Deserialize;
 use serde_json::Value;
 
-use super::{Adapter, Adapters, ResumeStatus};
+use super::{Adapter, Adapters, ResumeShape, ResumeStatus};
 use crate::argv::Dispatch;
+use crate::bundle::built_in_model_driver;
 
 /// The longest kind seat-record v8 admits.
 const KIND_LIMIT: usize = 40;
@@ -97,73 +99,96 @@ pub struct RecordKinds {
     pub(crate) root_session: Option<String>,
 }
 
-/// What one seat's harness declares: its adapter's `record_kinds`, the
-/// built-in driver it runs, and whether its adapter declares a `resume`
-/// shape for a work site that is not `unsupported`. A seat with neither a
-/// declaration nor a built-in driver — a raw command no adapter declares
-/// kinds for — keeps v7's closed vocabulary, which is what it could write
-/// before v8.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// What one seat's harness declares (the controller's rulings R1 to R3 of
+/// 2026-11-21): the adapter its site answers to, where it answers to one,
+/// and the built-in driver the seat's own command runs, read from the
+/// argv the site spawns and never from an adapter. A site that answers to
+/// no adapter — an inline raw command, an inline exec site, a site no
+/// plan covers — keeps v7's closed vocabulary, which is what it could
+/// write before v8: no adapter exists to hold a declaration for it.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct SeatKinds {
-    declared: Option<RecordKinds>,
+    adapter: Option<AdapterKinds>,
     driver: Option<AdapterKind>,
-    rejoins_work: bool,
+}
+
+/// What one adapter adds to a seat's harness: its `record_kinds`, and the
+/// shapes of its `resume` that are not `unsupported`. Never a driver.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct AdapterKinds {
+    declared: Option<RecordKinds>,
+    resumable: Vec<ResumeShape>,
+}
+
+impl AdapterKinds {
+    fn of(adapter: &Adapter) -> AdapterKinds {
+        let shapes = adapter.resume.0.values();
+        let resumable = shapes.filter(|shape| shape.status != ResumeStatus::Unsupported);
+        AdapterKinds {
+            declared: adapter.record_kinds.clone(),
+            resumable: resumable.cloned().collect(),
+        }
+    }
 }
 
 /// The harness of a site no plan covers, which spawns no driver of a
-/// harness: v7's closed vocabulary.
+/// harness and answers to no adapter: v7's closed vocabulary.
 pub(crate) static UNDECLARED: SeatKinds = SeatKinds {
-    declared: None,
+    adapter: None,
     driver: None,
-    rejoins_work: false,
 };
 
-impl Default for SeatKinds {
-    fn default() -> Self {
-        UNDECLARED.clone()
-    }
+/// What stands at one site, in the words the engine writes into its
+/// driver's input as `boundary` and `hands` (decision 0046 ruling 3,
+/// decision 0043) and the driver's resume gate matches against the shape
+/// it rejoins under. A site whose boundary or hands the engine cannot
+/// state has no standing, and is offered no root of a new kind.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Standing {
+    pub(crate) boundary: &'static str,
+    pub(crate) hands: &'static str,
 }
 
 impl SeatKinds {
-    fn of(adapter: &Adapter) -> SeatKinds {
-        let shapes = adapter.resume.0.values();
-        SeatKinds {
-            declared: adapter.record_kinds.clone(),
-            driver: built_in(&adapter.driver),
-            rejoins_work: shapes
-                .filter(|shape| shape.status != ResumeStatus::Unsupported)
-                .any(|shape| shape.classes.iter().any(|class| class == "work")),
-        }
-    }
-
     fn declares(&self, member: Member, kind: &str) -> bool {
         if member.is_transcript() && kind == NONE {
             return true;
         }
-        let Some(declared) = &self.declared else {
-            return match self.driver {
-                Some(driver) => driver_kind(driver) == Some(kind),
-                None => driver_kinds().contains(&kind),
-            };
+        let Some(adapter) = &self.adapter else {
+            return driver_kinds().contains(&kind);
         };
-        let named = match member.is_transcript() {
+        let declared = adapter.declared.as_ref();
+        let named = declared.and_then(|declared| match member.is_transcript() {
             true => Some(declared.transcript.as_str()),
             false => declared.root_session.as_deref(),
-        };
+        });
         named == Some(kind) || self.driver.and_then(driver_kind) == Some(kind)
     }
 
-    /// Whether a work site of this harness may be offered a root of
-    /// `kind` (the controller's ruling Q3 of 2026-11-21): one of the three
-    /// kinds a built-in driver writes, as today; otherwise only the root
-    /// session kind this harness's adapter declares, where that adapter
-    /// declares a resume for a work site that is not `unsupported`.
-    pub(crate) fn rejoins(&self, kind: &str) -> bool {
+    /// Whether this harness's adapter declares its kinds (`record_kinds`),
+    /// so its only road to an offer is its declared root session kind and
+    /// never decision 0030's flat session id (the controller's ruling R5).
+    pub(crate) fn declares_its_kinds(&self) -> bool {
+        (self.adapter.as_ref()).is_some_and(|adapter| adapter.declared.is_some())
+    }
+
+    /// Whether a work site of this harness standing at `standing` may be
+    /// offered a root of `kind` (the controller's ruling R4 of
+    /// 2026-11-21): one of the three kinds a built-in driver writes, as
+    /// today; otherwise only the root session kind this harness's adapter
+    /// declares, where a shape of that adapter's resume that is not
+    /// `unsupported` covers the site. Unknown standing declines.
+    pub(crate) fn rejoins(&self, kind: &str, standing: Option<Standing>) -> bool {
         if driver_kinds().contains(&kind) {
             return true;
         }
-        let declared = self.declared.as_ref();
-        self.rejoins_work && declared.and_then(|kinds| kinds.root_session.as_deref()) == Some(kind)
+        let (Some(adapter), Some(standing)) = (&self.adapter, standing) else {
+            return false;
+        };
+        let declared = adapter.declared.as_ref();
+        declared.and_then(|kinds| kinds.root_session.as_deref()) == Some(kind)
+            && (adapter.resumable.iter())
+                .any(|shape| shape.covers("work", standing.boundary, standing.hands))
     }
 
     /// `record`, which seat `seat` wrote, refused when one of its places
@@ -219,38 +244,35 @@ fn built_in(argv: &[String]) -> Option<AdapterKind> {
     }
 }
 
-/// Each loaded adapter's harness, by provider. The built-in drivers' kinds
-/// are declared by the drivers that write them ([`driver_kind`]) and are
-/// never held in an adapter, so no shipped adapter carries them.
+/// What each loaded adapter adds to a seat's harness, by provider. The
+/// built-in drivers' kinds are declared by the drivers that write them
+/// ([`driver_kind`]) and are never held in an adapter, so no shipped
+/// adapter carries them.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct DeclaredKinds(BTreeMap<String, SeatKinds>);
+pub struct DeclaredKinds(BTreeMap<String, AdapterKinds>);
 
 impl DeclaredKinds {
-    /// Every adapter's harness; nothing when no library was loaded.
+    /// Every adapter's declarations; nothing when no library was loaded.
     pub(crate) fn of(adapters: Option<&Adapters>) -> DeclaredKinds {
         let adapters = adapters.into_iter().flat_map(Adapters::providers);
         DeclaredKinds(
             adapters
-                .map(|adapter| (adapter.provider.clone(), SeatKinds::of(adapter)))
+                .map(|adapter| (adapter.provider.clone(), AdapterKinds::of(adapter)))
                 .collect(),
         )
     }
 
     /// The harness of a site that spawns `argv`, for `provider` where a
-    /// candidate was selected: that provider's adapter, else the adapter
-    /// an inline built-in driver names, else the built-in driver alone.
+    /// candidate was selected (the controller's rulings R1 and R3): the
+    /// built-in driver `argv` runs, beside the selected provider's
+    /// adapter, or, at an inline site, the adapter the compile pins for
+    /// that site's model-bearing built-in driver ([`built_in_model_driver`])
+    /// and no other. Inline exec and an inline raw command answer to none.
     pub(crate) fn seat(&self, provider: Option<&str>, argv: &[String]) -> SeatKinds {
-        let driver = built_in(argv);
-        let named = provider.or_else(|| match Dispatch::of(argv) {
-            Dispatch::Driver { kind, .. } => driver.map(|_| kind),
-            Dispatch::Raw => None,
-        });
-        match named.and_then(|provider| self.0.get(provider)) {
-            Some(kinds) => kinds.clone(),
-            None => SeatKinds {
-                driver,
-                ..SeatKinds::default()
-            },
+        let pinned = provider.or_else(|| built_in_model_driver(argv));
+        SeatKinds {
+            adapter: pinned.and_then(|provider| self.0.get(provider)).cloned(),
+            driver: built_in(argv),
         }
     }
 }

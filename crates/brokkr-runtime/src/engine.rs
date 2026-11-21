@@ -1253,6 +1253,7 @@ impl Engine {
                         .map(|link| link.provider.as_str()),
                     argv_for(selection, &entry.site, &entry.command),
                 ),
+                self.marks().standing(&label),
             );
             let offer = offer_for_site(
                 events,
@@ -1625,10 +1626,10 @@ impl Engine {
                 sink.offer_live("", checkpoint, call, stamp.as_ref(), declared);
             },
         )?;
-        let report = kinds.refused(driver_seat, report);
         let report = self.folded([effect_id, attempt_id, driver_seat], spawn, begun, report)?;
+        let admitted = verdict::admitted(report, stamp.as_ref());
         Ok(DriverRun::Ran(
-            verdict::admitted(report, stamp.as_ref()).journaled(),
+            admitted.kinds_judged(kinds, driver_seat).journaled(),
         ))
     }
 

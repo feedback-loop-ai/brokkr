@@ -46,28 +46,51 @@ fn argv(words: &[&str]) -> Vec<String> {
     words.iter().map(ToString::to_string).collect()
 }
 
-/// Two fixture harnesses on raw drivers, each declaring its own kinds,
-/// beside the shipped LaneTally harness, which declares none and runs its
-/// built-in driver.
+/// Two fixture adapters, each declaring its own kinds, beside two that
+/// declare none: the shipped LaneTally adapter and `plain`, a fixture
+/// whose seats run a raw command.
 fn loaded() -> DeclaredKinds {
-    let fixture = |transcript: &str, root: &str| SeatKinds {
-        declared: Some(RecordKinds {
+    let adapter = |declared: Option<RecordKinds>| AdapterKinds {
+        declared,
+        resumable: Vec::new(),
+    };
+    let fixture = |transcript: &str, root: &str| {
+        adapter(Some(RecordKinds {
             transcript: transcript.into(),
             root_session: Some(root.into()),
-        }),
-        driver: None,
-        rejoins_work: false,
-    };
-    let lanetally = SeatKinds {
-        driver: Some(AdapterKind::Lanetally),
-        ..SeatKinds::default()
+        }))
     };
     DeclaredKinds(BTreeMap::from([
         ("trellis".into(), fixture("trellis-trail", "trellis-thread")),
         ("arbor".into(), fixture("arbor-log", "arbor-root")),
-        ("lanetally".into(), lanetally),
+        ("lanetally".into(), adapter(None)),
+        ("plain".into(), adapter(None)),
     ]))
 }
+
+/// The adapters `adapters` loaded from files, as a compile loads them.
+fn loaded_from(adapters: &[Value]) -> DeclaredKinds {
+    let dir = tempfile::tempdir().unwrap();
+    for adapter in adapters {
+        let name = format!("{}.json", adapter["provider"].as_str().unwrap());
+        std::fs::write(dir.path().join(name), adapter.to_string()).unwrap();
+    }
+    DeclaredKinds::of(Some(&Adapters::load(dir.path()).unwrap()))
+}
+
+/// A loadable adapter of `provider` whose configured driver is `driver`,
+/// with `extra` beside it.
+fn adapter_file(provider: &str, driver: &[&str], extra: Value) -> Value {
+    let mut adapter = json!({"provider": provider, "trust_tier": "trusted",
+        "egress": "contracted", "binary": "sh", "driver": driver,
+        "models": {provider: format!("{provider}-1")}, "model_flag": "--model",
+        "efforts": ["high"], "effort_flag": "--effort",
+        "tool_permissions": "unsupported", "mcp": "unsupported"});
+    (adapter.as_object_mut().unwrap()).extend(extra.as_object().unwrap().clone());
+    adapter
+}
+
+const BUILT_IN: [&str; 3] = ["claude-session", "codex-thread", "dsh-session"];
 
 fn record(transcript: &str, root: &str) -> Value {
     json!({"step": "s", "transcript": {"kind": transcript}, "root_session": {"kind": root}})
@@ -244,19 +267,68 @@ fn every_place_a_record_names_a_kind_is_read() {
     assert_eq!(trellis.admit(&declared, "work"), Ok(()));
 }
 
-/// A root of one of the three kinds a built-in driver writes rejoins as
-/// today; any other only where the harness declares it as its root
-/// session kind and declares a resume for a work site that is not
-/// `unsupported` (the controller's ruling Q3).
+/// The driver is the one the seat's own command runs (the controller's
+/// ruling R1): an inline codex seat beside a `codex` adapter whose
+/// configured driver dispatches claude records codex's kind, and never
+/// claude's.
 #[test]
-fn a_new_root_kind_rejoins_only_where_its_harness_declares_a_resume() {
-    let mut trellis = loaded().seat(Some("trellis"), &argv(&["sh"]));
-    for kind in ["claude-session", "codex-thread", "dsh-session"] {
-        assert!(trellis.rejoins(kind), "{kind}");
+fn a_seats_driver_is_the_one_its_own_command_runs_never_its_adapters() {
+    let claude_driver = ["{brokkr}", "driver", "claude", "--"];
+    let loaded = loaded_from(&[adapter_file("codex", &claude_driver, json!({}))]);
+    let codex = loaded.seat(None, &argv(&["{brokkr}", "driver", "codex", "--"]));
+    let thread = record("codex-thread", "codex-thread");
+    assert_eq!(codex.admit(&thread, "work"), Ok(()));
+    for (record, member) in [
+        (record("claude-session", "codex-thread"), Member::Transcript),
+        (
+            record("codex-thread", "claude-session"),
+            Member::RootSession,
+        ),
+    ] {
+        let judged = codex.admit(&record, "work");
+        assert_eq!(judged, refused(member, "claude-session"), "{record}");
     }
-    assert!(!trellis.rejoins("trellis-thread"));
-    trellis.rejoins_work = true;
-    assert!(trellis.rejoins("trellis-thread"));
-    assert!(!trellis.rejoins("trellis-trail"));
-    assert!(!trellis.rejoins("arbor-root"));
+}
+
+/// An adapter that declares no kinds grants none (the controller's ruling
+/// R2): a seat of `plain`, whose command is raw, is refused each of the
+/// three built-in kinds, as a transcript kind and as a root session kind,
+/// and records `none`.
+#[test]
+fn an_adapter_that_declares_no_kinds_grants_none() {
+    let plain = loaded().seat(Some("plain"), &argv(&["sh", "-c", "true"]));
+    for kind in BUILT_IN {
+        let transcript = json!({"step": "s", "transcript": {"kind": kind}});
+        let judged = plain.admit(&transcript, "work");
+        assert_eq!(judged, refused(Member::Transcript, kind));
+        let root = json!({"step": "s", "root_session": {"kind": kind}});
+        let judged = plain.admit(&root, "work");
+        assert_eq!(judged, refused(Member::RootSession, kind));
+    }
+    let none = json!({"step": "s", "transcript": {"kind": "none"}});
+    assert_eq!(plain.admit(&none, "work"), Ok(()));
+    assert!(!plain.declares_its_kinds());
+}
+
+/// Which adapter a site answers to (the controller's ruling R3): an inline
+/// exec site consults none, so a loaded `exec` adapter's declaration buys
+/// it nothing; an inline raw command answers to none and keeps v7's three
+/// kinds, and no fourth.
+#[test]
+fn an_inline_exec_site_and_a_raw_command_answer_to_no_adapter() {
+    let exec_driver = ["{brokkr}", "driver", "exec", "--"];
+    let declares = json!({"record_kinds": {"transcript": "exec-log"}});
+    let loaded = loaded_from(&[adapter_file("exec", &exec_driver, declares)]);
+    let exec = loaded.seat(None, &argv(&exec_driver));
+    let log = json!({"step": "s", "transcript": {"kind": "exec-log"}});
+    let judged = exec.admit(&log, "work");
+    assert_eq!(judged, refused(Member::Transcript, "exec-log"));
+    assert!(!exec.declares_its_kinds());
+    let raw = loaded.seat(None, &argv(&["sh", "-c", "true"]));
+    for kind in BUILT_IN {
+        assert_eq!(raw.admit(&record(kind, kind), "work"), Ok(()), "{kind}");
+    }
+    let fourth = record("exec-log", "codex-thread");
+    let judged = raw.admit(&fourth, "work");
+    assert_eq!(judged, refused(Member::Transcript, "exec-log"));
 }

@@ -18,6 +18,7 @@ use serde_json::{json, Value};
 use super::resume::{self, SiteContext, SiteKey};
 use super::tests::git_commit;
 use super::{Engine, ENGINE_VERSION};
+use crate::agents::kinds::Standing;
 use crate::agents::{Adapters, DeclaredKinds};
 use crate::bundle::{Bundle, SeatClass};
 
@@ -55,14 +56,18 @@ fn once(checkpoint: Value, result: Value) -> Vec<Visit> {
 }
 
 /// A fake driver that logs every message it is sent to `dir/log` and plays
-/// `visits` one per invocation, the last repeating. It declares it can
-/// receive a resume, so what the engine offers is read off the wire.
+/// `visits` one per invocation, the last repeating; a panel's `judge`
+/// member always plays the first and its `second` member the second. It
+/// declares it can receive a resume, so what the engine offers is read
+/// off the wire.
 fn driver(dir: &Path, visits: &[Visit]) -> String {
     std::fs::create_dir_all(dir).unwrap();
     for n in 1..=2 {
         let visit = &visits[(n - 1).min(visits.len() - 1)];
-        let rows: Vec<String> = (visit.checkpoints.iter()).map(Value::to_string).collect();
-        std::fs::write(dir.join(format!("{n}.rows")), rows.join("\n") + "\n").unwrap();
+        let rows: String = (visit.checkpoints.iter())
+            .map(|row| format!("{row}\n"))
+            .collect();
+        std::fs::write(dir.join(format!("{n}.rows")), rows).unwrap();
         let end = match &visit.result {
             Some(result) => format!(r#""status":"succeeded","result":{result},"error":null"#),
             None => r#""status":"failed","error":"a first look""#.to_string(),
@@ -76,6 +81,7 @@ n=$(cat '{at}/count' 2>/dev/null || echo 0); n=$((n+1)); printf '%s' "$n" > '{at
 read -r hello
 printf '%s\n' '{{"proto":"forge-driver/v1","msg_id":"cap","type":"capabilities","driver":"trellis","version":"1","supports":["resume"]}}'
 while read -r line; do printf '%s\n' "$line" >> '{at}/log'; case "$line" in *'"type":"start"'*) break ;; esac; done
+case "$line" in *'"seat":"work:judge"'*) n=1 ;; *'"seat":"work:second"'*) n=2 ;; esac
 eid=$(printf '%s' "$line" | sed -n 's/.*"effect_id":"\([^"]*\)".*/\1/p')
 aid=$(printf '%s' "$line" | sed -n 's/.*"attempt_id":"\([^"]*\)".*/\1/p')
 head='{{"proto":"forge-driver/v1","msg_id":"m","effect_id":"'"$eid"'","attempt_id":"'"$aid"'"'
@@ -99,10 +105,20 @@ fn write(path: &Path, value: &Value) {
     std::fs::write(path, serde_json::to_vec_pretty(value).unwrap()).unwrap();
 }
 
-/// A `resume` declaration of one work shape, `supported` or `unsupported`.
+/// A `resume` declaration of one work shape, `supported` or `unsupported`,
+/// measured where the trellis seat stands: no hands.
 fn resume_declared(supported: bool) -> Value {
-    let mut shape = json!({"classes": ["work"], "boundaries": ["not applicable"],
-                           "hands": "none"});
+    resume_shaped(supported, NO_HANDS)
+}
+
+/// Where a site without hands stands, as the engine writes it into the
+/// driver's input: its boundary and its hands.
+const NO_HANDS: (&str, &str) = ("not applicable", "none");
+
+/// A `resume` declaration of one work shape, `supported` or `unsupported`,
+/// measured under `boundary` with `hands`.
+fn resume_shaped(supported: bool, (boundary, hands): (&str, &str)) -> Value {
+    let mut shape = json!({"classes": ["work"], "boundaries": [boundary], "hands": hands});
     let measured = json!({"status": "supported",
         "identity": {"version": "1.0.0", "applies_to": "1.0.0"},
         "evidence": {"interface": "fixture", "restrictions": "fixture", "root": "fixture",
@@ -140,9 +156,23 @@ fn fixture_adapters(adapters: &Path, script: &str, resume: &Value) {
     );
 }
 
-/// A bundle whose `work` seat hires the trellis agent, may try twice, and
-/// whose adapter invokes `script` and declares `resume`.
-fn trellis_bundle(dir: &Path, script: &str, resume: &Value) -> Bundle {
+/// The `work` seat: it hires the trellis agent and may try twice.
+fn single_seat() -> Value {
+    json!({"results": ["complete"], "class": "work", "agent": "trellis",
+           "limits": {"max_attempts": 2}})
+}
+
+/// A `work` panel of two members, `judge` and `second`, each hiring the
+/// trellis agent, so each plays the same visit.
+fn panel_seat() -> Value {
+    let member = json!({"agent": "trellis", "class": "work"});
+    json!({"results": ["pass", "fail"], "aggregate": "unanimous-pass",
+           "panel": {"judge": member, "second": member}})
+}
+
+/// A bundle whose `work` seat is `seat`, and whose trellis adapter
+/// invokes `script` and declares `resume`.
+fn trellis_bundle(dir: &Path, script: &str, resume: &Value, seat: &Value) -> Bundle {
     let (bundle, agents, adapters) = (dir.join("bundle"), dir.join("agents"), dir.join("adapters"));
     for made in [bundle.clone(), agents.join("charters")] {
         std::fs::create_dir_all(made).unwrap();
@@ -157,21 +187,20 @@ fn trellis_bundle(dir: &Path, script: &str, resume: &Value) -> Bundle {
     // The work seat is the trellis seat; the protected review after it
     // names a driver that never spawns, so the run stops there.
     let rule = |from: &str, result: &str, next: &str| {
-        json!({"id": from.to_uppercase(), "from": from, "result": result, "next": next,
+        json!({"id": format!("{from}-{result}").to_uppercase(), "from": from, "result": result, "next": next,
                "reason": format!("{from} said {result}")})
     };
-    let rules = [
-        rule("work", "complete", "review"),
-        rule("review", "clean", "done"),
-    ];
+    let results = seat["results"].as_array().unwrap().iter();
+    let mut rules: Vec<Value> = results
+        .map(|result| rule("work", result.as_str().unwrap(), "review"))
+        .collect();
+    rules.push(rule("review", "clean", "done"));
     write(
         &bundle.join("policy.json"),
         &json!({"schema": "forge.phase-machine/v1", "phases": ["work", "review", "done"],
                 "initial": "work", "terminal": ["done"], "shippable_from": ["review"],
                 "rules": rules}),
     );
-    let seat = json!({"results": ["complete"], "class": "work", "agent": "trellis",
-                      "limits": {"max_attempts": 2}});
     let review = json!({"results": ["clean"], "class": "work", "role": "trellis.md",
                         "driver": {"command": ["no-such-review-driver"]}});
     std::fs::write(bundle.join("trellis.md"), "# review\n").unwrap();
@@ -190,12 +219,23 @@ fn seated_with(
     visits: &[Visit],
     resume: &Value,
 ) -> (Store, String, Vec<EventEnvelope>) {
+    seated_as(dir, visits, resume, &single_seat())
+}
+
+/// The run of the `work` seat `seat` through `visits`, as
+/// [`seated_with`].
+fn seated_as(
+    dir: &Path,
+    visits: &[Visit],
+    resume: &Value,
+    seat: &Value,
+) -> (Store, String, Vec<EventEnvelope>) {
     let repo = dir.join("repo");
     std::fs::create_dir(&repo).unwrap();
     git_commit(&repo, "base");
     let store = Store::open(&dir.join("forge.db")).unwrap();
     let script = driver(&dir.join("driver"), visits);
-    let bundle = trellis_bundle(dir, &script, resume);
+    let bundle = trellis_bundle(dir, &script, resume, seat);
     let mut engine = Engine::start(store, bundle, "trellis", Some(repo)).unwrap();
     engine.drive().unwrap();
     let events = engine.store.load(&engine.run_id).unwrap();
@@ -221,6 +261,13 @@ fn first_ending(events: &[EventEnvelope]) -> (EventType, &Value) {
     });
     let ending = ending.expect("the work seat's attempt ended");
     (ending.event_type, &ending.payload)
+}
+
+/// That the work seat's first attempt failed on exactly `error`.
+fn failed_with(events: &[EventEnvelope], error: &str) {
+    let (ended, payload) = first_ending(events);
+    let failed = (ended, payload["error"].as_str());
+    assert_eq!(failed, (EventType::EffectFailed, Some(error)), "{payload}");
 }
 
 /// The transcript cells the view renders for the run's seats, each its
@@ -353,32 +400,49 @@ fn a_kind_the_seats_harness_does_not_declare_is_refused_wherever_it_is_named() {
     ] {
         let dir = tempfile::tempdir().unwrap();
         let (_store, _run, events) = seated(dir.path(), &once(row, result));
-        let (ended, payload) = first_ending(&events);
-        assert_eq!(
-            (ended, payload["error"].as_str()),
-            (
-                EventType::EffectFailed,
-                Some(refusal(member, kind).as_str())
-            ),
-            "{payload}"
-        );
+        failed_with(&events, &refusal(member, kind));
         let journaled = serde_json::to_string(&of(&events, EventType::EffectCheckpointed)).unwrap();
         assert!(!journaled.contains(kind), "{journaled}");
     }
 }
 
+/// What the retry of a failed first attempt was sent: the second start's
+/// private `owned_target`, the `Body::Resume` sent before it, if any, and
+/// the `boundary` and `hands` its input carries.
+#[derive(Debug, PartialEq)]
+struct Retry {
+    target: Option<Value>,
+    resumes: Vec<Value>,
+    standing: (Value, Value),
+}
+
+impl Retry {
+    /// Whether the retry started cold.
+    fn cold(&self) -> bool {
+        self.target.is_none() && self.resumes.is_empty()
+    }
+}
+
 /// The retry of a seat whose first attempt confirmed a persistent root of
-/// its harness's declared kind, with `resume` declared `supported` or
-/// not: the second start's private `owned_target`, and the `Body::Resume`
-/// sent before it, if any.
-fn retried(supported: bool) -> (Option<Value>, Vec<Value>) {
+/// its harness's declared kind, with `resume` declared for its adapter.
+fn retried(resume: &Value) -> Retry {
+    retried_after(checkpoint(TRAIL, THREAD, "t-1", "tr-1"), resume)
+}
+
+/// The retry of a seat whose first attempt sent `first` and failed.
+fn retried_after(first: Value, resume: &Value) -> Retry {
     let dir = tempfile::tempdir().unwrap();
-    let visit = |id: &str, result: Option<Value>| Visit {
-        checkpoints: vec![checkpoint(TRAIL, THREAD, "t-1", id)],
-        result,
-    };
-    let visits = [visit("tr-1", None), visit("tr-2", Some(complete(TRAIL)))];
-    let (_store, _run, events) = seated_with(dir.path(), &visits, &resume_declared(supported));
+    let visits = [
+        Visit {
+            checkpoints: vec![first],
+            result: None,
+        },
+        Visit {
+            checkpoints: vec![checkpoint(TRAIL, THREAD, "t-1", "tr-2")],
+            result: Some(complete(TRAIL)),
+        },
+    ];
+    let (_store, _run, events) = seated_with(dir.path(), &visits, resume);
     assert_eq!(
         first_ending(&events).0,
         EventType::EffectFailed,
@@ -391,14 +455,18 @@ fn retried(supported: bool) -> (Option<Value>, Vec<Value>) {
         starts[0]["input"]["resume_context"].get("owned_target"),
         None
     );
-    let target = starts[1]["input"]["resume_context"]
-        .get("owned_target")
-        .cloned();
+    let input = &starts[1]["input"];
+    let target = input["resume_context"].get("owned_target").cloned();
+    let standing = (input["boundary"].clone(), input["hands"].clone());
     let resumes = received
         .into_iter()
         .filter(|m| m["type"] == "resume")
         .collect();
-    (target, resumes)
+    Retry {
+        target,
+        resumes,
+        standing,
+    }
 }
 
 /// A root of a kind no built-in driver writes is offered only where its
@@ -407,12 +475,45 @@ fn retried(supported: bool) -> (Option<Value>, Vec<Value>) {
 /// retry starts cold; declared supported, the offer travels.
 #[test]
 fn a_new_root_kind_is_offered_to_a_retry_only_where_its_adapter_declares_a_resume() {
-    let (target, resumes) = retried(false);
-    assert_eq!((target, resumes), (None, Vec::new()));
-    let (target, resumes) = retried(true);
-    assert_eq!(target.unwrap()["provider_id"], "tr-1");
-    assert_eq!(resumes.len(), 1, "{resumes:?}");
-    assert_eq!(resumes[0]["session_ref"], "tr-1");
+    assert!(retried(&resume_declared(false)).cold());
+    let retry = retried(&resume_declared(true));
+    assert_eq!(retry.target.unwrap()["provider_id"], "tr-1");
+    assert_eq!(retry.resumes.len(), 1, "{:?}", retry.resumes);
+    assert_eq!(retry.resumes[0]["session_ref"], "tr-1");
+}
+
+/// A root of a new kind is offered only to a site its adapter's resume
+/// covers (the controller's ruling R4): a supported shape measured under
+/// another boundary, or with other hands, buys no offer; the shape
+/// measured where the site stands does, and the boundary and hands it
+/// matched are the words the driver's input carries, which its resume
+/// gate matches in turn.
+#[test]
+fn a_new_root_kind_is_offered_only_where_the_resume_shape_covers_the_sites_standing() {
+    let (boundary, hands) = NO_HANDS;
+    for elsewhere in [("namespace", hands), (boundary, "boxed")] {
+        let retry = retried(&resume_shaped(true, elsewhere));
+        assert!(retry.cold(), "{elsewhere:?}: {retry:?}");
+    }
+    let retry = retried(&resume_shaped(true, NO_HANDS));
+    assert_eq!(retry.target.unwrap()["provider_id"], "tr-1");
+    assert_eq!(retry.resumes.len(), 1, "{:?}", retry.resumes);
+    assert_eq!(retry.standing, (json!(boundary), json!(hands)));
+}
+
+/// The flat session id is not an offer for a harness that declares its
+/// kinds (the controller's ruling R5): the trellis adapter, its resume
+/// unsupported, whose first attempt wrote one checkpoint naming no model
+/// — so no site stamp — carrying a flat `session_id` beside its declared
+/// root, has its retry started cold.
+#[test]
+fn a_flat_session_id_is_never_an_offer_for_a_harness_that_declares_its_kinds() {
+    let mut flat = checkpoint(TRAIL, THREAD, "t-1", "tr-1");
+    let flat_fields = flat.as_object_mut().unwrap();
+    flat_fields.remove("model");
+    flat_fields.insert("session_id".into(), json!("tr-flat"));
+    let retry = retried_after(flat, &resume_declared(false));
+    assert!(retry.cold(), "{retry:?}");
 }
 
 /// A journal that somehow holds a persistent root of a kind the seat's
@@ -426,8 +527,12 @@ fn a_root_of_a_kind_the_seats_harness_does_not_declare_is_never_offered() {
     let adapters = Adapters::load(dir.path()).unwrap();
     let kinds = DeclaredKinds::of(Some(&adapters)).seat(Some("trellis"), &[]);
     let (site, instance) = ("a".repeat(64), "b".repeat(64));
-    let context =
-        SiteContext::new(site.clone(), instance.clone(), SeatClass::Work).of_harness(kinds);
+    let standing = Some(Standing {
+        boundary: "not applicable",
+        hands: "none",
+    });
+    let context = SiteContext::new(site.clone(), instance.clone(), SeatClass::Work)
+        .of_harness(kinds, standing);
     let event = |kind: EventType, payload: Value| {
         crate::envelope_builder::EnvelopeBuilder::new(kind, payload)
             .attempt(Some("attempt-1"))
@@ -455,4 +560,82 @@ fn a_root_of_a_kind_the_seats_harness_does_not_declare_is_never_offered() {
     assert_eq!(offered(TRAIL), None);
     assert_eq!(offered(THREAD), Some("tr-1".to_string()));
     assert_eq!(offered("claude-session"), Some("tr-1".to_string()));
+}
+
+/// The refusal of seat `seat`'s transcript kind `kind`, as journaled.
+fn undeclared_transcript(seat: &str, kind: &str) -> String {
+    format!(
+        "seat '{seat}' recorded transcript kind '{kind}', which the seat's harness does not \
+         declare (decision 0075 ruling 2)"
+    )
+}
+
+/// A panel member is judged by its own harness as a single seat is (the
+/// controller's ruling G): the `judge` member's live checkpoint, and its
+/// successful result, each naming a kind the trellis harness does not
+/// declare, are refused, and no checkpoint carrying it is journaled,
+/// while its sibling, which names none, passes.
+#[test]
+fn a_panel_members_undeclared_kind_is_refused_live_and_at_its_result() {
+    let stray = "trellis-stray";
+    let pass = |kind: &str| {
+        json!({"result": "pass", "model": "trellis-1",
+               "transcript": {"kind": kind, "locator": "t-1", "home": "/h/.trellis"}})
+    };
+    for (row, result) in [
+        (checkpoint(stray, THREAD, "t-1", "tr-1"), pass(TRAIL)),
+        (checkpoint(TRAIL, THREAD, "t-1", "tr-1"), pass(stray)),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let judge = Visit {
+            checkpoints: vec![row],
+            result: Some(result),
+        };
+        let second = Visit {
+            checkpoints: Vec::new(),
+            result: Some(pass(TRAIL)),
+        };
+        let visits = [judge, second];
+        let resume = resume_declared(false);
+        let (_store, _run, events) = seated_as(dir.path(), &visits, &resume, &panel_seat());
+        let error = format!(
+            "panel members failed — judge: {}",
+            undeclared_transcript("work:judge", stray)
+        );
+        failed_with(&events, &error);
+        let journaled = serde_json::to_string(&of(&events, EventType::EffectCheckpointed)).unwrap();
+        assert!(!journaled.contains(stray), "{journaled}");
+    }
+}
+
+/// Decision 0109's refusals stay 0109's (the controller's ruling R7): a
+/// live checkpoint that claims the engine's `authored` record, and a work
+/// site's result that reports findings, each also naming a kind the
+/// trellis harness does not declare, fail their attempt on 0109's
+/// refusal, in the words f26bccae journals, and never on the kind's.
+#[test]
+fn a_record_decision_0109_refuses_is_refused_by_0109_whatever_kind_it_names() {
+    let stray = "trellis-stray";
+    let mut authored = checkpoint(stray, THREAD, "t-1", "tr-1");
+    authored["authored"] = json!("engine");
+    let mut findings = complete(stray);
+    findings["findings"] = json!([]);
+    for (row, result, error) in [
+        (
+            authored,
+            complete(TRAIL),
+            "a driver's checkpoint claims a record only the engine authors \
+             (decision 0109 ruling 1); stderr tail: ",
+        ),
+        (
+            checkpoint(TRAIL, THREAD, "t-1", "tr-1"),
+            findings,
+            "the result was refused: the result carries 'findings' from a work site: only a \
+             gate reports findings (decision 0109 ruling 1); stderr tail: ",
+        ),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let (_store, _run, events) = seated(dir.path(), &once(row, result));
+        failed_with(&events, error);
+    }
 }

@@ -366,10 +366,10 @@ impl Engine {
         let mut stamped = Stamped::new();
         for ((name, mut report, begun), run) in reports.into_iter().zip(runs) {
             settled.carry(&Tag::prefixed(tag_prefix, &name).0, &mut report);
-            let report = run.kinds().refused(&run.driver_seat, report);
             // Each member's findings carry the member's own site.
             let report = self.settled_by(ids, &run.spawn, begun, report)?;
-            let admitted = super::verdict::admitted(report, run.context.as_ref());
+            let admitted = super::verdict::admitted(report, run.context.as_ref())
+                .kinds_judged(run.kinds(), &run.driver_seat);
             if let Some(findings) = admitted.findings {
                 stamped.insert(name.clone(), MemberFindings::Read(findings));
             }

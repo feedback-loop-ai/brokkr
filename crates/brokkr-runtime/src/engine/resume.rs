@@ -22,7 +22,7 @@ use serde_json::{json, Map, Value};
 use brokkr_core::findings::Reporter;
 use brokkr_core::realms::Boundary;
 
-use crate::agents::kinds::SeatKinds;
+use crate::agents::kinds::{SeatKinds, Standing};
 use crate::agents::Candidate;
 pub(super) use crate::bundle::SiteKey;
 use crate::bundle::{ExecutableBody, Invocation, SeatClass, StepBody};
@@ -226,6 +226,8 @@ pub(super) struct SiteContext {
     /// What this site's harness declares (decision 0075 ruling 2): the
     /// kinds its records may name, and the root kinds it may be offered.
     pub(super) kinds: SeatKinds,
+    /// What stands at this site, as its driver's input says; `None` unknown.
+    pub(super) standing: Option<Standing>,
 }
 
 /// What the offered root's earlier attempts journaled at one site
@@ -248,12 +250,14 @@ impl SiteContext {
             class,
             history: RootHistory::default(),
             kinds: SeatKinds::default(),
+            standing: None,
         }
     }
 
-    /// This context judged by `kinds`, its site's own harness.
-    pub(super) fn of_harness(self, kinds: SeatKinds) -> Self {
-        SiteContext { kinds, ..self }
+    /// This context judged by `kinds`, its site's own harness, at `standing`.
+    pub(super) fn of_harness(mut self, kinds: SeatKinds, standing: Option<Standing>) -> Self {
+        (self.kinds, self.standing) = (kinds, standing);
+        self
     }
 
     /// What this site reports as, read by its compiled class: a gate by
@@ -412,9 +416,9 @@ pub(super) fn eligible_offer(
         }
         let root = ConfirmedSession::read(root)?;
         // A root of a kind no built-in driver writes is offered only where
-        // this site's own adapter declares that kind and a resume for a
-        // work site that is not `unsupported` (decision 0075 ruling 2).
-        if !root.persistent || !context.kinds.rejoins(&root.kind) {
+        // this site's own adapter declares it and a resume shape covering
+        // this site (decision 0075 ruling 2; the controller's ruling R4).
+        if !root.persistent || !context.kinds.rejoins(&root.kind, context.standing) {
             return None;
         }
         // The attempt this row belongs to must be one of this seat's own
@@ -447,7 +451,9 @@ pub(super) fn eligible_offer(
     // unambiguous local single WORK seat qualifies: a composite row's
     // ancestry was never journaled, so no colon tag is split to guess
     // it, and a dsh transcript directory is not a provider handle.
-    if !key.is_single() {
+    // A harness that declares its kinds is never offered the flat session
+    // id: its road to an offer is its declared root (the controller's R5).
+    if !key.is_single() || context.kinds.declares_its_kinds() {
         return None;
     }
     legacy_offer(events, &seat_effects, &legacy).map(|provider_id| ResumeTarget {

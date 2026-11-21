@@ -220,11 +220,22 @@ optional `record_kinds` member. The built-in drivers declare the kinds
 they write. `none` stays a transcript's empty locator and is never a
 root session kind. The engine refuses at append, wherever a record
 names a kind, one the seat's own harness does not declare — its
-adapter's, or its built-in driver's — naming the kind and the seat; no
-other adapter's declaration counts. A root of a kind no built-in driver
-writes is offered for a rejoin only where the seat's adapter declares
-it and declares a resume for the site that is not `unsupported`, and an
-adapter declaring a root session kind must declare `resume`. Every
+adapter's, or the kind of the built-in driver its own command runs —
+naming the kind and the seat; no other adapter's declaration counts,
+and an adapter adds kinds and a resume, never a driver. A seat answers
+to its selected candidate's adapter, or, inline, to the adapter the
+compile pins for its model-bearing built-in driver; an adapter that
+declares no kinds grants only its driver's and `none`. A site that
+answers to no adapter, an inline raw command, an inline exec site or a
+site no plan covers, keeps v7's three kinds and `none`: no adapter
+exists to hold a declaration for it, and v8 neither opens nor narrows
+what it may write. A root of a kind no built-in driver writes is
+offered for a rejoin only where the seat's adapter declares it and a
+resume shape that is not `unsupported` covers the site: class `work`,
+the site's boundary among its `boundaries`, and its `hands` the site's,
+the words the engine writes into the driver's input. A harness that
+declares its kinds is never offered decision 0030's flat session id.
+An adapter declaring a root session kind must declare `resume`. Every
 reader judges a record by the schema alone. v8 is minted under this decision, which is accepted,
 through decision 0082's lifecycle, and stands at v7's engine line, so
 dispatch never chooses v7.

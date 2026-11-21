@@ -435,9 +435,9 @@ impl<'a, B: FnMut(&mut Store)> Checkpoints<'a, B> {
     /// field or a work site's findings, is refused as a refused call is
     /// and fails the attempt, and so is one whose nested result reports a
     /// finding at all, since findings belong only to verdicts (fix round
-    /// 0109a1r5, V4). A checkpoint naming a kind `declared` does not admit
-    /// is refused the same way (decision 0075 ruling 2). Then it is
-    /// offered as any other.
+    /// 0109a1r5, V4). A checkpoint that admission admits and that names a
+    /// kind `declared` does not admit is refused the same way (decision
+    /// 0075 ruling 2). Then it is offered as any other.
     pub(super) fn offer_live(
         &mut self,
         owner: &str,
@@ -447,11 +447,15 @@ impl<'a, B: FnMut(&mut Store)> Checkpoints<'a, B> {
         declared: Declared<'_>,
     ) {
         let reporter = site.map(SiteContext::reporter);
-        let admitted = (declared
-            .kinds
-            .admit(&checkpoint, declared.seat)
-            .map_err(Refused::Kind))
-        .and_then(|()| admit_live(&mut checkpoint, reporter).map_err(Refused::Live));
+        // Decision 0109's refusal stays 0109's: the kind is judged only on
+        // a checkpoint its admission admits (the controller's ruling R7).
+        let admitted = admit_live(&mut checkpoint, reporter)
+            .map_err(Refused::Live)
+            .and_then(|()| {
+                (declared.kinds)
+                    .admit(&checkpoint, declared.seat)
+                    .map_err(Refused::Kind)
+            });
         match admitted {
             Err(refusal) if self.failure.is_none() && self.refusal.is_none() => {
                 self.refusal = Some(Latched::new(owner, refusal));

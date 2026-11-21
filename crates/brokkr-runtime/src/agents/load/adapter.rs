@@ -59,6 +59,7 @@ pub(super) fn record_kinds(
     let Some(declared) = map.get("record_kinds") else {
         return Ok(None);
     };
+    let adapter = what;
     let what = format!("{what} 'record_kinds'");
     let raw = object(declared, &what)?;
     only_keys(raw, &["transcript", "root_session"], &what)?;
@@ -81,10 +82,8 @@ pub(super) fn record_kinds(
     // whether one exists is a capability: declared, never defaulted
     // (decision 0075 ruling 1).
     if root_session.is_some() && !map.contains_key("resume") {
-        return invalid(format!(
-            "{what} declares a 'root_session' kind and the adapter declares no 'resume'; \
-             a rejoin is declared, never defaulted (decision 0075 ruling 1)"
-        ));
+        let adapter = adapter.to_string();
+        return Err(LibraryError::RootWithoutResume { adapter });
     }
     Ok(Some(RecordKinds {
         transcript,

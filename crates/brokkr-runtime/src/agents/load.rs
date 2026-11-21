@@ -53,6 +53,13 @@ pub enum LibraryError {
     Io(#[from] std::io::Error),
     #[error("{0}")]
     Mcp(#[from] McpRefusal),
+    /// An adapter declares a root session kind and no `resume`: a rejoin
+    /// is declared, never defaulted (decision 0075 ruling 1).
+    #[error(
+        "{adapter} 'record_kinds' declares a 'root_session' kind and the adapter declares no \
+         'resume'; a rejoin is declared, never defaulted (decision 0075 ruling 1)"
+    )]
+    RootWithoutResume { adapter: String },
 }
 fn invalid<T>(message: String) -> Result<T, LibraryError> {
     Err(LibraryError::Invalid(message))
