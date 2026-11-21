@@ -168,6 +168,21 @@ pub enum BodyRefusal {
         ResidualInput::HasSecurityResidual.name()
     )]
     UnanimousPassUnderResidual { panel: String },
+    /// A protected sequence's step before its first gate step may end the
+    /// sequence on a word that does not stop the run. That ending routes
+    /// onward with no gate record, so decide refuses it on every pass
+    /// (decision 0109 ruling 7, #1212 L1). A hard word there is a stop.
+    #[error(
+        "seat '{seat}' is the protected phase's, and its sequence step '{step}' runs before its \
+         first gate step yet may end the sequence on '{word}', a word that does not stop the \
+         run; no gate has recorded a head there, so the engine can never take that ending \
+         (decision 0109 ruling 7)"
+    )]
+    PreGateEnding {
+        seat: String,
+        step: String,
+        word: String,
+    },
 }
 
 impl Aggregate {
