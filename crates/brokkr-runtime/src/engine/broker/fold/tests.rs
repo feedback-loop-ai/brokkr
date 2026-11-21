@@ -993,7 +993,7 @@ fn a_checkpoint_the_fence_refuses_fails_the_attempt_after_the_calls_before_it() 
         ledger.close().unwrap();
     });
     let settled = site.fold(succeeded());
-    let cause = "seat record at journal seq 3 violates contracts/seat-record.v7.schema.json at /";
+    let cause = "seat record at journal seq 3 violates contracts/seat-record.v8.schema.json at /";
     assert_eq!(settled.settled_outcome(), failed(cause));
     assert_eq!(site.rows(), [row(1, "lookup", "succeeded")]);
 }

@@ -186,7 +186,8 @@ and the release window in that ruling's slice 2.
 | `seat-record/v4` | `contracts/seat-record.v4.schema.json` | journal | 0046 | drivers | dispatch brokkr_store::SeatRecordVersion | reader | 0.9 | 0.12 |
 | `seat-record/v5` | `contracts/seat-record.v5.schema.json` | journal | 0056, enacted, pending acceptance | drivers | dispatch brokkr_store::SeatRecordVersion | reader | 0.11 | 0.14 |
 | `seat-record/v6` | `contracts/seat-record.v6.schema.json` | journal | 0065 | drivers | dispatch brokkr_store::SeatRecordVersion | reader | 0.13 | 0.16 |
-| `seat-record/v7` | `contracts/seat-record.v7.schema.json` | journal | 0109 | drivers | dispatch brokkr_store::SeatRecordVersion | current | | |
+| `seat-record/v7` | `contracts/seat-record.v7.schema.json` | journal | 0109 | drivers | dispatch brokkr_store::SeatRecordVersion | reader | never | 0.12 |
+| `seat-record/v8` | `contracts/seat-record.v8.schema.json` | journal | 0075 | drivers | dispatch brokkr_store::SeatRecordVersion | current | | |
 | `forge.realms/v1` | `contracts/realms.v1.schema.json` | input | 0023 | operator | set brokkr_core::realms::SCHEMAS | reader | | decision |
 | `forge.realms/v2` | `contracts/realms.v2.schema.json` | input | 0026 | operator | set brokkr_core::realms::SCHEMAS | reader | | decision |
 | `forge.realms/v3` | `contracts/realms.v3.schema.json` | input | 0041 | operator | set brokkr_core::realms::SCHEMAS | reader | | decision |

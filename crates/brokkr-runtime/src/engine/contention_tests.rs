@@ -735,7 +735,7 @@ fn a_refusal_counts_what_was_held_behind_it_against_the_other_members() {
             .into(),
     };
     let refused = AttemptOutcome::Failed {
-        error: "seat record at journal seq 6 violates contracts/seat-record.v7.schema.json at /"
+        error: "seat record at journal seq 6 violates contracts/seat-record.v8.schema.json at /"
             .into(),
     };
     let members = ["one", "two", "three", "four"];
@@ -1437,7 +1437,7 @@ fn a_held_result_the_fence_refuses_settles_the_attempt_indeterminate() {
                 "effect_id": "effect-1",
                 "attempt_id": "attempt-1",
                 "reason": "the journal refused the result a peer's lock had held back: seat \
-                           record at journal seq 5 violates contracts/seat-record.v7.schema.json \
+                           record at journal seq 5 violates contracts/seat-record.v8.schema.json \
                            at /",
             })
         )
