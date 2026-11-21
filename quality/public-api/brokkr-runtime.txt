@@ -666,6 +666,10 @@ pub brokkr_runtime::bundle::BodyRefusal::PreGateEnding
 pub brokkr_runtime::bundle::BodyRefusal::PreGateEnding::seat: alloc::string::String
 pub brokkr_runtime::bundle::BodyRefusal::PreGateEnding::step: alloc::string::String
 pub brokkr_runtime::bundle::BodyRefusal::PreGateEnding::word: alloc::string::String
+pub brokkr_runtime::bundle::BodyRefusal::PreGateUndeclared
+pub brokkr_runtime::bundle::BodyRefusal::PreGateUndeclared::seat: alloc::string::String
+pub brokkr_runtime::bundle::BodyRefusal::PreGateUndeclared::step: alloc::string::String
+pub brokkr_runtime::bundle::BodyRefusal::PreGateUndeclared::word: alloc::string::String
 pub brokkr_runtime::bundle::BodyRefusal::UnanimousPassUnderResidual
 pub brokkr_runtime::bundle::BodyRefusal::UnanimousPassUnderResidual::panel: alloc::string::String
 pub enum brokkr_runtime::bundle::CharterOwner

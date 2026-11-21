@@ -844,3 +844,50 @@ fn a_protected_sequences_pre_gate_ending_that_does_not_stop_is_refused() {
     };
     assert_eq!(steps[0].ends_on, ["waived"]);
 }
+
+/// 1221a2's review, L1: a protected sequence's pre-gate hard stop the
+/// seat's results do not declare is refused at compile too, since decide
+/// refuses a word outside the seat's results before it reads the stop.
+/// Declared, the same stop compiles (gpt-flash's `security-hold` is in its
+/// review seat's results).
+#[test]
+fn a_protected_sequences_undeclared_pre_gate_stop_is_refused() {
+    let rules = json!([
+        {"id": "REVIEW-HOLD", "from": "review", "result": "hold", "next": "stop",
+         "severity": "hard", "reason": "hold"},
+        {"id": "REVIEW-CLEAN", "from": "review", "result": "clean", "next": "done",
+         "reason": "clean"},
+    ]);
+    let seat = |results: Value| {
+        json!({
+            "results": results,
+            "sequence": [step("draft", "work", Some(json!(["go", "hold"]))),
+                         step("judge", "gate", None)],
+        })
+    };
+    let undeclared = fixture(policy(rules.clone()), seat(json!(["clean"])));
+    match compile(undeclared.path()) {
+        Err(CompileError::Body(refusal)) => {
+            let want = super::BodyRefusal::PreGateUndeclared {
+                seat: "review".into(),
+                step: "draft".into(),
+                word: "hold".into(),
+            };
+            assert_eq!(refusal, want);
+            assert_eq!(
+                refusal.to_string(),
+                "seat 'review' is the protected phase's, and its sequence step 'draft' runs \
+                 before its first gate step yet may end the sequence on 'hold', a stop the \
+                 seat's results do not declare; decide refuses a word outside the seat's \
+                 results, so the engine can never take that ending (decision 0050 ruling 7): \
+                 declare 'hold' in the seat's results"
+            );
+        }
+        Err(other) => panic!("expected CompileError::Body, got {other:?}"),
+        Ok(_) => panic!("the undeclared pre-gate stop is refused"),
+    }
+    let declared = fixture(policy(rules), seat(json!(["clean", "hold"])));
+    let steps = compiled_steps(declared.path(), "the declared pre-gate stop");
+    assert_eq!(steps[0].ends_on, ["hold"]);
+    assert_eq!(steps[0].hard_results, ["hold"]);
+}
