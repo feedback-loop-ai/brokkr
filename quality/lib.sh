@@ -54,6 +54,8 @@ test_glob="**/{$(IFS=,; printf '%s' "${test_source_globs[*]}")}"
 data_ignore='contracts/**,reference/**,fixtures/**,quality/**,target/**,.forge/**'
 data_ignore+=',crates/brokkr-store/src/seat-record.v*.schema.json,crates/brokkr-cli/dialects/**'
 data_ignore+=',openspec/changes/archive/**,docs/evidence/**,.github/lint/**'
+# 0111a's captured forge payloads (#1093): pinned by digest, never authored.
+data_ignore+=',crates/brokkr-core/src/ci/evidence/**'
 
 # jscpd 5.3.2 has no default --max-lines cap, but any explicit value caps
 # whole files, not clone blocks: -x 1000 would skip every file longer than

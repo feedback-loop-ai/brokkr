@@ -1,0 +1,182 @@
+{
+ "branch": "story-0109a2-word-binding",
+ "files": [
+  {
+   "bytes": 229005,
+   "file": "check-runs.latest.page1.json",
+   "path": "repos/feedback-loop-ai/brokkr/commits/6693035268c3085da23b1ff1e0ad5303b107101b/check-runs?filter=latest&per_page=100&page=1",
+   "taken": "2026-11-21T16:52:36Z"
+  },
+  {
+   "bytes": 229005,
+   "file": "check-runs.all.page1.json",
+   "path": "repos/feedback-loop-ai/brokkr/commits/6693035268c3085da23b1ff1e0ad5303b107101b/check-runs?filter=all&per_page=100&page=1",
+   "taken": "2026-11-21T16:52:37Z"
+  },
+  {
+   "bytes": 2,
+   "file": "statuses.page1.json",
+   "path": "repos/feedback-loop-ai/brokkr/commits/6693035268c3085da23b1ff1e0ad5303b107101b/statuses?per_page=100&page=1",
+   "taken": "2026-11-21T16:52:37Z"
+  },
+  {
+   "bytes": 4893,
+   "file": "status.combined.json",
+   "path": "repos/feedback-loop-ai/brokkr/commits/6693035268c3085da23b1ff1e0ad5303b107101b/status",
+   "taken": "2026-11-21T16:52:38Z"
+  },
+  {
+   "bytes": 59467,
+   "file": "runs.page1.json",
+   "path": "repos/feedback-loop-ai/brokkr/actions/runs?head_sha=6693035268c3085da23b1ff1e0ad5303b107101b&per_page=100&page=1",
+   "taken": "2026-11-21T16:52:38Z"
+  },
+  {
+   "bytes": 14851,
+   "file": "run.44913617585.json",
+   "path": "repos/feedback-loop-ai/brokkr/actions/runs/44913617585",
+   "taken": "2026-11-21T16:52:39Z"
+  },
+  {
+   "bytes": 14873,
+   "file": "run.44913617585.attempt1.json",
+   "path": "repos/feedback-loop-ai/brokkr/actions/runs/44913617585/attempts/1",
+   "taken": "2026-11-21T16:52:39Z"
+  },
+  {
+   "bytes": 101436,
+   "file": "run.44913617585.attempt1.jobs.page1.json",
+   "path": "repos/feedback-loop-ai/brokkr/actions/runs/44913617585/attempts/1/jobs?per_page=100&page=1",
+   "taken": "2026-11-21T16:52:39Z"
+  },
+  {
+   "bytes": 101436,
+   "file": "run.44913617585.jobs.latest.page1.json",
+   "path": "repos/feedback-loop-ai/brokkr/actions/runs/44913617585/jobs?filter=latest&per_page=100&page=1",
+   "taken": "2026-11-21T16:52:43Z"
+  },
+  {
+   "bytes": 101436,
+   "file": "run.44913617585.jobs.all.page1.json",
+   "path": "repos/feedback-loop-ai/brokkr/actions/runs/44913617585/jobs?filter=all&per_page=100&page=1",
+   "taken": "2026-11-21T16:52:45Z"
+  },
+  {
+   "bytes": 14861,
+   "file": "run.44913617537.json",
+   "path": "repos/feedback-loop-ai/brokkr/actions/runs/44913617537",
+   "taken": "2026-11-21T16:52:46Z"
+  },
+  {
+   "bytes": 14883,
+   "file": "run.44913617537.attempt1.json",
+   "path": "repos/feedback-loop-ai/brokkr/actions/runs/44913617537/attempts/1",
+   "taken": "2026-11-21T16:52:47Z"
+  },
+  {
+   "bytes": 8019,
+   "file": "run.44913617537.attempt1.jobs.page1.json",
+   "path": "repos/feedback-loop-ai/brokkr/actions/runs/44913617537/attempts/1/jobs?per_page=100&page=1",
+   "taken": "2026-11-21T16:52:47Z"
+  },
+  {
+   "bytes": 8019,
+   "file": "run.44913617537.jobs.latest.page1.json",
+   "path": "repos/feedback-loop-ai/brokkr/actions/runs/44913617537/jobs?filter=latest&per_page=100&page=1",
+   "taken": "2026-11-21T16:52:48Z"
+  },
+  {
+   "bytes": 8019,
+   "file": "run.44913617537.jobs.all.page1.json",
+   "path": "repos/feedback-loop-ai/brokkr/actions/runs/44913617537/jobs?filter=all&per_page=100&page=1",
+   "taken": "2026-11-21T16:52:48Z"
+  },
+  {
+   "bytes": 14853,
+   "file": "run.44913617230.json",
+   "path": "repos/feedback-loop-ai/brokkr/actions/runs/44913617230",
+   "taken": "2026-11-21T16:52:49Z"
+  },
+  {
+   "bytes": 14875,
+   "file": "run.44913617230.attempt1.json",
+   "path": "repos/feedback-loop-ai/brokkr/actions/runs/44913617230/attempts/1",
+   "taken": "2026-11-21T16:52:49Z"
+  },
+  {
+   "bytes": 33666,
+   "file": "run.44913617230.attempt1.jobs.page1.json",
+   "path": "repos/feedback-loop-ai/brokkr/actions/runs/44913617230/attempts/1/jobs?per_page=100&page=1",
+   "taken": "2026-11-21T16:52:50Z"
+  },
+  {
+   "bytes": 33666,
+   "file": "run.44913617230.jobs.latest.page1.json",
+   "path": "repos/feedback-loop-ai/brokkr/actions/runs/44913617230/jobs?filter=latest&per_page=100&page=1",
+   "taken": "2026-11-21T16:52:55Z"
+  },
+  {
+   "bytes": 33666,
+   "file": "run.44913617230.jobs.all.page1.json",
+   "path": "repos/feedback-loop-ai/brokkr/actions/runs/44913617230/jobs?filter=all&per_page=100&page=1",
+   "taken": "2026-11-21T16:52:59Z"
+  },
+  {
+   "bytes": 14863,
+   "file": "run.44913617327.json",
+   "path": "repos/feedback-loop-ai/brokkr/actions/runs/44913617327",
+   "taken": "2026-11-21T16:53:02Z"
+  },
+  {
+   "bytes": 14885,
+   "file": "run.44913617327.attempt1.json",
+   "path": "repos/feedback-loop-ai/brokkr/actions/runs/44913617327/attempts/1",
+   "taken": "2026-11-21T16:53:03Z"
+  },
+  {
+   "bytes": 3701,
+   "file": "run.44913617327.attempt1.jobs.page1.json",
+   "path": "repos/feedback-loop-ai/brokkr/actions/runs/44913617327/attempts/1/jobs?per_page=100&page=1",
+   "taken": "2026-11-21T16:53:03Z"
+  },
+  {
+   "bytes": 3701,
+   "file": "run.44913617327.jobs.latest.page1.json",
+   "path": "repos/feedback-loop-ai/brokkr/actions/runs/44913617327/jobs?filter=latest&per_page=100&page=1",
+   "taken": "2026-11-21T16:53:05Z"
+  },
+  {
+   "bytes": 3701,
+   "file": "run.44913617327.jobs.all.page1.json",
+   "path": "repos/feedback-loop-ai/brokkr/actions/runs/44913617327/jobs?filter=all&per_page=100&page=1",
+   "taken": "2026-11-21T16:53:06Z"
+  },
+  {
+   "bytes": 27336,
+   "file": "commit.pulls.json",
+   "path": "repos/feedback-loop-ai/brokkr/commits/6693035268c3085da23b1ff1e0ad5303b107101b/pulls",
+   "taken": "2026-11-21T16:53:06Z"
+  },
+  {
+   "bytes": 2,
+   "file": "pulls.open.on-head.page1.json",
+   "path": "repos/feedback-loop-ai/brokkr/pulls?state=open&head=feedback-loop-ai:story-0109a2-word-binding&per_page=100&page=1",
+   "taken": "2026-11-21T16:53:07Z"
+  },
+  {
+   "bytes": 344,
+   "file": "rules.main.json",
+   "path": "repos/feedback-loop-ai/brokkr/rules/branches/main",
+   "taken": "2026-11-21T16:53:07Z"
+  },
+  {
+   "bytes": 1182,
+   "file": "protection.required_status_checks.json",
+   "path": "repos/feedback-loop-ai/brokkr/branches/main/protection/required_status_checks",
+   "taken": "2026-11-21T16:58:44Z"
+  }
+ ],
+ "label": "cancelled-twin",
+ "method": "GET only, gh api",
+ "sha": "6693035268c3085da23b1ff1e0ad5303b107101b"
+}
