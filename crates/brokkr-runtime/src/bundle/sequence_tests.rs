@@ -685,3 +685,35 @@ fn assert_marker_refusal(compiled: Result<Bundle, CompileError>, what: &str) {
         Ok(_) => panic!("the declared marker is refused"),
     }
 }
+
+/// #1221 E: every compiled step knows whether its seat declares `change`,
+/// a select case's sequence as a plain seat's does, and a seat that
+/// declares none gives its steps none.
+#[test]
+fn a_sequences_steps_carry_their_seats_change_declaration_wherever_they_stand() {
+    let rules = json!([
+        {"id": "REVIEW-A", "from": "review", "result": "a", "next": "done", "reason": "a"},
+        {"id": "REVIEW-HOLD", "from": "review", "result": "hold", "next": "stop",
+         "severity": "hard", "reason": "hold"},
+    ]);
+    let sequence = sequence_seat(json!(["a", "hold"]))["sequence"].clone();
+    let single = json!({"role": "roles/role.md", "driver": {"command": ["driver"]}});
+    let flags = |seat: Value| {
+        let dir = fixture(policy(rules.clone()), seat);
+        let bundle = compile(dir.path()).expect("the fixture compiles");
+        let mut out = Vec::new();
+        collect("review", &bundle.seats["review"].body, &[], &mut out);
+        (out.into_iter())
+            .flat_map(|(_, _, steps)| steps.iter().map(|step| step.declares_change))
+            .collect::<Vec<_>>()
+    };
+    let results = json!(["a", "hold"]);
+    for (inputs, declared) in [(json!(["change"]), true), (json!([]), false)] {
+        let plain = json!({"results": results, "inputs": inputs, "sequence": sequence});
+        assert_eq!(flags(plain), [declared; 2], "a plain seat's, {inputs}");
+        let cases = json!({"chore": {"sequence": sequence}});
+        let select = json!({"results": results, "inputs": inputs,
+                            "select": {"on": "strategy", "cases": cases, "default": single}});
+        assert_eq!(flags(select), [declared; 2], "a select case's, {inputs}");
+    }
+}

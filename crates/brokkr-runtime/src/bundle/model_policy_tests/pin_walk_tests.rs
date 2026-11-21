@@ -132,6 +132,7 @@ fn a_selected_sequence_holds_no_dialect_step() {
             results: &results,
             secrets: &[],
             residual: brokkr_core::findings::ResidualPair::declared_in::<&str>(&[]),
+            declares_change: false,
         };
         let raw = json!({"sequence": [
             {"name": "count", "results": ["clear"], "dialect": operation},

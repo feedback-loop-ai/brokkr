@@ -409,6 +409,7 @@ pub(super) fn parse_sequence(
             ends_on: Vec::new(),
             hard_results: Vec::new(),
             residual: at.residual,
+            declares_change: at.declares_change,
         });
     }
     Ok((steps, whole_gate))
