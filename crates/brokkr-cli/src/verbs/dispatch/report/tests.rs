@@ -126,7 +126,7 @@ fn a_pass_prints_one_safe_line_per_fact_and_its_counts_last() {
         format!("started: run run-s under {under}, driver pid 42, log {logs}/run-s.log"),
         format!(
             "spawn failed: run run-f under {under} reads running with no driver (no \
-             descriptor); resume it with: brokkr dispatch drive --entry={entry} --claim={seq} \
+             descriptor); resume it with: brokkr queue dispatch drive --entry={entry} --claim={seq} \
              --db={}",
             db.display()
         ),
@@ -226,7 +226,7 @@ fn a_journal_this_line_cannot_print_is_never_offered_as_a_command() {
     for journal in &cases {
         let said = failed_spawn(claim, "run-f", journal);
         let words = format!(
-            "resume it with brokkr dispatch drive --entry={entry} --claim={seq}, naming this \
+            "resume it with brokkr queue dispatch drive --entry={entry} --claim={seq}, naming this \
              journal by hand with --db: its path holds characters this line cannot print"
         );
         assert!(said.ends_with(&words), "{said:?}");
@@ -356,7 +356,7 @@ fn a_reaped_driver_names_its_exit_and_what_its_run_reads() {
     .collect();
     let exited = "driver exited: run run-r, driver pid 9, exit status: 1; the run";
     let resume = format!(
-        "resume it with: brokkr dispatch drive --entry={entry} --claim={seq} --db=/j/forge.db"
+        "resume it with: brokkr queue dispatch drive --entry={entry} --claim={seq} --db=/j/forge.db"
     );
     let unread = std::io::Error::from_raw_os_error(10);
     assert_eq!(

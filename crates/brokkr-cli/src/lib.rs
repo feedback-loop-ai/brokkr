@@ -65,185 +65,68 @@ use brokkr_runtime::realms::{Hearth, World, WorldError};
 use brokkr_runtime::{Bundle, DriveEnd, EngineError};
 use brokkr_store::Store;
 use brokkr_view::transcript::{TranscriptRead, Unavailable};
-use clap::{ArgGroup, Parser, Subcommand};
+use clap::{Parser, Subcommand};
 use cli_args::*;
 use exit::Exit;
 use serde_json::{json, Value};
 
-/// The command line. Its exit codes are [`exit::Exit`]'s.
-#[derive(Parser)]
-// `bin_name` is pinned, not inferred from argv[0]: a renamed or
-// symlinked copy still prints the name this engine answers to
-// (decision 0019 ruling 9).
-#[command(
-    name = "brokkr",
-    bin_name = "brokkr",
-    version,
-    about = "Deterministic delivery engine"
-)]
+/// The command line, parsed through the tree `cli_args::tree` builds
+/// (decision 0113). Its exit codes are [`exit::Exit`]'s.
 struct Cli {
-    #[command(subcommand)]
     command: Cmd,
 }
 
-#[derive(Subcommand)]
+/// Every verb a parsed command line reaches, whichever path it was typed
+/// by: the dispatcher matches this, and each verb's help is the tree's.
 enum Cmd {
-    /// Scaffold a minimal reviewable bundle and prove it compiles.
     Init(InitArgs),
-    /// Per-seat cost and session accounting from journal checkpoints —
-    /// the LaneTally join surface (stable seat ids, journal-derived).
     Costs(CostsArgs),
-    /// Render the shipper's delivery ledger from journal and repository evidence.
     Ledger(LedgerArgs),
-    /// Anchor a run's journal head in refs/forge/<run> (tamper evidence),
-    /// or verify the existing anchor with --check.
     Anchor(AnchorArgs),
-    /// Keep-refs: the git objects a run's journal cites,
-    /// held by refs/forge/keep/<run>/<sha> so a squash-merge, a branch
-    /// delete and a gc cannot collect the evidence the journal names.
-    /// Runs plant these themselves at conclusion; these verbs cover the
-    /// runs that concluded before the mechanism existed, and the
-    /// deliberate letting-go that is the operator's alone.
     KeepRefs {
-        #[command(subcommand)]
         command: KeepRefsCmd,
     },
-    /// Serve the embedded read-only surface on loopback.
     Ui(UiArgs),
-    /// Explore runs interactively in the terminal: the fleet as a
-    /// navigable table, one run's phase graph, seats and decision
-    /// trail, and one seat's own checkpoint and session stream.
-    /// Read-only like every other readout — it issues
-    /// no operator commands and writes nothing to the journal.
     Tui(TuiArgs),
-    /// Verify tools, drivers, the workspace database, and optionally a
-    /// bundle, without executing any agent.
     Doctor(DoctorArgs),
-    /// Validate a bundle and print its pinned manifest and digest.
     Compile(CompileArgs),
-    /// Start a new run and drive it until it parks or finishes.
-    #[command(group(ArgGroup::new("delivery").args(["bundle", "recipe"])))]
     Run(RunArgs),
-    /// Resume an existing run under its exact pinned bundle.
-    #[command(group(ArgGroup::new("delivery").args(["bundle", "recipe"])))]
     Resume(ResumeArgs),
-    /// Re-run a past run's feature as a NEW run under another bundle or
-    /// recipe, so outcomes can be compared by run id. No stored linkage.
-    #[command(group(ArgGroup::new("delivery").args(["bundle", "recipe"])))]
     Rerun(RerunArgs),
-    /// Compare two runs' aligned outcomes: decision trails, first
-    /// divergence, phases visited, per-seat costs. Read-only.
     Compare(CompareArgs),
-    #[command(flatten)]
     Grouped(GroupedCmd),
-    /// Close a stopped or parked run from its journal alone — no bundle,
-    /// no recipe, no effect. `resume` compiles the exact pinned recipe
-    /// and refuses on any drift, which is right for the branches that
-    /// spend money but leaves a run from a moved engine with no lawful
-    /// ending. This appends the operator stop conclusion and nothing
-    /// else, so it needs no pinned recipe to be honest about what it
-    /// wrote. It cannot retry: that re-enters the policy loop, and the
-    /// policy loop needs the bundle by construction. For a run believed
-    /// dead: every write is fenced, so a journal that moves beneath the
-    /// conclusion — something still driving the run — refuses instead
-    /// of being closed over. Check `brokkr runs` first.
-    // The fenced write is decision 0029's.
     Conclude(ConcludeArgs),
-    /// Record an operator command (retry | stop | release | supersede |
-    /// classify | repair) as journal events, or acknowledge a quarantined
-    /// run beside its journal.
     Operator(OperatorArgs),
-    /// The dispatcher's queue: runs waiting to start, in
-    /// the journal's own database. Add, list, judge, move, hold, release,
-    /// re-pin and drop entries; each change is journaled with its reason.
     Queue {
-        #[command(subcommand)]
         command: QueueCmd,
     },
-    /// Explain a run: header, ruling, seats, decision trail, and the
-    /// phase graph as a tree. `--phase` and `--seat` are the scoping
-    /// verbs the console's clicks became; `--json` emits the view model,
-    /// or with `--capability-call` the call and its verified response.
-    #[command(group(ArgGroup::new("scope").args(["phase", "seat"])))]
     Inspect(InspectArgs),
-    /// Read one participant's retained local transcript — Claude, Codex or
-    /// DSH — through the same bounded local derivation the TUI uses. The
-    /// verb never launches, retries or resumes a provider and writes
-    /// nothing to the journal.
     Transcript(TranscriptArgs),
-    /// The seats of a run: the seats block `inspect` renders — every
-    /// seat's model with the boundary its hands stood behind beside it
-    /// — from the same view. `--json` prints
-    /// that view verbatim, the bytes `inspect --json` prints.
     Seats(SeatsArgs),
-    /// Watch a run live: redraw the graph, seats, last ruling and seat
-    /// activity whenever the journal head moves; exit when the run
-    /// reaches a terminal status. Read-only, like every other readout.
     Watch(WatchArgs),
-    /// Rebuild state from the journal twice and verify determinism.
     Replay(ReplayArgs),
-    /// Write the canonical NDJSON journal and pinned manifest.
     Export(ExportArgs),
-    /// List every historical evidence root, or retire one under the
-    /// admission lock once its evidence is archived or discarded. The
-    /// sealed retirement sits beside the historical record, which stays.
     Evidence {
-        #[command(subcommand)]
         command: verbs::evidence::EvidenceCmd,
     },
-    /// Back up a whole journal — one consistent snapshot taken while
-    /// writers may run, plus the versioned inventory that declares its
-    /// boundary and makes the backup complete.
     Backup(verbs::backup::BackupArgs),
-    /// Restore a journal backup into a new location, after the inventory,
-    /// the snapshot's digest, SQLite's integrity, every chain and the
-    /// counts all pass. It starts nothing.
     Restore(verbs::backup::RestoreArgs),
-    /// Adopt an exported run into this journal, byte-identically — the
-    /// verb paired with `export`. Journals never merge; one run
-    /// relocates. Nothing lands unless the whole chain verifies, the
-    /// events fold, the run_id does not already exist here, and the
-    /// export is not a redacted derivative.
     Import(ImportArgs),
-    /// Verify an exported journal offline: chain, envelopes, fold.
     VerifyRun(VerifyRunArgs),
-    /// Synchronize a Looper-bound run over the authenticated producer API.
-    /// The API key is read from an environment variable and is never stored.
     Bridge(BridgeArgs),
-    /// List runs in the workspace database: one clamped line per run, the
-    /// fleet's sections in order and each by last activity, read a page at
-    /// a time. `--json` emits the view model for scripts.
     Runs(RunsArgs),
-    /// List the world: each realm with its path, default
-    /// branch and current HEAD, and the journal the world writes.
-    /// Read-only, like every other readout.
     Realms(RealmsArgs),
-    #[command(flatten)]
     CrossRun(verbs::analytics::CrossRunCmd),
-    /// Run a built-in forge-driver/v1 adapter (claude | lanetally | codex | dsh | exec).
-    /// Bundles reference these as {brokkr} driver <kind> -- <extra args>.
     Driver(DriverArgs),
-    /// The model's hands are one tool, and the tool runs in an empty root:
-    /// serve the `workspace` tool over MCP on stdio, or run one command
-    /// whole inside the same box.
     Hands {
-        #[command(subcommand)]
         command: HandsCommand,
     },
-    /// Measure an agent CLI for its adapter's facts, spending its bound credentials: host only, never CI.
     Probe {
-        #[command(subcommand)]
         command: ProbeCmd,
     },
-    /// (internal) The MCP capability broker the harness starts beside
-    /// `hands` from the engine's configuration.
-    #[command(hide = true)]
     Broker {
-        #[command(subcommand)]
         command: BrokerCmd,
     },
-    /// (internal) Scripted forge-driver/v1 driver for machine proof.
-    #[command(hide = true)]
     FakeDriver(FakeDriverArgs),
 }
 

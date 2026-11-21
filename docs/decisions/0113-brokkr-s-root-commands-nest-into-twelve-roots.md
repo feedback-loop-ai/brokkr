@@ -36,6 +36,10 @@ name.
    broker the harness starts, already hidden), `fake-driver` (the
    scripted proof driver, already hidden) and `dsh-sandbox-runner` (read
    before the parser). Their names stay at the root, as they are.
+   `dispatch drive`, which the dispatcher spawns and a failed spawn asks
+   the operator to type, is a hidden verb of `dispatch` rather than a
+   root, so it moves with its family: the dispatcher spawns
+   `queue dispatch drive`, and that is the line it prints.
 
 3. **A bare family keeps its old default.** `brokkr runs` with no verb
    lists runs, as `brokkr runs` did, so no spelling that parsed on main

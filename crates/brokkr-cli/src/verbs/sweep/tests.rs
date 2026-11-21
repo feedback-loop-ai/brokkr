@@ -108,7 +108,7 @@ fn seat(store: &mut Store, root: &Path) {
 }
 
 fn parsed(database: &Path, dry_run: bool) -> SweepArgs {
-    let mut argv = vec!["brokkr", "sweep"];
+    let mut argv = vec!["brokkr", "queue", "sweep"];
     if dry_run {
         argv.push("--dry-run");
     }

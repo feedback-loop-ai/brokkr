@@ -18,7 +18,7 @@ use crate::{Cli, Cmd, GroupedCmd};
 
 /// `brokkr` given `argv`, as its dispatch command.
 fn parsed(argv: &[&str]) -> DispatchArgs {
-    let argv = [&["brokkr", "dispatch"], argv].concat();
+    let argv = [&["brokkr", "queue", "dispatch"], argv].concat();
     let Cmd::Grouped(GroupedCmd::Dispatch(args)) = Cli::try_parse_from(argv).unwrap().command
     else {
         panic!("parsed as a dispatch command")
@@ -123,7 +123,7 @@ fn every_is_five_to_3600_seconds_sixty_by_default_and_refused_with_once() {
             clap::error::ErrorKind::ArgumentConflict,
         ),
     ] {
-        let argv = [&["brokkr", "dispatch"], argv].concat();
+        let argv = [&["brokkr", "queue", "dispatch"], argv].concat();
         let refused = Cli::try_parse_from(&argv).err().expect("refused");
         assert_eq!(refused.kind(), kind, "{argv:?}");
     }
@@ -343,7 +343,15 @@ fn a_driver_whose_handle_does_not_read_is_reaped_with_why() {
 #[test]
 fn set_bound_refuses_zero_and_what_is_not_a_whole_number() {
     for bound in ["0", "x", "1.5", "4294967296"] {
-        let argv = ["brokkr", "dispatch", "set-bound", bound, "--reason", "r"];
+        let argv = [
+            "brokkr",
+            "queue",
+            "dispatch",
+            "set-bound",
+            bound,
+            "--reason",
+            "r",
+        ];
         let refused = Cli::try_parse_from(argv).err().expect("refused");
         assert_eq!(
             refused.kind(),
@@ -570,6 +578,7 @@ fn a_drivers_argv_names_the_journal_entry_and_claim() {
     let mut journal = OsString::from("--db=");
     journal.push(&db);
     let expected: Vec<OsString> = [
+        "queue".into(),
         "dispatch".into(),
         "drive".into(),
         format!("--entry={entry}").into(),

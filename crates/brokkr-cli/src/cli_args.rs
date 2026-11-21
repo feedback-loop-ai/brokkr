@@ -14,6 +14,7 @@ mod member_retry;
 mod queue;
 pub(crate) use member_retry::MemberRetryArgs;
 pub(crate) use queue::{QueueAddArgs, QueueCmd, QueueEntryArgs, QueueJudgeArgs, QueueListArgs};
+mod tree;
 
 use std::path::PathBuf;
 
@@ -659,52 +660,15 @@ pub(super) enum ProbeCmd {
     Harness(ProbeHarnessArgs),
 }
 
-/// The small verb groups flattened into the top-level verbs so the
-/// command line reads as it always has, and dispatched as one group
-/// (`lib::grouped`). The sweep sits here because it is one pass over the
-/// host, not a library verb, and grouping it keeps `run_with`'s one arm
-/// per group rather than one per verb.
-#[derive(clap::Subcommand)]
+/// The small verb groups dispatched as one group (`lib::grouped`), so
+/// `run_with` keeps one arm per group rather than one per verb. Where
+/// each is typed, and its help, is the tree's (`tree`).
 pub(super) enum GroupedCmd {
-    /// The recipe library: bundle directories as named, swappable
-    /// delivery strategies.
-    Recipes {
-        #[command(subcommand)]
-        command: super::RecipesCmd,
-    },
-    /// The agent library: one definition per agent —
-    /// description, charter, an ordered chain of abstract model names,
-    /// abstract tool/MCP configuration — that seats reference by name.
-    Agents {
-        #[command(subcommand)]
-        command: super::AgentsCmd,
-    },
-    /// The standing overseer: read the fleet, propose to
-    /// the operator, execute nothing. It opens the journal read-only,
-    /// issues no operator command, starts no run, and records every
-    /// proposal — with the run ids and sequence numbers it was derived
-    /// from — in its own append-only file beside the journal.
-    Muninn {
-        #[command(subcommand)]
-        command: super::MuninnCmd,
-    },
-    /// Manage the operator-side secrets store: bundles
-    /// and journals carry NAMES only; values live in this env-format
-    /// file outside version control. There is no value-printing verb.
-    Secrets {
-        #[command(subcommand)]
-        command: SecretsCmd,
-    },
-    /// Remove the run-local seat scratch trees the journal proves free and
-    /// record what each complete removal freed, and reap the hands session
-    /// trees whose owners are dead. One pass under the journal's dispatch
-    /// lock; `--dry-run` lists what a pass would remove, with sizes, and
-    /// writes nothing.
+    Recipes { command: super::RecipesCmd },
+    Agents { command: super::AgentsCmd },
+    Muninn { command: super::MuninnCmd },
+    Secrets { command: SecretsCmd },
     Sweep(SweepArgs),
-    /// Start what admission admits from the journal's queue, each run
-    /// handed to a driver of its own: one pass with
-    /// `--once` under the journal's dispatch lock, the bound's command and
-    /// the holder's readout.
     Dispatch(DispatchArgs),
 }
 

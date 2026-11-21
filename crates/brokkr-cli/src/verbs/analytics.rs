@@ -59,15 +59,10 @@ pub(crate) fn range(word: &str) -> Result<Range, RangeRefused> {
     word.parse().map_err(RangeRefused)
 }
 
-/// The cross-run readouts, flattened into the top-level verbs so the
-/// command line reads as it always has, and dispatched as one group.
-#[derive(clap::Subcommand)]
+/// The cross-run readouts, dispatched as one group. Where each is typed,
+/// `brokkr stats`, and its help, is the command tree's.
 pub(crate) enum CrossRunCmd {
-    /// What the runs did across every hearth, for a range and an optional
-    /// realm: shipped, start to end, waiting on you, rework, cost and
-    /// served models. `--json` emits the view model.
     Analytics(AnalyticsArgs),
-    /// One recipe's state machine and its traffic over a range. `--json` emits the view model.
     Graph(super::graph::GraphArgs),
 }
 

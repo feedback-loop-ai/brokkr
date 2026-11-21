@@ -84,8 +84,26 @@ fn no_user_facing_help_text_names_the_binary_forge() {
     let top = text(&brokkr(&["--help"]).stdout);
     assert_eq!(binary_named_forge(&top), Vec::<String>::new());
 
-    let commands: Vec<String> = top
-        .lines()
+    // Every verb a help lists, each family's own verbs walked in turn.
+    let mut paths: Vec<Vec<String>> = listed(&top).into_iter().map(|verb| vec![verb]).collect();
+    assert_eq!(paths.len(), 12, "{paths:?}");
+    let mut at = 0;
+    while let Some(path) = paths.get(at).cloned() {
+        at += 1;
+        let mut asked: Vec<&str> = path.iter().map(String::as_str).collect();
+        asked.push("--help");
+        let help = text(&brokkr(&asked).stdout);
+        let usage = format!("Usage: brokkr {}", path.join(" "));
+        assert!(help.contains(&usage), "{help}");
+        assert_eq!(binary_named_forge(&help), Vec::<String>::new(), "{path:?}");
+        paths.extend(listed(&help).into_iter().map(|verb| [path.clone(), vec![verb]].concat()));
+    }
+    assert!(paths.len() > 40, "{paths:?}");
+}
+
+/// The verbs one `--help` lists under `Commands:`, clap's `help` aside.
+fn listed(help: &str) -> Vec<String> {
+    help.lines()
         .skip_while(|line| !line.starts_with("Commands:"))
         .skip(1)
         .take_while(|line| !line.trim().is_empty())
@@ -93,14 +111,7 @@ fn no_user_facing_help_text_names_the_binary_forge() {
         .filter_map(|line| line.split_whitespace().next())
         .filter(|name| *name != "help")
         .map(str::to_string)
-        .collect();
-    assert!(commands.len() > 20, "{commands:?}");
-
-    for command in &commands {
-        let help = text(&brokkr(&[command, "--help"]).stdout);
-        assert!(help.contains(&format!("Usage: brokkr {command}")), "{help}");
-        assert_eq!(binary_named_forge(&help), Vec::<String>::new(), "{command}");
-    }
+        .collect()
 }
 
 /// Every `Cargo.toml` in the tree, walked rather than listed, so a crate
