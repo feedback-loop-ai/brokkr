@@ -214,10 +214,11 @@ fn masker_masks_adjacent_and_repeated_needles() {
 
 #[test]
 fn occurrences_finds_every_start_overlapping_ones_included() {
-    assert_eq!(super::occurrences(b"abababab", b"abab"), vec![0, 2, 4]);
-    assert_eq!(super::occurrences(b"aabaabaab", b"aabaa"), vec![0, 3]);
-    assert_eq!(super::occurrences(b"aaabaaab", b"aab"), vec![1, 5]);
-    assert_eq!(super::occurrences(b"xyz", b"q"), Vec::<usize>::new());
+    let occurrences = |bytes, needle| super::Occurrences::new(bytes, needle).collect::<Vec<_>>();
+    assert_eq!(occurrences(b"abababab", b"abab"), vec![0, 2, 4]);
+    assert_eq!(occurrences(b"aabaabaab", b"aabaa"), vec![0, 3]);
+    assert_eq!(occurrences(b"aaabaaab", b"aab"), vec![1, 5]);
+    assert_eq!(occurrences(b"xyz", b"q"), Vec::<usize>::new());
 }
 
 /// The 44-character value of #1213's case, and the eight-character one
@@ -375,6 +376,11 @@ fn the_guard_refuses_a_value_whose_start_an_earlier_match_covers() {
     let text = format!("a prefix!{LONG} b");
     assert!(!guard.text(text.as_bytes()));
     assert!(guard.text(mask_text(text.as_bytes(), &bindings).as_bytes()));
+    // Controls in which LONG alone explains the refusal: SHORT's bytes
+    // still cover LONG's start, but SHORT is not bound; and LONG in clear
+    // where SHORT, bound, does not occur.
+    assert!(!Guard::new(&bindings[..1]).text(text.as_bytes()));
+    assert!(!guard.text(format!("a {LONG} b").as_bytes()));
 }
 
 // ------------------------------------------------- layer 2: store
