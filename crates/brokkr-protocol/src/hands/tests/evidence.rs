@@ -19,6 +19,8 @@ use super::super::evidence::{Block, Contained, Facts, Root, Seen, Source};
 use super::super::evidence::{Protected, Unprotected};
 #[cfg(target_os = "linux")]
 use super::super::namespace::sources::host::Record;
+#[cfg(target_os = "linux")]
+use super::quoted::shell_quoted;
 use super::*;
 
 /// A digest name the fixtures publish under; any name is a file here.
@@ -45,34 +47,6 @@ fn publish(artifacts: &Path, bytes: &str) -> PathBuf {
     let artifact = digests.join(HEX);
     std::fs::write(&artifact, bytes).unwrap();
     artifact
-}
-
-/// `path` as one shell word that names it exactly: single-quoted, each
-/// quote it holds closed, escaped and reopened, so a `$`, a space or a
-/// quote a temporary directory carries never moves a tamper's target.
-fn shell_quoted(path: &Path) -> String {
-    format!("'{}'", path.display().to_string().replace('\'', r"'\''"))
-}
-
-/// A path whose name a shell would expand, split or unquote reaches the
-/// one file it names once quoted, read by the shell the box runs with the
-/// environment it gets, so a tamper is refused on its own target (#1187).
-#[test]
-fn a_quoted_path_names_its_own_file_to_the_box_shell() {
-    let dir = tempfile::tempdir().unwrap();
-    let odd = made(dir.path(), "$BROKKR_1187_UNSET it's");
-    let artifact = publish(&odd, "evidence\n");
-    let read = std::process::Command::new("/bin/bash")
-        .env_clear()
-        .env("PATH", "/usr/bin:/bin")
-        .arg("-lc")
-        .arg(format!("cat {}", shell_quoted(&artifact)))
-        .output()
-        .unwrap();
-    assert_eq!(
-        (read.status.code(), read.stdout),
-        (Some(0), b"evidence\n".to_vec())
-    );
 }
 
 /// The workspace box over `work` handed `artifacts`, its private tree and

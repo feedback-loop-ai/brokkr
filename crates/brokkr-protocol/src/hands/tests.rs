@@ -13,6 +13,7 @@ mod held;
 mod launcher;
 #[cfg(target_os = "linux")]
 mod provision;
+mod quoted;
 mod sealed;
 mod server;
 #[cfg(target_os = "linux")]
